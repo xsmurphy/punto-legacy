@@ -218,9 +218,22 @@ final class SaleService
             error_log('[SaleService] FinanceLedger::recordSale falló para ' . $transId . ': ' . $e->getMessage());
         }
 
+        // F6 — link del portal de consulta del comprador para imprimir en el
+        // comprobante. null cuando la venta no encoló documento (comercio sin
+        // facturación electrónica, autoIssue apagado): el bloque `fe_py` de la
+        // plantilla queda en blanco, como hasta ahora.
+        $portalUrl = null;
+        try {
+            $portalUrl = (new \Punto\Api\EInvoice\EInvoiceService())
+                ->portalUrl((string) $this->ctx->companyId, (string) $transId);
+        } catch (\Throwable $e) {
+            error_log('[SaleService] portalUrl: ' . $e->getMessage());
+        }
+
         return SaleResult::created(
-            transactionId: (string) $transId,
-            uid:           $input->uid,
+            transactionId:     (string) $transId,
+            uid:               $input->uid,
+            einvoicePortalUrl: $portalUrl,
         );
     }
 

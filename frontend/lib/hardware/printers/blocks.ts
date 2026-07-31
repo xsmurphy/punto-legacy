@@ -232,12 +232,12 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // de documento imprimible en CreateSaleResult — requiere resolver ese
   // UUID contra el documentNumber de la transacción padre. Ver flag.
   associated_document: (data) => data.associatedDocument ?? null,
-  // ⚠ fe_py: estampa/QR de factura electrónica paraguaya — depende del
-  // módulo de facturación electrónica que otra sesión está construyendo en
-  // paralelo (api/lib/EInvoice/*). No se implementa acá para no pisar ese
-  // trabajo; el bloque queda "conocido" (sin warning) pero en blanco hasta
-  // que ese módulo exponga el dato necesario.
-  fe_py: () => null,
+  // fe_py: link al portal de consulta del comprador (F6). En ESC/POS se
+  // imprime como QR (ver render-template.ts, que intercepta este tipo antes de
+  // llegar al resolver); acá se devuelve la URL en texto, que es lo que usa el
+  // fallback HTML del navegador. null cuando la venta no generó documento
+  // electrónico — el bloque queda en blanco, como cualquier otro sin dato.
+  fe_py: (data) => data.einvoiceUrl ?? null,
 }
 
 // ── Resolución de valores por ítem (bloques que se repiten por producto) ──

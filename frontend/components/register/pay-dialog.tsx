@@ -386,7 +386,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           setTimeout(() => reject(new Error('fetch timeout')), timeoutMs)
         )
         const raw = await Promise.race([
-          posApi.postLegacy<{ success: boolean; transactionId: string; uid: string; duplicated: boolean }>(
+          posApi.postLegacy<{
+            success: boolean
+            transactionId: string
+            uid: string
+            duplicated: boolean
+            einvoicePortalUrl?: string | null
+          }>(
             '/v1/sales',
             apiPayload,
           ),
@@ -398,6 +404,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           invoiceNumber: null,
           total: payload.subtotal,
           duplicated: raw.duplicated === true,
+          einvoicePortalUrl: raw.einvoicePortalUrl ?? null,
         }
       } catch (fetchErr) {
         // TypeError (network) o timeout → encolar offline
@@ -466,6 +473,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           invoiceNumber: leasedInvoiceNo > 0 ? String(leasedInvoiceNo) : null,
           total: payload.subtotal,
           duplicated: false,
+          // Venta offline: el documento electrónico todavía no existe (se
+          // encola al sincronizar), así que no hay link del portal que imprimir.
+          einvoicePortalUrl: null,
         }
         setSaleResult(offlineResult)
         runAutoPrint(payload, offlineResult)

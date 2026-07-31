@@ -605,6 +605,135 @@ final class EInvoiceService
         ];
     }
 
+    // ── F6 — portal de consulta del cliente final ───────────────────────
+
+    /**
+     * URL pública del portal para una venta, o `null` si esa venta no tiene
+     * documento electrónico (comercio sin FE, autoIssue apagado, venta que no
+     * se encoló). Se imprime en el comprobante — ver el bloque `fe_py` de las
+     * plantillas de impresión.
+     *
+     * El token es una función de (company, transacción), así que esta URL es
+     * estable y existe desde que la venta se registra: se puede imprimir sin
+     * esperar a que la emisión termine. Si el comprador entra antes de que el
+     * documento esté emitido, el portal le muestra "en proceso".
+     */
+    public function portalUrl(string $companyId, string $transactionId): ?string
+    {
+        $doc = ncmExecute(
+            'SELECT einvoicedocid FROM einvoice_document WHERE companyid = ? AND transactionid = ? LIMIT 1',
+            [$companyId, $transactionId]
+        );
+        if (!$doc) {
+            return null;
+        }
+
+        $base = defined('APP_URL') ? rtrim((string) APP_URL, '/') : '';
+        if ($base === '') {
+            return null; // sin APP_URL no hay link imprimible — no se inventa un dominio
+        }
+
+        try {
+            return $base . '/factura/' . PortalToken::sign($companyId, $transactionId);
+        } catch (\RuntimeException $e) {
+            // Sin APP_ENCRYPTION_KEY no se puede firmar. No es motivo para
+            // romper la venta: se imprime el comprobante sin link.
+            error_log('[EInvoiceService] portalUrl: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Datos que ve el COMPRADOR en el portal público. Devuelve `null` si esa
+     * venta no tiene documento — el endpoint lo traduce a 404.
+     *
+     * Qué se expone y qué no: solo lo que ya está impreso en su comprobante o
+     * en el KuDE (comercio emisor, fecha, total, CDC, estado fiscal). NUNCA
+     * datos internos del outbox — `error_message` puede citar credenciales o
+     * respuestas crudas del proveedor, `attempts`/`next_retry_at` son
+     * operación del comercio, y el nombre del cliente no se devuelve porque
+     * quien tiene el link no necesariamente es el titular (un ticket se
+     * pierde, se fotografía, se reenvía).
+     *
+     * @return array<string,mixed>|null
+     */
+    public function portalDocument(string $companyId, string $transactionId): ?array
+    {
+        $row = ncmExecute(
+            "SELECT d.einvoicedocid, d.doctype, d.status, d.cdc, d.document_number, d.issued_at,
+                    d.cancelled_at, d.sifen_status, d.provider_response,
+                    t.transactionTotal AS total, t.transactionDiscount AS discount,
+                    t.transactionCurrency AS currency, t.transactionDate AS sale_date,
+                    COALESCE(NULLIF(co.config->>'settingName', ''), co.config->>'companyName') AS company_name
+               FROM einvoice_document d
+               LEFT JOIN transaction t ON t.transactionId = d.transactionid AND t.companyId = d.companyid
+               LEFT JOIN company co ON co.companyId = d.companyid
+              WHERE d.companyid = ? AND d.transactionid = ?
+              ORDER BY d.created_at DESC LIMIT 1",
+            [$companyId, $transactionId]
+        );
+        if (!$row) {
+            return null;
+        }
+
+        $status = (string) ($row['status'] ?? '');
+
+        // Link al QR de ekuatía (consulta pública del DE en SIFEN). Viene en la
+        // respuesta cruda de `/Bulk` — es el mismo link que imprime el KuDE, así
+        // que dárselo al comprador no expone nada nuevo.
+        $raw = $this->decodeJsonb($row['provider_response'] ?? null);
+        $qrUrl = null;
+        foreach ((array) ($raw['Items'] ?? $raw['items'] ?? []) as $item) {
+            if (is_array($item) && !empty($item['DCarQR'] ?? $item['dCarQR'] ?? null)) {
+                $qrUrl = (string) ($item['DCarQR'] ?? $item['dCarQR']);
+                break;
+            }
+        }
+
+        return [
+            'status'         => $status,
+            'doctype'        => (string) ($row['doctype'] ?? ''),
+            'companyName'    => $row['company_name'] ?? null,
+            'cdc'            => $row['cdc'] ?? null,
+            'documentNumber' => $row['document_number'] ?? null,
+            'issuedAt'       => $row['issued_at'] ?? null,
+            'cancelledAt'    => $row['cancelled_at'] ?? null,
+            'saleDate'       => $row['sale_date'] ?? null,
+            // Mismo neto que declara el documento (ver buildSaleArrayForMapper):
+            // el comprador tiene que ver lo que pagó, no el bruto de lista.
+            'total'          => $row['total'] !== null
+                ? (float) $row['total'] - (float) ($row['discount'] ?? 0)
+                : null,
+            'currency'       => $row['currency'] ?? null,
+            'sifenStatus'    => $row['sifen_status'] ?? null,
+            'qrUrl'          => $qrUrl,
+            // El KuDE solo existe cuando el documento se emitió. `kude()` ya
+            // valida esto server-side; el flag es para que la página no ofrezca
+            // un botón que va a fallar.
+            'kudeAvailable'  => $status === 'issued' || $status === 'cancelled',
+        ];
+    }
+
+    /**
+     * KuDE de una venta para el portal público — resuelve el documento por
+     * `transactionid` (el token del portal no conoce el id del documento) y
+     * delega en `kude()`, que es quien valida que esté emitido.
+     *
+     * @throws \RuntimeException
+     */
+    public function portalKude(string $companyId, string $transactionId): string
+    {
+        $doc = ncmExecute(
+            'SELECT einvoicedocid FROM einvoice_document WHERE companyid = ? AND transactionid = ?
+              ORDER BY created_at DESC LIMIT 1',
+            [$companyId, $transactionId]
+        );
+        if (!$doc) {
+            throw new \RuntimeException('No hay documento electrónico para esta venta.');
+        }
+        return $this->kude($companyId, (string) $doc['einvoicedocid']);
+    }
+
     /**
      * Vuelve a poner un documento `error` en `pending` con `next_retry_at =
      * now()` para que el drainer lo tome en la próxima corrida. SOLO desde

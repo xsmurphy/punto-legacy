@@ -68,6 +68,21 @@ function renderSingleBlock(encoder: Encoder, block: PrintBlock, data: TicketData
     case "transaction_id_barcode":
       return encoder.barcode(data.transactionId, "code128", { height: 60 })
 
+    case "fe_py": {
+      // Portal de consulta del comprador (F6): QR con el link firmado. Se
+      // intercepta acá en vez de dejarlo caer al resolver de texto porque el
+      // token no es para tipear a mano — se escanea. Sin link (venta sin
+      // documento electrónico) no se imprime nada, ni el rótulo.
+      if (!data.einvoiceUrl) return encoder
+      encoder = encoder.align("center")
+      // errorlevel 'm': ~15% de tolerancia. El ticket térmico se arruga y se
+      // borronea; 'l' (7%) falla al escanear en papel maltratado y 'q'/'h'
+      // agrandan el QR más de lo que entra cómodo en 58 mm.
+      encoder = encoder.qrcode(data.einvoiceUrl, { model: 2, size: 6, errorlevel: "m" })
+      encoder = encoder.line(block.text?.trim() || "Consultá tu factura electrónica")
+      return encoder.align("left")
+    }
+
     default:
       break
   }

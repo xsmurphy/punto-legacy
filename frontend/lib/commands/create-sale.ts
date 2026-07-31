@@ -183,6 +183,12 @@ export interface CreateSaleResult {
    * como éxito — la UI ya muestra "guardado" sin distinguir.
    */
   duplicated: boolean
+  /**
+   * F6 — link público del portal de consulta del comprador, para imprimir en
+   * el comprobante (bloque `fe_py`). null si la venta no generó documento
+   * electrónico (comercio sin FE conectada, emisión automática apagada).
+   */
+  einvoicePortalUrl: string | null
 }
 
 // ── Shape de respuesta del backend (/v1/sales POST) ──────────────────────────
@@ -192,6 +198,7 @@ interface RawSaleResponse {
   transactionId: string
   uid: string
   duplicated: boolean
+  einvoicePortalUrl?: string | null
 }
 
 // ── Input para buildPayload ───────────────────────────────────────────────────
@@ -385,5 +392,6 @@ export async function executeSale(
     invoiceNumber: null,
     total: payload.subtotal,
     duplicated: response.duplicated === true,
+    einvoicePortalUrl: response.einvoicePortalUrl ?? null,
   }
 }

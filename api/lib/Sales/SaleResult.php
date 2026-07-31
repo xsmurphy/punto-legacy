@@ -16,12 +16,25 @@ final class SaleResult
         public readonly string $transactionId,
         public readonly string $uid,
         public readonly bool $duplicated = false,
+        /**
+         * F6 — link público del portal de consulta del comprador, para imprimir
+         * en el comprobante (bloque `fe_py`). null = esta venta no generó
+         * documento electrónico. Viaja en la respuesta de la venta y no en una
+         * llamada aparte porque el POS imprime en el mismo instante: un
+         * roundtrip extra ahí es un ticket sin QR cuando la red está lenta.
+         */
+        public readonly ?string $einvoicePortalUrl = null,
     ) {
     }
 
-    public static function created(string $transactionId, string $uid): self
+    public static function created(string $transactionId, string $uid, ?string $einvoicePortalUrl = null): self
     {
-        return new self(transactionId: $transactionId, uid: $uid, duplicated: false);
+        return new self(
+            transactionId:     $transactionId,
+            uid:               $uid,
+            duplicated:        false,
+            einvoicePortalUrl: $einvoicePortalUrl,
+        );
     }
 
     public static function duplicate(string $existingTransactionId, string $uid): self
@@ -33,10 +46,11 @@ final class SaleResult
     public function toApiPayload(): array
     {
         return [
-            'success'       => true,
-            'transactionId' => $this->transactionId,
-            'uid'           => $this->uid,
-            'duplicated'    => $this->duplicated,
+            'success'           => true,
+            'transactionId'     => $this->transactionId,
+            'uid'               => $this->uid,
+            'duplicated'        => $this->duplicated,
+            'einvoicePortalUrl' => $this->einvoicePortalUrl,
         ];
     }
 }

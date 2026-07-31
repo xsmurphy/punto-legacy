@@ -1,6 +1,6 @@
 # Facturación Electrónica (Factomate / SIFEN) — plan del módulo
 
-> Estado: **F0–F4 implementadas** (F0 2026-07-28, F1–F4 2026-07-30 — ver tabla de fases).
+> Estado: **F0–F4 y F6 implementadas** (F0 2026-07-28, el resto 2026-07-30 — ver tabla de fases).
 > F1–F3 verificadas contra la API real solo en el camino de factura al contado con un único medio de pago.
 > Decisiones cerradas con el owner el 2026-07-27 (numeración: ver nota, quedó reabierta el 2026-07-28) — no relitigar sin motivo nuevo.
 
@@ -215,9 +215,42 @@ Objetivo: que el comprador acceda a sus facturas electrónicas sin depender de
 que el comercio se las mande.
 
 **Link firmado por venta — es el mecanismo principal.** Se imprime en el
-comprobante un identificador opaco (mismo patrón que las pantallas públicas
-existentes en `/screens/*`): el cliente escanea y ve *su* documento, sin
+comprobante un identificador opaco: el cliente escanea y ve *su* documento, sin
 tipear nada y sin poder enumerar los de otros.
+
+**Implementado en F6 (2026-07-30)**:
+
+- `EInvoice\PortalToken` — `base64url(uuid_bin(company) ‖ uuid_bin(tx) ‖ hmac[12])`,
+  59 caracteres. Los UUID van en binario porque el token entra en un QR impreso
+  en papel térmico. La clave se deriva de `APP_ENCRYPTION_KEY` con separación de
+  dominio (`hmac('einvoice-portal-v1', key)`) — nunca la misma clave para dos
+  propósitos criptográficos.
+- **Token firmado, no columna random**: es una FUNCIÓN de la venta, así que
+  existe desde que la venta se registra y se puede imprimir sin esperar a que la
+  emisión termine (tarda segundos y puede reintentarse). Si el comprador entra
+  antes, ve "en proceso".
+- `GET /v1/einvoice-public?t=` (datos) y `?resource=kude&t=` (PDF) — **sin
+  autenticación**: el comprador no tiene cuenta. El aislamiento multi-tenant sale
+  del companyId FIRMADO dentro del token, nunca de un parámetro del request.
+  Token inválido, venta inexistente y documento ausente responden lo MISMO (404)
+  para no dar señal a quien pruebe tokens.
+- **Qué se expone**: solo lo que ya está en su comprobante o en el KuDE (emisor,
+  fecha, total neto, CDC, estado fiscal, link de ekuatía). Nunca `error_message`
+  (puede citar respuestas crudas del proveedor), ni `attempts`, ni el nombre del
+  cliente — quien tiene el link no es necesariamente el titular.
+- Página pública `/factura/<token>` (grupo `(screen)`, cliente y no SSR para que
+  el token no entre en un render del servidor).
+- Impresión: el bloque `fe_py` de las plantillas, que estaba en blanco esperando
+  este módulo, ahora imprime el QR (ESC/POS, `errorlevel: 'm'` — el ticket
+  térmico se arruga) y la URL en texto en el fallback HTML del navegador. El link
+  viaja en `SaleResult.einvoicePortalUrl`, en la misma respuesta de la venta: un
+  roundtrip extra en el momento de imprimir es un ticket sin QR con red lenta.
+
+**Hueco conocido**: la REIMPRESIÓN desde el listado de transacciones no imprime
+el QR — ese camino reconstruye el ticket desde la transacción persistida
+(`buildTicketDataFromTransaction`/`FromTxDetail`), y esos endpoints todavía no
+devuelven el link. La venta offline tampoco lo lleva: el documento no existe
+hasta sincronizar.
 
 **El listado por RUC necesita un segundo factor.** Los RUC en Paraguay son
 públicos, así que "ingresá tu RUC y te listo todas tus facturas" permite a
@@ -825,7 +858,7 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 | **F3** | Mapping de medios de pago (UI + `payments[]` por medio real), lookup de RUC en el backend (`clientByRuc` + padrón público), notas de crédito por devolución, factura por el neto | **Hecha** (2026-07-30) — sin verificar contra la API real |
 | **F4** | Rip-out del FE legacy (`sendFE`/`consultFE`, `FACTURACION_ELECTRONICA_*`, `dispatchElectronicInvoice`, `ElectronicInvoiceService`, `api/v1/electronic_invoice.php`, `SaleInput::electronicInvoicePY`) | **Hecha** (2026-07-30) |
 | **F5** | Emisión diferida offline: la venta offline entra al outbox y se emite una por vez al volver la conexión. **Bloqueada** hasta que Factomate responda qué pasa con la fecha de emisión diferida | Pendiente |
-| **F6** | Portal de consulta del cliente final: link firmado por venta impreso en el comprobante + listado por RUC con segundo factor | Pendiente |
+| **F6** | Portal de consulta del cliente final: link firmado por venta impreso en el comprobante (QR) + página pública `/factura/<token>` | **Hecha** (2026-07-30) — el listado por RUC con segundo factor queda sin hacer (decisión de producto abierta) |
 | **F7** | Onboarding white-label: `CreateExternal` con la credencial admin → persistir `tenantId`/`userId`/credencial en el vault → `PUT /api/Tenant` (datos fiscales) → actividad, sucursales↔outlets, timbrados↔puntos de expedición → `UploadCert` → prueba contra SIFEN. Retira los campos manuales de F0. **Bloqueada** por la credencial admin y por el origen del `phonenumber` | Pendiente |
 
 ## Infra

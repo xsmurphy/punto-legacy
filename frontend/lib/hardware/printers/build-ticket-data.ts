@@ -74,6 +74,15 @@ export interface TicketData {
    * null hasta que exista ese lookup.
    */
   associatedDocument?: string | null
+  /**
+   * F6 — link del portal de consulta del comprador (bloque `fe_py`): QR en
+   * ESC/POS, texto en el fallback HTML. Solo lo trae la impresión de una venta
+   * recién creada, que es la que recibe el link en la respuesta del backend
+   * (`CreateSaleResult.einvoicePortalUrl`). En reimpresiones desde el listado
+   * de transacciones queda null — ese camino reconstruye el ticket desde la
+   * transacción persistida, que todavía no expone el link.
+   */
+  einvoiceUrl?: string | null
   // usuario
   userName?: string
   /** Caja activa (`activeRegisterId` resuelto contra `registers` del catálogo). */
@@ -171,6 +180,7 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     customerTin: customer?.tin ?? undefined,
     docType: payload.type === 3 ? "credit" : "receipt",
     transactionId: result.transactionId,
+    einvoiceUrl: result.einvoicePortalUrl ?? null,
     dueDate: payload.dueDate ?? null,
     tags: payload.tags,
     registerName,
