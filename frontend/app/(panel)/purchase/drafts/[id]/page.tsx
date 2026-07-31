@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, Loader2, Plus, TriangleAlert, FileWarning, FileText } from "lucide-react"
+import { ArrowLeft, ExternalLink, Loader2, Plus, TriangleAlert, FileWarning, FileText } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -344,6 +344,11 @@ export default function PurchaseDraftReviewPage() {
   }
 
   const confidence = draft.extracted?.confidence ?? null
+  // Detección por extensión del object key — confiable porque el key lo
+  // controla el backend al subir (uploadImage() en PurchaseDraftService.php
+  // fuerza ".pdf" para PDF y ".jpg" para imágenes). Evita una migración solo
+  // para guardar el mime.
+  const isPdf = draft.imageUrl?.toLowerCase().endsWith(".pdf") ?? false
 
   return (
     <div className="flex flex-col gap-4">
@@ -434,12 +439,30 @@ export default function PurchaseDraftReviewPage() {
         {/* ── Imagen de la factura ──────────────────────────────────────── */}
         <div className="lg:sticky lg:top-4 lg:self-start">
           {draft.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={draft.imageUrl}
-              alt="Foto de la factura"
-              className="w-full rounded-lg border object-contain max-h-[80vh] bg-muted"
-            />
+            isPdf ? (
+              <div className="flex flex-col gap-2">
+                {/* <iframe>: no hay primitive shadcn para visor de PDF, es
+                    el elemento nativo mínimo para mostrar el documento. */}
+                <iframe
+                  src={draft.imageUrl}
+                  title="Factura en PDF"
+                  className="h-[80vh] w-full rounded-lg border bg-muted"
+                />
+                <Button asChild variant="outline" size="sm" className="w-fit">
+                  <a href={draft.imageUrl} target="_blank" rel="noopener noreferrer">
+                    <ExternalLink className="mr-1.5 size-3.5" />
+                    Abrir en pestaña nueva
+                  </a>
+                </Button>
+              </div>
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={draft.imageUrl}
+                alt="Foto de la factura"
+                className="w-full rounded-lg border object-contain max-h-[80vh] bg-muted"
+              />
+            )
           ) : (
             <div className="flex h-64 items-center justify-center rounded-lg border bg-muted text-muted-foreground">
               <FileWarning className="mr-2 size-5" />

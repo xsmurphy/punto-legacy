@@ -8,6 +8,7 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -290,8 +291,10 @@ export default function NewPurchasePage() {
       {/* Layout 2-col: izquierda datos generales, derecha items + totales */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
         {/* ── Columna izquierda — datos generales ───────────────────────── */}
-        {/* Card soft: fondo gris unificado de cards angostas (context/20 §cards). */}
-        <aside className="flex flex-col gap-5 rounded-lg border bg-[#f3f4f6] p-4 dark:bg-muted">
+        {/* Card soft: fondo gris unificado de cards angostas (context/20 §cards).
+            Los campos de adentro suben a fondo sólido por la regla de globals.css
+            que cuelga de data-variant="soft" — no se pinta input por input. */}
+        <Card variant="soft" className="gap-5 p-4">
           <SupplierPicker
             value={supplierId}
             displayName={supplierName}
@@ -435,7 +438,7 @@ export default function NewPurchasePage() {
               placeholder="Opcional"
             />
           </Field>
-        </aside>
+        </Card>
 
         {/* ── Columna derecha — items + totales ─────────────────────────── */}
         <div className="flex flex-col gap-4">
@@ -513,11 +516,13 @@ function DraftsLink() {
 
 /**
  * Botón "Subir factura" — dispara un `<input type=file multiple>` oculto.
- * Cada foto seleccionada crea UN borrador (una factura = un borrador = una
- * compra al aprobar) vía `/api/ocr-invoice` (extracción IA + creación del
- * draft). Sube secuencial para no saturar créditos/red con selecciones
- * grandes, y reporta el resultado agregado al terminar. Navega a
- * `/purchase/drafts` para que el usuario revise lo recién subido.
+ * Acepta foto (JPG/PNG/WEBP) o PDF — un PDF entero (aunque tenga varias
+ * páginas) se manda tal cual al modelo, sin convertir a imagen. Cada archivo
+ * seleccionado crea UN borrador (una factura = un borrador = una compra al
+ * aprobar) vía `/api/ocr-invoice` (extracción IA + creación del draft). Sube
+ * secuencial para no saturar créditos/red con selecciones grandes, y reporta
+ * el resultado agregado al terminar. Navega a `/purchase/drafts` para que el
+ * usuario revise lo recién subido.
  */
 function UploadInvoiceButton({ outletId }: { outletId: string }) {
   const router = useRouter()
@@ -561,7 +566,7 @@ function UploadInvoiceButton({ outletId }: { outletId: string }) {
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf"
         multiple
         className="hidden"
         onChange={(e) => onFiles(e.target.files)}

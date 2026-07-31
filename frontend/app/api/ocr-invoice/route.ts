@@ -96,7 +96,21 @@ const ExtractionSchema = z.object({
  * real que existe es `currency` = "PYG" cuando no se detecta (es la moneda
  * del tenant, no un dato inventado de la factura).
  */
-function buildExtractionPrompt(todayISO: string, tenantRuc: string | null): string {
+function buildExtractionPrompt(todayISO: string, tenantRuc: string | null, isPdf: boolean): string {
+  const pdfSection = isPdf
+    ? `
+# Documento PDF
+
+Te paso un PDF (no una foto). Si el PDF trae texto seleccionable (la
+mayoría de las facturas que llegan por correo son digitales, no
+escaneadas), TRANSCRIBÍ los valores EXACTOS del texto — no los
+reinterpretes, no los redondees, no los infieras visualmente. Si el PDF
+tiene varias páginas, es UNA sola factura — leé todas las páginas
+necesarias (los ítems suelen continuar en la página siguiente) y devolvé
+un único JSON con todo consolidado.
+`
+    : ""
+
   const receiverSection = tenantRuc
     ? `
 # Verificación de destinatario
@@ -112,16 +126,17 @@ con ${tenantRuc}, "receiverMatchesTenant": true; si no coincide,
     : ""
 
   return `Sos un especialista en OCR de facturas de compra de proveedores
-paraguayos. Te paso la foto de UNA factura (el negocio que la recibe es el
-comprador — extraé los datos del EMISOR/proveedor Y del receptor/cliente,
+paraguayos. Te paso el documento de UNA factura (el negocio que la recibe es
+el comprador — extraé los datos del EMISOR/proveedor Y del receptor/cliente,
 ambos figuran impresos en el documento).
 
-REGLA CRÍTICA — NUNCA INVENTES: si un dato no se lee con claridad en la
-imagen, devolvé null en ese campo. Es preferible null a un dato incorrecto:
-un humano revisa y completa cada borrador antes de que se registre nada. NO
-uses valores por defecto inventados (timbrados de relleno, descripciones
-genéricas tipo "SERVICIOS PRESTADOS", ítems que no están impresos) para
-tapar huecos — eso es exactamente lo que NO tenés que hacer.
+REGLA CRÍTICA — NUNCA INVENTES: si un dato no se lee con claridad, devolvé
+null en ese campo. Es preferible null a un dato incorrecto: un humano revisa
+y completa cada borrador antes de que se registre nada. NO uses valores por
+defecto inventados (timbrados de relleno, descripciones genéricas tipo
+"SERVICIOS PRESTADOS", ítems que no están impresos) para tapar huecos — eso
+es exactamente lo que NO tenés que hacer.
+${pdfSection}
 
 # Dónde mirar (guía espacial)
 
@@ -307,13 +322,14 @@ export async function POST(req: Request) {
   // imagen fuera PNG/WEBP). `file.type` es el contentType real del upload;
   // el fallback solo aplica si el browser no lo mandó.
   const mediaType = file.type || "image/jpeg"
+  const isPdf = mediaType === "application/pdf"
   const dataUrl = `data:${mediaType};base64,${buffer.toString("base64")}`
 
   const openrouter = createOpenRouter({ apiKey })
   const model = openrouter(modelId)
 
   const todayISO = new Date().toISOString().slice(0, 10)
-  const extractionPrompt = buildExtractionPrompt(todayISO, tenantRuc)
+  const extractionPrompt = buildExtractionPrompt(todayISO, tenantRuc, isPdf)
 
   let extracted: z.infer<typeof ExtractionSchema> | null = null
   let extractError: string | null = null
@@ -329,11 +345,21 @@ export async function POST(req: Request) {
           role: "user",
           content: [
             { type: "text", text: extractionPrompt },
-            { type: "image", image: dataUrl },
+            // PDF: parte `file` (AI SDK `FilePart`, @ai-sdk/provider-utils)
+            // — el modelo (google/gemini-3.5-flash vía OpenRouter) lee el
+            // PDF nativo, incluido multipágina. NO se convierte a imagen ni
+            // se parte por página: un PDF (todas sus páginas) = una parte
+            // = un borrador.
+            isPdf
+              ? { type: "file", data: dataUrl, mediaType }
+              : { type: "image", image: dataUrl },
           ],
         },
       ],
-      maxOutputTokens: 2000,
+      // 8000 (antes 2000): una factura con muchos ítems o un PDF
+      // multipágina trunca la respuesta con el límite viejo y la
+      // extracción falla entera.
+      maxOutputTokens: 8000,
       temperature: 0.4,
     })
     extracted = result.object
@@ -371,7 +397,11 @@ export async function POST(req: Request) {
   // mecanismo que items.php) y persiste `extracted`. Reenviamos los MISMOS
   // bytes que ya leímos para la IA — un solo upload del lado del cliente.
   const phpForm = new FormData()
-  phpForm.set("image", new Blob([buffer], { type: mediaType }), file.name || "invoice.jpg")
+  phpForm.set(
+    "image",
+    new Blob([buffer], { type: mediaType }),
+    file.name || (isPdf ? "invoice.pdf" : "invoice.jpg"),
+  )
   phpForm.set("outletId", outletId)
   phpForm.set("extracted", JSON.stringify(extracted ?? {}))
   if (extractError) {

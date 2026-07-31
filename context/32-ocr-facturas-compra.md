@@ -99,8 +99,40 @@ API key propia) no se adoptó — requiere decisión de costo/credenciales.
   libres igual que el form manual actual. (Match item→catálogo para stock:
   igual que lo que haga hoy el form manual; no inventar comportamiento nuevo.)
 
+## PDF (2026-07-31)
+
+Los proveedores mandan la mayoría de las facturas por correo en PDF — v1
+solo aceptaba imagen, esto lo cierra:
+
+- **UI**: input de subida acepta `image/*,application/pdf`
+  (`frontend/app/(panel)/purchase/page.tsx`).
+- **Extracción**: el BFF (`frontend/app/api/ocr-invoice/route.ts`) manda el
+  PDF como parte `{ type: "file", data: dataUrl, mediaType: "application/
+  pdf" }` (AI SDK `FilePart`, `@ai-sdk/provider-utils`) en vez de `{ type:
+  "image" }`. El modelo (`google/gemini-3.5-flash` vía OpenRouter) lo lee
+  nativo, **incluido multipágina** — NO se convierte a imagen ni se parte
+  por página, un PDF entero = una parte = un borrador. `maxOutputTokens`
+  subido de 2000 a 8000 (una factura con muchos ítems, o un PDF
+  multipágina, truncaba la respuesta con el límite viejo). El prompt
+  (`buildExtractionPrompt`) agrega una sección condicional para PDF: si
+  trae texto seleccionable (la mayoría de los PDF de correo son digitales,
+  no escaneados), transcribir los valores EXACTOS sin reinterpretar ni
+  redondear.
+- **Storage**: `PurchaseDraftService::uploadImage()` (api/lib/Purchases/) es
+  un dispatcher por mime real (`finfo`, nunca el Content-Type declarado):
+  imagen → pipeline de siempre (resize 2000px + recompresión JPEG q90); PDF
+  → passthrough, se guarda tal cual sin GD/resize/recompresión. Límite de
+  8 MB para ambos tipos. `imageref` (columna) y el campo `image` del
+  multipart siguen llamándose así aunque ahora puedan contener un PDF — no
+  se renombró para evitar un refactor de schema innecesario.
+- **UI de revisión**: `/purchase/drafts/[id]` detecta PDF por extensión del
+  object key (`.pdf` — el backend fuerza esa extensión al subir) y muestra
+  un `<iframe>` + link "Abrir en pestaña nueva" en vez de `<img>`. La lista
+  `/purchase/drafts` muestra un ícono placeholder para PDF en la columna de
+  thumbnail en vez de un `<img>` roto.
+
 ## Fuera de alcance v1
 
-PDF multipágina, detección de duplicados por nro+timbrado (solo warning si
-ya existe una compra con mismo nro de factura del mismo RUC), auto-aprobar
-por confidence alta, facturas de venta (esto es SOLO compras).
+Detección de duplicados por nro+timbrado (solo warning si ya existe una
+compra con mismo nro de factura del mismo RUC), auto-aprobar por confidence
+alta, facturas de venta (esto es SOLO compras).

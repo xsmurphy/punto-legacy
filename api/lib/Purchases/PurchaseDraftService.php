@@ -21,15 +21,25 @@ use Punto\Api\Support\TenantClock;
  * Tabla `purchase_draft` (mig 105): columnas en minúscula sin comillas —
  * mismo motivo que las tablas de Finanzas (72_finance.sql): ncmInsert/
  * ncmExecute arman SQL con las keys del array PHP sin comillas.
+ *
+ * Soporte PDF (2026-07-31, context/32): `imageref` (columna) y el campo
+ * `image` del multipart de creación pueden contener una foto (JPG/PNG/WEBP)
+ * O un PDF de factura — el nombre no cambió para evitar un refactor de
+ * schema innecesario. `uploadImage()` es un dispatcher por mime real: las
+ * imágenes pasan por el pipeline de resize+recompresión de siempre; los PDF
+ * se suben TAL CUAL (passthrough, sin GD) porque el modelo de OCR
+ * (google/gemini-3.5-flash) lee el PDF nativo, incluido multipágina.
  */
 final class PurchaseDraftService
 {
     private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
-    private const MAX_INPUT_BYTES = 8 * 1024 * 1024; // 8 MB
+    private const MAX_INPUT_BYTES = 8 * 1024 * 1024; // 8 MB — imágenes y PDF
     private const MAX_DIMENSION = 2000; // px — más grande que ItemImageService (1024):
     // una factura necesita legibilidad de números finos (nro, RUC, montos),
     // una foto de producto no.
     private const JPEG_QUALITY = 90;
+    private const ALLOWED_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
+    private const PDF_MIME = 'application/pdf';
 
     /**
      * Lista borradores con paginación + filtro por status. Devuelve resumen
@@ -498,26 +508,56 @@ final class PurchaseDraftService
         return null;
     }
 
-    /** Sube la imagen a S3/DO Spaces (mismo mecanismo que ItemImageService). */
+    /**
+     * Sube el archivo de la factura a S3/DO Spaces. Dispatcher por mime
+     * REAL (finfo — nunca el Content-Type declarado por el cliente):
+     * imagen → pipeline de resize+recompresión de siempre; PDF →
+     * passthrough. Límite de 8 MB para ambos. Mime no soportado o archivo
+     * excedido → error claro en español.
+     */
     private function uploadImage(string $companyId, string $draftId, array $file): string
     {
         if (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
-            throw new \RuntimeException('Archivo de imagen no recibido');
+            throw new \RuntimeException('Archivo no recibido');
         }
         $size = (int) ($file['size'] ?? 0);
         if ($size <= 0 || $size > self::MAX_INPUT_BYTES) {
             throw new \RuntimeException('Archivo vacío o mayor a 8 MB');
         }
-        $info = @getimagesize($file['tmp_name']);
+
+        $finfo    = new \finfo(FILEINFO_MIME_TYPE);
+        $realMime = (string) $finfo->file($file['tmp_name']);
+
+        if ($realMime === self::PDF_MIME) {
+            return $this->uploadPdf($companyId, $draftId, $file['tmp_name']);
+        }
+        if (in_array($realMime, self::ALLOWED_IMAGE_MIMES, true)) {
+            return $this->uploadImageFile($companyId, $draftId, $file['tmp_name']);
+        }
+        throw new \RuntimeException('Formato no soportado — subí una foto (JPG/PNG/WEBP) o un PDF');
+    }
+
+    /** PDF: se guarda TAL CUAL — sin GD, sin resize, sin recompresión. */
+    private function uploadPdf(string $companyId, string $draftId, string $tmpPath): string
+    {
+        $data = file_get_contents($tmpPath);
+        if ($data === false) {
+            throw new \RuntimeException('No se pudo leer el archivo');
+        }
+        $objectKey = "purchase-drafts/{$companyId}/{$draftId}.pdf";
+        $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET, S3_KEY_PREFIX);
+        return $s3->put($objectKey, $data, self::PDF_MIME, true);
+    }
+
+    /** Imagen: pipeline de siempre — resize a MAX_DIMENSION + recompresión JPEG q90. */
+    private function uploadImageFile(string $companyId, string $draftId, string $tmpPath): string
+    {
+        $info = @getimagesize($tmpPath);
         if ($info === false) {
             throw new \RuntimeException('El archivo no es una imagen válida');
         }
-        $mime = (string) ($info['mime'] ?? '');
-        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
-            throw new \RuntimeException('Formato no soportado (JPG/PNG/WEBP)');
-        }
 
-        $data = file_get_contents($file['tmp_name']);
+        $data = file_get_contents($tmpPath);
         if ($data === false) {
             throw new \RuntimeException('No se pudo leer el archivo');
         }

@@ -38,19 +38,23 @@ export default function PurchaseDraftsPage() {
         accessorKey: "imageUrl",
         header: "",
         enableSorting: false,
-        cell: ({ row }) =>
-          row.original.imageUrl ? (
+        cell: ({ row }) => {
+          const url = row.original.imageUrl
+          // Mismo criterio que la pantalla de revisión: extensión del
+          // object key (".pdf" lo fuerza el backend al subir un PDF).
+          const isPdf = url?.toLowerCase().endsWith(".pdf") ?? false
+          if (!url || isPdf) {
+            return (
+              <div className="flex h-10 w-10 items-center justify-center rounded border bg-muted text-muted-foreground">
+                <FileText className="size-4" />
+              </div>
+            )
+          }
+          return (
             // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={row.original.imageUrl}
-              alt="Factura"
-              className="h-10 w-10 rounded object-cover border"
-            />
-          ) : (
-            <div className="flex h-10 w-10 items-center justify-center rounded border bg-muted text-muted-foreground">
-              <FileText className="size-4" />
-            </div>
-          ),
+            <img src={url} alt="Factura" className="h-10 w-10 rounded object-cover border" />
+          )
+        },
       },
       {
         accessorKey: "supplierName",
