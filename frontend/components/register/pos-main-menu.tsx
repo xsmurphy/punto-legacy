@@ -79,6 +79,7 @@ import {
   useCloseDrawer,
   useDrawerExpense,
   useDrawerIncome,
+  type DrawerSummary,
 } from "@/hooks/use-drawer"
 import {
   AlertDialog,
@@ -548,6 +549,55 @@ function AccountOverview() {
 // ── Control de Caja ──────────────────────────────────────────────────────────
 
 /**
+ * Construye el TicketData de cierre de caja a partir del summary del turno.
+ *
+ * Función pura — reutilizada por el botón "Imprimir" manual (mientras la caja
+ * sigue abierta) y por el auto-print al confirmar el cierre (donde el summary
+ * se pasa como snapshot tomado ANTES de invalidar la query, ver
+ * handleSimpleConfirm más abajo).
+ *
+ * FLAG: summary.list trae filas (name, amount) pero no hay campo separado de
+ * "apertura" vs "ventas por método" — se mapean como payments usando las
+ * filas de list tal como vienen del backend.
+ */
+function buildCloseRegTicket(
+  summary: DrawerSummary,
+  config: { companyName?: string } | null,
+): TicketData {
+  const closingPayments = summary.list.map((row) => ({
+    method: row.name,
+    amount: row.amount,
+  }))
+  // items: reusa la tabla de productos del renderer genérico
+  // (renderFallbackTicketHtml en print-in-browser.ts) — closeReg
+  // no tiene concepto de plantilla propia, así que la tabla
+  // Ítem/Cant./P.Unit/Total ya existente es el lugar correcto
+  // para el resumen de productos vendidos del turno (devoluciones
+  // ya vienen restadas desde el backend, ver DrawerService::getSoldProducts).
+  const soldItems: TicketItem[] = summary.soldProducts.map((p) => ({
+    name: p.name,
+    qty: p.qty,
+    unitPrice: p.qty !== 0 ? p.total / p.qty : p.total,
+    discount: 0,
+    total: p.total,
+    categoryId: null,
+  }))
+  return {
+    companyName: config?.companyName ?? "",
+    docType: "closeReg",
+    transactionId: "",
+    date: summary.date ?? new Date().toISOString(),
+    items: soldItems,
+    subtotal: summary.subtotal,
+    discount: 0,
+    taxTotal: 0,
+    total: summary.total,
+    payments: closingPayments,
+    note: summary.tips > 0 ? `Propinas: ${summary.tips}` : undefined,
+  }
+}
+
+/**
  * Panel de control de caja en el menú del POS.
  *
  * Muestra el estado real del cajón (abierto/cerrado), el resumen del turno
@@ -586,8 +636,23 @@ function ControlDeCajaPanel() {
   async function handleSimpleConfirm(amount: number) {
     const date = new Date().toISOString().replace("T", " ").slice(0, 19)
     try {
-      if (modalMode === "open")  await openDrawer.mutateAsync({ amount, date })
-      if (modalMode === "close") await closeDrawer.mutateAsync({ amount, date })
+      if (modalMode === "open") await openDrawer.mutateAsync({ amount, date })
+      if (modalMode === "close") {
+        // Snapshot del summary ANTES de cerrar: al confirmar el cierre la
+        // query de summary se invalida y los datos desaparecen — sin este
+        // snapshot no habría forma de imprimir el reporte de cierre después.
+        const summarySnapshot = summary
+        await closeDrawer.mutateAsync({ amount, date })
+        if (summarySnapshot && allBindings) {
+          try {
+            requestPrint("closeReg", buildCloseRegTicket(summarySnapshot, config), allBindings)
+          } catch (printErr) {
+            // Un fallo de impresora no debe afectar el cierre, que ya se confirmó.
+            console.error("[closeReg auto-print]", printErr)
+            toast.warning("La caja cerró pero no se pudo imprimir el cierre")
+          }
+        }
+      }
       setModalMode(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error desconocido")
@@ -752,42 +817,7 @@ function ControlDeCajaPanel() {
                   toast.info("No hay datos de caja para imprimir")
                   return
                 }
-                // Construir TicketData con los datos del summary del turno.
-                // FLAG: summary.list trae filas (name, amount) pero no hay campo
-                // separado de "apertura" vs "ventas por método" — se mapean como
-                // payments usando las filas de list tal como vienen del backend.
-                const closingPayments = summary.list.map((row) => ({
-                  method: row.name,
-                  amount: row.amount,
-                }))
-                // items: reusa la tabla de productos del renderer genérico
-                // (renderFallbackTicketHtml en print-in-browser.ts) — closeReg
-                // no tiene concepto de plantilla propia, así que la tabla
-                // Ítem/Cant./P.Unit/Total ya existente es el lugar correcto
-                // para el resumen de productos vendidos del turno (devoluciones
-                // ya vienen restadas desde el backend, ver DrawerService::getSoldProducts).
-                const soldItems: TicketItem[] = summary.soldProducts.map((p) => ({
-                  name: p.name,
-                  qty: p.qty,
-                  unitPrice: p.qty !== 0 ? p.total / p.qty : p.total,
-                  discount: 0,
-                  total: p.total,
-                  categoryId: null,
-                }))
-                const ticketData: TicketData = {
-                  companyName: (config as { companyName?: string } | null)?.companyName ?? "",
-                  docType: "closeReg",
-                  transactionId: "",
-                  date: summary.date ?? new Date().toISOString(),
-                  items: soldItems,
-                  subtotal: summary.subtotal,
-                  discount: 0,
-                  taxTotal: 0,
-                  total: summary.total,
-                  payments: closingPayments,
-                  note: summary.tips > 0 ? `Propinas: ${summary.tips}` : undefined,
-                }
-                requestPrint("closeReg", ticketData, allBindings)
+                requestPrint("closeReg", buildCloseRegTicket(summary, config), allBindings)
               }}
             >
               <Printer className="size-4" />
