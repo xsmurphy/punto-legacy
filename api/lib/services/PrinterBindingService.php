@@ -295,7 +295,7 @@ class PrinterBindingService {
         if (isset($data['docTypes']) || $requireAll) {
             $dts = $data['docTypes'] ?? [];
             if (!is_array($dts)) throw new \RuntimeException('docTypes debe ser array', 422);
-            $valid = ['receipt','factura','quote','order','withdraw','delivery','closeReg','return'];
+            $valid = \Punto\Api\Printing\PrintPoolService::DOC_TYPES;
             foreach ($dts as $dt) {
                 if (!in_array($dt, $valid, true)) throw new \RuntimeException("docType inválido: $dt", 422);
             }

@@ -36,6 +36,13 @@ final class PrintPoolService
      */
     private const MAX_ATTEMPTS = 3;
 
+    /**
+     * Lista cerrada de docType — espejo de PrinterDocType en
+     * frontend/lib/hardware/printers/binding.ts. Única copia en PHP:
+     * PrinterBindingService::validate() también valida contra esta constante.
+     */
+    public const DOC_TYPES = ['receipt', 'factura', 'quote', 'order', 'withdraw', 'delivery', 'closeReg', 'return'];
+
     /** @var mixed */
     private $db;
 
@@ -249,6 +256,9 @@ final class PrintPoolService
         }
         if (!in_array($format, ['escpos', 'html', 'raw'], true)) {
             throw new \InvalidArgumentException("format inválido (esperado 'escpos'|'html'|'raw')");
+        }
+        if ($docType !== null && !in_array($docType, self::DOC_TYPES, true)) {
+            throw new \InvalidArgumentException("docType inválido (esperado " . implode('|', self::DOC_TYPES) . ')');
         }
 
         // stationPrinterId debe pertenecer al tenant y estar activa — el
