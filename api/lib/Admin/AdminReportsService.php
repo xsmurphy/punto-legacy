@@ -63,7 +63,6 @@ class AdminReportsService
             AND $alias.status NOT IN ('suspended', 'cancelled')";
     }
 
-
     /**
      * Vista general del sistema para el dashboard del admin.
      *
@@ -259,21 +258,42 @@ class AdminReportsService
         // indican que estaban de alta ese mes. No hay historia de precio ni
         // de altas/bajas reales, así que es una proyección hacia atrás del
         // estado de hoy, no una serie contable.
+        //
+        // UNA sola query (antes: 12 round-trips, uno por mes — P1). generate_series
+        // produce los 12 meses; LEFT JOIN company reproduce EXACTAMENTE el WHERE
+        // que tenía el loop (activa ese mes = createdAt <= fin de mes Y (expiresAt
+        // NULL o >= inicio de mes) Y no suspendida/cancelada), movido a condición
+        // de JOIN para que los meses sin compañías activas sigan apareciendo con
+        // mrr=0 en vez de desaparecer de la serie.
+        $mrrRows = $db->Execute(
+            "SELECT to_char(gs.month_start, 'YYYY-MM') AS month,
+                    COALESCE(SUM(pl.price), 0) AS mrr
+             FROM generate_series(
+                    date_trunc('month', now()) - INTERVAL '11 months',
+                    date_trunc('month', now()),
+                    INTERVAL '1 month'
+                  ) AS gs(month_start)
+             LEFT JOIN company c
+               ON c.createdAt <= (gs.month_start + INTERVAL '1 month' - INTERVAL '1 day')
+              AND (c.expiresAt IS NULL OR c.expiresAt >= gs.month_start)
+              AND c.status NOT IN ('suspended', 'cancelled')
+             LEFT JOIN plans pl ON pl.plan_code = c.plan
+             GROUP BY gs.month_start
+             ORDER BY gs.month_start ASC"
+        );
+        $rawMrr = [];
+        if ($mrrRows) {
+            while (!$mrrRows->EOF) {
+                $f                       = $mrrRows->fields;
+                $rawMrr[$f['month'] ?? ''] = round((float) ($f['mrr'] ?? 0), 2);
+                $mrrRows->MoveNext();
+            }
+        }
         $mrrByMonth = [];
         foreach ($months as $ym) {
-            $monthStart = $ym . '-01';
-            $mRow       = $db->Execute(
-                "SELECT COALESCE(SUM(pl.price), 0) AS mrr
-                 FROM company c
-                 JOIN plans pl ON pl.plan_code = c.plan
-                 WHERE c.createdAt <= (?::date + INTERVAL '1 month' - INTERVAL '1 day')
-                   AND (c.expiresAt IS NULL OR c.expiresAt >= ?::date)
-                   AND c.status NOT IN ('suspended', 'cancelled')",
-                [$monthStart, $monthStart]
-            );
             $mrrByMonth[] = [
                 'month' => $ym,
-                'mrr'   => ($mRow && !$mRow->EOF) ? round((float) ($mRow->fields['mrr'] ?? 0), 2) : 0.0,
+                'mrr'   => $rawMrr[$ym] ?? 0.0,
             ];
         }
 

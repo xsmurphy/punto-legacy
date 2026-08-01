@@ -1,4 +1,4 @@
--- 100_tenant_note.sql
+-- 109_tenant_note.sql
 -- F3 (context/34-admin-saas-plan.md) — notas internas del tenant en /admin.
 -- Un admin escribe notas libres sobre un tenant (seguimiento comercial,
 -- incidentes, contexto de soporte). Solo el autor puede borrar su nota.
