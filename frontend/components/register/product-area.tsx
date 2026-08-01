@@ -14,6 +14,7 @@
  */
 
 import * as React from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, Plus, X, Check, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -53,6 +54,22 @@ export function ProductArea() {
   const clearAll = useHotkeysStore((s) => s.clearAll)
 
   const { saveHotkeys, isSaving } = useHotkeys()
+
+  // Modo edición pedido por URL (?hotkeys=edit): el menú navega con este
+  // param en vez de solo setear el store — el intent sobrevive el hard
+  // reload por version-skew post-deploy (el chunk/RSC del build viejo fuerza
+  // navegación dura y el store zustand muere; el param no — reporte del
+  // owner 2026-08-01: "elegí HotKeys y abrió en modo venta"). Se consume una
+  // vez y se limpia de la URL para que un refresh manual no re-entre a
+  // edición.
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  React.useEffect(() => {
+    if (searchParams.get("hotkeys") === "edit") {
+      setEditing(true)
+      router.replace("/pos", { scroll: false })
+    }
+  }, [searchParams, setEditing, router])
 
   // Vista: grilla de hotkeys, o productos de una categoría (drill-in).
   const [categoryId, setCategoryId] = React.useState<string | null>(null)

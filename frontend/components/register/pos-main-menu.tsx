@@ -239,10 +239,13 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     onSelect: ({ setOpen, activeRegisterId, router }) => {
       if (!activeRegisterId) return
       setOpen(false)
-      // El editor de hotkeys vive en /pos (ProductArea). Si el usuario está
-      // en otra ruta del POS (espacios / agenda / ordenes), navegar antes de
-      // activar el modo edición para que el panel izquierdo lo muestre.
-      router.push("/pos")
+      // El editor de hotkeys vive en /pos (ProductArea). El intent de "modo
+      // edición" viaja en la URL, NO solo en el store: si la navegación
+      // termina en hard reload por version-skew post-deploy (chunk/RSC del
+      // build viejo), el store zustand muere pero el param sobrevive —
+      // ProductArea lo consume y activa la edición igual. El setEditing
+      // directo queda como fast-path para la navegación client-side normal.
+      router.push("/pos?hotkeys=edit")
       useHotkeysStore.getState().setEditing(true)
     },
   },
@@ -297,9 +300,13 @@ export function PosMainMenu() {
   // Leer config para gatear la sección de caja según controlCaja.
   const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
   const controlCaja = registerConfigData?.config?.controlCaja ?? true
+  const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
 
   const sectionsWithState: MenuSection[] = SECTIONS
     .filter((s) => s.key !== "drawer" || controlCaja)
+    // Modo solo-órdenes (spec owner): el POS queda solo para órdenes y
+    // mesas, se ocultan transacciones y caja del menú.
+    .filter((s) => !modoSoloOrdenes || (s.key !== "drawer" && s.key !== "transactions"))
     .map((s) => ({
       ...s,
       disabled: false,
@@ -1237,11 +1244,11 @@ function ModulesPanel() {
 const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; description?: string }[] = [
   { key: "mergeRepeated", label: "Agrupar productos repetidos", description: "Sumar cantidad al tocar el mismo producto seguido. Si tocás otro entre medio, se crea una línea nueva — útil para promos con descuento por línea." },
   { key: "showSoftKeyboard", label: "Mostrar teclado virtual en numpads", description: "Útil para pantallas táctiles sin teclado físico." },
-  { key: "controlCaja", label: "Control de Caja" },
-  { key: "ordenEnVenta", label: "Orden en venta" },
-  { key: "ordenAImpresion", label: "Orden a impresión" },
-  { key: "permitirGuardarVentas", label: "Permitir guardar ventas" },
-  { key: "modoSoloOrdenes", label: "Modo: solo órdenes" },
+  { key: "controlCaja", label: "Control de Caja", description: "Apertura y cierre de turnos, extracciones e ingresos de efectivo. Al desactivarlo, la sección Control de Caja desaparece del menú." },
+  { key: "ordenEnVenta", label: "Orden en venta", description: "Al confirmar una venta, muestra el botón \"Ordenar\" para generar una orden de ese pedido ya facturado (cobrar primero, ordenar después)." },
+  { key: "ordenAImpresion", label: "Orden a impresión", description: "Al enviar una orden, imprime las comandas automáticamente en las impresoras vinculadas de este dispositivo." },
+  { key: "permitirGuardarVentas", label: "Permitir guardar ventas", description: "Habilita la opción \"Guardar\" para dejar ventas en curso y retomarlas después. Desactivalo si no querés que los cajeros guarden ventas." },
+  { key: "modoSoloOrdenes", label: "Modo: solo órdenes", description: "El POS queda solo para tomar órdenes y mesas: se ocultan facturación, transacciones y caja." },
 ]
 // Sacados de la lista por decisión del owner (2026-07-29): "Inhabilitar
 // animaciones", "Teclado virtual", "Servidor de impresión", "Sonidos en

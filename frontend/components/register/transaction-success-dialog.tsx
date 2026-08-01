@@ -46,6 +46,16 @@ export interface TransactionSuccessViewProps {
   closeLabel: string
   onPrint: () => void | Promise<void>
   onClose: () => void
+  /**
+   * Botón opcional adicional junto a "Imprimir" (ej. "Ordenar" cuando
+   * ordenEnVenta=true — genera la orden de la venta recién facturada a
+   * pedido del cajero, no automáticamente). Se agrega al final del grupo,
+   * sin desplazar los botones existentes (context/08 — posiciones estables).
+   */
+  secondaryAction?: {
+    label: string
+    onAction: () => void | Promise<void>
+  }
 }
 
 export function TransactionSuccessView({
@@ -57,7 +67,27 @@ export function TransactionSuccessView({
   closeLabel,
   onPrint,
   onClose,
+  secondaryAction,
 }: TransactionSuccessViewProps) {
+  // Disable durante el request y después de éxito (evita doble orden). Un
+  // error deja el botón habilitado de nuevo — el toast de fallo lo dispara
+  // el propio onAction (no toca la venta ya confirmada).
+  const [secondaryPending, setSecondaryPending] = React.useState(false)
+  const [secondaryDone, setSecondaryDone] = React.useState(false)
+
+  const handleSecondaryClick = async () => {
+    if (!secondaryAction || secondaryPending || secondaryDone) return
+    setSecondaryPending(true)
+    try {
+      await secondaryAction.onAction()
+      setSecondaryDone(true)
+    } catch {
+      // El toast de error lo dispara el propio onAction (conoce el contexto
+      // del fallo); acá solo evitamos unhandled rejection y reabilitamos.
+    } finally {
+      setSecondaryPending(false)
+    }
+  }
   // Enter global = imprimir, salvo que el foco esté en un campo editable
   // (mismo guard de inputs que el SuccessPhase original). El listener vive solo
   // mientras la vista está montada (modal abierto).
@@ -105,6 +135,16 @@ export function TransactionSuccessView({
           <Printer className="size-4" />
           {printLabel}
         </Button>
+        {secondaryAction && (
+          <Button
+            variant="outline"
+            className="flex-1 gap-2 border-white/30 bg-transparent hover:bg-white/10"
+            disabled={secondaryPending || secondaryDone}
+            onClick={() => void handleSecondaryClick()}
+          >
+            {secondaryAction.label}
+          </Button>
+        )}
         <Button
           className="flex-1 bg-white font-bold text-[#060A0E] hover:bg-white/90"
           onClick={onClose}

@@ -27,6 +27,8 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 import { useParkedSales } from "@/hooks/use-parked-sales"
 import { useActiveOrders } from "@/hooks/use-orders"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { usePosRegisterConfig } from "@/hooks/use-pos-config"
+import { useCatalogStore } from "@/lib/catalog/store"
 
 /**
  * Sidebar mínimo exclusivo del POS. Muestra SOLO las rutas del workspace
@@ -42,6 +44,13 @@ export function PosSidebar() {
   const lock = useLockStore((s) => s.lock)
   const parkedCount = parkedSales?.length ?? 0
   const activeOrdersCount = activeOrders?.orders.length ?? 0
+
+  // Gate del link "Guardadas" según Ajustes → permitirGuardarVentas (default
+  // true). La página sigue accesible por URL directa si algún operador la
+  // tiene abierta — solo se oculta el link.
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
+  const permitirGuardarVentas = registerConfigData?.config?.permitirGuardarVentas ?? true
 
   return (
     <Sidebar collapsible="icon" variant="inset">
@@ -112,22 +121,24 @@ export function PosSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith("/pos/guardadas")}
-                  tooltip="Guardadas"
-                  className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
-                >
-                  <Link href="/pos/guardadas">
-                    <Bookmark />
-                    <span>Guardadas</span>
-                  </Link>
-                </SidebarMenuButton>
-                {parkedCount > 0 && (
-                  <SidebarMenuBadge>{parkedCount}</SidebarMenuBadge>
-                )}
-              </SidebarMenuItem>
+              {permitirGuardarVentas && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith("/pos/guardadas")}
+                    tooltip="Guardadas"
+                    className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                  >
+                    <Link href="/pos/guardadas">
+                      <Bookmark />
+                      <span>Guardadas</span>
+                    </Link>
+                  </SidebarMenuButton>
+                  {parkedCount > 0 && (
+                    <SidebarMenuBadge>{parkedCount}</SidebarMenuBadge>
+                  )}
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

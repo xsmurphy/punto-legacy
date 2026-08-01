@@ -122,6 +122,7 @@ export function SaleOptionsDrawer({
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
   const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
+  const permitirGuardarVentas = registerConfigData?.config?.permitirGuardarVentas ?? true
 
   // Impresión de cotización — mismo pipeline que el flujo de quote existente
   // (docType "quote" vía requestPrint, con fallback a picker/browser). Cliente
@@ -367,7 +368,8 @@ export function SaleOptionsDrawer({
       icon: Tags,
       action: () => openDialog("priceList"),
     },
-  ]
+    // "Guardar" se filtra cuando permitirGuardarVentas=false (Ajustes → gate).
+  ].filter((opt) => opt.key !== "save" || permitirGuardarVentas)
 
   // ── Disparo del guardado de cotización desde el CTA amber del carrito ─────
   // (usePosUIStore.requestQuoteSave — ver el docblock del nonce en lib/ui/store).

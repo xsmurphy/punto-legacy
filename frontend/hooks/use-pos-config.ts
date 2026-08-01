@@ -40,7 +40,10 @@ export const POS_REGISTER_CONFIG_DEFAULTS: PosRegisterConfig = {
   servidorImpresion: false,
   sonidosAlertas: false,
   inhabilitarAnimaciones: false,
-  permitirGuardarVentas: false,
+  // Opt-out: por default se puede guardar venta. false apagaría "Guardar"
+  // a todos los tenants sin config explícita (esto recién queda gateado
+  // en sale-options-drawer.tsx / nav de guardadas — spec owner 2026-07-31).
+  permitirGuardarVentas: true,
   ocultarDetalleCombos: false,
   modoSoloOrdenes: false,
   mergeRepeated: true,

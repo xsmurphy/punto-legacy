@@ -226,6 +226,16 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
+  // Snapshot para el botón manual "Ordenar" del modal de éxito (ordenEnVenta).
+  // Capturado ANTES del clearCart (que solo corre en handleClose) — lines/
+  // customer siguen siendo los de la venta recién facturada mientras el
+  // modal de éxito está en pantalla.
+  const [orderDraft, setOrderDraft] = React.useState<{
+    lines: typeof lines
+    customerId: string | undefined
+    note: string | null | undefined
+    transactionId: string
+  } | null>(null)
 
   const displayRef = React.useRef<HTMLInputElement>(null)
 
@@ -317,6 +327,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   ) {
     setSubmitting(true)
     setErrorMsg(null)
+    setOrderDraft(null) // limpiar snapshot de "Ordenar" de una venta previa en el mismo mount
 
     // Obtener número de comprobante del lease (best-effort)
     let leasedInvoiceNo = 0
@@ -584,25 +595,15 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
             toast.error("Venta confirmada — no se pudo cerrar la orden vinculada. Avisá al soporte.")
           })
       } else if (ordenEnVenta && result?.transactionId) {
-        void (async () => {
-          try {
-            const created = await createOrder.mutateAsync({
-              source: "counter",
-              items: lines.map((l) => ({
-                itemId: l.itemId,
-                qty: l.qty,
-                price: l.unitPrice,
-                note: l.note,
-              })),
-              customerId: customer?.id,
-              note: payload.note ?? undefined,
-              sendNow: true,
-            })
-            await markOrderPaid.mutateAsync({ orderId: created.id, transactionId: result.transactionId })
-          } catch {
-            toast.warning("Venta confirmada — no se pudo generar la orden vinculada (ordenEnVenta)")
-          }
-        })()
+        // Manual (spec owner 2026-07-31): ya no se genera la orden espejo
+        // automáticamente. Se deja el snapshot listo para el botón "Ordenar"
+        // del modal de éxito — el cajero decide si la genera.
+        setOrderDraft({
+          lines,
+          customerId: customer?.id,
+          note: payload.note,
+          transactionId: result.transactionId,
+        })
       }
 
       setPhase("success")
@@ -859,8 +860,39 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     requestPrint(printDocType, ticketData, allBindings)
   }
 
+  // Botón manual "Ordenar" del modal de éxito (ordenEnVenta) — genera la
+  // orden espejo de la venta recién facturada a pedido del cajero. Mismo
+  // efecto que tenía el branch automático que reemplaza (createOrder source
+  // counter + items, sendNow:true + markOrderPaid con el transactionId ya
+  // confirmado). La venta ya está cerrada — un fallo acá no la afecta.
+  async function handleOrdenar() {
+    if (!orderDraft) return
+    try {
+      const created = await createOrder.mutateAsync({
+        source: "counter",
+        items: orderDraft.lines.map((l) => ({
+          itemId: l.itemId,
+          qty: l.qty,
+          price: l.unitPrice,
+          note: l.note,
+        })),
+        customerId: orderDraft.customerId,
+        note: orderDraft.note ?? undefined,
+        sendNow: true,
+      })
+      await markOrderPaid.mutateAsync({ orderId: created.id, transactionId: orderDraft.transactionId })
+      toast.success("Orden generada")
+    } catch (e) {
+      toast.error("No se pudo generar la orden", {
+        description: e instanceof Error ? e.message : undefined,
+      })
+      throw e
+    }
+  }
+
   function handleClose() {
     if (phase === "success") {
+      setOrderDraft(null)
       clearCart() // clear() ya resetea quoteParentId/orderParentId via initialState (+ relock modoSoloOrdenes)
       void posApi.post("/v1/screens?resource=publish", {
         type: "cart-cleared",
@@ -930,6 +962,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               closeLabel="Nueva venta"
               onPrint={handlePrint}
               onClose={handleClose}
+              secondaryAction={
+                orderDraft ? { label: "Ordenar", onAction: handleOrdenar } : undefined
+              }
             />
           )}
         </DialogContent>
