@@ -86,6 +86,22 @@ billing_invoice, estado dLocal), Actividad (tenant_audit), Acciones
 (impersonar — ya existe—, suspender, extender trial, notas internas del
 tenant: tabla `tenant_note`, companyid+authorid+texto+fecha).
 
+> **Implementada 2026-08-01.** Mig `100_tenant_note.sql`. Decisiones: "suspendido"
+> reversible = `status='suspended'+blocked=1` (nuevo, vía `suspend()`/`unsuspend()`),
+> **distinto** del soft-delete existente (`status='cancelled'+blocked=1`,
+> DELETE ?type=soft, relabeled en UI "Cancelar suscripción") — ambas combinaciones
+> ya las contemplaba `TenantHealthService::buildCommercialSignal()` como
+> "comercialmente suspendido". El override manual de módulos vive en el MISMO
+> lugar que el toggle del panel tenant (`company.<key>` columna plana + JSONB
+> `config.moduleData[key].status`, double-write) — `CompanyAdminService` reutiliza
+> el allowlist `ModulesService::nativeKeys()` sin cargar `functions.php` (realm
+> admin sigue aislado). `extendTrial` nunca retrocede el reloj (GREATEST sobre
+> `expiresAt` vigente vs. `now()`). Ficha reorganizada en 6 tabs (Resumen/Salud/
+> Config/Facturación/Actividad/Notas); Salud (F2) sin cambios de lógica. Facturas
+> leen `billing_invoice`+`billing_request` (solo lectura); el historial legacy de
+> `cpayments` se conserva aparte, marcado "legacy". Acciones (Impersonar/Suspender-
+> Reactivar/Extender trial) se movieron al header de la ficha.
+
 ## F4 — CRUD planes, módulos y créditos
 
 - **Planes**: CRUD sobre `plans` (hoy solo lectura desde BillingService):

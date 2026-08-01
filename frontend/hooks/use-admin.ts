@@ -466,6 +466,186 @@ export function useAdminEnterCompany() {
   })
 }
 
+// ── F3 — módulos, acciones (suspender/extender trial), facturación,
+//        actividad y notas del tenant (context/34-admin-saas-plan.md) ────────
+
+export interface AdminModuleState {
+  enabled: boolean
+}
+export type AdminModulesMap = Record<string, AdminModuleState>
+
+export function useAdminModules(companyId: string) {
+  return useQuery<AdminModulesMap>({
+    queryKey: ["admin", "modules", companyId],
+    queryFn: () => apiAdmin.get(`/companies.php?id=${encodeURIComponent(companyId)}&modules=1`),
+    enabled: !!companyId,
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useAdminToggleModule() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, key, enabled }: { id: string; key: string; enabled: boolean }) =>
+      apiAdmin.post(`/companies.php?id=${encodeURIComponent(id)}&action=toggleModule`, { key, enabled }),
+    onSuccess: (_res, { id }) => {
+      qc.invalidateQueries({ queryKey: ["admin", "modules", id] })
+      // La dimensión "breadth" de salud depende de qué módulos están activos.
+      qc.invalidateQueries({ queryKey: ["admin", "health", id] })
+    },
+  })
+}
+
+export function useAdminSuspend() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiAdmin.post(`/companies.php?id=${encodeURIComponent(id)}&action=suspend`, {}),
+    onSuccess: (_res, id) => {
+      qc.invalidateQueries({ queryKey: ["admin", "company", id] })
+      qc.invalidateQueries({ queryKey: ["admin", "companies"] })
+    },
+  })
+}
+
+export function useAdminUnsuspend() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => apiAdmin.post(`/companies.php?id=${encodeURIComponent(id)}&action=unsuspend`, {}),
+    onSuccess: (_res, id) => {
+      qc.invalidateQueries({ queryKey: ["admin", "company", id] })
+      qc.invalidateQueries({ queryKey: ["admin", "companies"] })
+    },
+  })
+}
+
+export function useAdminExtendTrial() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, days }: { id: string; days: number }) =>
+      apiAdmin.post(`/companies.php?id=${encodeURIComponent(id)}&action=extendTrial`, { days }),
+    onSuccess: (_res, { id }) => {
+      qc.invalidateQueries({ queryKey: ["admin", "company", id] })
+      qc.invalidateQueries({ queryKey: ["admin", "companies"] })
+      qc.invalidateQueries({ queryKey: ["admin", "health", id] })
+    },
+  })
+}
+
+export interface AdminInvoiceRow {
+  id: string
+  type: string
+  amountUsd: number
+  currency: string
+  status: string
+  provider: string
+  providerInvoiceId: string | null
+  paidAt: string | null
+  createdAt: string | null
+}
+
+export interface AdminTenantPlanRequest {
+  id: string
+  requestedPlanCode: number
+  currentPlanCode: number | null
+  status: string
+  note: string | null
+  createdAt: string | null
+  resolvedAt: string | null
+  resolvedBy: string | null
+}
+
+export function useAdminInvoices(companyId: string) {
+  return useQuery<{ invoices: AdminInvoiceRow[]; requests: AdminTenantPlanRequest[] }>({
+    queryKey: ["admin", "invoices", companyId],
+    queryFn: () => apiAdmin.get(`/companies.php?id=${encodeURIComponent(companyId)}&invoices=1`),
+    enabled: !!companyId,
+    staleTime: 30 * 1000,
+  })
+}
+
+export interface AdminTenantAuditRow {
+  id: string
+  userId: string | null
+  outletId: string | null
+  realm: string | null
+  method: string | null
+  endpoint: string | null
+  targetId: string | null
+  meta: Record<string, unknown>
+  ip: string | null
+  createdAt: string | null
+}
+
+export interface AdminTenantAuditResult {
+  rows: AdminTenantAuditRow[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export function useAdminTenantAudit(companyId: string, page = 1, pageSize = 30) {
+  return useQuery<AdminTenantAuditResult>({
+    queryKey: ["admin", "tenantAudit", companyId, page, pageSize],
+    queryFn: () =>
+      apiAdmin.get(
+        `/companies.php?id=${encodeURIComponent(companyId)}&audit=1&page=${page}&pageSize=${pageSize}`,
+      ),
+    enabled: !!companyId,
+    staleTime: 15 * 1000,
+  })
+}
+
+export interface AdminTenantNote {
+  id: string
+  companyId: string
+  authorId: string
+  authorName: string
+  authorEmail: string
+  body: string
+  createdAt: string | null
+}
+
+export interface AdminTenantNotesResult {
+  rows: AdminTenantNote[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export function useAdminTenantNotes(companyId: string, page = 1, pageSize = 20) {
+  return useQuery<AdminTenantNotesResult>({
+    queryKey: ["admin", "tenantNotes", companyId, page, pageSize],
+    queryFn: () =>
+      apiAdmin.get(
+        `/tenant-notes.php?companyId=${encodeURIComponent(companyId)}&page=${page}&pageSize=${pageSize}`,
+      ),
+    enabled: !!companyId,
+    staleTime: 15 * 1000,
+  })
+}
+
+export function useAdminCreateTenantNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ companyId, body }: { companyId: string; body: string }) =>
+      apiAdmin.post(`/tenant-notes.php`, { companyId, body }),
+    onSuccess: (_res, { companyId }) => {
+      qc.invalidateQueries({ queryKey: ["admin", "tenantNotes", companyId] })
+    },
+  })
+}
+
+export function useAdminDeleteTenantNote() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id }: { id: string; companyId: string }) =>
+      apiAdmin.del(`/tenant-notes.php?id=${encodeURIComponent(id)}`),
+    onSuccess: (_res, { companyId }) => {
+      qc.invalidateQueries({ queryKey: ["admin", "tenantNotes", companyId] })
+    },
+  })
+}
+
 // ── Solicitudes ───────────────────────────────────────────────────────────────
 
 export function useAdminRequests(status: string = "pending") {
