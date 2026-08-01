@@ -38,6 +38,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -175,6 +176,30 @@ export function DataTable<T>({
   }
 
   const selectedCount = selectedRows.length
+
+  // Footer de sumatoria: solo se calcula si al menos una columna visible
+  // declaró `meta.footerSum`. La suma toma SIEMPRE `getFilteredRowModel()`
+  // (todas las filas que pasan el filtro/búsqueda activos), NUNCA solo la
+  // página visible — el pie representa el total del período filtrado, no
+  // de la página actual.
+  const visibleLeafColumns = table.getVisibleLeafColumns()
+  const hasFooterSum = visibleLeafColumns.some((c) => c.columnDef.meta?.footerSum)
+  const footerSums = React.useMemo(() => {
+    if (!hasFooterSum) return {}
+    const filteredRows = table.getFilteredRowModel().rows
+    const sums: Record<string, number> = {}
+    for (const col of visibleLeafColumns) {
+      if (!col.columnDef.meta?.footerSum) continue
+      let sum = 0
+      for (const row of filteredRows) {
+        const n = Number(row.getValue(col.id))
+        if (!isNaN(n)) sum += n
+      }
+      sums[col.id] = sum
+    }
+    return sums
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasFooterSum, table.getFilteredRowModel().rows, columnVisibility])
 
   return (
     // `min-w-0`: sin esto el ancho intrínseco de la tabla empuja al contenedor
@@ -330,6 +355,33 @@ export function DataTable<T>({
                 </TableRow>
               ))}
           </TableBody>
+          {hasFooterSum && (
+            <TableFooter>
+              <TableRow className="hover:bg-transparent">
+                {visibleLeafColumns.map((col, i) => {
+                  const meta = col.columnDef.meta
+                  if (meta?.footerSum) {
+                    const sum = footerSums[col.id] ?? 0
+                    return (
+                      <TableCell key={col.id} className={meta.className}>
+                        {meta.footerFormat ? meta.footerFormat(sum) : sum.toLocaleString()}
+                      </TableCell>
+                    )
+                  }
+                  // Columna sin footerSum: celda vacía, salvo la primera
+                  // columna del set (la más a la izquierda) que lleva un
+                  // label discreto "Total".
+                  return (
+                    <TableCell key={col.id} className={meta?.className}>
+                      {i === 0 ? (
+                        <span className="text-muted-foreground">Total</span>
+                      ) : null}
+                    </TableCell>
+                  )
+                })}
+              </TableRow>
+            </TableFooter>
+          )}
         </Table>
       </div>
 
@@ -477,5 +529,9 @@ declare module "@tanstack/react-table" {
   interface ColumnMeta<TData extends unknown, TValue> {
     className?: string
     label?: string
+    /** Si true, el <DataTable> renderiza un <TableFooter> con la suma de esta columna. */
+    footerSum?: boolean
+    /** Formatea la suma del footer. Si se omite, usa sum.toLocaleString(). */
+    footerFormat?: (sum: number) => React.ReactNode
   }
 }

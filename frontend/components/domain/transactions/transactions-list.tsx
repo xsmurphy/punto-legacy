@@ -463,7 +463,14 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
             {formatMoney(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
-        meta: { label: "Total", className: "tabular-nums text-right" },
+        meta: {
+          label: "Total",
+          className: "tabular-nums text-right",
+          footerSum: true,
+          footerFormat: (sum) => (
+            <span className="font-medium">{formatMoney(sum, bootstrap)}</span>
+          ),
+        },
       },
       {
         id: "status",
@@ -611,7 +618,14 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
             {formatMoney(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
-        meta: { label: "Cobrado", className: "tabular-nums text-right" },
+        meta: {
+          label: "Cobrado",
+          className: "tabular-nums text-right",
+          footerSum: true,
+          footerFormat: (sum) => (
+            <span className="font-medium">{formatMoney(sum, bootstrap)}</span>
+          ),
+        },
       },
     ],
     [bootstrap],
@@ -688,7 +702,14 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
             {formatMoney(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
-        meta: { label: "Valor", className: "tabular-nums text-right" },
+        meta: {
+          label: "Valor",
+          className: "tabular-nums text-right",
+          footerSum: true,
+          footerFormat: (sum) => (
+            <span className="font-medium">{formatMoney(sum, bootstrap)}</span>
+          ),
+        },
       },
     ],
     [bootstrap],
