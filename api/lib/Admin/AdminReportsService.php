@@ -7,7 +7,8 @@
  * Complementa CompanyAdminService (que maneja CRUD empresa a empresa).
  *
  * Expone:
- *   overview()            → KPIs + distribuciones (MRR/ARR, por plan/país, nuevas/mes, top IA)
+ *   overview()            → KPIs + distribuciones (MRR/ARR, por plan/país, nuevas/mes, top IA,
+ *                            saas{} y series{} — F1 del plan admin, ver context/34)
  *   payments(from, to)    → pagos del período (cpayments JOIN company)
  *
  * Convenciones idénticas a CompanyAdminService:
@@ -15,10 +16,54 @@
  *   - PG devuelve column names en lowercase → usar pick() case-insensitive
  *   - Queries parametrizadas (nunca interpolar user input)
  *   - Aplanar config JSONB inline cuando sea necesario
+ *
+ * F1 — aproximaciones documentadas (context/34-admin-saas-plan.md):
+ *   - "Activo/en buen estado comercial" (MRR, saas.tenantsGoodStanding):
+ *     MISMO criterio que TenantHealthService::buildCommercialSignal() (F2)
+ *     para subscore=100: NOT blocked AND NOT planExpired AND (expiresAt IS
+ *     NULL OR expiresAt >= now()) AND status NOT IN ('suspended','cancelled').
+ *     Ver commercialGoodStandingWhere().
+ *   - "Morosos/vencidos" (saas.tenantsDelinquent) = complemento exacto del
+ *     anterior (NOT good standing) — mismo criterio que F2 usa para
+ *     commercial subscore=0.
+ *   - MRR histórico (series.mrrByMonth) NO tiene historia real de altas/bajas
+ *     ni de precio-al-momento: se aproxima con el estado ACTUAL de
+ *     company.plan (precio de hoy) aplicado a compañías cuyo createdAt/
+ *     expiresAt indican que estaban de alta ese mes (createdAt <= fin de
+ *     mes Y (expiresAt IS NULL O expiresAt >= inicio de mes) Y status NOT
+ *     IN ('suspended','cancelled')). No refleja cambios de plan/precio
+ *     históricos ni bloqueos pasados (esos no tienen timestamp).
+ *   - "Bajas por mes" (series.tenantsByMonth[].churned) = tenants cuyo
+ *     expiresAt cae en ese mes Y siguen HOY en mal estado comercial (no
+ *     renovaron desde entonces). No captura bajas por `blocked` manual sin
+ *     expiresAt en ese mes (no hay columna con timestamp de ese evento).
+ *   - GMV (series.gmvByMonth) sale de `report_rollup` (domain='sales',
+ *     periodType='month', outletId IS NULL = fila consolidada por tenant),
+ *     sumado cross-tenant. Ya agregado, sin costo de recorrer `transaction`.
+ *   - Créditos IA por mes/capability salen de `ai_credit_ledger.meta->>'capability'`
+ *     (delta<0 = consumo). NUNCA usar el operador `?`/`?|`/`?&` de jsonb con
+ *     PDO — folleto ->/->> son seguros, están permitidos.
+ *   - isInternal (F5) todavía no existe como columna: los WHERE que deberían
+ *     excluir tenants internos quedan comentados con el TODO puntual.
  */
 
 class AdminReportsService
 {
+    /**
+     * Fragmento SQL "tenant en buen estado comercial" — mismo criterio que
+     * TenantHealthService::buildCommercialSignal() (subscore=100/60, F2):
+     * ni bloqueado, ni con plan vencido (flag o fecha), ni suspendido/cancelado.
+     * $alias es el alias de la tabla company en el query que lo use.
+     */
+    private function commercialGoodStandingWhere(string $alias = 'company'): string
+    {
+        return "($alias.blocked IS NULL OR $alias.blocked = 0)
+            AND ($alias.planExpired IS NULL OR $alias.planExpired = false)
+            AND ($alias.expiresAt IS NULL OR $alias.expiresAt >= now())
+            AND $alias.status NOT IN ('suspended', 'cancelled')";
+    }
+
+
     /**
      * Vista general del sistema para el dashboard del admin.
      *
@@ -58,12 +103,16 @@ class AdminReportsService
             'cancelled' => (int) $p('cancelled'),
         ];
 
-        // ── MRR: SUM(price) sobre empresas activas JOIN plans ───────────────
+        // ── MRR: SUM(price) sobre empresas en buen estado comercial (F2) ────
+        // Criterio idéntico a TenantHealthService::buildCommercialSignal():
+        // no basta con status='active' — también excluye planExpired y
+        // expiresAt vencido (antes este query solo miraba status/blocked).
+        $goodStandingC = $this->commercialGoodStandingWhere('c');
         $mrrRow = $db->Execute(
             "SELECT COALESCE(SUM(pl.price), 0) AS mrr
              FROM company c
              JOIN plans pl ON pl.plan_code = c.plan
-             WHERE c.status = 'active' AND (c.blocked IS NULL OR c.blocked = 0)"
+             WHERE $goodStandingC"
         );
         $mrr = 0.0;
         if ($mrrRow && !$mrrRow->EOF) {
@@ -173,6 +222,163 @@ class AdminReportsService
             }
         }
 
+        // ── F1: KPIs SaaS (buen estado comercial / morosos / créditos IA) ────
+        $saasRow = $db->Execute(
+            "SELECT
+               COUNT(*) FILTER (WHERE $goodStandingC)       AS good_standing,
+               COUNT(*) FILTER (WHERE NOT ($goodStandingC)) AS delinquent
+             FROM company c"
+        );
+        $tenantsGoodStanding = 0;
+        $tenantsDelinquent   = 0;
+        if ($saasRow && !$saasRow->EOF) {
+            $sf                  = $saasRow->fields;
+            $tenantsGoodStanding = (int) ($sf['good_standing'] ?? 0);
+            $tenantsDelinquent   = (int) ($sf['delinquent']    ?? 0);
+        }
+
+        // Créditos IA consumidos este mes (delta<0 = consumo, ver ai/debit.php).
+        $aiMonthRow = $db->Execute(
+            "SELECT COALESCE(SUM(-delta), 0) AS n
+             FROM ai_credit_ledger
+             WHERE delta < 0 AND createdAt >= date_trunc('month', now())"
+        );
+        $aiCreditsConsumedThisMonth = 0;
+        if ($aiMonthRow && !$aiMonthRow->EOF) {
+            $aiCreditsConsumedThisMonth = (int) ($aiMonthRow->fields['n'] ?? 0);
+        }
+
+        // ── Scaffold de 12 meses (mismo criterio que newPerMonth arriba) ─────
+        $months = [];
+        for ($i = 11; $i >= 0; $i--) {
+            $months[] = (new \DateTimeImmutable('first day of -' . $i . ' months'))->format('Y-m');
+        }
+
+        // ── MRR por mes (aproximación v1 — ver docstring de la clase) ────────
+        // Precio ACTUAL del plan aplicado a compañías cuyo createdAt/expiresAt
+        // indican que estaban de alta ese mes. No hay historia de precio ni
+        // de altas/bajas reales, así que es una proyección hacia atrás del
+        // estado de hoy, no una serie contable.
+        $mrrByMonth = [];
+        foreach ($months as $ym) {
+            $monthStart = $ym . '-01';
+            $mRow       = $db->Execute(
+                "SELECT COALESCE(SUM(pl.price), 0) AS mrr
+                 FROM company c
+                 JOIN plans pl ON pl.plan_code = c.plan
+                 WHERE c.createdAt <= (?::date + INTERVAL '1 month' - INTERVAL '1 day')
+                   AND (c.expiresAt IS NULL OR c.expiresAt >= ?::date)
+                   AND c.status NOT IN ('suspended', 'cancelled')",
+                [$monthStart, $monthStart]
+            );
+            $mrrByMonth[] = [
+                'month' => $ym,
+                'mrr'   => ($mRow && !$mRow->EOF) ? round((float) ($mRow->fields['mrr'] ?? 0), 2) : 0.0,
+            ];
+        }
+
+        // ── Altas vs bajas por mes ─────────────────────────────────────────
+        // Altas: reusa $rawMonths (createdAt) ya calculado arriba.
+        // Bajas (aproximación v1): expiresAt cae en ese mes Y hoy sigue en
+        // mal estado comercial (no renovó desde entonces). No captura bajas
+        // por `blocked` manual sin expiresAt en ese mes — no hay columna con
+        // timestamp de ese evento (ver docstring de la clase).
+        $churnRows = $db->Execute(
+            "SELECT to_char(date_trunc('month', expiresAt), 'YYYY-MM') AS month, COUNT(*) AS n
+             FROM company
+             WHERE expiresAt IS NOT NULL
+               AND expiresAt >= date_trunc('month', now()) - INTERVAL '11 months'
+               AND expiresAt <  date_trunc('month', now()) + INTERVAL '1 month'
+               AND NOT (" . $this->commercialGoodStandingWhere('company') . ")
+             GROUP BY month"
+        );
+        $rawChurn = [];
+        if ($churnRows) {
+            while (!$churnRows->EOF) {
+                $f                          = $churnRows->fields;
+                $rawChurn[$f['month'] ?? ''] = (int) ($f['n'] ?? 0);
+                $churnRows->MoveNext();
+            }
+        }
+        $tenantsByMonth = [];
+        foreach ($months as $ym) {
+            $tenantsByMonth[] = [
+                'month'   => $ym,
+                'new'     => $rawMonths[$ym] ?? 0,
+                'churned' => $rawChurn[$ym]  ?? 0,
+            ];
+        }
+        $churnedThisMonth = $rawChurn[$months[count($months) - 1]] ?? 0;
+
+        // ── Consumo IA por mes, desglosado por capability ────────────────────
+        // meta->>'capability' — operador flecha jsonb (permitido con PDO).
+        // PROHIBIDO el operador `?`/`?|`/`?&`: colisiona con el placeholder.
+        $aiRowsByMonth = $db->Execute(
+            "SELECT to_char(date_trunc('month', createdAt), 'YYYY-MM') AS month,
+                    COALESCE(NULLIF(meta->>'capability', ''), 'sin_capability') AS capability,
+                    SUM(-delta) AS credits
+             FROM ai_credit_ledger
+             WHERE delta < 0
+               AND createdAt >= date_trunc('month', now()) - INTERVAL '11 months'
+             GROUP BY month, capability"
+        );
+        $rawAiByMonth     = []; // month => [capability => credits]
+        $capabilitiesSeen = [];
+        if ($aiRowsByMonth) {
+            while (!$aiRowsByMonth->EOF) {
+                $f                             = $aiRowsByMonth->fields;
+                $m                              = (string) ($f['month'] ?? '');
+                $cap                            = (string) ($f['capability'] ?? 'sin_capability');
+                $rawAiByMonth[$m][$cap]         = (int) ($f['credits'] ?? 0);
+                $capabilitiesSeen[$cap]         = true;
+                $aiRowsByMonth->MoveNext();
+            }
+        }
+        $aiCapabilities = array_keys($capabilitiesSeen);
+        sort($aiCapabilities);
+
+        $aiCreditsByMonth = [];
+        foreach ($months as $ym) {
+            $row = ['month' => $ym, 'total' => 0];
+            foreach ($aiCapabilities as $cap) {
+                $credits    = $rawAiByMonth[$ym][$cap] ?? 0;
+                $row[$cap]  = $credits;
+                $row['total'] += $credits;
+            }
+            $aiCreditsByMonth[] = $row;
+        }
+
+        // ── GMV agregado por mes (report_rollup, fila consolidada por tenant) ─
+        // domain='sales', periodType='month', outletId IS NULL = total del
+        // tenant ese mes (ver rollup_recompute_period en mig 41). Ya viene
+        // agregado — no hace falta recorrer `transaction`.
+        // TODO(F5, isInternal): cuando exista company.isInternal, sumar
+        // "AND EXISTS (SELECT 1 FROM company co WHERE co.companyId =
+        // report_rollup.companyId AND co.isInternal = false)" para excluir
+        // tenants internos del GMV agregado. Hoy no filtra nada.
+        $gmvRows = $db->Execute(
+            "SELECT to_char(periodStart, 'YYYY-MM') AS month, COALESCE(SUM(total), 0) AS gmv
+             FROM report_rollup
+             WHERE domain = 'sales' AND periodType = 'month' AND outletId IS NULL
+               AND periodStart >= date_trunc('month', now()) - INTERVAL '11 months'
+             GROUP BY month"
+        );
+        $rawGmv = [];
+        if ($gmvRows) {
+            while (!$gmvRows->EOF) {
+                $f                        = $gmvRows->fields;
+                $rawGmv[$f['month'] ?? ''] = (float) ($f['gmv'] ?? 0);
+                $gmvRows->MoveNext();
+            }
+        }
+        $gmvByMonth = [];
+        foreach ($months as $ym) {
+            $gmvByMonth[] = [
+                'month' => $ym,
+                'gmv'   => round($rawGmv[$ym] ?? 0, 2),
+            ];
+        }
+
         return [
             'companies'    => $companies,
             'mrr'          => round($mrr, 2),
@@ -182,6 +388,21 @@ class AdminReportsService
             'byCountry'    => $byCountry,
             'newPerMonth'  => $newPerMonth,
             'topAiCredits' => $topAiCredits,
+            // ── F1: analíticas SaaS (context/34-admin-saas-plan.md) ──────────
+            'saas' => [
+                'tenantsGoodStanding'        => $tenantsGoodStanding,
+                'tenantsTrial'               => $companies['trial'],
+                'tenantsDelinquent'          => $tenantsDelinquent,
+                'churnedThisMonth'           => $churnedThisMonth,
+                'aiCreditsConsumedThisMonth' => $aiCreditsConsumedThisMonth,
+            ],
+            'series' => [
+                'mrrByMonth'       => $mrrByMonth,
+                'tenantsByMonth'   => $tenantsByMonth,
+                'aiCreditsByMonth' => $aiCreditsByMonth,
+                'gmvByMonth'       => $gmvByMonth,
+            ],
+            'aiCapabilities' => $aiCapabilities,
         ];
     }
 
