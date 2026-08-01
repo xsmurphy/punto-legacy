@@ -35,12 +35,14 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogFooter,
+} from "@/components/ui/responsive-dialog"
+// El Drawer de abajo es el MENÚ de opciones (actionsheet en desktop, bottom
+// sheet en mobile) — caso legítimo §2.2 #2, no pasa por ResponsiveDialog.
 import {
   Drawer,
   DrawerClose,
@@ -526,11 +528,11 @@ export function SaleOptionsDrawer({
       )}
       {pickerDialog}
 
-      <Dialog open={showSaveTitleDialog} onOpenChange={(v) => { if (!v) { setShowSaveTitleDialog(false); setSaveTitle("") } }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-semibold">Guardar venta</DialogTitle>
-          </DialogHeader>
+      <ResponsiveDialog open={showSaveTitleDialog} onOpenChange={(v) => { if (!v) { setShowSaveTitleDialog(false); setSaveTitle("") } }}>
+        <ResponsiveDialogContent className="sm:max-w-md">
+          <ResponsiveDialogHeader>
+            <ResponsiveDialogTitle className="text-2xl font-semibold">Guardar venta</ResponsiveDialogTitle>
+          </ResponsiveDialogHeader>
           <form onSubmit={(e) => { e.preventDefault(); setShowSaveTitleDialog(false); handleSave(saveTitle.trim() || null); setSaveTitle("") }}>
             <div className="py-2">
               <Input
@@ -540,17 +542,17 @@ export function SaleOptionsDrawer({
                 autoFocus
               />
             </div>
-            <DialogFooter className="mt-4">
+            <ResponsiveDialogFooter className="mt-4">
               <Button type="button" variant="outline" onClick={() => { setShowSaveTitleDialog(false); setSaveTitle("") }}>
                 Cancelar
               </Button>
               <Button type="submit">
                 Guardar
               </Button>
-            </DialogFooter>
+            </ResponsiveDialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
+        </ResponsiveDialogContent>
+      </ResponsiveDialog>
     </>
   )
 }
@@ -693,11 +695,11 @@ function NoteDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Nota de la venta</DialogTitle>
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <ResponsiveDialogContent className="max-w-sm">
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>Nota de la venta</ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
         <Textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -709,14 +711,14 @@ function NoteDialog({
             if (e.key === "Escape") onClose()
           }}
         />
-        <DialogFooter>
+        <ResponsiveDialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
           <Button onClick={handleConfirm}>Guardar</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveDialogFooter>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   )
 }
 
@@ -743,11 +745,11 @@ function PriceListDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Lista de precios</DialogTitle>
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <ResponsiveDialogContent className="max-w-sm">
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>Lista de precios</ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
         <Select
           value={selected || "__none__"}
           onValueChange={(v) => setSelected(v === "__none__" ? "" : v)}
@@ -764,14 +766,14 @@ function PriceListDialog({
             ))}
           </SelectContent>
         </Select>
-        <DialogFooter>
+        <ResponsiveDialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
           <Button onClick={handleConfirm}>Aplicar</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveDialogFooter>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   )
 }
 
@@ -841,11 +843,11 @@ function TagsDialog({
     : []
 
   return (
-    <Dialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
-      <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Etiquetas de la venta</DialogTitle>
-        </DialogHeader>
+    <ResponsiveDialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
+      <ResponsiveDialogContent className="max-w-sm">
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>Etiquetas de la venta</ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
 
         <div
           className="flex min-h-[2.5rem] flex-wrap gap-1.5 rounded-md border border-input bg-background px-3 py-2 cursor-text"
@@ -897,13 +899,13 @@ function TagsDialog({
           Enter o coma para agregar. Backspace sobre campo vacío elimina la última.
         </p>
 
-        <DialogFooter>
+        <ResponsiveDialogFooter>
           <Button variant="outline" onClick={onClose}>
             Cancelar
           </Button>
           <Button onClick={handleConfirm}>Guardar</Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveDialogFooter>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   )
 }

@@ -18,9 +18,9 @@
 
 import * as React from "react"
 import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog"
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+} from "@/components/ui/responsive-dialog"
 import { Button } from "@/components/ui/button"
 import { NumericPad } from "@/components/pos/numeric-pad"
 
@@ -62,8 +62,8 @@ export function NumericPadDialog({
   }, [mode])
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="sm:max-w-md p-0 gap-0">
+    <ResponsiveDialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <ResponsiveDialogContent className="sm:max-w-md p-0 gap-0">
         {/* Header: title izquierda + mode label top-right */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <h2 className="text-lg font-semibold">{title}</h2>
@@ -92,7 +92,7 @@ export function NumericPadDialog({
             {confirmLabel}
           </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   )
 }

@@ -70,21 +70,34 @@ shadcn `<DialogContent>` viene con `sm:max-w-lg` por default (32rem / 512px). **
 
 **Si el `<Dialog>` no acepta override de tamaño** (componente shadcn que envuelve y fuerza): editá el componente base en `frontend/components/ui/dialog.tsx` para aceptar `size="xs|sm|m|l|xl"` como prop, default `m`. Esa edición vale el cost porque elimina la fricción.
 
-### Regla #2.2 — Dialog (modal) es el default, NO Sheet/Drawer
+### Regla #2.2 — Dialog (modal) es el default; Drawer solo en dos casos cerrados
 
 Para paneles contextuales, formularios y detalles (incluidos los del POS), el
-componente por defecto es **`<Dialog>` centrado**. **`<Sheet>` / `<Drawer>`
-lateral NO se usa salvo pedido explícito del owner** — es una preferencia
-fuerte y transversal (2026-07-19).
+componente por defecto en DESKTOP es **`<Dialog>` centrado**. La regla nació
+(2026-07-19) porque los sub-agentes metían `Sheet`/`Drawer` lateral para
+información densa que necesita espacio — ahí un drawer a la derecha NO sirve.
+Refinada 2026-08-01 por el owner; los ÚNICOS dos usos legítimos de Drawer:
 
-- Panel de detalle/acciones (ej. sesión de espacio en `/pos/espacios`) → `Dialog`.
+1. **Mobile/tablet: bottom drawer para modales chicos de interacción** —
+   confirmaciones, descuento, nota de venta, lista de precios, modificador de
+   precio, cantidad. Se implementa vía el wrapper responsive canónico
+   (Dialog centrado en desktop ↔ Drawer de abajo bajo el breakpoint), NUNCA
+   importando Drawer directo en el call-site.
+2. **Desktop: actionsheet** — lista corta de acciones contextuales. Nada de
+   contenido denso, formularios largos ni listados.
+
+Todo lo demás sigue igual:
+- Panel de detalle/acciones con datos (ej. sesión de espacio) → `Dialog`.
 - Formulario de alta/edición → `Dialog`.
-- Confirmación → `AlertDialog`.
-- En POS (touch-first), dentro del Dialog usá botones `size="lg"` a ancho
-  completo — el modal centrado no releva de los touch targets grandes.
+- Confirmación → `AlertDialog` (que en mobile también baja como drawer vía el
+  wrapper cuando aplique).
+- En POS (touch-first), dentro del Dialog/Drawer usá botones `size="lg"` a
+  ancho completo — el contenedor no releva de los touch targets grandes.
 
-**Anti-patrón detectado (2026-07-19)**: panel de sesión de espacio como `Sheet`
-lateral. **Mal**. Convertido a `Dialog` centrado con el mismo contenido.
+**Anti-patrón vigente**: `Sheet`/`Drawer` LATERAL para contenido denso
+(2026-07-19: panel de sesión de espacio como Sheet → convertido a Dialog).
+Eso sigue prohibido — el refinamiento habilita SOLO el bottom drawer mobile y
+el actionsheet desktop.
 
 ---
 
