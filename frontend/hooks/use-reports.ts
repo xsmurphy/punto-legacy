@@ -618,6 +618,42 @@ export interface AuditReportResponse {
   rows: AuditRow[]
 }
 
+// ── Purchases (Compras y gastos) ─────────────────────────────────────────────
+
+/**
+ * Fila del endpoint /v1/reports/purchases?view=general. Espejo de
+ * `Reports/PurchasesService::general` — cubre transactionType 1 (contado) y
+ * 4 (crédito), con `authNo`/`prefix`/`invoiceNo` ya separados por el backend
+ * (no la combinación legacy "authNo;prefix" que usa el CRUD `/v1/purchases`).
+ */
+export interface PurchaseReportRow {
+  transactionId: string
+  authNo: string
+  prefix: string
+  invoiceNo: string
+  date: string
+  dueDate: string | null
+  outletName: string
+  userName: string
+  supplierName: string
+  supplierTIN: string
+  note: string
+  payments: Array<{ name: string; price: number }>
+  transactionType: number
+  transactionComplete: 0 | 1
+  transactionStatus: string
+  category: string
+  tax: number
+  discount: number
+  total: number
+  debt: number
+  canAddPayment: boolean
+}
+
+export interface PurchasesReportResponse {
+  rows: PurchaseReportRow[]
+}
+
 export interface QuoteRow {
   transactionId: string
   invoiceNo: string

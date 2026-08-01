@@ -15,7 +15,11 @@ import {
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
-import { usePurchases, type PurchaseListRow } from "@/hooks/use-purchases"
+import {
+  useReport,
+  type PurchaseReportRow,
+  type PurchasesReportResponse,
+} from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
 
@@ -26,11 +30,15 @@ import { EmptyState } from "@/components/empty-state"
  * del menú user del sidebar (→ `/purchase`), no desde acá. El botón "Nueva"
  * acá es un atajo a la misma URL.
  *
- * Filtros activos: rango de fechas (DateRangePicker, server-side).
- * Click en fila → `/purchase/[id]` para ver el detalle completo.
+ * Consume el endpoint canónico de reporte (`/v1/reports/purchases?view=general`,
+ * `Reports/PurchasesService::general`) — no el CRUD `/v1/purchases` (ese sigue
+ * siendo el correcto para el form de `/purchase` y su detalle). El de reporte
+ * ya trae `authNo`/`prefix`/`userName` resueltos y cubre compras contado
+ * (transactionType=1) y crédito (transactionType=4).
  *
- * Esta primera vuelta soporta solo compras (transactionType=1). Orden,
- * devolución y reposición — variantes del mismo form — vienen después.
+ * Filtros activos: rango de fechas (DateRangePicker, server-side).
+ * Click en fila → `/purchase/[id]` para ver el detalle completo (mismo id:
+ * `transactionId` — el CRUD busca por transactionId, ver PurchasesService::find).
  */
 export default function PurchasesReportPage() {
   const router = useRouter()
@@ -38,30 +46,36 @@ export default function PurchasesReportPage() {
   const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
-  const purchases = usePurchases({ from: opts.from, to: opts.to, limit: 200 })
+  const purchases = useReport<PurchasesReportResponse>("purchases", {
+    from: opts.from,
+    to: opts.to,
+    params: { view: "general" },
+  })
 
-  const columns = React.useMemo<ColumnDef<PurchaseListRow>[]>(
+  const columns = React.useMemo<ColumnDef<PurchaseReportRow>[]>(
     () => [
       {
         accessorKey: "date",
         header: "Fecha",
+        meta: { label: "Fecha" },
         cell: ({ row }) => formatDate(row.original.date),
       },
       {
         accessorKey: "supplierName",
         header: "Proveedor",
+        meta: { label: "Proveedor" },
         cell: ({ row }) =>
-          row.original.supplierName ?? (
-            <span className="text-muted-foreground italic">Sin proveedor</span>
+          row.original.supplierName || (
+            <span className="text-muted-foreground">—</span>
           ),
       },
       {
-        accessorKey: "invoiceNo",
-        header: "Factura",
+        id: "document",
+        header: "Documento",
+        meta: { label: "Documento" },
         cell: ({ row }) => {
-          const { invoiceNo, invoicePrefix } = row.original
-          if (invoiceNo === null) return <span className="text-muted-foreground">—</span>
-          const prefix = invoicePrefix ? invoicePrefix.split(";").pop() : ""
+          const { prefix, invoiceNo } = row.original
+          if (!invoiceNo) return <span className="text-muted-foreground">—</span>
           const num = String(invoiceNo).padStart(7, "0")
           return (
             <span className="font-mono text-xs">
@@ -71,16 +85,37 @@ export default function PurchasesReportPage() {
         },
       },
       {
+        accessorKey: "authNo",
+        header: "Timbrado",
+        meta: { label: "Timbrado", className: "text-muted-foreground" },
+        cell: ({ row }) => (
+          <span className="text-muted-foreground text-xs">
+            {row.original.authNo || "—"}
+          </span>
+        ),
+      },
+      {
         accessorKey: "outletName",
         header: "Sucursal",
+        meta: { label: "Sucursal" },
         cell: ({ row }) =>
-          row.original.outletName ?? (
+          row.original.outletName || (
+            <span className="text-muted-foreground">—</span>
+          ),
+      },
+      {
+        accessorKey: "userName",
+        header: "Usuario",
+        meta: { label: "Usuario" },
+        cell: ({ row }) =>
+          row.original.userName || (
             <span className="text-muted-foreground">—</span>
           ),
       },
       {
         accessorKey: "dueDate",
         header: "Vencimiento",
+        meta: { label: "Vencimiento" },
         cell: ({ row }) =>
           row.original.dueDate ? (
             formatDate(row.original.dueDate)
@@ -89,8 +124,29 @@ export default function PurchasesReportPage() {
           ),
       },
       {
+        id: "condition",
+        header: "Condición",
+        meta: { label: "Condición" },
+        cell: ({ row }) => {
+          const t = row.original.transactionType
+          if (t === 1) return <Badge variant="secondary">Contado</Badge>
+          if (t === 4) return <Badge variant="outline">Crédito</Badge>
+          return <Badge variant="outline">{t}</Badge>
+        },
+      },
+      {
         accessorKey: "total",
         header: () => <div className="text-right">Total</div>,
+        meta: {
+          label: "Total",
+          className: "text-right",
+          footerSum: true,
+          footerFormat: (sum) => (
+            <div className="text-right font-medium tabular-nums">
+              {formatMoney(sum, bootstrap)}
+            </div>
+          ),
+        },
         cell: ({ row }) => (
           <div className="text-right font-medium tabular-nums">
             {formatMoney(row.original.total, bootstrap)}
@@ -98,12 +154,13 @@ export default function PurchasesReportPage() {
         ),
       },
       {
-        accessorKey: "status",
+        accessorKey: "transactionStatus",
         header: "Estado",
+        meta: { label: "Estado" },
         cell: ({ row }) => {
-          const s = row.original.status
-          if (s === 1) return <Badge variant="secondary">Completa</Badge>
-          if (s === 0) return <Badge variant="outline">Orden</Badge>
+          const s = row.original.transactionStatus
+          if (s === "1") return <Badge variant="secondary">Completa</Badge>
+          if (s === "6") return <Badge variant="destructive">Anulada</Badge>
           return <Badge variant="outline">{s}</Badge>
         },
       },
@@ -129,13 +186,13 @@ export default function PurchasesReportPage() {
         </Button>
       </header>
 
-      <DataTable<PurchaseListRow>
+      <DataTable<PurchaseReportRow>
         tableId="purchases-report"
         data={purchases.data?.rows ?? []}
         columns={columns}
-        getRowId={(r) => r.id}
+        getRowId={(r) => r.transactionId}
         isLoading={purchases.isLoading}
-        onRowClick={(r) => router.push(`/purchase/${r.id}`)}
+        onRowClick={(r) => router.push(`/purchase/${r.transactionId}`)}
         toolbarSlot={
           <DateRangePicker value={range} onChange={setRange} />
         }

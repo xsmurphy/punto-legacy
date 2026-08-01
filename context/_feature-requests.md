@@ -67,9 +67,15 @@ facturación electrónica (en curso, `context/28`).
   conversión de unidad de compra → unidad de stock.
 - **Subcategorías de gastos** — `M`. `fin_category` es árbol de 1 nivel por
   diseño (`CategoryService.php`); esto pide nivel 2.
-- **Recordar último costo de compra por producto** — `S-M`. Pedido en ambos
-  docs (también para producción sin stock). Precargar el último
-  `purchase.cost` del item en `/purchase`.
+- **Recordar último costo de compra por producto** — la precarga en
+  `/purchase` YA EXISTE (verificado 2026-08-01): al elegir el ítem, el
+  ProductPicker llama `GET /v1/items?id=X&resource=last-purchase-price`
+  (`api/v1/items.php:263-289`, último `itemSoldTotal/itemSoldUnits` de una
+  compra) y autorrellena el precio de la línea. **Lo que sigue abierto** es la
+  otra mitad del pedido: producción sin stock del insumo genera costos
+  negativos / márgenes distorsionados porque el COGS sale del `itemCost`
+  vigente, no de un último-costo de referencia. Eso es del módulo de
+  producción (`context/23`), no de compras — `M`.
 
 ### POS / Espacios
 
