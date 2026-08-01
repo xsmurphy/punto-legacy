@@ -75,7 +75,13 @@ export function AgentSettingsDialog() {
         agentName: name.trim().slice(0, 40),
         agentPersonality: personality,
       })
-      toast.success("Asistente actualizado")
+      // El tono nuevo entra al system prompt del PRÓXIMO mensaje, pero en una
+      // conversación larga el historial con el tono viejo pesa — avisar que
+      // un chat nuevo lo aplica pleno evita el reporte "no cambió nada".
+      toast.success("Asistente actualizado", {
+        description:
+          "El cambio aplica desde el próximo mensaje. En una conversación ya iniciada el tono anterior puede persistir — para verlo pleno, iniciá un chat nuevo.",
+      })
       setOpen(false)
     } catch (e) {
       toast.error("No se pudo guardar la configuración del asistente", {

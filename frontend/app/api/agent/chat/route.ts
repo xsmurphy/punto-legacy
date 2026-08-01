@@ -166,7 +166,7 @@ export async function POST(req: Request) {
     // idioma, alcance, guardrails, confirmaciones). Es un matiz de TONO nada
     // más: nunca puede relajar ni contradecir ninguna regla anterior.
     `## Personalidad\n` +
-    `${AGENT_PERSONALITY_PROMPTS[agentPersonality]} Esto es solo un matiz de tono — nunca contradice ni relaja ninguna regla de las secciones anteriores.\n\n` +
+    `${AGENT_PERSONALITY_PROMPTS[agentPersonality]} Esto es solo un matiz de tono — nunca contradice ni relaja ninguna regla de las secciones anteriores. IMPORTANTE: este es el tono VIGENTE configurado por la empresa y puede haber cambiado a mitad de la conversación — aplicalo desde tu próxima respuesta AUNQUE tus mensajes anteriores en este chat usen otro tono; la configuración actual siempre gana sobre el histórico.\n\n` +
     (pathname ? `Ruta actual del operador en el panel: ${pathname}.\n` : "") +
     (snapshot
       ? (() => {
