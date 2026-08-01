@@ -2,12 +2,45 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Building2, TrendingUp, Users, AlertCircle, PlusCircle, Clock, DollarSign, Zap, HeartPulse } from "lucide-react"
+import {
+  Building2,
+  TrendingUp,
+  Users,
+  AlertCircle,
+  PlusCircle,
+  Clock,
+  DollarSign,
+  Zap,
+  HeartPulse,
+  UserMinus,
+} from "lucide-react"
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  XAxis,
+  YAxis,
+} from "recharts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
+import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
+import { formatInt, formatMoney } from "@/lib/format"
 import { useAdminOverview, useAdminRequests, useAdminHealthList } from "@/hooks/use-admin"
 
 function healthScoreBadge(level: string, score: number) {
@@ -20,17 +53,11 @@ function healthScoreBadge(level: string, score: number) {
   return <Badge className={`${cls} text-xs tabular-nums`}>{score}</Badge>
 }
 
-function statusBadge(status: string, blocked: number) {
-  if (blocked) return <Badge variant="destructive">Bloqueada</Badge>
-  if (status === "active") return <Badge className="bg-green-600 text-white">Activa</Badge>
-  if (status === "cancelled") return <Badge variant="destructive">Cancelada</Badge>
-  if (status === "suspended")
-    return (
-      <Badge variant="outline" className="text-amber-600 border-amber-600">
-        Suspendida
-      </Badge>
-    )
-  return <Badge variant="secondary">{status}</Badge>
+/** 'YYYY-MM' → "ene", "feb", ... (es-PY, corto). */
+function monthLabel(m: string): string {
+  if (!/^\d{4}-\d{2}$/.test(m)) return m
+  const d = new Date(`${m}-02T00:00:00`)
+  return d.toLocaleDateString("es-PY", { month: "short" }).replace(".", "")
 }
 
 export default function AdminDashboardPage() {
@@ -45,10 +72,11 @@ export default function AdminDashboardPage() {
     .filter((h) => h.level !== "green")
     .sort((a, b) => a.score - b.score)
     .slice(0, 6)
+  const redCount = (healthList ?? []).filter((h) => h.level === "red").length
 
   const companies = overview?.companies
+  const saas = overview?.saas
   const mrr = overview?.mrr ?? 0
-  const arr = overview?.arr ?? 0
   const newThisMonth = overview?.newThisMonth ?? 0
 
   return (
@@ -58,133 +86,90 @@ export default function AdminDashboardPage() {
         <p className="text-muted-foreground text-sm mt-0.5">Vista general del sistema</p>
       </div>
 
-      {/* KPI cards — fila 1: empresas */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total empresas</CardTitle>
-            <Building2 className="size-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div className="text-3xl font-bold">{companies?.total ?? 0}</div>
-            )}
-          </CardContent>
-        </Card>
+      {/* KPI row 1 — tenants */}
+      <StatsRow className="flex-wrap">
+        <StatTile
+          icon={<Building2 className="size-3.5" />}
+          label="Total empresas"
+          value={formatInt(companies?.total, undefined)}
+          isLoading={loadingOverview}
+        />
+        <StatTile
+          icon={<TrendingUp className="size-3.5" />}
+          label="Activos"
+          value={formatInt(saas?.tenantsGoodStanding, undefined)}
+          tone="positive"
+          isLoading={loadingOverview}
+        />
+        <StatTile
+          icon={<Clock className="size-3.5" />}
+          label="En trial"
+          value={formatInt(saas?.tenantsTrial, undefined)}
+          isLoading={loadingOverview}
+        />
+        <StatTile
+          icon={<AlertCircle className="size-3.5" />}
+          label="Morosos / vencidos"
+          value={formatInt(saas?.tenantsDelinquent, undefined)}
+          tone="negative"
+          isLoading={loadingOverview}
+        />
+        <StatTile
+          icon={<PlusCircle className="size-3.5" />}
+          label="Altas del mes"
+          value={formatInt(newThisMonth, undefined)}
+          isLoading={loadingOverview}
+        />
+        <StatTile
+          icon={<UserMinus className="size-3.5" />}
+          label="Bajas del mes"
+          value={formatInt(saas?.churnedThisMonth, undefined)}
+          tone={((saas?.churnedThisMonth ?? 0) > 0) ? "negative" : "neutral"}
+          isLoading={loadingOverview}
+        />
+      </StatsRow>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Activas</CardTitle>
-            <TrendingUp className="size-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div className="text-3xl font-bold text-green-600">{companies?.active ?? 0}</div>
-            )}
-          </CardContent>
-        </Card>
+      {/* KPI row 2 — financiero / IA / riesgo */}
+      <StatsRow className="flex-wrap">
+        <StatTile
+          icon={<DollarSign className="size-3.5" />}
+          label="MRR"
+          value={formatMoney(mrr, undefined)}
+          tone="positive"
+          emphasis
+          isLoading={loadingOverview}
+        />
+        <StatTile
+          icon={<Zap className="size-3.5" />}
+          label="Créditos IA (mes)"
+          value={formatInt(saas?.aiCreditsConsumedThisMonth, undefined)}
+          isLoading={loadingOverview}
+        />
+        <StatTile
+          icon={<HeartPulse className="size-3.5" />}
+          label="Tenants en rojo"
+          value={formatInt(redCount, undefined)}
+          tone={redCount > 0 ? "negative" : "neutral"}
+          isLoading={loadingHealth}
+        />
+        <StatTile
+          icon={<Users className="size-3.5" />}
+          label="Solicitudes pendientes"
+          value={formatInt(pendingCount, undefined)}
+          isLoading={loadingRequests}
+        />
+      </StatsRow>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Trial/Vencidas</CardTitle>
-            <Clock className="size-4 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div className="text-3xl font-bold text-amber-500">{companies?.trial ?? 0}</div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Suspendidas</CardTitle>
-            <AlertCircle className="size-4 text-destructive" />
-          </CardHeader>
-          <CardContent>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div className="text-3xl font-bold text-destructive">{companies?.suspended ?? 0}</div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Nuevas este mes</CardTitle>
-            <PlusCircle className="size-4 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div className="text-3xl font-bold text-blue-500">{newThisMonth}</div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* KPI cards — fila 2: financiero */}
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">MRR</CardTitle>
-            <DollarSign className="size-4 text-emerald-600" />
-          </CardHeader>
-          <CardContent>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <div className="text-3xl font-bold text-emerald-600">
-                {mrr.toLocaleString("es-PY", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">ARR</CardTitle>
-            <DollarSign className="size-4 text-emerald-700" />
-          </CardHeader>
-          <CardContent>
-            {loadingOverview ? (
-              <Skeleton className="h-8 w-24" />
-            ) : (
-              <div className="text-3xl font-bold text-emerald-700">
-                {arr.toLocaleString("es-PY", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Solicitudes pendientes</CardTitle>
-            <Users className="size-4 text-orange-500" />
-          </CardHeader>
-          <CardContent>
-            {loadingRequests ? (
-              <Skeleton className="h-8 w-16" />
-            ) : (
-              <div className="flex items-center gap-2">
-                <div className="text-3xl font-bold text-orange-500">{pendingCount}</div>
-                {pendingCount > 0 && (
-                  <Link href="/admin/requests">
-                    <Badge variant="destructive" className="text-xs cursor-pointer">Ver</Badge>
-                  </Link>
-                )}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+      {/* Charts SaaS — F1 */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <MrrChart data={overview?.series.mrrByMonth} isLoading={loadingOverview} />
+        <TenantsFlowChart data={overview?.series.tenantsByMonth} isLoading={loadingOverview} />
+        <AiCreditsChart
+          data={overview?.series.aiCreditsByMonth}
+          capabilities={overview?.aiCapabilities ?? []}
+          isLoading={loadingOverview}
+        />
+        <GmvChart data={overview?.series.gmvByMonth} isLoading={loadingOverview} />
       </div>
 
       {/* Grid de widgets */}
@@ -257,7 +242,7 @@ export default function AdminDashboardPage() {
                   >
                     <span className="text-sm font-medium truncate">{c.name || "(sin nombre)"}</span>
                     <Badge variant="secondary" className="text-xs tabular-nums ml-2 shrink-0">
-                      {c.balance.toLocaleString("es-PY")} cr.
+                      {formatInt(c.balance, undefined)} cr.
                     </Badge>
                   </Link>
                 ))}
@@ -307,6 +292,283 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  )
+}
+
+// ── Charts SaaS (F1) ─────────────────────────────────────────────────────────
+
+const mrrChartConfig = {
+  mrr: { label: "MRR", color: "var(--chart-1)" },
+} satisfies ChartConfig
+
+function MrrChart({
+  data,
+  isLoading,
+}: {
+  data: { month: string; mrr: number }[] | undefined
+  isLoading: boolean
+}) {
+  const hasData = (data ?? []).some((p) => p.mrr > 0)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">MRR — últimos 12 meses</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-[220px] w-full" />
+        ) : !hasData ? (
+          <EmptyChart label="Sin MRR en el período" />
+        ) : (
+          <ChartContainer config={mrrChartConfig} className="h-[220px] w-full">
+            <LineChart data={data} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tickFormatter={monthLabel}
+                fontSize={10}
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                fontSize={10}
+                stroke="var(--muted-foreground)"
+                tickFormatter={(v: number) => formatMoney(v, undefined)}
+                tickLine={false}
+                axisLine={false}
+                width={64}
+              />
+              <ChartTooltip
+                cursor={{ stroke: "var(--border)" }}
+                content={
+                  <ChartTooltipContent
+                    labelFormatter={(l) => monthLabel(String(l))}
+                    formatter={(value) => (
+                      <span className="font-medium tabular-nums">{formatMoney(Number(value) || 0, undefined)}</span>
+                    )}
+                  />
+                }
+              />
+              <Line
+                type="monotone"
+                dataKey="mrr"
+                stroke="var(--color-mrr)"
+                strokeWidth={2}
+                dot={false}
+              />
+            </LineChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const tenantsFlowChartConfig = {
+  new: { label: "Altas", color: "var(--chart-1)" },
+  churned: { label: "Bajas", color: "var(--destructive)" },
+} satisfies ChartConfig
+
+function TenantsFlowChart({
+  data,
+  isLoading,
+}: {
+  data: { month: string; new: number; churned: number }[] | undefined
+  isLoading: boolean
+}) {
+  const hasData = (data ?? []).some((p) => p.new > 0 || p.churned > 0)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Altas vs. bajas por mes</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-[220px] w-full" />
+        ) : !hasData ? (
+          <EmptyChart label="Sin movimientos de tenants en el período" />
+        ) : (
+          <ChartContainer config={tenantsFlowChartConfig} className="h-[220px] w-full">
+            <BarChart data={data} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tickFormatter={monthLabel}
+                fontSize={10}
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                allowDecimals={false}
+                fontSize={10}
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
+                width={28}
+              />
+              <ChartTooltip
+                cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                content={<ChartTooltipContent labelFormatter={(l) => monthLabel(String(l))} />}
+              />
+              <ChartLegend content={<ChartLegendContent />} />
+              <Bar dataKey="new" fill="var(--color-new)" radius={[4, 4, 0, 0]} maxBarSize={24} />
+              <Bar dataKey="churned" fill="var(--color-churned)" radius={[4, 4, 0, 0]} maxBarSize={24} />
+            </BarChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function AiCreditsChart({
+  data,
+  capabilities,
+  isLoading,
+}: {
+  data: (Record<string, number | string> & { month: string; total: number })[] | undefined
+  capabilities: string[]
+  isLoading: boolean
+}) {
+  const config = React.useMemo(() => {
+    const c: ChartConfig = {}
+    capabilities.forEach((cap, i) => {
+      c[cap] = { label: cap, color: `var(--chart-${(i % 5) + 1})` }
+    })
+    return c
+  }, [capabilities])
+
+  const hasData = (data ?? []).some((p) => (p.total as number) > 0)
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Consumo de créditos IA por mes</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-[220px] w-full" />
+        ) : !hasData || capabilities.length === 0 ? (
+          <EmptyChart label="Sin consumo de IA en el período" />
+        ) : (
+          <ChartContainer config={config} className="h-[220px] w-full">
+            <AreaChart data={data} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tickFormatter={monthLabel}
+                fontSize={10}
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                allowDecimals={false}
+                fontSize={10}
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
+                width={36}
+              />
+              <ChartTooltip
+                cursor={{ stroke: "var(--border)" }}
+                content={<ChartTooltipContent labelFormatter={(l) => monthLabel(String(l))} />}
+              />
+              <ChartLegend content={<ChartLegendContent />} />
+              {capabilities.map((cap) => (
+                <Area
+                  key={cap}
+                  type="monotone"
+                  dataKey={cap}
+                  stackId="ai"
+                  stroke={`var(--color-${cap})`}
+                  fill={`var(--color-${cap})`}
+                  fillOpacity={0.5}
+                />
+              ))}
+            </AreaChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+const gmvChartConfig = {
+  gmv: { label: "GMV", color: "var(--chart-2)" },
+} satisfies ChartConfig
+
+function GmvChart({
+  data,
+  isLoading,
+}: {
+  data: { month: string; gmv: number }[] | undefined
+  isLoading: boolean
+}) {
+  const hasData = (data ?? []).some((p) => p.gmv > 0)
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">GMV agregado por mes</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <Skeleton className="h-[220px] w-full" />
+        ) : !hasData ? (
+          <EmptyChart label="Sin ventas registradas en el período" />
+        ) : (
+          <ChartContainer config={gmvChartConfig} className="h-[220px] w-full">
+            <LineChart data={data} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="month"
+                tickFormatter={monthLabel}
+                fontSize={10}
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                fontSize={10}
+                stroke="var(--muted-foreground)"
+                tickFormatter={(v: number) => formatMoney(v, undefined)}
+                tickLine={false}
+                axisLine={false}
+                width={64}
+              />
+              <ChartTooltip
+                cursor={{ stroke: "var(--border)" }}
+                content={
+                  <ChartTooltipContent
+                    labelFormatter={(l) => monthLabel(String(l))}
+                    formatter={(value) => (
+                      <span className="font-medium tabular-nums">{formatMoney(Number(value) || 0, undefined)}</span>
+                    )}
+                  />
+                }
+              />
+              <Line
+                type="monotone"
+                dataKey="gmv"
+                stroke="var(--color-gmv)"
+                strokeWidth={2}
+                dot={false}
+              />
+            </LineChart>
+          </ChartContainer>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+function EmptyChart({ label }: { label: string }) {
+  return (
+    <div className="flex h-[220px] items-center justify-center">
+      <EmptyState icon={TrendingUp} title={label} showMarquee={false} className="border-0 p-0" />
     </div>
   )
 }

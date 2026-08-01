@@ -109,6 +109,23 @@ export interface AdminOverview {
   byCountry: Array<{ country: string; count: number }>
   newPerMonth: Array<{ month: string; count: number }>
   topAiCredits: Array<{ companyId: string; name: string; balance: number }>
+  /** F1 — analíticas SaaS (context/34-admin-saas-plan.md). Aproximaciones documentadas en AdminReportsService. */
+  saas: {
+    tenantsGoodStanding: number
+    tenantsTrial: number
+    tenantsDelinquent: number
+    churnedThisMonth: number
+    aiCreditsConsumedThisMonth: number
+  }
+  series: {
+    mrrByMonth: Array<{ month: string; mrr: number }>
+    tenantsByMonth: Array<{ month: string; new: number; churned: number }>
+    /** Filas dinámicas: {month, total, [capability]: credits}. Ver aiCapabilities para las keys. */
+    aiCreditsByMonth: Array<{ month: string; total: number } & Record<string, number | string>>
+    gmvByMonth: Array<{ month: string; gmv: number }>
+  }
+  /** Keys presentes en series.aiCreditsByMonth (fuera de month/total), orden estable. */
+  aiCapabilities: string[]
 }
 
 export interface AdminPaymentsResult {
