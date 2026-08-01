@@ -9,13 +9,11 @@ export interface TicketData {
   companyPhone?: string
   companyLogoUrl?: string
   /**
-   * companyBillingName/companyTin/companyEmail/companyWebsite: NO poblados
-   * hoy — PosConfig (`lib/types/pos-bootstrap.ts`) solo trae
-   * companyName/companyId/companyLogo, sin razón social/RUC/email/sitio.
-   * Requiere ampliar `/api/pos/bootstrap` + `/v1/bootstrap` upstream. Los
-   * bloques `company_billing_name`/`company_tin`/`company_email`/
-   * `company_website` (ver `blocks.ts`) resuelven estos campos y quedan en
-   * blanco hasta que existan.
+   * Razón social/RUC/email/sitio del tenant — poblados desde `PosConfig`
+   * (`companyBillingName`/`companyTin`/`companyEmail`/`companyWebsite`,
+   * `/api/pos/bootstrap` ← `/v1/bootstrap`). Null si el tenant no los cargó
+   * en Ajustes. Los bloques `company_billing_name`/`company_tin`/
+   * `company_email`/`company_website` (ver `blocks.ts`) los resuelven.
    */
   companyBillingName?: string | null
   companyTin?: string | null
@@ -24,10 +22,10 @@ export interface TicketData {
   // sucursal
   outletName?: string
   /**
-   * outletAddress/outletBillingName/outletTin/outletPhone: `OutletListItem`
-   * (`lib/types/outlet.ts`) YA tiene billingName/ruc/phone/address, pero
-   * `PosOutlet` (bootstrap del POS) solo trae id/name/lat/lng — no llegan
-   * acá. Requiere ampliar el bootstrap igual que company*.
+   * Datos fiscales de la sucursal activa — poblados desde `PosOutlet`
+   * (`state.outlet.address`/`billingName`/`tin`/`phone`, ampliado igual que
+   * company* — ver `/api/pos/bootstrap` ← `/v1/bootstrap`). Null si el
+   * outlet no los cargó.
    */
   outletAddress?: string
   outletBillingName?: string | null
@@ -95,10 +93,12 @@ export interface TicketData {
    */
   printerName?: string | null
   /**
-   * Timbrado (No./inicio/vencimiento): registerInvoiceAuth* existe en BD
-   * (mig 26) pero no viaja al POS bootstrap hoy, y la fuente correcta a
-   * futuro puede terminar siendo el módulo de facturación electrónica
-   * (api/lib/EInvoice/*, en desarrollo en paralelo — no tocado acá).
+   * Timbrado (No./inicio/vencimiento): `register.data.registerInvoiceAuth*`
+   * (mig 26), poblado desde `PosRegister` (`state.registers`, resuelto
+   * contra `activeRegisterId`). Esto cubre el flujo NO-FE (tickets/facturas
+   * preimpresas); la fuente correcta a futuro para facturación electrónica
+   * puede terminar siendo otro módulo (api/lib/EInvoice/*, en desarrollo en
+   * paralelo — no tocado acá).
    */
   authNumber?: string | null
   authStartDate?: string | null
@@ -153,7 +153,8 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
   const state = useCatalogStore.getState()
   const outletName = state.outlet?.name
   const customer = state.customers.find((c) => c.id === payload.client) ?? null
-  const registerName = state.registers.find((r) => r.id === state.activeRegisterId)?.name ?? null
+  const activeRegister = state.registers.find((r) => r.id === state.activeRegisterId) ?? null
+  const registerName = activeRegister?.name ?? null
 
   const items: TicketItem[] = payload.sale.map((s) => {
     const catalogItem = state.items.find((i) => i.id === s.itemId)
@@ -174,7 +175,15 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
 
   return {
     companyName: config?.companyName ?? "",
+    companyBillingName: config?.companyBillingName ?? null,
+    companyTin: config?.companyTin ?? null,
+    companyEmail: config?.companyEmail ?? null,
+    companyWebsite: config?.companyWebsite ?? null,
     outletName,
+    outletAddress: state.outlet?.address ?? undefined,
+    outletBillingName: state.outlet?.billingName ?? null,
+    outletTin: state.outlet?.tin ?? null,
+    outletPhone: state.outlet?.phone ?? null,
     customerName: customer?.name,
     customerPhone: customer?.phone ?? undefined,
     customerTin: customer?.tin ?? undefined,
@@ -184,6 +193,9 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     dueDate: payload.dueDate ?? null,
     tags: payload.tags,
     registerName,
+    authNumber: activeRegister?.authNumber ?? null,
+    authStartDate: activeRegister?.authStartDate ?? null,
+    authExpiration: activeRegister?.authExpiration ?? null,
     date: payload.date,
     items,
     subtotal: payload.subtotal,
@@ -269,9 +281,27 @@ export function buildTicketDataFromTransaction(
   const discount = Number(tx.discount ?? 0)
   const total = Number(tx.total ?? 0)
   const itemsTotal = items.reduce((s, i) => s + i.total, 0)
+  // Reimpresión: mismo device/sesión, así que el catálogo hidratado en
+  // useCatalogStore refleja la sucursal/caja actuales — la transacción
+  // persistida no trae estos campos, no hay otra fuente hoy.
+  const state = useCatalogStore.getState()
+  const activeRegister = state.registers.find((r) => r.id === state.activeRegisterId) ?? null
 
   return {
     companyName: config?.companyName ?? "",
+    companyBillingName: config?.companyBillingName ?? null,
+    companyTin: config?.companyTin ?? null,
+    companyEmail: config?.companyEmail ?? null,
+    companyWebsite: config?.companyWebsite ?? null,
+    outletName: state.outlet?.name,
+    outletAddress: state.outlet?.address ?? undefined,
+    outletBillingName: state.outlet?.billingName ?? null,
+    outletTin: state.outlet?.tin ?? null,
+    outletPhone: state.outlet?.phone ?? null,
+    registerName: activeRegister?.name ?? null,
+    authNumber: activeRegister?.authNumber ?? null,
+    authStartDate: activeRegister?.authStartDate ?? null,
+    authExpiration: activeRegister?.authExpiration ?? null,
     customerName: tx.customerName?.trim() || undefined,
     docType,
     documentNumber: tx.documentNo || undefined,

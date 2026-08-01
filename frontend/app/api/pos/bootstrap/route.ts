@@ -115,11 +115,27 @@ interface UpstreamBootstrap {
   activeOutletLng?: number | string | null
   activeRegisterId?: string
   outlets: Array<{ id: string; name: string }>
+  // Razón social/RUC/email/sitio del tenant y datos fiscales de la sucursal
+  // activa — ticket impreso (flujo NO-FE, ver context/10-roadmap.md
+  // §2026-07-30). '' si no cargados.
+  companyBillingName?: string
+  companyTin?: string
+  companyEmail?: string
+  companyWebsite?: string
+  activeOutletAddress?: string
+  activeOutletBillingName?: string
+  activeOutletTin?: string
+  activeOutletPhone?: string
 }
 
 interface UpstreamRegisterRow {
   id: string
   name: string
+  // Timbrado de la caja (register.data.registerInvoiceAuth*, mig 26). '' si no configurado.
+  invoiceAuth?: string
+  invoicePrefix?: string
+  invoiceAuthStart?: string
+  invoiceAuthExpiration?: string
 }
 
 interface UpstreamRegisterList {
@@ -262,6 +278,10 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     companyId: bs.companyId ?? "",
     companyLogo: bs.logoUrl || null,
     publicUrl: bs.publicUrl ?? "",
+    companyBillingName: bs.companyBillingName || null,
+    companyTin: bs.companyTin || null,
+    companyEmail: bs.companyEmail || null,
+    companyWebsite: bs.companyWebsite || null,
   }
 }
 
@@ -576,7 +596,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       id: r.id,
       name: r.name,
       outletId: bs.activeOutletId ?? "",
-      expeditionPoint: null, // TODO (A7+): exponer desde el endpoint cuando esté disponible
+      expeditionPoint: r.invoicePrefix || null,
+      authNumber: r.invoiceAuth || null,
+      authStartDate: r.invoiceAuthStart || null,
+      authExpiration: r.invoiceAuthExpiration || null,
     }),
   )
 
@@ -603,6 +626,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       // descartamos cualquier valor no finito (nunca NaN hacia el cliente).
       lat: toFiniteNumber(bs.activeOutletLat),
       lng: toFiniteNumber(bs.activeOutletLng),
+      address: bs.activeOutletAddress || null,
+      billingName: bs.activeOutletBillingName || null,
+      tin: bs.activeOutletTin || null,
+      phone: bs.activeOutletPhone || null,
     },
     // Lista completa de sucursales del tenant (para el selector de 2 pasos).
     outlets: Array.isArray(bs.outlets) ? bs.outlets : [],

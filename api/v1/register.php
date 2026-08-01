@@ -85,7 +85,7 @@ if ($method === 'GET' && $resource === 'list') {
         apiError('Sin sucursal activa', 422);
     }
     $rs = ncmExecute(
-        'SELECT registerId, registerName
+        'SELECT registerId, registerName, data
            FROM register
           WHERE companyId = ? AND outletId = ? AND registerStatus = TRUE
           ORDER BY registerName ASC',
@@ -97,9 +97,23 @@ if ($method === 'GET' && $resource === 'list') {
     if ($rs && is_object($rs)) {
         while (!$rs->EOF) {
             $f = $rs->fields;
+            // Timbrado (mig 26 lo demoteó a `data` JSONB). El POS lo necesita
+            // para el ticket impreso (flujo NO-FE, ver context/10-roadmap.md
+            // §2026-07-30): TIMBRADO/INICIO/VENCIMIENTO salían en blanco
+            // porque este endpoint nunca los exponía.
+            //
+            // OJO: ncmExecute APLANA `data` al nivel de la fila y borra la
+            // columna (Query::flattenJsonb) — `$f['data']` acá es null. Los
+            // campos del JSONB se leen DIRECTO de la fila aplanada; hacer
+            // json_decode($f['data']) es el mismo bug silencioso de
+            // parked-sales/pinhash (2026-07-30).
             $registers[] = [
-                'id'   => (string) ($f['registerId'] ?? $f['registerid'] ?? ''),
-                'name' => (string) ($f['registerName'] ?? $f['registername'] ?? ''),
+                'id'                    => (string) ($f['registerId'] ?? ''),
+                'name'                  => (string) ($f['registerName'] ?? ''),
+                'invoiceAuth'           => (string) ($f['registerInvoiceAuth'] ?? ''),
+                'invoicePrefix'         => (string) ($f['registerInvoicePrefix'] ?? ''),
+                'invoiceAuthStart'      => (string) ($f['registerInvoiceAuthStart'] ?? ''),
+                'invoiceAuthExpiration' => (string) ($f['registerInvoiceAuthExpiration'] ?? ''),
             ];
             $rs->MoveNext();
         }

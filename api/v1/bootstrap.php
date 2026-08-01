@@ -37,7 +37,15 @@ $row = ncmExecute(
         config->>'settingName'              AS companyname,
         config->>'hasLogo'                  AS haslogo,
         config->>'logoUrl'                  AS logourl,
-        config->>'logoUploadedAt'           AS logouploadedat
+        config->>'logoUploadedAt'           AS logouploadedat,
+        -- Razón social/RUC/email/sitio del tenant (ticket impreso, flujo
+        -- NO-FE — ver context/10-roadmap.md §2026-07-30). A futuro la
+        -- facturación electrónica puede terminar siendo otra fuente para
+        -- estos mismos datos; hoy son los únicos disponibles.
+        config->>'settingBillingName'       AS companybillingname,
+        config->>'settingRUC'               AS companytin,
+        config->>'settingEmail'             AS companyemail,
+        config->>'settingWebSite'           AS companywebsite
      FROM company
      WHERE companyId = ?",
     [COMPANY_ID]
@@ -54,7 +62,12 @@ if (!is_object($row) && !is_array($row)) {
 // `forceObj=true` (4to arg) fuerza recordset multi-row iterable — sin él
 // ncmExecute con una única fila colapsa a CaseInsensitiveArray escalar.
 $outletsRs = ncmExecute(
-    'SELECT outletId, outletName, lat, lng FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletName ASC',
+    // outletAddress/BillingName/RUC/Phone viven en `data` JSONB (mig 14, jsonb
+    // demote) — NO son columnas. Se selecciona `data` y flattenJsonb los sube
+    // al nivel de la fila; nombrarlos en el SELECT rompería el bootstrap
+    // entero con "column does not exist".
+    'SELECT outletId, outletName, lat, lng, data
+       FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletName ASC',
     [COMPANY_ID],
     false,
     true
@@ -66,6 +79,12 @@ $activeOutletName = '';
 // /pos/ordenes para el PIN del local. NULL si la sucursal no cargó ubicación.
 $activeOutletLat = null;
 $activeOutletLng = null;
+// Datos fiscales de la sucursal activa (ticket impreso, flujo NO-FE — ver
+// context/10-roadmap.md §2026-07-30). '' si el outlet no los cargó.
+$activeOutletAddress     = '';
+$activeOutletBillingName = '';
+$activeOutletTin         = '';
+$activeOutletPhone       = '';
 if ($outletsRs && is_object($outletsRs)) {
     while (!$outletsRs->EOF) {
         $f    = $outletsRs->fields;
@@ -81,6 +100,10 @@ if ($outletsRs && is_object($outletsRs)) {
                 $activeOutletLat = (float) $rawLat;
                 $activeOutletLng = (float) $rawLng;
             }
+            $activeOutletAddress     = (string) ($f['outletAddress'] ?? $f['outletaddress'] ?? '');
+            $activeOutletBillingName = (string) ($f['outletBillingName'] ?? $f['outletbillingname'] ?? '');
+            $activeOutletTin         = (string) ($f['outletRUC'] ?? $f['outletruc'] ?? '');
+            $activeOutletPhone       = (string) ($f['outletPhone'] ?? $f['outletphone'] ?? '');
         }
         $outletsRs->MoveNext();
     }
@@ -107,6 +130,11 @@ apiOk([
     'timezone'    => $row['timezone'] ?? '',
     'companyName' => $row['companyname'] ?? '',
     'companyId'   => COMPANY_ID,
+    // Razón social/RUC/email/sitio del tenant — ticket impreso (flujo NO-FE).
+    'companyBillingName' => $row['companybillingname'] ?? '',
+    'companyTin'         => $row['companytin'] ?? '',
+    'companyEmail'       => $row['companyemail'] ?? '',
+    'companyWebsite'     => $row['companywebsite'] ?? '',
     // Logo del tenant (S3, público). '' si no hay logo cargado — el front
     // hace fallback a la marca Punto. `?v=` cache-bust con logoUploadedAt.
     'logoUrl'     => (($row['haslogo'] ?? '') === '1' || ($row['haslogo'] ?? '') === 'true')
@@ -132,6 +160,11 @@ apiOk([
     // Coords del local para el PIN fijo del mapa de órdenes (/pos/ordenes).
     'activeOutletLat'  => $activeOutletLat,
     'activeOutletLng'  => $activeOutletLng,
+    // Datos fiscales de la sucursal activa — ticket impreso (flujo NO-FE).
+    'activeOutletAddress'     => $activeOutletAddress,
+    'activeOutletBillingName' => $activeOutletBillingName,
+    'activeOutletTin'         => $activeOutletTin,
+    'activeOutletPhone'       => $activeOutletPhone,
     'outlets'          => $outlets,
     // Cantidad de usuarios (type=0) activos del tenant — usado por el POS
     // para auto-activar el lock screen al entrar cuando hay > 1 usuario

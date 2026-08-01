@@ -64,6 +64,16 @@ export interface PosConfig {
   companyLogo?: string | null
   /** Base URL de screens standalone (impresión, KDS, etc). */
   publicUrl: string
+  /**
+   * Razón social/RUC/email/sitio del tenant — ticket impreso (flujo NO-FE).
+   * `null` si el tenant no los cargó en Ajustes. A futuro la fuente puede
+   * terminar siendo facturación electrónica (api/lib/EInvoice/*); hoy son
+   * los únicos datos disponibles.
+   */
+  companyBillingName?: string | null
+  companyTin?: string | null
+  companyEmail?: string | null
+  companyWebsite?: string | null
 }
 
 // ── Caja (register) ───────────────────────────────────────────────────────────
@@ -75,6 +85,15 @@ export interface PosRegister {
   outletId: string
   /** Punto de expedición fiscal (timbrado PY, etc). */
   expeditionPoint: string | null
+  /**
+   * Timbrado de la caja (`register.data.registerInvoiceAuth*`, mig 26 —
+   * ver RegisterAdminService::listAll). Null si la caja no tiene timbrado
+   * configurado. `authStartDate`/`authExpiration` vienen como string ISO,
+   * sin parsear acá.
+   */
+  authNumber?: string | null
+  authStartDate?: string | null
+  authExpiration?: string | null
 }
 
 // ── Item vendible en el POS ───────────────────────────────────────────────────
@@ -167,6 +186,11 @@ export interface PosOutlet {
   name: string
   lat: number | null
   lng: number | null
+  /** Datos fiscales de la sucursal — ticket impreso (flujo NO-FE). Null si no cargados. */
+  address?: string | null
+  billingName?: string | null
+  tin?: string | null
+  phone?: string | null
 }
 
 export interface PosBootstrap {
