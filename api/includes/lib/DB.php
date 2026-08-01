@@ -20,7 +20,15 @@
 // Resuelve la diferencia MySQL (case-insensitive) vs PostgreSQL (lowercase):
 // $fields['contactPassword'] encuentra la clave 'contactpassword' de PG.
 // ─────────────────────────────────────────────────────────────────────────────
-class CaseInsensitiveArray implements ArrayAccess, IteratorAggregate, Countable
+// `JsonSerializable` NO es decorativo: sin él, `json_encode()` de una fila
+// (`$rs->fields`) serializaba `{}` — `$data`/`$keyMap` son privados y la clase
+// no exponía nada más. Todo endpoint que devolviera filas crudas en la
+// respuesta mandaba objetos vacíos: la request salía 200, el front recibía N
+// filas sin ninguna propiedad y pintaba una tabla de celdas en blanco
+// (/settings/sessions, reporte del owner 2026-08-01 — las sesiones ACTIVAS se
+// veían como "Revocada" porque `status` también llegaba undefined). Es el
+// mismo patrón de falla silenciosa que flattenJsonb: 200 + dato desaparecido.
+class CaseInsensitiveArray implements ArrayAccess, IteratorAggregate, Countable, JsonSerializable
 {
     private array $data   = [];
     private array $keyMap = []; // strtolower(key) => original key
@@ -71,6 +79,9 @@ class CaseInsensitiveArray implements ArrayAccess, IteratorAggregate, Countable
     public function count(): int { return count($this->data); }
 
     public function toArray(): array { return $this->data; }
+
+    /** Serializa como la fila que representa (ver nota de la clase). */
+    public function jsonSerialize(): array { return $this->data; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
