@@ -1212,15 +1212,25 @@ function PayPhase({
           </div>
         )}
 
-        {/* Grilla de métodos principal — 3 cols. */}
-        <div className="grid grid-cols-3 gap-1.5">
-          {primaryMethods.map((m) => {
+        {/* Grilla ÚNICA de métodos — 2 columnas parejas, botones de alto
+            táctil uniforme. Antes: principales en grid-cols-3 (con 5 métodos
+            la última fila quedaba coja) + secundarios en OTRO bloque flex
+            bajo un Separator (la "línea sin sentido" arriba de Giftcard,
+            reporte del owner 2026-08-01). Mismo orden y mismos atajos: los
+            secundarios (Interno/Giftcard) van al final, integrados, con
+            texto atenuado — la jerarquía la da el estilo, no otro layout. */}
+        <div className="grid grid-cols-2 gap-2">
+          {[...primaryMethods, ...secondaryMethods].map((m) => {
             const accent = resolveColorBg(m.color)
+            const secondary = !!(m.systemKey && SECONDARY_SYSTEM_KEYS.includes(m.systemKey))
             return (
             <Button
               key={m.id}
               variant={m.isDefault ? "default" : "outline"}
-              className="h-9 justify-center gap-1.5 border-l-4 px-2 text-xs font-medium"
+              className={cn(
+                "h-10 justify-center gap-1.5 border-l-4 px-2 text-xs font-medium",
+                secondary && "text-muted-foreground",
+              )}
               style={accent ? { borderLeftColor: accent } : undefined}
               onClick={() => onMethodClick(m)}
               disabled={!credito && remaining <= 0}
@@ -1242,36 +1252,6 @@ function PayPhase({
             )
           })}
         </div>
-
-        {/* Métodos secundarios (Crédito Interno, Giftcard). */}
-        {secondaryMethods.length > 0 && (
-          <>
-            <Separator className="my-0.5" />
-            <div className="flex flex-wrap gap-1.5">
-              {secondaryMethods.map((m) => {
-                const accent = resolveColorBg(m.color)
-                return (
-                <Button
-                  key={m.id}
-                  variant="outline"
-                  className="h-8 justify-center gap-1.5 border-l-4 px-3 text-xs font-medium text-muted-foreground"
-                  style={accent ? { borderLeftColor: accent } : undefined}
-                  onClick={() => onMethodClick(m)}
-                  disabled={!credito && remaining <= 0}
-                >
-                  <span className="truncate">{m.name}</span>
-                  {m.code && (
-                    <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border border-border/60 bg-background/60 px-1 font-mono text-[10px] font-medium text-muted-foreground">
-                      {m.code}
-                    </kbd>
-                  )}
-                </Button>
-                )
-              })}
-            </div>
-          </>
-        )}
-
 
         {/* Error */}
         {errorMsg && (
