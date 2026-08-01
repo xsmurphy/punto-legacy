@@ -72,7 +72,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: Globe,
     category: "Destacados",
     configKind: "comingSoon",
-    status: "available",
+    status: "soon",
   },
   {
     key: "attendance",
@@ -90,7 +90,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: ScanBarcode,
     category: "Destacados",
     configKind: "none",
-    status: "available",
+    status: "soon",
   },
 
   // ── Marketing y Fidelización ─────────────────────────────────────────────
@@ -110,7 +110,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: MessageCircle,
     category: "Marketing y Fidelización",
     configKind: "feedback",
-    status: "available",
+    status: "soon",
   },
   {
     key: "crm",
@@ -119,7 +119,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: Contact,
     category: "Marketing y Fidelización",
     configKind: "crm",
-    status: "available",
+    status: "soon",
   },
   {
     key: "campaigns",
@@ -159,33 +159,12 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     configKind: "none",
     status: "available",
   },
-  {
-    key: "kds",
-    title: "Kitchen Display",
-    description: "Gestioná pedidos desde una pantalla, sin imprimir.",
-    icon: MonitorSmartphone,
-    category: "Operativos",
-    configKind: "none",
-    status: "available",
-  },
-  {
-    key: "cds",
-    title: "Customer Display",
-    description: "Avisá a tus clientes cuando su pedido esté listo.",
-    icon: Monitor,
-    category: "Operativos",
-    configKind: "none",
-    status: "available",
-  },
-  {
-    key: "cos",
-    title: "Visor de Cobro",
-    description: "Pantalla de venta para el cliente en la caja.",
-    icon: Tv,
-    category: "Operativos",
-    configKind: "none",
-    status: "available",
-  },
+  // Las PANTALLAS (KDS, pantalla cliente, visor de cobro, despacho) no son
+  // módulos: se crean como dispositivos en Configuración → Dispositivos
+  // (device-invite-create-dialog). Estuvieron acá como cards toggleables
+  // (kds/cds/cos) y se retiraron 2026-07-31 — el flag de company que leía el
+  // POS legacy sigue existiendo en el backend (ModulesService.NATIVE_KEYS)
+  // pero no se administra desde el catálogo.
   {
     key: "ordersPanel",
     title: "Panel de Órdenes",
@@ -213,7 +192,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: BellRing,
     category: "Facturación",
     configKind: "none",
-    status: "available",
+    status: "soon",
   },
   {
     key: "digitalInvoice",
@@ -231,7 +210,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: Mail,
     category: "Facturación",
     configKind: "none",
-    status: "available",
+    status: "soon",
   },
   {
     key: "einvoicePy",
@@ -252,7 +231,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: Code,
     category: "Otros",
     configKind: "none",
-    status: "available",
+    status: "soon",
   },
   {
     key: "reminder",

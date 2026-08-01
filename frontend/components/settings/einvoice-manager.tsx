@@ -6,7 +6,9 @@
  * El comercio NUNCA ve al proveedor de FE, y NO re-tipea lo que Punto ya
  * tiene: el RUC y la razón social salen de Configuración del negocio, y los
  * timbrados de las CAJAS — cada caja es un punto de expedición (context/29
- * §1), la sección "Timbrados por caja" edita LA CAJA, no una copia. Acá solo
+ * §1) y su timbrado se configura EN la caja (Sucursales → sucursal → Cajas
+ * → editar), tenga o no el comercio este módulo. Acá solo se muestra el
+ * estado (RegisterStampsSummary, solo lectura). Solo
  * se completa lo que no existe en otro lado (actividad económica, tipo de
  * contribuyente, email, CSC, certificado). Punto provisiona la cuenta por
  * detrás con su credencial admin (EInvoiceProvisioningService).
@@ -45,7 +47,7 @@ import {
 } from "@/hooks/use-einvoice"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { usePermission } from "@/hooks/use-permissions"
-import { useRegistersAdmin, useUpdateRegister, type RegisterFiscal, type RegisterListItem } from "@/hooks/use-registers-admin"
+import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import { useSettings } from "@/hooks/use-settings"
 import type { EInvoiceConfig, EInvoiceFiscalForm, EInvoiceStatus } from "@/lib/types/einvoice"
 import Link from "next/link"
@@ -156,22 +158,24 @@ function CompanyFiscalSummary() {
 }
 
 /**
- * Timbrados POR CAJA — cada caja es un punto de expedición (context/29 §1).
- * Esta sección edita LA CAJA (register.data, vía el endpoint de cajas): no
- * existe una copia del timbrado en facturación electrónica. El alta del
- * emisor lee de acá.
+ * Resumen de timbrados por caja — SOLO LECTURA. El timbrado se configura
+ * donde se configuran las cajas (Sucursales → sucursal → Cajas → editar
+ * caja), tenga o no el comercio este módulo: es dato fiscal de la caja, no
+ * del módulo de facturación electrónica. Acá solo se muestra qué cajas
+ * están listas para emitir, con link a donde se cargan.
  */
-function RegisterStampsCard({ canManage }: { canManage: boolean }) {
+function RegisterStampsSummary() {
   const { data, isLoading } = useRegistersAdmin()
   const registers = (data?.registers ?? []).filter((r) => r.status)
+  const withStamp = registers.filter((r) => r.fiscal.invoiceAuth !== "")
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Timbrados por caja</CardTitle>
         <CardDescription>
-          Cada caja es un punto de expedición: cargá el timbrado que la SET le asignó. Las cajas
-          sin timbrado no emiten factura electrónica.
+          Cada caja es un punto de expedición. El timbrado se carga en la configuración de la
+          caja; las cajas sin timbrado no emiten factura electrónica.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
@@ -184,103 +188,40 @@ function RegisterStampsCard({ canManage }: { canManage: boolean }) {
           <EmptyState
             icon={CreditCard}
             title="Sin cajas activas"
-            description="Creá una caja en Configuración antes de habilitar la facturación electrónica."
+            description="Creá una caja en Sucursales antes de habilitar la facturación electrónica."
             ghost={false}
           />
         ) : (
-          registers.map((r) => <RegisterStampRow key={r.id} register={r} canManage={canManage} />)
+          <div className="flex flex-col gap-2">
+            {registers.map((r) => (
+              <div key={r.id} className="flex items-center justify-between gap-3">
+                <p className="text-sm">
+                  {r.name}
+                  <span className="ml-2 text-xs text-muted-foreground">{r.outletName}</span>
+                </p>
+                {r.fiscal.invoiceAuth ? (
+                  <span className="text-sm tabular-nums">
+                    {r.fiscal.invoiceAuth}
+                    {r.fiscal.invoicePrefix ? ` · ${r.fiscal.invoicePrefix}` : ""}
+                  </span>
+                ) : (
+                  <Badge variant="secondary">Sin timbrado</Badge>
+                )}
+              </div>
+            ))}
+          </div>
         )}
+        <p className="text-sm text-muted-foreground">
+          {withStamp.length === 0
+            ? "Ninguna caja tiene timbrado cargado — cargalos en "
+            : "Los timbrados se administran en "}
+          <Link href="/outlets" className="underline underline-offset-2">
+            Sucursales
+          </Link>
+          {" (elegí la sucursal, después la caja)."}
+        </p>
       </CardContent>
     </Card>
-  )
-}
-
-function RegisterStampRow({ register, canManage }: { register: RegisterListItem; canManage: boolean }) {
-  const update = useUpdateRegister()
-  const [fiscal, setFiscal] = React.useState<RegisterFiscal>(register.fiscal)
-  const dirty =
-    fiscal.invoiceAuth !== register.fiscal.invoiceAuth ||
-    fiscal.invoicePrefix !== register.fiscal.invoicePrefix ||
-    fiscal.invoiceAuthStart !== register.fiscal.invoiceAuthStart ||
-    fiscal.invoiceAuthExpiration !== register.fiscal.invoiceAuthExpiration
-
-  function patch(p: Partial<RegisterFiscal>) {
-    setFiscal((f) => ({ ...f, ...p }))
-  }
-
-  function handleSave() {
-    update.mutate(
-      { id: register.id, fiscal },
-      {
-        onSuccess: () => toast.success(`Timbrado de ${register.name} guardado.`),
-        onError: (err) =>
-          toast.error(`No se pudo guardar el timbrado de ${register.name}`, { description: err.message }),
-      },
-    )
-  }
-
-  return (
-    <div className="flex flex-col gap-3 rounded-md border p-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm font-medium">
-          {register.name}
-          <span className="ml-2 text-xs text-muted-foreground">{register.outletName}</span>
-        </p>
-        {register.fiscal.invoiceAuth && <Badge variant="secondary">Timbrado cargado</Badge>}
-      </div>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="space-y-1.5">
-          <Label htmlFor={`stamp-auth-${register.id}`}>Número de timbrado</Label>
-          <Input
-            id={`stamp-auth-${register.id}`}
-            value={fiscal.invoiceAuth}
-            onChange={(e) => patch({ invoiceAuth: e.target.value.replace(/\D/g, "") })}
-            placeholder="12345678"
-            className="tabular-nums"
-            disabled={!canManage}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor={`stamp-prefix-${register.id}`}>Estab. y punto (EEE-PPP)</Label>
-          <Input
-            id={`stamp-prefix-${register.id}`}
-            value={fiscal.invoicePrefix}
-            onChange={(e) => patch({ invoicePrefix: e.target.value.replace(/[^0-9-]/g, "").slice(0, 7) })}
-            placeholder="001-001"
-            className="tabular-nums"
-            disabled={!canManage}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor={`stamp-start-${register.id}`}>Vigente desde</Label>
-          <Input
-            id={`stamp-start-${register.id}`}
-            type="date"
-            value={fiscal.invoiceAuthStart}
-            onChange={(e) => patch({ invoiceAuthStart: e.target.value })}
-            disabled={!canManage}
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor={`stamp-exp-${register.id}`}>Vence</Label>
-          <Input
-            id={`stamp-exp-${register.id}`}
-            type="date"
-            value={fiscal.invoiceAuthExpiration}
-            onChange={(e) => patch({ invoiceAuthExpiration: e.target.value })}
-            disabled={!canManage}
-          />
-        </div>
-      </div>
-      {dirty && (
-        <div>
-          <Button type="button" size="sm" onClick={handleSave} disabled={update.isPending || !canManage}>
-            {update.isPending && <Loader2 className="size-4 animate-spin" />}
-            Guardar timbrado
-          </Button>
-        </div>
-      )}
-    </div>
   )
 }
 
@@ -399,7 +340,7 @@ function ProvisionForm({
         </CardContent>
       </Card>
 
-      <RegisterStampsCard canManage={canManage} />
+      <RegisterStampsSummary />
 
       {!canManage && (
         <p className="text-sm text-muted-foreground">
@@ -523,7 +464,7 @@ function ProvisionedView({
         </CardContent>
       </Card>
 
-      <RegisterStampsCard canManage={canManage} />
+      <RegisterStampsSummary />
 
       <CertificateCard canManage={canManage} certUploaded={account.certUploaded} />
 

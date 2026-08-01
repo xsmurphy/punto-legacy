@@ -29,13 +29,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { Separator } from "@/components/ui/separator"
 import {
   useRegistersAdmin,
   useCreateRegister,
   useUpdateRegister,
   useDeleteRegister,
+  type RegisterFiscal,
   type RegisterListItem,
 } from "@/hooks/use-registers-admin"
+
+const EMPTY_FISCAL: RegisterFiscal = {
+  invoiceAuth: "",
+  invoicePrefix: "",
+  invoiceAuthStart: "",
+  invoiceAuthExpiration: "",
+}
 
 /**
  * CRUD de cajas para una sucursal específica. Scoped por `outletId`: filtra
@@ -56,6 +65,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   const [editTarget, setEditTarget] = React.useState<RegisterListItem | null>(null)
   const [editName, setEditName] = React.useState("")
   const [editStatus, setEditStatus] = React.useState(true)
+  const [editFiscal, setEditFiscal] = React.useState<RegisterFiscal>(EMPTY_FISCAL)
 
   const [deleteTarget, setDeleteTarget] = React.useState<RegisterListItem | null>(null)
 
@@ -65,6 +75,11 @@ export function RegistersTab({ outletId }: { outletId: string }) {
     setEditTarget(reg)
     setEditName(reg.name)
     setEditStatus(reg.status)
+    setEditFiscal({ ...EMPTY_FISCAL, ...reg.fiscal })
+  }
+
+  function patchFiscal(p: Partial<RegisterFiscal>) {
+    setEditFiscal((f) => ({ ...f, ...p }))
   }
 
   const columns = React.useMemo<ColumnDef<RegisterListItem>[]>(() => [
@@ -82,6 +97,25 @@ export function RegistersTab({ outletId }: { outletId: string }) {
         ) : (
           <Badge variant="secondary">Inactiva</Badge>
         ),
+    },
+    {
+      id: "timbrado",
+      header: "Timbrado",
+      // La caja es el punto de expedición (context/29 §1): su timbrado se
+      // administra ACÁ. Facturación electrónica y la numeración fiscal solo
+      // lo leen.
+      cell: ({ row }) => {
+        const f = row.original.fiscal
+        if (!f.invoiceAuth) {
+          return <span className="text-sm text-muted-foreground">Sin timbrado</span>
+        }
+        return (
+          <span className="text-sm tabular-nums">
+            {f.invoiceAuth}
+            {f.invoicePrefix ? ` · ${f.invoicePrefix}` : ""}
+          </span>
+        )
+      },
     },
     {
       id: "actions",
@@ -158,7 +192,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
       </Dialog>
 
       <Dialog open={editTarget !== null} onOpenChange={(o) => { if (!o) setEditTarget(null) }}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-2xl font-semibold">Editar caja</DialogTitle>
           </DialogHeader>
@@ -175,6 +209,60 @@ export function RegistersTab({ outletId }: { outletId: string }) {
               <Switch id="edit-status" checked={editStatus} onCheckedChange={setEditStatus} />
               <Label htmlFor="edit-status">Activa</Label>
             </div>
+
+            <Separator />
+
+            {/* Timbrado — la caja es el punto de expedición: estos datos son
+                de la caja (sirven a la numeración fiscal y a la impresión,
+                tenga o no el comercio facturación electrónica). */}
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight">Timbrado</h3>
+                <p className="text-sm text-muted-foreground">
+                  El timbrado que la SET asignó a este punto de expedición.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-stamp-auth">Número de timbrado</Label>
+                  <Input
+                    id="edit-stamp-auth"
+                    value={editFiscal.invoiceAuth}
+                    onChange={(e) => patchFiscal({ invoiceAuth: e.target.value.replace(/\D/g, "") })}
+                    placeholder="12345678"
+                    className="tabular-nums"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-stamp-prefix">Establecimiento y punto (EEE-PPP)</Label>
+                  <Input
+                    id="edit-stamp-prefix"
+                    value={editFiscal.invoicePrefix}
+                    onChange={(e) => patchFiscal({ invoicePrefix: e.target.value.replace(/[^0-9-]/g, "").slice(0, 7) })}
+                    placeholder="001-001"
+                    className="tabular-nums"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-stamp-start">Vigente desde</Label>
+                  <Input
+                    id="edit-stamp-start"
+                    type="date"
+                    value={editFiscal.invoiceAuthStart}
+                    onChange={(e) => patchFiscal({ invoiceAuthStart: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-stamp-exp">Vence</Label>
+                  <Input
+                    id="edit-stamp-exp"
+                    type="date"
+                    value={editFiscal.invoiceAuthExpiration}
+                    onChange={(e) => patchFiscal({ invoiceAuthExpiration: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>Cancelar</Button>
@@ -183,7 +271,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
               onClick={() => {
                 if (!editTarget) return
                 updateRegister.mutate(
-                  { id: editTarget.id, name: editName.trim(), status: editStatus },
+                  { id: editTarget.id, name: editName.trim(), status: editStatus, fiscal: editFiscal },
                   {
                     onSuccess: () => { toast.success("Caja actualizada"); setEditTarget(null) },
                     onError: (err) => toast.error(err.message),
