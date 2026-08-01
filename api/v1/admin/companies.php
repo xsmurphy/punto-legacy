@@ -71,6 +71,7 @@ if ($method === 'GET') {
     $status   = trim((string) ($_GET['status']   ?? ''));
     $plan     = trim((string) ($_GET['plan']     ?? ''));
     $blocked  = trim((string) ($_GET['blocked']  ?? ''));
+    $sort     = trim((string) ($_GET['sort']     ?? ''));
     $page     = (int) ($_GET['page']     ?? 1);
     $pageSize = (int) ($_GET['pageSize'] ?? 50);
 
@@ -87,6 +88,7 @@ if ($method === 'GET') {
         'status'   => $status,
         'plan'     => $plan !== '' ? (int) $plan : '',
         'blocked'  => $blocked !== '' ? (int) $blocked : '',
+        'sort'     => $sort,
         'page'     => $page,
         'pageSize' => $pageSize,
     ]));

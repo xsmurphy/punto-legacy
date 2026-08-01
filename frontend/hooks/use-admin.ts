@@ -317,6 +317,7 @@ export function useAdminCompanies(params?: {
   status?: string
   plan?: number | string
   blocked?: number | string
+  sort?: "health_asc" | "health_desc"
   page?: number
   pageSize?: number
 }) {
@@ -327,6 +328,7 @@ export function useAdminCompanies(params?: {
   if (params?.status && params.status !== "all") qs.set("status", params.status)
   if (params?.plan != null && params.plan !== "") qs.set("plan", String(params.plan))
   if (params?.blocked != null && params.blocked !== "") qs.set("blocked", String(params.blocked))
+  if (params?.sort) qs.set("sort", params.sort)
   if (params?.page != null) qs.set("page", String(params.page))
   if (params?.pageSize != null) qs.set("pageSize", String(params.pageSize))
   const search = qs.toString() ? `?${qs.toString()}` : ""

@@ -36,6 +36,12 @@ class CompanyAdminService
      *   blocked  int     — filtro exacto sobre company.blocked (0|1)
      *   page     int     — página (base 1)
      *   pageSize int     — filas por página (10–200)
+     *   sort     string  — 'health_asc' (riesgo primero, NULL al final) |
+     *                      'health_desc' (salud primero, NULL al final) |
+     *                      cualquier otro valor → default (createdAt DESC).
+     *                      Ordena a nivel SQL (LEFT JOIN tenant_health) para
+     *                      que el semáforo de riesgo abarque TODA la paginación,
+     *                      no solo la página actual (F2, ver context/34).
      *
      * Compatibilidad descendente: si se pasan los 3 primeros args posicionales
      *   (int $limit, int $offset, string $filter) en lugar de un array, se mapean
@@ -64,6 +70,7 @@ class CompanyAdminService
         $page     = max(1, (int) ($opts['page']     ?? 1));
         $pageSize = max(10, min(200, (int) ($opts['pageSize'] ?? 50)));
         $sqlOffset = ($page - 1) * $pageSize;
+        $sort     = trim((string) ($opts['sort']    ?? ''));
 
         // ── Construir WHERE parametrizado ─────────────────────────────────
         $where  = [];
@@ -96,7 +103,19 @@ class CompanyAdminService
 
         $whereClause = $where ? ('WHERE ' . implode(' AND ', $where)) : '';
 
-        // ── COUNT total (mismo WHERE, sin LIMIT) ──────────────────────────
+        // ── Sort whitelist: solo 'health_asc'/'health_desc' pegan el JOIN a
+        // tenant_health. Cualquier otro valor cae al default (createdAt DESC).
+        // Whitelist explícito porque $sort nunca se interpola directo en SQL.
+        $joinClause  = '';
+        $orderClause = 'company.createdAt DESC NULLS LAST';
+        if ($sort === 'health_asc' || $sort === 'health_desc') {
+            $joinClause  = 'LEFT JOIN tenant_health th ON th.companyid = company.companyId';
+            $orderClause = $sort === 'health_asc'
+                ? 'th.score ASC NULLS LAST'
+                : 'th.score DESC NULLS LAST';
+        }
+
+        // ── COUNT total (mismo WHERE, sin LIMIT — el JOIN no filtra filas) ─
         $totalRow = $db->Execute(
             "SELECT COUNT(*) AS n FROM company $whereClause",
             $binds
@@ -107,9 +126,12 @@ class CompanyAdminService
         }
 
         // ── Filas de la página ────────────────────────────────────────────
+        // SELECT company.* (no *) es obligatorio con el JOIN: tenant_health.companyid
+        // pliega al mismo nombre lowercase que company.companyId — un SELECT *
+        // dejaría que la fila de th (NULL si no hay score) pise el id de company.
         $bindsPaged = array_merge($binds, [$pageSize, $sqlOffset]);
         $r = $db->Execute(
-            "SELECT * FROM company $whereClause ORDER BY createdAt DESC NULLS LAST LIMIT ? OFFSET ?",
+            "SELECT company.* FROM company $joinClause $whereClause ORDER BY $orderClause LIMIT ? OFFSET ?",
             $bindsPaged
         );
 

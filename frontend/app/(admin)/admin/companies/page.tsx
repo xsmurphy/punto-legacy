@@ -92,34 +92,21 @@ export default function AdminCompaniesPage() {
   const q = useDebounce(searchInput, 300)
 
   // Reset page when filters change.
-  React.useEffect(() => { setPage(1) }, [q, statusFilter, planFilter, pageSize])
+  React.useEffect(() => { setPage(1) }, [q, statusFilter, planFilter, pageSize, healthSort])
 
+  // Sort riesgo-primero es server-side (LEFT JOIN tenant_health en
+  // CompanyAdminService::listAll) para que abarque toda la paginación, no
+  // solo la página actual — ver api/v1/admin/companies.php.
   const { data, isLoading } = useAdminCompanies({
     q: q || undefined,
     status: statusFilter !== "all" ? statusFilter : undefined,
     plan: planFilter !== "all" ? planFilter : undefined,
+    sort: healthSort === "asc" ? "health_asc" : healthSort === "desc" ? "health_desc" : undefined,
     page,
     pageSize,
   })
 
-  const baseRows: AdminCompanyRow[] = data?.rows ?? []
-  // Sort riesgo-primero es sobre la página actual (el listado de empresas
-  // es server-paginado; el score de salud viene de un endpoint aparte que
-  // sí trae TODOS los tenants, pero re-paginar por score requeriría fusionar
-  // ambos server-side — fuera de alcance de F2, ver context/34).
-  const rows: AdminCompanyRow[] = React.useMemo(() => {
-    if (healthSort === "none") return baseRows
-    const withHealth = [...baseRows]
-    withHealth.sort((a, b) => {
-      const sa = healthByCompany.get(a.id)?.score
-      const sb = healthByCompany.get(b.id)?.score
-      if (sa == null && sb == null) return 0
-      if (sa == null) return 1
-      if (sb == null) return -1
-      return healthSort === "asc" ? sa - sb : sb - sa
-    })
-    return withHealth
-  }, [baseRows, healthByCompany, healthSort])
+  const rows: AdminCompanyRow[] = data?.rows ?? []
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
