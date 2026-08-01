@@ -1246,7 +1246,7 @@ const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; descriptio
   { key: "showSoftKeyboard", label: "Mostrar teclado virtual en numpads", description: "Útil para pantallas táctiles sin teclado físico." },
   { key: "controlCaja", label: "Control de Caja", description: "Apertura y cierre de turnos, extracciones e ingresos de efectivo. Al desactivarlo, la sección Control de Caja desaparece del menú." },
   { key: "ordenEnVenta", label: "Orden en venta", description: "Al confirmar una venta, muestra el botón \"Ordenar\" para generar una orden de ese pedido ya facturado (cobrar primero, ordenar después)." },
-  { key: "ordenAImpresion", label: "Orden a impresión", description: "Al enviar una orden, imprime las comandas automáticamente en las impresoras vinculadas de este dispositivo." },
+  { key: "ordenAImpresion", label: "Orden a impresión", description: "Al enviar una orden, imprime las comandas en las impresoras vinculadas — locales o del servidor de impresión de la sucursal." },
   { key: "permitirGuardarVentas", label: "Permitir guardar ventas", description: "Habilita la opción \"Guardar\" para dejar ventas en curso y retomarlas después. Desactivalo si no querés que los cajeros guarden ventas." },
   { key: "modoSoloOrdenes", label: "Modo: solo órdenes", description: "El POS queda solo para tomar órdenes y mesas: se ocultan facturación, transacciones y caja." },
 ]

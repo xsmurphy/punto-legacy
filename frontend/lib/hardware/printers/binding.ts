@@ -1,4 +1,4 @@
-export type PrinterTransport = "usb" | "bluetooth" | "network" | "native"
+export type PrinterTransport = "usb" | "bluetooth" | "network" | "native" | "station"
 export type PrinterMode = "escpos" | "native"
 export type PrinterDocType =
   | "receipt" | "factura" | "quote" | "order" | "withdraw" | "delivery" | "closeReg" | "return"
@@ -17,6 +17,8 @@ export interface PrinterBinding {
   // Network
   networkHost: string | null
   networkPort: number | null
+  // Station (Servidor de impresión — station_printer.id, ver print-station/types.ts)
+  stationPrinterId: string | null
   // Config
   mode: PrinterMode
   templateId: string | null

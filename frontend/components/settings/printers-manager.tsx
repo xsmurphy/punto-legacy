@@ -54,6 +54,7 @@ import { cn } from "@/lib/utils"
 import { useDocumentTemplates } from "@/hooks/use-document-templates"
 import { useCategories } from "@/hooks/use-categories"
 import { useRegistersAdmin } from "@/hooks/use-registers-admin"
+import { useStationPrinters } from "@/hooks/use-station-printers"
 import {
   usePrinterBindings,
   useCreatePrinterBinding,
@@ -207,13 +208,18 @@ type DialogMode =
 
 interface BindingDialogProps {
   mode: DialogMode
+  /** Sucursal de la caja seleccionada — filtra el picker de impresoras de
+   *  estación (transport "station"). undefined mientras no hay caja elegida. */
+  outletId: string | undefined
   onClose: () => void
   onSave: (data: Omit<PrinterBinding, "id" | "createdAt" | "updatedAt">) => void
 }
 
-function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
+function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) {
   const { data: templatesData } = useDocumentTemplates()
   const { data: categoriesData } = useCategories()
+  const { data: stationPrintersData } = useStationPrinters(outletId)
+  const activeStationPrinters = (stationPrintersData?.printers ?? []).filter((p) => p.status === 1)
 
   const [name, setName] = React.useState("")
   const [color, setColor] = React.useState<string>(PALETTE_COLORS[0].key)
@@ -237,6 +243,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
   const [bluetoothLabel, setBluetoothLabel] = React.useState("")
   const [networkHost, setNetworkHost] = React.useState("")
   const [networkPort, setNetworkPort] = React.useState(9100)
+  const [stationPrinterId, setStationPrinterId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (!mode) return
@@ -261,6 +268,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
       setBluetoothLabel("")
       setNetworkHost("")
       setNetworkPort(9100)
+      setStationPrinterId(null)
     } else {
       const { binding } = mode
       setName(binding.name)
@@ -282,6 +290,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
       setBluetoothLabel("")
       setNetworkHost(binding.networkHost ?? "")
       setNetworkPort(binding.networkPort ?? 9100)
+      setStationPrinterId(binding.stationPrinterId ?? null)
     }
   }, [mode])
 
@@ -298,6 +307,9 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
     if (transport === "network" && !networkHost.trim()) {
       setError("Ingresá el host o IP de la impresora de red"); return
     }
+    if (transport === "station" && !stationPrinterId) {
+      setError("Seleccioná una impresora de estación"); return
+    }
     setError(null)
     onSave({
       name: name.trim(),
@@ -309,6 +321,7 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
       bluetoothDeviceId: transport === "bluetooth" ? bluetoothDeviceId : null,
       networkHost: transport === "network" ? networkHost.trim() : null,
       networkPort: transport === "network" ? networkPort : null,
+      stationPrinterId: transport === "station" ? stationPrinterId : null,
       mode: printerMode,
       templateId: templateId === "" ? null : templateId,
       paperWidthMm,
@@ -495,9 +508,41 @@ function BindingDialog({ mode, onClose, onSave }: BindingDialogProps) {
                   <SelectItem value="usb">USB</SelectItem>
                   <SelectItem value="bluetooth">Bluetooth</SelectItem>
                   <SelectItem value="network">Red (IP/hostname)</SelectItem>
+                  <SelectItem value="station">Servidor de impresión</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+
+            {transport === "station" && (
+              <div className="space-y-3">
+                {activeStationPrinters.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="printer-station">Impresora de estación</Label>
+                    <Select
+                      value={stationPrinterId ?? ""}
+                      onValueChange={(v) => setStationPrinterId(v)}
+                    >
+                      <SelectTrigger id="printer-station">
+                        <SelectValue placeholder="Seleccioná una impresora…" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeStationPrinters.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <Alert>
+                    <AlertDescription>
+                      Configurá impresoras en la Estación de Impresión primero.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+            )}
 
             {transport === "native" && (
               <Alert>
@@ -643,6 +688,7 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
   const selectedRegisterId = forcedRegisterId ?? internalRegisterId
   const setSelectedRegisterId = setInternalRegisterId
   const showRegisterSelector = forcedRegisterId === undefined
+  const selectedOutletId = registers.find((r) => r.id === selectedRegisterId)?.outletId
 
   const { data: bindingsData, isLoading: bindingsLoading } = usePrinterBindings(
     selectedRegisterId || undefined,
@@ -777,6 +823,7 @@ export function PrintersManager({ registerId: forcedRegisterId }: PrintersManage
 
       <BindingDialog
         mode={dialogMode}
+        outletId={selectedOutletId}
         onClose={() => setDialogMode(null)}
         onSave={handleSave}
       />
@@ -846,6 +893,7 @@ function PrinterCard({
   else if (b.transport === "usb") deviceLabel = `USB · ${b.deviceLabel ?? `${b.vendorId}:${b.productId}`}`
   else if (b.transport === "bluetooth") deviceLabel = `Bluetooth · ${b.bluetoothDeviceId?.slice(0, 8) ?? "—"}`
   else if (b.transport === "network") deviceLabel = `Red · ${b.networkHost}:${b.networkPort ?? 9100}`
+  else if (b.transport === "station") deviceLabel = "Servidor de impresión"
 
   return (
     <Card className="flex flex-col p-4 gap-3">

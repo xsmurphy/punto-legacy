@@ -19,6 +19,33 @@ class PrinterBindingService {
         return $rs && !$rs->EOF;
     }
 
+    /** outletId REAL de la caja (no $this->outletId — para panel eso puede
+     *  venir vacío/cross-outlet; la validación de transport=station necesita
+     *  la sucursal de la caja dueña del binding, igual que el guard de
+     *  PrintPoolService::enqueue). */
+    private function registerOutletId(string $registerId): ?string {
+        $rs = ncmExecute(
+            'SELECT outletId FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
+            [$registerId, $this->companyId],
+            false, true
+        );
+        if (!$rs || $rs->EOF) return null;
+        $v = $rs->fields['outletId'] ?? null;
+        $rs->Close();
+        return $v !== null ? (string)$v : null;
+    }
+
+    /** companyId de un stationPrinterId no alcanza — debe pertenecer a la
+     *  MISMA sucursal que la caja del binding. */
+    private function stationPrinterBelongsToOutlet(string $stationPrinterId, string $outletId): bool {
+        $rs = ncmExecute(
+            'SELECT 1 FROM "station_printer" WHERE "id" = ? AND "companyId" = ? AND "outletId" = ? LIMIT 1',
+            [$stationPrinterId, $this->companyId, $outletId],
+            false, true
+        );
+        return $rs && !$rs->EOF;
+    }
+
     public function list(string $registerId): array {
         if (!$this->registerBelongsToTenant($registerId)) return [];
         $rs = ncmExecute(
@@ -41,15 +68,15 @@ class PrinterBindingService {
         if (!$this->registerBelongsToTenant($registerId)) {
             throw new \RuntimeException('registerId no pertenece al tenant', 403);
         }
-        $validated = $this->validate($data);
+        $validated = $this->validate($data, true, $registerId);
         $rs = ncmExecute(
             'INSERT INTO "printer_binding"
                ("id","companyId","outletId","registerId","name","color","transport",
                 "vendorId","productId","deviceLabel","mode","templateId","paperWidthMm",
                 "copies","openDrawer","autoPrint","printDelay","categoryIds","docTypes",
-                bluetoothdeviceid,networkhost,networkport)
+                bluetoothdeviceid,networkhost,networkport,"stationPrinterId")
              VALUES
-               (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?,?,?)
+               (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?,?,?,?)
              RETURNING *',
             [
                 $this->companyId,
@@ -73,6 +100,7 @@ class PrinterBindingService {
                 $validated['bluetoothDeviceId'] ?? null,
                 $validated['networkHost'] ?? null,
                 $validated['networkPort'] ?? null,
+                $validated['stationPrinterId'] ?? null,
             ],
             false, true
         );
@@ -83,7 +111,21 @@ class PrinterBindingService {
     }
 
     public function update(string $id, array $data): array {
-        $validated = $this->validate($data, false);
+        // transport=station necesita la sucursal de la caja dueña del binding
+        // para validar el stationPrinterId — el body de update() rara vez trae
+        // registerId (solo id + los campos que cambian).
+        $registerId = null;
+        $rowRs = ncmExecute(
+            'SELECT "registerId" FROM "printer_binding" WHERE "id" = ? AND "companyId" = ? LIMIT 1',
+            [$id, $this->companyId],
+            false, true
+        );
+        if ($rowRs && !$rowRs->EOF) {
+            $registerId = (string) $rowRs->fields['registerId'];
+            $rowRs->Close();
+        }
+
+        $validated = $this->validate($data, false, $registerId);
         $sets = [];
         $params = [];
         $fieldMap = [
@@ -96,6 +138,7 @@ class PrinterBindingService {
             'bluetoothDeviceId' => 'bluetoothdeviceid',
             'networkHost'       => 'networkhost',
             'networkPort'       => 'networkport',
+            'stationPrinterId'  => '"stationPrinterId"',
         ];
         foreach ($fieldMap as $key => $col) {
             if (array_key_exists($key, $validated)) {
@@ -137,7 +180,7 @@ class PrinterBindingService {
         );
     }
 
-    private function validate(array $data, bool $requireAll = true): array {
+    private function validate(array $data, bool $requireAll = true, ?string $registerId = null): array {
         $out = [];
 
         $name = trim((string)($data['name'] ?? ''));
@@ -163,7 +206,7 @@ class PrinterBindingService {
 
         if (isset($data['transport']) || $requireAll) {
             $transport = (string)($data['transport'] ?? 'usb');
-            if (!in_array($transport, ['usb', 'bluetooth', 'network', 'native'], true))
+            if (!in_array($transport, ['usb', 'bluetooth', 'network', 'native', 'station'], true))
                 throw new \RuntimeException('transport inválido', 422);
             $out['transport'] = $transport;
 
@@ -171,6 +214,7 @@ class PrinterBindingService {
             $out['bluetoothDeviceId'] = null;
             $out['networkHost'] = null;
             $out['networkPort'] = null;
+            $out['stationPrinterId'] = null;
 
             switch ($transport) {
                 case 'usb':
@@ -191,6 +235,16 @@ class PrinterBindingService {
                     $out['networkPort'] = $port;
                     break;
                 case 'native':
+                    break;
+                case 'station':
+                    $stationPrinterId = trim((string)($data['stationPrinterId'] ?? ''));
+                    if ($stationPrinterId === '') throw new \RuntimeException('stationPrinterId requerido para transport station', 422);
+                    if ($registerId === null) throw new \RuntimeException('No se pudo resolver la caja del binding', 422);
+                    $outletId = $this->registerOutletId($registerId);
+                    if ($outletId === null) throw new \RuntimeException('No se pudo resolver la sucursal de la caja', 422);
+                    if (!$this->stationPrinterBelongsToOutlet($stationPrinterId, $outletId))
+                        throw new \RuntimeException('stationPrinterId inválido para esta sucursal', 422);
+                    $out['stationPrinterId'] = $stationPrinterId;
                     break;
             }
         }
@@ -290,6 +344,7 @@ class PrinterBindingService {
             'bluetoothDeviceId' => $get('bluetoothDeviceId', 'bluetoothdeviceid') !== null ? (string)$get('bluetoothDeviceId', 'bluetoothdeviceid') : null,
             'networkHost'       => $get('networkHost', 'networkhost') !== null ? (string)$get('networkHost', 'networkhost') : null,
             'networkPort'       => $get('networkPort', 'networkport') !== null ? (int)$get('networkPort', 'networkport') : null,
+            'stationPrinterId'  => $get('stationPrinterId', 'stationprinterid') !== null ? (string)$get('stationPrinterId', 'stationprinterid') : null,
             'categoryIds'  => self::toIndexedArray($get('categoryIds', 'categoryids')),
             'docTypes'     => self::toIndexedArray($get('docTypes', 'doctypes')),
             'createdAt'    => (string)($get('createdAt', 'createdat') ?? ''),
