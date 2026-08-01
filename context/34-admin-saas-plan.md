@@ -28,6 +28,20 @@ existente; nada de warehouse.
 
 ## F2 — Salud del tenant (semáforo) ⭐ prioridad del owner
 
+> **Implementada 2026-08-01.** Mig `108_tenant_health.sql` (tenant_health +
+> tenant_health_history + `platform_config` con seed idempotente de
+> `tenantHealthWeights`, pesos default activity 30/breadth 20/depth 15/
+> team 10/ai 10/commercial 15 — editables sin deploy). Umbrales: green ≥70,
+> yellow 40-69, red <40, con override crítico (hadSalesEver + >14 días sin
+> vender → red sin importar el score). `TenantHealthService::computeAll()`
+> recalcula tenants con cache >6h en batches (una query GROUP BY companyid
+> por señal sobre todos los tenants stale, no N+1). UI: columna Salud
+> sortable en el listado, tab "Salud" en la ficha (barras + histórico +
+> checklist de adopción), card "Tenants en riesgo" en el dashboard. Pendiente
+> real (no bloqueante): "commercial" usa solo company.status/blocked/
+> planExpired/expiresAt — billing_invoice no tiene semántica de vencimiento
+> recurrente, así que no se usó.
+
 **Objetivo**: dependencia alta = retención. Detectar subuso ANTES de la
 baja y accionar ("no usan X, ayudémosles a implementarlo").
 
