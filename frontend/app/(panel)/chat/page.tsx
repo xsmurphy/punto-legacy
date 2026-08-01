@@ -11,7 +11,6 @@ import {
   Package,
   BarChart3,
   Users,
-  RotateCcw,
 } from "lucide-react"
 
 import { useBootstrap } from "@/hooks/use-bootstrap"
@@ -22,15 +21,12 @@ import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
+import { ClearChatButton } from "@/components/agent/clear-chat-button"
+import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { formatRelativeTime } from "@/lib/agent/format-relative-time"
 import { Button } from "@/components/ui/button"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
 
 /**
  * Página dedicada del asistente IA en el sidebar.
@@ -164,16 +160,7 @@ export default function ChatPage() {
         <div className="flex min-w-0 flex-col gap-1">
           <h1 className="truncate text-2xl font-semibold">Asistente</h1>
         </div>
-        {messages.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon" onClick={clear} aria-label="Nueva conversación">
-                <RotateCcw className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Nueva conversación</TooltipContent>
-          </Tooltip>
-        )}
+        {messages.length > 0 && <ClearChatButton onClear={clear} />}
       </header>
 
       {isEmpty ? (
@@ -327,14 +314,7 @@ export default function ChatPage() {
                 )
               })}
 
-              {isStreaming && messages[messages.length - 1]?.role === "user" && (
-                <div className="flex items-start">
-                  <div className="flex items-center gap-2 rounded-2xl bg-muted px-4 py-2.5 text-sm text-muted-foreground">
-                    <span className="size-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-                    <span>Pensando…</span>
-                  </div>
-                </div>
-              )}
+              <ThinkingIndicator messages={messages} isStreaming={isStreaming} />
 
               <div ref={bottomRef} />
             </div>

@@ -11,6 +11,8 @@ import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
+import { ClearChatButton } from "@/components/agent/clear-chat-button"
+import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { formatRelativeTime } from "@/lib/agent/format-relative-time"
@@ -47,7 +49,7 @@ export function AgentChatContent({
   const taRef = React.useRef<HTMLTextAreaElement>(null)
   const [tick, setTick] = React.useState(0)
 
-  const { messages, sendMessage, status, error, attachments, addAttachment, removeAttachment, clearAttachments } = useAgentChat({
+  const { messages, sendMessage, status, error, clear, attachments, addAttachment, removeAttachment, clearAttachments } = useAgentChat({
     companyName,
     viewOutletId,
     viewOutletName,
@@ -230,11 +232,14 @@ export function AgentChatContent({
       )}
       {showHeader && (
         <div className="border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="flex size-7 items-center justify-center rounded-full bg-foreground text-background">
-              <MessageCircle className="size-4" />
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="flex size-7 items-center justify-center rounded-full bg-foreground text-background">
+                <MessageCircle className="size-4" />
+              </div>
+              <span className="text-sm font-medium">Asistente</span>
             </div>
-            <span className="text-sm font-medium">Asistente</span>
+            {messages.length > 0 && <ClearChatButton onClear={clear} />}
           </div>
         </div>
       )}
@@ -350,14 +355,11 @@ export function AgentChatContent({
           )
         })}
 
-        {isStreaming && messages[messages.length - 1]?.role === "user" && (
-          <div className="flex items-start">
-            <div className="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-              <span className="size-3 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-              <span>Pensando…</span>
-            </div>
-          </div>
-        )}
+        <ThinkingIndicator
+          messages={messages}
+          isStreaming={isStreaming}
+          bubbleClassName="flex items-center gap-1.5 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground"
+        />
 
         <div ref={bottomRef} />
       </div>
