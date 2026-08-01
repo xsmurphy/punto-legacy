@@ -62,28 +62,24 @@ function DialogOverlay({
  * `className` y ganan: `cn()` mergea con tailwind-merge y lo específico pisa al
  * default.
  *
- * ⚠ `max-sm:` → FULLSCREEN. En viewport móvil el modal centrado quedaba
- * flotando con `max-h-[85dvh]` y un ancho de casi toda la pantalla: mucho
- * cromo, poco alto útil, y con el teclado virtual abierto el contenido no
- * entraba (reporte del owner 2026-08-01, POS en teléfono). Decisión de design
- * system app-wide (panel incluido), no un parche del POS: bajo `sm` el content
- * ocupa toda la pantalla. `content-start` es necesario porque el content es un
- * `grid` de alto fijo: sin él `align-content: stretch` estiraría header/footer
- * para rellenar el sobrante. El scroll sigue en el propio content
- * (`overflow-y-auto`), así que el footer queda dentro del flujo y alcanzable.
- * Registrado en context/20-design-system.md §10.
- *
- * `mobileFullscreen={false}` opta fuera del fullscreen: es para los diálogos
- * tipo command-palette (buscador de productos/clientes del POS) que flotan
- * top-aligned con fondo transparente — forzarlos a top-0 h-dvh los pegaba al
- * borde superior con un lienzo vacío transparente abajo (regresión reportada
- * el mismo 2026-08-01). Un dialog "de contenido" normal NO debe usar esto.
+ * `mobileFullscreen` (OPT-IN, default false): bajo `sm` el content ocupa la
+ * pantalla entera. SOLO para modales de CONTENIDO — listados, módulos de
+ * ruta del POS, paneles de dos columnas — donde el centrado con
+ * `max-h-[85dvh]` dejaba poco alto útil con el teclado virtual abierto
+ * (reporte del owner 2026-08-01). Los modales chicos tipo confirmación
+ * (nota de venta, lista de precios, modificador de precio, descuento,
+ * alerts) se quedan CENTRADOS como siempre — hacerlos fullscreen fue una
+ * regresión reportada el mismo día: no mezclar los dos tipos. Los dialogs
+ * tipo command-palette (buscador de productos/clientes, flotantes top-
+ * aligned con fondo transparente) tampoco lo usan. `content-start` evita
+ * que `align-content: stretch` del grid estire header/footer en el alto
+ * completo. Registrado en context/20-design-system.md §10.
  */
 function DialogContent({
   className,
   children,
   showCloseButton = true,
-  mobileFullscreen = true,
+  mobileFullscreen = false,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean

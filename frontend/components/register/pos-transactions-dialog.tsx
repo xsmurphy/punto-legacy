@@ -151,7 +151,8 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
   return (
     <Dialog open={open} onOpenChange={handleClose}>
       {/* Bucket xl — modal split 2-col (lista + detalle) */}
-      <DialogContent className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
+      {/* Listado grande → fullscreen en mobile (opt-in del primitive). */}
+      <DialogContent mobileFullscreen className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
         <DialogHeader className="px-6 pt-6 pb-3 border-b">
           <DialogTitle className="text-2xl font-semibold">Transacciones</DialogTitle>
         </DialogHeader>

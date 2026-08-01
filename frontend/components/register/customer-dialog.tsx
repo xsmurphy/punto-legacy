@@ -161,8 +161,6 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
       <DialogContent
         className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl"
         showCloseButton={false}
-        // Command-palette flotante — ver nota en product-search-dialog.tsx.
-        mobileFullscreen={false}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Buscar o crear cliente</DialogTitle>
