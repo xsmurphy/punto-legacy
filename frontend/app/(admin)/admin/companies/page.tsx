@@ -30,16 +30,16 @@ import {
   type TenantHealthLevel,
 } from "@/hooks/use-admin"
 
-function statusBadge(status: string, blocked: number) {
+function statusBadge(status: string, blocked: number, suspended: number) {
   if (blocked) return <Badge variant="destructive">Bloqueada</Badge>
-  if (status === "active") return <Badge className="bg-green-600 text-white border-0">Activa</Badge>
-  if (status === "cancelled") return <Badge variant="destructive">Cancelada</Badge>
-  if (status === "suspended")
+  if (suspended || status === "suspended")
     return (
       <Badge variant="outline" className="text-amber-600 border-amber-600">
         Suspendida
       </Badge>
     )
+  if (status === "active") return <Badge className="bg-green-600 text-white border-0">Activa</Badge>
+  if (status === "cancelled") return <Badge variant="destructive">Cancelada</Badge>
   return <Badge variant="secondary">{status || "—"}</Badge>
 }
 
@@ -236,7 +236,7 @@ export default function AdminCompaniesPage() {
                       )}
                     </div>
                   </TableCell>
-                  <TableCell>{statusBadge(c.status, c.blocked)}</TableCell>
+                  <TableCell>{statusBadge(c.status, c.blocked, c.suspended)}</TableCell>
                   <TableCell>
                     {healthByCompany.has(c.id) ? (
                       healthBadge(healthByCompany.get(c.id)!.level, healthByCompany.get(c.id)!.score)

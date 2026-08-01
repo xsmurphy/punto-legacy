@@ -20,9 +20,9 @@
  * F1 — aproximaciones documentadas (context/34-admin-saas-plan.md):
  *   - "Activo/en buen estado comercial" (MRR, saas.tenantsGoodStanding):
  *     MISMO criterio que TenantHealthService::buildCommercialSignal() (F2)
- *     para subscore=100: NOT blocked AND NOT planExpired AND (expiresAt IS
- *     NULL OR expiresAt >= now()) AND status NOT IN ('suspended','cancelled').
- *     Ver commercialGoodStandingWhere().
+ *     para subscore=100: NOT blocked AND NOT suspended AND NOT planExpired
+ *     AND (expiresAt IS NULL OR expiresAt >= now()) AND status NOT IN
+ *     ('suspended','cancelled'). Ver commercialGoodStandingWhere().
  *   - "Morosos/vencidos" (saas.tenantsDelinquent) = complemento exacto del
  *     anterior (NOT good standing) — mismo criterio que F2 usa para
  *     commercial subscore=0.
@@ -58,6 +58,7 @@ class AdminReportsService
     private function commercialGoodStandingWhere(string $alias = 'company'): string
     {
         return "($alias.blocked IS NULL OR $alias.blocked = 0)
+            AND ($alias.suspended IS NULL OR $alias.suspended = 0)
             AND ($alias.planExpired IS NULL OR $alias.planExpired = false)
             AND ($alias.expiresAt IS NULL OR $alias.expiresAt >= now())
             AND $alias.status NOT IN ('suspended', 'cancelled')";
@@ -84,7 +85,7 @@ class AdminReportsService
         $statusRow = $db->Execute(
             "SELECT
                COUNT(*) FILTER (WHERE 1=1)              AS total,
-               COUNT(*) FILTER (WHERE status = 'active' AND (blocked IS NULL OR blocked = 0)) AS active,
+               COUNT(*) FILTER (WHERE status = 'active' AND (blocked IS NULL OR blocked = 0) AND (suspended IS NULL OR suspended = 0)) AS active,
                COUNT(*) FILTER (WHERE status = 'active' AND planExpired = true)               AS trial,
                COUNT(*) FILTER (WHERE status = 'suspended')                                   AS suspended,
                COUNT(*) FILTER (WHERE status = 'cancelled')                                   AS cancelled

@@ -156,12 +156,12 @@ type NoteValues = z.infer<typeof noteSchema>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function statusBadge(status: string, blocked: number) {
+function statusBadge(status: string, blocked: number, suspended: number) {
   if (blocked) return <Badge variant="destructive">Bloqueada</Badge>
+  if (suspended || status === "suspended")
+    return <Badge variant="outline" className="text-amber-600 border-amber-600">Suspendida</Badge>
   if (status === "active") return <Badge className="bg-green-600 text-white border-0">Activa</Badge>
   if (status === "cancelled") return <Badge variant="destructive">Cancelada</Badge>
-  if (status === "suspended")
-    return <Badge variant="outline" className="text-amber-600 border-amber-600">Suspendida</Badge>
   return <Badge variant="secondary">{status || "—"}</Badge>
 }
 
@@ -455,10 +455,11 @@ function ResumenTab({ id }: { id: string }) {
     ["Razón social (BD)", company.name || company.companyName || "—"],
     ["Slug", company.slug || "—"],
     ["País", company.country || "—"],
-    ["Estado", statusBadge(company.status, company.blocked)],
+    ["Estado", statusBadge(company.status, company.blocked, company.suspended)],
     ["Plan (código)", company.plan ?? "—"],
     ["Plan nombre", company.planName || "—"],
     ["Bloqueada", company.blocked ? "Sí" : "No"],
+    ["Suspendida", company.suspended ? "Sí" : "No"],
     ["ePOS habilitado", company.epos ? "Sí" : "No"],
     ["eCommerce", company.ecom ? "Sí" : "No"],
     ["Creada", fmtDate(company.createdAt)],
@@ -1506,7 +1507,7 @@ export default function AdminCompanyDetailPage() {
           </h1>
         )}
         {company && !isLoading && (
-          <div className="ml-1">{statusBadge(company.status, company.blocked)}</div>
+          <div className="ml-1">{statusBadge(company.status, company.blocked, company.suspended)}</div>
         )}
         <div className="ml-auto">
           <HeaderActions id={id} />

@@ -382,14 +382,25 @@ function getContactCreditLine($uid,$creditLine){
     return \Punto\App\Domain\Customer::getContactCreditLine($uid, $creditLine);
 }
 
+/**
+ * Gate único de acceso al tenant (bootstrap.php + apiAuthPosContext.php).
+ *
+ * `blocked` (mora/billing) y `suspended` (mig 110 — suspensión manual admin,
+ * columna propia desde P1 review F3: antes compartía `blocked`, y
+ * unsuspend() lo pisaba a 0 perdiendo la señal de mora) deniegan acceso con
+ * el MISMO efecto, sin importar `status`.
+ */
 function checkCompanyStatus($id){
-	$result = ncmExecute('SELECT status FROM company WHERE companyId = ? LIMIT 1',[$id]);
+	$result = ncmExecute('SELECT status, blocked, suspended FROM company WHERE companyId = ? LIMIT 1',[$id]);
 
-	if($result && $result['status'] == 'Active'){
-		return true;
-	}else{
+	if (!$result) {
 		return false;
 	}
+	if (!empty($result['blocked']) || !empty($result['suspended'])) {
+		return false;
+	}
+
+	return $result['status'] == 'Active';
 }
 
 function updateLastTimeEdit($id,$table=false){

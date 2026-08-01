@@ -35,7 +35,7 @@
  * columnas quoted mixed-case ("companyId") — esas queries van con comillas
  * dobles exactas, si no Postgres no encuentra la columna.
  *
- * "commercial" (plan/pagos): se deriva de company.status/blocked/
+ * "commercial" (plan/pagos): se deriva de company.status/blocked/suspended/
  * planExpired/expiresAt — son las columnas que BillingService.php ya usa
  * como fuente de verdad del estado de facturación. billing_invoice (dLocal)
  * es un ledger de pagos one-time (packs de créditos), sin dueDate/semántica
@@ -405,7 +405,7 @@ class TenantHealthService
         global $db;
         $place = $this->placeholders($ids);
         $r = $db->Execute(
-            "SELECT companyId, status, blocked, planExpired, expiresAt,
+            "SELECT companyId, status, blocked, suspended, planExpired, expiresAt,
                     orderspanel, tables, production, moduleData
                FROM company WHERE companyId IN ($place)",
             $ids
@@ -767,6 +767,7 @@ class TenantHealthService
     {
         $status      = (string) ($c['status'] ?? '');
         $blocked     = $this->truthy($c['blocked'] ?? 0);
+        $suspended   = $this->truthy($c['suspended'] ?? 0);
         $planExpired = $this->truthy($c['planexpired'] ?? false);
         $expiresAt   = $c['expiresat'] ?? null;
 
@@ -779,7 +780,7 @@ class TenantHealthService
             $expiringSoon  = $daysToExpire >= 0 && $daysToExpire < 7;
         }
 
-        if ($blocked || $planExpired || $expiredByDate || in_array($status, ['suspended', 'cancelled'], true)) {
+        if ($blocked || $suspended || $planExpired || $expiredByDate || in_array($status, ['suspended', 'cancelled'], true)) {
             $subscore = 0;
         } elseif ($expiringSoon) {
             $subscore = 60;
@@ -791,6 +792,7 @@ class TenantHealthService
             'subscore'     => $subscore,
             'status'       => $status,
             'blocked'      => $blocked,
+            'suspended'    => $suspended,
             'planExpired'  => $planExpired,
             'expiresAt'    => $expiresAt,
             'daysToExpire' => $daysToExpire,

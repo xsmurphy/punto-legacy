@@ -22,6 +22,7 @@ export interface AdminCompanyRow {
   smsCredit: number | null
   country: string
   blocked: number
+  suspended: number
   planExpired: boolean | null
   epos: number
   ecom: number

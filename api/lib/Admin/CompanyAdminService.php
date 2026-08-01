@@ -213,6 +213,7 @@ class CompanyAdminService
             'companyCategoryId'   => (string) ($this->pick($flat, 'settingCompanyCategoryId') ?? ''),
             'externalCustomerId'  => $this->pick($flat, 'settingEncomID'),
             'blocked'             => (int) ($this->pick($flat, 'blocked') ?? 0),
+            'suspended'           => (int) ($this->pick($flat, 'suspended') ?? 0),
             'partialBlock'        => (int) ($this->pick($flat, 'settingPartialBlock') ?? 0),
             'planExpired'         => $this->pick($flat, 'planExpired'),
             'autoSMSCredit'       => $this->pick($flat, 'settingAutoSMSCredit'),
@@ -606,11 +607,13 @@ class CompanyAdminService
         }
 
         // ── enteros ────────────────────────────────────────────────────────
-        foreach (['plan', 'blocked', 'smsCredit'] as $col) {
+        // `suspended` es columna propia (mig 110), independiente de `blocked`
+        // (mora/billing) — ver docblock de suspend()/unsuspend() más abajo.
+        foreach (['plan', 'blocked', 'smsCredit', 'suspended'] as $col) {
             if (!array_key_exists($col, $input)) { continue; }
             $v = (int) $input[$col];
-            if ($col === 'blocked' && !in_array($v, [0, 1], true)) {
-                return ['ok' => false, 'error' => 'blocked debe ser 0 o 1', 'code' => 422];
+            if (($col === 'blocked' || $col === 'suspended') && !in_array($v, [0, 1], true)) {
+                return ['ok' => false, 'error' => "$col debe ser 0 o 1", 'code' => 422];
             }
             if ($col === 'plan' && $v < 0) {
                 return ['ok' => false, 'error' => 'plan no puede ser negativo', 'code' => 422];
@@ -674,20 +677,25 @@ class CompanyAdminService
 
     /**
      * Suspende una empresa: reversible, distinto del soft-delete (que cancela).
-     * status='suspended' + blocked=1 — misma combinación que
-     * TenantHealthService::buildCommercialSignal() interpreta como "suspendido"
-     * (junto con status='cancelled', que es el softDelete()/DELETE?type=soft
-     * existente y NO se toca acá).
+     * status='suspended' + suspended=1 — NUNCA toca `blocked`, que es una señal
+     * independiente (mora/billing, ver checkCompanyStatus() en functions.php).
+     * Antes esta acción pisaba blocked=1 y unsuspend() lo hardcodeaba a 0: un
+     * tenant bloqueado por mora que pasaba por suspend→unsuspend perdía esa
+     * señal. `suspended` es columna propia (mig 110) — el estado de mora previo
+     * queda intacto por construcción.
+     * TenantHealthService::buildCommercialSignal() y AdminReportsService leen
+     * tanto `blocked` como `suspended`/`status` para el mismo efecto de "no
+     * activo".
      */
     public function suspend(string $companyId): array
     {
-        return $this->update($companyId, ['status' => 'suspended', 'blocked' => 1]);
+        return $this->update($companyId, ['status' => 'suspended', 'suspended' => 1]);
     }
 
-    /** Reactiva una empresa suspendida: status='active' + blocked=0. */
+    /** Reactiva una empresa suspendida: status='active' + suspended=0 (no toca blocked). */
     public function unsuspend(string $companyId): array
     {
-        return $this->update($companyId, ['status' => 'active', 'blocked' => 0]);
+        return $this->update($companyId, ['status' => 'active', 'suspended' => 0]);
     }
 
     /**
@@ -838,6 +846,9 @@ class CompanyAdminService
 
         if ($reason === '') {
             return ['ok' => false, 'error' => 'reason es requerido', 'code' => 422];
+        }
+        if ($delta === 0) {
+            return ['ok' => false, 'error' => 'delta no puede ser 0', 'code' => 422];
         }
 
         $db->BeginTrans();
@@ -1499,6 +1510,7 @@ class CompanyAdminService
             'companyCategoryId'   => (string) ($this->pick($flat, 'settingCompanyCategoryId') ?? ''),
             'externalCustomerId'  => $this->pick($flat, 'settingEncomID'),
             'blocked'             => (int) ($this->pick($flat, 'blocked') ?? 0),
+            'suspended'           => (int) ($this->pick($flat, 'suspended') ?? 0),
             'planExpired'         => $this->pick($flat, 'planExpired'),
             'epos'                => (int) ($this->pick($flat, 'epos') ?? 0),
             'ecom'                => (int) ($this->pick($flat, 'ecom') ?? 0),

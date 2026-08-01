@@ -31,8 +31,8 @@
  *   GET  ?id=<uuid>&invoices=1             → billing_invoice + billing_request del tenant
  *   GET  ?id=<uuid>&audit=1&page=&pageSize= → tenant_audit paginado
  *   POST ?id=<uuid>&action=toggleModule     body {key, enabled}
- *   POST ?id=<uuid>&action=suspend          → status='suspended'+blocked=1 (reversible)
- *   POST ?id=<uuid>&action=unsuspend        → status='active'+blocked=0
+ *   POST ?id=<uuid>&action=suspend          → status='suspended'+suspended=1 (reversible, no toca blocked)
+ *   POST ?id=<uuid>&action=unsuspend        → status='active'+suspended=0 (no toca blocked)
  *   POST ?id=<uuid>&action=extendTrial      body {days}
  */
 
@@ -44,6 +44,9 @@ adminMiddleware(); // define ADMIN_AUTHED_ID o mata con 401
 
 $svc    = new CompanyAdminService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+// UUID validado para todo endpoint que recibe ?id= (GET de detalle y mutaciones POST).
+$uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 if ($method === 'GET') {
     // F3.4 — lista de planes (selector UI).
@@ -70,16 +73,25 @@ if ($method === 'GET') {
 
         // F3 — estado de módulos nativos.
         if (!empty($_GET['modules'])) {
+            if (!preg_match($uuidRe, $id)) {
+                apiError('id inválido', 400);
+            }
             apiOk($svc->listModules($id));
         }
 
         // F3 — facturas (billing_invoice) + solicitudes (billing_request).
         if (!empty($_GET['invoices'])) {
+            if (!preg_match($uuidRe, $id)) {
+                apiError('id inválido', 400);
+            }
             apiOk($svc->listInvoices($id));
         }
 
         // F3 — actividad del tenant (tenant_audit) paginada.
         if (!empty($_GET['audit'])) {
+            if (!preg_match($uuidRe, $id)) {
+                apiError('id inválido', 400);
+            }
             $page     = max(1, (int) ($_GET['page'] ?? 1));
             $pageSize = (int) ($_GET['pageSize'] ?? 30);
             apiOk($svc->listTenantAudit($id, $page, $pageSize));
@@ -192,8 +204,6 @@ if ($method === 'POST') {
     $id     = trim((string) ($_GET['id']     ?? ''));
     $action = trim((string) ($_GET['action'] ?? ''));
 
-    $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
-
     // F3.4b — otorgar / descontar créditos IA.
     if ($action === 'grantAiCredits') {
         if ($id === '' || !preg_match($uuidRe, $id)) {
@@ -288,7 +298,7 @@ if ($method === 'POST') {
         apiOk($result);
     }
 
-    // F3 — suspender (reversible: status='suspended'+blocked=1).
+    // F3 — suspender (reversible: status='suspended'+suspended=1, no toca blocked).
     if ($action === 'suspend') {
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('id inválido', 400);
@@ -301,7 +311,7 @@ if ($method === 'POST') {
         apiOk($result);
     }
 
-    // F3 — reactivar (status='active'+blocked=0).
+    // F3 — reactivar (status='active'+suspended=0, no toca blocked).
     if ($action === 'unsuspend') {
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('id inválido', 400);
