@@ -117,6 +117,14 @@ if ($method === 'POST') {
         'category'       => $s('category'),
         'thousandSeparator' => $s('thousandSeparator'),
         'itemsSaleLimit' => $s('itemsSaleLimit'),
+        // Asistente IA — nombre y personalidad por empresa (context/22 no aplica;
+        // ver SettingsService::AGENT_PERSONALITIES para el enum). Nombre truncado
+        // acá (mb_substr, respeta multibyte) y personalidad clampeada al enum
+        // cerrado — nunca texto libre del cliente llega al system prompt.
+        'agentName'      => mb_substr(trim($s('agentName')), 0, 40),
+        'agentPersonality' => in_array($s('agentPersonality'), \Punto\Api\Settings\SettingsService::AGENT_PERSONALITIES, true)
+            ? $s('agentPersonality')
+            : 'professional',
         'social'         => [
             'facebook'  => $s('facebook'),
             'instagram' => $s('instagram'),

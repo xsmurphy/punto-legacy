@@ -16,12 +16,14 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
+import { useSettings } from "@/hooks/use-settings"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
 import { ClearChatButton } from "@/components/agent/clear-chat-button"
+import { AgentSettingsDialog } from "@/components/agent/agent-settings-dialog"
 import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
@@ -87,6 +89,9 @@ export default function ChatPage() {
     viewOutletId,
     viewOutletName,
   })
+
+  const { data: settingsData } = useSettings()
+  const agentName = settingsData?.agentName?.trim() || "Asistente"
 
   const isStreaming = status === "streaming" || status === "submitted"
   const { data: balData } = useAiBalance()
@@ -158,9 +163,12 @@ export default function ChatPage() {
       {/* Header de página — patrón estándar (items/contacts/etc.) */}
       <header className="mb-4 flex flex-row items-center justify-between gap-3">
         <div className="flex min-w-0 flex-col gap-1">
-          <h1 className="truncate text-2xl font-semibold">Asistente</h1>
+          <h1 className="truncate text-2xl font-semibold">{agentName}</h1>
         </div>
-        {messages.length > 0 && <ClearChatButton onClear={clear} />}
+        <div className="flex items-center gap-1">
+          <AgentSettingsDialog />
+          {messages.length > 0 && <ClearChatButton onClear={clear} />}
+        </div>
       </header>
 
       {isEmpty ? (
@@ -168,7 +176,7 @@ export default function ChatPage() {
         <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col justify-center px-2 pb-8 sm:px-6">
           <div className="mb-10 text-center">
             <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
-              ¿En qué te puedo ayudar?
+              {settingsData?.agentName?.trim() ? `Hola, soy ${agentName}` : "¿En qué te puedo ayudar?"}
             </h2>
           </div>
 

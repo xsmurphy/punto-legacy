@@ -38,6 +38,11 @@ use DateTimeZone;
  */
 final class SettingsService
 {
+    /** Personalidades soportadas del asistente IA — enum cerrado, nunca texto libre
+     *  del cliente. El prompt real de cada una vive server-side en el route del
+     *  agente (frontend/app/api/agent/chat/route.ts); acá solo se valida el slug. */
+    public const AGENT_PERSONALITIES = ['professional', 'friendly', 'direct', 'teacher'];
+
     /** Ajustes de la empresa (perfil + parámetros) para el form. */
     public function general($companyId)
     {
@@ -110,6 +115,16 @@ final class SettingsService
             'taxPy'               => $this->truthy($obj['taxPy'] ?? null),
             'weightBarcodes'      => $this->truthy($obj['weightBarcodes'] ?? null),
             'deletedItemsHistory' => $this->truthy($obj['deletedItemsHistory'] ?? null),
+            // Asistente IA — nombre y personalidad por empresa. Viven como claves
+            // top-level de `config` (igual que settingName/settingAddress: ninguna
+            // de las dos es columna real de `company`, así que ncmUpdate las
+            // enruta solas al JSONB vía _routeToJsonb + merge no-destructivo).
+            // agentPersonality se re-valida acá por si quedó un valor viejo/inválido
+            // en BD — nunca se propaga texto libre al prompt del agente.
+            'agentName'           => (string) ($r['agentName'] ?? ''),
+            'agentPersonality'    => in_array($r['agentPersonality'] ?? null, self::AGENT_PERSONALITIES, true)
+                ? (string) $r['agentPersonality']
+                : 'professional',
         ];
     }
 
@@ -165,6 +180,13 @@ final class SettingsService
                 'twitter'   => $f['social']['twitter'] ?? '',
             ]),
             'settingObj'               => json_encode($obj),
+            // Asistente IA — ver comentario en general(). Ya vienen sanitizados
+            // desde api/v1/settings.php (name truncado a 40, personality clamped
+            // al enum); acá solo defensa adicional para no persistir basura.
+            'agentName'                => mb_substr((string) ($f['agentName'] ?? ''), 0, 40),
+            'agentPersonality'         => in_array($f['agentPersonality'] ?? null, self::AGENT_PERSONALITIES, true)
+                ? (string) $f['agentPersonality']
+                : 'professional',
         ];
 
         $res = ncmUpdate([

@@ -6,12 +6,14 @@ import { ArrowDown, MessageCircle, Upload } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
+import { useSettings } from "@/hooks/use-settings"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
 import { MessageMarkdown } from "@/components/agent/message-markdown"
 import { MessageActions } from "@/components/agent/message-actions"
 import { RegisterActionCard, ExecuteActionSummary, isEmptyCodeFence } from "@/components/agent/agent-action-card"
 import { AgentChart, AgentChartSkeleton } from "@/components/agent/agent-chart"
 import { ClearChatButton } from "@/components/agent/clear-chat-button"
+import { AgentSettingsDialog } from "@/components/agent/agent-settings-dialog"
 import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
@@ -56,6 +58,9 @@ export function AgentChatContent({
   })
 
   const isStreaming = status === "streaming" || status === "submitted"
+
+  const { data: settingsData } = useSettings()
+  const agentName = settingsData?.agentName?.trim() || "Asistente"
 
   const { data: balData } = useAiBalance()
   const balance = balData?.balance ?? null
@@ -237,9 +242,12 @@ export function AgentChatContent({
               <div className="flex size-7 items-center justify-center rounded-full bg-foreground text-background">
                 <MessageCircle className="size-4" />
               </div>
-              <span className="text-sm font-medium">Asistente</span>
+              <span className="text-sm font-medium">{agentName}</span>
             </div>
-            {messages.length > 0 && <ClearChatButton onClear={clear} />}
+            <div className="flex items-center gap-1">
+              <AgentSettingsDialog />
+              {messages.length > 0 && <ClearChatButton onClear={clear} />}
+            </div>
           </div>
         </div>
       )}
@@ -251,7 +259,7 @@ export function AgentChatContent({
         {messages.length === 0 &&
           (renderEmpty ?? (
             <p className="text-center text-sm text-muted-foreground pt-8">
-              Hola, soy tu asistente de Punto. Podés preguntarme sobre ventas, ingresos u otros datos del negocio.
+              Hola, soy {agentName}. Podés preguntarme sobre ventas, ingresos u otros datos del negocio.
             </p>
           ))}
 

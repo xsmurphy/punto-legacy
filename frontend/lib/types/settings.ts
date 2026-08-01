@@ -65,6 +65,13 @@ export interface SettingsGeneral {
   taxPy: boolean
   weightBarcodes: boolean
   deletedItemsHistory: boolean
+
+  // Asistente IA (por empresa)
+  /** Nombre del asistente. Vacío = default "Asistente". Máx 40 caracteres. */
+  agentName: string
+  /** Personalidad del asistente — matiz de TONO server-side, nunca contradice
+   *  las reglas duras del prompt (anti-invento, idioma, guardrails). */
+  agentPersonality: "professional" | "friendly" | "direct" | "teacher"
 }
 
 /** Lo que el form de frontend manda al backend. Mismo shape que el GET,

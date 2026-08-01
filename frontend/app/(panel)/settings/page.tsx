@@ -144,6 +144,11 @@ const settingsSchema = z.object({
   taxPy: z.boolean(),
   weightBarcodes: z.boolean(),
   deletedItemsHistory: z.boolean(),
+  // Asistente IA — editable desde AgentSettingsDialog (chat), no desde este
+  // modal. Igual tiene que viajar en el form para no perderse cuando el
+  // usuario guarda otra sección (el POST manda el objeto completo).
+  agentName: z.string(),
+  agentPersonality: z.enum(["professional", "friendly", "direct", "teacher"]),
 })
 
 type SettingsSection =
@@ -277,6 +282,8 @@ export default function SettingsPage() {
       taxPy: !!data.taxPy,
       weightBarcodes: !!data.weightBarcodes,
       deletedItemsHistory: !!data.deletedItemsHistory,
+      agentName: data.agentName ?? "",
+      agentPersonality: data.agentPersonality ?? "professional",
     })
   }, [data, form])
 
@@ -1181,5 +1188,7 @@ function emptyValues(): SettingsFormValues {
     taxPy: false,
     weightBarcodes: false,
     deletedItemsHistory: false,
+    agentName: "",
+    agentPersonality: "professional",
   }
 }

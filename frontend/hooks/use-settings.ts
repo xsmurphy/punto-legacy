@@ -115,6 +115,8 @@ function serialize(values: SettingsFormValues): Record<string, unknown> {
     category: values.category,
     thousandSeparator: values.thousandSeparator,
     itemsSaleLimit: values.itemsSaleLimit,
+    agentName: values.agentName,
+    agentPersonality: values.agentPersonality,
     facebook: values.social.facebook,
     instagram: values.social.instagram,
     youtube: values.social.youtube,
