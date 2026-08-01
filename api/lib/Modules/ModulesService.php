@@ -38,6 +38,16 @@ final class ModulesService
     private const CONFIG_KEYS = ['loyalty', 'tables', 'ordersPanel', 'feedback', 'crm'];
 
     /**
+     * Allowlist de módulos nativos toggleables (fuente de verdad única).
+     * Usado también por el realm /admin (CompanyAdminService::toggleModule)
+     * para validar keys sin duplicar la lista.
+     */
+    public static function nativeKeys(): array
+    {
+        return self::NATIVE_KEYS;
+    }
+
+    /**
      * Devuelve el mapa de módulos nativos con estado + config por módulo.
      *
      * Shape: { [moduleKey]: { enabled: bool, config?: {...} } }

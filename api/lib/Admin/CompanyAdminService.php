@@ -24,6 +24,8 @@
  * Ver context/02-arquitectura.md § Admin realm + 10-roadmap.md (F3).
  */
 
+require_once __DIR__ . '/../Modules/ModulesService.php';
+
 class CompanyAdminService
 {
     /**
@@ -668,6 +670,156 @@ class CompanyAdminService
         return ['ok' => true];
     }
 
+    // --- F3: acciones (suspender / extender trial) ---------------------------
+
+    /**
+     * Suspende una empresa: reversible, distinto del soft-delete (que cancela).
+     * status='suspended' + blocked=1 — misma combinación que
+     * TenantHealthService::buildCommercialSignal() interpreta como "suspendido"
+     * (junto con status='cancelled', que es el softDelete()/DELETE?type=soft
+     * existente y NO se toca acá).
+     */
+    public function suspend(string $companyId): array
+    {
+        return $this->update($companyId, ['status' => 'suspended', 'blocked' => 1]);
+    }
+
+    /** Reactiva una empresa suspendida: status='active' + blocked=0. */
+    public function unsuspend(string $companyId): array
+    {
+        return $this->update($companyId, ['status' => 'active', 'blocked' => 0]);
+    }
+
+    /**
+     * Extiende el trial/vencimiento de una empresa $days días.
+     *
+     * Base = GREATEST(expiresAt vigente, now()) — así extender nunca retrocede
+     * el reloj si el plan ya venció (evita que "extender 7 días" reduzca el
+     * plazo de un tenant vencido hace 30). También limpia planExpired.
+     *
+     * Devuelve ['ok'=>true, 'expiresAt'=>...] o ['ok'=>false, 'error'=>'…', 'code'=>NNN].
+     */
+    public function extendTrial(string $companyId, int $days): array
+    {
+        if ($days <= 0) {
+            return ['ok' => false, 'error' => 'days debe ser mayor a 0', 'code' => 422];
+        }
+
+        global $db;
+
+        $exists = $db->Execute('SELECT 1 FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
+        if (!$exists || $exists->EOF) {
+            return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
+        }
+
+        $r = $db->Execute(
+            "UPDATE company
+             SET expiresAt   = GREATEST(COALESCE(expiresAt, now()), now()) + (? || ' days')::interval,
+                 planExpired = false,
+                 updatedAt   = now()
+             WHERE companyId = ?
+             RETURNING expiresAt",
+            [$days, $companyId]
+        );
+        if ($r === false || $r->EOF) {
+            return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
+        }
+
+        return ['ok' => true, 'expiresAt' => $r->fields['expiresat'] ?? $r->fields['expiresAt'] ?? null];
+    }
+
+    // --- F3: módulos activos por tenant ---------------------------------------
+
+    /**
+     * Estado de los módulos nativos toggleables de una empresa.
+     *
+     * Reimplementa (sin depender de functions.php/ncmExecute — el realm admin
+     * está aislado a propósito, ver docblock de esta clase) la MISMA lectura
+     * que \Punto\Api\Modules\ModulesService::list(): columna plana `company.<key>`
+     * con prioridad, fallback a `moduleData[key].status`.
+     *
+     * Shape: { [moduleKey]: { enabled: bool } }
+     */
+    public function listModules(string $companyId): array
+    {
+        global $db;
+
+        $row = $db->Execute('SELECT * FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
+        if (!$row || $row->EOF) {
+            return [];
+        }
+        $flat       = $this->mergeConfig($row->fields);
+        $moduleData = $this->jsonOrArr($this->pick($flat, 'moduleData')) ?? [];
+
+        $out = [];
+        foreach (\Punto\Api\Modules\ModulesService::nativeKeys() as $key) {
+            $flatVal = $this->pick($flat, $key);
+            $entry   = $moduleData[$key] ?? null;
+
+            if ($flatVal !== null) {
+                $enabled = $this->truthy($flatVal);
+            } elseif (is_array($entry) && isset($entry['status'])) {
+                $enabled = $this->truthy($entry['status']);
+            } elseif ($entry !== null && !is_array($entry)) {
+                $enabled = $this->truthy($entry);
+            } else {
+                $enabled = false;
+            }
+
+            $out[$key] = ['enabled' => $enabled];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Activa/desactiva un módulo nativo para una empresa (override manual admin).
+     *
+     * Double-write atómico en UN solo UPDATE (mismo patrón que setAddons()):
+     * columna plana `company.<key>` (lee el POS) + `moduleData[key].status`
+     * (lee el panel legacy) — evita el race de dos queries separadas que tiene
+     * ModulesService::toggle() (P1 documentado ahí, no reproducido acá).
+     */
+    public function toggleModule(string $companyId, string $key, bool $enabled): array
+    {
+        if (!in_array($key, \Punto\Api\Modules\ModulesService::nativeKeys(), true)) {
+            return ['ok' => false, 'error' => "Módulo '{$key}' no reconocido", 'code' => 422];
+        }
+
+        global $db;
+
+        $row = $db->Execute('SELECT config FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
+        if (!$row || $row->EOF) {
+            return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
+        }
+
+        $configRaw = $row->fields['config'] ?? '{}';
+        $config    = json_decode((string) $configRaw, true);
+        if (!is_array($config)) {
+            $config = [];
+        }
+
+        $moduleData = $config['moduleData'] ?? [];
+        if (!is_array($moduleData)) {
+            $moduleData = [];
+        }
+
+        $val               = $enabled ? 1 : 0;
+        $moduleData[$key]  = ['status' => $val];
+        $config['moduleData'] = $moduleData;
+        $config[$key]      = $val; // columna plana — lo que lee el POS
+
+        $r = $db->Execute(
+            'UPDATE company SET config = ?::jsonb, updatedAt = now() WHERE companyId = ?',
+            [json_encode($config, JSON_UNESCAPED_UNICODE), $companyId]
+        );
+        if ($r === false) {
+            return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
+        }
+
+        return ['ok' => true, 'enabled' => $enabled];
+    }
+
     // --- F3.4: billing ------------------------------------------------------
 
     // --- F3.4b: AI credits --------------------------------------------------
@@ -1056,6 +1208,215 @@ class CompanyAdminService
         ];
     }
 
+    // --- F3: facturación (billing_invoice + billing_request, solo lectura) --
+
+    /**
+     * Facturas (billing_invoice) de una empresa + sus solicitudes de cambio de
+     * plan (billing_request), ambas solo-lectura, ORDER BY createdAt DESC.
+     */
+    public function listInvoices(string $companyId): array
+    {
+        global $db;
+
+        $invoices = [];
+        $r = $db->Execute(
+            'SELECT id, type, amountUsd, currency, status, provider, providerInvoiceId,
+                    paidAt, createdAt
+             FROM billing_invoice WHERE companyId = ? ORDER BY createdAt DESC LIMIT 100',
+            [$companyId]
+        );
+        if ($r) {
+            while (!$r->EOF) {
+                $f   = $r->fields;
+                $get = fn(string $k) => $f[$k] ?? $f[strtolower($k)] ?? null;
+                $invoices[] = [
+                    'id'                => (string) $get('id'),
+                    'type'              => (string) ($get('type') ?? ''),
+                    'amountUsd'         => (float)  ($get('amountUsd') ?? 0),
+                    'currency'          => (string) ($get('currency') ?? 'USD'),
+                    'status'            => (string) ($get('status') ?? ''),
+                    'provider'          => (string) ($get('provider') ?? ''),
+                    'providerInvoiceId' => $get('providerInvoiceId'),
+                    'paidAt'            => $get('paidAt'),
+                    'createdAt'         => $get('createdAt'),
+                ];
+                $r->MoveNext();
+            }
+        }
+
+        $requests = [];
+        $rr = $db->Execute(
+            'SELECT id, requestedPlanCode, currentPlanCode, status, note, createdAt, resolvedAt, resolvedBy
+             FROM billing_request WHERE companyId = ? ORDER BY createdAt DESC LIMIT 100',
+            [$companyId]
+        );
+        if ($rr) {
+            while (!$rr->EOF) {
+                $f   = $rr->fields;
+                $get = fn(string $k) => $f[$k] ?? $f[strtolower($k)] ?? null;
+                $requests[] = [
+                    'id'                => (string) $get('id'),
+                    'requestedPlanCode' => (int)    ($get('requestedPlanCode') ?? 0),
+                    'currentPlanCode'   => $get('currentPlanCode') !== null ? (int) $get('currentPlanCode') : null,
+                    'status'            => (string) ($get('status') ?? ''),
+                    'note'              => $get('note'),
+                    'createdAt'         => $get('createdAt'),
+                    'resolvedAt'        => $get('resolvedAt'),
+                    'resolvedBy'        => $get('resolvedBy'),
+                ];
+                $rr->MoveNext();
+            }
+        }
+
+        return ['invoices' => $invoices, 'requests' => $requests];
+    }
+
+    // --- F3: actividad (tenant_audit, solo lectura, paginado) ----------------
+
+    /** Acciones del tenant (tenant_audit) paginadas, más recientes primero. */
+    public function listTenantAudit(string $companyId, int $page = 1, int $pageSize = 30): array
+    {
+        global $db;
+
+        $page     = max(1, $page);
+        $pageSize = max(10, min(100, $pageSize));
+        $offset   = ($page - 1) * $pageSize;
+
+        $totalRow = $db->Execute('SELECT COUNT(*) AS n FROM tenant_audit WHERE companyId = ?', [$companyId]);
+        $total    = ($totalRow && !$totalRow->EOF) ? (int) ($totalRow->fields['n'] ?? 0) : 0;
+
+        $rows = [];
+        $r = $db->Execute(
+            'SELECT id, userId, outletId, realm, method, endpoint, targetId, meta, ip, createdAt
+             FROM tenant_audit WHERE companyId = ?
+             ORDER BY createdAt DESC LIMIT ? OFFSET ?',
+            [$companyId, $pageSize, $offset]
+        );
+        if ($r) {
+            while (!$r->EOF) {
+                $f   = $r->fields;
+                $get = fn(string $k) => $f[$k] ?? $f[strtolower($k)] ?? null;
+                $meta = $get('meta');
+                $rows[] = [
+                    'id'        => (string) $get('id'),
+                    'userId'    => $get('userId'),
+                    'outletId'  => $get('outletId'),
+                    'realm'     => $get('realm'),
+                    'method'    => $get('method'),
+                    'endpoint'  => $get('endpoint'),
+                    'targetId'  => $get('targetId'),
+                    'meta'      => is_string($meta) ? ($this->jsonOrArr($meta) ?? new \stdClass()) : ($meta ?: new \stdClass()),
+                    'ip'        => $get('ip'),
+                    'createdAt' => $get('createdAt'),
+                ];
+                $r->MoveNext();
+            }
+        }
+
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pageSize' => $pageSize];
+    }
+
+    // --- F3: notas internas del tenant (tenant_note) --------------------------
+
+    /** Notas de una empresa, paginadas por createdAt DESC, con nombre/email del autor. */
+    public function listNotes(string $companyId, int $page = 1, int $pageSize = 20): array
+    {
+        global $db;
+
+        $page     = max(1, $page);
+        $pageSize = max(10, min(100, $pageSize));
+        $offset   = ($page - 1) * $pageSize;
+
+        $totalRow = $db->Execute('SELECT COUNT(*) AS n FROM tenant_note WHERE "companyId" = ?', [$companyId]);
+        $total    = ($totalRow && !$totalRow->EOF) ? (int) ($totalRow->fields['n'] ?? 0) : 0;
+
+        $rows = [];
+        $r = $db->Execute(
+            'SELECT n."noteId", n."companyId", n."authorId", n.body, n."createdAt",
+                    a.name AS "authorName", a.email AS "authorEmail"
+             FROM tenant_note n
+             LEFT JOIN admin_user a ON a."adminId" = n."authorId"
+             WHERE n."companyId" = ?
+             ORDER BY n."createdAt" DESC LIMIT ? OFFSET ?',
+            [$companyId, $pageSize, $offset]
+        );
+        if ($r) {
+            while (!$r->EOF) {
+                $f   = $r->fields;
+                $get = fn(string $k) => $f[$k] ?? $f[strtolower($k)] ?? null;
+                $rows[] = [
+                    'id'          => (string) $get('noteId'),
+                    'companyId'   => (string) $get('companyId'),
+                    'authorId'    => (string) $get('authorId'),
+                    'authorName'  => (string) ($get('authorName') ?? ''),
+                    'authorEmail' => (string) ($get('authorEmail') ?? ''),
+                    'body'        => (string) ($get('body') ?? ''),
+                    'createdAt'   => $get('createdAt'),
+                ];
+                $r->MoveNext();
+            }
+        }
+
+        return ['rows' => $rows, 'total' => $total, 'page' => $page, 'pageSize' => $pageSize];
+    }
+
+    /** Crea una nota. Devuelve ['ok'=>true, 'note'=>[...]] o ['ok'=>false, 'error'=>'…']. */
+    public function createNote(string $companyId, string $authorId, string $body): array
+    {
+        $body = trim($body);
+        if ($body === '') {
+            return ['ok' => false, 'error' => 'La nota no puede estar vacía', 'code' => 422];
+        }
+
+        global $db;
+
+        $exists = $db->Execute('SELECT 1 FROM company WHERE companyId = ? LIMIT 1', [$companyId]);
+        if (!$exists || $exists->EOF) {
+            return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
+        }
+
+        $r = $db->Execute(
+            'INSERT INTO tenant_note ("companyId", "authorId", body)
+             VALUES (?, ?, ?) RETURNING "noteId", "createdAt"',
+            [$companyId, $authorId, $body]
+        );
+        if ($r === false || $r->EOF) {
+            return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
+        }
+
+        return [
+            'ok'   => true,
+            'note' => [
+                'id'        => (string) ($r->fields['noteid'] ?? $r->fields['noteId'] ?? ''),
+                'createdAt' => $r->fields['createdat'] ?? $r->fields['createdAt'] ?? null,
+            ],
+        ];
+    }
+
+    /**
+     * Borra una nota — SOLO si $authorId es el autor (regla del brief: "borrar
+     * propia"). Devuelve 403 si la nota es de otro admin, 404 si no existe.
+     */
+    public function deleteNote(string $noteId, string $authorId): array
+    {
+        global $db;
+
+        $row = $db->Execute('SELECT "authorId" FROM tenant_note WHERE "noteId" = ? LIMIT 1', [$noteId]);
+        if (!$row || $row->EOF) {
+            return ['ok' => false, 'error' => 'Nota no encontrada', 'code' => 404];
+        }
+        $ownerId = (string) ($row->fields['authorid'] ?? $row->fields['authorId'] ?? '');
+        if ($ownerId !== $authorId) {
+            return ['ok' => false, 'error' => 'Solo el autor puede borrar su nota', 'code' => 403];
+        }
+
+        $r = $db->Execute('DELETE FROM tenant_note WHERE "noteId" = ?', [$noteId]);
+        if ($r === false) {
+            return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
+        }
+        return ['ok' => true];
+    }
+
     // --- F3.5: entrar como empresa (impersonar) ---------------------------------
 
     /**
@@ -1196,5 +1557,16 @@ class CompanyAdminService
         }
         $d = json_decode($v, true);
         return is_array($d) ? $d : null;
+    }
+
+    /** Normaliza un valor a bool (tolerante a '1', 'true', 'yes', 't', 'on'). Mismo criterio que ModulesService. */
+    private function truthy($v): bool
+    {
+        if (is_bool($v)) {
+            return $v;
+        }
+        $s = strtolower((string) $v);
+        return in_array($s, ['1', 't', 'true', 'yes', 'on'], true)
+            || (is_numeric($s) && (float) $s > 0);
     }
 }

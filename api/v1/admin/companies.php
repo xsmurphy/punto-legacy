@@ -25,6 +25,15 @@
  *
  * F3.5 — entrar como empresa (impersonar):
  *   POST ?id=<uuid>&action=enter → genera JWT _jwt_panel del propietario
+ *
+ * F3 (context/34-admin-saas-plan.md) — ficha completa del tenant:
+ *   GET  ?id=<uuid>&modules=1              → estado de módulos nativos (enabled)
+ *   GET  ?id=<uuid>&invoices=1             → billing_invoice + billing_request del tenant
+ *   GET  ?id=<uuid>&audit=1&page=&pageSize= → tenant_audit paginado
+ *   POST ?id=<uuid>&action=toggleModule     body {key, enabled}
+ *   POST ?id=<uuid>&action=suspend          → status='suspended'+blocked=1 (reversible)
+ *   POST ?id=<uuid>&action=unsuspend        → status='active'+blocked=0
+ *   POST ?id=<uuid>&action=extendTrial      body {days}
  */
 
 require_once __DIR__ . '/../../includes/db.php';
@@ -57,6 +66,23 @@ if ($method === 'GET') {
                 apiNotFound('Empresa no encontrada');
             }
             apiOk($billing);
+        }
+
+        // F3 — estado de módulos nativos.
+        if (!empty($_GET['modules'])) {
+            apiOk($svc->listModules($id));
+        }
+
+        // F3 — facturas (billing_invoice) + solicitudes (billing_request).
+        if (!empty($_GET['invoices'])) {
+            apiOk($svc->listInvoices($id));
+        }
+
+        // F3 — actividad del tenant (tenant_audit) paginada.
+        if (!empty($_GET['audit'])) {
+            $page     = max(1, (int) ($_GET['page'] ?? 1));
+            $pageSize = (int) ($_GET['pageSize'] ?? 30);
+            apiOk($svc->listTenantAudit($id, $page, $pageSize));
         }
 
         $company = $svc->get($id);
@@ -236,6 +262,74 @@ if ($method === 'POST') {
             'approve'   => $approve,
             'status'    => $result['status'] ?? null,
         ]);
+        apiOk($result);
+    }
+
+    // F3 — activar/desactivar un módulo nativo (override manual admin).
+    if ($action === 'toggleModule') {
+        if ($id === '' || !preg_match($uuidRe, $id)) {
+            apiError('id inválido', 400);
+        }
+        $body  = (string) file_get_contents('php://input');
+        $input = json_decode($body, true);
+        if (!is_array($input)) {
+            apiError('Body JSON inválido', 400);
+        }
+        $key     = trim((string) ($input['key'] ?? ''));
+        $enabled = filter_var($input['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        if ($key === '') {
+            apiError('key es requerido', 422);
+        }
+        $result = $svc->toggleModule($id, $key, $enabled);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
+        adminAudit('toggleModule', 'company', $id, null, ['key' => $key, 'enabled' => $enabled]);
+        apiOk($result);
+    }
+
+    // F3 — suspender (reversible: status='suspended'+blocked=1).
+    if ($action === 'suspend') {
+        if ($id === '' || !preg_match($uuidRe, $id)) {
+            apiError('id inválido', 400);
+        }
+        $result = $svc->suspend($id);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
+        adminAudit('suspendTenant', 'company', $id);
+        apiOk($result);
+    }
+
+    // F3 — reactivar (status='active'+blocked=0).
+    if ($action === 'unsuspend') {
+        if ($id === '' || !preg_match($uuidRe, $id)) {
+            apiError('id inválido', 400);
+        }
+        $result = $svc->unsuspend($id);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
+        adminAudit('unsuspendTenant', 'company', $id);
+        apiOk($result);
+    }
+
+    // F3 — extender trial/vencimiento N días.
+    if ($action === 'extendTrial') {
+        if ($id === '' || !preg_match($uuidRe, $id)) {
+            apiError('id inválido', 400);
+        }
+        $body  = (string) file_get_contents('php://input');
+        $input = json_decode($body, true);
+        if (!is_array($input)) {
+            apiError('Body JSON inválido', 400);
+        }
+        $days = (int) ($input['days'] ?? 0);
+        $result = $svc->extendTrial($id, $days);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
+        adminAudit('extendTrial', 'company', $id, null, ['days' => $days, 'expiresAt' => $result['expiresAt'] ?? null]);
         apiOk($result);
     }
 
