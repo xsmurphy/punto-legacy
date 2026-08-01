@@ -37,6 +37,7 @@ import {
 import { MODE_VISUALS, resolveCartMode, type CartModeKey } from "@/lib/pos/mode-visuals"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -670,7 +671,18 @@ function CartToolbar({
   // 4 botones distribuidos proporcionalmente a lo largo del toolbar (cada uno
   // ocupa un cuarto, centrado) — espejo del col-xs-3 del legacy.
   return (
-    <div className="flex h-14 shrink-0 items-center px-1">
+    <div className="relative flex h-14 shrink-0 items-center px-1">
+      {/* Nav de módulos (HotKeys / Órdenes / Espacios / Guardadas), solo mobile.
+          Antes era un FAB flotante abajo a la derecha, lejos del resto de la
+          navegación; el owner lo pidió arriba a la izquierda, al lado del menú
+          principal (2026-08-01). Va ABSOLUTE y no como quinta columna del flex:
+          una columna más redistribuiría los cuatro cuartos y movería los cuatro
+          botones que el cajero ya tiene por memoria muscular (§14 R10). En
+          desktop el rail del sidebar sigue visible y este trigger no existe. */}
+      <SidebarTrigger
+        aria-label="Módulos"
+        className="absolute left-0 top-1/2 z-10 size-9 -translate-y-1/2 md:hidden"
+      />
       <div className="flex flex-1 justify-center">
         <PosMainMenu />
       </div>

@@ -17,11 +17,46 @@
  * el admin revoca el device y genera un link nuevo (o el operador lo cambia
  * desde Ajustes del POS, slice futuro).
  *
- * Responsive: en mobile el bloque izquierdo se oculta (solo carrito).
+ * Responsive: en mobile el carrito ocupa la pantalla entera y el bloque
+ * izquierdo NO se pinta en la grilla — los módulos de ruta se abren como modal
+ * fullscreen por encima del carrito (ver MODULE_TITLES abajo). Antes quedaban
+ * simplemente ocultos: en un teléfono, navegar a /pos/espacios mostraba el
+ * carrito y nada más (reporte del owner 2026-08-01).
  */
 
+/**
+ * Rutas hijas que son "módulos": en mobile se muestran dentro de un Dialog
+ * fullscreen. `/pos` (la grilla de hotkeys) NO está acá — es la home del
+ * workspace y en mobile su lugar lo ocupa el carrito.
+ *
+ * El título es para el DialogTitle (a11y): el módulo trae su propio header
+ * visual, así que el del Dialog va sr-only.
+ */
+const MODULE_TITLES: Record<string, string> = {
+  "/pos/ordenes": "Órdenes",
+  "/pos/espacios": "Espacios",
+  "/pos/calendario": "Calendario",
+  "/pos/guardadas": "Ventas guardadas",
+  "/pos/transactions": "Transacciones",
+}
+
+function moduleTitleFor(pathname: string): string | null {
+  if (pathname === "/pos") return null
+  const key = Object.keys(MODULE_TITLES).find((p) => pathname.startsWith(p))
+  return key ? MODULE_TITLES[key] : "Módulo"
+}
+
 import * as React from "react"
-import { usePathname } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog"
+import { cn } from "@/lib/utils"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { CartPanel } from "@/components/register/cart-panel"
 import { LockScreen } from "@/components/register/lock-screen"
 import { PosLoadingScreen } from "@/components/register/pos-loading-screen"
@@ -96,6 +131,15 @@ export default function PosWorkspaceLayout({
   usePosHotkeys()
   usePriceContext()
 
+  const router = useRouter()
+  const pathname = usePathname()
+  const isMobile = useIsMobile()
+  // En mobile el módulo se monta DENTRO del Dialog; en desktop, en la grilla.
+  // Nunca en los dos a la vez: montar dos veces duplicaría fetches, sockets y
+  // estado local del módulo.
+  const moduleTitle = moduleTitleFor(pathname)
+  const moduleAsDialog = isMobile && moduleTitle !== null
+
   // Auto-lock al arrancar si hay >1 operador (sin flash entre paints).
   // El flag vive en el lock-store (no en un useRef local) para sobrevivir
   // remounts del layout — Next puede invalidar la cache al navegar entre
@@ -128,13 +172,47 @@ export default function PosWorkspaceLayout({
       <HotkeysEditScope />
       <OfflineSyncRunner />
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        <div className="hidden flex-[7] overflow-hidden md:block">
-          {children}
-        </div>
+        {!moduleAsDialog && (
+          <div className="hidden flex-[7] overflow-hidden md:block">
+            {children}
+          </div>
+        )}
         <div className="flex-1 overflow-hidden md:flex-[3]">
           <CartPanel />
         </div>
       </div>
+
+      {/* Módulo de ruta como modal fullscreen en mobile. Cerrar vuelve a /pos:
+          el Dialog ES la ruta, así que descartarlo tiene que descartar también
+          la navegación — si no, el carrito quedaría visible con la URL todavía
+          en /pos/espacios y el próximo render lo reabriría.
+          Las clases de fullscreen van explícitas (y no delegadas al `max-sm:`
+          del primitive) porque `useIsMobile` corta en 768px y `max-sm` en
+          640px: en una tablet chica el modal quedaría centrado y flotando. */}
+      {moduleAsDialog && (
+        <Dialog
+          open
+          onOpenChange={(v) => {
+            if (!v) router.push("/pos")
+          }}
+        >
+          <DialogContent
+            className={cn(
+              "flex flex-col gap-0 overflow-hidden p-0",
+              "!inset-0 !h-dvh !max-h-dvh !w-auto !max-w-none !translate-x-0 !translate-y-0 !rounded-none",
+            )}
+          >
+            <DialogHeader className="sr-only">
+              <DialogTitle>{moduleTitle}</DialogTitle>
+              <DialogDescription>
+                Módulo del POS abierto sobre el carrito.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       <LockScreen />
     </div>
   )

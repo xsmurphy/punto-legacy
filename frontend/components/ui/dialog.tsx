@@ -61,6 +61,17 @@ function DialogOverlay({
  * cuerpo scrolleable y footer fijo) simplemente pasa sus clases por
  * `className` y ganan: `cn()` mergea con tailwind-merge y lo específico pisa al
  * default.
+ *
+ * ⚠ `max-sm:` → FULLSCREEN. En viewport móvil el modal centrado quedaba
+ * flotando con `max-h-[85dvh]` y un ancho de casi toda la pantalla: mucho
+ * cromo, poco alto útil, y con el teclado virtual abierto el contenido no
+ * entraba (reporte del owner 2026-08-01, POS en teléfono). Decisión de design
+ * system app-wide (panel incluido), no un parche del POS: bajo `sm` el content
+ * ocupa toda la pantalla. `content-start` es necesario porque el content es un
+ * `grid` de alto fijo: sin él `align-content: stretch` estiraría header/footer
+ * para rellenar el sobrante. El scroll sigue en el propio content
+ * (`overflow-y-auto`), así que el footer queda dentro del flujo y alcanzable.
+ * Registrado en context/20-design-system.md §10.
  */
 function DialogContent({
   className,
@@ -77,6 +88,7 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid max-h-[85dvh] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none",
           className
         )}
         {...props}
