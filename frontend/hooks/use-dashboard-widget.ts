@@ -38,7 +38,16 @@ export interface InfoWidget {
   usersMax: number
   itemsCount: number
   itemsMax: number
+  /** Transacciones del MES calendario actual (no del rango elegido). */
   transactionsCount: number
+  /**
+   * true si el tenant vendió ALGUNA VEZ (lifetime). Es la señal del hero de
+   * bienvenida del dashboard — transactionsCount es mensual y gatear por él
+   * mostraba la bienvenida cada día 1 del mes a cuentas con historial.
+   * Optional: backend viejo no lo manda (deploy desfasado) — tratar
+   * undefined como "no sé", no como "nunca vendió".
+   */
+  hasSales?: boolean
 }
 
 export interface IncomeOutcomeStatsWidget {

@@ -72,6 +72,12 @@ final class DashboardService
         $startD = date('Y-m-01 00:00:00');
         $endD   = date('Y-m-t 23:59:59');
         $trans = ncmExecute("SELECT COUNT(*) as count FROM transaction WHERE companyId = ? AND transactionDate BETWEEN ? AND ?", [$companyId, $startD, $endD]);
+        // ¿Vendió ALGUNA VEZ? (lifetime, EXISTS barato). El gate del hero de
+        // bienvenida del dashboard usa esto — transactionsCount es del MES
+        // calendario, así que gatear por él mostraba "Bienvenido a Punto" a
+        // cuentas con meses de ventas cada día 1 del mes (bug 2026-08-01).
+        $everSold = ncmExecute("SELECT EXISTS(SELECT 1 FROM transaction WHERE companyId = ?) AS e", [$companyId]);
+        $hasSalesRaw = is_array($everSold) || $everSold instanceof \ArrayAccess ? ($everSold['e'] ?? false) : false;
 
         $m = $this->companyMeta($companyId);
         $outlets = (int) $this->scalar("SELECT COUNT(*) as count FROM outlet WHERE companyId = ?", [$companyId]);
@@ -92,6 +98,8 @@ final class DashboardService
             'itemsCount'        => (int) ($items['count'] ?? 0),
             'itemsMax'          => (int) ($planRow['max_items'] ?? 0),
             'transactionsCount' => (int) ($trans['count'] ?? 0),
+            // Lifetime — ver comentario arriba. PDO/PG puede devolver bool o 't'.
+            'hasSales'          => ($hasSalesRaw === true || $hasSalesRaw === 't' || $hasSalesRaw === '1' || $hasSalesRaw === 1),
         ];
     }
 

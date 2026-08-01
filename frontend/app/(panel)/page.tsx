@@ -100,15 +100,19 @@ export default function DashboardPage() {
   // NPS oculto (ver comentario en <aside>) — fetch de "satisfaction" removido:
   // quedaría huérfano sin SatisfactionCard montado.
 
-  // "Negocio sin actividad" = cero transacciones (el dashboard es de ventas).
+  // "Negocio sin actividad" = NUNCA vendió (lifetime, info.hasSales).
   // No gateamos por itemsCount/clientes: al crear la cuenta se seedean
-  // artículos y contactos, así que esos nunca son 0. La señal real de "no hay
-  // nada para mostrar" es que todavía no se vendió. transactionsCount viene del
-  // mes actual → para una cuenta nueva (nunca vendió) es 0 → mostramos el hero.
+  // artículos y contactos, así que esos nunca son 0. Tampoco por
+  // transactionsCount: es del MES calendario, y usarlo acá mostraba
+  // "Bienvenido a Punto" cada día 1 del mes a cuentas con historial de
+  // ventas (bug 2026-08-01). Fallback al gate mensual solo si hasSales no
+  // vino (backend sin deployar) — undefined nunca fuerza el hero solo.
   const isEmptyState =
     !info.isLoading &&
     !info.error &&
-    (info.data?.transactionsCount ?? 1) === 0
+    (info.data?.hasSales !== undefined
+      ? info.data.hasSales === false
+      : (info.data?.transactionsCount ?? 1) === 0)
 
   if (isEmptyState) {
     return (
