@@ -18,24 +18,14 @@ import type { ComponentType } from "react"
 import {
   Globe,
   Clock,
-  ScanBarcode,
   Heart,
   MessageCircle,
-  Contact,
-  Megaphone,
   CalendarDays,
   LayoutGrid,
   ChefHat,
-  MonitorSmartphone,
-  Monitor,
-  Tv,
   ClipboardList,
   Repeat,
   BellRing,
-  FileText,
-  Mail,
-  Code,
-  Bell,
   ReceiptText,
 } from "lucide-react"
 
@@ -65,6 +55,16 @@ export interface ModuleCatalogEntry {
 export const MODULES_CATALOG: ModuleCatalogEntry[] = [
   // ── Destacados ───────────────────────────────────────────────────────────
   {
+    key: "einvoicePy",
+    title: "Facturación Electrónica",
+    description: "Emití facturas electrónicas habilitadas por la SET (SIFEN) directo desde tus ventas.",
+    icon: ReceiptText,
+    category: "Destacados",
+    configKind: "none",
+    status: "available",
+    configHref: "/settings/facturacion-electronica",
+  },
+  {
     key: "ecom",
     title: "eCommerce",
     description:
@@ -82,15 +82,6 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     category: "Destacados",
     configKind: "none",
     status: "available",
-  },
-  {
-    key: "priceCheck",
-    title: "Verificador de Precios",
-    description: "Permití a tus clientes consultar precios en el local.",
-    icon: ScanBarcode,
-    category: "Destacados",
-    configKind: "none",
-    status: "soon",
   },
 
   // ── Marketing y Fidelización ─────────────────────────────────────────────
@@ -110,24 +101,6 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: MessageCircle,
     category: "Marketing y Fidelización",
     configKind: "feedback",
-    status: "soon",
-  },
-  {
-    key: "crm",
-    title: "CRM",
-    description: "Gestioná la relación con tus clientes.",
-    icon: Contact,
-    category: "Marketing y Fidelización",
-    configKind: "crm",
-    status: "soon",
-  },
-  {
-    key: "campaigns",
-    title: "Campañas masivas",
-    description: "Enviá promociones por email y SMS.",
-    icon: Megaphone,
-    category: "Marketing y Fidelización",
-    configKind: "none",
     status: "soon",
   },
 
@@ -164,7 +137,9 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
   // (device-invite-create-dialog). Estuvieron acá como cards toggleables
   // (kds/cds/cos) y se retiraron 2026-07-31 — el flag de company que leía el
   // POS legacy sigue existiendo en el backend (ModulesService.NATIVE_KEYS)
-  // pero no se administra desde el catálogo.
+  // pero no se administra desde el catálogo. El Verificador de Precios
+  // (priceCheck) es también un dispositivo: cuando exista, va como tipo de
+  // dispositivo en esa pantalla, no como módulo.
   {
     key: "ordersPanel",
     title: "Panel de Órdenes",
@@ -194,61 +169,12 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     configKind: "none",
     status: "soon",
   },
-  {
-    key: "digitalInvoice",
-    title: "Factura en PDF",
-    description: "Emití comprobantes digitales en PDF.",
-    icon: FileText,
-    category: "Facturación",
-    configKind: "comingSoon",
-    status: "available",
-  },
-  {
-    key: "salesSummaryDaily",
-    title: "Reportes diarios",
-    description: "Recibí por email el rendimiento diario de tu negocio.",
-    icon: Mail,
-    category: "Facturación",
-    configKind: "none",
-    status: "soon",
-  },
-  {
-    key: "einvoicePy",
-    title: "Facturación Electrónica",
-    description: "Emití facturas electrónicas habilitadas por la SET (SIFEN) directo desde tus ventas.",
-    icon: ReceiptText,
-    category: "Facturación",
-    configKind: "none",
-    status: "available",
-    configHref: "/settings/facturacion-electronica",
-  },
-
-  // ── Otros ────────────────────────────────────────────────────────────────
-  {
-    key: "api",
-    title: "API de Punto",
-    description: "Conectá otras plataformas o sistemas a Punto.",
-    icon: Code,
-    category: "Otros",
-    configKind: "none",
-    status: "soon",
-  },
-  {
-    key: "reminder",
-    title: "Recordatorios",
-    description: "Recordatorios personalizados para tu equipo.",
-    icon: Bell,
-    category: "Otros",
-    configKind: "none",
-    status: "soon",
-  },
 ]
 
 /** Categorías en el orden de presentación en el catálogo. */
 export const MODULE_CATEGORIES = [
   "Destacados",
-  "Marketing y Fidelización",
   "Operativos",
+  "Marketing y Fidelización",
   "Facturación",
-  "Otros",
 ] as const
