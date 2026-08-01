@@ -93,6 +93,9 @@ final class ContactService
         if (isset($in['storeCredit']))   $rec['contactStoreCredit']   = $in['storeCredit'];
         if (isset($in['loyalty']))       $rec['contactLoyalty']       = $in['loyalty'];
         if (isset($in['loyaltyAmount'])) $rec['contactLoyaltyAmount'] = $in['loyaltyAmount'];
+        // Línea de crédito: habilita venta a crédito (isCreditable en POS) + tope de saldo.
+        if (isset($in['isCreditable']))  $rec['contactCreditable']    = !empty($in['isCreditable']) ? 1 : 0;
+        if (isset($in['creditLine']))    $rec['contactCreditLine']    = $in['creditLine'];
 
         // priceListId vive en data JSONB; ncmInsert/ncmUpdate lo enrutan solos
         // por ausencia del campo en el whitelist de la tabla contact.
@@ -332,6 +335,8 @@ final class ContactService
             'storeCredit' => $row['contactStoreCredit'] ?? null,
             'loyalty'     => $row['contactLoyalty'] ?? null,
             'loyaltyAmount' => $row['contactLoyaltyAmount'] ?? null,
+            'isCreditable' => (bool) ((int) ($row['contactCreditable'] ?? 0) > 0),
+            'creditLine'  => (float) ($row['contactCreditLine'] ?? 0),
             'country'     => $row['contactCountry'] ?? null,
             'date'        => $row['contactDate'] ?? null,
             'addressId'   => $address['customerAddressId'] ?? null,

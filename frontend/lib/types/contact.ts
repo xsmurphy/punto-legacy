@@ -51,6 +51,10 @@ export interface ContactListItem {
    *  ya no filtra por type — este campo permite derivar el label sin depender
    *  del query param `?type=` de la URL. */
   type: number
+  /** Habilitado para venta a crédito (contactCreditable). Usado por el POS. */
+  isCreditable: boolean
+  /** Tope de línea de crédito (contactCreditLine). */
+  creditLine: number
 }
 
 /** El detalle (GET ?id=) y el item de listado tienen exactamente el mismo shape
@@ -193,4 +197,8 @@ export interface ContactFormValues {
   status: boolean
   /** UUID de la lista de precios asignada al contacto. Null = precio base. */
   priceListId: string | null
+  /** Habilitado para venta a crédito. */
+  isCreditable: boolean
+  /** Tope de línea de crédito. Solo aplica si isCreditable = true. */
+  creditLine: number | null
 }

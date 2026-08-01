@@ -244,5 +244,7 @@ function serialize(values: ContactFormValues): Record<string, unknown> {
     note: values.note,
     status: values.status ? 1 : 0,
     priceListId: values.priceListId ?? "",
+    isCreditable: values.isCreditable,
+    creditLine: values.creditLine ?? 0,
   }
 }

@@ -95,6 +95,8 @@ const contactSchema = z
     note: z.string(),
     status: z.boolean(),
     priceListId: z.string().nullable(),
+    isCreditable: z.boolean(),
+    creditLine: z.number().nullable(),
   })
   .refine(
     (v) => (v.kind === "persona" ? v.name.trim() !== "" : v.fiscalName.trim() !== ""),
@@ -520,6 +522,8 @@ function emptyValues(): ContactFormValues {
     note: "",
     status: true,
     priceListId: null,
+    isCreditable: false,
+    creditLine: null,
   }
 }
 

@@ -91,6 +91,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { PhoneInput } from "@/components/forms/phone-input"
+import { MoneyInput } from "@/components/ui/money-input"
 import {
   useArchiveContact,
   useContact,
@@ -142,6 +143,8 @@ const contactSchema = z
     note: z.string(),
     status: z.boolean(),
     priceListId: z.string().nullable(),
+    isCreditable: z.boolean(),
+    creditLine: z.number().nullable(),
   })
   .refine(
     (v) => (v.kind === "persona" ? v.name.trim() !== "" : v.fiscalName.trim() !== ""),
@@ -205,6 +208,8 @@ export function ContactDetailView({
       note: data.note ?? "",
       status: (data.status ?? 1) === 1,
       priceListId: data.priceListId ?? null,
+      isCreditable: data.isCreditable ?? false,
+      creditLine: data.creditLine ?? null,
     })
   }, [data, form])
 
@@ -510,6 +515,7 @@ function ContactFormBody({
   setCountry: (c: CountryCode) => void
 }) {
   const { data: priceLists } = usePriceLists()
+  const isCreditable = form.watch("isCreditable")
 
   // Lookup del RUC en el padrón (backend: /v1/contacts?resource=taxpayer).
   // Completa la razón social del campo que corresponda al tipo de contacto:
@@ -775,6 +781,48 @@ function ContactFormBody({
               <FormControl>
                 <Textarea rows={3} placeholder="Observaciones internas" {...field} />
               </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </Section>
+
+      {/* Crédito */}
+      <Section title="Crédito">
+        <FormField
+          control={form.control}
+          name="isCreditable"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+              <div>
+                <FormLabel className="text-sm">Puede comprar a crédito</FormLabel>
+                <FormDescription className="text-xs">
+                  Habilita venta a crédito para este cliente en la caja.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch checked={field.value} onCheckedChange={field.onChange} />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
+          name="creditLine"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Línea de crédito</FormLabel>
+              <FormControl>
+                <MoneyInput
+                  value={field.value}
+                  onChange={field.onChange}
+                  disabled={!isCreditable}
+                  placeholder="0"
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                Tope de saldo pendiente permitido para este cliente.
+              </FormDescription>
               <FormMessage />
             </FormItem>
           )}
@@ -1652,6 +1700,8 @@ function emptyValues(): ContactFormValues {
     note: "",
     status: true,
     priceListId: null,
+    isCreditable: false,
+    creditLine: null,
   }
 }
 
