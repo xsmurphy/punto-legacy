@@ -240,29 +240,25 @@ final class OrderCoreService
             }
         }
 
-        // Correlativo por (companyid, outletid, día local DEL TENANT): advisory
-        // lock transaction-scoped evita la carrera entre dos creates
-        // concurrentes del mismo outlet en el mismo día (no hay UI en O0
-        // todavía — si O1 revela contención real de alto volumen, se resuelve
-        // con secuencia dedicada por outlet+día; el lock suave alcanza).
+        // Correlativo CONTINUO por (companyid, outletid) — sin reset diario
+        // (decisión owner 2026-08-01: el reset por día generaba números
+        // repetidos en el listado; además el corte por "día" dependía del
+        // timezone y se reseteaba a las 20-21hs locales cuando se calculaba
+        // en UTC. Si algún negocio pide numeración diaria, va como opción de
+        // SUCURSAL — no de caja — ver _feature-requests.md).
         //
-        // "Día" = día calendario del TENANT (TenantClock), NUNCA el del
-        // servidor: `created_at::date = CURRENT_DATE` compara en el timezone
-        // de la BD (UTC) — en Paraguay (UTC-3/-4) el correlativo se
-        // reseteaba a #1 todos los días a las 20-21hs locales, hora pico, y
-        // el listado mostraba números de orden repetidos en el mismo día
-        // (reporte del owner 2026-08-01).
-        $tenantTz   = \Punto\Api\Support\TenantClock::timezone($companyId);
-        $todayLocal = substr(\Punto\Api\Support\TenantClock::now($companyId), 0, 10);
-        $lockKey = $companyId . ':' . $outletId . ':' . $todayLocal;
+        // El advisory lock transaction-scoped serializa dos creates
+        // concurrentes del mismo outlet (multi-caja): MAX+1 + INSERT quedan
+        // atómicos entre sí. Si el volumen revela contención real, se migra a
+        // secuencia dedicada por outlet; el lock suave alcanza hoy.
+        $lockKey = $companyId . ':' . $outletId . ':ordernumber';
         $db->Execute('SELECT pg_advisory_xact_lock(hashtext(?))', [$lockKey]);
 
         $numRow = ncmExecute(
             "SELECT COALESCE(MAX(ordernumber), 0) + 1 AS nextnum
                FROM pos_order
-              WHERE companyid = ? AND outletid = ?
-                AND (created_at AT TIME ZONE ?)::date = ?::date",
-            [$companyId, $outletId, $tenantTz, $todayLocal]
+              WHERE companyid = ? AND outletid = ?",
+            [$companyId, $outletId]
         );
         $orderNumber = (int) ($numRow['nextnum'] ?? 1);
 
