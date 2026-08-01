@@ -5,6 +5,7 @@ import { Delete } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { usePosUIStore } from "@/lib/ui/store"
+import { useIsCoarsePointer } from "@/hooks/use-mobile"
 import { formatAmount } from "@/lib/format-money"
 
 export interface NumericPadProps {
@@ -46,6 +47,13 @@ export function NumericPad({
 }: NumericPadProps) {
   const config = useCatalogStore((s) => s.config)
   const showSoftKeyboard = usePosUIStore((s) => s.showSoftKeyboard)
+  // En un dispositivo táctil (pointer: coarse) el pad en pantalla es la ÚNICA
+  // forma de tipear — la captura de teclado físico de abajo no existe en un
+  // smartphone. El toggle "Mostrar teclado virtual" queda como override para
+  // FORZARLO en desktops (ej. all-in-one táctil que además tiene teclado);
+  // en táctil no puede apagarlo: un numpad sin teclas es un modal roto.
+  const coarsePointer = useIsCoarsePointer()
+  const padVisible = showSoftKeyboard || coarsePointer
   const allowDot = mode !== "int"
 
   const isFirstRef = React.useRef(true)
@@ -146,13 +154,17 @@ export function NumericPad({
         <div className="h-20 flex items-center justify-center">
           <span className="text-5xl font-bold tabular-nums">{displayWithUnit}</span>
         </div>
-        <p className="text-xs italic text-muted-foreground text-center">
-          *Utilice las teclas del teclado{onShiftToggle ? " · Shift cambia el modo" : ""}
-        </p>
+        {/* Hint de teclado físico solo cuando NO hay pad en pantalla — en un
+            táctil "utilice las teclas del teclado" es una instrucción imposible. */}
+        {!padVisible && (
+          <p className="text-xs italic text-muted-foreground text-center">
+            *Utilice las teclas del teclado{onShiftToggle ? " · Shift cambia el modo" : ""}
+          </p>
+        )}
       </div>
 
       {/* Grid 3x4 */}
-      {showSoftKeyboard && (
+      {padVisible && (
         <div className="grid grid-cols-3 gap-2">
           {(["7", "8", "9", "4", "5", "6", "1", "2", "3"] as const).map((d) => (
             <Button

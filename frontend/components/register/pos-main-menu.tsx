@@ -1370,17 +1370,40 @@ function AjustesPanel() {
 
   const pendingRef = React.useRef<Partial<PosRegisterConfig>>({})
   const timerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Espejo en estado del pendingRef, SOLO para pintar. El switch era
+  // controlado por el cache del server (config[key]) y el toggle recién
+  // tocaba ese cache al flushear el debounce (400 ms) — hasta entonces la
+  // UI no daba NINGUNA señal. En touch eso se lee como "el switch no anda"
+  // (y un segundo tap dentro de la ventana lo dejaba donde empezó). El
+  // valor pintado ahora es pending ?? server: feedback en el mismo frame.
+  const [pending, setPending] = React.useState<Partial<PosRegisterConfig>>({})
 
   const flushPending = React.useCallback(() => {
     const patch = pendingRef.current
     pendingRef.current = {}
     if (Object.keys(patch).length === 0) return
-    updateConfig.mutate(patch)
+    updateConfig.mutate(patch, {
+      onSettled: () => {
+        // Al asentarse la mutación (éxito u error) el cache del server ya es
+        // la verdad (optimistic en éxito, rollback en error) — soltamos el
+        // overlay de esas keys para volver a pintar desde el server.
+        setPending((prev) => {
+          const next = { ...prev }
+          for (const k of Object.keys(patch)) delete next[k as keyof PosRegisterConfig]
+          return next
+        })
+      },
+      // El update optimista del hook ya hace rollback silencioso en error;
+      // sin toast el switch "volvía solo" sin explicación — eso ES un bug de
+      // UX aunque el rollback sea correcto.
+      onError: (e) => toast.error(`No se pudo guardar el ajuste: ${e.message}`),
+    })
   }, [updateConfig])
 
   const handleToggle = React.useCallback(
     (key: keyof PosRegisterConfig, value: boolean) => {
       pendingRef.current = { ...pendingRef.current, [key]: value }
+      setPending((prev) => ({ ...prev, [key]: value }))
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(flushPending, 400)
     },
@@ -1467,7 +1490,7 @@ function AjustesPanel() {
                     )}
                   </div>
                   <Switch
-                    checked={config[key]}
+                    checked={(pending[key] as boolean | undefined) ?? config[key]}
                     disabled={isLoading}
                     onCheckedChange={(val) => handleToggle(key, val)}
                   />
