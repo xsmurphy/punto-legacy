@@ -240,19 +240,29 @@ final class OrderCoreService
             }
         }
 
-        // Correlativo por (companyid, outletid, día local): advisory lock
-        // transaction-scoped evita la carrera entre dos creates concurrentes
-        // del mismo outlet en el mismo día (no hay UI en O0 todavía — si O1
-        // revela contención real de alto volumen, se resuelve con secuencia
-        // dedicada por outlet+día; el lock suave alcanza para esta fase).
-        $lockKey = $companyId . ':' . $outletId . ':' . date('Y-m-d');
+        // Correlativo por (companyid, outletid, día local DEL TENANT): advisory
+        // lock transaction-scoped evita la carrera entre dos creates
+        // concurrentes del mismo outlet en el mismo día (no hay UI en O0
+        // todavía — si O1 revela contención real de alto volumen, se resuelve
+        // con secuencia dedicada por outlet+día; el lock suave alcanza).
+        //
+        // "Día" = día calendario del TENANT (TenantClock), NUNCA el del
+        // servidor: `created_at::date = CURRENT_DATE` compara en el timezone
+        // de la BD (UTC) — en Paraguay (UTC-3/-4) el correlativo se
+        // reseteaba a #1 todos los días a las 20-21hs locales, hora pico, y
+        // el listado mostraba números de orden repetidos en el mismo día
+        // (reporte del owner 2026-08-01).
+        $tenantTz   = \Punto\Api\Support\TenantClock::timezone($companyId);
+        $todayLocal = substr(\Punto\Api\Support\TenantClock::now($companyId), 0, 10);
+        $lockKey = $companyId . ':' . $outletId . ':' . $todayLocal;
         $db->Execute('SELECT pg_advisory_xact_lock(hashtext(?))', [$lockKey]);
 
         $numRow = ncmExecute(
             "SELECT COALESCE(MAX(ordernumber), 0) + 1 AS nextnum
                FROM pos_order
-              WHERE companyid = ? AND outletid = ? AND created_at::date = CURRENT_DATE",
-            [$companyId, $outletId]
+              WHERE companyid = ? AND outletid = ?
+                AND (created_at AT TIME ZONE ?)::date = ?::date",
+            [$companyId, $outletId, $tenantTz, $todayLocal]
         );
         $orderNumber = (int) ($numRow['nextnum'] ?? 1);
 
