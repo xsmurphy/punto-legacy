@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useRouter } from "next/navigation"
-import { Building2, ChevronLeft, ChevronRight, Search } from "lucide-react"
+import { ArrowUpDown, Building2, ChevronLeft, ChevronRight, Search } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,7 +22,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
-import { useAdminCompanies, useAdminPlans, type AdminCompanyRow } from "@/hooks/use-admin"
+import {
+  useAdminCompanies,
+  useAdminPlans,
+  useAdminHealthList,
+  type AdminCompanyRow,
+  type TenantHealthLevel,
+} from "@/hooks/use-admin"
 
 function statusBadge(status: string, blocked: number) {
   if (blocked) return <Badge variant="destructive">Bloqueada</Badge>
@@ -38,6 +44,20 @@ function statusBadge(status: string, blocked: number) {
 }
 
 const PAGE_SIZE_OPTIONS = [25, 50, 100]
+
+function healthBadge(level: TenantHealthLevel, score: number) {
+  const cls =
+    level === "green"
+      ? "bg-emerald-600 text-white border-0"
+      : level === "yellow"
+        ? "bg-amber-500 text-white border-0"
+        : "bg-destructive text-destructive-foreground border-0"
+  return (
+    <Badge className={cls}>
+      <span className="tabular-nums">{score}</span>
+    </Badge>
+  )
+}
 
 function useDebounce<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = React.useState(value)
@@ -58,6 +78,16 @@ export default function AdminCompaniesPage() {
   const [pageSize, setPageSize] = React.useState(50)
 
   const { data: plansData } = useAdminPlans()
+  const { data: healthList } = useAdminHealthList()
+  const [healthSort, setHealthSort] = React.useState<"none" | "asc" | "desc">("none")
+
+  const healthByCompany = React.useMemo(() => {
+    const map = new Map<string, { score: number; level: TenantHealthLevel }>()
+    for (const h of healthList ?? []) {
+      map.set(h.companyId, { score: h.score, level: h.level })
+    }
+    return map
+  }, [healthList])
 
   const q = useDebounce(searchInput, 300)
 
@@ -72,7 +102,24 @@ export default function AdminCompaniesPage() {
     pageSize,
   })
 
-  const rows: AdminCompanyRow[] = data?.rows ?? []
+  const baseRows: AdminCompanyRow[] = data?.rows ?? []
+  // Sort riesgo-primero es sobre la página actual (el listado de empresas
+  // es server-paginado; el score de salud viene de un endpoint aparte que
+  // sí trae TODOS los tenants, pero re-paginar por score requeriría fusionar
+  // ambos server-side — fuera de alcance de F2, ver context/34).
+  const rows: AdminCompanyRow[] = React.useMemo(() => {
+    if (healthSort === "none") return baseRows
+    const withHealth = [...baseRows]
+    withHealth.sort((a, b) => {
+      const sa = healthByCompany.get(a.id)?.score
+      const sb = healthByCompany.get(b.id)?.score
+      if (sa == null && sb == null) return 0
+      if (sa == null) return 1
+      if (sb == null) return -1
+      return healthSort === "asc" ? sa - sb : sb - sa
+    })
+    return withHealth
+  }, [baseRows, healthByCompany, healthSort])
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
@@ -149,6 +196,18 @@ export default function AdminCompaniesPage() {
             <TableRow>
               <TableHead>Empresa</TableHead>
               <TableHead>Estado</TableHead>
+              <TableHead>
+                <button
+                  type="button"
+                  className="flex items-center gap-1 hover:text-foreground"
+                  onClick={() =>
+                    setHealthSort((s) => (s === "asc" ? "desc" : s === "desc" ? "none" : "asc"))
+                  }
+                >
+                  Salud
+                  <ArrowUpDown className="size-3" />
+                </button>
+              </TableHead>
               <TableHead>Plan</TableHead>
               <TableHead>País</TableHead>
               <TableHead>Creada</TableHead>
@@ -159,7 +218,7 @@ export default function AdminCompaniesPage() {
             {isLoading ? (
               [...Array(pageSize > 10 ? 10 : pageSize)].map((_, i) => (
                 <TableRow key={i}>
-                  {[...Array(6)].map((__, j) => (
+                  {[...Array(7)].map((__, j) => (
                     <TableCell key={j}>
                       <Skeleton className="h-5 w-full" />
                     </TableCell>
@@ -168,7 +227,7 @@ export default function AdminCompaniesPage() {
               ))
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="py-12 text-center text-sm text-muted-foreground">
+                <TableCell colSpan={7} className="py-12 text-center text-sm text-muted-foreground">
                   Sin empresas que coincidan
                 </TableCell>
               </TableRow>
@@ -191,6 +250,13 @@ export default function AdminCompaniesPage() {
                     </div>
                   </TableCell>
                   <TableCell>{statusBadge(c.status, c.blocked)}</TableCell>
+                  <TableCell>
+                    {healthByCompany.has(c.id) ? (
+                      healthBadge(healthByCompany.get(c.id)!.level, healthByCompany.get(c.id)!.score)
+                    ) : (
+                      <span className="opacity-40">—</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     {c.plan != null ? (
                       <span className="text-sm tabular-nums">{c.plan}</span>

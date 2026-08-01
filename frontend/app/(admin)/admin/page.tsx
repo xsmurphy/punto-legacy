@@ -2,12 +2,23 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { Building2, TrendingUp, Users, AlertCircle, PlusCircle, Clock, DollarSign, Zap } from "lucide-react"
+import { Building2, TrendingUp, Users, AlertCircle, PlusCircle, Clock, DollarSign, Zap, HeartPulse } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Button } from "@/components/ui/button"
-import { useAdminOverview, useAdminRequests } from "@/hooks/use-admin"
+import { EmptyState } from "@/components/empty-state"
+import { useAdminOverview, useAdminRequests, useAdminHealthList } from "@/hooks/use-admin"
+
+function healthScoreBadge(level: string, score: number) {
+  const cls =
+    level === "green"
+      ? "bg-emerald-600 text-white border-0"
+      : level === "yellow"
+        ? "bg-amber-500 text-white border-0"
+        : "bg-destructive text-destructive-foreground border-0"
+  return <Badge className={`${cls} text-xs tabular-nums`}>{score}</Badge>
+}
 
 function statusBadge(status: string, blocked: number) {
   if (blocked) return <Badge variant="destructive">Bloqueada</Badge>
@@ -25,9 +36,15 @@ function statusBadge(status: string, blocked: number) {
 export default function AdminDashboardPage() {
   const { data: overview, isLoading: loadingOverview } = useAdminOverview()
   const { data: pendingRequests, isLoading: loadingRequests } = useAdminRequests("pending")
+  const { data: healthList, isLoading: loadingHealth } = useAdminHealthList()
 
   const pendingCount = Array.isArray(pendingRequests) ? pendingRequests.length : 0
   const topRequests = Array.isArray(pendingRequests) ? pendingRequests.slice(0, 5) : []
+
+  const atRiskTenants = (healthList ?? [])
+    .filter((h) => h.level !== "green")
+    .sort((a, b) => a.score - b.score)
+    .slice(0, 6)
 
   const companies = overview?.companies
   const mrr = overview?.mrr ?? 0
@@ -170,7 +187,7 @@ export default function AdminDashboardPage() {
         </Card>
       </div>
 
-      {/* Dos columnas */}
+      {/* Grid de widgets */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Solicitudes pendientes */}
         <Card>
@@ -242,6 +259,47 @@ export default function AdminDashboardPage() {
                     <Badge variant="secondary" className="text-xs tabular-nums ml-2 shrink-0">
                       {c.balance.toLocaleString("es-PY")} cr.
                     </Badge>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Tenants en riesgo (F2 — salud del tenant) */}
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-base">Tenants en riesgo</CardTitle>
+            <HeartPulse className="size-4 text-destructive" />
+          </CardHeader>
+          <CardContent>
+            {loadingHealth ? (
+              <div className="space-y-2">
+                {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
+              </div>
+            ) : atRiskTenants.length === 0 ? (
+              <EmptyState
+                icon={HeartPulse}
+                title="Sin tenants en riesgo"
+                description="Todos los tenants están en verde por ahora."
+                ghost={false}
+                className="py-4"
+              />
+            ) : (
+              <div className="space-y-2">
+                {atRiskTenants.map((h) => (
+                  <Link
+                    key={h.companyId}
+                    href={`/admin/companies/${h.companyId}`}
+                    className="flex items-center justify-between gap-3 rounded-md border px-3 py-2 hover:bg-accent/50 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{h.name || "(sin nombre)"}</p>
+                      {h.topIssue && (
+                        <p className="text-xs text-muted-foreground truncate">{h.topIssue}</p>
+                      )}
+                    </div>
+                    {healthScoreBadge(h.level, h.score)}
                   </Link>
                 ))}
               </div>

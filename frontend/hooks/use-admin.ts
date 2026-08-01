@@ -124,6 +124,116 @@ export interface AdminPaymentsResult {
   }>
 }
 
+// ── Salud del tenant (F2) ────────────────────────────────────────────────────
+
+export type TenantHealthLevel = "green" | "yellow" | "red"
+
+export interface AdminHealthSummaryRow {
+  companyId: string
+  name: string
+  score: number
+  level: TenantHealthLevel
+  computedAt: string | null
+  topIssue: string | null
+}
+
+export interface AdminHealthChecklistItem {
+  key: string
+  title: string
+  detail: string
+  priority: "high" | "medium" | "low"
+}
+
+export interface AdminHealthHistoryPoint {
+  week: string
+  score: number
+  level: TenantHealthLevel
+}
+
+export interface AdminHealthSignals {
+  activity: {
+    subscore: number
+    hadSalesEver: boolean
+    daysSinceLastSale: number | null
+    sales30d: number
+    salesPrev30d: number
+  }
+  breadth: {
+    subscore: number
+    modules: Record<string, { active: boolean; used: boolean; count30d: number }>
+  }
+  depth: {
+    subscore: number
+    catalogItems: number
+    paymentMethodsNonCash: number
+    printerBindings: number
+    printTemplates: number
+    usersNonOwner: number
+    outlets: number
+    checks: Record<string, boolean>
+  }
+  team: {
+    subscore: number
+    totalUsers: number
+    activeUsers14d: number
+    totalDevices: number
+    activeDevices14d: number
+  }
+  ai: {
+    subscore: number
+    everUsed: boolean
+    consumed7d: number
+    consumedPrev7d: number
+  }
+  commercial: {
+    subscore: number
+    status: string
+    blocked: boolean
+    planExpired: boolean
+    expiresAt: string | null
+    daysToExpire: number | null
+  }
+}
+
+export interface AdminHealthDetail {
+  companyId: string
+  score: number
+  level: TenantHealthLevel
+  computedAt: string | null
+  signals: AdminHealthSignals
+  checklist: AdminHealthChecklistItem[]
+  history: AdminHealthHistoryPoint[]
+}
+
+export function useAdminHealthList() {
+  return useQuery<AdminHealthSummaryRow[]>({
+    queryKey: ["admin", "health"],
+    queryFn: () => apiAdmin.get<AdminHealthSummaryRow[]>("/health.php"),
+    staleTime: 60 * 1000,
+  })
+}
+
+export function useAdminHealthDetail(companyId: string) {
+  return useQuery<AdminHealthDetail>({
+    queryKey: ["admin", "health", companyId],
+    queryFn: () => apiAdmin.get<AdminHealthDetail>(`/health.php?companyId=${encodeURIComponent(companyId)}`),
+    enabled: !!companyId,
+    staleTime: 60 * 1000,
+  })
+}
+
+export function useAdminRecomputeHealth() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (companyId: string) =>
+      apiAdmin.post<AdminHealthDetail>(`/health.php?action=recompute&companyId=${encodeURIComponent(companyId)}`),
+    onSuccess: (_res, companyId) => {
+      qc.invalidateQueries({ queryKey: ["admin", "health", companyId] })
+      qc.invalidateQueries({ queryKey: ["admin", "health"] })
+    },
+  })
+}
+
 // ── Audit ─────────────────────────────────────────────────────────────────────
 
 export interface AdminAuditRow {

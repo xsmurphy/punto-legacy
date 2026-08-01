@@ -11,15 +11,28 @@ import {
   Trash2,
   ShieldOff,
   Loader2,
+  RefreshCw,
+  HeartPulse,
 } from "lucide-react"
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts"
 import { toast } from "sonner"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Progress } from "@/components/ui/progress"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Separator } from "@/components/ui/separator"
+import { EmptyState } from "@/components/empty-state"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +84,9 @@ import {
   useAdminEnterCompany,
   useAdminRequests,
   useAdminResolveRequest,
+  useAdminHealthDetail,
+  useAdminRecomputeHealth,
+  type AdminHealthChecklistItem,
 } from "@/hooks/use-admin"
 import { AdminApiError } from "@/lib/api-admin"
 
@@ -899,6 +915,152 @@ function BillingTab({ id }: { id: string }) {
   )
 }
 
+function healthLevelBadge(level: string) {
+  if (level === "green") return <Badge className="bg-emerald-600 text-white border-0">Verde</Badge>
+  if (level === "yellow") return <Badge className="bg-amber-500 text-white border-0">Amarillo</Badge>
+  if (level === "red") return <Badge variant="destructive">Rojo</Badge>
+  return <Badge variant="secondary">—</Badge>
+}
+
+function priorityBadge(priority: AdminHealthChecklistItem["priority"]) {
+  if (priority === "high") return <Badge variant="destructive">Alta</Badge>
+  if (priority === "medium")
+    return <Badge variant="outline" className="text-amber-600 border-amber-600">Media</Badge>
+  return <Badge variant="secondary">Baja</Badge>
+}
+
+const DIMENSION_LABELS: Record<string, string> = {
+  activity: "Actividad de ventas",
+  breadth: "Amplitud de uso",
+  depth: "Profundidad de config.",
+  team: "Equipo",
+  ai: "Uso de IA",
+  commercial: "Comercial / pagos",
+}
+
+function fmtWeek(week: string): string {
+  if (!week) return "—"
+  const d = new Date(week + "T00:00:00")
+  return d.toLocaleDateString("es-PY", { day: "2-digit", month: "2-digit" })
+}
+
+function HealthTab({ id }: { id: string }) {
+  const { data: health, isLoading } = useAdminHealthDetail(id)
+  const recompute = useAdminRecomputeHealth()
+
+  const handleRecompute = () => {
+    recompute.mutate(id, {
+      onSuccess: () => toast.success("Salud recalculada"),
+      onError: (err) => toast.error(err instanceof AdminApiError ? err.message : "Error"),
+    })
+  }
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 w-full" />)}
+      </div>
+    )
+  }
+  if (!health) return <p className="text-muted-foreground">Sin datos de salud todavía</p>
+
+  const dimensions = Object.entries(health.signals).filter(([k]) => k in DIMENSION_LABELS) as [
+    keyof typeof DIMENSION_LABELS,
+    { subscore: number },
+  ][]
+
+  const chartData = health.history.map((h) => ({
+    semana: fmtWeek(h.week),
+    score: h.score,
+  }))
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-base">Score de salud</CardTitle>
+          <Button variant="outline" size="sm" onClick={handleRecompute} disabled={recompute.isPending} className="gap-2">
+            {recompute.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+            Recalcular
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4">
+            <span className="text-5xl font-bold tabular-nums">{health.score}</span>
+            {healthLevelBadge(health.level)}
+            {health.computedAt && (
+              <span className="text-xs text-muted-foreground ml-auto">
+                Calculado {fmtDate(health.computedAt)}
+              </span>
+            )}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            {dimensions.map(([key, sig]) => (
+              <div key={key} className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">{DIMENSION_LABELS[key]}</span>
+                  <span className="tabular-nums font-medium">{sig.subscore}</span>
+                </div>
+                <Progress value={sig.subscore} />
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {chartData.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Histórico (últimas {chartData.length} semanas)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="h-56 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="semana" fontSize={12} />
+                  <YAxis domain={[0, 100]} fontSize={12} width={30} />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="score" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Checklist de adopción</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {health.checklist.length === 0 ? (
+            <EmptyState
+              icon={HeartPulse}
+              title="Todo en verde"
+              description="No hay acciones de adopción pendientes para este tenant."
+              ghost={false}
+            />
+          ) : (
+            <div className="space-y-2">
+              {health.checklist.map((item) => (
+                <div key={item.key} className="flex items-start justify-between gap-4 rounded-md border px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">{item.title}</p>
+                    <p className="text-xs text-muted-foreground">{item.detail}</p>
+                  </div>
+                  <div className="shrink-0">{priorityBadge(item.priority)}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function AdminCompanyDetailPage() {
@@ -943,10 +1105,14 @@ export default function AdminCompanyDetailPage() {
       <Tabs defaultValue="info">
         <TabsList>
           <TabsTrigger value="info">Información</TabsTrigger>
+          <TabsTrigger value="health">Salud</TabsTrigger>
           <TabsTrigger value="billing">Facturación</TabsTrigger>
         </TabsList>
         <TabsContent value="info" className="mt-4">
           <InfoTab id={id} />
+        </TabsContent>
+        <TabsContent value="health" className="mt-4">
+          <HealthTab id={id} />
         </TabsContent>
         <TabsContent value="billing" className="mt-4">
           <BillingTab id={id} />
