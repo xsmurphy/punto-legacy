@@ -96,6 +96,10 @@ export function ProductSearchDialog({
       <DialogContent
         className="top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-lg"
         showCloseButton={false}
+        // Command-palette flotante: el fullscreen mobile del primitive lo
+        // pegaba a top-0 con lienzo transparente vacío abajo (regresión
+        // 2026-08-01) — mantiene su posición top-aligned también en mobile.
+        mobileFullscreen={false}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Buscar producto</DialogTitle>

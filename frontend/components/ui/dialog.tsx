@@ -72,14 +72,22 @@ function DialogOverlay({
  * para rellenar el sobrante. El scroll sigue en el propio content
  * (`overflow-y-auto`), así que el footer queda dentro del flujo y alcanzable.
  * Registrado en context/20-design-system.md §10.
+ *
+ * `mobileFullscreen={false}` opta fuera del fullscreen: es para los diálogos
+ * tipo command-palette (buscador de productos/clientes del POS) que flotan
+ * top-aligned con fondo transparente — forzarlos a top-0 h-dvh los pegaba al
+ * borde superior con un lienzo vacío transparente abajo (regresión reportada
+ * el mismo 2026-08-01). Un dialog "de contenido" normal NO debe usar esto.
  */
 function DialogContent({
   className,
   children,
   showCloseButton = true,
+  mobileFullscreen = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  mobileFullscreen?: boolean
 }) {
   return (
     <DialogPortal>
@@ -88,7 +96,8 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid max-h-[85dvh] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
-          "max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none",
+          mobileFullscreen &&
+            "max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none",
           className
         )}
         {...props}
