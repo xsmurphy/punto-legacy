@@ -10,6 +10,7 @@
  *   W     → buscador de artículos
  *   E     → buscador de clientes
  *   R     → menú de opciones de venta
+ *   O     → pantalla de órdenes (/pos/ordenes)
  *   Enter → cobrar (abre el modal de cobro si hay ítems)
  *
  * ESC lo manejan los propios overlays (shadcn Dialog / Drawer / menú del POS).
@@ -23,6 +24,7 @@
  */
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -46,6 +48,8 @@ function isInteractiveTarget(el: EventTarget | null): boolean {
 }
 
 export function usePosHotkeys(): void {
+  const router = useRouter()
+
   React.useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Combinaciones con modificadores no son nuestros atajos.
@@ -92,6 +96,10 @@ export function usePosHotkeys(): void {
           e.preventDefault()
           ui.setOptionsOpen(true)
           break
+        case "o":
+          e.preventDefault()
+          router.push("/pos/ordenes")
+          break
         case "enter": {
           // Enter en venta = "Cobrar". Si hay líneas en el cart y no hay overlay
           // abierto, abre el modal de pago aunque el focus esté en un botón
@@ -110,5 +118,5 @@ export function usePosHotkeys(): void {
 
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [])
+  }, [router])
 }

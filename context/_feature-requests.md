@@ -37,8 +37,10 @@ facturación electrónica (en curso, `context/28`).
   existe en BD; falta exponerla en la ficha del contacto.
 - **Cobrar facturas a crédito desde el módulo Clientes** — `M`. Hoy solo desde
   POS/transacciones.
-- **Historial de transacciones en la ficha del contacto** — `M`. Para
-  anulaciones/reimpresiones sin buscar en reportes.
+- **Historial de transacciones en la ficha del contacto** — YA EXISTE
+  (tab "Transacciones" de `ContactDetailView`, commit `e63cd670` 2026-07-17,
+  con reimpresión y cobro de crédito). Problema de descubribilidad, no de
+  código — verificado 2026-08-01.
 
 ### Reportes
 

@@ -224,6 +224,13 @@ export interface ItemFormValues {
 
   /** Para pack — duración en días hasta que vence la instancia vendida. */
   packDurationDays: number | null
+
+  /**
+   * Cantidad de sesiones a agendar en Citas cuando el item se vende con
+   * cliente. El backend (SaleService::persistScheduledSessions) crea N filas
+   * type=13 en `transaction` por cada sesión. Null/0 = no agenda nada.
+   */
+  itemSessions: number | null
 }
 
 export interface ItemAvailability {
@@ -266,6 +273,8 @@ export interface KindFieldVisibility {
   showCategorization: boolean
   showUOM: boolean
   showCompounds: boolean
+  /** Campo "Sesiones por venta" — agenda N citas al vender con cliente. */
+  showSessions: boolean
 }
 
 export interface KindMeta {
@@ -290,6 +299,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: true, showTax: true, showDiscount: true,
       showInventoryInfo: true, showCategorization: true, showUOM: true, showCompounds: false,
+      showSessions: false,
     },
   },
   servicio: {
@@ -300,6 +310,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: false, showTax: true, showDiscount: true,
       showInventoryInfo: false, showCategorization: true, showUOM: true, showCompounds: false,
+      showSessions: true,
     },
   },
   servicio_sesiones: {
@@ -310,6 +321,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: false, showTax: true, showDiscount: true,
       showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: false,
+      showSessions: true,
     },
   },
   insumo_stock: {
@@ -320,6 +332,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: false, showCost: true, showTax: false, showDiscount: false,
       showInventoryInfo: true, showCategorization: true, showUOM: true, showCompounds: false,
+      showSessions: false,
     },
   },
   insumo_sin_stock: {
@@ -330,6 +343,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: false, showCost: true, showTax: false, showDiscount: false,
       showInventoryInfo: false, showCategorization: true, showUOM: true, showCompounds: false,
+      showSessions: false,
     },
   },
   insumo_control: {
@@ -340,6 +354,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: false, showCost: true, showTax: false, showDiscount: false,
       showInventoryInfo: true, showCategorization: true, showUOM: true, showCompounds: false,
+      showSessions: false,
     },
   },
   produccion_directa: {
@@ -350,6 +365,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: true, showTax: true, showDiscount: true,
       showInventoryInfo: false, showCategorization: true, showUOM: true, showCompounds: true,
+      showSessions: false,
     },
   },
   produccion_previa: {
@@ -360,6 +376,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: true, showTax: true, showDiscount: true,
       showInventoryInfo: true, showCategorization: true, showUOM: true, showCompounds: true,
+      showSessions: false,
     },
   },
   combo_fijo: {
@@ -370,6 +387,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: true, showTax: true, showDiscount: true,
       showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: true,
+      showSessions: false,
     },
   },
   combo_dinamico: {
@@ -380,6 +398,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: false, showTax: true, showDiscount: true,
       showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: false,
+      showSessions: false,
     },
   },
   descuento: {
@@ -390,6 +409,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: false, showCost: false, showTax: false, showDiscount: true,
       showInventoryInfo: false, showCategorization: false, showUOM: false, showCompounds: false,
+      showSessions: false,
     },
   },
   giftcard: {
@@ -400,6 +420,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: false, showTax: false, showDiscount: false,
       showInventoryInfo: false, showCategorization: false, showUOM: false, showCompounds: false,
+      showSessions: false,
     },
   },
   pack: {
@@ -410,6 +431,7 @@ export const KIND_META: Record<ItemKind, KindMeta> = {
     fields: {
       showPrice: true, showCost: false, showTax: true, showDiscount: true,
       showInventoryInfo: false, showCategorization: true, showUOM: false, showCompounds: false,
+      showSessions: true,
     },
   },
 }

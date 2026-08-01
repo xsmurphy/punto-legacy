@@ -178,6 +178,7 @@ const itemSchema = z.object({
   minDaysBetweenSessions: z.number().int().nonnegative().nullable(),
   giftcardColor: z.string(),
   packDurationDays: z.number().int().positive().nullable(),
+  itemSessions: z.number().int().nonnegative().nullable(),
 })
 
 type KindGroup = "Items de venta" | "Insumos" | "Producción" | "Otros"
@@ -224,7 +225,7 @@ export default function ItemEditPage() {
   const { tabsWithErrors, onInvalid } = useFormTabErrors({
     form,
     fields: {
-      perfil: ["name", "sku", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor"],
+      perfil: ["name", "sku", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor", "itemSessions"],
       config: ["outletId", "uom", "taxId", "taxIncluded", "discount", "priceType", "pricePercent", "commission", "commissionType", "sort", "ecom", "featured"],
       disponibilidad: ["availability"],
       cotizaciones: ["currencies"],
@@ -328,6 +329,8 @@ export default function ItemEditPage() {
         toStr(data.itemGiftcardColor) || DEFAULT_GIFTCARD_COLOR,
       packDurationDays:
         typeof data.packDurationDays === "number" ? data.packDurationDays : null,
+      itemSessions:
+        typeof data.itemSessions === "number" ? data.itemSessions : null,
     })
     // Hidratar hasVariants.
     const hv = data.hasVariants
@@ -824,6 +827,41 @@ function PerfilTab({
                   <FormDescription className="text-xs">
                     Días desde la venta hasta que el pack vence. Los servicios no
                     consumidos se pierden al vencer.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          )}
+
+          {/* Sesiones por venta: agenda N citas al vender con cliente. Gated
+              por KIND_META (servicio, servicio_sesiones, pack) — no por kind
+              directo, para que sumar un kind nuevo no requiera tocar el JSX. */}
+          {visibility.showSessions && (
+            <FormField
+              control={form.control}
+              name="itemSessions"
+              render={({ field }) => (
+                <FormItem className="space-y-1.5">
+                  <FormLabel className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                    Sesiones por venta
+                  </FormLabel>
+                  <FormControl>
+                    <Input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      placeholder="0"
+                      className="h-9 tabular-nums"
+                      value={field.value ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value
+                        field.onChange(v === "" ? null : parseInt(v, 10))
+                      }}
+                    />
+                  </FormControl>
+                  <FormDescription className="text-xs">
+                    Al venderse con cliente, agenda esta cantidad de citas.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -1917,6 +1955,7 @@ function emptyValues(): ItemFormValues {
     minDaysBetweenSessions: null,
     giftcardColor: DEFAULT_GIFTCARD_COLOR,
     packDurationDays: 30,
+    itemSessions: null,
   }
 }
 

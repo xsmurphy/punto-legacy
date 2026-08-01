@@ -633,13 +633,25 @@ function serialize(
       ),
     ),
     // Campos nuevos Slice A — van a JSONB automáticamente.
-    itemValidFrom: values.validFrom ?? null,
-    itemValidUntil: values.validUntil ?? null,
-    itemMinDaysBetweenSessions: values.minDaysBetweenSessions ?? null,
+    // Keys SIN prefijo "item": la hidratación del form lee data.validFrom /
+    // data.validUntil / data.minDaysBetweenSessions (items/[id]/page.tsx
+    // ~322-326). Antes se escribían como itemValidFrom/itemValidUntil/
+    // itemMinDaysBetweenSessions — keys JSONB distintas que la lectura nunca
+    // veía: el campo "persistía" en el PUT y aparecía vacío al recargar
+    // (bug silencioso, mismo patrón hasVariants/pinhash). Lo guardado bajo
+    // las keys viejas nunca se mostró, así que no hay regresión visible al
+    // abandonarlas.
+    validFrom: values.validFrom ?? null,
+    validUntil: values.validUntil ?? null,
+    minDaysBetweenSessions: values.minDaysBetweenSessions ?? null,
     // Solo aplica a giftcard — para los otros kinds queda en JSONB sin uso.
     itemGiftcardColor: values.kind === "giftcard" ? values.giftcardColor : null,
     // Solo aplica a pack — días hasta vencimiento de cada instancia vendida.
     packDurationDays: values.kind === "pack" ? (values.packDurationDays ?? 30) : null,
+    // itemSessions: cantidad de citas que SaleService agenda al vender el item
+    // con cliente (persistScheduledSessions). La key JSONB real es
+    // `itemSessions` (ver functions.php:150 y SaleService.php).
+    itemSessions: values.itemSessions ?? null,
   }
 }
 
