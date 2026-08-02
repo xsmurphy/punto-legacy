@@ -89,15 +89,18 @@ class PlanAdminService
         }
 
         $sanitized = $this->sanitize($input, $this->defaults());
-        $nextCode  = $this->nextPlanCode();
+
+        $db->StartTrans();
+        $nextCode = $this->nextPlanCode();
 
         $record               = $sanitized;
         $record['plan_code']  = $nextCode;
         $record['name']       = $name;
         $record['archived']   = 0;
 
-        $ok = $db->Insert('plans', $record);
-        if (!$ok) {
+        $ok        = $db->Insert('plans', $record);
+        $committed = $db->CompleteTrans();
+        if (!$ok || !$committed) {
             return ['ok' => false, 'error' => $db->ErrorMsg() ?: 'No se pudo crear el plan', 'code' => 500];
         }
 
@@ -130,12 +133,22 @@ class PlanAdminService
                 continue;
             }
             if ($f === 'features') {
-                $newDecoded = json_decode((string) $sanitized[$f], true);
-                $oldDecoded = json_decode((string) $current[$f], true);
-                if ($newDecoded !== $oldDecoded) {
+                if (!$this->featuresEqual((string) $sanitized[$f], (string) $current[$f])) {
                     $versionedChanged = true;
                 }
-            } elseif ((string) $sanitized[$f] !== (string) $current[$f]) {
+            } elseif ($f === 'price') {
+                // NUMERIC vuelve de PDO como string ("0.00") — comparar como
+                // float, NUNCA como string ("0" !== "0.00" da falso-positivo
+                // en CADA edición, code-review 2026-08-01).
+                if (abs((float) $sanitized[$f] - (float) $current[$f]) > 0.0001) {
+                    $versionedChanged = true;
+                }
+            } elseif (in_array($f, self::INT_FIELDS, true)) {
+                if ((int) $sanitized[$f] !== (int) $current[$f]) {
+                    $versionedChanged = true;
+                }
+            } elseif (trim((string) $sanitized[$f]) !== trim((string) $current[$f])) {
+                // 'type' — único VERSIONED_FIELD que queda como string plano.
                 $versionedChanged = true;
             }
         }
@@ -149,21 +162,30 @@ class PlanAdminService
         }
 
         $newName = array_key_exists('name', $sanitized) ? trim((string) $sanitized['name']) : null;
+        if ($newName === '') {
+            return ['ok' => false, 'error' => 'name no puede quedar vacío', 'code' => 422];
+        }
 
         if (!$versionedChanged) {
-            if ($newName !== null && $newName !== '' && $newName !== $current['name']) {
+            if ($newName !== null && $newName !== $current['name']) {
                 $db->AutoExecute('plans', ['name' => $newName], 'UPDATE', 'plan_code = ?', [$planCode]);
             }
             return ['ok' => true, 'plan' => $this->get($planCode), 'versioned' => false];
         }
 
         // Versionado: nuevo plan_code con los campos mergeados, archivar el viejo.
+        // nextPlanCode() se recalcula DENTRO de la transacción para acotar la
+        // ventana de carrera; el índice único plans_plan_code_key (mig 10) es
+        // la red de seguridad final — un choque hace fallar el INSERT en vez
+        // de duplicar plan_code.
         $merged = array_merge($current, $sanitized);
+
+        $db->StartTrans();
         $nextCode = $this->nextPlanCode();
 
         $newRecord = [
             'plan_code'          => $nextCode,
-            'name'               => $newName ?: $current['name'],
+            'name'               => $newName ?? $current['name'],
             'type'               => $merged['type'],
             'price'              => $merged['price'],
             'duration_days'      => (int) $merged['duration_days'],
@@ -180,7 +202,6 @@ class PlanAdminService
             'archived'           => 0,
         ];
 
-        $db->StartTrans();
         $ok1 = $db->Insert('plans', $newRecord);
         $ok2 = $db->AutoExecute('plans', ['archived' => 1], 'UPDATE', 'plan_code = ?', [$planCode]);
         $committed = $db->CompleteTrans();
@@ -235,6 +256,37 @@ class PlanAdminService
         return ((int) ($r->fields['m'] ?? 0)) + 1;
     }
 
+    /**
+     * Compara dos jsonb `features` como VALOR, no como texto — `===` sobre
+     * arrays decodificados es order-sensitive (un round-trip del cliente que
+     * reordena claves da falso-positivo). Normalizamos con ksort recursivo
+     * antes de comparar.
+     */
+    private function featuresEqual(string $a, string $b): bool
+    {
+        $da = json_decode($a, true);
+        $db_ = json_decode($b, true);
+        if (!is_array($da)) {
+            $da = [];
+        }
+        if (!is_array($db_)) {
+            $db_ = [];
+        }
+        $this->ksortRecursive($da);
+        $this->ksortRecursive($db_);
+        return $da === $db_;
+    }
+
+    private function ksortRecursive(array &$arr): void
+    {
+        ksort($arr);
+        foreach ($arr as &$v) {
+            if (is_array($v)) {
+                $this->ksortRecursive($v);
+            }
+        }
+    }
+
     private function defaults(): array
     {
         return [
@@ -257,7 +309,11 @@ class PlanAdminService
             $out['name'] = trim((string) $input['name']);
         }
         if (array_key_exists('type', $input)) {
-            $out['type'] = trim((string) $input['type']) ?: (string) ($base['type'] ?? 'custom');
+            $type = trim((string) $input['type']);
+            // Explicit empty-string check — NUNCA `?:` acá: un `type` "0" es
+            // falsy en PHP y caería al fallback (mismo footgun que "rubro
+            // Otro (valor 0)", fix(settings) 7e2bf85d).
+            $out['type'] = $type !== '' ? $type : (string) ($base['type'] ?? 'custom');
         }
         if (array_key_exists('price', $input)) {
             $out['price'] = max(0, (float) $input['price']);

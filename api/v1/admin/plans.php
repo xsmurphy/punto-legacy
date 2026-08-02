@@ -31,10 +31,19 @@ adminMiddleware();
 $svc    = new PlanAdminService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+/** `code` es plan_code (smallint) — valida numérico, nunca castea a ciegas (0 = plan default). */
+function requireCode(?string $raw): int
+{
+    if ($raw === null || $raw === '' || !ctype_digit($raw)) {
+        apiError('code inválido — debe ser un entero ≥ 0', 400);
+    }
+    return (int) $raw;
+}
+
 if ($method === 'GET') {
-    $code = $_GET['code'] ?? null;
-    if ($code !== null && $code !== '') {
-        $plan = $svc->get((int) $code);
+    $codeRaw = isset($_GET['code']) ? (string) $_GET['code'] : null;
+    if ($codeRaw !== null && $codeRaw !== '') {
+        $plan = $svc->get(requireCode($codeRaw));
         if (!$plan) {
             apiNotFound('Plan no encontrado');
         }
@@ -46,14 +55,12 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
-    $action = trim((string) ($_GET['action'] ?? ''));
-    $code   = $_GET['code'] ?? null;
+    $action  = trim((string) ($_GET['action'] ?? ''));
+    $codeRaw = isset($_GET['code']) ? (string) $_GET['code'] : null;
 
     if ($action === 'archive') {
-        if ($code === null || $code === '') {
-            apiError('Falta code', 400);
-        }
-        $result = $svc->archive((int) $code);
+        $code   = requireCode($codeRaw);
+        $result = $svc->archive($code);
         if (!$result['ok']) {
             apiError($result['error'] ?? 'error', $result['code'] ?? 422);
         }
@@ -79,10 +86,7 @@ if ($method === 'POST') {
 }
 
 if ($method === 'PATCH') {
-    $code = $_GET['code'] ?? null;
-    if ($code === null || $code === '') {
-        apiError('Falta code', 400);
-    }
+    $code = requireCode(isset($_GET['code']) ? (string) $_GET['code'] : null);
 
     $body  = (string) file_get_contents('php://input');
     $input = json_decode($body, true);
@@ -90,7 +94,7 @@ if ($method === 'PATCH') {
         apiError('Body JSON inválido', 400);
     }
 
-    $result = $svc->update((int) $code, $input);
+    $result = $svc->update($code, $input);
     if (!$result['ok']) {
         apiError($result['error'] ?? 'error', $result['code'] ?? 422);
     }
