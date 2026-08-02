@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, Globe, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid } from "lucide-react"
+import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -153,7 +153,6 @@ const settingsSchema = z.object({
 
 type SettingsSection =
   | "empresa"
-  | "locale"
   | "pos"
   | "monedas"
   | "documentos"
@@ -172,8 +171,10 @@ const SECTIONS: {
   icon: React.ComponentType<{ className?: string }>
   href?: string
 }[] = [
+  // "Localización" se fusionó a Empresa (2026-08-01, pedido del owner): eran
+  // dos secciones cortas de la misma ficha del negocio — identidad + idioma/
+  // moneda. Mismo criterio que Redes sociales (ver nota al final de la lista).
   { id: "empresa",    label: "Empresa",      icon: Building2 },
-  { id: "locale",     label: "Localización", icon: Globe },
   { id: "pos",        label: "POS",          icon: ScanLine },
   { id: "monedas",    label: "Monedas",      icon: Coins },
   { id: "documentos", label: "Documentos",   icon: FileText },
@@ -195,7 +196,7 @@ const SECTIONS: {
 // Sections que escriben al form de settings — solo en esas mostramos el botón
 // "Guardar" del header. Monedas tiene su propia mutation con botón propio;
 // Documentos y Catálogo no escriben configuración (son listados / navegación).
-const FORM_SECTIONS: SettingsSection[] = ["empresa", "locale", "pos", "apariencia"]
+const FORM_SECTIONS: SettingsSection[] = ["empresa", "pos", "apariencia"]
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -380,8 +381,13 @@ export default function SettingsPage() {
                   )}
                 </header>
                 <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-6">
-                  {section === "empresa"    && (isLoading ? <TabSkeleton /> : <EmpresaTab form={form} logoUrl={data?.logo ?? null} hasLogo={!!data?.hasLogo} />)}
-                  {section === "locale"     && (isLoading ? <TabSkeleton /> : <LocaleTab form={form} />)}
+                  {/* Empresa = identidad + localización (fusionadas). */}
+                  {section === "empresa"    && (isLoading ? <TabSkeleton /> : (
+                    <div className="flex flex-col gap-8">
+                      <EmpresaTab form={form} logoUrl={data?.logo ?? null} hasLogo={!!data?.hasLogo} />
+                      <LocaleTab form={form} />
+                    </div>
+                  ))}
                   {section === "pos"        && (isLoading ? <TabSkeleton /> : <PosTab form={form} />)}
                   {section === "monedas"    && <MonedasTab />}
                   {section === "documentos" && <DocumentsTab onNavigate={navigateAndClose} />}

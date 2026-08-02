@@ -23,7 +23,6 @@ import {
   Users,
   Truck,
   UserCog,
-  BanknoteArrowDown,
   ScrollText,
   HandCoins,
   Gift,
@@ -60,7 +59,7 @@ const panelNav: NavEntry[] = [
   { title: "Asistente", to: "/chat", icon: MessageCircle, hideOnMobile: true },
   {
     title: "Ventas",
-    icon: BanknoteArrowDown,
+    icon: HandCoins,
     items: [
       { title: "Transacciones", to: "/reports/transactions", icon: ScrollText, requires: "reports.sales.view" },
       { title: "Cuentas por cobrar", to: "/reports/open-invoices", icon: HandCoins, requires: "reports.sales.view" },
