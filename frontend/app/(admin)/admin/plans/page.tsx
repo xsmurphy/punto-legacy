@@ -42,6 +42,7 @@ import { MoneyInput } from "@/components/ui/money-input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { AdminRoleGate } from "@/components/admin/admin-role-gate"
 
 import {
   useAdminPlanCatalog,
@@ -360,6 +361,14 @@ function PlanDialog({
 }
 
 export default function AdminPlansPage() {
+  return (
+    <AdminRoleGate minRole="owner">
+      <AdminPlansPageContent />
+    </AdminRoleGate>
+  )
+}
+
+function AdminPlansPageContent() {
   const { data, isLoading } = useAdminPlanCatalog()
   const archivePlan = useAdminArchivePlan()
   const [dialogOpen, setDialogOpen] = React.useState(false)

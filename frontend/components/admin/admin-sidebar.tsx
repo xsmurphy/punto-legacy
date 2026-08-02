@@ -15,6 +15,8 @@ import {
   CreditCard,
   Blocks,
   Sparkles,
+  KeyRound,
+  ServerCog,
 } from "lucide-react"
 import {
   Sidebar,
@@ -42,18 +44,23 @@ import {
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { cn } from "@/lib/utils"
 import { useAdminContext } from "@/components/admin/admin-auth-guard"
-import { useAdminLogout } from "@/hooks/use-admin"
+import { useAdminLogout, adminRoleAtLeast, type AdminRole } from "@/hooks/use-admin"
 
-const adminNav = [
+// minRole omitido = visible para cualquier rol logueado (sales/support/owner).
+// Matriz completa en context/34-admin-saas-plan.md F6 §1 — el backend ya
+// enforcea con adminRequireRole(); esto solo evita mostrar un link muerto.
+const adminNav: Array<{ title: string; to: string; icon: typeof LayoutDashboard; minRole?: AdminRole }> = [
   { title: "Dashboard", to: "/admin", icon: LayoutDashboard },
   { title: "Empresas", to: "/admin/companies", icon: Building2 },
-  { title: "Planes", to: "/admin/plans", icon: CreditCard },
-  { title: "Módulos", to: "/admin/modules", icon: Blocks },
-  { title: "IA", to: "/admin/ai", icon: Sparkles },
-  { title: "Administradores", to: "/admin/users", icon: Users },
+  { title: "Planes", to: "/admin/plans", icon: CreditCard, minRole: "owner" },
+  { title: "Módulos", to: "/admin/modules", icon: Blocks, minRole: "owner" },
+  { title: "IA", to: "/admin/ai", icon: Sparkles, minRole: "owner" },
+  { title: "Administradores", to: "/admin/users", icon: Users, minRole: "owner" },
   { title: "Solicitudes", to: "/admin/requests", icon: FileText },
   { title: "Reportes", to: "/admin/reports", icon: BarChart3 },
-  { title: "Auditoría", to: "/admin/audit", icon: ScrollText },
+  { title: "Auditoría", to: "/admin/audit", icon: ScrollText, minRole: "support" },
+  { title: "Plataforma", to: "/admin/platform", icon: KeyRound, minRole: "owner" },
+  { title: "Sistema", to: "/admin/system", icon: ServerCog, minRole: "owner" },
 ]
 
 function isActive(to: string, pathname: string): boolean {
@@ -67,6 +74,7 @@ export function AdminSidebar() {
   const isCollapsed = state === "collapsed"
   const admin = useAdminContext()
   const logout = useAdminLogout()
+  const visibleNav = adminNav.filter((item) => adminRoleAtLeast(admin.role, item.minRole ?? "sales"))
 
   const initials = admin.name
     .split(" ")
@@ -124,7 +132,7 @@ export function AdminSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu className="gap-2">
-              {adminNav.map((item) => {
+              {visibleNav.map((item) => {
                 const Icon = item.icon
                 const active = isActive(item.to, pathname)
                 return (

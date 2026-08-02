@@ -6,10 +6,21 @@ import { apiAdmin, AdminApiError } from "@/lib/api-admin"
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
 
+/** Jerarquía: sales(1) < support(2) < owner(3) — ver AdminAuth::ADMIN_ROLE_LEVELS (backend). */
+export type AdminRole = "owner" | "support" | "sales"
+
+export const ADMIN_ROLE_LEVELS: Record<AdminRole, number> = { sales: 1, support: 2, owner: 3 }
+
+/** true si el rol del admin autenticado alcanza (>=) minRole. */
+export function adminRoleAtLeast(role: AdminRole, minRole: AdminRole): boolean {
+  return ADMIN_ROLE_LEVELS[role] >= ADMIN_ROLE_LEVELS[minRole]
+}
+
 export interface AdminMe {
   id: string
   email: string
   name: string
+  role: AdminRole
 }
 
 export interface AdminCompanyRow {
@@ -75,6 +86,7 @@ export interface AdminUserRow {
   adminId: string
   email: string
   name: string
+  role: AdminRole
   status: number
   lastLoginAt: string | null
   createdAt: string | null
@@ -711,12 +723,13 @@ async function postAdminUserForm(form: FormData, errorMsg: string): Promise<{ ok
 export function useAdminCreateUser() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { email: string; name: string; password: string }) => {
+    mutationFn: (data: { email: string; name: string; password: string; role: AdminRole }) => {
       const form = new FormData()
       form.append("action", "create")
       form.append("email", data.email)
       form.append("name", data.name)
       form.append("password", data.password)
+      form.append("role", data.role)
       return postAdminUserForm(form, "Error al crear admin")
     },
     onSuccess: () => {
@@ -728,13 +741,14 @@ export function useAdminCreateUser() {
 export function useAdminUpdateUser() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { id: string; email: string; name: string; password?: string }) => {
+    mutationFn: (data: { id: string; email: string; name: string; password?: string; role?: AdminRole }) => {
       const form = new FormData()
       form.append("action", "update")
       form.append("id", data.id)
       form.append("email", data.email)
       form.append("name", data.name)
       if (data.password) form.append("password", data.password)
+      if (data.role) form.append("role", data.role)
       return postAdminUserForm(form, "Error al actualizar admin")
     },
     onSuccess: () => {
@@ -991,5 +1005,75 @@ export function useAdminArchiveAiPackage() {
   return useMutation({
     mutationFn: (packageId: string) => apiAdmin.post("/ai-config.php", { action: "archivePackage", packageId }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "ai-config"] }),
+  })
+}
+
+export interface AdminAiTestResult {
+  ok: boolean
+  latencyMs?: number
+  reply?: string
+}
+
+/** F6 §2 — botón "Probar" por modelo. No invalida ai-config (no cambia datos persistidos). */
+export function useAdminTestAiModel() {
+  return useMutation({
+    mutationFn: (capability: string) =>
+      apiAdmin.post<AdminAiTestResult>("/ai-config.php", { action: "test", capability }),
+  })
+}
+
+// ── Plataforma: config de terceros + broadcast (F6 §3/§5, context/34) ───────
+
+export interface AdminPlatformField {
+  label: string
+  secret: boolean
+  source: "config" | "env" | "none"
+  value: string
+}
+
+export interface AdminPlatformGroup {
+  key: string
+  label: string
+  fields: Record<string, AdminPlatformField>
+}
+
+export function useAdminPlatformConfig() {
+  return useQuery<{ groups: AdminPlatformGroup[] }>({
+    queryKey: ["admin", "platform"],
+    queryFn: () => apiAdmin.get("/platform.php"),
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useAdminSetPlatformGroup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { key: string; fields: Record<string, string | boolean> }) =>
+      apiAdmin.post("/platform.php", { action: "setGroup", ...data }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "platform"] }),
+  })
+}
+
+export function useAdminBroadcast() {
+  return useMutation({
+    mutationFn: (data: { title: string; message: string; link?: string }) =>
+      apiAdmin.post<{ notifyId: string }>("/platform.php", { action: "broadcast", ...data }),
+  })
+}
+
+// ── Estado del sistema (F6 §4, context/34) ───────────────────────────────────
+
+export interface AdminSystemStatus {
+  version: { appVersion: string; deployedAt: string | null }
+  migrations: Array<{ filename: string; appliedAt: string | null }>
+  counts: { tenants: number; users: number; transactionsToday: number }
+  sentry: { configured: boolean; link: string | null }
+}
+
+export function useAdminSystemStatus() {
+  return useQuery<AdminSystemStatus>({
+    queryKey: ["admin", "system"],
+    queryFn: () => apiAdmin.get("/system.php"),
+    staleTime: 30 * 1000,
   })
 }

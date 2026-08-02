@@ -229,7 +229,10 @@ class AdminUserService
     private function shape($row): array
     {
         return [
-            'id'          => (string) $row['adminid'],
+            // 'adminId' (no 'id'): matchea la columna admin_user.adminId y lo
+            // que el frontend (AdminUserRow) ya leía — corregido junto con F6
+            // porque este archivo se tocaba de todos modos para sumar 'role'.
+            'adminId'     => (string) $row['adminid'],
             'email'       => (string) $row['email'],
             'name'        => (string) $row['name'],
             'role'        => (string) ($row['role'] ?? 'support'),

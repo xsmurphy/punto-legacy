@@ -33,6 +33,7 @@ import {
   type AdminModuleCatalogEntry,
 } from "@/hooks/use-admin"
 import { MODULES_CATALOG } from "@/lib/modules-catalog"
+import { AdminRoleGate } from "@/components/admin/admin-role-gate"
 
 const VISIBILITY_LABEL: Record<string, string> = {
   ga: "GA (disponible)",
@@ -45,6 +46,14 @@ function titleFor(key: string): string {
 }
 
 export default function AdminModulesPage() {
+  return (
+    <AdminRoleGate minRole="owner">
+      <AdminModulesPageContent />
+    </AdminRoleGate>
+  )
+}
+
+function AdminModulesPageContent() {
   const { data, isLoading } = useAdminModuleCatalog()
   const update = useAdminUpdateModuleCatalog()
   const [pendingKill, setPendingKill] = React.useState<AdminModuleCatalogEntry | null>(null)

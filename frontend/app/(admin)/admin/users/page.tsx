@@ -28,7 +28,14 @@ import {
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { AdminRoleGate } from "@/components/admin/admin-role-gate"
 
 import {
   useAdminUsers,
@@ -36,7 +43,37 @@ import {
   useAdminUpdateUser,
   useAdminSetUserStatus,
   type AdminUserRow,
+  type AdminRole,
 } from "@/hooks/use-admin"
+
+// ── Roles ─────────────────────────────────────────────────────────────────────
+
+const ROLE_LABEL: Record<AdminRole, string> = {
+  owner: "Owner",
+  support: "Soporte",
+  sales: "Comercial",
+}
+
+const ROLE_BADGE_VARIANT: Record<AdminRole, "default" | "secondary" | "outline"> = {
+  owner: "default",
+  support: "secondary",
+  sales: "outline",
+}
+
+function RoleSelect({ value, onChange }: { value: AdminRole; onChange: (v: AdminRole) => void }) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as AdminRole)}>
+      <SelectTrigger>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="owner">Owner — todo (planes, módulos, llaves, admins)</SelectItem>
+        <SelectItem value="support">Soporte — + suspender/extender/créditos/impersonar</SelectItem>
+        <SelectItem value="sales">Comercial — lee tenants/salud/notas, escribe notas</SelectItem>
+      </SelectContent>
+    </Select>
+  )
+}
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -44,12 +81,14 @@ const createSchema = z.object({
   email: z.string().email("Email inválido"),
   name: z.string().min(1, "Nombre requerido"),
   password: z.string().min(8, "Mínimo 8 caracteres"),
+  role: z.enum(["owner", "support", "sales"]),
 })
 
 const updateSchema = z.object({
   email: z.string().email("Email inválido"),
   name: z.string().min(1, "Nombre requerido"),
   password: z.string().min(8, "Mínimo 8 caracteres").optional().or(z.literal("")),
+  role: z.enum(["owner", "support", "sales"]),
 })
 
 type CreateValues = z.infer<typeof createSchema>
@@ -61,7 +100,7 @@ function CreateAdminDialog({ open, onOpenChange }: { open: boolean; onOpenChange
   const createUser = useAdminCreateUser()
   const form = useForm<CreateValues>({
     resolver: zodResolver(createSchema),
-    defaultValues: { email: "", name: "", password: "" },
+    defaultValues: { email: "", name: "", password: "", role: "support" },
   })
 
   const onSubmit = (values: CreateValues) => {
@@ -116,6 +155,17 @@ function CreateAdminDialog({ open, onOpenChange }: { open: boolean; onOpenChange
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rol</FormLabel>
+                  <FormControl><RoleSelect value={field.value} onChange={field.onChange} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
@@ -146,7 +196,7 @@ function EditAdminDialog({
   const updateUser = useAdminUpdateUser()
   const form = useForm<UpdateValues>({
     resolver: zodResolver(updateSchema),
-    values: { email: admin.email, name: admin.name, password: "" },
+    values: { email: admin.email, name: admin.name, password: "", role: admin.role },
   })
 
   const onSubmit = (values: UpdateValues) => {
@@ -156,6 +206,7 @@ function EditAdminDialog({
         email: values.email,
         name: values.name,
         password: values.password || undefined,
+        role: values.role,
       },
       {
         onSuccess: () => {
@@ -210,6 +261,17 @@ function EditAdminDialog({
                 </FormItem>
               )}
             />
+            <FormField
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Rol</FormLabel>
+                  <FormControl><RoleSelect value={field.value} onChange={field.onChange} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <div className="flex justify-end gap-2">
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 Cancelar
@@ -229,6 +291,14 @@ function EditAdminDialog({
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function AdminUsersPage() {
+  return (
+    <AdminRoleGate minRole="owner">
+      <AdminUsersPageContent />
+    </AdminRoleGate>
+  )
+}
+
+function AdminUsersPageContent() {
   const { data, isLoading } = useAdminUsers()
   const setStatus = useAdminSetUserStatus()
   const [createOpen, setCreateOpen] = React.useState(false)
@@ -246,6 +316,14 @@ export default function AdminUsersPage() {
           <span className="text-xs text-muted-foreground">{row.original.email}</span>
         </div>
       ),
+    },
+    {
+      accessorKey: "role",
+      header: "Rol",
+      cell: ({ row }) => (
+        <Badge variant={ROLE_BADGE_VARIANT[row.original.role]}>{ROLE_LABEL[row.original.role]}</Badge>
+      ),
+      meta: { label: "Rol" },
     },
     {
       accessorKey: "status",

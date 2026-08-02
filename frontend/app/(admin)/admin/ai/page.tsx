@@ -4,7 +4,7 @@ import * as React from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Sparkles, Plus, Loader2 } from "lucide-react"
+import { Sparkles, Plus, Loader2, Zap } from "lucide-react"
 import { toast } from "sonner"
 import type { ColumnDef } from "@tanstack/react-table"
 
@@ -42,6 +42,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { EmptyState } from "@/components/empty-state"
+import { AdminRoleGate } from "@/components/admin/admin-role-gate"
 
 import {
   useAdminAiConfig,
@@ -49,6 +50,7 @@ import {
   useAdminCreateAiPackage,
   useAdminUpdateAiPackage,
   useAdminArchiveAiPackage,
+  useAdminTestAiModel,
   type AdminAiModel,
   type AdminAiPackage,
   type AdminAiConsumptionRow,
@@ -58,6 +60,7 @@ import {
 
 function ModelRow({ model }: { model: AdminAiModel }) {
   const upsert = useAdminUpsertAiModel()
+  const testModel = useAdminTestAiModel()
   const [slug, setSlug] = React.useState(model.model)
   const [credits, setCredits] = React.useState<number | null>(model.creditsPerKToken)
 
@@ -77,8 +80,15 @@ function ModelRow({ model }: { model: AdminAiModel }) {
     )
   }
 
+  const handleTest = () => {
+    testModel.mutate(model.capability, {
+      onSuccess: (res) => toast.success(`OK — ${res.latencyMs}ms`, { description: res.reply || undefined }),
+      onError: (err) => toast.error(err.message ?? "Error al probar el modelo"),
+    })
+  }
+
   return (
-    <div className="grid grid-cols-[140px_1fr_140px_100px] items-center gap-3 py-2 border-b last:border-0">
+    <div className="grid grid-cols-[140px_1fr_140px_100px_110px] items-center gap-3 py-2 border-b last:border-0">
       <Badge variant="secondary" className="w-fit font-mono">{model.capability}</Badge>
       <Input
         value={slug}
@@ -103,6 +113,10 @@ function ModelRow({ model }: { model: AdminAiModel }) {
           }
         />
       </div>
+      <Button variant="outline" size="sm" className="gap-1.5" onClick={handleTest} disabled={testModel.isPending}>
+        {testModel.isPending ? <Loader2 className="size-3.5 animate-spin" /> : <Zap className="size-3.5" />}
+        Probar
+      </Button>
     </div>
   )
 }
@@ -261,6 +275,14 @@ function PackageDialog({
 // ── Página ────────────────────────────────────────────────────────────────────
 
 export default function AdminAiPage() {
+  return (
+    <AdminRoleGate minRole="owner">
+      <AdminAiPageContent />
+    </AdminRoleGate>
+  )
+}
+
+function AdminAiPageContent() {
   const { data, isLoading } = useAdminAiConfig()
   const archivePkg = useAdminArchiveAiPackage()
   const [newModelOpen, setNewModelOpen] = React.useState(false)
@@ -378,11 +400,12 @@ export default function AdminAiPage() {
             <EmptyState icon={Sparkles} title="Sin modelos configurados" />
           ) : (
             <div className="rounded-md border p-4">
-              <div className="grid grid-cols-[140px_1fr_140px_100px] gap-3 pb-2 text-xs font-medium text-muted-foreground border-b">
+              <div className="grid grid-cols-[140px_1fr_140px_100px_110px] gap-3 pb-2 text-xs font-medium text-muted-foreground border-b">
                 <span>Capability</span>
                 <span>Modelo</span>
                 <span>Créditos / 1K tok</span>
                 <span>Activo</span>
+                <span>Test</span>
               </div>
               {models.map((m) => <ModelRow key={m.capability} model={m} />)}
             </div>
