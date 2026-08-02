@@ -41,7 +41,7 @@ class PlanAdminService
      * Por default excluye archivados (usar $includeArchived=true para el
      * listado admin, que muestra ambos con flag).
      */
-    public function list(bool $includeArchived = true): array
+    public function list(bool $includeArchived = false): array
     {
         global $db;
 

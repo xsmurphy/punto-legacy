@@ -360,8 +360,13 @@ final class ModulesService
                 }
             }
         } catch (\Throwable $e) {
-            // Best-effort: si platform_config no está disponible, ningún módulo
-            // se considera killed (fail-open del lado del kill-switch, no del gating base).
+            // Best-effort DELIBERADO: si platform_config no está disponible,
+            // ningún módulo se considera killed (fail-open del kill-switch, no
+            // del gating base). Fail-closed acá apagaría TODOS los módulos de
+            // TODOS los tenants ante un hiccup de BD — blast radius peor que
+            // el riesgo de des-matar un módulo unos minutos. Se loggea fuerte
+            // para que el incidente no pase en silencio (decisión review F4).
+            error_log('[modules] loadModuleCatalog fallo leyendo platform_config — kill-switches NO aplicados este request: ' . $e->getMessage());
         }
 
         self::$moduleCatalogCache = $catalog;
