@@ -217,11 +217,14 @@ class TenantHealthService
 
         $staleClause = $force ? '1=1' : "(th.companyid IS NULL OR th.computed_at < now() - interval '6 hours')";
 
+        // F5 (isInternal): el tenant emisor de facturación SaaS queda afuera del
+        // recómputo batch — no es un cliente real, no aporta señal de salud/adopción
+        // y ensuciaría el semáforo/dashboard. Ver context/34-admin-saas-plan.md F5.
         $r = $db->Execute(
             "SELECT c.companyId AS id
                FROM company c
                LEFT JOIN tenant_health th ON th.companyid = c.companyId
-              WHERE $staleClause $extra",
+              WHERE $staleClause $extra AND (c.isinternal IS NULL OR c.isinternal = 0)",
             $binds
         );
 

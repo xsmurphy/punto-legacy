@@ -5,6 +5,12 @@ namespace Punto\Api\Billing;
 
 use Punto\Api\Billing\Payments\DlocalGoProvider;
 
+// F5 (context/34-admin-saas-plan.md): SaasBillingService vive en namespace
+// GLOBAL (api/lib/Admin, mismo patrón que el resto de los servicios admin) —
+// no lo resuelve el autoloader `Punto\Api\*`, hace falta require explícito.
+require_once __DIR__ . '/../Admin/SaasBillingService.php';
+require_once __DIR__ . '/../Admin/PlatformConfig.php';
+
 /**
  * Orquesta los pagos SaaS del tenant (compra de packs de créditos) vía dLocal Go.
  *
@@ -336,6 +342,24 @@ final class PaymentsService
             }
 
             $db->CommitTrans();
+
+            // F5 — dogfooding: emitir la factura del SaaS como venta real en el
+            // tenant emisor. Best-effort A PROPÓSITO: un fallo acá (tenant emisor
+            // mal configurado, item/contacto rechazado, etc.) NUNCA debe romper
+            // la respuesta del webhook — dLocal reintendría el pago entero. La
+            // idempotencia de SaasBillingService (PK de saas_invoice_sale + uid
+            // determinístico) hace seguro reintentarlo después (botón manual en
+            // la ficha del tenant, o el próximo webhook si dLocal reintenta).
+            try {
+                $saasCfg = \PlatformConfig::get('saasBilling', null);
+                if (is_array($saasCfg) && !empty($saasCfg['enabled'])) {
+                    (new \SaasBillingService())->emitForInvoice($invoiceId);
+                }
+            } catch (\Throwable $e) {
+                error_log('[PaymentsService] SaasBillingService::emitForInvoice falló para invoice '
+                    . $invoiceId . ': ' . $e->getMessage());
+            }
+
             return ['handled' => true, 'status' => 'paid', 'credited' => $credits];
 
         } catch (\Throwable $e) {

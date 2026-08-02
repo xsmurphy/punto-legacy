@@ -39,6 +39,7 @@
 require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/CompanyAdminService.php';
+require_once __DIR__ . '/../../lib/Admin/SaasBillingService.php'; // F5 — botón "Emitir factura Punto"
 
 adminMiddleware(); // define ADMIN_AUTHED_ID o mata con 401
 adminRequireRole('sales'); // piso: lectura de tenants — sube por acción abajo
@@ -78,6 +79,24 @@ if ($method === 'GET') {
                 apiError('id inválido', 400);
             }
             apiOk($svc->listModules($id));
+        }
+
+        // F5 — sucursales/cajas de la empresa (selects encadenados en admin/platform).
+        if (!empty($_GET['outlets'])) {
+            if (!preg_match($uuidRe, $id)) {
+                apiError('id inválido', 400);
+            }
+            apiOk(['outlets' => $svc->listOutlets($id)]);
+        }
+        if (!empty($_GET['registers'])) {
+            if (!preg_match($uuidRe, $id)) {
+                apiError('id inválido', 400);
+            }
+            $outletId = trim((string) ($_GET['outletId'] ?? ''));
+            if ($outletId !== '' && !preg_match($uuidRe, $outletId)) {
+                apiError('outletId inválido', 400);
+            }
+            apiOk(['registers' => $svc->listRegisters($id, $outletId)]);
         }
 
         // F3 — facturas (billing_invoice) + solicitudes (billing_request).
@@ -350,6 +369,27 @@ if ($method === 'POST') {
             apiError($result['error'] ?? 'error', $result['code'] ?? 422);
         }
         adminAudit('extendTrial', 'company', $id, null, ['days' => $days, 'expiresAt' => $result['expiresAt'] ?? null]);
+        apiOk($result);
+    }
+
+    // F5 — emisión manual: "Emitir factura Punto" por invoice pagada sin venta asociada.
+    if ($action === 'emitSaasInvoice') {
+        adminRequireRole('support'); // acción de tenant (matriz F6) — soporte+
+        $body  = (string) file_get_contents('php://input');
+        $input = json_decode($body, true);
+        if (!is_array($input)) {
+            apiError('Body JSON inválido', 400);
+        }
+        $invoiceId = trim((string) ($input['invoiceId'] ?? ''));
+        if ($invoiceId === '' || !preg_match($uuidRe, $invoiceId)) {
+            apiError('invoiceId inválido', 400);
+        }
+        try {
+            $result = (new SaasBillingService())->emitForInvoice($invoiceId);
+        } catch (\Throwable $e) {
+            apiError('No se pudo emitir la factura: ' . $e->getMessage(), 422);
+        }
+        adminAudit('emitSaasInvoice', 'billing_invoice', $invoiceId, null, $result);
         apiOk($result);
     }
 

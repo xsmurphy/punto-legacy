@@ -43,8 +43,9 @@
  *   - Créditos IA por mes/capability salen de `ai_credit_ledger.meta->>'capability'`
  *     (delta<0 = consumo). NUNCA usar el operador `?`/`?|`/`?&` de jsonb con
  *     PDO — folleto ->/->> son seguros, están permitidos.
- *   - isInternal (F5) todavía no existe como columna: los WHERE que deberían
- *     excluir tenants internos quedan comentados con el TODO puntual.
+ *   - isinternal (F5, mig 114): TODOS los agregados de este archivo excluyen
+ *     el tenant emisor de facturación SaaS vía notInternalWhere()/EXISTS
+ *     contra company.isinternal — no es un cliente real. Ver context/34.
  */
 
 class AdminReportsService
@@ -62,6 +63,17 @@ class AdminReportsService
             AND ($alias.planExpired IS NULL OR $alias.planExpired = false)
             AND ($alias.expiresAt IS NULL OR $alias.expiresAt >= now())
             AND $alias.status NOT IN ('suspended', 'cancelled')";
+    }
+
+    /**
+     * Fragmento SQL "no es el tenant interno de facturación SaaS" (F5, mig 114,
+     * ver context/34-admin-saas-plan.md). Se aplica en TODOS los agregados de
+     * este archivo para que el tenant emisor (company.isinternal=1) nunca
+     * contamine KPIs/series — no es un cliente real.
+     */
+    private function notInternalWhere(string $alias = 'company'): string
+    {
+        return "($alias.isinternal IS NULL OR $alias.isinternal = 0)";
     }
 
     /**
@@ -89,7 +101,8 @@ class AdminReportsService
                COUNT(*) FILTER (WHERE status = 'active' AND planExpired = true)               AS trial,
                COUNT(*) FILTER (WHERE status = 'suspended')                                   AS suspended,
                COUNT(*) FILTER (WHERE status = 'cancelled')                                   AS cancelled
-             FROM company"
+             FROM company
+             WHERE " . $this->notInternalWhere('company')
         );
 
         $sf = ($statusRow && !$statusRow->EOF) ? $statusRow->fields : [];
@@ -108,11 +121,12 @@ class AdminReportsService
         // no basta con status='active' — también excluye planExpired y
         // expiresAt vencido (antes este query solo miraba status/blocked).
         $goodStandingC = $this->commercialGoodStandingWhere('c');
+        $notInternalC = $this->notInternalWhere('c');
         $mrrRow = $db->Execute(
             "SELECT COALESCE(SUM(pl.price), 0) AS mrr
              FROM company c
              JOIN plans pl ON pl.plan_code = c.plan
-             WHERE $goodStandingC"
+             WHERE $goodStandingC AND $notInternalC"
         );
         $mrr = 0.0;
         if ($mrrRow && !$mrrRow->EOF) {
@@ -123,7 +137,8 @@ class AdminReportsService
         // ── Nuevas este mes ─────────────────────────────────────────────────
         $newMonthRow = $db->Execute(
             "SELECT COUNT(*) AS n FROM company
-             WHERE date_trunc('month', createdAt) = date_trunc('month', now())"
+             WHERE date_trunc('month', createdAt) = date_trunc('month', now())
+               AND " . $this->notInternalWhere('company')
         );
         $newThisMonth = 0;
         if ($newMonthRow && !$newMonthRow->EOF) {
@@ -135,6 +150,7 @@ class AdminReportsService
             "SELECT c.plan AS plan_code, pl.name AS plan_name, COUNT(*) AS cnt
              FROM company c
              LEFT JOIN plans pl ON pl.plan_code = c.plan
+             WHERE $notInternalC
              GROUP BY c.plan, pl.name
              ORDER BY cnt DESC"
         );
@@ -156,6 +172,7 @@ class AdminReportsService
             "SELECT COALESCE(NULLIF(config->>'settingCountry',''), 'Desconocido') AS country,
                     COUNT(*) AS cnt
              FROM company
+             WHERE " . $this->notInternalWhere('company') . "
              GROUP BY country
              ORDER BY cnt DESC
              LIMIT 30"
@@ -178,6 +195,7 @@ class AdminReportsService
                     COUNT(*) AS cnt
              FROM company
              WHERE createdAt >= date_trunc('month', now()) - INTERVAL '11 months'
+               AND " . $this->notInternalWhere('company') . "
              GROUP BY month
              ORDER BY month ASC"
         );
@@ -206,6 +224,7 @@ class AdminReportsService
                     COALESCE(NULLIF(config->>'settingName',''), config->>'companyName', '') AS name,
                     aiCreditsBalance AS balance
              FROM company
+             WHERE " . $this->notInternalWhere('company') . "
              ORDER BY aiCreditsBalance DESC
              LIMIT 10"
         );
@@ -227,7 +246,8 @@ class AdminReportsService
             "SELECT
                COUNT(*) FILTER (WHERE $goodStandingC)       AS good_standing,
                COUNT(*) FILTER (WHERE NOT ($goodStandingC)) AS delinquent
-             FROM company c"
+             FROM company c
+             WHERE $notInternalC"
         );
         $tenantsGoodStanding = 0;
         $tenantsDelinquent   = 0;
@@ -240,8 +260,9 @@ class AdminReportsService
         // Créditos IA consumidos este mes (delta<0 = consumo, ver ai/debit.php).
         $aiMonthRow = $db->Execute(
             "SELECT COALESCE(SUM(-delta), 0) AS n
-             FROM ai_credit_ledger
-             WHERE delta < 0 AND createdAt >= date_trunc('month', now())"
+             FROM ai_credit_ledger l
+             WHERE delta < 0 AND createdAt >= date_trunc('month', now())
+               AND EXISTS (SELECT 1 FROM company co WHERE co.companyId = l.companyId AND " . $this->notInternalWhere('co') . ')'
         );
         $aiCreditsConsumedThisMonth = 0;
         if ($aiMonthRow && !$aiMonthRow->EOF) {
@@ -278,6 +299,7 @@ class AdminReportsService
                ON c.createdAt <= (gs.month_start + INTERVAL '1 month' - INTERVAL '1 day')
               AND (c.expiresAt IS NULL OR c.expiresAt >= gs.month_start)
               AND c.status NOT IN ('suspended', 'cancelled')
+              AND $notInternalC
              LEFT JOIN plans pl ON pl.plan_code = c.plan
              GROUP BY gs.month_start
              ORDER BY gs.month_start ASC"
@@ -311,6 +333,7 @@ class AdminReportsService
                AND expiresAt >= date_trunc('month', now()) - INTERVAL '11 months'
                AND expiresAt <  date_trunc('month', now()) + INTERVAL '1 month'
                AND NOT (" . $this->commercialGoodStandingWhere('company') . ")
+               AND " . $this->notInternalWhere('company') . "
              GROUP BY month"
         );
         $rawChurn = [];
@@ -338,9 +361,10 @@ class AdminReportsService
             "SELECT to_char(date_trunc('month', createdAt), 'YYYY-MM') AS month,
                     COALESCE(NULLIF(meta->>'capability', ''), 'sin_capability') AS capability,
                     SUM(-delta) AS credits
-             FROM ai_credit_ledger
+             FROM ai_credit_ledger l
              WHERE delta < 0
                AND createdAt >= date_trunc('month', now()) - INTERVAL '11 months'
+               AND EXISTS (SELECT 1 FROM company co WHERE co.companyId = l.companyId AND " . $this->notInternalWhere('co') . ")
              GROUP BY month, capability"
         );
         $rawAiByMonth     = []; // month => [capability => credits]
@@ -373,15 +397,14 @@ class AdminReportsService
         // domain='sales', periodType='month', outletId IS NULL = total del
         // tenant ese mes (ver rollup_recompute_period en mig 41). Ya viene
         // agregado — no hace falta recorrer `transaction`.
-        // TODO(F5, isInternal): cuando exista company.isInternal, sumar
-        // "AND EXISTS (SELECT 1 FROM company co WHERE co.companyId =
-        // report_rollup.companyId AND co.isInternal = false)" para excluir
-        // tenants internos del GMV agregado. Hoy no filtra nada.
+        // F5 (isinternal, mig 114): excluye el tenant emisor del GMV agregado —
+        // resuelve el TODO que dejó pendiente esta migración.
         $gmvRows = $db->Execute(
             "SELECT to_char(periodStart, 'YYYY-MM') AS month, COALESCE(SUM(total), 0) AS gmv
-             FROM report_rollup
+             FROM report_rollup rr
              WHERE domain = 'sales' AND periodType = 'month' AND outletId IS NULL
                AND periodStart >= date_trunc('month', now()) - INTERVAL '11 months'
+               AND EXISTS (SELECT 1 FROM company co WHERE co.companyId = rr.companyId AND " . $this->notInternalWhere('co') . ")
              GROUP BY month"
         );
         $rawGmv = [];

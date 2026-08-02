@@ -214,6 +214,9 @@ class CompanyAdminService
             'externalCustomerId'  => $this->pick($flat, 'settingEncomID'),
             'blocked'             => (int) ($this->pick($flat, 'blocked') ?? 0),
             'suspended'           => (int) ($this->pick($flat, 'suspended') ?? 0),
+            // F5 (dogfooding, context/34): tenant emisor de facturación SaaS — el
+            // listado lo sigue mostrando, solo con badge "Interno" en el frontend.
+            'isInternal'          => (int) ($this->pick($flat, 'isinternal') ?? 0),
             'partialBlock'        => (int) ($this->pick($flat, 'settingPartialBlock') ?? 0),
             'planExpired'         => $this->pick($flat, 'planExpired'),
             'autoSMSCredit'       => $this->pick($flat, 'settingAutoSMSCredit'),
@@ -739,6 +742,64 @@ class CompanyAdminService
     // --- F3: módulos activos por tenant ---------------------------------------
 
     /**
+     * Sucursales activas de una empresa — {id, name} — para selects admin
+     * (F5, config de tenant emisor de facturación SaaS. Ver context/34-admin-saas-plan.md).
+     */
+    public function listOutlets(string $companyId): array
+    {
+        global $db;
+
+        $out = [];
+        $r = $db->Execute(
+            'SELECT outletId, outletName FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletName ASC',
+            [$companyId]
+        );
+        if ($r) {
+            while (!$r->EOF) {
+                $f = $r->fields;
+                $out[] = [
+                    'id'   => (string) ($f['outletid']   ?? $f['outletId']   ?? ''),
+                    'name' => (string) ($f['outletname'] ?? $f['outletName'] ?? ''),
+                ];
+                $r->MoveNext();
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Cajas activas de una empresa, opcionalmente filtradas por sucursal —
+     * {id, name, outletId} — mismo uso que listOutlets (F5).
+     */
+    public function listRegisters(string $companyId, string $outletId = ''): array
+    {
+        global $db;
+
+        $sql   = 'SELECT registerId, registerName, outletId FROM register WHERE companyId = ? AND registerStatus = true';
+        $binds = [$companyId];
+        if ($outletId !== '') {
+            $sql .= ' AND outletId = ?';
+            $binds[] = $outletId;
+        }
+        $sql .= ' ORDER BY registerName ASC';
+
+        $out = [];
+        $r = $db->Execute($sql, $binds);
+        if ($r) {
+            while (!$r->EOF) {
+                $f = $r->fields;
+                $out[] = [
+                    'id'       => (string) ($f['registerid']   ?? $f['registerId']   ?? ''),
+                    'name'     => (string) ($f['registername'] ?? $f['registerName'] ?? ''),
+                    'outletId' => (string) ($f['outletid']     ?? $f['outletId']     ?? ''),
+                ];
+                $r->MoveNext();
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Estado de los módulos nativos toggleables de una empresa.
      *
      * Reimplementa (sin depender de functions.php/ncmExecute — el realm admin
@@ -1230,10 +1291,15 @@ class CompanyAdminService
         global $db;
 
         $invoices = [];
+        // F5 (context/34-admin-saas-plan.md): LEFT JOIN saas_invoice_sale para que
+        // la UI pueda mostrar el estado de emisión (emitida → transactionId,
+        // pendiente, o botón "Emitir factura Punto" si status='paid' y no hay fila).
         $r = $db->Execute(
-            'SELECT id, type, amountUsd, currency, status, provider, providerInvoiceId,
-                    paidAt, createdAt
-             FROM billing_invoice WHERE companyId = ? ORDER BY createdAt DESC LIMIT 100',
+            'SELECT bi.id, bi.type, bi.amountUsd, bi.currency, bi.status, bi.provider, bi.providerInvoiceId,
+                    bi.paidAt, bi.createdAt, sis.transactionid AS saasTransactionId
+             FROM billing_invoice bi
+             LEFT JOIN saas_invoice_sale sis ON sis.invoiceid = bi.id
+             WHERE bi.companyId = ? ORDER BY bi.createdAt DESC LIMIT 100',
             [$companyId]
         );
         if ($r) {
@@ -1250,6 +1316,7 @@ class CompanyAdminService
                     'providerInvoiceId' => $get('providerInvoiceId'),
                     'paidAt'            => $get('paidAt'),
                     'createdAt'         => $get('createdAt'),
+                    'saasTransactionId' => $get('saasTransactionId'),
                 ];
                 $r->MoveNext();
             }
@@ -1511,6 +1578,7 @@ class CompanyAdminService
             'externalCustomerId'  => $this->pick($flat, 'settingEncomID'),
             'blocked'             => (int) ($this->pick($flat, 'blocked') ?? 0),
             'suspended'           => (int) ($this->pick($flat, 'suspended') ?? 0),
+            'isInternal'          => (int) ($this->pick($flat, 'isinternal') ?? 0),
             'planExpired'         => $this->pick($flat, 'planExpired'),
             'epos'                => (int) ($this->pick($flat, 'epos') ?? 0),
             'ecom'                => (int) ($this->pick($flat, 'ecom') ?? 0),

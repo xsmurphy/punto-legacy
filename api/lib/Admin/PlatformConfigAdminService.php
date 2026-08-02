@@ -143,6 +143,132 @@ final class PlatformConfigAdminService
         return ['ok' => true, 'notifyId' => $db->Insert_ID()];
     }
 
+    // ── F5: tenant emisor de facturación SaaS (dogfooding) ─────────────────
+    // NO es un grupo de self::GROUPS (esos son campos de texto genéricos):
+    // este config tiene selects encadenados tenant→outlet→register y un
+    // efecto colateral (marcar `company.isinternal`), así que vive en
+    // métodos dedicados. Ver context/34-admin-saas-plan.md F5.
+
+    private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+
+    /** Config actual + nombres resueltos (para pintar los selects ya seleccionados). */
+    public function getSaasBillingConfig(): array
+    {
+        global $db;
+
+        $cfg = PlatformConfig::get('saasBilling', []);
+        if (!is_array($cfg)) {
+            $cfg = [];
+        }
+        $tenantId   = !empty($cfg['tenantId'])   ? (string) $cfg['tenantId']   : null;
+        $outletId   = !empty($cfg['outletId'])   ? (string) $cfg['outletId']   : null;
+        $registerId = !empty($cfg['registerId']) ? (string) $cfg['registerId'] : null;
+
+        $tenantName = null;
+        if ($tenantId !== null) {
+            $r = $db->Execute(
+                "SELECT COALESCE(NULLIF(config->>'settingName',''), config->>'companyName', '') AS name
+                   FROM company WHERE companyId = ? LIMIT 1",
+                [$tenantId]
+            );
+            $tenantName = ($r && !$r->EOF) ? (string) ($r->fields['name'] ?? '') : null;
+        }
+        $outletName = null;
+        if ($outletId !== null) {
+            $r = $db->Execute('SELECT outletName FROM outlet WHERE outletId = ? LIMIT 1', [$outletId]);
+            $outletName = ($r && !$r->EOF) ? (string) ($r->fields['outletname'] ?? $r->fields['outletName'] ?? '') : null;
+        }
+        $registerName = null;
+        if ($registerId !== null) {
+            $r = $db->Execute('SELECT registerName FROM register WHERE registerId = ? LIMIT 1', [$registerId]);
+            $registerName = ($r && !$r->EOF) ? (string) ($r->fields['registername'] ?? $r->fields['registerName'] ?? '') : null;
+        }
+
+        return [
+            'tenantId'     => $tenantId,
+            'tenantName'   => $tenantName,
+            'outletId'     => $outletId,
+            'outletName'   => $outletName,
+            'registerId'   => $registerId,
+            'registerName' => $registerName,
+            'enabled'      => (bool) ($cfg['enabled'] ?? false),
+        ];
+    }
+
+    /**
+     * Guarda tenant/outlet/register emisor + enabled. Efecto colateral: marca
+     * `company.isinternal=1` en el tenant nuevo y `=0` en el anterior (si
+     * cambió) — atómico, misma transacción que el guardado de config.
+     */
+    public function setSaasBillingConfig(array $in, ?string $updatedBy): array
+    {
+        global $db;
+
+        $tenantId   = trim((string) ($in['tenantId']   ?? ''));
+        $outletId   = trim((string) ($in['outletId']   ?? ''));
+        $registerId = trim((string) ($in['registerId'] ?? ''));
+        $enabled    = filter_var($in['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        if ($enabled) {
+            if ($tenantId === '' || !preg_match(self::UUID_RE, $tenantId)) {
+                return ['ok' => false, 'error' => 'Elegí el tenant emisor', 'code' => 422];
+            }
+            if ($outletId === '' || !preg_match(self::UUID_RE, $outletId)) {
+                return ['ok' => false, 'error' => 'Elegí la sucursal emisora', 'code' => 422];
+            }
+            if ($registerId === '' || !preg_match(self::UUID_RE, $registerId)) {
+                return ['ok' => false, 'error' => 'Elegí la caja emisora', 'code' => 422];
+            }
+        }
+
+        if ($tenantId !== '') {
+            $t = $db->Execute('SELECT companyId FROM company WHERE companyId = ? LIMIT 1', [$tenantId]);
+            if (!$t || $t->EOF) {
+                return ['ok' => false, 'error' => 'Tenant no encontrado', 'code' => 404];
+            }
+        }
+        if ($outletId !== '') {
+            $o = $db->Execute('SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1', [$outletId, $tenantId]);
+            if (!$o || $o->EOF) {
+                return ['ok' => false, 'error' => 'La sucursal no pertenece al tenant elegido', 'code' => 422];
+            }
+        }
+        if ($registerId !== '') {
+            $r = $db->Execute(
+                'SELECT registerId FROM register WHERE registerId = ? AND companyId = ? AND outletId = ? LIMIT 1',
+                [$registerId, $tenantId, $outletId]
+            );
+            if (!$r || $r->EOF) {
+                return ['ok' => false, 'error' => 'La caja no pertenece a la sucursal elegida', 'code' => 422];
+            }
+        }
+
+        $prev = PlatformConfig::get('saasBilling', []);
+        $prevTenantId = (is_array($prev) && !empty($prev['tenantId'])) ? (string) $prev['tenantId'] : '';
+
+        $db->BeginTrans();
+        try {
+            if ($prevTenantId !== '' && $prevTenantId !== $tenantId) {
+                $db->Execute('UPDATE company SET isinternal = 0 WHERE companyId = ?', [$prevTenantId]);
+            }
+            if ($tenantId !== '') {
+                $db->Execute('UPDATE company SET isinternal = 1 WHERE companyId = ?', [$tenantId]);
+            }
+            PlatformConfig::set('saasBilling', [
+                'tenantId'   => $tenantId !== ''   ? $tenantId   : null,
+                'outletId'   => $outletId !== ''   ? $outletId   : null,
+                'registerId' => $registerId !== '' ? $registerId : null,
+                'enabled'    => $enabled,
+            ], $updatedBy);
+            $db->CommitTrans();
+        } catch (\Throwable $e) {
+            $db->RollbackTrans();
+            return ['ok' => false, 'error' => 'No se pudo guardar: ' . $e->getMessage(), 'code' => 500];
+        }
+
+        return ['ok' => true, 'config' => $this->getSaasBillingConfig()];
+    }
+
     // ── privados ─────────────────────────────────────────────────────────
 
     private function shapeGroup(string $key, array $meta): array
