@@ -5,7 +5,7 @@
  *   GET    /v1/finance/categories             → lista (auto-seed si el tenant no tiene ninguna)
  *   GET    /v1/finance/categories?id=<uuid>   → detalle
  *   POST   /v1/finance/categories             → crea
- *   PUT    /v1/finance/categories?id=<uuid>   → edita (solo nombre)
+ *   PUT    /v1/finance/categories?id=<uuid>   → edita (nombre, parentId opcional)
  *   DELETE /v1/finance/categories?id=<uuid>   → archiva (soft-delete; issystem no se puede)
  *
  * Auth realm `panel`. Requiere permiso `finance.manage`.

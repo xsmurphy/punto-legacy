@@ -5,8 +5,10 @@ namespace Punto\Api\Finance;
 
 /**
  * CRUD de categorías de Finanzas (`fin_category`) + seed de defaults.
- * Árbol de 1 nivel: 'income' (Ingresos) | 'expense' (Egresos). Las categorías
- * default (`issystem=true`) no se pueden borrar — solo renombrar.
+ * Árbol de 2 niveles máximo: 'income' (Ingresos) | 'expense' (Egresos), cada
+ * categoría raíz puede tener subcategorías (`parentid`), pero una subcategoría
+ * NUNCA puede tener hijas propias. Las categorías default (`issystem=true`)
+ * no se pueden borrar — solo renombrar.
  */
 final class CategoryService
 {
@@ -23,6 +25,7 @@ final class CategoryService
         ['expense', 'Servicios', 3],
         ['expense', 'Impuestos', 4],
         ['expense', 'Otros', 5],
+        ['expense', 'Devoluciones', 6],
     ];
 
     public function list(string $companyId): array
@@ -58,7 +61,7 @@ final class CategoryService
         return $row ? $this->shape($row) : null;
     }
 
-    /** @param array{name:string,kind:string,sortorder?:int} $data */
+    /** @param array{name:string,kind:string,sortorder?:int,parentId?:?string} $data */
     public function create(string $companyId, array $data): array
     {
         $name = trim((string) ($data['name'] ?? ''));
@@ -70,11 +73,14 @@ final class CategoryService
             throw new \RuntimeException('kind debe ser income o expense');
         }
 
+        $parentId = $this->resolveParentId($companyId, $kind, $data['parentId'] ?? null, null);
+
         $id = ncmInsert([
             'records' => [
                 'companyid' => $companyId,
                 'name'      => $name,
                 'kind'      => $kind,
+                'parentid'  => $parentId,
                 'sortorder' => (int) ($data['sortorder'] ?? 99),
                 'issystem'  => false,
                 'status'    => 1,
@@ -92,7 +98,10 @@ final class CategoryService
         return $row;
     }
 
-    /** Solo permite renombrar (kind fijo tras creación — cambiar de income↔expense rompe el histórico). */
+    /**
+     * Permite renombrar y reasignar `parentId` (kind fijo tras creación —
+     * cambiar de income↔expense rompe el histórico).
+     */
     public function update(string $id, string $companyId, array $data): array
     {
         if (!preg_match(self::UUID_RE, $id)) {
@@ -107,8 +116,28 @@ final class CategoryService
             throw new \RuntimeException('El nombre no puede estar vacío');
         }
 
+        $records = ['categoryid' => $id, 'name' => $name];
+
+        if (array_key_exists('parentId', $data)) {
+            if ($this->hasChildren($id, $companyId)) {
+                // Una categoría CON hijas no puede pasar a ser hija de otra —
+                // rompería el árbol de 2 niveles.
+                if (($data['parentId'] ?? null) !== null) {
+                    throw new \RuntimeException('Esta categoría tiene subcategorías: no puede tener padre');
+                }
+                $records['parentid'] = null;
+            } else {
+                $records['parentid'] = $this->resolveParentId(
+                    $companyId,
+                    (string) $existing['kind'],
+                    $data['parentId'],
+                    $id
+                );
+            }
+        }
+
         ncmUpdate([
-            'records'     => ['categoryid' => $id, 'name' => $name],
+            'records'     => $records,
             'table'       => 'fin_category',
             'where'       => 'categoryid = ? AND companyid = ?',
             'whereParams' => [$id, $companyId],
@@ -121,7 +150,7 @@ final class CategoryService
         return $row;
     }
 
-    /** Archiva (soft-delete). Las categorías default (issystem) no se pueden borrar. */
+    /** Archiva (soft-delete). Las categorías default (issystem) o con hijas activas no se pueden borrar. */
     public function archive(string $id, string $companyId): void
     {
         if (!preg_match(self::UUID_RE, $id)) {
@@ -134,10 +163,57 @@ final class CategoryService
         if ($existing['isSystem']) {
             throw new \RuntimeException('Las categorías por defecto no se pueden eliminar');
         }
+        if ($this->hasChildren($id, $companyId)) {
+            throw new \RuntimeException('Esta categoría tiene subcategorías: moveé o eliminá las hijas primero');
+        }
         ncmExecute(
             'UPDATE fin_category SET status = 0 WHERE categoryid = ? AND companyid = ?',
             [$id, $companyId]
         );
+    }
+
+    /**
+     * Valida y normaliza `parentId` para create/update.
+     *
+     * Reglas (árbol de 2 niveles máximo):
+     *   - null/'' → sin padre (categoría raíz).
+     *   - debe existir, ser UUID, del mismo companyId y del mismo kind.
+     *   - el padre NO puede tener padre (no se anida a 3+ niveles).
+     *   - una categoría no puede ser su propio padre (`excludeId`).
+     */
+    private function resolveParentId(string $companyId, string $kind, ?string $parentId, ?string $excludeId): ?string
+    {
+        $parentId = trim((string) ($parentId ?? ''));
+        if ($parentId === '') {
+            return null;
+        }
+        if (!preg_match(self::UUID_RE, $parentId)) {
+            throw new \RuntimeException('parentId inválido');
+        }
+        if ($excludeId !== null && $parentId === $excludeId) {
+            throw new \RuntimeException('Una categoría no puede ser su propio padre');
+        }
+        $parent = $this->find($parentId, $companyId);
+        if (!$parent) {
+            throw new \RuntimeException('Categoría padre no encontrada');
+        }
+        if ($parent['kind'] !== $kind) {
+            throw new \RuntimeException('La categoría padre debe ser del mismo tipo (ingreso/egreso)');
+        }
+        if ($parent['parentId'] !== null) {
+            throw new \RuntimeException('La categoría padre no puede ser a su vez una subcategoría');
+        }
+        return $parentId;
+    }
+
+    /** true si existe alguna categoría activa con `parentid` = $id. */
+    private function hasChildren(string $id, string $companyId): bool
+    {
+        $row = ncmExecute(
+            'SELECT COUNT(*) AS n FROM fin_category WHERE parentid = ? AND companyid = ? AND status = 1',
+            [$id, $companyId]
+        );
+        return $row && (int) ($row['n'] ?? 0) > 0;
     }
 
     /** Auto-seed: si el tenant no tiene ninguna categoría, crea las default (issystem=true). */
@@ -184,6 +260,43 @@ final class CategoryService
             "SELECT categoryid FROM fin_category WHERE companyid = ? AND kind = 'expense' AND name = 'Proveedores' LIMIT 1",
             [$companyId]
         );
+        return $row ? (string) $row['categoryid'] : '';
+    }
+
+    /**
+     * Devuelve el categoryid de la categoría default "Devoluciones" del tenant.
+     *
+     * A diferencia de Ventas/Proveedores no alcanza con `ensureSeed()`: el seed
+     * solo corre en tenants SIN ninguna categoría, así que los que ya venían de
+     * Fase 1 nunca recibirían una categoría agregada después. Se crea on-demand
+     * (idempotente por nombre+kind; el SELECT no filtra `status` para no
+     * re-crearla si el tenant la archivó).
+     */
+    public function ensureReturnsCategoryId(string $companyId): string
+    {
+        $this->ensureSeed($companyId);
+
+        $find = static fn() => ncmExecute(
+            "SELECT categoryid FROM fin_category WHERE companyid = ? AND kind = 'expense' AND name = 'Devoluciones' LIMIT 1",
+            [$companyId]
+        );
+
+        $row = $find();
+        if (!$row) {
+            ncmInsert([
+                'records' => [
+                    'companyid' => $companyId,
+                    'name'      => 'Devoluciones',
+                    'kind'      => 'expense',
+                    'sortorder' => 6,
+                    'issystem'  => true,
+                    'status'    => 1,
+                ],
+                'table' => 'fin_category',
+            ]);
+            $row = $find();
+        }
+
         return $row ? (string) $row['categoryid'] : '';
     }
 

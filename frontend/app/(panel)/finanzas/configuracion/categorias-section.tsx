@@ -38,6 +38,13 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   useArchiveFinanceCategory,
   useCreateFinanceCategory,
   useFinanceCategories,
@@ -45,10 +52,69 @@ import {
   type FinanceCategory,
 } from "@/hooks/use-finance-categories"
 
+const NO_PARENT = "__none__"
+
 const categorySchema = z.object({
   name: z.string().min(1, "El nombre es requerido"),
+  parentId: z.string(),
 })
 type CategoryValues = z.infer<typeof categorySchema>
+
+/** Agrupa categorías en raíces + hijas (árbol de 2 niveles), cada nivel ordenado por sortOrder. */
+function groupByParent(categories: FinanceCategory[]) {
+  const roots = categories
+    .filter((c) => !c.parentId)
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+  const childrenByParent = new Map<string, FinanceCategory[]>()
+  for (const c of categories) {
+    if (!c.parentId) continue
+    const list = childrenByParent.get(c.parentId) ?? []
+    list.push(c)
+    childrenByParent.set(c.parentId, list)
+  }
+  for (const list of childrenByParent.values()) {
+    list.sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+  }
+  return roots.map((root) => ({ root, children: childrenByParent.get(root.id) ?? [] }))
+}
+
+function CategoryRow({
+  category,
+  indented,
+  hasChildren,
+  onEdit,
+  onArchive,
+}: {
+  category: FinanceCategory
+  indented: boolean
+  hasChildren: boolean
+  onEdit: () => void
+  onArchive: () => void
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between gap-2 rounded-md px-2 py-2 hover:bg-accent/50 ${
+        indented ? "ml-6 border-l pl-3" : ""
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <span className="text-sm">{category.name}</span>
+        {category.isSystem && <Badge variant="secondary">Por defecto</Badge>}
+        {hasChildren && <Badge variant="outline">{"Tiene subcategorías"}</Badge>}
+      </div>
+      <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" onClick={onEdit}>
+          <Pencil className="size-4" />
+        </Button>
+        {!category.isSystem && (
+          <Button variant="ghost" size="icon" onClick={onArchive}>
+            <Archive className="size-4" />
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
 
 function CategoryColumn({
   kind,
@@ -69,26 +135,35 @@ function CategoryColumn({
 
   const createForm = useForm<CategoryValues>({
     resolver: zodResolver(categorySchema),
-    defaultValues: { name: "" },
+    defaultValues: { name: "", parentId: NO_PARENT },
   })
   const editForm = useForm<CategoryValues>({
     resolver: zodResolver(categorySchema),
-    defaultValues: { name: "" },
+    defaultValues: { name: "", parentId: NO_PARENT },
   })
 
+  // Solo categorías raíz del mismo kind pueden ser "padre" (árbol de 2 niveles).
+  const parentOptions = categories.filter((c) => !c.parentId)
+  const childIds = new Set(categories.filter((c) => c.parentId).map((c) => c.parentId as string))
+  const editingHasChildren = editing ? childIds.has(editing.id) : false
+
   const openCreate = () => {
-    createForm.reset({ name: "" })
+    createForm.reset({ name: "", parentId: NO_PARENT })
     setCreateOpen(true)
   }
 
   const openEdit = (category: FinanceCategory) => {
-    editForm.reset({ name: category.name })
+    editForm.reset({ name: category.name, parentId: category.parentId ?? NO_PARENT })
     setEditing(category)
   }
 
   const onCreateSubmit = async (values: CategoryValues) => {
     try {
-      await createCategory.mutateAsync({ name: values.name, kind })
+      await createCategory.mutateAsync({
+        name: values.name,
+        kind,
+        parentId: values.parentId === NO_PARENT ? null : values.parentId,
+      })
       toast.success("Categoría creada")
       setCreateOpen(false)
     } catch (e) {
@@ -101,7 +176,11 @@ function CategoryColumn({
   const onEditSubmit = async (values: CategoryValues) => {
     if (!editing) return
     try {
-      await updateCategory.mutateAsync({ id: editing.id, name: values.name })
+      await updateCategory.mutateAsync({
+        id: editing.id,
+        name: values.name,
+        parentId: values.parentId === NO_PARENT ? null : values.parentId,
+      })
       toast.success("Categoría actualizada")
       setEditing(null)
     } catch (e) {
@@ -125,6 +204,8 @@ function CategoryColumn({
     }
   }
 
+  const groups = groupByParent(categories)
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -138,26 +219,26 @@ function CategoryColumn({
         {categories.length === 0 ? (
           <p className="text-sm text-muted-foreground">Sin categorías todavía.</p>
         ) : (
-          categories.map((category) => (
-            <div
-              key={category.id}
-              className="flex items-center justify-between gap-2 rounded-md px-2 py-2 hover:bg-accent/50"
-            >
-              <div className="flex items-center gap-2">
-                <span className="text-sm">{category.name}</span>
-                {category.isSystem && <Badge variant="secondary">Por defecto</Badge>}
-              </div>
-              <div className="flex items-center gap-1">
-                <Button variant="ghost" size="icon" onClick={() => openEdit(category)}>
-                  <Pencil className="size-4" />
-                </Button>
-                {!category.isSystem && (
-                  <Button variant="ghost" size="icon" onClick={() => setArchiving(category)}>
-                    <Archive className="size-4" />
-                  </Button>
-                )}
-              </div>
-            </div>
+          groups.map(({ root, children }) => (
+            <React.Fragment key={root.id}>
+              <CategoryRow
+                category={root}
+                indented={false}
+                hasChildren={children.length > 0}
+                onEdit={() => openEdit(root)}
+                onArchive={() => setArchiving(root)}
+              />
+              {children.map((child) => (
+                <CategoryRow
+                  key={child.id}
+                  category={child}
+                  indented
+                  hasChildren={false}
+                  onEdit={() => openEdit(child)}
+                  onArchive={() => setArchiving(child)}
+                />
+              ))}
+            </React.Fragment>
           ))
         )}
       </CardContent>
@@ -179,6 +260,31 @@ function CategoryColumn({
                     <FormControl>
                       <Input {...field} autoFocus />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={createForm.control}
+                name="parentId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Categoría padre (opcional)</FormLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sin categoría padre" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NO_PARENT}>Sin categoría padre</SelectItem>
+                        {parentOptions.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -213,6 +319,42 @@ function CategoryColumn({
                     <FormControl>
                       <Input {...field} autoFocus />
                     </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={editForm.control}
+                name="parentId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Categoría padre (opcional)</FormLabel>
+                    <Select
+                      value={field.value}
+                      onValueChange={field.onChange}
+                      disabled={editingHasChildren}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Sin categoría padre" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value={NO_PARENT}>Sin categoría padre</SelectItem>
+                        {parentOptions
+                          .filter((p) => p.id !== editing?.id)
+                          .map((p) => (
+                            <SelectItem key={p.id} value={p.id}>
+                              {p.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                    {editingHasChildren && (
+                      <p className="text-xs text-muted-foreground">
+                        Esta categoría tiene subcategorías: no puede tener padre.
+                      </p>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

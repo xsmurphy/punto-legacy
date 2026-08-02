@@ -24,7 +24,11 @@ export function useFinanceCategories() {
 
 export function useCreateFinanceCategory() {
   const qc = useQueryClient()
-  return useMutation<FinanceCategory, Error, { name: string; kind: "income" | "expense" }>({
+  return useMutation<
+    FinanceCategory,
+    Error,
+    { name: string; kind: "income" | "expense"; parentId?: string | null }
+  >({
     mutationFn: (values) => api.post<FinanceCategory>("/v1/finance/categories", values),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["finance", "categories"] })
@@ -34,8 +38,9 @@ export function useCreateFinanceCategory() {
 
 export function useUpdateFinanceCategory() {
   const qc = useQueryClient()
-  return useMutation<FinanceCategory, Error, { id: string; name: string }>({
-    mutationFn: ({ id, name }) => api.put<FinanceCategory>(`/v1/finance/categories?id=${id}`, { name }),
+  return useMutation<FinanceCategory, Error, { id: string; name: string; parentId?: string | null }>({
+    mutationFn: ({ id, name, ...rest }) =>
+      api.put<FinanceCategory>(`/v1/finance/categories?id=${id}`, { name, ...rest }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["finance", "categories"] })
     },
