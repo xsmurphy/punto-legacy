@@ -21,6 +21,7 @@
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
+require_once __DIR__ . '/../../lib/Admin/PlatformConfig.php';
 
 use Punto\Api\Auth\SignupOtp;
 
@@ -68,9 +69,16 @@ $msg     = '[' . (defined('APP_NAME') ? APP_NAME : 'Punto') . '] '
 $phoneE  = ltrim($e164, '+');
 $payload = json_encode(['number' => $phoneE, 'text' => $msg]);
 
-$evolutionUrl  = defined('EVOLUTION_API_URL') ? rtrim(EVOLUTION_API_URL, '/') : '';
-$evolutionInst = defined('EVOLUTION_INSTANCE') ? EVOLUTION_INSTANCE : '';
-$evolutionKey  = defined('EVOLUTION_API_KEY')  ? EVOLUTION_API_KEY  : '';
+// Precedencia (context/34-admin-saas-plan.md F6 §3): si el admin configuró
+// 'integration.evolution' en platform_config, gana entero sobre las env vars.
+$evolutionCfg = PlatformConfig::get('integration.evolution', [
+    'url'      => defined('EVOLUTION_API_URL') ? EVOLUTION_API_URL : '',
+    'instance' => defined('EVOLUTION_INSTANCE') ? EVOLUTION_INSTANCE : '',
+    'key'      => defined('EVOLUTION_API_KEY') ? EVOLUTION_API_KEY : '',
+]);
+$evolutionUrl  = rtrim((string) ($evolutionCfg['url'] ?? ''), '/');
+$evolutionInst = (string) ($evolutionCfg['instance'] ?? '');
+$evolutionKey  = (string) ($evolutionCfg['key'] ?? '');
 if ($evolutionUrl === '' || $evolutionInst === '' || $evolutionKey === '') {
     apiError('Evolution API no configurada', 500);
 }

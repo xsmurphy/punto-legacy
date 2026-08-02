@@ -31,8 +31,16 @@ final class Notification
         $subject  = $options['subject'];
         $data     = $options['data']['message'] ?? '';
 
-        $mgClient = \MailgunClient::create(MAILGUN_TOKEN);
-        $domain   = MAILGUN_DOMAIN;
+        // Precedencia (context/34-admin-saas-plan.md F6 §3): si el admin
+        // configuró 'integration.mailgun' en platform_config, gana sobre las
+        // constantes de env (MAILGUN_TOKEN/MAILGUN_DOMAIN).
+        require_once __DIR__ . '/../../Admin/PlatformConfig.php';
+        $mailgunCfg = \PlatformConfig::get('integration.mailgun', [
+            'domain' => MAILGUN_DOMAIN,
+            'token'  => MAILGUN_TOKEN,
+        ]);
+        $domain   = (string) ($mailgunCfg['domain'] ?? '');
+        $mgClient = \MailgunClient::create((string) ($mailgunCfg['token'] ?? ''));
 
         try {
             $resultMail = $mgClient->messages()->send($domain, [

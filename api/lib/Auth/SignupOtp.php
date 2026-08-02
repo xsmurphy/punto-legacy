@@ -35,10 +35,17 @@ final class SignupOtp
     private const TTL_SECONDS = 240; // 4 minutos
     private const MAX_ATTEMPTS = 5;
 
-    /** @return 'on'|'off' */
+    /**
+     * @return 'on'|'off'
+     *
+     * Precedencia (context/34-admin-saas-plan.md F6 §3): si el admin
+     * seteó platform_config['flags']['signupOtp'], gana sobre la env SIGNUP_OTP.
+     */
     public static function mode(): string
     {
-        $mode = strtolower(trim((string) ($_ENV['SIGNUP_OTP'] ?? 'off')));
+        require_once __DIR__ . '/../Admin/PlatformConfig.php';
+        $flags = \PlatformConfig::get('flags', ['signupOtp' => $_ENV['SIGNUP_OTP'] ?? 'off']);
+        $mode  = strtolower(trim((string) ($flags['signupOtp'] ?? 'off')));
 
         return $mode === 'on' ? 'on' : 'off';
     }
