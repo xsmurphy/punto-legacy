@@ -17,9 +17,15 @@
  *
  * Mismo patrón que el resto del realm admin: `global $db; $db->Execute(...)`,
  * iterando con while(!$r->EOF).
+ *
+ * F6 §2 (context/34-admin-saas-plan.md) suma testModel(): "probar modelo"
+ * desde /admin/ai — llamada mínima a OpenRouter con la OPENROUTER_API_KEY
+ * del SERVER (no debita créditos de ningún tenant, no toca ai_credit_ledger).
  */
 class AiAdminService
 {
+    /** Rate limit del botón "Probar": 1 test cada N segundos, por admin. */
+    private const TEST_RATE_LIMIT_SECONDS = 10;
     /** Modelos/precios por capability. */
     public function listModels(): array
     {
@@ -235,6 +241,101 @@ class AiAdminService
             }
         }
         return $out;
+    }
+
+    // ── Test de conectividad ("Probar modelo") ───────────────────────────
+
+    /**
+     * Llama a OpenRouter con el slug configurado para $capability: prompt
+     * mínimo ("responde OK"), maxTokens ~10, timeout corto. Usa la
+     * OPENROUTER_API_KEY del server — NUNCA la del tenant, NUNCA debita
+     * ai_credit_ledger (esto es un smoke test de plataforma, no un uso real).
+     *
+     * Rate limit: 1 test cada 10s por admin, guardado en platform_config
+     * (key 'adminAiTestRate.<adminId>') — evita que alguien golpee OpenRouter
+     * en loop desde el botón "Probar".
+     */
+    public function testModel(string $capability, string $actingAdminId): array
+    {
+        require_once __DIR__ . '/PlatformConfig.php';
+
+        $capability = trim($capability);
+        if ($capability === '') {
+            return ['ok' => false, 'error' => 'capability es requerido', 'code' => 422];
+        }
+
+        $rateKey = 'adminAiTestRate.' . $actingAdminId;
+        $last    = \PlatformConfig::get($rateKey, null);
+        if (is_array($last) && isset($last['at'])) {
+            $elapsed = time() - strtotime((string) $last['at']);
+            if ($elapsed < self::TEST_RATE_LIMIT_SECONDS) {
+                return [
+                    'ok'    => false,
+                    'error' => 'Esperá ' . (self::TEST_RATE_LIMIT_SECONDS - $elapsed) . 's antes de probar de nuevo',
+                    'code'  => 429,
+                ];
+            }
+        }
+        \PlatformConfig::set($rateKey, ['at' => date('c')]);
+
+        $models = $this->listModels();
+        $model  = null;
+        foreach ($models as $m) {
+            if ($m['capability'] === $capability) {
+                $model = $m;
+                break;
+            }
+        }
+        if ($model === null) {
+            return ['ok' => false, 'error' => 'Capability no encontrada', 'code' => 404];
+        }
+
+        $apiKey = defined('OPENROUTER_API_KEY') ? OPENROUTER_API_KEY : '';
+        if ($apiKey === '') {
+            return ['ok' => false, 'error' => 'OPENROUTER_API_KEY no configurada en el server', 'code' => 500];
+        }
+
+        $payload = json_encode([
+            'model'      => $model['model'],
+            'messages'   => [['role' => 'user', 'content' => 'Responde únicamente: OK']],
+            'max_tokens' => 10,
+        ]);
+
+        $start = microtime(true);
+        $ch = curl_init('https://openrouter.ai/api/v1/chat/completions');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $apiKey,
+            ],
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 12,
+            CURLOPT_CONNECTTIMEOUT => 5,
+        ]);
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErr  = curl_error($ch);
+        curl_close($ch);
+        $latencyMs = (int) round((microtime(true) - $start) * 1000);
+
+        if ($response === false) {
+            return ['ok' => false, 'error' => 'Error de red: ' . $curlErr, 'latencyMs' => $latencyMs, 'code' => 502];
+        }
+
+        $decoded = json_decode((string) $response, true);
+        if ($httpCode < 200 || $httpCode >= 300) {
+            $errMsg = is_array($decoded) ? ($decoded['error']['message'] ?? $response) : $response;
+            return ['ok' => false, 'error' => (string) $errMsg, 'latencyMs' => $latencyMs, 'code' => $httpCode];
+        }
+
+        $reply = is_array($decoded) ? ($decoded['choices'][0]['message']['content'] ?? '') : '';
+        return [
+            'ok'        => true,
+            'latencyMs' => $latencyMs,
+            'reply'     => trim((string) $reply),
+        ];
     }
 
     // ── privados ─────────────────────────────────────────────────────────

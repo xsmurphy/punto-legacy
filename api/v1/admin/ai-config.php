@@ -14,6 +14,8 @@
  *   action=createPackage  {name, credits, price}
  *   action=updatePackage  {packageId, name?, credits?, price?}
  *   action=archivePackage {packageId}
+ *   action=test           {capability} → llamada mínima a OpenRouter (F6 §2).
+ *                            NO debita créditos de tenant. Rate: 1/10s por admin.
  */
 
 require_once __DIR__ . '/../../includes/db.php';
@@ -73,6 +75,20 @@ if ($method === 'POST') {
             apiError($result['error'] ?? 'error', $result['code'] ?? 422);
         }
         adminAudit('updateAiPackage', 'aiPackage', $packageId, $result['package']['name'] ?? null, ['fields' => array_keys($input)]);
+        apiOk($result);
+    }
+
+    if ($action === 'test') {
+        $capability = trim((string) ($input['capability'] ?? ''));
+        $result = $svc->testModel($capability, ADMIN_AUTHED_ID);
+        // Auditar siempre (éxito y error) — es una llamada real a un proveedor externo.
+        adminAudit('testAiModel', 'aiModel', $capability, null, [
+            'ok'        => $result['ok'],
+            'latencyMs' => $result['latencyMs'] ?? null,
+        ]);
+        if (!$result['ok']) {
+            apiError($result['error'] ?? 'error', $result['code'] ?? 422);
+        }
         apiOk($result);
     }
 

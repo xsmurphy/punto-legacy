@@ -145,6 +145,10 @@ define('SENDGRID_SMTP_PASS',     $_ENV['SENDGRID_SMTP_PASS']    ?? '');
 define('NCM_SMS_API_KEY',        $_ENV['NCM_SMS_API_KEY']       ?? '');
 define('NCM_SMS_COMPANY_ID',     $_ENV['NCM_SMS_COMPANY_ID']    ?? '');
 
+// OpenRouter — gateway multi-modelo del agente IA (context/17) y del test de
+// conectividad admin (context/34 F6 §2, AiAdminService::testModel()).
+define('OPENROUTER_API_KEY',     $_ENV['OPENROUTER_API_KEY']    ?? '');
+
 $companyCategories  = [
   'Salud y Fitness' =>[
     'Gimnasio/Club de Bienestar'  => '0.1',
