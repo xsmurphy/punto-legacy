@@ -34,6 +34,8 @@ export interface AdminCompanyRow {
   country: string
   blocked: number
   suspended: number
+  /** F5 (dogfooding) — tenant emisor de facturación SaaS, no un cliente real. */
+  isInternal: number
   planExpired: boolean | null
   epos: number
   ecom: number
@@ -554,6 +556,8 @@ export interface AdminInvoiceRow {
   providerInvoiceId: string | null
   paidAt: string | null
   createdAt: string | null
+  /** F5 (dogfooding) — transactionId de la venta emitida en el tenant Punto, o null si no se emitió. */
+  saasTransactionId: string | null
 }
 
 export interface AdminTenantPlanRequest {
@@ -573,6 +577,18 @@ export function useAdminInvoices(companyId: string) {
     queryFn: () => apiAdmin.get(`/companies.php?id=${encodeURIComponent(companyId)}&invoices=1`),
     enabled: !!companyId,
     staleTime: 30 * 1000,
+  })
+}
+
+/** F5 (dogfooding) — botón "Emitir factura Punto" en la tab Facturación de la ficha. */
+export function useAdminEmitSaasInvoice(companyId: string) {
+  const qc = useQueryClient()
+  return useMutation<{ transactionId: string; reused: boolean }, Error, { invoiceId: string }>({
+    mutationFn: ({ invoiceId }) =>
+      apiAdmin.post(`/companies.php?id=${encodeURIComponent(companyId)}&action=emitSaasInvoice`, { invoiceId }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "invoices", companyId] })
+    },
   })
 }
 
@@ -1037,8 +1053,19 @@ export interface AdminPlatformGroup {
   fields: Record<string, AdminPlatformField>
 }
 
+/** F5 (dogfooding, context/34-admin-saas-plan.md) — tenant emisor de la facturación SaaS. */
+export interface AdminSaasBillingConfig {
+  tenantId: string | null
+  tenantName: string | null
+  outletId: string | null
+  outletName: string | null
+  registerId: string | null
+  registerName: string | null
+  enabled: boolean
+}
+
 export function useAdminPlatformConfig() {
-  return useQuery<{ groups: AdminPlatformGroup[] }>({
+  return useQuery<{ groups: AdminPlatformGroup[]; saasBilling: AdminSaasBillingConfig }>({
     queryKey: ["admin", "platform"],
     queryFn: () => apiAdmin.get("/platform.php"),
     staleTime: 30 * 1000,
@@ -1054,10 +1081,56 @@ export function useAdminSetPlatformGroup() {
   })
 }
 
+export function useAdminSetSaasBilling() {
+  const qc = useQueryClient()
+  return useMutation<
+    { config: AdminSaasBillingConfig },
+    Error,
+    { tenantId: string; outletId: string; registerId: string; enabled: boolean }
+  >({
+    mutationFn: (data) => apiAdmin.post("/platform.php", { action: "setSaasBilling", ...data }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "platform"] }),
+  })
+}
+
 export function useAdminBroadcast() {
   return useMutation({
     mutationFn: (data: { title: string; message: string; link?: string }) =>
       apiAdmin.post<{ notifyId: string }>("/platform.php", { action: "broadcast", ...data }),
+  })
+}
+
+// ── F5: sucursales/cajas de un tenant (selects encadenados) ─────────────────
+
+export interface AdminTenantOutlet {
+  id: string
+  name: string
+}
+
+export interface AdminTenantRegister {
+  id: string
+  name: string
+  outletId: string
+}
+
+export function useAdminTenantOutlets(companyId: string) {
+  return useQuery<{ outlets: AdminTenantOutlet[] }>({
+    queryKey: ["admin", "tenantOutlets", companyId],
+    queryFn: () => apiAdmin.get(`/companies.php?id=${encodeURIComponent(companyId)}&outlets=1`),
+    enabled: !!companyId,
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useAdminTenantRegisters(companyId: string, outletId: string) {
+  return useQuery<{ registers: AdminTenantRegister[] }>({
+    queryKey: ["admin", "tenantRegisters", companyId, outletId],
+    queryFn: () =>
+      apiAdmin.get(
+        `/companies.php?id=${encodeURIComponent(companyId)}&registers=1&outletId=${encodeURIComponent(outletId)}`,
+      ),
+    enabled: !!companyId && !!outletId,
+    staleTime: 30 * 1000,
   })
 }
 

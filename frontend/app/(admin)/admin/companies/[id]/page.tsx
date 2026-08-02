@@ -120,9 +120,12 @@ import {
   useAdminTenantNotes,
   useAdminCreateTenantNote,
   useAdminDeleteTenantNote,
+  useAdminEmitSaasInvoice,
+  adminRoleAtLeast,
   type AdminHealthChecklistItem,
 } from "@/hooks/use-admin"
 import { AdminApiError } from "@/lib/api-admin"
+import { useAdminContext } from "@/components/admin/admin-auth-guard"
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
 
@@ -943,6 +946,9 @@ function FacturacionTab({ id }: { id: string }) {
   const { data, isLoading } = useAdminInvoices(id)
   const { data: billing } = useAdminBilling(id)
   const resolveRequest = useAdminResolveRequest()
+  const emitSaasInvoice = useAdminEmitSaasInvoice(id)
+  const admin = useAdminContext()
+  const canEmitSaasInvoice = adminRoleAtLeast(admin.role, "support")
 
   const invoices = data?.invoices ?? []
   const requests = data?.requests ?? []
@@ -977,6 +983,7 @@ function FacturacionTab({ id }: { id: string }) {
                   <TableHead>Concepto</TableHead>
                   <TableHead>Monto</TableHead>
                   <TableHead>Estado</TableHead>
+                  <TableHead>Punto SaaS</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -991,6 +998,35 @@ function FacturacionTab({ id }: { id: string }) {
                       <Badge variant={INVOICE_STATUS_VARIANT[inv.status] ?? "secondary"}>
                         {INVOICE_STATUS_LABEL[inv.status] ?? inv.status}
                       </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {inv.saasTransactionId ? (
+                        <Badge variant="outline" className="font-mono text-[10px]">
+                          Emitida — {inv.saasTransactionId.slice(0, 8)}
+                        </Badge>
+                      ) : inv.status !== "paid" ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : canEmitSaasInvoice ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={emitSaasInvoice.isPending}
+                          onClick={() =>
+                            emitSaasInvoice.mutate(
+                              { invoiceId: inv.id },
+                              {
+                                onSuccess: () => toast.success("Factura Punto emitida"),
+                                onError: (err) => toast.error(err.message ?? "No se pudo emitir"),
+                              },
+                            )
+                          }
+                        >
+                          {emitSaasInvoice.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                          Emitir factura Punto
+                        </Button>
+                      ) : (
+                        <Badge variant="secondary">Pendiente</Badge>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

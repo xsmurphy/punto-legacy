@@ -227,7 +227,14 @@ export default function AdminCompaniesPage() {
                 >
                   <TableCell>
                     <div className="flex flex-col">
-                      <span className="font-medium">{c.name || c.companyName || "(sin nombre)"}</span>
+                      <span className="font-medium flex items-center gap-2">
+                        {c.name || c.companyName || "(sin nombre)"}
+                        {c.isInternal === 1 && (
+                          <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
+                            Interno
+                          </Badge>
+                        )}
+                      </span>
                       {c.owner && (
                         <span className="text-xs text-muted-foreground truncate">
                           {[c.owner.name, c.owner.secondName].filter(Boolean).join(" ")}

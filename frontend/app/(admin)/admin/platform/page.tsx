@@ -23,6 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { AdminRoleGate } from "@/components/admin/admin-role-gate"
+import { SaasBillingConfigCard } from "@/components/admin/saas-billing-config-card"
 
 import {
   useAdminPlatformConfig,
@@ -191,6 +192,7 @@ function AdminPlatformPageContent() {
       <Tabs defaultValue="integrations">
         <TabsList>
           <TabsTrigger value="integrations">Integraciones</TabsTrigger>
+          <TabsTrigger value="saas-billing">Facturación del SaaS</TabsTrigger>
           <TabsTrigger value="broadcast">Broadcast</TabsTrigger>
         </TabsList>
 
@@ -208,6 +210,10 @@ function AdminPlatformPageContent() {
               ))}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="saas-billing" className="space-y-4">
+          <SaasBillingConfigCard />
         </TabsContent>
 
         <TabsContent value="broadcast" className="space-y-4">
