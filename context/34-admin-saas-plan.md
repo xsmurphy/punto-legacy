@@ -132,6 +132,112 @@ Punto propio (Punto-la-empresa como tenant).
   UNIQUE), moneda/precio consistente, y NO mezclar métricas — el tenant
   Punto se excluye de las analíticas F1/F2 (flag `isInternal` en company).
 
+> **Implementada 2026-08-02.** Mig `114_saas_billing.sql`: `company.isinternal
+> smallint NOT NULL DEFAULT 0` + tabla `saas_invoice_sale (invoiceid PK →
+> billing_invoice.id, companyid → tenant CLIENTE, transactionid NOT NULL →
+> transaction del tenant emisor, created_at)`. La PK sobre `invoiceid` ES la
+> idempotencia — no puede existir dos filas para la misma invoice.
+>
+> **Servicio**: `api/lib/Admin/SaasBillingService.php` (namespace GLOBAL,
+> mismo patrón que el resto de `api/lib/Admin/*` — el realm admin no carga
+> `functions.php`/autoloader `Punto\Api\*` a propósito, así que el servicio
+> se auto-bootstrapea la primera vez que corre: `require head.php` guardado
+> por `function_exists('ncmInsert')` + un `spl_autoload_register` propio
+> para `Punto\Api\*` guardado por `class_exists(..., false)`, en vez de
+> requerir `api/bootstrap.php` completo — eso hubiera re-corrido CORS/
+> session/Sentry/rate-limiter a mitad de un request admin ya en curso).
+> `emitForInvoice(string $invoiceId): array{transactionId, reused}`:
+> 1. Chequea `saas_invoice_sale` — si existe, no-op.
+> 2. Lee `billing_invoice` (debe estar `status='paid'`) + el tenant cliente.
+> 3. Lee `platform_config['saasBilling']` — si falta o `enabled=false`, tira
+>    excepción clara (mensaje apunta a admin/platform).
+> 4. **Cliente**: matchea `contact` (type=1, cliente) en el tenant emisor por
+>    `contactTIN = company.config->>'settingRUC'` del tenant cliente; si no
+>    hay RUC o no matchea, por `contactName` exacto = `settingName`. Si no
+>    existe, lo crea vía `ContactService::create()` (namespace
+>    `Punto\Api\Contacts`) — SOLO razón social + RUC, sin teléfono/email del
+>    owner (decisión: el owner puede tener un formato de teléfono que no pasa
+>    la validación E.164 de `ContactService`, y este es un contacto
+>    administrativo, no uno que reciba SMS/WhatsApp).
+> 5. **Ítem**: matchea `item.data->>'saasPlanCode'` en el catálogo del tenant
+>    emisor. `billing_invoice.type` hoy SOLO es `'pack'` (créditos IA) — el
+>    plan/módulo de suscripción todavía no emite invoices reales — así que
+>    `planCode` se deriva de `credit_pack` (`pack:{slug}`) si hay `packId`, o
+>    cae a `type:{type}` genérico. Si no existe, se crea on-demand
+>    (`itemKind='servicio'`, sin stock, `itemPrice` = monto de la invoice) vía
+>    `ItemRepository::create()` directo (no `ItemService::createBlank` — ese
+>    es un flujo de 2 pasos para UI, acá el record completo se arma en uno).
+> 6. **Venta**: `SaleType::Cashsale` (contado), `uid` DETERMINÍSTICO
+>    `saas-invoice-{invoiceId}` (no random) — es la SEGUNDA capa de
+>    idempotencia: si el proceso muere entre `SaleService::save()` exitoso y
+>    el INSERT de `saas_invoice_sale`, un reintento no duplica la venta:
+>    `SaleService` la detecta por `transactionUID` y tira
+>    `DuplicateSaleException`, que acá se traduce en "recuperar el
+>    transactionId existente" en vez de fallar. Fecha vía
+>    `TenantClock::now($issuerCompanyId)`. Medio de pago: primero un método
+>    cuyo nombre matchee `/tarjeta|online/i` (cobro dLocal), si no
+>    `systemKey='cash'` (Efectivo), si no el slug literal `'cash'`. Moneda:
+>    la MISMA de `billing_invoice.currency` (hoy siempre USD) y el MISMO
+>    monto — sin conversión de moneda (no hay tasa de cambio confiable
+>    disponible; documentado como decisión, no como pendiente).
+>    `COMPANY_ID`/`OUTLET_ID`/`USER_ID`/`REGISTER_ID` (constantes legacy que
+>    `SaleService` lee por debajo) se definen guardadas por `defined()` —
+>    mismo patrón que `apiAuthPosContext.php`. La numeración fiscal/factura
+>    electrónica sale del rail normal de `SaleService`/`EInvoiceService` — el
+>    servicio NO la toca ni la inventa.
+> 7. INSERT `saas_invoice_sale` con `ON CONFLICT (invoiceid) DO NOTHING` +
+>    releer si perdió la carrera (patrón `CheckService::ensureMovement`).
+>
+> **Trigger**: `PaymentsService::creditInvoice()` (`api/lib/Billing/
+> PaymentsService.php`), justo después del `CommitTrans()` de la
+> acreditación del pago. Gateado por `platformConfig['saasBilling'].enabled`
+> ANTES de instanciar el servicio (evita ruido de log cuando la feature no
+> está configurada). Envuelto en try/catch que solo hace `error_log` —
+> jamás rompe la respuesta 200 del webhook (dLocal reintenta, la
+> idempotencia lo aguanta).
+>
+> **Si el tenant emisor no está configurado**: `emitForInvoice()` tira
+> `\RuntimeException` con mensaje explícito apuntando a "admin/platform →
+> Facturación del SaaS" — en el webhook eso se loguea y se ignora (best
+> effort); en el botón manual de la ficha del tenant, el mensaje se muestra
+> tal cual en el toast de error.
+>
+> **Config** (`platform_config['saasBilling'] = {tenantId, outletId,
+> registerId, enabled}`): `PlatformConfigAdminService::getSaasBillingConfig()`/
+> `setSaasBillingConfig()` — NO reutiliza el mecanismo genérico `GROUPS`
+> (esos son campos de texto planos; esto son selects encadenados con un
+> efecto colateral). `setSaasBillingConfig()` valida que outlet pertenezca al
+> tenant y register a la sucursal, y en la MISMA transacción marca
+> `company.isinternal=1` en el tenant nuevo y `=0` en el anterior si cambió.
+> Endpoint: `POST /admin/platform.php action=setSaasBilling` (owner-only, todo
+> el archivo ya lo era). UI: tab nueva "Facturación del SaaS" en
+> `admin/platform` — combobox de tenant (`Command`+`Popover`, busca por
+> `useAdminCompanies({q})`) → `<Select>` de sucursal → `<Select>` de caja,
+> alimentados por endpoints nuevos `GET companies.php?id=&outlets=1` /
+> `&registers=1&outletId=`.
+>
+> **Acción manual**: botón "Emitir factura Punto" en la tab Facturación de la
+> ficha del tenant, por fila de invoice con `status='paid'` y sin
+> `saasTransactionId` (el `LEFT JOIN saas_invoice_sale` se agregó a
+> `CompanyAdminService::listInvoices()`). Gateado en frontend con
+> `adminRoleAtLeast(role, "support")` inline (NO con `<AdminRoleGate>` — ese
+> componente renderiza un `EmptyState` de página completa, no apto para un
+> botón dentro de una celda de tabla) y en backend con
+> `adminRequireRole('support')`. Endpoint: `POST companies.php?id=&action=
+> emitSaasInvoice` body `{invoiceId}`, auditado (`adminAudit`).
+>
+> **Métricas (F1/F2)**: `TenantHealthService::staleCompanyIds()` excluye
+> `isinternal=1` del batch de recómputo (nunca se computa salud para el
+> tenant emisor). `AdminReportsService::overview()` — TODOS los agregados
+> (conteos por status, MRR, nuevas/mes, por plan, por país, top créditos IA,
+> KPIs `saas.*`, series `mrrByMonth`/`tenantsByMonth`/`aiCreditsByMonth`/
+> `gmvByMonth`) excluyen `isinternal=1` vía el helper `notInternalWhere()` o
+> un `EXISTS` contra `company` cuando la tabla agregada (`ai_credit_ledger`,
+> `report_rollup`) no tiene join directo — resuelve el TODO que había
+> quedado pendiente en el GMV. El listado de tenants (`admin/companies`) los
+> SIGUE mostrando, con badge "Interno" junto al nombre
+> (`AdminCompanyRow.isInternal`).
+
 ## F6 — Plataforma: admins, modelos, llaves, config
 
 - **Usuarios admin**: CRUD ya existe (`users.php`) — sumar roles admin
@@ -226,8 +332,14 @@ tenant interno). Cada fase es deployable sola.
 1. Pesos iniciales del score y umbrales del semáforo (propuesta arriba —
    ajustable en admin, pero hay que arrancar con algo).
 2. Roles admin: ¿alcanza owner/soporte/comercial?
-3. F5: ¿qué tenant es "Punto" (crear uno nuevo limpio?) y qué timbrado usa.
+3. ~~F5: ¿qué tenant es "Punto" (crear uno nuevo limpio?) y qué timbrado usa.~~
+   **Resuelto 2026-08-02**: NO hardcodeado — se elige desde admin/platform
+   (tenant/outlet/register existentes, cualquiera que el owner arme con su
+   propio timbrado real). El tenant y su timbrado son responsabilidad
+   operativa del owner, no una decisión de código.
 4. ¿Analíticas excluyen tenants de prueba/demo? (flag isInternal propuesto).
+   **Resuelto 2026-08-02**: sí — `company.isinternal` (mig 114), reusado del
+   flag que F5 ya necesitaba para el tenant emisor.
 
 ## Anti-objetivos
 
