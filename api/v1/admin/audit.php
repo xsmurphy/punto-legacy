@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../includes/db.php';
 require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 
 adminMiddleware(); // define ADMIN_AUTHED_ID o mata con 401
+adminRequireRole('support'); // log de acciones de OTROS admins — no es "salud/notas" de sales
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);

@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/AiAdminService.php';
 
 adminMiddleware();
+adminRequireRole('owner'); // pricing/modelos IA — bucket owner-only (matriz F6)
 
 $svc    = new AiAdminService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';

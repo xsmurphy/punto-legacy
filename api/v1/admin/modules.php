@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/ModuleAdminService.php';
 
 adminMiddleware();
+adminRequireRole('owner'); // bucket "módulos" — owner-only (matriz F6)
 
 $svc    = new ModuleAdminService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';

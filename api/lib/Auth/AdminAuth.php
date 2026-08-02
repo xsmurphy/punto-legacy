@@ -15,10 +15,20 @@
  * Provee:
  *   adminVerifyPassword($email, $pass) → fila admin_user (CaseInsensitiveArray) | false
  *   adminIssueSession($admin)          → string token opaco (la cookie la setea el BFF, no la API)
- *   adminMiddleware()                  → valida _jwt_admin; define ADMIN_AUTHED_ID/EMAIL o corta 401
+ *   adminMiddleware()                  → valida _jwt_admin; define ADMIN_AUTHED_ID/EMAIL/ROLE o corta 401
+ *   adminRequireRole($minRole)         → 403 si el rol del admin autenticado no alcanza $minRole
  *
  * Password con bcrypt (password_hash/password_verify) — NO el sha256+salt de `contact`.
+ *
+ * Roles (F6, context/34-admin-saas-plan.md §1) — jerarquía plana, NO capabilities
+ * granulares: 'sales'(1) < 'support'(2) < 'owner'(3). Cada nivel incluye todo lo del
+ * anterior. ADMIN_AUTHED_ROLE se resuelve DESDE LA DB en cada request (mismo query que
+ * ya hacía el lookup de email) — nunca desde el token/sesión, así un cambio de rol
+ * aplica de inmediato sin esperar a que expire/reemita la sesión del admin afectado.
  */
+
+/** Jerarquía de roles admin — único lugar donde se define el orden (§1 del plan). */
+const ADMIN_ROLE_LEVELS = ['sales' => 1, 'support' => 2, 'owner' => 3];
 
 require_once __DIR__ . '/../response.php';
 
@@ -32,7 +42,7 @@ function adminVerifyPassword(string $email, string $pass)
     }
 
     $r = $db->Execute(
-        "SELECT adminId, email, name, passwordHash, status FROM admin_user WHERE lower(email) = lower(?) LIMIT 1",
+        "SELECT adminId, email, name, passwordHash, status, role FROM admin_user WHERE lower(email) = lower(?) LIMIT 1",
         [$email]
     );
     if (!$r || $r->EOF) {
@@ -55,10 +65,13 @@ function adminIssueSession($admin): string
 
     $ttl = (int) ($_ENV['ADMIN_JWT_TTL'] ?? 28800);
 
+    // roleId acá es solo diagnóstico/observabilidad (auth_session.roleId visible en
+    // queries de soporte) — la autorización real SIEMPRE resuelve el rol fresco desde
+    // admin_user en adminMiddleware(), nunca desde este valor de sesión.
     return authSessionCreate('admin', [
         'companyId' => null,
         'userId'    => (string) $admin['adminId'],
-        'roleId'    => 'admin',
+        'roleId'    => isset($admin['role']) && $admin['role'] !== '' ? (string) $admin['role'] : 'support',
         'module'    => 'admin',
         'meta'      => ['email' => (string) $admin['email']],
         'expiresAt' => date('Y-m-d H:i:s', time() + $ttl),
@@ -119,7 +132,7 @@ function adminAudit(
 
 /**
  * Gate de los endpoints del admin realm. Valida la sesión opaca (realm admin).
- * Define ADMIN_AUTHED_ID / ADMIN_AUTHED_EMAIL. Corta 401 si falla.
+ * Define ADMIN_AUTHED_ID / ADMIN_AUTHED_EMAIL / ADMIN_AUTHED_ROLE. Corta 401 si falla.
  */
 function adminMiddleware(): void
 {
@@ -141,13 +154,38 @@ function adminMiddleware(): void
 
     define('ADMIN_AUTHED_ID', AUTHED_USER_ID);
 
-    // Email para auditoría (el token opaco no lo lleva). Lookup barato (tráfico admin mínimo).
+    // Email + rol para auditoría/autorización (el token opaco no los lleva). Una sola
+    // query, lookup barato (tráfico admin mínimo). El rol se resuelve SIEMPRE desde acá
+    // (no desde la sesión) — ver docblock de arriba.
     $email = '';
+    $role  = 'sales'; // piso más restrictivo si algo falla en el lookup — nunca fail-open.
     try {
-        $r = $db->Execute('SELECT email FROM admin_user WHERE adminId = ? LIMIT 1', [AUTHED_USER_ID]);
-        if ($r && !$r->EOF) { $email = (string)($r->fields['email'] ?? ''); }
+        $r = $db->Execute('SELECT email, role FROM admin_user WHERE adminId = ? AND status = 1 LIMIT 1', [AUTHED_USER_ID]);
+        if ($r && !$r->EOF) {
+            $email = (string) ($r->fields['email'] ?? '');
+            $dbRole = (string) ($r->fields['role'] ?? 'sales');
+            $role = array_key_exists($dbRole, ADMIN_ROLE_LEVELS) ? $dbRole : 'sales';
+        } else {
+            // Admin desactivado o borrado pero con sesión aún viva: no confiar en nada.
+            apiUnauthorized('Sesión admin inválida');
+        }
     } catch (\Throwable $e) {
-        error_log('[adminMiddleware] email lookup falló: ' . $e->getMessage());
+        error_log('[adminMiddleware] email/role lookup falló: ' . $e->getMessage());
     }
     define('ADMIN_AUTHED_EMAIL', $email);
+    define('ADMIN_AUTHED_ROLE', $role);
+}
+
+/**
+ * Gate de autorización por rol — ÚNICO lugar donde se compara el rol del admin
+ * autenticado contra un mínimo requerido. Debe llamarse DESPUÉS de adminMiddleware().
+ * Corta 403 si el rol no alcanza (nunca silencioso, nunca un `if` suelto en el endpoint).
+ */
+function adminRequireRole(string $minRole): void
+{
+    $required = ADMIN_ROLE_LEVELS[$minRole] ?? PHP_INT_MAX; // rol desconocido → nadie pasa
+    $mine     = ADMIN_ROLE_LEVELS[defined('ADMIN_AUTHED_ROLE') ? ADMIN_AUTHED_ROLE : ''] ?? 0;
+    if ($mine < $required) {
+        apiError('No autorizado — se requiere rol ' . $minRole . ' o superior', 403);
+    }
 }

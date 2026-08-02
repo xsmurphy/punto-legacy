@@ -16,6 +16,7 @@ require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/CompanyAdminService.php';
 
 adminMiddleware(); // define ADMIN_AUTHED_ID o mata con 401
+adminRequireRole('sales'); // notas: el único bucket de escritura habilitado para sales
 
 $svc    = new CompanyAdminService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';

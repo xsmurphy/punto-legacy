@@ -27,6 +27,7 @@ require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/PlanAdminService.php';
 
 adminMiddleware();
+adminRequireRole('owner'); // bucket "planes" — owner-only (matriz F6)
 
 $svc    = new PlanAdminService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';

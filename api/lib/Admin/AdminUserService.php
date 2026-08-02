@@ -14,12 +14,15 @@
 
 class AdminUserService
 {
+    /** Roles válidos, jerarquía ascendente — única fuente de verdad (ver AdminAuth::ADMIN_ROLE_LEVELS). */
+    public const ROLES = ['sales', 'support', 'owner'];
+
     /** Lista todos los admins (activos primero, luego por email). */
     public function listAll(): array
     {
         global $db;
         $r = $db->Execute(
-            "SELECT adminId, email, name, status, lastLoginAt, created_at
+            "SELECT adminId, email, name, role, status, lastLoginAt, created_at
                FROM admin_user
               ORDER BY status DESC, lower(email) ASC"
         );
@@ -38,7 +41,7 @@ class AdminUserService
     {
         global $db;
         $r = $db->Execute(
-            "SELECT adminId, email, name, status, lastLoginAt, created_at
+            "SELECT adminId, email, name, role, status, lastLoginAt, created_at
                FROM admin_user WHERE adminId = ? LIMIT 1",
             [$id]
         );
@@ -50,12 +53,15 @@ class AdminUserService
 
     /**
      * Crea un admin. Devuelve ['ok'=>true,'id'=>uuid] o ['ok'=>false,'error','code'].
+     * $role: 'owner'|'support'|'sales' — si viene vacío/ inválido, cae a 'support'
+     * (mismo default que la columna, ver mig 112).
      */
-    public function create(string $email, string $name, string $password, ?string $createdBy): array
+    public function create(string $email, string $name, string $password, ?string $createdBy, string $role = 'support'): array
     {
         global $db;
         $email = trim($email);
         $name  = trim($name);
+        $role  = in_array($role, self::ROLES, true) ? $role : 'support';
 
         $bad = $this->validate($email, $password);
         if ($bad !== null) {
@@ -72,6 +78,7 @@ class AdminUserService
             'email'        => $email,
             'passwordHash' => password_hash($password, PASSWORD_DEFAULT),
             'name'         => $name,
+            'role'         => $role,
             'status'       => 1,
             'createdBy'    => $createdBy,
         ]);
@@ -83,16 +90,21 @@ class AdminUserService
     }
 
     /**
-     * Actualiza nombre/email (y password si se pasa uno no vacío).
+     * Actualiza nombre/email/rol (y password si se pasa uno no vacío).
+     * $role null → no toca el rol actual (permite que un caller que no gestiona roles
+     * — no debería existir, pero por las dudas — no lo pise sin querer).
+     * Guard: no se puede degradar al último 'owner' activo (la plataforma se quedaría
+     * sin nadie que pueda tocar planes/módulos/llaves/admins).
      * Devuelve ['ok'=>true] o ['ok'=>false,'error','code'].
      */
-    public function update(string $id, string $email, string $name, string $password = ''): array
+    public function update(string $id, string $email, string $name, string $password = '', ?string $role = null): array
     {
         global $db;
         $email = trim($email);
         $name  = trim($name);
 
-        if (!$this->get($id)) {
+        $current = $this->get($id);
+        if (!$current) {
             return ['ok' => false, 'error' => 'Admin no encontrado', 'code' => 404];
         }
 
@@ -109,15 +121,26 @@ class AdminUserService
             return ['ok' => false, 'error' => 'La contraseña debe tener al menos 8 caracteres', 'code' => 422];
         }
 
+        $newRole = $current['role'];
+        if ($role !== null) {
+            if (!in_array($role, self::ROLES, true)) {
+                return ['ok' => false, 'error' => 'Rol inválido', 'code' => 422];
+            }
+            if ($current['role'] === 'owner' && $role !== 'owner' && $this->activeOwnerCount() <= 1) {
+                return ['ok' => false, 'error' => 'No podés degradar al último owner activo', 'code' => 422];
+            }
+            $newRole = $role;
+        }
+
         if ($password !== '') {
             $db->Execute(
-                "UPDATE admin_user SET email = ?, name = ?, passwordHash = ?, updated_at = now() WHERE adminId = ?",
-                [$email, $name, password_hash($password, PASSWORD_DEFAULT), $id]
+                "UPDATE admin_user SET email = ?, name = ?, role = ?, passwordHash = ?, updated_at = now() WHERE adminId = ?",
+                [$email, $name, $newRole, password_hash($password, PASSWORD_DEFAULT), $id]
             );
         } else {
             $db->Execute(
-                "UPDATE admin_user SET email = ?, name = ?, updated_at = now() WHERE adminId = ?",
-                [$email, $name, $id]
+                "UPDATE admin_user SET email = ?, name = ?, role = ?, updated_at = now() WHERE adminId = ?",
+                [$email, $name, $newRole, $id]
             );
         }
         return ['ok' => true];
@@ -144,6 +167,9 @@ class AdminUserService
             if ((int) $target['status'] === 1 && $this->activeCount() <= 1) {
                 return ['ok' => false, 'error' => 'No podés desactivar el último admin activo', 'code' => 422];
             }
+            if ($target['role'] === 'owner' && (int) $target['status'] === 1 && $this->activeOwnerCount() <= 1) {
+                return ['ok' => false, 'error' => 'No podés desactivar el último owner activo', 'code' => 422];
+            }
         }
 
         $db->Execute(
@@ -159,6 +185,13 @@ class AdminUserService
     {
         global $db;
         $r = $db->Execute("SELECT count(*) AS n FROM admin_user WHERE status = 1");
+        return ($r && !$r->EOF) ? (int) $r->fields['n'] : 0;
+    }
+
+    private function activeOwnerCount(): int
+    {
+        global $db;
+        $r = $db->Execute("SELECT count(*) AS n FROM admin_user WHERE status = 1 AND role = 'owner'");
         return ($r && !$r->EOF) ? (int) $r->fields['n'] : 0;
     }
 
@@ -199,6 +232,7 @@ class AdminUserService
             'id'          => (string) $row['adminid'],
             'email'       => (string) $row['email'],
             'name'        => (string) $row['name'],
+            'role'        => (string) ($row['role'] ?? 'support'),
             'status'      => (int) $row['status'],
             'lastLoginAt' => $row['lastloginat'] ?? null,
             'createdAt'   => $row['created_at'] ?? null,

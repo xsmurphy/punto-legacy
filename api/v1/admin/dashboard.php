@@ -14,6 +14,7 @@ require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/AdminReportsService.php';
 
 adminMiddleware(); // define ADMIN_AUTHED_ID o mata con 401
+adminRequireRole('sales'); // KPIs/analíticas — lectura para todos los roles
 
 $svc    = new AdminReportsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';

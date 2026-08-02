@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/TenantHealthService.php';
 
 adminMiddleware(); // define ADMIN_AUTHED_ID o mata con 401
+adminRequireRole('sales'); // salud es lectura habilitada para todos los roles
 
 $svc    = new TenantHealthService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -45,6 +46,7 @@ if ($method === 'POST') {
     $companyId = trim((string) ($_GET['companyId'] ?? ''));
 
     if ($action === 'recompute') {
+        adminRequireRole('support'); // forzar recómputo es una escritura ≠ notas
         if ($companyId === '' || !preg_match($uuidRe, $companyId)) {
             apiError('Parámetros inválidos: se requiere ?action=recompute&companyId=<uuid>', 400);
         }

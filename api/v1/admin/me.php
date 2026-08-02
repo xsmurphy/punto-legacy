@@ -9,7 +9,7 @@ require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 adminMiddleware();   // define ADMIN_AUTHED_ID / ADMIN_AUTHED_EMAIL o corta 401
 
 global $db;
-$r = $db->Execute("SELECT adminId, email, name FROM admin_user WHERE adminId = ? AND status = 1 LIMIT 1", [ADMIN_AUTHED_ID]);
+$r = $db->Execute("SELECT adminId, email, name, role FROM admin_user WHERE adminId = ? AND status = 1 LIMIT 1", [ADMIN_AUTHED_ID]);
 if (!$r || $r->EOF) {
     apiUnauthorized('Sesión admin inválida');
 }
@@ -18,4 +18,5 @@ apiOk([
     'id'    => (string) $r->fields['adminId'],
     'email' => (string) $r->fields['email'],
     'name'  => (string) $r->fields['name'],
+    'role'  => (string) ($r->fields['role'] ?? 'support'),
 ]);

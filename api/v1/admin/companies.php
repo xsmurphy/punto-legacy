@@ -41,6 +41,7 @@ require_once __DIR__ . '/../../lib/Auth/AdminAuth.php';
 require_once __DIR__ . '/../../lib/Admin/CompanyAdminService.php';
 
 adminMiddleware(); // define ADMIN_AUTHED_ID o mata con 401
+adminRequireRole('sales'); // piso: lectura de tenants — sube por acción abajo
 
 $svc    = new CompanyAdminService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -133,6 +134,7 @@ if ($method === 'GET') {
 }
 
 if ($method === 'PATCH') {
+    adminRequireRole('owner'); // edición libre de campos de la empresa (incluye plan/módulos)
     $id = trim((string) ($_GET['id'] ?? ''));
     if ($id === '') {
         apiError('Falta id', 400);
@@ -154,6 +156,7 @@ if ($method === 'PATCH') {
 }
 
 if ($method === 'DELETE') {
+    adminRequireRole('owner'); // cancelación/hard-delete — destructivo
     $id = trim((string) ($_GET['id'] ?? ''));
     if ($id === '') {
         apiError('Falta id', 400);
@@ -206,6 +209,7 @@ if ($method === 'POST') {
 
     // F3.4b — otorgar / descontar créditos IA.
     if ($action === 'grantAiCredits') {
+        adminRequireRole('support'); // "credit_adjust" — acción de tenant (matriz F6)
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('id inválido', 400);
         }
@@ -233,6 +237,7 @@ if ($method === 'POST') {
 
     // F3.4b — actualizar add-ons.
     if ($action === 'setAddons') {
+        adminRequireRole('owner'); // bucket "módulos" — owner-only
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('id inválido', 400);
         }
@@ -252,6 +257,7 @@ if ($method === 'POST') {
 
     // F3.4b — resolver solicitud de cambio de plan.
     if ($action === 'resolveRequest') {
+        adminRequireRole('owner'); // bucket "planes" — owner-only
         $body  = (string) file_get_contents('php://input');
         $input = json_decode($body, true);
         if (!is_array($input)) {
@@ -277,6 +283,7 @@ if ($method === 'POST') {
 
     // F3 — activar/desactivar un módulo nativo (override manual admin).
     if ($action === 'toggleModule') {
+        adminRequireRole('owner'); // bucket "módulos" — owner-only
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('id inválido', 400);
         }
@@ -300,6 +307,7 @@ if ($method === 'POST') {
 
     // F3 — suspender (reversible: status='suspended'+suspended=1, no toca blocked).
     if ($action === 'suspend') {
+        adminRequireRole('support'); // "suspend" — acción de tenant (matriz F6)
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('id inválido', 400);
         }
@@ -313,6 +321,7 @@ if ($method === 'POST') {
 
     // F3 — reactivar (status='active'+suspended=0, no toca blocked).
     if ($action === 'unsuspend') {
+        adminRequireRole('support'); // "suspend/unsuspend" — acción de tenant (matriz F6)
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('id inválido', 400);
         }
@@ -326,6 +335,7 @@ if ($method === 'POST') {
 
     // F3 — extender trial/vencimiento N días.
     if ($action === 'extendTrial') {
+        adminRequireRole('support'); // "extend" — acción de tenant (matriz F6)
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('id inválido', 400);
         }
@@ -345,6 +355,7 @@ if ($method === 'POST') {
 
     // F3.5 — generar JWT panel para propietario de la empresa (impersonación admin).
     if ($action === 'enter') {
+        adminRequireRole('support'); // "impersonar" — acción de tenant (matriz F6)
         if ($id === '' || !preg_match($uuidRe, $id)) {
             apiError('Parámetros inválidos: se requiere ?id=<uuid>&action=enter', 400);
         }
