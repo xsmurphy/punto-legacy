@@ -201,6 +201,72 @@ final class DrawerService
         return $out;
     }
 
+    /**
+     * Cantidad de ventas y de clientes atendidos en la SESIÓN de caja actual.
+     *
+     * Mismo scoping/exclusión que `getPaymentBreakdown` (que delega en
+     * `getSalesByPayment` de functions.php): filtro drawerId exacto + fallback
+     * por fecha (mig 70), `transactionType IN (0,5,6)` (venta/cobro/NC), y
+     * exclusión de ventas internas (`isInternalSale`/`isParentInternalSale` —
+     * mismo criterio para type 5 vs el resto). Las notas de crédito
+     * (type 6, "anuladas" vía devolución) NO cuentan como venta ni suman
+     * cliente — mismo criterio que `composeSummary` separa `$return` de `$total`.
+     *
+     * @return array{salesCount:int,customersCount:int}
+     */
+    public function getSaleStats(string $registerId, string $since, ?string $drawerId = null): array
+    {
+        if ($drawerId !== null && $drawerId !== '') {
+            $dateSql    = '(t.drawerid = ? OR (t.drawerid IS NULL AND t.transactionDate > ?))';
+            $dateParams = [$drawerId, $since];
+        } else {
+            $dateSql    = 't.transactionDate > ?';
+            $dateParams = [$since];
+        }
+
+        $sql = 'SELECT t.customerId, t.transactionType, t.transactionParentId, t.meta->>\'tags\' AS tags
+                FROM transaction t
+                WHERE ' . $dateSql . '
+                  AND t.transactionType IN (0,5,6)
+                  AND t.registerId = ?
+                  AND t.companyId = ?';
+        $params = array_merge($dateParams, [$registerId, $this->ctx->companyId]);
+
+        $result      = ncmExecute($sql, $params, false, true);
+        $salesCount  = 0;
+        $customerIds = [];
+        if ($result) {
+            while (!$result->EOF) {
+                $f = $result->fields;
+
+                if ((int) $f['transactionType'] === 6) {
+                    // Nota de crédito/devolución — no es venta.
+                    $result->MoveNext();
+                    continue;
+                }
+
+                $ignore = ((int) $f['transactionType'] === 5)
+                    ? isParentInternalSale($f['transactionParentId'])
+                    : isInternalSale(json_decode((string) $f['tags'], true));
+                if ($ignore) {
+                    $result->MoveNext();
+                    continue;
+                }
+
+                $salesCount++;
+                $customerId = $f['customerId'] ?? null;
+                if ($customerId !== null && $customerId !== '') {
+                    $customerIds[(string) $customerId] = true;
+                }
+
+                $result->MoveNext();
+            }
+            $result->Close();
+        }
+
+        return ['salesCount' => $salesCount, 'customersCount' => count($customerIds)];
+    }
+
     // ========================================================================
     // MUTACIONES — porteadas de app/action.php (handlers openCloseDrawer,
     // expense, drwrIncome). Antes estas acciones iban a /action.php (monolito
@@ -495,8 +561,9 @@ final class DrawerService
         $income   = $this->getIncome($registerId, $since);
         $payments = $this->getPaymentBreakdown($registerId, $since, $drawerId);
         $products = $this->getSoldProducts($registerId, $since, $drawerId);
+        $stats    = $this->getSaleStats($registerId, $since, $drawerId);
 
-        return self::composeSummary($open, $expenses, $income, $payments, $products);
+        return self::composeSummary($open, $expenses, $income, $payments, $products, $stats);
     }
 
     /**
@@ -509,8 +576,10 @@ final class DrawerService
      * @param array{total:float,tips:float} $income
      * @param array<int,array{name:string,type:string,price:float}> $payments
      * @param array<int,array{name:string,qty:float,total:float}> $products
+     * @param array{salesCount:int,customersCount:int} $stats Default 0/0 — opcional para
+     *   tolerar callers viejos (ej. BFF legacy) que todavía no pasan `getSaleStats()`.
      */
-    public static function composeSummary(array $open, array $expenses, array $income, array $payments, array $products = []): array
+    public static function composeSummary(array $open, array $expenses, array $income, array $payments, array $products = [], array $stats = []): array
     {
         $cajaInicial   = (float) $open['drawerOpenAmount'];
         $expenseAmount = (float) $expenses['amount'];
@@ -535,17 +604,25 @@ final class DrawerService
             }
         }
 
+        // $total ya es la suma de payments no-return ANTES de sumarle caja
+        // inicial/ingresos — se expone tal cual como salesTotal (ver brief:
+        // "no dupliques el loop").
+        $salesTotal = $total;
+
         $list[] = ['name' => 'Extracciones (Efectivo)', 'amount' => $expenseAmount];
         $list[] = ['name' => 'Ingresos (Efectivo)',     'amount' => $totalIncome];
 
         return [
             'list'     => $list,
             'date'     => $open['drawerOpenDate'],
-            'subtotal'     => ($cajaInicial + $cashPrice + $totalIncome) - $expenseAmount,
-            'total'        => ($cajaInicial + $total + $totalIncome) - $expenseAmount - $return,
-            'tips'         => $totalTips,
-            'returns'      => -$return,
-            'soldProducts' => $products,
+            'subtotal'        => ($cajaInicial + $cashPrice + $totalIncome) - $expenseAmount,
+            'total'           => ($cajaInicial + $total + $totalIncome) - $expenseAmount - $return,
+            'tips'            => $totalTips,
+            'returns'         => -$return,
+            'soldProducts'    => $products,
+            'salesCount'      => (int) ($stats['salesCount'] ?? 0),
+            'customersCount'  => (int) ($stats['customersCount'] ?? 0),
+            'salesTotal'      => $salesTotal,
         ];
     }
 }

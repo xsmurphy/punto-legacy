@@ -33,7 +33,6 @@ import {
   Palette,
   Component,
   Bell,
-  MessageCircle,
   type LucideIcon,
 } from "lucide-react"
 
@@ -61,7 +60,6 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
-import { useAgentChatStore } from "@/lib/agent/store"
 import { useCartStore } from "@/lib/cart/store"
 import { ThemePicker } from "@/components/theme-picker"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
@@ -71,7 +69,8 @@ import type { TicketData, TicketItem } from "@/lib/hardware/printers"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
-import { formatDateTime } from "@/lib/format-date"
+import { formatDateTime, formatRelativeShort } from "@/lib/format-date"
+import { StatTile } from "@/components/domain/reports/stat-tile"
 import {
   useDrawerStatus,
   useDrawerSummary,
@@ -249,15 +248,6 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
       useHotkeysStore.getState().setEditing(true)
     },
   },
-  {
-    key: "asistente",
-    label: "Asistente",
-    icon: MessageCircle,
-    onSelect: ({ setOpen }) => {
-      setOpen(false)
-      useAgentChatStore.getState().setOpen(true)
-    },
-  },
 ]
 
 // ── Componente principal ─────────────────────────────────────────────────────
@@ -424,7 +414,7 @@ export function PosMainMenu() {
 
               {/* Sin sección seleccionada → resumen de la cuenta logueada */}
               {!activeSection ? (
-                <AccountOverview />
+                <AccountOverview setActiveKey={setActiveKey} />
               ) : activeSection.CustomContent ? (
                 /* Sección con contenido custom — ocupa todo el content area.
                    min-h-0 es crítico para que el flex-child no expanda más allá
@@ -479,76 +469,98 @@ export function PosMainMenu() {
 // ── Resumen de la cuenta (default landing del menú) ──────────────────────────
 
 /**
- * Panel inicial del menú del POS — muestra al cajero el contexto actual:
- * empresa, sucursal, caja activa (con punto de expedición fiscal). Se renderiza
- * cuando ninguna sección del sidebar está seleccionada. Hidratado desde el
- * PosBootstrap del catalog store (sin round-trip).
+ * Panel inicial del menú del POS — resumen del turno en curso. Se renderiza
+ * cuando ninguna sección del sidebar está seleccionada.
+ *
+ * Reemplaza las cards EMPRESA/SUCURSAL/CAJA ACTIVA/PUNTO DE EXPEDICIÓN/PAÍS
+ * (decisión owner 2026-08-02): esa info estática no le sirve al cajero en la
+ * pantalla más vista del menú — el turno (ventas, total, clientes, efectivo)
+ * sí. Sucursal + caja quedan como línea de contexto compacta arriba.
+ *
+ * Datos: mismo hook que ControlDeCajaPanel (useDrawerStatus/useDrawerSummary,
+ * BFF /api/pos/drawer → api/v1/drawer.php → DrawerService::getSummary).
+ * `salesCount`/`customersCount`/`salesTotal` son opcionales en DrawerSummary
+ * (default 0) para tolerar un backend sin deployar.
  */
-function AccountOverview() {
+function AccountOverview({
+  setActiveKey,
+}: {
+  setActiveKey: (key: string | null) => void
+}) {
   const config = useCatalogStore((s) => s.config)
   const outlet = useCatalogStore((s) => s.outlet)
   const registers = useCatalogStore((s) => s.registers)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const activeRegister = registers.find((r) => r.id === activeRegisterId) ?? null
 
+  const { data: status, isLoading: statusLoading } = useDrawerStatus()
+  const { data: summary, isLoading: summaryLoading } = useDrawerSummary()
+  const isOpen = status?.isOpen ?? false
+  const loading = statusLoading || summaryLoading
+
+  const salesCount = summary?.salesCount ?? 0
+  const salesTotal = summary?.salesTotal ?? 0
+  const customersCount = summary?.customersCount ?? 0
+  const avgTicket = salesCount > 0 ? salesTotal / salesCount : 0
+
   return (
-    <div className="flex flex-1 flex-col gap-3 overflow-y-auto p-6 sm:p-8">
-      {/* Header: logo + empresa */}
-      <div className="flex items-center gap-3 rounded-lg border bg-card px-4 py-3">
-        <TenantLogo className="size-9 shrink-0" />
-        <div className="flex min-w-0 flex-col">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Empresa
-          </span>
-          <span className="truncate text-base font-semibold leading-tight">
-            {config?.companyName || "—"}
-          </span>
-        </div>
-      </div>
-
-      {/* Sucursal · Caja activa */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Sucursal
-          </span>
-          <span className="truncate text-sm font-medium leading-tight">
-            {outlet?.name || "—"}
-          </span>
-        </div>
-        <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Caja activa
-          </span>
-          <span className="truncate text-sm font-medium leading-tight">
-            {activeRegister?.name || "Sin caja seleccionada"}
-          </span>
-        </div>
-      </div>
-
-      {/* Datos fiscales / país */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            Punto de expedición
-          </span>
-          <span className="truncate text-sm font-medium leading-tight tabular-nums">
-            {activeRegister?.expeditionPoint || "—"}
-          </span>
-        </div>
-        <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
-            País
-          </span>
-          <span className="truncate text-sm font-medium leading-tight">
-            {config?.country || "—"}
-          </span>
-        </div>
-      </div>
-
-      <p className="mt-1 text-xs text-muted-foreground">
-        Elegí una opción del menú para acceder a las acciones de la caja.
+    <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6 sm:p-8">
+      {/* Línea de contexto compacta: sucursal · caja activa */}
+      <p className="text-sm text-muted-foreground">
+        {outlet?.name || "—"} · {activeRegister?.name || "Sin caja seleccionada"}
       </p>
+
+      {!loading && !isOpen ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-center">
+          <p className="text-sm text-muted-foreground">Caja cerrada</p>
+          <Button onClick={() => setActiveKey("drawer")}>Abrir caja</Button>
+        </div>
+      ) : (
+        <>
+          <div>
+            <h2 className="text-lg font-semibold">Turno en curso</h2>
+            {summary?.date && (
+              <p className="text-sm text-muted-foreground">
+                abierto {formatRelativeShort(summary.date)}
+              </p>
+            )}
+          </div>
+
+          {/* Grid principal — patrón StatTile (context/20 §2026-07-31) */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <StatTile label="Ventas" value={salesCount} isLoading={loading} />
+            <StatTile
+              label="Total vendido"
+              value={formatMoney(salesTotal, config)}
+              isLoading={loading}
+              emphasis
+            />
+            <StatTile
+              label="Ticket promedio"
+              value={formatMoney(avgTicket, config)}
+              isLoading={loading}
+            />
+            <StatTile label="Clientes atendidos" value={customersCount} isLoading={loading} />
+          </div>
+
+          {/* Fila secundaria — solo lo que aplica */}
+          {!loading && summary && (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              <StatTile label="Efectivo en caja" value={formatMoney(summary.subtotal, config)} />
+              {summary.tips > 0 && (
+                <StatTile label="Propinas" value={formatMoney(summary.tips, config)} />
+              )}
+              {summary.returns !== 0 && (
+                <StatTile
+                  label="Devoluciones"
+                  value={formatMoney(summary.returns, config)}
+                  tone="negative"
+                />
+              )}
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

@@ -46,6 +46,12 @@ export interface DrawerSummary {
   returns: number
   /** Productos vendidos en la sesión, agrupados por item, ordenado por monto desc (devoluciones restan) */
   soldProducts: DrawerSoldProduct[]
+  /** Cantidad de ventas de la sesión (excluye devoluciones/internas). Opcional: default 0 para tolerar un backend sin deployar. */
+  salesCount?: number
+  /** Clientes distintos atendidos en la sesión. Opcional: default 0. */
+  customersCount?: number
+  /** Suma de payments no-return de la sesión (antes de sumar caja inicial/ingresos). Opcional: default 0. */
+  salesTotal?: number
 }
 
 export interface DrawerStatus {
