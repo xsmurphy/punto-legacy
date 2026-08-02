@@ -61,7 +61,15 @@ function DrawerContent({
         )}
         {...props}
       >
-        <div className="mx-auto mt-4 hidden h-1.5 w-[100px] shrink-0 rounded-full bg-muted group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
+        {/* Grabber REAL (`DrawerPrimitive.Handle`), no un div decorativo: vaul
+            necesita el `data-vaul-handle` que emite este componente para saber
+            qué elemento arrastra el drawer, y sin él la prop `handleOnly` de
+            un call-site no tiene efecto (por eso antes se recurría a marcar
+            zonas con `data-vaul-no-drag`). Con el handle real, un drawer que
+            declara `handleOnly` deja de cerrarse por un tap suelto en el
+            contenido y se arrastra desde la barrita, como el resto
+            (reporte del owner 2026-08-01, actionsheet de línea del carrito). */}
+        <DrawerPrimitive.Handle className="mx-auto mt-4 hidden h-1.5 w-[100px] shrink-0 rounded-full bg-muted group-data-[vaul-drawer-direction=bottom]/drawer-content:block" />
         {children}
       </DrawerPrimitive.Content>
     </DrawerPortal>

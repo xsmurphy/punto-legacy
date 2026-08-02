@@ -58,6 +58,7 @@ export function NumericPad({
 
   const isFirstRef = React.useRef(true)
   const ourChangeRef = React.useRef(false)
+  const hiddenInputRef = React.useRef<HTMLInputElement>(null)
 
   React.useEffect(() => {
     if (!ourChangeRef.current) {
@@ -195,9 +196,72 @@ export function NumericPad({
         </div>
       )}
 
+      {/*
+       * Input invisible — abre el teclado del OS en mobile cuando el usuario
+       * toca el monto, igual que el PIN del lock-screen (pedido del owner
+       * 2026-08-01). SUMA una vía de entrada: el pad en pantalla y el teclado
+       * físico siguen intactos.
+       *
+       * `sr-only` y no display:none/hidden: un input realmente oculto no acepta
+       * focus y el teclado virtual no sube. No se condiciona por viewport — en
+       * desktop un input sr-only enfocado no molesta y evita una rama más.
+       */}
+      <input
+        ref={hiddenInputRef}
+        className="sr-only"
+        type="text"
+        inputMode={allowDot ? "decimal" : "numeric"}
+        pattern="[0-9]*"
+        aria-label="Ingrese el monto con el teclado"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        onChange={(e) => {
+          // Los teclados virtuales no siempre disparan keydown: procesamos el
+          // último carácter tipeado y vaciamos el input para el siguiente.
+          const last = e.target.value.slice(-1)
+          if (/^[0-9]$/.test(last)) {
+            handleDigit(last)
+          } else if ((last === "." || last === ",") && allowDot) {
+            handleDot()
+          }
+          e.target.value = ""
+        }}
+        onKeyDown={(e) => {
+          // Backspace con el input vacío: Android no siempre lo emite, por eso
+          // la tecla de borrar del pad sigue siendo el camino garantizado.
+          if (e.key === "Backspace") {
+            e.preventDefault()
+            handleBackspace()
+            return
+          }
+          // El listener global ignora los eventos cuyo target es un INPUT (si
+          // no, se comería lo que se tipea en otros campos del dialog). Con el
+          // foco acá, Enter/Escape tienen que resolverse en el input o el pad
+          // dejaría de confirmarse por teclado.
+          if (e.key === "Enter") {
+            e.preventDefault()
+            onConfirm()
+          } else if (e.key === "Escape") {
+            e.preventDefault()
+            onCancel?.()
+          }
+        }}
+      />
+
       {/* Display con unidad inline */}
       <div className="flex flex-col items-center gap-3">
-        <div className="h-20 flex items-center justify-center">
+        {/* Sin `tabIndex`: es un atajo táctil, no un control nuevo. Enfocarlo
+            por teclado no aportaría nada (el teclado físico ya escribe en el
+            pad vía el listener global) y agregaría una parada de tab que
+            colisiona con ese mismo listener en Enter/Espacio. */}
+        <div
+          role="button"
+          aria-label="Editar el monto con el teclado"
+          onClick={() => hiddenInputRef.current?.focus()}
+          className="h-20 flex cursor-text items-center justify-center"
+        >
           <span className="text-5xl font-bold tabular-nums">{displayWithUnit}</span>
         </div>
         {/* Hint de teclado físico solo cuando NO hay pad en pantalla — en un

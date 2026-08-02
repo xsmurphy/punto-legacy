@@ -24,6 +24,7 @@ import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { useHotkeysStore, hotkeyColorBg, type Hotkey } from "@/lib/hotkeys/store"
 import { ColorPicker } from "@/components/ui/color-picker"
 import { useHotkeys } from "@/hooks/use-hotkeys"
+import { useIsMobile } from "@/hooks/use-mobile"
 import { HotkeyAssignDialog } from "@/components/register/hotkey-assign-dialog"
 import { GroupItemsDialog } from "@/components/register/group-items-dialog"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
@@ -64,12 +65,17 @@ export function ProductArea() {
   // edición.
   const searchParams = useSearchParams()
   const router = useRouter()
+  const isMobile = useIsMobile()
   React.useEffect(() => {
     if (searchParams.get("hotkeys") === "edit") {
       setEditing(true)
-      router.replace("/pos", { scroll: false })
+      // En mobile la grilla vive dentro del módulo-modal del layout, que está
+      // abierto justamente por este param. Limpiarlo a secas cerraría el modal
+      // y dejaría el editor invisible otra vez: se preserva `?view=hotkeys`,
+      // el param estable que mantiene el módulo abierto (ver el layout de /pos).
+      router.replace(isMobile ? "/pos?view=hotkeys" : "/pos", { scroll: false })
     }
-  }, [searchParams, setEditing, router])
+  }, [searchParams, setEditing, router, isMobile])
 
   // Vista: grilla de hotkeys, o productos de una categoría (drill-in).
   const [categoryId, setCategoryId] = React.useState<string | null>(null)

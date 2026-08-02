@@ -29,6 +29,7 @@ import { useActiveOrders } from "@/hooks/use-orders"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 /**
  * Sidebar mínimo exclusivo del POS. Muestra SOLO las rutas del workspace
@@ -44,6 +45,15 @@ export function PosSidebar() {
   const lock = useLockStore((s) => s.lock)
   const parkedCount = parkedSales?.length ?? 0
   const activeOrdersCount = activeOrders?.orders.length ?? 0
+
+  // HotKeys es la home del workspace (`/pos`), no una ruta hija: en desktop el
+  // bloque izquierdo ya pinta la grilla, así que el link va pelado. En mobile
+  // ese bloque no se pinta (su lugar lo ocupa el carrito) y navegar a /pos
+  // dejaba la grilla inalcanzable — reporte del owner 2026-08-01. El param
+  // `?view=hotkeys` la abre como módulo-modal, igual que Órdenes/Espacios, y
+  // sobrevive un reload porque vive en la URL y no en un store.
+  const isMobile = useIsMobile()
+  const hotkeysHref = isMobile ? "/pos?view=hotkeys" : "/pos"
 
   // Gate del link "Guardadas" según Ajustes → permitirGuardarVentas (default
   // true). La página sigue accesible por URL directa si algún operador la
@@ -83,7 +93,9 @@ export function PosSidebar() {
                   tooltip="HotKeys"
                   className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
                 >
-                  <Link href="/pos">
+                  {/* `isActive` compara contra `pathname`, que NO incluye la
+                      query — se marca igual con o sin `?view=hotkeys`. */}
+                  <Link href={hotkeysHref}>
                     <Blocks />
                     <span>HotKeys</span>
                   </Link>

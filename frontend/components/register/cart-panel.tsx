@@ -671,18 +671,7 @@ function CartToolbar({
   // 4 botones distribuidos proporcionalmente a lo largo del toolbar (cada uno
   // ocupa un cuarto, centrado) — espejo del col-xs-3 del legacy.
   return (
-    <div className="relative flex h-14 shrink-0 items-center px-1">
-      {/* Nav de módulos (HotKeys / Órdenes / Espacios / Guardadas), solo mobile.
-          Antes era un FAB flotante abajo a la derecha, lejos del resto de la
-          navegación; el owner lo pidió arriba a la izquierda, al lado del menú
-          principal (2026-08-01). Va ABSOLUTE y no como quinta columna del flex:
-          una columna más redistribuiría los cuatro cuartos y movería los cuatro
-          botones que el cajero ya tiene por memoria muscular (§14 R10). En
-          desktop el rail del sidebar sigue visible y este trigger no existe. */}
-      <SidebarTrigger
-        aria-label="Módulos"
-        className="absolute left-0 top-1/2 z-10 size-9 -translate-y-1/2 md:hidden"
-      />
+    <div className="flex h-14 shrink-0 items-center px-1">
       <div className="flex flex-1 justify-center">
         <PosMainMenu />
       </div>
@@ -1426,6 +1415,18 @@ function CartBottom({
           el CTA de abajo NO se mueve ni un pixel al cambiar de modo — memoria
           muscular del cajero (Regla #10, context/14-ui-conventions.md). */}
       <div className="mb-2 flex min-h-6 items-center justify-center gap-2">
+        {/* Nav de módulos (HotKeys / Órdenes / Espacios / Guardadas), solo
+            mobile — el owner lo pidió acá, a la izquierda de CRÉDITO
+            (2026-08-01). Va FUERA del condicional de los toggles: en modo
+            orden/cotización esa rama no renderiza y la navegación desaparecía.
+            Tamaño `size-6` para no crecer el `min-h-6` de la fila (§14 R10: el
+            CTA de abajo no se mueve); el target táctil se agranda con un
+            pseudo-elemento `-inset-2` (~40px) que no ocupa layout. En desktop
+            el rail del sidebar sigue visible y este trigger no existe. */}
+        <SidebarTrigger
+          aria-label="Módulos"
+          className="relative size-6 shrink-0 after:absolute after:-inset-2 after:content-[''] md:hidden"
+        />
         {/* Los toggles son atributos de la VENTA: tampoco aplican en modo
             cotización (setPosMode ya los resetea al entrar). */}
         {!isOrderMode && cartMode !== "cotizacion" && (

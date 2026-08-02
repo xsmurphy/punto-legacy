@@ -27,7 +27,8 @@
 /**
  * Rutas hijas que son "módulos": en mobile se muestran dentro de un Dialog
  * fullscreen. `/pos` (la grilla de hotkeys) NO está acá — es la home del
- * workspace y en mobile su lugar lo ocupa el carrito.
+ * workspace y en mobile su lugar lo ocupa el carrito; se abre como módulo bajo
+ * demanda vía query param (ver `wantsHotkeysModule`).
  *
  * El título es para el DialogTitle (a11y): el módulo trae su propio header
  * visual, así que el del Dialog va sr-only.
@@ -46,8 +47,22 @@ function moduleTitleFor(pathname: string): string | null {
   return key ? MODULE_TITLES[key] : "Módulo"
 }
 
+/**
+ * En `/pos` la grilla de hotkeys también se abre como módulo-modal en mobile,
+ * pedida por query param. Dos params la piden y AMBOS valen:
+ *   ?view=hotkeys   → el item "HotKeys" del nav de módulos (solo mobile).
+ *   ?hotkeys=edit   → el menú principal, que entra directo al editor.
+ * Si `hotkeys=edit` no abriera el modal, en un teléfono el editor quedaría
+ * montado en el bloque izquierdo (que en mobile no se pinta) e invisible.
+ * `ProductArea` consume `hotkeys=edit` y limpia la URL preservando
+ * `view=hotkeys` en mobile, así el modal no se cierra solo.
+ */
+function wantsHotkeysModule(search: { get(key: string): string | null }): boolean {
+  return search.get("view") === "hotkeys" || search.get("hotkeys") === "edit"
+}
+
 import * as React from "react"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import {
   Dialog,
   DialogContent,
@@ -137,7 +152,9 @@ export default function PosWorkspaceLayout({
   // En mobile el módulo se monta DENTRO del Dialog; en desktop, en la grilla.
   // Nunca en los dos a la vez: montar dos veces duplicaría fetches, sockets y
   // estado local del módulo.
-  const moduleTitle = moduleTitleFor(pathname)
+  const searchParams = useSearchParams()
+  const hotkeysAsModule = pathname === "/pos" && wantsHotkeysModule(searchParams)
+  const moduleTitle = moduleTitleFor(pathname) ?? (hotkeysAsModule ? "HotKeys" : null)
   const moduleAsDialog = isMobile && moduleTitle !== null
 
   // Auto-lock al arrancar si hay >1 operador (sin flash entre paints).
