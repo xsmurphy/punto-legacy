@@ -112,7 +112,11 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     icon: CalendarDays,
     category: "Operativos",
     configKind: "none",
-    status: "available",
+    // "soon": /pos/calendario todavía es un placeholder (PosModulePlaceholder).
+    // Cuando la agenda esté construida, pasar a "available" y sumar el item
+    // "Calendario" al sidebar del POS (frontend/components/layout/pos-sidebar.tsx),
+    // gateado por moduleEnabled(modules, ..., "calendar").
+    status: "soon",
   },
   {
     key: "tables",

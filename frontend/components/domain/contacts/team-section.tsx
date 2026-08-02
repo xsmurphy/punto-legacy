@@ -66,6 +66,7 @@ import {
 } from "@/hooks/use-team"
 import { useRoles } from "@/hooks/use-roles"
 import { useOutlets } from "@/hooks/use-outlets"
+import { useModules } from "@/hooks/use-modules"
 
 // ── schema ─────────────────────────────────────────────────────────────────
 
@@ -252,6 +253,14 @@ function TeamForm({
   isPending: boolean
   onSubmit: (v: TeamFormValues) => void
 }) {
+  // Gate SOLO de UI: mientras el módulo "calendar" está apagado (o cargando,
+  // criterio conservador) se oculta la sección "Funciones" — pero el campo
+  // sigue registrado en el form (shouldUnregister=false por default de RHF),
+  // así que `inCalendar` viaja intacto en el submit aunque no se edite acá.
+  // Evita perder el dato de tenants que ya tenían usuarios con inCalendar=true.
+  const { data: modules, isLoading: modulesLoading } = useModules()
+  const calendarEnabled = !modulesLoading && modules?.calendar?.enabled === true
+
   return (
     <Form {...form}>
       <form
@@ -521,25 +530,27 @@ function TeamForm({
           />
         </FormSection>
 
-        <FormSection title="Funciones">
-          <FormField
-            control={form.control}
-            name="inCalendar"
-            render={({ field }) => (
-              <FormItem className="flex items-center justify-between rounded-md border p-3">
-                <div>
-                  <FormLabel className="text-sm">Visible en agenda</FormLabel>
-                  <FormDescription className="text-xs">
-                    Aparece en la agenda de citas y puede recibir agendamientos.
-                  </FormDescription>
-                </div>
-                <FormControl>
-                  <Switch checked={field.value} onCheckedChange={field.onChange} />
-                </FormControl>
-              </FormItem>
-            )}
-          />
-        </FormSection>
+        {calendarEnabled && (
+          <FormSection title="Funciones">
+            <FormField
+              control={form.control}
+              name="inCalendar"
+              render={({ field }) => (
+                <FormItem className="flex items-center justify-between rounded-md border p-3">
+                  <div>
+                    <FormLabel className="text-sm">Visible en agenda</FormLabel>
+                    <FormDescription className="text-xs">
+                      Aparece en la agenda de citas y puede recibir agendamientos.
+                    </FormDescription>
+                  </div>
+                  <FormControl>
+                    <Switch checked={field.value} onCheckedChange={field.onChange} />
+                  </FormControl>
+                </FormItem>
+              )}
+            />
+          </FormSection>
+        )}
 
         <div className="pt-2">
           <Button type="submit" className="w-full" disabled={isPending}>

@@ -106,6 +106,7 @@ import {
   useTaxpayerLookup,
 } from "@/hooks/use-contacts"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useModules } from "@/hooks/use-modules"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import { ApiError } from "@/lib/api-client"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
@@ -220,6 +221,11 @@ export function ContactDetailView({
     1,
   )
   const { data: bootstrap } = useBootstrap()
+  // Tab "Agenda" (ContactScheduleCompact) depende del módulo calendar — mismo
+  // criterio conservador que panel-auth-guard/pos-sidebar: oculto mientras
+  // carga o está apagado, para no ofrecer una sección sin datos relevantes.
+  const { data: modules, isLoading: modulesLoading } = useModules()
+  const calendarEnabled = !modulesLoading && modules?.calendar?.enabled === true
 
   const onSubmit = async (values: ContactFormValues) => {
     try {
@@ -275,7 +281,9 @@ export function ContactDetailView({
     { key: "packs",    label: "Packs",         icon: <Layers className="size-3.5" /> },
     { key: "addresses",label: "Direcciones",   icon: <MapPin className="size-3.5" /> },
     { key: "orders",   label: "Órdenes",       icon: <OrdersIcon className="size-3.5" /> },
-    { key: "schedule", label: "Agenda",        icon: <CalendarDays className="size-3.5" /> },
+    ...(calendarEnabled
+      ? [{ key: "schedule" as const, label: "Agenda", icon: <CalendarDays className="size-3.5" /> }]
+      : []),
     { key: "data",     label: "Datos",         icon: <ShoppingBag className="size-3.5" /> },
   ]
 

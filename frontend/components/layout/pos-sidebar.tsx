@@ -30,6 +30,17 @@ import { useLockStore } from "@/lib/pos/lock-store"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { useModules } from "@/hooks/use-modules"
+import type { ModulesMap } from "@/lib/types/module"
+
+// Mismo criterio conservador que `panel-auth-guard.tsx` (posNav): mientras
+// isLoading o error, el item condicional NO se muestra — evita parpadeo.
+// DEUDA: este sidebar y `posNav` en panel-auth-guard.tsx son DOS fuentes de
+// verdad para la nav del POS (panel-auth-guard nunca se renderiza en /pos,
+// pos-sidebar.tsx es el real) — deberían unificarse en un solo lugar.
+function moduleEnabled(m: ModulesMap | undefined, isLoading: boolean, key: string): boolean {
+  return !isLoading && m?.[key]?.enabled === true
+}
 
 /**
  * Sidebar mínimo exclusivo del POS. Muestra SOLO las rutas del workspace
@@ -42,6 +53,9 @@ export function PosSidebar() {
   const pathname = usePathname()
   const { data: parkedSales } = useParkedSales()
   const { data: activeOrders } = useActiveOrders()
+  const { data: modules, isLoading: modulesLoading } = useModules()
+  const ordersEnabled = moduleEnabled(modules, modulesLoading, "ordersPanel")
+  const tablesEnabled = moduleEnabled(modules, modulesLoading, "tables")
   const lock = useLockStore((s) => s.lock)
   const parkedCount = parkedSales?.length ?? 0
   const activeOrdersCount = activeOrders?.orders.length ?? 0
@@ -102,36 +116,40 @@ export function PosSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith("/pos/ordenes")}
-                  tooltip="Órdenes"
-                  className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
-                >
-                  <Link href="/pos/ordenes">
-                    <ClipboardList />
-                    <span>Órdenes</span>
-                  </Link>
-                </SidebarMenuButton>
-                {activeOrdersCount > 0 && (
-                  <SidebarMenuBadge>{activeOrdersCount}</SidebarMenuBadge>
-                )}
-              </SidebarMenuItem>
+              {ordersEnabled && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith("/pos/ordenes")}
+                    tooltip="Órdenes"
+                    className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                  >
+                    <Link href="/pos/ordenes">
+                      <ClipboardList />
+                      <span>Órdenes</span>
+                    </Link>
+                  </SidebarMenuButton>
+                  {activeOrdersCount > 0 && (
+                    <SidebarMenuBadge>{activeOrdersCount}</SidebarMenuBadge>
+                  )}
+                </SidebarMenuItem>
+              )}
 
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={pathname.startsWith("/pos/espacios")}
-                  tooltip="Espacios"
-                  className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
-                >
-                  <Link href="/pos/espacios">
-                    <LayoutGrid />
-                    <span>Espacios</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              {tablesEnabled && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith("/pos/espacios")}
+                    tooltip="Espacios"
+                    className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                  >
+                    <Link href="/pos/espacios">
+                      <LayoutGrid />
+                      <span>Espacios</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
 
               {permitirGuardarVentas && (
                 <SidebarMenuItem>
