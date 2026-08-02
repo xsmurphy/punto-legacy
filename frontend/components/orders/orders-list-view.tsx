@@ -21,7 +21,6 @@
 import * as React from "react"
 import { Search } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { EmptyState } from "@/components/empty-state"
 import {
@@ -37,15 +36,14 @@ import { formatMoney } from "@/lib/format-money"
 import { formatDateTime, formatRelativeShort } from "@/lib/format-date"
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { Order } from "@/hooks/use-orders"
+import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import {
   STATUS_ACCENT,
-  STATUS_VARIANT,
   orderFulfillmentLabel,
   orderItemsSummary,
   orderSearchHaystack,
   orderSourceLabel,
   orderTotal,
-  statusLabelFor,
 } from "@/lib/orders/order-display"
 
 /** Cuánto tarda en "envejecer" una celda de tiempo relativo antes de recalcularse. */
@@ -151,9 +149,7 @@ export function OrdersListView({
                       {timestamp ? formatRelativeShort(timestamp) : "—"}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={STATUS_VARIANT[order.status]}>
-                        {statusLabelFor(order)}
-                      </Badge>
+                      <OrderStatusBadge order={order} />
                     </TableCell>
                     <TableCell className="text-right font-semibold tabular-nums">
                       {formatMoney(orderTotal(order), config)}

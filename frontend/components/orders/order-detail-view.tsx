@@ -15,10 +15,9 @@
  */
 
 import * as React from "react"
-import { ChevronDown, ChevronRight, DollarSign, MoreHorizontal, Printer, Truck, X } from "lucide-react"
+import { ChevronRight, DollarSign, MoreHorizontal, Printer, Truck, X } from "lucide-react"
 import { toast } from "sonner"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -50,21 +49,18 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { useOrderActions } from "@/hooks/use-order-actions"
 import { KDS_ITEM_VISUALS } from "@/lib/kds/kds-visuals"
 import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
+import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import {
   useAssignCourier,
   useOrder,
-  useUpdateOrderStatus,
   type Order,
   type OrderStatus,
   type OrderEvent,
 } from "@/hooks/use-orders"
 import {
   STATUS_LABEL,
-  STATUS_VARIANT,
-  manualStatusOptions,
   orderDestination,
   orderTotal,
-  statusLabelFor,
 } from "@/lib/orders/order-display"
 
 
@@ -98,7 +94,6 @@ export function OrderDetailView({
   onAfterAction?: () => void
 }) {
   const config = useCatalogStore((s) => s.config)
-  const updateStatus = useUpdateOrderStatus()
   const assignCourier = useAssignCourier()
   const [courierPickerOpen, setCourierPickerOpen] = React.useState(false)
   // Mismas acciones que la card de la vista Cuadros — `useOrderActions` es la
@@ -124,20 +119,7 @@ export function OrderDetailView({
   const hasItems = items.length > 0
   const total = orderTotal(order)
   const destination = orderDestination(order)
-  const statusOptions = manualStatusOptions(order)
   const timeIso = order.sentAt ?? order.createdAt
-
-  function handleStatusChange(status: Order["status"]) {
-    updateStatus.mutate(
-      { orderId: order.id, status },
-      {
-        onSuccess: () => toast.success(`Orden #${order.orderNumber} → ${STATUS_LABEL[status]}`),
-        // El error real del server, no uno genérico — ORDER_TRANSITIONS acá es
-        // solo un espejo, la autoridad de qué transición vale es el backend.
-        onError: (err) => toast.error("No se pudo cambiar el estado", { description: err.message }),
-      },
-    )
-  }
 
   function handleAssignCourier(courierId: string | null) {
     assignCourier.mutate(
@@ -168,28 +150,7 @@ export function OrderDetailView({
                 {formatRelativeShort(timeIso)}
               </span>
             )}
-            {statusOptions.length > 0 ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Badge
-                    variant={STATUS_VARIANT[order.status]}
-                    className="cursor-pointer gap-0.5 pr-1"
-                  >
-                    {statusLabelFor(order)}
-                    <ChevronDown className="size-3" aria-hidden />
-                  </Badge>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {statusOptions.map((s) => (
-                    <DropdownMenuItem key={s} onSelect={() => handleStatusChange(s)}>
-                      {STATUS_LABEL[s]}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : (
-              <Badge variant={STATUS_VARIANT[order.status]}>{statusLabelFor(order)}</Badge>
-            )}
+            <OrderStatusBadge order={order} />
           </div>
         </div>
         {/* pr-10: el botón X del Dialog es `absolute top-4 right-4` y quedaba

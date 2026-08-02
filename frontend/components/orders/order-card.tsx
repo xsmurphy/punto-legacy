@@ -12,7 +12,6 @@
 
 import { Clock, DollarSign, Printer, User, X } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -32,13 +31,8 @@ import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useOrderActions } from "@/hooks/use-order-actions"
 import { type Order } from "@/hooks/use-orders"
-import {
-  STATUS_VARIANT,
-  orderDestination,
-  orderItemsSummary,
-  orderTotal,
-  statusLabelFor,
-} from "@/lib/orders/order-display"
+import { OrderStatusBadge } from "@/components/orders/order-status-badge"
+import { orderDestination, orderItemsSummary, orderTotal } from "@/lib/orders/order-display"
 
 export function OrderCard({
   order,
@@ -84,7 +78,7 @@ export function OrderCard({
             <span>{destination.label}</span>
           </div>
         </div>
-        <Badge variant={STATUS_VARIANT[order.status]}>{statusLabelFor(order)}</Badge>
+        <OrderStatusBadge order={order} />
       </div>
 
       {order.customerName ? (
