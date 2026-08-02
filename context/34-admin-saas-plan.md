@@ -152,6 +152,68 @@ Punto propio (Punto-la-empresa como tenant).
   novedades) sobre la tabla `notify` que el centro de notificaciones ya
   consume.
 
+> **Implementada 2026-08-02.** Mig `112_admin_user_role.sql` (`admin_user.role`,
+> default `support`, backfill del admin más antiguo a `owner`). Todo lo demás
+> reusa tablas de F2/F4 (`platform_config`, `notify`) — sin migraciones extra.
+>
+> **Matriz de roles (jerarquía plana, no capabilities granulares)** —
+> `sales(1) < support(2) < owner(3)`, cada nivel incluye todo lo del anterior:
+>
+> | Bucket | sales | support | owner |
+> |---|---|---|---|
+> | Leer tenants/salud/notas/dashboard/reportes | ✅ | ✅ | ✅ |
+> | Escribir notas de tenant | ✅ | ✅ | ✅ |
+> | suspend/unsuspend/extendTrial/grantAiCredits/impersonar (`enter`) | ❌ | ✅ | ✅ |
+> | Forzar recómputo de salud | ❌ | ✅ | ✅ |
+> | Auditoría de admins (`audit.php`) | ❌ | ✅ | ✅ |
+> | Planes, módulos, setAddons, toggleModule, resolveRequest, PATCH/DELETE empresa | ❌ | ❌ | ✅ |
+> | Modelos/paquetes IA (`ai-config.php`, incl. test) | ❌ | ❌ | ✅ |
+> | CRUD de admins (`users.php`) | ❌ | ❌ | ✅ |
+> | Config de plataforma / broadcast (`platform.php`) | ❌ | ❌ | ✅ |
+> | Estado del sistema (`system.php`) | ❌ | ❌ | ✅ |
+>
+> Enforcement: helper único `adminRequireRole($minRole)` en
+> `api/lib/Auth/AdminAuth.php`, llamado explícitamente en cada endpoint/acción
+> (no un middleware genérico) — el rol se resuelve SIEMPRE fresco desde
+> `admin_user` en `adminMiddleware()` (mismo query que ya hacía el lookup de
+> email), nunca desde el token de sesión, así un cambio de rol aplica de
+> inmediato. UI: `AdminRoleGate` (`components/admin/admin-role-gate.tsx`) oculta
+> páginas owner-only si se entra por URL directa (el 403 real lo pone el
+> backend); el sidebar filtra el nav por rol.
+>
+> **Precedencia config > env (decisión cerrada)**: `PlatformConfig::get($key,
+> $envFallback)` (`api/lib/Admin/PlatformConfig.php`) — si `platform_config`
+> tiene la key, gana ENTERA sobre el fallback; si no, cae al fallback completo
+> (la decisión es por key/grupo, no por sub-campo). Aplicado en los 3 puntos
+> donde ya se leían estas integraciones: `signup/start.php` (Evolution),
+> `SignupOtp::mode()` (flag `SIGNUP_OTP`), `Notification::sendEmails()`
+> (Mailgun). **dLocal queda SOLO mostrado/guardado en `admin/platform`, sin
+> cablear** — el provider (`DlocalGoProvider`) sigue leyendo las env vars
+> directo; cablearlo es más delicado (webhooks firmados, HMAC) y se decidió no
+> tocarlo en F6.
+>
+> **Test de modelos IA**: `AiAdminService::testModel()` llama a OpenRouter con
+> `OPENROUTER_API_KEY` del server (nueva constante en `simple.config.php`,
+> antes no existía ningún consumidor). Rate limit 1/10s por admin guardado en
+> `platform_config` (sin tabla nueva — "lo mínimo" del brief).
+>
+> **Broadcast**: una sola fila en `notify` con `companyId`/`outletId` NULL —
+> tanto `FeedService` (panel) como `NotificationService` (POS legacy) ya
+> trataban NULL como "para todos los tenants", así que no hizo falta iterar
+> tenants ni tocar schema.
+>
+> **Fix de paso**: `AdminUserService::shape()` devolvía la key `id`, pero el
+> frontend (`AdminUserRow`) siempre leyó `adminId` — mismatch preexistente,
+> corregido junto con esta pasada porque el archivo se tocaba igual para sumar
+> `role`.
+>
+> **Quedó fuera de F6** (no pedido explícitamente o de mayor alcance):
+> allowlist CORS editable desde config de plataforma (el plan la mencionaba
+> como posible integración, pero el brief cerrado de F6 no la incluyó);
+> paquetes de créditos SMS/dLocal-sandbox como grupo separado (dLocal ya cubre
+> sandbox/production vía el campo `environment`); rol granular por
+> capability (se usa jerarquía plana, no ACL por acción).
+
 ## Orden y tamaño
 
 F2 (salud) es la prioridad declarada del owner y F1 la vitrina — pero F2
