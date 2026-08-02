@@ -12,6 +12,9 @@ import {
   ScrollText,
   LogOut,
   ChevronsUpDown,
+  CreditCard,
+  Blocks,
+  Sparkles,
 } from "lucide-react"
 import {
   Sidebar,
@@ -44,6 +47,9 @@ import { useAdminLogout } from "@/hooks/use-admin"
 const adminNav = [
   { title: "Dashboard", to: "/admin", icon: LayoutDashboard },
   { title: "Empresas", to: "/admin/companies", icon: Building2 },
+  { title: "Planes", to: "/admin/plans", icon: CreditCard },
+  { title: "Módulos", to: "/admin/modules", icon: Blocks },
+  { title: "IA", to: "/admin/ai", icon: Sparkles },
   { title: "Administradores", to: "/admin/users", icon: Users },
   { title: "Solicitudes", to: "/admin/requests", icon: FileText },
   { title: "Reportes", to: "/admin/reports", icon: BarChart3 },

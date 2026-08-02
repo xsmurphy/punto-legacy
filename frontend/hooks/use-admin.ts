@@ -800,3 +800,193 @@ export function useAdminAudit(params?: {
     staleTime: 30 * 1000,
   })
 }
+
+// ── Planes (F4 — CRUD, context/34) ──────────────────────────────────────────
+
+export interface AdminPlanFull {
+  id: string
+  code: number
+  name: string
+  type: string
+  price: number
+  durationDays: number
+  maxItems: number
+  maxUsers: number
+  maxCustomers: number
+  maxOutlets: number
+  maxRegisters: number
+  maxSuppliers: number
+  maxCategories: number
+  maxBrands: number
+  aiCreditsMonthly: number
+  features: Record<string, boolean>
+  archived: boolean
+  isDefault: boolean
+  tenants?: number
+}
+
+export interface AdminPlanInput {
+  name?: string
+  type?: string
+  price?: number
+  duration_days?: number
+  max_items?: number
+  max_users?: number
+  max_customers?: number
+  max_outlets?: number
+  max_registers?: number
+  max_suppliers?: number
+  max_categories?: number
+  max_brands?: number
+  ai_credits_monthly?: number
+  features?: Record<string, boolean>
+}
+
+export function useAdminPlanCatalog() {
+  return useQuery<{ rows: AdminPlanFull[] }>({
+    queryKey: ["admin", "plan-catalog"],
+    queryFn: () => apiAdmin.get("/plans.php?archived=1"),
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useAdminCreatePlan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: AdminPlanInput) => apiAdmin.post<{ ok: boolean; plan: AdminPlanFull }>("/plans.php", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "plan-catalog"] })
+      qc.invalidateQueries({ queryKey: ["admin", "plans"] })
+    },
+  })
+}
+
+export function useAdminUpdatePlan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ code, data }: { code: number; data: AdminPlanInput }) =>
+      apiAdmin.patch<{ ok: boolean; plan: AdminPlanFull; versioned: boolean; archivedCode?: number }>(
+        `/plans.php?code=${code}`,
+        data,
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "plan-catalog"] })
+      qc.invalidateQueries({ queryKey: ["admin", "plans"] })
+    },
+  })
+}
+
+export function useAdminArchivePlan() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (code: number) => apiAdmin.post(`/plans.php?code=${code}&action=archive`, {}),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "plan-catalog"] })
+      qc.invalidateQueries({ queryKey: ["admin", "plans"] })
+    },
+  })
+}
+
+// ── Catálogo de módulos (F4 — kill-switch, context/34) ──────────────────────
+
+export interface AdminModuleCatalogEntry {
+  key: string
+  price: number
+  visibility: "ga" | "beta" | "hidden"
+  killswitch: boolean
+}
+
+export function useAdminModuleCatalog() {
+  return useQuery<{ rows: AdminModuleCatalogEntry[] }>({
+    queryKey: ["admin", "module-catalog"],
+    queryFn: () => apiAdmin.get("/modules.php"),
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useAdminUpdateModuleCatalog() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { key: string; price?: number; visibility?: string; killswitch?: boolean }) =>
+      apiAdmin.post("/modules.php", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["admin", "module-catalog"] })
+    },
+  })
+}
+
+// ── Créditos IA (F4 §3, context/34) ──────────────────────────────────────────
+
+export interface AdminAiModel {
+  capability: string
+  model: string
+  enabled: boolean
+  creditsPerKToken: number
+  updatedAt: string | null
+}
+
+export interface AdminAiPackage {
+  packageId: string
+  name: string
+  credits: number
+  price: number
+  archived: boolean
+  createdAt: string | null
+}
+
+export interface AdminAiConsumptionRow {
+  companyId: string
+  companyName: string
+  month: string
+  capability: string
+  credits: number
+}
+
+export interface AdminAiConfig {
+  models: AdminAiModel[]
+  packages: AdminAiPackage[]
+  consumption: AdminAiConsumptionRow[]
+}
+
+export function useAdminAiConfig() {
+  return useQuery<AdminAiConfig>({
+    queryKey: ["admin", "ai-config"],
+    queryFn: () => apiAdmin.get("/ai-config.php"),
+    staleTime: 30 * 1000,
+  })
+}
+
+export function useAdminUpsertAiModel() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { capability: string; model: string; enabled?: boolean; creditsPerKToken?: number }) =>
+      apiAdmin.post("/ai-config.php", { action: "upsertModel", ...data }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "ai-config"] }),
+  })
+}
+
+export function useAdminCreateAiPackage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { name: string; credits: number; price: number }) =>
+      apiAdmin.post("/ai-config.php", { action: "createPackage", ...data }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "ai-config"] }),
+  })
+}
+
+export function useAdminUpdateAiPackage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: { packageId: string; name?: string; credits?: number; price?: number }) =>
+      apiAdmin.post("/ai-config.php", { action: "updatePackage", ...data }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "ai-config"] }),
+  })
+}
+
+export function useAdminArchiveAiPackage() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (packageId: string) => apiAdmin.post("/ai-config.php", { action: "archivePackage", packageId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin", "ai-config"] }),
+  })
+}
