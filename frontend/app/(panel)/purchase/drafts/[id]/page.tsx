@@ -225,6 +225,7 @@ export default function PurchaseDraftReviewPage() {
         price: l.price ?? 0,
         taxId: l.taxId || undefined,
         taxValue: Number(l.taxValue) || 0,
+        packSize: l.isProduct ? Math.max(1, Math.round(Number(l.packSize) || 1)) : undefined,
       }))
     return {
       supplierId: supplierId || null,
@@ -622,6 +623,7 @@ export default function PurchaseDraftReviewPage() {
                   onRemove={() => removeLine(l.rowId)}
                   onTabFromTax={addLine}
                   registerFirstField={(el) => registerFirstField(l.rowId, el)}
+                  bootstrap={bootstrap}
                 />
               ))}
             </div>
@@ -703,6 +705,7 @@ function extractedItemToLine(it: ExtractedInvoiceItem, taxOptions: Tax[]): FormL
     price,
     taxId: ivaRateToTaxId(it.ivaRate, taxOptions),
     taxValue: 0,
+    packSize: 1,
   }
 }
 
@@ -717,5 +720,6 @@ function editedItemToLine(it: PurchaseFormItem): FormLine {
     price: it.price,
     taxId: it.taxId ?? "",
     taxValue: it.taxValue ?? 0,
+    packSize: it.packSize ?? 1,
   }
 }

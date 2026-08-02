@@ -294,6 +294,13 @@ final class PurchasesService
             $taxId    = (string) ($it['taxId'] ?? '');
             $title    = (string) ($it['title'] ?? '');
             $itemId   = (string) ($it['itemId'] ?? '');
+            // packSize: unidades por paquete/caja. `units` es la cantidad de
+            // paquetes cargada por el cajero; el stock/itemSold se registra en
+            // unidades reales (units * packSize) — ver context/_feature-requests.md.
+            $packSize = isset($it['packSize']) ? (int) $it['packSize'] : 1;
+            if ($packSize < 1) {
+                throw new \RuntimeException("Item #{$idx}: packSize debe ser >= 1");
+            }
 
             if ($units <= 0 || $price < 0) {
                 continue;
@@ -307,18 +314,24 @@ final class PurchasesService
                 throw new \RuntimeException("Item #{$idx} tiene itemId no-UUID");
             }
 
-            $lineTotal   = abs($price * $units);
-            $total      += $lineTotal;
-            $totalTax   += $taxValue;
-            $totalUnits += $units;
+            // lineTotal es lo pagado por la línea (precio de paquete × cantidad
+            // de paquetes) — NO cambia con packSize. effectiveUnits es lo que se
+            // registra en itemSold/stock, así el costo unitario real termina
+            // siendo lineTotal / effectiveUnits = price / packSize.
+            $effectiveUnits = $units * $packSize;
+            $lineTotal      = abs($price * $units);
+            $total         += $lineTotal;
+            $totalTax      += $taxValue;
+            $totalUnits    += $effectiveUnits;
 
             $details[]   = [
-                'itemId'  => $itemId,
-                'title'   => $title,
-                'qty'     => $units,
-                'price'   => $lineTotal,
-                'tax'     => $taxValue,
-                'taxId'   => $taxId,
+                'itemId'   => $itemId,
+                'title'    => $title,
+                'qty'      => $effectiveUnits,
+                'price'    => $lineTotal,
+                'tax'      => $taxValue,
+                'taxId'    => $taxId,
+                'packSize' => $packSize,
             ];
         }
         if (count($details) === 0) {

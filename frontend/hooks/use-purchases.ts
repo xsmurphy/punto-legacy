@@ -71,6 +71,8 @@ export interface PurchaseFormItem {
   price: number
   taxId?: string
   taxValue?: number
+  /** Unidades por paquete/caja (ej. 1 caja = 24 unidades). Default 1 — solo aplica a productos. */
+  packSize?: number
 }
 
 export interface PurchaseCreatePayload {

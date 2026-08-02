@@ -33,6 +33,8 @@ import { useItems } from "@/hooks/use-items"
 import { useTaxes } from "@/hooks/use-taxes"
 import { api } from "@/lib/api-client"
 import { MoneyInput } from "@/components/ui/money-input"
+import { formatMoney } from "@/lib/format"
+import type { Bootstrap } from "@/lib/types/bootstrap"
 import type { PurchaseFormItem } from "@/hooks/use-purchases"
 
 /**
@@ -63,6 +65,7 @@ export function emptyLine(isProduct = true, taxId = ""): FormLine {
     price: null,
     taxId,
     taxValue: 0,
+    packSize: 1,
   }
 }
 
@@ -99,6 +102,7 @@ export interface LineRowProps {
   onRemove: () => void
   onTabFromTax: () => void
   registerFirstField: (el: HTMLElement | null) => void
+  bootstrap?: Pick<Bootstrap, "currency" | "decimal" | "thousand">
 }
 
 export function LineRow({
@@ -108,6 +112,7 @@ export function LineRow({
   onRemove,
   onTabFromTax,
   registerFirstField,
+  bootstrap,
 }: LineRowProps) {
   const { data: taxes } = useTaxes()
   const taxOptions = taxes?.taxes ?? []
@@ -168,7 +173,13 @@ export function LineRow({
       </div>
 
       <div className="grid grid-cols-12 gap-2">
-        <div className="col-span-12 sm:col-span-5">
+        <div
+          className={
+            line.isProduct
+              ? "col-span-12 sm:col-span-3"
+              : "col-span-12 sm:col-span-5"
+          }
+        >
           {line.isProduct ? (
             <ProductPicker
               value={line.itemId ?? ""}
@@ -202,12 +213,33 @@ export function LineRow({
             inputMode="decimal"
           />
         </div>
+        {line.isProduct && (
+          <div className="col-span-4 sm:col-span-2">
+            <Input
+              type="number"
+              min={1}
+              step="1"
+              value={line.packSize ?? 1}
+              onChange={(e) =>
+                onChange({ packSize: Math.max(1, Math.round(Number(e.target.value) || 1)) })
+              }
+              placeholder="U x paq."
+              inputMode="numeric"
+              aria-label="Unidades por paquete/caja"
+            />
+          </div>
+        )}
         <div className="col-span-4 sm:col-span-2">
           <MoneyInput
             value={line.price}
             onChange={(v) => onChange({ price: v })}
             placeholder="Precio"
           />
+          {line.isProduct && (line.packSize ?? 1) > 1 && line.price !== null && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {formatMoney(line.price / (line.packSize ?? 1), bootstrap)} c/u
+            </p>
+          )}
         </div>
         <div className="col-span-4 sm:col-span-3">
           <Select

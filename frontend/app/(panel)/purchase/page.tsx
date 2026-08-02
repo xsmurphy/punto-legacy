@@ -208,6 +208,7 @@ export default function NewPurchasePage() {
         price: l.price ?? 0,
         taxId: l.taxId || undefined,
         taxValue: Number(l.taxValue) || 0,
+        packSize: l.isProduct ? Math.max(1, Math.round(Number(l.packSize) || 1)) : undefined,
       }))
 
     if (isCheckMethod && checkNumber.trim() === "") {
@@ -465,6 +466,7 @@ export default function NewPurchasePage() {
                   onRemove={() => removeLine(l.rowId)}
                   onTabFromTax={addLine}
                   registerFirstField={(el) => registerFirstField(l.rowId, el)}
+                  bootstrap={bootstrap}
                 />
               ))}
             </div>
