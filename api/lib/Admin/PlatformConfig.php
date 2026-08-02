@@ -27,12 +27,22 @@ final class PlatformConfig
     /**
      * Devuelve el valor guardado para $key, o $envFallback si no hay fila
      * (o su value es JSON null). Nunca lanza — un fallo de DB cae a fallback.
+     *
+     * Cuando AMBOS (guardado y fallback) son arrays, se hace merge recursivo
+     * con el guardado ganando POR CAMPO — un value parcial en platform_config
+     * (ej. `flags` sin la subkey `signupOtp`) NO borra el fallback de env de
+     * las subkeys ausentes. Sin esto, un POST parcial degradaba SIGNUP_OTP a
+     * 'off' en silencio (P1 del review F6: fail-open de seguridad).
      */
     public static function get(string $key, mixed $envFallback = null): mixed
     {
         self::ensureLoaded();
         if (array_key_exists($key, self::$cache) && self::$cache[$key] !== null) {
-            return self::$cache[$key];
+            $stored = self::$cache[$key];
+            if (is_array($stored) && is_array($envFallback)) {
+                return array_replace_recursive($envFallback, $stored);
+            }
+            return $stored;
         }
         return $envFallback;
     }
