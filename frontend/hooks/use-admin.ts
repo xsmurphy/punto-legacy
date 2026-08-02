@@ -825,7 +825,10 @@ export interface AdminPlanFull {
   tenants?: number
 }
 
-export interface AdminPlanInput {
+// Type alias (no interface): los alias ganan index signature implícita y son
+// asignables al `Json` que exige apiAdmin.post — una interface acá obliga a
+// castear en cada call-site.
+export type AdminPlanInput = {
   name?: string
   type?: string
   price?: number

@@ -41,7 +41,7 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
-import { EmptyState } from "@/components/ui/empty-state"
+import { EmptyState } from "@/components/empty-state"
 
 import {
   useAdminAiConfig,
@@ -375,7 +375,7 @@ export default function AdminAiPage() {
           {isLoading ? (
             <p className="text-sm text-muted-foreground">Cargando…</p>
           ) : models.length === 0 ? (
-            <EmptyState title="Sin modelos configurados" />
+            <EmptyState icon={Sparkles} title="Sin modelos configurados" />
           ) : (
             <div className="rounded-md border p-4">
               <div className="grid grid-cols-[140px_1fr_140px_100px] gap-3 pb-2 text-xs font-medium text-muted-foreground border-b">
@@ -412,7 +412,7 @@ export default function AdminAiPage() {
             data={consumption}
             columns={consumptionColumns}
             isLoading={isLoading}
-            getRowId={(r, i) => `${r.companyId}-${r.month}-${r.capability}-${i}`}
+            getRowId={(r) => `${r.companyId}-${r.month}-${r.capability}`}
             emptyMessage="Sin consumo registrado"
           />
         </TabsContent>
