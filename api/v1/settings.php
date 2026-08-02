@@ -96,7 +96,16 @@ if ($method === 'POST') {
     }
 
     $b = fn($k) => (bool) validateHttp($k, 'post');
-    $s = fn($k) => (string) (validateHttp($k, 'post') ?: '');
+    // Lectura directa de $_POST, NO validateHttp: `Validation::isValid()`
+    // colapsa a false todo valor "falsy" de PHP, y el string "0" lo es. El
+    // rubro "Otro" vale exactamente "0" (`lib/company-categories.ts`), así que
+    // elegirlo guardaba '' y al recargar la pantalla el Select volvía a
+    // "Seleccionar…" — el usuario nunca lograba dejarlo guardado (reporte del
+    // owner 2026-08-01). Aplica a cualquier setting cuyo valor legítimo sea
+    // "0", no solo al rubro. `is_scalar` mantiene el guard contra arrays/objetos
+    // que daba isValid; db_prepare() hoy es no-op, así que no se pierde
+    // sanitización.
+    $s = fn($k) => is_scalar($_POST[$k] ?? null) ? trim((string) $_POST[$k]) : '';
 
     $fields = [
         'name'           => $s('name'),
