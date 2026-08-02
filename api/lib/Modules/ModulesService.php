@@ -18,9 +18,24 @@ namespace Punto\Api\Modules;
  *
  * Nota namespace: funciones globales (ncmExecute, ncmUpdate) resuelven por
  * fallback de PHP — no requieren `use`.
+ *
+ * KILL-SWITCH (F4, context/34-admin-saas-plan.md): el catálogo comercial de
+ * módulos vive en `platform_config` (key='moduleCatalog', jsonb
+ * { [moduleKey]: { price, visibility, killswitch } }, ver
+ * api/lib/Admin/ModuleAdminService.php). list() es el ÚNICO punto de
+ * resolución server-side de "¿está prendido este módulo?" que consume el
+ * panel (api/v1/modules.php GET, gating de UI) — por eso el kill-switch se
+ * enforcea ACÁ: si killswitch=true, el módulo se reporta enabled=false para
+ * TODOS los tenants sin tocar el estado por-tenant (moduleData/columna plana
+ * quedan intactos — al soltar el switch, vuelve solo). El realm /admin
+ * (CompanyAdminService::listModules, TenantHealthService breadth) reimplementa
+ * su propia lectura de company (aislamiento de realm, no puede requerir
+ * functions.php) y NO pasa por acá — ver decisión en context/34.
  */
 final class ModulesService
 {
+    /** Cache estática (vida del request PHP) del catálogo comercial de platform_config. */
+    private static ?array $moduleCatalogCache = null;
     /**
      * Módulos nativos toggleables. Excluye terceros (spotify, dropbox, mcal,
      * tusfacturas, newton, osWidget, extraUsers) y "soon" (campaigns, reminder).
@@ -84,6 +99,12 @@ final class ModulesService
                 // moduleData[key] puede ser el valor directo (crm legacy es array con sub-keys)
                 $enabled = $this->truthy($moduleEntry);
             } else {
+                $enabled = false;
+            }
+
+            // Kill-switch de plataforma: apaga el módulo para TODOS los tenants
+            // sin tocar el estado por-tenant recién calculado arriba.
+            if ($enabled && $this->isKilled($key)) {
                 $enabled = false;
             }
 
@@ -304,6 +325,47 @@ final class ModulesService
                 }
                 break;
         }
+    }
+
+    /** true si el admin activó el kill-switch de plataforma para este módulo. */
+    private function isKilled(string $key): bool
+    {
+        $catalog = $this->loadModuleCatalog();
+        return (bool) ($catalog[$key]['killswitch'] ?? false);
+    }
+
+    /**
+     * Lee `platform_config.moduleCatalog` (jsonb) — cacheada en una estática
+     * de clase para no repetir la query dentro del mismo request (list() se
+     * puede llamar una vez por request, pero el guard es barato y correcto
+     * si en el futuro se llama más de una vez).
+     */
+    private function loadModuleCatalog(): array
+    {
+        if (self::$moduleCatalogCache !== null) {
+            return self::$moduleCatalogCache;
+        }
+
+        $catalog = [];
+        try {
+            $row = ncmExecute(
+                "SELECT value FROM platform_config WHERE key = 'moduleCatalog' LIMIT 1",
+                []
+            );
+            $raw = $row['value'] ?? null;
+            if (is_string($raw)) {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $catalog = $decoded;
+                }
+            }
+        } catch (\Throwable $e) {
+            // Best-effort: si platform_config no está disponible, ningún módulo
+            // se considera killed (fail-open del lado del kill-switch, no del gating base).
+        }
+
+        self::$moduleCatalogCache = $catalog;
+        return $catalog;
     }
 
     /** Normaliza un valor a bool (tolerante a '1', 'true', 'yes', 't', 'on'). */
