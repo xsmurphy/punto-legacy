@@ -78,7 +78,7 @@ final class SignupService
         $companyRecord = [
             'companyName' => $storeName,
             'plan'        => 3,
-            'status'      => 'Active',
+            'status'      => 'active',
             'expiresAt'   => date('Y-m-d 00:00:00', strtotime('+14 days')),
             'accountId'   => $accountId,
         ];

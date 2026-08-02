@@ -74,7 +74,7 @@ if ($computed !== rtrim((string) $result['contactPassword'])) {
 // NO llamamos loginPart() porque su output mezcla HTML — duplicamos solo el
 // company status check inline.
 $company = ncmExecute('SELECT status FROM company WHERE companyId = ? LIMIT 1', [$result['companyId']]);
-if (!$company || ((string) $company['status']) !== 'Active') {
+if (!$company || ((string) $company['status']) !== 'active') {
     apiError('Cuenta inhabilitada', 403);
 }
 
