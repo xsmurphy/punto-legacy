@@ -94,7 +94,7 @@ const panelNav: NavEntry[] = [
     items: [
       { title: "Clientes", to: "/contacts?type=1", icon: Users, requires: "contacts.customer.view" },
       { title: "Proveedores", to: "/contacts?type=2", icon: Truck, requires: "contacts.supplier.view" },
-      { title: "Usuarios", to: "/contacts?type=0", icon: UserCog, requires: "contacts.user.view" },
+      { title: "Equipo", to: "/contacts?type=0", icon: UserCog, requires: "contacts.user.view" },
     ],
   },
   { title: "Finanzas", to: "/finanzas", icon: Landmark, requires: "finance.manage" },

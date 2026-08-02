@@ -183,7 +183,9 @@ const SECTIONS: {
   { id: "price-lists" as unknown as SettingsSection, label: "Listas de precios", icon: ListOrdered, href: "/settings/price-lists" },
   { id: "outlets"     as unknown as SettingsSection, label: "Sucursales",        icon: Building2,   href: "/outlets" },
   { id: "modules",    label: "Módulos",      icon: Component },
-  { id: "plan",       label: "Mi plan",      icon: CreditCard },
+  // "Mi plan" salió del menú de settings (2026-08-01, owner): vive SOLO en el
+  // menú del usuario del sidebar (/history-billing). La sección interna queda
+  // por si alguien llega con ?section=plan desde un link viejo.
   { id: "devices" as unknown as SettingsSection, label: "Dispositivos", icon: Monitor, href: "/settings/devices" },
   { id: "sessions" as unknown as SettingsSection, label: "Sesiones", icon: KeyRound, href: "/settings/sessions" },
   { id: "printers" as unknown as SettingsSection, label: "Impresoras", icon: Printer, href: "/settings/printers" },
