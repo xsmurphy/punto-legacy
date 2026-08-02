@@ -135,7 +135,27 @@ function HotkeysEditScope() {
   return null
 }
 
+/**
+ * Boundary de Suspense OBLIGATORIO: el layout (y `ProductArea`, adentro) usan
+ * `useSearchParams()`. Sin un `<Suspense>` por encima, `next build` falla al
+ * prerenderizar las rutas hijas —"Error occurred prerendering page
+ * /pos/calendario"— y el deploy entero se cae (incidente 2026-08-01). Los
+ * children quedan DENTRO del boundary a propósito: así cubre también a
+ * cualquier hijo que lea la query.
+ */
 export default function PosWorkspaceLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  return (
+    <React.Suspense fallback={<PosLoadingScreen />}>
+      <PosWorkspaceLayoutInner>{children}</PosWorkspaceLayoutInner>
+    </React.Suspense>
+  )
+}
+
+function PosWorkspaceLayoutInner({
   children,
 }: {
   children: React.ReactNode
