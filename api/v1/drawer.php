@@ -2,8 +2,9 @@
 /**
  * /api/v1/drawer.php — operaciones de caja/drawer del POS (Slice 26).
  *
- *   GET ?resource=check    → { isOpen: bool }  — ¿cajón abierto?
- *   GET                    → resumen completo   — list, date, subtotal, total, tips, returns
+ *   GET ?resource=check       → { isOpen: bool }  — ¿cajón abierto?
+ *   GET ?resource=hourlyStats → { timezone, today[], yesterday[] } — ventas por hora
+ *   GET                       → resumen completo — list, date, subtotal, total, tips, returns
  *
  * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
  */
@@ -45,6 +46,21 @@ if ($method === 'GET' && $resource === 'open') {
         apiOk(['closed' => true]);
     }
     apiOk($open);
+}
+// `hourlyStats` es el único granular que NO exige `since` del cliente: describe
+// "el turno EN CURSO vs el día local anterior", así que la ventana se deriva del
+// drawer abierto (fuente única de verdad, igual que getSummary). Se sigue
+// aceptando un `since` explícito para consultas ad-hoc de reportes.
+if ($method === 'GET' && $resource === 'hourlyStats') {
+    $openForHourly = $svc->getOpen($registerId, $outletId, $companyId);
+    $since = trim((string) ($_GET['since'] ?? ''));
+    if ($since === '') {
+        $since = (string) ($openForHourly['drawerOpenDate'] ?? '');
+    }
+    if ($since === '') {
+        apiOk(['closed' => true, 'today' => [], 'yesterday' => []]);
+    }
+    apiOk($svc->getHourlyStats($registerId, $since, $openForHourly['drawerId'] ?? null));
 }
 if ($method === 'GET' && in_array($resource, ['expenses', 'income', 'salesByPayment'], true)) {
     $since = trim((string) ($_GET['since'] ?? ''));

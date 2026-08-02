@@ -58,11 +58,29 @@ export interface DrawerStatus {
   isOpen: boolean
 }
 
+/** Un bucket horario. `hour` es naive tenant-local: "2026-08-02 14:00". */
+export interface DrawerHourlyRow {
+  hour: string
+  salesTotal: number
+  salesCount: number
+}
+
+/**
+ * Ventas por hora del turno en curso vs el día local anterior (misma caja).
+ * Resource aparte del summary — ver `api/v1/drawer.php?resource=hourlyStats`.
+ */
+export interface DrawerHourlyStats {
+  timezone?: string
+  today: DrawerHourlyRow[]
+  yesterday: DrawerHourlyRow[]
+}
+
 // ── Query keys ────────────────────────────────────────────────────────────────
 
 export const DRAWER_KEYS = {
   status: ["drawer", "status"] as const,
   summary: ["drawer", "summary"] as const,
+  hourly: ["drawer", "hourlyStats"] as const,
 }
 
 // ── Helpers de fetch ──────────────────────────────────────────────────────────
@@ -92,6 +110,20 @@ async function fetchDrawerSummary(): Promise<DrawerSummary | null> {
   if (json?.data?.closed) return null
   if (json?.closed === "Closed") return null
   return null
+}
+
+async function fetchDrawerHourlyStats(): Promise<DrawerHourlyStats> {
+  const res = await posFetch("/api/pos/drawer?resource=hourlyStats", { cache: "no-store" })
+  if (!res.ok) throw new Error(`Drawer hourlyStats error ${res.status}`)
+  const json = await res.json()
+  const data = json?.data ?? {}
+  // Caja cerrada → { closed: true, today: [], yesterday: [] }. Backend sin
+  // deployar → sin `data.today` ⇒ arrays vacíos (el chart se oculta solo).
+  return {
+    timezone: data.timezone,
+    today: Array.isArray(data.today) ? (data.today as DrawerHourlyRow[]) : [],
+    yesterday: Array.isArray(data.yesterday) ? (data.yesterday as DrawerHourlyRow[]) : [],
+  }
 }
 
 async function postDrawerAction(body: Record<string, unknown>): Promise<void> {
@@ -129,6 +161,20 @@ export function useDrawerSummary() {
   })
 }
 
+/**
+ * Ventas por hora del turno (hoy) y del día local anterior (ayer), misma caja.
+ * `enabled` para no pedirlo con la caja cerrada.
+ */
+export function useDrawerHourlyStats(enabled = true) {
+  return useQuery<DrawerHourlyStats>({
+    queryKey: DRAWER_KEYS.hourly,
+    queryFn: fetchDrawerHourlyStats,
+    staleTime: 60 * 1000,
+    retry: false,
+    enabled,
+  })
+}
+
 // ── Mutaciones ────────────────────────────────────────────────────────────────
 
 function useDrawerMutation(action: string) {
@@ -152,6 +198,7 @@ function useDrawerMutation(action: string) {
       // Refrescar estado y resumen después de cualquier acción
       qc.invalidateQueries({ queryKey: DRAWER_KEYS.status })
       qc.invalidateQueries({ queryKey: DRAWER_KEYS.summary })
+      qc.invalidateQueries({ queryKey: DRAWER_KEYS.hourly })
     },
   })
 }

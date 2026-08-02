@@ -33,8 +33,12 @@ import {
   Palette,
   Component,
   Bell,
+  X,
+  TrendingUp,
+  TrendingDown,
   type LucideIcon,
 } from "lucide-react"
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -49,12 +53,23 @@ import {
 import { Switch } from "@/components/ui/switch"
 import {
   Dialog,
+  DialogClose,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import {
+  ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
+  ChartTooltip,
+  ChartTooltipContent,
+  type ChartConfig,
+} from "@/components/ui/chart"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -69,16 +84,19 @@ import type { TicketData, TicketItem } from "@/lib/hardware/printers"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
-import { formatDateTime, formatRelativeShort } from "@/lib/format-date"
+import { formatDateTime, formatRelativeShort, tenantNow } from "@/lib/format-date"
 import { StatTile } from "@/components/domain/reports/stat-tile"
+import { useLockStore } from "@/lib/pos/lock-store"
 import {
   useDrawerStatus,
   useDrawerSummary,
+  useDrawerHourlyStats,
   useOpenDrawer,
   useCloseDrawer,
   useDrawerExpense,
   useDrawerIncome,
   type DrawerSummary,
+  type DrawerHourlyRow,
 } from "@/hooks/use-drawer"
 import {
   AlertDialog,
@@ -319,6 +337,10 @@ export function PosMainMenu() {
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
         <DialogContent
+          // La X propia vive en el header del content area (ver más abajo) —
+          // la del primitive es `absolute top-4 right-4` y con `p-0` quedaba
+          // despegada de todo.
+          showCloseButton={false}
           // Modal sidebar+content. Overrides:
           // - mobile fullscreen (el teclado virtual haría scroll en modal chico);
           // - desktop 64rem clamped (paritario con /settings y el detalle de
@@ -341,20 +363,22 @@ export function PosMainMenu() {
           {/* Grid: sidebar nav (izquierda) + content area (derecha) */}
           <div className="flex h-full min-h-0 w-full flex-col overflow-hidden sm:grid sm:h-[80vh] sm:grid-cols-[200px_1fr]">
 
-            {/* Sidebar: vertical en desktop, horizontal scrolleable en mobile.
-                pr-12 en mobile deja lugar al botón X absolute del DialogContent. */}
+            {/* Sidebar: vertical en desktop, horizontal scrolleable en mobile. */}
             <div className="flex shrink-0 flex-col sm:border-r">
-              {/* Logo del tenant — solo en desktop, arriba del listado de secciones */}
-              <div className="hidden items-center gap-2 border-b px-3 py-3 sm:flex">
-                <TenantLogo className="size-8 shrink-0" />
-                <span className="truncate text-sm font-semibold leading-tight">
+              {/* Identidad del comercio — solo en desktop, arriba del listado de
+                  secciones. Logo grande centrado + nombre debajo, SIN borde
+                  inferior: el sidebar se lee como una sola columna continua
+                  (pedido del owner 2026-08-02). */}
+              <div className="hidden flex-col items-center gap-2 px-3 pt-6 pb-4 sm:flex">
+                <TenantLogo className="size-16 shrink-0" />
+                <span className="w-full truncate text-center text-sm font-semibold leading-tight">
                   {companyName || "Punto"}
                 </span>
               </div>
 
               <nav
                 aria-label="Secciones del menú del POS"
-                className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:p-3 sm:pr-3"
+                className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 sm:flex-col sm:border-b-0 sm:p-3"
               >
                 {sectionsWithState.map(({ key, label, icon: Icon, onSelect, disabled }) => {
                 const active = activeKey === key
@@ -399,17 +423,31 @@ export function PosMainMenu() {
             {/* Content area */}
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
 
-              {/* Breadcrumb: solo visible en desktop, solo cuando hay sección activa */}
-              <header className="hidden items-center gap-2 border-b py-3 pl-6 pr-14 text-sm sm:flex">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <span>Menú del POS</span>
+              {/* Breadcrumb + cierre.
+                  La X del primitive (`absolute top-4 right-4` sobre el
+                  DialogContent) quedaba flotando en el aire: este modal resetea
+                  `gap-0 p-0`, así que no hay padding propio con el que
+                  alinearse. Por eso el DialogContent va con
+                  `showCloseButton={false}` y la X vive ACÁ, en el mismo eje
+                  vertical que "Menú del POS" y con el mismo padding que el resto
+                  del header. El header ya no es desktop-only justamente para que
+                  en mobile siga habiendo un único botón de cierre (antes el nav
+                  reservaba `pr-12` para esquivar la X absolute). */}
+              <header className="flex items-center justify-between gap-2 border-b py-3 pl-6 pr-3 text-sm">
+                <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+                  <span className="shrink-0">Menú del POS</span>
                   {activeSection && (
                     <>
                       <span className="text-muted-foreground/50">›</span>
-                      <span className="text-foreground">{activeSection.label}</span>
+                      <span className="truncate text-foreground">{activeSection.label}</span>
                     </>
                   )}
                 </div>
+                <DialogClose asChild>
+                  <Button variant="ghost" size="icon-sm" aria-label="Cerrar menú">
+                    <X />
+                  </Button>
+                </DialogClose>
               </header>
 
               {/* Sin sección seleccionada → resumen de la cuenta logueada */}
@@ -468,19 +506,82 @@ export function PosMainMenu() {
 
 // ── Resumen de la cuenta (default landing del menú) ──────────────────────────
 
+/** Series del bar chart "Ventas por hora" — escala verde monocromática de
+ *  tokens (context/20 §Tokens): `--chart-1` para hoy (el dato protagonista),
+ *  `--chart-3` para ayer, además atenuado por `fillOpacity`. Sin hex. */
+const VENTAS_POR_HORA_CONFIG = {
+  hoy: { label: "Hoy", color: "var(--chart-1)" },
+  ayer: { label: "Ayer", color: "var(--chart-3)" },
+} satisfies ChartConfig
+
+interface HourlyPoint {
+  /** Hora del día 0-23 en TZ del tenant. */
+  hour: number
+  hoy: number
+  ayer: number
+}
+
+/** Etiqueta corta para el eje Y — formatMoney entero es demasiado ancho acá. */
+function compactAmount(v: number): string {
+  const abs = Math.abs(v)
+  if (abs >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
+  if (abs >= 1_000) return `${Math.round(v / 1_000)}k`
+  return String(Math.round(v))
+}
+
+/** "2026-08-02 14:00" → 14. -1 si el string no matchea el formato del backend. */
+function parseHour(raw: string): number {
+  const h = Number(raw.slice(11, 13))
+  return Number.isFinite(h) ? h : -1
+}
+
 /**
- * Panel inicial del menú del POS — resumen del turno en curso. Se renderiza
- * cuando ninguna sección del sidebar está seleccionada.
+ * Une las series de hoy y ayer en un solo dataset continuo, recortado al rango
+ * de horas con datos (min..max de AMBAS series). Se rellenan las horas
+ * intermedias sin ventas con 0 para que el eje X no salte.
+ */
+function buildHourlySeries(today: DrawerHourlyRow[], yesterday: DrawerHourlyRow[]): HourlyPoint[] {
+  const map = new Map<number, HourlyPoint>()
+  const absorb = (rows: DrawerHourlyRow[], key: "hoy" | "ayer") => {
+    for (const row of rows) {
+      const h = parseHour(row.hour)
+      if (h < 0) continue
+      const point = map.get(h) ?? { hour: h, hoy: 0, ayer: 0 }
+      point[key] += row.salesTotal
+      map.set(h, point)
+    }
+  }
+  absorb(today, "hoy")
+  absorb(yesterday, "ayer")
+  if (map.size === 0) return []
+
+  const hours = [...map.keys()]
+  const min = Math.min(...hours)
+  const max = Math.max(...hours)
+  const out: HourlyPoint[] = []
+  for (let h = min; h <= max; h++) {
+    out.push(map.get(h) ?? { hour: h, hoy: 0, ayer: 0 })
+  }
+  return out
+}
+
+/**
+ * Panel inicial del menú del POS — mini-dashboard del turno en curso. Se
+ * renderiza cuando ninguna sección del sidebar está seleccionada.
  *
  * Reemplaza las cards EMPRESA/SUCURSAL/CAJA ACTIVA/PUNTO DE EXPEDICIÓN/PAÍS
  * (decisión owner 2026-08-02): esa info estática no le sirve al cajero en la
- * pantalla más vista del menú — el turno (ventas, total, clientes, efectivo)
- * sí. Sucursal + caja quedan como línea de contexto compacta arriba.
+ * pantalla más vista del menú — el turno (ventas, total, clientes, ritmo) sí.
+ * Sucursal + caja quedan como línea de contexto compacta arriba.
  *
- * Datos: mismo hook que ControlDeCajaPanel (useDrawerStatus/useDrawerSummary,
- * BFF /api/pos/drawer → api/v1/drawer.php → DrawerService::getSummary).
- * `salesCount`/`customersCount`/`salesTotal` son opcionales en DrawerSummary
- * (default 0) para tolerar un backend sin deployar.
+ * TODO lo que se muestra es de SU caja y SU turno — nada company-wide: el
+ * backend scopea por `registerId` del JWT del device y por la sesión de caja
+ * abierta (ver DrawerService).
+ *
+ * Datos: `useDrawerStatus`/`useDrawerSummary` (resumen del turno) +
+ * `useDrawerHourlyStats` (ventas por hora, hoy vs ayer — resource aparte, no
+ * embebido en el summary). `salesCount`/`customersCount`/`salesTotal` son
+ * opcionales en DrawerSummary (default 0) para tolerar un backend sin deployar.
  */
 function AccountOverview({
   setActiveKey,
@@ -490,18 +591,76 @@ function AccountOverview({
   const config = useCatalogStore((s) => s.config)
   const outlet = useCatalogStore((s) => s.outlet)
   const registers = useCatalogStore((s) => s.registers)
+  const users = useCatalogStore((s) => s.users)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const activeRegister = registers.find((r) => r.id === activeRegisterId) ?? null
+
+  // Operador activo: la MISMA fuente que usa el lock screen para saber quién
+  // desbloqueó (lock-screen.tsx → setActiveUser tras validar el PIN). Es la
+  // única identidad "quién está operando" que existe en el cliente: el user del
+  // PosBootstrap es la identidad de PAREO del device (solo `{id, role}`, sin
+  // nombre, y ni siquiera se guarda en el catalog store), así que rotularlo
+  // "Cajero" sería mentir. Fallback: si nunca se bloqueó la caja en esta sesión
+  // pero el tenant tiene un único operador, ese es inequívocamente el cajero.
+  const activeUser = useLockStore((s) => s.activeUser)
+  const cashierName = activeUser?.name ?? (users.length === 1 ? users[0].name : null)
 
   const { data: status, isLoading: statusLoading } = useDrawerStatus()
   const { data: summary, isLoading: summaryLoading } = useDrawerSummary()
   const isOpen = status?.isOpen ?? false
   const loading = statusLoading || summaryLoading
 
+  const { data: hourly, isLoading: hourlyLoading } = useDrawerHourlyStats(isOpen)
+
   const salesCount = summary?.salesCount ?? 0
   const salesTotal = summary?.salesTotal ?? 0
   const customersCount = summary?.customersCount ?? 0
   const avgTicket = salesCount > 0 ? salesTotal / salesCount : 0
+
+  const today = React.useMemo(() => hourly?.today ?? [], [hourly])
+  const yesterday = React.useMemo(() => hourly?.yesterday ?? [], [hourly])
+  const series = React.useMemo(() => buildHourlySeries(today, yesterday), [today, yesterday])
+
+  // Hora local del tenant (0-23). El corte "a esta hora" tiene que ser el mismo
+  // para las dos series: usar la última hora CON ventas de hoy castigaría a hoy
+  // cuando ayer siguió vendiendo más tarde.
+  const currentHour = React.useMemo(
+    () => parseHour(tenantNow(hourly?.timezone ?? config?.timezone)),
+    [hourly?.timezone, config?.timezone],
+  )
+
+  const derived = React.useMemo(() => {
+    const sumUntil = (rows: DrawerHourlyRow[], limit: number) =>
+      rows.reduce((acc, r) => {
+        const h = parseHour(r.hour)
+        return h >= 0 && h <= limit ? acc + r.salesTotal : acc
+      }, 0)
+
+    const todayUntilNow = sumUntil(today, currentHour)
+    const yesterdayUntilNow = sumUntil(yesterday, currentHour)
+    // delta% = (acumulado de hoy hasta la hora actual − acumulado de ayer hasta
+    // esa MISMA hora) / acumulado de ayer. Sin base de ayer no hay porcentaje.
+    const deltaPct =
+      yesterdayUntilNow > 0 ? ((todayUntilNow - yesterdayUntilNow) / yesterdayUntilNow) * 100 : null
+
+    // Proyección = total de hoy + (ritmo por hora del turno × horas que le
+    // quedan al día comercial). El "día comercial" se define por la hora de la
+    // ÚLTIMA venta de AYER: es el único dato real de hasta cuándo se vende en
+    // esta caja. Sin ventas ayer no hay horizonte → no se proyecta nada.
+    const yesterdayHours = yesterday.map((r) => parseHour(r.hour)).filter((h) => h >= 0)
+    const lastHourYesterday = yesterdayHours.length > 0 ? Math.max(...yesterdayHours) : null
+    const openHour = summary?.date ? parseHour(summary.date) : -1
+    const elapsedHours = openHour >= 0 ? Math.max(1, currentHour - openHour + 1) : 1
+    const ratePerHour = salesTotal / elapsedHours
+    const remainingHours =
+      lastHourYesterday !== null ? Math.max(0, lastHourYesterday - currentHour) : 0
+    const projection =
+      lastHourYesterday !== null ? salesTotal + ratePerHour * remainingHours : null
+
+    return { deltaPct, projection }
+  }, [today, yesterday, currentHour, salesTotal, summary?.date])
+
+  const hasChartData = series.some((p) => p.hoy > 0 || p.ayer > 0)
 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6 sm:p-8">
@@ -518,23 +677,24 @@ function AccountOverview({
       ) : (
         <>
           <div>
-            <h2 className="text-lg font-semibold">Turno en curso</h2>
-            {summary?.date && (
-              <p className="text-sm text-muted-foreground">
-                abierto {formatRelativeShort(summary.date)}
-              </p>
-            )}
+            <h1 className="text-2xl font-semibold">Turno en curso</h1>
+            <p className="text-sm text-muted-foreground">
+              {cashierName ? `Cajero: ${cashierName}` : "Operador sin identificar"}
+              {summary?.date ? ` · abierto ${formatRelativeShort(summary.date)}` : ""}
+            </p>
           </div>
 
-          {/* Grid principal — patrón StatTile (context/20 §2026-07-31) */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatTile label="Ventas" value={salesCount} isLoading={loading} />
+          {/* Fila 1 — números clave. Total vendido es el hero (span 2 + emphasis).
+              Patrón StatTile (context/20 §2026-07-31). */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <StatTile
               label="Total vendido"
               value={formatMoney(salesTotal, config)}
               isLoading={loading}
               emphasis
+              className="col-span-2"
             />
+            <StatTile label="Ventas" value={salesCount} isLoading={loading} />
             <StatTile
               label="Ticket promedio"
               value={formatMoney(avgTicket, config)}
@@ -543,7 +703,103 @@ function AccountOverview({
             <StatTile label="Clientes atendidos" value={customersCount} isLoading={loading} />
           </div>
 
-          {/* Fila secundaria — solo lo que aplica */}
+          {/* Fila 2 — ventas por hora, hoy vs ayer */}
+          {hourlyLoading ? (
+            <Skeleton className="h-[220px] w-full rounded-lg" />
+          ) : hasChartData ? (
+            <Card variant="soft" size="sm">
+              <CardHeader>
+                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Ventas por hora
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ChartContainer config={VENTAS_POR_HORA_CONFIG} className="h-[200px] w-full">
+                  <BarChart data={series} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                    <XAxis
+                      dataKey="hour"
+                      tickFormatter={(h: number) => `${String(h).padStart(2, "0")}h`}
+                      fontSize={10}
+                      stroke="var(--muted-foreground)"
+                      tickLine={false}
+                      axisLine={false}
+                    />
+                    <YAxis
+                      fontSize={10}
+                      width={44}
+                      stroke="var(--muted-foreground)"
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={compactAmount}
+                    />
+                    <ChartTooltip
+                      cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                      content={
+                        <ChartTooltipContent
+                          labelFormatter={(label) => `${String(label).padStart(2, "0")}:00`}
+                          formatter={(value, name) => (
+                            <div className="flex w-full items-center justify-between gap-3">
+                              <span className="text-muted-foreground">
+                                {VENTAS_POR_HORA_CONFIG[name as keyof typeof VENTAS_POR_HORA_CONFIG]
+                                  ?.label ?? name}
+                              </span>
+                              <span className="font-medium tabular-nums">
+                                {formatMoney(Number(value) || 0, config)}
+                              </span>
+                            </div>
+                          )}
+                        />
+                      }
+                    />
+                    <ChartLegend content={<ChartLegendContent />} />
+                    {/* Ayer primero para que quede detrás visualmente en la leyenda
+                        y hoy (chart-1) sea la barra que se lee primero. */}
+                    <Bar
+                      dataKey="ayer"
+                      fill="var(--color-ayer)"
+                      fillOpacity={0.45}
+                      radius={[4, 4, 0, 0]}
+                    />
+                    <Bar dataKey="hoy" fill="var(--color-hoy)" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ChartContainer>
+              </CardContent>
+            </Card>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              Todavía no hay ventas en este turno.
+            </p>
+          )}
+
+          {/* Fila 3 — derivados del chart. Cada tile se oculta si no tiene base
+              real de comparación (nunca inventar una proyección sin histórico). */}
+          {!hourlyLoading && (derived.deltaPct !== null || derived.projection !== null) && (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              {derived.deltaPct !== null && (
+                <StatTile
+                  label="vs ayer a esta hora"
+                  value={`${derived.deltaPct >= 0 ? "+" : ""}${derived.deltaPct.toFixed(1)}%`}
+                  tone={derived.deltaPct >= 0 ? "positive" : "negative"}
+                  icon={
+                    derived.deltaPct >= 0 ? (
+                      <TrendingUp className="size-3.5" />
+                    ) : (
+                      <TrendingDown className="size-3.5" />
+                    )
+                  }
+                />
+              )}
+              {derived.projection !== null && (
+                <StatTile
+                  label="Proyección del día"
+                  value={formatMoney(derived.projection, config)}
+                />
+              )}
+            </div>
+          )}
+
+          {/* Tiles secundarios — solo lo que aplica */}
           {!loading && summary && (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               <StatTile label="Efectivo en caja" value={formatMoney(summary.subtotal, config)} />

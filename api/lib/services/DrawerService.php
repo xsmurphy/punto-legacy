@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 use Punto\Api\Context\TenantContext;
+use Punto\Api\Support\TenantClock;
 // DB not needed (uses ncmExecute helpers)
 
 /**
@@ -265,6 +266,120 @@ final class DrawerService
         }
 
         return ['salesCount' => $salesCount, 'customersCount' => count($customerIds)];
+    }
+
+    /**
+     * Ventas por HORA del turno en curso + las del día calendario local anterior
+     * (misma caja), para el mini-dashboard del menú del POS ("hoy vs ayer").
+     *
+     * Scoping y exclusiones IDÉNTICOS a `getSaleStats()`: filtro de sesión
+     * drawerId exacto + fallback por fecha (mig 70), `transactionType IN (0,5,6)`,
+     * type 6 (nota de crédito) no cuenta como venta, y ventas internas fuera
+     * (`isInternalSale` / `isParentInternalSale` según el tipo). La única
+     * diferencia es que acá además se acumula monto: `abs(transactionTotal)` por
+     * transacción — `getSaleStats` no maneja plata y el breakdown por método de
+     * pago (`getPaymentBreakdown`) no sirve para agrupar por hora porque agrupa
+     * por método, no por transacción.
+     *
+     * Agrupación horaria: `transaction.transactionDate` es **TIMESTAMPTZ**
+     * (db-schema-postgres.sql:319), así que el bucket se calcula con
+     * `date_trunc('hour', transactionDate AT TIME ZONE <tz del tenant>)`. La
+     * sesión de PG ya corre en 'America/Asuncion' (api/includes/db.php:68), pero
+     * el `AT TIME ZONE` explícito con `TenantClock::timezone()` hace el corte
+     * correcto para cualquier tenant sin depender de ese default de conexión.
+     *
+     * @return array{timezone:string,today:array<int,array{hour:string,salesTotal:float,salesCount:int}>,yesterday:array<int,array{hour:string,salesTotal:float,salesCount:int}>}
+     */
+    public function getHourlyStats(string $registerId, string $since, ?string $drawerId = null): array
+    {
+        $tz = TenantClock::timezone($this->ctx->companyId);
+
+        // HOY = el turno en curso (misma ventana que el resto del resumen).
+        if ($drawerId !== null && $drawerId !== '') {
+            $todaySql    = '(t.drawerid = ? OR (t.drawerid IS NULL AND t.transactionDate > ?))';
+            $todayParams = [$drawerId, $since];
+        } else {
+            $todaySql    = 't.transactionDate > ?';
+            $todayParams = [$since];
+        }
+
+        // AYER = el día calendario LOCAL anterior al de la apertura del turno,
+        // misma caja.
+        //
+        // Se resta el día sobre la parte FECHA de `$since` (`substr(...,0,10)`),
+        // nunca sobre el string completo: `drawerOpenDate` puede volver de PG
+        // renderizado con offset ('2026-08-02 08:15:00-04'), y en ese caso
+        // `strtotime()` lo tomaría como instante absoluto y `date()` lo
+        // formatearía en el default del proceso — UTC en el container de prod
+        // (mismo pozo que documenta TenantClock) — corriendo la fecha un día.
+        // Una fecha pelada 'Y-m-d' no tiene esa ambigüedad: entra y sale igual.
+        $prevDay         = date('Y-m-d', strtotime(substr($since, 0, 10) . ' -1 day'));
+        $yesterdaySql    = '(t.transactionDate AT TIME ZONE ?::text)::date = ?::date';
+        $yesterdayParams = [$tz, $prevDay];
+
+        return [
+            'timezone'  => $tz,
+            'today'     => $this->hourlyBuckets($registerId, $tz, $todaySql, $todayParams),
+            'yesterday' => $this->hourlyBuckets($registerId, $tz, $yesterdaySql, $yesterdayParams),
+        ];
+    }
+
+    /**
+     * Ejecuta la query horaria con un filtro de fecha dado y devuelve los buckets
+     * no vacíos ordenados cronológicamente. La exclusión de internas es PHP (los
+     * helpers `isInternalSale`/`isParentInternalSale` viven en functions.php), así
+     * que el GROUP BY no puede ir en SQL: se agrupa acá con la hora ya truncada
+     * por Postgres.
+     *
+     * @param array<int,mixed> $dateParams
+     * @return array<int,array{hour:string,salesTotal:float,salesCount:int}>
+     */
+    private function hourlyBuckets(string $registerId, string $tz, string $dateSql, array $dateParams): array
+    {
+        $sql = "SELECT to_char(date_trunc('hour', t.transactionDate AT TIME ZONE ?::text), 'YYYY-MM-DD HH24:00') AS hour,
+                       abs(t.transactionTotal) AS total,
+                       t.transactionType, t.transactionParentId, t.meta->>'tags' AS tags
+                FROM transaction t
+                WHERE " . $dateSql . "
+                  AND t.transactionType IN (0,5,6)
+                  AND t.registerId = ?
+                  AND t.companyId = ?";
+        $params = array_merge([$tz], $dateParams, [$registerId, $this->ctx->companyId]);
+
+        $result  = ncmExecute($sql, $params, false, true);
+        $buckets = [];
+        if ($result) {
+            while (!$result->EOF) {
+                $f = $result->fields;
+
+                if ((int) $f['transactionType'] === 6) {
+                    // Nota de crédito/devolución — no es venta (igual que getSaleStats).
+                    $result->MoveNext();
+                    continue;
+                }
+
+                $ignore = ((int) $f['transactionType'] === 5)
+                    ? isParentInternalSale($f['transactionParentId'])
+                    : isInternalSale(json_decode((string) $f['tags'], true));
+                if ($ignore) {
+                    $result->MoveNext();
+                    continue;
+                }
+
+                $hour = (string) $f['hour'];
+                if (!isset($buckets[$hour])) {
+                    $buckets[$hour] = ['hour' => $hour, 'salesTotal' => 0.0, 'salesCount' => 0];
+                }
+                $buckets[$hour]['salesTotal'] += (float) $f['total'];
+                $buckets[$hour]['salesCount']++;
+
+                $result->MoveNext();
+            }
+            $result->Close();
+        }
+
+        ksort($buckets);
+        return array_values($buckets);
     }
 
     // ========================================================================

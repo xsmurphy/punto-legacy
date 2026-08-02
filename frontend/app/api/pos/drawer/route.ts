@@ -10,6 +10,7 @@
  * Endpoints expuestos:
  *   GET  /api/pos/drawer           → resumen completo (list, date, subtotal, total, tips, returns)
  *   GET  /api/pos/drawer?check=1   → { isOpen: bool }
+ *   GET  /api/pos/drawer?resource=hourlyStats → { timezone, today[], yesterday[] }
  *   POST /api/pos/drawer           → { action: "open"|"close"|"expense"|"income", amount, date, note?, user? }
  */
 
@@ -25,6 +26,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const check = req.nextUrl.searchParams.get("check")
   if (check === "1") {
     return bffProxy(req, { upstreamPath: "/v1/drawer.php?resource=check", requireBearer: true })
+  }
+  // Ventas por hora (hoy vs ayer) — PASSTHROUGH, no composición. El summary
+  // sigue siendo un request aparte: el mini-dashboard del menú lo pide con su
+  // propia query de react-query, así que meterlo dentro del summary solo
+  // acoplaría dos payloads con ciclos de vida distintos.
+  if (req.nextUrl.searchParams.get("resource") === "hourlyStats") {
+    return bffProxy(req, { upstreamPath: "/v1/drawer.php?resource=hourlyStats", requireBearer: true })
   }
   return bffProxy(req, { upstreamPath: "/v1/drawer.php", requireBearer: true })
 }
