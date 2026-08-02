@@ -118,6 +118,10 @@ const settingsSchema = z.object({
     twitter: z.string(),
   }),
   category: z.string(),
+  slug: z
+    .string()
+    .max(40, "Máximo 40 caracteres")
+    .regex(/^[a-z0-9-]*$/, "Solo minúsculas, números y guiones"),
   phone: z.string(),
   city: z.string(),
   country: z.string(),
@@ -259,6 +263,7 @@ export default function SettingsPage() {
         twitter: data.social?.twitter ?? "",
       },
       category: data.category ?? "",
+      slug: data.slug ?? "",
       phone: data.phone ?? "",
       city: data.city ?? "",
       country: data.country ?? "",
@@ -442,65 +447,86 @@ function EmpresaTab({
               el patrón ProductPhoto de items. */}
           <div className="flex items-start gap-4">
             <CompanyLogo logoUrl={logoUrl} hasLogo={hasLogo} />
+            <div className="grid flex-1 grid-cols-1 gap-6 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Nombre de la empresa</FormLabel>
+                    <FormControl>
+                      <Input {...field} />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Aparece en el header del panel, recibos y reportes.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="slug"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Slug</FormLabel>
+                    <FormControl>
+                      <Input placeholder="mi-empresa" {...field} />
+                    </FormControl>
+                    <FormDescription className="text-xs">
+                      Identificador único de tu empresa en Punto (URLs públicas). Solo
+                      minúsculas, números y guiones.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
             <FormField
               control={form.control}
-              name="name"
+              name="category"
               render={({ field }) => (
-                <FormItem className="flex-1">
-                  <FormLabel>Nombre de la empresa</FormLabel>
+                <FormItem>
+                  <FormLabel>Rubro</FormLabel>
+                  <Select onValueChange={field.onChange} value={field.value}>
+                    <FormControl>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Seleccionar…" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {COMPANY_CATEGORIES.map((g) => (
+                        <SelectGroup key={g.group}>
+                          <SelectLabel>{g.group}</SelectLabel>
+                          {g.items.map((item) => (
+                            <SelectItem key={item.value} value={item.value}>
+                              {item.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="website"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Sitio web</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input type="url" placeholder="https://miempresa.com" {...field} />
                   </FormControl>
-                  <FormDescription className="text-xs">
-                    Aparece en el header del panel, recibos y reportes.
-                  </FormDescription>
                   <FormMessage />
                 </FormItem>
               )}
             />
           </div>
-          <FormField
-            control={form.control}
-            name="category"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Rubro</FormLabel>
-                <Select onValueChange={field.onChange} value={field.value}>
-                  <FormControl>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder="Seleccionar…" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {COMPANY_CATEGORIES.map((g) => (
-                      <SelectGroup key={g.group}>
-                        <SelectLabel>{g.group}</SelectLabel>
-                        {g.items.map((item) => (
-                          <SelectItem key={item.value} value={item.value}>
-                            {item.label}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="website"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Sitio web</FormLabel>
-                <FormControl>
-                  <Input type="url" placeholder="https://miempresa.com" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
         </Subsection>
 
       </div>
@@ -1170,6 +1196,7 @@ function emptyValues(): SettingsFormValues {
     website: "",
     social: { facebook: "", instagram: "", youtube: "", twitter: "" },
     category: "",
+    slug: "",
     phone: "",
     city: "",
     country: "",

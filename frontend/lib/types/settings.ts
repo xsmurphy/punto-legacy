@@ -30,6 +30,9 @@ export interface SettingsGeneral {
   }
   /** Código numérico de la categoría (rubro) — ej. "1.7". */
   category: string
+  /** Identificador único de la empresa (URLs públicas). '' = sin slug asignado.
+   *  Normalizado y validado server-side (SettingsService::updateGeneral). */
+  slug: string
   phone: string
   city: string
   country: string

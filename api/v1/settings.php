@@ -124,6 +124,10 @@ if ($method === 'POST') {
         'tin'            => $s('tin'),
         'billDetail'     => $s('billDetail'),
         'category'       => $s('category'),
+        // Identificador único de la empresa (URLs públicas). Normalizado y
+        // validado server-side en SettingsService::updateGeneral() — acá solo
+        // pasa el crudo trimeado, nunca confiamos en el charset del cliente.
+        'slug'           => $s('slug'),
         'thousandSeparator' => $s('thousandSeparator'),
         'itemsSaleLimit' => $s('itemsSaleLimit'),
         // Asistente IA — nombre y personalidad por empresa (context/22 no aplica;
@@ -158,8 +162,13 @@ if ($method === 'POST') {
         'deletedItemsHistory' => $b('deletedItemsHistory'),
     ];
 
-    if (!$svc->updateGeneral(COMPANY_ID, $fields)) {
-        apiError('No se pudo guardar', 500);
+    try {
+        if (!$svc->updateGeneral(COMPANY_ID, $fields)) {
+            apiError('No se pudo guardar', 500);
+        }
+    } catch (\RuntimeException $e) {
+        // Slug ya usado por otra company — mensaje legible, no un 500 crudo.
+        apiError($e->getMessage(), 422);
     }
     apiOk(['action' => 'update', 'type' => 'setting']);
 }

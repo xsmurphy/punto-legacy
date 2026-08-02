@@ -86,6 +86,9 @@ final class SettingsService
                 'twitter'   => (string) ($social['twitter'] ?? ''),
             ],
             'category'        => (string) ($r['settingCompanyCategoryId'] ?? ''),
+            // Identificador único de la empresa (URLs públicas). Columna real
+            // `company.slug` — ver mig 113_company_slug_unique.sql.
+            'slug'            => (string) ($r['slug'] ?? ''),
             'phone'           => (string) ($r['settingPhone'] ?? ''),
             'city'            => (string) ($r['settingCity'] ?? ''),
             'country'         => (string) ($r['settingCountry'] ?? ''),
@@ -131,9 +134,17 @@ final class SettingsService
     /**
      * Guarda los ajustes en company.config. SCOPEADO por companyId.
      * @param array $f campos validados (booleans ya como bool, strings limpios). @return bool
+     * @throws \RuntimeException  slug pedido ya en uso por otra company (mensaje legible para el front).
      */
     public function updateGeneral($companyId, array $f)
     {
+        // Slug primero, ANTES de tocar nada — si está en uso abortamos sin
+        // side effects (fail fast, no llegamos a leer/reescribir settingObj).
+        $slug = $this->normalizeSlug((string) ($f['slug'] ?? ''));
+        if ($slug !== null) {
+            $this->assertSlugAvailable($companyId, $slug);
+        }
+
         // settingObj: leer el blob anidado actual y MERGEAR (preserva currencies + claves desconocidas).
         // Si la lectura FALLA (null, no [] vacío legítimo), abortar: escribir un settingObj con solo
         // los 7 flags borraría currencies. [] vacío (company nueva) sí procede.
@@ -162,6 +173,10 @@ final class SettingsService
             'settingTIN'               => $f['tin'],
             'settingBillDetail'        => $f['billDetail'],
             'settingCompanyCategoryId' => $f['category'],
+            // NULL (no '') cuando el usuario borra el campo — el índice UNIQUE
+            // parcial de la mig 113 solo cubre valores no vacíos, pero NULL es
+            // la forma canónica de "sin slug" (evita filas con '' acumulándose).
+            'slug'                     => $slug,
             'settingThousandSeparator' => $f['thousandSeparator'],
             'settingItemsSaleLimit'    => $f['itemsSaleLimit'],
             'settingDecimal'           => !empty($f['decimal']) ? 'yes' : 'no',
@@ -195,7 +210,50 @@ final class SettingsService
             'where'       => 'companyId = ?',
             'whereParams' => [$companyId],
         ]);
-        return is_array($res) && ($res['error'] === false);
+        if (is_array($res) && $res['error'] === false) {
+            return true;
+        }
+        // Red final: violación del UNIQUE parcial (mig 113) por carrera entre
+        // el pre-check de assertSlugAvailable() y este UPDATE. Mapeamos el
+        // error crudo de PG a mensaje legible en vez de dejar pasar un 500.
+        $errMsg = is_array($res) ? (string) ($res['error'] ?? '') : '';
+        if (stripos($errMsg, 'idx_company_slug_unique') !== false || stripos($errMsg, 'duplicate key') !== false) {
+            throw new \RuntimeException('Ese slug ya está en uso');
+        }
+        return false;
+    }
+
+    /**
+     * Normaliza el slug pedido por el cliente: lowercase, trim, solo [a-z0-9-],
+     * guiones consecutivos colapsados, tope 40 (VARCHAR(40) en BD). Nunca
+     * confiamos en el charset que mande el front — esto es la única fuente de
+     * verdad server-side. @return string|null  null = "sin slug" (se persiste NULL).
+     */
+    private function normalizeSlug(string $raw): ?string
+    {
+        $s = strtolower(trim($raw));
+        $s = preg_replace('/[^a-z0-9-]/', '', $s);
+        $s = preg_replace('/-+/', '-', (string) $s);
+        $s = trim((string) $s, '-');
+        $s = mb_substr((string) $s, 0, 40);
+        return $s === '' ? null : $s;
+    }
+
+    /**
+     * Chequeo previo de unicidad (UX: error claro antes de intentar el UPDATE).
+     * El UNIQUE parcial de la mig 113 es la red final ante carreras — ver
+     * el mapeo de error en updateGeneral(). SCOPEADO: excluye la propia company.
+     * @throws \RuntimeException
+     */
+    private function assertSlugAvailable(string $companyId, string $slug): void
+    {
+        $r = ncmExecute(
+            'SELECT 1 FROM company WHERE slug = ? AND companyId <> ? LIMIT 1',
+            [$slug, $companyId]
+        );
+        if (!empty($r)) {
+            throw new \RuntimeException('Ese slug ya está en uso');
+        }
     }
 
     /**

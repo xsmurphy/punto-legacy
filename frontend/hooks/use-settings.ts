@@ -113,6 +113,7 @@ function serialize(values: SettingsFormValues): Record<string, unknown> {
     tin: values.tin,
     billDetail: values.billDetail,
     category: values.category,
+    slug: values.slug,
     thousandSeparator: values.thousandSeparator,
     itemsSaleLimit: values.itemsSaleLimit,
     agentName: values.agentName,
