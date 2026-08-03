@@ -13,13 +13,15 @@
  * lados hasta entonces.
  *
  * Dependencias del entorno: ncmInsert, ncmUpdate, ncmExecute, passEncoder,
- * phoneToE164, findPhoneLogin, createSlug, $countries global. Todo cargado
- * por /api/bootstrap.php → /app/head.php + /app/includes/functions.php.
+ * phoneToE164, findPhoneLogin, $countries global. Todo cargado por
+ * /api/bootstrap.php → /app/head.php + /app/includes/functions.php.
  */
 
 declare(strict_types=1);
 
 namespace Punto\Api\Auth;
+
+use Punto\Api\Support\Slug;
 
 final class SignupService
 {
@@ -111,8 +113,24 @@ final class SignupService
         $tin         = $countryData['tin']                         ?? 'TIN';
         $timezone    = $countryData['timezone']                    ?? 'America/Asuncion';
 
+        // Slug inicial derivado del nombre — misma normalización/unicidad que
+        // Settings > Empresa (Slug::class, mig 113_company_slug_unique.sql).
+        // A diferencia del form de Settings, acá el slug es un nice-to-have
+        // generado, no un valor pedido explícitamente por el usuario: si el
+        // candidato normalizado colisiona, desambiguamos con un sufijo del
+        // companyId (alta entropía, sin necesidad de otra query) en vez de
+        // abortar el signup — el usuario puede editarlo después en Settings.
+        $slugCandidate = Slug::normalize($storeName);
+        $slug = null;
+        if ($slugCandidate !== null) {
+            $slug = Slug::isAvailable($slugCandidate, $companyInsert)
+                ? $slugCandidate
+                : $slugCandidate . '-' . substr($companyInsert, 0, 6);
+        }
+
         $settingRecord = [
             'settingName'              => $storeName,
+            'slug'                     => $slug,
             'settingCurrency'          => $cSymbol ?: '$',
             'settingCountry'           => $countryCode,
             'settingLanguage'          => $lang[0] ?: 'es',
@@ -131,8 +149,6 @@ final class SignupService
             'table'   => 'company',
             'where'   => "companyId = '" . $companyInsert . "'",
         ]);
-
-        createSlug($companyInsert, $storeName);
 
         $taxonomyInsert = null;
         $vat = $countryData['currency']['vat'] ?? false;

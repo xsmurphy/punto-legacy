@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Settings;
 
 use DateTimeZone;
+use Punto\Api\Support\Slug;
 
 /**
  * Dominio de Ajustes (Settings) — API compartida (motor ERP).
@@ -140,7 +141,7 @@ final class SettingsService
     {
         // Slug primero, ANTES de tocar nada — si está en uso abortamos sin
         // side effects (fail fast, no llegamos a leer/reescribir settingObj).
-        $slug = $this->normalizeSlug((string) ($f['slug'] ?? ''));
+        $slug = Slug::normalize((string) ($f['slug'] ?? ''));
         if ($slug !== null) {
             $this->assertSlugAvailable($companyId, $slug);
         }
@@ -224,22 +225,6 @@ final class SettingsService
     }
 
     /**
-     * Normaliza el slug pedido por el cliente: lowercase, trim, solo [a-z0-9-],
-     * guiones consecutivos colapsados, tope 40 (VARCHAR(40) en BD). Nunca
-     * confiamos en el charset que mande el front — esto es la única fuente de
-     * verdad server-side. @return string|null  null = "sin slug" (se persiste NULL).
-     */
-    private function normalizeSlug(string $raw): ?string
-    {
-        $s = strtolower(trim($raw));
-        $s = preg_replace('/[^a-z0-9-]/', '', $s);
-        $s = preg_replace('/-+/', '-', (string) $s);
-        $s = trim((string) $s, '-');
-        $s = mb_substr((string) $s, 0, 40);
-        return $s === '' ? null : $s;
-    }
-
-    /**
      * Chequeo previo de unicidad (UX: error claro antes de intentar el UPDATE).
      * El UNIQUE parcial de la mig 113 es la red final ante carreras — ver
      * el mapeo de error en updateGeneral(). SCOPEADO: excluye la propia company.
@@ -247,11 +232,7 @@ final class SettingsService
      */
     private function assertSlugAvailable(string $companyId, string $slug): void
     {
-        $r = ncmExecute(
-            'SELECT 1 FROM company WHERE slug = ? AND companyId <> ? LIMIT 1',
-            [$slug, $companyId]
-        );
-        if (!empty($r)) {
+        if (!Slug::isAvailable($slug, $companyId)) {
             throw new \RuntimeException('Ese slug ya está en uso');
         }
     }
