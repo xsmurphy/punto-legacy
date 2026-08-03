@@ -141,7 +141,6 @@ export default function EspaciosPage() {
   const loadFromSession = useCartStore((s) => s.loadFromSession)
   const loadForSettlement = useCartStore((s) => s.loadForSettlement)
   const payOpen = usePosUIStore((s) => s.payOpen)
-  const setPayOpen = usePosUIStore((s) => s.setPayOpen)
   const { refetch: refetchSettlingBalance } = useSessionBalance(
     settlingTable?.session?.id ?? null,
   )
@@ -263,7 +262,13 @@ export default function EspaciosPage() {
       if (selection.mode === "total" && balance.paid <= 0) {
         loadFromSession(sessionId, spaceName, orders)
         setSplitTable(null)
-        setPayOpen(true)
+        // Sin abrir el PayDialog: el CartPanel ya está visible acá mismo
+        // (persistente en el layout de /pos, incluida /pos/espacios — ver
+        // app/(pos)/pos/layout.tsx) "en modo espacio" con el carrito recién
+        // cargado. El cajero suma cliente/descuento ahí, igual que en una
+        // venta walk-in, y dispara "Cobrar" cuando esté listo — no navegamos
+        // a otra ruta: `settlingTable`/la reconciliación post-cobro de abajo
+        // depende de que este componente siga montado.
         return
       }
 
@@ -328,7 +333,9 @@ export default function EspaciosPage() {
       loadForSettlement(spaceName, lines, intent)
       setSettlingTable(table)
       setSplitTable(null)
-      setPayOpen(true)
+      // Mismo criterio que el camino "total": el CartPanel ya está visible acá
+      // con el carrito cargado, sin abrir el PayDialog — el cajero edita y
+      // cobra desde ahí cuando esté listo (ver comentario arriba).
     } catch (err) {
       toast.error("No se pudo preparar el cobro del espacio", {
         description: err instanceof Error ? err.message : String(err),
