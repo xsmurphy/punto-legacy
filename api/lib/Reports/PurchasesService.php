@@ -141,7 +141,11 @@ final class PurchasesService
             return ['rows' => []];
         }
 
-        $parentIds = array_values(array_unique(array_filter(array_map(fn($r) => (string) $r['transactionParentId'], $res))));
+        // mig 115: transactionParentId dropeada — origen (kind='purchase_payment')
+        // vía transaction_link, batch para todos los pagos de la página.
+        $paymentIds     = array_map(fn($r) => (string) $r['transactionId'], $res);
+        $originByPayment = (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $paymentIds, 'purchase_payment');
+        $parentIds = array_values(array_unique(array_filter($originByPayment)));
         $parents   = $this->parentInvoices($parentIds, $companyId);
 
         $usrIds  = array_map(fn($r) => (string) $r['userId'], $res);
@@ -150,7 +154,7 @@ final class PurchasesService
 
         $rows = [];
         foreach ($res as $f) {
-            $pid = (string) $f['transactionParentId'];
+            $pid = $originByPayment[(string) $f['transactionId']] ?? '';
             if (!isset($parents[$pid])) {
                 continue;
             }
@@ -362,23 +366,42 @@ final class PurchasesService
         return $out;
     }
 
+    /** SUM(transactionTotal) de pagos a proveedor (kind='purchase_payment') por compra origen. */
     private function payedByParent(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
             return [];
         }
-        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $derivedByOrigin = (new \Punto\Api\Services\TransactionLinkService())->mapDerivedIdsByOrigins($companyId, $ids, 'purchase_payment');
+        $allDerived = [];
+        foreach ($derivedByOrigin as $derivedIds) {
+            foreach ($derivedIds as $d) {
+                $allDerived[] = $d;
+            }
+        }
+        if (!$allDerived) {
+            return [];
+        }
+        $ph  = implode(',', array_fill(0, count($allDerived), '?'));
         $res = ncmExecute(
-            "SELECT transactionParentId, SUM(transactionTotal) as payed
-             FROM transaction WHERE transactionParentId IN ($ph) AND companyId = ?
-             GROUP BY transactionParentId",
-            array_merge($ids, [$companyId]), false, false, true
+            "SELECT transactionId, transactionTotal as payed
+             FROM transaction WHERE transactionId IN ($ph) AND companyId = ?",
+            array_merge($allDerived, [$companyId]), false, false, true
         );
         $res = is_array($res) ? $res : [];
-        $map = [];
+        $payedByDerived = [];
         foreach ($res as $r) {
-            $map[(string) $r['transactionParentId']] = (float) $r['payed'];
+            $payedByDerived[(string) $r['transactionId']] = (float) $r['payed'];
+        }
+
+        $map = [];
+        foreach ($derivedByOrigin as $originId => $derivedIds) {
+            $sum = 0.0;
+            foreach ($derivedIds as $d) {
+                $sum += $payedByDerived[$d] ?? 0.0;
+            }
+            $map[$originId] = $sum;
         }
         return $map;
     }

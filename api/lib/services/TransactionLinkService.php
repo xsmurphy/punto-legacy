@@ -120,6 +120,77 @@ final class TransactionLinkService
         return $map;
     }
 
+    /**
+     * Versión batch de listOriginIds() — para reportes que antes leían
+     * `transaction.transactionparentid` directo de N filas derivadas (pagos,
+     * devoluciones, citas de paquete) y necesitan su origen (venta, compra)
+     * sin N+1. "Primero gana" por derivedId — el modelo viejo era de un solo
+     * padre por fila, así que en la práctica hay a lo sumo un originid por
+     * kind para cada derivedId.
+     *
+     * @param list<string> $derivedIds
+     * @return array<string, string> derivedId → originId (solo entradas con vínculo)
+     */
+    public function mapOriginIdByDerivedIds(string $companyId, array $derivedIds, ?string $kind = null): array
+    {
+        $derivedIds = array_values(array_unique(array_filter($derivedIds, static fn ($v) => $v !== '' && $v !== null)));
+        $map = [];
+        if ($derivedIds === []) {
+            return $map;
+        }
+        $placeholders = implode(',', array_fill(0, count($derivedIds), '?'));
+        $sql          = "SELECT derivedid, originid FROM transaction_link WHERE companyid = ? AND derivedid IN ($placeholders)";
+        $params       = array_merge([$companyId], $derivedIds);
+        if ($kind !== null) {
+            $sql      .= ' AND kind = ?';
+            $params[]  = $kind;
+        }
+        $rs = ncmExecute($sql, $params, false, true);
+        if ($rs) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $d = (string) ($f['derivedid'] ?? '');
+                if ($d !== '' && !isset($map[$d])) {
+                    $map[$d] = (string) ($f['originid'] ?? '');
+                }
+                $rs->MoveNext();
+            }
+        }
+        return $map;
+    }
+
+    /**
+     * TODOS los vínculos origin→derived de una empresa, sin filtrar por
+     * origen conocido de antemano — para reportes company-wide (dashboard)
+     * que antes hacían `GROUP BY transactionparentid` directo sobre toda la
+     * tabla. Usar con cuidado en tenants grandes (sin paginar).
+     *
+     * @return array<string, list<string>> originId → derivedIds
+     */
+    public function mapAllDerivedIdsByOrigin(string $companyId, ?string $kind = null): array
+    {
+        $sql    = 'SELECT originid, derivedid FROM transaction_link WHERE companyid = ?';
+        $params = [$companyId];
+        if ($kind !== null) {
+            $sql      .= ' AND kind = ?';
+            $params[]  = $kind;
+        }
+        $rs  = ncmExecute($sql, $params, false, true);
+        $map = [];
+        if ($rs) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $o = (string) ($f['originid'] ?? '');
+                $d = (string) ($f['derivedid'] ?? '');
+                if ($o !== '') {
+                    $map[$o][] = $d;
+                }
+                $rs->MoveNext();
+            }
+        }
+        return $map;
+    }
+
     // ------------------------------------------------------------------
     // order_transaction_link
     // ------------------------------------------------------------------

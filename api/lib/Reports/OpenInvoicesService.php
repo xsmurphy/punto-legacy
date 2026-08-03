@@ -32,7 +32,7 @@ final class OpenInvoicesService
         $sql = "SELECT $contactCol as cid, transactionId as saleId, transactionDate as date,
                        transactionDueDate as dueDate, invoiceNo as invoice, invoicePrefix as prefix,
                        transactionTotal as total, transactionDiscount as discount,
-                       transactionParentId as parent, transactionComplete as complete
+                       transactionComplete as complete
                 FROM transaction
                 WHERE transactionComplete = false AND transactionType = ? AND companyId = ?
                 ORDER BY transactionDueDate DESC LIMIT 5000";
@@ -112,25 +112,44 @@ final class OpenInvoicesService
         ]];
     }
 
-    /** SUM(ABS) de pagos+devoluciones (tipo 5,6) por transactionParentId, scopeado por companyId. */
+    /** SUM(ABS) de pagos+devoluciones (tipo 5,6) por venta origen (transaction_link, mig 115), scopeado por companyId. */
     private function payedByParent(array $ids, $companyId)
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
             return [];
         }
-        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        $derivedByOrigin = (new \Punto\Api\Services\TransactionLinkService())->mapDerivedIdsByOrigins($companyId, $ids);
+        $allDerived = [];
+        foreach ($derivedByOrigin as $derivedIds) {
+            foreach ($derivedIds as $d) {
+                $allDerived[] = $d;
+            }
+        }
+        if (!$allDerived) {
+            return [];
+        }
+
+        $ph  = implode(',', array_fill(0, count($allDerived), '?'));
         $res = ncmExecute(
-            "SELECT transactionParentId,
-                    SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed
-             FROM transaction WHERE transactionType IN (5,6) AND companyId = ? AND transactionParentId IN ($ph)
-             GROUP BY transactionParentId",
-            array_merge([$companyId], $ids), false, false, true
+            "SELECT transactionId,
+                    ABS(transactionTotal - COALESCE(transactionDiscount, 0)) as payed
+             FROM transaction WHERE transactionType IN (5,6) AND companyId = ? AND transactionId IN ($ph)",
+            array_merge([$companyId], $allDerived), false, false, true
         );
         $res = is_array($res) ? $res : [];
-        $map = [];
+        $payedByDerived = [];
         foreach ($res as $r) {
-            $map[(string) $r['transactionParentId']] = abs((float) $r['payed']);
+            $payedByDerived[(string) $r['transactionId']] = (float) $r['payed'];
+        }
+
+        $map = [];
+        foreach ($derivedByOrigin as $originId => $derivedIds) {
+            $sum = 0.0;
+            foreach ($derivedIds as $d) {
+                $sum += $payedByDerived[$d] ?? 0.0;
+            }
+            $map[$originId] = abs($sum);
         }
         return $map;
     }

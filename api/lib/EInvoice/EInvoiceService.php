@@ -1044,15 +1044,12 @@ final class EInvoiceService
     /**
      * true si la venta original de una devolución tiene una factura electrónica
      * emitida. `$transactionId` es el de la DEVOLUCIÓN — la original sale de
-     * `transactionParentId`.
+     * `transaction_link` (mig 115, kind='return' — reemplaza `transactionParentId`).
      */
     private function parentInvoiceIsIssued(string $companyId, string $transactionId): bool
     {
-        $tx = ncmExecute(
-            'SELECT transactionParentId FROM transaction WHERE transactionId = ? AND companyId = ?',
-            [$transactionId, $companyId]
-        );
-        $parentId = $tx ? trim((string) ($tx['transactionParentId'] ?? '')) : '';
+        $origins  = (new \Punto\Api\Services\TransactionLinkService())->listOriginIds($companyId, $transactionId, 'return');
+        $parentId = $origins[0] ?? '';
         if ($parentId === '') {
             return false;
         }
@@ -1638,7 +1635,7 @@ final class EInvoiceService
     {
         $tx = ncmExecute(
             'SELECT transactionTotal, transactionDiscount, transactionCurrency,
-                    transactionParentId, customerId
+                    customerId
                FROM transaction WHERE transactionId = ? AND companyId = ?',
             [$transactionId, $companyId]
         );
@@ -1646,7 +1643,10 @@ final class EInvoiceService
             return null;
         }
 
-        $parentId = trim((string) ($tx['transactionParentId'] ?? ''));
+        // mig 115: transactionParentId dropeada — el origen de la devolución
+        // (venta original) vive en transaction_link, kind='return'.
+        $origins  = (new \Punto\Api\Services\TransactionLinkService())->listOriginIds($companyId, $transactionId, 'return');
+        $parentId = $origins[0] ?? '';
         if ($parentId === '') {
             throw new \RuntimeException(
                 'La devolución no está vinculada a una venta original — no se puede emitir la nota de crédito.'

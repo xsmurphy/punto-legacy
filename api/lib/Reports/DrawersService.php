@@ -251,8 +251,8 @@ final class DrawersService
      */
     private function salesByDrawerPeriod(string $from, string $to, string $roc): array
     {
-        $sql = "SELECT transactionTotal as total, transactionDiscount as discount, registerId,
-                       transactionDate, transactionParentId, transactionType, meta->>'tags' AS tags
+        $sql = "SELECT transactionId, transactionTotal as total, transactionDiscount as discount, registerId,
+                       transactionDate, transactionType, meta->>'tags' AS tags
                 FROM transaction
                 WHERE transactionDate BETWEEN ? AND ?
                   AND transactionType IN (0,5,6)" . $roc;
@@ -262,11 +262,32 @@ final class DrawersService
             return [];
         }
 
-        $a = [];
+        $rows = [];
         while (!$result->EOF) {
-            $f = $result->fields;
+            $rows[] = $result->fields;
+            $result->MoveNext();
+        }
+        $result->Close();
+
+        // mig 115: transactionParentId dropeada — batch lookup del origen de
+        // los pagos (type 5) vía transaction_link. companyId sale de $roc
+        // (Roc::build lo embebe como literal validado), igual criterio que
+        // NonAddingSales::salesByPayment (mismo helper acá, duplicado a
+        // propósito: son clases sin relación de herencia).
+        $companyId = self::companyIdFromRoc($roc);
+        $paymentIds = array_values(array_filter(array_map(
+            static fn($f) => (int) $f['transactionType'] === 5 ? (string) $f['transactionId'] : null,
+            $rows
+        )));
+        $originByPayment = ($paymentIds !== [] && $companyId !== '')
+            ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $paymentIds, 'credit_payment')
+            : [];
+
+        $a = [];
+        foreach ($rows as $f) {
             if ((int) $f['transactionType'] === 5) {
-                $ignore = isParentInternalSale($f['transactionParentId']);
+                $parentId = $originByPayment[(string) $f['transactionId']] ?? null;
+                $ignore   = $parentId ? isParentInternalSale($parentId) : false;
             } else {
                 $tags   = json_decode((string) ($f['tags'] ?? ''), true);
                 $ignore = isInternalSale($tags);
@@ -278,10 +299,17 @@ final class DrawersService
                     'total' => (float) $f['total'] - (float) $f['discount'],
                 ];
             }
-            $result->MoveNext();
         }
-        $result->Close();
         return $a;
+    }
+
+    /**
+     * Extrae companyId del fragmento `$roc` (Roc::build() lo embebe como
+     * literal validado: `AND companyId = 'uuid'`).
+     */
+    private static function companyIdFromRoc(string $roc): string
+    {
+        return preg_match("/companyId\\s*=\\s*'([0-9a-f-]{36})'/i", $roc, $m) === 1 ? $m[1] : '';
     }
 
     /** Port fiel de sumTotalBetweenDateRanges() del panel. */

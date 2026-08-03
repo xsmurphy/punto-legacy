@@ -131,7 +131,8 @@ final class FinanceLedger
         // Solo compras al CONTADO (type 1) generan egreso al crearse. Una
         // compra a CRÉDITO (type 4) no mueve plata todavía: es una cuenta por
         // pagar, y el movimiento nace cuando se registra el pago a proveedor
-        // (type 5, con transactionParentId). Sin este corte el crédito
+        // (type 5, vinculado vía transaction_link kind='purchase_payment', mig
+        // 115). Sin este corte el crédito
         // debitaría la caja dos veces (al comprar y al pagar).
         if ((string) ($row['transactionType'] ?? '') !== '1') {
             return;
@@ -191,14 +192,8 @@ final class FinanceLedger
      */
     public function recordReturn(string $companyId, string $transactionId): void
     {
-        // El nro de comprobante de una devolución vive en la venta original
-        // (la fila type=6 se inserta sin invoiceNo) — se trae por el parent para
-        // que el movimiento sea rastreable hasta la venta que se devolvió.
         $row = ncmExecute(
-            'SELECT t.*, p.invoiceNo AS parentInvoiceNo
-               FROM transaction t
-               LEFT JOIN transaction p ON p.transactionId = t.transactionParentId
-              WHERE t.transactionId = ? AND t.companyId = ? LIMIT 1',
+            'SELECT * FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
             [$transactionId, $companyId]
         );
         if (!$row) {
@@ -208,8 +203,21 @@ final class FinanceLedger
             return;
         }
 
+        // El nro de comprobante de una devolución vive en la venta original
+        // (la fila type=6 se inserta sin invoiceNo) — se trae por el origen
+        // (transaction_link kind='return', mig 115, reemplaza transactionParentId)
+        // para que el movimiento sea rastreable hasta la venta que se devolvió.
+        $parentId = (new \Punto\Api\Services\TransactionLinkService())->listOriginIds($companyId, $transactionId, 'return')[0] ?? null;
+        $invoiceNo = '';
+        if ($parentId !== null) {
+            $parent = ncmExecute(
+                'SELECT invoiceNo FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+                [$parentId, $companyId]
+            );
+            $invoiceNo = $parent ? (string) ($parent['invoiceNo'] ?? '') : '';
+        }
+
         $categoryId = $this->categories->ensureReturnsCategoryId($companyId);
-        $invoiceNo  = (string) ($row['parentInvoiceNo'] ?? '');
         $description = 'Devolución' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
 
         $this->recordPaymentLines(

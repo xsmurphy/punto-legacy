@@ -81,6 +81,11 @@ final class TransactionService
             }
         }
 
+        // mig 115: transactionParentId dropeada — todo lo que antes filtraba
+        // por esa columna ahora resuelve los derivedIds vía transaction_link
+        // (TransactionLinkService) y filtra por transactionId IN (...).
+        $linkSvc = new TransactionLinkService();
+
         $payedData        = [];
         $payed            = 0;
         $creditPayments   = null;
@@ -89,85 +94,109 @@ final class TransactionService
         $paymentsReceived = [];
         if ((string) $fields['transactionType'] === '3') {
             $payedData = $this->getTypePayments($transactionId, $companyId);
-            $payedRow  = ncmExecute(
-                'SELECT SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed FROM transaction WHERE transactionType IN(5,6) AND transactionParentId = ? AND companyId = ?',
-                [$transactionId, $companyId]
-            );
-            $payed = (float) ($payedRow['payed'] ?? 0);
 
-            $cpTotal   = (float)($fields['transactionTotal'] ?? 0) - (float)($fields['transactionDiscount'] ?? 0);
-            $cpPaidRow = ncmExecute(
-                "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?",
-                [$transactionId, $companyId]
-            );
-            $cpPaid = (float)($cpPaidRow['paid'] ?? 0);
+            $creditPaymentIds = $linkSvc->listDerivedIds($companyId, $transactionId, 'credit_payment');
+            $returnIds        = $linkSvc->listDerivedIds($companyId, $transactionId, 'return');
+            $payedDerivedIds  = array_merge($creditPaymentIds, $returnIds);
+
+            $payed = 0.0;
+            if ($payedDerivedIds !== []) {
+                $ph = implode(',', array_fill(0, count($payedDerivedIds), '?'));
+                $payedRow = ncmExecute(
+                    "SELECT SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed FROM transaction WHERE transactionType IN(5,6) AND transactionId IN ($ph) AND companyId = ?",
+                    array_merge($payedDerivedIds, [$companyId])
+                );
+                $payed = (float) ($payedRow['payed'] ?? 0);
+            }
+
+            $cpTotal = (float)($fields['transactionTotal'] ?? 0) - (float)($fields['transactionDiscount'] ?? 0);
+            $cpPaid  = 0.0;
+            if ($creditPaymentIds !== []) {
+                $cpPh      = implode(',', array_fill(0, count($creditPaymentIds), '?'));
+                $cpPaidRow = ncmExecute(
+                    "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionId IN ($cpPh) AND transactionType = 5 AND companyId = ?",
+                    array_merge($creditPaymentIds, [$companyId])
+                );
+                $cpPaid = (float)($cpPaidRow['paid'] ?? 0);
+            }
             $creditPayments = [
                 'total' => $cpTotal,
                 'paid'  => $cpPaid,
                 'debt'  => max(0.0, $cpTotal - $cpPaid),
             ];
 
-            $prResult = $this->db->Execute(
-                'SELECT transactionId, transactionDate, transactionTotal, invoiceNo, transactionPaymentType
-                 FROM transaction
-                 WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?
-                 ORDER BY transactionDate DESC',
-                [$transactionId, $companyId]
-            );
-            if ($prResult && !$prResult->EOF) {
-                while (!$prResult->EOF) {
-                    $r   = $prResult->fields;
-                    $pm  = json_decode($r['transactionPaymentType'] ?? '[]', true) ?? [];
-                    $paymentsReceived[] = [
-                        'transactionId' => (string)($r['transactionId'] ?? ''),
-                        'date'          => (string)($r['transactionDate'] ?? ''),
-                        'amount'        => (float)($r['transactionTotal'] ?? 0),
-                        'invoiceNo'     => (string)($r['invoiceNo'] ?? ''),
-                        'paymentMethod' => (string)($pm[0]['name'] ?? ''),
-                    ];
-                    $prResult->MoveNext();
+            if ($creditPaymentIds !== []) {
+                $prPh     = implode(',', array_fill(0, count($creditPaymentIds), '?'));
+                $prResult = $this->db->Execute(
+                    "SELECT transactionId, transactionDate, transactionTotal, invoiceNo, transactionPaymentType
+                     FROM transaction
+                     WHERE transactionId IN ($prPh) AND transactionType = 5 AND companyId = ?
+                     ORDER BY transactionDate DESC",
+                    array_merge($creditPaymentIds, [$companyId])
+                );
+                if ($prResult && !$prResult->EOF) {
+                    while (!$prResult->EOF) {
+                        $r   = $prResult->fields;
+                        $pm  = json_decode($r['transactionPaymentType'] ?? '[]', true) ?? [];
+                        $paymentsReceived[] = [
+                            'transactionId' => (string)($r['transactionId'] ?? ''),
+                            'date'          => (string)($r['transactionDate'] ?? ''),
+                            'amount'        => (float)($r['transactionTotal'] ?? 0),
+                            'invoiceNo'     => (string)($r['invoiceNo'] ?? ''),
+                            'paymentMethod' => (string)($pm[0]['name'] ?? ''),
+                        ];
+                        $prResult->MoveNext();
+                    }
+                    $prResult->Close();
                 }
-                $prResult->Close();
             }
         }
 
-        $cnResult = $this->db->Execute(
-            'SELECT transactionId, transactionDate, transactionTotal, invoiceNo
-             FROM transaction
-             WHERE transactionParentId = ? AND transactionType = 6 AND companyId = ?',
-            [$transactionId, $companyId]
-        );
-        if ($cnResult && !$cnResult->EOF) {
-            while (!$cnResult->EOF) {
-                $r = $cnResult->fields;
-                $creditNotes[] = [
-                    'transactionId'    => (string)($r['transactionId'] ?? ''),
-                    'transactionDate'  => (string)($r['transactionDate'] ?? ''),
-                    'transactionTotal' => (float)($r['transactionTotal'] ?? 0),
-                    'invoiceNo'        => isset($r['invoiceNo']) ? (string)$r['invoiceNo'] : null,
-                ];
-                $cnResult->MoveNext();
+        $creditNoteIds = $linkSvc->listDerivedIds($companyId, $transactionId, 'return');
+        if ($creditNoteIds !== []) {
+            $cnPh     = implode(',', array_fill(0, count($creditNoteIds), '?'));
+            $cnResult = $this->db->Execute(
+                "SELECT transactionId, transactionDate, transactionTotal, invoiceNo
+                 FROM transaction
+                 WHERE transactionId IN ($cnPh) AND transactionType = 6 AND companyId = ?",
+                array_merge($creditNoteIds, [$companyId])
+            );
+            if ($cnResult && !$cnResult->EOF) {
+                while (!$cnResult->EOF) {
+                    $r = $cnResult->fields;
+                    $creditNotes[] = [
+                        'transactionId'    => (string)($r['transactionId'] ?? ''),
+                        'transactionDate'  => (string)($r['transactionDate'] ?? ''),
+                        'transactionTotal' => (float)($r['transactionTotal'] ?? 0),
+                        'invoiceNo'        => isset($r['invoiceNo']) ? (string)$r['invoiceNo'] : null,
+                    ];
+                    $cnResult->MoveNext();
+                }
+                $cnResult->Close();
             }
-            $cnResult->Close();
         }
 
-        $aptResult = $this->db->Execute(
-            'SELECT transactionId, transactionDate, transactionTotal
-             FROM transaction
-             WHERE transactionParentId = ? AND transactionType = 13 AND companyId = ?',
-            [$transactionId, $companyId]
-        );
-        if ($aptResult && !$aptResult->EOF) {
-            while (!$aptResult->EOF) {
-                $r = $aptResult->fields;
-                $appointments[] = [
-                    'transactionId'    => (string)($r['transactionId'] ?? ''),
-                    'transactionDate'  => (string)($r['transactionDate'] ?? ''),
-                    'transactionTotal' => (float)($r['transactionTotal'] ?? 0),
-                ];
-                $aptResult->MoveNext();
+        $appointmentIds = $linkSvc->listDerivedIds($companyId, $transactionId, 'package_session');
+        if ($appointmentIds !== []) {
+            $aptPh     = implode(',', array_fill(0, count($appointmentIds), '?'));
+            $aptResult = $this->db->Execute(
+                "SELECT transactionId, transactionDate, transactionTotal
+                 FROM transaction
+                 WHERE transactionId IN ($aptPh) AND transactionType = 13 AND companyId = ?",
+                array_merge($appointmentIds, [$companyId])
+            );
+            if ($aptResult && !$aptResult->EOF) {
+                while (!$aptResult->EOF) {
+                    $r = $aptResult->fields;
+                    $appointments[] = [
+                        'transactionId'    => (string)($r['transactionId'] ?? ''),
+                        'transactionDate'  => (string)($r['transactionDate'] ?? ''),
+                        'transactionTotal' => (float)($r['transactionTotal'] ?? 0),
+                    ];
+                    $aptResult->MoveNext();
+                }
+                $aptResult->Close();
             }
-            $aptResult->Close();
         }
 
         $address = null;
@@ -182,7 +211,10 @@ final class TransactionService
             [$startDate, $startH, $endH] = dateStartEndTime($fields['fromDate'], $fields['toDate']);
         }
 
-        $isSession = $fields['transactionParentId'] ? enc($fields['transactionParentId']) : false;
+        // mig 115: transactionParentId dropeada — el origen (cualquier kind:
+        // venta que originó esta cita/pago/devolución) vive en transaction_link.
+        $ownOriginIds = $linkSvc->listOriginIds($companyId, $transactionId);
+        $isSession    = $ownOriginIds !== [] ? enc($ownOriginIds[0]) : false;
         $discount  = (float) ($fields['transactionDiscount'] ?? 0);
         $total     = (float) ($fields['transactionTotal'] ?? 0) - $discount;
 
@@ -249,12 +281,19 @@ final class TransactionService
      */
     private function getTypePayments(string $transactionId, string $companyId): array
     {
+        // mig 115: transactionParentId dropeada — pagos (kind='credit_payment')
+        // vía transaction_link.
+        $paymentIds = (new TransactionLinkService())->listDerivedIds($companyId, $transactionId, 'credit_payment');
+        if ($paymentIds === []) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($paymentIds), '?'));
         $result = $this->db->Execute(
-            'SELECT transactionId, transactionTotal, userId, transactionDate, transactionPaymentType, invoiceNo
+            "SELECT transactionId, transactionTotal, userId, transactionDate, transactionPaymentType, invoiceNo
              FROM transaction
-             WHERE transactionType = 5 AND transactionParentId = ? AND companyId = ?
-             LIMIT 100',
-            [$transactionId, $companyId]
+             WHERE transactionType = 5 AND transactionId IN ($ph) AND companyId = ?
+             LIMIT 100",
+            array_merge($paymentIds, [$companyId])
         );
         if (!$result || $result->EOF) {
             return [];
@@ -368,14 +407,18 @@ final class TransactionService
             if ($newStatus === '6' || $newStatus === 6) {
                 $extraUpdates['transactionComplete'] = 1;
 
-                // ¿La transacción es session vinculada a venta padre?
-                $session = ncmExecute(
+                // ¿La transacción es session vinculada a venta padre? mig 115:
+                // transactionParentId dropeada — kind='package_session' vía
+                // transaction_link.
+                $hasPackageOrigin = (new TransactionLinkService())
+                    ->listOriginIds($companyId, $transactionId, 'package_session') !== [];
+                $session = $hasPackageOrigin ? ncmExecute(
                     'SELECT * FROM transaction
-                      WHERE transactionType = 13 AND transactionParentId IS NOT NULL
+                      WHERE transactionType = 13
                         AND invoicePrefix IS NOT NULL
                         AND transactionId = ? AND companyId = ? LIMIT 1',
                     [$transactionId, $companyId]
-                );
+                ) : null;
 
                 if ($session) {
                     // Recrear comisiones desde transactionDetails (meta jsonb).
@@ -412,13 +455,12 @@ final class TransactionService
                 }
 
             } elseif ($newStatus === '4' || $newStatus === '5' || $newStatus === 4 || $newStatus === 5) {
-                // ¿Es session de una recurrente? Reseteamos a status=0.
-                $row = ncmExecute(
-                    'SELECT transactionParentId FROM transaction
-                      WHERE transactionId = ? AND companyId = ? LIMIT 1',
-                    [$transactionId, $companyId]
-                );
-                $parent = $row['transactionParentId'] ?? null;
+                // ¿Es session de una recurrente? Reseteamos a status=0. mig 115:
+                // transactionParentId dropeada — kind='package_session' vía
+                // transaction_link.
+                $parentIds = (new TransactionLinkService())
+                    ->listOriginIds($companyId, $transactionId, 'package_session');
+                $parent = $parentIds[0] ?? null;
                 if ($parent !== null && $parent !== '') {
                     $finalStatus = '0';
                     $extraUpdates['fromDate'] = null;
@@ -653,23 +695,42 @@ final class TransactionService
             }
         }
 
-        // Batch: paid/returned amounts for credit transactions (type 3)
+        // Batch: paid/returned amounts for credit transactions (type 3). mig
+        // 115: transactionParentId dropeada — resolvemos los derivedIds vía
+        // transaction_link (sin kind filter: cualquier pago/devolución cuenta,
+        // igual que el GROUP BY directo de antes) y agregamos en PHP.
         $toPaidMap = [];
         if (!empty($trsIds)) {
-            $ph     = implode(',', array_fill(0, count($trsIds), '?'));
-            $paidRs = $this->db->Execute(
-                "SELECT SUM(ABS(transactionTotal)) AS payed, transactionParentId
-                   FROM transaction
-                  WHERE transactionType IN (5, 6) AND companyId = ?
-                    AND transactionParentId IN ($ph)
-                  GROUP BY transactionParentId",
-                array_merge([$companyId], $trsIds)
-            );
-            if ($paidRs && !$paidRs->EOF) {
-                while (!$paidRs->EOF) {
-                    $pf = $paidRs->fields;
-                    $toPaidMap[(string) $pf['transactionParentId']] = (float) ($pf['payed'] ?? 0);
-                    $paidRs->MoveNext();
+            $derivedByOrigin = (new TransactionLinkService())->mapDerivedIdsByOrigins($companyId, $trsIds);
+            $allDerived = [];
+            foreach ($derivedByOrigin as $ids) {
+                foreach ($ids as $d) {
+                    $allDerived[] = $d;
+                }
+            }
+            if ($allDerived !== []) {
+                $ph     = implode(',', array_fill(0, count($allDerived), '?'));
+                $paidRs = $this->db->Execute(
+                    "SELECT transactionId, ABS(transactionTotal) AS payed
+                       FROM transaction
+                      WHERE transactionType IN (5, 6) AND companyId = ?
+                        AND transactionId IN ($ph)",
+                    array_merge([$companyId], $allDerived)
+                );
+                $payedByDerived = [];
+                if ($paidRs && !$paidRs->EOF) {
+                    while (!$paidRs->EOF) {
+                        $pf = $paidRs->fields;
+                        $payedByDerived[(string) $pf['transactionId']] = (float) ($pf['payed'] ?? 0);
+                        $paidRs->MoveNext();
+                    }
+                }
+                foreach ($derivedByOrigin as $originId => $derivedIds) {
+                    $sum = 0.0;
+                    foreach ($derivedIds as $d) {
+                        $sum += $payedByDerived[$d] ?? 0.0;
+                    }
+                    $toPaidMap[$originId] = $sum;
                 }
             }
         }
@@ -966,8 +1027,15 @@ final class TransactionService
             'where' => "transactionId = '" . $transactionId . "'",
         ]);
 
-        // 3. Eliminar sub-transacciones (pagos type=5/6 vinculados por parentId).
-        ncmExecute('DELETE FROM transaction WHERE transactionParentId = ?', [$transactionId]);
+        // 3. Eliminar sub-transacciones (pagos/devoluciones vinculados). mig 115:
+        // transactionParentId dropeada — hay que borrar el link (FK a
+        // transaction) ANTES que la transacción derivada.
+        $voidDerivedIds = (new TransactionLinkService())->listDerivedIds($companyId, $transactionId);
+        if ($voidDerivedIds !== []) {
+            $voidPh = implode(',', array_fill(0, count($voidDerivedIds), '?'));
+            ncmExecute("DELETE FROM transaction_link WHERE companyid = ? AND derivedid IN ($voidPh)", array_merge([$companyId], $voidDerivedIds));
+            ncmExecute("DELETE FROM transaction WHERE transactionId IN ($voidPh) AND companyId = ?", array_merge($voidDerivedIds, [$companyId]));
+        }
 
         // 4. Reponer inventario por cada itemSold.
         $items = ncmExecute(

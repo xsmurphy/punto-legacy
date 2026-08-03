@@ -90,7 +90,7 @@ final class NonAddingSales
             $args  = [$from];
         }
 
-        $sql = "SELECT transactionPaymentType, transactionType, transactionParentId, meta->>'tags' AS tags
+        $sql = "SELECT transactionId, transactionPaymentType, transactionType, meta->>'tags' AS tags
                 FROM transaction
                 WHERE " . $where . " AND transactionType IN (0,5)" . $roc;
 
@@ -99,13 +99,34 @@ final class NonAddingSales
             return [];
         }
 
-        $group = [];
+        $rows = [];
         while (!$result->EOF) {
-            $f       = $result->fields;
+            $rows[] = $result->fields;
+            $result->MoveNext();
+        }
+        $result->Close();
+
+        // mig 115: transactionParentId dropeada — batch lookup del origen de
+        // los pagos (type 5) vía transaction_link, sin N+1. companyId sale de
+        // $roc (Roc::build lo embebe como literal validado — mismo dato que
+        // ya viaja acá, sin threadear el parámetro por los ~6 callers de
+        // compute()/salesByPayment()).
+        $companyId = self::companyIdFromRoc($roc);
+        $paymentIds = array_values(array_filter(array_map(
+            static fn($f) => (int) $f['transactionType'] === 5 ? (string) $f['transactionId'] : null,
+            $rows
+        )));
+        $originByPayment = ($paymentIds !== [] && $companyId !== '')
+            ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $paymentIds, 'credit_payment')
+            : [];
+
+        $group = [];
+        foreach ($rows as $f) {
             $methods = json_decode((string) ($f['transactionPaymentType'] ?? ''), true);
 
             if ((int) $f['transactionType'] === 5) {
-                $ignore = isParentInternalSale($f['transactionParentId']);
+                $parentId = $originByPayment[(string) $f['transactionId']] ?? null;
+                $ignore   = $parentId ? isParentInternalSale($parentId) : false;
             } else {
                 $tags   = json_decode((string) ($f['tags'] ?? ''), true);
                 $ignore = isInternalSale($tags);
@@ -114,10 +135,18 @@ final class NonAddingSales
             if (is_array($methods) && $methods && !$ignore) {
                 $group = groupByPaymentMethod($methods, $group);
             }
-            $result->MoveNext();
         }
-        $result->Close();
         return $group;
+    }
+
+    /**
+     * Extrae companyId del fragmento `$roc` (Roc::build() lo embebe como
+     * literal validado: `AND companyId = 'uuid'`). Evita threadear companyId
+     * como parámetro nuevo por los ~6 callers de compute()/salesByPayment().
+     */
+    private static function companyIdFromRoc(string $roc): string
+    {
+        return preg_match("/companyId\\s*=\\s*'([0-9a-f-]{36})'/i", $roc, $m) === 1 ? $m[1] : '';
     }
 
     /**

@@ -10,7 +10,8 @@ namespace Punto\Api\Purchases;
  * `transactionType`:
  *   1 = compra al CONTADO (pagada al crearse, `transactionComplete = true`)
  *   4 = compra a CRÉDITO (cuenta por pagar, `transactionComplete = false`
- *       hasta que los pagos a proveedor —type 5 con `transactionParentId`—
+ *       hasta que los pagos a proveedor —type 5, vinculados vía
+ *       `transaction_link` kind='purchase_payment' (mig 115)—
  *       la salden). Es la semántica que ya asumían Reports/PurchasesService
  *       (debt/canAddPayment) y Reports/OpenInvoicesService (state='outcome').
  *
