@@ -37,6 +37,41 @@ function backspace(current: string): string {
   return current.slice(0, -1)
 }
 
+// Entrada estilo calculadora (money/decimal): cada dígito entra por la
+// derecha y empuja los anteriores — mismo algoritmo que
+// formatMoneyAsYouType en components/ui/money-input.tsx (la convención
+// canónica del proyecto para montos as-you-type). El pad literal
+// (appendDigit + tecla ".") nunca lo implementó para estos modos: el punto
+// requería tipearse a mano y "decimal" mode no shifteaba nada — bug
+// reportado por el owner en el modal de cantidad (2026-08-03). Se arregla
+// acá, en el wrapper compartido, no en cada caller.
+const MAX_RAW_DIGITS = 10
+
+function digitsOnly(value: string): string {
+  return value.replace(/[^0-9]/g, "")
+}
+
+function formatShifted(raw: string, decimals: number): string {
+  if (decimals <= 0) {
+    const trimmed = raw.replace(/^0+(?=\d)/, "")
+    return trimmed === "" ? "0" : trimmed
+  }
+  const padded = raw.padStart(decimals + 1, "0")
+  const intPart = padded.slice(0, padded.length - decimals).replace(/^0+(?=\d)/, "") || "0"
+  const decPart = padded.slice(-decimals)
+  return `${intPart}.${decPart}`
+}
+
+function shiftDigit(current: string, digit: string, decimals: number, isFirst: boolean): string {
+  const raw = isFirst ? "" : digitsOnly(current)
+  const nextRaw = raw.length >= MAX_RAW_DIGITS ? raw : raw + digit
+  return formatShifted(nextRaw, decimals)
+}
+
+function shiftBackspace(current: string, decimals: number): string {
+  return formatShifted(digitsOnly(current).slice(0, -1), decimals)
+}
+
 export function NumericPad({
   mode,
   value,
@@ -55,6 +90,12 @@ export function NumericPad({
   const coarsePointer = useIsCoarsePointer()
   const padVisible = showSoftKeyboard || coarsePointer
   const allowDot = mode !== "int"
+  // money/decimal usan entrada estilo calculadora (shift desde la derecha) —
+  // el punto se posiciona solo, no se tipea. "decimal" (cantidades
+  // fraccionables) fija 2 decimales; "money" respeta la config del tenant
+  // (mismo criterio que formatMoneyAsYouType en money-input.tsx).
+  const isCalcStyle = mode === "money" || mode === "decimal"
+  const calcDecimals = mode === "money" ? (config?.decimal === "yes" ? 2 : 0) : mode === "decimal" ? 2 : 0
 
   const isFirstRef = React.useRef(true)
   const ourChangeRef = React.useRef(false)
@@ -78,6 +119,12 @@ export function NumericPad({
   const handleDigit = React.useCallback(
     (d: string) => {
       ourChangeRef.current = true
+      if (isCalcStyle) {
+        const isFirst = isFirstRef.current
+        isFirstRef.current = false
+        onChange(shiftDigit(value, d, calcDecimals, isFirst))
+        return
+      }
       if (isFirstRef.current) {
         isFirstRef.current = false
         onChange(d === "0" ? "0" : d)
@@ -85,11 +132,14 @@ export function NumericPad({
         onChange(appendDigit(value, d, mode))
       }
     },
-    [value, onChange, mode],
+    [value, onChange, mode, isCalcStyle, calcDecimals],
   )
 
   const handleDot = React.useCallback(() => {
-    if (!allowDot) return
+    // money/decimal: el punto se posiciona solo (ver isCalcStyle) — la tecla
+    // queda de adorno, ignorarla en vez de insertar un "." literal que
+    // rompería formatShifted.
+    if (!allowDot || isCalcStyle) return
     ourChangeRef.current = true
     if (isFirstRef.current) {
       // Igual que handleDigit: la primera pulsación reemplaza el valor
@@ -97,19 +147,23 @@ export function NumericPad({
       // agregarse a él. Sin esto, tipear "." como primera tecla NO bajaba
       // isFirstRef — el próximo dígito seguía en "modo reemplazo" y pisaba
       // TODO el draft, incluido el punto recién tipeado (bug: no se podían
-      // cargar decimales). Wrapper compartido por money/percent/decimal —
-      // se arregla acá, no en cada caller (qty-edit-dialog, discount, etc).
+      // cargar decimales). Wrapper compartido por percent — se arregla acá,
+      // no en cada caller.
       isFirstRef.current = false
       onChange("0.")
       return
     }
     onChange(appendDot(value))
-  }, [allowDot, value, onChange])
+  }, [allowDot, isCalcStyle, value, onChange])
 
   const handleBackspace = React.useCallback(() => {
     ourChangeRef.current = true
+    if (isCalcStyle) {
+      onChange(shiftBackspace(value, calcDecimals))
+      return
+    }
     onChange(backspace(value))
-  }, [value, onChange])
+  }, [value, onChange, isCalcStyle, calcDecimals])
 
   // Captura teclado físico mientras el pad está montado. No usamos autofocus
   // en un input oculto porque queremos que el foco quede libre para el Dialog.
@@ -293,7 +347,7 @@ export function NumericPad({
             type="button"
             variant="outline"
             className="h-12 text-xl"
-            disabled={!allowDot}
+            disabled={!allowDot || isCalcStyle}
             onClick={handleDot}
           >
             .
