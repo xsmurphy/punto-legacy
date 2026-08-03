@@ -92,6 +92,7 @@ import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
 import { OfflineBanner } from "@/components/pos/offline-banner"
 import { useCreateOrder, type Order, type Fulfillment } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
+import { useOutsidePointerDown } from "@/hooks/use-outside-pointerdown"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import { printOrderComandas } from "@/lib/orders/print-comandas"
@@ -360,17 +361,14 @@ export function CartPanel() {
   }, [lines, submittingOrder, createOrder, customer, note, clearCart, ordenAImpresion, allBindings, config, spaceSessionId, spaceName, router, fulfillment, deliveryAddress])
 
   // Click afuera de la línea activa → deseleccionar (vuelve al detalle default).
+  // Vía `useOutsidePointerDown`: los modales de la línea (cantidad, vendedor,
+  // más opciones) se portalan a `document.body`, así que un `contains()` pelado
+  // los tomaba como "afuera" y deseleccionaba la línea al primer click adentro
+  // del modal — desmontando el modal con ella. El hook ignora las capas
+  // flotantes; ver su docstring.
   const activeRef = React.useRef<HTMLDivElement>(null)
-  React.useEffect(() => {
-    if (!selectedLineId) return
-    function onPointerDown(e: PointerEvent) {
-      if (activeRef.current && !activeRef.current.contains(e.target as Node)) {
-        selectLine(null)
-      }
-    }
-    document.addEventListener("pointerdown", onPointerDown)
-    return () => document.removeEventListener("pointerdown", onPointerDown)
-  }, [selectedLineId, selectLine])
+  const deselectLine = React.useCallback(() => selectLine(null), [selectLine])
+  useOutsidePointerDown(activeRef, deselectLine, Boolean(selectedLineId))
 
   return (
     <div className="flex h-full flex-col border-l border-border bg-background">
@@ -998,7 +996,10 @@ function CartRowExpanded({
             disabled={qtyLocked}
             aria-label="Editar cantidad"
             className={cn(
-              "min-w-[2.5rem] rounded-md border border-border bg-muted px-2 py-0.5 text-center text-lg font-semibold tabular-nums",
+              // `h-8` + `text-sm`: misma altura y escala tipográfica que los
+              // LineToolButton de al lado. Con `text-lg`/`py-0.5` el pill quedaba
+              // 4px más alto que los iconos y el número desentonaba con la fila.
+              "h-8 min-w-[2.5rem] rounded-md border border-border bg-muted px-2 text-center text-sm font-semibold tabular-nums",
               "transition-colors hover:bg-muted/70 active:bg-muted/60",
               "disabled:pointer-events-none disabled:opacity-50",
             )}
