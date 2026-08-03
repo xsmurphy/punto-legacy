@@ -662,7 +662,7 @@ switch ($method) {
         if ($id !== null) {
             $item = $itemService->find($id, $companyId);
             if ($item === null) apiError('Item no encontrado', 404);
-            $presented = presentItem($item instanceof \CaseInsensitiveArray ? $item->toArray() : (array) $item);
+            $presented = presentItem(ncmRow($item));
             $presented['categories'] = fetchItemCategories($id);
             $presented['brands']     = fetchItemBrands($id);
             $presented['tags']       = fetchItemTags($id);
@@ -816,7 +816,7 @@ switch ($method) {
 
         $item = $itemService->find($newId, $companyId);
         $presented = $item !== null
-            ? presentItem($item instanceof \CaseInsensitiveArray ? $item->toArray() : (array) $item)
+            ? presentItem(ncmRow($item))
             : ['itemId' => $newId];
         if ($item !== null) {
             $presented['categories'] = [];
@@ -940,7 +940,7 @@ switch ($method) {
 
         $item = $itemService->find($id, $companyId);
         $presented = $item !== null
-            ? presentItem($item instanceof \CaseInsensitiveArray ? $item->toArray() : (array) $item)
+            ? presentItem(ncmRow($item))
             : ['itemId' => $id];
         if ($item !== null) {
             $presented['categories'] = fetchItemCategories($id);

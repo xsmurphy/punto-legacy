@@ -41,13 +41,9 @@ final class Query
         // que referencian todos los typehints `CaseInsensitiveArray|array` del
         // codebase. NO crear una clase nueva: rompía esos typehints (incidente
         // POS 502 2026-06-29).
-        if ($row instanceof \CaseInsensitiveArray) {
-            $arr = $row->toArray();
-        } elseif ($row instanceof \Traversable) {
-            $arr = iterator_to_array($row);
-        } else {
-            $arr = (array) $row;
-        }
+        // La normalización a array nativo vive en `ncmRow()` (DB.php), junto a
+        // la clase que la hace necesaria — este método era una de las copias.
+        $arr = ncmRow($row);
 
         static $jsonbCols = ['data', 'meta', 'config'];
         $raw = [];

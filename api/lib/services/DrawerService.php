@@ -665,7 +665,7 @@ final class DrawerService
             [$registerId, $outletId, $companyId]
         );
         if (!$row) return null;
-        return $row instanceof \CaseInsensitiveArray ? $row->toArray() : (array) $row;
+        return ncmRow($row);
     }
 
     /**

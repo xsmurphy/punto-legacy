@@ -105,6 +105,28 @@ class DBResult
         $this->fields = new CaseInsensitiveArray($this->EOF ? [] : $rows[0]);
     }
 
+    /**
+     * Fila actual como array PHP NATIVO.
+     *
+     * `$rs->fields` es un CaseInsensitiveArray, no un array — sirve para leer
+     * (implementa ArrayAccess), pero NO satisface un tipo `: array`. Devolverlo
+     * desde una función tipada así tira TypeError en runtime, y el guard suele
+     * correr antes del write, así que rompe la operación entera.
+     *
+     * Ese TypeError ya se había parchado a mano —con un `instanceof` idéntico—
+     * en ItemService, DrawerService, VariantService, OutletsService,
+     * TransactionService, Query.php y v1/items.php. Diez copias de la misma
+     * conversión es la señal de que faltaba el método, no de que faltara un
+     * parche más: la conversión vive acá y los call-sites piden `row()`.
+     *
+     * Usá `->fields` para leer sueltamente; usá `row()` cuando el valor cruza
+     * una frontera tipada `array` (return, parámetro, json_encode estricto).
+     */
+    public function row(): array
+    {
+        return $this->fields->toArray();
+    }
+
     /** Avanza al siguiente registro. Equivale a $rs->MoveNext(). */
     public function MoveNext(): void
     {
@@ -609,4 +631,31 @@ class DB
      */
     public function __set(string $name, mixed $value): void {}
     public function __get(string $name): mixed { return null; }
+}
+
+/**
+ * Normaliza a un array PHP NATIVO cualquier fila que salga del DB layer.
+ *
+ * `$rs->fields` y todo lo que derive de él son `CaseInsensitiveArray`: se leen
+ * como array (implementan ArrayAccess) pero NO satisfacen un typehint `array`.
+ * Cruzar con uno de ellos una frontera tipada —un `return` declarado `: array`,
+ * un parámetro, un `array_*`— tira TypeError en runtime.
+ *
+ * La conversión estaba copiada a mano, con el mismo ternario, en ItemService,
+ * VariantService, DrawerService y v1/items.php. Cada aparición nueva del bug se
+ * había arreglado en su call-site; esta es la versión única. `Query.php` tiene
+ * la variante que además contempla `Traversable` — delega acá para el caso CIA.
+ *
+ * Regla: `->fields` para leer suelto; `ncmRow()` cuando el valor cruza una
+ * frontera que exige `array` de verdad.
+ */
+function ncmRow(mixed $row): array
+{
+    if ($row instanceof CaseInsensitiveArray) {
+        return $row->toArray();
+    }
+    if ($row instanceof Traversable) {
+        return iterator_to_array($row);
+    }
+    return (array) $row;
 }

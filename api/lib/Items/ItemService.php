@@ -253,7 +253,7 @@ final class ItemService
             if (!is_string($itemId) || $itemId === '') { $skipped++; continue; }
             $item = $this->find($itemId, $companyId);
             if ($item === null) { $skipped++; continue; }
-            $arr = $item instanceof \CaseInsensitiveArray ? $item->toArray() : (array) $item;
+            $arr = ncmRow($item);
 
             $rowPatch = $patch;
             if ($usePercent) {
@@ -279,7 +279,7 @@ final class ItemService
                     if ($usePercent) {
                         $cItem = $this->find($childId, $companyId);
                         if ($cItem !== null) {
-                            $cArr = $cItem instanceof \CaseInsensitiveArray ? $cItem->toArray() : (array) $cItem;
+                            $cArr = ncmRow($cItem);
                             $cur  = (float) ($cArr['itemprice'] ?? $cArr['itemPrice'] ?? 0);
                             $childPatch['itemPrice'] = round($cur * (1 + $priceAdjustPercent / 100), 2);
                         }
