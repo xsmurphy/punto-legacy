@@ -10,7 +10,6 @@ import {
   ArrowLeft,
   Loader2,
   Archive,
-  ExternalLink,
   Boxes,
   Settings as SettingsIcon,
   User,
@@ -106,6 +105,7 @@ import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
 import { ComboGroupsEditor } from "@/components/items/combo-groups-editor"
 import { LocationsEditor } from "@/components/items/locations-editor"
+import { ItemStockTab } from "@/components/items/stock-tab"
 import { PackComponentsEditor } from "@/components/items/pack-components-editor"
 import { CategoriesPicker, type SelectedCategory } from "@/components/items/categories-picker"
 import { BrandsPicker, type SelectedBrand } from "@/components/items/brands-picker"
@@ -1514,30 +1514,7 @@ function StockTab({ id, isNew }: { id: string; isNew: boolean }) {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StockKpi label="Precio de compra" value="Próximamente" />
-        <StockKpi label="Costo promedio" value="Próximamente" />
-        <StockKpi label="Valor total del stock" value="Próximamente" />
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Ajustes e historial</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-            El editor de movimientos de stock (ajustes +/- y historial) requiere un
-            endpoint backend nuevo (`/v1/items/{`{id}`}/inventory-movements`). Por ahora
-            usá el editor del panel legacy.
-          </p>
-          <Button asChild variant="outline" size="sm" className="w-fit">
-            <Link href="/stock-adjustment">
-              <ExternalLink className="size-3.5" />
-              Ajustar stock
-            </Link>
-          </Button>
-        </CardContent>
-      </Card>
+      <ItemStockTab itemId={id} />
 
       <Card>
         <CardHeader>
@@ -1553,21 +1530,6 @@ function StockTab({ id, isNew }: { id: string; isNew: boolean }) {
         </CardContent>
       </Card>
     </div>
-  )
-}
-
-function StockKpi({ label, value }: { label: string; value: string }) {
-  return (
-    <Card>
-      <CardContent className="p-4 text-center">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">
-          {label}
-        </div>
-        <div className="mt-1 text-2xl font-semibold tabular-nums opacity-50">
-          {value}
-        </div>
-      </CardContent>
-    </Card>
   )
 }
 
