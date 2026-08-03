@@ -423,36 +423,74 @@ final class Customer
         }
 
         $totalC = ncmExecute(
-            'SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, STRING_AGG(transactionId::text, \',\') as ids
+            'SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount, companyId
              FROM transaction
              WHERE customerId = ?
              AND transactionType = 3
-             AND transactionComplete = FALSE',
+             AND transactionComplete = FALSE
+             GROUP BY companyId',
             [$uid],
             60
         );
 
-        if (empty($totalC) || empty($totalC['ids'])) {
+        if (empty($totalC)) {
             return $creditLine;
         }
 
-        $totalRetrns = ncmExecute(
-            ' SELECT SUM(transactionTotal) as total
-              FROM transaction
-              WHERE customerId = ?
-              AND transactionType = 6
-              AND transactionParentId IN(' . $totalC['ids'] . ')',
-            [$uid]
+        // IDs de las ventas a crédito del cliente — antes venían agregados en
+        // `ids` (STRING_AGG) para el IN() de abajo; ahora se piden aparte
+        // porque hacen falta como lista de originIds para transaction_link
+        // (mig 115, reemplaza transactionParentId).
+        $creditSaleIds = [];
+        $companyId     = (string) ($totalC['companyId'] ?? '');
+        $idsRs = ncmExecute(
+            'SELECT transactionId FROM transaction
+             WHERE customerId = ? AND transactionType = 3 AND transactionComplete = FALSE',
+            [$uid], false, true
         );
+        if ($idsRs) {
+            while (!$idsRs->EOF) {
+                $creditSaleIds[] = (string) $idsRs->fields['transactionId'];
+                $idsRs->MoveNext();
+            }
+        }
 
-        $payedC = ncmExecute(
-            ' SELECT SUM(transactionTotal) as payed
-              FROM transaction
-              WHERE transactionType = 5
-              AND transactionParentId IN(' . $totalC['ids'] . ')
-              AND customerId = ?',
-            [$uid]
-        );
+        if ($creditSaleIds === [] || $companyId === '') {
+            return $creditLine;
+        }
+
+        $linkSvc          = new \Punto\Api\Services\TransactionLinkService();
+        $derivedByOrigin  = $linkSvc->mapDerivedIdsByOrigins($companyId, $creditSaleIds);
+        $allDerivedIds    = [];
+        foreach ($derivedByOrigin as $ids) {
+            foreach ($ids as $d) {
+                $allDerivedIds[] = $d;
+            }
+        }
+
+        $totalRetrns = ['total' => 0];
+        $payedC      = ['payed' => 0];
+        if ($allDerivedIds !== []) {
+            $ph = implode(',', array_fill(0, count($allDerivedIds), '?'));
+
+            $totalRetrns = ncmExecute(
+                " SELECT SUM(transactionTotal) as total
+                  FROM transaction
+                  WHERE customerId = ?
+                  AND transactionType = 6
+                  AND transactionId IN($ph)",
+                array_merge([$uid], $allDerivedIds)
+            ) ?: ['total' => 0];
+
+            $payedC = ncmExecute(
+                " SELECT SUM(transactionTotal) as payed
+                  FROM transaction
+                  WHERE transactionType = 5
+                  AND transactionId IN($ph)
+                  AND customerId = ?",
+                array_merge($allDerivedIds, [$uid])
+            ) ?: ['payed' => 0];
+        }
 
         $totalComprado = $totalC['total'] - $totalC['discount'];
         $totalPagado   = $payedC['payed'] + abs($totalRetrns['total'] ?? 0);

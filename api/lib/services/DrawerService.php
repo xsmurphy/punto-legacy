@@ -158,8 +158,8 @@ final class DrawerService
             $dateParams = [$since];
         }
 
-        $sql = 'SELECT a.itemId, a.itemSoldUnits, a.itemSoldTotal, a.itemSoldDescription,
-                       i.itemName, t.transactionType, t.transactionParentId, t.meta->>\'tags\' AS tags
+        $sql = 'SELECT t.transactionId, a.itemId, a.itemSoldUnits, a.itemSoldTotal, a.itemSoldDescription,
+                       i.itemName, t.transactionType, t.meta->>\'tags\' AS tags
                 FROM itemSold a
                 JOIN transaction t ON t.transactionId = a.transactionId
                 LEFT JOIN item i ON i.itemId = a.itemId AND i.companyId = ?
@@ -172,14 +172,31 @@ final class DrawerService
         $result = ncmExecute($sql, $params, false, true);
         $group  = [];
         if ($result) {
+            $rows = [];
             while (!$result->EOF) {
-                $f = $result->fields;
+                $rows[] = $result->fields;
+                $result->MoveNext();
+            }
+            $result->Close();
 
-                $ignore = ((int) $f['transactionType'] === 6)
-                    ? isParentInternalSale($f['transactionParentId'])
-                    : isInternalSale(json_decode((string) $f['tags'], true));
+            // transactionParentId dropeada (mig 115) — batch lookup del origen
+            // de las devoluciones (type 6) vía transaction_link, sin N+1.
+            $returnIds = array_values(array_filter(array_map(
+                static fn($f) => (int) $f['transactionType'] === 6 ? (string) $f['transactionId'] : null,
+                $rows
+            )));
+            $originByReturn = $returnIds !== []
+                ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds(COMPANY_ID, $returnIds, 'return')
+                : [];
+
+            foreach ($rows as $f) {
+                if ((int) $f['transactionType'] === 6) {
+                    $parentId = $originByReturn[(string) $f['transactionId']] ?? null;
+                    $ignore   = $parentId ? isParentInternalSale($parentId) : false;
+                } else {
+                    $ignore = isInternalSale(json_decode((string) $f['tags'], true));
+                }
                 if ($ignore) {
-                    $result->MoveNext();
                     continue;
                 }
 
@@ -191,10 +208,7 @@ final class DrawerService
                 }
                 $group[$itemId]['qty']   += (float) $f['itemSoldUnits'];
                 $group[$itemId]['total'] += (float) $f['itemSoldTotal'];
-
-                $result->MoveNext();
             }
-            $result->Close();
         }
 
         $out = array_values($group);
@@ -225,7 +239,7 @@ final class DrawerService
             $dateParams = [$since];
         }
 
-        $sql = 'SELECT t.customerId, t.transactionType, t.transactionParentId, t.meta->>\'tags\' AS tags
+        $sql = 'SELECT t.transactionId, t.customerId, t.transactionType, t.meta->>\'tags\' AS tags
                 FROM transaction t
                 WHERE ' . $dateSql . '
                   AND t.transactionType IN (0,5,6)
@@ -237,20 +251,36 @@ final class DrawerService
         $salesCount  = 0;
         $customerIds = [];
         if ($result) {
+            $rows = [];
             while (!$result->EOF) {
-                $f = $result->fields;
+                $rows[] = $result->fields;
+                $result->MoveNext();
+            }
+            $result->Close();
 
+            // transactionParentId dropeada (mig 115) — batch lookup del origen
+            // de los pagos (type 5) vía transaction_link, sin N+1.
+            $paymentIds = array_values(array_filter(array_map(
+                static fn($f) => (int) $f['transactionType'] === 5 ? (string) $f['transactionId'] : null,
+                $rows
+            )));
+            $originByPayment = $paymentIds !== []
+                ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($this->ctx->companyId, $paymentIds, 'credit_payment')
+                : [];
+
+            foreach ($rows as $f) {
                 if ((int) $f['transactionType'] === 6) {
                     // Nota de crédito/devolución — no es venta.
-                    $result->MoveNext();
                     continue;
                 }
 
-                $ignore = ((int) $f['transactionType'] === 5)
-                    ? isParentInternalSale($f['transactionParentId'])
-                    : isInternalSale(json_decode((string) $f['tags'], true));
+                if ((int) $f['transactionType'] === 5) {
+                    $parentId = $originByPayment[(string) $f['transactionId']] ?? null;
+                    $ignore   = $parentId ? isParentInternalSale($parentId) : false;
+                } else {
+                    $ignore = isInternalSale(json_decode((string) $f['tags'], true));
+                }
                 if ($ignore) {
-                    $result->MoveNext();
                     continue;
                 }
 
@@ -259,10 +289,7 @@ final class DrawerService
                 if ($customerId !== null && $customerId !== '') {
                     $customerIds[(string) $customerId] = true;
                 }
-
-                $result->MoveNext();
             }
-            $result->Close();
         }
 
         return ['salesCount' => $salesCount, 'customersCount' => count($customerIds)];
@@ -347,9 +374,10 @@ final class DrawerService
      */
     private function hourlyBuckets(string $registerId, string $tz, string $dateSql, array $dateParams): array
     {
-        $sql = "SELECT to_char(date_trunc('hour', t.transactionDate AT TIME ZONE ?::text), 'YYYY-MM-DD HH24:00') AS hour,
+        $sql = "SELECT t.transactionId,
+                       to_char(date_trunc('hour', t.transactionDate AT TIME ZONE ?::text), 'YYYY-MM-DD HH24:00') AS hour,
                        abs(t.transactionTotal) AS total,
-                       t.transactionType, t.transactionParentId, t.meta->>'tags' AS tags
+                       t.transactionType, t.meta->>'tags' AS tags
                 FROM transaction t
                 WHERE " . $dateSql . "
                   AND t.transactionType IN (0,5,6)
@@ -360,20 +388,36 @@ final class DrawerService
         $result  = ncmExecute($sql, $params, false, true);
         $buckets = [];
         if ($result) {
+            $rows = [];
             while (!$result->EOF) {
-                $f = $result->fields;
+                $rows[] = $result->fields;
+                $result->MoveNext();
+            }
+            $result->Close();
 
+            // transactionParentId dropeada (mig 115) — batch lookup del origen
+            // de los pagos (type 5) vía transaction_link, sin N+1.
+            $paymentIds = array_values(array_filter(array_map(
+                static fn($f) => (int) $f['transactionType'] === 5 ? (string) $f['transactionId'] : null,
+                $rows
+            )));
+            $originByPayment = $paymentIds !== []
+                ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($this->ctx->companyId, $paymentIds, 'credit_payment')
+                : [];
+
+            foreach ($rows as $f) {
                 if ((int) $f['transactionType'] === 6) {
                     // Nota de crédito/devolución — no es venta (igual que getSaleStats).
-                    $result->MoveNext();
                     continue;
                 }
 
-                $ignore = ((int) $f['transactionType'] === 5)
-                    ? isParentInternalSale($f['transactionParentId'])
-                    : isInternalSale(json_decode((string) $f['tags'], true));
+                if ((int) $f['transactionType'] === 5) {
+                    $parentId = $originByPayment[(string) $f['transactionId']] ?? null;
+                    $ignore   = $parentId ? isParentInternalSale($parentId) : false;
+                } else {
+                    $ignore = isInternalSale(json_decode((string) $f['tags'], true));
+                }
                 if ($ignore) {
-                    $result->MoveNext();
                     continue;
                 }
 
@@ -383,10 +427,7 @@ final class DrawerService
                 }
                 $buckets[$hour]['salesTotal'] += (float) $f['total'];
                 $buckets[$hour]['salesCount']++;
-
-                $result->MoveNext();
             }
-            $result->Close();
         }
 
         ksort($buckets);

@@ -8,13 +8,21 @@ use Punto\App\Domain\Inventory;
 /**
  * Servicio de devoluciones (transactionType = 6).
  *
- * Vincula la devolución a la venta original via transactionParentId.
+ * Vincula la devolución a la venta original via transaction_link
+ * kind='return' (mig 115, TransactionLinkService).
  * La validación de qty disponible se ejecuta DENTRO de la TX con FOR UPDATE
  * en la fila padre para evitar race conditions entre requests concurrentes.
  * Maneja stock (reposición) y crédito al cliente según refundMode.
  */
 final class ReturnService
 {
+    private ?TransactionLinkService $linkSvc = null;
+
+    private function links(): TransactionLinkService
+    {
+        return $this->linkSvc ??= new TransactionLinkService();
+    }
+
     /**
      * Crea una devolución vinculada a una venta original.
      *
@@ -120,14 +128,17 @@ final class ReturnService
                 $unitCogs  = $soldQty > 0 ? $cogs / $soldQty : 0.0;
 
                 // Qty ya devuelta (dentro de TX — ve las filas del lock anterior)
-                $alreadyReturned = (float) $db->GetOne(
-                    'SELECT COALESCE(SUM(ABS(is2.itemsoldunits)), 0)
-                     FROM "itemSold" is2
-                     JOIN transaction t ON t.transactionid = is2.transactionid
-                     WHERE t.transactionparentid = ? AND t.transactiontype = 6
-                       AND t.companyid = ? AND is2.itemid = ?',
-                    [$parentTransactionId, $companyId, $itemId]
-                );
+                $returnIds = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
+                $alreadyReturned = 0.0;
+                if ($returnIds !== []) {
+                    $ph = implode(',', array_fill(0, count($returnIds), '?'));
+                    $alreadyReturned = (float) $db->GetOne(
+                        "SELECT COALESCE(SUM(ABS(is2.itemsoldunits)), 0)
+                         FROM \"itemSold\" is2
+                         WHERE is2.transactionid IN ($ph) AND is2.itemid = ?",
+                        [...$returnIds, $itemId]
+                    );
+                }
 
                 $available = $soldQty - $alreadyReturned;
                 if ($reqQty > $available + 0.001) {
@@ -162,10 +173,13 @@ final class ReturnService
             // el bruto menos el descuento que el cliente ya no pago en su momento.
             $returnNet = round($returnTotal - $returnDiscount, 2);
 
-            // Pagos: monto negativo = egreso de caja
+            // Pagos: monto negativo = egreso de caja. La clave del monto es
+            // `total` — es la que lee TODO el resto del sistema (rollup de
+            // payments mig 42, FinanceLedger, EInvoiceService, reportes). Con
+            // `amount` la línea se leía como 0 y se descartaba en silencio.
             $paymentsJson = json_encode([[
-                'type'   => $refundMode === 'cash' ? 'cash' : 'storeCredit',
-                'amount' => -abs($returnNet),
+                'type'  => $refundMode === 'cash' ? 'cash' : 'storeCredit',
+                'total' => -abs($returnNet),
             ]]);
 
             // totalUnits = suma real de unidades devueltas (no cuenta de líneas)
@@ -173,15 +187,14 @@ final class ReturnService
 
             $db->Execute(
                 'INSERT INTO transaction (
-                    transactionid, transactiontype, transactionparentid,
+                    transactionid, transactiontype,
                     transactiontotal, transactiondiscount, transactionunitssold,
                     transactionpaymenttype,
                     transactiondate, transactionnote, transactionstatus, transactioncomplete,
                     customerid, registerid, userid, outletid, companyid, meta
-                ) VALUES (?, 6, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')',
+                ) VALUES (?, 6, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')',
                 [
                     $newTransactionId,
-                    $parentTransactionId,
                     -abs($returnTotal),
                     -abs($returnDiscount),
                     $totalUnits,
@@ -194,6 +207,9 @@ final class ReturnService
                     $companyId,
                 ]
             );
+            // Vínculo devolución → venta original (mig 115, kind='return').
+            // Dentro de la misma TX: si el commit falla, el link tampoco queda.
+            $this->links()->link($companyId, $parentTransactionId, (string) $newTransactionId, 'return');
 
             foreach ($processedItems as $pi) {
                 $itemSoldId = $db->GetOne('SELECT gen_random_uuid()');
@@ -269,6 +285,17 @@ final class ReturnService
             throw $e;
         }
 
+        // Finanzas Fase 3: la devolución saca plata de la caja, así que genera
+        // su movimiento derivado igual que una venta genera el suyo
+        // (SaleService → recordSale). Post-commit y best-effort: un fallo del
+        // ledger nunca rompe una devolución ya confirmada. `refundMode='credit'`
+        // no mueve caja — lo filtra FinanceLedger por el medio de pago.
+        try {
+            (new \Punto\Api\Finance\FinanceLedger())->recordReturn($companyId, (string) $newTransactionId);
+        } catch (\Throwable $e) {
+            error_log('[ReturnService] FinanceLedger::recordReturn falló para ' . $newTransactionId . ': ' . $e->getMessage());
+        }
+
         // Emisión inline POST-COMMIT, best-effort: la devolución ya está
         // confirmada y un fallo acá solo deja el documento pendiente para el
         // drainer (mismo criterio que SaleService::tryIssueElectronicInvoiceInline).
@@ -292,13 +319,18 @@ final class ReturnService
      */
     public function listForParent(string $parentTransactionId, string $companyId): array
     {
+        $returnIds = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
+        if ($returnIds === []) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($returnIds), '?'));
         $rs = ncmExecute(
-            'SELECT t.transactionid, t.transactiontotal, t.transactiondate,
+            "SELECT t.transactionid, t.transactiontotal, t.transactiondate,
                     t.transactionnote, t.transactionpaymenttype
              FROM transaction t
-             WHERE t.transactionparentid = ? AND t.companyid = ? AND t.transactiontype = 6
-             ORDER BY t.transactiondate DESC',
-            [$parentTransactionId, $companyId],
+             WHERE t.transactionid IN ($ph) AND t.companyid = ? AND t.transactiontype = 6
+             ORDER BY t.transactiondate DESC",
+            [...$returnIds, $companyId],
             false,
             true
         );

@@ -141,23 +141,37 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
         }
     }
 
-    // 3. Notas de crédito (type=6 hijas de esta transacción)
-    $creditNotes = ncmExecute(
-        "SELECT transactionId, transactionDate, transactionTotal, invoiceNo
-         FROM transaction
-         WHERE transactionParentId = ? AND transactionType = 6 AND companyId = ?",
-        [$txId, COMPANY_ID],
-        false, true
-    );
+    // mig 115: transactionParentId dropeada — los derivados de esta
+    // transacción viven en transaction_link (TransactionLinkService).
+    $txLinkSvc = new \Punto\Api\Services\TransactionLinkService();
 
-    // 4. Agendamientos (type=13 hijos de esta transacción)
-    $appointments = ncmExecute(
-        "SELECT transactionId, transactionDate, transactionTotal
-         FROM transaction
-         WHERE transactionParentId = ? AND transactionType = 13 AND companyId = ?",
-        [$txId, COMPANY_ID],
-        false, true
-    );
+    // 3. Notas de crédito (type=6 hijas de esta transacción, kind='return')
+    $creditNoteIds = $txLinkSvc->listDerivedIds(COMPANY_ID, $txId, 'return');
+    $creditNotes = [];
+    if ($creditNoteIds !== []) {
+        $cnPh = implode(',', array_fill(0, count($creditNoteIds), '?'));
+        $creditNotes = ncmExecute(
+            "SELECT transactionId, transactionDate, transactionTotal, invoiceNo
+             FROM transaction
+             WHERE transactionId IN ($cnPh) AND transactionType = 6 AND companyId = ?",
+            array_merge($creditNoteIds, [COMPANY_ID]),
+            false, true
+        );
+    }
+
+    // 4. Agendamientos (type=13 hijos de esta transacción, kind='package_session')
+    $appointmentIds = $txLinkSvc->listDerivedIds(COMPANY_ID, $txId, 'package_session');
+    $appointments = [];
+    if ($appointmentIds !== []) {
+        $aptPh = implode(',', array_fill(0, count($appointmentIds), '?'));
+        $appointments = ncmExecute(
+            "SELECT transactionId, transactionDate, transactionTotal
+             FROM transaction
+             WHERE transactionId IN ($aptPh) AND transactionType = 13 AND companyId = ?",
+            array_merge($appointmentIds, [COMPANY_ID]),
+            false, true
+        );
+    }
 
     // 5. Transacciones asociadas (toTransaction). toTransaction NO tiene companyId
     // propio → scope por JOIN a transaction para no exponer vínculos de otra empresa.
@@ -173,27 +187,38 @@ if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
     $creditPayments   = null;
     $paymentsReceived = [];
     if ($type === 3) {
-        $total   = (float) $tx['transactionTotal'] - (float) $tx['transactionDiscount'];
-        $paidRow = ncmExecute(
-            "SELECT COALESCE(SUM(transactionTotal), 0) AS paid
-             FROM transaction
-             WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?",
-            [$txId, COMPANY_ID]
-        );
-        $paid = (float) ($paidRow['paid'] ?? 0);
+        $total = (float) $tx['transactionTotal'] - (float) $tx['transactionDiscount'];
+
+        // kind='credit_payment' (mig 115) — reemplaza transactionParentId.
+        $creditPaymentIds = $txLinkSvc->listDerivedIds(COMPANY_ID, $txId, 'credit_payment');
+        $paid = 0.0;
+        if ($creditPaymentIds !== []) {
+            $cpPh    = implode(',', array_fill(0, count($creditPaymentIds), '?'));
+            $paidRow = ncmExecute(
+                "SELECT COALESCE(SUM(transactionTotal), 0) AS paid
+                 FROM transaction
+                 WHERE transactionId IN ($cpPh) AND transactionType = 5 AND companyId = ?",
+                array_merge($creditPaymentIds, [COMPANY_ID])
+            );
+            $paid = (float) ($paidRow['paid'] ?? 0);
+        }
         $creditPayments = [
             'total' => $total,
             'paid'  => $paid,
             'debt'  => max(0, $total - $paid),
         ];
-        $prRs = ncmExecute(
-            "SELECT transactionId, transactionDate, transactionTotal, invoiceNo, transactionPaymentType
-             FROM transaction
-             WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?
-             ORDER BY transactionDate DESC",
-            [$txId, COMPANY_ID],
-            false, true
-        );
+        $prRs = null;
+        if ($creditPaymentIds !== []) {
+            $prPh = implode(',', array_fill(0, count($creditPaymentIds), '?'));
+            $prRs = ncmExecute(
+                "SELECT transactionId, transactionDate, transactionTotal, invoiceNo, transactionPaymentType
+                 FROM transaction
+                 WHERE transactionId IN ($prPh) AND transactionType = 5 AND companyId = ?
+                 ORDER BY transactionDate DESC",
+                array_merge($creditPaymentIds, [COMPANY_ID]),
+                false, true
+            );
+        }
         foreach ($fetchAll($prRs) as $r) {
             $pmArr = json_decode($r['transactionPaymentType'] ?? '[]', true) ?? [];
             $paymentsReceived[] = [
@@ -419,11 +444,17 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
         );
         if ($totalRow) {
             $netTotal = (float) $totalRow['transactionTotal'] - (float) $totalRow['transactionDiscount'];
-            $paidRow  = ncmExecute(
-                "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?",
-                [$txId, COMPANY_ID]
-            );
-            $paid = (float) ($paidRow['paid'] ?? 0);
+            // kind='credit_payment' (mig 115) — reemplaza transactionParentId.
+            $paid = 0.0;
+            $creditPaymentIds2 = (new \Punto\Api\Services\TransactionLinkService())->listDerivedIds(COMPANY_ID, $txId, 'credit_payment');
+            if ($creditPaymentIds2 !== []) {
+                $cp2Ph   = implode(',', array_fill(0, count($creditPaymentIds2), '?'));
+                $paidRow = ncmExecute(
+                    "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionId IN ($cp2Ph) AND transactionType = 5 AND companyId = ?",
+                    array_merge($creditPaymentIds2, [COMPANY_ID])
+                );
+                $paid = (float) ($paidRow['paid'] ?? 0);
+            }
             // round() para evitar falsos completos por error de punto flotante IEEE 754.
             if ($netTotal > 0 && round($paid, 4) >= round($netTotal, 4)) {
                 $db->Execute(

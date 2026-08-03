@@ -100,13 +100,35 @@ final class CashflowService
         $result = ncmExecute($sql, [$from, $to], false, true, true);
         $sum = 0.0;
         if ($result) {
-            foreach ($result as $fields) {
-                $parent = ncmExecute(
-                    'SELECT 1 FROM transaction WHERE transactionId = ? AND transactionType = ? AND companyId = ? LIMIT 1',
-                    [$fields['transactionParentId'], $typeTrans, $companyId],
+            // mig 115: transactionParentId dropeada — batch lookup del origen
+            // vía transaction_link (TransactionLinkService), sin N+1.
+            $rows = is_array($result) ? $result : [];
+            $derivedIds = array_map(static fn($f) => (string) $f['transactionId'], $rows);
+            $originByDerived = $derivedIds !== []
+                ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $derivedIds, 'credit_payment')
+                : [];
+
+            $originIds = array_values(array_unique(array_filter($originByDerived)));
+            $matchOrigins = [];
+            if ($originIds !== []) {
+                $ph = implode(',', array_fill(0, count($originIds), '?'));
+                $rs = ncmExecute(
+                    "SELECT transactionId FROM transaction WHERE transactionId IN ($ph) AND transactionType = ? AND companyId = ?",
+                    array_merge($originIds, [$typeTrans, $companyId]),
+                    false,
                     true
                 );
-                if ($parent) {
+                if ($rs) {
+                    while (!$rs->EOF) {
+                        $matchOrigins[(string) $rs->fields['transactionId']] = true;
+                        $rs->MoveNext();
+                    }
+                }
+            }
+
+            foreach ($rows as $fields) {
+                $origin = $originByDerived[(string) $fields['transactionId']] ?? null;
+                if ($origin !== null && isset($matchOrigins[$origin])) {
                     $sum += (float) $fields['transactionTotal'];
                 }
             }

@@ -75,10 +75,9 @@ final class VariantService
         }
         // $rs->fields es CaseInsensitiveArray (DB.php), no un array PHP nativo —
         // devolverlo tal cual contra la firma `: array` tira TypeError ("Return
-        // value must be of type array, CaseInsensitiveArray returned"). Mismo
-        // patrón de conversión que DrawerService::587/ItemService::256.
-        $row = $rs->fields;
-        $row = ncmRow($row);
+        // value must be of type array, CaseInsensitiveArray returned").
+        // `ncmRow()` es la conversión única del DB layer (ver su docblock).
+        $row = ncmRow($rs->fields);
         $rowCompany = $row['companyid'] ?? '';
         if ($rowCompany !== $companyId) {
             throw new \RuntimeException('Acceso denegado al item padre', 403);

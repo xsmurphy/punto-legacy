@@ -29,9 +29,13 @@ use Punto\Api\Context\TenantContext;
 
 final class TableService
 {
+    private TransactionLinkService $links;
+
     public function __construct(
         public readonly TenantContext $ctx,
-    ) {}
+    ) {
+        $this->links = new TransactionLinkService();
+    }
 
     const TYPE_TABLE = 11;
     const TYPE_ORDER = 12;
@@ -88,7 +92,7 @@ final class TableService
         global $db;
         $result = $db->Execute(
             'SELECT transactionName, transactionId, transactionDate, transactionStatus,
-                    transactionNote, transactionParentId, userId
+                    transactionNote, userId
              FROM transaction
              WHERE transactionType = ?
                AND transactionName IS NOT NULL
@@ -103,8 +107,13 @@ final class TableService
         if ($result) {
             while (!$result->EOF) {
                 $f = $result->fields;
+                $txId = (string) ($f['transactionId'] ?? '');
+                // 'joined' = esta mesa tiene un origen (fue fusionada dentro de
+                // otra) — antes intval(transactionParentId), ahora vía
+                // transaction_link kind='table_merge' (mig 115).
+                $joined = $txId !== '' && $this->links->listOriginIds($companyId, $txId, 'table_merge') !== [];
                 $tables[(string) $f['transactionName']] = [
-                    'id'       => (string) ($f['transactionId'] ?? ''),
+                    'id'       => $txId,
                     'no'       => $f['transactionName'],
                     'since'    => $f['transactionDate'],
                     'status'   => (int) $f['transactionStatus'],
@@ -112,7 +121,7 @@ final class TableService
                     'userId'   => (string) ($f['userId'] ?? ''),
                     'orders'   => 6,
                     'editable' => true,
-                    'joined'   => $f['transactionParentId'] ? 1 : 0,
+                    'joined'   => $joined ? 1 : 0,
                 ];
                 $result->MoveNext();
             }
@@ -158,12 +167,18 @@ final class TableService
         );
 
         // 2. Borrar mesas unidas — sólo cuando $del es un transactionId (kind='any').
+        //    Antes: DELETE ... WHERE transactionParentId = $del. Ahora: los
+        //    derivados de $del (kind='table_merge') vía transaction_link (mig 115).
         if ($kind === 'any') {
-            $db->Execute(
-                'DELETE FROM transaction
-                  WHERE transactionType = ? AND transactionParentId = ? AND outletId = ? AND companyId = ?',
-                [self::TYPE_TABLE, $del, $outletId, $companyId]
-            );
+            $joinedIds = $this->links->listDerivedIds($companyId, $del, 'table_merge');
+            if ($joinedIds !== []) {
+                $ph = implode(',', array_fill(0, count($joinedIds), '?'));
+                $db->Execute(
+                    "DELETE FROM transaction
+                      WHERE transactionType = ? AND transactionId IN ($ph) AND outletId = ? AND companyId = ?",
+                    [self::TYPE_TABLE, ...$joinedIds, $outletId, $companyId]
+                );
+            }
         }
 
         // 3. Finalizar las órdenes asociadas (type 12) → status 4.
@@ -206,11 +221,27 @@ final class TableService
         }
         $toId = (string) $toRow->fields['transactionId'];
 
-        // 1. Marcar la mesa origen como hija (joined) de la destino.
+        // Resolver el transactionId (UUID) de la mesa origen — hace falta
+        // para crear el vínculo (antes iba directo en el UPDATE).
+        $fromRow = $db->Execute(
+            'SELECT transactionId FROM transaction
+              WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?
+              LIMIT 1',
+            [self::TYPE_TABLE, $tFrom, $outletId, $companyId]
+        );
+        if ($fromRow === false || $fromRow->EOF) {
+            return ['ok' => false, 'reason' => 'Mesa origen no encontrada', 'code' => 404];
+        }
+        $fromId = (string) $fromRow->fields['transactionId'];
+
+        // 1. Marcar la mesa origen como hija (joined) de la destino — antes
+        //    UPDATE transactionParentId, ahora transaction_link kind='table_merge'
+        //    (mig 115): origin=destino ($toId), derived=origen ($fromId).
+        $this->links->link($companyId, $toId, $fromId, 'table_merge');
         $db->Execute(
-            'UPDATE transaction SET transactionParentId = ?, updated_at = ?
+            'UPDATE transaction SET updated_at = ?
               WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?',
-            [$toId, TODAY, self::TYPE_TABLE, $tFrom, $outletId, $companyId]
+            [TODAY, self::TYPE_TABLE, $tFrom, $outletId, $companyId]
         );
 
         // 2. Mover las órdenes (type 12) de la mesa origen a la destino.

@@ -530,30 +530,57 @@ final class CustomerService
         return [$ids, $total, $discount];
     }
 
-    /** SUM(ABS(total)) de devoluciones (type 6) cuyas transactionParentId ∈ $ids. */
+    /**
+     * IDs derivados (mig 115, transaction_link) de un set de ventas a crédito
+     * origen — reemplaza el filtro directo `transactionParentId IN ($ids)`.
+     *
+     * @param list<string> $originIds
+     * @return list<string>
+     */
+    private function derivedIdsFor(string $companyId, array $originIds): array
+    {
+        $derivedByOrigin = (new \Punto\Api\Services\TransactionLinkService())->mapDerivedIdsByOrigins($companyId, $originIds);
+        $out = [];
+        foreach ($derivedByOrigin as $ids) {
+            foreach ($ids as $d) {
+                $out[] = $d;
+            }
+        }
+        return $out;
+    }
+
+    /** SUM(ABS(total)) de devoluciones (type 6) derivadas de las ventas $ids (transaction_link). */
     private function sumReturns(string $companyId, string $id, array $ids): float
     {
         global $db;
-        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $derivedIds = $this->derivedIdsFor($companyId, $ids);
+        if ($derivedIds === []) {
+            return 0.0;
+        }
+        $ph = implode(',', array_fill(0, count($derivedIds), '?'));
         $rs = $db->Execute(
             "SELECT SUM(ABS(transactionTotal)) AS total FROM transaction
               WHERE customerId = ? AND companyId = ? AND transactionType = 6
-                AND transactionParentId IN ($ph)",
-            array_merge([$id, $companyId], $ids)
+                AND transactionId IN ($ph)",
+            array_merge([$id, $companyId], $derivedIds)
         );
         return ($rs && !$rs->EOF) ? (float) ($rs->fields['total'] ?? 0) : 0.0;
     }
 
-    /** SUM(total) de pagos (type 5) cuyas transactionParentId ∈ $ids. */
+    /** SUM(total) de pagos (type 5) derivados de las ventas $ids (transaction_link). */
     private function sumPayments(string $companyId, string $id, array $ids): float
     {
         global $db;
-        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $derivedIds = $this->derivedIdsFor($companyId, $ids);
+        if ($derivedIds === []) {
+            return 0.0;
+        }
+        $ph = implode(',', array_fill(0, count($derivedIds), '?'));
         $rs = $db->Execute(
             "SELECT SUM(transactionTotal) AS payed FROM transaction
               WHERE transactionType = 5 AND companyId = ? AND customerId = ?
-                AND transactionParentId IN ($ph)",
-            array_merge([$companyId, $id], $ids)
+                AND transactionId IN ($ph)",
+            array_merge([$companyId, $id], $derivedIds)
         );
         return ($rs && !$rs->EOF) ? (float) ($rs->fields['payed'] ?? 0) : 0.0;
     }

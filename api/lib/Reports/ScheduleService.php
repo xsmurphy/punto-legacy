@@ -42,7 +42,7 @@ final class ScheduleService
 
         $cols = "transactionId, transactionStatus, invoiceNo, transactionDate, outletId, userId,
                  responsibleId, customerId, transactionNote, fromDate, toDate, transactionTotal,
-                 transactionParentId, meta->>'transactionDetails' AS transactionDetails";
+                 meta->>'transactionDetails' AS transactionDetails";
         $sql = "SELECT $cols FROM transaction
                 WHERE transactionType = " . self::TX_TYPE . "
                 AND fromDate BETWEEN ? AND ?" . $userClause . $customerClause . $roc . "
@@ -57,20 +57,23 @@ final class ScheduleService
             return ['rows' => [], 'summary' => $summary];
         }
 
-        $apptIds = $parentIds = $custIds = $usrIds = $respIds = $outletIds = $itemIds = [];
+        $apptIds = $custIds = $usrIds = $respIds = $outletIds = $itemIds = [];
         foreach ($res as $f) {
             $apptIds[]  = (string) $f['transactionId'];
             $custIds[]  = (string) $f['customerId'];
             $usrIds[]   = (string) $f['userId'];
             $respIds[]  = (string) $f['responsibleId'];
             $outletIds[] = (string) $f['outletId'];
-            if ($f['transactionParentId']) {
-                $parentIds[] = (string) $f['transactionParentId'];
-            }
             foreach ($this->decodeItemIds($f['transactionDetails'] ?? null) as $iid) {
                 $itemIds[] = $iid;
             }
         }
+
+        // mig 115: transactionParentId dropeada — origen (kind='package_session',
+        // la venta que generó la cita) vía transaction_link, batch por apptId.
+        $originByAppt = (new \Punto\Api\Services\TransactionLinkService())
+            ->mapOriginIdByDerivedIds($companyId, $apptIds, 'package_session');
+        $parentIds = array_values(array_unique(array_filter($originByAppt)));
 
         $contacts  = $this->contactNames(array_merge($custIds, $usrIds, $respIds), $companyId);
         $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
@@ -86,8 +89,9 @@ final class ScheduleService
             $respId = (string) $f['responsibleId'];
 
             $doc = null;
-            if ($f['transactionParentId']) {
-                $doc = $docByParent[(string) $f['transactionParentId']] ?? null;
+            $parentId = $originByAppt[$apptId] ?? null;
+            if ($parentId) {
+                $doc = $docByParent[$parentId] ?? null;
             } elseif (isset($docBySchedule[$apptId])) {
                 $doc = $docBySchedule[$apptId];
             }

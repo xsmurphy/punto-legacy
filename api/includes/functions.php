@@ -241,19 +241,37 @@ function insertNewGiftCard($code,$price,$expires,$trsId,$note,$beneficiaryId,$ti
     return \Punto\App\Domain\GiftCard::insertNew($code, $price, $expires, $trsId, $note, $beneficiaryId, $timestamp, $sendDate, $color);
 }
 
-function getAllTransactionPayments($id=false,$limit=false){
+/**
+ * @deprecated Sin callers vivos (grep confirmado) — se conserva reparada
+ * (mig 115: `transactionParentId` dropeada, ahora derivada de
+ * `transaction_link` vía TransactionLinkService) en vez de borrarla, para no
+ * dejar una función pública rota si algo externo la invoca.
+ */
+function getAllTransactionPayments($originIds=false,$limit=false){
 	global $db;
 
-	$a 				= [];
-	$parent		= ($id) ? ' AND transactionParentId IN (' . $id . ')' : '';
+	$a 			= [];
 	$limits 	= ($limit) ? ' LIMIT ' . $limit : '';
-	$result 	= ncmExecute('SELECT * FROM transaction WHERE transactionType = 5' . $parent . $limits, [], false, true);
-	
+	$result 	= ncmExecute('SELECT * FROM transaction WHERE transactionType = 5 AND companyId = ?' . $limits, [COMPANY_ID], false, true);
+
 	if($result){
+		$rows = [];
 		while (!$result->EOF) {
-			$fields = $result->fields;
-			
-			$a[$fields['transactionParentId']][] = [
+			$rows[] = $result->fields;
+			$result->MoveNext();
+		}
+		$result->Close();
+
+		$derivedIds      = array_map(static fn($f) => (string) $f['transactionId'], $rows);
+		$originByDerived = (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds(COMPANY_ID, $derivedIds);
+		$originFilter    = $originIds ? array_flip(is_array($originIds) ? $originIds : explode(',', str_replace("'", '', $originIds))) : null;
+
+		foreach ($rows as $fields) {
+			$parentId = $originByDerived[(string) $fields['transactionId']] ?? null;
+			if ($originFilter !== null && (!$parentId || !isset($originFilter[$parentId]))) {
+				continue;
+			}
+			$a[$parentId][] = [
 																								'id' 				=> enc($fields['transactionId']),
 																								'total' 		=> abs($fields['transactionTotal']),
 																								'userid' 		=> $fields['userId'],
@@ -261,33 +279,65 @@ function getAllTransactionPayments($id=false,$limit=false){
 																								'methods' 	=> $fields['transactionPaymentType'],
 																								'receiptNo' => $fields['invoiceNo']
 																							];
-
-		    $result->MoveNext(); 
 		}
-		$result->Close();
 	}
-	
+
 	return $a;
 }
 
-function getAllToPayTransactions($where=''){
-	global $db, $SQLcompanyId;
-	$a 		= [];
-	$sql 	= 	'SELECT SUM(ABS(transactionTotal)) as payed, transactionParentId as id FROM transaction WHERE transactionType in(5,6) AND ' . 
-				$SQLcompanyId . 
-				$where . 
-				' GROUP BY transactionParentId';
+/**
+ * SUM(ABS(transactionTotal)) de pagos/devoluciones (type 5/6) por transacción
+ * ORIGEN — mig 115: reemplaza el GROUP BY transactionParentId directo por un
+ * lookup vía transaction_link (TransactionLinkService), scopeado a COMPANY_ID.
+ *
+ * @param list<string> $originIds
+ * @return array<string,float> originId => total pagado/devuelto
+ */
+function getAllToPayTransactions(array $originIds){
+	$a = [];
+	if (empty($originIds)) {
+		return $a;
+	}
 
-	$result = ncmExecute($sql,[],false,true);
+	$derivedByOrigin = (new \Punto\Api\Services\TransactionLinkService())->mapDerivedIdsByOrigins(COMPANY_ID, $originIds);
 
-	if($result){
+	$allDerived = [];
+	foreach ($derivedByOrigin as $ids) {
+		foreach ($ids as $id) {
+			$allDerived[] = $id;
+		}
+	}
+	if (empty($allDerived)) {
+		return $a;
+	}
+
+	$placeholders   = implode(',', array_fill(0, count($allDerived), '?'));
+	$result         = ncmExecute(
+		"SELECT transactionId, ABS(transactionTotal) AS total
+		   FROM transaction
+		  WHERE transactionId IN ($placeholders) AND transactionType IN (5,6) AND companyId = ?",
+		array_merge($allDerived, [COMPANY_ID]),
+		false,
+		true
+	);
+	$totalByDerived = [];
+	if ($result) {
 		while (!$result->EOF) {
-			$fields = $result->fields;
-		    $a[$fields['id']] = $fields['payed'];
-		    $result->MoveNext(); 
+			$f = $result->fields;
+			$totalByDerived[(string) $f['transactionId']] = (float) $f['total'];
+			$result->MoveNext();
 		}
 		$result->Close();
 	}
+
+	foreach ($derivedByOrigin as $originId => $derivedIds) {
+		$sum = 0.0;
+		foreach ($derivedIds as $did) {
+			$sum += $totalByDerived[$did] ?? 0.0;
+		}
+		$a[$originId] = $sum;
+	}
+
 	return $a;
 }
 
@@ -315,7 +365,7 @@ function getDebtListByTransaction($id,$expireds=false){
 		  $debtList->MoveNext();
 		}
 
-		$payed = getAllToPayTransactions(' AND transactionParentId IN(' . implodes(',',$ids) . ')');
+		$payed = getAllToPayTransactions($ids);
 
 		$debtList->MoveFirst();
 
@@ -1104,7 +1154,7 @@ function getSalesByPayment($from,$to,$regId,$drawerId=null){
 		// `tags` no es columna de `transaction` (los tags viven en `meta` jsonb).
 		// Pedir `tags` crudo aborta el resumen con 42703 → `meta->>'tags' AS tags`
 		// (mismo patrón que la query de rollup en functions.php:~990).
-		$result 	= ncmExecute("SELECT transactionId, abs(transactionTotal) as transactionTotal, abs(transactionDiscount) as transactionDiscount,transactionPaymentType, transactionType, transactionParentId, meta->>'tags' AS tags
+		$result 	= ncmExecute("SELECT transactionId, abs(transactionTotal) as transactionTotal, abs(transactionDiscount) as transactionDiscount,transactionPaymentType, transactionType, meta->>'tags' AS tags
 									FROM transaction
 									WHERE  " . $date . "
 									AND transactionType IN (0,5,6)
@@ -1112,11 +1162,27 @@ function getSalesByPayment($from,$to,$regId,$drawerId=null){
 									AND companyId = ?"
 									,$params,false,true);
 		if($result){
-			$group = [];
+			$rows = [];
 			while (!$result->EOF) {
-				$fields 	= $result->fields;
+				$rows[] = $result->fields;
+				$result->MoveNext();
+			}
+			$result->Close();
+
+			// transactionParentId dropeada (mig 115) — batch lookup del origen
+			// de los pagos (type 5) vía transaction_link, sin N+1.
+			$type5Ids = array_values(array_filter(array_map(
+				static fn($f) => $f['transactionType'] == 5 ? (string) $f['transactionId'] : null,
+				$rows
+			)));
+			$originByPayment = $type5Ids !== []
+				? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds(COMPANY_ID, $type5Ids, 'credit_payment')
+				: [];
+
+			$group = [];
+			foreach ($rows as $fields) {
 				$new 			= json_decode($fields['transactionPaymentType'],true);
-				
+
 				if($fields['transactionType'] == 6){
 					$new[0]['type'] = 'return';
 					$new[0]['name'] = 'Nota de Crédito';
@@ -1126,7 +1192,8 @@ function getSalesByPayment($from,$to,$regId,$drawerId=null){
 				}
 
 				if($fields['transactionType'] == 5){
-		    		$ignore = isParentInternalSale($fields['transactionParentId']);
+		    		$parentId = $originByPayment[(string) $fields['transactionId']] ?? null;
+		    		$ignore = $parentId ? isParentInternalSale($parentId) : false;
 		    	}else{
 			    	$tags 	= json_decode($fields['tags'], true);
 				    $ignore = isInternalSale($tags);
@@ -1135,10 +1202,7 @@ function getSalesByPayment($from,$to,$regId,$drawerId=null){
 				if(validity($new) && !$ignore){
 					$group 		= groupByPaymentMethod($new,$group);
 				}
-			
-				$result->MoveNext(); 
 		    }
-		    $result->Close();
 		    return $group;
 		}else{
 			return false;
@@ -1994,9 +2058,11 @@ function insertEmptySchedule($data){
 		$record['transactionTotal']     = $data['price'];
 	}
 
-	if($data['parent']){
-		$record['transactionParentId']  = $data['parent'];
-	}
+	// $data['parent'] (venta que originó el paquete, kind='package_session')
+	// YA NO se guarda en transactionParentId (columna dropeada, mig 115) —
+	// función sin callers vivos (grep confirmado); si se reactiva, el caller
+	// debe vincular con TransactionLinkService::link() usando el
+	// transactionId devuelto por el INSERT de abajo.
 
 	if(isset($data['status'])){
 		$record['transactionStatus']  	= $data['status'];
@@ -2921,8 +2987,16 @@ function voidSale($trId,$motive=''){
     //$db->AutoExecute('transaction', $record, 'UPDATE', 'transactionId = ' . $trId);
     // PG: UUID quoteado en el where-string de ncmUpdate (§22.5).
     ncmUpdate(['records' => $record, 'table' => 'transaction', 'where' => "transactionId = '" . $trId . "'"]);//records (arr), table (str), where (str)
-    //elimino pagos si hay
-    ncmExecute("DELETE FROM transaction WHERE transactionParentId = ?", [$trId]);
+    //elimino pagos si hay — mig 115: transactionParentId dropeada, los
+    // derivados viven en transaction_link. Hay que borrar el link ANTES que
+    // la transacción derivada (FK a transaction(transactionId)).
+    $voidLinkSvc = new \Punto\Api\Services\TransactionLinkService();
+    $voidDerivedIds = $voidLinkSvc->listDerivedIds($compId, $trId);
+    if ($voidDerivedIds !== []) {
+        $voidPh = implode(',', array_fill(0, count($voidDerivedIds), '?'));
+        ncmExecute("DELETE FROM transaction_link WHERE companyid = ? AND derivedid IN ($voidPh)", array_merge([$compId], $voidDerivedIds));
+        ncmExecute("DELETE FROM transaction WHERE transactionId IN ($voidPh) AND companyId = ?", array_merge($voidDerivedIds, [$compId]));
+    }
 
     //inventario
     $items = ncmExecute("SELECT

@@ -380,7 +380,10 @@ class CompanyAdminService
      * por dependencias de FK. En caso de cualquier error, hace ROLLBACK completo.
      *
      * Orden de eliminación:
-     *   0. NULL self-referential FKs (transaction.transactionParentId, contact.parentId+userId,
+     *   0. Romper FKs auto-referenciales: transaction_link/order_transaction_link
+     *      (mig 115, reemplaza transaction.transactionParentId — antes un NULL de
+     *      columna, ahora hay que borrar las filas puente porque tienen FK real a
+     *      transaction), contact.parentId+userId,
      *      item.itemParentId, accountCategory.accountCategoryParentId, outlet.taxId←circular)
      *   1. Tablas que referencian transaction (itemSold, toTransaction, toTaxObj, toAddress,
      *      toScheduleUID, giftCardSold, satisfaction, vPayments, comission, stock, printServer)
@@ -416,7 +419,11 @@ class CompanyAdminService
             };
 
             // ── Paso 0: romper FKs auto-referenciales ──────────────────────────
-            $run('UPDATE transaction     SET transactionParentId      = NULL WHERE companyId = ?', [$id]);
+            // transaction_link/order_transaction_link (mig 115) tienen FK real a
+            // transaction(transactionId) — hay que BORRAR las filas (no hay
+            // columna que nullificar, a diferencia del resto de este paso).
+            $run('DELETE FROM transaction_link       WHERE companyId = ?', [$id]);
+            $run('DELETE FROM order_transaction_link WHERE companyId = ?', [$id]);
             $run('UPDATE contact         SET parentId = NULL, userId  = NULL WHERE companyId = ?', [$id]);
             $run('UPDATE item            SET itemParentId              = NULL WHERE companyId = ?', [$id]);
             $run('UPDATE accountCategory SET accountCategoryParentId  = NULL WHERE companyId = ?', [$id]);
