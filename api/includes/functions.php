@@ -450,7 +450,8 @@ function checkCompanyStatus($id){
 		return false;
 	}
 
-	return $result['status'] == 'Active';
+	// Canónico minúscula desde mig 111 (CHECK company_status_allowed).
+	return $result['status'] === 'active';
 }
 
 function updateLastTimeEdit($id,$table=false){
@@ -2119,7 +2120,7 @@ function loginPart($result){
 									WHERE
 										companyId = ? LIMIT 1", [$fields['companyId']]);
 
-	if($company['status'] != 'Active'){
+	if($company['status'] !== 'active'){
 		return 'Cuenta inhabilitada, por favor contactenos al correo <?= EMAIL_FROM ?>';
 	}
 
@@ -2589,7 +2590,7 @@ function signUp($post,$login = true){
 		//
 		$companyRecord['companyName'] 		= $storeName;
 		$companyRecord['plan'] 		= 3;
-		$companyRecord['status'] 	= 'Active';
+		$companyRecord['status'] 	= 'active';
 		$companyRecord['expiresAt'] 	= date('Y-m-d 00:00:00', strtotime("+14 days"));
 		$companyRecord['accountId'] 		= $accountId;
 		

@@ -16,7 +16,7 @@ INSERT INTO company (
     config
 ) VALUES (
     '2cffe736-f5dc-4876-9752-ea5f0db24757',
-    'Active',
+    'active',
     1,
     0.00,
     FALSE,

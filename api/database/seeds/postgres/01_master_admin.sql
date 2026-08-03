@@ -14,7 +14,7 @@ INSERT INTO company (
     companyId, status, plan, balance, isParent, config
 ) VALUES (
     '00000000-0000-0000-0000-000000000001',
-    'Active',
+    'active',
     0,
     0.00,
     TRUE,
