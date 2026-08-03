@@ -747,33 +747,38 @@ function AccountOverview({
     return rows.map((p) => ({ ...p, pct: max > 0 ? (p.total / max) * 100 : 0 }))
   }, [summary?.soldProducts])
 
-  const hasSideTiles = derived.deltaPct !== null || derived.projection !== null
 
   return (
-    <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6 sm:p-8">
-      {/* Línea de contexto compacta: sucursal · caja activa */}
-      <p className="shrink-0 text-sm text-muted-foreground">
-        {outlet?.name || "—"} · {activeRegister?.name || "Sin caja seleccionada"}
-      </p>
-
+    /* Dashboard SIN scroll (pedido del owner 2026-08-02): todo tiene que
+       entrar de un vistazo. `overflow-hidden` + `min-h-0` en la columna y en
+       la fila de charts — los charts absorben el alto sobrante en vez de
+       empujar contenido fuera de la pantalla. Cualquier bloque nuevo va
+       DENTRO de una de las dos filas de tiles o de la fila de charts; no
+       agregar filas de alto fijo. */
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden p-5 sm:p-6">
       {!loading && !isOpen ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 py-12 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <p className="text-sm text-muted-foreground">Caja cerrada</p>
           <Button onClick={() => setActiveKey("drawer")}>Abrir caja</Button>
         </div>
       ) : (
         <>
+          {/* Encabezado: h1 + una sola línea con cajero · sucursal · caja ·
+              antigüedad del turno (antes eran dos líneas separadas). */}
           <div className="shrink-0">
-            <h1 className="text-2xl font-semibold">Turno en curso</h1>
-            <p className="text-sm text-muted-foreground">
+            <h1 className="text-2xl font-semibold leading-tight">Turno en curso</h1>
+            <p className="truncate text-sm text-muted-foreground">
               {cashierName ? `Cajero: ${cashierName}` : "Operador sin identificar"}
+              {` · ${outlet?.name || "—"} · ${activeRegister?.name || "Sin caja"}`}
               {summary?.date ? ` · abierto ${formatRelativeShort(summary.date)}` : ""}
             </p>
           </div>
 
           {/* Fila 1 — números clave. Total vendido es el hero (span 2 + emphasis).
+              Efectivo en caja sube acá: es dato de primer vistazo para el cajero
+              y así se elimina la fila de tiles secundarios del final.
               Patrón StatTile (context/20 §2026-07-31). */}
-          <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             <StatTile
               label="Total vendido"
               value={formatMoney(salesTotal, config)}
@@ -787,8 +792,51 @@ function AccountOverview({
               value={formatMoney(avgTicket, config)}
               isLoading={loading}
             />
-            <StatTile label="Clientes atendidos" value={customersCount} isLoading={loading} />
+            <StatTile label="Clientes" value={customersCount} isLoading={loading} />
+            {summary && (
+              <StatTile label="Efectivo en caja" value={formatMoney(summary.subtotal, config)} />
+            )}
           </div>
+
+          {/* Fila 2 — tiles condicionales (comparativa, propinas, devoluciones).
+              Solo se renderiza si hay alguno: sin base real no se inventa nada. */}
+          {(derived.deltaPct !== null ||
+            derived.projection !== null ||
+            (summary?.tips ?? 0) > 0 ||
+            (summary?.returns ?? 0) !== 0) && (
+            <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
+              {derived.deltaPct !== null && (
+                <StatTile
+                  label="vs ayer a esta hora"
+                  value={`${derived.deltaPct >= 0 ? "+" : ""}${derived.deltaPct.toFixed(1)}%`}
+                  tone={derived.deltaPct >= 0 ? "positive" : "negative"}
+                  icon={
+                    derived.deltaPct >= 0 ? (
+                      <TrendingUp className="size-3.5" />
+                    ) : (
+                      <TrendingDown className="size-3.5" />
+                    )
+                  }
+                />
+              )}
+              {derived.projection !== null && (
+                <StatTile
+                  label="Proyección del día"
+                  value={formatMoney(derived.projection, config)}
+                />
+              )}
+              {(summary?.tips ?? 0) > 0 && (
+                <StatTile label="Propinas" value={formatMoney(summary!.tips, config)} />
+              )}
+              {(summary?.returns ?? 0) !== 0 && (
+                <StatTile
+                  label="Devoluciones"
+                  value={formatMoney(summary!.returns, config)}
+                  tone="negative"
+                />
+              )}
+            </div>
+          )}
 
           {/* Fila 2 — charts. `shrink-0` NO es decorativo: `<Card>` lleva
               `overflow-hidden`, y un flex item que es scroll container tiene
@@ -796,22 +844,25 @@ function AccountOverview({
               `overflow-y-auto` la card del chart se aplastaba a cero y quedaba
               solo el título — el card "vacío" que reportó el owner. */}
           {hourlyLoading ? (
-            <Skeleton className="h-[260px] w-full shrink-0 rounded-lg" />
+            <Skeleton className="min-h-0 w-full flex-1 rounded-lg" />
           ) : chartMode === "none" && paymentSlices.length === 0 ? (
             <p className="shrink-0 text-sm text-muted-foreground">
               Todavía no hay ventas en este turno.
             </p>
           ) : (
-            <div className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-3">
+            /* Fila de charts: absorbe TODO el alto sobrante (`flex-1 min-h-0`)
+               en vez de tener alturas fijas — es lo que permite que el
+               dashboard entre sin scroll en pantallas distintas. */
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-3">
               {chartMode !== "none" && (
-                <Card variant="soft" size="sm" className="lg:col-span-2">
+                <Card variant="soft" size="sm" className="min-h-0 lg:col-span-2">
                   <CardHeader>
                     <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       {chartMode === "shift" ? "Ventas por hora del turno" : "Ventas por hora"}
                     </CardTitle>
                   </CardHeader>
-                  <CardContent>
-                    <ChartContainer config={VENTAS_POR_HORA_CONFIG} className="h-[200px] w-full">
+                  <CardContent className="min-h-0 flex-1">
+                    <ChartContainer config={VENTAS_POR_HORA_CONFIG} className="h-full w-full">
                       <BarChart data={series} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                         <CartesianGrid
                           strokeDasharray="3 3"
@@ -876,23 +927,27 @@ function AccountOverview({
                 </Card>
               )}
 
+              {/* Columna derecha: donut de métodos + más vendidos, apilados y
+                  repartiéndose el alto de la fila. */}
+              <div
+                className={cn(
+                  "flex min-h-0 flex-col gap-3",
+                  chartMode === "none" && "lg:col-span-3",
+                )}
+              >
               {/* Donut de métodos de pago. Se oculta entero si el backend todavía
                   no expone `paymentBreakdown` (deploy escalonado). */}
               {paymentSlices.length > 0 && (
-                <Card
-                  variant="soft"
-                  size="sm"
-                  className={cn(chartMode === "none" && "lg:col-span-3")}
-                >
+                <Card variant="soft" size="sm" className="min-h-0 flex-1">
                   <CardHeader>
                     <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Por método de pago
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="flex flex-col gap-3">
+                  <CardContent className="flex min-h-0 flex-1 flex-col gap-2">
                     <ChartContainer
                       config={paymentChartConfig}
-                      className="mx-auto aspect-square h-[140px]"
+                      className="mx-auto aspect-square min-h-0 flex-1"
                     >
                       <PieChart>
                         <ChartTooltip
@@ -926,7 +981,9 @@ function AccountOverview({
                         </Pie>
                       </PieChart>
                     </ChartContainer>
-                    <ul className="flex flex-col gap-1.5">
+                    {/* Leyenda: única lista con scroll propio si el tenant tiene
+                        muchos métodos — el card no crece ni empuja el layout. */}
+                    <ul className="flex shrink-0 flex-col gap-1 overflow-y-auto">
                       {paymentSlices.map((slice) => (
                         <li key={slice.name} className="flex items-center gap-2 text-xs">
                           <span
@@ -945,22 +1002,15 @@ function AccountOverview({
                   </CardContent>
                 </Card>
               )}
-            </div>
-          )}
 
-          {/* Fila 3 — top productos + derivados del chart. Cada tile se oculta si
-              no tiene base real de comparación (nunca inventar una proyección
-              sin histórico). */}
-          {(topProducts.length > 0 || hasSideTiles) && (
-            <div className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-2">
               {topProducts.length > 0 && (
-                <Card variant="soft" size="sm">
+                <Card variant="soft" size="sm" className="min-h-0 flex-1">
                   <CardHeader>
                     <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                       Más vendidos del turno
                     </CardTitle>
                   </CardHeader>
-                  <CardContent className="flex flex-col gap-2.5">
+                  <CardContent className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
                     {topProducts.map((product) => (
                       <div key={product.name} className="flex flex-col gap-1">
                         <div className="flex items-baseline justify-between gap-3 text-sm">
@@ -985,48 +1035,7 @@ function AccountOverview({
                   </CardContent>
                 </Card>
               )}
-
-              {hasSideTiles && (
-                <div className="flex flex-col gap-3">
-                  {derived.deltaPct !== null && (
-                    <StatTile
-                      label="vs ayer a esta hora"
-                      value={`${derived.deltaPct >= 0 ? "+" : ""}${derived.deltaPct.toFixed(1)}%`}
-                      tone={derived.deltaPct >= 0 ? "positive" : "negative"}
-                      icon={
-                        derived.deltaPct >= 0 ? (
-                          <TrendingUp className="size-3.5" />
-                        ) : (
-                          <TrendingDown className="size-3.5" />
-                        )
-                      }
-                    />
-                  )}
-                  {derived.projection !== null && (
-                    <StatTile
-                      label="Proyección del día"
-                      value={formatMoney(derived.projection, config)}
-                    />
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Tiles secundarios — solo lo que aplica */}
-          {!loading && summary && (
-            <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-3">
-              <StatTile label="Efectivo en caja" value={formatMoney(summary.subtotal, config)} />
-              {summary.tips > 0 && (
-                <StatTile label="Propinas" value={formatMoney(summary.tips, config)} />
-              )}
-              {summary.returns !== 0 && (
-                <StatTile
-                  label="Devoluciones"
-                  value={formatMoney(summary.returns, config)}
-                  tone="negative"
-                />
-              )}
+              </div>
             </div>
           )}
         </>
