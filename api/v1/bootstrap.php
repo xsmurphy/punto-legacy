@@ -35,9 +35,13 @@ $row = ncmExecute(
         config->>'settingCountry'           AS country,
         config->>'settingTimeZone'          AS timezone,
         config->>'settingName'              AS companyname,
-        config->>'hasLogo'                  AS haslogo,
-        config->>'logoUrl'                  AS logourl,
-        config->>'logoUploadedAt'           AS logouploadedat,
+        -- El logo NO vive en claves top-level de config: uploadLogo lo
+        -- persiste DENTRO de config.settingObj (un JSON anidado como string,
+        -- ver SettingsService::readSettingObj). Buscarlo con
+        -- config->>'hasLogo' devolvía NULL siempre y el POS caía al fallback
+        -- de la inicial aunque el tenant tuviera logo (reporte 2026-08-02).
+        -- Se extrae el blob y se decodea en PHP, igual que SettingsService.
+        config->>'settingObj'               AS settingobj,
         -- Razón social/RUC/email/sitio del tenant (ticket impreso, flujo
         -- NO-FE — ver context/10-roadmap.md §2026-07-30). A futuro la
         -- facturación electrónica puede terminar siendo otra fuente para
@@ -112,6 +116,17 @@ if ($outletsRs && is_object($outletsRs)) {
 
 $userPermissions = RoleService::getPermissions((string)$ctx['roleId'], (string)COMPANY_ID);
 
+// Logo: decodear settingObj y resolver la URL con la MISMA lógica que
+// SettingsService::general() (hasLogo + logoUrl + cache-bust por timestamp).
+$settingObj = json_decode((string) ($row['settingobj'] ?? ''), true);
+$settingObj = is_array($settingObj) ? $settingObj : [];
+$logoHas    = !empty($settingObj['hasLogo']);
+$logoUrlRaw = (string) ($settingObj['logoUrl'] ?? '');
+$logoStamp  = isset($settingObj['logoUploadedAt']) ? (int) $settingObj['logoUploadedAt'] : null;
+$logoUrlResolved = ($logoHas && $logoUrlRaw !== '')
+    ? $logoUrlRaw . ($logoStamp ? '?v=' . $logoStamp : '')
+    : '';
+
 apiOk([
     'currency'    => $row['currency'] ?? '',
     // settingDecimal es 'yes'/'no' (usar decimales o no), NO un conteo de dígitos.
@@ -137,10 +152,9 @@ apiOk([
     'companyWebsite'     => $row['companywebsite'] ?? '',
     // Logo del tenant (S3, público). '' si no hay logo cargado — el front
     // hace fallback a la marca Punto. `?v=` cache-bust con logoUploadedAt.
-    'logoUrl'     => (($row['haslogo'] ?? '') === '1' || ($row['haslogo'] ?? '') === 'true')
-        && !empty($row['logourl'])
-        ? $row['logourl'] . (!empty($row['logouploadedat']) ? '?v=' . $row['logouploadedat'] : '')
-        : '',
+    // MISMA lógica que SettingsService::general(): el logo vive en el blob
+    // settingObj (decodeado arriba del apiOk), no en claves top-level.
+    'logoUrl'     => $logoUrlResolved,
     // Base de las pantallas standalone (PUBLIC_URL = <host>/screens) — para links del front.
     'publicUrl'   => defined('PUBLIC_URL') ? PUBLIC_URL : '',
     'user'        => [

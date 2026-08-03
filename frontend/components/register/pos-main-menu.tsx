@@ -38,7 +38,7 @@ import {
   TrendingDown,
   type LucideIcon,
 } from "lucide-react"
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -507,18 +507,32 @@ export function PosMainMenu() {
 // ── Resumen de la cuenta (default landing del menú) ──────────────────────────
 
 /** Series del bar chart "Ventas por hora" — escala verde monocromática de
- *  tokens (context/20 §Tokens): `--chart-1` para hoy (el dato protagonista),
- *  `--chart-3` para ayer, además atenuado por `fillOpacity`. Sin hex. */
+ *  tokens (context/20 §Tokens): `--chart-1` para el dato protagonista (hoy, o
+ *  el turno cuando se pinta la serie única), `--chart-3` para ayer, además
+ *  atenuado por `fillOpacity`. Sin hex. */
 const VENTAS_POR_HORA_CONFIG = {
   hoy: { label: "Hoy", color: "var(--chart-1)" },
   ayer: { label: "Ayer", color: "var(--chart-3)" },
+  turno: { label: "Turno", color: "var(--chart-1)" },
 } satisfies ChartConfig
+
+/** Paleta ciclada del donut de métodos de pago — mismos tokens, sin hex. */
+const CHART_SLICE_COLORS = [
+  "var(--chart-1)",
+  "var(--chart-2)",
+  "var(--chart-3)",
+  "var(--chart-4)",
+  "var(--chart-5)",
+] as const
+
+type HourlyKey = "hoy" | "ayer" | "turno"
 
 interface HourlyPoint {
   /** Hora del día 0-23 en TZ del tenant. */
   hour: number
   hoy: number
   ayer: number
+  turno: number
 }
 
 /** Etiqueta corta para el eje Y — formatMoney entero es demasiado ancho acá. */
@@ -536,23 +550,24 @@ function parseHour(raw: string): number {
 }
 
 /**
- * Une las series de hoy y ayer en un solo dataset continuo, recortado al rango
- * de horas con datos (min..max de AMBAS series). Se rellenan las horas
+ * Une N series horarias en un solo dataset continuo, recortado al rango de
+ * horas con datos (min..max de TODAS las series). Se rellenan las horas
  * intermedias sin ventas con 0 para que el eje X no salte.
+ *
+ * Un turno multi-día se colapsa a hora-del-día a propósito: la pregunta que
+ * responde el chart es "a qué hora vendo", no "qué día".
  */
-function buildHourlySeries(today: DrawerHourlyRow[], yesterday: DrawerHourlyRow[]): HourlyPoint[] {
+function buildHourlySeries(inputs: Array<{ rows: DrawerHourlyRow[]; key: HourlyKey }>): HourlyPoint[] {
   const map = new Map<number, HourlyPoint>()
-  const absorb = (rows: DrawerHourlyRow[], key: "hoy" | "ayer") => {
+  for (const { rows, key } of inputs) {
     for (const row of rows) {
       const h = parseHour(row.hour)
       if (h < 0) continue
-      const point = map.get(h) ?? { hour: h, hoy: 0, ayer: 0 }
+      const point = map.get(h) ?? { hour: h, hoy: 0, ayer: 0, turno: 0 }
       point[key] += row.salesTotal
       map.set(h, point)
     }
   }
-  absorb(today, "hoy")
-  absorb(yesterday, "ayer")
   if (map.size === 0) return []
 
   const hours = [...map.keys()]
@@ -560,9 +575,22 @@ function buildHourlySeries(today: DrawerHourlyRow[], yesterday: DrawerHourlyRow[
   const max = Math.max(...hours)
   const out: HourlyPoint[] = []
   for (let h = min; h <= max; h++) {
-    out.push(map.get(h) ?? { hour: h, hoy: 0, ayer: 0 })
+    out.push(map.get(h) ?? { hour: h, hoy: 0, ayer: 0, turno: 0 })
   }
   return out
+}
+
+/** Suma de `salesTotal` de una serie horaria (todas las horas). */
+function sumSeries(rows: DrawerHourlyRow[]): number {
+  return rows.reduce((acc, r) => acc + r.salesTotal, 0)
+}
+
+/** Suma de `salesTotal` hasta la hora `limit` inclusive. */
+function sumUntilHour(rows: DrawerHourlyRow[], limit: number): number {
+  return rows.reduce((acc, r) => {
+    const h = parseHour(r.hour)
+    return h >= 0 && h <= limit ? acc + r.salesTotal : acc
+  }, 0)
 }
 
 /**
@@ -579,9 +607,10 @@ function buildHourlySeries(today: DrawerHourlyRow[], yesterday: DrawerHourlyRow[
  * abierta (ver DrawerService).
  *
  * Datos: `useDrawerStatus`/`useDrawerSummary` (resumen del turno) +
- * `useDrawerHourlyStats` (ventas por hora, hoy vs ayer — resource aparte, no
- * embebido en el summary). `salesCount`/`customersCount`/`salesTotal` son
- * opcionales en DrawerSummary (default 0) para tolerar un backend sin deployar.
+ * `useDrawerHourlyStats` (ventas por hora: turno / hoy / ayer — resource aparte,
+ * no embebido en el summary). `salesCount`/`customersCount`/`salesTotal`/
+ * `paymentBreakdown` son opcionales en DrawerSummary para tolerar un backend sin
+ * deployar (el bloque que los usa se oculta solo).
  */
 function AccountOverview({
   setActiveKey,
@@ -617,9 +646,35 @@ function AccountOverview({
   const customersCount = summary?.customersCount ?? 0
   const avgTicket = salesCount > 0 ? salesTotal / salesCount : 0
 
+  const shift = React.useMemo(() => hourly?.shift ?? [], [hourly])
   const today = React.useMemo(() => hourly?.today ?? [], [hourly])
   const yesterday = React.useMemo(() => hourly?.yesterday ?? [], [hourly])
-  const series = React.useMemo(() => buildHourlySeries(today, yesterday), [today, yesterday])
+
+  /**
+   * Qué pinta el chart:
+   *   "day"   → hoy vs ayer (el caso normal: turno diario).
+   *   "shift" → serie única del TURNO, cuando hoy y ayer calendario están
+   *             vacíos pero el turno sí tiene ventas. Pasa con turnos que
+   *             llevan días abiertos: las ventas del turno cayeron en días
+   *             calendario que no son ni hoy ni ayer, y antes eso dejaba el
+   *             card renderizado y sin una sola barra.
+   *   "none"  → no hay nada que mostrar → hint.
+   */
+  const chartMode: "day" | "shift" | "none" =
+    today.length > 0 || yesterday.length > 0 ? "day" : shift.length > 0 ? "shift" : "none"
+
+  const series = React.useMemo(() => {
+    if (chartMode === "day") {
+      return buildHourlySeries([
+        { rows: yesterday, key: "ayer" },
+        { rows: today, key: "hoy" },
+      ])
+    }
+    if (chartMode === "shift") {
+      return buildHourlySeries([{ rows: shift, key: "turno" }])
+    }
+    return []
+  }, [chartMode, today, yesterday, shift])
 
   // Hora local del tenant (0-23). El corte "a esta hora" tiene que ser el mismo
   // para las dos series: usar la última hora CON ventas de hoy castigaría a hoy
@@ -630,42 +685,74 @@ function AccountOverview({
   )
 
   const derived = React.useMemo(() => {
-    const sumUntil = (rows: DrawerHourlyRow[], limit: number) =>
-      rows.reduce((acc, r) => {
-        const h = parseHour(r.hour)
-        return h >= 0 && h <= limit ? acc + r.salesTotal : acc
-      }, 0)
+    const todayUntilNow = sumUntilHour(today, currentHour)
+    const yesterdayUntilNow = sumUntilHour(yesterday, currentHour)
 
-    const todayUntilNow = sumUntil(today, currentHour)
-    const yesterdayUntilNow = sumUntil(yesterday, currentHour)
     // delta% = (acumulado de hoy hasta la hora actual − acumulado de ayer hasta
-    // esa MISMA hora) / acumulado de ayer. Sin base de ayer no hay porcentaje.
+    // esa MISMA hora) / acumulado de ayer. Se exige que AMBOS lados tengan
+    // ventas: con hoy en 0 el número siempre da −100% y no informa nada (era el
+    // "−78,3% vs ayer" al lado de un chart sin barras que reportó el owner).
     const deltaPct =
-      yesterdayUntilNow > 0 ? ((todayUntilNow - yesterdayUntilNow) / yesterdayUntilNow) * 100 : null
+      todayUntilNow > 0 && yesterdayUntilNow > 0
+        ? ((todayUntilNow - yesterdayUntilNow) / yesterdayUntilNow) * 100
+        : null
 
-    // Proyección = total de hoy + (ritmo por hora del turno × horas que le
-    // quedan al día comercial). El "día comercial" se define por la hora de la
-    // ÚLTIMA venta de AYER: es el único dato real de hasta cuándo se vende en
-    // esta caja. Sin ventas ayer no hay horizonte → no se proyecta nada.
+    // Proyección = lo vendido HOY + (ritmo por hora de hoy × horas que le quedan
+    // al día comercial). Todo en base calendario, igual que el delta: usar el
+    // total del TURNO acá inflaba la proyección cuando el turno arrastraba días
+    // anteriores. El "día comercial" se define por la hora de la ÚLTIMA venta de
+    // AYER — el único dato real de hasta cuándo se vende en esta caja.
+    const todayHours = today.map((r) => parseHour(r.hour)).filter((h) => h >= 0)
     const yesterdayHours = yesterday.map((r) => parseHour(r.hour)).filter((h) => h >= 0)
     const lastHourYesterday = yesterdayHours.length > 0 ? Math.max(...yesterdayHours) : null
-    const openHour = summary?.date ? parseHour(summary.date) : -1
-    const elapsedHours = openHour >= 0 ? Math.max(1, currentHour - openHour + 1) : 1
-    const ratePerHour = salesTotal / elapsedHours
-    const remainingHours =
-      lastHourYesterday !== null ? Math.max(0, lastHourYesterday - currentHour) : 0
-    const projection =
-      lastHourYesterday !== null ? salesTotal + ratePerHour * remainingHours : null
+
+    let projection: number | null = null
+    if (lastHourYesterday !== null && todayHours.length > 0) {
+      const todayTotal = sumSeries(today)
+      const elapsedHours = Math.max(1, currentHour - Math.min(...todayHours) + 1)
+      const remainingHours = Math.max(0, lastHourYesterday - currentHour)
+      projection = todayTotal + (todayTotal / elapsedHours) * remainingHours
+    }
 
     return { deltaPct, projection }
-  }, [today, yesterday, currentHour, salesTotal, summary?.date])
+  }, [today, yesterday, currentHour])
 
-  const hasChartData = series.some((p) => p.hoy > 0 || p.ayer > 0)
+  /** Donut de métodos de pago. El backend ya excluye Caja Inicial /
+   *  Extracciones / Ingresos — acá solo se descartan los montos en cero. */
+  const paymentSlices = React.useMemo(
+    () =>
+      (summary?.paymentBreakdown ?? [])
+        .filter((row) => row.amount > 0)
+        .map((row, i) => ({
+          name: row.name,
+          amount: row.amount,
+          fill: CHART_SLICE_COLORS[i % CHART_SLICE_COLORS.length],
+        })),
+    [summary?.paymentBreakdown],
+  )
+
+  /** Config sin `color`: los colores viajan en el `fill` de cada slice, así
+   *  ChartStyle no emite custom properties con nombres de método de pago
+   *  (tienen espacios/acentos y romperían el CSS). */
+  const paymentChartConfig = React.useMemo<ChartConfig>(() => {
+    const cfg: ChartConfig = { amount: { label: "Monto" } }
+    for (const slice of paymentSlices) cfg[slice.name] = { label: slice.name }
+    return cfg
+  }, [paymentSlices])
+
+  /** Top 5 productos del turno + ancho relativo de la barrita (vs el #1). */
+  const topProducts = React.useMemo(() => {
+    const rows = (summary?.soldProducts ?? []).filter((p) => p.total > 0).slice(0, 5)
+    const max = rows.reduce((m, p) => Math.max(m, p.total), 0)
+    return rows.map((p) => ({ ...p, pct: max > 0 ? (p.total / max) * 100 : 0 }))
+  }, [summary?.soldProducts])
+
+  const hasSideTiles = derived.deltaPct !== null || derived.projection !== null
 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-6 sm:p-8">
       {/* Línea de contexto compacta: sucursal · caja activa */}
-      <p className="text-sm text-muted-foreground">
+      <p className="shrink-0 text-sm text-muted-foreground">
         {outlet?.name || "—"} · {activeRegister?.name || "Sin caja seleccionada"}
       </p>
 
@@ -676,7 +763,7 @@ function AccountOverview({
         </div>
       ) : (
         <>
-          <div>
+          <div className="shrink-0">
             <h1 className="text-2xl font-semibold">Turno en curso</h1>
             <p className="text-sm text-muted-foreground">
               {cashierName ? `Cajero: ${cashierName}` : "Operador sin identificar"}
@@ -686,7 +773,7 @@ function AccountOverview({
 
           {/* Fila 1 — números clave. Total vendido es el hero (span 2 + emphasis).
               Patrón StatTile (context/20 §2026-07-31). */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+          <div className="grid shrink-0 grid-cols-2 gap-3 sm:grid-cols-5">
             <StatTile
               label="Total vendido"
               value={formatMoney(salesTotal, config)}
@@ -703,105 +790,232 @@ function AccountOverview({
             <StatTile label="Clientes atendidos" value={customersCount} isLoading={loading} />
           </div>
 
-          {/* Fila 2 — ventas por hora, hoy vs ayer */}
+          {/* Fila 2 — charts. `shrink-0` NO es decorativo: `<Card>` lleva
+              `overflow-hidden`, y un flex item que es scroll container tiene
+              min-height automático 0 (CSS flexbox §4.5). Dentro de esta columna
+              `overflow-y-auto` la card del chart se aplastaba a cero y quedaba
+              solo el título — el card "vacío" que reportó el owner. */}
           {hourlyLoading ? (
-            <Skeleton className="h-[220px] w-full rounded-lg" />
-          ) : hasChartData ? (
-            <Card variant="soft" size="sm">
-              <CardHeader>
-                <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Ventas por hora
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ChartContainer config={VENTAS_POR_HORA_CONFIG} className="h-[200px] w-full">
-                  <BarChart data={series} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                    <XAxis
-                      dataKey="hour"
-                      tickFormatter={(h: number) => `${String(h).padStart(2, "0")}h`}
-                      fontSize={10}
-                      stroke="var(--muted-foreground)"
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <YAxis
-                      fontSize={10}
-                      width={44}
-                      stroke="var(--muted-foreground)"
-                      tickLine={false}
-                      axisLine={false}
-                      tickFormatter={compactAmount}
-                    />
-                    <ChartTooltip
-                      cursor={{ fill: "var(--accent)", opacity: 0.4 }}
-                      content={
-                        <ChartTooltipContent
-                          labelFormatter={(label) => `${String(label).padStart(2, "0")}:00`}
-                          formatter={(value, name) => (
-                            <div className="flex w-full items-center justify-between gap-3">
-                              <span className="text-muted-foreground">
-                                {VENTAS_POR_HORA_CONFIG[name as keyof typeof VENTAS_POR_HORA_CONFIG]
-                                  ?.label ?? name}
-                              </span>
-                              <span className="font-medium tabular-nums">
-                                {formatMoney(Number(value) || 0, config)}
-                              </span>
-                            </div>
-                          )}
-                        />
-                      }
-                    />
-                    <ChartLegend content={<ChartLegendContent />} />
-                    {/* Ayer primero para que quede detrás visualmente en la leyenda
-                        y hoy (chart-1) sea la barra que se lee primero. */}
-                    <Bar
-                      dataKey="ayer"
-                      fill="var(--color-ayer)"
-                      fillOpacity={0.45}
-                      radius={[4, 4, 0, 0]}
-                    />
-                    <Bar dataKey="hoy" fill="var(--color-hoy)" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ChartContainer>
-              </CardContent>
-            </Card>
-          ) : (
-            <p className="text-sm text-muted-foreground">
+            <Skeleton className="h-[260px] w-full shrink-0 rounded-lg" />
+          ) : chartMode === "none" && paymentSlices.length === 0 ? (
+            <p className="shrink-0 text-sm text-muted-foreground">
               Todavía no hay ventas en este turno.
             </p>
+          ) : (
+            <div className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-3">
+              {chartMode !== "none" && (
+                <Card variant="soft" size="sm" className="lg:col-span-2">
+                  <CardHeader>
+                    <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {chartMode === "shift" ? "Ventas por hora del turno" : "Ventas por hora"}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ChartContainer config={VENTAS_POR_HORA_CONFIG} className="h-[200px] w-full">
+                      <BarChart data={series} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                        <CartesianGrid
+                          strokeDasharray="3 3"
+                          stroke="var(--border)"
+                          vertical={false}
+                        />
+                        <XAxis
+                          dataKey="hour"
+                          tickFormatter={(h: number) => `${String(h).padStart(2, "0")}h`}
+                          fontSize={10}
+                          stroke="var(--muted-foreground)"
+                          tickLine={false}
+                          axisLine={false}
+                        />
+                        <YAxis
+                          fontSize={10}
+                          width={44}
+                          stroke="var(--muted-foreground)"
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={compactAmount}
+                        />
+                        <ChartTooltip
+                          cursor={{ fill: "var(--accent)", opacity: 0.4 }}
+                          content={
+                            <ChartTooltipContent
+                              labelFormatter={(label) => `${String(label).padStart(2, "0")}:00`}
+                              formatter={(value, name) => (
+                                <div className="flex w-full items-center justify-between gap-3">
+                                  <span className="text-muted-foreground">
+                                    {VENTAS_POR_HORA_CONFIG[
+                                      name as keyof typeof VENTAS_POR_HORA_CONFIG
+                                    ]?.label ?? name}
+                                  </span>
+                                  <span className="font-medium tabular-nums">
+                                    {formatMoney(Number(value) || 0, config)}
+                                  </span>
+                                </div>
+                              )}
+                            />
+                          }
+                        />
+                        <ChartLegend content={<ChartLegendContent />} />
+                        {chartMode === "day" ? (
+                          <>
+                            {/* Ayer primero para que quede detrás visualmente en la
+                                leyenda y hoy (chart-1) sea la barra que se lee primero. */}
+                            <Bar
+                              dataKey="ayer"
+                              fill="var(--color-ayer)"
+                              fillOpacity={0.45}
+                              radius={[4, 4, 0, 0]}
+                            />
+                            <Bar dataKey="hoy" fill="var(--color-hoy)" radius={[4, 4, 0, 0]} />
+                          </>
+                        ) : (
+                          <Bar dataKey="turno" fill="var(--color-turno)" radius={[4, 4, 0, 0]} />
+                        )}
+                      </BarChart>
+                    </ChartContainer>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Donut de métodos de pago. Se oculta entero si el backend todavía
+                  no expone `paymentBreakdown` (deploy escalonado). */}
+              {paymentSlices.length > 0 && (
+                <Card
+                  variant="soft"
+                  size="sm"
+                  className={cn(chartMode === "none" && "lg:col-span-3")}
+                >
+                  <CardHeader>
+                    <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Por método de pago
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-3">
+                    <ChartContainer
+                      config={paymentChartConfig}
+                      className="mx-auto aspect-square h-[140px]"
+                    >
+                      <PieChart>
+                        <ChartTooltip
+                          content={
+                            <ChartTooltipContent
+                              nameKey="name"
+                              hideLabel
+                              formatter={(value, name) => (
+                                <div className="flex w-full items-center justify-between gap-3">
+                                  <span className="text-muted-foreground">{name}</span>
+                                  <span className="font-medium tabular-nums">
+                                    {formatMoney(Number(value) || 0, config)}
+                                  </span>
+                                </div>
+                              )}
+                            />
+                          }
+                        />
+                        <Pie
+                          data={paymentSlices}
+                          dataKey="amount"
+                          nameKey="name"
+                          innerRadius={38}
+                          outerRadius={65}
+                          paddingAngle={2}
+                          strokeWidth={0}
+                        >
+                          {paymentSlices.map((slice) => (
+                            <Cell key={slice.name} fill={slice.fill} />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ChartContainer>
+                    <ul className="flex flex-col gap-1.5">
+                      {paymentSlices.map((slice) => (
+                        <li key={slice.name} className="flex items-center gap-2 text-xs">
+                          <span
+                            className="size-2 shrink-0 rounded-[2px]"
+                            style={{ backgroundColor: slice.fill }}
+                          />
+                          <span className="flex-1 truncate text-muted-foreground">
+                            {slice.name}
+                          </span>
+                          <span className="font-medium tabular-nums">
+                            {formatMoney(slice.amount, config)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           )}
 
-          {/* Fila 3 — derivados del chart. Cada tile se oculta si no tiene base
-              real de comparación (nunca inventar una proyección sin histórico). */}
-          {!hourlyLoading && (derived.deltaPct !== null || derived.projection !== null) && (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {derived.deltaPct !== null && (
-                <StatTile
-                  label="vs ayer a esta hora"
-                  value={`${derived.deltaPct >= 0 ? "+" : ""}${derived.deltaPct.toFixed(1)}%`}
-                  tone={derived.deltaPct >= 0 ? "positive" : "negative"}
-                  icon={
-                    derived.deltaPct >= 0 ? (
-                      <TrendingUp className="size-3.5" />
-                    ) : (
-                      <TrendingDown className="size-3.5" />
-                    )
-                  }
-                />
+          {/* Fila 3 — top productos + derivados del chart. Cada tile se oculta si
+              no tiene base real de comparación (nunca inventar una proyección
+              sin histórico). */}
+          {(topProducts.length > 0 || hasSideTiles) && (
+            <div className="grid shrink-0 grid-cols-1 gap-3 lg:grid-cols-2">
+              {topProducts.length > 0 && (
+                <Card variant="soft" size="sm">
+                  <CardHeader>
+                    <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      Más vendidos del turno
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex flex-col gap-2.5">
+                    {topProducts.map((product) => (
+                      <div key={product.name} className="flex flex-col gap-1">
+                        <div className="flex items-baseline justify-between gap-3 text-sm">
+                          <span className="truncate">{product.name}</span>
+                          <span className="shrink-0 font-medium tabular-nums">
+                            {formatMoney(product.total, config)}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/5">
+                            <div
+                              className="h-full rounded-full bg-chart-1"
+                              style={{ width: `${product.pct}%` }}
+                            />
+                          </div>
+                          <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                            {product.qty} u.
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
               )}
-              {derived.projection !== null && (
-                <StatTile
-                  label="Proyección del día"
-                  value={formatMoney(derived.projection, config)}
-                />
+
+              {hasSideTiles && (
+                <div className="flex flex-col gap-3">
+                  {derived.deltaPct !== null && (
+                    <StatTile
+                      label="vs ayer a esta hora"
+                      value={`${derived.deltaPct >= 0 ? "+" : ""}${derived.deltaPct.toFixed(1)}%`}
+                      tone={derived.deltaPct >= 0 ? "positive" : "negative"}
+                      icon={
+                        derived.deltaPct >= 0 ? (
+                          <TrendingUp className="size-3.5" />
+                        ) : (
+                          <TrendingDown className="size-3.5" />
+                        )
+                      }
+                    />
+                  )}
+                  {derived.projection !== null && (
+                    <StatTile
+                      label="Proyección del día"
+                      value={formatMoney(derived.projection, config)}
+                    />
+                  )}
+                </div>
               )}
             </div>
           )}
 
           {/* Tiles secundarios — solo lo que aplica */}
           {!loading && summary && (
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-3">
               <StatTile label="Efectivo en caja" value={formatMoney(summary.subtotal, config)} />
               {summary.tips > 0 && (
                 <StatTile label="Propinas" value={formatMoney(summary.tips, config)} />

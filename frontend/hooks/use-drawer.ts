@@ -34,6 +34,12 @@ export interface DrawerSoldProduct {
 export interface DrawerSummary {
   /** Filas de detalle: Caja Inicial + métodos de pago + Extracciones + Ingresos */
   list: DrawerSummaryRow[]
+  /**
+   * Solo los métodos de pago reales (sin Caja Inicial / Extracciones / Ingresos),
+   * ya filtrados por el backend en `composeSummary` — nunca filtrar `list` por
+   * nombre acá. Opcional: default `[]` para tolerar un backend sin deployar.
+   */
+  paymentBreakdown?: DrawerSummaryRow[]
   /** Fecha de apertura (ISO) */
   date: string
   /** Total de efectivo = caja inicial + ventas efectivo + ingresos − extracciones */
@@ -66,11 +72,18 @@ export interface DrawerHourlyRow {
 }
 
 /**
- * Ventas por hora del turno en curso vs el día local anterior (misma caja).
+ * Ventas por hora de la caja, en tres series independientes.
  * Resource aparte del summary — ver `api/v1/drawer.php?resource=hourlyStats`.
+ *
+ * `shift` es la ventana del TURNO (puede abarcar varios días calendario);
+ * `today`/`yesterday` son días calendario locales del tenant. Con un turno
+ * dentro de hoy, `shift` ≈ `today` — es la misma plata vista de dos formas,
+ * no se suman.
  */
 export interface DrawerHourlyStats {
   timezone?: string
+  /** Backend sin deployar → `[]` (el consumidor cae a hoy/ayer). */
+  shift: DrawerHourlyRow[]
   today: DrawerHourlyRow[]
   yesterday: DrawerHourlyRow[]
 }
@@ -117,10 +130,12 @@ async function fetchDrawerHourlyStats(): Promise<DrawerHourlyStats> {
   if (!res.ok) throw new Error(`Drawer hourlyStats error ${res.status}`)
   const json = await res.json()
   const data = json?.data ?? {}
-  // Caja cerrada → { closed: true, today: [], yesterday: [] }. Backend sin
-  // deployar → sin `data.today` ⇒ arrays vacíos (el chart se oculta solo).
+  // Caja cerrada → { closed: true, shift: [], today: [], yesterday: [] }.
+  // Backend sin deployar → sin `data.today`/`data.shift` ⇒ arrays vacíos (el
+  // chart cae al hint en vez de romper).
   return {
     timezone: data.timezone,
+    shift: Array.isArray(data.shift) ? (data.shift as DrawerHourlyRow[]) : [],
     today: Array.isArray(data.today) ? (data.today as DrawerHourlyRow[]) : [],
     yesterday: Array.isArray(data.yesterday) ? (data.yesterday as DrawerHourlyRow[]) : [],
   }

@@ -269,17 +269,31 @@ final class DrawerService
     }
 
     /**
-     * Ventas por HORA del turno en curso + las del día calendario local anterior
-     * (misma caja), para el mini-dashboard del menú del POS ("hoy vs ayer").
+     * Ventas por HORA para el mini-dashboard del menú del POS. Devuelve TRES
+     * series independientes de la misma caja:
+     *
+     *   - `shift`     → el TURNO en curso (ventana de la sesión de caja). Es la
+     *                   única serie que sobrevive a un turno multi-día, y es lo
+     *                   que el cajero realmente quiere ver: SU turno.
+     *   - `today`     → el día calendario LOCAL de HOY.
+     *   - `yesterday` → el día calendario LOCAL de AYER.
+     *
+     * `today`/`yesterday` salen del RELOJ del tenant (`TenantClock::now()`), NO
+     * de la fecha de apertura del turno. Antes "hoy" ERA el turno y "ayer" el
+     * día anterior al de la APERTURA: con un turno abierto hace 2 días eso
+     * comparaba la ventana entera del turno contra un día calendario de hace 3
+     * días, y el delta "vs ayer a esta hora" quedaba sin sentido (bug reportado
+     * 2026-08-02). Con el turno dentro de hoy, `shift` ≈ `today` — son la misma
+     * plata, no hay doble conteo: el consumidor elige qué series pinta.
      *
      * Scoping y exclusiones IDÉNTICOS a `getSaleStats()`: filtro de sesión
-     * drawerId exacto + fallback por fecha (mig 70), `transactionType IN (0,5,6)`,
-     * type 6 (nota de crédito) no cuenta como venta, y ventas internas fuera
-     * (`isInternalSale` / `isParentInternalSale` según el tipo). La única
-     * diferencia es que acá además se acumula monto: `abs(transactionTotal)` por
-     * transacción — `getSaleStats` no maneja plata y el breakdown por método de
-     * pago (`getPaymentBreakdown`) no sirve para agrupar por hora porque agrupa
-     * por método, no por transacción.
+     * drawerId exacto + fallback por fecha (mig 70) para `shift`,
+     * `transactionType IN (0,5,6)`, type 6 (nota de crédito) no cuenta como
+     * venta, y ventas internas fuera (`isInternalSale` / `isParentInternalSale`
+     * según el tipo). La única diferencia es que acá además se acumula monto:
+     * `abs(transactionTotal)` por transacción — `getSaleStats` no maneja plata y
+     * el breakdown por método de pago (`getPaymentBreakdown`) no sirve para
+     * agrupar por hora porque agrupa por método, no por transacción.
      *
      * Agrupación horaria: `transaction.transactionDate` es **TIMESTAMPTZ**
      * (db-schema-postgres.sql:319), así que el bucket se calcula con
@@ -288,39 +302,36 @@ final class DrawerService
      * el `AT TIME ZONE` explícito con `TenantClock::timezone()` hace el corte
      * correcto para cualquier tenant sin depender de ese default de conexión.
      *
-     * @return array{timezone:string,today:array<int,array{hour:string,salesTotal:float,salesCount:int}>,yesterday:array<int,array{hour:string,salesTotal:float,salesCount:int}>}
+     * @return array{timezone:string,shift:array<int,array{hour:string,salesTotal:float,salesCount:int}>,today:array<int,array{hour:string,salesTotal:float,salesCount:int}>,yesterday:array<int,array{hour:string,salesTotal:float,salesCount:int}>}
      */
     public function getHourlyStats(string $registerId, string $since, ?string $drawerId = null): array
     {
         $tz = TenantClock::timezone($this->ctx->companyId);
 
-        // HOY = el turno en curso (misma ventana que el resto del resumen).
+        // TURNO = la ventana de la sesión de caja (la misma que el resto del
+        // resumen). Puede abarcar varios días calendario.
         if ($drawerId !== null && $drawerId !== '') {
-            $todaySql    = '(t.drawerid = ? OR (t.drawerid IS NULL AND t.transactionDate > ?))';
-            $todayParams = [$drawerId, $since];
+            $shiftSql    = '(t.drawerid = ? OR (t.drawerid IS NULL AND t.transactionDate > ?))';
+            $shiftParams = [$drawerId, $since];
         } else {
-            $todaySql    = 't.transactionDate > ?';
-            $todayParams = [$since];
+            $shiftSql    = 't.transactionDate > ?';
+            $shiftParams = [$since];
         }
 
-        // AYER = el día calendario LOCAL anterior al de la apertura del turno,
-        // misma caja.
-        //
-        // Se resta el día sobre la parte FECHA de `$since` (`substr(...,0,10)`),
-        // nunca sobre el string completo: `drawerOpenDate` puede volver de PG
-        // renderizado con offset ('2026-08-02 08:15:00-04'), y en ese caso
-        // `strtotime()` lo tomaría como instante absoluto y `date()` lo
-        // formatearía en el default del proceso — UTC en el container de prod
-        // (mismo pozo que documenta TenantClock) — corriendo la fecha un día.
-        // Una fecha pelada 'Y-m-d' no tiene esa ambigüedad: entra y sale igual.
-        $prevDay         = date('Y-m-d', strtotime(substr($since, 0, 10) . ' -1 day'));
-        $yesterdaySql    = '(t.transactionDate AT TIME ZONE ?::text)::date = ?::date';
-        $yesterdayParams = [$tz, $prevDay];
+        // HOY / AYER = días calendario LOCALES del tenant. `TenantClock::now()`
+        // resuelve la TZ configurada por DateTimeZone explícita, así que la
+        // fecha no depende del default del proceso (UTC en el container de
+        // prod). Sobre esa fecha PELADA ('Y-m-d') sí es seguro restar un día:
+        // no tiene offset que `strtotime()` pueda reinterpretar.
+        $todayDate = substr(TenantClock::now($this->ctx->companyId), 0, 10);
+        $prevDay   = date('Y-m-d', strtotime($todayDate . ' -1 day'));
+        $daySql    = '(t.transactionDate AT TIME ZONE ?::text)::date = ?::date';
 
         return [
             'timezone'  => $tz,
-            'today'     => $this->hourlyBuckets($registerId, $tz, $todaySql, $todayParams),
-            'yesterday' => $this->hourlyBuckets($registerId, $tz, $yesterdaySql, $yesterdayParams),
+            'shift'     => $this->hourlyBuckets($registerId, $tz, $shiftSql, $shiftParams),
+            'today'     => $this->hourlyBuckets($registerId, $tz, $daySql, [$tz, $todayDate]),
+            'yesterday' => $this->hourlyBuckets($registerId, $tz, $daySql, [$tz, $prevDay]),
         ];
     }
 
@@ -705,6 +716,11 @@ final class DrawerService
         $total     = 0.0;
         $return    = 0.0;
         $list      = [['name' => 'Caja Inicial', 'amount' => $cajaInicial]];
+        // Solo los MÉTODOS DE PAGO reales — sin Caja Inicial / Extracciones /
+        // Ingresos, que en `list` conviven con ellos porque esa lista es el
+        // arqueo impreso. Se arma acá (donde ya se sabe qué fila es qué) y no
+        // filtrando `list` por nombre en el consumidor: los nombres son copy.
+        $paymentBreakdown = [];
 
         foreach ($payments as $p) {
             $price = (float) $p['price'];
@@ -716,6 +732,7 @@ final class DrawerService
             } else {
                 $total += $price;
                 $list[] = ['name' => $p['name'], 'amount' => $price];
+                $paymentBreakdown[] = ['name' => $p['name'], 'amount' => $price];
             }
         }
 
@@ -728,8 +745,9 @@ final class DrawerService
         $list[] = ['name' => 'Ingresos (Efectivo)',     'amount' => $totalIncome];
 
         return [
-            'list'     => $list,
-            'date'     => $open['drawerOpenDate'],
+            'list'             => $list,
+            'paymentBreakdown' => $paymentBreakdown,
+            'date'             => $open['drawerOpenDate'],
             'subtotal'        => ($cajaInicial + $cashPrice + $totalIncome) - $expenseAmount,
             'total'           => ($cajaInicial + $total + $totalIncome) - $expenseAmount - $return,
             'tips'            => $totalTips,
