@@ -28,6 +28,43 @@ estaban arreglados y nadie había cerrado — esos se movieron a
 "Cerrados en la auditoría del 2026-07-30" al final de la sección, con la
 evidencia de dónde quedó el fix.
 
+### Reporte del tester — 2026-08-03 (`requerimientos_punto_de_venta`)
+
+Documento con 4 capturas. Triado abajo. **Ojo con la ventana temporal**: el
+reporte se escribió el mismo día en que se desplegaron varios fixes, así que
+dos ítems pueden estar ya resueltos y probados contra el build viejo — están
+marcados RE-TEST y no se tocan hasta que el tester confirme.
+
+**Bugs — plata o dato incorrecto (arriba = peor)**
+
+| # | Qué pasa | Dónde | Estado |
+|---|---|---|---|
+| T1 | Cobro por partes en una mesa: la venta se confirma pero el pago parcial NO se registra en la cuenta de la mesa (toast "no se pudo registrar el pago parcial… Avisá al soporte" junto a "¡Venta confirmada!"). La caja cobró y la mesa sigue debiendo → descuadre. | Espacios / `SpaceSettlementService` | ABIERTO |
+| T2 | Canje de gift card: "Giftcard no encontrada" siempre. En la captura el código tipeado es `490828` y el listado muestra `4908128` (vigente, Gs 700.000) — puede ser un dígito comido por el input o un lookup que no normaliza. | POS / giftcards | ABIERTO |
+| T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | ABIERTO |
+| T4 | Descuento de -20% asignado a un cliente desde /admin no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | ABIERTO |
+| T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | ABIERTO |
+| T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | ABIERTO |
+| T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
+| T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | ABIERTO |
+| T9 | Modificar cantidad de un ítem del carrito: no deja tipear cantidad ni decimales, "persiste incluso usando Shift". | POS / carrito | RE-TEST (fix `4c0158d0`, desplegado hoy) |
+| T10 | Orden en venta: al procesar el pedido vuelve a la lista de ventas y pide cobrar de nuevo algo ya pagado. | POS / órdenes | RE-TEST (fix `675a4608`, desplegado hoy) |
+
+El tester ya dio por cerrado el de persistencia de ventas guardadas.
+
+**Pedidos de producto (no son bugs)** — venta por kg/metros con QR del plato;
+clasificar el tipo de venta (Pedidos Ya / Mayoristas) para los reportes;
+plantilla de impresión por defecto en cotizaciones; mozo asignado a un espacio;
+renombrar/etiquetar espacios; cobrar ítems individuales de una mesa; tecla `O`
+para saltar a órdenes (baja); lista unificada de preparación para cocina;
+guardar el último costo de compra como referencia (clave para producción: sin
+esto, producir antes de cargar la factura da márgenes negativos); línea de
+crédito del cliente; pagar facturas a crédito desde Clientes; historial de
+transacciones en la ficha del contacto; impresoras A4 y preimpresos; timbrado
+por caja; panel de transacciones más detallado; nota de crédito con impresión
+o PDF. El módulo de viandas que piden ya está relevado más abajo en este mismo
+documento.
+
 **Resueltos el 2026-07-29** (pendientes de confirmación en uso): descuento de
 venta visible y con estado en el menú; UUIDs de medios de pago en Control de
 Caja (resuelto en las dos puntas + agrupación por nombre, así el mismo medio no
