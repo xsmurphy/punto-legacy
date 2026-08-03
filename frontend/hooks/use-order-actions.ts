@@ -29,8 +29,15 @@ import { printOrderComandas } from "@/lib/orders/print-comandas"
 import { useCancelOrder, type Order } from "@/hooks/use-orders"
 
 export interface OrderActions {
-  /** Vuelca la orden al carrito y navega a la caja para cobrarla. */
+  /** Vuelca la orden al carrito y navega a la caja para cobrarla. No-op si `isPaid`. */
   cobrar: () => void
+  /**
+   * La orden ya tiene `saleTransactionId` (nació pagada — flujo "Orden en
+   * venta", o se cobró después). "Cobrar" tiene que quedar inhabilitado: sin
+   * este gate, un segundo cobro generaría una venta duplicada del mismo
+   * pedido.
+   */
+  isPaid: boolean
   /** Reimprime la comanda en las impresoras con el documento "Orden" asignado. */
   reprint: () => Promise<void>
   printing: boolean
@@ -57,11 +64,14 @@ export function useOrderActions(order: Order, onAfterAction?: () => void): Order
   const [cancelReason, setCancelReason] = React.useState("")
   const [printing, setPrinting] = React.useState(false)
 
+  const isPaid = order.saleTransactionId != null
+
   const cobrar = React.useCallback(() => {
+    if (isPaid) return
     loadFromOrder(order)
     onAfterAction?.()
     router.push("/pos")
-  }, [loadFromOrder, order, onAfterAction, router])
+  }, [isPaid, loadFromOrder, order, onAfterAction, router])
 
   const confirmCancel = React.useCallback(() => {
     const reason = cancelReason.trim()
@@ -103,6 +113,7 @@ export function useOrderActions(order: Order, onAfterAction?: () => void): Order
 
   return {
     cobrar,
+    isPaid,
     reprint,
     printing,
     cancelOpen,

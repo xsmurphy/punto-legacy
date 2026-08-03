@@ -54,7 +54,7 @@ final class OrderCoreService
     ];
 
     /**
-     * Transiciones válidas de pos_order.status vía updateStatus() (closed es SOLO markPaid).
+     * Transiciones válidas de pos_order.status vía updateStatus().
      *
      * Los retrocesos (`ready → in_progress`, `→ sent`) acompañan al retroceso de
      * ítems: son los estados a los que llega una orden devuelta a preparación o
@@ -63,6 +63,14 @@ final class OrderCoreService
      * este mapa — razón de más para declararlos acá: un estado alcanzable por un
      * camino y prohibido por el otro es la máquina mintiendo sobre sí misma, y
      * el próximo que lea esta constante para razonar va a razonar mal.
+     *
+     * `delivered → closed`: el pago (saletransactionid) y el fin del ciclo de
+     * vida (status) son ORTOGONALES. Cuando la orden nace pagada ("Orden en
+     * venta" — cobrar primero, producir después, create() con transactionId),
+     * cerrarla al terminar de entregar YA no requiere pasar por markPaid()
+     * (que cobraría una venta que no existe). El guard en updateStatus()
+     * exige saletransactionid IS NOT NULL: sin cobro previo, `closed` sigue
+     * siendo terreno exclusivo de markPaid().
      */
     private const ORDER_TRANSITIONS = [
         'open'             => ['sent', 'cancelled'],
@@ -73,7 +81,7 @@ final class OrderCoreService
         // terminó. El guard de fulfillment='delivery' vive en updateStatus().
         'ready'            => ['sent', 'in_progress', 'delivered', 'out_for_delivery', 'cancelled'],
         'out_for_delivery' => ['delivered', 'cancelled'],
-        'delivered'        => ['cancelled'],
+        'delivered'        => ['closed', 'cancelled'],
         'closed'           => [],
         'cancelled'        => [],
     ];
@@ -101,7 +109,7 @@ final class OrderCoreService
      *              items:list<array{itemId?:string, qty:float, price?:float,
      *              note?:string, course?:int}>, customerId?:string,
      *              userId?:string, note?:string, channelRef?:string,
-     *              sendNow?:bool} $data
+     *              sendNow?:bool, transactionId?:string} $data
      * @return string orderId
      */
     public function create(string $companyId, array $data): string
@@ -123,6 +131,13 @@ final class OrderCoreService
         $note           = isset($data['note']) && $data['note'] !== '' ? (string) $data['note'] : null;
         $channelRef     = isset($data['channelRef']) && $data['channelRef'] !== '' ? (string) $data['channelRef'] : null;
         $sendNow        = !empty($data['sendNow']);
+        // "Orden en venta" (POS cobra primero, produce después): la orden
+        // nace YA PAGADA. transactionId es OPCIONAL — el resto de los flujos
+        // (mesas, ecommerce, agenda) no lo mandan y siguen naciendo 'open'.
+        // El pago y el ciclo de vida son ortogonales (ver updateStatus()):
+        // acá solo dejamos el rastro del cobro, el status lo sigue decidiendo
+        // sendNow.
+        $transactionId  = !empty($data['transactionId']) ? (string) $data['transactionId'] : null;
 
         // `fulfillment` es ORTOGONAL a `source` (context/27 §B.1) — ver mig 94.
         // Una orden de espacio SIEMPRE es dine_in (misma lógica que fuerza
@@ -269,12 +284,13 @@ final class OrderCoreService
                 (orderid, companyid, outletid, registerid, source, status, ordernumber,
                  spacesessionid, customerid, userid, note, channelref,
                  fulfillment, deliveryaddressid, deliveryaddress, deliveryreference, deliverylat, deliverylng,
-                 sent_at)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
+                 saletransactionid, sent_at)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
              RETURNING orderid",
             [
                 $companyId, $outletId, $registerId, $source, $status, $orderNumber, $spaceSessionId, $customerId, $userId, $note, $channelRef,
                 $fulfillment, $deliveryAddressId, $deliveryAddress, $deliveryReference, $deliveryLat, $deliveryLng,
+                $transactionId,
             ]
         );
         if ($rs === false || $rs->EOF) {
@@ -430,7 +446,11 @@ final class OrderCoreService
     /**
      * Transición a nivel orden. `cancelled` requiere que la orden NO tenga
      * saletransactionid (ya cobrada = no se puede cancelar acá, hay que
-     * anular la venta). `closed` está prohibido — solo markPaid() cierra.
+     * anular la venta). `closed` requiere lo INVERSO: solo se permite si la
+     * orden YA tiene saletransactionid (nació pagada vía create() con
+     * transactionId — flujo "Orden en venta"). Sin cobro previo, `closed`
+     * sigue siendo terreno exclusivo de markPaid() — es la única vía que deja
+     * el rastro de pago al cerrar.
      */
     public function updateStatus(
         string $companyId,
@@ -440,10 +460,6 @@ final class OrderCoreService
         ?string $reason = null
     ): array {
         global $db;
-
-        if ($status === 'closed') {
-            throw new \InvalidArgumentException('closed solo se setea vía markPaid() (cobro de la orden)');
-        }
 
         // Una orden NUNCA se elimina: se cancela, y toda cancelación lleva
         // motivo (regla del owner 2026-07-19). El enforcement va ACÁ, no en la
@@ -486,6 +502,11 @@ final class OrderCoreService
             $db->CompleteTrans();
             throw new \InvalidArgumentException('No se puede cancelar una orden ya cobrada (saleTransactionId presente)');
         }
+        if ($status === 'closed' && empty($order['saletransactionid'])) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \InvalidArgumentException('closed sin cobro previo solo se setea vía markPaid() (cobro de la orden)');
+        }
         // out_for_delivery ("En camino") solo tiene sentido si la orden se
         // envía — una mesa o un retiro en mostrador no salen "en camino"
         // (context/27 §B.2).
@@ -495,7 +516,7 @@ final class OrderCoreService
             throw new \InvalidArgumentException("out_for_delivery solo es válido para órdenes con fulfillment='delivery'");
         }
 
-        $closedAtSql = $status === 'cancelled' ? ', closed_at = now()' : '';
+        $closedAtSql = in_array($status, ['cancelled', 'closed'], true) ? ', closed_at = now()' : '';
         $ok = $this->db->Execute(
             "UPDATE pos_order SET status = ?{$closedAtSql} WHERE orderid = ? AND companyid = ? AND status = ?",
             [$status, $id, $companyId, $current]

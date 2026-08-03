@@ -10,9 +10,11 @@
  *   GET  /v1/orders-core?id=<uuid>                           → detalle con ítems
  *   POST /v1/orders-core                                     → crea (body: outletId, registerId?, source?, fulfillment?, deliveryAddressId?,
  *                                                              items:[{itemId?,qty,price?,note?,course?}],
- *                                                              customerId?, note?, channelRef?, sendNow?)
+ *                                                              customerId?, note?, channelRef?, sendNow?, transactionId?)
+ *                                                              transactionId: orden "nace pagada" (flujo Orden en venta) — deja el
+ *                                                              rastro de cobro sin pasar por markPaid().
  *   POST /v1/orders-core?id=<uuid>&action=send                → open → sent
- *   POST /v1/orders-core?id=<uuid>&action=status  {status}    → transición a nivel orden (cancel, etc — closed prohibido)
+ *   POST /v1/orders-core?id=<uuid>&action=status  {status}    → transición a nivel orden (cancel, etc — closed solo si ya está cobrada)
  *   POST /v1/orders-core?id=<uuid>&action=mark-paid {transactionId} → cierra la orden tras cobrarla (llamado por el flujo de cobro, O1)
  *   POST /v1/orders-core?id=<uuid>&action=assign-courier {courierId} → asigna/desasigna repartidor (solo fulfillment='delivery')
  *   POST /v1/orders-core?resource=item-status&id=<orderItemId> {status} → transición de un ítem

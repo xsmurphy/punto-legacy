@@ -100,6 +100,7 @@ export function OrderDetailView({
   // única definición de Cobrar/Reimprimir/Cancelar.
   const {
     cobrar,
+    isPaid,
     reprint,
     printing,
     cancelOpen,
@@ -162,11 +163,11 @@ export function OrderDetailView({
             <Button
               size="sm"
               className="rounded-r-none border-r-0 gap-1.5"
-              disabled={!hasItems}
+              disabled={!hasItems || isPaid}
               onClick={cobrar}
             >
               <DollarSign className="size-3.5" />
-              Cobrar
+              {isPaid ? "Pagada" : "Cobrar"}
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

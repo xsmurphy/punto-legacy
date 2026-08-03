@@ -171,6 +171,13 @@ export interface CreateOrderInput {
   note?: string
   channelRef?: string
   sendNow?: boolean
+  /**
+   * "Orden en venta" (cobrar primero, producir después): la orden nace YA
+   * PAGADA. El backend persiste `saletransactionid` en el mismo INSERT — no
+   * hace falta un markPaid() posterior que además la cerraría antes de
+   * tiempo (pago y ciclo de vida son ortogonales, ver OrderCoreService).
+   */
+  transactionId?: string
 }
 
 /**

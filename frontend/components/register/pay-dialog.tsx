@@ -861,14 +861,18 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   }
 
   // Botón manual "Ordenar" del modal de éxito (ordenEnVenta) — genera la
-  // orden espejo de la venta recién facturada a pedido del cajero. Mismo
-  // efecto que tenía el branch automático que reemplaza (createOrder source
-  // counter + items, sendNow:true + markOrderPaid con el transactionId ya
-  // confirmado). La venta ya está cerrada — un fallo acá no la afecta.
+  // orden espejo de la venta recién facturada a pedido del cajero. La orden
+  // nace YA PAGADA (transactionId en el create) en vez de nacer 'open' y
+  // cerrarse después con markOrderPaid(): ese segundo paso forzaba
+  // status='closed', y el listado activo del POS (ACTIVE_ORDER_STATUSES)
+  // excluye 'closed' — la orden quedaba pagada pero invisible para caja y
+  // cocina. Un solo write, sin ventana donde exista impaga NI ventana donde
+  // exista cerrada-antes-de-producir. La venta ya está cerrada — un fallo acá
+  // no la afecta.
   async function handleOrdenar() {
     if (!orderDraft) return
     try {
-      const created = await createOrder.mutateAsync({
+      await createOrder.mutateAsync({
         source: "counter",
         items: orderDraft.lines.map((l) => ({
           itemId: l.itemId,
@@ -879,8 +883,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         customerId: orderDraft.customerId,
         note: orderDraft.note ?? undefined,
         sendNow: true,
+        transactionId: orderDraft.transactionId,
       })
-      await markOrderPaid.mutateAsync({ orderId: created.id, transactionId: orderDraft.transactionId })
       toast.success("Orden generada")
     } catch (e) {
       toast.error("No se pudo generar la orden", {

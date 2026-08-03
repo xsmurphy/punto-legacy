@@ -50,6 +50,7 @@ export function OrderCard({
   // duplicadas en los dos componentes y cualquier fix se aplicaba en uno solo.
   const {
     cobrar,
+    isPaid,
     reprint,
     printing,
     cancelOpen,
@@ -98,11 +99,11 @@ export function OrderCard({
         <Button
           size="sm"
           className="flex-1 gap-1.5"
-          disabled={!hasItems}
+          disabled={!hasItems || isPaid}
           onClick={cobrar}
         >
           <DollarSign className="size-3.5" />
-          Cobrar
+          {isPaid ? "Pagada" : "Cobrar"}
         </Button>
         <Button
           size="sm"
