@@ -57,7 +57,7 @@ import { useCreateOrder, useMarkOrderPaid } from "@/hooks/use-orders"
 import { TransactionSuccessView } from "./transaction-success-dialog"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { useCloseSpaceSession } from "@/hooks/use-pos-spaces"
-import { useRegisterSessionPayment } from "@/hooks/use-space-settlement"
+import { useRegisterSessionPayment, validateSessionPayment } from "@/hooks/use-space-settlement"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -364,6 +364,52 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         throw new Error("Debe agregar al menos un método de pago")
       }
 
+      // Preflight del cobro parcial de mesa — ANTES de crear la venta.
+      // Bug T1 (2026-08-03): antes esto se validaba DESPUÉS de crear la
+      // venta (más abajo, rama `settlementIntent && result?.transactionId`).
+      // Si `registerSessionPayment` rechazaba (mesa ya cobrada por otra
+      // familia, ítem ya saldado, etc.), la plata ya había entrado a la caja
+      // y la mesa seguía debiendo lo mismo — descuadre, y el cajero solo veía
+      // "avisá al soporte" sin poder resolverlo él mismo. Corriendo la MISMA
+      // validación (SpaceSettlementService::preflightPayment, sin escribir)
+      // antes de la venta, un rechazo aborta ACÁ y la venta nunca se crea —
+      // el cajero lee el motivo real y corrige (ej. cobrar por ítems en vez
+      // de monto libre). No cierra la ventana entera (otro dispositivo puede
+      // cobrar en el medio) pero cubre el caso común sin comprometer plata.
+      if (settlementIntent) {
+        try {
+          await validateSessionPayment(
+            settlementIntent.kind === "items"
+              ? {
+                  sessionId: settlementIntent.sessionId,
+                  transactionId: "",
+                  kind: "items",
+                  orderItemIds: settlementIntent.orderItemIds,
+                }
+              : settlementIntent.kind === "amount"
+                ? {
+                    sessionId: settlementIntent.sessionId,
+                    transactionId: "",
+                    kind: "amount",
+                    amount: settlementIntent.amount,
+                  }
+                : {
+                    sessionId: settlementIntent.sessionId,
+                    transactionId: "",
+                    kind: "share",
+                    shareCount: settlementIntent.shareCount,
+                    shareIndex: settlementIntent.shareIndex,
+                  },
+          )
+        } catch (preflightErr) {
+          throw new Error(
+            preflightErr instanceof Error
+              ? preflightErr.message
+              : "No se pudo validar el cobro parcial de la mesa",
+          )
+        }
+      }
+
       // Construir payload para tenerlo disponible tanto para el POST como para el enqueue
       const payload = buildSalePayload({
         lines,
@@ -564,9 +610,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
                     shareIndex: settlementIntent.shareIndex,
                   },
           )
-          .catch(() => {
+          .catch((e: unknown) => {
+            // El preflight de arriba ya cubrió el caso común (mesa cobrada
+            // por otra familia, ítem ya saldado) — esto solo dispara en la
+            // ventana chica que el preflight NO cierra (ver docblock de
+            // `SpaceSettlementService::preflightPayment`): otro dispositivo
+            // cobró justo entre el preflight y este registro real. Mismo
+            // criterio que la rama `sessionParentId` de abajo — mostrar el
+            // motivo real, no un "avisá al soporte" que no dice qué pasó.
+            const reason = e instanceof Error ? e.message : ""
             toast.error(
-              "Venta confirmada — no se pudo registrar el pago parcial en la cuenta de la mesa. Avisá al soporte.",
+              reason
+                ? `Venta confirmada — no se pudo registrar el pago parcial en la cuenta de la mesa: ${reason}`
+                : "Venta confirmada — no se pudo registrar el pago parcial en la cuenta de la mesa. Avisá al soporte.",
             )
           })
       } else if (sessionParentId && result?.transactionId) {

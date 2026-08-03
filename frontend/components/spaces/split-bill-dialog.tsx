@@ -105,7 +105,21 @@ function SplitBillBody({
 }) {
   const config = useCatalogStore((s) => s.config)
   const decimals = currencyDecimals(config)
-  const { data: balance, isLoading } = useSessionBalance(sessionId)
+  const { data: balance, isLoading, refetch: refetchBalance } = useSessionBalance(sessionId)
+
+  // `useSessionBalance` cachea con staleTime 5s — si otro dispositivo cobró
+  // por ítems justo antes de que el cajero reabra este diálogo (o lo abre
+  // dos veces seguidas en menos de 5s), `lockedFamily` puede llegar
+  // desactualizado y dejar habilitado un modo que el backend va a rechazar.
+  // Mismo motivo que `fetchSessionBalance` en use-space-settlement.ts: para
+  // DECIDIR (acá, qué modos mostrar habilitados) hace falta el saldo AHORA,
+  // no el cacheado. Se fuerza un refetch de red al abrir/cambiar de mesa —
+  // `key={sessionId}` en el padre ya remonta este componente por mesa, así
+  // que este efecto corre una vez por apertura.
+  React.useEffect(() => {
+    if (sessionId) void refetchBalance()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
 
   const [mode, setMode] = React.useState<SplitSelection["mode"]>("total")
   // Modos bloqueados por familia: una mesa se cobra por ítems O por monto/

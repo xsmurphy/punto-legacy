@@ -6,8 +6,13 @@
  *   GET  /v1/space-settlements?sessionId=<uuid>                → saldo (total, paid, balance, items)
  *   POST /v1/space-settlements?sessionId=<uuid>&action=pay      → registra un pago parcial y liquida
  *                                                                  la sesión si el saldo llega a 0
- *        body: { transactionId, kind: 'items'|'amount'|'share',
+ *   POST /v1/space-settlements?sessionId=<uuid>&action=validate → preflight de solo lectura: corre
+ *                                                                  las mismas validaciones que 'pay'
+ *                                                                  sin escribir nada (ver docblock de
+ *                                                                  SpaceSettlementService::preflightPayment)
+ *        body (ambas acciones): { transactionId, kind: 'items'|'amount'|'share',
  *                amount?, orderItemIds?: string[], shareCount?, shareIndex? }
+ *        (transactionId no se valida en 'validate' — ver preflightPayment)
  *
  * Auth: panel + pos-app (mismo realm que orders-core.php / table-sessions.php).
  * pos-app: la operación queda scopeada al outlet del device — un POS/KDS de
@@ -48,8 +53,8 @@ switch ($method) {
         break;
 
     case 'POST':
-        if ($action !== 'pay') {
-            apiError("action inválida (esperado: 'pay')", 422);
+        if (!in_array($action, ['pay', 'validate'], true)) {
+            apiError("action inválida (esperado: 'pay'|'validate')", 422);
         }
         $data = [
             'transactionId' => (string) ($_POST['transactionId'] ?? ''),
@@ -60,7 +65,16 @@ switch ($method) {
             'shareIndex'    => $_POST['shareIndex'] ?? null,
         ];
         try {
-            apiOk($svc->registerPayment($companyId, $sessionId, $data, $outletScope));
+            if ($action === 'validate') {
+                // Preflight de solo lectura — mismo payload que 'pay', mismo
+                // auth/outletScope, pero no escribe nada (ver docblock de
+                // SpaceSettlementService::preflightPayment). El caller lo usa
+                // ANTES de crear la venta, para no comprometer el cobro si el
+                // pago parcial va a ser rechazado.
+                apiOk($svc->preflightPayment($companyId, $sessionId, $data, $outletScope));
+            } else {
+                apiOk($svc->registerPayment($companyId, $sessionId, $data, $outletScope));
+            }
         } catch (\InvalidArgumentException $e) {
             apiError($e->getMessage(), 422);
         } catch (\Throwable $e) {

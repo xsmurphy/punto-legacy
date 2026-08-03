@@ -96,6 +96,34 @@ export function fetchSessionBalance(sessionId: string): Promise<SessionBalance> 
   return posJson<SessionBalance>(`/api/pos/space-settlements?sessionId=${sessionId}`)
 }
 
+/**
+ * Preflight de un pago parcial: corre las mismas validaciones que el POST
+ * real (`action=pay`) sin registrar nada — mismo motivo que
+ * `fetchSessionBalance` para no cachear: es una pregunta imperativa previa a
+ * decidir, no un estado que la UI muestre en pantalla.
+ *
+ * Existe porque hasta ahora el flujo de cobro parcial creaba la venta
+ * PRIMERO y recién después intentaba `useRegisterSessionPayment` — si el
+ * backend rechazaba el pago (mesa ya cobrada por otra familia, ítem ya
+ * saldado, etc.), la plata ya había entrado a la caja pero la mesa seguía
+ * debiendo lo mismo (descuadre; bug T1, 2026-08-03). El caller debe correr
+ * esto ANTES de crear la venta y abortar el cobro si lanza — el mensaje de
+ * `Error.message` es el motivo real del backend, apto para mostrarle al
+ * cajero (no un genérico "avisá al soporte").
+ *
+ * No elimina la ventana de carrera entera (ver docblock de
+ * `SpaceSettlementService::preflightPayment` en el backend) — reduce el caso
+ * común al costo de un round-trip extra antes de comprometer la venta.
+ */
+export function validateSessionPayment(input: RegisterSessionPaymentInput): Promise<{ ok: true; amount: number; balance: number }> {
+  const { sessionId, ...body } = input
+  return posJson(`/api/pos/space-settlements?sessionId=${sessionId}&action=validate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+}
+
 // ── Queries ───────────────────────────────────────────────────────────────────
 
 /**
