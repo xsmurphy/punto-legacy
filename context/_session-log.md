@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-07-30/08-03 — Facturación electrónica F3-F7 completa + fixes de items/POS
+
+Commits `aeb0315e..aaff6f14` (14 propios; entreverados con ~50 de sesiones paralelas sobre POS/admin/compras/`transaction_link` — ver sus propias entries/hand-off). Highlights: FE F3 (medios de pago reales, lookup de RUC vía Factomate/padrón público, notas de crédito, fix factura-por-el-neto-no-el-bruto) → F4 (rip-out del proveedor legacy) → F6 (portal público QR del comprador) → F7 (onboarding white-label — timbrado vive en la CAJA no duplicado, Punto nunca expone Factomate al tenant); fix de raíz `Validation::isValid` leía `true` de JSON como `false` (rompía TODO switch de `/modules`, no solo FE); tab Stock de ítems con KPIs/historial/ajuste reales (era "Próximamente"); fix VariantService CIA TypeError (bloqueaba guardar variantes); fix mesa POS que forzaba el pago sin dejar sumar cliente/descuento antes. Plan vivo en `context/28-facturacion-electronica-plan.md`. Pendiente: credencial admin de Factomate en env (F7 sin verificar contra API real), migs 92/93/95/100 sin correr en prod.
+
 ## 2026-07-30/31 — Finanzas (cheques/créditos/previsión) + notificaciones + OCR de compras + /admin SaaS completo (F1-F6)
 
 Commits `774bd0d8..1f7b8dd0` (114, incluye facturación electrónica F3 y POS mobile de otra sesión en paralelo). Highlights: cheques/créditos/previsión (mig 102) + centro de notificaciones (mig 103) + OCR de compras foto/PDF con Gemini (migs 105/106) + reorg del sidebar + agente IA con gráficos/personalidad + signup E2E propio + `/admin` SaaS F1-F6 entero (dashboard, semáforo de salud, ficha de tenant, planes/módulos/créditos, roles/llaves/broadcast, facturación dogfooding) — todo revisado por code-reviewer (0 P0) y migraciones dry-run contra prod. Pendiente: configurar tenant emisor en `/admin`→Plataforma (F5); `APP_DEBUG=false` en Coolify.
