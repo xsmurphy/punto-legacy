@@ -8,8 +8,14 @@ namespace Punto\Api\Purchases;
  *
  * Compras viven en la misma tabla `transaction` que ventas, distinguidas por
  * `transactionType`:
- *   1 = compra (purchase) — la única soportada por este service en esta vuelta
- *   4 = orden de compra (no soportado hoy, queda para iteración futura)
+ *   1 = compra al CONTADO (pagada al crearse, `transactionComplete = true`)
+ *   4 = compra a CRÉDITO (cuenta por pagar, `transactionComplete = false`
+ *       hasta que los pagos a proveedor —type 5 con `transactionParentId`—
+ *       la salden). Es la semántica que ya asumían Reports/PurchasesService
+ *       (debt/canAddPayment) y Reports/OpenInvoicesService (state='outcome').
+ *
+ * El docstring viejo decía "4 = orden de compra": era incorrecto, no existe
+ * ninguna orden de compra en el modelo.
  *
  * Una compra tiene N líneas: cada una es un "item" que puede ser
  *   (a) un producto con `itemId` → se inserta en `itemSold` + se incrementa
@@ -37,7 +43,9 @@ final class PurchasesService
     {
         $params = [];
         // Excluir compras anuladas (transactionStatus=6) del listado de reportes.
-        $where  = "transactionType = 1 AND transactionStatus <> 6 {$roc}";
+        // type 1 = contado, type 4 = crédito (cuenta por pagar). Ambos son
+        // compras y deben verse en el listado.
+        $where  = "transactionType IN (1,4) AND transactionStatus <> 6 {$roc}";
 
         if (!empty($filters['from'])) {
             $where    .= ' AND t.transactionDate >= ?';
@@ -67,6 +75,7 @@ final class PurchasesService
 
         $sql = "SELECT t.transactionId, t.transactionDate, t.transactionTotal, t.transactionTax,
                        t.transactionDiscount, t.transactionStatus, t.transactionDueDate,
+                       t.transactionType, t.transactionComplete,
                        t.invoiceNo, t.invoicePrefix, t.supplierId, t.outletId,
                        c.contactName AS supplierName, o.outletName
                   FROM transaction t
@@ -89,6 +98,9 @@ final class PurchasesService
                     'tax'          => $f['transactiontax'] !== null ? (float) $f['transactiontax'] : 0.0,
                     'discount'     => $f['transactiondiscount'] !== null ? (float) $f['transactiondiscount'] : 0.0,
                     'status'       => (int) $f['transactionstatus'],
+                    'type'         => (int) $f['transactiontype'],
+                    'condition'    => ((int) $f['transactiontype']) === 4 ? 'credit' : 'cash',
+                    'complete'     => (bool) $f['transactioncomplete'],
                     'invoiceNo'    => $f['invoiceno'] !== null ? (int) $f['invoiceno'] : null,
                     'invoicePrefix' => $f['invoiceprefix'] !== null ? (string) $f['invoiceprefix'] : null,
                     'supplierId'   => $f['supplierid'] !== null ? (string) $f['supplierid'] : null,
@@ -125,7 +137,7 @@ final class PurchasesService
                LEFT JOIN contact c ON c.contactId = t.supplierId
                LEFT JOIN outlet  o ON o.outletId  = t.outletId
                LEFT JOIN contact u ON u.contactId = t.userId
-              WHERE t.transactionId = ? AND t.companyId = ? AND t.transactionType = 1
+              WHERE t.transactionId = ? AND t.companyId = ? AND t.transactionType IN (1,4)
               LIMIT 1",
             [$id, $companyId]
         );
@@ -201,6 +213,9 @@ final class PurchasesService
             'discount'      => $row['transactiondiscount'] !== null ? (float) $row['transactiondiscount'] : 0.0,
             'units'         => $row['transactionunitssold'] !== null ? (float) $row['transactionunitssold'] : 0.0,
             'status'        => (int) $row['transactionstatus'],
+            'type'          => (int) $row['transactiontype'],
+            'condition'     => ((int) $row['transactiontype']) === 4 ? 'credit' : 'cash',
+            'complete'      => (bool) $row['transactioncomplete'],
             'invoiceNo'     => $row['invoiceno'] !== null ? (int) $row['invoiceno'] : null,
             'invoicePrefix' => $row['invoiceprefix'] !== null ? (string) $row['invoiceprefix'] : null,
             'note'          => $row['transactionnote'] ?? null,
@@ -218,7 +233,7 @@ final class PurchasesService
     /**
      * Crear una compra. Lógica:
      *   - Valida UUIDs y campos requeridos.
-     *   - Inicia TX. Inserta `transaction` (type=1, status=1).
+     *   - Inicia TX. Inserta `transaction` (status=1; type 1 contado / 4 crédito).
      *   - Por cada item: si tiene itemId → inserta en `itemSold` + manageStock;
      *     si no tiene itemId → solo guarda en meta.details (gasto libre).
      *   - Commit. Devuelve transactionId.
@@ -227,6 +242,7 @@ final class PurchasesService
      *   supplierId?:string|null,
      *   outletId:string,
      *   userId:string,
+     *   condition?:'cash'|'credit',
      *   invoiceDate?:string,
      *   dueDate?:string,
      *   invoiceNo?:int|string|null,
@@ -266,8 +282,25 @@ final class PurchasesService
         }
         $supplierId = $supplierId === '' ? null : $supplierId;
 
+        // Condición de la factura. Default 'cash' por back-compat: cualquier
+        // caller viejo (drafts, integraciones) sigue creando compras contado.
+        $condition = strtolower(trim((string) ($data['condition'] ?? 'cash')));
+        if ($condition === '') {
+            $condition = 'cash';
+        }
+        if (!in_array($condition, ['cash', 'credit'], true)) {
+            throw new \RuntimeException("condition inválida: debe ser 'cash' o 'credit'");
+        }
+        $isCredit = $condition === 'credit';
+
         $invoiceDate = $this->normalizeDate($data['invoiceDate'] ?? null, true);
         $dueDate     = $this->normalizeDate($data['dueDate'] ?? null, false);
+        // Una cuenta por pagar sin vencimiento no entra en Previsiones
+        // (ObligationsService filtra transactionDueDate IS NOT NULL), así que
+        // el vencimiento es obligatorio cuando la compra es a crédito.
+        if ($isCredit && $dueDate === null) {
+            throw new \RuntimeException('El vencimiento es obligatorio en una compra a crédito');
+        }
         $discount    = (float) ($data['discount'] ?? 0);
         $note        = (string) ($data['note'] ?? '');
         $authNo      = (string) ($data['authNo'] ?? '');
@@ -345,7 +378,12 @@ final class PurchasesService
         // con la misma lógica (resolver la Parte 2 de raíz: antes esto era
         // {type,price} y no lo alimentaba nada además de recordPurchase). `name`
         // se resuelve server-side — nunca se confía el label del cliente.
+        // A crédito NO hay pago al crear la compra: la línea de pago nace con
+        // el pago a proveedor (type 5). Sin línea, FinanceLedger no mueve plata.
         $paymentTypeJson = null;
+        if ($isCredit) {
+            $payMethod = '';
+        }
         if ($payMethod !== '') {
             $methodName = getPaymentMethodName($payMethod) ?: $payMethod;
             $line = ['type' => $payMethod, 'name' => $methodName, 'total' => $netTotal];
@@ -378,9 +416,11 @@ final class PurchasesService
             'records' => [
                 'transactionDate'       => $invoiceDate,
                 'transactionDueDate'    => $dueDate,
-                'transactionType'       => 1,
+                // 1 = contado (cerrada), 4 = crédito (pendiente → cuentas por
+                // pagar + previsiones hasta que los pagos type 5 la salden).
+                'transactionType'       => $isCredit ? 4 : 1,
                 'transactionStatus'     => 1,
-                'transactionComplete'   => 1,
+                'transactionComplete'   => $isCredit ? 0 : 1,
                 'transactionNote'       => $note,
                 'transactionTotal'      => $netTotal,
                 'transactionDiscount'   => $discount,
@@ -495,7 +535,7 @@ final class PurchasesService
 
         $row = ncmExecute(
             "SELECT *, meta::text AS meta_raw FROM transaction
-              WHERE transactionId = ? AND companyId = ? AND transactionType = 1
+              WHERE transactionId = ? AND companyId = ? AND transactionType IN (1,4)
               LIMIT 1",
             [$id, $companyId]
         );

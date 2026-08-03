@@ -3,6 +3,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
 
+/** Condición de la factura: contado (cerrada) o crédito (cuenta por pagar). */
+export type PurchaseCondition = "cash" | "credit"
+
 export interface PurchaseListRow {
   id: string
   date: string
@@ -11,6 +14,11 @@ export interface PurchaseListRow {
   tax: number
   discount: number
   status: number
+  /** 1 = contado, 4 = crédito. */
+  type: number
+  condition: PurchaseCondition
+  /** false en una compra a crédito aún no saldada. */
+  complete: boolean
   invoiceNo: number | null
   invoicePrefix: string | null
   supplierId: string | null
@@ -42,6 +50,10 @@ export interface PurchaseDetail {
   discount: number
   units: number
   status: number
+  /** 1 = contado, 4 = crédito. */
+  type: number
+  condition: PurchaseCondition
+  complete: boolean
   invoiceNo: number | null
   invoicePrefix: string | null
   note: string | null
@@ -78,6 +90,11 @@ export interface PurchaseFormItem {
 export interface PurchaseCreatePayload {
   supplierId?: string | null
   outletId?: string
+  /**
+   * Default 'cash' si se omite. 'credit' → transactionType=4, pendiente:
+   * aparece en Cuentas por pagar y Previsiones, y exige `dueDate` (422 sin él).
+   */
+  condition?: PurchaseCondition
   invoiceDate?: string
   dueDate?: string
   invoiceNo?: number | string | null

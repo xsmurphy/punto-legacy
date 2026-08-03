@@ -128,6 +128,11 @@ final class FinanceLedger
         if (!$row) {
             return;
         }
+        // Solo compras al CONTADO (type 1) generan egreso al crearse. Una
+        // compra a CRÉDITO (type 4) no mueve plata todavía: es una cuenta por
+        // pagar, y el movimiento nace cuando se registra el pago a proveedor
+        // (type 5, con transactionParentId). Sin este corte el crédito
+        // debitaría la caja dos veces (al comprar y al pagar).
         if ((string) ($row['transactionType'] ?? '') !== '1') {
             return;
         }

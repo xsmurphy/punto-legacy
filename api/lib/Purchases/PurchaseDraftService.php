@@ -391,7 +391,7 @@ final class PurchaseDraftService
         }
         $match = ncmExecute(
             'SELECT transactionId FROM transaction
-              WHERE companyId = ? AND transactionType = 1 AND transactionStatus <> 6
+              WHERE companyId = ? AND transactionType IN (1,4) AND transactionStatus <> 6
                 AND invoiceNo = ? AND supplierId = ?
               LIMIT 1',
             [$companyId, $invoiceNo, $supplierId]

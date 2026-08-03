@@ -40,7 +40,11 @@ import {
   useRejectPurchaseDraft,
   type ExtractedInvoiceItem,
 } from "@/hooks/use-purchase-drafts"
-import type { PurchaseCreatePayload, PurchaseFormItem } from "@/hooks/use-purchases"
+import type {
+  PurchaseCondition,
+  PurchaseCreatePayload,
+  PurchaseFormItem,
+} from "@/hooks/use-purchases"
 import type { Tax } from "@/lib/types/tax"
 import { formatMoney } from "@/lib/format"
 import { DatePicker } from "@/components/date-picker"
@@ -86,6 +90,9 @@ export default function PurchaseDraftReviewPage() {
   const [outletId, setOutletId] = React.useState("")
   const [invoiceDate, setInvoiceDate] = React.useState("")
   const [dueDate, setDueDate] = React.useState("")
+  // Condición de la factura. 'credit' → la compra nace PENDIENTE (type 4):
+  // entra en Cuentas por pagar y Previsiones, sin movimiento de caja.
+  const [condition, setCondition] = React.useState<PurchaseCondition>("cash")
   const [authNo, setAuthNo] = React.useState("")
   const [invoicePrefix, setInvoicePrefix] = React.useState("")
   const [invoiceNo, setInvoiceNo] = React.useState("")
@@ -112,6 +119,7 @@ export default function PurchaseDraftReviewPage() {
       setOutletId(e.outletId || draft.outletId)
       setInvoiceDate(e.invoiceDate ? e.invoiceDate.slice(0, 10) : today())
       setDueDate(e.dueDate ? e.dueDate.slice(0, 10) : today())
+      setCondition(e.condition ?? (draft.extracted?.invoice?.condition === "credito" ? "credit" : "cash"))
       setAuthNo(e.authNo ?? "")
       setInvoicePrefix(e.invoicePrefix ?? "")
       setInvoiceNo(e.invoiceNo !== undefined && e.invoiceNo !== null ? String(e.invoiceNo) : "")
@@ -135,6 +143,9 @@ export default function PurchaseDraftReviewPage() {
     setOutletId(draft.outletId)
     setInvoiceDate(extracted?.invoice?.date ?? today())
     setDueDate(extracted?.invoice?.dueDate ?? extracted?.invoice?.date ?? today())
+    // La condición detectada por la IA prellena el selector — el usuario la
+    // confirma o la corrige antes de aprobar.
+    setCondition(extracted?.invoice?.condition === "credito" ? "credit" : "cash")
     setAuthNo(extracted?.invoice?.timbrado ?? "")
     const split = splitInvoiceNumber(extracted?.invoice?.number ?? null)
     setInvoicePrefix(split.prefix)
@@ -161,8 +172,10 @@ export default function PurchaseDraftReviewPage() {
     }
   }, [paymentMethodId, paymentMethods])
 
+  const isCredit = condition === "credit"
   const selectedMethod = paymentMethods.find((m) => m.id === paymentMethodId)
-  const isCheckMethod = selectedMethod?.systemKey === "check"
+  // A crédito no hay método de pago, así que tampoco hay cheque que cargar.
+  const isCheckMethod = !isCredit && selectedMethod?.systemKey === "check"
 
   const totals = React.useMemo(() => {
     let sub = 0
@@ -230,12 +243,14 @@ export default function PurchaseDraftReviewPage() {
     return {
       supplierId: supplierId || null,
       outletId,
+      condition,
       invoiceDate,
       dueDate,
       invoiceNo: invoiceNo || null,
       invoicePrefix,
       authNo,
-      paymentMethodId: paymentMethodId || undefined,
+      // A crédito el pago se registra después (pago a proveedor, type 5).
+      paymentMethodId: isCredit ? undefined : paymentMethodId || undefined,
       ...(isCheckMethod
         ? {
             checkNumber: checkNumber.trim(),
@@ -256,6 +271,12 @@ export default function PurchaseDraftReviewPage() {
     }
     if (isCheckMethod && checkNumber.trim() === "") {
       toast.error("Ingresá el número de cheque.")
+      return
+    }
+    // A crédito el vencimiento es obligatorio: sin él la compra no aparece en
+    // Previsiones (el backend también lo rechaza con 422).
+    if (isCredit && dueDate.trim() === "") {
+      toast.error("Elegí el vencimiento: es obligatorio en una compra a crédito.")
       return
     }
     try {
@@ -506,11 +527,31 @@ export default function PurchaseDraftReviewPage() {
                 </Select>
               </Field>
 
+              <Field label="Condición" id="condition">
+                <Select
+                  value={condition}
+                  onValueChange={(v) => setCondition(v as PurchaseCondition)}
+                >
+                  <SelectTrigger id="condition">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Contado</SelectItem>
+                    <SelectItem value="credit">Crédito</SelectItem>
+                  </SelectContent>
+                </Select>
+                {isCredit && (
+                  <p className="text-xs text-muted-foreground">
+                    Queda pendiente en Cuentas por pagar hasta que registres el pago.
+                  </p>
+                )}
+              </Field>
+
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Fecha factura" id="invoiceDate">
                   <DatePicker id="invoiceDate" value={invoiceDate} onChange={setInvoiceDate} />
                 </Field>
-                <Field label="Vencimiento" id="dueDate">
+                <Field label={isCredit ? "Vencimiento *" : "Vencimiento"} id="dueDate">
                   <DatePicker id="dueDate" value={dueDate} onChange={setDueDate} />
                 </Field>
               </div>
@@ -556,20 +597,23 @@ export default function PurchaseDraftReviewPage() {
                 </div>
               </div>
 
-              <Field label="Método de pago" id="paymentMethod">
-                <Select value={paymentMethodId} onValueChange={setPaymentMethodId}>
-                  <SelectTrigger id="paymentMethod">
-                    <SelectValue placeholder="Seleccionar método" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {paymentMethods.map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
+              {/* Método de pago solo al contado: a crédito no hay pago al crear. */}
+              {!isCredit && (
+                <Field label="Método de pago" id="paymentMethod">
+                  <Select value={paymentMethodId} onValueChange={setPaymentMethodId}>
+                    <SelectTrigger id="paymentMethod">
+                      <SelectValue placeholder="Seleccionar método" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {paymentMethods.map((m) => (
+                        <SelectItem key={m.id} value={m.id}>
+                          {m.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+              )}
 
               {isCheckMethod && (
                 <div className="flex flex-col gap-3 rounded-md border bg-background/40 p-3">

@@ -8,8 +8,10 @@
  *
  * Auth realm `panel`. Respeta VIEW_OUTLET_ID si el browser mandó X-Outlet-Id.
  *
- * Esta primera vuelta soporta SOLO compras (transactionType=1). Ordenes,
- * devoluciones y reposiciones del legacy quedan para iteración posterior.
+ * Soporta compras al contado (transactionType=1) y a crédito
+ * (transactionType=4, `condition:'credit'` en el POST → queda pendiente y
+ * aparece en Cuentas por pagar y Previsiones). Devoluciones y reposiciones
+ * del legacy quedan para iteración posterior.
  */
 require_once __DIR__ . '/../bootstrap.php';
 

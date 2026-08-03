@@ -96,7 +96,15 @@ final class ObligationsService
 
         // ── Compras con vencimiento (cuentas por pagar, egreso) ──────────
         [$where, $params] = $this->dueWhere(
-            'companyId = ? AND transactionType = 1 AND transactionStatus = 1 AND transactionDueDate IS NOT NULL',
+            // type 4 = compra a CRÉDITO pendiente (cuenta por pagar) — el caso
+            // canónico de una previsión de egreso. type 1 (contado) se mantiene
+            // por compatibilidad con los datos ya cargados: hoy el owner usa el
+            // vencimiento de una compra contado como "lo que debo", y sacarlo
+            // vaciaría las previsiones existentes. Una compra a crédito ya
+            // saldada tiene transactionComplete = true y sale sola del listado.
+            'companyId = ? AND transactionType IN (1,4) AND transactionStatus = 1'
+                . ' AND transactionDueDate IS NOT NULL'
+                . ' AND (transactionType = 1 OR transactionComplete = false)',
             [$companyId],
             $from,
             $to,
