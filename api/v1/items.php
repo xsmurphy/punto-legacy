@@ -532,6 +532,59 @@ if ($id !== null && $resource === 'locations') {
     apiError('Method not allowed for /items/locations', 405);
 }
 
+// ── Sub-recurso: stock (tab "Stock" del detalle de ítem) ───────────────────
+// GET  /v1/items?id=X&resource=inventory-movements&limit=&offset=
+//   → { summary:{qty,avgCost,totalValue}, items:[...], total, limit, offset }
+// POST /v1/items?id=X&resource=inventory-movements
+//   body: { action:"adjust", outletId, locationId?, type:"+"|"-", qty, unitCost?, reason }
+//   → summary actualizado tras aplicar el ajuste (ver StockMovementsService::adjust)
+if ($id !== null && $resource === 'inventory-movements') {
+    $stockMovementsSvc = new \Punto\Api\Items\StockMovementsService();
+
+    if ($method === 'GET') {
+        $limit  = (int) ($_GET['limit'] ?? 20);
+        $offset = (int) ($_GET['offset'] ?? 0);
+        $page   = $stockMovementsSvc->movements($id, $companyId, $limit, $offset);
+        apiOk([
+            'summary' => $stockMovementsSvc->summary($id, $companyId),
+            ...$page,
+        ]);
+    }
+
+    if ($method === 'POST') {
+        $outletId   = trim((string) ($_POST['outletId'] ?? ''));
+        $locationId = trim((string) ($_POST['locationId'] ?? '')) ?: null;
+        $type       = (string) ($_POST['type'] ?? '');
+        $qty        = (float) ($_POST['qty'] ?? 0);
+        $unitCostRaw = $_POST['unitCost'] ?? null;
+        $unitCost   = ($unitCostRaw !== null && $unitCostRaw !== '') ? (float) $unitCostRaw : null;
+        $reason     = (string) ($_POST['reason'] ?? '');
+
+        if ($outletId === '') {
+            apiError('Falta outletId', 422);
+        }
+
+        try {
+            $summary = $stockMovementsSvc->adjust(
+                $companyId,
+                $ctx['userId'],
+                $id,
+                $outletId,
+                $locationId,
+                $type,
+                $qty,
+                $unitCost,
+                $reason
+            );
+            apiOk(['summary' => $summary]);
+        } catch (\RuntimeException $e) {
+            apiError($e->getMessage(), 422);
+        }
+    }
+
+    apiError('Method not allowed for /items/inventory-movements', 405);
+}
+
 // ── Sub-recurso: edición masiva ────────────────────────────────────────────
 // POST /v1/items?resource=bulk-edit
 //   body: { itemIds:[uuid...], patch:{...}, priceAdjustPercent?:number }
