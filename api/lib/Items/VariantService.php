@@ -73,7 +73,12 @@ final class VariantService
         if ($rs === false || $rs->EOF) {
             throw new \RuntimeException('Item padre no encontrado', 404);
         }
+        // $rs->fields es CaseInsensitiveArray (DB.php), no un array PHP nativo —
+        // devolverlo tal cual contra la firma `: array` tira TypeError ("Return
+        // value must be of type array, CaseInsensitiveArray returned"). Mismo
+        // patrón de conversión que DrawerService::587/ItemService::256.
         $row = $rs->fields;
+        $row = $row instanceof \CaseInsensitiveArray ? $row->toArray() : (array) $row;
         $rowCompany = $row['companyid'] ?? '';
         if ($rowCompany !== $companyId) {
             throw new \RuntimeException('Acceso denegado al item padre', 403);
