@@ -855,6 +855,12 @@ final class OrderCoreService
             $where[]  = 'o.spacesessionid = ?';
             $params[] = (string) $filters['spaceSessionId'];
         }
+        if (!empty($filters['customerId'])) {
+            // Ficha del cliente, tab Órdenes (T5): las órdenes reales del POS
+            // viven acá, no en transaction type=12 (legacy) que leía antes.
+            $where[]  = 'o.customerid = ?';
+            $params[] = (string) $filters['customerId'];
+        }
         if (!empty($filters['from'])) {
             $where[]  = 'o.created_at >= ?';
             $params[] = (string) $filters['from'];

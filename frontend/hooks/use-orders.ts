@@ -17,6 +17,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
+import { api } from "@/lib/api-client"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -258,6 +259,35 @@ export function useOrdersBySession(sessionId: string | null) {
       posJson<{ orders: Order[] }>(`/api/pos/orders?spaceSessionId=${sessionId}&includeItems=1`),
     enabled: !!sessionId,
     staleTime: 5 * 1000,
+  })
+}
+
+/**
+ * Órdenes reales (`pos_order`) de un cliente — alimenta el tab "Órdenes" de
+ * la ficha del cliente en el PANEL (T5, reporte del tester 2026-08-03). Antes
+ * ese tab leía el reporte `orders` (transaction type=12, pedido online
+ * legacy) y por eso nunca mostraba nada: las órdenes del módulo Órdenes viven
+ * en `pos_order`, no en `transaction`.
+ *
+ * Va por `api` (cookie `_jwt_panel`), NO `posFetch` — el resto de este
+ * archivo es Bearer de device porque alimenta /pos/ordenes; la ficha del
+ * cliente es superficie de PANEL, mismo cliente HTTP que el resto de la
+ * ficha (ver invariante de realm en `lib/api-client.ts`).
+ */
+export function useOrdersByCustomer(
+  customerId: string | null,
+  params?: { from?: string; to?: string },
+) {
+  return useQuery<{ orders: Order[] }>({
+    queryKey: ["orders", "by-customer", customerId, params?.from, params?.to],
+    queryFn: () => {
+      const qs = new URLSearchParams({ customerId: customerId as string, includeItems: "1" })
+      if (params?.from) qs.set("from", params.from)
+      if (params?.to) qs.set("to", params.to)
+      return api.get<{ orders: Order[] }>(`/v1/orders-core?${qs.toString()}`)
+    },
+    enabled: !!customerId,
+    staleTime: 10 * 1000,
   })
 }
 

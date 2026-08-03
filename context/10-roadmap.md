@@ -43,7 +43,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T2 | Canje de gift card: "Giftcard no encontrada" siempre. En la captura el código tipeado es `490828` y el listado muestra `4908128` (vigente, Gs 700.000) — puede ser un dígito comido por el input o un lookup que no normaliza. | POS / giftcards | ABIERTO |
 | T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | ABIERTO |
 | T4 | Descuento de -20% asignado a un cliente desde /admin no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | ABIERTO |
-| T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | ABIERTO |
+| T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO (tab de la ficha) — ver nota abajo |
 | T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | ABIERTO |
 | T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
 | T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | ABIERTO |
@@ -51,6 +51,17 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T10 | Orden en venta: al procesar el pedido vuelve a la lista de ventas y pide cobrar de nuevo algo ya pagado. | POS / órdenes | RE-TEST (fix `675a4608`, desplegado hoy) |
 
 El tester ya dio por cerrado el de persistencia de ventas guardadas.
+
+**T5 — nota**: el tab "Órdenes" de la ficha del cliente leía el reporte legacy
+`orders` (`transaction` type=12, pedido online viejo) en vez de `pos_order`
+(módulo Órdenes real). Fix: `OrderCoreService::list()` suma filtro
+`customerId`, `/v1/orders-core` lo expone, y el tab pasó a `useOrdersByCustomer`
++ `OrderStatusBadge` compartido. DEUDA que queda ABIERTA y es más grande que
+este fix: el reporte general de Órdenes (Panel → Reportes) sigue apuntando al
+mismo `transaction` type=12 legacy, así que "en panel y reporte" del tester
+solo quedó resuelto para la ficha del cliente — el reporte agregado necesita
+su propia migración a `pos_order` (no trivial: `useReport` y el rollup de
+reportes no conocen `pos_order`).
 
 **T1 — causa raíz y fix (`1f9c8f97`)**: el defecto no era una validación puntual
 sino el ORDEN. La venta se creaba y recién después se intentaba registrar el

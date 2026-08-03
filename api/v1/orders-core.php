@@ -6,7 +6,7 @@
  * (aceptación de pedidos online sobre transaction type=12, dominio distinto,
  * no se toca).
  *
- *   GET  /v1/orders-core                                    → lista (filtros: outletId, status[], source, fulfillment, from, to, q, spaceSessionId; includeItems=1 adjunta ítems batched)
+ *   GET  /v1/orders-core                                    → lista (filtros: outletId, status[], source, fulfillment, from, to, q, spaceSessionId, customerId; includeItems=1 adjunta ítems batched)
  *   GET  /v1/orders-core?id=<uuid>                           → detalle con ítems
  *   POST /v1/orders-core                                     → crea (body: outletId, registerId?, source?, fulfillment?, deliveryAddressId?,
  *                                                              items:[{itemId?,qty,price?,note?,course?}],
@@ -117,6 +117,7 @@ switch ($method) {
             'to'             => $_GET['to'] ?? null,
             'q'              => $_GET['q'] ?? null,
             'spaceSessionId' => $_GET['spaceSessionId'] ?? null,
+            'customerId'     => $_GET['customerId'] ?? null,
         ];
         $includeItems = ($_GET['includeItems'] ?? '') === '1';
         apiOk(['orders' => $svc->list($companyId, array_filter($filters, static fn ($v) => $v !== null && $v !== ''), $includeItems)]);

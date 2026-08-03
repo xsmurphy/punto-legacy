@@ -3,7 +3,6 @@
 import * as React from "react"
 import { ShoppingBag } from "lucide-react"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   DateRangePicker,
@@ -12,19 +11,11 @@ import {
   type DateRangeValue,
 } from "@/components/date-range-picker"
 import { EmptyState } from "@/components/empty-state"
-import { useReport, type OrderRow, type OrdersReportResponse } from "@/hooks/use-reports"
+import { useOrdersByCustomer, type Order } from "@/hooks/use-orders"
+import { OrderStatusBadge } from "@/components/orders/order-status-badge"
+import { orderTotal, orderSearchHaystack } from "@/lib/orders/order-display"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatMoney } from "@/lib/format"
-
-const STATUS_MAP: Record<number, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
-  0: { label: "Pendiente", variant: "outline" },
-  1: { label: "Pendiente", variant: "outline" },
-  2: { label: "En espera", variant: "secondary" },
-  3: { label: "En proceso", variant: "secondary" },
-  4: { label: "Finalizado", variant: "default" },
-  5: { label: "Enviado", variant: "default" },
-  6: { label: "Cancelado", variant: "destructive" },
-}
 
 function niceDate(iso: string | null | undefined): string {
   if (!iso) return "—"
@@ -43,30 +34,30 @@ interface Props {
   customerId: string
 }
 
+/**
+ * Tab "Órdenes" de la ficha del cliente (T5, reporte del tester 2026-08-03).
+ * Lee las órdenes REALES del módulo Órdenes (`pos_order`, vía
+ * `useOrdersByCustomer`) — antes leía el reporte legacy `orders`
+ * (`transaction` type=12, pedido online viejo) y por eso nunca mostraba nada:
+ * las órdenes del POS no viven ahí. El estado se pinta con `OrderStatusBadge`
+ * compartido (no interactivo acá: la ficha del cliente es de solo lectura,
+ * cambiar el estado de una orden es un flujo de /pos/ordenes) — NO se
+ * redefine el mapeo de estados en este componente, que fue justo la causa
+ * del bug (STATUS_MAP numérico legacy vs estados string de `pos_order`).
+ */
 export function ContactOrdersCompact({ customerId }: Props) {
   const { data: bootstrap } = useBootstrap()
   const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
   const [search, setSearch] = React.useState("")
 
-  const opts = React.useMemo(
-    () => ({
-      ...rangeToBackend(range),
-      params: { customerId },
-    }),
-    [range, customerId],
-  )
-
-  const { data, isLoading } = useReport<OrdersReportResponse>("orders", opts)
-  const rows: OrderRow[] = React.useMemo(() => data?.rows ?? [], [data])
+  const backendRange = React.useMemo(() => rangeToBackend(range), [range])
+  const { data, isLoading } = useOrdersByCustomer(customerId, backendRange)
+  const rows: Order[] = React.useMemo(() => data?.orders ?? [], [data])
 
   const filtered = React.useMemo(() => {
     if (!search.trim()) return rows
     const q = search.toLowerCase()
-    return rows.filter(
-      (r) =>
-        r.orderNo?.toLowerCase().includes(q) ||
-        r.customerName?.toLowerCase().includes(q),
-    )
+    return rows.filter((r) => orderSearchHaystack(r).includes(q))
   }, [rows, search])
 
   return (
@@ -99,21 +90,20 @@ export function ContactOrdersCompact({ customerId }: Props) {
         />
       ) : (
         <ul className="divide-y divide-border rounded-lg border">
-          {filtered.map((row) => {
-            const st = STATUS_MAP[row.status] ?? { label: String(row.status), variant: "secondary" as const }
-            return (
-              <li key={row.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
-                <div className="flex min-w-0 flex-col gap-0.5">
-                  <span className="font-medium tabular-nums truncate">{row.orderNo || "—"}</span>
-                  <span className="text-xs text-muted-foreground truncate">{niceDate(row.date)}</span>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-0.5">
-                  <span className="tabular-nums font-medium">{formatMoney(row.total, bootstrap)}</span>
-                  <Badge variant={st.variant} className="text-[10px]">{st.label}</Badge>
-                </div>
-              </li>
-            )
-          })}
+          {filtered.map((order) => (
+            <li key={order.id} className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <span className="font-medium tabular-nums truncate">
+                  {order.orderNumber !== null ? `#${order.orderNumber}` : "—"}
+                </span>
+                <span className="text-xs text-muted-foreground truncate">{niceDate(order.createdAt)}</span>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-0.5">
+                <span className="tabular-nums font-medium">{formatMoney(orderTotal(order), bootstrap)}</span>
+                <OrderStatusBadge order={order} interactive={false} />
+              </div>
+            </li>
+          ))}
         </ul>
       )}
     </div>
