@@ -39,7 +39,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 
 | # | Qué pasa | Dónde | Estado |
 |---|---|---|---|
-| T1 | Cobro por partes en una mesa: la venta se confirma pero el pago parcial NO se registra en la cuenta de la mesa (toast "no se pudo registrar el pago parcial… Avisá al soporte" junto a "¡Venta confirmada!"). La caja cobró y la mesa sigue debiendo → descuadre. | Espacios / `SpaceSettlementService` | ABIERTO |
+| T1 | Cobro por partes en una mesa: la venta se confirma pero el pago parcial NO se registra en la cuenta de la mesa (toast "no se pudo registrar el pago parcial… Avisá al soporte" junto a "¡Venta confirmada!"). La caja cobró y la mesa sigue debiendo → descuadre. | Espacios / `SpaceSettlementService` | RESUELTO `1f9c8f97` |
 | T2 | Canje de gift card: "Giftcard no encontrada" siempre. En la captura el código tipeado es `490828` y el listado muestra `4908128` (vigente, Gs 700.000) — puede ser un dígito comido por el input o un lookup que no normaliza. | POS / giftcards | ABIERTO |
 | T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | ABIERTO |
 | T4 | Descuento de -20% asignado a un cliente desde /admin no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | ABIERTO |
@@ -51,6 +51,20 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T10 | Orden en venta: al procesar el pedido vuelve a la lista de ventas y pide cobrar de nuevo algo ya pagado. | POS / órdenes | RE-TEST (fix `675a4608`, desplegado hoy) |
 
 El tester ya dio por cerrado el de persistencia de ventas guardadas.
+
+**T1 — causa raíz y fix (`1f9c8f97`)**: el defecto no era una validación puntual
+sino el ORDEN. La venta se creaba y recién después se intentaba registrar el
+pago parcial, así que las siete validaciones de `registerPayment` corrían con la
+plata ya en la caja. Evidencia: `space_session_payment` tenía 2 filas
+`kind='items'` y CERO de `amount`/`share` — ningún cobro por monto libre o por
+partes se había registrado nunca. Lo más probable en el caso del tester fue el
+bloqueo de familia (esa mesa ya se cobraba por ítems), pero daba igual cuál
+tropezara. Ahora un preflight de solo lectura corre las MISMAS reglas
+(`validateAndComputeAmount`, definición única compartida con el camino de
+escritura) antes de tocar la caja; si rechaza, la venta no se crea y el cajero
+lee el motivo real en vez de "avisá al soporte". No cierra la ventana entera
+—otro dispositivo puede cobrar en el medio— así que `registerPayment` sigue
+siendo la autoridad final y el caller sigue manejando su error.
 
 **Pedidos de producto (no son bugs)** — venta por kg/metros con QR del plato;
 clasificar el tipo de venta (Pedidos Ya / Mayoristas) para los reportes;
