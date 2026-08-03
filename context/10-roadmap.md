@@ -41,7 +41,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 |---|---|---|---|
 | T1 | Cobro por partes en una mesa: la venta se confirma pero el pago parcial NO se registra en la cuenta de la mesa (toast "no se pudo registrar el pago parcial… Avisá al soporte" junto a "¡Venta confirmada!"). La caja cobró y la mesa sigue debiendo → descuadre. | Espacios / `SpaceSettlementService` | RESUELTO `1f9c8f97` |
 | T2 | Canje de gift card: "Giftcard no encontrada" siempre. En la captura el código tipeado es `490828` y el listado muestra `4908128` (vigente, Gs 700.000) — puede ser un dígito comido por el input o un lookup que no normaliza. | POS / giftcards | ABIERTO |
-| T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | ABIERTO |
+| T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | RE-TEST (fix `27ab36b6`, 2026-07-31 19:51) |
 | T4 | Descuento de -20% asignado a un cliente desde /admin no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | ABIERTO |
 | T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO (tab de la ficha) — ver nota abajo |
 | T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | ABIERTO |
@@ -62,6 +62,18 @@ mismo `transaction` type=12 legacy, así que "en panel y reporte" del tester
 solo quedó resuelto para la ficha del cliente — el reporte agregado necesita
 su propia migración a `pos_order` (no trivial: `useReport` y el rollup de
 reportes no conocen `pos_order`).
+
+**T3 — ya estaba resuelto, verificado contra producción**: se ejecutó
+`TransactionsService::quotes()` contra la base real y devuelve los netos
+correctos (#8: 102.000−6.000=96.000; #7: 151.000−22.650=128.350; #5:
+402.500−13.250=389.250). El descuento SÍ se persiste (`transactiondiscount`) y
+tanto el listado como `detail()` lo restan. El fix es `27ab36b6` del 2026-07-31
+19:51 y la cotización que el tester usó para reportar se creó a las 18:51 — una
+hora antes. Mismo caso que T9/T10: probado contra el build viejo.
+
+Ojo al leer ese archivo: `cobros()` (línea ~252) muestra `transactionTotal`
+CRUDO y eso es correcto — ahí el total es el monto del pago y el descuento no
+aplica. No "arreglarlo" por simetría con `quotes()`.
 
 **T1 — causa raíz y fix (`1f9c8f97`)**: el defecto no era una validación puntual
 sino el ORDEN. La venta se creaba y recién después se intentaba registrar el
