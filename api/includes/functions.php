@@ -1176,7 +1176,7 @@ function getSalesByPayment($from,$to,$regId,$drawerId=null){
 				$rows
 			)));
 			$originByPayment = $type5Ids !== []
-				? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds(COMPANY_ID, $type5Ids)
+				? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds(COMPANY_ID, $type5Ids, 'credit_payment')
 				: [];
 
 			$group = [];

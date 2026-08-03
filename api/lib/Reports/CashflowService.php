@@ -105,7 +105,7 @@ final class CashflowService
             $rows = is_array($result) ? $result : [];
             $derivedIds = array_map(static fn($f) => (string) $f['transactionId'], $rows);
             $originByDerived = $derivedIds !== []
-                ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $derivedIds)
+                ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $derivedIds, 'credit_payment')
                 : [];
 
             $originIds = array_values(array_unique(array_filter($originByDerived)));
