@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Spaces;
 
 use Punto\Api\Orders\OrderCoreService;
+use Punto\Api\Services\TransactionLinkService;
 
 /**
  * SpaceSettlementService — split de cuenta (F3a+F3b+F3c,
@@ -310,18 +311,28 @@ final class SpaceSettlementService
         }
         if ($settled) {
             $orders = new OrderCoreService($this->db);
-            $activeRs = ncmExecute(
-                "SELECT orderid FROM pos_order WHERE spacesessionid = ? AND companyid = ? AND status = 'closed' AND saletransactionid = ?",
-                [$sessionId, $companyId, $transactionId],
-                false,
-                true
-            );
-            if ($activeRs && is_object($activeRs)) {
-                while (!$activeRs->EOF) {
-                    $orders->publishOrderStatus($companyId, (string) $activeRs->fields['orderid']);
-                    $activeRs->MoveNext();
+            // Órdenes de este espacio que quedaron cobradas por $transactionId
+            // — antes un WHERE directo sobre pos_order.saletransactionid
+            // (columna dropeada, mig 115), ahora: IDs de órdenes vinculadas a
+            // la transacción (TransactionLinkService) filtrados por sesión +
+            // status en pos_order (tabla no relacionada, SQL directo OK).
+            $linkedOrderIds = (new TransactionLinkService())->listOrderIdsForTransaction($companyId, $transactionId);
+            if ($linkedOrderIds !== []) {
+                $placeholders = implode(',', array_fill(0, count($linkedOrderIds), '?'));
+                $activeRs = ncmExecute(
+                    "SELECT orderid FROM pos_order
+                      WHERE spacesessionid = ? AND companyid = ? AND status = 'closed' AND orderid IN ($placeholders)",
+                    array_merge([$sessionId, $companyId], $linkedOrderIds),
+                    false,
+                    true
+                );
+                if ($activeRs && is_object($activeRs)) {
+                    while (!$activeRs->EOF) {
+                        $orders->publishOrderStatus($companyId, (string) $activeRs->fields['orderid']);
+                        $activeRs->MoveNext();
+                    }
+                    $activeRs->Close();
                 }
-                $activeRs->Close();
             }
             (new SpaceSessionService($this->db))->publishSessionState($companyId, $sessionId);
         }

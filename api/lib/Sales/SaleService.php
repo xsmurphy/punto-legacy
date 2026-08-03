@@ -36,10 +36,13 @@ use Punto\Api\Sales\Exceptions\SaleAbortedException;
  */
 final class SaleService
 {
+    private \Punto\Api\Services\TransactionLinkService $links;
+
     public function __construct(
         private readonly TenantContext $ctx,
         private readonly DB $db,
     ) {
+        $this->links = new \Punto\Api\Services\TransactionLinkService();
     }
 
     /**
@@ -577,8 +580,8 @@ final class SaleService
             ]),
             'transactionPaymentType' => json_encode($input->payment),
 
-            // path simple: sin parentId (B2 omitido). Sub-slices futuros lo agregarán.
-            'transactionParentId'    => null,
+            // path simple: sin parentId (B2 omitido). Sub-slices futuros lo agregarán
+            // como transaction_link (mig 115, kind='quote_to_sale') — columna dropeada.
             'transactionType'        => $typeStr,
             'transactionComplete'    => $isIncomplete ? 0 : 1,
 
@@ -1205,12 +1208,16 @@ final class SaleService
         $invoicePrefix = (string) ($input->invoiceNo ?? 0) . '/';
 
         for ($i = 0; $i < $total; $i++) {
+            // UUID generado acá (no default del schema) para poder vincularlo
+            // vía transaction_link (mig 115, kind='package_session') sin
+            // depender de RETURNING/Insert_ID del wrapper AutoExecute.
+            $sessionId = (string) $this->db->GetOne('SELECT gen_random_uuid()');
             $this->db->AutoExecute('transaction', [
                 // meta JSONB: transactionDetails va aquí (no es columna directa en PG).
+                'transactionId'         => $sessionId,
                 'meta'                  => json_encode(['transactionDetails' => $detailsJson]),
                 'transactionDate'       => $input->date,
                 'transactionTotal'      => $perPrice,
-                'transactionParentId'   => $transId,
                 'transactionStatus'     => 0,        // pendiente / sin confirmar
                 'transactionType'       => 13,       // schedule
                 'invoiceNo'             => $i + 1,
@@ -1222,6 +1229,7 @@ final class SaleService
                 'outletId'              => $this->ctx->outletId,
                 'companyId'             => $companyId,
             ], 'INSERT');
+            $this->links->link($companyId, $transId, $sessionId, 'package_session');
         }
         // updateLastTimeEdit se llama una vez al final del loop de items, NO acá —
         // con varios items con sesiones se dispararía N veces (P2 redundante).

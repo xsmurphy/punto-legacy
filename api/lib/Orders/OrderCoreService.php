@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Orders;
 
+use Punto\Api\Services\TransactionLinkService;
+
 /**
  * OrderCoreService — núcleo del módulo de Órdenes (O0, context/24-orders-module-plan.md).
  *
@@ -88,10 +90,12 @@ final class OrderCoreService
 
     /** @var mixed */
     private $db;
+    private TransactionLinkService $links;
 
     public function __construct($db)
     {
-        $this->db = $db;
+        $this->db    = $db;
+        $this->links = new TransactionLinkService();
     }
 
     // ------------------------------------------------------------------
@@ -284,13 +288,12 @@ final class OrderCoreService
                 (orderid, companyid, outletid, registerid, source, status, ordernumber,
                  spacesessionid, customerid, userid, note, channelref,
                  fulfillment, deliveryaddressid, deliveryaddress, deliveryreference, deliverylat, deliverylng,
-                 saletransactionid, sent_at)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
+                 sent_at)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, " . ($sendNow ? 'now()' : 'NULL') . ")
              RETURNING orderid",
             [
                 $companyId, $outletId, $registerId, $source, $status, $orderNumber, $spaceSessionId, $customerId, $userId, $note, $channelRef,
                 $fulfillment, $deliveryAddressId, $deliveryAddress, $deliveryReference, $deliveryLat, $deliveryLng,
-                $transactionId,
             ]
         );
         if ($rs === false || $rs->EOF) {
@@ -303,6 +306,14 @@ final class OrderCoreService
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \RuntimeException('No se pudo crear la orden');
+        }
+
+        // "Orden en venta" — la orden nace pagada (transactionId ya viene del
+        // caller, que ya cobró antes de crear la orden). El vínculo va acá,
+        // vía order_transaction_link (mig 115) — reemplaza el antiguo
+        // INSERT directo de saletransactionid.
+        if ($transactionId !== null) {
+            $this->links->linkOrder($companyId, $orderId, $transactionId);
         }
 
         // Un solo evento con el status REAL con el que nació la orden (open o
@@ -497,12 +508,16 @@ final class OrderCoreService
             $db->CompleteTrans();
             throw new \InvalidArgumentException("Transición inválida: {$current} → {$status}");
         }
-        if ($status === 'cancelled' && !empty($order['saletransactionid'])) {
+        // Guard migrado de `saletransactionid IS NOT NULL` (columna dropeada,
+        // mig 115) a order_transaction_link — misma semántica ("¿esta orden
+        // ya tiene una transacción de cobro vinculada?"), ahora vía el service.
+        $hasTransaction = $this->links->orderHasTransaction($companyId, $id);
+        if ($status === 'cancelled' && $hasTransaction) {
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \InvalidArgumentException('No se puede cancelar una orden ya cobrada (saleTransactionId presente)');
         }
-        if ($status === 'closed' && empty($order['saletransactionid'])) {
+        if ($status === 'closed' && !$hasTransaction) {
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \InvalidArgumentException('closed sin cobro previo solo se setea vía markPaid() (cobro de la orden)');
@@ -664,15 +679,19 @@ final class OrderCoreService
 
         $ok = $this->db->Execute(
             "UPDATE pos_order
-                SET status = 'closed', saletransactionid = ?, closed_at = now()
+                SET status = 'closed', closed_at = now()
               WHERE orderid = ? AND companyid = ? AND status NOT IN ('closed','cancelled')",
-            [$transactionId, $orderId, $companyId]
+            [$orderId, $companyId]
         );
         if ($ok === false) {
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \RuntimeException('No se pudo marcar la orden como cobrada');
         }
+        // Rastro del cobro — reemplaza el UPDATE directo de saletransactionid
+        // (mig 115). Vive DENTRO de esta misma TX: si el commit falla, el
+        // link tampoco queda.
+        $this->links->linkOrder($companyId, $orderId, $transactionId);
         $this->recordEvent($companyId, (string) $order['outletid'], $orderId, null, null, 'order', (string) $order['status'], 'closed');
 
         $failed = $db->HasFailedTrans();
@@ -883,6 +902,18 @@ final class OrderCoreService
         $out = [];
         foreach ($rs->GetRows() as $row) {
             $out[] = $this->presentOrder($row, false);
+        }
+
+        // Batch de saleTransactionId — UNA query para todas las órdenes del
+        // listado en vez de N (presentOrder() sin companyId no la resuelve
+        // fila por fila a propósito).
+        if ($out !== []) {
+            $orderIdsForTx = array_map(static fn (array $o) => (string) $o['id'], $out);
+            $txByOrder     = $this->links->mapFirstTransactionIdForOrders($companyId, $orderIdsForTx);
+            foreach ($out as &$orderRow) {
+                $orderRow['saleTransactionId'] = $txByOrder[$orderRow['id']] ?? null;
+            }
+            unset($orderRow);
         }
 
         if ($includeItems && $out !== []) {
@@ -1130,6 +1161,16 @@ final class OrderCoreService
 
     private function presentOrder(array $row, bool $withItems, ?string $companyId = null): array
     {
+        // saleTransactionId derivado de order_transaction_link (mig 115,
+        // reemplaza la columna dropeada pos_order.saletransactionid). El
+        // contrato JSON NO cambia — mismo campo, misma semántica (la primera
+        // transacción vinculada, o null). list() no pasa companyId acá: hace
+        // el batch lookup afuera (N+1 si fuera por fila) y lo mergea post-loop.
+        $saleTransactionId = null;
+        if ($companyId !== null) {
+            $saleTransactionId = $this->links->firstTransactionIdForOrder($companyId, (string) ($row['orderid'] ?? ''));
+        }
+
         $out = [
             'id'                => (string) ($row['orderid'] ?? ''),
             'companyId'         => (string) ($row['companyid'] ?? ''),
@@ -1144,7 +1185,7 @@ final class OrderCoreService
             'userId'            => $row['userid'] ?? null,
             'note'              => $row['note'] ?? null,
             'channelRef'        => $row['channelref'] ?? null,
-            'saleTransactionId' => $row['saletransactionid'] ?? null,
+            'saleTransactionId' => $saleTransactionId,
             'createdAt'         => $row['created_at'] ?? null,
             'sentAt'            => $row['sent_at'] ?? null,
             'closedAt'          => $row['closed_at'] ?? null,

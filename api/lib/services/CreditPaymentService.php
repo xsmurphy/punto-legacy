@@ -16,6 +16,13 @@ namespace Punto\Api\Services;
  */
 final class CreditPaymentService
 {
+    private TransactionLinkService $links;
+
+    public function __construct()
+    {
+        $this->links = new TransactionLinkService();
+    }
+
     private function generateUID(): string
     {
         return (string) (number_format(microtime(true) * 1000, 0, '.', ''));
@@ -80,13 +87,21 @@ final class CreditPaymentService
             apiError('Factura ya saldada', 422);
         }
 
-        // Computar deuda dentro de la TX (después del lock).
-        $total   = (float)($parent['transactionTotal'] ?? 0) - (float)($parent['transactionDiscount'] ?? 0);
-        $paidRow = ncmExecute(
-            "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionParentId = ? AND transactionType = 5 AND companyId = ?",
-            [$parentTransactionId, $companyId]
-        );
-        $paid = (float)($paidRow['paid'] ?? 0);
+        // Computar deuda dentro de la TX (después del lock). Antes: WHERE
+        // transactionParentId = ? directo. Ahora: IDs de pago vinculados
+        // (TransactionLinkService, kind=credit_payment) + SUM sobre esos IDs
+        // (mig 115 — la columna se dropeó).
+        $total = (float)($parent['transactionTotal'] ?? 0) - (float)($parent['transactionDiscount'] ?? 0);
+        $paymentIds = $this->links->listDerivedIds($companyId, $parentTransactionId, 'credit_payment');
+        $paid = 0.0;
+        if ($paymentIds !== []) {
+            $placeholders = implode(',', array_fill(0, count($paymentIds), '?'));
+            $paidRow = ncmExecute(
+                "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionId IN ($placeholders) AND companyId = ?",
+                array_merge($paymentIds, [$companyId])
+            );
+            $paid = (float)($paidRow['paid'] ?? 0);
+        }
         $debt = max(0.0, $total - $paid);
 
         if ($amount <= 0 || round($amount, 4) > round($debt, 4) + 0.001) {
@@ -108,7 +123,6 @@ final class CreditPaymentService
             'transactionDate'        => TODAY,
             'transactionTotal'       => $amount,
             'transactionType'        => 5,
-            'transactionParentId'    => $parentTransactionId,
             'transactionComplete'    => 1,
             'transactionStatus'      => 1,
             'transactionPaymentType' => json_encode([array_merge(
@@ -141,7 +155,13 @@ final class CreditPaymentService
             apiError('Error al registrar pago', 500);
         }
 
-        $newId          = (string)$db->Insert_ID();
+        $newId = (string)$db->Insert_ID();
+
+        // Vínculo pago→factura — reemplaza el INSERT directo de
+        // transactionParentId (mig 115). Dentro de la misma TX: si el resto
+        // falla y hace rollback, el link tampoco queda.
+        $this->links->link($companyId, $parentTransactionId, $newId, 'credit_payment');
+
         $newPaid        = $paid + $amount;
         $debtRemaining  = max(0.0, $debt - $amount);
         $parentComplete = false;

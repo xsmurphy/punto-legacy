@@ -236,11 +236,15 @@ final class VPaymentService
             return; // no es factura a crédito pendiente
         }
 
+        // UUID generado acá (no default del schema) para poder vincularlo vía
+        // transaction_link (mig 115, kind='credit_payment') tras el INSERT.
+        $payTransactionId = (string) $db->GetOne('SELECT gen_random_uuid()');
+
         $tPay = [
+            'transactionId'          => $payTransactionId,
             'transactionDate'        => TODAY,
             'transactionTotal'       => $saleAmount,
             'transactionType'        => 5,
-            'transactionParentId'    => $invoice['transactionId'],
             'transactionComplete'    => 1,
             'transactionStatus'      => 1,
             'transactionPaymentType' => json_encode([['type' => 'epos', 'name' => 'ePOS', 'total' => $saleAmount]]),
@@ -262,6 +266,12 @@ final class VPaymentService
             $db->Execute(
                 'UPDATE transaction SET transactionComplete = TRUE WHERE transactionId = ? AND companyId = ?',
                 [$invoice['transactionId'], $companyId]
+            );
+            (new TransactionLinkService())->link(
+                (string) $invoice['companyId'],
+                (string) $invoice['transactionId'],
+                $payTransactionId,
+                'credit_payment'
             );
         }
     }
