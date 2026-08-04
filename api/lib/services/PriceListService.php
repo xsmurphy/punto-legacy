@@ -146,24 +146,28 @@ final class PriceListService
         $sets   = [];
         $params = [];
 
+        // Identificadores SIN comillas: PG los pliega a lowercase automáticamente
+        // y matchea las columnas reales (todas lowercase). Comillas dobles con
+        // camelCase adentro son case-sensitive y NO matchean nada → columna
+        // inexistente (esto era el bug T4: price_resolve fallaba siempre).
         if (isset($f['name'])) {
-            $sets[]   = '"priceListName" = ?';
+            $sets[]   = 'priceListName = ?';
             $params[] = trim(strip_tags((string) $f['name']));
         }
         if (isset($f['defaultAdjustment'])) {
-            $sets[]   = '"defaultAdjustment" = ?';
+            $sets[]   = 'defaultAdjustment = ?';
             $params[] = (float) $f['defaultAdjustment'];
         }
         if (array_key_exists('validFrom', $f) && $f['validFrom'] !== '__absent__') {
-            $sets[]   = '"validFrom" = ?';
+            $sets[]   = 'validFrom = ?';
             $params[] = ($f['validFrom'] !== null && $f['validFrom'] !== '') ? $f['validFrom'] : null;
         }
         if (array_key_exists('validTo', $f) && $f['validTo'] !== '__absent__') {
-            $sets[]   = '"validTo" = ?';
+            $sets[]   = 'validTo = ?';
             $params[] = ($f['validTo'] !== null && $f['validTo'] !== '') ? $f['validTo'] : null;
         }
         if (isset($f['status'])) {
-            $sets[]   = '"status" = ?';
+            $sets[]   = 'status = ?';
             $params[] = (bool) $f['status'];
         }
 
@@ -171,13 +175,13 @@ final class PriceListService
             return ['ok' => true];
         }
 
-        $sets[]   = '"updatedAt" = now()';
+        $sets[]   = 'updatedAt = now()';
         $params[] = $priceListId;
         $params[] = $companyId;
 
         $res = $db->Execute(
             'UPDATE price_list SET ' . implode(', ', $sets)
-                . ' WHERE "priceListId" = ? AND "companyId" = ?',
+                . ' WHERE priceListId = ? AND companyId = ?',
             $params
         );
 
@@ -197,7 +201,7 @@ final class PriceListService
         global $db;
 
         $res = $db->Execute(
-            'DELETE FROM price_list WHERE "priceListId" = ? AND "companyId" = ?',
+            'DELETE FROM price_list WHERE priceListId = ? AND companyId = ?',
             [$priceListId, $companyId]
         );
 
@@ -220,7 +224,7 @@ final class PriceListService
 
         // Verificar que la lista pertenece al tenant
         $exists = ncmExecute(
-            'SELECT 1 FROM price_list WHERE "priceListId" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT 1 FROM price_list WHERE priceListId = ? AND companyId = ? LIMIT 1',
             [$priceListId, $companyId],
             false
         );
@@ -232,7 +236,7 @@ final class PriceListService
         $db->StartTrans();
 
         $db->Execute(
-            'DELETE FROM price_list_item WHERE "priceListId" = ? AND "companyId" = ?',
+            'DELETE FROM price_list_item WHERE priceListId = ? AND companyId = ?',
             [$priceListId, $companyId]
         );
 
@@ -303,9 +307,9 @@ final class PriceListService
 
         // Obtener override del ítem si existe
         $itemRow = ncmExecute(
-            'SELECT "fixedPrice", "itemAdjustment"
+            'SELECT fixedPrice AS "fixedPrice", itemAdjustment AS "itemAdjustment"
                FROM price_list_item
-              WHERE "priceListId" = ? AND "itemId" = ? AND "companyId" = ?
+              WHERE priceListId = ? AND itemId = ? AND companyId = ?
               LIMIT 1',
             [$list['priceListId'], $itemId, $companyId],
             false
@@ -364,9 +368,9 @@ final class PriceListService
         $listItemRows = [];
         if (!empty($itemIds)) {
             $rows = ncmExecute(
-                'SELECT "itemId", "fixedPrice", "itemAdjustment"
+                'SELECT itemId AS "itemId", fixedPrice AS "fixedPrice", itemAdjustment AS "itemAdjustment"
                    FROM price_list_item
-                  WHERE "priceListId" = ? AND "companyId" = ? AND "itemId" IN (' . $placeholders . ')',
+                  WHERE priceListId = ? AND companyId = ? AND itemId IN (' . $placeholders . ')',
                 array_merge([$list['priceListId'], $companyId], $itemIds),
                 false,
                 true
@@ -427,11 +431,12 @@ final class PriceListService
             if (!$candidateId) continue;
 
             $list = ncmExecute(
-                'SELECT "priceListId", "priceListName", "defaultAdjustment", "validFrom", "validTo"
+                'SELECT priceListId AS "priceListId", priceListName AS "priceListName",
+                        defaultAdjustment AS "defaultAdjustment", validFrom AS "validFrom", validTo AS "validTo"
                    FROM price_list
-                  WHERE "priceListId" = ? AND "companyId" = ? AND "status" = true
-                    AND ("validFrom" IS NULL OR "validFrom" <= now())
-                    AND ("validTo"   IS NULL OR "validTo"  >= now())
+                  WHERE priceListId = ? AND companyId = ? AND status = true
+                    AND (validFrom IS NULL OR validFrom <= now())
+                    AND (validTo   IS NULL OR validTo  >= now())
                   LIMIT 1',
                 [$candidateId, $companyId],
                 false
@@ -452,7 +457,7 @@ final class PriceListService
         $row = ncmExecute(
             'SELECT data->>\'priceListId\' AS "priceListId"
                FROM contact
-              WHERE "contactId" = ? AND "companyId" = ?
+              WHERE contactId = ? AND companyId = ?
               LIMIT 1',
             [$contactId, $companyId],
             false
@@ -466,7 +471,7 @@ final class PriceListService
         $row = ncmExecute(
             'SELECT data->>\'priceListId\' AS "priceListId"
                FROM outlet
-              WHERE "outletId" = ? AND "companyId" = ?
+              WHERE outletId = ? AND companyId = ?
               LIMIT 1',
             [$outletId, $companyId],
             false
@@ -513,11 +518,11 @@ final class PriceListService
     private function listItems(string $companyId, string $priceListId): array
     {
         $rows = ncmExecute(
-            'SELECT pli.*, i."itemName", i."itemSKU", i."itemPrice"
+            'SELECT pli.*, i.itemName AS "itemName", i.itemSKU AS "itemSKU", i.itemPrice AS "itemPrice"
                FROM price_list_item pli
-               JOIN item i ON i."itemId" = pli."itemId" AND i."companyId" = pli."companyId"
-              WHERE pli."priceListId" = ? AND pli."companyId" = ?
-           ORDER BY i."itemName" ASC',
+               JOIN item i ON i.itemId = pli.itemId AND i.companyId = pli.companyId
+              WHERE pli.priceListId = ? AND pli.companyId = ?
+           ORDER BY i.itemName ASC',
             [$priceListId, $companyId],
             false,
             true
@@ -525,7 +530,7 @@ final class PriceListService
 
         // Load the list to compute resolvedPrice
         $list = ncmExecute(
-            'SELECT "defaultAdjustment" FROM price_list WHERE "priceListId" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT defaultAdjustment AS "defaultAdjustment" FROM price_list WHERE priceListId = ? AND companyId = ? LIMIT 1',
             [$priceListId, $companyId],
             false
         );
