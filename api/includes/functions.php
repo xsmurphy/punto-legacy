@@ -2816,7 +2816,21 @@ function passEncoder($pass){
 	// http://en.wikipedia.org/wiki/Salt_%28cryptography%29
 	// http://en.wikipedia.org/wiki/Brute-force_attack
 	// http://en.wikipedia.org/wiki/Rainbow_table
-	$salt = dechex(mt_rand(0, SALT)) . dechex(mt_rand(0, SALT));
+	// `random_bytes` y no `mt_rand`: es un salt de contraseña, así que la
+	// fuente tiene que ser criptográficamente segura — `mt_rand` es un PRNG
+	// predecible y nunca debió generar esto.
+	//
+	// Además, la versión anterior (`dechex(mt_rand(0, SALT))`) estaba ROTA:
+	// `SALT` nació como el entero 2147483647 (ver el comentario histórico en
+	// database/seeds/01_base.sql) pero hoy es la clave AES de 64 caracteres de
+	// `head.php` — la constante se reutilizó y este call-site quedó pasando un
+	// string donde `mt_rand` espera un int. En PHP 8 eso es TypeError, así que
+	// TODA creación de empresa/usuario moría con "mt_rand(): Argument #2
+	// ($max) must be of type int, string given".
+	//
+	// Los hashes ya guardados NO se invalidan: `passBuilder` verifica con el
+	// salt persistido en la fila, no regenerándolo.
+	$salt = bin2hex(random_bytes(8));
 
 	// This hashes the password with the salt so that it can be stored securely
 	// in your database.  The output of this next statement is a 64 byte hex
