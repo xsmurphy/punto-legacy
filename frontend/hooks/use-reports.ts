@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api, type HttpClient } from "@/lib/api-client"
+import type { OrderStatus } from "@/hooks/use-orders"
 
 /**
  * Hook genérico para reports: fetcher GET con date range + extra params.
@@ -555,9 +556,14 @@ export interface SalesSummaryResponse {
 }
 
 /**
- * Fila del endpoint /v1/reports/orders. Órdenes = transaction type=12.
- * status: 0/1 Pendiente · 2 En Espera · 3 En Proceso · 4 Finalizado · 5 Enviado · 6 Cancelado.
- * channel: 'ecom' (online) | 'local'.
+ * Fila del endpoint /v1/reports/orders. Órdenes reales = `pos_order`
+ * (módulo Órdenes, context/24) — antes leía `transaction` type=12 (pedido
+ * online legacy, casi sin uso). Migrado junto con el tab Órdenes de la
+ * ficha del cliente (commit 003195c2, T5).
+ * status: union de `OrderStatus` (hooks/use-orders.ts) — pintar SIEMPRE con
+ * `OrderStatusBadge` compartido, no redefinir el mapeo acá.
+ * channel: 'ecom' (source='ecommerce') | 'local' (counter/table/schedule).
+ * dueDate: `pos_order` no tiene vencimiento, siempre null.
  */
 export interface OrderRow {
   id: string
@@ -567,7 +573,7 @@ export interface OrderRow {
   customerName: string
   outletName: string
   total: number
-  status: number
+  status: OrderStatus
   channel: "ecom" | "local"
 }
 

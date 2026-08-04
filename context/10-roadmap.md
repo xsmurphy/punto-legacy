@@ -43,7 +43,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T2 | Canje de gift card: "Giftcard no encontrada" siempre. En la captura el código tipeado es `490828` y el listado muestra `4908128` (vigente, Gs 700.000) — puede ser un dígito comido por el input o un lookup que no normaliza. | POS / giftcards | ABIERTO |
 | T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | RE-TEST (fix `27ab36b6`, 2026-07-31 19:51) |
 | T4 | Descuento de -20% asignado a un cliente desde el panel no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | RESUELTO `ef6bab48` + `e03c8a2e` |
-| T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO (tab de la ficha) — ver nota abajo |
+| T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO — tab de la ficha + reporte general (ver nota abajo) |
 | T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | ABIERTO |
 | T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
 | T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | ABIERTO |
@@ -56,12 +56,21 @@ El tester ya dio por cerrado el de persistencia de ventas guardadas.
 `orders` (`transaction` type=12, pedido online viejo) en vez de `pos_order`
 (módulo Órdenes real). Fix: `OrderCoreService::list()` suma filtro
 `customerId`, `/v1/orders-core` lo expone, y el tab pasó a `useOrdersByCustomer`
-+ `OrderStatusBadge` compartido. DEUDA que queda ABIERTA y es más grande que
-este fix: el reporte general de Órdenes (Panel → Reportes) sigue apuntando al
-mismo `transaction` type=12 legacy, así que "en panel y reporte" del tester
-solo quedó resuelto para la ficha del cliente — el reporte agregado necesita
-su propia migración a `pos_order` (no trivial: `useReport` y el rollup de
-reportes no conocen `pos_order`).
++ `OrderStatusBadge` compartido.
+
+**T5 — reporte general resuelto (2026-08-04)**: `OrdersService::listOrders()`
+(`api/lib/Reports/OrdersService.php`) y el KPI `orders` del dashboard
+(`DashboardService::orders()`) pasaron de `transaction` type=12 a `pos_order`
+— mismo defecto, misma migración. Total se calcula con un JOIN agregado a
+`pos_order_item` (excluye `cancelled`), `status` es la unión de strings del
+módulo Órdenes, `channel` sale de `source` (`ecommerce`→`ecom`, resto→`local`;
+hoy no hay integración que produzca `ecommerce` en prod, `onlineCount` da 0
+a propósito). `dueDate` queda `null` (`pos_order` no tiene vencimiento).
+Frontend: `OrderRow.status` pasó a la union de `OrderStatus`, y
+`orders-list.tsx` reemplazó su `STATUS_MAP` numérico por `OrderStatusBadge`
+compartido (adaptando `OrderRow`→`Order` con `toOrderStub`, `interactive`
+`false`). `api/lib/services/OrderService.php` (legacy, type=12) queda
+intacto — dominio aparte, no se tocó.
 
 **T4 — DOS defectos encadenados, ambos silenciosos**:
 

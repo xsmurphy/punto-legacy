@@ -348,9 +348,17 @@ final class DashboardService
         if (!$this->moduleOn('ordersPanel', $companyId)) {
             return [];
         }
+        // Órdenes reales (pos_order, mig 79/24), no transaction type=12 legacy
+        // (mismo defecto que OrdersService::listOrders, ver T5). "Activa" =
+        // mismos estados que el POS considera activos — ACTIVE_ORDER_STATUSES
+        // en frontend/hooks/use-orders.ts (closed/cancelled quedan afuera).
+        $activeStatuses = "'open','sent','in_progress','ready','out_for_delivery','delivered'";
+        // onlineCount: origen ecommerce. El enum de `source` (mig 79) incluye
+        // 'ecommerce', pero hoy no hay integración que lo produzca — la query
+        // queda lista para cuando exista, mientras tanto cuenta 0 en prod.
         return [
-            'ordersCount' => (int) $this->scalar("SELECT COUNT(*) as count FROM transaction WHERE transactionType = 12 AND transactionStatus IN (0,1,2,3,5)" . $roc),
-            'onlineCount' => (int) $this->scalar("SELECT COUNT(*) as count FROM transaction WHERE transactionType = 12 AND transactionStatus IN (0,1,2,3,5) AND transactionName = 'ecom'" . $roc),
+            'ordersCount' => (int) $this->scalar("SELECT COUNT(*) as count FROM pos_order WHERE status IN ($activeStatuses)" . $roc),
+            'onlineCount' => (int) $this->scalar("SELECT COUNT(*) as count FROM pos_order WHERE status IN ($activeStatuses) AND source = 'ecommerce'" . $roc),
         ];
     }
 

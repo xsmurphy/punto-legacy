@@ -6,16 +6,25 @@ namespace Punto\Api\Reports;
 /**
  * Dominio de Reportes — Órdenes (API compartida, motor ERP).
  *
- * Las órdenes son `transaction` con `transactionType = 12` (mismo origen que el
- * widget de órdenes del dashboard — DashboardService::orders). Lectura CRUDA: el
- * front mapea estado→label/badge y formatea fecha/monto. Ver REGLA RAÍZ 2.
+ * Las órdenes viven en `pos_order` (módulo Órdenes real, context/24) — NO en
+ * `transaction` type=12 (pedido online legacy, casi sin uso: 2 filas en prod
+ * contra 32 en pos_order). Mismo defecto que se corrigió en el tab Órdenes de
+ * la ficha del cliente (commit 003195c2, T5): el reporte agregado apuntaba a
+ * la fuente muerta. `api/lib/services/OrderService.php` (legacy, type=12)
+ * queda intacto — dominio distinto, no se toca.
  *
- * Estados (transactionStatus): 0/1 Pendiente · 2 En Espera · 3 En Proceso ·
- * 4 Finalizado · 5 Enviado · 6 Cancelado (mismo mapa que panel/API/get_orders.php).
- * Canal: transactionName = 'ecom' → online; sino local.
+ * `pos_order` no tiene columna de total: se agrega sumando `pos_order_item`
+ * (qty*price, excluyendo status='cancelled') en un JOIN a subquery — UNA
+ * query, no N+1. `status` es string nativo de `pos_order` (ver
+ * migs 79/96). `channel` se deriva de `source`: 'ecommerce' → 'ecom', el
+ * resto ('counter'/'table'/'schedule') → 'local'. `dueDate` no existe en
+ * `pos_order`: se devuelve null pero el campo queda en el contrato para no
+ * romper al consumidor.
  *
- * Tenant: $roc (companyId + outletId del JWT, lo arma el endpoint) en la lectura;
- * companyId bound en los lookups de nombres (aislamiento de tenant).
+ * Tenant: $roc (companyId + outletId del JWT, lo arma el endpoint) en la
+ * lectura, SIN alias de tabla (pos_order es la única tabla del FROM externo
+ * con columnas companyid/outletid — la subquery de totales no las tiene, así
+ * que no hay ambigüedad); companyId bound en los lookups de nombres.
  */
 final class OrdersService
 {
@@ -25,16 +34,22 @@ final class OrdersService
         $customerClause = '';
         $params = [$from, $to];
         if ($customerId !== null && $customerId !== '') {
-            $customerClause = ' AND customerId = ?';
+            $customerClause = ' AND customerid = ?';
             $params[] = $customerId;
         }
 
         $res = ncmExecute(
-            "SELECT transactionId, transactionDate, transactionDueDate, invoiceNo,
-                    transactionTotal, transactionStatus, transactionName, customerId, outletId
-             FROM transaction
-             WHERE transactionType = 12 AND transactionDate BETWEEN ? AND ?" . $customerClause . $roc . "
-             ORDER BY transactionDate DESC
+            "SELECT pos_order.orderid, created_at, ordernumber, status, source, customerid, outletid,
+                    COALESCE(items.total, 0) AS total
+             FROM pos_order
+             LEFT JOIN (
+                 SELECT orderid, SUM(qty * price) AS total
+                 FROM pos_order_item
+                 WHERE status <> 'cancelled'
+                 GROUP BY orderid
+             ) items ON items.orderid = pos_order.orderid
+             WHERE created_at BETWEEN ? AND ?" . $customerClause . $roc . "
+             ORDER BY created_at DESC
              LIMIT 500",
             $params, false, true
         );
@@ -47,19 +62,19 @@ final class OrdersService
         $custIds   = [];
         while (!$res->EOF) {
             $f        = $res->fields;
-            $outlet   = (string) ($f['outletId'] ?? '');
-            $customer = (string) ($f['customerId'] ?? '');
+            $outlet   = (string) ($f['outletid'] ?? '');
+            $customer = (string) ($f['customerid'] ?? '');
             if ($outlet !== '')   { $outletIds[$outlet] = true; }
             if ($customer !== '') { $custIds[$customer] = true; }
 
             $raw[] = [
-                'id'         => (string) ($f['transactionId'] ?? ''),
-                'date'       => (string) ($f['transactionDate'] ?? ''),
-                'dueDate'    => $f['transactionDueDate'] ?? null,
-                'orderNo'    => (string) ($f['invoiceNo'] ?? ''),
-                'total'      => (float)  ($f['transactionTotal'] ?? 0),
-                'status'     => (int)    ($f['transactionStatus'] ?? 0),
-                'channel'    => ((string) ($f['transactionName'] ?? '') === 'ecom') ? 'ecom' : 'local',
+                'id'         => (string) ($f['orderid'] ?? ''),
+                'date'       => (string) ($f['created_at'] ?? ''),
+                'dueDate'    => null,
+                'orderNo'    => (string) ($f['ordernumber'] ?? ''),
+                'total'      => (float)  ($f['total'] ?? 0),
+                'status'     => (string) ($f['status'] ?? 'open'),
+                'channel'    => ((string) ($f['source'] ?? '') === 'ecommerce') ? 'ecom' : 'local',
                 'outletId'   => $outlet,
                 'customerId' => $customer,
             ];

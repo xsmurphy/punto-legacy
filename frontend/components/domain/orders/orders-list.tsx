@@ -15,19 +15,52 @@ import {
   type DateRangeValue,
 } from "@/components/date-range-picker"
 import { EmptyState } from "@/components/empty-state"
+import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type OrderRow, type OrdersReportResponse } from "@/hooks/use-reports"
+import type { Order } from "@/hooks/use-orders"
 import { formatMoney } from "@/lib/format"
 
-// transactionStatus → label/variant
-const STATUS_MAP: Record<number, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
-  0: { label: "Pendiente", variant: "outline" },
-  1: { label: "Pendiente", variant: "outline" },
-  2: { label: "En espera", variant: "secondary" },
-  3: { label: "En proceso", variant: "secondary" },
-  4: { label: "Finalizado", variant: "default" },
-  5: { label: "Enviado", variant: "default" },
-  6: { label: "Cancelado", variant: "destructive" },
+/**
+ * Adapta la fila liviana del reporte (`OrderRow`) al shape completo de
+ * `Order` que espera `OrderStatusBadge` — este reporte NO trae `fulfillment`
+ * ni el resto de los campos operativos de `pos_order`, así que se completan
+ * con neutro/null. `interactive={false}` (solo lectura acá) hace que el
+ * componente solo toque `status`/`fulfillment` para pintar el Badge, nunca
+ * el resto. Evita redefinir STATUS_MAP en este archivo (esa duplicación
+ * causó el bug T5 original).
+ */
+function toOrderStub(row: OrderRow): Order {
+  return {
+    id: row.id,
+    companyId: "",
+    outletId: "",
+    registerId: null,
+    source: row.channel === "ecom" ? "ecommerce" : "counter",
+    status: row.status,
+    orderNumber: null,
+    spaceSessionId: null,
+    customerId: null,
+    courierId: null,
+    courierName: null,
+    customerName: row.customerName || null,
+    customerLat: null,
+    customerLng: null,
+    spaceName: null,
+    userId: null,
+    note: null,
+    channelRef: null,
+    saleTransactionId: null,
+    createdAt: row.date,
+    sentAt: null,
+    closedAt: null,
+    fulfillment: "dine_in",
+    deliveryAddressId: null,
+    deliveryAddress: null,
+    deliveryReference: null,
+    deliveryLat: null,
+    deliveryLng: null,
+  }
 }
 
 function niceDate(iso: string): string {
@@ -115,11 +148,7 @@ export function OrdersList({ backHref, customerIdFilter }: OrdersListProps) {
       {
         accessorKey: "status",
         header: "Estado",
-        cell: ({ getValue }) => {
-          const st = Number(getValue())
-          const b = STATUS_MAP[st] ?? { label: String(st), variant: "secondary" as const }
-          return <Badge variant={b.variant} className="text-[10px]">{b.label}</Badge>
-        },
+        cell: ({ row }) => <OrderStatusBadge order={toOrderStub(row.original)} interactive={false} />,
         meta: { label: "Estado" },
       },
       {
