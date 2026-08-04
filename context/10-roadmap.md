@@ -42,7 +42,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T1 | Cobro por partes en una mesa: la venta se confirma pero el pago parcial NO se registra en la cuenta de la mesa (toast "no se pudo registrar el pago parcial… Avisá al soporte" junto a "¡Venta confirmada!"). La caja cobró y la mesa sigue debiendo → descuadre. | Espacios / `SpaceSettlementService` | RESUELTO `1f9c8f97` |
 | T2 | Canje de gift card: "Giftcard no encontrada" siempre. En la captura el código tipeado es `490828` y el listado muestra `4908128` (vigente, Gs 700.000) — puede ser un dígito comido por el input o un lookup que no normaliza. | POS / giftcards | ABIERTO |
 | T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | RE-TEST (fix `27ab36b6`, 2026-07-31 19:51) |
-| T4 | Descuento de -20% asignado a un cliente desde el panel no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | NO REPRODUCE — falta el dato, no el código |
+| T4 | Descuento de -20% asignado a un cliente desde el panel no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | RESUELTO `ef6bab48` + `e03c8a2e` |
 | T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO (tab de la ficha) — ver nota abajo |
 | T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | ABIERTO |
 | T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
@@ -63,23 +63,34 @@ solo quedó resuelto para la ficha del cliente — el reporte agregado necesita
 su propia migración a `pos_order` (no trivial: `useReport` y el rollup de
 reportes no conocen `pos_order`).
 
-**T4 — el pipeline está completo; falta la asignación**: se recorrió punta a
-punta. El form de cliente del panel tiene el select "Lista de precios"
-(`contact-detail-view.tsx:707`), `serialize()` manda `priceListId`,
-`ContactService:103` lo persiste en `data` JSONB, y en la caja `usePriceContext`
-resuelve contra `/v1/price_resolve` al cambiar el cliente (ese hook se construyó
-justamente para este bug, ver su docblock). Pero en la base `data.priceListId`
-está en **null para TODOS los contactos**, con la clave presente — o sea que se
-guardaron por el form con el select en "Precio base (sin lista)". La lista
-"Descuento Mayorista 20%" (`defaultadjustment = -20.00`) existe pero no está
-asignada a nadie.
+**T4 — DOS defectos encadenados, ambos silenciosos**:
 
-Conclusión: no hay bug de código que arreglar; hay un problema de PRODUCTO.
-Crear una lista de descuento no hace nada hasta un segundo paso (asignarla en la
-ficha del cliente) que no es evidente, así que se lee como "está roto". Antes de
-tocar código, confirmar con el tester cómo asignó el -20%.
+1. `ef6bab48` — `PriceListService` referenciaba columnas con identificadores
+   camelCase ENTRE COMILLAS (`pl."defaultAdjustment"`). En PG un identificador
+   quoteado es case-sensitive y las columnas son minúsculas, así que la query
+   fallaba. `resolveActiveList` lo interpretaba como "no hay lista" y devolvía
+   el precio base. ~30 referencias corregidas; los ~13 alias post-`AS` (que
+   definen el contrato JSON) quedaron intactos.
+2. `e03c8a2e` — con lo anterior arreglado el bug SEGUÍA: `resolveActiveList`
+   encontraba la lista y la devolvía con `return (array) $list`. La fila es un
+   `CaseInsensitiveArray`, o sea un OBJETO, y castear un objeto a array da sus
+   propiedades privadas mangleadas, no los campos. `$list['defaultAdjustment']`
+   quedaba null → ajuste 0 → precio base. Se reemplazó por `ncmRow()`.
 
-Lateral: hay DOS listas "Pedidos Ya" duplicadas, ambas con `+20.00`.
+Ninguno de los dos lanzaba excepción ni warning en ninguna capa: el front
+atrapa el fallo de `price_resolve` y sigue con precios base a propósito
+(`use-price-context.ts:83`). Por eso el síntoma era "la lista no hace nada".
+
+**Lección de método**: la verificación que cerró esto fue ejecutar el SERVICIO
+DESPLEGADO de punta a punta, no las queries sueltas. Probar las queries
+corregidas por separado daba -20% correcto y ocultaba el defecto del consumidor.
+
+Verificado contra `e03c8a2e` en producción: 1.200.000 → 960.000, 10.000 → 8.000.
+
+Lateral sin resolver: hay DOS listas "Pedidos Ya" duplicadas, ambas con `+20.00`.
+Y `data.priceListId` está en null para todos los contactos — el camino
+"lista asignada al cliente" no se pudo probar con datos reales, solo el de
+lista aplicada a mano en la venta. Vale confirmarlo con el tester.
 
 **T3 — ya estaba resuelto, verificado contra producción**: se ejecutó
 `TransactionsService::quotes()` contra la base real y devuelve los netos
