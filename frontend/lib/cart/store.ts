@@ -782,8 +782,17 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         const r = resolved.get(l.itemId)
         if (!r) return l
         if (r.priceListName) activeName = r.priceListName
-        if (r.price === l.unitPrice) return l
-        return { ...l, unitPrice: r.price }
+        // `basePrice` se fija ACÁ si la línea llegó sin él, ANTES de pisar
+        // `unitPrice`. Es la barrera que hace estructuralmente imposible el
+        // bucle de realimentación: sin esto, una línea sin base tomaba el
+        // precio recién resuelto como su nueva base y cada ciclo de
+        // `usePriceContext` le aplicaba el ajuste otra vez — una venta de
+        // 60.000 caía a ~168 en unos segundos (reporte del owner 2026-08-04,
+        // cobro en partes de un espacio). Los creadores de línea ya setean
+        // basePrice; esto cubre cualquier camino nuevo que se olvide.
+        const base = l.basePrice ?? l.unitPrice
+        if (r.price === l.unitPrice && l.basePrice !== undefined) return l
+        return { ...l, basePrice: base, unitPrice: r.price }
       })
       return { lines, priceListName: activeName }
     })
@@ -879,6 +888,11 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         name: oi.name,
         qty: oi.qty,
         unitPrice: oi.price ?? 0,
+        // INVARIANTE: toda línea nace con `basePrice`. Sin él, `usePriceContext`
+        // cae a `unitPrice` como base y el precio ya resuelto se realimenta:
+        // resolver → unitPrice baja → cambia el lineKey → vuelve a resolver
+        // sobre el precio YA descontado. Ver applyResolvedPrices.
+        basePrice: oi.price ?? 0,
         note: oi.note ?? undefined,
       }))
 
@@ -944,6 +958,9 @@ export const useCartStore = create<CartState>()((set, _get) => ({
           name: oi.name,
           qty: oi.qty,
           unitPrice: oi.price ?? 0,
+          // Mismo invariante que loadFromOrder: sin `basePrice` el precio
+          // resuelto se realimenta y se descuenta una vez por ciclo.
+          basePrice: oi.price ?? 0,
           note: oi.note ?? undefined,
         }))
       for (const line of orderLines) {
