@@ -443,7 +443,14 @@ final class PriceListService
             );
 
             if ($list) {
-                return (array) $list;
+                // `ncmRow()` y NO `(array) $list`: la fila es un
+                // CaseInsensitiveArray (un OBJETO), y castear un objeto a array
+                // devuelve sus propiedades privadas mangleadas
+                // ("\0CaseInsensitiveArray\0data"), no los campos de la fila.
+                // Con eso, río abajo `$list['defaultAdjustment']` era null → el
+                // ajuste quedaba en 0 y TODA lista de precios devolvía el precio
+                // base, en silencio. Ver el docblock de ncmRow() en DB.php.
+                return ncmRow($list);
             }
             // Si la lista no es válida/vigente → siguiente nivel de prioridad
         }
