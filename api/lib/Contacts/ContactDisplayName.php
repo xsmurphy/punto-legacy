@@ -5,44 +5,41 @@ namespace Punto\Api\Contacts;
 
 /**
  * ContactDisplayName — resuelve el nombre de display de un contacto a partir
- * de las columnas `contactName` (razón social) + `contactSecondName` (nombre
- * de persona), según la convención de ContactService::mapToColumns().
+ * de `contactSecondName` (nombre de la persona) y `contactName` (razón
+ * social), según la convención de ContactService::mapToColumns().
  *
- * Para una PERSONA (sin fiscalName), ambas columnas se escriben con el MISMO
- * valor (es correcto, ver ContactService). El bug histórico era que cada
- * reporte concatenaba `contactName . ' ' . contactSecondName` sin contemplar
- * ese caso, mostrando el nombre duplicado ("BENITEZ MARTINEZ, JOSE MARIA
- * BENITEZ MARTINEZ, JOSE MARIA"). Para una EMPRESA (con fiscalName != name)
- * concatenar sigue siendo correcto: razón social + nombre de contacto.
+ * REGLA (decisión del owner, 2026-08-05): el nombre y la razón social son
+ * cosas DISTINTAS y NUNCA se concatenan. Se muestra el nombre; si no hay
+ * nombre, se cae a la razón social.
  *
- * Este helper reemplaza las ~7 copias privadas `contactNames()` que existían
- * en api/lib/Reports/*Service.php (todas con la misma lógica ad-hoc).
+ * Es el mismo criterio que ya usaba el legacy en `api/lib/services/*`
+ * (`COALESCE(NULLIF(secondName,''), contactName)`) — o sea que la forma
+ * correcta ya existía y eran los reportes los que se habían desviado.
+ *
+ * El bug que originó este helper: cada reporte concatenaba
+ * `contactName . ' ' . contactSecondName`, y como para una PERSONA (sin
+ * fiscalName) ambas columnas llevan el MISMO valor a propósito, el nombre
+ * salía duplicado ("BENITEZ MARTINEZ, JOSE MARIA BENITEZ MARTINEZ, JOSE
+ * MARIA"). En una empresa el resultado era peor: pegaba razón social y
+ * nombre en una sola cadena, que son datos de distinta naturaleza.
+ *
+ * Este helper reemplaza las ~8 copias privadas (`contactNames()`,
+ * `userNames()`) que existían en api/lib/Reports/*Service.php.
  */
 final class ContactDisplayName
 {
     /**
-     * Resuelve el nombre de display de UN contacto.
-     * Si los dos valores (normalizados) son iguales, devuelve uno solo.
-     * Si difieren, concatena (orden actual: razón social + nombre).
-     * Si alguno está vacío, devuelve el otro sin espacios de más.
+     * Resuelve el nombre de display de UN contacto: el NOMBRE de la persona
+     * (`contactSecondName`) y, si no hay, la razón social (`contactName`).
+     * Nunca concatena — son datos de distinta naturaleza.
      */
     public static function resolve(?string $contactName, ?string $contactSecondName): string
     {
-        $name   = trim((string) $contactName);
         $second = trim((string) $contactSecondName);
-
-        if ($name === '') {
+        if ($second !== '') {
             return $second;
         }
-        if ($second === '') {
-            return $name;
-        }
-        // Comparación case-insensitive: mismo criterio que "es el mismo valor".
-        if (mb_strtolower($name) === mb_strtolower($second)) {
-            return $name;
-        }
-
-        return trim($name . ' ' . $second);
+        return trim((string) $contactName);
     }
 
     /**
