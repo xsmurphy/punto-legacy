@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\Api\Contacts\ContactDisplayName;
+
 /**
  * Dominio de Reportes — Agendamientos / Schedule (API compartida, motor ERP).
  *
@@ -75,7 +77,7 @@ final class ScheduleService
             ->mapOriginIdByDerivedIds($companyId, $apptIds, 'package_session');
         $parentIds = array_values(array_unique(array_filter($originByAppt)));
 
-        $contacts  = $this->contactNames(array_merge($custIds, $usrIds, $respIds), $companyId);
+        $contacts  = ContactDisplayName::batch(array_merge($custIds, $usrIds, $respIds), $companyId);
         $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
         $itemNames = $this->itemNames($itemIds, $companyId);
         $attended  = $this->attendedSet($apptIds);
@@ -401,25 +403,6 @@ final class ScheduleService
             if (isset($byUid[$uid])) {
                 $map[$schedId] = $byUid[$uid];
             }
-        }
-        return $map;
-    }
-
-    private function contactNames(array $ids, string $companyId): array
-    {
-        $ids = array_values(array_unique(array_filter($ids)));
-        if (!$ids) {
-            return [];
-        }
-        $ph  = implode(',', array_fill(0, count($ids), '?'));
-        $res = ncmExecute(
-            "SELECT contactId, contactName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([$companyId], $ids), false, false, true
-        );
-        $res = is_array($res) ? $res : [];
-        $map = [];
-        foreach ($res as $c) {
-            $map[(string) $c['contactId']] = trim((string) ($c['contactName'] ?? ''));
         }
         return $map;
     }

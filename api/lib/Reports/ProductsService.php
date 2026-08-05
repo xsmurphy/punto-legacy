@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\Api\Contacts\ContactDisplayName;
+
 /**
  * Dominio de Reportes — Productos (API compartida, motor ERP).
  *
@@ -251,9 +253,9 @@ final class ProductsService
 
         $items   = $this->itemMeta(array_map(fn($l) => (string) $l['itemId'], $lines), $companyId);
         $custIds = array_values(array_unique(array_filter(array_map(fn($l) => (string) $l['customer'], $lines))));
-        $custs   = $this->contactNames($custIds, $companyId);
+        $custs   = ContactDisplayName::batch($custIds, $companyId);
         $userIds = array_values(array_unique(array_filter(array_map(fn($l) => (string) ($l['itemUser'] ?: $l['trsUser']), $lines))));
-        $users   = $this->contactNames($userIds, $companyId);
+        $users   = ContactDisplayName::batch($userIds, $companyId);
         $outlets = $this->nameMap('outlet',   'outletId',   'outletName',   array_map(fn($l) => (string) $l['outletId'], $lines), $companyId);
         $regs    = $this->nameMap('register', 'registerId', 'registerName', array_map(fn($l) => (string) $l['registerId'], $lines), $companyId);
         $taxes   = $this->taxNames($companyId);
@@ -413,25 +415,6 @@ final class ProductsService
             $this->taxonomyCache[$id] = $name !== '' ? toUTF8($name) : 'None';
         }
         return $this->taxonomyCache[$id];
-    }
-
-    private function contactNames(array $ids, string $companyId): array
-    {
-        $ids = array_values(array_unique(array_filter($ids)));
-        if (!$ids) {
-            return [];
-        }
-        $ph  = implode(',', array_fill(0, count($ids), '?'));
-        $res = ncmExecute(
-            "SELECT contactId, contactName, data->>'contactSecondName' AS contactSecondName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([$companyId], $ids), false, false, true
-        );
-        $res = is_array($res) ? $res : [];
-        $map = [];
-        foreach ($res as $c) {
-            $map[(string) $c['contactId']] = trim(((string) ($c['contactName'] ?? '')) . ' ' . ((string) ($c['contactSecondName'] ?? '')));
-        }
-        return $map;
     }
 
     private function nameMap(string $table, string $idCol, string $nameCol, array $ids, string $companyId): array

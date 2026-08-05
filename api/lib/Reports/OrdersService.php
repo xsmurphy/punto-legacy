@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\Api\Contacts\ContactDisplayName;
+
 /**
  * Dominio de Reportes — Órdenes (API compartida, motor ERP).
  *
@@ -83,7 +85,7 @@ final class OrdersService
         $res->Close();
 
         $outlets   = $this->nameMap('outlet', 'outletId', 'outletName', array_keys($outletIds), $companyId);
-        $customers = $this->contactNames(array_keys($custIds), $companyId);
+        $customers = ContactDisplayName::batch(array_keys($custIds), $companyId);
 
         $rows = [];
         foreach ($raw as $r) {
@@ -118,27 +120,6 @@ final class OrdersService
         $map = [];
         foreach ($res as $r) {
             $map[(string) $r[$idCol]] = (string) ($r[$nameCol] ?? '');
-        }
-        return $map;
-    }
-
-    /** Lookup batch contactId → nombre completo, scopeado por companyId. */
-    private function contactNames(array $ids, $companyId)
-    {
-        if (!$ids) {
-            return [];
-        }
-        $ph  = implode(',', array_fill(0, count($ids), '?'));
-        $res = ncmExecute(
-            "SELECT contactId, contactName, data->>'contactSecondName' AS contactSecondName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([$companyId], $ids), false, false, true
-        );
-        $res = is_array($res) ? $res : [];
-
-        $map = [];
-        foreach ($res as $c) {
-            $name = trim(((string) ($c['contactName'] ?? '')) . ' ' . ((string) ($c['contactSecondName'] ?? '')));
-            $map[(string) $c['contactId']] = $name;
         }
         return $map;
     }

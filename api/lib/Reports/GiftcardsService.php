@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\Api\Contacts\ContactDisplayName;
+
 /**
  * Dominio de Reportes — Gift Cards (API compartida, motor ERP).
  *
@@ -56,7 +58,7 @@ final class GiftcardsService
             $outletIds[] = (string) ($f['outletId'] ?? '');
             $txIds[]     = (string) ($f['issuedByTransactionId'] ?? '');
         }
-        $benefs  = $this->contactNames($benefIds, $companyId);
+        $benefs  = ContactDisplayName::batch($benefIds, $companyId);
         $outlets = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
         $docs    = $this->invoiceDocs($txIds, $companyId);
 
@@ -146,26 +148,6 @@ final class GiftcardsService
             ]
         );
         return $r !== false;
-    }
-
-    /** Lookup batch contactId → nombre, scopeado por companyId. */
-    private function contactNames(array $ids, $companyId)
-    {
-        $ids = array_values(array_unique(array_filter($ids)));
-        if (!$ids) {
-            return [];
-        }
-        $ph  = implode(',', array_fill(0, count($ids), '?'));
-        $res = ncmExecute(
-            "SELECT contactId, contactName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([$companyId], $ids), false, false, true
-        );
-        $res = is_array($res) ? $res : [];
-        $map = [];
-        foreach ($res as $c) {
-            $map[(string) $c['contactId']] = trim((string) ($c['contactName'] ?? ''));
-        }
-        return $map;
     }
 
     /** Lookup batch transactionId → "invoicePrefix+invoiceNo", scopeado por companyId. */

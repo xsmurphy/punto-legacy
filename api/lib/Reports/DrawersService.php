@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\Api\Contacts\ContactDisplayName;
+
 /**
  * Dominio de Reportes — Cierres de Caja / Drawers (API compartida, motor ERP).
  *
@@ -75,7 +77,7 @@ final class DrawersService
 
         $outlets   = $this->nameMap('outlet',   'outletId',   'outletName',   array_keys($outletIds),   $companyId);
         $registers = $this->nameMap('register', 'registerId', 'registerName', array_keys($registerIds), $companyId);
-        $users     = $this->contactNames(array_keys($userIds), $companyId);
+        $users     = ContactDisplayName::batch(array_keys($userIds), $companyId);
 
         // Ventas por caja del período (una sola query, scopeada por $roc del caller).
         $allSales = $this->salesByDrawerPeriod($from, $to, $roc);
@@ -130,7 +132,7 @@ final class DrawersService
         $isClosed = $closeDate !== '';
         $closeBound = $isClosed ? $closeDate : date('Y-m-d 23:59:59', strtotime(TODAY));
 
-        $names     = $this->contactNames(array_filter([$uOpen, $uClose]), $companyId);
+        $names     = ContactDisplayName::batch(array_filter([$uOpen, $uClose]), $companyId);
         $outlets   = $this->nameMap('outlet',   'outletId',   'outletName',   [$outlet],   $companyId);
         $registers = $this->nameMap('register', 'registerId', 'registerName', [$register], $companyId);
 
@@ -354,26 +356,6 @@ final class DrawersService
         $map = [];
         foreach ($res as $r) {
             $map[(string) $r[$idCol]] = (string) ($r[$nameCol] ?? '');
-        }
-        return $map;
-    }
-
-    /** Lookup batch contactId → nombre completo, scopeado por companyId. */
-    private function contactNames(array $ids, string $companyId): array
-    {
-        $ids = array_values(array_unique(array_filter($ids)));
-        if (!$ids) {
-            return [];
-        }
-        $ph  = implode(',', array_fill(0, count($ids), '?'));
-        $res = ncmExecute(
-            "SELECT contactId, contactName, data->>'contactSecondName' AS contactSecondName FROM contact WHERE companyId = ? AND contactId IN ($ph)",
-            array_merge([$companyId], $ids), false, false, true
-        );
-        $res = is_array($res) ? $res : [];
-        $map = [];
-        foreach ($res as $c) {
-            $map[(string) $c['contactId']] = trim(((string) ($c['contactName'] ?? '')) . ' ' . ((string) ($c['contactSecondName'] ?? '')));
         }
         return $map;
     }
