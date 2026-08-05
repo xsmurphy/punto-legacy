@@ -20,6 +20,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type OrderRow, type OrdersReportResponse } from "@/hooks/use-reports"
 import type { Order } from "@/hooks/use-orders"
 import { formatMoney } from "@/lib/format"
+import { formatDateTime } from "@/lib/format-date"
 
 /**
  * Adapta la fila liviana del reporte (`OrderRow`) al shape completo de
@@ -63,18 +64,6 @@ function toOrderStub(row: OrderRow): Order {
   }
 }
 
-function niceDate(iso: string): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
 
 interface OrdersListProps {
   backHref: string
@@ -102,7 +91,7 @@ export function OrdersList({ backHref, customerIdFilter }: OrdersListProps) {
         accessorKey: "date",
         header: "Fecha / Hora",
         cell: ({ getValue }) => (
-          <span className="tabular-nums">{niceDate((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums">{formatDateTime((getValue() as string) ?? "", "d MMM yyyy HH:mm")}</span>
         ),
         meta: { label: "Fecha / Hora", className: "tabular-nums" },
       },

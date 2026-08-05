@@ -27,13 +27,8 @@ import {
 import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useReport, type SatisfactionRow } from "@/hooks/use-reports"
+import { formatDate } from "@/lib/format-date"
 
-function niceDate(iso: string): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
-}
 
 type NpsGroup = "detractor" | "passive" | "promoter"
 
@@ -83,7 +78,7 @@ export default function SatisfactionReportPage() {
         accessorKey: "date",
         header: "Fecha",
         cell: ({ getValue }) => (
-          <span className="tabular-nums">{niceDate((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums">{formatDate((getValue() as string) ?? "")}</span>
         ),
         meta: { label: "Fecha", className: "tabular-nums" },
       },

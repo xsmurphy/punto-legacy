@@ -23,6 +23,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type RecurringRow, type RecurringReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { formatDate } from "@/lib/format-date"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 const FRECUENCY_LABELS: Record<string, string> = {
@@ -35,12 +36,6 @@ const FRECUENCY_LABELS: Record<string, string> = {
   annual: "Anual",
 }
 
-function niceDate(iso: string): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
-}
 
 export default function RecurringReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -100,7 +95,7 @@ export default function RecurringReportPage() {
         accessorKey: "nextDate",
         header: "Próxima emisión",
         cell: ({ getValue }) => (
-          <span className="tabular-nums">{niceDate((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums">{formatDate((getValue() as string) ?? "")}</span>
         ),
         meta: { label: "Próxima emisión", className: "tabular-nums" },
       },
@@ -109,7 +104,7 @@ export default function RecurringReportPage() {
         header: "Vence",
         cell: ({ getValue }) => (
           <span className="tabular-nums text-muted-foreground">
-            {niceDate((getValue() as string) ?? "")}
+            {formatDate((getValue() as string) ?? "")}
           </span>
         ),
         meta: { label: "Vence", className: "tabular-nums" },

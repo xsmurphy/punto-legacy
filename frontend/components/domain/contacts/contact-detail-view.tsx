@@ -111,6 +111,7 @@ import { usePriceLists } from "@/hooks/use-price-lists"
 import { ApiError } from "@/lib/api-client"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { formatInt, formatMoney } from "@/lib/format"
+import { formatDate } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
 import { AddressMapParser } from "@/components/geo/address-map-parser"
 import { AddressAutocompleteInput } from "@/components/geo/address-autocomplete-input"
@@ -1275,8 +1276,8 @@ function PackCard({ pack }: { pack: SoldPack }) {
         </div>
         <p className="text-xs text-muted-foreground">
           {pack.status === 1 && daysLeft > 0
-            ? `Vence ${niceDate(pack.expiresAt)} (${daysLeft} día${daysLeft !== 1 ? "s" : ""})`
-            : `Venció ${niceDate(pack.expiresAt)}`}
+            ? `Vence ${formatDate(pack.expiresAt ?? "")} (${daysLeft} día${daysLeft !== 1 ? "s" : ""})`
+            : `Venció ${formatDate(pack.expiresAt ?? "")}`}
         </p>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -1332,7 +1333,7 @@ function SummaryTab({
             <Badge variant={segmentVariant(segment?.key)}>{segment?.label ?? "—"}</Badge>
           )}
           {contact?.date && (
-            <span className="ml-1 text-xs text-muted-foreground">Cliente desde {niceDate(contact.date)}</span>
+            <span className="ml-1 text-xs text-muted-foreground">Cliente desde {formatDate(contact.date ?? "")}</span>
           )}
         </div>
         <div className="flex items-baseline gap-1.5 text-xs">
@@ -1355,7 +1356,7 @@ function SummaryTab({
       <div className="flex flex-col gap-2 rounded-lg border bg-card px-3 py-2.5">
         <div className="text-[11px] uppercase tracking-wide text-muted-foreground">Actividad</div>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <DetailRow label="Primera operación" value={isLoading ? null : niceDate(visits?.firstAt ?? null)} />
+          <DetailRow label="Primera operación" value={isLoading ? null : formatDate(visits?.firstAt ?? "")} />
           <DetailRow label="Frecuencia promedio" value={isLoading ? null : freqLabel(visits?.avgDaysBetween ?? null)} />
           <DetailRow label="Descuento acumulado" value={isLoading ? null : formatMoney(totals?.discountTotal, bootstrap)} />
         </div>
@@ -1662,16 +1663,9 @@ function segmentVariant(key: string | undefined): "default" | "secondary" | "des
   }
 }
 
-function niceDate(iso: string | null): string {
-  if (!iso) return "—"
-  const d = new Date(iso)
-  if (isNaN(d.getTime())) return "—"
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
-}
-
 function lastVisitLabel(iso: string | null | undefined, daysSince: number | null | undefined): string {
   if (!iso) return "Sin operaciones"
-  if (daysSince === null || daysSince === undefined) return niceDate(iso)
+  if (daysSince === null || daysSince === undefined) return formatDate(iso ?? "")
   if (daysSince === 0) return "Hoy"
   if (daysSince === 1) return "Ayer"
   if (daysSince < 7)  return `Hace ${daysSince} días`

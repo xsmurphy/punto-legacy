@@ -18,6 +18,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ScheduleRow, type ScheduleReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { formatDateTime } from "@/lib/format-date"
 
 // status: 0=Pendiente, 4=Cancelado, 5=No show, 6=Finalizado, 7=Bloqueado
 const STATUS_MAP: Record<number, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
@@ -28,18 +29,6 @@ const STATUS_MAP: Record<number, { label: string; variant: "default" | "secondar
   7: { label: "Bloqueado", variant: "secondary" },
 }
 
-function niceDate(iso: string): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
 
 interface ScheduleListProps {
   backHref: string
@@ -71,7 +60,7 @@ export function ScheduleList({ backHref, customerIdFilter }: ScheduleListProps) 
         accessorKey: "fromDate",
         header: "Fecha / Hora",
         cell: ({ getValue }) => (
-          <span className="tabular-nums">{niceDate((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums">{formatDateTime((getValue() as string) ?? "", "d MMM yyyy HH:mm")}</span>
         ),
         meta: { label: "Fecha / Hora", className: "tabular-nums" },
       },

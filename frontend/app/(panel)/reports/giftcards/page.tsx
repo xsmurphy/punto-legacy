@@ -23,12 +23,17 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type GiftCardRow, type GiftcardsReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { formatDate } from "@/lib/format-date"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 type GiftCardStatus = "expired" | "soon" | "used" | "active"
 
-function giftCardStatus(row: GiftCardRow): GiftCardStatus {
-  const now = new Date()
+// "now" se recibe como parámetro (no se calcula acá) para que el status no
+// dependa del reloj del proceso que renderiza: el server (Node, cualquier TZ)
+// y el browser del usuario tienen "ahora" distintos, así que llamar `new
+// Date()` durante el render producía React #418 cuando una gift card estaba
+// justo en el borde vencida/por vencer. Ver el `useState` de más abajo.
+function giftCardStatus(row: GiftCardRow, now: Date): GiftCardStatus {
   const expires = row.expires ? new Date(row.expires.replace(" ", "T")) : null
   if (row.value <= 0) return "used"
   if (expires && expires < now) return "expired"
@@ -46,35 +51,38 @@ const STATUS_BADGE: Record<GiftCardStatus, { label: string; variant: "default" |
   used: { label: "Canjeada", variant: "secondary" },
 }
 
-function niceDate(iso: string): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleDateString(undefined, { day: "2-digit", month: "short", year: "numeric" })
-}
-
 export default function GiftcardsReportPage() {
   const { data: bootstrap } = useBootstrap()
+  // "now" arranca en null: el primer render (server y cliente, antes de
+  // hidratar) es idéntico — no hay `new Date()` en el árbol renderizado, así
+  // que no hay nada que pueda divergir. Recién después de montar en el
+  // browser se fija la hora real y se recalculan los status.
+  const [now, setNow] = React.useState<Date | null>(null)
+  React.useEffect(() => {
+    setNow(new Date())
+  }, [])
+
   const { data, isLoading, error } = useReport<GiftcardsReportResponse>("giftcards", {
     params: { view: "detail" },
   })
   const rows = React.useMemo(() => data?.rows ?? [], [data])
 
   const kpi = React.useMemo(() => {
+    if (!now) return { expired: 0, soon: 0, used: 0, active: 0, activeValue: 0 }
     let expired = 0
     let soon = 0
     let used = 0
     let active = 0
     let activeValue = 0
     rows.forEach((r) => {
-      const s = giftCardStatus(r)
+      const s = giftCardStatus(r, now)
       if (s === "expired") expired++
       else if (s === "soon") soon++
       else if (s === "used") used++
       else { active++; activeValue += r.value }
     })
     return { expired, soon, used, active, activeValue }
-  }, [rows])
+  }, [rows, now])
 
   const columns = React.useMemo<ColumnDef<GiftCardRow>[]>(
     () => [
@@ -116,9 +124,10 @@ export default function GiftcardsReportPage() {
       {
         id: "status",
         header: "Estado",
-        accessorFn: (r) => giftCardStatus(r),
+        accessorFn: (r) => (now ? giftCardStatus(r, now) : "active"),
         cell: ({ row }) => {
-          const s = giftCardStatus(row.original)
+          if (!now) return null
+          const s = giftCardStatus(row.original, now)
           const b = STATUS_BADGE[s]
           return <Badge variant={b.variant} className="text-[10px]">{b.label}</Badge>
         },
@@ -128,7 +137,7 @@ export default function GiftcardsReportPage() {
         accessorKey: "expires",
         header: "Vence",
         cell: ({ getValue }) => (
-          <span className="tabular-nums text-muted-foreground">{niceDate((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums text-muted-foreground">{formatDate((getValue() as string) ?? "")}</span>
         ),
         meta: { label: "Vence", className: "tabular-nums" },
       },
@@ -136,7 +145,7 @@ export default function GiftcardsReportPage() {
         accessorKey: "lastUsed",
         header: "Último uso",
         cell: ({ getValue }) => (
-          <span className="tabular-nums text-muted-foreground">{niceDate((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums text-muted-foreground">{formatDate((getValue() as string) ?? "")}</span>
         ),
         meta: { label: "Último uso", className: "tabular-nums" },
       },
@@ -158,7 +167,7 @@ export default function GiftcardsReportPage() {
         meta: { label: "Nota" },
       },
     ],
-    [bootstrap],
+    [bootstrap, now],
   )
 
   const initialColumnVisibility = React.useMemo(() => ({ note: false }), [])

@@ -28,6 +28,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type InventoryMovementRow } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { formatDateTime } from "@/lib/format-date"
 
 const SOURCE_LABELS: Record<string, string> = {
   sale: "Venta",
@@ -42,18 +43,6 @@ function sourceLabel(src: string): string {
   return SOURCE_LABELS[src] ?? src
 }
 
-function niceDateTime(iso: string): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
 
 export default function InventoryReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -72,7 +61,7 @@ export default function InventoryReportPage() {
         accessorKey: "stockDate",
         header: "Fecha",
         cell: ({ getValue }) => (
-          <span className="tabular-nums text-sm">{niceDateTime((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums text-sm">{formatDateTime((getValue() as string) ?? "", "d MMM yyyy HH:mm")}</span>
         ),
         meta: { label: "Fecha", className: "tabular-nums" },
       },

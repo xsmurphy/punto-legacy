@@ -15,6 +15,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useReport, type ScheduleRow, type ScheduleReportResponse } from "@/hooks/use-reports"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatMoney } from "@/lib/format"
+import { formatDateTime } from "@/lib/format-date"
 
 const STATUS_MAP: Record<number, { label: string; variant: "default" | "secondary" | "outline" | "destructive" }> = {
   0: { label: "Pendiente", variant: "outline" },
@@ -24,18 +25,6 @@ const STATUS_MAP: Record<number, { label: string; variant: "default" | "secondar
   7: { label: "Bloqueado", variant: "secondary" },
 }
 
-function niceDate(iso: string | null | undefined): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
 
 interface Props {
   customerId: string
@@ -104,9 +93,9 @@ export function ContactScheduleCompact({ customerId }: Props) {
               <li key={row.transactionId} className="flex items-start justify-between gap-3 px-3 py-2.5 text-sm">
                 <div className="flex min-w-0 flex-col gap-0.5">
                   <span className="font-medium tabular-nums truncate">
-                    {row.scheduleNo || niceDate(row.fromDate)}
+                    {row.scheduleNo || formatDateTime(row.fromDate ?? "", "d MMM yyyy HH:mm")}
                   </span>
-                  <span className="text-xs text-muted-foreground">{niceDate(row.fromDate)}</span>
+                  <span className="text-xs text-muted-foreground">{formatDateTime(row.fromDate ?? "", "d MMM yyyy HH:mm")}</span>
                   {row.items?.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-0.5">
                       {row.items.slice(0, 3).map((item, i) => (

@@ -35,6 +35,7 @@ import { formatMoney } from "@/lib/format"
 import { DrawerDetailModal } from "@/components/reports/drawer-detail-modal"
 import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/empty-state"
+import { formatDateTime } from "@/lib/format-date"
 
 export default function DrawersReportPage() {
   const { data: bootstrap } = useBootstrap()
@@ -89,7 +90,7 @@ export default function DrawersReportPage() {
         accessorKey: "openDate",
         header: "Apertura",
         cell: ({ getValue }) => (
-          <span className="tabular-nums">{niceDateTime((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums">{formatDateTime((getValue() as string) ?? "")}</span>
         ),
         meta: { label: "Apertura", className: "tabular-nums" },
       },
@@ -120,7 +121,7 @@ export default function DrawersReportPage() {
             return <Badge variant="default">En curso</Badge>
           }
           return (
-            <span className="tabular-nums text-xs">{niceDateTime(r.closeDate ?? "")}</span>
+            <span className="tabular-nums text-xs">{formatDateTime(r.closeDate ?? "")}</span>
           )
         },
         meta: { label: "Cierre" },
@@ -257,14 +258,3 @@ function parseNum(v: unknown): number {
   return 0
 }
 
-function niceDateTime(iso: string): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}

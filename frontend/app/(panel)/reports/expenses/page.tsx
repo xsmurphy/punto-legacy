@@ -66,6 +66,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ExpenseRow } from "@/hooks/use-reports"
 import { useUpdateExpense, useDeleteExpense } from "@/hooks/use-expenses"
 import { formatMoney } from "@/lib/format"
+import { formatDateTime } from "@/lib/format-date"
 import { EmptyState } from "@/components/empty-state"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
@@ -162,7 +163,7 @@ export default function ExpensesReportPage() {
         accessorKey: "date",
         header: "Fecha",
         cell: ({ getValue }) => (
-          <span className="tabular-nums">{niceDateTime((getValue() as string) ?? "")}</span>
+          <span className="tabular-nums">{formatDateTime((getValue() as string) ?? "")}</span>
         ),
         meta: { label: "Fecha", className: "tabular-nums" },
       },
@@ -394,7 +395,7 @@ export default function ExpensesReportPage() {
             <AlertDialogTitle>Eliminar movimiento</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteRow
-                ? `¿Eliminar el movimiento del ${niceDateTime(deleteRow.date)} por ${formatMoney(deleteRow.amount, bootstrap)}? Esta acción no se puede deshacer.`
+                ? `¿Eliminar el movimiento del ${formatDateTime(deleteRow.date)} por ${formatMoney(deleteRow.amount, bootstrap)}? Esta acción no se puede deshacer.`
                 : "¿Confirmar eliminación?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -432,14 +433,3 @@ function BackLink() {
   )
 }
 
-function niceDateTime(iso: string): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}

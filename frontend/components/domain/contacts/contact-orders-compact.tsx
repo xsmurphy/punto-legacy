@@ -16,19 +16,8 @@ import { OrderStatusBadge } from "@/components/orders/order-status-badge"
 import { orderTotal, orderSearchHaystack } from "@/lib/orders/order-display"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatMoney } from "@/lib/format"
+import { formatDateTime } from "@/lib/format-date"
 
-function niceDate(iso: string | null | undefined): string {
-  if (!iso) return "—"
-  const d = new Date(iso.replace(" ", "T"))
-  if (Number.isNaN(d.getTime())) return iso
-  return d.toLocaleString(undefined, {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
 
 interface Props {
   customerId: string
@@ -96,7 +85,7 @@ export function ContactOrdersCompact({ customerId }: Props) {
                 <span className="font-medium tabular-nums truncate">
                   {order.orderNumber !== null ? `#${order.orderNumber}` : "—"}
                 </span>
-                <span className="text-xs text-muted-foreground truncate">{niceDate(order.createdAt)}</span>
+                <span className="text-xs text-muted-foreground truncate">{formatDateTime(order.createdAt ?? "", "d MMM yyyy HH:mm")}</span>
               </div>
               <div className="flex shrink-0 flex-col items-end gap-0.5">
                 <span className="tabular-nums font-medium">{formatMoney(orderTotal(order), bootstrap)}</span>
