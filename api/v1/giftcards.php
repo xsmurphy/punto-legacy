@@ -61,6 +61,25 @@ if ($method === 'POST') {
             apiError('La giftcard está vencida', 410);
         }
 
+        // Regla del negocio (owner, 2026-08-05): la gift card es de UN SOLO
+        // USO y `consume` pone currentBalance en 0, así que el total de la
+        // venta tiene que ser >= el saldo. Si no, el excedente se pierde.
+        //
+        // Se valida ACÁ, antes de que la venta se cobre, y no en `consume`
+        // (que corre DESPUÉS del cobro): rechazar recién ahí dejaría la venta
+        // pagada con una tarjeta que nunca se marca usada, o sea reutilizable.
+        // Mismo criterio que el preflight del cobro parcial de mesa.
+        //
+        // `total` es opcional por compatibilidad: un caller viejo que no lo
+        // mande sigue validando existencia/vencimiento como antes.
+        $total = $body['total'] ?? null;
+        if ($total !== null && (float) $total < (float) $row['currentBalance']) {
+            apiError(
+                'El total de la venta debe ser igual o mayor al saldo de la giftcard',
+                422
+            );
+        }
+
         apiOk([
             'ok'             => true,
             'id'             => $row['id'],

@@ -62,9 +62,12 @@ export function GiftcardValidationDialog({
     setError(null)
     setGiftcard(null)
     try {
+      // `total` va al servidor para que la regla "la venta debe cubrir el
+      // saldo" se valide ANTES de cobrar. Validar solo en el cliente dejaría
+      // que un caller mal hecho queme una tarjeta en una venta más chica.
       const res = await api.post<GiftcardInfo>(
         "/v1/giftcards?resource=validate",
-        { code: trimmed },
+        { code: trimmed, total },
       )
       setGiftcard(res)
     } catch (err) {
@@ -78,15 +81,23 @@ export function GiftcardValidationDialog({
 
   function handleApply() {
     if (!giftcard) return
-    if (giftcard.currentBalance < total) {
+    // Regla del negocio (owner, 2026-08-05): la gift card es de UN SOLO USO y
+    // se consume entera, así que la venta tiene que valer al menos su saldo.
+    // Si valiera menos, el excedente se perdería: `consume` pone
+    // currentBalance en 0 sin importar cuánto se aplicó.
+    //
+    // La condición estaba INVERTIDA (exigía que la tarjeta cubriera la venta y
+    // aplicaba el total como importe), que es justamente el caso que hace
+    // desaparecer plata: una tarjeta de 700.000 en una venta de 100.000
+    // quemaba 600.000.
+    if (total < giftcard.currentBalance) {
       setError(
-        `Saldo insuficiente. Saldo de la giftcard: ${formatMoney(giftcard.currentBalance, config)}; Total a pagar: ${formatMoney(total, config)}`,
+        `El total de la venta debe ser igual o mayor al saldo de la giftcard. Saldo: ${formatMoney(giftcard.currentBalance, config)}; Total: ${formatMoney(total, config)}`,
       )
       return
     }
-    // Aplica exactamente lo que cubre el total — el excedente queda en la tarjeta
-    // (el servidor zeroa currentBalance al consumir; el importe del pago es el total).
-    onApply(giftcard.code, total)
+    // Se aplica el saldo COMPLETO; el resto de la venta lo cubre otro medio.
+    onApply(giftcard.code, giftcard.currentBalance)
   }
 
   function handleKeyDown(e: React.KeyboardEvent) {
