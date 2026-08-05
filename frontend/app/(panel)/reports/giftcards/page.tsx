@@ -23,7 +23,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type GiftCardRow, type GiftcardsReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
-import { formatDate } from "@/lib/format-date"
+import { formatDate, parseNaive } from "@/lib/format-date"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 type GiftCardStatus = "expired" | "soon" | "used" | "active"
@@ -34,7 +34,13 @@ type GiftCardStatus = "expired" | "soon" | "used" | "active"
 // Date()` durante el render producía React #418 cuando una gift card estaba
 // justo en el borde vencida/por vencer. Ver el `useState` de más abajo.
 function giftCardStatus(row: GiftCardRow, now: Date): GiftCardStatus {
-  const expires = row.expires ? new Date(row.expires.replace(" ", "T")) : null
+  // `parseNaive` y NO `new Date(iso.replace(" ", "T"))`: el backend manda el
+  // vencimiento como "2026-07-31 23:59:59-03", y ese offset de DOS dígitos
+  // hace que `new Date()` devuelva Invalid Date. Toda comparación contra un
+  // valor inválido es false, así que ninguna tarjeta se marcaba vencida:
+  // las 5 salían "Vigente" y el KPI "Vencidas" quedaba en 0 para siempre.
+  // Ver el docblock de parseNaive en lib/format-date.ts.
+  const expires = row.expires ? parseNaive(row.expires) : null
   if (row.value <= 0) return "used"
   if (expires && expires < now) return "expired"
   if (expires) {
