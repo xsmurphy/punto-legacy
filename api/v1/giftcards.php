@@ -42,7 +42,14 @@ if ($method === 'POST') {
             [$companyId, $code]
         );
 
-        if (empty($row) || !is_array($row)) {
+        // La guarda anterior era `empty($row) || !is_array($row)`, y ese
+        // `is_array()` rompía TODO el canje: ncmExecute devuelve un
+        // CaseInsensitiveArray, que es un OBJETO, así que is_array() daba
+        // false siempre y la validación respondía "Giftcard no encontrada"
+        // para cualquier código, existiera o no (T2 del reporte del tester).
+        // `!$row` alcanza: sin filas ncmExecute devuelve false/0, y un objeto
+        // siempre es truthy.
+        if (!$row) {
             apiError('Giftcard no encontrada', 404);
         }
 
@@ -83,7 +90,14 @@ if ($method === 'POST') {
             [$companyId, $code]
         );
 
-        if (empty($row) || !is_array($row)) {
+        // La guarda anterior era `empty($row) || !is_array($row)`, y ese
+        // `is_array()` rompía TODO el canje: ncmExecute devuelve un
+        // CaseInsensitiveArray, que es un OBJETO, así que is_array() daba
+        // false siempre y la validación respondía "Giftcard no encontrada"
+        // para cualquier código, existiera o no (T2 del reporte del tester).
+        // `!$row` alcanza: sin filas ncmExecute devuelve false/0, y un objeto
+        // siempre es truthy.
+        if (!$row) {
             apiError('Giftcard no encontrada', 404);
         }
 
