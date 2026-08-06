@@ -76,19 +76,39 @@ que no existe. Es el mismo defecto que tuvimos en el cobro parcial de mesa
 
 ## Flujo de canje
 
-1. El cajero abre el diálogo del vale y tipea el código.
-2. `validate` corre **antes de cobrar** y verifica: que exista, que no esté
-   usado, que no esté vencido, y **que el carrito contenga todos los ítems del
-   vale con al menos su cantidad**.
-3. Si valida, el vale se aplica como medio de pago por
-   `Σ(qty × unitpriceatissue)`. El resto de la venta se cobra con otro medio.
-4. Al confirmar la venta, `consume` marca `usedat` + `usedbytransactionid` con
+**El vale se ingresa al ARMAR la venta, no al cobrar** (decisión del owner,
+2026-08-06). Escanear o tipear el código **carga sus ítems al carrito**; no es
+el cajero el que tiene que saber qué contiene el vale y cargarlo a mano.
+
+1. El cajero ingresa el código en el carrito.
+2. `validate` verifica que exista, que no esté usado y que no esté vencido.
+3. Si valida, **el vale agrega sus propias líneas** al carrito, con `qty` y
+   precio bloqueados, marcadas como pertenecientes al vale.
+4. Al llegar al cobro, el vale ya está aplicado como medio de pago por
+   `Σ(qty × unitpriceatissue)`. Si los precios subieron, la diferencia queda
+   pendiente y se cobra con otro medio.
+5. Al confirmar la venta, `consume` marca `usedat` + `usedbytransactionid` con
    lock optimista (`WHERE usedat IS NULL`), igual que giftcard.
 
-**Por qué se exige que el carrito tenga los ítems**: el vale se quema entero.
-Si se pudiera aplicar sobre una venta que no incluye lo que promete, la
-diferencia se perdería — exactamente el agujero que tenía la gift card antes
-de `c00be52a`.
+**Por qué el vale trae sus ítems y no se valida contra el carrito**: la versión
+anterior de este plan exigía que el cajero cargara los productos primero y
+recién ahí aceptaba el vale. Además de incómodo, dejaba abierto el agujero de
+quemar un vale sobre una venta que no incluye lo que promete. Trayendo los
+ítems consigo, esa condición se cumple por construcción y no hay nada que
+validar.
+
+**Líneas propias, NO fusionadas con las existentes.** Si el cajero ya había
+cargado los 2 cafés a mano y después ingresa el vale, se verán 4 líneas. Es
+deliberado: el error queda a la vista y el cajero borra las suyas. Fusionar en
+silencio haría imposible entender qué porción del carrito está cubierta.
+
+**Quitar el vale es lo que desbloquea.** Las líneas del vale no se editan ni se
+borran de a una — se van todas juntas al quitar el vale del cobro. Sin esa
+salida, un código mal tipeado deja la venta trabada y el cajero termina
+cancelándola entera.
+
+Precedente técnico: las líneas de gift card del POS ya usan `qtyLocked` y no son
+editables (ver `cart-panel.tsx`).
 
 **Por qué validar antes de cobrar**: rechazar en `consume` dejaría la venta ya
 pagada con un vale que nunca se marca usado, o sea reutilizable. Mismo criterio
