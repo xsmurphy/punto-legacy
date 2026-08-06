@@ -1,7 +1,33 @@
 # 36 — Módulo de Vouchers (vales por productos)
 
-> Estado: **plan cerrado**, sin implementar. Decisiones tomadas con el owner
-> el 2026-08-05. No relitigar lo que está en "Decisiones cerradas".
+> Estado: **F1 implementada** (2026-08-06) — schema + `VoucherService` +
+> `/v1/vouchers.php`. Decisiones tomadas con el owner el 2026-08-05. No
+> relitigar lo que está en "Decisiones cerradas".
+
+## F1 — schema + backend (implementada)
+
+- Migración `100_vouchers.sql`: tablas `voucher` y `voucher_item` (columnas
+  y FKs tal cual "Modelo de datos" abajo; `code` único por company vía
+  `uq_voucher_company_code`, índice compuesto que también sirve de lookup).
+- `api/lib/services/VoucherService.php`: `issue()` (atómico, precio
+  congelado desde `item.itemprice`, código autogenerado `VC-XXXXXXXX`),
+  `validate()` (errores tipados: not_found/used/expired/voided),
+  `consume()` (lock optimista `WHERE usedat IS NULL`, idempotente por
+  `transactionId`).
+- `api/v1/vouchers.php`: `POST ?resource=issue|validate|consume`, realm
+  `panel`+`pos-app`, mismo formato que `giftcards.php`.
+- Probado end-to-end contra la base real (dentro de una transacción
+  revertida): emisión con 2 ítems, validación, canje, canje idempotente,
+  re-validación post-canje ("used"), canje con otro transactionId sobre
+  voucher ya usado ("used_by_other").
+
+## Pendiente — F2 (fuera de esta fase)
+
+- Integración con el carrito del POS: `frontend/` — ingreso de código en el
+  cobro, líneas `qtyLocked` que NO suman al total, "quitar vale" que
+  desbloquea todas sus líneas de una (ver "Flujo de canje" abajo).
+- Flujo de emisión desde la caja (vender el voucher como ítem, llamar
+  `issue` al confirmar la venta, en la misma transacción de la venta).
 
 ## Qué es, y en qué se diferencia de una gift card
 
