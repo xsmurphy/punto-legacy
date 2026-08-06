@@ -47,6 +47,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | ABIERTO |
 | T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
 | T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | ABIERTO |
+| T11 | Modal de detalle de transacción: demasiado chico y con la información pobre y cruda. Debería verse como una factura, con el nivel de detalle de la vista de compras (`/purchase/[id]`), no como una tabla de 3 columnas. Componente: `frontend/components/domain/transactions/transactions-list.tsx` — `DialogContent` en `max-w-2xl` (~L920), header ~L1032, tabla de ítems ~L1050 (solo Cant./Artículo/Total: sin precio unitario, sin descuento por línea, sin impuestos). Reportado con captura por el owner 2026-08-06. | Panel / transacciones | ABIERTO |
 | T9 | Modificar cantidad de un ítem del carrito: no deja tipear cantidad ni decimales, "persiste incluso usando Shift". | POS / carrito | RE-TEST (fix `4c0158d0`, desplegado hoy) |
 | T10 | Orden en venta: al procesar el pedido vuelve a la lista de ventas y pide cobrar de nuevo algo ya pagado. | POS / órdenes | RE-TEST (fix `675a4608`, desplegado hoy) |
 
