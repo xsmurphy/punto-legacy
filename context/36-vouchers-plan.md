@@ -24,14 +24,26 @@ este módulo es aparte y NO la reemplaza.
 1. **Vale por productos**, no por monto ni por descuento porcentual.
 2. **Un solo uso.** Al canjearlo queda quemado, sin saldo remanente.
 3. **Ítems exactos**, no "elegí uno de esta categoría".
-4. **Se vende en la caja.** Genera ingreso al emitirlo; el canje posterior no
-   suma venta nueva, solo cambia el medio de pago.
-5. **Entra como MEDIO DE PAGO** por el valor de sus ítems — los productos se
-   cargan al carrito a precio normal y el vale paga esa porción. No entran a
-   precio 0: así el reporte sigue mostrando qué se entregó y a cuánto.
-6. **Precio CONGELADO al emitir.** El vale cubre `Σ(qty × unitPriceAtIssue)`.
-   Si los precios subieron entre la emisión y el canje, el cliente paga la
-   diferencia con otro medio. Protege el margen del comercio.
+4. **Se vende en la caja.** El ingreso se reconoce al EMITIRLO; el canje no
+   suma venta nueva.
+5. **Las líneas del vale NO suman al total de la venta.** El vale ya se cobró
+   al emitirse: volver a sumarlo sería cobrarlo dos veces. NO hay medio de pago
+   "voucher" — la línea simplemente no aporta al total, y lo pendiente a pagar
+   es únicamente lo que el cajero haya agregado aparte. Es lo que el cajero y
+   el cliente entienden de un vistazo, sin explicación.
+6. **Precio CONGELADO al emitir** (`unitpriceatissue`). Congelar NO es para
+   cobrarle una diferencia al cliente: es el valor con el que queda REGISTRADO
+   lo entregado. Aunque el producto haya subido desde la emisión, el cliente no
+   paga nada por esas líneas — el vale las cubre enteras.
+
+   El monto congelado es lo que el cliente efectivamente pagó al comprar el
+   vale, así que es la cifra coherente para reportar y para conciliar contra la
+   venta de emisión.
+
+⚠ La cobertura de esas líneas tiene que quedar **tipada como "vale"**, no como
+descuento genérico. Mezclada con los descuentos manuales, los reportes muestran
+promociones que nunca existieron y el cajero no puede distinguir una cosa de la
+otra.
 
 ## Modelo de datos
 
@@ -58,7 +70,7 @@ este módulo es aparte y NO la reemplaza.
 | `voucherid`, `companyid` | |
 | `itemid` | FK al ítem |
 | `qty` | cantidad comprometida |
-| `unitpriceatissue` | **precio congelado**. Es el valor autoritativo del vale (decisión 6), no un dato histórico |
+| `unitpriceatissue` | **precio congelado**: el valor con el que se registra la línea al canjear (decisión 6). No se usa para cobrar diferencias |
 
 El valor total del vale es `Σ(qty × unitpriceatissue)` y se calcula, no se
 duplica en la cabecera — misma razón por la que `pos_order` no guarda total.
@@ -82,11 +94,11 @@ el cajero el que tiene que saber qué contiene el vale y cargarlo a mano.
 
 1. El cajero ingresa el código en el carrito.
 2. `validate` verifica que exista, que no esté usado y que no esté vencido.
-3. Si valida, **el vale agrega sus propias líneas** al carrito, con `qty` y
-   precio bloqueados, marcadas como pertenecientes al vale.
-4. Al llegar al cobro, el vale ya está aplicado como medio de pago por
-   `Σ(qty × unitpriceatissue)`. Si los precios subieron, la diferencia queda
-   pendiente y se cobra con otro medio.
+3. Si valida, **el vale agrega sus propias líneas** al carrito, con `qty`
+   bloqueada, precio = `unitpriceatissue` y marcadas como del vale.
+4. Esas líneas **no suman al total**: el vale ya está pagado. Lo pendiente a
+   cobrar es únicamente lo que el cajero haya agregado aparte, y eso es lo que
+   ve en pantalla sin tener que interpretar nada.
 5. Al confirmar la venta, `consume` marca `usedat` + `usedbytransactionid` con
    lock optimista (`WHERE usedat IS NULL`), igual que giftcard.
 
