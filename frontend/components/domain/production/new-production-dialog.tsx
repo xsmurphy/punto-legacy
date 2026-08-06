@@ -219,7 +219,7 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
             <div className="space-y-1.5">
               <Label>Sucursal</Label>
               <Select value={outletId ?? ""} onValueChange={setOutletId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger>
                   <SelectValue placeholder="Elegí sucursal" />
                 </SelectTrigger>
                 <SelectContent>
@@ -237,7 +237,7 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
             <div className="space-y-1.5">
               <Label>Depósito de insumos</Label>
               <Select value={locationId} onValueChange={setLocationId} disabled={!outletId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger>
                   <SelectValue placeholder="Depósito por defecto" />
                 </SelectTrigger>
                 <SelectContent>
@@ -257,7 +257,7 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
                 onValueChange={setOutputLocationId}
                 disabled={!outletId}
               >
-                <SelectTrigger className="w-full">
+                <SelectTrigger>
                   <SelectValue placeholder="Depósito por defecto" />
                 </SelectTrigger>
                 <SelectContent>
@@ -312,7 +312,7 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
                 <div className="space-y-1.5">
                   <Label>Motivo de merma</Label>
                   <Select value={wasteReasonId} onValueChange={setWasteReasonId}>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger>
                       <SelectValue placeholder="Sin merma" />
                     </SelectTrigger>
                     <SelectContent>

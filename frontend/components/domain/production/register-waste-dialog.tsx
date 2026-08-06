@@ -178,7 +178,7 @@ export function RegisterWasteDialog({ open, onOpenChange }: Props) {
             <div className="space-y-1.5">
               <Label>Motivo</Label>
               <Select value={reasonId ?? ""} onValueChange={setReasonId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger>
                   <SelectValue placeholder="Elegí un motivo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -196,7 +196,7 @@ export function RegisterWasteDialog({ open, onOpenChange }: Props) {
             <div className="space-y-1.5">
               <Label>Sucursal</Label>
               <Select value={outletId ?? ""} onValueChange={setOutletId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger>
                   <SelectValue placeholder="Elegí sucursal" />
                 </SelectTrigger>
                 <SelectContent>
@@ -211,7 +211,7 @@ export function RegisterWasteDialog({ open, onOpenChange }: Props) {
             <div className="space-y-1.5">
               <Label>Depósito (opcional)</Label>
               <Select value={locationId} onValueChange={setLocationId} disabled={!outletId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger>
                   <SelectValue placeholder="Depósito por defecto" />
                 </SelectTrigger>
                 <SelectContent>

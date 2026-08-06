@@ -402,7 +402,7 @@ function TeamForm({
                 <FormLabel>Rol</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
-                    <SelectTrigger className="w-full">
+                    <SelectTrigger>
                       <SelectValue placeholder="Seleccionar rol…" />
                     </SelectTrigger>
                   </FormControl>

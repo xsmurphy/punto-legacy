@@ -140,7 +140,7 @@ export function CompleteProductionDialog({ open, onOpenChange, order }: Props) {
                 <span className="text-destructive"> *</span>
               </Label>
               <Select value={wasteReasonId} onValueChange={setWasteReasonId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger>
                   <SelectValue placeholder="Elegí un motivo" />
                 </SelectTrigger>
                 <SelectContent>

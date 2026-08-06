@@ -714,7 +714,7 @@ function ContactFormBody({
                 onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
               >
                 <FormControl>
-                  <SelectTrigger className="w-full">
+                  <SelectTrigger>
                     <SelectValue placeholder="Precio base (sin lista)" />
                   </SelectTrigger>
                 </FormControl>

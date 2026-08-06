@@ -320,7 +320,6 @@ export default function SignupPage() {
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger
-                          className="w-full"
                           aria-invalid={!!fieldState.error}
                         >
                           <SelectValue placeholder="Seleccionar…" />

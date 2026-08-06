@@ -445,7 +445,7 @@ function CatalogFormBody<T, P>({
                   onValueChange={(v) => setField(f.name, v)}
                   disabled={disabled}
                 >
-                  <SelectTrigger id={fieldId} className="w-full">
+                  <SelectTrigger id={fieldId}>
                     <SelectValue placeholder={f.placeholder} />
                   </SelectTrigger>
                   <SelectContent>
