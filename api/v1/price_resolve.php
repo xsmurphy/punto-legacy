@@ -34,6 +34,18 @@ if (!is_array($items) || empty($items)) {
     apiError('items es requerido', 422);
 }
 
+// Validar la FORMA de cada ítem, no solo que `items` sea un array.
+// resolvePriceBatch espera [{itemId, basePrice}]; con una lista plana de IDs
+// (["uuid", ...]) el array_map de adentro hacía `$i['itemId']` sobre un string
+// y el request moría en un 500 fatal — "Cannot access offset of type string on
+// string" (capturado en producción, GlitchTip issue 8). El borde del endpoint
+// es donde se valida la entrada: acá sale un 422 que dice qué se mandó mal.
+foreach ($items as $i => $item) {
+    if (!is_array($item) || !isset($item['itemId']) || !is_string($item['itemId']) || $item['itemId'] === '') {
+        apiError('items[' . $i . '] debe ser un objeto con itemId — se recibió ' . gettype($item), 422);
+    }
+}
+
 $svc    = new PriceListService(TenantContext::fromAuth($ctx));
 $result = $svc->resolvePriceBatch($companyId, $items, $contactId, $outletId, $priceListId);
 

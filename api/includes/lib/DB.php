@@ -420,9 +420,18 @@ class DB
 
     /**
      * Retorna array asociativo keyed por la primera columna.
+     *
+     * Acepta `false` en $params igual que Execute(): el default documentado de
+     * `ncmExecute($sql, $array = false, ...)` es false, así que una query SIN
+     * parámetros que pide assoc — `ncmExecute($sql, false, false, false, true)`
+     * — llegaba acá con false y tiraba TypeError (capturado en producción,
+     * GlitchTip issue 11). Execute ya toleraba false; la asimetría era el bug.
      */
-    public function GetAssoc(string $sql, array $params = [], bool $force = false): array|false
+    public function GetAssoc(string $sql, array|false $params = [], bool $force = false): array|false
     {
+        if ($params === false) {
+            $params = [];
+        }
         $result = $this->Execute($sql, $params);
         if ($result === false) {
             return false;
@@ -438,7 +447,7 @@ class DB
     /**
      * Versión "cacheada" de GetAssoc — $secs ignorado, sin cache real.
      */
-    public function CacheGetAssoc(int $secs, string $sql, array $params = []): array|false
+    public function CacheGetAssoc(int $secs, string $sql, array|false $params = []): array|false
     {
         return $this->GetAssoc($sql, $params);
     }
