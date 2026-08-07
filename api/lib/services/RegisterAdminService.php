@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 
+use Punto\Api\Sales\SaleType;
+
 /**
  * RegisterAdminService — CRUD de cajas desde el panel de administración.
  *
@@ -265,9 +267,13 @@ final class RegisterAdminService
                 // transactionType, así que sus numeraciones son independientes
                 // y un mismo número puede existir en las dos sin conflicto.
                 // Por eso el match explícito y no un chequeo genérico.
+                // Los tipos salen del enum, NO de literales: SaleType es la
+                // fuente de verdad (SaleInput::fromPayload valida contra él).
+                // Un [0, 3] hardcodeado acá sería una segunda copia del mapeo
+                // que se desincroniza en silencio.
                 $txTypes = match ($docType) {
-                    'factura'    => [0, 3],   // contado + crédito
-                    'cotizacion' => [9],
+                    'factura'    => [SaleType::Cashsale->value, SaleType::Creditsale->value],
+                    'cotizacion' => [SaleType::Quote->value],
                     default      => [],
                 };
                 if ($txTypes !== []) {
