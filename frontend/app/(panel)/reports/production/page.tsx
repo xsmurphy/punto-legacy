@@ -27,7 +27,7 @@ import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ProductionReportResponse } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function ProductionReportPage() {
@@ -80,7 +80,7 @@ export default function ProductionReportPage() {
         header: "Unidades",
         cell: ({ getValue }: { getValue: () => unknown }) => (
           <span className="tabular-nums font-medium">
-            {(Number(getValue()) || 0).toLocaleString()}
+            {formatInt(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
         meta: { label: "Unidades", className: "tabular-nums text-right" },
@@ -144,7 +144,7 @@ export default function ProductionReportPage() {
 
       {!isLoading && totals && totals.qty > 0 && (
         <StatsRow>
-          <StatTile label="Unidades producidas" value={totals.qty.toLocaleString()} />
+          <StatTile label="Unidades producidas" value={formatInt(totals.qty, bootstrap)} />
           <StatTile
             label="Costo total"
             value={formatMoney(totals.cogs, bootstrap)}

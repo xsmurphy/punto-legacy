@@ -31,7 +31,7 @@ import {
   type ProductRow,
   type ProductsReportResponse,
 } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function ProductsReportPage() {
@@ -81,7 +81,7 @@ export default function ProductsReportPage() {
         header: "Vendidos",
         cell: ({ getValue }) => (
           <span className="tabular-nums">
-            {(Number(getValue()) || 0).toLocaleString()}
+            {formatInt(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
         meta: { label: "Vendidos", className: "tabular-nums text-right" },
@@ -197,7 +197,7 @@ export default function ProductsReportPage() {
           <StatTile label="Artículos" value={rows.length.toString()} />
           <StatTile
             label="Unidades vendidas"
-            value={totals.usold.toLocaleString()}
+            value={formatInt(totals.usold, bootstrap)}
           />
           <StatTile
             label="Total facturado"

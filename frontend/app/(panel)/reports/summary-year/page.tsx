@@ -37,7 +37,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type SummaryYearResponse } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 const MONTH_NAMES = [
@@ -225,10 +225,10 @@ export default function SummaryYearPage() {
                     {formatMoney(m.expensesTotal, bootstrap)}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
-                    {m.count.toLocaleString()}
+                    {formatInt(m.count, bootstrap)}
                   </td>
                   <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
-                    {m.customers.toLocaleString()}
+                    {formatInt(m.customers, bootstrap)}
                   </td>
                 </tr>
               ))}
@@ -244,10 +244,10 @@ export default function SummaryYearPage() {
                   {formatMoney(annualTotals.expenses, bootstrap)}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums">
-                  {annualTotals.count.toLocaleString()}
+                  {formatInt(annualTotals.count, bootstrap)}
                 </td>
                 <td className="px-4 py-2 text-right tabular-nums">
-                  {annualTotals.customers.toLocaleString()}
+                  {formatInt(annualTotals.customers, bootstrap)}
                 </td>
               </tr>
             </tbody>

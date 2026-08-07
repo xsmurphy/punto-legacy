@@ -25,7 +25,7 @@ import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type UserReportRow } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function UsersReportPage() {
@@ -64,7 +64,7 @@ export default function UsersReportPage() {
         accessorKey: "count",
         header: "Transacciones",
         cell: ({ getValue }) => (
-          <span className="tabular-nums">{(Number(getValue()) || 0).toLocaleString()}</span>
+          <span className="tabular-nums">{formatInt(Number(getValue()) || 0, bootstrap)}</span>
         ),
         meta: { label: "Transacciones", className: "tabular-nums text-right" },
       },
@@ -73,7 +73,7 @@ export default function UsersReportPage() {
         header: "Unidades",
         cell: ({ getValue }) => (
           <span className="tabular-nums text-muted-foreground">
-            {(Number(getValue()) || 0).toLocaleString()}
+            {formatInt(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
         meta: { label: "Unidades", className: "tabular-nums text-right" },
@@ -137,9 +137,9 @@ export default function UsersReportPage() {
 
       {!isLoading && rows.length > 0 && (
         <StatsRow>
-          <StatTile label="Usuarios" value={rows.length.toLocaleString()} />
-          <StatTile label="Transacciones" value={totals.count.toLocaleString()} />
-          <StatTile label="Unidades vendidas" value={totals.usold.toLocaleString()} />
+          <StatTile label="Usuarios" value={formatInt(rows.length, bootstrap)} />
+          <StatTile label="Transacciones" value={formatInt(totals.count, bootstrap)} />
+          <StatTile label="Unidades vendidas" value={formatInt(totals.usold, bootstrap)} />
           <StatTile
             label="Total ventas"
             value={formatMoney(totals.total, bootstrap)}

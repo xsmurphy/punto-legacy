@@ -27,7 +27,7 @@ import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type InventoryMovementRow } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -120,10 +120,15 @@ export default function InventoryReportPage() {
         header: "Movimiento",
         cell: ({ getValue }) => {
           const v = Number(getValue()) || 0
+          // formatInt y no toLocaleString(): sin locale explícito, el server
+          // usa el default de Node y el browser el del usuario ("1,234" vs
+          // "1.234"). Texto distinto entre render e hidratación = React #418,
+          // que seguía disparando en /reports/inventory después del fix
+          // be56f54e (capturado en producción por GlitchTip).
           return (
             <span className={`tabular-nums font-medium ${v < 0 ? "text-destructive" : ""}`}>
               {v > 0 ? "+" : ""}
-              {v.toLocaleString()}
+              {formatInt(v, bootstrap)}
             </span>
           )
         },
@@ -134,7 +139,7 @@ export default function InventoryReportPage() {
         header: "En stock",
         cell: ({ getValue }) => (
           <span className="tabular-nums text-muted-foreground">
-            {(Number(getValue()) || 0).toLocaleString()}
+            {formatInt(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
         meta: { label: "En stock", className: "tabular-nums text-right" },

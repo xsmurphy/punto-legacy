@@ -44,6 +44,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { formatInt } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export interface DataTableProps<T> {
@@ -94,6 +96,11 @@ export function DataTable<T>({
   bulkActions,
   initialColumnVisibility,
 }: DataTableProps<T>) {
+  // El footer de sumas se renderiza en el primer paint, así que pasa por SSR:
+  // un `toLocaleString()` sin locale explícito daba "1,234" en el server y
+  // "1.234" en el browser = React #418. Acá se arregla el default de TODAS las
+  // tablas de una vez, no tabla por tabla.
+  const { data: bootstrapForFooter } = useBootstrap()
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [globalFilter, setGlobalFilter] = React.useState("")
@@ -364,7 +371,7 @@ export function DataTable<T>({
                     const sum = footerSums[col.id] ?? 0
                     return (
                       <TableCell key={col.id} className={meta.className}>
-                        {meta.footerFormat ? meta.footerFormat(sum) : sum.toLocaleString()}
+                        {meta.footerFormat ? meta.footerFormat(sum) : formatInt(sum, bootstrapForFooter)}
                       </TableCell>
                     )
                   }
@@ -531,7 +538,7 @@ declare module "@tanstack/react-table" {
     label?: string
     /** Si true, el <DataTable> renderiza un <TableFooter> con la suma de esta columna. */
     footerSum?: boolean
-    /** Formatea la suma del footer. Si se omite, usa sum.toLocaleString(). */
+    /** Formatea la suma del footer. Si se omite, usa formatInt con el separador del tenant. */
     footerFormat?: (sum: number) => React.ReactNode
   }
 }

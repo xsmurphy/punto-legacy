@@ -22,7 +22,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type GiftCardRow, type GiftcardsReportResponse } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate, parseNaive } from "@/lib/format-date"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
@@ -200,9 +200,9 @@ export default function GiftcardsReportPage() {
 
       {!isLoading && rows.length > 0 && (
         <StatsRow>
-          <StatTile label="Vencidas" value={kpi.expired.toLocaleString()} />
-          <StatTile label="Por vencer" value={kpi.soon.toLocaleString()} />
-          <StatTile label="Canjeadas" value={kpi.used.toLocaleString()} />
+          <StatTile label="Vencidas" value={formatInt(kpi.expired, bootstrap)} />
+          <StatTile label="Por vencer" value={formatInt(kpi.soon, bootstrap)} />
+          <StatTile label="Canjeadas" value={formatInt(kpi.used, bootstrap)} />
           <StatTile
             label={`${kpi.active} vigentes — saldo`}
             value={formatMoney(kpi.activeValue, bootstrap)}

@@ -17,7 +17,7 @@ import {
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ScheduleRow, type ScheduleReportResponse } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 
 // status: 0=Pendiente, 4=Cancelado, 5=No show, 6=Finalizado, 7=Bloqueado
@@ -179,11 +179,11 @@ export function ScheduleList({ backHref, customerIdFilter }: ScheduleListProps) 
 
       {!isLoading && summary && summary.totals > 0 && (
         <div className="flex flex-wrap gap-4 border-y py-3 text-sm">
-          <Stat label="Total" value={summary.totals.toLocaleString()} emphasis />
-          <Stat label="Pendientes" value={summary.new.toLocaleString()} />
-          <Stat label="Finalizados" value={summary.ended.toLocaleString()} />
-          <Stat label="Cancelados" value={summary.cancelled.toLocaleString()} />
-          <Stat label="No shows" value={summary.noshow.toLocaleString()} />
+          <Stat label="Total" value={formatInt(summary.totals, bootstrap)} emphasis />
+          <Stat label="Pendientes" value={formatInt(summary.new, bootstrap)} />
+          <Stat label="Finalizados" value={formatInt(summary.ended, bootstrap)} />
+          <Stat label="Cancelados" value={formatInt(summary.cancelled, bootstrap)} />
+          <Stat label="No shows" value={formatInt(summary.noshow, bootstrap)} />
         </div>
       )}
 

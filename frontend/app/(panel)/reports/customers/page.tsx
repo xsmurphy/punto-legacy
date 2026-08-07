@@ -26,7 +26,7 @@ import {
 import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type CustomerRow } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
@@ -143,7 +143,7 @@ export default function CustomersReportPage() {
         header: "Unidades",
         cell: ({ getValue }) => (
           <span className="tabular-nums text-muted-foreground">
-            {(Number(getValue()) || 0).toLocaleString()}
+            {formatInt(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
         meta: { label: "Unidades", className: "tabular-nums text-right" },
@@ -166,7 +166,7 @@ export default function CustomersReportPage() {
           if (v <= 0) return <span className="text-muted-foreground">—</span>
           return (
             <span className="tabular-nums text-emerald-600">
-              {v.toLocaleString()}
+              {formatInt(v, bootstrap)}
             </span>
           )
         },
@@ -233,8 +233,8 @@ export default function CustomersReportPage() {
       {!isLoading && rows.length > 0 && (
         <StatsRow>
           <StatTile label="Clientes" value={rows.length.toString()} />
-          <StatTile label="Compras" value={totals.count.toLocaleString()} />
-          <StatTile label="Unidades vendidas" value={totals.units.toLocaleString()} />
+          <StatTile label="Compras" value={formatInt(totals.count, bootstrap)} />
+          <StatTile label="Unidades vendidas" value={formatInt(totals.units, bootstrap)} />
           <StatTile
             label="Total facturado"
             value={formatMoney(totals.total, bootstrap)}

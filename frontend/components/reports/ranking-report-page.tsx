@@ -27,7 +27,7 @@ import {
 } from "@/components/date-range-picker"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 interface RankingRow {
@@ -124,7 +124,7 @@ export function RankingReportPage<TRawRow>({
         header: unitsColLabel,
         cell: ({ getValue }) => (
           <span className="tabular-nums">
-            {(Number(getValue()) || 0).toLocaleString()}
+            {formatInt(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
         meta: { label: unitsColLabel, className: "tabular-nums text-right" },
@@ -180,7 +180,7 @@ export function RankingReportPage<TRawRow>({
       {!isLoading && rows.length > 0 && (
         <StatsRow>
           <StatTile label="Items en ranking" value={rows.length.toString()} />
-          <StatTile label={unitsColLabel} value={totals.units.toLocaleString()} />
+          <StatTile label={unitsColLabel} value={formatInt(totals.units, bootstrap)} />
           <StatTile
             label="Total facturado"
             value={formatMoney(totals.total, bootstrap)}

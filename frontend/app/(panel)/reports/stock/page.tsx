@@ -21,7 +21,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type StockRow, type StockReportResponse } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
 export default function StockReportPage() {
@@ -66,7 +66,7 @@ export default function StockReportPage() {
           const p = row.original.principal
           return (
             <div className="flex flex-col tabular-nums">
-              <span className="font-medium">{p.count.toLocaleString()}</span>
+              <span className="font-medium">{formatInt(p.count, bootstrap)}</span>
               {p.min > 0 && (
                 <span className="text-[10px] text-muted-foreground">Mín: {p.min}</span>
               )}
@@ -80,7 +80,7 @@ export default function StockReportPage() {
         header: "Total en stock",
         cell: ({ getValue }) => (
           <span className="tabular-nums font-medium">
-            {(Number(getValue()) || 0).toLocaleString()}
+            {formatInt(Number(getValue()) || 0, bootstrap)}
           </span>
         ),
         meta: { label: "Total en stock", className: "tabular-nums text-right" },
@@ -106,7 +106,7 @@ export default function StockReportPage() {
             <div className="flex flex-col gap-0.5">
               {depots.map((d) => (
                 <span key={d.locationId} className="text-xs text-muted-foreground">
-                  {d.locationName}: {d.count.toLocaleString()}
+                  {d.locationName}: {formatInt(d.count, bootstrap)}
                 </span>
               ))}
             </div>
@@ -154,8 +154,8 @@ export default function StockReportPage() {
 
       {!isLoading && !needsOutlet && rows.length > 0 && (
         <StatsRow>
-          <StatTile label="Productos" value={rows.length.toLocaleString()} />
-          <StatTile label="Unidades en stock" value={totals.onHand.toLocaleString()} />
+          <StatTile label="Productos" value={formatInt(rows.length, bootstrap)} />
+          <StatTile label="Unidades en stock" value={formatInt(totals.onHand, bootstrap)} />
           <StatTile
             label="Valor al costo"
             value={formatMoney(totals.cogs, bootstrap)}

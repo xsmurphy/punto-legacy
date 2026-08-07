@@ -22,7 +22,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type RecurringRow, type RecurringReportResponse } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
@@ -158,8 +158,8 @@ export default function RecurringReportPage() {
 
       {!isLoading && rows.length > 0 && (
         <StatsRow>
-          <StatTile label="Activas" value={totals.active.toLocaleString()} emphasis />
-          <StatTile label="Pausadas" value={totals.paused.toLocaleString()} />
+          <StatTile label="Activas" value={formatInt(totals.active, bootstrap)} emphasis />
+          <StatTile label="Pausadas" value={formatInt(totals.paused, bootstrap)} />
           <StatTile
             label="Monto recurrente total"
             value={formatMoney(totals.totalAmount, bootstrap)}

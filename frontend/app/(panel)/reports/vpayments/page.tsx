@@ -27,7 +27,7 @@ import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type VPaymentRow, type VPaymentsReportResponse } from "@/hooks/use-reports"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
@@ -164,7 +164,7 @@ export default function VPaymentsReportPage() {
 
       {!isLoading && kpi && kpi.count > 0 && (
         <StatsRow>
-          <StatTile label="Transacciones" value={kpi.count.toLocaleString()} />
+          <StatTile label="Transacciones" value={formatInt(kpi.count, bootstrap)} />
           <StatTile label="Vendido" value={formatMoney(kpi.sold, bootstrap)} />
           <StatTile label="Acreditado" value={formatMoney(kpi.deposited, bootstrap)} />
           <StatTile
