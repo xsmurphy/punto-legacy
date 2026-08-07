@@ -257,7 +257,11 @@ final class SignupService
 
         // Seed de roles del sistema para la company recién creada.
         require_once __DIR__ . '/RoleService.php';
-        RoleService::seedCompanyRoles((string) $companyInsert);
+        // `\` obligatorio: RoleService NO declara namespace (vive en el global),
+        // y este archivo sí está en Punto\Api\Auth. Sin la barra, PHP resolvía a
+        // `Punto\Api\Auth\RoleService`, que no existe, y el alta moría con
+        // "Class not found". Mismo criterio que TransactionService:644.
+        \RoleService::seedCompanyRoles((string) $companyInsert);
 
         // Login automático: recuperar el contact con todos los campos para
         // que PanelAuth::issuePanelSession lo use para emitir la sesion opaca.
