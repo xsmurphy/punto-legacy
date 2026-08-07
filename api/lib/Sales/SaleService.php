@@ -574,6 +574,10 @@ final class SaleService
             // vienen netos desde el front. Sin esta bandera no habia forma de
             // distinguir una venta sin IVA de una con IVA mal cargada.
             'ivaRemoved'             => $input->ivaRemoved,
+            // Consumo interno (botón "Interno" del POS, mig 118). El carrito ya
+            // mandaba el flag; sin esta línea se perdía en el borde de la API y
+            // la venta interna quedaba indistinguible de una venta a cliente.
+            'interno'                => $input->interno,
             'transactionUnitsSold'   => flipOnReturn($typeStr, $totalUnits),
 
             // meta JSONB: shape EXACTO del legacy — ambas keys son JSON-STRINGS adentro

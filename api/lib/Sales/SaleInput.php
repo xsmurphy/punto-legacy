@@ -59,6 +59,14 @@ final class SaleInput
          * sin IVA pero se registraba con IVA.
          */
         public readonly bool $ivaRemoved = false,
+        /**
+         * Venta de consumo interno (botón "Interno" del POS), no una venta a
+         * cliente. El carrito ya lo mandaba en el payload, pero el DTO no tenía
+         * el campo y el flag se descartaba en silencio — la venta interna
+         * quedaba registrada como una común y ningún reporte podía separarla.
+         * Ver mig 118, que sigue el patrón de `ivaRemoved` (mig 101).
+         */
+        public readonly bool $interno = false,
     ) {
     }
 
@@ -136,6 +144,7 @@ final class SaleInput
             ident:      !empty($payload['ident'])     ? (string) $payload['ident']     : null,
             invoiceNo:  isset($payload['invoiceno']) && $payload['invoiceno'] !== '' ? (int) $payload['invoiceno'] : null,
             ivaRemoved: !empty($payload['ivaRemoved']),
+            interno:    !empty($payload['interno']),
             dueDate:    !empty($payload['dueDate'])   ? (string) $payload['dueDate']   : null,
             currency:   !empty($payload['currency'])  ? (string) $payload['currency']  : null,
             status:     self::normalizeStatus($payload['status'] ?? null),
