@@ -28,6 +28,7 @@ import {
   XCircle,
   MoreVertical,
   Undo2,
+  Ticket,
   type LucideIcon,
 } from "lucide-react"
 
@@ -78,6 +79,7 @@ import { formatMoney } from "@/lib/format-money"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ticket-data"
+import { VoucherApplyDialog } from "@/components/register/voucher-apply-dialog"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -88,6 +90,7 @@ type ActiveDialog =
   | "priceList"
   | "parkedSales"
   | "tags"
+  | "voucher"
   | null
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -142,6 +145,7 @@ export function SaleOptionsDrawer({
   const saleDiscount = useCartStore((s) => s.saleDiscount)
 
   const hasGlobalDiscount = saleDiscount !== null
+  const hasVoucher = cartLines.some((l) => Boolean(l.voucher))
 
   const hasGlobalSeller = React.useMemo(() => {
     if (cartLines.length === 0) return false
@@ -302,6 +306,16 @@ export function SaleOptionsDrawer({
       icon: Tag,
       action: () => openDialog("tags"),
       active: cartTags.length > 0,
+    },
+    {
+      // Entrypoint del canje de vale (context/36-vouchers-plan.md F2) — se
+      // ingresa AL ARMAR la venta, no en el cobro. El dialog valida el código
+      // y agrega las líneas del vale al carrito.
+      key: "voucher",
+      label: "Vale",
+      icon: Ticket,
+      action: () => openDialog("voucher"),
+      active: hasVoucher,
     },
     {
       key: "save",
@@ -502,6 +516,8 @@ export function SaleOptionsDrawer({
       />
 
       <TagsDialog open={activeDialog === "tags"} onClose={closeDialog} />
+
+      <VoucherApplyDialog open={activeDialog === "voucher"} onClose={closeDialog} />
 
       {quoteSuccess && (
         <TransactionSuccessDialog

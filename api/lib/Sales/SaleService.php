@@ -122,6 +122,13 @@ final class SaleService
             // ── B10 (35c.1): redención de gift card — debita el saldo usado ────
             $this->persistGiftCardRedemptions($input);
 
+            // ── F2 vouchers (context/36-vouchers-plan.md): consumir los vales
+            //    canjeados en el carrito — DENTRO de esta misma transacción, no
+            //    fire-and-forget post-commit (lección de T1, 1f9c8f97, y del
+            //    consume de gift cards: si corriera después y fallara, la venta
+            //    quedaría cobrada con un vale que sigue disponible para reusar).
+            $this->persistVoucherRedemptions($saleDetail, (string) $transId);
+
             // ── B10 (35e): débito de points y storeCredit del cliente ─────────
             // (manageCustomerLoyalty/StoreCredit 'used' vía helpers legacy dentro
             //  de la tx; se saltan si no hay cliente).
@@ -929,6 +936,50 @@ final class SaleService
              WHERE giftCardSoldId = ?',
             [$amount, TODAY, $row->fields['giftcardsoldid']]
         );
+    }
+
+    /**
+     * F2 vouchers (context/36-vouchers-plan.md) — consume cada vale canjeado
+     * en el carrito. Corre DENTRO de la transacción de save() (mismo `$db`
+     * ambiente que VoucherService::consume() usa vía `global $db` — ambos
+     * services comparten conexión, así que su UPDATE participa de este
+     * StartTrans/CompleteTrans sin nada especial de por medio).
+     *
+     * Un vale puede traer VARIAS líneas (una por ítem) — se dedupea por
+     * voucherId y se consume UNA vez por vale, no una vez por línea.
+     *
+     * Fallo del consume (vale ya usado por otra transacción / vencido /
+     * anulado — típicamente una carrera: dos cajas canjeando el mismo código
+     * casi al mismo tiempo) aborta TODA la venta: sin esto, las líneas del
+     * vale (que no suman al `transactionTotal`, ver buildSalePayload en el
+     * front) quedarían registradas como entregadas gratis sin que el vale se
+     * haya consumido de verdad — plata que se va sin respaldo.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail sanitizado (saleArraySanitizer)
+     */
+    private function persistVoucherRedemptions(array $saleDetail, string $transId): void
+    {
+        $svc  = new \Punto\Api\Services\VoucherService();
+        $seen = [];
+
+        foreach ($saleDetail as $sD) {
+            $voucher = $sD['voucher'] ?? null;
+            if (!is_array($voucher)) {
+                continue;
+            }
+            $code = trim((string) ($voucher['code'] ?? ''));
+            if ($code === '' || isset($seen[$code])) {
+                continue;
+            }
+            $seen[$code] = true;
+
+            $result = $svc->consume($this->ctx->companyId, $code, $transId);
+            if (!$result['ok']) {
+                throw new InvalidSaleInputException(
+                    "No se pudo canjear el vale '{$code}': " . ($result['reason'] ?? 'error desconocido')
+                );
+            }
+        }
     }
 
     /**

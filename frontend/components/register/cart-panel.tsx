@@ -33,6 +33,7 @@ import {
   Check,
   StickyNote,
   UserCircle2,
+  Ticket,
 } from "lucide-react"
 import { MODE_VISUALS, resolveCartMode, type CartModeKey } from "@/lib/pos/mode-visuals"
 import { Button } from "@/components/ui/button"
@@ -854,10 +855,15 @@ function CartRowCollapsed({
     s.saleDiscount ? s.saleDiscount.lineIds.includes(line.lineId) : false,
   )
   const hasDiscount = (line.discount ?? 0) > 0 || coveredBySaleDiscount
+  // Línea de vale (F2, context/36): qty/precio bloqueados, aporta 0 al total
+  // (lineSubtotal) — se marca con borde azul, distinto del amarillo de
+  // descuento, para que el cajero nunca confunda "cubierto por vale" con
+  // "tiene descuento".
+  const isVoucher = Boolean(line.voucher)
   const hasSeller = Boolean(line.sellerId)
   const hasTags = (line.tags?.length ?? 0) > 0
   const hasNote = Boolean(line.note && line.note.trim().length > 0)
-  const showSubtitle = hasSeller || hasTags || hasNote
+  const showSubtitle = hasSeller || hasTags || hasNote || isVoucher
   const users = useCatalogStore((s) => s.users)
   const sellerName = hasSeller ? (users.find((u) => u.id === line.sellerId)?.name ?? null) : null
 
@@ -866,15 +872,17 @@ function CartRowCollapsed({
       onClick={onSelect}
       className={cn(
         "flex w-full items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/50",
-        hasDiscount && "border-l-[3px] border-l-yellow-500",
+        isVoucher ? "border-l-[3px] border-l-blue-500" : hasDiscount && "border-l-[3px] border-l-yellow-500",
       )}
     >
       <span
         className={cn(
           "flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums",
-          hasDiscount
-            ? "border-yellow-500/40 bg-yellow-500/15 text-yellow-500"
-            : "border-border bg-muted/40 text-muted-foreground",
+          isVoucher
+            ? "border-blue-500/40 bg-blue-500/15 text-blue-500"
+            : hasDiscount
+              ? "border-yellow-500/40 bg-yellow-500/15 text-yellow-500"
+              : "border-border bg-muted/40 text-muted-foreground",
         )}
       >
         {line.qty}
@@ -884,6 +892,12 @@ function CartRowCollapsed({
         <p className="truncate text-sm font-medium text-foreground">{line.name}</p>
         {showSubtitle && (
           <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+            {isVoucher && (
+              <span className="inline-flex items-center gap-1 text-blue-500" title={`Vale ${line.voucher?.code}`}>
+                <Ticket className="size-3" aria-hidden />
+                <span className="font-mono">{line.voucher?.code}</span>
+              </span>
+            )}
             {hasSeller && (
               <span className="inline-flex items-center gap-1" title="Vendedor asignado">
                 <User className="size-3" aria-hidden />
@@ -906,15 +920,23 @@ function CartRowCollapsed({
       </div>
 
       <div className="flex shrink-0 flex-col items-end gap-0.5">
-        <span className="text-sm font-semibold tabular-nums text-foreground">
-          {formatAmount(subtotal, config)}
-        </span>
+        {isVoucher ? (
+          // Vale: no se muestra el monto (siempre 0, ver lineSubtotal) — un
+          // "Gs 0" leería como un bug. La etiqueta dice explícitamente por qué.
+          <span className="rounded border border-blue-500/40 bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-blue-500">
+            No suma al total
+          </span>
+        ) : (
+          <span className="text-sm font-semibold tabular-nums text-foreground">
+            {formatAmount(subtotal, config)}
+          </span>
+        )}
         {/* El % solo se muestra si es de la LÍNEA. Una línea alcanzada por el
             descuento de venta se marca con el borde amarillo, pero su % no se
             imprime acá: el monto de ese descuento se prorratea entre todas las
             líneas alcanzadas y ponerle un número por línea daría a entender un
             descuento propio que no tiene. */}
-        {(line.discount ?? 0) > 0 && (
+        {!isVoucher && (line.discount ?? 0) > 0 && (
           <span className="text-[10px] font-medium text-yellow-500">
             -{Math.round(line.discount ?? 0)}%
           </span>
@@ -956,7 +978,12 @@ function CartRowExpanded({
   // pero SaleService::issueGiftCard() solo lee sD['total'] (una fila con el
   // doble de saldo bajo un único código) — inconsistencia de plata. Bloqueado
   // acá (UI) y con backstop server-side (SaleService rechaza count != 1).
-  const qtyLocked = !!line.giftcard
+  //
+  // Líneas de vale (F2, context/36): mismo bloqueo — qty/precio los fija el
+  // vale al emitirse, no el cajero. Deshacer es "quitar vale" (todas sus
+  // líneas juntas), nunca ajustar una de a una.
+  const isVoucher = Boolean(line.voucher)
+  const qtyLocked = !!line.giftcard || isVoucher
 
   // Misma señal que la fila compacta: toda línea con descuento —propio o
   // alcanzada por el descuento de venta— lleva el borde izquierdo amarillo.
@@ -966,19 +993,26 @@ function CartRowExpanded({
     s.saleDiscount ? s.saleDiscount.lineIds.includes(line.lineId) : false,
   )
   const hasDiscount = (line.discount ?? 0) > 0 || coveredBySaleDiscount
+  const removeVoucher = useCartStore((s) => s.removeVoucher)
 
   return (
     <div
       className={cn(
         "bg-accent/40 px-3 py-3",
-        hasDiscount && "border-l-[3px] border-l-yellow-500",
+        isVoucher ? "border-l-[3px] border-l-blue-500" : hasDiscount && "border-l-[3px] border-l-yellow-500",
       )}
     >
-      {/* Header — nombre del item en negrita. */}
-      <div className="mb-2 text-center">
+      {/* Header — nombre del item en negrita + código del vale, si aplica. */}
+      <div className="mb-2 flex flex-col items-center gap-0.5 text-center">
         <span className="truncate text-sm font-bold text-foreground">
           {line.name}
         </span>
+        {isVoucher && (
+          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-500">
+            <Ticket className="size-3" aria-hidden />
+            Vale {line.voucher?.code} — no suma al total
+          </span>
+        )}
       </div>
 
       {/* Layout: [−][qty][+]  ......  [Vendedor] [Quitar] [⋯]
@@ -1019,8 +1053,18 @@ function CartRowExpanded({
             <User className="size-4" />
           </LineToolButton>
           <LineToolButton
-            onClick={onRemove}
-            aria-label="Quitar de la venta"
+            onClick={() => {
+              // Vale: no hay borrado de línea individual — quitar SIEMPRE se
+              // lleva las N líneas del mismo vale juntas (context/36, "Quitar
+              // el vale es lo que desbloquea"). `onRemove` (removeLine de una
+              // sola línea) rompería esa garantía.
+              if (isVoucher && line.voucher) {
+                removeVoucher(line.voucher.voucherId)
+              } else {
+                onRemove()
+              }
+            }}
+            aria-label={isVoucher ? "Quitar vale de la venta" : "Quitar de la venta"}
             className="text-muted-foreground hover:border-destructive hover:text-destructive"
           >
             <X className="size-4" />
@@ -1069,15 +1113,21 @@ function CartRowExpanded({
             data-vaul-no-drag
             className="grid grid-cols-2 gap-2 p-4 pt-2 sm:grid-cols-3"
           >
+            {/* Vale: precio congelado al emitir y sin descuento propio (no
+                tiene sentido descontar una línea que ya aporta 0) — mismo
+                bloqueo que qtyLocked arriba, backstop en el store
+                (setLinePrice/setLineDiscount) por si algo más los dispara. */}
             <LineActionTile
               icon={DollarSign}
               label="Modificar precio"
               onClick={() => { onEditPrice(); setMoreOpen(false) }}
+              disabled={isVoucher}
             />
             <LineActionTile
               icon={Percent}
               label="Aplicar descuento"
               onClick={() => { onApplyDiscount(); setMoreOpen(false) }}
+              disabled={isVoucher}
             />
             <LineActionTile icon={Tag} label="Etiquetas" onClick={() => {}} disabled />
             <LineActionTile icon={MessageSquare} label="Comentario" onClick={() => {}} disabled />

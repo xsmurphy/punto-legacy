@@ -73,6 +73,24 @@ export interface SaleItem {
     expiresAt?: string | null
     note?: string | null
   }
+  /**
+   * Metadata de CANJE de vale (F2, context/36-vouchers-plan.md) — presente
+   * solo en líneas que trajo `applyVoucher()` al validar un código. Espejo de
+   * `CartLine.voucher` (lib/cart/store.ts). El backend
+   * (Money::sanitizeSaleArray → SaleService::persistVoucherRedemptions) la usa
+   * para llamar `VoucherService::consume()` en la MISMA transacción de la
+   * venta — nunca fire-and-forget post-commit (mismo criterio que T1,
+   * 1f9c8f97, y el consume de gift cards).
+   *
+   * `total` de esta línea sigue siendo el BRUTO (qty × unitPriceAtIssue) — es
+   * el registro de lo entregado. Lo que hace que el vale NO sume al total de
+   * la transacción es que `buildSalePayload` excluye estas líneas del cálculo
+   * de `subtotal` (ver abajo), no un descuento del 100%.
+   */
+  voucher?: {
+    voucherId: string
+    code: string
+  }
 }
 
 /**
@@ -123,7 +141,12 @@ export interface CreateSalePayload {
   type: 0 | 3
   /** Ítems vendidos. */
   sale: SaleItem[]
-  /** Subtotal antes de impuestos y descuentos (= sum de item.total). */
+  /**
+   * Subtotal antes de impuestos y descuentos (= sum de item.total).
+   * EXCEPTO líneas de vale (`item.voucher` presente): su `total` bruto viaja
+   * en el item para el registro de itemSold, pero no se suma acá — el vale ya
+   * se cobró al emitirse (context/36, decisión 5).
+   */
   subtotal: number
   /** Impuesto total (calculado; 0 en path simple sin taxObj). */
   tax: number
@@ -293,9 +316,26 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
           },
         }
       : {}),
+    ...(line.voucher
+      ? {
+          voucher: {
+            voucherId: line.voucher.voucherId,
+            code: line.voucher.code,
+          },
+        }
+      : {}),
   }))
 
-  const subtotal = saleItems.reduce((s, i) => s + i.total, 0)
+  // El vale ya se cobró al emitirse (context/36, decisión 5): sus líneas
+  // llevan `total` bruto en el item (registro de lo entregado, arriba) pero
+  // NO entran en el subtotal de la TRANSACCIÓN — sumarlas la cobraría dos
+  // veces. Explícito por línea, no un descuento: un descuento del 100%
+  // ensuciaría `itemSold.itemSoldDiscount` y los reportes de descuento
+  // mostrarían promociones que nunca existieron.
+  const subtotal = saleItems.reduce(
+    (s, i, idx) => (lines[idx].voucher ? s : s + i.total),
+    0,
+  )
 
   // El descuento de la transacción es la SUMA de los descuentos de sus ítems —
   // no una cifra propia. Así `subtotal - discount` da exactamente lo que se

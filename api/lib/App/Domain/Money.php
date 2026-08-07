@@ -264,6 +264,20 @@ final class Money
                     ];
                 }
 
+                // Canje de vale (F2, context/36-vouchers-plan.md) — presente solo en
+                // líneas que trajo applyVoucher() en el carrito. Whitelist explícita,
+                // mismo criterio que giftcardMeta: nunca pasar el objeto crudo del
+                // front. SaleService::persistVoucherRedemptions() la usa para llamar
+                // VoucherService::consume() dentro de la transacción de la venta.
+                $voucherMeta = null;
+                if (array_key_exists('voucher', $value) && is_array($value['voucher'])) {
+                    $vo = $value['voucher'];
+                    $voucherMeta = [
+                        'voucherId' => markupt2HTML(['text' => (string) ($vo['voucherId'] ?? ''), 'type' => 'HtM']),
+                        'code'      => markupt2HTML(['text' => (string) ($vo['code'] ?? ''), 'type' => 'HtM']),
+                    ];
+                }
+
                 $out[] = [
                     'itemId'        => markupt2HTML(['text' => $value['itemId'], 'type' => 'HtM']),
                     'count'         => floatval($value['count']),
@@ -285,6 +299,7 @@ final class Money
                     'parent'        => array_key_exists('parent', $value) ? ($value['parent'] ? (int) $value['parent'] : null) : null,
                     'isParent'      => array_key_exists('isParent', $value) ? ($value['isParent'] ? (int) $value['isParent'] : null) : null,
                     'giftcard'      => $giftcardMeta,
+                    'voucher'       => $voucherMeta,
                 ];
             }
 

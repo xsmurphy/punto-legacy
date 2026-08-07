@@ -81,6 +81,35 @@ export interface CartLine {
     expiresAt?: string | null
     note?: string | null
   }
+  /**
+   * Metadata de CANJE de voucher (F2, context/36-vouchers-plan.md) — presente
+   * en las líneas que trajo `applyVoucher()` al validar un código. Mismo
+   * patrón que `giftcard` arriba, pero es el REVERSO: acá la línea representa
+   * un ítem que YA fue pagado al emitirse el vale, no un pago nuevo.
+   *
+   * `lineSubtotal` devuelve 0 para toda línea con `voucher` — explícito, NO vía
+   * `discount: 100` (decisión del plan: la cobertura tiene que quedar tipada
+   * como "vale", nunca como descuento, o los reportes de descuento mostrarían
+   * promociones que no existieron). Estas líneas tampoco entran en
+   * `eligibleForSaleDiscount` — descontar algo que ya aporta 0 no tiene sentido
+   * y descuadra el prorrateo del descuento de venta.
+   *
+   * `voucherId` identifica el vale para `removeVoucher()` (quita TODAS las
+   * líneas de un mismo vale de una sola vez — es la única forma de deshacer,
+   * no hay borrado de línea individual).
+   */
+  voucher?: {
+    voucherId: string
+    code: string
+  }
+}
+
+/** Un ítem del vale, tal como lo devuelve `POST /v1/vouchers?resource=validate`. */
+export interface VoucherRedeemItem {
+  itemId: string
+  name: string
+  qty: number
+  unitPriceAtIssue: number
 }
 
 /**
@@ -126,8 +155,13 @@ const TAX_RATE = ALLOC_TAX_RATE
  *   Ej: 25.000 → 22.727, 10.000 → 9.091, 32.000 → 29.091. Suma = 60.909
  *   (coincide con selectCartTotal).
  * - discount (0–100): porcentaje de descuento por línea. Aplica antes del IVA.
+ * - voucher: SIEMPRE 0, sin mirar precio/descuento — el vale ya se cobró al
+ *   emitirse (context/36, decisión 5). Explícito y primero en la función para
+ *   que quede imposible que un discount accidental en una línea de vale
+ *   termine sumando algo al total.
  */
 export function lineSubtotal(line: CartLine, ivaRemoved: boolean): number {
+  if (line.voucher) return 0
   const discountFactor = 1 - (line.discount ?? 0) / 100
   // Misma función que usa el payload (allocate-discounts.lineGross) — si los
   // dos lados redondearan por separado, lo cobrado y lo registrado divergirían.
@@ -144,19 +178,29 @@ export const selectLinesSubtotal = (s: CartState): number =>
 /**
  * Líneas ELEGIBLES para un descuento de venta: las que no tienen descuento
  * propio. Un producto lleva un solo descuento (regla del owner).
+ *
+ * Las líneas de vale quedan afuera: ya aportan 0 al subtotal (lineSubtotal),
+ * así que "descontarlas" no tiene sentido y solo descuadraría el prorrateo
+ * (peso de la línea en `allocateLineDiscounts` en base a un importe que la
+ * UI ya muestra en 0).
  */
 export function eligibleForSaleDiscount(lines: CartLine[]): CartLine[] {
-  return lines.filter((l) => !l.discount)
+  return lines.filter((l) => !l.discount && !l.voucher)
 }
 
 /**
  * Líneas que el descuento de venta activo alcanza HOY: las que estaban en su
  * alcance al aplicarlo y siguen en el carrito sin descuento propio.
+ *
+ * `!l.voucher` es defensa en profundidad: `lineIds` se congela desde
+ * `eligibleForSaleDiscount` (que ya excluye vale), así que una línea de vale
+ * no debería poder entrar acá — pero si algún caller futuro arma `lineIds` a
+ * mano, esta función igual no la deja pasar.
  */
 export function linesCoveredBySaleDiscount(s: CartState): CartLine[] {
   if (!s.saleDiscount) return []
   const ids = new Set(s.saleDiscount.lineIds)
-  return s.lines.filter((l) => ids.has(l.lineId) && !l.discount)
+  return s.lines.filter((l) => ids.has(l.lineId) && !l.discount && !l.voucher)
 }
 
 /**
@@ -570,6 +614,30 @@ interface CartState {
    * Útil para "agregar desde historial de transacciones".
    */
   addLines: (lines: Omit<CartLine, "lineId">[]) => void
+
+  /**
+   * Aplica un vale validado (F2, context/36-vouchers-plan.md): agrega UNA
+   * línea por cada ítem del vale, con `qty` y precio CONGELADOS
+   * (`unitPriceAtIssue`) y `voucher` seteado. NUNCA se fusiona con líneas
+   * existentes del mismo itemId — si el cajero ya había cargado 2 cafés a
+   * mano, después de aplicar el vale se ven 4 líneas (deliberado: el cajero
+   * borra las suyas si se pasó, ver `removeVoucher`).
+   *
+   * No-op si el vale ya está aplicado (mismo `voucherId`) — evita canjear el
+   * mismo código dos veces en el mismo carrito.
+   */
+  applyVoucher: (voucher: {
+    voucherId: string
+    code: string
+    items: VoucherRedeemItem[]
+  }) => void
+
+  /**
+   * Quita TODAS las líneas de un vale de una sola vez. Es la ÚNICA forma de
+   * deshacer un vale aplicado — las líneas de vale no se editan ni se borran
+   * de a una (qty/precio bloqueados, sin botón de quitar individual).
+   */
+  removeVoucher: (voucherId: string) => void
 }
 
 // ── Store ─────────────────────────────────────────────────────────────────────
@@ -648,8 +716,14 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
       // mergeRepeated=true: sumar solo si el ítem coincide con el ÚLTIMO del array.
       // Si B rompe la cadena A-A, el próximo A crea una línea nueva.
+      // `!lastLine.voucher`: si la última línea es de un vale (qty/precio
+      // bloqueados, aporta 0 al total), clickear el mismo producto NO puede
+      // sumarle cantidad a esa línea — el cajero cargaría un ítem pago
+      // creyendo que agregó uno, y en realidad infló silenciosamente la
+      // cantidad "gratis" del vale. Crea una línea nueva, como si no hubiera
+      // coincidido.
       const lastLine = state.lines.at(-1)
-      if (lastLine && lastLine.itemId === item.id) {
+      if (lastLine && lastLine.itemId === item.id && !lastLine.voucher) {
         return {
           lines: state.lines.map((l) =>
             l.lineId === lastLine.lineId ? { ...l, qty: l.qty + 1 } : l,
@@ -674,17 +748,26 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   },
 
   incQty: (lineId) => {
-    set((state) => ({
-      lines: state.lines.map((l) =>
-        l.lineId === lineId ? { ...l, qty: l.qty + 1 } : l,
-      ),
-    }))
+    set((state) => {
+      const line = state.lines.find((l) => l.lineId === lineId)
+      // Vale: qty bloqueada (mismo backstop que setLinePrice/setLineDiscount)
+      // — el número de ítems es el que trajo el vale, no algo que el cajero
+      // ajuste con el stepper. La UI ya deshabilita el botón (qtyLocked en
+      // cart-panel.tsx); esto cubre cualquier otro caller.
+      if (line?.voucher) return state
+      return {
+        lines: state.lines.map((l) =>
+          l.lineId === lineId ? { ...l, qty: l.qty + 1 } : l,
+        ),
+      }
+    })
   },
 
   decQty: (lineId) => {
     set((state) => {
       const line = state.lines.find((l) => l.lineId === lineId)
       if (!line) return state
+      if (line.voucher) return state // bloqueada — ver incQty
       if (line.qty <= 1) {
         const remaining = state.lines.filter((l) => l.lineId !== lineId)
         const nextSelected =
@@ -701,6 +784,8 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   setQty: (lineId, qty) => {
     set((state) => {
+      const line = state.lines.find((l) => l.lineId === lineId)
+      if (line?.voucher) return state // bloqueada — ver incQty
       // qty ≤ 0 → eliminar la línea (consistente con decQty).
       if (qty <= 0) {
         const remaining = state.lines.filter((l) => l.lineId !== lineId)
@@ -764,8 +849,13 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   setLinePrice: (lineId, price) => {
     set((state) => ({
+      // Precio bloqueado en líneas de vale (congelado al emitir, context/36
+      // decisión 6) — la UI ya no ofrece el control, esto es el backstop en
+      // el store para que ningún caller lo pise por otra vía.
       lines: state.lines.map((l) =>
-        l.lineId === lineId ? { ...l, unitPrice: price, priceOverridden: true } : l,
+        l.lineId === lineId && !l.voucher
+          ? { ...l, unitPrice: price, priceOverridden: true }
+          : l,
       ),
     }))
   },
@@ -778,7 +868,13 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       // no estaba aplicada.
       let activeName: string | null = null
       const lines = state.lines.map((l) => {
-        if (l.priceOverridden) return l
+        // Vale: precio CONGELADO al emitir (unitPriceAtIssue) — la resolución
+        // de lista de precios NUNCA lo pisa, mismo criterio que
+        // priceOverridden. Sin este guard, una línea de vale que comparte
+        // itemId con un producto de catálogo se re-cotizaría a la lista
+        // activa y dejaría de representar lo que el cliente pagó al comprar
+        // el vale (context/36, decisión 6).
+        if (l.priceOverridden || l.voucher) return l
         const r = resolved.get(l.itemId)
         if (!r) return l
         if (r.priceListName) activeName = r.priceListName
@@ -812,8 +908,12 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   setLineDiscount: (lineId, discountPercent) => {
     const clamped = Math.min(100, Math.max(0, discountPercent))
     set((state) => ({
+      // Vale: aporta 0 al total por construcción (lineSubtotal) — ponerle un
+      // descuento propio no tiene efecto en la plata pero sí confundiría el
+      // "% propio" que se imprime en la fila. Bloqueado, mismo criterio que
+      // setLinePrice.
       lines: state.lines.map((l) =>
-        l.lineId === lineId
+        l.lineId === lineId && !l.voucher
           ? { ...l, discount: clamped === 0 ? undefined : clamped }
           : l,
       ),
@@ -1033,8 +1133,16 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         // Líneas de emisión de gift card NUNCA se mergean: cada una tiene un
         // código/beneficiario/monto propios — sumar qty perdería esa
         // distinción (dos gift cards con códigos distintos colapsarían en
-        // una sola línea con qty=2 y un solo código).
-        const canMerge = last && last.itemId === line.itemId && !last.giftcard && !line.giftcard
+        // una sola línea con qty=2 y un solo código). Mismo criterio para
+        // vale (context/36 "Líneas propias, NO fusionadas"): fusionar en
+        // silencio haría imposible ver qué parte del carrito cubre el vale.
+        const canMerge =
+          last &&
+          last.itemId === line.itemId &&
+          !last.giftcard &&
+          !line.giftcard &&
+          !last.voucher &&
+          !line.voucher
         if (canMerge) {
           current = current.map((l) =>
             l === last ? { ...l, qty: l.qty + line.qty } : l,
@@ -1044,6 +1152,44 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         }
       }
       return { lines: current }
+    })
+  },
+
+  applyVoucher: (voucher) => {
+    set((state) => {
+      // Ya aplicado — no-op. El código se valida contra el backend antes de
+      // llegar acá; lo único que falta cubrir es el doble-click / reintento
+      // sobre el mismo vale ya canjeado en este carrito.
+      if (state.lines.some((l) => l.voucher?.voucherId === voucher.voucherId)) {
+        return state
+      }
+      const voucherLines: CartLine[] = voucher.items.map((it) => ({
+        lineId: crypto.randomUUID(),
+        itemId: it.itemId,
+        name: it.name,
+        qty: it.qty,
+        unitPrice: it.unitPriceAtIssue,
+        // basePrice = mismo valor: invariante "toda línea nace con basePrice"
+        // (33b050e7) — sin esto, usePriceContext la trataría como sin base y
+        // la resolución de precios la pisaría con la lista activa, lo que no
+        // tiene sentido para un precio ya congelado al emitir el vale.
+        basePrice: it.unitPriceAtIssue,
+        voucher: { voucherId: voucher.voucherId, code: voucher.code },
+      }))
+      return { lines: [...state.lines, ...voucherLines] }
+    })
+  },
+
+  removeVoucher: (voucherId) => {
+    set((state) => {
+      const remaining = state.lines.filter((l) => l.voucher?.voucherId !== voucherId)
+      const removedSelected =
+        state.selectedLineId !== null &&
+        !remaining.some((l) => l.lineId === state.selectedLineId)
+      return {
+        lines: remaining,
+        selectedLineId: removedSelected ? null : state.selectedLineId,
+      }
     })
   },
 }))

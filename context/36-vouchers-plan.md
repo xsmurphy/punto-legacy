@@ -1,8 +1,11 @@
 # 36 — Módulo de Vouchers (vales por productos)
 
-> Estado: **F1 implementada** (2026-08-06) — schema + `VoucherService` +
-> `/v1/vouchers.php`. Decisiones tomadas con el owner el 2026-08-05. No
-> relitigar lo que está en "Decisiones cerradas".
+> Estado: **F1 y F2 implementadas** (2026-08-07). F1: schema +
+> `VoucherService` + `/v1/vouchers.php` (2026-08-06). F2: integración con el
+> carrito del POS — canje del vale, exclusión del total, consumo transaccional
+> (2026-08-07). Decisiones tomadas con el owner el 2026-08-05. No relitigar lo
+> que está en "Decisiones cerradas". Pendiente: flujo de EMISIÓN desde la caja
+> (vender el vale como ítem) — ver "Pendiente" abajo.
 
 ## F1 — schema + backend (implementada)
 
@@ -21,13 +24,50 @@
   re-validación post-canje ("used"), canje con otro transactionId sobre
   voucher ya usado ("used_by_other").
 
-## Pendiente — F2 (fuera de esta fase)
+## F2 — integración con el carrito del POS (implementada)
 
-- Integración con el carrito del POS: `frontend/` — ingreso de código en el
-  cobro, líneas `qtyLocked` que NO suman al total, "quitar vale" que
-  desbloquea todas sus líneas de una (ver "Flujo de canje" abajo).
+- `frontend/lib/cart/store.ts`: `CartLine.voucher?: {voucherId, code}` (mismo
+  patrón que `giftcard`). `lineSubtotal` devuelve 0 si la línea tiene
+  `voucher` (explícito, NO vía `discount: 100`). `eligibleForSaleDiscount` /
+  `linesCoveredBySaleDiscount` excluyen líneas de vale. `applyVoucher()`
+  agrega una línea por ítem (qty/precio = `unitPriceAtIssue`, `basePrice`
+  igual), no-op si el `voucherId` ya está aplicado. `removeVoucher()` saca
+  TODAS las líneas de ese vale de una vez — única forma de deshacer.
+  `addLines`/`addItem` no fusionan líneas de vale con otras (mismo criterio
+  que `giftcard`). `applyResolvedPrices` nunca pisa el precio congelado.
+  `setLinePrice`/`setLineDiscount` son no-op sobre líneas de vale (backstop
+  de store, además del bloqueo en la UI).
+- `frontend/components/register/voucher-apply-dialog.tsx` (nuevo): valida el
+  código contra `POST /v1/vouchers?resource=validate` y aplica sus ítems al
+  carrito. Lista los vales ya aplicados con botón "quitar". Entrypoint: menú
+  "Opciones de venta" → "Vale" (`sale-options-drawer.tsx`) — NO el diálogo de
+  cobro, se ingresa al armar la venta.
+- `frontend/components/register/cart-panel.tsx`: líneas de vale con
+  `qtyLocked`, borde/badge azul distintivo ("No suma al total"), precio y
+  descuento bloqueados en "más opciones", botón "Quitar" rerouteado a
+  `removeVoucher()` (nunca borra una sola línea del vale).
+- `frontend/lib/commands/create-sale.ts`: `SaleItem.voucher` propagado desde
+  `line.voucher`. `total` de la línea sigue siendo el BRUTO (registro de lo
+  entregado); el `subtotal` de la transacción EXCLUYE esas líneas —
+  explícito por línea en la suma, no un descuento del 100%.
+- `api/lib/App/Domain/Money.php::sanitizeSaleArray`: whitelist de `voucher`
+  (`voucherId`, `code`), mismo criterio que `giftcard`.
+- `api/lib/Sales/SaleService.php::persistVoucherRedemptions()`: consume cada
+  vale (dedupeado por `code`, una vez aunque tenga varias líneas) vía
+  `VoucherService::consume()` DENTRO de la transacción de `save()` — mismo
+  `$db` ambiente, sin nada especial de por medio. Un consume fallido (carrera,
+  vale ya usado) aborta TODA la venta.
+- Probado end-to-end contra la base real (transacción revertida): vale con 2
+  ítems + 1 ítem extra pagado → `transactionTotal` = solo el extra, ambos
+  ítems del vale en `itemsold` con su cantidad, voucher consumido con el
+  `transactionid` de la venta.
+
+## Pendiente — fuera de esta fase
+
 - Flujo de emisión desde la caja (vender el voucher como ítem, llamar
-  `issue` al confirmar la venta, en la misma transacción de la venta).
+  `issue` al confirmar la venta, en la misma transacción de la venta). Hoy
+  los vales solo se pueden crear vía llamada directa a `VoucherService::issue`
+  (probado en F1) — no hay UI de venta todavía.
 
 ## Qué es, y en qué se diferencia de una gift card
 
