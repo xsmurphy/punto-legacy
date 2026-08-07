@@ -348,8 +348,33 @@ class DB
                 }
                 return $ok;
             } catch (\PDOException $e) {
-                error_log('[DB] AutoExecute INSERT error: ' . $e->getMessage() . ' | SQL: ' . $sql);
+                // MISMO manejo que Execute(): este catch solo logueaba y
+                // devolvía false, sin tocar lastError ni transOk. Dos efectos,
+                // los dos silenciosos:
+                //
+                //   1. ErrorMsg() quedaba vacío, así que el error REAL de PG se
+                //      perdía. SaleAbortedException::$dbError llegaba null y el
+                //      operador solo veía "Sale transaction aborted" — sin la
+                //      causa, ningún fallo de INSERT era diagnosticable.
+                //   2. transOk seguía true, así que HasFailedTrans() decía que
+                //      todo iba bien y CompleteTrans() mandaba un COMMIT sobre
+                //      una transacción PG ya ABORTADA. PG lo degrada a ROLLBACK
+                //      y devuelve éxito: la operación se reportaba OK y no
+                //      había persistido nada. Es el escenario que el chequeo
+                //      post-commit de SaleService (§22.8.1) tuvo que agregar
+                //      para no facturar ventas fantasma; la causa estaba acá.
+                //
+                // El primer statement que falla es también el que deja la tx
+                // envenenada: todo lo que sigue devuelve 25P02 ("current
+                // transaction is aborted"), que es el síntoma que se reportaba,
+                // no la causa.
+                $this->lastError     = $e->getMessage();
+                $this->lastErrNo     = (int) $e->getCode();
                 $this->_lastInsertId = null;
+                if ($this->pdo->inTransaction()) {
+                    $this->transOk = false;
+                }
+                error_log('[DB] AutoExecute INSERT error: ' . $e->getMessage() . ' | SQL: ' . $sql);
                 return false;
             }
         } elseif ($mode === 'UPDATE') {
