@@ -12,6 +12,15 @@ expedición, que en Punto es la caja (`context/29`, `context/25`).
 
 ## Estado actual — el gap
 
+Ojo: la numeración por documento **existe desde el legacy, dormida**. Mig 26
+mantuvo a propósito 9 columnas contador en `register` ("counters atómicos del
+POS"): `registerInvoiceNumber`, `registerRemitoNumber`, `registerQuoteNumber`,
+`registerReturnNumber`, `registerTicketNumber`, `registerOrderNumber`,
+`registerPedidoNumber`, `registerBoletaNumber`, `registerScheduleNumber`.
+`RegisterService::docNumbers()` expone 6 y `nextDocNumber()` calcula el
+siguiente. El problema no es que no exista: es que casi ningún emisor las
+consume, y el mecanismo tiene fallas de fondo (ver abajo).
+
 Hay tres mecanismos distintos, ninguno compartido, y cubren 3 documentos de ~13.
 
 | Documento | Tabla | Numeración hoy |
@@ -30,6 +39,20 @@ Hay tres mecanismos distintos, ninguno compartido, y cubren 3 documentos de ~13.
 | Movimiento de caja | `fin_movement` | **sin numeración** |
 | Merma | `waste_event` | **sin numeración** |
 | Compra / gasto (recibido) | `transaction` (type 1/4) | nro. del proveedor; **sin correlativo propio de recepción** |
+
+### Por qué los 9 contadores de `register` no alcanzan
+
+1. **`nextDocNumber()` no reserva.** Es `max(contador guardado, último usado)`
+   — pura lectura. El caller tiene que hacer el UPDATE aparte, así que dos
+   cajeros concurrentes leen el mismo número. No es atómico pese al comentario
+   de mig 26 ("counters atómicos").
+2. **No es extensible.** Cada documento nuevo es una columna nueva.
+3. **Solo alcanza scope `register`.** Orden va por sucursal y los documentos
+   de stock también (decisión del owner) — no se puede expresar en columnas de
+   la caja.
+4. **Sin rango ni prefijo por documento.** El timbrado tiene inicio y fin.
+5. **Mitad están muertas** (boleta, remito, pedido) y las vivas conviven con
+   los otros dos mecanismos.
 
 ### Por qué `MAX(...)+1` no alcanza
 
@@ -110,9 +133,12 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
   proveedor (su correlativo). ¿Se agrega además un correlativo interno de
   recepción? Recomendado sí: es lo que permite auditar cuántos documentos se
   recibieron sin depender de la numeración ajena.
-- **D4 — Migración.** CERRADA: seed de `nextNumber` desde el `MAX` actual por
-  scope, para no reemitir números ya usados. `registerQuoteNumber` y el piso
-  de `register.data.registerNumbering` se migran a la tabla y se retiran.
+- **D4 — Migración.** CERRADA: `nextNumber` se siembra con el GREATEST de
+  todas las fuentes que hoy conviven, para no reemitir un número ya usado:
+  el `MAX` real por scope, el contador legacy de `register` correspondiente,
+  el `MAX` de `numbering_lease` (facturas) y el piso de
+  `register.data.registerNumbering`. Los 9 contadores legacy y el piso quedan
+  obsoletos y se retiran en F2 — la tabla los subsume.
 - **D5 — Fin de rango del timbrado.** PENDIENTE. ¿Bloquear la emisión al
   llegar a `rangeTo`, o alertar al acercarse y bloquear recién en el límite?
 
