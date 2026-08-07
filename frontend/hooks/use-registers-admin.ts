@@ -20,16 +20,23 @@ export interface RegisterFiscal {
 }
 
 /**
- * Piso de numeración por tipo de documento. Un timbrado no siempre arranca en
- * 1 — la SET puede autorizar un rango que empieza en 1234. Vacío = sin piso:
- * el número se deriva de lo ya emitido.
+ * Piso de numeración por tipo de documento — el PRÓXIMO número a emitir. Un
+ * timbrado no siempre arranca en 1: la SET puede autorizar un rango que empieza
+ * en 1234. Vacío = sin piso, el número se deriva de lo ya emitido.
  *
- * Hoy solo se emite 'factura'; en PY la nota de crédito, la nota de débito y
- * la remisión llevan timbrado y rango propios y se suman acá al implementarlas
- * (el backend ya guarda el mapa por documento, no un contador único).
+ * Solo están los documentos que HOY tienen emisión real y numerada por caja.
+ * Faltan de la lista del owner, por motivos distintos:
+ *   - Nota de crédito / remisión / comprobante interno: el documento todavía no
+ *     existe (la remisión tiene el SaleType 10 declarado pero nada lo emite, y
+ *     el flag `interno` ni siquiera se persiste). Numerar algo que no se emite
+ *     sería un campo muerto.
+ *   - Recibo: los pagos de crédito (type 5) no llevan numeración propia hoy.
+ *   - Orden: `pos_order.ordernumber` es por SUCURSAL, no por caja — su piso no
+ *     puede vivir acá sin cambiarle el scope a la secuencia.
  */
 export interface RegisterNumbering {
   factura: string
+  cotizacion: string
 }
 
 export interface RegisterListItem {

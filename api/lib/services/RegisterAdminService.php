@@ -23,7 +23,7 @@ final class RegisterAdminService
      * en PY la NC, la ND y la remisión llevan timbrado y rango propios y se
      * suman acá cuando se implementen (ver update()).
      */
-    private const DOC_TYPES = ['factura'];
+    private const DOC_TYPES = ['factura', 'cotizacion'];
 
     /**
      * Lee `registerNumbering` de una fila ya aplanada por Query::flattenJsonb
@@ -260,14 +260,23 @@ final class RegisterAdminService
                 }
                 $n = (int) $n;
 
-                // Solo 'factura' vive hoy en `transaction.invoiceNo`. Cuando
-                // entren NC/ND/remisión, cada una valida contra su propia
-                // fuente — por eso el match explícito y no un chequeo genérico.
-                if ($docType === 'factura') {
+                // Cada documento valida contra SU fuente: factura y cotización
+                // comparten la columna `invoiceNo` pero se distinguen por
+                // transactionType, así que sus numeraciones son independientes
+                // y un mismo número puede existir en las dos sin conflicto.
+                // Por eso el match explícito y no un chequeo genérico.
+                $txTypes = match ($docType) {
+                    'factura'    => [0, 3],   // contado + crédito
+                    'cotizacion' => [9],
+                    default      => [],
+                };
+                if ($txTypes !== []) {
+                    $ph   = implode(',', array_fill(0, count($txTypes), '?'));
                     $used = ncmExecute(
-                        'SELECT 1 FROM transaction
-                          WHERE registerid = ? AND companyid = ? AND invoiceno = ? LIMIT 1',
-                        [$id, $this->companyId, $n]
+                        "SELECT 1 FROM transaction
+                          WHERE registerid = ? AND companyid = ? AND invoiceno = ?
+                            AND transactiontype IN ($ph) LIMIT 1",
+                        array_merge([$id, $this->companyId, $n], $txTypes)
                     );
                     if ($used) {
                         apiError(
@@ -275,6 +284,13 @@ final class RegisterAdminService
                             409
                         );
                     }
+                }
+
+                // Solo la FACTURA se arrienda: `numbering_lease` existe para
+                // que el POS offline reserve números de venta. Aplicar este
+                // chequeo a la cotización daría un falso positivo (rechazaría
+                // la cotización 500 porque existe la factura 500).
+                if ($docType === 'factura') {
                     // Un número ya arrendado está reservado para una venta
                     // offline que todavía no sincronizó: el índice único de
                     // numbering_lease lo rechazaría igual, pero recién al

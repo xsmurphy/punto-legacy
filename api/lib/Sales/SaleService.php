@@ -1705,7 +1705,20 @@ final class SaleService
         );
         $lastUsed = ($row && !$row->EOF) ? (int) $row->fields['invoiceno'] : 0;
 
-        return $lastUsed >= $current ? $lastUsed + 1 : $current;
+        // Piso configurable de la caja (RegisterAdminService::update). OJO a la
+        // diferencia de semántica: `registerQuoteNumber` guarda la ÚLTIMA usada
+        // (por eso el +1 de arriba), mientras que `registerNumbering` guarda la
+        // PRÓXIMA — es lo que el operador carga en el form. Se toma el máximo:
+        // un piso viejo nunca puede reemitir un número ya usado.
+        $numbering = $register['registerNumbering'] ?? null;
+        if (is_string($numbering)) {
+            $numbering = json_decode($numbering, true);
+        }
+        $floor = (is_array($numbering) && isset($numbering['cotizacion']))
+            ? (int) $numbering['cotizacion']
+            : 0;
+
+        return max($lastUsed + 1, $current, $floor);
     }
 
     /**

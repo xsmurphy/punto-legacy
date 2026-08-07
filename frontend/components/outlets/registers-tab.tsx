@@ -49,6 +49,7 @@ const EMPTY_FISCAL: RegisterFiscal = {
 
 const EMPTY_NUMBERING: RegisterNumbering = {
   factura: "",
+  cotizacion: "",
 }
 
 /**
@@ -268,6 +269,21 @@ export function RegistersTab({ outletId }: { outletId: string }) {
                     onChange={(e) => patchFiscal({ invoiceAuthExpiration: e.target.value })}
                   />
                 </div>
+              </div>
+            </div>
+
+            {/* Numeración — el próximo número de cada documento. Va aparte del
+                timbrado: el timbrado es lo que la SET autoriza, esto es dónde
+                está parado el contador de la caja hoy. */}
+            <div className="space-y-3">
+              <div>
+                <h3 className="text-base font-semibold tracking-tight">Numeración</h3>
+                <p className="text-sm text-muted-foreground">
+                  El próximo número que va a emitir esta caja. Dejalo vacío para continuar
+                  desde el último emitido.
+                </p>
+              </div>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <Label htmlFor="edit-next-invoice">Próxima factura</Label>
                   <Input
@@ -279,12 +295,23 @@ export function RegistersTab({ outletId }: { outletId: string }) {
                     placeholder="1234"
                     className="tabular-nums"
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Dejalo vacío para continuar desde la última emitida. No puede repetir un
-                    número ya usado en esta caja.
-                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-next-quote">Próxima cotización</Label>
+                  <Input
+                    id="edit-next-quote"
+                    value={editNumbering.cotizacion}
+                    onChange={(e) =>
+                      setEditNumbering((n) => ({ ...n, cotizacion: e.target.value.replace(/\D/g, "") }))
+                    }
+                    placeholder="1"
+                    className="tabular-nums"
+                  />
                 </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                No se puede repetir un número ya emitido en esta caja.
+              </p>
             </div>
           </div>
           <DialogFooter>
