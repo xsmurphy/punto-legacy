@@ -155,12 +155,17 @@ export default function SummaryReportPage() {
   const taxCurr = num(summary.data?.totals?.tax)
   const discountCurr = num(summary.data?.totals?.discount)
   const returnsCurr = num(summary.data?.returns?.total)
-  const netCurr = totalCurr - returnsCurr
+  // `totals.total` es SUM(transactionTotal) y transactionTotal se persiste
+  // BRUTO: SaleService lo escribe desde `subtotal`, que en create-sale.ts es
+  // la suma de `allocations[].gross` (qty × unitPrice, antes del descuento).
+  // El neto por lo tanto resta descuentos ADEMÁS de devoluciones — sin eso
+  // las ventas netas quedaban infladas por todo el descuento del período.
+  const netCurr = totalCurr - returnsCurr - discountCurr
 
   const totalPrev = num(summaryPrev.data?.totals?.total)
   const discountPrev = num(summaryPrev.data?.totals?.discount)
   const returnsPrev = num(summaryPrev.data?.returns?.total)
-  const netPrev = totalPrev - returnsPrev
+  const netPrev = totalPrev - returnsPrev - discountPrev
 
   // ── Chart comparativo: combinar las dos series en un solo dataset ────────
   const composedData = React.useMemo(() => {
@@ -731,7 +736,10 @@ function SalesBreakdownCard({
   const total = num(data?.totals?.total)
   const discount = num(data?.totals?.discount)
   const returns = num(data?.returns?.total)
-  const grossSales = total + discount // total ya neto de descuento; bruto = total + discount
+  // `total` YA es el bruto (SUM de transactionTotal, que se persiste antes de
+  // descuento — ver netCurr arriba). Sumarle el descuento lo contaba dos veces
+  // y las Ventas Brutas salían infladas (reporte del tester 2026-08-04).
+  const grossSales = total
 
   // Pagos con créditos (storeCredit) — opcional según shape de payments.
   const creditPayment = (data?.payments ?? []).find(
