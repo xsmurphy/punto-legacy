@@ -194,15 +194,24 @@ final class SignupService
             }
             $hotKeys = [];
             foreach ($val['items'] as $i => $item) {
-                $itemInsert = ncmInsert(['records' => [
-                    'itemName'   => $item['name'],
-                    'itemSKU'    => 'PS 00' . $i,
-                    'itemStatus' => 1,
-                    'taxId'      => $taxonomyInsert,
-                    'itemImage'  => false,
-                    'itemPrice'  => round(((float) $item['price']) * $priceScale, $decimals),
-                    'companyId'  => $companyInsert,
-                ], 'table' => 'item']);
+                // `itemKind` es NOT NULL sin default desde mig 15 y este INSERT
+                // no lo mandaba: violaba la constraint, envenenaba la
+                // transacción y el alta entera moría con un 25P02 (reporte del
+                // tester 2026-08-04). Los ítems demo son productos vendibles
+                // comunes. Se arma con ItemKind para que el kind y los flags
+                // legacy no puedan quedar desfasados.
+                $itemInsert = ncmInsert(['records' => array_merge(
+                    \Punto\Api\Items\ItemKind::insertRecord(),
+                    [
+                        'itemName'   => $item['name'],
+                        'itemSKU'    => 'PS 00' . $i,
+                        'itemStatus' => 1,
+                        'taxId'      => $taxonomyInsert,
+                        'itemImage'  => false,
+                        'itemPrice'  => round(((float) $item['price']) * $priceScale, $decimals),
+                        'companyId'  => $companyInsert,
+                    ]
+                ), 'table' => 'item']);
                 $hotKeys[] = ['color' => '', 'itemId' => $itemInsert, 'position' => ($i + 1)];
             }
             ncmUpdate(['records' => ['registerHotkeys' => json_encode($hotKeys)],
