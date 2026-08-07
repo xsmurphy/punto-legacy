@@ -38,8 +38,16 @@ final class RegisterAdminService
                 // caja ES el punto de expedición (context/29 §1), así que su
                 // timbrado se administra acá — facturación electrónica lo LEE
                 // de la caja, nunca lo pide de nuevo.
-                $data = json_decode((string)($f['data'] ?? '{}'), true);
-                $data = is_array($data) ? $data : [];
+                //
+                // OJO: `$rs->fields` viene de Query::flattenJsonb, que mergea
+                // `data` al nivel de la fila y HACE unset de la columna
+                // (Query.php:57). `$f['data']` es null acá, así que el
+                // json_decode que había devolvía [] y TODO el timbrado se leía
+                // vacío — el guardado funcionaba, pero el form se reabría en
+                // blanco y parecía que no había guardado (reporte del tester
+                // 2026-08-04). Mismo bug silencioso que parked-sales/pinhash
+                // (2026-07-30); el patrón correcto ya estaba en
+                // api/v1/register.php:110 — leer las claves ya aplanadas.
                 $out[] = [
                     'id'         => (string)($f['registerId']    ?? $f['registerid']    ?? ''),
                     'name'       => (string)($f['registerName']  ?? $f['registername']  ?? ''),
@@ -47,12 +55,11 @@ final class RegisterAdminService
                     'outletName' => (string)($f['outletName']    ?? $f['outletname']    ?? ''),
                     'status'     => (bool)($f['registerStatus']  ?? $f['registerstatus'] ?? false),
                     'fiscal'     => [
-                        'invoiceAuth'           => isset($data['registerInvoiceAuth']) && $data['registerInvoiceAuth'] !== null
-                            ? (string) $data['registerInvoiceAuth'] : '',
+                        'invoiceAuth'           => (string) ($f['registerInvoiceAuth'] ?? ''),
                         // "EEE-PPP" — establecimiento y punto de expedición.
-                        'invoicePrefix'         => (string) ($data['registerInvoicePrefix'] ?? ''),
-                        'invoiceAuthStart'      => (string) ($data['registerInvoiceAuthStart'] ?? ''),
-                        'invoiceAuthExpiration' => (string) ($data['registerInvoiceAuthExpiration'] ?? ''),
+                        'invoicePrefix'         => (string) ($f['registerInvoicePrefix'] ?? ''),
+                        'invoiceAuthStart'      => (string) ($f['registerInvoiceAuthStart'] ?? ''),
+                        'invoiceAuthExpiration' => (string) ($f['registerInvoiceAuthExpiration'] ?? ''),
                     ],
                 ];
                 $rs->MoveNext();

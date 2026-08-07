@@ -468,12 +468,16 @@ final class EInvoiceProvisioningService
         if ($rs && is_object($rs)) {
             while (!$rs->EOF) {
                 $f = $rs->fields;
-                $data = json_decode((string) ($f['data'] ?? '{}'), true);
-                $data = is_array($data) ? $data : [];
-
-                $auth   = trim((string) ($data['registerInvoiceAuth'] ?? ''));
-                $prefix = trim((string) ($data['registerInvoicePrefix'] ?? ''));
-                $start  = trim((string) ($data['registerInvoiceAuthStart'] ?? ''));
+                // `$rs->fields` ya viene aplanado por Query::flattenJsonb, que
+                // mergea `data` a la fila y hace unset de la columna
+                // (Query.php:57). El json_decode($f['data']) que había leía
+                // null → ninguna caja tenía timbrado → registerStamps() las
+                // marcaba TODAS incompletas y el provisioning de FE abortaba
+                // aunque estuvieran bien cargadas. Mismo bug que
+                // RegisterAdminService::listAll (2026-08-04).
+                $auth   = trim((string) ($f['registerInvoiceAuth'] ?? ''));
+                $prefix = trim((string) ($f['registerInvoicePrefix'] ?? ''));
+                $start  = trim((string) ($f['registerInvoiceAuthStart'] ?? ''));
                 $name   = (string) ($f['registername'] ?? $f['registerName'] ?? '');
 
                 if ($auth === '' && $prefix === '') {
