@@ -1,6 +1,7 @@
 # 37 — Numeración correlativa de documentos
 
-> Estado: **plan abierto** (2026-08-04). Decisiones D2/D3/D5 pendientes del owner.
+> Estado: **plan abierto** (2026-08-04). D1/D2/D4 cerradas. D3/D5/D6 pendientes
+> del owner. F1 puede arrancar: no depende de ninguna de las tres.
 
 ## Requerimiento
 
@@ -89,12 +90,22 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
 - **D1 — ¿Huecos permitidos?** CERRADA: asignar dentro de la transacción (sin
   huecos), salvo el camino offline, donde son inevitables y quedan auditados
   en `numbering_lease`.
-- **D2 — Scope por documento.** PENDIENTE. Propuesta:
+- **D2 — Scope por documento.** CERRADA salvo el financiero:
   - Fiscales (factura, NC, ND, remisión, recibo) → `register` (punto de expedición)
-  - Orden → `outlet` (decidido por el owner)
+  - Orden → `outlet`
   - Stock (producción, transferencia, conteo, merma) → `outlet`
-  - Movimiento de caja → `register`
+  - Movimiento financiero → `register` (pedido del owner) — **bloqueado, ver D6**
   - Compra / gasto recibido → `outlet`
+- **D6 — Movimientos financieros.** PENDIENTE, dos problemas encadenados:
+  1. `fin_movement` NO tiene `registerId` (solo `companyId` + `outletId` +
+     `accountId`). Numerar por caja exige agregar la columna; las filas
+     históricas quedan en NULL y hay que decidir qué hacer con ellas.
+  2. `fin_movement` es el libro financiero completo, no solo el movimiento de
+     caja: `source` ∈ manual|sale|purchase|expense|credit_payment|check|
+     transfer|opening. Las filas con source sale/purchase son espejos
+     automáticos de documentos que YA tienen número propio — numerarlas daría
+     dos correlativos al mismo hecho económico. Propuesta: numerar solo los
+     que son documento por derecho propio (`manual`, `transfer`, `opening`).
 - **D3 — Documentos recibidos.** PENDIENTE. La compra guarda el número del
   proveedor (su correlativo). ¿Se agrega además un correlativo interno de
   recepción? Recomendado sí: es lo que permite auditar cuántos documentos se
@@ -111,8 +122,10 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
   actuales. Sin cambio de comportamiento observable.
 - **F2** — migrar los 3 emisores existentes (factura, cotización, orden) al
   asignador. Retirar `registerQuoteNumber` y el piso de `register.data`.
-- **F3** — numerar los documentos internos que hoy no numeran (producción,
-  transferencia, conteo, merma, movimiento de caja).
+- **F3** — numerar los documentos internos de stock, todos scope `outlet`
+  (producción, transferencia, conteo, merma). No depende de D6.
+- **F3b** — movimientos financieros, una vez resuelta D6 (requiere agregar
+  `registerId` a `fin_movement` si se confirma el scope por caja).
 - **F4** — rango del timbrado (`rangeFrom`/`rangeTo`) + bloqueo/alerta, y UI
   de administración por caja.
 - **F5** — documentos que todavía no existen: NC, ND, remisión, comprobante
