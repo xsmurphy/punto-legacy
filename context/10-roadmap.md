@@ -28,6 +28,55 @@ estaban arreglados y nadie había cerrado — esos se movieron a
 "Cerrados en la auditoría del 2026-07-30" al final de la sección, con la
 evidencia de dónde quedó el fix.
 
+### Reporte del tester — 2026-08-04 (`Mejoras Punto.docx`, post deploy `9925453`)
+
+17 ítems. Triado y root-cause abajo; varios compartían raíz.
+
+**Resueltos en esta sesión**
+
+| Qué reportó | Raíz real | Fix |
+|---|---|---|
+| Producción descuenta insumos dos veces | El guard leía `$sD['type']` del carrito y el POS nunca manda ese campo, así que nunca cortaba. Afectaba también a la anulación, que reponía insumos jamás consumidos | `822f8df3` |
+| Total Bruto suma mal el descuento | `transactionTotal` se persiste BRUTO; el front asumía neto y lo volvía a sumar. Rompía también el neto y su KPI | `c9f09875` |
+| Timbrado "no se guarda" | Guardaba bien: `flattenJsonb` hace unset de `data` y el read-back devolvía todo vacío. Mismo bug tiraba el provisioning de facturación electrónica | `2102d4c8` |
+| Renombrar estados a Contado/Crédito | La columna mostraba `transactionComplete` (estado de cobro), no modalidad — un crédito cobrado se veía igual que un contado | `d0537e8e` |
+| Ventas con decimales quedan pendientes | Sin arreglar aún, pero se destrabó el diagnóstico: `AutoExecute` INSERT no seteaba `lastError` ni `transOk`, así que el error real de PG se perdía y `CompleteTrans()` hacía COMMIT sobre una tx abortada | `62941d41` |
+
+**No reproducen**
+
+- **Cuentas por cobrar no detecta ventas a crédito**: funciona (verificado en
+  prod 2026-08-04, 7 clientes / Gs. 2.015.000).
+- **Cuentas por pagar no muestra compras a crédito**: el reporte está bien y no
+  filtra por fecha — **no existe ninguna compra a crédito en el sistema**. Las
+  68 cargadas son Contado. La creación a crédito está bien cableada de punta a
+  punta (front manda `condition`, `PurchasesService` escribe type 4 +
+  `transactionComplete = 0`). Preguntarle al tester cómo las cargó.
+
+**Diagnosticados, sin implementar**
+
+- **Combos no despliegan sus componentes en la caja**: no es un bug de display
+  — `PosItem` no tiene campo de componentes y el bootstrap del POS nunca los
+  manda. El POS no tiene el dato. Requiere decidir de dónde se traen
+  (¿bootstrap o on-demand?) y cómo se muestran; `Inventory::displayableCompounds()`
+  ya devuelve el shape.
+- **Plan de cuentas**: la estructura existe (`fin_category`, jerárquica,
+  income/expense) pero **nadie elige la cuenta**: `FinanceLedger` asigna
+  categorías fijas del sistema (`ensureSalesCategoryId`,
+  `ensurePurchasesCategoryId`), así que toda compra cae en "Compras" y toda
+  venta en "Ventas". Falta que la compra/gasto lleve su `categoryId` elegido.
+  Chico y de alto valor.
+- **Centros de costo**: no existe nada (`outletid` hace de proxy grueso). Es un
+  módulo aparte — el owner pidió dejarlo en roadmap.
+
+**Pendientes de decisión / de datos**
+
+- Numeración correlativa de TODOS los documentos → `context/37-numeracion-documentos.md`.
+- Anulaciones / devoluciones / notas de crédito, columnas y totales de IVA en
+  plantillas, export RG90 + Libro Ventas, reporte detallado de productos e
+  historial por artículo: alta de funcionalidad, sin empezar.
+- SQL 25P02 al crear cuenta: mismo enmascaramiento que las ventas con
+  decimales; esperar el error real de PG ahora que `62941d41` lo deja pasar.
+
 ### Reporte del tester — 2026-08-03 (`requerimientos_punto_de_venta`)
 
 Documento con 4 capturas. Triado abajo. **Ojo con la ventana temporal**: el
@@ -207,9 +256,12 @@ ya usa el personal, pero documentar la diferencia donde se define
   "Interno")** · Recibo (pago de crédito) · Nota de crédito (devolución) ·
   Remisión · Cotización · Orden. Verificado contra el código: el Comprobante
   **no existe en ninguna capa**.
-  - El front manda `interno` en el payload (`lib/commands/create-sale.ts:297`)
-    y **el backend no lo lee en ningún lado** (cero referencias a `interno` en
-    PHP): el flag muere en el borde de la API.
+  - ~~El front manda `interno` en el payload y el backend no lo lee en ningún
+    lado: el flag muere en el borde de la API.~~ **RESUELTO 2026-08-04**
+    (mig 118 + `SaleInput::$interno`): la columna `transaction.interno` ya
+    persiste, siguiendo el patrón de `ivaRemoved` (mig 101). Es solo el paso
+    cero — el Comprobante como documento propio sigue pendiente, y hasta que
+    exista la venta interna sigue tomando numeración de factura.
   - Por lo tanto la venta se persiste como contado type 0 y toma
     `registerInvoiceNumber` — o sea, **una venta sin valor fiscal está
     quemando números de factura**, con el agravante de correlatividad

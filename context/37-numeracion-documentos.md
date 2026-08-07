@@ -3,6 +3,13 @@
 > Estado: **plan abierto** (2026-08-04). D1/D2/D4 cerradas. D3/D5/D6 pendientes
 > del owner. F1 puede arrancar: no depende de ninguna de las tres.
 
+> El catálogo de documentos NO es nuevo: el owner ya lo había definido el
+> 2026-07-29 y está en `context/10-roadmap.md` — Factura · Comprobante (sin
+> valor fiscal, se activa con "Interno") · Recibo · Nota de crédito · Remisión ·
+> Cotización · Orden. Son los mismos siete que repitió el 2026-08-04. Ese ítem
+> del roadmap tiene el caso de negocio (consumo a cuenta de empresa / viandas)
+> y hay que leerlo antes de ejecutar F5.
+
 ## Requerimiento
 
 Todo documento que el sistema **emita o reciba** lleva numeración correlativa.
@@ -156,6 +163,11 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
   de administración por caja.
 - **F5** — documentos que todavía no existen: NC, ND, remisión, comprobante
   interno, recibo. Acopladas al pedido de anulaciones/devoluciones del tester.
+  Leer antes el ítem del roadmap 2026-07-29: tiene el caso de negocio del
+  Comprobante y señala que hoy la venta interna **quema numeración fiscal**
+  (el flag ya persiste desde mig 118, pero el documento propio no existe).
+  El roadmap proponía `registerBoletaNumber` como contador libre; en esta
+  arquitectura es simplemente un `doctype = 'comprobante'` más.
 
 ## Notas
 
