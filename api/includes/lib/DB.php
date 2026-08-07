@@ -186,6 +186,16 @@ class DB
 {
     private ?PDO   $pdo          = null;
     private string $lastError    = '';
+    /**
+     * PRIMER error desde que arrancó la transacción actual.
+     *
+     * En PG, el primer statement que falla envenena la transacción: todo lo que
+     * sigue devuelve 25P02 ("current transaction is aborted"). Como cada uno de
+     * esos pisaba `lastError`, el error que llegaba al usuario era SIEMPRE la
+     * cascada y nunca la causa — por eso el signup reportaba 25P02 pelado y no
+     * se podía diagnosticar. Este se setea una sola vez por transacción.
+     */
+    private string $firstError   = '';
     private int    $lastErrNo    = 0;
     private bool   $lastWasDml   = false;
     private bool   $transOk      = true;
@@ -306,6 +316,7 @@ class DB
             return new DBResult(($isSelect || $hasReturning) ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
         } catch (PDOException $e) {
             $this->lastError = $e->getMessage();
+            $this->noteFirstError($e->getMessage());
             $this->lastErrNo = (int) $e->getCode();
             // Mark transaction as failed so CompleteTrans rolls back
             if ($this->pdo->inTransaction()) {
@@ -369,6 +380,7 @@ class DB
                 // transaction is aborted"), que es el síntoma que se reportaba,
                 // no la causa.
                 $this->lastError     = $e->getMessage();
+                $this->noteFirstError($e->getMessage());
                 $this->lastErrNo     = (int) $e->getCode();
                 $this->_lastInsertId = null;
                 if ($this->pdo->inTransaction()) {
@@ -543,10 +555,31 @@ class DB
     public function StartTrans(): void
     {
         if ($this->transDepth === 0) {
-            $this->transOk = true;
+            $this->transOk     = true;
+            $this->firstError  = '';
             $this->pdo->beginTransaction();
         }
         $this->transDepth++;
+    }
+
+    /**
+     * Guarda el primer error de la transacción y no lo pisa nunca más.
+     * Los 25P02 posteriores son consecuencia, no causa.
+     */
+    private function noteFirstError(string $message): void
+    {
+        if ($this->firstError === '') {
+            $this->firstError = $message;
+        }
+    }
+
+    /**
+     * Error de origen de la transacción actual, o '' si no hubo.
+     * Cuando la transacción falló, esto es lo que hay que reportar.
+     */
+    public function FirstError(): string
+    {
+        return $this->firstError;
     }
 
     /**
@@ -642,7 +675,17 @@ class DB
         return $this->lastWasDml;
     }
 
-    public function ErrorMsg(): string { return $this->lastError; }
+    /**
+     * Si la transacción falló, devuelve el error de ORIGEN y no el último.
+     * Todo caller que reporta un fallo lo hace después de la cascada de 25P02,
+     * así que `lastError` a esa altura es siempre "current transaction is
+     * aborted" — el síntoma. Sin esto el signup mostraba 25P02 pelado y la
+     * causa real no aparecía en ningún lado.
+     */
+    public function ErrorMsg(): string
+    {
+        return $this->firstError !== '' ? $this->firstError : $this->lastError;
+    }
     public function ErrorNo(): int     { return $this->lastErrNo; }
 
     // ─── Misceláneos ───────────────────────────────────────────────────────
