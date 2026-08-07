@@ -474,16 +474,30 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
       },
       {
         id: "status",
-        header: "Estado",
+        header: "Tipo",
+        // Antes mostraba Pagada/Pendiente desde `transactionComplete`, que NO
+        // es la modalidad de venta sino el estado de cobro: se flipea a true
+        // cuando la deuda se salda (ObligationsService), así que una venta a
+        // crédito ya cobrada aparecía como "Pagada" — indistinguible de un
+        // contado. La modalidad sale de `transactionType` y su mapa canónico
+        // (TX_TYPE_LABELS, el mismo que usa el detalle).
         cell: ({ row }) => {
           const r = row.original
-          return r.transactionComplete === 1 ? (
-            <Badge variant="default">Pagada</Badge>
-          ) : (
-            <Badge variant="secondary">Pendiente</Badge>
+          const label = txTypeLabel(String(r.transactionType))
+          // El estado de cobro no se pierde: un crédito todavía adeudado va
+          // atenuado. No se agrega columna — el ancho queda igual.
+          const pendingCredit = r.transactionType === 3 && r.transactionComplete !== 1
+          if (!pendingCredit) return <Badge variant="default">{label}</Badge>
+          return (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Badge variant="secondary">{label}</Badge>
+              </TooltipTrigger>
+              <TooltipContent>Pendiente de cobro</TooltipContent>
+            </Tooltip>
           )
         },
-        meta: { label: "Estado", className: "w-24" },
+        meta: { label: "Tipo", className: "w-24" },
       },
       {
         id: "einvoice",
