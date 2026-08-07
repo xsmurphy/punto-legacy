@@ -37,6 +37,7 @@ import {
   useDeleteRegister,
   type RegisterFiscal,
   type RegisterListItem,
+  type RegisterNumbering,
 } from "@/hooks/use-registers-admin"
 
 const EMPTY_FISCAL: RegisterFiscal = {
@@ -44,6 +45,10 @@ const EMPTY_FISCAL: RegisterFiscal = {
   invoicePrefix: "",
   invoiceAuthStart: "",
   invoiceAuthExpiration: "",
+}
+
+const EMPTY_NUMBERING: RegisterNumbering = {
+  factura: "",
 }
 
 /**
@@ -66,6 +71,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   const [editName, setEditName] = React.useState("")
   const [editStatus, setEditStatus] = React.useState(true)
   const [editFiscal, setEditFiscal] = React.useState<RegisterFiscal>(EMPTY_FISCAL)
+  const [editNumbering, setEditNumbering] = React.useState<RegisterNumbering>(EMPTY_NUMBERING)
 
   const [deleteTarget, setDeleteTarget] = React.useState<RegisterListItem | null>(null)
 
@@ -76,6 +82,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
     setEditName(reg.name)
     setEditStatus(reg.status)
     setEditFiscal({ ...EMPTY_FISCAL, ...reg.fiscal })
+    setEditNumbering({ ...EMPTY_NUMBERING, ...reg.numbering })
   }
 
   function patchFiscal(p: Partial<RegisterFiscal>) {
@@ -261,6 +268,22 @@ export function RegistersTab({ outletId }: { outletId: string }) {
                     onChange={(e) => patchFiscal({ invoiceAuthExpiration: e.target.value })}
                   />
                 </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="edit-next-invoice">Próxima factura</Label>
+                  <Input
+                    id="edit-next-invoice"
+                    value={editNumbering.factura}
+                    onChange={(e) =>
+                      setEditNumbering((n) => ({ ...n, factura: e.target.value.replace(/\D/g, "") }))
+                    }
+                    placeholder="1234"
+                    className="tabular-nums"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Dejalo vacío para continuar desde la última emitida. No puede repetir un
+                    número ya usado en esta caja.
+                  </p>
+                </div>
               </div>
             </div>
           </div>
@@ -271,7 +294,13 @@ export function RegistersTab({ outletId }: { outletId: string }) {
               onClick={() => {
                 if (!editTarget) return
                 updateRegister.mutate(
-                  { id: editTarget.id, name: editName.trim(), status: editStatus, fiscal: editFiscal },
+                  {
+                    id: editTarget.id,
+                    name: editName.trim(),
+                    status: editStatus,
+                    fiscal: editFiscal,
+                    numbering: editNumbering,
+                  },
                   {
                     onSuccess: () => { toast.success("Caja actualizada"); setEditTarget(null) },
                     onError: (err) => toast.error(err.message),

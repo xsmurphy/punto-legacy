@@ -18,6 +18,37 @@ final class RegisterAdminService
     /**
      * Lista todas las cajas del tenant con JOIN a outlet para outletName.
      */
+    /**
+     * Documentos con numeración propia por caja. Hoy solo se emite 'factura';
+     * en PY la NC, la ND y la remisión llevan timbrado y rango propios y se
+     * suman acá cuando se implementen (ver update()).
+     */
+    private const DOC_TYPES = ['factura'];
+
+    /**
+     * Lee `registerNumbering` de una fila ya aplanada por Query::flattenJsonb
+     * y la normaliza a un mapa completo (todos los DOC_TYPES, null si no hay
+     * piso). El valor viene del JSONB, así que puede ser array o JSON-string
+     * según por dónde haya pasado la fila.
+     *
+     * @return array<string,int|null>
+     */
+    private static function numberingFromRow(mixed $f): array
+    {
+        $raw = $f['registerNumbering'] ?? null;
+        if (is_string($raw)) {
+            $raw = json_decode($raw, true);
+        }
+        $raw = is_array($raw) ? $raw : [];
+
+        $out = [];
+        foreach (self::DOC_TYPES as $docType) {
+            $v = $raw[$docType] ?? null;
+            $out[$docType] = ($v === null || $v === '') ? null : (int) $v;
+        }
+        return $out;
+    }
+
     public function listAll(): array
     {
         $rs = ncmExecute(
@@ -61,6 +92,13 @@ final class RegisterAdminService
                         'invoiceAuthStart'      => (string) ($f['registerInvoiceAuthStart'] ?? ''),
                         'invoiceAuthExpiration' => (string) ($f['registerInvoiceAuthExpiration'] ?? ''),
                     ],
+                    // Piso de numeración por documento (ver update()). El front
+                    // lo muestra vacío cuando no hay piso: ahí el número se
+                    // deriva de lo ya emitido, que es el comportamiento previo.
+                    'numbering' => array_map(
+                        static fn($v) => $v === null ? '' : (string) $v,
+                        self::numberingFromRow($f),
+                    ),
                 ];
                 $rs->MoveNext();
             }
@@ -187,6 +225,76 @@ final class RegisterAdminService
                     }
                     $fiscalPatch[$key] = $v === '' ? null : $v;
                 }
+            }
+        }
+
+        // ── Numeración por documento ────────────────────────────────────────
+        // Un timbrado no siempre arranca en 1: la SET puede autorizar un rango
+        // que empieza en, por ejemplo, 1234. Sin un piso configurable la caja
+        // emitía siempre desde 1 (el número se derivaba de MAX(invoiceNo)+1),
+        // que cae fuera del rango autorizado.
+        //
+        // El piso se guarda por TIPO de documento desde el arranque aunque hoy
+        // solo exista 'factura': en PY la nota de crédito, la nota de débito y
+        // la remisión llevan timbrado y rango PROPIOS, así que un contador
+        // único habría que rehacerlo al implementarlas.
+        //
+        // Invariante (decisión del owner): el piso NUNCA puede pisar un número
+        // ya emitido — sería una factura duplicada. Se valida contra
+        // `transaction` acá; el cálculo del próximo número sigue tomando el
+        // máximo entre el piso y lo ya usado (v1/numbering/lease.php), así que
+        // ni siquiera un piso viejo puede reemitir.
+        if (array_key_exists('numbering', $fields) && is_array($fields['numbering'])) {
+            $numbering = [];
+            foreach ($fields['numbering'] as $docType => $raw) {
+                if (!in_array($docType, self::DOC_TYPES, true)) {
+                    apiError('Tipo de documento desconocido: ' . (string) $docType, 422);
+                }
+                $n = trim((string) $raw);
+                if ($n === '') {
+                    $numbering[$docType] = null;   // sin piso — vuelve a derivarse
+                    continue;
+                }
+                if (!preg_match('/^\d+$/', $n) || (int) $n < 1) {
+                    apiError('La numeración debe ser un entero positivo', 422);
+                }
+                $n = (int) $n;
+
+                // Solo 'factura' vive hoy en `transaction.invoiceNo`. Cuando
+                // entren NC/ND/remisión, cada una valida contra su propia
+                // fuente — por eso el match explícito y no un chequeo genérico.
+                if ($docType === 'factura') {
+                    $used = ncmExecute(
+                        'SELECT 1 FROM transaction
+                          WHERE registerid = ? AND companyid = ? AND invoiceno = ? LIMIT 1',
+                        [$id, $this->companyId, $n]
+                    );
+                    if ($used) {
+                        apiError(
+                            'Ya existe un documento con el número ' . $n . ' en esta caja: no se puede duplicar',
+                            409
+                        );
+                    }
+                    // Un número ya arrendado está reservado para una venta
+                    // offline que todavía no sincronizó: el índice único de
+                    // numbering_lease lo rechazaría igual, pero recién al
+                    // emitir y con un error de constraint. Mejor acá.
+                    $leased = ncmExecute(
+                        'SELECT 1 FROM "numbering_lease"
+                          WHERE "registerId" = ? AND "companyId" = ? AND "invoiceNo" = ? LIMIT 1',
+                        [$id, $this->companyId, $n]
+                    );
+                    if ($leased) {
+                        apiError(
+                            'El número ' . $n . ' ya está reservado por una venta pendiente de sincronizar',
+                            409
+                        );
+                    }
+                }
+                $numbering[$docType] = $n;
+            }
+            if ($numbering !== []) {
+                $fiscalPatch['registerNumbering'] = $numbering;
             }
         }
 

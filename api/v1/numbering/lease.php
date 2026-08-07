@@ -135,7 +135,26 @@ $maxLease = ($maxLeaseRow && isset($maxLeaseRow['maxno']) && $maxLeaseRow['maxno
     ? (int) $maxLeaseRow['maxno']
     : 0;
 
-$next = max($maxno, $maxLease) + 1;
+// Piso configurado para la caja (RegisterAdminService::update): un timbrado
+// puede arrancar en 1234 y no en 1. Se toma el MÁXIMO entre el piso y lo ya
+// emitido +1 — nunca al revés: un piso viejo o mal cargado no puede reemitir
+// un número que ya salió (invariante del owner: no duplicar documentos).
+$regRow  = ncmExecute(
+    'SELECT data FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
+    [$regId, $compId]
+);
+// OJO: ncmExecute aplana `data` al nivel de la fila y hace unset de la columna
+// (Query::flattenJsonb) — leer `$regRow['data']` daría null. La clave del
+// JSONB se lee directo de la fila aplanada.
+$numbering = is_array($regRow) || $regRow instanceof \ArrayAccess
+    ? ($regRow['registerNumbering'] ?? null)
+    : null;
+if (is_string($numbering)) {
+    $numbering = json_decode($numbering, true);
+}
+$floor = (is_array($numbering) && isset($numbering['factura'])) ? (int) $numbering['factura'] : 0;
+
+$next = max($maxno + 1, $maxLease + 1, $floor);
 
 $expiresAtDb   = date('Y-m-d H:i:s', strtotime('+24 hours'));
 $expiresAtJson = date('c', strtotime('+24 hours'));
