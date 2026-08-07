@@ -1442,9 +1442,15 @@ final class SaleService
             $units = (float) $sD['count'];
 
             // ── compounds: descuenta el stock de los ingredientes ───────────
+            // El guard de "producción previa" se resuelve contra la BD
+            // (Inventory::saleExplodesRecipe), NO contra `$sD['type']`: ese
+            // campo es opcional y el POS nunca lo manda, así que el chequeo
+            // `!== 'production'` de acá jamás cortaba y un terminado ya
+            // producido volvía a consumir sus insumos en cada venta.
             $compound = getCompoundsArray($itemId);
             if (is_array($compound) && $compound !== []
-                && ($sD['type'] ?? '') !== 'combo' && ($sD['type'] ?? '') !== 'production') {
+                && ($sD['type'] ?? '') !== 'combo' && ($sD['type'] ?? '') !== 'production'
+                && \Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId)) {
                 $allWaste = getAllWasteValue();
                 foreach ($compound as $comr) {
                     $comid    = $comr['compoundId'];

@@ -59,6 +59,59 @@ final class Inventory
     }
 
     /**
+     * ¿Vender este ítem debe consumir su receta (descontar los insumos)?
+     *
+     * Los dos modelos de un ítem con receta son EXCLUYENTES — un ítem lleva
+     * su propio stock terminado, o lo arma al vender, nunca las dos cosas:
+     *
+     *   - **Producción Previa** (`itemProduction IS TRUE`): la orden de
+     *     producción ya descontó los insumos y sumó el terminado. La venta
+     *     descuenta SOLO el terminado. Explotar la receta acá los descuenta
+     *     por segunda vez — reporte del tester 2026-08-04.
+     *   - **Producción Directa** (`itemTrackInventory IS FALSE` + receta): no
+     *     lleva stock propio; se arma al vender. La venta SÍ explota la receta.
+     *
+     * El discriminante canónico es el del dominio (`getItemTypeName()`,
+     * functions.php:811-818), leído de la BD. NO se infiere del payload del
+     * carrito: `$saleDetail[]['type']` es opcional y el POS no lo manda
+     * (create-sale.ts arma SaleItem sin ese campo), así que un guard basado
+     * en él nunca corta. Vive acá y no en cada caller porque la venta
+     * (SaleService) y la anulación (TransactionService, que repone lo que la
+     * venta descontó) tienen que coincidir — si divergen, anular una venta
+     * repone insumos que nunca se consumieron.
+     *
+     * @return bool true = explotar receta; false = el ítem lleva stock propio.
+     */
+    public static function saleExplodesRecipe(mixed $itemId, mixed $companyId): bool
+    {
+        // El predicado se evalúa EN SQL y vuelve como int, no como boolean:
+        // itemProduction / itemTrackInventory son BOOLEAN en PG (mig 15) y su
+        // representación en PHP depende del driver ('t'/'f', true/false, 1/'').
+        // Un `(float) 't'` da 0.0 y daría vuelta el resultado — un terminado
+        // de producción previa volvería a consumir insumos, que es justo el
+        // bug que esto arregla. `IS NOT TRUE` además cubre el NULL.
+        //
+        // Se usan los flags y no `itemKind` a propósito: mig 15 documenta que
+        // el backfill de kind NO pudo inferir `produccion_directa` y le asignó
+        // el tipo más cercano, así que hay filas con kind impreciso. Los flags
+        // son los que el POS y el panel legacy mantienen al día.
+        $row = ncmExecute(
+            'SELECT CASE WHEN itemProduction IS NOT TRUE
+                          AND itemTrackInventory IS NOT TRUE
+                         THEN 1 ELSE 0 END AS explodes
+               FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+            [$itemId, $companyId]
+        );
+        if (!$row) {
+            // Ítem ilegible (borrado / otro tenant): conservador — no tocar
+            // insumos. Descontar de más es irreversible sin ajuste manual.
+            return false;
+        }
+
+        return ((int) ($row['explodes'] ?? 0)) === 1;
+    }
+
+    /**
      * Compuestos en formato displayable para el front [{id, units, select}].
      * Equivalente legacy: `displayableCompounds($id)`.
      */

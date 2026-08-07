@@ -1050,9 +1050,13 @@ final class TransactionService
                 $itemId = $f['itemid'] ?? $f['itemId'] ?? '';
                 $units  = (float) ($f['itemsoldunits'] ?? $f['itemSoldUnits'] ?? 0);
 
-                // Reponer ingredientes si es compound.
+                // Reponer ingredientes si es compound — mismo predicado que la
+                // venta (Inventory::saleExplodesRecipe). Sin esto, anular la
+                // venta de un terminado de producción previa repone insumos
+                // que esa venta nunca consumió (inflaba el stock de insumos).
                 $compound = getCompoundsArray($itemId);
-                if (is_array($compound) && $compound !== []) {
+                if (is_array($compound) && $compound !== []
+                    && \Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId)) {
                     foreach ($compound as $comr) {
                         $comId  = $comr['compoundId'];
                         $locRow = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$comId, $companyId]);
