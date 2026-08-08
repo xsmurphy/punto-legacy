@@ -47,6 +47,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Vínculos entre transacciones/órdenes (`transaction_link`)** | `35-transaction-link.md` (mig 115, implementado) |
 | **Vouchers (vales por productos)** | `36-vouchers-plan.md` (plan cerrado, sin implementar) |
 | **Numeración correlativa de documentos** | `37-numeracion-documentos.md` (plan abierto, D2/D3/D5 pendientes) |
+| **Impuestos multi-tasa / multi-país** | `38-impuestos-multi-pais.md` (plan abierto, auditoría 2026-08-07, D1–D4 pendientes) |
 | **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
 | Bitácora de sesiones | `_session-log.md` (índice histórico, append) |
 
