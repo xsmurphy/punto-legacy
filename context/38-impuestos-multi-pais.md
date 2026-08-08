@@ -169,6 +169,16 @@ viejas quedan con tax=0 — ver D3.
 - **D4 — Renombre de bloques legacy.** `item_taxAmount` →
   `item_tax_amount` con alias al leer plantillas guardadas, sin migración
   de datos. ¿OK?
+- **D5 — IVA en canje de voucher (cerrada 2026-08-08).** El canje va EXENTO:
+  el vale se vende en caja como ítem normal y su IVA se devenga íntegro en la
+  venta de emisión; la línea de canje no aporta al `transactionTotal`
+  (context/36 decisión 5), así que computarle IVA duplicaba el devengo en
+  `transactionTax` sin respaldo en el total. Implementado: `enrichWithTaxes`
+  fuerza `exempt` si la línea trae `voucher` (taxId informativo se preserva),
+  `groupTaxByRate` la salta (su neto no entra como base exenta del Libro
+  Ventas), y `selectCartIva` (front) la trata igual. Alternativa descartada:
+  devengar al canje exigía emitir el vale exento y contradecía context/36
+  decisión 4.
 
 ## Notas
 
