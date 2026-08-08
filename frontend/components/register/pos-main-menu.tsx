@@ -746,22 +746,25 @@ function AccountOverview({
               <StatTile label="Clientes" value={customersCount} isLoading={loading} />
             </div>
           ) : (
-            <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-5">
+            /* Template asimétrico: Ventas es un conteo corto (1fr); Promedio y
+               Efectivo llevan montos en Gs. que superan el millón — 1.5fr para
+               que ni el label ni "Gs. 1.234.567" trunquen. */
+            <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-[2fr_1fr_1.5fr_1.5fr]">
               <StatTile
                 label="Total vendido"
                 value={formatMoney(salesTotal, config)}
                 isLoading={loading}
                 emphasis
-                className="col-span-2"
+                className="col-span-2 lg:col-span-1"
               />
               <StatTile label="Ventas" value={salesCount} isLoading={loading} />
               <StatTile
-                label="Ticket promedio"
+                label="Promedio"
                 value={formatMoney(avgTicket, config)}
                 isLoading={loading}
               />
               {summary && (
-                <StatTile label="Efectivo en caja" value={formatMoney(summary.subtotal, config)} />
+                <StatTile label="Efectivo" value={formatMoney(summary.subtotal, config)} />
               )}
             </div>
           )}
