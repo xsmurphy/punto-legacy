@@ -26,6 +26,9 @@ export type PosRegisterConfig = {
    */
   blindControl: boolean
   controlCaja: boolean
+  /** IP/host del terminal Bancard (Caja POS Android) en la LAN de esta caja.
+   *  Solo relevante con el módulo `bancardPos` activo (panel → Módulos). */
+  bancardPosIp: string
   tecladoVirtual: boolean
   ordenEnVenta: boolean
   ordenAImpresion: boolean
@@ -42,6 +45,7 @@ export type PosRegisterConfig = {
 export const POS_REGISTER_CONFIG_DEFAULTS: PosRegisterConfig = {
   blindControl: false,
   controlCaja: true,
+  bancardPosIp: "",
   tecladoVirtual: false,
   ordenEnVenta: false,
   ordenAImpresion: false,

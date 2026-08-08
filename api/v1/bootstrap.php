@@ -49,7 +49,11 @@ $row = ncmExecute(
         config->>'settingBillingName'       AS companybillingname,
         config->>'settingRUC'               AS companytin,
         config->>'settingEmail'             AS companyemail,
-        config->>'settingWebSite'           AS companywebsite
+        config->>'settingWebSite'           AS companywebsite,
+        -- Módulo Bancard POS físico: el toggle de /v1/modules escribe el
+        -- flat key en company.config (ruteo de ncmUpdate). El POS lo usa
+        -- para mostrar/ocultar la config de IP del terminal en Ajustes.
+        config->>'bancardPos'               AS bancardpos
      FROM company
      WHERE companyId = ?",
     [COMPANY_ID]
@@ -172,6 +176,8 @@ apiOk([
     'companyTin'         => $row['companytin'] ?? '',
     'companyEmail'       => $row['companyemail'] ?? '',
     'companyWebsite'     => $row['companywebsite'] ?? '',
+    // Módulo Bancard POS físico activo para el tenant (bool ya normalizado).
+    'bancardPos'         => in_array(($row['bancardpos'] ?? ''), ['1', 'true', 'on', 'yes'], true),
     // Logo del tenant (S3, público). '' si no hay logo cargado — el front
     // hace fallback a la marca Punto. `?v=` cache-bust con logoUploadedAt.
     // MISMA lógica que SettingsService::general(): el logo vive en el blob

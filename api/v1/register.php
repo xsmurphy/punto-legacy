@@ -177,6 +177,10 @@ if ($method === 'PUT' && $resource === 'hotkeys') {
 // Defaults canónicos en backend = single source of truth.
 const POS_CONFIG_DEFAULTS = [
     'controlCaja'             => true,
+    // IP del terminal Bancard (Caja POS Android) en la LAN de la caja.
+    // String (único no-boolean del blob) — la validación del PUT es por tipo
+    // del default. Solo relevante con el módulo `bancardPos` activo.
+    'bancardPosIp'            => '',
     'tecladoVirtual'          => false,
     'ordenEnVenta'            => false,
     'ordenAImpresion'         => false,
@@ -220,14 +224,27 @@ if ($method === 'PUT' && $resource === 'config') {
     if (!is_array($raw)) {
         apiError('Falta config (objeto)', 422);
     }
-    // Whitelist + validación de tipo. Aceptamos parcial — mergeamos con lo guardado.
+    // Whitelist + validación por TIPO del default (booleans casi todos;
+    // bancardPosIp es string). Aceptamos parcial — mergeamos con lo guardado.
     $patch = [];
     foreach ($raw as $k => $v) {
         if (!array_key_exists($k, POS_CONFIG_DEFAULTS)) {
             continue; // key fuera del whitelist
         }
-        if (!is_bool($v)) {
-            apiError("Valor inválido para '$k' (se esperaba boolean)", 422);
+        if (is_bool(POS_CONFIG_DEFAULTS[$k])) {
+            if (!is_bool($v)) {
+                apiError("Valor inválido para '$k' (se esperaba boolean)", 422);
+            }
+            $patch[$k] = $v;
+            continue;
+        }
+        // Strings: hoy solo bancardPosIp — host/IP de LAN, sin esquema ni path.
+        if (!is_string($v)) {
+            apiError("Valor inválido para '$k' (se esperaba string)", 422);
+        }
+        $v = trim($v);
+        if ($v !== '' && !preg_match('/^[a-zA-Z0-9.\-:]{1,64}$/', $v)) {
+            apiError("Valor inválido para '$k' (IP o host de la red local)", 422);
         }
         $patch[$k] = $v;
     }

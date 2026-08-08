@@ -47,6 +47,10 @@ final class ModulesService
         'recurring', 'dunning', 'digitalInvoice', 'salesSummaryDaily',
         'einvoicePy',
         'api',
+        // Integración con el POS físico de Bancard (Caja POS Android, REST
+        // por LAN). El toggle habilita la sección "IP POS Bancard" en
+        // Ajustes del POS; la IP se configura por caja (register posConfig).
+        'bancardPos',
     ];
 
     /** Módulos que tienen config adicional (admiten action=config). */

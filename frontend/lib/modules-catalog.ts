@@ -27,6 +27,7 @@ import {
   Repeat,
   BellRing,
   ReceiptText,
+  CreditCard,
 } from "lucide-react"
 
 export type ConfigKind =
@@ -172,6 +173,16 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     category: "Facturación",
     configKind: "none",
     status: "soon",
+  },
+  {
+    key: "bancardPos",
+    title: "POS físico Bancard",
+    description:
+      "Conectá la caja con el terminal de tarjetas de Bancard: el monto viaja solo al POS físico. La IP del terminal se configura en cada caja (POS → Ajustes).",
+    icon: CreditCard,
+    category: "Facturación",
+    configKind: "none",
+    status: "available",
   },
 ]
 

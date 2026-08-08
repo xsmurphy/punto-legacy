@@ -123,6 +123,8 @@ interface UpstreamBootstrap {
   companyTin?: string
   companyEmail?: string
   companyWebsite?: string
+  /** Módulo Bancard POS físico (bool ya normalizado por /v1/bootstrap). */
+  bancardPos?: boolean
   activeOutletAddress?: string
   activeOutletBillingName?: string
   activeOutletTin?: string
@@ -300,6 +302,7 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     companyTin: bs.companyTin || null,
     companyEmail: bs.companyEmail || null,
     companyWebsite: bs.companyWebsite || null,
+    bancardPosEnabled: bs.bancardPos === true,
   }
 }
 

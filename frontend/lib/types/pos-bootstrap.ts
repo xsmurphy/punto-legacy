@@ -74,6 +74,12 @@ export interface PosConfig {
   companyTin?: string | null
   companyEmail?: string | null
   companyWebsite?: string | null
+  /**
+   * Módulo "POS físico Bancard" activo para el tenant (panel → Módulos).
+   * Gatea la sección de IP del terminal en Ajustes del POS y, a futuro,
+   * el cobro con tarjeta vía terminal integrado.
+   */
+  bancardPosEnabled?: boolean
 }
 
 // ── Caja (register) ───────────────────────────────────────────────────────────

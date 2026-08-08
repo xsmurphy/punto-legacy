@@ -1819,6 +1819,8 @@ function DeviceContextSelectors() {
 
 function AjustesPanel() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  // Módulo "POS físico Bancard" (panel → Módulos) — gatea la config de IP.
+  const bancardPosEnabled = useCatalogStore((s) => s.config?.bancardPosEnabled ?? false)
   const { data, isLoading } = usePosRegisterConfig(activeRegisterId)
   const updateConfig = useUpdatePosRegisterConfig()
   const config = data?.config ?? POS_REGISTER_CONFIG_DEFAULTS
@@ -1856,7 +1858,7 @@ function AjustesPanel() {
   }, [updateConfig])
 
   const handleToggle = React.useCallback(
-    (key: keyof PosRegisterConfig, value: boolean) => {
+    (key: keyof PosRegisterConfig, value: boolean | string) => {
       pendingRef.current = { ...pendingRef.current, [key]: value }
       setPending((prev) => ({ ...prev, [key]: value }))
       if (timerRef.current) clearTimeout(timerRef.current)
@@ -1910,17 +1912,28 @@ function AjustesPanel() {
                 <Input className="flex-1" type="number" defaultValue="0" />
               </div>
 
-              {/* IP POS Bancard */}
-              {/* TODO (backend): persistir en config del dispositivo para integración Bancard */}
-              <div className="flex items-center gap-3">
-                <label className="w-48 shrink-0 text-sm text-muted-foreground">
-                  IP POS Bancard
-                </label>
-                <Input
-                  className="flex-1"
-                  placeholder="Ej: 192.168.101.68"
-                />
-              </div>
+              {/* IP POS Bancard — SOLO con el módulo `bancardPos` activo
+                  (panel → Módulos → POS físico Bancard). Persiste por caja en
+                  register posConfig (`bancardPosIp`), mismo debounce que los
+                  toggles. */}
+              {bancardPosEnabled && (
+                <div className="flex items-center gap-3">
+                  <label
+                    htmlFor="ajustes-bancard-ip"
+                    className="w-48 shrink-0 text-sm text-muted-foreground"
+                  >
+                    IP POS Bancard
+                  </label>
+                  <Input
+                    id="ajustes-bancard-ip"
+                    className="flex-1"
+                    placeholder="Ej: 192.168.101.68"
+                    value={(pending.bancardPosIp as string | undefined) ?? config.bancardPosIp}
+                    disabled={isLoading}
+                    onChange={(e) => handleToggle("bancardPosIp", e.target.value)}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
@@ -1945,7 +1958,7 @@ function AjustesPanel() {
                     )}
                   </div>
                   <Switch
-                    checked={(pending[key] as boolean | undefined) ?? config[key]}
+                    checked={(pending[key] as boolean | undefined) ?? (config[key] as boolean)}
                     disabled={isLoading}
                     onCheckedChange={(val) => handleToggle(key, val)}
                   />
