@@ -71,6 +71,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   const [editTarget, setEditTarget] = React.useState<RegisterListItem | null>(null)
   const [editName, setEditName] = React.useState("")
   const [editStatus, setEditStatus] = React.useState(true)
+  const [editBlind, setEditBlind] = React.useState(false)
   const [editFiscal, setEditFiscal] = React.useState<RegisterFiscal>(EMPTY_FISCAL)
   const [editNumbering, setEditNumbering] = React.useState<RegisterNumbering>(EMPTY_NUMBERING)
 
@@ -82,6 +83,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
     setEditTarget(reg)
     setEditName(reg.name)
     setEditStatus(reg.status)
+    setEditBlind(reg.blindControl)
     setEditFiscal({ ...EMPTY_FISCAL, ...reg.fiscal })
     setEditNumbering({ ...EMPTY_NUMBERING, ...reg.numbering })
   }
@@ -217,6 +219,18 @@ export function RegistersTab({ outletId }: { outletId: string }) {
               <Switch id="edit-status" checked={editStatus} onCheckedChange={setEditStatus} />
               <Label htmlFor="edit-status">Activa</Label>
             </div>
+            {/* Panel-only: el POS lo lee pero su PUT de config no puede tocarlo
+                (whitelist server-side) — por eso NO existe en Ajustes del POS. */}
+            <div className="flex items-start gap-3">
+              <Switch id="edit-blind" checked={editBlind} onCheckedChange={setEditBlind} />
+              <div className="space-y-0.5">
+                <Label htmlFor="edit-blind">Control de caja a ciegas</Label>
+                <p className="text-xs text-muted-foreground">
+                  El cajero lleva el turno sin ver los montos acumulados: el resumen y el
+                  arqueo no muestran totales. Los reportes del panel no cambian.
+                </p>
+              </div>
+            </div>
 
             <Separator />
 
@@ -325,6 +339,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
                     id: editTarget.id,
                     name: editName.trim(),
                     status: editStatus,
+                    blindControl: editBlind,
                     fiscal: editFiscal,
                     numbering: editNumbering,
                   },

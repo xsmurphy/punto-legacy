@@ -87,6 +87,11 @@ final class RegisterAdminService
                     'outletId'   => (string)($f['outletId']      ?? $f['outletid']      ?? ''),
                     'outletName' => (string)($f['outletName']    ?? $f['outletname']    ?? ''),
                     'status'     => (bool)($f['registerStatus']  ?? $f['registerstatus'] ?? false),
+                    // Control de caja a ciegas: el cajero opera el turno sin
+                    // ver montos acumulados (dashboard y arqueo sin totales).
+                    // Vive en data JSONB y SOLO se edita desde el panel — el
+                    // PUT ?resource=config del device lo ignora por whitelist.
+                    'blindControl' => (bool)($f['registerBlindControl'] ?? false),
                     'fiscal'     => [
                         'invoiceAuth'           => (string) ($f['registerInvoiceAuth'] ?? ''),
                         // "EEE-PPP" — establecimiento y punto de expedición.
@@ -203,6 +208,13 @@ final class RegisterAdminService
         // (número, EEE-PPP, vigencia); facturación electrónica y la
         // numeración fiscal (context/29 §4.2) lo leen de acá.
         $fiscalPatch = [];
+
+        // Control de caja a ciegas (boolean, panel-only). Comparte el patch
+        // JSONB de `data` con el timbrado.
+        if (array_key_exists('blindControl', $fields)) {
+            $fiscalPatch['registerBlindControl'] = (bool) $fields['blindControl'];
+        }
+
         if (is_array($fields['fiscal'] ?? null)) {
             $fc = $fields['fiscal'];
             if (array_key_exists('invoiceAuth', $fc)) {

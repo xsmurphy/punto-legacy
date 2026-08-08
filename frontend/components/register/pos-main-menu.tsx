@@ -34,8 +34,6 @@ import {
   Component,
   Bell,
   X,
-  TrendingUp,
-  TrendingDown,
   type LucideIcon,
 } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts"
@@ -84,7 +82,7 @@ import type { TicketData, TicketItem } from "@/lib/hardware/printers"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
-import { formatDateTime, formatRelativeShort, tenantNow } from "@/lib/format-date"
+import { formatDateTime, formatRelativeShort } from "@/lib/format-date"
 import { StatTile } from "@/components/domain/reports/stat-tile"
 import { useLockStore } from "@/lib/pos/lock-store"
 import {
@@ -434,12 +432,18 @@ export function PosMainMenu() {
                   en mobile siga habiendo un único botón de cierre (antes el nav
                   reservaba `pr-12` para esquivar la X absolute). */}
               <header className="flex items-center justify-between gap-2 border-b py-3 pl-6 pr-3 text-sm">
-                <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-                  <span className="shrink-0">Menú del POS</span>
+                {/* "Menú del POS" con peso de título (pedido del owner
+                    2026-08-08); la sección activa sigue como breadcrumb. */}
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="shrink-0 text-base font-semibold text-foreground">
+                    Menú del POS
+                  </span>
                   {activeSection && (
                     <>
                       <span className="text-muted-foreground/50">›</span>
-                      <span className="truncate text-foreground">{activeSection.label}</span>
+                      <span className="truncate text-muted-foreground">
+                        {activeSection.label}
+                      </span>
                     </>
                   )}
                 </div>
@@ -580,19 +584,6 @@ function buildHourlySeries(inputs: Array<{ rows: DrawerHourlyRow[]; key: HourlyK
   return out
 }
 
-/** Suma de `salesTotal` de una serie horaria (todas las horas). */
-function sumSeries(rows: DrawerHourlyRow[]): number {
-  return rows.reduce((acc, r) => acc + r.salesTotal, 0)
-}
-
-/** Suma de `salesTotal` hasta la hora `limit` inclusive. */
-function sumUntilHour(rows: DrawerHourlyRow[], limit: number): number {
-  return rows.reduce((acc, r) => {
-    const h = parseHour(r.hour)
-    return h >= 0 && h <= limit ? acc + r.salesTotal : acc
-  }, 0)
-}
-
 /**
  * Panel inicial del menú del POS — mini-dashboard del turno en curso. Se
  * renderiza cuando ninguna sección del sidebar está seleccionada.
@@ -639,7 +630,13 @@ function AccountOverview({
   const isOpen = status?.isOpen ?? false
   const loading = statusLoading || summaryLoading
 
-  const { data: hourly, isLoading: hourlyLoading } = useDrawerHourlyStats(isOpen)
+  // Control de caja a ciegas (flag panel-only de la caja): el cajero no ve
+  // montos acumulados — ni tiles de plata ni charts. Se corta también el
+  // fetch de las series horarias: no se pinta nada con ellas.
+  const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
+  const blind = registerConfigData?.config?.blindControl ?? false
+
+  const { data: hourly, isLoading: hourlyLoading } = useDrawerHourlyStats(isOpen && !blind)
 
   const salesCount = summary?.salesCount ?? 0
   const salesTotal = summary?.salesTotal ?? 0
@@ -676,47 +673,6 @@ function AccountOverview({
     return []
   }, [chartMode, today, yesterday, shift])
 
-  // Hora local del tenant (0-23). El corte "a esta hora" tiene que ser el mismo
-  // para las dos series: usar la última hora CON ventas de hoy castigaría a hoy
-  // cuando ayer siguió vendiendo más tarde.
-  const currentHour = React.useMemo(
-    () => parseHour(tenantNow(hourly?.timezone ?? config?.timezone)),
-    [hourly?.timezone, config?.timezone],
-  )
-
-  const derived = React.useMemo(() => {
-    const todayUntilNow = sumUntilHour(today, currentHour)
-    const yesterdayUntilNow = sumUntilHour(yesterday, currentHour)
-
-    // delta% = (acumulado de hoy hasta la hora actual − acumulado de ayer hasta
-    // esa MISMA hora) / acumulado de ayer. Se exige que AMBOS lados tengan
-    // ventas: con hoy en 0 el número siempre da −100% y no informa nada (era el
-    // "−78,3% vs ayer" al lado de un chart sin barras que reportó el owner).
-    const deltaPct =
-      todayUntilNow > 0 && yesterdayUntilNow > 0
-        ? ((todayUntilNow - yesterdayUntilNow) / yesterdayUntilNow) * 100
-        : null
-
-    // Proyección = lo vendido HOY + (ritmo por hora de hoy × horas que le quedan
-    // al día comercial). Todo en base calendario, igual que el delta: usar el
-    // total del TURNO acá inflaba la proyección cuando el turno arrastraba días
-    // anteriores. El "día comercial" se define por la hora de la ÚLTIMA venta de
-    // AYER — el único dato real de hasta cuándo se vende en esta caja.
-    const todayHours = today.map((r) => parseHour(r.hour)).filter((h) => h >= 0)
-    const yesterdayHours = yesterday.map((r) => parseHour(r.hour)).filter((h) => h >= 0)
-    const lastHourYesterday = yesterdayHours.length > 0 ? Math.max(...yesterdayHours) : null
-
-    let projection: number | null = null
-    if (lastHourYesterday !== null && todayHours.length > 0) {
-      const todayTotal = sumSeries(today)
-      const elapsedHours = Math.max(1, currentHour - Math.min(...todayHours) + 1)
-      const remainingHours = Math.max(0, lastHourYesterday - currentHour)
-      projection = todayTotal + (todayTotal / elapsedHours) * remainingHours
-    }
-
-    return { deltaPct, projection }
-  }, [today, yesterday, currentHour])
-
   /** Donut de métodos de pago. El backend ya excluye Caja Inicial /
    *  Extracciones / Ingresos — acá solo se descartan los montos en cero. */
   const paymentSlices = React.useMemo(
@@ -740,11 +696,16 @@ function AccountOverview({
     return cfg
   }, [paymentSlices])
 
-  /** Top 5 productos del turno + ancho relativo de la barrita (vs el #1). */
-  const topProducts = React.useMemo(() => {
-    const rows = (summary?.soldProducts ?? []).filter((p) => p.total > 0).slice(0, 5)
-    const max = rows.reduce((m, p) => Math.max(m, p.total), 0)
-    return rows.map((p) => ({ ...p, pct: max > 0 ? (p.total / max) * 100 : 0 }))
+  /** Top 5 productos del turno POR CANTIDAD — solo para el modo ciego (en el
+   *  dashboard normal se quitó por espacio, poda 2026-08-08). Cantidades, no
+   *  montos: es lo único que el modo ciego puede mostrar. */
+  const topProductsByQty = React.useMemo(() => {
+    const rows = [...(summary?.soldProducts ?? [])]
+      .filter((p) => p.qty > 0)
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5)
+    const max = rows.reduce((m, p) => Math.max(m, p.qty), 0)
+    return rows.map((p) => ({ ...p, pct: max > 0 ? (p.qty / max) * 100 : 0 }))
   }, [summary?.soldProducts])
 
 
@@ -774,66 +735,33 @@ function AccountOverview({
             </p>
           </div>
 
-          {/* Fila 1 — números clave. Total vendido es el hero (span 2 + emphasis).
-              Efectivo en caja sube acá: es dato de primer vistazo para el cajero
-              y así se elimina la fila de tiles secundarios del final.
-              Patrón StatTile (context/20 §2026-07-31). */}
-          <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            <StatTile
-              label="Total vendido"
-              value={formatMoney(salesTotal, config)}
-              isLoading={loading}
-              emphasis
-              className="col-span-2"
-            />
-            <StatTile label="Ventas" value={salesCount} isLoading={loading} />
-            <StatTile
-              label="Ticket promedio"
-              value={formatMoney(avgTicket, config)}
-              isLoading={loading}
-            />
-            <StatTile label="Clientes" value={customersCount} isLoading={loading} />
-            {summary && (
-              <StatTile label="Efectivo en caja" value={formatMoney(summary.subtotal, config)} />
-            )}
-          </div>
-
-          {/* Fila 2 — tiles condicionales (comparativa, propinas, devoluciones).
-              Solo se renderiza si hay alguno: sin base real no se inventa nada. */}
-          {(derived.deltaPct !== null ||
-            derived.projection !== null ||
-            (summary?.tips ?? 0) > 0 ||
-            (summary?.returns ?? 0) !== 0) && (
-            <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
-              {derived.deltaPct !== null && (
-                <StatTile
-                  label="vs ayer a esta hora"
-                  value={`${derived.deltaPct >= 0 ? "+" : ""}${derived.deltaPct.toFixed(1)}%`}
-                  tone={derived.deltaPct >= 0 ? "positive" : "negative"}
-                  icon={
-                    derived.deltaPct >= 0 ? (
-                      <TrendingUp className="size-3.5" />
-                    ) : (
-                      <TrendingDown className="size-3.5" />
-                    )
-                  }
-                />
-              )}
-              {derived.projection !== null && (
-                <StatTile
-                  label="Proyección del día"
-                  value={formatMoney(derived.projection, config)}
-                />
-              )}
-              {(summary?.tips ?? 0) > 0 && (
-                <StatTile label="Propinas" value={formatMoney(summary!.tips, config)} />
-              )}
-              {(summary?.returns ?? 0) !== 0 && (
-                <StatTile
-                  label="Devoluciones"
-                  value={formatMoney(summary!.returns, config)}
-                  tone="negative"
-                />
+          {/* Fila ÚNICA de tiles — poda 2026-08-08 (pedido del owner: menos
+              datos, sin desborde). Quedan los 4 números que el cajero mira
+              durante el turno; vs-ayer / proyección / propinas / devoluciones
+              se fueron a reportes del panel. Patrón StatTile (context/20
+              §2026-07-31). En modo ciego: SOLO conteos, cero montos. */}
+          {blind ? (
+            <div className="grid shrink-0 grid-cols-2 gap-2 sm:max-w-md">
+              <StatTile label="Ventas" value={salesCount} isLoading={loading} emphasis />
+              <StatTile label="Clientes" value={customersCount} isLoading={loading} />
+            </div>
+          ) : (
+            <div className="grid shrink-0 grid-cols-2 gap-2 lg:grid-cols-5">
+              <StatTile
+                label="Total vendido"
+                value={formatMoney(salesTotal, config)}
+                isLoading={loading}
+                emphasis
+                className="col-span-2"
+              />
+              <StatTile label="Ventas" value={salesCount} isLoading={loading} />
+              <StatTile
+                label="Ticket promedio"
+                value={formatMoney(avgTicket, config)}
+                isLoading={loading}
+              />
+              {summary && (
+                <StatTile label="Efectivo en caja" value={formatMoney(summary.subtotal, config)} />
               )}
             </div>
           )}
@@ -843,7 +771,39 @@ function AccountOverview({
               min-height automático 0 (CSS flexbox §4.5). Dentro de esta columna
               `overflow-y-auto` la card del chart se aplastaba a cero y quedaba
               solo el título — el card "vacío" que reportó el owner. */}
-          {hourlyLoading ? (
+          {blind ? (
+            /* Modo ciego: nada de charts (todos grafican montos). Lo único
+               agregado que se muestra es el top de productos POR CANTIDAD. */
+            topProductsByQty.length > 0 ? (
+              <Card variant="soft" size="sm" className="min-h-0 flex-1 lg:max-w-md">
+                <CardHeader>
+                  <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Más vendidos del turno
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+                  {topProductsByQty.map((product) => (
+                    <div key={product.name} className="flex flex-col gap-1">
+                      <div className="flex items-baseline justify-between gap-3 text-sm">
+                        <span className="truncate">{product.name}</span>
+                        <span className="shrink-0 font-medium tabular-nums">{product.qty} u.</span>
+                      </div>
+                      <div className="h-1.5 overflow-hidden rounded-full bg-foreground/5">
+                        <div
+                          className="h-full rounded-full bg-chart-1"
+                          style={{ width: `${product.pct}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ) : (
+              <p className="shrink-0 text-sm text-muted-foreground">
+                Todavía no hay ventas en este turno.
+              </p>
+            )
+          ) : hourlyLoading ? (
             <Skeleton className="min-h-0 w-full flex-1 rounded-lg" />
           ) : chartMode === "none" && paymentSlices.length === 0 ? (
             <p className="shrink-0 text-sm text-muted-foreground">
@@ -927,8 +887,9 @@ function AccountOverview({
                 </Card>
               )}
 
-              {/* Columna derecha: donut de métodos + más vendidos, apilados y
-                  repartiéndose el alto de la fila. */}
+              {/* Columna derecha: solo el donut de métodos de pago ("Más
+                  vendidos" salió del dashboard en la poda 2026-08-08 — vive
+                  en los reportes del panel). */}
               <div
                 className={cn(
                   "flex min-h-0 flex-col gap-3",
@@ -1003,38 +964,6 @@ function AccountOverview({
                 </Card>
               )}
 
-              {topProducts.length > 0 && (
-                <Card variant="soft" size="sm" className="min-h-0 flex-1">
-                  <CardHeader>
-                    <CardTitle className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                      Más vendidos del turno
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-                    {topProducts.map((product) => (
-                      <div key={product.name} className="flex flex-col gap-1">
-                        <div className="flex items-baseline justify-between gap-3 text-sm">
-                          <span className="truncate">{product.name}</span>
-                          <span className="shrink-0 font-medium tabular-nums">
-                            {formatMoney(product.total, config)}
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-foreground/5">
-                            <div
-                              className="h-full rounded-full bg-chart-1"
-                              style={{ width: `${product.pct}%` }}
-                            />
-                          </div>
-                          <span className="w-12 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                            {product.qty} u.
-                          </span>
-                        </div>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
               </div>
             </div>
           )}
@@ -1132,6 +1061,13 @@ function ControlDeCajaPanel() {
   const expense     = useDrawerExpense()
   const income      = useDrawerIncome()
 
+  // Control de caja a ciegas: el cajero arquea SIN ver lo esperado — se
+  // ocultan el resumen del turno y los totales, y no se imprime el cierre
+  // (el ticket lista todos los montos). El dueño ve los números reales en
+  // los reportes del panel.
+  const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
+  const blind = registerConfigData?.config?.blindControl ?? false
+
   // Estado local del modal de monto (abre/cierra con apertura/cierre/movimiento)
   type ModalMode = "open" | "close" | "expense" | "income" | null
   const [modalMode, setModalMode] = React.useState<ModalMode>(null)
@@ -1153,7 +1089,7 @@ function ControlDeCajaPanel() {
         // snapshot no habría forma de imprimir el reporte de cierre después.
         const summarySnapshot = summary
         await closeDrawer.mutateAsync({ amount, date })
-        if (summarySnapshot && allBindings) {
+        if (summarySnapshot && allBindings && !blind) {
           try {
             requestPrint("closeReg", buildCloseRegTicket(summarySnapshot, config), allBindings)
           } catch (printErr) {
@@ -1224,8 +1160,17 @@ function ControlDeCajaPanel() {
           </p>
         )}
 
+        {/* Modo ciego: el arqueo se hace sin ver lo esperado. Nada del
+            resumen (montos por concepto, productos, totales) se renderiza. */}
+        {summary && blind && (
+          <p className="mx-auto max-w-sm text-center text-sm text-muted-foreground">
+            Control de caja a ciegas: contá el efectivo y cerrá la caja con el
+            monto contado. El resumen del turno se ve desde el panel.
+          </p>
+        )}
+
         {/* Resumen del turno */}
-        {summary && (
+        {summary && !blind && (
           <>
             <div className="divide-y divide-border">
               {summary.list.map(({ name, amount }) => (
@@ -1319,20 +1264,24 @@ function ControlDeCajaPanel() {
               <ArrowUp className="size-4" />
               Ingresar
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                if (!summary) {
-                  toast.info("No hay datos de caja para imprimir")
-                  return
-                }
-                requestPrint("closeReg", buildCloseRegTicket(summary, config), allBindings)
-              }}
-            >
-              <Printer className="size-4" />
-              Imprimir
-            </Button>
+            {/* El ticket de cierre lista todos los montos del turno — en modo
+                ciego no hay botón de imprimir (ni auto-print al cerrar). */}
+            {!blind && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  if (!summary) {
+                    toast.info("No hay datos de caja para imprimir")
+                    return
+                  }
+                  requestPrint("closeReg", buildCloseRegTicket(summary, config), allBindings)
+                }}
+              >
+                <Printer className="size-4" />
+                Imprimir
+              </Button>
+            )}
           </>
         ) : (
           <Button className="flex-1" onClick={() => openModal("open")} disabled={loading}>

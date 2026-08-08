@@ -67,6 +67,11 @@ if ($method === 'POST') {
         if (isset($body['fiscal']) && is_array($body['fiscal'])) { $fields['fiscal'] = $body['fiscal']; }
         // Piso de numeración por documento — ver RegisterAdminService::update.
         if (isset($body['numbering']) && is_array($body['numbering'])) { $fields['numbering'] = $body['numbering']; }
+        // Control de caja a ciegas — flag panel-only (el device lo lee en
+        // GET ?resource=config pero su PUT no puede tocarlo).
+        if (isset($body['blindControl'])) {
+            $fields['blindControl'] = filter_var($body['blindControl'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool)$body['blindControl'];
+        }
         if ($id === '') { apiError('id requerido', 422); }
         apiOk($adminSvc->update($id, $fields));
     }
@@ -193,6 +198,17 @@ if ($method === 'GET' && $resource === 'config') {
     $merged = array_merge(POS_CONFIG_DEFAULTS, $stored);
     // Descartar keys fuera del whitelist (config vieja con keys obsoletas).
     $clean = array_intersect_key($merged, POS_CONFIG_DEFAULTS);
+    // Control de caja a ciegas: READ-ONLY para el device. Se agrega DESPUÉS
+    // del intersect a propósito — no está en POS_CONFIG_DEFAULTS, así el PUT
+    // de abajo (whitelisteado contra esos defaults) nunca puede modificarlo.
+    // Solo se administra desde el panel (POST action=update, realm panel).
+    $blindRow = ncmExecute(
+        "SELECT COALESCE(data->>'registerBlindControl', 'false') AS blindcontrol
+           FROM register WHERE registerId = ? AND companyId = ? LIMIT 1",
+        [$registerId, $companyId],
+        false
+    );
+    $clean['blindControl'] = ($blindRow['blindcontrol'] ?? 'false') === 'true';
     apiOk(['config' => $clean]);
 }
 

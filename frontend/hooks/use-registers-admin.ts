@@ -45,6 +45,10 @@ export interface RegisterListItem {
   outletId: string
   outletName: string
   status: boolean
+  /** Control de caja a ciegas: el cajero opera el turno sin ver montos
+   *  acumulados (dashboard del menú y arqueo sin totales). Panel-only:
+   *  el device POS lo lee pero no puede modificarlo. */
+  blindControl: boolean
   fiscal: RegisterFiscal
   numbering: RegisterNumbering
 }
@@ -83,21 +87,25 @@ export function useUpdateRegister() {
       id: string
       name?: string
       status?: boolean
+      blindControl?: boolean
       fiscal?: Partial<RegisterFiscal>
       numbering?: Partial<RegisterNumbering>
     }
   >({
     mutationFn: (vars) => {
       const payload: Record<string, unknown> = { action: "update", id: vars.id }
-      if (vars.name !== undefined)      payload.name      = vars.name
-      if (vars.status !== undefined)    payload.status    = vars.status
-      if (vars.fiscal !== undefined)    payload.fiscal    = vars.fiscal
-      if (vars.numbering !== undefined) payload.numbering = vars.numbering
+      if (vars.name !== undefined)         payload.name         = vars.name
+      if (vars.status !== undefined)       payload.status       = vars.status
+      if (vars.blindControl !== undefined) payload.blindControl = vars.blindControl
+      if (vars.fiscal !== undefined)       payload.fiscal       = vars.fiscal
+      if (vars.numbering !== undefined)    payload.numbering    = vars.numbering
       return api.post<{ ok: boolean }>("/v1/register", payload)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["registers"] })
       qc.invalidateQueries({ queryKey: ["pos-bootstrap"] })
+      // El device POS lee el flag vía pos-config (GET ?resource=config).
+      qc.invalidateQueries({ queryKey: ["pos-config"] })
     },
   })
 }

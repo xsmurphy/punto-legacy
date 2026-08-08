@@ -18,6 +18,13 @@ import { posFetch } from "@/lib/api/pos-fetch"
 import { useCatalogStore } from "@/lib/catalog/store"
 
 export type PosRegisterConfig = {
+  /**
+   * Control de caja a ciegas — READ-ONLY en el POS. Se administra desde el
+   * panel (Sucursal → Cajas → Editar); el PUT del device lo ignora por
+   * whitelist server-side. Con true, el dashboard del turno y el arqueo no
+   * muestran montos acumulados.
+   */
+  blindControl: boolean
   controlCaja: boolean
   tecladoVirtual: boolean
   ordenEnVenta: boolean
@@ -33,6 +40,7 @@ export type PosRegisterConfig = {
 }
 
 export const POS_REGISTER_CONFIG_DEFAULTS: PosRegisterConfig = {
+  blindControl: false,
   controlCaja: true,
   tecladoVirtual: false,
   ordenEnVenta: false,
