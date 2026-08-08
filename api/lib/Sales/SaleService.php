@@ -85,7 +85,7 @@ final class SaleService
         // ── B1: normalizar items del sale + computar totales ────────────────
         // saleArraySanitizer aplica markupt2HTML por campo y castea floats —
         // shape canónico que después leen toTaxObj/itemSold/manageStock.
-        $saleDetail = saleArraySanitizer($input->sale);
+        $saleDetail = $this->withTaxRates(saleArraySanitizer($input->sale));
         $totalUnits = countUnitSold($saleDetail);
 
         // ── B1: resolver userId + responsibleId ──────────────────────────────
@@ -1558,7 +1558,7 @@ final class SaleService
             }
         }
 
-        $saleDetail    = saleArraySanitizer($input->sale);
+        $saleDetail    = $this->withTaxRates(saleArraySanitizer($input->sale));
         $totalUnits    = countUnitSold($saleDetail);
         $userId        = $input->userId ?? $this->ctx->userId;
         $responsibleId = ($userId !== $this->ctx->userId) ? $this->ctx->userId : null;
@@ -1687,6 +1687,71 @@ final class SaleService
             }
             $this->db->AutoExecute('itemSold', $records, 'INSERT');
         }
+    }
+
+    /**
+     * Congela la tasa de IVA de cada línea dentro del detalle de la venta.
+     *
+     * La factura paraguaya separa el detalle en columnas por tasa (exentas /
+     * 5% / 10%) y la reimpresión de un documento fiscal tiene que salir IGUAL
+     * a como se emitió. Resolver la tasa contra el catálogo al reimprimir daría
+     * la tasa ACTUAL del ítem: si alguien la cambió después, la copia saldría
+     * distinta del original. Por eso se persiste acá, al momento de vender.
+     *
+     * Se resuelve en el backend y no se toma del payload: el `taxId` del ítem
+     * es dato del catálogo, no del carrito, y no debe poder falsearse desde el
+     * cliente. Una sola query para todos los ítems de la venta.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     * @return array<int,array<string,mixed>>
+     */
+    private function withTaxRates(array $saleDetail): array
+    {
+        $itemIds = [];
+        foreach ($saleDetail as $sD) {
+            $id = (string) ($sD['itemId'] ?? '');
+            if ($id !== '') {
+                $itemIds[$id] = true;
+            }
+        }
+        if ($itemIds === []) {
+            return $saleDetail;
+        }
+
+        $ids = array_keys($itemIds);
+        $ph  = implode(',', array_fill(0, count($ids), '?'));
+        // taxonomyName guarda la tasa numérica ('0' | '5' | '10') — ver
+        // Taxonomy::getTaxValue.
+        $rows = ncmExecute(
+            "SELECT i.itemId AS itemid, t.taxonomyName AS rate
+               FROM item i
+               LEFT JOIN taxonomy t
+                 ON t.taxonomyId = i.taxId AND t.taxonomyType = 'tax'
+              WHERE i.itemId IN ($ph) AND i.companyId = ?",
+            array_merge($ids, [$this->ctx->companyId]),
+            false,
+            false,
+            true
+        );
+        $rateById = [];
+        foreach ((is_array($rows) ? $rows : []) as $r) {
+            $raw = (string) ($r['rate'] ?? '');
+            // El nombre de la taxonomía guarda la tasa, pero no está garantizado
+            // que sea solo el número: puede venir "10" o "IVA 10%" según cómo lo
+            // haya cargado el comercio. Se extrae el primer número; si no hay
+            // ninguno (sin taxId, taxonomía borrada) queda exenta = 0, que es el
+            // default fiscal seguro — nunca inventar una tasa.
+            $rate = preg_match('/\d+(?:[.,]\d+)?/', $raw, $m)
+                ? (float) str_replace(',', '.', $m[0])
+                : 0.0;
+            $rateById[(string) $r['itemid']] = $rate;
+        }
+
+        foreach ($saleDetail as $i => $sD) {
+            $id = (string) ($sD['itemId'] ?? '');
+            $saleDetail[$i]['taxRate'] = $rateById[$id] ?? 0.0;
+        }
+        return $saleDetail;
     }
 
     private function getNextQuoteNumber(): int
