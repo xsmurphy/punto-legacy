@@ -974,8 +974,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
         <DialogContent
           className={cn(
-            "flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0",
-            phase === "success" ? "sm:max-w-lg" : "sm:max-w-md",
+            // max-w-lg también en la fase de pago: la grilla de métodos es de
+            // 3 columnas (2026-08-08) y con max-w-md los nombres se truncaban.
+            "flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg",
           )}
         >
           {phase === "pay" ? (
@@ -1272,21 +1273,22 @@ function PayPhase({
           </div>
         )}
 
-        {/* Grilla ÚNICA de métodos — 2 columnas parejas, botones de alto
-            táctil uniforme. Antes: principales en grid-cols-3 (con 5 métodos
-            la última fila quedaba coja) + secundarios en OTRO bloque flex
-            bajo un Separator (la "línea sin sentido" arriba de Giftcard,
-            reporte del owner 2026-08-01). Mismo orden y mismos atajos: los
-            secundarios (Interno/Giftcard) van al final, integrados, con
-            texto atenuado — la jerarquía la da el estilo, no otro layout. */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* Grilla ÚNICA de métodos — 3 columnas (modal max-w-lg desde
+            2026-08-08), botones de alto táctil uniforme. TODOS outline: el
+            variant "default" por isDefault pintaba de oscuro los métodos con
+            systemKey (Efectivo/Cheque/Giftcard) y parecía un color elegido —
+            el único acento de color es el borde izquierdo, que SÍ viene del
+            color configurado en el panel. Un solo bloque integrado (sin
+            Separator, reporte del owner 2026-08-01): los secundarios
+            (Interno/Giftcard) al final con texto atenuado. */}
+        <div className="grid grid-cols-3 gap-2">
           {[...primaryMethods, ...secondaryMethods].map((m) => {
             const accent = resolveColorBg(m.color)
             const secondary = !!(m.systemKey && SECONDARY_SYSTEM_KEYS.includes(m.systemKey))
             return (
             <Button
               key={m.id}
-              variant={m.isDefault ? "default" : "outline"}
+              variant="outline"
               className={cn(
                 "h-10 justify-center gap-1.5 border-l-4 px-2 text-xs font-medium",
                 secondary && "text-muted-foreground",
@@ -1297,14 +1299,7 @@ function PayPhase({
             >
               <span className="truncate">{m.name}</span>
               {m.code && (
-                <kbd
-                  className={cn(
-                    "pointer-events-none inline-flex h-4 select-none items-center rounded px-1 font-mono text-[10px] font-medium",
-                    m.isDefault
-                      ? "border border-primary-foreground/25 bg-primary-foreground/10 text-primary-foreground/80"
-                      : "border border-border/60 bg-background/60 text-muted-foreground",
-                  )}
-                >
+                <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border border-border/60 bg-background/60 px-1 font-mono text-[10px] font-medium text-muted-foreground">
                   {m.code}
                 </kbd>
               )}
