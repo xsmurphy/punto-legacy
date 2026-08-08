@@ -661,11 +661,11 @@ final class SaleService
         // las líneas YA congeladas en $saleDetail (misma fuente que itemSold/
         // transactionTax — un solo cálculo, sin re-invocar el motor).
         //
-        // DEUDA conocida (matchea el legacy, no es regresión): `toTaxObjText` es
-        // VARCHAR(255). Con ~6+ impuestos el json_encode puede exceder 255 chars
-        // → PG aborta la tx por truncación (22001) y la venta entera falla con
-        // SaleAbortedException. Fix futuro: widening de la columna a TEXT
-        // (migración) — registrado en roadmap § processData.
+        // El techo de VARCHAR(255) que tenía `toTaxObjText` se levantó en la
+        // mig 124 (TEXT): con ~6+ tasas el json_encode lo excedía, PG abortaba
+        // la tx por truncación (22001) y la venta ENTERA fallaba con
+        // SaleAbortedException. No pasaba en PY (3 tasas), pero el plan
+        // multi-país (context/38) lo volvía cuestión de tiempo.
         $taxByRate = $this->groupTaxByRate($saleDetail, $decimals);
         if ($taxByRate !== []) {
             $this->db->AutoExecute('toTaxObj', [

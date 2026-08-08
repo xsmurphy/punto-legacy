@@ -403,12 +403,10 @@ final class TransactionDetailService
      * — mismo criterio que SaleService::groupTaxByRate(), sin re-invocar el
      * motor (los montos por línea ya están frozen).
      *
-     * ⚠ DEUDA CONOCIDA (no se resuelve acá, ver SaleService::persistRelations):
-     * `toTaxObjText` es VARCHAR(255) y con ~6+ tasas distintas el JSON puede
-     * truncarse — la venta en sí no falla (persistRelations ya lo advierte),
-     * pero el desglose leído acá puede faltar o venir corrupto para esas
-     * transacciones viejas. El fallback de abajo cubre ese caso. Fix real:
-     * ALTER de la columna a TEXT (migración, fuera de alcance de F1).
+     * El techo de VARCHAR(255) de `toTaxObjText` se levantó en la mig 124
+     * (TEXT), así que las ventas nuevas ya no pueden truncar el desglose. El
+     * fallback de abajo se mantiene igual: cubre las transacciones ANTERIORES
+     * a esa migración, donde el JSON pudo haber quedado cortado o ausente.
      */
     private function resolveTaxByRate(string $transactionId, string $companyId, array $metaLines): array
     {
