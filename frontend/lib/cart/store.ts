@@ -308,12 +308,16 @@ export const selectCartIva = (s: CartState): number => {
 
   const engineLines = s.lines.map((line, i) => {
     const tax = line.taxId ? taxesById.get(line.taxId) : undefined
+    // Canje de voucher: exenta, igual que SaleService::enrichWithTaxes — la
+    // línea no aporta al total (lineSubtotal=0) y su IVA ya se devengó en la
+    // venta que emitió el vale; mostrarlo acá duplicaría el impuesto del chip.
+    const exempt = Boolean(line.voucher)
     return {
       qty: line.qty,
       unitPrice: line.unitPrice,
       discount: allocations[i].totalDiscount,
-      taxRate: tax?.rate ?? 0,
-      taxKind: (tax?.kind ?? "exempt") as TaxKind,
+      taxRate: exempt ? 0 : (tax?.rate ?? 0),
+      taxKind: (exempt ? "exempt" : (tax?.kind ?? "exempt")) as TaxKind,
       taxIncluded: line.taxIncluded ?? outletTaxIncluded,
     }
   })

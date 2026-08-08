@@ -1858,6 +1858,17 @@ final class SaleService
                 $kind = 'exempt';
             }
 
+            // Canje de voucher (context/36, decisión 5): la línea lleva total
+            // bruto pero su plata NO está en transactionTotal — el vale ya se
+            // cobró (y devengó SU IVA) en la venta que lo emitió. Computarle
+            // IVA acá lo duplicaría en transactionTax sin respaldo en el
+            // total. Se fuerza exenta; taxId de catálogo se preserva igual
+            // (informativo, mismo criterio que ivaRemoved).
+            if (is_array($sD['voucher'] ?? null)) {
+                $rate = 0.0;
+                $kind = 'exempt';
+            }
+
             // toBoolOrNull y no (bool): `data->>'itemTaxIncluded'` devuelve el
             // booleano del JSONB como STRING — "false" casteado con (bool) da
             // true, y el override "IVA no incluido" del ítem se perdería.
@@ -1996,6 +2007,14 @@ final class SaleService
             // asignado por línea en `discount` y el motor lo descuenta de la
             // base del bucket correcto.
             if (($sD['type'] ?? '') === 'discount') {
+                continue;
+            }
+            // Canje de voucher: exenta por enrichWithTaxes (amount=0), pero su
+            // neto tampoco puede entrar como BASE del bucket exento — esa
+            // plata no está en transactionTotal (el vale se cobró al
+            // emitirse) y engordaría la base fiscal del Libro Ventas (F5) por
+            // encima del total del documento.
+            if (is_array($sD['voucher'] ?? null)) {
                 continue;
             }
             $rate = (float) $sD['taxRate'];
