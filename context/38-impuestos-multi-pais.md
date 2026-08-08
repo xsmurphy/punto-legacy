@@ -1,7 +1,10 @@
 # 38 — Impuestos multi-tasa / multi-país
 
-> Estado: **plan abierto** (2026-08-07). Basado en auditoría de 3 agentes
-> (backend, frontend, reportes/fiscal). D1–D4 pendientes del owner.
+> Estado: **plan CERRADO, en ejecución** (2026-08-08). Basado en auditoría de
+> 3 agentes (backend, frontend, reportes/fiscal). D1–D4 cerradas por el owner
+> 2026-08-08: D1 redondeo por línea al decimal del tenant · D2 kind
+> rate/exempt · D3 histórico queda como está (son demos, sin backfill) ·
+> D4 renombre con alias sin migrar plantillas.
 > Requerimiento: el sistema apunta a toda LATAM — tasas NO fijas, con opción
 > global de IVA incluido en el precio o sumado al precio.
 
