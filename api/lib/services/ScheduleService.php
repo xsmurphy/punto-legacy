@@ -239,8 +239,12 @@ final class ScheduleService
 
                 // Sub-query de sesiones agendadas para este paquete (type 13).
                 $sessions = [];
+                // Columnas que lee el loop de abajo ($sf[...]) — `$db->Execute` es raw,
+                // sin Query::flattenJsonb, no hace falta conservar meta/data/config.
                 $sRs      = $db->Execute(
-                    'SELECT * FROM transaction
+                    'SELECT transactionId, transactionStatus, fromDate, toDate, userId,
+                            customerId, invoiceNo, invoicePrefix
+                       FROM transaction
                       WHERE transactionType = 13 AND customerId = ? AND companyId = ? AND packageId = ?
                       LIMIT 50',
                     [$customerId, $companyId, $itemSoldId]
@@ -319,8 +323,13 @@ final class ScheduleService
         $params[] = $companyId;
         $where[]  = 'transactionStatus != 7';
 
+        // Columnas que lee el loop de abajo ($f[...]). `$db->Execute` es raw (no pasa
+        // por Query::flattenJsonb) — se mantiene `meta` porque el loop la lee directo
+        // vía json_decode($f['meta']) para armar `details` (txDetailsFromMeta).
+        $cols = 'transactionId, transactionStatus, customerId, transactionName, meta,
+                 fromDate, toDate, transactionComplete, invoicePrefix, invoiceNo, transactionType';
         $rs = $db->Execute(
-            'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
+            "SELECT $cols FROM transaction WHERE " . implode(' AND ', $where)
             . ' ORDER BY fromDate DESC LIMIT ' . (int) $limit,
             $params
         );
@@ -457,7 +466,14 @@ final class ScheduleService
         }
         $inPlaceholders = implode(',', array_fill(0, count($userIds), '?'));
 
-        $sql = "SELECT * FROM transaction
+        // ncmExecute(forceObj=true) más abajo pasa por Query::flattenJsonb — se
+        // mantiene `meta` explícita porque `transactionDetails` vive ahí (§22.6) y
+        // el loop de abajo la lee como columna virtual ($f['transactionDetails']),
+        // no como `$f['meta']`. Sin la columna `meta` en el SELECT, el flatten no
+        // tiene qué aplanar y `transactionDetails` desaparece en silencio.
+        $sql = "SELECT transactionId, transactionType, transactionStatus, userId, responsibleId,
+                       customerId, fromDate, toDate, transactionTotal, transactionNote, meta
+                  FROM transaction
                  WHERE transactionType   = 13
                    AND transactionStatus NOT IN (4, 5)
                    AND userId IN ($inPlaceholders)

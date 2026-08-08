@@ -186,12 +186,18 @@ final class OrderService
     {
         global $db;
 
+        // Columnas que leen getTableClose/getTableDetail vía $f[...] (union de ambos
+        // consumidores). `$db->Execute` es raw (no pasa por Query::flattenJsonb), así
+        // que `meta` se selecciona tal cual y se lee como JSON crudo — no hay riesgo
+        // de aplanado acá, pero igual hay que listarla porque se usa directo.
+        $cols = 'transactionId, transactionName, transactionDate, invoiceNo, meta';
+
         if ($kind === 'customer') {
             $rs    = $db->Execute(
-                'SELECT * FROM transaction
+                "SELECT $cols FROM transaction
                   WHERE outletId = ? AND transactionType = 12
                     AND transactionStatus IN (0,1,2,3,5) AND customerId = ?
-                  LIMIT 500',
+                  LIMIT 500",
                 [$outletId, $t]
             );
             $table = '';
@@ -203,10 +209,10 @@ final class OrderService
             $table = '';
         } else {
             $rs    = $db->Execute(
-                'SELECT * FROM transaction
+                "SELECT $cols FROM transaction
                   WHERE outletId = ? AND transactionType = 12
                     AND transactionStatus IN (0,1,2,3,5) AND transactionName = ?
-                  LIMIT 500',
+                  LIMIT 500",
                 [$outletId, $t]
             );
             $table = $t;
@@ -442,7 +448,11 @@ final class OrderService
             $limit    = 1500;
         }
 
-        $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
+        // Columnas que lee el loop de abajo ($f[...]) — `$db->Execute` es raw, sin
+        // Query::flattenJsonb, así que no hace falta conservar `meta`/`data`/`config`.
+        $cols = 'transactionId, transactionStatus, customerId, transactionDate,
+                 invoicePrefix, invoiceNo, transactionTotal, transactionType';
+        $sql = "SELECT $cols FROM transaction WHERE " . implode(' AND ', $where)
              . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit;
         $rs  = $db->Execute($sql, $params);
 

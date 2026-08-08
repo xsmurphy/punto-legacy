@@ -31,18 +31,27 @@ final class PurchasesService
     /** Cabeceras (tab "Compra o Gasto"). $filters: ['supId','singleRow']. */
     public function general(array $filters, $from, $to, string $roc, string $companyId): array
     {
+        // Columnas que lee el loop de abajo ($f[...]/$r[...]). ncmExecute(forceObj=true)
+        // pasa por Query::flattenJsonb, pero ninguna key usada acá vive en meta/data/config
+        // (todas son columnas reales — categoryTransId ya se selecciona por nombre en
+        // detail() más abajo, así que sabemos que existe como columna en PG).
+        $cols = "transactionId, transactionType, transactionStatus, transactionComplete,
+                 transactionDate, transactionDueDate, invoicePrefix, invoiceNo, transactionNote,
+                 transactionPaymentType, categoryTransId, transactionTax, transactionDiscount,
+                 transactionTotal, supplierId, userId, outletId";
+
         if ($filters['singleRow']) {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (" . self::TX_TYPES . ") AND transactionId = ?" . $roc . "
                     ORDER BY transactionDate DESC";
             $params = [$filters['singleRow']];
         } elseif ($filters['supId']) {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (" . self::TX_TYPES . ") AND transactionStatus <> 6 AND supplierId = ?" . $roc . "
                     ORDER BY transactionDate DESC LIMIT 2000";
             $params = [$filters['supId']];
         } else {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (" . self::TX_TYPES . ") AND transactionStatus <> 6
                     AND transactionDate BETWEEN ? AND ?" . $roc . "
                     ORDER BY transactionDate DESC LIMIT 2000";
@@ -122,13 +131,17 @@ final class PurchasesService
     /** Pagos a proveedores (tipo 5). $filters: ['supId']. */
     public function cobros(array $filters, $from, $to, string $roc, string $companyId): array
     {
+        // Columnas que lee el loop de abajo ($f[...]) — ninguna vive en meta/data/config.
+        $cols = "transactionId, transactionType, userId, outletId, invoiceNo,
+                 transactionDate, transactionNote, transactionPaymentType, transactionTotal";
+
         if ($filters['supId']) {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (5) AND supplierId = ?" . $roc . "
                     ORDER BY transactionDate DESC LIMIT 2000";
             $params = [$filters['supId']];
         } else {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (5)
                     AND transactionDate BETWEEN ? AND ?" . $roc . "
                     ORDER BY transactionDate DESC LIMIT 2000";

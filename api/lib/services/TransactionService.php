@@ -896,7 +896,11 @@ final class TransactionService
             $limit    = 1500;
         }
 
-        $sql = 'SELECT * FROM transaction WHERE ' . implode(' AND ', $where)
+        // Columnas que lee el loop de abajo ($f[...]) — `$this->db->Execute` es raw,
+        // sin Query::flattenJsonb, así que no hace falta conservar `meta`/`data`/`config`.
+        $cols = 'transactionId, transactionStatus, customerId, transactionName, transactionDate,
+                 invoicePrefix, invoiceNo, transactionTotal, transactionType';
+        $sql = "SELECT $cols FROM transaction WHERE " . implode(' AND ', $where)
              . ' ORDER BY transactionDate DESC LIMIT ' . (int) $limit;
         $rs  = $this->db->Execute($sql, $params);
 

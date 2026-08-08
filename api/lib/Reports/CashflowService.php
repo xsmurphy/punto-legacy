@@ -93,7 +93,9 @@ final class CashflowService
      */
     private function receivedPayments($typePay, $typeTrans, $roc, $from, $to, $companyId): float
     {
-        $sql = "SELECT * FROM transaction
+        // Sólo se leen transactionId (batch de origen vía transaction_link) y
+        // transactionTotal (suma) — ninguna vive en meta/data/config.
+        $sql = "SELECT transactionId, transactionTotal FROM transaction
                 WHERE transactionType IN (" . (int) $typePay . ")
                 AND transactionDate BETWEEN ? AND ? " . $roc . "
                 ORDER BY transactionDate DESC";
