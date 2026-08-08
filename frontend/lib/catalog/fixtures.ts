@@ -9,7 +9,7 @@
  * En producción, el store se hidrata desde `/api/pos/bootstrap`.
  */
 
-import type { PosItem, PosCustomer, PosConfig, PosRegister, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosRegister, PosTaxRate, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 
 // ── Config de tenant ──────────────────────────────────────────────────────────
 
@@ -362,6 +362,17 @@ export const fixtureItems: PosItem[] = [
   },
 ]
 
+// ── Impuestos (F2b, context/38) ──────────────────────────────────────────────
+// Todos los items del fixture usan "tax-1" (IVA 10%, incluido) — matchea el
+// modelo paraguayo que ya asumía el TAX_RATE hardcodeado que este fixture
+// reemplaza.
+
+export const fixtureTaxes: PosTaxRate[] = [
+  { id: "tax-1", rate: 10, kind: "rate" },
+]
+
+export const fixtureOutletTaxIncluded = true
+
 // ── Clientes ──────────────────────────────────────────────────────────────────
 
 export const fixtureCustomers: PosCustomer[] = [
@@ -446,4 +457,6 @@ export const fixtureBootstrap = {
   outlet: { id: "out-1", name: "Central", lat: -25.2637, lng: -57.6359 },
   // Lista completa de sucursales (para el selector de setup en fixtures).
   outlets: [{ id: "out-1", name: "Central" }],
+  taxes: fixtureTaxes,
+  outletTaxIncluded: fixtureOutletTaxIncluded,
 }

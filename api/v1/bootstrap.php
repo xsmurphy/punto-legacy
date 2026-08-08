@@ -89,6 +89,13 @@ $activeOutletAddress     = '';
 $activeOutletBillingName = '';
 $activeOutletTin         = '';
 $activeOutletPhone       = '';
+// Default incluido/añadido del IVA para la sucursal activa (F2b, context/38
+// §Reglas LATAM "Incluido vs añadido"). `itemsTaxIncluded` vive DEMOTED a
+// `data` JSONB (OutletsService) — la fila ya viene aplanada por el SELECT de
+// abajo (mismo criterio que outletAddress/outletBillingName acá al lado).
+// Default true si el outlet nunca lo configuró: mismo default fiscal que
+// OutletsService::create() y que SaleService::enrichWithTaxes().
+$activeOutletTaxIncluded = true;
 if ($outletsRs && is_object($outletsRs)) {
     while (!$outletsRs->EOF) {
         $f    = $outletsRs->fields;
@@ -108,6 +115,21 @@ if ($outletsRs && is_object($outletsRs)) {
             $activeOutletBillingName = (string) ($f['outletBillingName'] ?? $f['outletbillingname'] ?? '');
             $activeOutletTin         = (string) ($f['outletRUC'] ?? $f['outletruc'] ?? '');
             $activeOutletPhone       = (string) ($f['outletPhone'] ?? $f['outletphone'] ?? '');
+            // El JSONB puede haber guardado el booleano como STRING ("false",
+            // "0") según quién lo haya escrito — (bool) "false" === true en
+            // PHP, así que un outlet en modo "IVA no incluido" se leería mal
+            // acá (mismo bug ya cazado dos veces, ver SaleService::toBoolOrNull).
+            // FILTER_VALIDATE_BOOLEAN con FILTER_NULL_ON_FAILURE trata
+            // ausente/no-parseable como "sin configurar" → default true.
+            $rawTaxIncluded = $f['itemsTaxIncluded'] ?? $f['itemstaxincluded'] ?? null;
+            if ($rawTaxIncluded !== null && $rawTaxIncluded !== '') {
+                $parsed = is_bool($rawTaxIncluded)
+                    ? $rawTaxIncluded
+                    : filter_var((string) $rawTaxIncluded, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                if ($parsed !== null) {
+                    $activeOutletTaxIncluded = $parsed;
+                }
+            }
         }
         $outletsRs->MoveNext();
     }
@@ -179,6 +201,10 @@ apiOk([
     'activeOutletBillingName' => $activeOutletBillingName,
     'activeOutletTin'         => $activeOutletTin,
     'activeOutletPhone'       => $activeOutletPhone,
+    // Default incluido/añadido del IVA de la sucursal activa (F2b,
+    // context/38). El POS lo usa para las líneas cuyo ítem no trae override
+    // propio — mismo fallback que SaleService::enrichWithTaxes.
+    'activeOutletTaxIncluded' => $activeOutletTaxIncluded,
     'outlets'          => $outlets,
     // Cantidad de usuarios (type=0) activos del tenant — usado por el POS
     // para auto-activar el lock screen al entrar cuando hay > 1 usuario

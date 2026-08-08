@@ -22,7 +22,7 @@
  */
 
 import { create } from "zustand"
-import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosUser, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosTaxRate, PosUser, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 
 export type CatalogStatus = "idle" | "loading" | "ready" | "error"
 
@@ -43,6 +43,18 @@ interface CatalogState {
   users: PosUser[]
   /** UUID de la caja activa. '' = sin caja seleccionada (guard la pide). */
   activeRegisterId: string
+  /**
+   * Tasas de impuesto del tenant (F2b, context/38) — el carrito las busca
+   * por `taxId` para calcular el IVA con `lib/tax/engine.ts`. Viaja con el
+   * snapshot offline igual que `items`/`config`: es solo el bootstrap
+   * cacheado, sin fetch propio.
+   */
+  taxes: PosTaxRate[]
+  /**
+   * Default incluido/añadido de la sucursal activa. Fallback cuando
+   * `PosItem.taxIncluded` (o `CartLine.taxIncluded`) es `null`.
+   */
+  outletTaxIncluded: boolean
 
   // ── Acciones ──────────────────────────────────────────────────────────────
 
@@ -60,6 +72,14 @@ interface CatalogState {
     paymentMethods: PaymentMethodConfig[]
     users: PosUser[]
     activeRegisterId: string
+    /**
+     * Opcionales: un bootstrap cacheado ANTES de F2b (service worker /
+     * react-query con TTL largo) no los trae. `hydrate` degrada a `[]`/`true`
+     * — el carrito cae al fallback "sin tasa conocida → exenta" hasta que se
+     * refresque el bootstrap real.
+     */
+    taxes?: PosTaxRate[]
+    outletTaxIncluded?: boolean
   }) => void
 
   /** Actualiza un cliente en memoria tras un CREATE/UPDATE exitoso. */
@@ -90,6 +110,8 @@ const initialState = {
   paymentMethods: [] as PaymentMethodConfig[],
   users: [] as PosUser[],
   activeRegisterId: "",
+  taxes: [] as PosTaxRate[],
+  outletTaxIncluded: true,
 }
 
 export const useCatalogStore = create<CatalogState>()((set) => ({
@@ -108,6 +130,12 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       paymentMethods: data.paymentMethods,
       users: data.users,
       activeRegisterId: data.activeRegisterId,
+      // Bootstrap cacheado viejo sin estos campos (ver JSDoc de `hydrate`) →
+      // degradación: [] hace que toda línea sin tasa conocida caiga a
+      // exenta; `true` es el mismo default fiscal que usa el backend cuando
+      // el outlet nunca configuró itemsTaxIncluded.
+      taxes: data.taxes ?? [],
+      outletTaxIncluded: data.outletTaxIncluded ?? true,
     })
   },
 

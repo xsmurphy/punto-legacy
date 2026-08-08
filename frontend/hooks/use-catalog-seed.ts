@@ -43,6 +43,8 @@ export function useCatalogSeed() {
         users: [],
         // En fixtures el guard no debe bloquear: auto-seleccionamos la primera caja.
         activeRegisterId: fixtureBootstrap.registers[0]?.id ?? "",
+        taxes: fixtureBootstrap.taxes,
+        outletTaxIncluded: fixtureBootstrap.outletTaxIncluded,
       })
       // Seed de hotkeys de ejemplo (solo si no hay config persistida).
       if (useHotkeysStore.getState().hotkeys.length === 0) {
@@ -66,6 +68,8 @@ export function useCatalogSeed() {
         paymentMethods: bootstrap.paymentMethods,
         users: bootstrap.users ?? [],
         activeRegisterId: bootstrap.activeRegisterId,
+        taxes: bootstrap.taxes,
+        outletTaxIncluded: bootstrap.outletTaxIncluded,
       })
     }
   }, [status, hydrate, bootstrap])

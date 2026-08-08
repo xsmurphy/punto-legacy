@@ -29,6 +29,7 @@ import type {
   PosCustomer,
   PosItem,
   PosRegister,
+  PosTaxRate,
   PosUser,
   PaymentMethodConfig,
 } from "@/lib/types/pos-bootstrap"
@@ -126,6 +127,23 @@ interface UpstreamBootstrap {
   activeOutletBillingName?: string
   activeOutletTin?: string
   activeOutletPhone?: string
+  /**
+   * Default incluido/añadido del IVA de la sucursal activa (F2b,
+   * context/38). Ausente = bootstrap upstream viejo (deploy no coordinado);
+   * el reshaper cae a `true`, mismo default fiscal que el backend.
+   */
+  activeOutletTaxIncluded?: boolean
+}
+
+// Fila de /v1/taxes — ver TaxService::present() (F0, tabla `tax`).
+interface UpstreamTaxRow {
+  id: string
+  rate: number | string | null
+  kind: "rate" | "exempt" | string
+}
+
+interface UpstreamTaxesList {
+  taxes: UpstreamTaxRow[]
 }
 
 interface UpstreamRegisterRow {
@@ -291,7 +309,10 @@ function reshapeItem(row: UpstreamItemRow): PosItem {
     name: row.itemName,
     sku: row.itemSKU ?? null,
     price: Number(row.itemPrice ?? 0),
-    taxIncluded: row.itemTaxIncluded ?? true,
+    // `?? true` perdía la distinción "sin override" vs "explícitamente
+    // incluido" — el carrito necesita el `null` para caer al default de la
+    // sucursal (ver PosItem.taxIncluded, F2b context/38). NO defaultear acá.
+    taxIncluded: row.itemTaxIncluded ?? null,
     taxId: row.taxId ?? null,
     categoryId: row.categoryId ?? null,
     categoryName: row.categoryName ?? null,
@@ -316,6 +337,18 @@ function reshapeItem(row: UpstreamItemRow): PosItem {
     stock: null,
     isGroup: row.itemIsParent === true,
     parentId: row.itemParentId ?? null,
+  }
+}
+
+// rate llega NUMERIC de PG → puede venir string vía PDO (mismo motivo que
+// toFiniteNumber arriba). kind fuera de la unión conocida (dato corrupto,
+// nunca debería pasar post-mig 120) → "exempt", el default fiscal seguro.
+function reshapeTax(row: UpstreamTaxRow): PosTaxRate {
+  const rate = typeof row.rate === "number" ? row.rate : Number(row.rate ?? 0)
+  return {
+    id: row.id,
+    rate: Number.isFinite(rate) ? rate : 0,
+    kind: row.kind === "rate" ? "rate" : "exempt",
   }
 }
 
@@ -399,8 +432,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let registersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamRegisterList>>>
   let usersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamUsersList>>>
   let paymentMethodsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamPaymentMethodsList>>>
+  let taxesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamTaxesList>>>
   try {
-    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes] = await Promise.all([
+    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes, taxesRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
@@ -432,6 +466,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         headers,
       ).catch((err) => {
         console.warn("[bff /api/pos/bootstrap] payment-methods fetch falló (degradando a fallback)", {
+          err: err instanceof Error ? err.message : String(err),
+        })
+        return { status: 0, data: null, rawText: "" }
+      }),
+      // Mismo criterio que payment-methods: `/v1/taxes` no debe poder tumbar
+      // el bootstrap entero. Si falla (red/timeout/401 de un token viejo sin
+      // el realm ampliado), degradar a lista vacía — el carrito ya sabe tratar
+      // un `taxId` sin match como exento (fallback fiscal seguro, F2b).
+      fetchUpstream<UpstreamTaxesList>(base, "/v1/taxes", headers).catch((err) => {
+        console.warn("[bff /api/pos/bootstrap] taxes fetch falló (degradando a [])", {
           err: err instanceof Error ? err.message : String(err),
         })
         return { status: 0, data: null, rawText: "" }
@@ -639,6 +683,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     paymentMethods,
     users: reshapeUsers(usersRes.data, usersRes.status),
     activeRegisterId: bs.activeRegisterId ?? "",
+    // F2b (context/38): tasas del tenant + default de la sucursal, para que
+    // el carrito calcule el IVA con el motor en vez del TAX_RATE hardcodeado.
+    // `taxesRes.data` null (fetch degradado arriba) → [] — el carrito trata
+    // toda línea sin match de tasa como exenta, nunca inventa una.
+    taxes: (taxesRes.data?.taxes ?? []).map(reshapeTax),
+    outletTaxIncluded: bs.activeOutletTaxIncluded ?? true,
   }
 
   return NextResponse.json(bootstrap)

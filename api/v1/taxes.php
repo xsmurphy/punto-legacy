@@ -12,10 +12,10 @@
  * número → kind='rate'; sin número → kind='exempt', rate=0). Ver
  * TaxService::resolveRateKind().
  *
- * Auth: panel (admin del catálogo). POS sigue leyendo de `taxonomy` con
- * sync automático vía trigger PG bidireccional — facturación electrónica
- * NO se afecta porque getTaxValue() lee taxonomyName que sigue siendo
- * sincronizado.
+ * Auth: GET panel + pos-app (F2b — el carrito del POS lee las tasas para el
+ * IVA mostrado); POST/PUT/DELETE solo panel (admin del catálogo). Los
+ * lectores legacy de `taxonomy` siguen vivos vía el trigger PG bidireccional
+ * — getTaxValue() lee taxonomyName, que sigue sincronizado.
  *
  * F0 del plan de impuestos multi-país (context/38). Tabla `tax`
  * (migration 23 + 120).
@@ -23,9 +23,14 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx       = apiAuthTenant(['panel']);
-$companyId = $ctx['companyId'];
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+// F2b (context/38): el carrito del POS lee las tasas del tenant para calcular
+// el IVA mostrado (mismo criterio que TaxEngine server-side) — el device del
+// POS solo tiene Bearer realm `pos-app`, sin cookie `_jwt_panel`. Mismo
+// patrón que /v1/payment-methods: se abre SOLO el método de lectura; altas/
+// bajas/ediciones de impuestos siguen siendo exclusivas del panel.
+$ctx       = apiAuthTenant($method === 'GET' ? ['panel', 'pos-app'] : ['panel']);
+$companyId = $ctx['companyId'];
 $id        = $_GET['id'] ?? null;
 
 global $db;

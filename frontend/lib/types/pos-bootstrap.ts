@@ -103,8 +103,15 @@ export interface PosItem {
   name: string
   sku: string | null
   price: number
-  /** Precio incluye impuesto. */
-  taxIncluded: boolean
+  /**
+   * Override de "precio incluye impuesto" a nivel ítem (`itemTaxIncluded`).
+   * `null` = el ítem no define override propio → el carrito cae al default
+   * de la sucursal (`PosBootstrap.outletTaxIncluded`), mismo criterio que
+   * `SaleService::enrichWithTaxes` en el backend (F2a, context/38). NO
+   * defaultear acá a `true` — perdería la distinción entre "sin configurar"
+   * y "explícitamente incluido", justo lo que el backend sí preserva.
+   */
+  taxIncluded: boolean | null
   taxId: string | null
   /** Categoría principal (para la grilla de categorías del POS). */
   categoryId: string | null
@@ -138,6 +145,21 @@ export interface PosItem {
   isGroup: boolean
   /** UUID del padre si este item es hijo de un grupo (itemParentId). null si es top-level. */
   parentId: string | null
+}
+
+// ── Impuestos del tenant (F2b, context/38) ───────────────────────────────────
+
+/**
+ * Tasa de impuesto del comercio, tal como vive en la tabla `tax` (F0). El
+ * carrito la busca por `PosItem.taxId` para armar la línea que consume
+ * `lib/tax/engine.ts::computeTaxes` — reemplaza el `TAX_RATE` hardcodeado.
+ */
+export interface PosTaxRate {
+  id: string
+  /** Porcentaje (ej. 10, 5, 21). Irrelevante si `kind === "exempt"`. */
+  rate: number
+  /** `exempt` ≠ tasa 0% — distinción fiscal (MX/CO). Ver context/38 §Reglas LATAM. */
+  kind: "rate" | "exempt"
 }
 
 // ── Cliente (para búsqueda en el POS) ────────────────────────────────────────
@@ -209,4 +231,12 @@ export interface PosBootstrap {
   users: PosUser[]
   /** UUID de la caja activa en el claim del JWT. '' = sin caja seleccionada. */
   activeRegisterId: string
+  /** Tasas de impuesto del tenant (F0, tabla `tax`). Ver `PosTaxRate`. */
+  taxes: PosTaxRate[]
+  /**
+   * Default incluido/añadido del IVA de la sucursal activa
+   * (`outlet.itemsTaxIncluded`). Fallback cuando `PosItem.taxIncluded` es
+   * `null` — mismo criterio que el backend (`SaleService::enrichWithTaxes`).
+   */
+  outletTaxIncluded: boolean
 }

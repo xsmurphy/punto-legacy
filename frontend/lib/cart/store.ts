@@ -23,7 +23,8 @@ import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { Order, Fulfillment } from "@/hooks/use-orders"
 import type { CustomerAddress } from "@/lib/types/contact"
-import { lineGross, TAX_RATE as ALLOC_TAX_RATE } from "@/lib/cart/allocate-discounts"
+import { allocateLineDiscounts, lineGross, TAX_RATE as ALLOC_TAX_RATE } from "@/lib/cart/allocate-discounts"
+import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,22 @@ export interface CartLine {
     voucherId: string
     code: string
   }
+  /**
+   * Impuesto del ítem al momento de agregarse (F2b, context/38) — se busca
+   * en `useCatalogStore.taxes` por este id dentro de `selectCartIva`. `null`
+   * = sin taxId (ítem sin impuesto en catálogo, o línea armada por un flujo
+   * que todavía no lo propaga — ver `loadFromOrder`/`applyVoucher`/
+   * `GiftcardIssueDialog`). El motor trata esa línea como exenta, NUNCA
+   * inventa una tasa.
+   */
+  taxId?: string | null
+  /**
+   * Override de "precio incluye impuesto" del ítem al momento de agregarse.
+   * `null` = sin override → `selectCartIva` cae al default de la sucursal
+   * (`useCatalogStore.outletTaxIncluded`). Mismo criterio que
+   * `PosItem.taxIncluded` / `SaleService::enrichWithTaxes`.
+   */
+  taxIncluded?: boolean | null
 }
 
 /** Un ítem del vale, tal como lo devuelve `POST /v1/vouchers?resource=validate`. */
@@ -137,10 +154,18 @@ export type SettlementIntent =
   | { sessionId: string; kind: "share"; shareCount: number; shareIndex: number }
 
 /**
- * Tasa del IVA — reexportada desde `lib/cart/allocate-discounts.ts`, que es
- * donde vive la fórmula compartida con el payload de la venta. TODO: cuando el
- * catálogo exponga `taxRate` por item (y el config del tenant el modo
- * "incluido / no incluido"), derivarlo de ahí — soporta multi-tax y otros países.
+ * Tasa de IVA hardcodeada (10%, modelo paraguayo) — reexportada desde
+ * `lib/cart/allocate-discounts.ts`. F2b (context/38) migró el IVA
+ * INFORMATIVO del carrito (`selectCartIva`) al motor real
+ * (`lib/tax/engine.ts`, por ítem/tasa del catálogo) — esta constante ya NO
+ * se usa para eso.
+ *
+ * Sigue viva para dos usos que NO tocamos en este slice porque afectan lo
+ * que se COBRA, no lo que se muestra (ver `lineGross` arriba y
+ * `create-sale.ts:299`): el neteo cuando el cajero activa "quitar IVA"
+ * (`ivaRemoved`). Ambos asumen precio de LISTA con impuesto incluido al
+ * 10% — mueren recién cuando el modo "impuesto añadido"/multi-tasa llegue al
+ * PRECIO del carrito, no solo a su display (F3+, fuera de alcance acá).
  */
 const TAX_RATE = ALLOC_TAX_RATE
 
@@ -243,17 +268,57 @@ export const selectCartTotal = (s: CartState): number => {
 }
 
 /**
- * IVA contenido en la venta (informativo del chip "Gs <iva>").
- * Si ivaRemoved=true, devuelve 0 (el cajero acaba de removerlo).
- * Si no, IVA = total * rate / (1+rate) — para 10%: total/11.
+ * IVA contenido en la venta (informativo del chip "Gs <iva>"). F2b
+ * (context/38 §Arquitectura→D): muere el TAX_RATE hardcodeado — cada línea
+ * se calcula con SU tasa real (`useCatalogStore.taxes`, buscada por
+ * `line.taxId`) y SU modo incluido/añadido (`line.taxIncluded` o el default
+ * de la sucursal), vía el mismo motor (`lib/tax/engine.ts`) que el backend
+ * usa para congelar el impuesto al confirmar la venta — el chip deja de
+ * divergir del monto que realmente persiste.
+ *
+ * Lee el catálogo con `getState()` (no un hook): mismo patrón síncrono que
+ * `loadFromOrder` más abajo. NO es un fetch — es memoria ya hidratada por
+ * el bootstrap; el carrito es offline-first, nunca golpea red acá.
+ *
+ * ivaRemoved=true → 0 directo: equivale a correr el motor con cada línea en
+ * `taxKind: "exempt"` (tax siempre 0 ahí), pero sin el trabajo — mismo
+ * criterio que `SaleService::enrichWithTaxes` cuando ivaRemoved.
+ *
+ * Línea sin `taxId`, o con un `taxId` que no matchea ninguna tasa del
+ * catálogo (línea armada por un flujo que todavía no la propaga, o tasa
+ * borrada del catálogo después de agregada) → exenta, monto 0. Nunca se
+ * inventa una tasa (mismo fallback fiscal que `deriveTaxRateKindFromName`
+ * en el backend).
  */
 export const selectCartIva = (s: CartState): number => {
   if (s.ivaRemoved) return 0
-  const totalWithTax = s.lines.reduce(
-    (sum, line) => sum + line.qty * line.unitPrice,
-    0,
-  )
-  return Math.round((totalWithTax * TAX_RATE) / (1 + TAX_RATE))
+
+  const { taxes, outletTaxIncluded, config } = useCatalogStore.getState()
+  const taxesById = new Map(taxes.map((t) => [t.id, t]))
+  // PY: 0 decimales: MX y demás LATAM con centavos: 2 — mismo criterio que
+  // SaleService::currencyDecimals() (D1, context/38).
+  const decimals = config?.decimal === "yes" ? 2 : 0
+
+  // Reusa la MISMA función que arma el payload de venta (create-sale.ts) para
+  // el descuento por línea (propio + prorrateo del descuento de venta) — así
+  // el `discount` que ve el motor acá es EXACTAMENTE el `totalDiscount` que
+  // el backend va a recibir y congelar, no una aproximación aparte que
+  // pudiera desviarse del monto real cobrado.
+  const allocations = allocateLineDiscounts(s.lines, s.saleDiscount, false)
+
+  const engineLines = s.lines.map((line, i) => {
+    const tax = line.taxId ? taxesById.get(line.taxId) : undefined
+    return {
+      qty: line.qty,
+      unitPrice: line.unitPrice,
+      discount: allocations[i].totalDiscount,
+      taxRate: tax?.rate ?? 0,
+      taxKind: (tax?.kind ?? "exempt") as TaxKind,
+      taxIncluded: line.taxIncluded ?? outletTaxIncluded,
+    }
+  })
+
+  return computeTaxes(engineLines, { decimals }).totals.tax
 }
 
 interface CartState {
@@ -434,6 +499,9 @@ interface CartState {
     price: number
     kind?: string
     discountPercent?: number | null
+    /** F2b (context/38): impuesto del ítem — ver `CartLine.taxId/taxIncluded`. */
+    taxId?: string | null
+    taxIncluded?: boolean | null
   }) => "added" | "discount-applied" | "discount-missing"
 
   /** Elimina una línea del carrito. */
@@ -707,6 +775,8 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         qty: 1,
         unitPrice: item.price,
         basePrice: item.price,
+        taxId: item.taxId ?? null,
+        taxIncluded: item.taxIncluded ?? null,
       })
 
       if (!state.mergeRepeated) {
@@ -975,26 +1045,36 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   },
 
   loadFromOrder: (order) => {
-    const { customers } = useCatalogStore.getState()
+    const { customers, items: catalogItems } = useCatalogStore.getState()
     const customer = order.customerId
       ? (customers.find((c) => c.id === order.customerId) ?? null)
       : null
 
     const newLines: CartLine[] = (order.items ?? [])
       .filter((oi) => oi.status !== "cancelled")
-      .map((oi) => ({
-        lineId: crypto.randomUUID(),
-        itemId: oi.itemId ?? "",
-        name: oi.name,
-        qty: oi.qty,
-        unitPrice: oi.price ?? 0,
-        // INVARIANTE: toda línea nace con `basePrice`. Sin él, `usePriceContext`
-        // cae a `unitPrice` como base y el precio ya resuelto se realimenta:
-        // resolver → unitPrice baja → cambia el lineKey → vuelve a resolver
-        // sobre el precio YA descontado. Ver applyResolvedPrices.
-        basePrice: oi.price ?? 0,
-        note: oi.note ?? undefined,
-      }))
+      .map((oi) => {
+        // `OrderItem` no viaja con datos de impuesto: se re-resuelven del
+        // catálogo por itemId al reconstruir la línea. Sin esto, el chip de
+        // IVA de una orden/mesa retomada mostraba 0 (selectCartIva trata la
+        // línea sin taxId como exenta). Solo afecta el display — el backend
+        // congela el impuesto real al persistir igual (enrichWithTaxes).
+        const cat = oi.itemId ? catalogItems.find((ci) => ci.id === oi.itemId) : undefined
+        return {
+          lineId: crypto.randomUUID(),
+          itemId: oi.itemId ?? "",
+          name: oi.name,
+          qty: oi.qty,
+          unitPrice: oi.price ?? 0,
+          // INVARIANTE: toda línea nace con `basePrice`. Sin él, `usePriceContext`
+          // cae a `unitPrice` como base y el precio ya resuelto se realimenta:
+          // resolver → unitPrice baja → cambia el lineKey → vuelve a resolver
+          // sobre el precio YA descontado. Ver applyResolvedPrices.
+          basePrice: oi.price ?? 0,
+          note: oi.note ?? undefined,
+          taxId: cat?.taxId ?? null,
+          taxIncluded: cat?.taxIncluded ?? null,
+        }
+      })
 
     set({
       ...initialState,
@@ -1034,7 +1114,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
   },
 
   loadFromSession: (sessionId, spaceName, orders) => {
-    const { customers } = useCatalogStore.getState()
+    const { customers, items: catalogItems } = useCatalogStore.getState()
 
     const billable = orders.filter(
       (o) => o.status !== "closed" && o.status !== "cancelled",
@@ -1053,16 +1133,24 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     for (const order of billable) {
       const orderLines: Omit<CartLine, "lineId">[] = (order.items ?? [])
         .filter((oi) => oi.status !== "cancelled")
-        .map((oi) => ({
-          itemId: oi.itemId ?? "",
-          name: oi.name,
-          qty: oi.qty,
-          unitPrice: oi.price ?? 0,
-          // Mismo invariante que loadFromOrder: sin `basePrice` el precio
-          // resuelto se realimenta y se descuenta una vez por ciclo.
-          basePrice: oi.price ?? 0,
-          note: oi.note ?? undefined,
-        }))
+        .map((oi) => {
+          // Igual que loadFromOrder: OrderItem no trae impuesto — se
+          // re-resuelve del catálogo para que el chip de IVA de la mesa no
+          // muestre 0. Display only; el backend congela el real al cobrar.
+          const cat = oi.itemId ? catalogItems.find((ci) => ci.id === oi.itemId) : undefined
+          return {
+            itemId: oi.itemId ?? "",
+            name: oi.name,
+            qty: oi.qty,
+            unitPrice: oi.price ?? 0,
+            // Mismo invariante que loadFromOrder: sin `basePrice` el precio
+            // resuelto se realimenta y se descuenta una vez por ciclo.
+            basePrice: oi.price ?? 0,
+            note: oi.note ?? undefined,
+            taxId: cat?.taxId ?? null,
+            taxIncluded: cat?.taxIncluded ?? null,
+          }
+        })
       for (const line of orderLines) {
         const last = newLines.at(-1)
         // Mismo criterio de merge que addLines: solo mergea con la ÚLTIMA
