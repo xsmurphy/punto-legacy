@@ -14,6 +14,11 @@ import {
 
 export interface RowAction {
   label: string
+  /**
+   * Se usa SOLO cuando la acción colapsa a botón suelto (única visible):
+   * ahí el icono ES el botón. Dentro del dropdown los ítems van sin icono
+   * (convención UI 2026-08-08: el menú de fila es texto solo).
+   */
   icon: LucideIcon
   /** Acción imperativa. Mutuamente excluyente con `href`. */
   onSelect?: () => void
@@ -91,48 +96,37 @@ export function RowActions({ actions }: RowActionsProps) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        {nonDestructive.map((action) => {
-          const Icon = action.icon
+        {nonDestructive.map((action) => (
           // `asChild` + `<a>` cuando la acción es navegar: el ítem sigue
           // siendo un link de verdad dentro del menú.
-          return (
-            <DropdownMenuItem
-              key={action.label}
-              disabled={action.disabled}
-              onSelect={action.onSelect}
-              asChild={action.href !== undefined}
-            >
-              {action.href !== undefined ? (
-                <a href={action.href} target={action.target} rel="noreferrer">
-                  <Icon className="size-4" />
-                  {action.label}
-                </a>
-              ) : (
-                <>
-                  <Icon className="size-4" />
-                  {action.label}
-                </>
-              )}
-            </DropdownMenuItem>
-          )
-        })}
+          <DropdownMenuItem
+            key={action.label}
+            disabled={action.disabled}
+            onSelect={action.onSelect}
+            asChild={action.href !== undefined}
+          >
+            {action.href !== undefined ? (
+              <a href={action.href} target={action.target} rel="noreferrer">
+                {action.label}
+              </a>
+            ) : (
+              action.label
+            )}
+          </DropdownMenuItem>
+        ))}
         {destructive.length > 0 && (
           <>
             {nonDestructive.length > 0 && <DropdownMenuSeparator />}
-            {destructive.map((action) => {
-              const Icon = action.icon
-              return (
-                <DropdownMenuItem
-                  key={action.label}
-                  variant="destructive"
-                  disabled={action.disabled}
-                  onSelect={action.onSelect}
-                >
-                  <Icon className="size-4" />
-                  {action.label}
-                </DropdownMenuItem>
-              )
-            })}
+            {destructive.map((action) => (
+              <DropdownMenuItem
+                key={action.label}
+                variant="destructive"
+                disabled={action.disabled}
+                onSelect={action.onSelect}
+              >
+                {action.label}
+              </DropdownMenuItem>
+            ))}
           </>
         )}
       </DropdownMenuContent>

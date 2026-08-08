@@ -203,7 +203,9 @@ export default function FinanzasChequesPage() {
               <RowActions
                 actions={[
                   ...nextOptions.map((s) => ({
-                    label: `Marcar como ${STATUS_LABELS[s]}`,
+                    // Sin prefijo "Marcar como": en el menú de acciones de la
+                    // fila el contexto ya es obvio (convención UI 2026-08-08).
+                    label: STATUS_LABELS[s],
                     icon: ArrowRightCircle,
                     onSelect: () => handleStatusChange(c, s),
                   })),
