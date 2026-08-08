@@ -360,6 +360,27 @@ export default function NewPurchasePage() {
             )}
           </Field>
 
+          {/* Método de pago pegado a Condición (owner 2026-08-08): es dato de
+              primera pasada, no puede quedar debajo de los datos de factura.
+              Solo aplica al contado — a crédito no hay pago al crear la compra,
+              se registra después como pago a proveedor. */}
+          {!isCredit && (
+            <Field label="Método de pago" id="paymentMethod">
+              <Select value={paymentMethodId} onValueChange={setPaymentMethodId}>
+                <SelectTrigger id="paymentMethod">
+                  <SelectValue placeholder="Seleccionar método" />
+                </SelectTrigger>
+                <SelectContent>
+                  {paymentMethods.map((m) => (
+                    <SelectItem key={m.id} value={m.id}>
+                      {m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+
           {/* Vencimiento SOLO en crédito: una compra al contado se paga en el
               momento, no vence (owner 2026-08-08). Al contado la fecha de
               factura ocupa el ancho completo en vez de dejar un hueco. */}
@@ -416,25 +437,6 @@ export default function NewPurchasePage() {
               </Field>
             </div>
           </div>
-
-          {/* Método de pago solo aplica al contado: en una compra a crédito no
-              hay pago al crearla, se registra después como pago a proveedor. */}
-          {!isCredit && (
-            <Field label="Método de pago" id="paymentMethod">
-              <Select value={paymentMethodId} onValueChange={setPaymentMethodId}>
-                <SelectTrigger id="paymentMethod">
-                  <SelectValue placeholder="Seleccionar método" />
-                </SelectTrigger>
-                <SelectContent>
-                  {paymentMethods.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          )}
 
           {/* Cheque emitido: banco/nro/vencimiento — nace el fin_check (F1, context/30). */}
           {isCheckMethod && (
