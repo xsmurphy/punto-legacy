@@ -22,20 +22,28 @@
 
 BEGIN;
 
+-- Localiza los CHECK de `kind` por la COLUMNA que referencian (con.conkey), no
+-- por el texto de su definición: Postgres normaliza `kind IN (...)` a
+-- `kind = ANY (ARRAY[...])` al guardarlo, así que buscar '%kind%IN%' no
+-- matcheaba nunca — ni siquiera en la primera corrida — y el ADD de abajo
+-- chocaba contra el nombre que la mig 115 ya había autogenerado
+-- (`transaction_link_kind_check`), tirando todos los deploys.
+-- `chk_transaction_link_no_self` no se toca: referencia originid/derivedid.
 DO $$
 DECLARE
   existing_check text;
 BEGIN
-  SELECT con.conname INTO existing_check
-    FROM pg_constraint con
-    JOIN pg_class rel ON rel.oid = con.conrelid
-   WHERE rel.relname = 'transaction_link'
-     AND con.contype = 'c'
-     AND pg_get_constraintdef(con.oid) ILIKE '%kind%IN%';
-
-  IF existing_check IS NOT NULL THEN
+  FOR existing_check IN
+    SELECT con.conname
+      FROM pg_constraint con
+      JOIN pg_class rel ON rel.oid = con.conrelid
+      JOIN pg_attribute att ON att.attrelid = rel.oid AND att.attnum = ANY (con.conkey)
+     WHERE rel.relname = 'transaction_link'
+       AND con.contype = 'c'
+       AND att.attname = 'kind'
+  LOOP
     EXECUTE format('ALTER TABLE transaction_link DROP CONSTRAINT %I', existing_check);
-  END IF;
+  END LOOP;
 END $$;
 
 ALTER TABLE transaction_link
