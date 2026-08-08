@@ -49,6 +49,39 @@ export function useUpdateTax() {
   })
 }
 
+/**
+ * Reordena los impuestos (drag&drop). PUT ?resource=reorder con
+ * { orderedIds }. El backend setea sortOrder=índice, scopeado por companyId.
+ * Optimista: reordena la cache al instante para que la fila no "rebote" al
+ * soltar; rollback si el PUT falla.
+ */
+export function useReorderTaxes() {
+  const qc = useQueryClient()
+  return useMutation<{ taxes: Tax[] }, Error, string[], { prev?: { taxes: Tax[] } }>({
+    mutationFn: (orderedIds) =>
+      api.put<{ taxes: Tax[] }>(
+        "/v1/taxes?resource=reorder",
+        { orderedIds } as unknown as Record<string, unknown>,
+      ),
+    onMutate: async (orderedIds) => {
+      await qc.cancelQueries({ queryKey: ["taxes"] })
+      const prev = qc.getQueryData<{ taxes: Tax[] }>(["taxes"])
+      if (prev) {
+        const byId = new Map(prev.taxes.map((t) => [t.id, t]))
+        const next = orderedIds
+          .map((id) => byId.get(id))
+          .filter((t): t is Tax => t !== undefined)
+        qc.setQueryData(["taxes"], { taxes: next })
+      }
+      return { prev }
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["taxes"], ctx.prev)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["taxes"] }),
+  })
+}
+
 export function useDeleteTax() {
   const qc = useQueryClient()
   return useMutation<{ deleted: boolean }, Error, string>({

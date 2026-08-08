@@ -117,6 +117,17 @@ export function LineRow({
   const { data: taxes } = useTaxes()
   const taxOptions = taxes?.taxes ?? []
 
+  // Línea sin impuesto elegido → default al PRIMER impuesto del tenant.
+  // La lista viene ordenada por sortOrder (drag&drop en Settings → Catálogo →
+  // Impuestos), así el comercio decide cuál es su default arrastrándolo arriba.
+  // No pisa nada explícito: taxId "0" ("Sin impuesto") o un id real son truthy.
+  const firstTaxId = taxOptions[0]?.id
+  React.useEffect(() => {
+    if (line.taxId || !firstTaxId) return
+    onChange({ taxId: firstTaxId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [line.taxId, firstTaxId])
+
   React.useEffect(() => {
     if (!line.taxId) return
     const t = taxOptions.find((tx) => tx.id === line.taxId)

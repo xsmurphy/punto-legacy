@@ -16,6 +16,9 @@ export interface Tax {
   /** 'rate' = porcentaje real; 'exempt' = exento (rate=0 sin ser un 0% real). */
   kind: TaxKind
   extra: string | null
+  /** Orden manual (drag&drop en Catálogo, mig 121). null = sin ordenar —
+   *  el backend cae a orden alfabético por name (NULLS LAST). */
+  sortOrder: number | null
   created_at: string | null
   updated_at: string | null
 }

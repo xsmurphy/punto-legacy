@@ -52,18 +52,38 @@ export function useUpdatePaymentMethod() {
 /**
  * Reordena los medios de pago (drag&drop). PUT ?resource=reorder con
  * { orderedIds }. El backend setea sortOrder=índice, scopeado por companyId.
+ * Optimista: reordena la cache al instante para que la fila no "rebote" al
+ * soltar; rollback si el PUT falla.
  */
 export function useReorderPaymentMethods() {
   const qc = useQueryClient()
-  return useMutation<{ paymentMethods: PaymentMethod[] }, Error, string[]>({
+  return useMutation<
+    { paymentMethods: PaymentMethod[] },
+    Error,
+    string[],
+    { prev?: { paymentMethods: PaymentMethod[] } }
+  >({
     mutationFn: (orderedIds) =>
       api.put<{ paymentMethods: PaymentMethod[] }>(
         "/v1/payment-methods?resource=reorder",
         { orderedIds } as unknown as Record<string, unknown>,
       ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["payment-methods"] })
+    onMutate: async (orderedIds) => {
+      await qc.cancelQueries({ queryKey: ["payment-methods"] })
+      const prev = qc.getQueryData<{ paymentMethods: PaymentMethod[] }>(["payment-methods"])
+      if (prev) {
+        const byId = new Map(prev.paymentMethods.map((m) => [m.id, m]))
+        const next = orderedIds
+          .map((id) => byId.get(id))
+          .filter((m): m is PaymentMethod => m !== undefined)
+        qc.setQueryData(["payment-methods"], { paymentMethods: next })
+      }
+      return { prev }
     },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["payment-methods"], ctx.prev)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["payment-methods"] }),
   })
 }
 

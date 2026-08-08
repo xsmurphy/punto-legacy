@@ -34,7 +34,7 @@ final class TaxService
             'SELECT taxId, name, rate, kind, extra
                FROM tax
               WHERE companyId = ?
-              ORDER BY name
+              ORDER BY sortOrder NULLS LAST, name
               LIMIT ?',
             [$companyId, $limit]
         );
@@ -58,10 +58,10 @@ final class TaxService
     public function list(string $companyId, int $limit = 100): array
     {
         $rs = $this->db->Execute(
-            'SELECT taxId, name, rate, kind, extra, created_at, updated_at
+            'SELECT taxId, name, rate, kind, extra, sortOrder, created_at, updated_at
                FROM tax
               WHERE companyId = ?
-              ORDER BY name
+              ORDER BY sortOrder NULLS LAST, name
               LIMIT ?',
             [$companyId, $limit]
         );
@@ -76,7 +76,7 @@ final class TaxService
     public function find(string $companyId, string $taxId): ?array
     {
         $rs = $this->db->Execute(
-            'SELECT taxId, name, rate, kind, extra, created_at, updated_at
+            'SELECT taxId, name, rate, kind, extra, sortOrder, created_at, updated_at
                FROM tax
               WHERE taxId = ? AND companyId = ?
               LIMIT 1',
@@ -163,6 +163,60 @@ final class TaxService
         }
     }
 
+    /**
+     * Reordena los impuestos del tenant: setea sortOrder = índice según el
+     * orden de $orderedIds (mig 121, columna real — mismo criterio que el
+     * reorder de PaymentMethodService pero sin JSON). Valida que orderedIds
+     * sea una permutación EXACTA del set del tenant: sin reorder parcial y
+     * sin colar ids de otro comercio (el WHERE además scopea por companyId).
+     *
+     * @param string[] $orderedIds taxIds en el orden deseado
+     */
+    public function reorder(string $companyId, array $orderedIds): void
+    {
+        $ids = [];
+        foreach ($orderedIds as $id) {
+            $id = (string) $id;
+            if ($id !== '' && !in_array($id, $ids, true)) $ids[] = $id;
+        }
+        if ($ids === []) {
+            throw new \RuntimeException('orderedIds vacío');
+        }
+
+        $existing = [];
+        foreach ($this->list($companyId) as $t) {
+            $existing[(string) $t['id']] = true;
+        }
+        foreach ($ids as $id) {
+            if (!isset($existing[$id])) {
+                throw new \RuntimeException('orderedIds contiene un impuesto inexistente o de otro comercio');
+            }
+        }
+        if (count($ids) !== count($existing)) {
+            throw new \RuntimeException('orderedIds debe incluir todos los impuestos del comercio');
+        }
+
+        $this->db->StartTrans();
+        try {
+            $pos = 0;
+            foreach ($ids as $id) {
+                $ok = $this->db->Execute(
+                    'UPDATE tax SET sortOrder = ?, updated_at = NOW()
+                      WHERE taxId = ? AND companyId = ?',
+                    [$pos, $id, $companyId]
+                );
+                if ($ok === false) {
+                    throw new \RuntimeException('Falló el UPDATE de reorder');
+                }
+                $pos++;
+            }
+        } catch (\Throwable $e) {
+            $this->db->FailTrans();
+            throw new \RuntimeException('No se pudo reordenar los impuestos');
+        }
+        $this->db->CompleteTrans();
+    }
+
     public function delete(string $companyId, string $taxId): void
     {
         $ok = $this->db->Execute(
@@ -201,12 +255,15 @@ final class TaxService
             [$rate, $kind] = $this->deriveRateKindFromName($name);
         }
 
+        $sortOrder = $row['sortorder'] ?? $row['sortOrder'] ?? null;
+
         return [
             'id'         => (string) ($row['taxid'] ?? $row['taxId'] ?? ''),
             'name'       => $name,
             'rate'       => $rate,
             'kind'       => $kind,
             'extra'      => $row['extra'] ?? null,
+            'sortOrder'  => $sortOrder !== null ? (int) $sortOrder : null,
             'created_at' => $row['created_at'] ?? null,
             'updated_at' => $row['updated_at'] ?? null,
         ];

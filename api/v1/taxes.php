@@ -6,6 +6,7 @@
  *   GET    /v1/taxes?id=<uuid>    → detalle
  *   POST   /v1/taxes              → crea  (body: { name, rate?, kind?, extra? })
  *   PUT    /v1/taxes?id=<uuid>    → actualiza (partial)
+ *   PUT    /v1/taxes?resource=reorder → reordena (body: { orderedIds: [...] })
  *   DELETE /v1/taxes?id=<uuid>    → elimina
  *
  * rate/kind son opcionales: si no vienen se derivan de `name` (primer
@@ -57,6 +58,20 @@ switch ($method) {
         break;
 
     case 'PUT':
+        // Reorder: ?resource=reorder con body { orderedIds: [...] }. Scopeado a
+        // companyId dentro del service; nunca confía un companyId del cliente.
+        // Mismo patrón que /v1/payment-methods.
+        if (($_GET['resource'] ?? '') === 'reorder') {
+            $orderedIds = $_POST['orderedIds'] ?? [];
+            if (!is_array($orderedIds)) apiError('orderedIds debe ser un array', 422);
+            try {
+                $svc->reorder($companyId, $orderedIds);
+                apiOk(['taxes' => $svc->list($companyId)]);
+            } catch (\Throwable $e) {
+                apiError($e->getMessage(), 422);
+            }
+            break;
+        }
         if ($id === null) apiError('id requerido', 422);
         try {
             $svc->update($companyId, (string) $id, $_POST);

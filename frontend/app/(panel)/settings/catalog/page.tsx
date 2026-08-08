@@ -25,6 +25,7 @@ import {
 } from "@/hooks/use-brands"
 import {
   useTaxes,
+  useReorderTaxes,
   useCreateTax,
   useUpdateTax,
   useDeleteTax,
@@ -333,6 +334,7 @@ function TaxesTab() {
   ]
 
   const { data, isLoading } = useTaxes()
+  const reorder = useReorderTaxes()
 
   return (
     <CatalogManager<Tax, TaxPayload>
@@ -350,6 +352,19 @@ function TaxesTab() {
       getLabel={(row) => (row.rate !== null ? `${row.rate}%` : row.name)}
       emptyFormValues={{ name: "" }}
       exportFileName="impuestos"
+      reorderable={{
+        onReorder: (orderedIds) => reorder.mutate(orderedIds),
+        renderRow: (row) => (
+          <>
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {row.rate !== null ? `IVA ${row.rate}%` : row.name}
+            </span>
+            {row.kind === "exempt" && (
+              <span className="shrink-0 text-xs text-muted-foreground">Exento</span>
+            )}
+          </>
+        ),
+      }}
     />
   )
 }
