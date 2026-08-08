@@ -124,11 +124,19 @@ const TYPE_OPTIONS = [
 interface Props {
   open: boolean
   onOpenChange: (v: boolean) => void
+  /**
+   * Se dispara SOLO cuando el usuario descarta el modal (ESC, backdrop, botón
+   * cerrar) — no cuando se cierra porque una acción se llevó al cajero a otro
+   * lado (duplicar/facturar dejan items en el carrito). El menú del POS lo usa
+   * para volver a abrirse: entrar por menú → transacciones y cerrar tiene que
+   * devolver al menú, no al carrito.
+   */
+  onDismiss?: () => void
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
-export function PosTransactionsDialog({ open, onOpenChange }: Props) {
+export function PosTransactionsDialog({ open, onOpenChange, onDismiss }: Props) {
   const [searchInput, setSearchInput] = React.useState("")
   const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(undefined)
   const [calendarOpen, setCalendarOpen] = React.useState(false)
@@ -140,16 +148,19 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
 
   const { flat, isFetching, hasMore, fetchNextPage, error } = usePosTransactionsList({ q, date, type: typeFilter })
 
-  function handleClose() {
+  // `reason` distingue descartar de accionar: duplicar/facturar cierran el modal
+  // porque el cajero sigue en el carrito, y ahí reabrir el menú estorbaría.
+  function handleClose(reason: "dismiss" | "action" = "dismiss") {
     onOpenChange(false)
     setSearchInput("")
     setSelectedDate(undefined)
     setSelectedId(null)
     setTypeFilter(null)
+    if (reason === "dismiss") onDismiss?.()
   }
 
   return (
-    <Dialog open={open} onOpenChange={handleClose}>
+    <Dialog open={open} onOpenChange={() => handleClose("dismiss")}>
       {/* Bucket xl — modal split 2-col (lista + detalle) */}
       {/* Listado grande → fullscreen en mobile (opt-in del primitive). */}
       <DialogContent mobileFullscreen className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
@@ -185,7 +196,7 @@ export function PosTransactionsDialog({ open, onOpenChange }: Props) {
           <div className={cn("min-h-0", selectedId ? "flex flex-col" : "hidden md:flex md:flex-col")}>
             <TransactionDetail
               encId={selectedId}
-              onClose={handleClose}
+              onClose={() => handleClose("action")}
               onBack={() => setSelectedId(null)}
             />
           </div>

@@ -499,7 +499,11 @@ export function PosMainMenu() {
         </DialogContent>
       </Dialog>
       {/* Dialog de transacciones — fuera del Dialog del menú para no anidar modales */}
-      <PosTransactionsDialog open={transactionsOpen} onOpenChange={setTransactionsOpen} />
+      <PosTransactionsDialog
+        open={transactionsOpen}
+        onOpenChange={setTransactionsOpen}
+        onDismiss={() => setOpen(true)}
+      />
     </MenuContentCtx.Provider>
   )
 }
