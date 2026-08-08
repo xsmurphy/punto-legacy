@@ -1,0 +1,747 @@
+[
+  {
+    "description": "PY incluido: venta con líneas 10%, 5% y exenta mezcladas, decimals=0",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 11000,
+          "discount": 0,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": true
+        },
+        {
+          "qty": 1,
+          "unitPrice": 5250,
+          "discount": 0,
+          "taxRate": 5,
+          "taxKind": "rate",
+          "taxIncluded": true
+        },
+        {
+          "qty": 1,
+          "unitPrice": 3000,
+          "discount": 0,
+          "taxRate": 0,
+          "taxKind": "exempt",
+          "taxIncluded": true
+        }
+      ],
+      "config": {
+        "decimals": 0
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 10000,
+          "tax": 1000,
+          "gross": 11000
+        },
+        {
+          "net": 5000,
+          "tax": 250,
+          "gross": 5250
+        },
+        {
+          "net": 3000,
+          "tax": 0,
+          "gross": 3000
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10,
+          "taxKind": "rate",
+          "base": 10000,
+          "tax": 1000,
+          "gross": 11000
+        },
+        {
+          "taxRate": 5,
+          "taxKind": "rate",
+          "base": 5000,
+          "tax": 250,
+          "gross": 5250
+        },
+        {
+          "taxRate": 0,
+          "taxKind": "exempt",
+          "base": 3000,
+          "tax": 0,
+          "gross": 3000
+        }
+      ],
+      "totals": {
+        "net": 18000,
+        "tax": 1250,
+        "gross": 19250
+      }
+    },
+    "note": "L1 gross=11000, tax=round(11000*10/110)=1000, net=10000. L2 gross=5250, tax=round(5250*5/105)=250, net=5000. L3 exenta: base=3000, tax=0. Totales = suma de líneas: net 18000, tax 1250, gross 19250."
+  },
+  {
+    "description": "MX añadido 16%, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 100,
+          "discount": 0,
+          "taxRate": 16,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 100,
+          "tax": 16,
+          "gross": 116
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 16,
+          "taxKind": "rate",
+          "base": 100,
+          "tax": 16,
+          "gross": 116
+        }
+      ],
+      "totals": {
+        "net": 100,
+        "tax": 16,
+        "gross": 116
+      }
+    },
+    "note": "net=100.00. tax=round(100*16/100)=16.00. gross=net+tax=116.00."
+  },
+  {
+    "description": "Exento vs tasa 0% real: mismo taxRate=0, kind distinto, buckets separados",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 50,
+          "discount": 0,
+          "taxRate": 0,
+          "taxKind": "exempt",
+          "taxIncluded": false
+        },
+        {
+          "qty": 1,
+          "unitPrice": 30,
+          "discount": 0,
+          "taxRate": 0,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 50,
+          "tax": 0,
+          "gross": 50
+        },
+        {
+          "net": 30,
+          "tax": 0,
+          "gross": 30
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 0,
+          "taxKind": "exempt",
+          "base": 50,
+          "tax": 0,
+          "gross": 50
+        },
+        {
+          "taxRate": 0,
+          "taxKind": "rate",
+          "base": 30,
+          "tax": 0,
+          "gross": 30
+        }
+      ],
+      "totals": {
+        "net": 80,
+        "tax": 0,
+        "gross": 80
+      }
+    },
+    "note": "L1 exenta: base=50, tax=0. L2 tasa 0% real (kind=rate): net=30, tax=round(30*0/100)=0. Mismo taxRate=0 pero kind distinto -> dos buckets separados en byRate, no se funden."
+  },
+  {
+    "description": "Descuento por línea, modo añadido, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 2,
+          "unitPrice": 50,
+          "discount": 5,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 95,
+          "tax": 9.5,
+          "gross": 104.5
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10,
+          "taxKind": "rate",
+          "base": 95,
+          "tax": 9.5,
+          "gross": 104.5
+        }
+      ],
+      "totals": {
+        "net": 95,
+        "tax": 9.5,
+        "gross": 104.5
+      }
+    },
+    "note": "net = qty*unitPrice - discount = 2*50 - 5 = 95.00. tax = round(95*10/100) = 9.50. gross = 95 + 9.5 = 104.50."
+  },
+  {
+    "description": "Cantidad fraccional (1.5), modo añadido, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 1.5,
+          "unitPrice": 10,
+          "discount": 0,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 15,
+          "tax": 1.5,
+          "gross": 16.5
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10,
+          "taxKind": "rate",
+          "base": 15,
+          "tax": 1.5,
+          "gross": 16.5
+        }
+      ],
+      "totals": {
+        "net": 15,
+        "tax": 1.5,
+        "gross": 16.5
+      }
+    },
+    "note": "net = 1.5*10 - 0 = 15.00. tax = round(15*10/100) = 1.50. gross = 15 + 1.5 = 16.50."
+  },
+  {
+    "description": "Redondeo borde .5 half-up, modo incluido, vía fórmula de impuesto, decimals=0",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 7,
+          "discount": 0,
+          "taxRate": 100,
+          "taxKind": "rate",
+          "taxIncluded": true
+        }
+      ],
+      "config": {
+        "decimals": 0
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 3,
+          "tax": 4,
+          "gross": 7
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 100,
+          "taxKind": "rate",
+          "base": 3,
+          "tax": 4,
+          "gross": 7
+        }
+      ],
+      "totals": {
+        "net": 3,
+        "tax": 4,
+        "gross": 7
+      }
+    },
+    "note": "gross=7. tax = round(7*100/200) = round(3.5) = 4 (half-up away from zero). net = 7 - 4 = 3. Tasa 100% elegida a propósito: 7/2=3.5 es representable exacto en binario, aísla el borde sin ruido de punto flotante."
+  },
+  {
+    "description": "Redondeo borde .5 half-up, modo añadido, vía fórmula de impuesto, decimals=0",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 9,
+          "discount": 0,
+          "taxRate": 50,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 0
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 9,
+          "tax": 5,
+          "gross": 14
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 50,
+          "taxKind": "rate",
+          "base": 9,
+          "tax": 5,
+          "gross": 14
+        }
+      ],
+      "totals": {
+        "net": 9,
+        "tax": 5,
+        "gross": 14
+      }
+    },
+    "note": "net=9. tax = round(9*50/100) = round(4.5) = 5 (half-up away from zero). gross = 9 + 5 = 14."
+  },
+  {
+    "description": "Línea gratis (unitPrice=0), tax=0, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 0,
+          "discount": 0,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 0,
+          "tax": 0,
+          "gross": 0
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10,
+          "taxKind": "rate",
+          "base": 0,
+          "tax": 0,
+          "gross": 0
+        }
+      ],
+      "totals": {
+        "net": 0,
+        "tax": 0,
+        "gross": 0
+      }
+    },
+    "note": "net=0. tax=round(0*10/100)=0. gross=0. Precio 0 no rompe la fórmula ni el bucket."
+  },
+  {
+    "description": "Tasa con decimales (10.5%), modo añadido, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 100,
+          "discount": 0,
+          "taxRate": 10.5,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 100,
+          "tax": 10.5,
+          "gross": 110.5
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10.5,
+          "taxKind": "rate",
+          "base": 100,
+          "tax": 10.5,
+          "gross": 110.5
+        }
+      ],
+      "totals": {
+        "net": 100,
+        "tax": 10.5,
+        "gross": 110.5
+      }
+    },
+    "note": "net=100.00. tax=round(100*10.5/100)=10.50. gross=100+10.5=110.50."
+  },
+  {
+    "description": "Tasa con decimales (10.5%), modo incluido, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 100,
+          "discount": 0,
+          "taxRate": 10.5,
+          "taxKind": "rate",
+          "taxIncluded": true
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 90.5,
+          "tax": 9.5,
+          "gross": 100
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10.5,
+          "taxKind": "rate",
+          "base": 90.5,
+          "tax": 9.5,
+          "gross": 100
+        }
+      ],
+      "totals": {
+        "net": 90.5,
+        "tax": 9.5,
+        "gross": 100
+      }
+    },
+    "note": "gross=100.00. tax=round(100*10.5/110.5)=round(9.502262...)=9.50. net=100-9.50=90.50."
+  },
+  {
+    "description": "PY añadido, decimals=0, tasa 10%",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 1000,
+          "discount": 0,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 0
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 1000,
+          "tax": 100,
+          "gross": 1100
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10,
+          "taxKind": "rate",
+          "base": 1000,
+          "tax": 100,
+          "gross": 1100
+        }
+      ],
+      "totals": {
+        "net": 1000,
+        "tax": 100,
+        "gross": 1100
+      }
+    },
+    "note": "net=1000. tax=round(1000*10/100)=100. gross=1000+100=1100."
+  },
+  {
+    "description": "Dos líneas con la misma tasa (10%, incluido) con descuento en una de ellas: el bucket byRate debe sumar ambas",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 110,
+          "discount": 0,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": true
+        },
+        {
+          "qty": 2,
+          "unitPrice": 55,
+          "discount": 10,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": true
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 100,
+          "tax": 10,
+          "gross": 110
+        },
+        {
+          "net": 90.91,
+          "tax": 9.09,
+          "gross": 100
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10,
+          "taxKind": "rate",
+          "base": 190.91,
+          "tax": 19.09,
+          "gross": 210
+        }
+      ],
+      "totals": {
+        "net": 190.91,
+        "tax": 19.09,
+        "gross": 210
+      }
+    },
+    "note": "L1: gross=110, tax=round(110*10/110)=10.00, net=100.00. L2: gross=2*55-10=100, tax=round(100*10/110)=round(9.0909...)=9.09, net=100-9.09=90.91. Bucket único taxRate=10/rate: base=100+90.91=190.91, tax=10+9.09=19.09, gross=110+100=210.00 (suma de líneas, no recalculado)."
+  },
+  {
+    "description": "Cantidad fraccional (1.5), modo incluido, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 1.5,
+          "unitPrice": 10,
+          "discount": 0,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": true
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 13.64,
+          "tax": 1.36,
+          "gross": 15
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10,
+          "taxKind": "rate",
+          "base": 13.64,
+          "tax": 1.36,
+          "gross": 15
+        }
+      ],
+      "totals": {
+        "net": 13.64,
+        "tax": 1.36,
+        "gross": 15
+      }
+    },
+    "note": "gross=1.5*10=15.00. tax=round(15*10/110)=round(1.363636...)=1.36. net=15-1.36=13.64."
+  },
+  {
+    "description": "Redondeo borde .5 half-up directo sobre el neto, modo añadido, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 10.125,
+          "discount": 0,
+          "taxRate": 0,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 10.13,
+          "tax": 0,
+          "gross": 10.13
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 0,
+          "taxKind": "rate",
+          "base": 10.13,
+          "tax": 0,
+          "gross": 10.13
+        }
+      ],
+      "totals": {
+        "net": 10.13,
+        "tax": 0,
+        "gross": 10.13
+      }
+    },
+    "note": "net = roundHalfUp(10.125, 2). 10.125 = 10 + 1/8, exacto en binario (sin ruido de representación), tercer decimal es 5 -> half-up sube: 10.13. tax=0 (rate=0). gross=10.13."
+  },
+  {
+    "description": "Redondeo borde .5 half-up directo sobre el bruto, modo incluido, decimals=2",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": 10.125,
+          "discount": 0,
+          "taxRate": 0,
+          "taxKind": "rate",
+          "taxIncluded": true
+        }
+      ],
+      "config": {
+        "decimals": 2
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": 10.13,
+          "tax": 0,
+          "gross": 10.13
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 0,
+          "taxKind": "rate",
+          "base": 10.13,
+          "tax": 0,
+          "gross": 10.13
+        }
+      ],
+      "totals": {
+        "net": 10.13,
+        "tax": 0,
+        "gross": 10.13
+      }
+    },
+    "note": "gross = roundHalfUp(10.125, 2) = 10.13 (mismo borde exacto que el caso anterior, ahora vía la rama incluido). tax=0 (rate=0). net=10.13-0=10.13."
+  },
+  {
+    "description": "Devolución: línea negativa, añadido 10%, decimals=0 — half-up away-from-zero (-10.5 → -11) idéntico en ambos motores",
+    "input": {
+      "lines": [
+        {
+          "qty": 1,
+          "unitPrice": -105,
+          "discount": 0,
+          "taxRate": 10,
+          "taxKind": "rate",
+          "taxIncluded": false
+        }
+      ],
+      "config": {
+        "decimals": 0
+      }
+    },
+    "expected": {
+      "lines": [
+        {
+          "net": -105,
+          "tax": -11,
+          "gross": -116
+        }
+      ],
+      "byRate": [
+        {
+          "taxRate": 10,
+          "taxKind": "rate",
+          "base": -105,
+          "tax": -11,
+          "gross": -116
+        }
+      ],
+      "totals": {
+        "net": -105,
+        "tax": -11,
+        "gross": -116
+      }
+    },
+    "note": "tax = round(-105 × 10/100) = round(-10.5) = -11 (away from zero). Verificado a mano contra Math.round con signo aparte (JS) y PHP_ROUND_HALF_UP. Cubre el path de devoluciones de F2."
+  }
+]
