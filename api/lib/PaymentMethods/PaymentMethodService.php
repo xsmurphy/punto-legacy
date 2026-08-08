@@ -281,12 +281,15 @@ final class PaymentMethodService
             $pos = 0;
             foreach ($ids as $id) {
                 // jsonb `||` mergea la clave sortOrder sin pisar el resto del extra.
-                // El WHERE va scopeado por companyId+type (defensa en profundidad,
-                // ya validado arriba). affected=0 ⇒ el row desapareció entre el
-                // list() y el update (race) — lo señalamos.
+                // taxonomyExtra es TEXT, no jsonb (mismo motivo por el que list()
+                // ordena en PHP): hay que castear a jsonb para mergear y volver a
+                // text para guardar. NULLIF cubre el string vacío, que '::jsonb'
+                // no parsea. El WHERE va scopeado por companyId+type (defensa en
+                // profundidad, ya validado arriba). affected=0 ⇒ el row desapareció
+                // entre el list() y el update (race) — lo señalamos.
                 $affected = $this->db->Execute(
                     "UPDATE taxonomy
-                        SET taxonomyExtra = COALESCE(taxonomyExtra, '{}'::jsonb) || jsonb_build_object('sortOrder', ?::int)
+                        SET taxonomyExtra = (COALESCE(NULLIF(taxonomyExtra, ''), '{}')::jsonb || jsonb_build_object('sortOrder', ?::int))::text
                       WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = ?",
                     [$pos, $id, $companyId, 'paymentMethod']
                 );
