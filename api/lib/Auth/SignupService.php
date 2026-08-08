@@ -153,11 +153,47 @@ final class SignupService
         $taxonomyInsert = null;
         $vat = $countryData['currency']['vat'] ?? false;
         if ($vat) {
-            $taxonomyInsert = ncmInsert(['records' => [
-                'taxonomyName' => $vat,
-                'taxonomyType' => 'tax',
-                'companyId'    => $companyInsert,
-            ], 'table' => 'taxonomy']);
+            // Dual-write tax + taxonomy (F0 del plan de impuestos multi-país,
+            // context/38). `tax` pasa a ser la fuente única con rate/kind
+            // explícitos (mig 120); `taxonomy` se sigue poblando porque
+            // Taxonomy::getTaxValue() y el editor viejo de Ajustes siguen
+            // leyendo de ahí hasta que migren (F2/F3) — este dual-write se
+            // retira cuando muera el último lector legacy de taxonomy.
+            //
+            // Se escribe SOLO en `tax`, con rate/kind ya parseados; la fila
+            // espejo en `taxonomy` la crea el trigger de la mig 23
+            // (trg_tax_to_taxonomy, AFTER INSERT, mismo UUID). Insertar en
+            // `tax` primero es lo que preserva rate/kind: si se sembrara
+            // `taxonomy` primero, su trigger crearía la fila de `tax` "pelada"
+            // (esos campos no están en el shape que sincroniza) y quedaría
+            // rate=NULL hasta un backfill manual.
+            $taxUuid = generateUuidV7();
+            $vatMatches = [];
+            $hasNumber = (bool) preg_match('/\d+(?:[.,]\d+)?/', (string) $vat, $vatMatches);
+            $vatRate = $hasNumber ? (float) str_replace(',', '.', $vatMatches[0]) : 0.0;
+            // Mismo guard <=100 que mig 120 y TaxService: un valor raro en
+            // countries.php no puede desbordar DECIMAL(5,2) y matar el alta.
+            if ($vatRate > 100) {
+                $hasNumber = false;
+                $vatRate   = 0.0;
+            }
+            $vatKind = $hasNumber ? 'rate' : 'exempt';
+
+            ncmInsert(['records' => [
+                'taxId'     => $taxUuid,
+                'companyId' => $companyInsert,
+                'name'      => $vat,
+                'rate'      => $vatRate,
+                'kind'      => $vatKind,
+            ], 'table' => 'tax']);
+
+            // NO insertar en taxonomy a mano: trg_tax_to_taxonomy (mig 23)
+            // dispara AFTER INSERT y ya creó la fila espejo con el MISMO
+            // UUID. Un insert explícito acá violaría la PK (23505) y
+            // envenenaría la transacción — el alta entera moriría, la misma
+            // clase de bug del itemKind (2026-08-07). El dual-write del
+            // comentario de arriba lo cumple el trigger, no este código.
+            $taxonomyInsert = $taxUuid;
         }
 
         // Modules + demo items basados en categoría — patrones declarados en

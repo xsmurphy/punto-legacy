@@ -4,16 +4,21 @@
  *
  *   GET    /v1/taxes              → lista del tenant
  *   GET    /v1/taxes?id=<uuid>    → detalle
- *   POST   /v1/taxes              → crea  (body: { name, extra? })
+ *   POST   /v1/taxes              → crea  (body: { name, rate?, kind?, extra? })
  *   PUT    /v1/taxes?id=<uuid>    → actualiza (partial)
  *   DELETE /v1/taxes?id=<uuid>    → elimina
+ *
+ * rate/kind son opcionales: si no vienen se derivan de `name` (primer
+ * número → kind='rate'; sin número → kind='exempt', rate=0). Ver
+ * TaxService::resolveRateKind().
  *
  * Auth: panel (admin del catálogo). POS sigue leyendo de `taxonomy` con
  * sync automático vía trigger PG bidireccional — facturación electrónica
  * NO se afecta porque getTaxValue() lee taxonomyName que sigue siendo
  * sincronizado.
  *
- * Slice 3 del refactor taxonomy. Tabla `tax` (migration 23).
+ * F0 del plan de impuestos multi-país (context/38). Tabla `tax`
+ * (migration 23 + 120).
  */
 
 require_once __DIR__ . '/../bootstrap.php';

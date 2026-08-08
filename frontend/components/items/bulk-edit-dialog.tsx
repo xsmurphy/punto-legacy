@@ -29,6 +29,7 @@ import {
   useTaxonomiesByType,
   type BulkEditPatch,
 } from "@/hooks/use-items"
+import { useTaxes } from "@/hooks/use-taxes"
 import { useOutlets } from "@/hooks/use-outlets"
 import type { ItemListItem } from "@/lib/types/item"
 
@@ -75,7 +76,10 @@ function BulkEditForm({
   const { data: outlets } = useOutlets()
   const { data: categories } = useTaxonomiesByType("category")
   const { data: brands } = useTaxonomiesByType("brand")
-  const { data: taxes } = useTaxonomiesByType("tax")
+  // Migrado a useTaxes (F0 impuestos multi-país, context/38) — `tax` es la
+  // fuente única. El value persistido sigue siendo el UUID (taxId).
+  const { data: taxesData } = useTaxes()
+  const taxes = taxesData?.taxes
 
   const [price, setPrice] = React.useState<number | null>(null)
   const [adjustPercent, setAdjustPercent] = React.useState<string>("")

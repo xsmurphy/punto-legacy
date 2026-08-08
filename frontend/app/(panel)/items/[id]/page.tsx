@@ -84,6 +84,7 @@ import {
 } from "@/hooks/use-items"
 import { useOutlets } from "@/hooks/use-outlets"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useTaxes } from "@/hooks/use-taxes"
 import { formatMoney } from "@/lib/format"
 import {
   inferKind,
@@ -244,13 +245,19 @@ export default function ItemEditPage() {
   // Para items nuevos: pre-seleccionamos el primer impuesto disponible del
   // tenant para que el form no arranque sin impuesto. taxIncluded ya viene
   // true en emptyValues.
-  const taxes = useTaxonomiesByType("tax")
+  //
+  // Migrado de useTaxonomiesByType("tax") a useTaxes (F0 del plan de
+  // impuestos multi-país, context/38) — la tabla `tax` es la fuente única
+  // de impuestos. El valor persistido en el item sigue siendo el UUID
+  // (taxId), no cambia.
+  const taxes = useTaxes()
+  const taxList = taxes.data?.taxes ?? []
   React.useEffect(() => {
     if (!isNew) return
     if (form.getValues("taxId")) return
-    const firstTax = taxes.data?.[0]
+    const firstTax = taxList[0]
     if (firstTax) form.setValue("taxId", firstTax.id, { shouldDirty: false })
-  }, [isNew, taxes.data, form])
+  }, [isNew, taxList, form])
 
   // Estado local del multi-select de categorías (m2m item_category).
   // El form de react-hook-form sigue manejando `categoryId` (legacy 1:1) que
@@ -1100,7 +1107,11 @@ function ConfigTab({
 }) {
   const { data: categories } = useTaxonomiesByType("category")
   const { data: brands } = useTaxonomiesByType("brand")
-  const { data: taxes } = useTaxonomiesByType("tax")
+  // Migrado a useTaxes (F0 impuestos multi-país, context/38) — `tax` es la
+  // fuente única. El shape difiere (rate/kind numéricos en vez de solo
+  // name) pero el render solo usa id/name, sin cambios en el JSX.
+  const { data: taxesData } = useTaxes()
+  const taxes = taxesData?.taxes ?? []
   const { data: outlets } = useOutlets()
   const { data: tagsData } = useTags()
   const tags = tagsData?.tags ?? []
@@ -1225,7 +1236,10 @@ function ConfigTab({
                         <SelectContent>
                           {taxes.map((t) => (
                             <SelectItem key={t.id} value={t.id}>
-                              {t.name}%
+                              {/* El % solo aplica a tasas reales: un impuesto
+                                  kind='exempt' con nombre no numérico
+                                  ("Exentas") mostraba "Exentas%". */}
+                              {t.kind === "exempt" ? t.name : `${t.name}%`}
                             </SelectItem>
                           ))}
                         </SelectContent>
