@@ -3177,13 +3177,6 @@ function toUTF8($text){
     return \Punto\App\Helpers\Str::toUtf8($text);
 }
 /**
- * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::sanitizeTaxObj()`. ~2 callers.
- */
-function taxObjSanitizer($array){
-    return \Punto\App\Domain\Money::sanitizeTaxObj($array);
-}
-
-/**
  * @deprecated Slice 12 (PSR-4). Usar `\Punto\App\Domain\Money::sanitizePaymentObj()`. ~1 caller.
  */
 function paymentMObjSanitizer($array){

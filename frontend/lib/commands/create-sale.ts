@@ -148,7 +148,7 @@ export interface CreateSalePayload {
    * se cobró al emitirse (context/36, decisión 5).
    */
   subtotal: number
-  /** Impuesto total (calculado; 0 en path simple sin taxObj). */
+  /** Impuesto total del payload (el front manda 0; el backend lo calcula y congela con TaxEngine — F2a). */
   tax: number
   /** Descuento global (0 en path simple). */
   discount: number
