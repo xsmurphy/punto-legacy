@@ -1335,46 +1335,98 @@ final class EInvoiceService
     }
 
     /**
-     * Resuelve el `taxRate` (10|5|0) de cada línea facturable a partir de la
-     * definición de impuesto del ÍTEM (`item.taxId` → `tax.name`), NUNCA del
-     * detalle de venta persistido — el POS moderno (`create-sale.ts`
-     * `buildSalePayload`) no manda `tax` por línea, así que derivar la tasa
-     * de `tax/neto` da 0 siempre y sub-declara IVA en silencio en un
-     * documento fiscal (el bug que este método reemplaza).
-     *
-     * Trade-off consciente: se usa la tasa VIGENTE del ítem al momento de
-     * facturar, no la que regía cuando se vendió — la venta no persiste la
-     * tasa aplicada en ningún lado, así que esta es la única fuente
-     * disponible. Si el ítem cambió de tasa entre la venta y la emisión
-     * (reintento, cola demorada), el documento sale con la tasa nueva. Los
-     * cambios de tasa de IVA son eventos regulados y poco frecuentes, así
-     * que el riesgo es bajo, pero queda documentado por si algún día importa.
-     *
-     * Una sola query para todas las líneas (evita N+1 en el path de
-     * emisión). Si un ítem no tiene `taxId` configurado, o el valor de
-     * `tax.name` no cae en {10,5,0}, tira excepción — está prohibido asumir
-     * una tasa o saltear la línea: mejor que el documento quede en `error`
-     * y alguien lo revise a que salga con una tasa inventada.
-     *
-     * @param array<int,array<string,mixed>> $billableDetail líneas ya filtradas (facturables)
-     * @return array<string,int> itemId => taxRate (10|5|0)
+     * Bruto de una línea de venta (`meta.transactionDetails`), para decidir
+     * si es facturable Y para declararla en el documento — un solo cálculo,
+     * dos usos (ver comentario en `buildSaleArrayForMapper`). Congelada
+     * (F2a): `taxNet + taxAmount`, que ya aplicó descuento y modo
+     * incluido/añadido. Sin congelar (venta pre-F2a): `total - totalDiscount`,
+     * que solo es correcto en modo "incluido" pero es el único dato
+     * disponible para esas ventas viejas.
      */
-    private function resolveTaxRatesForItems(string $companyId, array $billableDetail): array
+    private static function lineNetForSale(array $sD): float
     {
-        $itemIds = [];
-        foreach ($billableDetail as $sD) {
-            $itemIds[(string) $sD['itemId']] = true;
+        if (isset($sD['taxNet'], $sD['taxAmount'])) {
+            return (float) $sD['taxNet'] + (float) $sD['taxAmount'];
         }
-        $itemIds = array_keys($itemIds);
-        if ($itemIds === []) {
-            return [];
+        return (float) ($sD['total'] ?? 0) - (float) ($sD['totalDiscount'] ?? 0);
+    }
+
+    /**
+     * Valida que una tasa (congelada o resuelta del catálogo) sea una de las
+     * que SIFEN admite en el DE paraguayo (10|5|0) — el `match` que antes
+     * era "de dónde sale la tasa" pasa a ser esto: un guard de formato del
+     * documento fiscal, no la fuente. `exempt` siempre entra como 0.
+     *
+     * Un solo lugar para las dos líneas de invocación (factura y nota de
+     * crédito) — evitar duplicar el mensaje/las tasas válidas por doctype.
+     */
+    private function assertSifenRate(float $rate, string $kind, string $itemLabel): int
+    {
+        if ($kind === 'exempt') {
+            return 0;
+        }
+        $normalized = rtrim(rtrim(number_format($rate, 2, '.', ''), '0'), '.');
+        return match ($normalized) {
+            '10' => 10,
+            '5'  => 5,
+            '0'  => 0,
+            default => throw new \RuntimeException(
+                "No se puede facturar: el ítem \"{$itemLabel}\" tiene una tasa de IVA congelada de {$rate}%, "
+                . 'y SIFEN (Paraguay) solo admite 10%, 5% o exentas en el documento electrónico — '
+                . 'revisá la tasa del comercio para este ítem.'
+            ),
+        };
+    }
+
+    /**
+     * Resuelve el `taxRate` (10|5|0) de cada línea facturable. F3a: la
+     * fuente primaria es lo CONGELADO por línea al vender/devolver
+     * (`taxRate`/`taxKind` en `$lines`, puestos por `SaleService::
+     * enrichWithTaxes()` — F2a) — el documento fiscal declara lo que se
+     * vendió, no lo que el catálogo dice hoy.
+     *
+     * El catálogo (`item.taxId` → `tax.rate`/`tax.kind`, con `tax.name`
+     * como último fallback legacy — mismo criterio que
+     * `TaxService::deriveRateKindFromName`) solo se consulta para líneas
+     * SIN congelado: ventas anteriores al deploy de F2a, que no tienen
+     * `taxRate` en `meta.transactionDetails`. Si todas las líneas están
+     * congeladas no se ejecuta ninguna query.
+     *
+     * @param array<int,array<string,mixed>> $lines líneas ya filtradas (facturables), cada
+     *        una con `itemId` y opcionalmente `taxRate`/`taxKind` congelados
+     * @return array<string,int> itemId => taxRate SIFEN (10|5|0)
+     */
+    private function resolveTaxRatesForItems(string $companyId, array $lines): array
+    {
+        $resolved = [];
+        $missingIds = [];
+
+        foreach ($lines as $sD) {
+            $itemId = (string) $sD['itemId'];
+            $label  = (string) ($sD['name'] ?? $sD['itemName'] ?? $itemId);
+            $rate   = $sD['taxRate'] ?? null;
+            $kind   = $sD['taxKind'] ?? null;
+
+            if ($rate !== null && $kind !== null) {
+                $resolved[$itemId] = $this->assertSifenRate((float) $rate, (string) $kind, $label);
+                continue;
+            }
+
+            $missingIds[$itemId] = $label;
         }
 
+        if ($missingIds === []) {
+            return $resolved;
+        }
+
+        // Fallback SOLO para líneas sin congelado (ventas pre-F2a).
+        $itemIds = array_keys($missingIds);
         $placeholders = implode(',', array_fill(0, count($itemIds), '?'));
         $rs = ncmExecute(
-            "SELECT item.itemId AS itemId, item.itemName AS itemName, tax.name AS taxValue
+            "SELECT item.itemId AS itemId, item.itemName AS itemName,
+                    tax.rate AS taxRate, tax.kind AS taxKind, tax.name AS taxName
                FROM item
-               LEFT JOIN tax ON tax.taxId = item.taxId
+               LEFT JOIN tax ON tax.taxId = item.taxId AND tax.companyId = item.companyId
               WHERE item.itemId IN ({$placeholders}) AND item.companyId = ?",
             [...$itemIds, $companyId],
             false,
@@ -1390,36 +1442,36 @@ final class EInvoiceService
             );
         }
 
-        $resolved = [];
         while (!$rs->EOF) {
             $itemId = (string) $rs->fields['itemid'];
             $itemName = (string) ($rs->fields['itemname'] ?? $itemId);
-            $rawValue = $rs->fields['taxvalue'] ?? null;
+            $rawRate = $rs->fields['taxrate'] ?? null;
+            $rawKind = $rs->fields['taxkind'] ?? null;
+            $rawName = $rs->fields['taxname'] ?? null;
 
-            if ($rawValue === null || $rawValue === '') {
+            if ($rawRate !== null && $rawKind !== null) {
+                $rate = (float) $rawRate;
+                $kind = (string) $rawKind;
+            } elseif ($rawName !== null && trim((string) $rawName) !== '') {
+                // Legacy: sin columnas tipadas en `tax` (fila no migrada por
+                // la mig 120), se parsea el label — mismo criterio que
+                // TaxService::deriveRateKindFromName.
+                [$rate, $kind] = \Punto\Api\Taxes\TaxService::deriveRateKindFromName((string) $rawName);
+            } else {
                 throw new \RuntimeException(
                     "No se puede facturar: el ítem \"{$itemName}\" no tiene un impuesto configurado."
                 );
             }
 
-            $taxRate = match (trim((string) $rawValue)) {
-                '10' => 10,
-                '5'  => 5,
-                '0'  => 0,
-                default => throw new \RuntimeException(
-                    "No se puede facturar: el ítem \"{$itemName}\" tiene una tasa de impuesto (\"{$rawValue}\") "
-                    . 'que no es 10, 5 ni 0 — revisá la configuración de impuestos del ítem.'
-                ),
-            };
-
-            $resolved[$itemId] = $taxRate;
+            $resolved[$itemId] = $this->assertSifenRate($rate, $kind, $itemName);
             $rs->MoveNext();
         }
 
         foreach ($itemIds as $itemId) {
             if (!array_key_exists($itemId, $resolved)) {
+                $label = $missingIds[$itemId];
                 throw new \RuntimeException(
-                    "No se puede facturar: no se encontró el ítem {$itemId} (o fue borrado) para resolver su impuesto."
+                    "No se puede facturar: no se encontró el ítem \"{$label}\" (o fue borrado) para resolver su impuesto."
                 );
             }
         }
@@ -1460,24 +1512,20 @@ final class EInvoiceService
         $payments = is_string($paymentsRaw) ? json_decode($paymentsRaw, true) : (is_array($paymentsRaw) ? $paymentsRaw : []);
         $payments = is_array($payments) ? $payments : [];
 
-        // El documento declara lo que el cliente PAGÓ, no el precio de lista.
-        // `transactionTotal` es el bruto (suma de los totales de línea antes de
-        // descuento) y `transactionDiscount` la suma de los descuentos de línea
-        // — el neto es la resta (ver create-sale.ts: "subtotal - discount da
-        // exactamente lo que se cobró"). Facturar el bruto declaraba de más en
-        // toda venta con descuento: más IVA del que se cobró, y un total que no
-        // coincide con los medios de pago.
-        $total = (float) ($tx['transactionTotal'] ?? 0) - (float) ($tx['transactionDiscount'] ?? 0);
-
         // Filtra ítems facturables ANTES de resolver tasas, para no pedir la tasa
         // de líneas que ni van a entrar al documento (inCredit, gift card, cantidad/total inválidos).
+        // Usa la MISMA fórmula de bruto que después arma `$items` (self::lineNetForSale)
+        // — antes de F3a el filtro y el armado de líneas usaban fórmulas distintas
+        // (`total - totalDiscount` acá, `taxNet + taxAmount` allá para congeladas),
+        // lo que podía incluir/excluir una línea con el número equivocado en modo
+        // "añadido" (donde las dos fórmulas divergen). Un solo cálculo, dos usos.
         $billableDetail = [];
         foreach ($saleDetail as $sD) {
             if (empty($sD['itemId']) || ($sD['type'] ?? '') === 'giftcard') {
                 continue;
             }
             $count = (float) ($sD['count'] ?? 0);
-            $lineNet = (float) ($sD['total'] ?? 0) - (float) ($sD['totalDiscount'] ?? 0);
+            $lineNet = self::lineNetForSale($sD);
             if ($count <= 0 || $lineNet == 0.0) {
                 continue;
             }
@@ -1490,13 +1538,7 @@ final class EInvoiceService
         foreach ($billableDetail as $sD) {
             $itemId = (string) $sD['itemId'];
             $count = (float) ($sD['count'] ?? 0);
-            // Precio unitario NETO (con IVA incluido, ya descontado). El
-            // descuento se absorbe en el precio en vez de declararse en
-            // `itemUnitPriceDiscountWithTax`: la guía de Factomate documenta ese
-            // campo pero no cómo afecta a `total`/`subTotal`, y el único flujo
-            // verificado contra la API real cumple total = Σ(quantity ×
-            // unitPriceWithTax). Trade-off: el KuDE no desglosa el descuento.
-            $lineNet = (float) ($sD['total'] ?? 0) - (float) ($sD['totalDiscount'] ?? 0);
+            $lineNet = self::lineNetForSale($sD);
             $items[] = [
                 'description' => (string) ($sD['name'] ?? ''),
                 'quantity'    => $count,
@@ -1504,6 +1546,31 @@ final class EInvoiceService
                 'total'       => $lineNet,
                 'taxRate'     => $taxRateByItemId[$itemId],
             ];
+        }
+
+        // Total del documento = Σ de líneas facturables SIEMPRE — congeladas
+        // o no —, así nunca diverge de lo que `$items` declara línea por línea
+        // (Factomate rechaza el DE si no cierra). Antes de este fix, el
+        // fallback pre-F2a sumaba `transactionTotal - transactionDiscount`
+        // por separado, que podía divergir de Σ($items) en ventas con líneas
+        // mixtas frozen/no-frozen. Ojo: esto deja AFUERA lo que
+        // `transactionTotal`/`transactionDiscount` sí suman y
+        // `$billableDetail` excluye (giftcard, inCredit, líneas con count<=0
+        // o neto 0) — para esas ventas el total del DE es menor al de la
+        // venta completa, que es correcto (un DE fiscal no declara
+        // giftcards ni movimientos in-credit), pero si algún día una línea
+        // excluida SÍ debiera facturarse, este total no lo va a reflejar y
+        // hay que revisar el filtro de arriba, no este cálculo.
+        if ($items !== []) {
+            $total = 0.0;
+            foreach ($items as $item) {
+                $total += (float) $item['total'];
+            }
+        } else {
+            // Sin líneas facturables (venta 100% giftcard/inCredit, caso
+            // degenerado): no hay de dónde sumar, se cae al total de
+            // transacción como estaba antes de F3a.
+            $total = (float) ($tx['transactionTotal'] ?? 0) - (float) ($tx['transactionDiscount'] ?? 0);
         }
 
         $client = $this->resolveClient($companyId, $tx['customerId'] ?? null);
@@ -1704,8 +1771,43 @@ final class EInvoiceService
             throw new \RuntimeException('La devolución no tiene ítems con importe — no se emite la nota de crédito.');
         }
 
-        // resolveTaxRatesForItems espera la clave `itemId` (shape del detalle de venta).
-        $taxRateByItemId = $this->resolveTaxRatesForItems($companyId, $billable);
+        // F3a: `itemSold` (de donde salen `$billable`) no persiste taxRate/taxKind
+        // por línea — el congelado real vive en `meta.transactionDetails` de la
+        // VENTA ORIGINAL ($parentId, ya resuelta arriba vía transaction_link). Se
+        // lee ese detalle y se arma un mapa itemId => [taxRate, taxKind] para que
+        // la nota de crédito declare la MISMA tasa que declaró la factura que
+        // corrige — nunca la del catálogo actual, que pudo cambiar desde la venta.
+        $originalTaxByItemId = [];
+        $originalTx = ncmExecute(
+            'SELECT meta FROM transaction WHERE transactionId = ? AND companyId = ?',
+            [$parentId, $companyId]
+        );
+        if ($originalTx) {
+            $originalDetailRaw = $originalTx['transactionDetails'] ?? null;
+            $originalDetail = is_string($originalDetailRaw) ? json_decode($originalDetailRaw, true) : (is_array($originalDetailRaw) ? $originalDetailRaw : []);
+            $originalDetail = is_array($originalDetail) ? $originalDetail : [];
+            foreach ($originalDetail as $sD) {
+                $id = (string) ($sD['itemId'] ?? '');
+                if ($id !== '' && isset($sD['taxRate'], $sD['taxKind'])) {
+                    $originalTaxByItemId[$id] = ['taxRate' => $sD['taxRate'], 'taxKind' => $sD['taxKind']];
+                }
+            }
+        }
+
+        // resolveTaxRatesForItems espera la clave `itemId` (shape del detalle de
+        // venta) + opcionalmente `taxRate`/`taxKind` congelados de la venta original.
+        $billableWithTax = array_map(
+            static function (array $line) use ($originalTaxByItemId): array {
+                $frozen = $originalTaxByItemId[$line['itemId']] ?? null;
+                if ($frozen !== null) {
+                    $line['taxRate'] = $frozen['taxRate'];
+                    $line['taxKind'] = $frozen['taxKind'];
+                }
+                return $line;
+            },
+            $billable
+        );
+        $taxRateByItemId = $this->resolveTaxRatesForItems($companyId, $billableWithTax);
 
         $items = [];
         foreach ($billable as $line) {

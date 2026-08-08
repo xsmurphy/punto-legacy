@@ -251,8 +251,15 @@ final class TaxService
         return [$rate ?? $derivedRate, $kind ?? $derivedKind];
     }
 
-    /** @return array{0: float, 1: string} */
-    private function deriveRateKindFromName(string $name): array
+    /**
+     * Público y static porque es la fuente compartida del criterio de
+     * parseo legacy (SaleService/PurchasesService lo duplicaban antes de
+     * F3a; EInvoiceService::resolveTaxRatesForItems lo reusa acá en vez de
+     * agregar una 4ta copia).
+     *
+     * @return array{0: float, 1: string}
+     */
+    public static function deriveRateKindFromName(string $name): array
     {
         if (preg_match('/\d+(?:[.,]\d+)?/', $name, $m)) {
             $rate = (float) str_replace(',', '.', $m[0]);

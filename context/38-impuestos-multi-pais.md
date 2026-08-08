@@ -7,6 +7,12 @@
 > D4 renombre con alias sin migrar plantillas.
 > Requerimiento: el sistema apunta a toda LATAM — tasas NO fijas, con opción
 > global de IVA incluido en el precio o sumado al precio.
+> Progreso 2026-08-08: **F0, F1, F2a, F2b, F3a hechas**. F3a: EInvoice
+> (factura y nota de crédito) lee el IVA congelado por línea, no el catálogo;
+> fallback a `resolveTaxRatesForItems` solo para ventas pre-F2a; hardcode
+> `{10,5,0}` pasó a ser validación de formato SIFEN, no fuente de la tasa.
+> Sigue el resto de F3 (plantillas por tasa — bloques `item_total_by_rate`
+> etc.), después F4 (rollup) y F5 (RG90/Libro Ventas).
 
 ## Diagnóstico (auditoría 2026-08-07)
 
