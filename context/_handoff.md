@@ -1,147 +1,117 @@
-# Hand-off — 2026-08-03
+# Hand-off — 2026-08-08
 
 > Este archivo se **reescribe entero** en cada `/end-session`. Describe el estado de la
 > última sesión, no un historial. El historial está en [_session-log.md](_session-log.md).
 
 ## Objetivo
 
-Cerrar el módulo de facturación electrónica (SIFEN/Factomate) de punta a punta —
-F3 (medios de pago, RUC, notas de crédito) hasta F7 (onboarding white-label,
-el tenant nunca ve al proveedor) — arrancando desde el hand-off del 2026-07-30
-que dejaba F0-F2 hechas. Después, una cola de fixes puntuales reportados por
-el owner sobre `/items` (variantes, tab Stock) y `/pos` (mesa que forzaba el
-pago). Sin plan único para la segunda mitad — cada pedido cerrado end-to-end
-antes de pasar al siguiente.
+Arrancó arreglando el numeric-pad del POS, después se triaron en cascada los 17
+bugs/pedidos de un tester (`Mejoras Punto.docx`, post-deploy `9925453`). Uno de
+esos triajes (columnas de IVA por tasa en plantillas de impresión) destapó que
+el modelo de impuestos del POS estaba mal de raíz — `TAX_RATE=0.10` hardcodeado,
+sin multi-tasa/multi-país/incluido-vs-añadido — y se abrió un plan propio
+(`context/38-impuestos-multi-pais.md`) que se convirtió en el grueso final de
+la sesión.
 
 ## Estado al cerrar
 
-**Todo commiteado en `main` LOCAL. NO pusheado** (pedido explícito del owner:
-"hagamos varios cambios y luego un solo push" — está esperando confirmación
-para el push final, no se hizo por decisión suya, no por olvido).
+Todo commiteado Y **pusheado** a `main` (deploy automático, confirmado por el
+owner). Migraciones 117 (numeración), 118 (interno), 119 (decimales), 120
+(tax rate/kind) ya corrieron en el servidor — confirmado indirectamente:
+F0-F2 de impuestos se probaron con éxito en el navegador contra ese deploy.
 
-- **FE F3** — medios de pago reales por línea (antes: uno solo, con el total),
-  lookup de RUC vía padrón del emisor (Factomate) + padrón público de fallback,
-  notas de crédito por devolución, y un bug de fondo: la factura declaraba el
-  BRUTO en vez del NETO (sobre-declaraba IVA en toda venta con descuento).
-- **FE F4** — rip-out completo del proveedor de FE legacy (`sendFE`/`consultFE`,
-  `FACTURACION_ELECTRONICA_*`, `ElectronicInvoiceService`).
-- **FE F6** — portal público `/factura/<token>` para que el comprador vea su
-  documento sin cuenta (token firmado HMAC, sin auth, aislamiento multi-tenant
-  vía el companyId firmado adentro del token — no un parámetro del request).
-- **FE F7** — onboarding white-label: el tenant completa un formulario LEGAL
-  (actividad económica, email, CSC) y Punto provisiona el emisor con su
-  credencial admin (`FACTOMATE_ADMIN_*` en env). RUC/razón social salen de
-  Configuración del negocio, el timbrado vive EN LA CAJA (cada caja es un
-  punto de expedición) — nada duplicado. Alta reanudable por checkpoints.
-- **Fix de raíz** `Validation::isValid()`: `true == 'undefined'` en PHP 8 hacía
-  que CUALQUIER booleano `true` de un body JSON se leyera como `false`. Rompía
-  todos los switches de `/modules` (no solo FE) — reportado por el owner como
-  "el switch de facturación electrónica no se activa".
-- **Fix** `VariantService::validateParent()` tipado `: array` devolvía
-  `CaseInsensitiveArray` crudo → TypeError, rompía TODO guardado de variantes.
-- **Tab Stock** de items (`/items/[id]`, pestaña Stock): reemplazó los 3 KPIs
-  "Próximamente" por datos reales (costo promedio ponderado + valor total
-  calculados en vivo desde el ledger `stock`, precio de compra reusando un
-  endpoint que ya existía) + historial paginado + dialog de ajuste manual.
-- **Fix** mesa de POS: "Cobrar" armaba el carrito y abría el modal de pago en
-  el mismo paso — no dejaba sumar cliente/descuento antes. El `CartPanel` ya
-  está montado y visible en `/pos/espacios`; bastó con no forzar el modal.
-- **Catálogo de módulos**: sacadas las pantallas (KDS/CDS/COS — son
-  dispositivos, no módulos) y los módulos sin implementación real pasaron a
-  "Próximamente" (CRM, Campañas, Factura en PDF, Reportes diarios, API,
-  Recordatorios, Verificador de Precios). Facturación Electrónica a Destacados.
+- **P0 de plata resuelto**: ventas con decimales no persistían. Cadena de 4
+  causas reales, cada una tapando la siguiente: `AutoExecute` (`api/includes/lib/DB.php`)
+  tragaba el error de PG y no seteaba `lastError` → se agregó `firstError`
+  (una sola vez por transacción, no pisado por cascadas 25P02) → destapó que
+  `transaction.transactionUnitsSold` era **INT** (todas las demás columnas de
+  cantidad ya eran DECIMAL(15,3)) → al reproducir el signup en dev apareció
+  `item.itemKind` NOT NULL sin default no mandado por los ítems demo → y
+  `\RoleService` sin barra inicial resolviendo al namespace equivocado.
+  Verificado end-to-end en el navegador: signup completo + venta de 1.5
+  unidades en un tenant real.
+- **Numeración de documentos F1**: tabla `document_sequence` + asignador
+  atómico `DocumentNumber::allocate` (mig 117). Plan completo en
+  `context/37-numeracion-documentos.md`. **Sin cablear a ningún emisor
+  todavía** — solo existe la infraestructura.
+- **Impuestos multi-país F0→F2b** (plan en `context/38-impuestos-multi-pais.md`,
+  D1-D4 cerradas por el owner): tabla `tax` como fuente única (F0); motor de
+  cálculo puro implementado DOS VECES espejo TS+PHP con 16 fixtures
+  compartidos (F1); backend (`SaleService::enrichWithTaxes`) resuelve y
+  congela tasa/kind/taxIncluded por línea server-side ANTES del motor — el
+  payload del cliente deja de ser autoritativo (F2a); carrito del POS muestra
+  el IVA real del motor en vez del hardcode (F2b). Verificado en dev: venta
+  real con tasa 5% persistió `taxRate:5`/`taxAmount:150` Y el carrito mostró
+  el mismo número.
+- Otros fixes triviales de la cascada de tester bugs: producción no volvía a
+  consumir insumos de un terminado ya vendido; Resumen de reportes no sumaba
+  el descuento dos veces; columna Estado de transacciones mostraba cobro en
+  vez de modalidad; timbrado se guardaba pero `flattenJsonb` lo vaciaba al
+  leer; flag "Interno" se descartaba en el borde de la API (quemaba
+  numeración fiscal); 37 call-sites de `toLocaleString()` sin locale (React
+  #418 en prod); 2 fatales de prod encontrados vía API de GlitchTip.
 
 ## Archivos y cambios
 
-- `context/28-facturacion-electronica-plan.md` — plan vivo, actualizado en cada
-  fase (F3→F7), es la fuente de verdad de decisiones/SIN VERIFICAR.
-- `api/lib/EInvoice/*` — `EInvoiceProvisioningService.php` (nuevo, alta
-  white-label reanudable), `FactomateSession.php` (cadena admin vía
-  PhoneLogin sin contraseña del tenant), `PortalToken.php` (nuevo, HMAC),
-  `EInvoiceService.php` (+744/-231, el más tocado del módulo).
-- `api/lib/PaymentMethods/PaymentMethodResolver.php` — nuevo, extraído de
-  `Finance\ConfigService` para compartir la resolución clave-de-pago↔taxonomyId
-  entre Finanzas y FE.
-- `api/lib/Contacts/TaxpayerLookupService.php` — nuevo, lookup de RUC backend
-  (antes el browser del cajero pegaba directo a turuc.com.py).
-- `api/v1/einvoice-public.php` — nuevo, endpoint del portal (sin auth).
-- `api/lib/App/Helpers/Validation.php` — fix del booleano (~716 callers).
-- `api/lib/Items/VariantService.php`, `StockMovementsService.php` (nuevo).
-- `api/lib/services/RegisterAdminService.php` — timbrado por caja.
-- `frontend/components/items/stock-tab.tsx`, `hooks/use-item-stock.ts` — nuevos.
-- `frontend/app/(pos)/pos/espacios/page.tsx` — fix mesa (10 líneas).
-- `frontend/lib/modules-catalog.ts` — poda + reorden de categorías.
-- Migración `100_einvoice_whitelabel.sql` — `factomate_tenant_id/user_id`,
-  `fiscal`, `provisioning` (checkpoints), status `provisioning`.
+- `context/38-impuestos-multi-pais.md` — plan vivo, header actualizado con
+  progreso (F0-F2b hechas, F3 sigue).
+- `context/37-numeracion-documentos.md` — plan vivo, F1 hecha, D3/D5/D6 abiertas.
+- `context/10-roadmap.md` — triaje completo del reporte del tester 2026-08-04.
+- `api/lib/services/SaleService.php` — `enrichWithTaxes()`, el corazón de F2a.
+- `api/lib/Tax/*` (motor PHP) y equivalente TS en `frontend/lib/tax/*` — motor
+  espejo F1, cualquier divergencia futura rompe el fixture runner.
+- `api/includes/lib/DB.php` — `AutoExecute` ya no traga errores de PG.
+- `frontend/app/(pos)/pos/**` — carrito lee IVA real (F2b), incluye fix de
+  `loadFromOrder`/`loadFromSession` que no traían `taxId` al retomar orden/mesa.
+- Migraciones 117 (document_sequence), 118 (interno), 119 (decimales INT→DECIMAL),
+  120 (tax rate/kind) — todas corridas en prod.
 
-⚠ Sin commitear (de OTRA sesión, Finanzas — no tocado, viene de hand-offs
-anteriores, sigue sin resolver): `api/database/seeds/finance_backfill.php`,
-`api/lib/services/ReturnService.php` (parcialmente — otra sesión le agregó un
-vínculo a `transaction_link`), `api/v1/finance/backfill.php`,
-`api/v1/transactions.php`, `context/22-finanzas-module-plan.md`,
-`frontend/hooks/use-finance-backfill.ts`.
+⚠ Sin tocar (de otras sesiones paralelas, no pisar): `api/database/seeds/finance_backfill.php`,
+`api/v1/finance/backfill.php`, `api/v1/transactions.php`,
+`context/22-finanzas-module-plan.md`, `frontend/hooks/use-finance-backfill.ts`,
+`frontend/public/sw.js` — modificados sin commitear al cierre de esta sesión,
+son de vouchers/giftcards/finanzas en paralelo.
 
 ## Callejones sin salida
 
-1. **Colisión real entre sesiones paralelas — casi se pierden 3 commits.**
-   Los últimos 3 commits de esta sesión (VariantService, tab Stock, fix mesa)
-   quedaron sin pushear por pedido del owner. En algún momento, OTRA sesión
-   compartiendo este mismo working directory corrió algo que resetéo `main`
-   local a un commit anterior (`675a4608`, de esa otra sesión) — los 3 commits
-   quedaron huérfanos, fuera de cualquier branch, con sus archivos borrados
-   del disco (aunque los objetos de git sobrevivieron, recuperables por hash).
-   Se recuperaron con `git cherry-pick` sobre el nuevo tip de `main`
-   (`a2c8b03d`, `418cecf3`, `40e8cbf9` son los hashes nuevos). **Lección: un
-   commit sin pushear en un working directory compartido por sesiones
-   paralelas no está a salvo** — el guardado real es el push, no el commit
-   local. Si se repite esta situación, verificar con
-   `git merge-base --is-ancestor <hash> HEAD` que los commits de la sesión
-   siguen en la rama antes de asumir que están seguros.
-2. **La API real de Factomate sigue sin tocarse en F3/F4/F6/F7.** Todo el
-   trabajo de esta sesión es SIN VERIFICAR contra la API real: falta la
-   credencial admin (`FACTOMATE_ADMIN_USERNAME/PASSWORD_TEST` en env) —
-   sin ella, el alta responde "servicio no disponible" y no hay forma de
-   probar `CreateExternal`/`PhoneLogin` con identidad email/alta de timbrado
-   por caja. Ver `context/28` §Preguntas abiertas para la lista completa.
-3. **`itemCost` sigue sin auto-actualizarse** desde el ledger de stock pese a
-   que el form del ítem dice "se actualiza solo con movimientos de inventario"
-   — es falso, nunca se implementó. El tab Stock nuevo NO lo arregla (decisión
-   deliberada: tocar `Inventory::manageStock`, el hot path de cada venta, para
-   esto es un cambio de mayor riesgo que no correspondía a este pedido — el
-   KPI "Costo promedio" del tab se calcula en vivo desde `stock`, no depende
-   de `itemCost`). Queda como deuda conocida, no como bug de esta sesión.
+1. **"Aprobar dispositivo" en Ajustes→Dispositivos reportado como roto** —
+   era error de automatización de browser propio (clic sobre un menú ya
+   cerrado + screenshot de la pestaña equivocada). El flujo funciona,
+   verificado después. Si alguien reporta lo mismo, sospechar del tooling
+   antes que del código.
+2. Dos issues de GlitchTip (`TenantContext` not found, `PriceListService`
+   ArgumentCountError) eran ruido de debugging manual del owner con `php -r`
+   en el servidor — no tráfico real, no se tocaron.
+3. Primer intento de resolver tasa de impuesto (pre-F0) solo miraba
+   `taxonomy`; hay DOS tablas de impuestos vivas (`tax` y `taxonomy`, mig 23
+   desdobló sin retirar la vieja) — hubo que mirar ambas con COALESCE
+   (`b20bd721`) antes de que F0 unificara la fuente.
 
 ## Próximo paso
 
-1. **Confirmar con el owner si pushear ahora** — dado el near-miss del punto 1
-   de arriba, hay presión real para no dejar más commits sin pushear de lo
-   necesario. `main` local está 3 commits adelante de `origin/main`
-   (`a2c8b03d..40e8cbf9`).
-2. Pendientes explícitos que el owner pidió y quedaron en cola sin empezar
-   (no bloquean nada, son las próximas dos tareas si se retoma):
-   - Quitar iconos redundantes icon+texto en botones de Órdenes
-     (`order-detail-view.tsx`/`order-card.tsx`: `DollarSign` en "Cobrar",
-     `Printer` en "Reimprimir comanda", `X` en "Cancelar orden" — el icono es
-     decorativo porque el texto ya dice lo mismo; los botones ICON-ONLY como
-     el trigger `MoreHorizontal` y `RowActions` de las DataTable quedan igual).
-   - Unificar tabs al 100% de ancho en todas las secciones del panel (hoy
-     algunas ocupan el ancho del contenedor, otras solo el ancho del texto —
-     sin auditar todavía, no se identificaron los archivos concretos).
-3. Cargar `FACTOMATE_ADMIN_USERNAME_TEST`/`PASSWORD_TEST` en env y correr
-   migs 92/93/95/100 en prod antes de poder verificar F3-F7 contra la API real.
+**F3 del plan de impuestos** (`context/38-impuestos-multi-pais.md` §D):
+facturación electrónica lee el desglose ya congelado por F2a en vez de
+recalcular del catálogo, + bloques de plantilla de impresión parametrizados
+por tasa (`item_total_by_rate`, `subtotal_by_rate`, `iva_by_rate`,
+`iva_total`). Esto es lo que finalmente resuelve el pedido original del
+tester (columnas IVA 0/5/10/15% en plantillas) y destraba los 9 campos que
+hoy dan `null`. Después F4 (rollup con dimensión por tasa) y F5 (RG90/Libro
+Ventas — no existen en ningún lado del repo todavía).
 
 ## Trampas conocidas
 
-- **El working directory de `system/` es compartido por sesiones paralelas
-  en simultáneo** (confirmado en esta sesión, ver Callejón #1) — cualquier
-  operación git asumiendo que "nadie más está tocando esto ahora" es
-  arriesgada. Verificar `git status`/rama ANTES de cualquier commit/push si
-  pasó tiempo desde el último chequeo.
-- `api/lib/services/ReturnService.php` tiene cambios de OTRA sesión sin
-  commitear (vínculo a `transaction_link`) — no pisarlos si se toca ese
-  archivo.
-- El drainer de FE (`EINVOICE_DRAIN_SECRET` + cron) sigue sin configurar en
-  prod — heredado del hand-off de F0-F2, no tocado esta sesión.
-- Trampas heredadas de sesiones previas sin resolver: dogfooding de
-  facturación del SaaS sin tenant emisor configurado en `/admin`→Plataforma,
-  `SIGNUP_OTP=off`, `APP_DEBUG=true` en Coolify.
+- **Vales canjeados y doble devengo de IVA**: F2a hace que las líneas de
+  vale canjeado reciban `taxAmount` calculado, pero NO suman al total de la
+  venta (ya se cobraron al emitir el vale). Riesgo de doble devengo —
+  decisión del owner pendiente, spawneada como `task_54b691dc` en otra
+  sesión. No resolver acá sin coordinar.
+- **Código muerto post-F2a**: `SaleInput::$taxObj`/`taxObjSanitizer` quedaron
+  sin consumidores. Spawneado como `task_b8337582` en otra sesión — no
+  duplicar el trabajo.
+- Otras 2 tareas en curso en sesiones separadas, no tocar: `task_fe009320`
+  (cuelgue de `/settings/catalog?tab=X` por URL directa) y `task_42453fb0`
+  (500 en `/v1/notifications/feed`).
+- El payload de venta del POS sigue mandando `tax:0` a propósito — es
+  intencional (F2a recalcula server-side), no un bug si se lo encuentra de nuevo.
+- `document_sequence` (numeración F1) existe pero no está cableada a ningún
+  emisor real todavía — no asumir que algún documento ya tiene correlativo.
