@@ -359,17 +359,15 @@ export function buildTicketItemsFromTransaction(
         uid: i.sku ?? null,
         note: i.note ?? null,
         tags: null,
-        // TransactionService::getSingle (api/lib/services/TransactionService.php,
-        // detrás de /api/pos/transactions/[id]) no expone `transactionDetails`
-        // (el JSON congelado por F2a) ni `itemSoldTax` — a diferencia de
-        // /v1/reports/transactions (ver buildTicketDataFromTxDetail más abajo).
-        // Ampliar ese endpoint es trabajo de backend, fuera de alcance de F3b.
-        taxId: null,
-        taxRate: null,
-        taxKind: null,
-        taxIncluded: null,
-        taxAmount: null,
-        taxNet: null,
+        // Congelado real (F2a) tal cual, sin recalcular — ver comentario en
+        // TicketableTransactionItem. `?? null`/`?? undefined` acá cubre tanto
+        // el caller que no tipa estos campos como la venta pre-F2 sin ellos.
+        taxId: i.taxId ?? null,
+        taxRate: i.taxRate ?? null,
+        taxKind: i.taxKind ?? null,
+        taxIncluded: i.taxIncluded ?? null,
+        taxAmount: i.taxAmount ?? null,
+        taxNet: i.taxNet ?? null,
       }
     })
 }
@@ -417,10 +415,10 @@ export function buildTicketDataFromTransaction(
     items,
     subtotal: itemsTotal > 0 ? itemsTotal : total + discount,
     discount,
-    // Sin `itemSoldTax`/`transactionTax` en este endpoint (ver comentario en
-    // buildTicketItemsFromTransaction) — no hay de dónde sumarlo sin
-    // recalcular, y recalcular impuesto ya congelado está prohibido (F2a).
-    taxTotal: 0,
+    // Suma de `taxAmount` congelado por línea (ver TicketableTransactionItem)
+    // — 0 si ninguna línea lo trae (venta pre-F2, o el caller no tipa esos
+    // campos todavía), no una recomputación.
+    taxTotal: items.reduce((s, i) => s + (i.taxAmount ?? 0), 0),
     total,
     payments,
     note: tx.note || undefined,

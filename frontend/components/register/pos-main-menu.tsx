@@ -1079,6 +1079,18 @@ function buildCloseRegTicket(
     discount: 0,
     total: p.total,
     categoryId: null,
+    id: null,
+    uid: null,
+    note: null,
+    tags: null,
+    // Cierre de caja: resumen agregado del turno (DrawerService::getSoldProducts),
+    // sin desglose de impuesto por producto — no hay de dónde sacarlo acá.
+    taxId: null,
+    taxRate: null,
+    taxKind: null,
+    taxIncluded: null,
+    taxAmount: null,
+    taxNet: null,
   }))
   return {
     companyName: config?.companyName ?? "",

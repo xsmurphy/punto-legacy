@@ -40,6 +40,19 @@ export function buildOrderTicketData(order: Order, config: PosConfig | null): Ti
       discount: 0,
       total: unitPrice * oi.qty,
       categoryId: catalogItem?.categoryId ?? null,
+      id: oi.itemId,
+      uid: catalogItem?.sku ?? null,
+      note: oi.note,
+      tags: null,
+      // Comanda: se imprime ANTES de cobrar, sin impuesto congelado ni
+      // motor corrido sobre estas líneas (F3b no lo pide — el ticket fiscal
+      // es el de la venta, no la comanda de cocina/estación).
+      taxId: null,
+      taxRate: null,
+      taxKind: null,
+      taxIncluded: null,
+      taxAmount: null,
+      taxNet: null,
     }
   })
 

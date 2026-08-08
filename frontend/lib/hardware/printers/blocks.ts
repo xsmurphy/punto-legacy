@@ -284,17 +284,14 @@ export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>>
   // la base imponible por unidad para plantillas que quieren desglosar.
   item_price_notax: (item) =>
     item.taxNet === null || item.qty === 0 ? null : formatMoney(item.taxNet / item.qty),
-  // tax_single (legacy: documentPrintBuilder.source.js, `type == 'tax_single'`)
-  // NO es un campo por línea: en el editor viejo el operador tipeaba una tasa
-  // en `block.text` (ej. "10") y el bloque imprimía el SUBTOTAL de impuesto
-  // de TODA la venta para esa tasa específica, buscando `tsale.taxArray[iva]`
-  // — un acumulado por tasa a nivel venta, no algo que TicketItem (por línea)
-  // pueda resolver. Requiere la misma infraestructura por-tasa que
-  // `iva_by_rate`/`item_total_by_rate` (F3c, fuera de alcance F3b) — TicketData
-  // no lleva ese desglose hoy. Queda null hasta F3c; NO se resuelve como si
-  // fuera item_taxAmount_single para no imprimir un valor con semántica
-  // distinta a la que el operador espera de una plantilla vieja.
-  tax_single: () => null,
+  // tax_single: no aparece en la paleta del editor (lib/print-template-palette.ts)
+  // ni hay uso previo en el resto del repo (panel/api) — es un BlockType que
+  // existe en el tipo (print-template.ts) sin plantilla que lo use hoy. Por
+  // nombre/posición junto a item_taxAmount_single en ITEM_LINE_TYPES, se
+  // infiere la misma semántica: impuesto de UNA unidad. Si en el futuro
+  // aparece con otro significado en una plantilla real, corregir acá.
+  tax_single: (item) =>
+    item.taxAmount === null || item.qty === 0 ? null : formatMoney(item.taxAmount / item.qty),
 }
 
 /** true si el tipo es conocido por el catálogo (tiene resolver de valor, es
