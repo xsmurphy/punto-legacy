@@ -681,7 +681,47 @@ export interface TxDetailItem {
   itemSoldUnits: number
   itemSoldTotal: number
   itemSoldTax: number
-  userId: string
+  userId: string | null
+  /** F1 (context/39-detalle-transaccion.md) — campos nuevos del resolver canónico. */
+  note?: string | null
+  unitPrice?: number
+  itemSoldDiscount?: number
+  discountPercent?: number | null
+  itemSoldComission?: number | null
+  userName?: string | null
+  taxId?: string | null
+  taxRate?: number | null
+  taxKind?: string | null
+  taxIncluded?: boolean | null
+  taxAmount?: number
+  taxNet?: number | null
+}
+
+/** F1 — desglose de impuestos por tasa (toTaxObj congelado, o reconstruido si trunca). */
+export interface TxTaxByRateRow {
+  taxId: string | null
+  rate: number
+  kind: string
+  base: number
+  amount: number
+}
+
+/** F1 — resumen mínimo de un documento vinculado (cotización/orden), para linkear sin otra ida y vuelta. */
+export interface TxRelatedDoc {
+  id: string
+  type: number
+  date: string | null
+  invoiceNo: string | null
+  invoicePrefix: string | null
+  total: number
+}
+
+export interface TxRelatedOrder {
+  id: string
+  orderNumber: number | null
+  status: string
+  date: string | null
+  total: number
 }
 
 export interface TxDetailFull {
@@ -705,6 +745,22 @@ export interface TxDetailFull {
     outletId: string | null
     outletName: string | null
     meta: { tags?: string[] } | null
+    /** F1 — cabecera/ámbito ampliados del resolver canónico. */
+    transactionStatus?: number
+    customerTIN?: string | null
+    responsibleName?: string | null
+    condition?: "cash" | "credit"
+    void?: boolean
+    currency?: string | null
+    ivaRemoved?: boolean
+    registerId?: string | null
+    registerName?: string
+    authNo?: string
+    invoicePrefix?: string
+    invoiceNoPad?: string
+    docNo?: string
+    subtotal?: number
+    netTotal?: number
   }
   items: TxDetailItem[]
   creditNotes: Array<{ transactionId: string; transactionDate: string; transactionTotal: number; invoiceNo: string | null }>
@@ -712,6 +768,11 @@ export interface TxDetailFull {
   toTransactions: unknown[]
   creditPayments: { total: number; paid: number; debt: number } | null
   paymentsReceived: Array<{ transactionId: string; date: string; amount: number; invoiceNo: string; paymentMethod: string }>
+  /** F1 — nuevos, ver context/39-detalle-transaccion.md. */
+  taxByRate?: TxTaxByRateRow[]
+  quotesOrigin?: TxRelatedDoc[]
+  quotesDerived?: TxRelatedDoc[]
+  orders?: TxRelatedOrder[]
 }
 
 export function useTransactionDetail(id: string | null) {

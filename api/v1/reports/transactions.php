@@ -54,228 +54,26 @@ if ($method === 'POST') {
     apiOk(['id' => $id, 'action' => 'deleteQuote']);
 }
 
-/* ───────── GET ?id= : detalle completo de una transacción ───────── */
+/* ───────── GET ?id= : detalle completo de una transacción ─────────
+ * F1 (context/39-detalle-transaccion.md): resolver canónico único,
+ * Transactions\TransactionDetailService::find() — espejo de
+ * Purchases\PurchasesService::find(). La query inline que vivía acá
+ * (header + items + creditNotes/appointments, sin timbrado/caja/comisión/
+ * desglose fiscal/cotizaciones/órdenes) murió; ver el Service para el detalle
+ * de qué resuelve y por qué. El POS (TransactionService::getSingle) sigue
+ * con su propio shape — migrarlo es F4 del plan. */
 if ($method === 'GET' && isset($_GET['id']) && $_GET['id'] !== '') {
     $txId = (string) $_GET['id'];
     if (!preg_match($uuidRe, $txId)) {
         apiError('id inválido', 422);
     }
 
-    // ncmExecute con forceObj=true devuelve el recordset del wrapper (NO un array) — hay
-    // que iterarlo para materializar las filas (patrón de Reports/UsersService).
-    $fetchAll = static function ($rs): array {
-        $out = [];
-        if ($rs && is_object($rs)) {
-            while (!$rs->EOF) {
-                $out[] = $rs->GetRowAssoc();
-                $rs->MoveNext();
-            }
-        }
-        return $out;
-    };
-
-    // 1. Cargar transacción principal con datos de contactos y outlet
-    $tx = ncmExecute(
-        // `t.meta::text AS meta_raw`: `meta` no sobrevive al flatten del wrapper
-        // (Query::flattenJsonb la desempaqueta y borra la columna).
-        "SELECT t.*, t.meta::text AS meta_raw,
-                c.contactName AS customerName,
-                u.contactName AS userName,
-                r.contactName AS responsibleName,
-                o.outletName
-         FROM transaction t
-         LEFT JOIN contact c ON c.contactId = t.customerId AND c.companyId = ?
-         LEFT JOIN contact u ON u.contactId = t.userId     AND u.companyId = ?
-         LEFT JOIN contact r ON r.contactId = t.responsibleId AND r.companyId = ?
-         LEFT JOIN outlet  o ON o.outletId  = t.outletId   AND o.companyId = ?
-         WHERE t.transactionId = ? AND t.companyId = ?
-         LIMIT 1",
-        [COMPANY_ID, COMPANY_ID, COMPANY_ID, COMPANY_ID, $txId, COMPANY_ID]
-    );
-
-    if (!$tx) {
+    $detail = (new \Punto\Api\Transactions\TransactionDetailService())->find($txId, (string) COMPANY_ID);
+    if ($detail === null) {
         apiError('Transacción no encontrada', 404);
     }
 
-    $type = (int) $tx['transactionType'];
-
-    // 2. Ítems: itemSold para type 0/3/9 (cotización); transactionDetails JSONB para el resto
-    $items = [];
-    if (in_array($type, [0, 3, 9], true)) {
-        $rawItems = ncmExecute(
-            "SELECT is2.itemSoldId, is2.itemId, i.itemName, is2.itemSoldUnits,
-                    is2.itemSoldTotal, is2.itemSoldTax, is2.userId
-             FROM itemSold is2
-             LEFT JOIN item i ON i.itemId = is2.itemId AND i.companyId = ?
-             WHERE is2.transactionId = ?",
-            [COMPANY_ID, $txId],
-            false, true
-        );
-        // GetRowAssoc devuelve keys en minúscula (PG); el front lee camelCase.
-        $items = array_map(static function ($r) {
-            $r = array_change_key_case((array) $r, CASE_LOWER);
-            return [
-                'itemSoldId'    => (string) ($r['itemsoldid'] ?? ''),
-                'itemId'        => (string) ($r['itemid'] ?? ''),
-                'itemName'      => (string) ($r['itemname'] ?? ''),
-                'itemSoldUnits' => (float) ($r['itemsoldunits'] ?? 0),
-                'itemSoldTotal' => (float) ($r['itemsoldtotal'] ?? 0),
-                'itemSoldTax'   => (float) ($r['itemsoldtax'] ?? 0),
-                'userId'        => (string) ($r['userid'] ?? ''),
-            ];
-        }, $fetchAll($rawItems));
-    } elseif (!empty($tx['transactionDetails'])) {
-        $decoded = json_decode($tx['transactionDetails'], true);
-        if (is_array($decoded)) {
-            foreach ($decoded as $k => $v) {
-                $items[] = [
-                    'itemSoldId'    => $k,
-                    'itemId'        => $v['itemId']  ?? '',
-                    'itemName'      => $v['name']    ?? '',
-                    'itemSoldUnits' => $v['count']   ?? 1,
-                    'itemSoldTotal' => $v['total']   ?? 0,
-                    'itemSoldTax'   => 0,
-                    'userId'        => $v['userId']  ?? '',
-                ];
-            }
-        }
-    }
-
-    // mig 115: transactionParentId dropeada — los derivados de esta
-    // transacción viven en transaction_link (TransactionLinkService).
-    $txLinkSvc = new \Punto\Api\Services\TransactionLinkService();
-
-    // 3. Notas de crédito (type=6 hijas de esta transacción, kind='return')
-    $creditNoteIds = $txLinkSvc->listDerivedIds(COMPANY_ID, $txId, 'return');
-    $creditNotes = [];
-    if ($creditNoteIds !== []) {
-        $cnPh = implode(',', array_fill(0, count($creditNoteIds), '?'));
-        $creditNotes = ncmExecute(
-            "SELECT transactionId, transactionDate, transactionTotal, invoiceNo
-             FROM transaction
-             WHERE transactionId IN ($cnPh) AND transactionType = 6 AND companyId = ?",
-            array_merge($creditNoteIds, [COMPANY_ID]),
-            false, true
-        );
-    }
-
-    // 4. Agendamientos (type=13 hijos de esta transacción, kind='package_session')
-    $appointmentIds = $txLinkSvc->listDerivedIds(COMPANY_ID, $txId, 'package_session');
-    $appointments = [];
-    if ($appointmentIds !== []) {
-        $aptPh = implode(',', array_fill(0, count($appointmentIds), '?'));
-        $appointments = ncmExecute(
-            "SELECT transactionId, transactionDate, transactionTotal
-             FROM transaction
-             WHERE transactionId IN ($aptPh) AND transactionType = 13 AND companyId = ?",
-            array_merge($appointmentIds, [COMPANY_ID]),
-            false, true
-        );
-    }
-
-    // 5. Transacciones asociadas (toTransaction). toTransaction NO tiene companyId
-    // propio → scope por JOIN a transaction para no exponer vínculos de otra empresa.
-    $toTx = ncmExecute(
-        "SELECT tt.* FROM toTransaction tt
-           JOIN transaction t ON t.transactionId = tt.transactionId AND t.companyId = ?
-          WHERE tt.transactionId = ?",
-        [COMPANY_ID, $txId],
-        false, true
-    );
-
-    // 6. Para crédito (type=3): calcular total/pagado/deuda + detalle recibos
-    $creditPayments   = null;
-    $paymentsReceived = [];
-    if ($type === 3) {
-        $total = (float) $tx['transactionTotal'] - (float) $tx['transactionDiscount'];
-
-        // kind='credit_payment' (mig 115) — reemplaza transactionParentId.
-        $creditPaymentIds = $txLinkSvc->listDerivedIds(COMPANY_ID, $txId, 'credit_payment');
-        $paid = 0.0;
-        if ($creditPaymentIds !== []) {
-            $cpPh    = implode(',', array_fill(0, count($creditPaymentIds), '?'));
-            $paidRow = ncmExecute(
-                "SELECT COALESCE(SUM(transactionTotal), 0) AS paid
-                 FROM transaction
-                 WHERE transactionId IN ($cpPh) AND transactionType = 5 AND companyId = ?",
-                array_merge($creditPaymentIds, [COMPANY_ID])
-            );
-            $paid = (float) ($paidRow['paid'] ?? 0);
-        }
-        $creditPayments = [
-            'total' => $total,
-            'paid'  => $paid,
-            'debt'  => max(0, $total - $paid),
-        ];
-        $prRs = null;
-        if ($creditPaymentIds !== []) {
-            $prPh = implode(',', array_fill(0, count($creditPaymentIds), '?'));
-            $prRs = ncmExecute(
-                "SELECT transactionId, transactionDate, transactionTotal, invoiceNo, transactionPaymentType
-                 FROM transaction
-                 WHERE transactionId IN ($prPh) AND transactionType = 5 AND companyId = ?
-                 ORDER BY transactionDate DESC",
-                array_merge($creditPaymentIds, [COMPANY_ID]),
-                false, true
-            );
-        }
-        foreach ($fetchAll($prRs) as $r) {
-            $pmArr = json_decode($r['transactionPaymentType'] ?? '[]', true) ?? [];
-            $paymentsReceived[] = [
-                'transactionId' => (string) $r['transactionId'],
-                'date'          => (string) $r['transactionDate'],
-                'amount'        => (float)  $r['transactionTotal'],
-                'invoiceNo'     => (string) ($r['invoiceNo'] ?? ''),
-                'paymentMethod' => (string) ($pmArr[0]['name'] ?? ''),
-            ];
-        }
-    }
-
-    // Construir la respuesta con keys camelCase. NO se puede volcar $tx->toArray()
-    // crudo: PG devuelve las columnas en minúscula (transactiontype, transactiontotal…)
-    // y el front lee camelCase → todo quedaba undefined ("Tipo undefined", totales en 0,
-    // ítems vacíos). $tx es CaseInsensitiveArray → el acceso camelCase de abajo resuelve.
-    $rawPayments = json_decode($tx['transactionPaymentType'] ?? '[]', true) ?? [];
-    $txData = [
-        'transactionId'          => (string) $tx['transactionId'],
-        'transactionDate'        => $tx['transactionDate'] !== null ? (string) $tx['transactionDate'] : null,
-        'transactionDueDate'     => $tx['transactionDueDate'] !== null ? (string) $tx['transactionDueDate'] : null,
-        'transactionNote'        => $tx['transactionNote'] !== null ? (string) $tx['transactionNote'] : null,
-        'transactionType'        => (int) $tx['transactionType'],
-        'transactionComplete'    => (int) ($tx['transactionComplete'] ?? 0),
-        'transactionTotal'       => (float) ($tx['transactionTotal'] ?? 0),
-        'transactionDiscount'    => (float) ($tx['transactionDiscount'] ?? 0),
-        'transactionTax'         => (float) ($tx['transactionTax'] ?? 0),
-        // Resolver nombre legible de cada método de pago.
-        'transactionPaymentType' => array_map(static function ($p) {
-            return [
-                'type'  => (string) ($p['type']  ?? ''),
-                'name'  => getPaymentMethodName($p['type'] ?? ''),
-                'total' => (float) ($p['total'] ?? 0),
-                'price' => (float) ($p['price'] ?? 0),
-                'extra' => (string) ($p['extra'] ?? ''),
-            ];
-        }, is_array($rawPayments) ? $rawPayments : []),
-        'invoiceNo'      => $tx['invoiceNo'] !== null ? (string) $tx['invoiceNo'] : null,
-        'customerId'     => $tx['customerId'] !== null ? (string) $tx['customerId'] : null,
-        'customerName'   => $tx['customerName'] !== null ? (string) $tx['customerName'] : null,
-        'userId'         => $tx['userId'] !== null ? (string) $tx['userId'] : null,
-        'userName'       => $tx['userName'] !== null ? (string) $tx['userName'] : null,
-        'responsibleId'  => $tx['responsibleId'] !== null ? (string) $tx['responsibleId'] : null,
-        'outletId'       => $tx['outletId'] !== null ? (string) $tx['outletId'] : null,
-        'outletName'     => $tx['outletName'] !== null ? (string) $tx['outletName'] : null,
-        'meta'           => json_decode($tx['meta_raw'] ?? $tx['meta'] ?? '{}', true) ?? [],
-    ];
-
-    apiOk([
-        'transaction'      => $txData,
-        'items'            => $items,
-        'creditNotes'      => $fetchAll($creditNotes),
-        'appointments'     => $fetchAll($appointments),
-        'toTransactions'   => $fetchAll($toTx),
-        'creditPayments'   => $creditPayments,
-        'paymentsReceived' => $paymentsReceived,
-    ]);
+    apiOk($detail);
 }
 
 /* ───────── PUT ?id= : actualizar transacción (paridad legacy) ───────── */

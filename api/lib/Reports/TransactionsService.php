@@ -178,9 +178,14 @@ final class TransactionsService
     /** Pagos de ventas a crédito (tipo 5). $filters: ['cusId','src']. */
     public function cobros(array $filters, $from, $to, string $roc, string $companyId): array
     {
+        // Columnas que leen los dos loops de abajo ($f[...]) — ninguna vive en
+        // meta/data/config (a diferencia de detail(), acá no hace falta `tags`).
+        $cols = "transactionId, transactionType, invoiceNo, transactionDate, customerId,
+                 userId, outletId, registerId, transactionPaymentType, transactionTotal";
+
         if ($filters['src']) {
             $like = '%' . $filters['src'] . '%';
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (5)" . $roc . "
                     AND customerId IN (
                         SELECT contactId FROM contact WHERE type = 1 AND companyId = ?
@@ -189,12 +194,12 @@ final class TransactionsService
                     ORDER BY transactionDate DESC LIMIT 5000";
             $params = [$companyId, $like, $like, $like];
         } elseif ($filters['cusId']) {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (5)" . $roc . "
                     AND customerId = ? ORDER BY transactionDate DESC LIMIT 5000";
             $params = [$filters['cusId']];
         } else {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (5)
                     AND transactionDate BETWEEN ? AND ?" . $roc . "
                     ORDER BY transactionDate DESC LIMIT 5000";
@@ -261,9 +266,13 @@ final class TransactionsService
     /** Cotizaciones (tipo 9). $filters: ['cusId','src']. */
     public function quotes(array $filters, $from, $to, string $roc, string $companyId): array
     {
+        // Columnas que lee el loop de abajo ($f[...]) — ninguna vive en meta/data/config.
+        $cols = "transactionId, transactionType, invoiceNo, transactionDate, transactionStatus,
+                 customerId, userId, outletId, transactionTotal, transactionDiscount";
+
         if ($filters['src']) {
             $like = '%' . $filters['src'] . '%';
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (9)" . $roc . "
                     AND customerId IN (
                         SELECT contactId FROM contact WHERE type = 1 AND companyId = ?
@@ -272,12 +281,12 @@ final class TransactionsService
                     ORDER BY transactionDate DESC LIMIT 5000";
             $params = [$companyId, $like, $like, $like];
         } elseif ($filters['cusId']) {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (9)" . $roc . "
                     AND customerId = ? ORDER BY transactionDate DESC LIMIT 5000";
             $params = [$filters['cusId']];
         } else {
-            $sql = "SELECT * FROM transaction
+            $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (9)
                     AND transactionDate BETWEEN ? AND ?" . $roc . "
                     ORDER BY transactionDate DESC LIMIT 5000";
@@ -551,8 +560,14 @@ final class TransactionsService
         return $map;
     }
 
-    /** registers → {name, invoiceAuth, invoicePrefix, docsLeadingZeros, returnPrefix} */
-    private function registerInfo(array $ids, string $companyId): array
+    /**
+     * registers → {name, invoiceAuth, invoicePrefix, docsLeadingZeros, returnPrefix}
+     *
+     * Público (F1, context/39-detalle-transaccion.md): `Transactions\TransactionDetailService::find()`
+     * lo reusa para resolver timbrado/prefix del detalle — mismo criterio que
+     * el listado, sin duplicar la lectura de `register.data` JSONB.
+     */
+    public function registerInfo(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
