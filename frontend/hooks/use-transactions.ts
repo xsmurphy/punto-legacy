@@ -70,6 +70,20 @@ export interface TransactionDataItem {
   note: string
   sku: string
   status: number
+  /**
+   * IVA congelado por línea (F2a/F2b, context/38) — `transactionDatas` es el
+   * decode directo de `meta->transactionDetails` (TransactionService::getSingle,
+   * `$rawDetails`/`$transactionDatas`), que ya trae estos 6 campos escritos por
+   * `SaleService::enrichWithTaxes` al confirmar la venta. Opcionales porque
+   * ventas anteriores al corte de F2 no los tienen (quedan undefined, no 0 —
+   * ver D3 del plan). F3b (ticket) los consume tal cual, sin recalcular.
+   */
+  taxId?: string | null
+  taxRate?: number
+  taxKind?: "rate" | "exempt"
+  taxIncluded?: boolean
+  taxAmount?: number
+  taxNet?: number
 }
 
 export interface PaymentMethod {

@@ -257,20 +257,43 @@ export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>>
   // item_subtotal ("Total" antes de impuesto) — sin desglose de impuesto
   // por ítem hoy, se resuelve igual que item_total.
   item_subtotal: (item) => formatMoney(item.total),
-  // ⚠ item_id/item_uid/item_note/item_tags/item_tax/item_taxAmount/
-  // item_taxAmount_single/item_price_notax/tax_single: TicketItem
-  // (build-ticket-data.ts) no lleva id/sku/nota/etiquetas/tasa ni monto de
-  // impuesto por ítem — requiere ampliar TicketItem y sus 3 builders
-  // (buildTicketData, buildTicketItemsFromTransaction, buildTicketDataFromTxDetail)
-  // con esos campos desde PosItem/catálogo. Ver flag en el reporte.
-  item_id: () => null,
-  item_uid: () => null,
-  item_note: () => null,
-  item_tags: () => null,
-  item_tax: () => null,
-  item_taxAmount: () => null,
-  item_taxAmount_single: () => null,
-  item_price_notax: () => null,
+  // F3b (context/38): TicketItem ya lleva id/sku/nota/tasa/monto de impuesto
+  // — poblado por cada builder según lo que su fuente realmente tiene (ver
+  // build-ticket-data.ts). item_tags sigue null en los 3 builders (ninguno
+  // modela etiquetas por ítem hoy, solo a nivel venta).
+  item_id: (item) => item.id,
+  item_uid: (item) => item.uid,
+  item_note: (item) => item.note,
+  item_tags: (item) => (item.tags && item.tags.length > 0 ? item.tags.join(", ") : null),
+  // Tasa de la línea. Exenta (`taxKind === "exempt"`) se rotula "Exento" en
+  // vez de imprimir "0" — 0% tasado y exento son fiscalmente distintos
+  // (context/38 §Reglas LATAM), no hay que confundirlos en el ticket.
+  item_tax: (item) => {
+    if (item.taxKind === "exempt") return "Exento"
+    if (item.taxRate === null) return null
+    return `${item.taxRate}%`
+  },
+  // Impuesto de la línea completa (todas las unidades).
+  item_taxAmount: (item) => (item.taxAmount === null ? null : formatMoney(item.taxAmount)),
+  // Impuesto de UNA unidad — item_taxAmount / cantidad. qty=0 no debería
+  // darse (línea sin unidades no se vende), pero se guarda por las dudas.
+  item_taxAmount_single: (item) =>
+    item.taxAmount === null || item.qty === 0 ? null : formatMoney(item.taxAmount / item.qty),
+  // Precio unitario NETO (sin impuesto) — item_uni_price/item_price son el
+  // precio con impuesto incluido cuando taxIncluded=true; este bloque separa
+  // la base imponible por unidad para plantillas que quieren desglosar.
+  item_price_notax: (item) =>
+    item.taxNet === null || item.qty === 0 ? null : formatMoney(item.taxNet / item.qty),
+  // tax_single (legacy: documentPrintBuilder.source.js, `type == 'tax_single'`)
+  // NO es un campo por línea: en el editor viejo el operador tipeaba una tasa
+  // en `block.text` (ej. "10") y el bloque imprimía el SUBTOTAL de impuesto
+  // de TODA la venta para esa tasa específica, buscando `tsale.taxArray[iva]`
+  // — un acumulado por tasa a nivel venta, no algo que TicketItem (por línea)
+  // pueda resolver. Requiere la misma infraestructura por-tasa que
+  // `iva_by_rate`/`item_total_by_rate` (F3c, fuera de alcance F3b) — TicketData
+  // no lleva ese desglose hoy. Queda null hasta F3c; NO se resuelve como si
+  // fuera item_taxAmount_single para no imprimir un valor con semántica
+  // distinta a la que el operador espera de una plantilla vieja.
   tax_single: () => null,
 }
 

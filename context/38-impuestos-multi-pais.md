@@ -7,12 +7,18 @@
 > D4 renombre con alias sin migrar plantillas.
 > Requerimiento: el sistema apunta a toda LATAM — tasas NO fijas, con opción
 > global de IVA incluido en el precio o sumado al precio.
-> Progreso 2026-08-08: **F0, F1, F2a, F2b, F3a hechas**. F3a: EInvoice
+> Progreso 2026-08-08: **F0, F1, F2a, F2b, F3a, F3b hechas**. F3a: EInvoice
 > (factura y nota de crédito) lee el IVA congelado por línea, no el catálogo;
 > fallback a `resolveTaxRatesForItems` solo para ventas pre-F2a; hardcode
 > `{10,5,0}` pasó a ser validación de formato SIFEN, no fuente de la tasa.
-> Sigue el resto de F3 (plantillas por tasa — bloques `item_total_by_rate`
-> etc.), después F4 (rollup) y F5 (RG90/Libro Ventas).
+> F3b: `TicketItem` (build-ticket-data.ts) lleva id/uid/nota/tasa/monto de
+> impuesto por línea — congelado real (F2a) en las reimpresiones desde
+> transacción, motor real (lib/tax/engine.ts) en la impresión inmediata del
+> POS. Los 9 bloques de `blocks.ts` que daban `null` quedan resueltos, salvo
+> `item_tags` (no modelado por línea) y `tax_single` (agregado por-tasa a
+> nivel venta, requiere la infraestructura de F3c). Sigue el resto de F3
+> (plantillas por tasa — bloques `item_total_by_rate` etc., renombre
+> snake_case), después F4 (rollup) y F5 (RG90/Libro Ventas).
 
 ## Diagnóstico (auditoría 2026-08-07)
 

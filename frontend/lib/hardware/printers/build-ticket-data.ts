@@ -1,6 +1,7 @@
 import type { CreateSalePayload, CreateSaleResult } from "@/lib/commands/create-sale"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
 
 export interface TicketData {
   // empresa / tenant
@@ -136,6 +137,30 @@ export interface TicketItem {
   discount: number
   total: number
   categoryId: string | null
+  /** UUID del ítem de catálogo. `null` si la línea no está atada a un ítem
+   *  (ej. línea armada a mano). */
+  id: string | null
+  /** SKU/código interno del ítem — `PosItem.sku` o `TransactionDataItem.sku`.
+   *  `null` cuando la fuente no lo trae (panel, sin catálogo POS hidratado). */
+  uid: string | null
+  /** Nota de línea. `null` si la fuente no la modela (panel). */
+  note: string | null
+  /** Etiquetas de línea. Hoy ningún builder las modela por ítem (solo a nivel
+   *  venta, ver `TicketData.tags`) — siempre `null` hasta que exista ese dato. */
+  tags: string[] | null
+  // ── Fiscal (F3b, context/38) — congelado server-side (F2a) cuando la
+  // fuente es una transacción persistida; calculado con el motor real
+  // (lib/tax/engine.ts) cuando la fuente es el carrito pre-venta. `null`
+  // cuando el builder no tiene de dónde sacarlo (ver comentario en cada uno).
+  taxId: string | null
+  /** Porcentaje (ej. 10). Irrelevante si `taxKind === "exempt"`. */
+  taxRate: number | null
+  taxKind: TaxKind | null
+  taxIncluded: boolean | null
+  /** Impuesto de la línea COMPLETA (todas las unidades). */
+  taxAmount: number | null
+  /** Neto de la línea (sin impuesto). */
+  taxNet: number | null
 }
 
 export interface TicketPayment {
@@ -156,15 +181,61 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
   const activeRegister = state.registers.find((r) => r.id === state.activeRegisterId) ?? null
   const registerName = activeRegister?.name ?? null
 
-  const items: TicketItem[] = payload.sale.map((s) => {
+  // Impuesto por línea: mismo motor y misma fuente que `selectCartIva`
+  // (lib/cart/store.ts) — tasa real del catálogo (`taxes` por `taxId`), modo
+  // incluido/añadido del ítem o default de la sucursal. `ivaRemoved` corre
+  // como exenta (mismo criterio que SaleService::enrichWithTaxes) en vez de
+  // recalcular con tasa 0 — es la venta completa la que no devenga IVA, no
+  // que cada línea tenga tasa 0%.
+  const taxesById = new Map(state.taxes.map((t) => [t.id, t]))
+  const decimals = config?.decimal === "yes" ? 2 : 0
+
+  const engineLines = payload.sale.map((s) => {
     const catalogItem = state.items.find((i) => i.id === s.itemId)
+    const tax = !payload.ivaRemoved && catalogItem?.taxId ? taxesById.get(catalogItem.taxId) : undefined
+    return {
+      catalogItem,
+      taxId: payload.ivaRemoved ? null : catalogItem?.taxId ?? null,
+      taxRate: payload.ivaRemoved ? 0 : tax?.rate ?? 0,
+      taxKind: (payload.ivaRemoved ? "exempt" : tax?.kind ?? "exempt") as TaxKind,
+      taxIncluded: catalogItem?.taxIncluded ?? state.outletTaxIncluded,
+      qty: s.count,
+      unitPrice: s.price,
+      discount: s.totalDiscount,
+    }
+  })
+  const taxResult = computeTaxes(
+    engineLines.map((l) => ({
+      qty: l.qty,
+      unitPrice: l.unitPrice,
+      discount: l.discount,
+      taxRate: l.taxRate,
+      taxKind: l.taxKind,
+      taxIncluded: l.taxIncluded,
+    })),
+    { decimals },
+  )
+
+  const items: TicketItem[] = payload.sale.map((s, i) => {
+    const line = engineLines[i]
+    const lineResult = taxResult.lines[i]
     return {
       name: s.name,
       qty: s.count,
       unitPrice: s.price,
       discount: s.discount,
       total: s.total,
-      categoryId: catalogItem?.categoryId ?? null,
+      categoryId: line.catalogItem?.categoryId ?? null,
+      id: s.itemId,
+      uid: line.catalogItem?.sku ?? null,
+      note: s.note,
+      tags: null,
+      taxId: line.taxId,
+      taxRate: line.taxRate,
+      taxKind: line.taxKind,
+      taxIncluded: line.taxIncluded,
+      taxAmount: lineResult.tax,
+      taxNet: lineResult.net,
     }
   })
 
@@ -200,7 +271,11 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     items,
     subtotal: payload.subtotal,
     discount: payload.discount,
-    taxTotal: payload.tax,
+    // payload.tax siempre viaja en 0 (el front ya no calcula el impuesto de
+    // autoridad — lo congela el backend, F2a). El ticket necesita un valor
+    // real para mostrar ANTES de esa respuesta, así que usa el mismo motor
+    // que calculó cada línea arriba.
+    taxTotal: taxResult.totals.tax,
     total: result.total,
     payments,
     note: payload.note ?? undefined,
@@ -238,6 +313,22 @@ export interface TicketableTransactionItem {
   total: number
   discount: number
   status?: number
+  sku?: string
+  note?: string
+  /**
+   * IVA congelado por línea (F2a) — `TransactionService::getSingle` decodifica
+   * `meta->transactionDetails` a `transactionDatas` (api/lib/services/
+   * TransactionService.php, `$rawDetails`/`$transactionDatas`), que trae estos
+   * campos escritos por `SaleService::enrichWithTaxes` al confirmar la venta.
+   * Opcionales: el hook consumidor (hooks/use-transactions.ts) puede no
+   * tiparlos todavía, y ventas anteriores al corte de F2 no los tienen.
+   */
+  taxId?: string | null
+  taxRate?: number
+  taxKind?: "rate" | "exempt"
+  taxIncluded?: boolean
+  taxAmount?: number
+  taxNet?: number
 }
 
 export interface TicketablePaymentMethod {
@@ -264,6 +355,21 @@ export function buildTicketItemsFromTransaction(
         discount: i.discount,
         total: i.total,
         categoryId: catalogItem?.categoryId ?? null,
+        id: i.itemId ?? null,
+        uid: i.sku ?? null,
+        note: i.note ?? null,
+        tags: null,
+        // TransactionService::getSingle (api/lib/services/TransactionService.php,
+        // detrás de /api/pos/transactions/[id]) no expone `transactionDetails`
+        // (el JSON congelado por F2a) ni `itemSoldTax` — a diferencia de
+        // /v1/reports/transactions (ver buildTicketDataFromTxDetail más abajo).
+        // Ampliar ese endpoint es trabajo de backend, fuera de alcance de F3b.
+        taxId: null,
+        taxRate: null,
+        taxKind: null,
+        taxIncluded: null,
+        taxAmount: null,
+        taxNet: null,
       }
     })
 }
@@ -311,6 +417,9 @@ export function buildTicketDataFromTransaction(
     items,
     subtotal: itemsTotal > 0 ? itemsTotal : total + discount,
     discount,
+    // Sin `itemSoldTax`/`transactionTax` en este endpoint (ver comentario en
+    // buildTicketItemsFromTransaction) — no hay de dónde sumarlo sin
+    // recalcular, y recalcular impuesto ya congelado está prohibido (F2a).
     taxTotal: 0,
     total,
     payments,
@@ -336,14 +445,20 @@ export interface TicketableTxDetail {
     transactionNote: string | null
     transactionTotal: number
     transactionDiscount: number
+    /** Impuesto total de la venta, ya congelado (F2a) — suma de `itemSoldTax`. */
+    transactionTax: number
     transactionPaymentType: Array<{ type: string; name: string; total: number }>
     invoiceNo: string | null
     customerName: string | null
   }
   items: Array<{
+    itemId: string
     itemName: string
     itemSoldUnits: number
     itemSoldTotal: number
+    /** Impuesto de la línea, congelado server-side (F2a) — TransactionsService
+     *  lo trae de `itemSold.itemSoldTax`. */
+    itemSoldTax: number
   }>
 }
 
@@ -363,6 +478,22 @@ export function buildTicketDataFromTxDetail(
     // por categoría (solo lo hace el matching de bindings de hardware, que
     // el panel no usa), así que null acá es inocuo.
     categoryId: null,
+    id: i.itemId ?? null,
+    // Sin sku/nota/etiquetas por ítem en este endpoint (TxDetailItem no los trae).
+    uid: null,
+    note: null,
+    tags: null,
+    taxAmount: i.itemSoldTax,
+    // taxRate/taxKind/taxIncluded/taxId/taxNet: TransactionsService no expone
+    // el desglose (solo el monto ya congelado, itemSoldTax) — derivarlos de
+    // itemSoldTotal sería asumir si el impuesto viene incluido o añadido, y
+    // esta fase prohíbe inventar/recalcular impuesto. Ampliar el endpoint
+    // para exponer transactionDetails es trabajo de backend, fuera de F3b.
+    taxId: null,
+    taxRate: null,
+    taxKind: null,
+    taxIncluded: null,
+    taxNet: null,
   }))
   const payments: TicketPayment[] = tx.transactionPaymentType.map((p) => ({
     method: p.name || p.type || "—",
@@ -380,7 +511,7 @@ export function buildTicketDataFromTxDetail(
     items,
     subtotal: itemsTotal > 0 ? itemsTotal : tx.transactionTotal + tx.transactionDiscount,
     discount: tx.transactionDiscount,
-    taxTotal: 0,
+    taxTotal: tx.transactionTax,
     total: tx.transactionTotal,
     payments,
     note: tx.transactionNote || undefined,
