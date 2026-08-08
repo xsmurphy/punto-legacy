@@ -93,6 +93,10 @@ final class ReturnService
                 throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
             }
 
+            // Devoluciones previas — se lee UNA vez fuera del loop (no cambia
+            // dentro de esta request y no depende del itemId).
+            $returnIds = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
+
             // Procesar cada ítem: leer original + validar qty disponible (dentro de la TX)
             foreach ($items as $item) {
                 $itemId = (string) ($item['itemId'] ?? '');
@@ -102,13 +106,30 @@ final class ReturnService
                     throw new \InvalidArgumentException("Qty inválida para item $itemId.");
                 }
 
-                // Datos del itemSold original — scopeado por companyId via la TX padre
+                // Datos del itemSold original — scopeado por companyId via la TX padre.
+                // AGREGADO por itemId, no GetRow: una misma venta puede tener el
+                // mismo producto en DOS líneas de itemSold (el carrito del POS
+                // trae `mergeRepeated` como opción, no como invariante: apagado,
+                // las repeticiones se guardan separadas). Leer una sola daría un
+                // cupo disponible menor al real y el cajero no podría devolver
+                // todo lo que el cliente compró. `HAVING COUNT(*) > 0` evita que
+                // los agregados devuelvan una fila de nulls cuando el item no
+                // existe en la transacción (sin él, `!$origItem` nunca dispara).
+                // itemHasStock / itemLocationId salen del JOIN a `item`, que es
+                // una única fila por itemId: MIN() es solo para poder proyectarlas
+                // junto a los agregados, no una elección entre valores distintos.
                 $origItem = $db->GetRow(
-                    'SELECT is1.itemsoldunits, is1.itemsoldtotal, is1.itemsolddiscount,
-                            is1.itemsoldcogs, i.itemhasstock, i.itemlocationid
+                    'SELECT SUM(is1.itemsoldunits)                 AS itemsoldunits,
+                            SUM(is1.itemsoldtotal)                 AS itemsoldtotal,
+                            SUM(COALESCE(is1.itemsolddiscount, 0)) AS itemsolddiscount,
+                            SUM(COALESCE(is1.itemsoldcogs, 0) * ABS(is1.itemsoldunits))
+                              / NULLIF(SUM(ABS(is1.itemsoldunits)), 0) AS itemsoldcogs,
+                            MIN(i.itemhasstock::int)               AS itemhasstock,
+                            MIN(i.itemlocationid::text)            AS itemlocationid
                      FROM "itemSold" is1
                      JOIN item i ON i.itemid = is1.itemid
-                     WHERE is1.transactionid = ? AND is1.itemid = ?',
+                     WHERE is1.transactionid = ? AND is1.itemid = ?
+                     HAVING COUNT(*) > 0',
                     [$parentTransactionId, $itemId]
                 );
                 if (!$origItem) {
@@ -124,11 +145,19 @@ final class ReturnService
                 $lineDisc  = abs((float) ($origItem['itemsolddiscount'] ?? 0));
                 $unitPrice = $soldQty > 0 ? $lineTotal / $soldQty : 0.0;
                 $unitDisc  = $soldQty > 0 ? $lineDisc  / $soldQty : 0.0;
-                $cogs      = abs((float) $origItem['itemsoldcogs']);
-                $unitCogs  = $soldQty > 0 ? $cogs / $soldQty : 0.0;
+                // itemSoldCOGS es COSTO UNITARIO, no monto de línea: SaleService
+                // graba ahí el `stockOnHandCOGS` crudo del item y tanto el rollup
+                // (mig 42: `SUM(itemSoldCOGS * itemSoldUnits)`) como
+                // Inventory::manageStock (`$newCOGS = $COGS * $count`) lo
+                // multiplican por unidades. Por eso NO se suma como los demás
+                // campos: se promedia PONDERADO POR UNIDADES, que es el único
+                // criterio que deja invariante el costo total de las líneas
+                // fusionadas (SUM(cogs*units) / SUM(units)). Un SUM plano
+                // multiplicaría el costo por la cantidad de líneas, y un promedio
+                // simple daría mal si las líneas tienen distinta cantidad.
+                $unitCogs  = abs((float) ($origItem['itemsoldcogs'] ?? 0));
 
                 // Qty ya devuelta (dentro de TX — ve las filas del lock anterior)
-                $returnIds = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
                 $alreadyReturned = 0.0;
                 if ($returnIds !== []) {
                     $ph = implode(',', array_fill(0, count($returnIds), '?'));
@@ -152,7 +181,6 @@ final class ReturnService
                 // cancela EXACTAMENTE a la venta original en las dos columnas.
                 $lineReturnTotal = round($unitPrice * $reqQty, 2);
                 $lineReturnDisc  = round($unitDisc  * $reqQty, 2);
-                $lineCogs        = round($unitCogs  * $reqQty, 2);
                 $returnTotal    += $lineReturnTotal;
                 $returnDiscount += $lineReturnDisc;
 
@@ -161,7 +189,9 @@ final class ReturnService
                     'qty'         => $reqQty,
                     'lineTotal'   => $lineReturnTotal,
                     'lineDiscount'=> $lineReturnDisc,
-                    'cogs'        => $lineCogs,
+                    // Unitario, NO multiplicado por qty: así lo espera tanto la
+                    // columna itemSoldCOGS como manageStock (ver arriba).
+                    'unitCogs'    => round($unitCogs, 4),
                     'hasStock'   => !empty($origItem['itemhasstock']),
                     'locationId' => $origItem['itemlocationid'] ?? null,
                 ];
@@ -227,7 +257,9 @@ final class ReturnService
                         -abs($pi['qty']),
                         -abs($pi['lineTotal']),
                         -abs($pi['lineDiscount']),
-                        -abs($pi['cogs']),
+                        // Signo negativo = espeja `flipOnReturn` de SaleService
+                        // (lib/Sales/SaleService.php:1445) sobre el mismo campo.
+                        -abs($pi['unitCogs']),
                     ]
                 );
 
@@ -241,7 +273,7 @@ final class ReturnService
                         'type'          => '+',
                         'source'        => 'return',
                         'transactionId' => $newTransactionId,
-                        'cogs'          => $pi['cogs'],
+                        'cogs'          => $pi['unitCogs'],
                         'userId'        => $userId,
                         'companyId'     => $companyId,
                     ]);
