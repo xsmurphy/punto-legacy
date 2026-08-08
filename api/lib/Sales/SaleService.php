@@ -8,6 +8,7 @@ use Punto\Api\Context\TenantContext;
 use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
+use Punto\Api\Tax\TaxEngine;
 
 /**
  * SaleService — guardado de ventas del POS (slice 35 del desacople de /app).
@@ -85,7 +86,13 @@ final class SaleService
         // ── B1: normalizar items del sale + computar totales ────────────────
         // saleArraySanitizer aplica markupt2HTML por campo y castea floats —
         // shape canónico que después leen toTaxObj/itemSold/manageStock.
-        $saleDetail = $this->withTaxRates(saleArraySanitizer($input->sale));
+        // F2a (context/38): enrichWithTaxes ya NO solo resuelve taxRate — corre
+        // el TaxEngine server-side y congela taxId/taxRate/taxKind/taxIncluded/
+        // taxAmount/taxNet por línea. $decimals sale de la config del tenant y
+        // se reusa para las sumas de transactionTax/toTaxObj más abajo, así
+        // no hay redondeos divergentes entre el detalle y los agregados.
+        $decimals   = $this->currencyDecimals();
+        $saleDetail = $this->enrichWithTaxes(saleArraySanitizer($input->sale), $input->ivaRemoved, $decimals);
         $totalUnits = countUnitSold($saleDetail);
 
         // ── B1: resolver userId + responsibleId ──────────────────────────────
@@ -104,6 +111,7 @@ final class SaleService
             totalUnits:    $totalUnits,
             userId:        $userId,
             responsibleId: $responsibleId,
+            decimals:      $decimals,
         );
 
         // ── B3: INSERT principal de la venta ────────────────────────────────
@@ -114,7 +122,7 @@ final class SaleService
         // Solo si el INSERT principal funcionó (evita FK violations en cascada
         // que ensuciarían el error real). Corren dentro de la misma transacción.
         if ($insertOk !== false && !empty($transId)) {
-            $this->persistRelations($input, (string) $transId);
+            $this->persistRelations($input, (string) $transId, $saleDetail, $decimals);
 
             // ── B8: itemSold + COGS + comisiones + manageStock (inventario) ──
             $this->persistItemsAndStock($input, (string) $transId, $saleDetail);
@@ -558,6 +566,7 @@ final class SaleService
         float $totalUnits,
         string $userId,
         ?string $responsibleId,
+        int $decimals,
     ): array {
         $typeStr = (string) $input->type->value;
         $isIncomplete = in_array($input->type, [
@@ -568,7 +577,11 @@ final class SaleService
 
         return [
             'transactionDiscount'    => flipOnReturn($typeStr, $input->discount),
-            'transactionTax'         => flipOnReturn($typeStr, $input->tax),
+            // F2a (context/38): ya NO se confía en $input->tax del payload — es
+            // la suma de taxAmount por línea, calculado por TaxEngine dentro de
+            // enrichWithTaxes() y congelado en $saleDetail. Cierra la
+            // vulnerabilidad de transactionTax sin validar (auditoría §diagnóstico #4).
+            'transactionTax'         => flipOnReturn($typeStr, $this->sumLineTax($saleDetail, $decimals)),
             'transactionTotal'       => flipOnReturn($typeStr, $input->subtotal),
             // Venta sin IVA (toggle del POS, mig 101): los importes de arriba ya
             // vienen netos desde el front. Sin esta bandera no habia forma de
@@ -634,22 +647,29 @@ final class SaleService
      * Todo dentro de la transacción abierta en save(). Un fallo (FK violation, etc.)
      * marca la transacción como fallida y save() lanza SaleAbortedException.
      */
-    private function persistRelations(SaleInput $input, string $transId): void
+    private function persistRelations(SaleInput $input, string $transId, array $saleDetail, int $decimals): void
     {
         // ── B4: snapshot de impuestos (toTaxObj) ────────────────────────────
-        // taxObjSanitizer recorta a 11 items y formatea name/val. Devuelve false
-        // si está vacío → no insertamos.
+        // F2a (context/38): antes venía tal cual de $input->taxObj (payload sin
+        // validar — auditoría §diagnóstico #4). Grep de lectores de toTaxObj/
+        // toTaxObjText en api/ y frontend/ (2026-08-08): el ÚNICO otro caller es
+        // CompanyAdminService::delete() (`DELETE FROM toTaxObj WHERE companyId=?`,
+        // borrado en cascada al eliminar el tenant) — nadie hace SELECT del
+        // contenido. Sin lector del shape legacy {name,val} que preservar, se
+        // reemplaza directo por el desglose byRate del motor: lista de
+        // {taxId, rate, kind, base, amount} agrupada por (taxRate,taxKind) sobre
+        // las líneas YA congeladas en $saleDetail (misma fuente que itemSold/
+        // transactionTax — un solo cálculo, sin re-invocar el motor).
         //
         // DEUDA conocida (matchea el legacy, no es regresión): `toTaxObjText` es
         // VARCHAR(255). Con ~6+ impuestos el json_encode puede exceder 255 chars
         // → PG aborta la tx por truncación (22001) y la venta entera falla con
-        // SaleAbortedException. Una venta multi-impuesto legítima podría romper.
-        // Fix futuro: widening de la columna a TEXT (migración) — registrado en
-        // roadmap § processData. Por ahora se preserva el comportamiento legacy.
-        $taxObj = taxObjSanitizer($input->taxObj ?? []);
-        if (is_array($taxObj) && $taxObj !== []) {
+        // SaleAbortedException. Fix futuro: widening de la columna a TEXT
+        // (migración) — registrado en roadmap § processData.
+        $taxByRate = $this->groupTaxByRate($saleDetail, $decimals);
+        if ($taxByRate !== []) {
             $this->db->AutoExecute('toTaxObj', [
-                'toTaxObjText'  => json_encode($taxObj),
+                'toTaxObjText'  => json_encode($taxByRate),
                 'transactionId' => $transId,
                 'companyId'     => $this->ctx->companyId,
             ], 'INSERT');
@@ -1414,7 +1434,11 @@ final class SaleService
             // ── INSERT itemSold ─────────────────────────────────────────────
             $records = [
                 'itemSoldTotal'     => flipOnReturn($typeStr, $sD['total']),
-                'itemSoldTax'       => flipOnReturn($typeStr, addTax($sD['tax'], $sD['total'])),
+                // F2a (context/38): antes addTax($sD['tax'], $sD['total']) — el
+                // payload mandaba tax=0 siempre, así que esto daba $0 de IVA en
+                // todos los reportes. taxAmount ya viene calculado por TaxEngine
+                // dentro de enrichWithTaxes(), congelado por línea.
+                'itemSoldTax'       => flipOnReturn($typeStr, (float) ($sD['taxAmount'] ?? 0)),
                 'itemSoldDiscount'  => flipOnReturn($typeStr, $sD['totalDiscount']),
                 'itemSoldUnits'     => flipOnReturn($typeStr, $sD['count']),
                 'itemSoldComission' => flipOnReturn($typeStr, $comission),
@@ -1558,7 +1582,12 @@ final class SaleService
             }
         }
 
-        $saleDetail    = $this->withTaxRates(saleArraySanitizer($input->sale));
+        // F2a (context/38): la cotización congela el desglose de impuestos
+        // igual que la venta — si se convierte en venta más tarde, reimprimir
+        // o auditar la cotización tiene que mostrar la misma tasa con la que
+        // se cotizó, no la del catálogo al momento de mirarla.
+        $decimals      = $this->currencyDecimals();
+        $saleDetail    = $this->enrichWithTaxes(saleArraySanitizer($input->sale), $input->ivaRemoved, $decimals);
         $totalUnits    = countUnitSold($saleDetail);
         $userId        = $input->userId ?? $this->ctx->userId;
         $responsibleId = ($userId !== $this->ctx->userId) ? $this->ctx->userId : null;
@@ -1573,6 +1602,7 @@ final class SaleService
             totalUnits:    $totalUnits,
             userId:        $userId,
             responsibleId: $responsibleId,
+            decimals:      $decimals,
         );
         $record['invoiceNo']           = $quoteNo;
         $record['transactionComplete'] = 1;
@@ -1581,7 +1611,7 @@ final class SaleService
         $transId  = $this->db->Insert_ID();
 
         if ($insertOk !== false && !empty($transId)) {
-            $this->persistRelations($input, (string) $transId);
+            $this->persistRelations($input, (string) $transId, $saleDetail, $decimals);
             $this->persistQuoteItems($input, (string) $transId, $saleDetail);
         }
 
@@ -1671,7 +1701,9 @@ final class SaleService
 
             $records = [
                 'itemSoldTotal'     => (float) $sD['total'],
-                'itemSoldTax'       => addTax($sD['tax'], $sD['total']),
+                // F2a (context/38): idem persistItemsAndStock — taxAmount ya
+                // sale del motor, congelado por enrichWithTaxes().
+                'itemSoldTax'       => (float) ($sD['taxAmount'] ?? 0),
                 'itemSoldDiscount'  => (float) $sD['totalDiscount'],
                 'itemSoldUnits'     => (float) $sD['count'],
                 'itemSoldComission' => $comission,
@@ -1690,7 +1722,19 @@ final class SaleService
     }
 
     /**
-     * Congela la tasa de IVA de cada línea dentro del detalle de la venta.
+     * F2a del plan multi-país (context/38-impuestos-multi-pais.md, sección
+     * "Arquitectura propuesta → B y C"). Evolución de `withTaxRates`
+     * (commits 81d5d66d + b20bd721): antes solo congelaba `taxRate` por
+     * línea; ahora corre el TaxEngine server-side completo y congela TODO
+     * el desglose — el POS sigue mandando `tax:0` (su cableado al motor TS
+     * es F2b), pero la venta ya persiste IVA real porque el backend lo
+     * recalcula solo, sin confiar en nada del payload salvo qty/precio/
+     * descuento por línea.
+     *
+     * Por línea agrega: `taxId`, `taxRate`, `taxKind`, `taxIncluded`
+     * (resueltos del catálogo — nunca del payload), y `taxAmount`/`taxNet`
+     * (salida de TaxEngine::computeTaxes, la fuente que leen itemSold/
+     * transactionTax/toTaxObj más abajo).
      *
      * La factura paraguaya separa el detalle en columnas por tasa (exentas /
      * 5% / 10%) y la reimpresión de un documento fiscal tiene que salir IGUAL
@@ -1698,14 +1742,22 @@ final class SaleService
      * la tasa ACTUAL del ítem: si alguien la cambió después, la copia saldría
      * distinta del original. Por eso se persiste acá, al momento de vender.
      *
-     * Se resuelve en el backend y no se toma del payload: el `taxId` del ítem
-     * es dato del catálogo, no del carrito, y no debe poder falsearse desde el
-     * cliente. Una sola query para todos los ítems de la venta.
-     *
      * @param array<int,array<string,mixed>> $saleDetail
+     * @param bool $ivaRemoved Flag de venta (mig 101, toggle "quitar IVA" del
+     *   POS). El front, cuando está activo, ya divide el precio por línea
+     *   ANTES de mandarlo (`price` llega neto — ver
+     *   frontend/lib/commands/create-sale.ts:299) — si el backend encima le
+     *   aplicara una tasa, se restaría IVA dos veces. Por eso acá NO se toca
+     *   el precio: se fuerza taxRate=0/taxKind='exempt' efectivos en TODAS
+     *   las líneas para que el motor pase el precio ya-neto sin tocarlo
+     *   (rama `exempt` de TaxEngine no aplica ninguna fórmula de inclusión).
+     *   `taxId` de catálogo se preserva igual (dato informativo, no se borra).
+     * @param int $decimals Decimales del tenant (ver `currencyDecimals()`) —
+     *   mismo valor que usan `sumLineTax`/`groupTaxByRate` después, así el
+     *   detalle y los agregados redondean idéntico.
      * @return array<int,array<string,mixed>>
      */
-    private function withTaxRates(array $saleDetail): array
+    private function enrichWithTaxes(array $saleDetail, bool $ivaRemoved, int $decimals): array
     {
         $itemIds = [];
         foreach ($saleDetail as $sD) {
@@ -1714,50 +1766,263 @@ final class SaleService
                 $itemIds[$id] = true;
             }
         }
-        if ($itemIds === []) {
-            return $saleDetail;
+
+        $itemMeta = [];
+        if ($itemIds !== []) {
+            $ids = array_keys($itemIds);
+            $ph  = implode(',', array_fill(0, count($ids), '?'));
+            // Los impuestos viven HOY en dos tablas y hay que mirar las dos:
+            // mig 23 sacó `tax` de `taxonomy` reusando el MISMO UUID, pero no
+            // eliminó la vieja — algún taxId viejo puede no tener fila en `tax`
+            // todavía (mig 120 hizo backfill masivo, pero no hay garantía de
+            // que TODO taxId de TODO item haya quedado cubierto). Mirar una
+            // sola tabla dejaría a esos ítems como exentos en silencio.
+            // `tax.rate`/`tax.kind` (mig 120) son la fuente numérica/tipada
+            // cuando hay fila en `tax`; si no, se cae al parseo legacy de
+            // `name` (mismo criterio que TaxService::deriveRateKindFromName).
+            //
+            // `i.data->>'itemTaxIncluded'` extrae el override por ítem del
+            // JSONB SIN pasar por el auto-demote de flattenJsonb (que solo
+            // aplica si seleccionás la columna `data` cruda) — bug histórico
+            // repetido 5 veces (api/v1/register.php:110), acá se evita
+            // extrayendo el campo puntual directo en SQL.
+            $rows = ncmExecute(
+                "SELECT i.itemId AS itemid,
+                        i.taxId AS itemtaxid,
+                        tx.rate AS taxrate,
+                        tx.kind AS taxkind,
+                        COALESCE(tx.name, tn.taxonomyName) AS taxname,
+                        i.data->>'itemTaxIncluded' AS itemtaxincluded
+                   FROM item i
+                   LEFT JOIN tax tx
+                     ON tx.taxId = i.taxId AND tx.companyId = i.companyId
+                   LEFT JOIN taxonomy tn
+                     ON tn.taxonomyId = i.taxId AND tn.taxonomyType = 'tax'
+                  WHERE i.itemId IN ($ph) AND i.companyId = ?",
+                array_merge($ids, [$this->ctx->companyId]),
+                false,
+                false,
+                true
+            );
+            foreach ((is_array($rows) ? $rows : []) as $r) {
+                $id = (string) ($r['itemid'] ?? '');
+                if ($id === '') {
+                    continue;
+                }
+                if ($r['taxrate'] !== null && $r['taxkind'] !== null) {
+                    $rate = (float) $r['taxrate'];
+                    $kind = (string) $r['taxkind'];
+                } else {
+                    [$rate, $kind] = self::deriveTaxRateKindFromName((string) ($r['taxname'] ?? ''));
+                }
+                $itemMeta[$id] = [
+                    'taxId'          => $r['itemtaxid'] ? (string) $r['itemtaxid'] : null,
+                    'rate'           => $rate,
+                    'kind'           => $kind,
+                    'taxIncludedRaw' => $r['itemtaxincluded'] ?? null,
+                ];
+            }
         }
 
-        $ids = array_keys($itemIds);
-        $ph  = implode(',', array_fill(0, count($ids), '?'));
-        // Los impuestos viven HOY en dos tablas y hay que mirar las dos:
-        // mig 23 sacó `tax` de `taxonomy` reusando el MISMO UUID, pero no
-        // eliminó la vieja — el alta de una empresa todavía siembra el IVA en
-        // `taxonomy` (SignupService) mientras la UI de Ajustes crea en `tax`.
-        // Mirar una sola dejaría al resto como exenta en silencio.
-        // En ambas, el nombre guarda la tasa (ver mig 23 y Taxonomy::getTaxValue).
-        $rows = ncmExecute(
-            "SELECT i.itemId AS itemid, COALESCE(tx.name, tn.taxonomyName) AS rate
-               FROM item i
-               LEFT JOIN tax tx
-                 ON tx.taxId = i.taxId AND tx.companyId = i.companyId
-               LEFT JOIN taxonomy tn
-                 ON tn.taxonomyId = i.taxId AND tn.taxonomyType = 'tax'
-              WHERE i.itemId IN ($ph) AND i.companyId = ?",
-            array_merge($ids, [$this->ctx->companyId]),
-            false,
-            false,
-            true
-        );
-        $rateById = [];
-        foreach ((is_array($rows) ? $rows : []) as $r) {
-            $raw = (string) ($r['rate'] ?? '');
-            // El nombre de la taxonomía guarda la tasa, pero no está garantizado
-            // que sea solo el número: puede venir "10" o "IVA 10%" según cómo lo
-            // haya cargado el comercio. Se extrae el primer número; si no hay
-            // ninguno (sin taxId, taxonomía borrada) queda exenta = 0, que es el
-            // default fiscal seguro — nunca inventar una tasa.
-            $rate = preg_match('/\d+(?:[.,]\d+)?/', $raw, $m)
-                ? (float) str_replace(',', '.', $m[0])
-                : 0.0;
-            $rateById[(string) $r['itemid']] = $rate;
+        // Default de taxIncluded cuando el ítem no lo define: el del outlet.
+        // `outlet.itemsTaxIncluded` vive DEMOTED a `data` JSONB (OutletsService)
+        // — `SELECT *` vía ncmExecute lo auto-aplana (Query::flattenJsonb ve la
+        // columna `data` literal y la demota). Default true si NULL/sin fila:
+        // mismo default fiscal que usa OutletsService::create().
+        $outletTaxIncludedDefault = true;
+        if ($saleDetail !== []) {
+            $outletRow = ncmExecute(
+                'SELECT * FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1',
+                [$this->ctx->outletId, $this->ctx->companyId]
+            );
+            if (is_array($outletRow) || $outletRow instanceof \ArrayAccess) {
+                // self::toBoolOrNull y no (bool): el valor llega del JSONB como
+                // STRING ("false", "0", "true", "1") según quién lo haya
+                // escrito, y (bool) "false" === true en PHP — el modo "IVA no
+                // incluido" del outlet se ignoraría en silencio.
+                $outletTaxIncludedDefault = self::toBoolOrNull($outletRow['itemsTaxIncluded'] ?? null) ?? true;
+            }
         }
 
+        $lines = [];
         foreach ($saleDetail as $i => $sD) {
-            $id = (string) ($sD['itemId'] ?? '');
-            $saleDetail[$i]['taxRate'] = $rateById[$id] ?? 0.0;
+            $id   = (string) ($sD['itemId'] ?? '');
+            $meta = $itemMeta[$id] ?? null;
+
+            $rate  = $meta['rate'] ?? 0.0;
+            $kind  = $meta['kind'] ?? 'exempt';
+            $taxId = $meta['taxId'] ?? null;
+
+            if ($ivaRemoved) {
+                $rate = 0.0;
+                $kind = 'exempt';
+            }
+
+            // toBoolOrNull y no (bool): `data->>'itemTaxIncluded'` devuelve el
+            // booleano del JSONB como STRING — "false" casteado con (bool) da
+            // true, y el override "IVA no incluido" del ítem se perdería.
+            $taxIncluded = self::toBoolOrNull($meta['taxIncludedRaw'] ?? null) ?? $outletTaxIncludedDefault;
+
+            $saleDetail[$i]['taxId']       = $taxId;
+            $saleDetail[$i]['taxRate']     = $rate;
+            $saleDetail[$i]['taxKind']     = $kind;
+            $saleDetail[$i]['taxIncluded'] = $taxIncluded;
+
+            // qty/unitPrice/discount: mismos campos que persistScheduledSessions
+            // y el loop de itemSold ya usan (`count`/`price`/`totalDiscount`,
+            // ver frontend/lib/commands/create-sale.ts:296-307). `total` NO se
+            // usa acá — es el bruto sin descontar calculado client-side con la
+            // fórmula vieja hardcodeada a 10%; el motor recalcula desde cero.
+            $lines[] = [
+                'qty'         => (float) ($sD['count'] ?? 0),
+                'unitPrice'   => (float) ($sD['price'] ?? 0),
+                'discount'    => (float) ($sD['totalDiscount'] ?? 0),
+                'taxRate'     => $rate,
+                'taxKind'     => $kind,
+                'taxIncluded' => $taxIncluded,
+            ];
         }
+
+        if ($lines !== []) {
+            $result = TaxEngine::computeTaxes($lines, ['decimals' => $decimals]);
+            foreach ($saleDetail as $i => $sD) {
+                $saleDetail[$i]['taxAmount'] = $result['lines'][$i]['tax'];
+                $saleDetail[$i]['taxNet']    = $result['lines'][$i]['net'];
+            }
+        }
+
         return $saleDetail;
+    }
+
+    /**
+     * Decimales del tenant para redondeo fiscal (D1, context/38): PY 0
+     * decimales, MX/otros LATAM con centavos 2. Mismo campo que expone
+     * /v1/bootstrap y el mismo criterio que
+     * SpaceSettlementService::currencyDecimals() — duplicado a propósito acá
+     * (5 líneas, contextos de dominio distintos) en vez de forzar un import
+     * cross-módulo por un helper tan chico.
+     */
+    private function currencyDecimals(): int
+    {
+        $row  = ncmExecute(
+            "SELECT config->>'settingDecimal' AS decimalflag FROM company WHERE companyId = ? LIMIT 1",
+            [$this->ctx->companyId]
+        );
+        $flag = $row ? (string) ($row['decimalflag'] ?? '') : '';
+        return $flag === 'yes' ? 2 : 0;
+    }
+
+    /**
+     * rate/kind derivados de `name` cuando el taxId de la línea no tiene fila
+     * en `tax` (solo taxonomy, o taxId huérfano). Misma regla que
+     * TaxService::deriveRateKindFromName y que el backfill de la mig 120:
+     * primer número del texto (coma o punto decimal) → kind='rate'; sin
+     * número, o número > 100 (no es una tasa real, desborda DECIMAL(5,2)) →
+     * kind='exempt', rate=0 — el default fiscal seguro, nunca se inventa una
+     * tasa. Duplicado a propósito (8 líneas, TaxService es un dominio
+     * distinto — catálogo vs venta).
+     *
+     * @return array{0: float, 1: string}
+     */
+    private static function deriveTaxRateKindFromName(string $name): array
+    {
+        if (preg_match('/\d+(?:[.,]\d+)?/', $name, $m)) {
+            $rate = (float) str_replace(',', '.', $m[0]);
+            if ($rate <= 100) {
+                return [$rate, 'rate'];
+            }
+        }
+        return [0.0, 'exempt'];
+    }
+
+    /**
+     * Normaliza a bool un valor que puede venir de JSONB aplanado: PHP bool,
+     * int, o STRING "true"/"false"/"1"/"0" (data->> siempre devuelve texto).
+     * (bool) "false" === true — ese cast ingenuo ya se prohibió acá dos veces.
+     * null/desconocido → null, para que el caller aplique su default.
+     */
+    private static function toBoolOrNull(mixed $v): ?bool
+    {
+        if ($v === null || $v === '') {
+            return null;
+        }
+        if (is_bool($v)) {
+            return $v;
+        }
+        return filter_var((string) $v, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+    }
+
+    /**
+     * Suma taxAmount por línea ya congelado por enrichWithTaxes() — es lo que
+     * persiste `transactionTax`. Redondea con la misma regla del motor
+     * (TaxEngine::roundHalfUp) para no divergir del detalle por ruido de
+     * punto flotante al sumar floats ya redondeados.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     */
+    private function sumLineTax(array $saleDetail, int $decimals): float
+    {
+        $sum = 0.0;
+        foreach ($saleDetail as $sD) {
+            $sum += (float) ($sD['taxAmount'] ?? 0);
+        }
+        return TaxEngine::roundHalfUp($sum, $decimals);
+    }
+
+    /**
+     * Agrupa las líneas ya congeladas por (taxRate, taxKind) — el desglose
+     * que persiste en `toTaxObj` (ver persistRelations). Shape:
+     * `[{taxId, rate, kind, base, amount}]` (arquitectura propuesta → C,
+     * context/38). `taxId` es informativo (primera línea del bucket); el
+     * agrupamiento fiscal real es por tasa, no por fila de catálogo — dos
+     * taxId distintos con la misma tasa/kind caen en el mismo bucket, que es
+     * como Paraguay separa el detalle fiscal (por columna de tasa).
+     *
+     * @param array<int,array<string,mixed>> $saleDetail
+     * @return list<array{taxId:?string,rate:float,kind:string,base:float,amount:float}>
+     */
+    private function groupTaxByRate(array $saleDetail, int $decimals): array
+    {
+        $buckets = [];
+        $order   = [];
+        foreach ($saleDetail as $sD) {
+            if (!array_key_exists('taxRate', $sD)) {
+                continue; // línea que no pasó por enrichWithTaxes (no debería pasar)
+            }
+            // Las líneas sintéticas de descuento (type='discount', legacy) no
+            // son ítems: su neto negativo se colaría como base NEGATIVA del
+            // bucket exento y ensuciaría el desglose fiscal que después
+            // consume el Libro Ventas (F5). El descuento real ya viene
+            // asignado por línea en `discount` y el motor lo descuenta de la
+            // base del bucket correcto.
+            if (($sD['type'] ?? '') === 'discount') {
+                continue;
+            }
+            $rate = (float) $sD['taxRate'];
+            $kind = (string) ($sD['taxKind'] ?? 'exempt');
+            $key  = $rate . '|' . $kind;
+            if (!isset($buckets[$key])) {
+                $buckets[$key] = [
+                    'taxId'  => $sD['taxId'] ?? null,
+                    'rate'   => $rate,
+                    'kind'   => $kind,
+                    'base'   => 0.0,
+                    'amount' => 0.0,
+                ];
+                $order[] = $key;
+            }
+            $buckets[$key]['base']   += (float) ($sD['taxNet'] ?? 0);
+            $buckets[$key]['amount'] += (float) ($sD['taxAmount'] ?? 0);
+        }
+
+        $out = [];
+        foreach ($order as $key) {
+            $b = $buckets[$key];
+            $b['base']   = TaxEngine::roundHalfUp($b['base'], $decimals);
+            $b['amount'] = TaxEngine::roundHalfUp($b['amount'], $decimals);
+            $out[] = $b;
+        }
+        return $out;
     }
 
     private function getNextQuoteNumber(): int

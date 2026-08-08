@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Purchases;
 
+use Punto\Api\Tax\TaxEngine;
+
 /**
  * Servicio de compras del panel.
  *
@@ -316,15 +318,31 @@ final class PurchasesService
         $checkBank    = trim((string) ($data['checkBank'] ?? ''));
         $checkDueDate = (string) ($data['checkDueDate'] ?? '');
 
+        // F2a (context/38-impuestos-multi-pais.md): antes de armar los detalles,
+        // resolver rate/kind server-side para todos los taxId de la compra —
+        // misma técnica que SaleService::enrichWithTaxes (tax + fallback
+        // taxonomy). El `taxValue` que manda el form (purchase-form-fields.tsx)
+        // deja de persistirse tal cual — cierra la vulnerabilidad "el backend
+        // de compras confía en el taxValue del payload" (auditoría §diagnóstico).
+        $rawTaxIds = [];
+        foreach ($items as $it) {
+            $tid = (string) ($it['taxId'] ?? '');
+            if ($tid !== '') {
+                $rawTaxIds[$tid] = true;
+            }
+        }
+        $taxMeta  = $rawTaxIds !== [] ? $this->resolveTaxMeta($companyId, array_keys($rawTaxIds)) : [];
+        $decimals = $this->currencyDecimals($companyId);
+
         // Procesar items: calcular totales + separar productos vs gastos libres.
-        $totalUnits = 0.0;
-        $total      = 0.0;
-        $totalTax   = 0.0;
-        $details    = [];
+        $totalUnits  = 0.0;
+        $total       = 0.0;
+        $totalTax    = 0.0;
+        $details     = [];
+        $engineLines = [];
         foreach ($items as $idx => $it) {
             $units    = (float) ($it['units'] ?? 0);
             $price    = (float) ($it['price'] ?? 0);
-            $taxValue = (float) ($it['taxValue'] ?? 0);
             $taxId    = (string) ($it['taxId'] ?? '');
             $title    = (string) ($it['title'] ?? '');
             $itemId   = (string) ($it['itemId'] ?? '');
@@ -348,6 +366,18 @@ final class PurchasesService
                 throw new \RuntimeException("Item #{$idx} tiene itemId no-UUID");
             }
 
+            // taxId que no resolvió a ninguna fila de `tax`/`taxonomy` del
+            // tenant (borrado, de otra empresa, inventado) → exenta 0. Nunca
+            // se infiere una tasa que el comercio no dio de alta.
+            $meta    = $taxId !== '' ? ($taxMeta[$taxId] ?? null) : null;
+            $taxRate = $meta['rate'] ?? 0.0;
+            $taxKind = $meta['kind'] ?? 'exempt';
+            // Sin flag explícito en el form hoy (purchase-form-fields.tsx no
+            // manda `taxIncluded`) — default incluido, mismo criterio que ese
+            // form usa client-side (sub*rate/(100+rate)). Si algún caller futuro
+            // manda el flag, se respeta.
+            $taxIncluded = array_key_exists('taxIncluded', $it) ? (bool) $it['taxIncluded'] : true;
+
             // lineTotal es lo pagado por la línea (precio de paquete × cantidad
             // de paquetes) — NO cambia con packSize. effectiveUnits es lo que se
             // registra en itemSold/stock, así el costo unitario real termina
@@ -355,21 +385,36 @@ final class PurchasesService
             $effectiveUnits = $units * $packSize;
             $lineTotal      = abs($price * $units);
             $total         += $lineTotal;
-            $totalTax      += $taxValue;
             $totalUnits    += $effectiveUnits;
 
+            $engineLines[] = [
+                'qty'         => $units,
+                'unitPrice'   => abs($price),
+                'discount'    => 0.0,
+                'taxRate'     => $taxRate,
+                'taxKind'     => $taxKind,
+                'taxIncluded' => $taxIncluded,
+            ];
             $details[]   = [
                 'itemId'   => $itemId,
                 'title'    => $title,
                 'qty'      => $effectiveUnits,
                 'price'    => $lineTotal,
-                'tax'      => $taxValue,
+                'tax'      => 0.0, // completado abajo con el resultado del motor
                 'taxId'    => $taxId,
                 'packSize' => $packSize,
             ];
         }
         if (count($details) === 0) {
             throw new \RuntimeException('Ningún ítem válido (units > 0 + producto o descripción)');
+        }
+
+        // Un solo llamado al motor para todas las líneas válidas — $details y
+        // $engineLines se pushearon juntos arriba, así que los índices calzan.
+        $engineResult = TaxEngine::computeTaxes($engineLines, ['decimals' => $decimals]);
+        foreach ($details as $i => $d) {
+            $details[$i]['tax'] = $engineResult['lines'][$i]['tax'];
+            $totalTax          += $engineResult['lines'][$i]['tax'];
         }
 
         $netTotal = $total - $discount;
@@ -622,5 +667,110 @@ final class PurchasesService
             return $val;
         }
         return null;
+    }
+
+    /**
+     * F2a (context/38): resuelve rate/kind server-side para un lote de
+     * taxId, mirando `tax` primero (rate/kind reales, mig 120) y cayendo a
+     * `taxonomy` + parseo de `name` para cualquier taxId que no tenga fila
+     * ahí todavía — mismo criterio dual que
+     * SaleService::enrichWithTaxes()/deriveTaxRateKindFromName. Cualquier
+     * taxId que no aparezca en ninguna de las dos tablas del tenant queda
+     * afuera del array devuelto — el caller lo trata como exenta 0 (nunca
+     * se inventa una tasa).
+     *
+     * @param list<string> $taxIds
+     * @return array<string, array{rate: float, kind: string}>
+     */
+    private function resolveTaxMeta(string $companyId, array $taxIds): array
+    {
+        $ids = array_values(array_filter($taxIds, static fn ($id) => preg_match(self::UUID_RE, (string) $id)));
+        if ($ids === []) {
+            return [];
+        }
+
+        $meta = [];
+        $ph   = implode(',', array_fill(0, count($ids), '?'));
+        $rows = ncmExecute(
+            "SELECT taxId AS taxid, rate AS taxrate, kind AS taxkind, name AS taxname
+               FROM tax WHERE taxId IN ($ph) AND companyId = ?",
+            array_merge($ids, [$companyId]),
+            false,
+            false,
+            true
+        );
+        foreach ((is_array($rows) ? $rows : []) as $r) {
+            $id = (string) ($r['taxid'] ?? '');
+            if ($id === '') {
+                continue;
+            }
+            if ($r['taxrate'] !== null && $r['taxkind'] !== null) {
+                $meta[$id] = ['rate' => (float) $r['taxrate'], 'kind' => (string) $r['taxkind']];
+            } else {
+                [$rate, $kind] = self::deriveTaxRateKindFromName((string) ($r['taxname'] ?? ''));
+                $meta[$id]     = ['rate' => $rate, 'kind' => $kind];
+            }
+        }
+
+        // Fallback taxonomy: taxId que no matcheó ninguna fila en `tax` para
+        // ESTE tenant (dato viejo sin backfillear, o de otra empresa — el
+        // WHERE companyId ya lo descartó arriba).
+        $missing = array_values(array_diff($ids, array_keys($meta)));
+        if ($missing !== []) {
+            $ph2   = implode(',', array_fill(0, count($missing), '?'));
+            $rows2 = ncmExecute(
+                "SELECT taxonomyId AS taxid, taxonomyName AS taxname
+                   FROM taxonomy WHERE taxonomyId IN ($ph2) AND taxonomyType = 'tax' AND companyId = ?",
+                array_merge($missing, [$companyId]),
+                false,
+                false,
+                true
+            );
+            foreach ((is_array($rows2) ? $rows2 : []) as $r) {
+                $id = (string) ($r['taxid'] ?? '');
+                if ($id === '') {
+                    continue;
+                }
+                [$rate, $kind] = self::deriveTaxRateKindFromName((string) ($r['taxname'] ?? ''));
+                $meta[$id]     = ['rate' => $rate, 'kind' => $kind];
+            }
+        }
+
+        return $meta;
+    }
+
+    /**
+     * Decimales del tenant (D1, context/38) — mismo criterio que
+     * SaleService::currencyDecimals()/SpaceSettlementService::currencyDecimals().
+     * Duplicado a propósito: 5 líneas, contexto de dominio distinto.
+     */
+    private function currencyDecimals(string $companyId): int
+    {
+        $row  = ncmExecute(
+            "SELECT config->>'settingDecimal' AS decimalflag FROM company WHERE companyId = ? LIMIT 1",
+            [$companyId]
+        );
+        $flag = $row ? (string) ($row['decimalflag'] ?? '') : '';
+        return $flag === 'yes' ? 2 : 0;
+    }
+
+    /**
+     * rate/kind derivados de `name` cuando el taxId no tiene fila en `tax`
+     * con rate/kind poblados. Misma regla que
+     * TaxService::deriveRateKindFromName / SaleService::deriveTaxRateKindFromName
+     * y el backfill de la mig 120 — duplicada a propósito (8 líneas, dominio
+     * de compras vs ventas/catálogo).
+     *
+     * @return array{0: float, 1: string}
+     */
+    private static function deriveTaxRateKindFromName(string $name): array
+    {
+        if (preg_match('/\d+(?:[.,]\d+)?/', $name, $m)) {
+            $rate = (float) str_replace(',', '.', $m[0]);
+            if ($rate <= 100) {
+                return [$rate, 'rate'];
+            }
+        }
+        return [0.0, 'exempt'];
     }
 }
