@@ -113,21 +113,29 @@ final class OpenInvoicesService
     }
 
     /**
-     * SUM(ABS) de lo que reduce la deuda por documento origen (transaction_link,
-     * mig 115), scopeado por companyId:
-     *   - tipo 5 = pago (cobro a cliente / pago a proveedor)
-     *   - tipo 6 = devolución de VENTA (reduce lo que nos debe un cliente)
-     *   - tipo 14 = nota de crédito de COMPRA (mig 122, reduce lo que le
-     *     debemos a un proveedor — `PurchaseCreditNoteService`, único tipo
-     *     nuevo de esta lista que puede estar soft-void)
+     * Lo que reduce la deuda por documento origen, scopeado por companyId,
+     * separado en dos familias porque tienen semántica de monto distinta:
+     *
+     *   - kind='credit_payment' (tipo 5, cobro a cliente): usa
+     *     `TransactionLinkService::mapSumDerivedAmounts()` — mig 123, respeta
+     *     el `amount` del vínculo cuando un recibo se repartió entre varias
+     *     facturas (`COALESCE(tl.amount, transactionTotal)`, sin restar
+     *     discount porque un recibo nunca lo tiene).
+     *   - kind='return' (tipo 6, devolución de venta) y
+     *     'purchase_credit_note' (tipo 14, mig 122): NUNCA se les asigna
+     *     `amount` en `transaction_link` (nadie las reparte entre varios
+     *     orígenes) y SÍ tienen `transactionDiscount` real seteado al crearse
+     *     (ver `ReturnService`/`PurchaseCreditNoteService`) — se preserva el
+     *     cálculo `ABS(transactionTotal - discount)` documento por documento,
+     *     igual que antes de este mig.
+     *
      * El `COALESCE(transactionStatus, 1) <> 6` excluye SOLO lo anulado: sin el
      * COALESCE, una fila legacy con status NULL daría NULL (no false) y
      * quedaría fuera del SUM — el saldo pendiente saltaría hacia arriba en
-     * datos viejos. Antes de la mig 122 acá no había filtro de status, así que
-     * el criterio tiene que seguir siendo estrictamente aditivo.
+     * datos viejos.
      * Usado tanto para `state='income'` (clientes, tipo 3) como `'outcome'`
      * (proveedores, tipo 4) — el filtro real de qué aplica a cada uno lo da
-     * `transaction_link`, no este IN.
+     * `transaction_link`, no un IN de transactionType.
      */
     private function payedByParent(array $ids, $companyId)
     {
@@ -135,38 +143,50 @@ final class OpenInvoicesService
         if (!$ids) {
             return [];
         }
-        $derivedByOrigin = (new \Punto\Api\Services\TransactionLinkService())->mapDerivedIdsByOrigins($companyId, $ids);
+        $links = new \Punto\Api\Services\TransactionLinkService();
+
+        $map = $links->mapSumDerivedAmounts($companyId, $ids, 'credit_payment');
+
+        // return + purchase_credit_note: discount-aware, documento por
+        // documento (amount de transaction_link no aplica — ver docblock).
+        // array_merge_recursive (no array_merge): un mismo originId con
+        // vínculos de ambos kinds concatena las dos listas de derivedIds en
+        // vez de que la segunda pise a la primera (no debería pasar en la
+        // práctica — 'return' cuelga de ventas tipo 3 y 'purchase_credit_note'
+        // de compras tipo 4 — pero el merge queda correcto igual si algún día
+        // coexisten).
+        $derivedByOrigin = array_merge_recursive(
+            $links->mapDerivedIdsByOrigins($companyId, $ids, 'return'),
+            $links->mapDerivedIdsByOrigins($companyId, $ids, 'purchase_credit_note')
+        );
         $allDerived = [];
         foreach ($derivedByOrigin as $derivedIds) {
             foreach ($derivedIds as $d) {
                 $allDerived[] = $d;
             }
         }
-        if (!$allDerived) {
-            return [];
-        }
-
-        $ph  = implode(',', array_fill(0, count($allDerived), '?'));
-        $res = ncmExecute(
-            "SELECT transactionId,
-                    ABS(transactionTotal - COALESCE(transactionDiscount, 0)) as payed
-             FROM transaction WHERE transactionType IN (5,6,14) AND COALESCE(transactionStatus, 1) <> 6 AND companyId = ? AND transactionId IN ($ph)",
-            array_merge([$companyId], $allDerived), false, false, true
-        );
-        $res = is_array($res) ? $res : [];
-        $payedByDerived = [];
-        foreach ($res as $r) {
-            $payedByDerived[(string) $r['transactionId']] = (float) $r['payed'];
-        }
-
-        $map = [];
-        foreach ($derivedByOrigin as $originId => $derivedIds) {
-            $sum = 0.0;
-            foreach ($derivedIds as $d) {
-                $sum += $payedByDerived[$d] ?? 0.0;
+        if ($allDerived) {
+            $ph  = implode(',', array_fill(0, count($allDerived), '?'));
+            $res = ncmExecute(
+                "SELECT transactionId,
+                        ABS(transactionTotal - COALESCE(transactionDiscount, 0)) as payed
+                 FROM transaction WHERE transactionType IN (6,14) AND COALESCE(transactionStatus, 1) <> 6 AND companyId = ? AND transactionId IN ($ph)",
+                array_merge([$companyId], $allDerived), false, false, true
+            );
+            $res = is_array($res) ? $res : [];
+            $payedByDerived = [];
+            foreach ($res as $r) {
+                $payedByDerived[(string) $r['transactionId']] = (float) $r['payed'];
             }
-            $map[$originId] = abs($sum);
+            foreach ($derivedByOrigin as $originId => $derivedIds) {
+                $sum = 0.0;
+                foreach ($derivedIds as $d) {
+                    $sum += $payedByDerived[$d] ?? 0.0;
+                }
+                $map[$originId] = ($map[$originId] ?? 0.0) + abs($sum);
+            }
         }
+
         return $map;
     }
 }

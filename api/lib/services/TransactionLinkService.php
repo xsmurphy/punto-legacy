@@ -29,21 +29,30 @@ final class TransactionLinkService
     // ------------------------------------------------------------------
 
     /**
-     * Crea el vínculo origin→derived. Idempotente: el UNIQUE
-     * (companyid, originid, derivedid, kind) no revienta en doble llamada
-     * (ON CONFLICT DO NOTHING).
+     * Crea el vínculo origin→derived, con `$amount` opcional (mig 123 — monto
+     * imputado a ESTE vínculo puntual; null = "vale el total del documento
+     * derivado", semántica histórica). Idempotente: el UNIQUE
+     * (companyid, originid, derivedid, kind) no revienta en doble llamada.
+     *
+     * `DO UPDATE SET amount = EXCLUDED.amount` en vez de `DO NOTHING`: un
+     * re-link con `DO NOTHING` ignoraría silenciosamente un `$amount` nuevo
+     * si la fila ya existía (ej. reintento de red tras timeout con el mismo
+     * par origin/derived pero remonto ajustado). Para los kinds que nunca
+     * pasan `$amount` (return, quote_to_sale, etc.) esto es un no-op: siempre
+     * escriben NULL, así que "actualizar" a NULL no cambia nada.
      */
-    public function link(string $companyId, string $originId, string $derivedId, string $kind): void
+    public function link(string $companyId, string $originId, string $derivedId, string $kind, ?float $amount = null): void
     {
         global $db;
         if (!in_array($kind, self::KINDS, true)) {
             throw new \InvalidArgumentException("kind inválido para transaction_link: {$kind}");
         }
         $db->Execute(
-            'INSERT INTO transaction_link (companyid, originid, derivedid, kind)
-             VALUES (?, ?, ?, ?)
-             ON CONFLICT (companyid, originid, derivedid, kind) DO NOTHING',
-            [$companyId, $originId, $derivedId, $kind]
+            'INSERT INTO transaction_link (companyid, originid, derivedid, kind, amount)
+             VALUES (?, ?, ?, ?, ?)
+             ON CONFLICT (companyid, originid, derivedid, kind)
+             DO UPDATE SET amount = EXCLUDED.amount',
+            [$companyId, $originId, $derivedId, $kind, $amount]
         );
     }
 
@@ -184,6 +193,70 @@ final class TransactionLinkService
                 $d = (string) ($f['derivedid'] ?? '');
                 if ($o !== '') {
                     $map[$o][] = $d;
+                }
+                $rs->MoveNext();
+            }
+        }
+        return $map;
+    }
+
+    /**
+     * Cuánto se imputó a $originId vía vínculos de un $kind dado — LA
+     * superficie única para "cuánto se pagó/acreditó de este documento"
+     * (mig 123). `COALESCE(tl.amount, t.transactionTotal)`: si el vínculo no
+     * tiene monto propio (NULL, semántica histórica) vale el total del
+     * documento derivado completo; si lo tiene (recibo repartido en varias
+     * facturas), vale solo lo imputado a ESTE vínculo.
+     *
+     * `COALESCE(t.transactionStatus, 1) <> 6` excluye anulados — el COALESCE
+     * NO es cosmético: sin él una fila legacy con status NULL da NULL (no
+     * true) en la comparación y sale del SUM, inflando el saldo pendiente
+     * (mismo criterio que Reports\OpenInvoicesService::payedByParent).
+     */
+    public function sumDerivedAmounts(string $companyId, string $originId, string $kind): float
+    {
+        $row = ncmExecute(
+            'SELECT COALESCE(SUM(COALESCE(tl.amount, t.transactionTotal)), 0) AS total
+               FROM transaction_link tl
+               JOIN transaction t ON t.transactionId = tl.derivedid AND t.companyId = tl.companyid
+              WHERE tl.companyid = ? AND tl.originid = ? AND tl.kind = ?
+                AND COALESCE(t.transactionStatus, 1) <> 6',
+            [$companyId, $originId, $kind]
+        );
+        return (float) ($row['total'] ?? 0);
+    }
+
+    /**
+     * Versión batch de sumDerivedAmounts() — para reportes que agregan sobre
+     * muchos orígenes a la vez (ej. deuda de N facturas a crédito en una sola
+     * pantalla) sin hacer N queries.
+     *
+     * @param list<string> $originIds
+     * @return array<string, float> originId → monto sumado (0.0 si no tiene vínculos)
+     */
+    public function mapSumDerivedAmounts(string $companyId, array $originIds, string $kind): array
+    {
+        $originIds = array_values(array_unique(array_filter($originIds, static fn ($v) => $v !== '' && $v !== null)));
+        $map = [];
+        if ($originIds === []) {
+            return $map;
+        }
+        $placeholders = implode(',', array_fill(0, count($originIds), '?'));
+        $sql = "SELECT tl.originid AS originid,
+                       COALESCE(SUM(COALESCE(tl.amount, t.transactionTotal)), 0) AS total
+                  FROM transaction_link tl
+                  JOIN transaction t ON t.transactionId = tl.derivedid AND t.companyId = tl.companyid
+                 WHERE tl.companyid = ? AND tl.originid IN ($placeholders) AND tl.kind = ?
+                   AND COALESCE(t.transactionStatus, 1) <> 6
+                 GROUP BY tl.originid";
+        $params = array_merge([$companyId], $originIds, [$kind]);
+        $rs = ncmExecute($sql, $params, false, true);
+        if ($rs) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $o = (string) ($f['originid'] ?? '');
+                if ($o !== '') {
+                    $map[$o] = (float) ($f['total'] ?? 0);
                 }
                 $rs->MoveNext();
             }

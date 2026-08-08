@@ -3,14 +3,23 @@
  * Pagos de facturas a crédito (type=5 hijo de type=3).
  *
  *   POST { action: "create", parentTransactionId, amount, paymentMethodKey, note? }
+ *   POST { action: "create", allocations: [{parentTransactionId, amount}, ...], paymentMethodKey, note? }
+ *
+ * La segunda forma (mig 123) permite UN recibo repartido en VARIAS facturas
+ * del mismo cliente — antes cada factura necesitaba su propio recibo,
+ * quemando un número correlativo por factura para un solo documento fiscal
+ * real. La forma vieja (`parentTransactionId` + `amount` sueltos) se traduce
+ * acá a un `allocations` de un solo elemento — se mantiene por compatibilidad
+ * con consumidores existentes (POS, panel legacy).
  *
  * Auth: multi-realm (panel + pos-app), mismo patrón que outlets.php/register.php
  * (allowlist por endpoint vía apiAuthTenant). userId del JWT, nunca del body.
- * registerId y paymentMethodName se resuelven server-side (desde el parent y el
- * catálogo) — CreditPaymentService::create() nunca lee registerId/drawerId del
- * ctx, así que es realm-agnostic: el pago desde panel (sin caja/drawer activos)
- * resuelve registerId del parent y drawerId queda null si no hay caja abierta
- * (igual que el backfill manual — ver DrawerService::resolveOpenDrawerId).
+ * registerId y paymentMethodName se resuelven server-side (desde la primera
+ * factura y el catálogo) — CreditPaymentService::create() nunca lee
+ * registerId/drawerId del ctx, así que es realm-agnostic: el pago desde panel
+ * (sin caja/drawer activos) resuelve registerId de la primera factura y
+ * drawerId queda null si no hay caja abierta (igual que el backfill manual —
+ * ver DrawerService::resolveOpenDrawerId).
  *
  * El guard de module==='pos' solo aplica al realm pos-app (bloquea devices
  * 'screen'/'kds' de cobrar crédito) — no aplica a panel, donde apiAuthTenant
@@ -49,14 +58,37 @@ if ($action !== 'create') {
     apiError('Acción no soportada', 422);
 }
 
-$parentId = (string) ($body['parentTransactionId'] ?? '');
-if (!preg_match($uuidRe, $parentId)) {
-    apiError('parentTransactionId inválido', 422);
+// Forma nueva: allocations[]. Forma vieja: parentTransactionId + amount
+// sueltos, traducida acá a un allocations de 1 elemento — mismo shape para
+// el service de acá en más.
+if (isset($body['allocations'])) {
+    $rawAllocations = $body['allocations'];
+    if (!is_array($rawAllocations) || $rawAllocations === []) {
+        apiError('allocations debe ser un array no vacío', 422);
+    }
+} else {
+    $rawAllocations = [[
+        'parentTransactionId' => $body['parentTransactionId'] ?? '',
+        'amount'              => $body['amount'] ?? 0,
+    ]];
 }
 
-$amount = (float) ($body['amount'] ?? 0);
-if ($amount <= 0) {
-    apiError('Monto inválido', 422);
+// Validación de FORMA acá (array bien armado, montos numéricos > 0); la de
+// NEGOCIO (mismo cliente, no supera deuda, etc.) vive en el service, dentro
+// de la TX con el lock ya tomado.
+$allocations = [];
+foreach ($rawAllocations as $alloc) {
+    if (!is_array($alloc)) {
+        apiError('Cada allocation debe ser un objeto {parentTransactionId, amount}', 422);
+    }
+    $pid = (string) ($alloc['parentTransactionId'] ?? '');
+    if (!preg_match($uuidRe, $pid)) {
+        apiError('parentTransactionId inválido en allocations', 422);
+    }
+    if (!is_numeric($alloc['amount'] ?? null) || (float) $alloc['amount'] <= 0) {
+        apiError('Cada allocation necesita un amount numérico > 0', 422);
+    }
+    $allocations[] = ['parentTransactionId' => $pid, 'amount' => (float) $alloc['amount']];
 }
 
 $pmKey = trim((string) ($body['paymentMethodKey'] ?? ''));
@@ -69,7 +101,7 @@ $identifier = isset($body['identifier']) ? trim((string) $body['identifier']) : 
 
 require_once __DIR__ . '/../lib/services/CreditPaymentService.php';
 $svc    = new \Punto\Api\Services\CreditPaymentService();
-$result = $svc->create($companyId, $userId, $parentId, $amount, $pmKey, $note ?: null, $identifier ?: null);
+$result = $svc->create($companyId, $userId, $allocations, $pmKey, $note ?: null, $identifier ?: null);
 
 // Finanzas Fase 3: auto-poblado del ledger, best-effort — nunca rompe el pago.
 try {

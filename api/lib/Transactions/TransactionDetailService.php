@@ -290,17 +290,12 @@ final class TransactionDetailService
             $totalNet = (float) ($tx['transactionTotal'] ?? 0) - (float) ($tx['transactionDiscount'] ?? 0);
 
             $creditPaymentIds = $linkSvc->listDerivedIds($companyId, $id, 'credit_payment');
-            $paid = 0.0;
-            if ($creditPaymentIds !== []) {
-                $ph      = implode(',', array_fill(0, count($creditPaymentIds), '?'));
-                $paidRow = ncmExecute(
-                    "SELECT COALESCE(SUM(transactionTotal), 0) AS paid
-                       FROM transaction
-                      WHERE transactionId IN ($ph) AND transactionType = 5 AND companyId = ?",
-                    array_merge($creditPaymentIds, [$companyId])
-                );
-                $paid = (float) ($paidRow['paid'] ?? 0);
-            }
+            // sumDerivedAmounts (mig 123): respeta el `amount` del vínculo
+            // cuando un recibo se repartió entre varias facturas —
+            // reemplaza el SUM(transactionTotal) directo, que le contaba a
+            // ESTA factura el total completo de un recibo compartido con
+            // otras.
+            $paid = $linkSvc->sumDerivedAmounts($companyId, $id, 'credit_payment');
             $creditPayments = [
                 'total' => $totalNet,
                 'paid'  => $paid,

@@ -97,28 +97,29 @@ final class TransactionService
 
             $creditPaymentIds = $linkSvc->listDerivedIds($companyId, $transactionId, 'credit_payment');
             $returnIds        = $linkSvc->listDerivedIds($companyId, $transactionId, 'return');
-            $payedDerivedIds  = array_merge($creditPaymentIds, $returnIds);
 
-            $payed = 0.0;
-            if ($payedDerivedIds !== []) {
-                $ph = implode(',', array_fill(0, count($payedDerivedIds), '?'));
-                $payedRow = ncmExecute(
-                    "SELECT SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed FROM transaction WHERE transactionType IN(5,6) AND transactionId IN ($ph) AND companyId = ?",
-                    array_merge($payedDerivedIds, [$companyId])
+            // credit_payment vía sumDerivedAmounts (mig 123): respeta el
+            // `amount` del vínculo cuando un recibo se repartió entre varias
+            // facturas — `COALESCE(tl.amount, transactionTotal)`, sin restar
+            // discount porque un recibo nunca lo tiene (por eso da lo mismo
+            // que la fórmula vieja `ABS(total-discount)` para type=5).
+            $cpPaid = $linkSvc->sumDerivedAmounts($companyId, $transactionId, 'credit_payment');
+
+            // return SÍ tiene discount real seteado al crearse (ver
+            // ReturnService) y nunca se le asigna `amount` de vínculo —
+            // se preserva el cálculo documento por documento.
+            $returnPaid = 0.0;
+            if ($returnIds !== []) {
+                $rPh = implode(',', array_fill(0, count($returnIds), '?'));
+                $returnRow = ncmExecute(
+                    "SELECT SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed FROM transaction WHERE transactionType = 6 AND transactionId IN ($rPh) AND companyId = ?",
+                    array_merge($returnIds, [$companyId])
                 );
-                $payed = (float) ($payedRow['payed'] ?? 0);
+                $returnPaid = (float) ($returnRow['payed'] ?? 0);
             }
+            $payed = $cpPaid + $returnPaid;
 
             $cpTotal = (float)($fields['transactionTotal'] ?? 0) - (float)($fields['transactionDiscount'] ?? 0);
-            $cpPaid  = 0.0;
-            if ($creditPaymentIds !== []) {
-                $cpPh      = implode(',', array_fill(0, count($creditPaymentIds), '?'));
-                $cpPaidRow = ncmExecute(
-                    "SELECT COALESCE(SUM(transactionTotal), 0) AS paid FROM transaction WHERE transactionId IN ($cpPh) AND transactionType = 5 AND companyId = ?",
-                    array_merge($creditPaymentIds, [$companyId])
-                );
-                $cpPaid = (float)($cpPaidRow['paid'] ?? 0);
-            }
             $creditPayments = [
                 'total' => $cpTotal,
                 'paid'  => $cpPaid,

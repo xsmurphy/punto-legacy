@@ -380,14 +380,21 @@ final class PurchasesService
     }
 
     /**
-     * SUM(transactionTotal) de lo que reduce la deuda de una compra a
-     * crédito por compra origen: pagos a proveedor (kind='purchase_payment',
-     * type=5) + notas de crédito de compra (kind='purchase_credit_note',
-     * type=14 — F-notas-de-crédito-de-compra, `PurchaseCreditNoteService`).
-     * Sin filtro de `kind` en `mapDerivedIdsByOrigins`: los únicos kinds que
-     * derivan de un origen type IN (1,4) son esos dos, y el filtro real vive
-     * en el `transactionType IN (5, 14)` de abajo (mismo patrón que
-     * `Finance\OpenInvoicesService::payedByParent`).
+     * Lo que reduce la deuda de una compra a crédito por compra origen: pagos
+     * a proveedor (kind='purchase_payment', type=5) + notas de crédito de
+     * compra (kind='purchase_credit_note', type=14 — `PurchaseCreditNoteService`).
+     *
+     * Migrado a `TransactionLinkService::mapSumDerivedAmounts()` (mig 123):
+     * `SUM(COALESCE(tl.amount, transactionTotal))` por kind, sumando los dos
+     * kinds. Sin resta de discount — esta fórmula ya era la de acá (a
+     * diferencia de `Finance\OpenInvoicesService::payedByParent`, que sí
+     * restaba discount para 'return'); `purchase_payment` nunca tiene
+     * discount y aunque `purchase_credit_note` sí lo setea al crearse, este
+     * método históricamente no lo restaba — se preserva ese comportamiento,
+     * sin regresión. `sumDerivedAmounts`/`mapSumDerivedAmounts` ya excluyen
+     * anulados (`COALESCE(transactionStatus, 1) <> 6` — soft-void de NC de
+     * compra, ver `PurchaseCreditNoteService::void`; los pagos type=5 no usan
+     * ese estado, se hard-deletean, así que para ellos es un no-op).
      */
     private function payedByParent(array $ids, string $companyId): array
     {
@@ -395,41 +402,10 @@ final class PurchasesService
         if (!$ids) {
             return [];
         }
-        $derivedByOrigin = (new \Punto\Api\Services\TransactionLinkService())->mapDerivedIdsByOrigins($companyId, $ids);
-        $allDerived = [];
-        foreach ($derivedByOrigin as $derivedIds) {
-            foreach ($derivedIds as $d) {
-                $allDerived[] = $d;
-            }
-        }
-        if (!$allDerived) {
-            return [];
-        }
-        // COALESCE(transactionStatus, 1) <> 6: una NC de compra anulada
-        // (soft-void, ver PurchaseCreditNoteService::void) NO debe seguir
-        // reduciendo el saldo. Los pagos (type 5) no usan ese estado — se
-        // hard-deletean — así que para ellos es un no-op. El COALESCE no es
-        // cosmético: sin él una fila legacy con status NULL daría NULL en vez
-        // de true y saldría del SUM, inflando el saldo pendiente.
-        $ph  = implode(',', array_fill(0, count($allDerived), '?'));
-        $res = ncmExecute(
-            "SELECT transactionId, transactionTotal as payed
-             FROM transaction WHERE transactionId IN ($ph) AND companyId = ? AND transactionType IN (5, 14) AND COALESCE(transactionStatus, 1) <> 6",
-            array_merge($allDerived, [$companyId]), false, false, true
-        );
-        $res = is_array($res) ? $res : [];
-        $payedByDerived = [];
-        foreach ($res as $r) {
-            $payedByDerived[(string) $r['transactionId']] = (float) $r['payed'];
-        }
-
-        $map = [];
-        foreach ($derivedByOrigin as $originId => $derivedIds) {
-            $sum = 0.0;
-            foreach ($derivedIds as $d) {
-                $sum += $payedByDerived[$d] ?? 0.0;
-            }
-            $map[$originId] = $sum;
+        $links = new \Punto\Api\Services\TransactionLinkService();
+        $map   = $links->mapSumDerivedAmounts($companyId, $ids, 'purchase_payment');
+        foreach ($links->mapSumDerivedAmounts($companyId, $ids, 'purchase_credit_note') as $originId => $amount) {
+            $map[$originId] = ($map[$originId] ?? 0.0) + $amount;
         }
         return $map;
     }
