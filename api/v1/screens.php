@@ -102,7 +102,10 @@ if ($method === 'POST' && $resource === 'publish') {
     $raw  = $_POST['data'] ?? [];
     $data = is_string($raw) ? (json_decode($raw, true) ?? []) : (is_array($raw) ? $raw : []);
 
-    $validTypes = ['cart-update', 'sale-confirmed', 'cart-cleared', 'idle'];
+    // qr-show/qr-hide: QR de pago (Bancard) en la pantalla del cliente. El
+    // payload lleva SOLO lo que la pantalla tiene que pintar (payload del QR,
+    // monto, etiqueta) — nunca credenciales ni la respuesta cruda del PSP.
+    $validTypes = ['cart-update', 'sale-confirmed', 'cart-cleared', 'idle', 'qr-show', 'qr-hide'];
     if (!in_array($type, $validTypes, true)) {
         apiError('tipo inválido', 400);
     }

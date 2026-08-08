@@ -24,6 +24,7 @@ import type {
   OrdersConfig,
   FeedbackConfig,
   CrmConfig,
+  BancardConfig,
   ModuleConfig,
 } from "@/lib/types/module"
 
@@ -137,6 +138,15 @@ function ConfigDialogContent({
     crmDefaults.dontAutoSendDocs ?? false,
   )
 
+  // ── bancard state ────────────────────────────────────────────────────────
+  // Canales del paraguas Bancard. Default true (mismo criterio que el backend).
+  const bancardDefaults = (currentConfig as BancardConfig | undefined) ?? {
+    qr: true,
+    pos: true,
+  }
+  const [bancardQr, setBancardQr] = React.useState<boolean>(bancardDefaults.qr ?? true)
+  const [bancardPos, setBancardPos] = React.useState<boolean>(bancardDefaults.pos ?? true)
+
   // Re-sync state when currentConfig changes (e.g. query refetch after save)
   React.useEffect(() => {
     if (!open) return
@@ -159,6 +169,10 @@ function ConfigDialogContent({
       setCrmDontSend(
         (currentConfig as CrmConfig | undefined)?.dontAutoSendDocs ?? false,
       )
+    } else if (configKind === "bancard") {
+      const c = currentConfig as BancardConfig | undefined
+      setBancardQr(c?.qr ?? true)
+      setBancardPos(c?.pos ?? true)
     }
   }, [open, currentConfig, configKind])
 
@@ -178,6 +192,8 @@ function ConfigDialogContent({
         return { question: feedbackQuestion }
       case "crm":
         return { dontAutoSendDocs: crmDontSend }
+      case "bancard":
+        return { qr: bancardQr, pos: bancardPos }
       default:
         return {}
     }
@@ -292,6 +308,34 @@ function ConfigDialogContent({
                 onCheckedChange={setCrmDontSend}
               />
             </div>
+          )}
+
+          {configKind === "bancard" && (
+            <>
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="bancardQr" className="leading-snug">
+                    QR de pago
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    El cajero genera el QR desde el cobro. Si la caja tiene pantalla de
+                    cliente conectada, el QR se muestra ahí.
+                  </p>
+                </div>
+                <Switch id="bancardQr" checked={bancardQr} onCheckedChange={setBancardQr} />
+              </div>
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="bancardPos" className="leading-snug">
+                    Terminal físico (Caja POS)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Habilita la IP del terminal en POS → Ajustes, por caja.
+                  </p>
+                </div>
+                <Switch id="bancardPos" checked={bancardPos} onCheckedChange={setBancardPos} />
+              </div>
+            </>
           )}
         </div>
 

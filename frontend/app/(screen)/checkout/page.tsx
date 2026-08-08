@@ -3,6 +3,7 @@ import * as React from "react"
 import { LiveView } from "./live-view"
 import { ConfirmedView } from "./confirmed-view"
 import { IdleView } from "./idle-view"
+import { QrView, type QrPayload } from "./qr-view"
 import { getDeviceToken, clearDeviceToken } from "@/lib/auth/device-token"
 import { getDeviceClaims, clearDeviceClaims } from "@/lib/auth/device-claims"
 import { DeviceNotConnected } from "@/components/layout/device-not-connected"
@@ -29,6 +30,10 @@ type ScreenState =
   | { kind: "unpaired" }
   | { kind: "live"; cart: CartPayload }
   | { kind: "confirmed"; total: number; change: number }
+  // QR de pago (Bancard) — lo empuja el POS cuando el cajero elige cobrar con
+  // QR. Es el estado de mayor prioridad mientras dura: el cliente tiene que
+  // ver el código, no el carrito.
+  | { kind: "qr"; qr: QrPayload }
   | { kind: "idle" }
 
 export interface ScreenContext {
@@ -187,7 +192,19 @@ export default function CheckoutPage() {
   function handleWsEvent(event: string, data: unknown) {
     switch (event) {
       case "cart-update":
-        setState({ kind: "live", cart: data as CartPayload })
+        // Mientras hay un QR en pantalla el carrito NO lo tapa: el POS sigue
+        // publicando cart-update (el cajero puede tocar el carrito por atrás)
+        // y eso sacaría el código de la vista justo cuando el cliente escanea.
+        setState((prev) =>
+          prev.kind === "qr" ? prev : { kind: "live", cart: data as CartPayload },
+        )
+        break
+      case "qr-show":
+        setState({ kind: "qr", qr: data as QrPayload })
+        break
+      case "qr-hide":
+        // Vuelve a idle; el próximo cart-update repinta el carrito.
+        setState({ kind: "idle" })
         break
       case "sale-confirmed": {
         const d = data as { total: number; change: number }
@@ -277,6 +294,7 @@ export default function CheckoutPage() {
         </svg>
       </button>
       {state.kind === "live" && <LiveView cart={state.cart} ctx={screenCtx} />}
+      {state.kind === "qr" && <QrView qr={state.qr} ctx={screenCtx} />}
       {state.kind === "confirmed" && <ConfirmedView total={state.total} change={state.change} />}
       {state.kind === "idle" && <IdleView ctx={screenCtx} />}
     </div>

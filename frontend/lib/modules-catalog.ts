@@ -28,6 +28,7 @@ import {
   BellRing,
   ReceiptText,
   CreditCard,
+  QrCode,
 } from "lucide-react"
 
 export type ConfigKind =
@@ -37,6 +38,7 @@ export type ConfigKind =
   | "orders"
   | "feedback"
   | "crm"
+  | "bancard"
   | "comingSoon"
 
 export type ModuleStatus = "available" | "soon"
@@ -174,15 +176,26 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     configKind: "none",
     status: "soon",
   },
+  // ── Cobros ───────────────────────────────────────────────────────────────
   {
-    key: "bancardPos",
-    title: "POS físico Bancard",
+    key: "bancard",
+    title: "Bancard",
     description:
-      "Conectá la caja con el terminal de tarjetas de Bancard: el monto viaja solo al POS físico. La IP del terminal se configura en cada caja (POS → Ajustes).",
+      "Cobros con Bancard: QR de pago en la pantalla del cliente y terminal físico (Caja POS). Cada canal se habilita por separado desde la configuración.",
     icon: CreditCard,
-    category: "Facturación",
-    configKind: "none",
+    category: "Cobros",
+    configKind: "bancard",
     status: "available",
+  },
+  {
+    key: "upay",
+    title: "uPay (ueno bank)",
+    description:
+      "Cobros con QR de uPay — interoperable con billeteras de Paraguay, Brasil y Argentina.",
+    icon: QrCode,
+    category: "Cobros",
+    configKind: "comingSoon",
+    status: "soon",
   },
 ]
 
@@ -192,4 +205,5 @@ export const MODULE_CATEGORIES = [
   "Operativos",
   "Marketing y Fidelización",
   "Facturación",
+  "Cobros",
 ] as const

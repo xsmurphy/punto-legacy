@@ -50,10 +50,12 @@ $row = ncmExecute(
         config->>'settingRUC'               AS companytin,
         config->>'settingEmail'             AS companyemail,
         config->>'settingWebSite'           AS companywebsite,
-        -- Módulo Bancard POS físico: el toggle de /v1/modules escribe el
-        -- flat key en company.config (ruteo de ncmUpdate). El POS lo usa
-        -- para mostrar/ocultar la config de IP del terminal en Ajustes.
-        config->>'bancardPos'               AS bancardpos
+        -- Módulo Bancard: el toggle de /v1/modules escribe el flat key en
+        -- company.config (ruteo de ncmUpdate) y los canales (qr/pos) en
+        -- company.moduleData.bancard. El POS necesita los dos para saber si
+        -- ofrecer el QR y si mostrar la config del terminal físico.
+        config->>'bancard'                  AS bancard,
+        moduleData                          AS moduledata
      FROM company
      WHERE companyId = ?",
     [COMPANY_ID]
@@ -153,6 +155,25 @@ $logoUrlResolved = ($logoHas && $logoUrlRaw !== '')
     ? $logoUrlRaw . ($logoStamp ? '?v=' . $logoStamp : '')
     : '';
 
+// ── Módulo Bancard (QR + terminal físico) ───────────────────────────────────
+// Mismo criterio que ModulesService::list(): el módulo está en el flat key
+// (lo que escribe el toggle) y los canales en moduleData.bancard, con default
+// ON — prender "Bancard" sin entrar a la config deja ambos canales usables.
+// Se resuelve acá y NO en el front: el POS recibe dos booleans y listo.
+$bancardOn = in_array((string) ($row['bancard'] ?? ''), ['1', 'true', 'on', 'yes'], true);
+$bancardCfg = json_decode((string) ($row['moduledata'] ?? ''), true);
+$bancardCfg = is_array($bancardCfg) && is_array($bancardCfg['bancard'] ?? null)
+    ? $bancardCfg['bancard']
+    : [];
+$bancardChannel = static function (string $key) use ($bancardCfg): bool {
+    if (!array_key_exists($key, $bancardCfg)) {
+        return true;  // default ON
+    }
+    return filter_var($bancardCfg[$key], FILTER_VALIDATE_BOOLEAN);
+};
+$bancardQr  = $bancardOn && $bancardChannel('qr');
+$bancardPos = $bancardOn && $bancardChannel('pos');
+
 apiOk([
     'currency'    => $row['currency'] ?? '',
     // settingDecimal es 'yes'/'no' (usar decimales o no), NO un conteo de dígitos.
@@ -176,8 +197,10 @@ apiOk([
     'companyTin'         => $row['companytin'] ?? '',
     'companyEmail'       => $row['companyemail'] ?? '',
     'companyWebsite'     => $row['companywebsite'] ?? '',
-    // Módulo Bancard POS físico activo para el tenant (bool ya normalizado).
-    'bancardPos'         => in_array(($row['bancardpos'] ?? ''), ['1', 'true', 'on', 'yes'], true),
+    // Canales del módulo Bancard, ya resueltos a bool (módulo activo Y canal
+    // no apagado en la config). El front no vuelve a combinar nada.
+    'bancardQr'          => $bancardQr,
+    'bancardPos'         => $bancardPos,
     // Logo del tenant (S3, público). '' si no hay logo cargado — el front
     // hace fallback a la marca Punto. `?v=` cache-bust con logoUploadedAt.
     // MISMA lógica que SettingsService::general(): el logo vive en el blob

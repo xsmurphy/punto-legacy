@@ -44,6 +44,7 @@ import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 import { GiftcardValidationDialog } from "./giftcard-validation-dialog"
+import { BancardQrDialog } from "./bancard-qr-dialog"
 import { posApi } from "@/lib/api/pos-client"
 import { useSettingsCurrencies } from "@/hooks/use-settings"
 import { printSale } from "@/lib/hardware/printers"
@@ -177,15 +178,22 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const config = useCatalogStore((s) => s.config)
   const storedMethods = useCatalogStore((s) => s.paymentMethods)
 
+  // Canal QR del módulo Bancard (panel → Módulos). El medio de pago QR lo
+  // provisiona el backend al habilitar el canal, pero la fila sobrevive si el
+  // módulo se apaga después — sin este filtro el botón seguiría cobrable.
+  const bancardQrEnabled = useCatalogStore((s) => s.config?.bancardQrEnabled ?? false)
+
   const paymentMethods = React.useMemo(() => {
     const list = storedMethods.length > 0 ? storedMethods : FALLBACK_METHODS
-    // Orden por sortOrder (drag&drop del panel); sin valor cae al final estable.
-    return [...list].sort((a, b) => {
-      const sa = a.sortOrder ?? Number.MAX_SAFE_INTEGER
-      const sb = b.sortOrder ?? Number.MAX_SAFE_INTEGER
-      return sa - sb
-    })
-  }, [storedMethods])
+    return [...list]
+      .filter((m) => m.systemKey !== "qr" || bancardQrEnabled)
+      // Orden por sortOrder (drag&drop del panel); sin valor cae al final estable.
+      .sort((a, b) => {
+        const sa = a.sortOrder ?? Number.MAX_SAFE_INTEGER
+        const sb = b.sortOrder ?? Number.MAX_SAFE_INTEGER
+        return sa - sb
+      })
+  }, [storedMethods, bancardQrEnabled])
 
   const { data: currenciesData } = useSettingsCurrencies()
   const currencies = currenciesData?.rows ?? []
@@ -221,6 +229,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     changeOverride?: number
   } | null>(null)
   const [pendingGiftcard, setPendingGiftcard] = React.useState(false)
+  /** Cobro con QR Bancard en curso: monto a cobrar con el QR. */
+  const [pendingQr, setPendingQr] = React.useState<number | null>(null)
   const [dueDate, setDueDate] = React.useState(defaultDueDate())
   const [phase, setPhase] = React.useState<DialogPhase>("pay")
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
@@ -736,6 +746,17 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       return
     }
 
+    // QR Bancard: no se aplica el pago acá — se genera el QR, se muestra (y
+    // se espeja en la pantalla del cliente) y el pago se aplica recién cuando
+    // el PSP lo acredita. El monto sale de lo tipeado, o el restante.
+    if (method.systemKey === "qr") {
+      const typed = parseDisplay(display)
+      const qrAmount = typed > 0 ? typed : remaining
+      if (qrAmount <= 0) return
+      setPendingQr(qrAmount)
+      return
+    }
+
     if (credito) {
       // En crédito: si hay monto tipeado, se aplica como pago parcial.
       // Si no hay monto, un click en método con crédito no aplica nada
@@ -1049,6 +1070,28 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           setPendingIdentifier(null)
         }}
         onCancel={() => setPendingIdentifier(null)}
+      />
+
+      {/* QR Bancard — el pago se aplica cuando el PSP lo acredita, no al
+          abrir el diálogo (ver BancardQrDialog). */}
+      <BancardQrDialog
+        open={pendingQr !== null}
+        amount={pendingQr ?? 0}
+        saleAmount={total}
+        config={config}
+        onPaid={(uid, paidAmount) => {
+          const qrMethod = paymentMethods.find((m) => m.systemKey === "qr")
+          setPendingQr(null)
+          if (!qrMethod) {
+            toast.error("Falta el medio de pago QR en el catálogo")
+            return
+          }
+          // El UID queda como identificador del pago: es la llave con la que
+          // se concilia contra vPayments.
+          void applyPayment(qrMethod, paidAmount, uid)
+          setDisplay("")
+        }}
+        onCancel={() => setPendingQr(null)}
       />
 
       <GiftcardValidationDialog

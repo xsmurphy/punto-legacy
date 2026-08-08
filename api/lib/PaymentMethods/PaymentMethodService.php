@@ -240,6 +240,49 @@ final class PaymentMethodService
     }
 
     /**
+     * Provisiona el medio de pago "QR" (systemKey='qr') si el tenant no lo
+     * tiene. Lo invoca ModulesService al habilitar el canal QR del módulo
+     * Bancard: el cobro con QR del POS se dispara por systemKey, así que sin
+     * este row el botón no tendría contra qué registrar el pago.
+     *
+     * Idempotente y NO destructivo: si ya existe un método con systemKey='qr'
+     * (o uno llamado "QR" que el comercio creó a mano) no toca nada.
+     */
+    public function ensureQrMethod(string $companyId): void
+    {
+        // ensureSeed primero: en un tenant sin ningún método, seedear después
+        // de insertar el QR no correría (ensureSeed aborta si ya hay filas) y
+        // el comercio quedaría con QR y sin Efectivo.
+        $this->ensureSeed($companyId);
+
+        foreach ($this->list($companyId) as $m) {
+            if (($m['systemKey'] ?? null) === 'qr') return;
+            if (strcasecmp(trim((string) $m['name']), 'QR') === 0) return;
+        }
+
+        // Va al final del orden actual — no se mete arriba de los métodos que
+        // el comercio ya ordenó a mano (sortOrder, mig del drag&drop).
+        $maxSort = -1;
+        foreach ($this->list($companyId) as $m) {
+            $maxSort = max($maxSort, (int) ($m['sortOrder'] ?? -1));
+        }
+
+        $extra = [
+            'code'               => 'Q',
+            'hasChange'          => false,
+            'requiresIdentifier' => false,
+            'systemKey'          => 'qr',
+            'color'              => 'indigo',
+            'sortOrder'          => $maxSort + 1,
+        ];
+        $this->db->Execute(
+            'INSERT INTO taxonomy (taxonomyId, companyId, taxonomyType, taxonomyName, taxonomyExtra)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?::jsonb)',
+            [$companyId, 'paymentMethod', 'QR', json_encode($this->normalizeExtra($extra))]
+        );
+    }
+
+    /**
      * Reordena los medios de pago del tenant: setea sortOrder = índice en cada
      * taxonomyExtra según el orden de $orderedIds. Scopeado por companyId +
      * taxonomyType (NUNCA toca rows de otro tenant ni de otro taxonomyType) y

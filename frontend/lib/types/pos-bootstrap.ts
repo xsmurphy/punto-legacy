@@ -31,7 +31,7 @@ export interface PaymentMethodConfig {
    * usar esto en vez de comparar contra el `id` (taxonomyId), que varía por
    * tenant y no es estable entre entornos.
    */
-  systemKey?: "cash" | "giftcard" | "internal" | "check" | null
+  systemKey?: "cash" | "giftcard" | "internal" | "check" | "qr" | null
   /** Key de color de la paleta unificada (lib/ui/color-palette.ts). Acento en el pill. */
   color?: string
   /** Orden de aparición en el pay-dialog (drag&drop del panel). */
@@ -75,10 +75,12 @@ export interface PosConfig {
   companyEmail?: string | null
   companyWebsite?: string | null
   /**
-   * Módulo "POS físico Bancard" activo para el tenant (panel → Módulos).
-   * Gatea la sección de IP del terminal en Ajustes del POS y, a futuro,
-   * el cobro con tarjeta vía terminal integrado.
+   * Canales del módulo Bancard (panel → Módulos → Bancard), ya resueltos
+   * server-side: módulo activo Y canal habilitado.
+   *   - `bancardQrEnabled`  → botón "QR Bancard" en el cobro del POS.
+   *   - `bancardPosEnabled` → config de IP del terminal en Ajustes del POS.
    */
+  bancardQrEnabled?: boolean
   bancardPosEnabled?: boolean
 }
 

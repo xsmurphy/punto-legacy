@@ -47,14 +47,16 @@ final class ModulesService
         'recurring', 'dunning', 'digitalInvoice', 'salesSummaryDaily',
         'einvoicePy',
         'api',
-        // Integración con el POS físico de Bancard (Caja POS Android, REST
-        // por LAN). El toggle habilita la sección "IP POS Bancard" en
-        // Ajustes del POS; la IP se configura por caja (register posConfig).
-        'bancardPos',
+        // Bancard — módulo paraguas de los dos canales de cobro del banco:
+        // `qr` (QR de pago, ePagos/BANCARD_QR_API) y `pos` (terminal físico
+        // Caja POS Android por LAN). Cada canal se habilita por separado
+        // desde la config del módulo; el toggle del módulo los apaga a los
+        // dos de una.
+        'bancard',
     ];
 
     /** Módulos que tienen config adicional (admiten action=config). */
-    private const CONFIG_KEYS = ['loyalty', 'tables', 'ordersPanel', 'feedback', 'crm'];
+    private const CONFIG_KEYS = ['loyalty', 'tables', 'ordersPanel', 'feedback', 'crm', 'bancard'];
 
     /**
      * Allowlist de módulos nativos toggleables (fuente de verdad única).
@@ -149,6 +151,18 @@ final class ModulesService
                         'dontAutoSendDocs' => $this->truthy($crmData['crmDontAutoSendDocsToCustomer'] ?? null),
                     ];
                     break;
+
+                case 'bancard':
+                    // Canales del módulo. Default true: activar "Bancard" sin
+                    // entrar a la config deja los dos canales usables, que es
+                    // lo que espera quien prende el módulo. El apagado es
+                    // explícito por canal.
+                    $bancardData = is_array($moduleData['bancard'] ?? null) ? $moduleData['bancard'] : [];
+                    $entry['config'] = [
+                        'qr'  => !array_key_exists('qr', $bancardData)  || $this->truthy($bancardData['qr']),
+                        'pos' => !array_key_exists('pos', $bancardData) || $this->truthy($bancardData['pos']),
+                    ];
+                    break;
             }
 
             $result[$key] = $entry;
@@ -181,8 +195,13 @@ final class ModulesService
             $moduleData = [];
         }
 
-        // Actualizar (o crear) el entry para este key
-        $moduleData[$key] = ['status' => $value];
+        // Actualizar (o crear) el entry para este key PRESERVANDO su config.
+        // El entry es un mapa donde `status` convive con las claves de config
+        // del módulo (crm guarda crmDontAutoSendDocsToCustomer acá, bancard
+        // guarda qr/pos). Pisarlo con ['status' => x] borraba esa config en
+        // cada toggle — apagar y prender un módulo reseteaba su configuración.
+        $prev = is_array($moduleData[$key] ?? null) ? $moduleData[$key] : [];
+        $moduleData[$key] = array_merge($prev, ['status' => $value]);
 
         // 2) Write moduleData JSONB
         $r1 = ncmUpdate([
@@ -206,6 +225,31 @@ final class ModulesService
         $ok2 = is_array($r2) && empty($r2['error']);
         if (!$ok1 || !$ok2) {
             throw new \RuntimeException('No se pudo actualizar el estado del módulo.');
+        }
+
+        // Bancard con el canal QR activo necesita el medio de pago QR para que
+        // el POS tenga contra qué registrar el cobro (se dispara por systemKey).
+        if ($key === 'bancard' && $enabled) {
+            $bancardCfg = is_array($moduleData['bancard'] ?? null) ? $moduleData['bancard'] : [];
+            $qrOn = !array_key_exists('qr', $bancardCfg) || $this->truthy($bancardCfg['qr']);
+            if ($qrOn) {
+                $this->ensureQrPaymentMethod($companyId);
+            }
+        }
+    }
+
+    /**
+     * Provisiona el medio de pago QR (idempotente). Best-effort: si falla, el
+     * módulo igual queda activo — el POS avisa al cajero que falta el método
+     * en vez de romper el toggle.
+     */
+    private function ensureQrPaymentMethod($companyId): void
+    {
+        try {
+            global $db;
+            (new \Punto\Api\PaymentMethods\PaymentMethodService($db))->ensureQrMethod((string) $companyId);
+        } catch (\Throwable $e) {
+            error_log('[modules:bancard] no se pudo provisionar el medio de pago QR: ' . $e->getMessage());
         }
     }
 
@@ -326,6 +370,33 @@ final class ModulesService
                         'where'       => 'companyId = ?',
                         'whereParams' => [$companyId],
                     ]);
+                }
+                break;
+
+            case 'bancard':
+                // Canales del módulo (qr / pos), en moduleData.bancard junto al
+                // status. Merge no destructivo: `toggle` preserva estas claves.
+                $moduleData = json_decode((string) ($exists['moduleData'] ?? ''), true);
+                if (!is_array($moduleData)) {
+                    $moduleData = [];
+                }
+                $bancardEntry = is_array($moduleData['bancard'] ?? null) ? $moduleData['bancard'] : [];
+                foreach (['qr', 'pos'] as $channel) {
+                    if (array_key_exists($channel, $config)) {
+                        $bancardEntry[$channel] = (bool) $config[$channel];
+                    }
+                }
+                $moduleData['bancard'] = $bancardEntry;
+
+                ncmUpdate([
+                    'table'       => 'company',
+                    'records'     => ['moduleData' => json_encode($moduleData)],
+                    'where'       => 'companyId = ?',
+                    'whereParams' => [$companyId],
+                ]);
+
+                if (!empty($bancardEntry['qr'])) {
+                    $this->ensureQrPaymentMethod($companyId);
                 }
                 break;
         }

@@ -25,12 +25,25 @@ export interface CrmConfig {
   dontAutoSendDocs: boolean
 }
 
+/**
+ * Canales del módulo Bancard. El módulo es el paraguas; cada canal se
+ * habilita por separado. Default true en el backend: prender "Bancard" sin
+ * entrar a la config deja los dos usables.
+ */
+export interface BancardConfig {
+  /** QR de pago (ePagos/BANCARD_QR_API) — se muestra en la pantalla del cliente. */
+  qr: boolean
+  /** Terminal físico (Caja POS Android por LAN). La IP se configura por caja. */
+  pos: boolean
+}
+
 export type ModuleConfig =
   | LoyaltyConfig
   | TablesConfig
   | OrdersConfig
   | FeedbackConfig
   | CrmConfig
+  | BancardConfig
 
 export interface ModuleState {
   enabled: boolean
