@@ -43,7 +43,7 @@ export function useCreateCreditPayment() {
       qc.invalidateQueries({ queryKey: ["pos-transaction"], refetchType: "all" })
       qc.invalidateQueries({ queryKey: ["transactions"], refetchType: "all" })
       qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
-      // Panel: PanelDetailView/ContactTransactionsTab leen vía useTransactionDetail
+      // Panel: /transactions/{id} lee vía useTransactionDetail
       // (["transaction-detail", id]) — hook distinto al de POS, agregado sin
       // invalidación acá hasta ahora → la deuda no bajaba en el dialog del panel
       // sin recargar. Prefijo sin id para pegarle sea cual sea la tx abierta.

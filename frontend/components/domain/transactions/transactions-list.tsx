@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Banknote, Ban, Copy, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket, X } from "lucide-react"
+import { AlertCircle, ArrowLeft, Banknote, Ban, Copy, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -35,15 +35,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { EmptyState } from "@/components/empty-state"
-import { Input } from "@/components/ui/input"
-import { MoneyInput } from "@/components/ui/money-input"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   Sheet,
   SheetContent,
@@ -58,14 +49,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
   Tabs,
   TabsContent,
   TabsList,
@@ -74,39 +57,29 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useBootstrap } from "@/hooks/use-bootstrap"
-import { useContacts } from "@/hooks/use-contacts"
-import { useOutlets } from "@/hooks/use-outlets"
-import { useTeamMembers } from "@/hooks/use-team"
-import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import {
   useReport,
-  useTransactionDetail,
   type TransactionRow,
   type TransactionsReportResponse,
   type CobrosRow,
   type CobrosReportResponse,
   type QuoteRow,
   type QuotesReportResponse,
-  type TxDetailFull,
 } from "@/hooks/use-reports"
 import {
   useTransaction,
   type TransactionDetail,
   type TransactionDataItem,
 } from "@/hooks/use-transactions"
-import { api } from "@/lib/api-client"
 import { posApi } from "@/lib/api/pos-client"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { formatAmount } from "@/lib/format-money"
 import { useCartStore } from "@/lib/cart/store"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { buildTicketDataFromTransaction, buildTicketDataFromTxDetail } from "@/lib/hardware/printers/build-ticket-data"
+import { buildTicketDataFromTransaction } from "@/lib/hardware/printers/build-ticket-data"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
-import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
-import { usePaymentMethods } from "@/hooks/use-payment-methods"
-import { usePermission } from "@/hooks/use-permissions"
 import { useVoidTransaction } from "@/hooks/use-void-transaction"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
@@ -118,6 +91,7 @@ import { cn } from "@/lib/utils"
 export const TX_TYPE_LABELS: Record<string, string> = {
   "0": "Contado",
   "3": "Crédito",
+  "5": "Recibo",
   "6": "Devolución",
   "7": "Anulada",
   "9": "Cotización",
@@ -145,47 +119,6 @@ function fmtDate(iso: string): string {
 interface TransactionsListProps {
   backHref: string
   mode?: "panel" | "pos"
-}
-
-// ── Edit form type ────────────────────────────────────────────────────────────
-
-type EditForm = {
-  date: string
-  dueDate: string
-  note: string
-  customerId: string
-  outletId: string
-  invoiceNo: string
-  userId: string
-  responsibleId: string
-  transactionType: number
-  payments: Array<{ type: string; name: string; total: number }>
-  items: Array<{ itemSoldId: string; itemSoldUnits: number; itemSoldTotal: number; itemName: string }>
-}
-
-function initEditForm(detail: TxDetailFull): EditForm {
-  const tx = detail.transaction
-  const rawDate = tx.transactionDate ?? ""
-  const date = rawDate.includes("T") ? rawDate.slice(0, 16) : rawDate.replace(" ", "T").slice(0, 16)
-  const dueDate = tx.transactionDueDate ?? ""
-  return {
-    date,
-    dueDate: dueDate.length >= 10 ? dueDate.slice(0, 10) : dueDate,
-    note: tx.transactionNote ?? "",
-    customerId: tx.customerId ?? "",
-    outletId: tx.outletId ?? "",
-    invoiceNo: tx.invoiceNo ? String(tx.invoiceNo) : "",
-    userId: tx.userId ?? "",
-    responsibleId: tx.responsibleId ?? "",
-    transactionType: tx.transactionType,
-    payments: (tx.transactionPaymentType ?? []).map((p) => ({ type: p.type, name: p.name, total: p.total })),
-    items: detail.items.map((i) => ({
-      itemSoldId: i.itemSoldId,
-      itemSoldUnits: i.itemSoldUnits,
-      itemSoldTotal: i.itemSoldTotal,
-      itemName: i.itemName,
-    })),
-  }
 }
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -250,33 +183,22 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
     mode === "pos" ? selectedId : null,
   )
 
-  // Panel-mode: Dialog state
-  const [selectedPanelId, setSelectedPanelId] = React.useState<string | null>(null)
-  const [panelDialogOpen, setPanelDialogOpen] = React.useState(false)
-  const [panelView, setPanelView] = React.useState<"detail" | "edit">("detail")
-  const [saving, setSaving] = React.useState(false)
-  const [editForm, setEditForm] = React.useState<EditForm | null>(null)
-
   const queryClient = useQueryClient()
 
-  const { data: panelDetail, isLoading: panelDetailLoading } = useTransactionDetail(
-    mode === "panel" ? selectedPanelId : null,
-  )
-
-  const { data: contactsData } = useContacts({ type: 1 })
-  const { data: outletsData } = useOutlets()
-  const { data: teamData } = useTeamMembers({ status: "1" })
-  const paymentMethods = useCatalogStore((s) => s.paymentMethods)
+  // Panel-mode: "Pagos recibidos" no tiene página propia (F3, context/39) —
+  // el owner fue explícito en que ahí alcanza con un modal básico, no hay
+  // mucho más que fecha/monto/método para mostrar.
+  const [selectedCobro, setSelectedCobro] = React.useState<CobrosRow | null>(null)
 
   function handleRowClick(row: { transactionId: string }) {
     if (mode === "pos") {
       setSelectedId(row.transactionId)
       setSheetOpen(true)
     } else {
-      setSelectedPanelId(row.transactionId)
-      setPanelView("detail")
-      setEditForm(null)
-      setPanelDialogOpen(true)
+      // Transacciones y Cotizaciones son la MISMA entidad (una venta) —
+      // misma página de detalle, el contenido se adapta a lo que el
+      // payload traiga (F2, context/39-detalle-transaccion.md).
+      router.push(`/transactions/${row.transactionId}`)
     }
   }
 
@@ -317,49 +239,6 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
     )
     toast.success(`${items.length} ítem${items.length !== 1 ? "s" : ""} agregado${items.length !== 1 ? "s" : ""} al carrito`)
     setSheetOpen(false)
-  }
-
-  function openEdit() {
-    if (!panelDetail) return
-    setEditForm(initEditForm(panelDetail))
-    setPanelView("edit")
-  }
-
-  async function handleSave() {
-    if (!editForm || !panelDetail) return
-    setSaving(true)
-    try {
-      const body = {
-        date: editForm.date.replace("T", " ") + ":00",
-        dueDate: editForm.dueDate || null,
-        note: editForm.note || null,
-        customerId: editForm.customerId || null,
-        outletId: editForm.outletId || null,
-        invoiceNo: editForm.invoiceNo ? Number(editForm.invoiceNo) : null,
-        userId: editForm.userId || null,
-        responsibleId: editForm.responsibleId || null,
-        transactionType: editForm.transactionType,
-        payments: editForm.transactionType === 9
-          ? []
-          : editForm.payments.map((p) => ({ type: p.type, total: p.total })),
-        items: editForm.items.map((i) => ({
-          itemSoldId: i.itemSoldId,
-          itemSoldUnits: Number(i.itemSoldUnits),
-          itemSoldTotal: i.itemSoldTotal,
-        })),
-        tags: panelDetail.transaction.meta?.tags ?? [],
-      }
-      await api.put(`/v1/reports/transactions?id=${selectedPanelId}`, body)
-      toast.success("Transaccion actualizada")
-      setPanelView("detail")
-      queryClient.invalidateQueries({ queryKey: ["reports", "transactions"] })
-      queryClient.invalidateQueries({ queryKey: ["transaction-detail", selectedPanelId] })
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Error al guardar"
-      toast.error(msg)
-    } finally {
-      setSaving(false)
-    }
   }
 
   // ── Columns: Transacciones ────────────────────────────────────────────────
@@ -790,6 +669,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
               isLoading={cobrosLoading}
               searchPlaceholder="Buscar por documento, cliente, usuario…"
               exportFileName="cobros"
+              onRowClick={(row) => setSelectedCobro(row)}
               emptyMessage={
                 <EmptyState
                   icon={Receipt}
@@ -919,694 +799,53 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
         </>
       )}
 
-      {/* Panel-mode: Dialog de detalle */}
+      {/* Panel-mode: modal básico de "Pagos recibidos" — sin página propia
+          (F3, context/39-detalle-transaccion.md): fecha/monto/medio/cliente/
+          usuario ya vienen en la fila del listado, sin otra ida y vuelta. */}
       {mode === "panel" && (
-        <Dialog
-          open={panelDialogOpen}
-          onOpenChange={(open) => {
-            setPanelDialogOpen(open)
-            if (!open) {
-              setPanelView("detail")
-              setEditForm(null)
-            }
-          }}
-        >
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            {panelDetailLoading && (
-              <div className="flex items-center justify-center p-12 text-sm text-muted-foreground">
-                Cargando detalle...
-              </div>
-            )}
-            {!panelDetailLoading && panelDetail && panelView === "detail" && (
-              <PanelDetailView
-                detail={panelDetail}
-                bootstrap={bootstrap}
-                onEdit={openEdit}
-                onClose={() => setPanelDialogOpen(false)}
-              />
-            )}
-            {!panelDetailLoading && panelDetail && panelView === "edit" && editForm && (
-              <PanelEditView
-                detail={panelDetail}
-                form={editForm}
-                setForm={setEditForm}
-                saving={saving}
-                contacts={contactsData?.contacts ?? []}
-                outlets={outletsData?.rows ?? []}
-                teamMembers={teamData?.users ?? []}
-                paymentMethods={paymentMethods}
-                bootstrap={bootstrap}
-                onCancel={() => setPanelView("detail")}
-                onSave={handleSave}
-              />
+        <Dialog open={selectedCobro !== null} onOpenChange={(open) => !open && setSelectedCobro(null)}>
+          <DialogContent className="sm:max-w-md">
+            {selectedCobro && (
+              <>
+                <DialogHeader>
+                  <DialogTitle>Pago recibido</DialogTitle>
+                </DialogHeader>
+                <div className="flex flex-col gap-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Fecha</span>
+                    <span className="tabular-nums">{niceDateTime(selectedCobro.date)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Monto</span>
+                    <span className="tabular-nums font-semibold">
+                      {formatMoney(selectedCobro.total, bootstrap)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Medio de pago</span>
+                    <span>{selectedCobro.payments?.map((p) => p.name).join(", ") || "—"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Cliente</span>
+                    <span>{selectedCobro.customerName || "Consumidor final"}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Usuario</span>
+                    <span>{selectedCobro.userName || "—"}</span>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button asChild variant="outline" onClick={() => setSelectedCobro(null)}>
+                    <Link href={`/transactions/${selectedCobro.parentId}`}>Ver transacción</Link>
+                  </Button>
+                  <Button onClick={() => setSelectedCobro(null)}>Cerrar</Button>
+                </DialogFooter>
+              </>
             )}
           </DialogContent>
         </Dialog>
       )}
     </div>
-  )
-}
-
-// ── Panel: Vista detalle ──────────────────────────────────────────────────────
-
-export function PanelDetailView({
-  detail,
-  bootstrap,
-  onEdit,
-  onClose,
-}: {
-  detail: TxDetailFull
-  bootstrap: ReturnType<typeof useBootstrap>["data"]
-  /** Omitido → oculta el botón "Editar" (ej. tab embebido de Contactos, que
-   *  no implementa PanelEditView y solo ofrece ver/pagar/reimprimir). */
-  onEdit?: () => void
-  onClose: () => void
-}) {
-  const tx = detail.transaction
-  const typeStr = String(tx.transactionType)
-  const badgeVariant =
-    tx.transactionType === 0
-      ? "default"
-      : tx.transactionType === 3
-        ? "secondary"
-        : "outline"
-
-  const paymentLabel = (p: { type: string; name: string; extra: string }) => {
-    if (p.name && p.name.trim() !== "") return p.name
-    if (p.extra && p.extra.trim() !== "" && p.extra !== p.type) return p.extra
-    return p.type.slice(0, 8)
-  }
-
-  const canEdit = !!onEdit && (tx.transactionType === 0 || tx.transactionType === 3 || tx.transactionType === 9)
-  // Gate cliente — espejo del hasPermission('pos.sale.creditPayment') que
-  // enforce api/v1/credit-payments.php. No es el boundary de seguridad (eso
-  // es el backend), pero evita mostrar un botón que va a 403.
-  const canRegisterPayment = usePermission("pos.sale.creditPayment")
-  const canPay = tx.transactionType === 3 && (detail.creditPayments?.debt ?? 0) > 0 && canRegisterPayment
-
-  // Métodos de pago del tenant (realm panel — /v1/payment-methods). El panel
-  // no tiene el bootstrap del POS hidratado en useCatalogStore, así que
-  // CreditPaymentDialog recibe esta fuente en vez de la del device.
-  const { data: pmData } = usePaymentMethods()
-  const panelPaymentMethods = pmData?.paymentMethods ?? []
-
-  const [payDialogOpen, setPayDialogOpen] = React.useState(false)
-  const [receiptPrompt, setReceiptPrompt] = React.useState<{ paymentId: string } | null>(null)
-  const [printingReceipt, setPrintingReceipt] = React.useState(false)
-
-  // Reimprimir el documento actual — el panel no tiene bindings de hardware
-  // (impresoras de red/USB configuradas por register), así que va directo a
-  // printTicketInBrowser (plantilla del docType, diálogo nativo del browser),
-  // sin pasar por usePrintWithPicker (que intenta resolver un binding físico
-  // primero — solo tiene sentido en el POS).
-  async function handleReprint() {
-    const docType = tx.transactionType === 9 ? "quote" : "factura"
-    const data = buildTicketDataFromTxDetail(detail, bootstrap?.companyName ?? "", docType)
-    try {
-      await printTicketInBrowser({ docType, data })
-    } catch {
-      toast.error("No se pudo imprimir")
-    }
-  }
-
-  async function handlePrintReceipt(paymentId: string) {
-    setPrintingReceipt(true)
-    try {
-      const paymentDetail = await api.get<TxDetailFull>(`/v1/reports/transactions?id=${paymentId}`)
-      const data = buildTicketDataFromTxDetail(paymentDetail, bootstrap?.companyName ?? "", "receipt")
-      await printTicketInBrowser({ docType: "receipt", data })
-    } catch {
-      toast.error("No se pudo imprimir el recibo")
-    } finally {
-      setPrintingReceipt(false)
-      setReceiptPrompt(null)
-    }
-  }
-
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle className="flex flex-wrap items-center gap-2">
-          <Badge variant={badgeVariant}>{txTypeLabel(typeStr)}</Badge>
-          {tx.invoiceNo && <span className="text-sm font-normal text-muted-foreground">#{tx.invoiceNo}</span>}
-          {tx.transactionDate && (
-            <span className="text-sm font-normal text-muted-foreground">{fmtDate(tx.transactionDate)}</span>
-          )}
-        </DialogTitle>
-        <div className="flex flex-wrap gap-2 text-sm text-muted-foreground pt-1">
-          {tx.customerName && <span>Cliente: <span className="text-foreground">{tx.customerName}</span></span>}
-          {tx.outletName && <span>Sucursal: <span className="text-foreground">{tx.outletName}</span></span>}
-          {tx.userName && <span>Usuario: <span className="text-foreground">{tx.userName}</span></span>}
-        </div>
-      </DialogHeader>
-
-      <div className="flex flex-col gap-5 py-2">
-        {/* Items */}
-        {detail.items.length > 0 && (
-          <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-16">Cant.</TableHead>
-                  <TableHead>Articulo</TableHead>
-                  <TableHead className="text-right">Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {detail.items.map((item) => (
-                  <TableRow key={item.itemSoldId}>
-                    <TableCell className="tabular-nums">{item.itemSoldUnits}</TableCell>
-                    <TableCell>{item.itemName}</TableCell>
-                    <TableCell className="tabular-nums text-right">
-                      {formatMoney(item.itemSoldTotal, bootstrap)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </section>
-        )}
-
-        {/* Totales */}
-        <section>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Totales</p>
-          <div className="space-y-1.5 rounded-lg border border-border p-3">
-            {tx.transactionDiscount > 0 && (
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Descuento</span>
-                <span className="tabular-nums text-yellow-600">
-                  -{formatMoney(tx.transactionDiscount, bootstrap)}
-                </span>
-              </div>
-            )}
-            <div className="flex justify-between font-bold">
-              <span>Total</span>
-              <span className="tabular-nums">{formatMoney(tx.transactionTotal, bootstrap)}</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Pagos */}
-        {tx.transactionPaymentType.length > 0 && (
-          <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pagos</p>
-            <div className="divide-y divide-border rounded-lg border border-border">
-              {tx.transactionPaymentType.map((p, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2.5 text-sm">
-                  <span className="text-foreground">{paymentLabel(p)}</span>
-                  <span className="tabular-nums font-medium">{formatMoney(p.total, bootstrap)}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Nota */}
-        {tx.transactionNote && (
-          <section>
-            <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Nota</p>
-            <p className="text-sm text-foreground">{tx.transactionNote}</p>
-          </section>
-        )}
-
-        {/* Notas de crédito */}
-        {detail.creditNotes.length > 0 && (
-          <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Notas de crédito</p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Fecha</TableHead>
-                  <TableHead>Doc</TableHead>
-                  <TableHead className="text-right">Monto</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {detail.creditNotes.map((cn) => (
-                  <TableRow key={cn.transactionId}>
-                    <TableCell className="tabular-nums">{niceDateTime(cn.transactionDate)}</TableCell>
-                    <TableCell>{cn.invoiceNo || "—"}</TableCell>
-                    <TableCell className="tabular-nums text-right">
-                      {formatMoney(cn.transactionTotal, bootstrap)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </section>
-        )}
-
-        {/* Agendamientos */}
-        {detail.appointments.length > 0 && (
-          <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Agendamientos</p>
-            <div className="divide-y divide-border rounded-lg border border-border">
-              {detail.appointments.map((a, i) => (
-                <div key={i} className="flex items-center justify-between px-3 py-2.5 text-sm">
-                  <span className="tabular-nums text-muted-foreground">{niceDateTime(a.transactionDate)}</span>
-                  <span className="tabular-nums font-medium">{formatMoney(a.transactionTotal, bootstrap)}</span>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Crédito */}
-        {detail.creditPayments !== null && (
-          <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Crédito</p>
-            <div className="space-y-1.5 rounded-lg border border-border p-3">
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Total</span>
-                <span className="tabular-nums">{formatMoney(detail.creditPayments.total, bootstrap)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Pagado</span>
-                <span className="tabular-nums">{formatMoney(detail.creditPayments.paid, bootstrap)}</span>
-              </div>
-              <div className="flex justify-between text-sm font-semibold">
-                <span>Deuda</span>
-                <span className="tabular-nums">{formatMoney(detail.creditPayments.debt, bootstrap)}</span>
-              </div>
-            </div>
-          </section>
-        )}
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" onClick={handleReprint} className="gap-1.5">
-          <Printer className="size-4" />
-          Reimprimir
-        </Button>
-        {canPay && (
-          <Button variant="outline" onClick={() => setPayDialogOpen(true)} className="gap-1.5">
-            <Banknote className="size-4" />
-            Registrar pago
-          </Button>
-        )}
-        {canEdit && (
-          <Button variant="outline" onClick={onEdit}>
-            Editar
-          </Button>
-        )}
-        <Button onClick={onClose}>Cerrar</Button>
-      </DialogFooter>
-
-      {canPay && (
-        <CreditPaymentDialog
-          open={payDialogOpen}
-          onOpenChange={setPayDialogOpen}
-          parentTransactionId={tx.transactionId}
-          debt={detail.creditPayments!.debt}
-          customerName={tx.customerName || "Cliente"}
-          paymentMethods={panelPaymentMethods}
-          config={bootstrap ?? null}
-          onSuccess={(result) => {
-            setPayDialogOpen(false)
-            setReceiptPrompt({ paymentId: result.id })
-          }}
-        />
-      )}
-
-      {/* Post-pago: ofrecer Recibo (docType receipt — regla fiscal: pago de
-          crédito es SIEMPRE Recibo, nunca Factura). */}
-      <AlertDialog open={receiptPrompt !== null} onOpenChange={(open) => !open && setReceiptPrompt(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Pago registrado</AlertDialogTitle>
-            <AlertDialogDescription>
-              ¿Querés imprimir el recibo del pago?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cerrar</AlertDialogCancel>
-            <Button
-              disabled={printingReceipt}
-              onClick={() => receiptPrompt && handlePrintReceipt(receiptPrompt.paymentId)}
-            >
-              {printingReceipt ? "Imprimiendo..." : "Imprimir recibo"}
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </>
-  )
-}
-
-// ── Panel: Vista edición ──────────────────────────────────────────────────────
-
-function PanelEditView({
-  detail,
-  form,
-  setForm,
-  saving,
-  contacts,
-  outlets,
-  teamMembers,
-  paymentMethods,
-  bootstrap,
-  onCancel,
-  onSave,
-}: {
-  detail: TxDetailFull
-  form: EditForm
-  setForm: React.Dispatch<React.SetStateAction<EditForm | null>>
-  saving: boolean
-  contacts: Array<{ id: string; name: string }>
-  outlets: Array<{ id: string; name: string }>
-  teamMembers: Array<{ id: string; name: string }>
-  paymentMethods: PaymentMethodConfig[]
-  bootstrap: ReturnType<typeof useBootstrap>["data"]
-  onCancel: () => void
-  onSave: () => void
-}) {
-  const tx = detail.transaction
-  const isCredit = form.transactionType === 3
-  const isQuote = tx.transactionType === 9
-  const canEditType = tx.transactionType === 0 || tx.transactionType === 3
-  const canEditItems = tx.transactionType === 0 || tx.transactionType === 3 || isQuote
-
-  function updatePayment(index: number, field: "type" | "name" | "total", value: string | number | null) {
-    setForm((prev) => {
-      if (!prev) return prev
-      const payments = prev.payments.map((p, i) =>
-        i === index ? { ...p, [field]: value } : p,
-      )
-      return { ...prev, payments }
-    })
-  }
-
-  function removePayment(index: number) {
-    setForm((prev) => {
-      if (!prev) return prev
-      return { ...prev, payments: prev.payments.filter((_, i) => i !== index) }
-    })
-  }
-
-  function addPayment() {
-    const defaultMethod = paymentMethods[0]
-    setForm((prev) => {
-      if (!prev) return prev
-      return {
-        ...prev,
-        payments: [
-          ...prev.payments,
-          { type: defaultMethod?.id ?? "", name: defaultMethod?.name ?? "", total: 0 },
-        ],
-      }
-    })
-  }
-
-  function updateItem(index: number, field: "itemSoldUnits" | "itemSoldTotal", value: number | null) {
-    setForm((prev) => {
-      if (!prev) return prev
-      const items = prev.items.map((it, i) =>
-        i === index ? { ...it, [field]: value } : it,
-      )
-      return { ...prev, items }
-    })
-  }
-
-  return (
-    <>
-      <DialogHeader>
-        <DialogTitle>Editar transacción</DialogTitle>
-      </DialogHeader>
-
-      <div className="flex flex-col gap-5 py-2">
-        {/* Tipo (Contado / Crédito) — solo editable si es 0 o 3 */}
-        {canEditType && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">Tipo</label>
-            <Select
-              value={String(form.transactionType)}
-              onValueChange={(v) =>
-                setForm((prev) =>
-                  prev ? { ...prev, transactionType: Number(v) } : prev,
-                )
-              }
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="0">Contado</SelectItem>
-                <SelectItem value="3">Crédito</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        )}
-
-        {/* Fecha */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Fecha</label>
-          <Input
-            type="datetime-local"
-            value={form.date}
-            onChange={(e) => setForm((prev) => prev ? { ...prev, date: e.target.value } : prev)}
-          />
-        </div>
-
-        {/* Fecha vencimiento (solo crédito) */}
-        {isCredit && (
-          <div className="flex flex-col gap-1.5">
-            <label className="text-sm font-medium">Fecha de vencimiento</label>
-            <Input
-              type="date"
-              value={form.dueDate}
-              onChange={(e) => setForm((prev) => prev ? { ...prev, dueDate: e.target.value } : prev)}
-            />
-          </div>
-        )}
-
-        {/* Nro de documento */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Nro. de documento</label>
-          <Input
-            type="number"
-            value={form.invoiceNo}
-            onChange={(e) =>
-              setForm((prev) => prev ? { ...prev, invoiceNo: e.target.value } : prev)
-            }
-            placeholder="—"
-          />
-        </div>
-
-        {/* Cliente */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Cliente</label>
-          <Select
-            value={form.customerId}
-            onValueChange={(v) => setForm((prev) => prev ? { ...prev, customerId: v } : prev)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Seleccionar cliente..." />
-            </SelectTrigger>
-            <SelectContent>
-              {contacts.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Sucursal */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Sucursal</label>
-          <Select
-            value={form.outletId}
-            onValueChange={(v) => setForm((prev) => prev ? { ...prev, outletId: v } : prev)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Seleccionar sucursal..." />
-            </SelectTrigger>
-            <SelectContent>
-              {outlets.map((o) => (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Vendedor */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Vendedor</label>
-          <Select
-            value={form.userId || "__none__"}
-            onValueChange={(v) =>
-              setForm((prev) =>
-                prev ? { ...prev, userId: v === "__none__" ? "" : v } : prev,
-              )
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Seleccionar vendedor..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Sin asignar</SelectItem>
-              {teamMembers.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Responsable */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Responsable</label>
-          <Select
-            value={form.responsibleId || "__none__"}
-            onValueChange={(v) =>
-              setForm((prev) =>
-                prev ? { ...prev, responsibleId: v === "__none__" ? "" : v } : prev,
-              )
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Seleccionar responsable..." />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__none__">Sin asignar</SelectItem>
-              {teamMembers.map((m) => (
-                <SelectItem key={m.id} value={m.id}>
-                  {m.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Nota */}
-        <div className="flex flex-col gap-1.5">
-          <label className="text-sm font-medium">Nota</label>
-          <Textarea
-            value={form.note}
-            onChange={(e) => setForm((prev) => prev ? { ...prev, note: e.target.value } : prev)}
-            rows={3}
-          />
-        </div>
-
-        {/* Items */}
-        {canEditItems && form.items.length > 0 && (
-          <section>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Items</p>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-20">Cant.</TableHead>
-                  <TableHead>Articulo</TableHead>
-                  <TableHead className="w-32">Total</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {form.items.map((item, i) => (
-                  <TableRow key={item.itemSoldId}>
-                    <TableCell>
-                      <Input
-                        type="text"
-                        inputMode="numeric"
-                        value={item.itemSoldUnits}
-                        onChange={(e) => updateItem(i, "itemSoldUnits", Number(e.target.value))}
-                        className="w-16"
-                      />
-                    </TableCell>
-                    <TableCell className="text-sm">{item.itemName}</TableCell>
-                    <TableCell>
-                      <MoneyInput
-                        value={item.itemSoldTotal}
-                        onChange={(v) => updateItem(i, "itemSoldTotal", v)}
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </section>
-        )}
-
-        {/* Pagos — no aplica a cotizaciones (no afectan caja/crédito) */}
-        {!isQuote && (
-        <section>
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Pagos</p>
-          <div className="flex flex-col gap-2">
-            {form.payments.map((p, i) => (
-              <div key={i} className="flex items-center gap-2">
-                {paymentMethods.length > 0 ? (
-                  <Select
-                    value={p.type}
-                    onValueChange={(v) => {
-                      const m = paymentMethods.find((pm) => pm.id === v)
-                      setForm((prev) => {
-                        if (!prev) return prev
-                        const payments = prev.payments.map((pay, idx) =>
-                          idx === i ? { ...pay, type: v, name: m?.name ?? v } : pay,
-                        )
-                        return { ...prev, payments }
-                      })
-                    }}
-                  >
-                    <SelectTrigger className="flex-1">
-                      <SelectValue placeholder="Método de pago..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {paymentMethods.map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <span className="flex-1 text-sm px-3 py-2 rounded-md border border-border bg-muted/40 text-foreground">
-                    {p.name || p.type.slice(0, 8)}
-                  </span>
-                )}
-                <div className="w-32">
-                  <MoneyInput
-                    value={p.total}
-                    onChange={(v) => updatePayment(i, "total", v)}
-                  />
-                </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removePayment(i)}
-                  type="button"
-                >
-                  <X className="size-4" />
-                </Button>
-              </div>
-            ))}
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-fit"
-              onClick={addPayment}
-              type="button"
-            >
-              + Agregar método
-            </Button>
-          </div>
-        </section>
-        )}
-      </div>
-
-      <DialogFooter>
-        <Button variant="outline" onClick={onCancel} disabled={saving}>
-          Cancelar
-        </Button>
-        <Button onClick={onSave} disabled={saving}>
-          {saving ? "Guardando..." : "Guardar"}
-        </Button>
-      </DialogFooter>
-    </>
   )
 }
 

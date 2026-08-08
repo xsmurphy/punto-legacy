@@ -9,30 +9,30 @@
  * backend necesarios acá. El rango de fechas no aplica: cuando hay `cusId` el
  * backend ignora from/to y devuelve hasta 5000 filas del cliente.
  *
- * Reusa el mismo Dialog de detalle que /reports/transacciones (panel):
- * `PanelDetailView` (transactions-list.tsx) — con Ver detalle, Reimprimir
- * (printTicketInBrowser) y Registrar pago (CreditPaymentDialog → Recibo) ya
- * resueltos ahí como wrapper compartido.
+ * El click de fila navega a `/transactions/{id}` (F2,
+ * context/39-detalle-transaccion.md) — la misma página dedicada que usa el
+ * listado de `/reports/transacciones`. Antes abría un Dialog embebido
+ * (`PanelDetailView`, eliminado junto con esta migración) con una vista
+ * mucho más limitada que la página completa.
  */
 
 import * as React from "react"
+import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Receipt } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { DataTable } from "@/components/data-table/data-table"
-import { Dialog, DialogContent } from "@/components/ui/dialog"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   useReport,
-  useTransactionDetail,
   type TransactionRow,
   type TransactionsReportResponse,
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
-import { PanelDetailView, txTypeLabel } from "@/components/domain/transactions/transactions-list"
+import { txTypeLabel } from "@/components/domain/transactions/transactions-list"
 
 interface Props {
   customerId: string
@@ -40,17 +40,13 @@ interface Props {
 
 export function ContactTransactionsTab({ customerId }: Props) {
   const { data: bootstrap } = useBootstrap()
+  const router = useRouter()
   const opts = React.useMemo(
     () => ({ params: { view: "detail", cusId: customerId } }),
     [customerId],
   )
   const { data, isLoading, error } = useReport<TransactionsReportResponse>("transactions", opts)
   const rows = data?.rows ?? []
-
-  const [selectedId, setSelectedId] = React.useState<string | null>(null)
-  const [dialogOpen, setDialogOpen] = React.useState(false)
-
-  const { data: detail, isLoading: detailLoading } = useTransactionDetail(selectedId)
 
   const columns = React.useMemo<ColumnDef<TransactionRow>[]>(
     () => [
@@ -131,10 +127,7 @@ export function ContactTransactionsTab({ customerId }: Props) {
         isLoading={isLoading}
         searchPlaceholder="Buscar por documento…"
         exportFileName="transacciones-cliente"
-        onRowClick={(row) => {
-          setSelectedId(row.transactionId)
-          setDialogOpen(true)
-        }}
+        onRowClick={(row) => router.push(`/transactions/${row.transactionId}`)}
         emptyMessage={
           <EmptyState
             icon={Receipt}
@@ -143,30 +136,6 @@ export function ContactTransactionsTab({ customerId }: Props) {
           />
         }
       />
-
-      <Dialog
-        open={dialogOpen}
-        onOpenChange={(open) => {
-          setDialogOpen(open)
-          if (!open) setSelectedId(null)
-        }}
-      >
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          {detailLoading && (
-            <div className="flex items-center justify-center p-12 text-sm text-muted-foreground">
-              Cargando detalle...
-            </div>
-          )}
-          {!detailLoading && detail && (
-            <PanelDetailView
-              detail={detail}
-              bootstrap={bootstrap}
-              onEdit={() => {}}
-              onClose={() => setDialogOpen(false)}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

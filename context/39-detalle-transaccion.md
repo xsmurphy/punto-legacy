@@ -1,7 +1,7 @@
 # 39 — Detalle de transacción (venta a la altura de compra)
 
-> Estado: **F1 implementada** (resolver backend, 2026-08-08). F2-F4 abajo,
-> abiertas. Este doc es la referencia del modelo; el código lo cita desde
+> Estado: **F1-F3 implementadas** (2026-08-08). F4 abajo, abierta. Este doc
+> es la referencia del modelo; el código lo cita desde
 > `api/lib/Transactions/TransactionDetailService.php`.
 
 ## Diagnóstico
@@ -107,19 +107,40 @@ alcance acá.
 
 - **F1 — resolver backend** (implementada, 2026-08-08). Panel cablea contra
   el resolver; la query inline murió. POS **no migra** en esta fase.
-- **F2 — página dedicada `/transactions/{id}`**. Decisión cerrada del
-  owner: el detalle deja de vivir en un Dialog/Sheet embebido y pasa a una
-  página propia, **espejo de `/purchase/{id}`** (mismo patrón de layout:
-  cabecera + líneas + totales + pagos + documentos vinculados). El Dialog
-  actual (`PanelDetailView`, `transactions-list.tsx`) queda para navegación
-  rápida desde listados; la página nueva es la vista completa.
-- **F3 — cotizaciones + "Pagos recibidos"**. Decisión cerrada del owner:
-  **"Pagos recibidos" se queda con un modal básico** (no amerita página
-  propia — no hay mucho que mostrar más allá de fecha/monto/método). El
-  flujo de cotización→venta (quote_to_sale) se expone en la página F2 usando
-  `quotesOrigin`/`quotesDerived`, ya resueltos por F1.
+- **F2 — página dedicada `/transactions/{id}`** (implementada, 2026-08-08).
+  `frontend/app/(panel)/transactions/[id]/page.tsx`, espejo de
+  `/purchase/{id}`: header con badge tipo/estado + acciones (Reimprimir,
+  Registrar pago si hay deuda, Editar), datos generales (sucursal/caja/
+  cajero/fecha+hora/condición/vencimiento/timbrado/factura), totales con
+  desglose fiscal por tasa (`taxByRate`), líneas (nota, descuento monto+%,
+  tasa, impuesto, usuario asignado, comisión), pagos, crédito, y "Documentos
+  relacionados" (cotización origen/derivada, notas de crédito, pagos
+  recibidos — todos navegables a `/transactions/{id}` porque son la misma
+  entidad `transaction`; órdenes cobradas y agendamientos se listan
+  read-only porque el frontend todavía no tiene rutas de detalle propias
+  para `pos_order` ni citas). El click de fila en los tabs Transacciones y
+  Cotizaciones de `transactions-list.tsx` navega acá en vez de abrir un
+  Dialog. `PanelDetailView` y `PanelEditView` (los dos Dialogs viejos)
+  fueron eliminados; la edición se extrajo a
+  `components/domain/transactions/transaction-edit-dialog.tsx`
+  (`TransactionEditDialog`), abierta desde el botón "Editar" de la página
+  nueva. `ContactTransactionsTab` (tab Transacciones del detalle de
+  contacto) también migró su click de fila a la página nueva.
+
+  **Desviación deliberada del brief**: NO se agregó un botón "Facturar"
+  para cotizaciones en esta página — esa acción empuja la cotización al
+  cart store y navega a `/pos`, pero `/pos` exige device pairing
+  (`PosAuthGuard`/`_jwt`); una sesión de panel sin dispositivo emparejado
+  vería `<DeviceNotConnected/>`. Facturar una cotización sigue haciéndose
+  desde el POS (`TransactionDetailContent`, Sheet, sin tocar).
+- **F3 — cotizaciones + "Pagos recibidos"** (implementada, 2026-08-08).
+  Cotizaciones reusa la página de F2 (misma entidad, el contenido se
+  adapta al payload). "Pagos recibidos" (tab `cobros`) ganó su primer click
+  de fila: un Dialog chico (`sm:max-w-md`) con fecha/monto/medio de
+  pago/cliente/usuario — todo ya presente en `CobrosRow`, sin fetch
+  adicional — y un link "Ver transacción" a `/transactions/{parentId}`.
 - **F4 — migrar el POS al resolver canónico**. `Services\TransactionService::getSingle()`
-  y sus 2 call-sites quedan tal cual en F1 (riesgo/UX propios del POS,
+  y sus 2 call-sites quedan tal cual en F1-F3 (riesgo/UX propios del POS,
   fuera de alcance). Migrarlo es trabajo aparte: hay que decidir si el POS
   consume el mismo shape o un adapter, sin romper carrito/reimpresión.
 
