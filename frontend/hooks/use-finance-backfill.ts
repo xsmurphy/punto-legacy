@@ -8,6 +8,7 @@ export interface FinanceBackfillResult {
   sales: number
   creditPayments: number
   purchases: number
+  returns: number
   drawerExpenses: number
   drawerIncomes: number
   errors: number

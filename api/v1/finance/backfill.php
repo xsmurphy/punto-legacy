@@ -59,6 +59,7 @@ apiOk([
     'sales'          => $counts['sales'],
     'creditPayments' => $counts['creditPayments'],
     'purchases'      => $counts['purchases'],
+    'returns'        => $counts['returns'],
     'drawerExpenses' => $counts['drawerExpenses'],
     'drawerIncomes'  => $counts['drawerIncomes'],
     'errors'         => $counts['errors'],

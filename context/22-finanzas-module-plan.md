@@ -225,9 +225,23 @@ api-client (`api.get/post/put/del`), invalidación al mutar. Agregar el ítem
    - **Backfill**: `api/database/seeds/finance_backfill.php` (CLI) +
      `POST /v1/finance/backfill` (permiso `finance.manage`, advisory lock por
      tenant) + botón "Importar histórico" en Finanzas → Ajustes.
-   - **TODO Fase 4**: devoluciones (`transactionType=2/6`) no generan
-     movimiento todavía — sobreestiman ingresos una vez que existan returns.
-     Backfill sin cap de tiempo (chunk/queue si un tenant crece mucho).
+   - **Devoluciones** (implementado 2026-07-30): `FinanceLedger::recordReturn`
+     (`transactionType=6`, `source='return'`, `kind='expense'`, categoría
+     "Devoluciones" creada on-demand por `CategoryService::ensureReturnsCategoryId`).
+     Hook post-commit best-effort en `ReturnService::create`; `voidTransaction`
+     agrega `'return'` a los sources que revierte; el backfill incluye type=6.
+     `refundMode='credit'` NO toca caja — sube `contactStoreCredit`, que es un
+     pasivo con el cliente. El filtro es del wrapper: `recordPaymentLines`
+     descarta los medios que no mueven plata (`storeCredit`/`inCredit`/
+     `points`/`giftcard`, por slug o por `systemKey` del método), así que
+     TAMBIÉN deja de imputar a Efectivo las VENTAS pagadas con crédito interno,
+     puntos o gift card (inflaban el saldo con plata que nunca entró).
+     Los movimientos históricos de esas ventas siguen en la BD: limpiar con
+     `finance_revert_derived.php` + rehacer backfill si el saldo importa.
+     `ReturnService` pasó a persistir el monto del pago en `total` (antes
+     `amount`, clave que ningún lector del sistema entiende → la línea se leía
+     como 0; también rompía los medios de pago de la nota de crédito).
+   - **TODO Fase 4**: backfill sin cap de tiempo (chunk/queue si un tenant crece mucho).
      Dashboard de flujo de caja (cashflow) queda pendiente.
 4. **CRUD de medios de pago** (implementado 2026-07-02, branch `pay-methods-crud`):
    `PaymentMethodService` (`api/lib/PaymentMethods/`) + endpoint

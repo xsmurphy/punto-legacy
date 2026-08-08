@@ -34,22 +34,22 @@ use Punto\Api\Finance\FinanceLedger;
 /**
  * Corre el backfill completo para un tenant. Devuelve contadores.
  *
- * @return array{sales:int,creditPayments:int,purchases:int,drawerExpenses:int,drawerIncomes:int,errors:int}
+ * @return array{sales:int,creditPayments:int,purchases:int,returns:int,drawerExpenses:int,drawerIncomes:int,errors:int}
  */
 function financeBackfillCompany(string $companyId): array
 {
     $ledger = new FinanceLedger();
     $counts = [
-        'sales' => 0, 'creditPayments' => 0, 'purchases' => 0,
+        'sales' => 0, 'creditPayments' => 0, 'purchases' => 0, 'returns' => 0,
         'drawerExpenses' => 0, 'drawerIncomes' => 0, 'errors' => 0,
     ];
 
-    // Ventas al contado (type=0) + pagos de crédito (type=5) + compras (type=1).
-    // Excluye anuladas (type=7) — voidTransaction ya las marcó, no queremos
-    // generar movimientos para transacciones canceladas.
+    // Ventas al contado (type=0) + pagos de crédito (type=5) + compras (type=1)
+    // + devoluciones (type=6). Excluye anuladas (type=7) — voidTransaction ya
+    // las marcó, no queremos generar movimientos para transacciones canceladas.
     $rs = ncmExecute(
         "SELECT transactionId, transactionType FROM transaction
-          WHERE companyId = ? AND transactionType IN ('0','1','5')
+          WHERE companyId = ? AND transactionType IN ('0','1','5','6')
           ORDER BY transactionDate ASC",
         [$companyId],
         false,
@@ -70,6 +70,9 @@ function financeBackfillCompany(string $companyId): array
                 } elseif ($type === '1') {
                     $ledger->recordPurchase($companyId, $txId);
                     $counts['purchases']++;
+                } elseif ($type === '6') {
+                    $ledger->recordReturn($companyId, $txId);
+                    $counts['returns']++;
                 }
             } catch (\Throwable $e) {
                 $counts['errors']++;
@@ -134,6 +137,7 @@ if (PHP_SAPI === 'cli' && !defined('FINANCE_BACKFILL_NO_BOOTSTRAP')) {
     fwrite(STDOUT, "  Ventas procesadas:        {$counts['sales']}\n");
     fwrite(STDOUT, "  Pagos de crédito:         {$counts['creditPayments']}\n");
     fwrite(STDOUT, "  Compras procesadas:       {$counts['purchases']}\n");
+    fwrite(STDOUT, "  Devoluciones procesadas:  {$counts['returns']}\n");
     fwrite(STDOUT, "  Extracciones de caja:     {$counts['drawerExpenses']}\n");
     fwrite(STDOUT, "  Ingresos de caja:         {$counts['drawerIncomes']}\n");
     fwrite(STDOUT, "  Errores (ver error_log):  {$counts['errors']}\n");
