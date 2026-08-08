@@ -21,7 +21,6 @@ final class SaleInput
      * @param array<int,array<string,mixed>> $sale  Items vendidos (cada uno: itemId, count, price, total, tax, …)
      * @param array<int,array<string,mixed>> $payment  Métodos de pago aplicados
      * @param array<int,mixed>|null $tags  IDs de tags asociados a la venta
-     * @param array<int,array<string,mixed>>|null $taxObj  Definiciones de impuestos por item
      */
     public function __construct(
         public readonly string $uid,
@@ -44,7 +43,6 @@ final class SaleInput
         public readonly ?int $status = null,
         public readonly bool $dontNotify = false,
         public readonly ?array $tags = null,
-        public readonly ?array $taxObj = null,
         // ── 35f: venta recurrente ───────────────────────────────────────────
         public readonly bool $repeat = false,
         /** Frecuencia: daily | weekly | fortnight | monthly | quarterly | yearly */
@@ -150,7 +148,6 @@ final class SaleInput
             status:     self::normalizeStatus($payload['status'] ?? null),
             dontNotify: !empty($payload['dontNotify']),
             tags:       self::normalizeTags($payload['tags'] ?? null),
-            taxObj:     isset($payload['taxObj']) && is_array($payload['taxObj']) ? $payload['taxObj'] : null,
             // ── 35f: recurrente ──────────────────────────────────────────────
             repeat:  !empty($payload['repeat']),
             repeatF: !empty($payload['repeatF']) ? (string) $payload['repeatF'] : null,
@@ -210,7 +207,6 @@ final class SaleInput
             currency:   !empty($payload['currency'])   ? (string) $payload['currency']  : null,
             status:     self::normalizeStatus($payload['status'] ?? null),
             tags:       self::normalizeTags($payload['tags'] ?? null),
-            taxObj:     isset($payload['taxObj']) && is_array($payload['taxObj']) ? $payload['taxObj'] : null,
         );
     }
 

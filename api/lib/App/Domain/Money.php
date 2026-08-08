@@ -12,7 +12,6 @@ namespace Punto\App\Domain;
  *   - addTax($tax, $price)                             → Money::addTax(...)
  *   - formatNumberToInsertDB($n, $force, $decimals)    → Money::formatForDB(...)
  *   - forceExtraDecimalsNumber($num, $max)             → Money::forceDecimals(...)
- *   - taxObjSanitizer($array)                          → Money::sanitizeTaxObj(...)
  *   - paymentMObjSanitizer($array)                     → Money::sanitizePaymentObj(...)
  *   - saleArraySanitizer($array)                       → Money::sanitizeSaleArray(...)
  *
@@ -140,34 +139,6 @@ final class Money
     public static function forceDecimals(mixed $num, int $max = 3): string
     {
         return number_format($num, $max, '.', '');
-    }
-
-    /**
-     * Sanitiza un array de objetos de impuesto para persistencia.
-     * Equivalente legacy: `taxObjSanitizer($array)`.
-     */
-    public static function sanitizeTaxObj(mixed $array): array|false
-    {
-        $out = [];
-        $i   = 0;
-
-        if (!validity($array)) {
-            return false;
-        }
-
-        foreach ($array as $key => $value) {
-            if ($i > 10) {
-                break;
-            }
-
-            $name   = $value['name'] ? markupt2HTML(['text' => $value['name'], 'type' => 'HtM']) : '0';
-            $amount = number_format(floatval($value['val']), 3);
-
-            $out[] = ['name' => $name, 'val' => $amount];
-            $i++;
-        }
-
-        return $out;
     }
 
     /**

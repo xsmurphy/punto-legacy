@@ -650,7 +650,7 @@ final class SaleService
     private function persistRelations(SaleInput $input, string $transId, array $saleDetail, int $decimals): void
     {
         // ── B4: snapshot de impuestos (toTaxObj) ────────────────────────────
-        // F2a (context/38): antes venía tal cual de $input->taxObj (payload sin
+        // F2a (context/38): antes venía tal cual del taxObj del payload (sin
         // validar — auditoría §diagnóstico #4). Grep de lectores de toTaxObj/
         // toTaxObjText en api/ y frontend/ (2026-08-08): el ÚNICO otro caller es
         // CompanyAdminService::delete() (`DELETE FROM toTaxObj WHERE companyId=?`,
