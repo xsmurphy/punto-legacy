@@ -162,7 +162,7 @@ final class ObligationsService
     }
 
     /** Label legible de un cheque: "Banco #nro" con fallback si no hay ninguno cargado. */
-    private function checkLabel(array $f, string $fallback): string
+    private function checkLabel(array|\CaseInsensitiveArray $f, string $fallback): string
     {
         $parts = [];
         if (!empty($f['bankname'])) {

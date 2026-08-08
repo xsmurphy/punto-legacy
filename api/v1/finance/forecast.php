@@ -51,7 +51,7 @@ usort($obligations, static fn (array $a, array $b): int => $a['dueDate'] <=> $b[
 $income = [];
 
 // Label legible de un cheque recibido: "Banco #nro" con fallback si no hay ninguno cargado.
-$checkLabel = static function (array $f, string $fallback): string {
+$checkLabel = static function (array|\CaseInsensitiveArray $f, string $fallback): string {
     $parts = [];
     if (!empty($f['bankname'])) {
         $parts[] = (string) $f['bankname'];
