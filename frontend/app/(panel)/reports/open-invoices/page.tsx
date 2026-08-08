@@ -35,6 +35,16 @@ import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 type State = "income" | "outcome"
 
 export default function OpenInvoicesReportPage() {
+  // useSearchParams() requiere Suspense boundary (Next App Router) — mismo
+  // patrón que items/page.tsx; ver comentario en pos/layout.tsx.
+  return (
+    <React.Suspense fallback={null}>
+      <OpenInvoicesReportPageInner />
+    </React.Suspense>
+  )
+}
+
+function OpenInvoicesReportPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: bootstrap } = useBootstrap()

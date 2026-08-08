@@ -107,6 +107,16 @@ const contactSchema = z
   )
 
 export default function ContactEditPage() {
+  // useSearchParams() requiere Suspense boundary (Next App Router) — mismo
+  // patrón que items/page.tsx; ver comentario en pos/layout.tsx.
+  return (
+    <React.Suspense fallback={null}>
+      <ContactEditPageInner />
+    </React.Suspense>
+  )
+}
+
+function ContactEditPageInner() {
   const params = useParams<{ id: string }>()
   const id = params.id
   const isNew = id === "new"

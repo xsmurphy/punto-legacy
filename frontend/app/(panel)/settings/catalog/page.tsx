@@ -82,6 +82,18 @@ function parseTab(raw: string | null): CatalogTabValue {
 }
 
 export default function CatalogPage() {
+  // useSearchParams() requiere Suspense boundary (Next App Router). Sin el
+  // wrapper, el segmento depende de que el layout sea dinámico (cookies())
+  // para no fallar el prerender — y una entrada directa por URL puede quedar
+  // suspendida en el loading.tsx del segmento. Mismo patrón que items/page.tsx.
+  return (
+    <React.Suspense fallback={null}>
+      <CatalogPageInner />
+    </React.Suspense>
+  )
+}
+
+function CatalogPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   // Deep-link vía ?tab=brands|taxes — el modal de Settings → Catálogo lanza

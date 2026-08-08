@@ -191,6 +191,16 @@ const KIND_GROUPS: Array<{ label: KindGroup; kinds: ItemKind[] }> = [
 ]
 
 export default function ItemEditPage() {
+  // useSearchParams() requiere Suspense boundary (Next App Router) — mismo
+  // patrón que items/page.tsx; ver comentario en pos/layout.tsx.
+  return (
+    <React.Suspense fallback={null}>
+      <ItemEditPageInner />
+    </React.Suspense>
+  )
+}
+
+function ItemEditPageInner() {
   const params = useParams<{ id: string }>()
   const id = params.id
   const isNew = id === "new"
