@@ -35,6 +35,16 @@ import { PRODUCTION_STATUS_META } from "@/components/domain/production/status-me
 const ALL_STATUS = "__all__"
 
 export default function ProduccionPage() {
+  // useSearchParams() requiere Suspense boundary (Next App Router) — mismo
+  // patrón que items/page.tsx; ver comentario en pos/layout.tsx.
+  return (
+    <React.Suspense fallback={null}>
+      <ProduccionPageInner />
+    </React.Suspense>
+  )
+}
+
+function ProduccionPageInner() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { data: bootstrap } = useBootstrap()
