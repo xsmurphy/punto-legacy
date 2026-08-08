@@ -253,44 +253,57 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
         ),
         meta: { label: "Fecha", className: "tabular-nums" },
       },
+      // Documento / Timbrado / Cliente / RUC van en columnas SEPARADAS
+      // (owner 2026-08-08). Antes Timbrado y RUC eran una segunda línea de
+      // 10px bajo su columna: ilegibles, no ordenables y no se podían ocultar
+      // ni exportar por separado. Son datos fiscales que el contador cruza uno
+      // por uno, no metadata decorativa.
       {
         accessorKey: "docNo",
         header: "Documento",
-        cell: ({ row }) => {
-          const r = row.original
-          return (
-            <div className="flex flex-col">
-              <span className="font-medium tabular-nums">{r.docNo || "—"}</span>
-              {r.authNo ? (
-                <span className="text-[10px] text-muted-foreground tabular-nums">
-                  Timbrado {r.authNo}
-                </span>
-              ) : null}
-            </div>
+        cell: ({ getValue }) => (
+          <span className="font-medium tabular-nums">{(getValue() as string) || "—"}</span>
+        ),
+        meta: { label: "Documento", className: "tabular-nums" },
+      },
+      {
+        accessorKey: "authNo",
+        header: "Timbrado",
+        cell: ({ getValue }) => {
+          const v = (getValue() as string) || ""
+          return v ? (
+            <span className="tabular-nums">{v}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
           )
         },
-        meta: { label: "Documento" },
+        meta: { label: "Timbrado", className: "tabular-nums" },
       },
       {
         accessorKey: "customerName",
         header: "Cliente",
-        cell: ({ row }) => {
-          const r = row.original
-          if (!r.customerName) {
-            return <span className="text-muted-foreground">Consumidor final</span>
-          }
-          return (
-            <div className="flex flex-col">
-              <span className="font-medium truncate">{r.customerName}</span>
-              {r.customerTIN ? (
-                <span className="text-[10px] text-muted-foreground tabular-nums">
-                  {r.customerTIN}
-                </span>
-              ) : null}
-            </div>
+        cell: ({ getValue }) => {
+          const name = (getValue() as string) || ""
+          return name ? (
+            <span className="truncate font-medium">{name}</span>
+          ) : (
+            <span className="text-muted-foreground">Consumidor final</span>
           )
         },
         meta: { label: "Cliente" },
+      },
+      {
+        accessorKey: "customerTIN",
+        header: "RUC",
+        cell: ({ getValue }) => {
+          const tin = (getValue() as string) || ""
+          return tin ? (
+            <span className="tabular-nums">{tin}</span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )
+        },
+        meta: { label: "RUC", className: "tabular-nums" },
       },
       {
         accessorKey: "userName",
