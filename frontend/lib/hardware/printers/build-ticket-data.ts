@@ -1,7 +1,14 @@
 import type { CreateSalePayload, CreateSaleResult } from "@/lib/commands/create-sale"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
+import type { Bootstrap } from "@/lib/types/bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
+
+/** Subset de Bootstrap que necesita `formatMoney` (lib/format.ts) para
+ *  formatear montos del ticket. `PosConfig` es estructuralmente compatible
+ *  (mismos 3 campos), así que los builders que solo tienen PosConfig no
+ *  necesitan importar Bootstrap. */
+export type TicketMoneyFormat = Pick<Bootstrap, "currency" | "decimal" | "thousand">
 
 export interface TicketData {
   // empresa / tenant
@@ -128,6 +135,15 @@ export interface TicketData {
    * valor best-effort del bloque `table_number` (ver blocks.ts).
    */
   orderDestination?: string
+  /**
+   * Config de moneda del tenant (currency/decimal/thousand) para `formatMoney`
+   * (blocks.ts). REQUERIDO a propósito, no opcional: así un builder nuevo que
+   * se olvide de poblarlo falla en el type-check en vez de imprimir montos sin
+   * decimales en tenants con `decimal==="yes"` (bug real, ver context/38).
+   * `null` = sin config disponible, cae a es-PY sin decimales (comportamiento
+   * previo a este fix).
+   */
+  money: TicketMoneyFormat | null
 }
 
 export interface TicketItem {
@@ -250,6 +266,7 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     companyTin: config?.companyTin ?? null,
     companyEmail: config?.companyEmail ?? null,
     companyWebsite: config?.companyWebsite ?? null,
+    money: config ? { currency: config.currency, decimal: config.decimal, thousand: config.thousand } : null,
     outletName,
     outletAddress: state.outlet?.address ?? undefined,
     outletBillingName: state.outlet?.billingName ?? null,
@@ -397,6 +414,7 @@ export function buildTicketDataFromTransaction(
     companyTin: config?.companyTin ?? null,
     companyEmail: config?.companyEmail ?? null,
     companyWebsite: config?.companyWebsite ?? null,
+    money: config ? { currency: config.currency, decimal: config.decimal, thousand: config.thousand } : null,
     outletName: state.outlet?.name,
     outletAddress: state.outlet?.address ?? undefined,
     outletBillingName: state.outlet?.billingName ?? null,
@@ -462,7 +480,7 @@ export interface TicketableTxDetail {
 
 export function buildTicketDataFromTxDetail(
   detail: TicketableTxDetail,
-  companyName: string,
+  bootstrap: Pick<Bootstrap, "companyName" | "currency" | "decimal" | "thousand"> | undefined,
   docType: string,
 ): TicketData {
   const tx = detail.transaction
@@ -500,7 +518,8 @@ export function buildTicketDataFromTxDetail(
   const itemsTotal = items.reduce((s, i) => s + i.total, 0)
 
   return {
-    companyName,
+    companyName: bootstrap?.companyName ?? "",
+    money: bootstrap ? { currency: bootstrap.currency, decimal: bootstrap.decimal, thousand: bootstrap.thousand } : null,
     customerName: tx.customerName?.trim() || undefined,
     docType,
     documentNumber: tx.invoiceNo || undefined,

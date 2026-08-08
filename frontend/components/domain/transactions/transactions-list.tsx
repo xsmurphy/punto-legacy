@@ -1021,7 +1021,7 @@ export function PanelDetailView({
   // primero — solo tiene sentido en el POS).
   async function handleReprint() {
     const docType = tx.transactionType === 9 ? "quote" : "factura"
-    const data = buildTicketDataFromTxDetail(detail, bootstrap?.companyName ?? "", docType)
+    const data = buildTicketDataFromTxDetail(detail, bootstrap, docType)
     try {
       await printTicketInBrowser({ docType, data })
     } catch {
@@ -1033,7 +1033,7 @@ export function PanelDetailView({
     setPrintingReceipt(true)
     try {
       const paymentDetail = await api.get<TxDetailFull>(`/v1/reports/transactions?id=${paymentId}`)
-      const data = buildTicketDataFromTxDetail(paymentDetail, bootstrap?.companyName ?? "", "receipt")
+      const data = buildTicketDataFromTxDetail(paymentDetail, bootstrap, "receipt")
       await printTicketInBrowser({ docType: "receipt", data })
     } catch {
       toast.error("No se pudo imprimir el recibo")

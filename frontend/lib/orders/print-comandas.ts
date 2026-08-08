@@ -58,6 +58,7 @@ export function buildOrderTicketData(order: Order, config: PosConfig | null): Ti
 
   return {
     companyName: config?.companyName ?? "",
+    money: config ? { currency: config.currency, decimal: config.decimal, thousand: config.thousand } : null,
     docType: "order",
     ticketNo: order.orderNumber != null ? String(order.orderNumber) : undefined,
     transactionId: order.id,

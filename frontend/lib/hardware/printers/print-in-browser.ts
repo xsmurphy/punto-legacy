@@ -16,6 +16,7 @@ import type { PrinterDocType } from "./binding"
 import type { TicketData } from "./build-ticket-data"
 import type { DocumentTemplateRow, PrintTemplateConfig } from "@/lib/types/print-template"
 import { renderTemplateToHtml } from "./html-renderer"
+import { formatMoney } from "./blocks"
 import { triggerWindowPrint } from "./transports/window-print"
 
 /** Mapeo PrinterDocType (frontend, bindings de impresora) → docType del
@@ -80,10 +81,6 @@ function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
 }
 
-function formatMoney(n: number): string {
-  return new Intl.NumberFormat("es-PY", { style: "currency", currency: "PYG" }).format(n)
-}
-
 /** Ticket genérico cuando el tenant no tiene NINGUNA plantilla configurada
  *  para el docType (tenant nuevo — ver DocumentTemplateService, no hay
  *  seeding automático) o cuando el docType no tiene concepto de plantilla
@@ -96,12 +93,12 @@ function renderFallbackTicketHtml(docType: PrinterDocType, data: TicketData, pap
     .map(
       (item) =>
         `<tr><td>${esc(item.name)}</td><td style="text-align:right">${item.qty}</td>` +
-        `<td style="text-align:right">${esc(formatMoney(item.unitPrice))}</td>` +
-        `<td style="text-align:right">${esc(formatMoney(item.total))}</td></tr>`,
+        `<td style="text-align:right">${esc(formatMoney(item.unitPrice, data.money))}</td>` +
+        `<td style="text-align:right">${esc(formatMoney(item.total, data.money))}</td></tr>`,
     )
     .join("")
   const paymentLines = data.payments
-    .map((p) => `<div>${esc(p.method)}: ${esc(formatMoney(p.amount))}</div>`)
+    .map((p) => `<div>${esc(p.method)}: ${esc(formatMoney(p.amount, data.money))}</div>`)
     .join("")
 
   const body = `
@@ -120,8 +117,8 @@ function renderFallbackTicketHtml(docType: PrinterDocType, data: TicketData, pap
             <tbody>${rows}</tbody></table><hr/>`
         : ""
     }
-    ${data.discount > 0 ? `<div>Descuento: ${esc(formatMoney(data.discount))}</div>` : ""}
-    <div style="font-weight:bold">Total: ${esc(formatMoney(data.total))}</div>
+    ${data.discount > 0 ? `<div>Descuento: ${esc(formatMoney(data.discount, data.money))}</div>` : ""}
+    <div style="font-weight:bold">Total: ${esc(formatMoney(data.total, data.money))}</div>
     ${paymentLines ? `<hr/>${paymentLines}` : ""}
     ${data.note ? `<hr/><div>${esc(data.note)}</div>` : ""}
   `

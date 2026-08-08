@@ -42,8 +42,8 @@ function renderItemTable(encoder: Encoder, block: PrintBlock, data: TicketData):
     if (cols.qty || cols.unitPrice || cols.total) {
       const parts: string[] = []
       if (cols.qty) parts.push(`${item.qty}x`)
-      if (cols.unitPrice) parts.push(formatMoney(item.unitPrice))
-      if (cols.total) parts.push(formatMoney(item.total))
+      if (cols.unitPrice) parts.push(formatMoney(item.unitPrice, data.money))
+      if (cols.total) parts.push(formatMoney(item.total, data.money))
       encoder = applyBlockText(encoder, { ...block, bold: "normal", align: "right" }, parts.join("  "))
     }
   }

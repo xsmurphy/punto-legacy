@@ -50,8 +50,8 @@ function renderItemTable(block: PrintBlock, data: TicketData): string {
       const cells =
         `<td>${esc(item.name)}</td>` +
         (cols.qty ? `<td style="text-align:right">${item.qty}</td>` : "") +
-        (cols.unitPrice ? `<td style="text-align:right">${esc(formatMoney(item.unitPrice))}</td>` : "") +
-        (cols.total ? `<td style="text-align:right">${esc(formatMoney(item.total))}</td>` : "")
+        (cols.unitPrice ? `<td style="text-align:right">${esc(formatMoney(item.unitPrice, data.money))}</td>` : "") +
+        (cols.total ? `<td style="text-align:right">${esc(formatMoney(item.total, data.money))}</td>` : "")
       return `<tr>${cells}</tr>`
     })
     .join("")
@@ -79,11 +79,11 @@ function renderBlockHtml(block: PrintBlock, data: TicketData): string {
       return `<div style="${align};font-weight:bold">${esc(data.companyName)}</div>`
 
     case "total":
-      return `<div style="${align};font-weight:bold">${esc(formatMoney(data.total))}</div>`
+      return `<div style="${align};font-weight:bold">${esc(formatMoney(data.total, data.money))}</div>`
 
     case "payment_methods": {
       return data.payments
-        .map((p) => `<div${styleAttr}>${esc(p.method)}: ${esc(formatMoney(p.amount))}</div>`)
+        .map((p) => `<div${styleAttr}>${esc(p.method)}: ${esc(formatMoney(p.amount, data.money))}</div>`)
         .join("")
     }
 

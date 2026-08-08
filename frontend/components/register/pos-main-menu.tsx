@@ -992,7 +992,7 @@ function AccountOverview({
  */
 function buildCloseRegTicket(
   summary: DrawerSummary,
-  config: { companyName?: string } | null,
+  config: { companyName?: string; currency?: string; decimal?: string; thousand?: "comma" | "dot" } | null,
 ): TicketData {
   const closingPayments = summary.list.map((row) => ({
     method: row.name,
@@ -1026,6 +1026,13 @@ function buildCloseRegTicket(
   }))
   return {
     companyName: config?.companyName ?? "",
+    // currency/decimal/thousand son opcionales en la firma (el tipo previo no
+    // los pedía) — si vienen los tres, se arma el money del ticket; si el
+    // caller no los trae, cae al fallback es-PY sin decimales de formatMoney.
+    money:
+      config?.currency !== undefined && config?.decimal !== undefined && config?.thousand !== undefined
+        ? { currency: config.currency, decimal: config.decimal, thousand: config.thousand }
+        : null,
     docType: "closeReg",
     transactionId: "",
     date: summary.date ?? new Date().toISOString(),
