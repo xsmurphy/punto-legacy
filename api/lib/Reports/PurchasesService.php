@@ -366,14 +366,23 @@ final class PurchasesService
         return $out;
     }
 
-    /** SUM(transactionTotal) de pagos a proveedor (kind='purchase_payment') por compra origen. */
+    /**
+     * SUM(transactionTotal) de lo que reduce la deuda de una compra a
+     * crédito por compra origen: pagos a proveedor (kind='purchase_payment',
+     * type=5) + notas de crédito de compra (kind='purchase_credit_note',
+     * type=14 — F-notas-de-crédito-de-compra, `PurchaseCreditNoteService`).
+     * Sin filtro de `kind` en `mapDerivedIdsByOrigins`: los únicos kinds que
+     * derivan de un origen type IN (1,4) son esos dos, y el filtro real vive
+     * en el `transactionType IN (5, 14)` de abajo (mismo patrón que
+     * `Finance\OpenInvoicesService::payedByParent`).
+     */
     private function payedByParent(array $ids, string $companyId): array
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
             return [];
         }
-        $derivedByOrigin = (new \Punto\Api\Services\TransactionLinkService())->mapDerivedIdsByOrigins($companyId, $ids, 'purchase_payment');
+        $derivedByOrigin = (new \Punto\Api\Services\TransactionLinkService())->mapDerivedIdsByOrigins($companyId, $ids);
         $allDerived = [];
         foreach ($derivedByOrigin as $derivedIds) {
             foreach ($derivedIds as $d) {
@@ -383,10 +392,16 @@ final class PurchasesService
         if (!$allDerived) {
             return [];
         }
+        // COALESCE(transactionStatus, 1) <> 6: una NC de compra anulada
+        // (soft-void, ver PurchaseCreditNoteService::void) NO debe seguir
+        // reduciendo el saldo. Los pagos (type 5) no usan ese estado — se
+        // hard-deletean — así que para ellos es un no-op. El COALESCE no es
+        // cosmético: sin él una fila legacy con status NULL daría NULL en vez
+        // de true y saldría del SUM, inflando el saldo pendiente.
         $ph  = implode(',', array_fill(0, count($allDerived), '?'));
         $res = ncmExecute(
             "SELECT transactionId, transactionTotal as payed
-             FROM transaction WHERE transactionId IN ($ph) AND companyId = ?",
+             FROM transaction WHERE transactionId IN ($ph) AND companyId = ? AND transactionType IN (5, 14) AND COALESCE(transactionStatus, 1) <> 6",
             array_merge($allDerived, [$companyId]), false, false, true
         );
         $res = is_array($res) ? $res : [];

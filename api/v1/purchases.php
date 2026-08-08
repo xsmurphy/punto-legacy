@@ -2,9 +2,12 @@
 /**
  * REST canónico — Compras del panel.
  *
- *   GET  /v1/purchases?from=&to=&supplierId=&limit=&offset= → lista
- *   GET  /v1/purchases?id=<uuid>                            → detalle
- *   POST /v1/purchases  { supplierId, outletId, items, ... }→ crea
+ *   GET    /v1/purchases?from=&to=&supplierId=&limit=&offset=     → lista
+ *   GET    /v1/purchases?id=<uuid>                                → detalle (incluye creditNotes + creditedQty)
+ *   POST   /v1/purchases  { supplierId, outletId, items, ... }    → crea
+ *   POST   /v1/purchases?resource=creditNote { parentTransactionId, items, refundMode, affectsStock, note? } → nota de crédito de compra
+ *   DELETE /v1/purchases?id=<uuid>                                → anula la compra
+ *   DELETE /v1/purchases?resource=creditNote&id=<uuid>            → anula una nota de crédito de compra
  *
  * Auth realm `panel`. Respeta VIEW_OUTLET_ID si el browser mandó X-Outlet-Id.
  *
@@ -16,9 +19,11 @@
 require_once __DIR__ . '/../bootstrap.php';
 
 $ctx = apiAuthTenant(['panel']);
-$svc = new \Punto\Api\Purchases\PurchasesService();
+$svc   = new \Punto\Api\Purchases\PurchasesService();
+$ncSvc = new \Punto\Api\Purchases\PurchaseCreditNoteService();
 
-$method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$resource = trim((string) ($_GET['resource'] ?? ''));
 
 if ($method === 'GET') {
     $id = trim((string) ($_GET['id'] ?? ''));
@@ -27,6 +32,11 @@ if ($method === 'GET') {
         if (!$row) {
             apiError('Compra no encontrada', 404);
         }
+        // Notas de crédito ya emitidas + cupo ya consumido por línea — el
+        // detalle de compra las lista y el form de emisión usa `creditedQty`
+        // para calcular el máximo disponible por ítem (comprado - acreditado).
+        $row['creditNotes'] = $ncSvc->listForParent($id, (string) COMPANY_ID);
+        $row['creditedQty'] = $ncSvc->creditedQtyByItem($id, (string) COMPANY_ID);
         apiOk($row);
     }
 
@@ -45,6 +55,51 @@ if ($method === 'GET') {
     ];
 
     apiOk($svc->list((string) COMPANY_ID, $roc, $filters));
+}
+
+if ($method === 'POST' && $resource === 'creditNote') {
+    $raw  = file_get_contents('php://input');
+    $body = [];
+    if (is_string($raw) && $raw !== '') {
+        $json = json_decode($raw, true);
+        if (is_array($json)) {
+            $body = $json;
+        }
+    }
+
+    $parentTransactionId = trim((string) ($body['parentTransactionId'] ?? ''));
+    $items                = is_array($body['items'] ?? null) ? $body['items'] : [];
+    $refundMode           = trim((string) ($body['refundMode'] ?? ''));
+    $affectsStock         = (bool) ($body['affectsStock'] ?? true);
+    $note                 = isset($body['note']) && trim((string) $body['note']) !== '' ? trim((string) $body['note']) : null;
+
+    if ($parentTransactionId === '') {
+        apiError('parentTransactionId requerido', 422);
+    }
+    if ($items === []) {
+        apiError('items debe ser un array no vacío', 422);
+    }
+
+    // companyId/userId/outletId SIEMPRE del JWT — nunca del body.
+    try {
+        $result = $ncSvc->create(
+            (string) COMPANY_ID,
+            (string) ($ctx['userId'] ?? ''),
+            (string) OUTLET_ID,
+            $parentTransactionId,
+            $items,
+            $refundMode,
+            $affectsStock,
+            $note,
+        );
+    } catch (\InvalidArgumentException $e) {
+        apiError($e->getMessage(), 422);
+    } catch (\RuntimeException $e) {
+        error_log('[purchases.creditNote] ' . $e->getMessage());
+        apiError('No se pudo emitir la nota de crédito', 500);
+    }
+
+    apiOk($result);
 }
 
 if ($method === 'POST') {
@@ -78,6 +133,30 @@ if ($method === 'POST') {
     }
 
     apiOk(['id' => $id]);
+}
+
+if ($method === 'DELETE' && $resource === 'creditNote') {
+    $id = trim((string) ($_GET['id'] ?? ''));
+    if ($id === '') {
+        apiError('id requerido', 400);
+    }
+    try {
+        $res = $ncSvc->void($id, (string) COMPANY_ID, (string) ($ctx['userId'] ?? ''));
+    } catch (\RuntimeException $e) {
+        apiError($e->getMessage(), 422);
+    }
+
+    // Revierte el movimiento derivado de ESTA nota de crédito (source =
+    // 'purchase_credit_note', sourceId = el id de la NC — no el de la
+    // compra padre). Modo 'credit' nunca generó movimiento, así que acá es
+    // un no-op best-effort; modo 'cash' sí tiene uno que revertir.
+    try {
+        (new \Punto\Api\Finance\FinanceLedger())->voidBySource((string) COMPANY_ID, 'purchase_credit_note', $id);
+    } catch (\Throwable $e) {
+        error_log('[FinanceLedger] voidBySource(purchase_credit_note) falló para id=' . $id . ': ' . $e->getMessage());
+    }
+
+    apiOk($res);
 }
 
 if ($method === 'DELETE') {

@@ -232,6 +232,57 @@ final class FinanceLedger
     }
 
     /**
+     * Nota de crédito de compra en modo 'cash' (transactionType=14). El
+     * proveedor nos devuelve plata → entra a la cuenta como INGRESO. Modo
+     * 'credit' (reduce saldo pendiente de una compra a crédito, no mueve
+     * caja) nunca llega acá con datos: `PurchaseCreditNoteService::create()`
+     * no escribe `transactionPaymentType` en ese modo, así que
+     * `decodePaymentLines`/`recordPaymentLines` no encuentran nada que
+     * registrar y el método es un no-op — mismo mecanismo de filtro que usa
+     * `recordReturn` para su `refundMode='credit'`.
+     */
+    public function recordPurchaseCreditNote(string $companyId, string $transactionId): void
+    {
+        $row = ncmExecute(
+            'SELECT * FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+            [$transactionId, $companyId]
+        );
+        if (!$row) {
+            return;
+        }
+        if ((string) ($row['transactionType'] ?? '') !== '14') {
+            return;
+        }
+
+        // El nro de comprobante de la compra original vive en la compra padre
+        // (la fila type=14 se inserta sin invoiceNo) — se trae por el origen
+        // (transaction_link kind='purchase_credit_note', mig 122) para que el
+        // movimiento sea rastreable hasta la compra que se acreditó.
+        $parentId = (new \Punto\Api\Services\TransactionLinkService())->listOriginIds($companyId, $transactionId, 'purchase_credit_note')[0] ?? null;
+        $invoiceNo = '';
+        if ($parentId !== null) {
+            $parent = ncmExecute(
+                'SELECT invoiceNo FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+                [$parentId, $companyId]
+            );
+            $invoiceNo = $parent ? (string) ($parent['invoiceNo'] ?? '') : '';
+        }
+
+        $categoryId  = $this->categories->ensurePurchaseCreditNoteCategoryId($companyId);
+        $description = 'Nota de crédito compra' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
+
+        $this->recordPaymentLines(
+            companyId: $companyId,
+            source: 'purchase_credit_note',
+            sourceId: $transactionId,
+            row: $row,
+            kind: 'income',
+            categoryId: $categoryId,
+            description: $description,
+        );
+    }
+
+    /**
      * Extracción de caja (`expenses`, type NULL = extracción). $expensesId es
      * el id de la fila insertada — DrawerService::addExpense debe pasarlo
      * (usa ncmInsert en vez de $db->Execute raw para poder recuperarlo).

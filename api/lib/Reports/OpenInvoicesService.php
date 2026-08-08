@@ -112,7 +112,23 @@ final class OpenInvoicesService
         ]];
     }
 
-    /** SUM(ABS) de pagos+devoluciones (tipo 5,6) por venta origen (transaction_link, mig 115), scopeado por companyId. */
+    /**
+     * SUM(ABS) de lo que reduce la deuda por documento origen (transaction_link,
+     * mig 115), scopeado por companyId:
+     *   - tipo 5 = pago (cobro a cliente / pago a proveedor)
+     *   - tipo 6 = devolución de VENTA (reduce lo que nos debe un cliente)
+     *   - tipo 14 = nota de crédito de COMPRA (mig 122, reduce lo que le
+     *     debemos a un proveedor — `PurchaseCreditNoteService`, único tipo
+     *     nuevo de esta lista que puede estar soft-void)
+     * El `COALESCE(transactionStatus, 1) <> 6` excluye SOLO lo anulado: sin el
+     * COALESCE, una fila legacy con status NULL daría NULL (no false) y
+     * quedaría fuera del SUM — el saldo pendiente saltaría hacia arriba en
+     * datos viejos. Antes de la mig 122 acá no había filtro de status, así que
+     * el criterio tiene que seguir siendo estrictamente aditivo.
+     * Usado tanto para `state='income'` (clientes, tipo 3) como `'outcome'`
+     * (proveedores, tipo 4) — el filtro real de qué aplica a cada uno lo da
+     * `transaction_link`, no este IN.
+     */
     private function payedByParent(array $ids, $companyId)
     {
         $ids = array_values(array_unique(array_filter($ids)));
@@ -134,7 +150,7 @@ final class OpenInvoicesService
         $res = ncmExecute(
             "SELECT transactionId,
                     ABS(transactionTotal - COALESCE(transactionDiscount, 0)) as payed
-             FROM transaction WHERE transactionType IN (5,6) AND companyId = ? AND transactionId IN ($ph)",
+             FROM transaction WHERE transactionType IN (5,6,14) AND COALESCE(transactionStatus, 1) <> 6 AND companyId = ? AND transactionId IN ($ph)",
             array_merge([$companyId], $allDerived), false, false, true
         );
         $res = is_array($res) ? $res : [];

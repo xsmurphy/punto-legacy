@@ -74,6 +74,45 @@ export interface PurchaseDetail {
     dueDate?: string
   }> | null
   details: PurchaseDetailItem[]
+  /** Notas de crédito ya emitidas contra esta compra (`/v1/purchases?id=` las agrega al detalle). */
+  creditNotes: PurchaseCreditNote[]
+  /** itemId → cantidad ya acreditada por NC previas no anuladas. */
+  creditedQty: Record<string, number>
+}
+
+/** Modo de una nota de crédito de compra: 'cash' = el proveedor devuelve plata, 'credit' = reduce el saldo pendiente. */
+export type CreditNoteRefundMode = "cash" | "credit"
+
+export interface PurchaseCreditNote {
+  id: string
+  total: number
+  date: string
+  note: string | null
+  /** 1 = activa, 6 = anulada (mismo criterio que `PurchaseDetail.status`). */
+  status: number
+  refundMode: CreditNoteRefundMode
+}
+
+export interface PurchaseCreditNoteItemInput {
+  itemId: string
+  qty: number
+}
+
+export interface CreatePurchaseCreditNotePayload {
+  parentTransactionId: string
+  items: PurchaseCreditNoteItemInput[]
+  refundMode: CreditNoteRefundMode
+  /** true = el proveedor se lleva la mercadería (resta stock). false = bonificación, no toca stock. */
+  affectsStock: boolean
+  note?: string
+}
+
+export interface PurchaseCreditNoteResult {
+  id: string
+  total: number
+  refundMode: CreditNoteRefundMode
+  affectsStock: boolean
+  stockMovements: number
 }
 
 export interface PurchaseFormItem {
@@ -175,6 +214,30 @@ export function useVoidPurchase() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["purchases"] })
       qc.invalidateQueries({ queryKey: ["dashboard-widget"] })
+    },
+  })
+}
+
+/**
+ * Emite una nota de crédito de compra (total o parcial) — caso real:
+ * compramos N unidades, algunas vienen dañadas, el proveedor nos acredita.
+ * Invalida el detalle de la compra (recalcula `creditedQty`/`creditNotes`),
+ * el listado de compras (el saldo pendiente puede cambiar en modo 'credit'),
+ * finanzas (modo 'cash' genera un ingreso) y stock (si `affectsStock`).
+ */
+export function useCreatePurchaseCreditNote() {
+  const qc = useQueryClient()
+  return useMutation<PurchaseCreditNoteResult, Error, CreatePurchaseCreditNotePayload>({
+    mutationFn: (payload) =>
+      api.post<PurchaseCreditNoteResult>(
+        "/v1/purchases?resource=creditNote",
+        payload as unknown as Record<string, unknown>,
+      ),
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["purchases", "detail", variables.parentTransactionId] })
+      qc.invalidateQueries({ queryKey: ["purchases", "list"] })
+      qc.invalidateQueries({ queryKey: ["dashboard-widget"] })
+      qc.invalidateQueries({ queryKey: ["stock"] })
     },
   })
 }

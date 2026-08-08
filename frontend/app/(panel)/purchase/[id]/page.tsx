@@ -3,11 +3,22 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, Loader2, Receipt, Ban } from "lucide-react"
+import { ArrowLeft, Loader2, Receipt, Ban, FileMinus } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,6 +30,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import {
   Card,
   CardContent,
@@ -38,8 +58,11 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   usePurchase,
   useVoidPurchase,
+  useCreatePurchaseCreditNote,
   type PurchaseDetail,
   type PurchaseDetailItem,
+  type PurchaseCreditNote,
+  type CreditNoteRefundMode,
 } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
 
@@ -113,7 +136,12 @@ export default function PurchaseDetailPage() {
         </div>
         <div className="flex items-center gap-3">
           <StatusBadge status={purchase.status} />
-          {purchase.status === 1 && <VoidPurchaseButton id={purchase.id} />}
+          {purchase.status === 1 && (
+            <>
+              <CreditNoteDialog purchase={purchase} />
+              <VoidPurchaseButton id={purchase.id} />
+            </>
+          )}
         </div>
       </header>
 
@@ -229,6 +257,48 @@ export default function PurchaseDetailPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {purchase.creditNotes.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Notas de crédito</CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Modo</TableHead>
+                  <TableHead>Estado</TableHead>
+                  <TableHead className="text-right w-32">Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {purchase.creditNotes.map((cn: PurchaseCreditNote) => (
+                  <TableRow key={cn.id}>
+                    <TableCell className="tabular-nums text-sm">
+                      {formatDate(cn.date)}
+                    </TableCell>
+                    <TableCell>
+                      {cn.refundMode === "cash" ? "Devolución de dinero" : "A cuenta del saldo"}
+                    </TableCell>
+                    <TableCell>
+                      {cn.status === 6 ? (
+                        <Badge variant="destructive">Anulada</Badge>
+                      ) : (
+                        <Badge variant="secondary">Activa</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {formatMoney(cn.total, bootstrap)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
@@ -315,6 +385,200 @@ function VoidPurchaseButton({ id }: { id: string }) {
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  )
+}
+
+/**
+ * Dialog de emisión de nota de crédito de compra — total o parcial. Caso
+ * real: compramos N unidades, algunas vienen dañadas, el proveedor nos
+ * acredita. Solo lista líneas con `itemId` (las líneas de gasto libre no
+ * tienen fila en `itemSold` y no se pueden acreditar por ítem).
+ */
+function CreditNoteDialog({ purchase }: { purchase: PurchaseDetail }) {
+  const { data: bootstrap } = useBootstrap()
+  const createCreditNote = useCreatePurchaseCreditNote()
+  const [open, setOpen] = React.useState(false)
+  const [qtyByItem, setQtyByItem] = React.useState<Record<string, number>>({})
+  const [refundMode, setRefundMode] = React.useState<CreditNoteRefundMode>("cash")
+  const [affectsStock, setAffectsStock] = React.useState(true)
+  const [note, setNote] = React.useState("")
+
+  const canUseCredit = purchase.condition === "credit" && !purchase.complete
+
+  const lines = React.useMemo(
+    () =>
+      purchase.details
+        .filter((d) => d.itemId)
+        .map((d) => {
+          const qty = Number(d.qty) || 0
+          const unitPrice = qty > 0 ? d.price / qty : d.price
+          const alreadyCredited = purchase.creditedQty[d.itemId] ?? 0
+          const max = Math.max(0, qty - alreadyCredited)
+          return { itemId: d.itemId, title: d.title || "(sin descripción)", unitPrice, max }
+        }),
+    [purchase.details, purchase.creditedQty],
+  )
+
+  function resetAll() {
+    setQtyByItem({})
+    setRefundMode("cash")
+    setAffectsStock(true)
+    setNote("")
+  }
+
+  function handleOpenChange(next: boolean) {
+    setOpen(next)
+    if (!next) resetAll()
+  }
+
+  function updateQty(itemId: string, max: number, raw: string) {
+    const parsed = Math.min(Math.max(0, Number(raw) || 0), max)
+    setQtyByItem((prev) => ({ ...prev, [itemId]: parsed }))
+  }
+
+  const itemsToCredit = lines
+    .map((l) => ({ itemId: l.itemId, qty: qtyByItem[l.itemId] ?? 0, unitPrice: l.unitPrice }))
+    .filter((l) => l.qty > 0)
+
+  const total = itemsToCredit.reduce((sum, l) => sum + l.unitPrice * l.qty, 0)
+
+  async function handleSubmit() {
+    if (itemsToCredit.length === 0) {
+      toast.error("Ingresá al menos una cantidad a acreditar.")
+      return
+    }
+    try {
+      await createCreditNote.mutateAsync({
+        parentTransactionId: purchase.id,
+        items: itemsToCredit.map(({ itemId, qty }) => ({ itemId, qty })),
+        refundMode,
+        affectsStock,
+        note: note.trim() || undefined,
+      })
+      toast.success("Nota de crédito emitida")
+      handleOpenChange(false)
+    } catch (err) {
+      toast.error("No se pudo emitir la nota de crédito", {
+        description: err instanceof Error ? err.message : undefined,
+      })
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm">
+          <FileMinus className="size-3.5" />
+          Nota de crédito
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Nota de crédito de compra</DialogTitle>
+          <DialogDescription>
+            Registrá lo que el proveedor te acreditó — total o parcial.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex flex-col gap-4">
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Producto</TableHead>
+                  <TableHead className="text-right w-28">Disponible</TableHead>
+                  <TableHead className="text-right w-28">A acreditar</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {lines.map((l) => (
+                  <TableRow key={l.itemId}>
+                    <TableCell className="max-w-[220px]">
+                      <p className="truncate text-sm font-medium">{l.title}</p>
+                      <p className="text-xs text-muted-foreground tabular-nums">
+                        {formatMoney(l.unitPrice, bootstrap)} c/u
+                      </p>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-sm">{l.max}</TableCell>
+                    <TableCell className="text-right">
+                      <Input
+                        type="number"
+                        min={0}
+                        max={l.max}
+                        step={1}
+                        disabled={l.max <= 0}
+                        value={qtyByItem[l.itemId] || ""}
+                        onChange={(e) => updateQty(l.itemId, l.max, e.target.value)}
+                        placeholder="0"
+                        className="h-9 w-20 text-right tabular-nums"
+                      />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label>Forma de acreditación</Label>
+              <Select value={refundMode} onValueChange={(v) => setRefundMode(v as CreditNoteRefundMode)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cash">Devolución de dinero</SelectItem>
+                  <SelectItem value="credit" disabled={!canUseCredit}>
+                    A cuenta del saldo
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              {!canUseCredit && (
+                <p className="text-xs text-muted-foreground">
+                  &ldquo;A cuenta del saldo&rdquo; solo aplica a compras a crédito pendientes.
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label>Devuelve mercadería</Label>
+              <div className="flex h-9 items-center gap-2">
+                <Switch checked={affectsStock} onCheckedChange={setAffectsStock} />
+                <span className="text-sm text-muted-foreground">
+                  {affectsStock ? "Sí — resta stock" : "No — bonificación"}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Nota (opcional)</Label>
+            <Textarea
+              placeholder="Motivo de la nota de crédito…"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={2}
+              className="resize-none"
+            />
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg bg-muted/40 px-4 py-3">
+            <span className="text-sm font-medium">Total a acreditar</span>
+            <span className="text-lg font-bold tabular-nums">{formatMoney(total, bootstrap)}</span>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button
+            onClick={handleSubmit}
+            disabled={createCreditNote.isPending || itemsToCredit.length === 0}
+          >
+            {createCreditNote.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
+            Emitir nota de crédito
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

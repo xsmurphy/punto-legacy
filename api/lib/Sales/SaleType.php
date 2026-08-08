@@ -25,6 +25,7 @@ enum SaleType: int
     case OpenTable        = 11; // Abrir mesa
     case Order            = 12; // Orden (KDS)
     case Schedule         = 13; // Agendado (sesiones)
+    case PurchaseCreditNote = 14; // Nota de crédito de compra (proveedor nos acredita/devuelve)
 
     /** Los tipos que SaleService 35a cubre en este sub-slice. */
     public static function simplePathTypes(): array

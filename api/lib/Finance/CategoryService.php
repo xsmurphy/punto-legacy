@@ -300,6 +300,43 @@ final class CategoryService
         return $row ? (string) $row['categoryid'] : '';
     }
 
+    /**
+     * Devuelve el categoryid de la categoría default "Notas de crédito de
+     * compra" del tenant — plata que un proveedor nos devuelve (`kind`=
+     * income, espejo de "Devoluciones" que es `expense` porque ahí somos
+     * nosotros los que devolvemos). On-demand igual que
+     * `ensureReturnsCategoryId`: los tenants que ya venían de antes de esta
+     * feature no la reciben vía `ensureSeed` (que solo corre en tenants sin
+     * NINGUNA categoría).
+     */
+    public function ensurePurchaseCreditNoteCategoryId(string $companyId): string
+    {
+        $this->ensureSeed($companyId);
+
+        $find = static fn() => ncmExecute(
+            "SELECT categoryid FROM fin_category WHERE companyid = ? AND kind = 'income' AND name = 'Notas de crédito de compra' LIMIT 1",
+            [$companyId]
+        );
+
+        $row = $find();
+        if (!$row) {
+            ncmInsert([
+                'records' => [
+                    'companyid' => $companyId,
+                    'name'      => 'Notas de crédito de compra',
+                    'kind'      => 'income',
+                    'sortorder' => 2,
+                    'issystem'  => true,
+                    'status'    => 1,
+                ],
+                'table' => 'fin_category',
+            ]);
+            $row = $find();
+        }
+
+        return $row ? (string) $row['categoryid'] : '';
+    }
+
     private function shape($f): array
     {
         return [

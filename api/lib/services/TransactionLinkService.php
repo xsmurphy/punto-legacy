@@ -18,10 +18,10 @@ namespace Punto\Api\Services;
  */
 final class TransactionLinkService
 {
-    /** kinds válidos de transaction_link (debe reflejar el CHECK de mig 115). */
+    /** kinds válidos de transaction_link (debe reflejar el CHECK de mig 115 + 122). */
     public const KINDS = [
         'quote_to_sale', 'credit_payment', 'purchase_payment',
-        'return', 'package_session', 'table_merge',
+        'return', 'package_session', 'table_merge', 'purchase_credit_note',
     ];
 
     // ------------------------------------------------------------------

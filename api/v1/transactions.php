@@ -254,14 +254,17 @@ if ($method === 'PUT' && $resource === 'void') {
 
     // Finanzas Fase 3: revierte el/los movimiento(s) derivados de esta transacción.
     // voidTransaction() ya pisó transactionType→7, así que no sabemos acá si era
-    // una venta (source='sale'), un pago de crédito (source='credit_payment') o
-    // una devolución (source='return') — probamos los tres sources,
-    // best-effort; el que no matchee no encuentra filas.
+    // una venta (source='sale'), un pago de crédito (source='credit_payment'),
+    // una devolución (source='return') o una nota de crédito de compra
+    // (source='purchase_credit_note', mig 122 — este endpoint es POS/venta,
+    // así que en la práctica nunca recibe el id de una NC de compra, pero el
+    // source no cuesta nada probarlo: best-effort, no encuentra filas y sigue) —
+    // probamos los cuatro sources, best-effort; el que no matchee no encuentra filas.
     // Cada source en su propio try/catch: si el revert de uno falla, el otro
     // igual corre (no queremos dejar un movimiento sin revertir por un error
     // transitorio al probar el source equivocado).
     $ledger = new \Punto\Api\Finance\FinanceLedger();
-    foreach (['sale', 'credit_payment', 'return'] as $ledgerSource) {
+    foreach (['sale', 'credit_payment', 'return', 'purchase_credit_note'] as $ledgerSource) {
         try {
             $ledger->voidBySource($companyId, $ledgerSource, $transactionId);
         } catch (\Throwable $e) {
