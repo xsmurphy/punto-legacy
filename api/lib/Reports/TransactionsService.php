@@ -145,7 +145,14 @@ final class TransactionsService
                 'einvoiceCdc'         => $einv['cdc'] ?? null,
                 'einvoiceError'       => $einv['errorMessage'] ?? null,
                 'authNo'              => $invoiceAuth,
-                'docNo'               => $invoicePrefix . $paddedNo,
+                // Número completo del documento: EEE-PPP-NNNNNNN. La
+                // concatenación pelada daba "001-0011234567" — ilegible y sin
+                // ninguna lectura válida. El guión va SOLO si hay las dos
+                // partes: con prefijo y sin número (ventas no fiscales) no
+                // puede quedar un "001-001-" colgado.
+                'docNo'               => ($invoicePrefix !== '' && $paddedNo !== '')
+                    ? $invoicePrefix . '-' . $paddedNo
+                    : $invoicePrefix . $paddedNo,
                 'invoiceNo'           => $invoiceNo,
                 'date'                => (string) $f['transactionDate'],
                 'dueDate'             => (string) ($f['transactionDueDate'] ?? ''),
