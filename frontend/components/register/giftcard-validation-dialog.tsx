@@ -139,7 +139,10 @@ export function GiftcardValidationDialog({
                 placeholder="Ej. GC-1234-5678"
                 autoComplete="off"
                 disabled={validating}
-                className="h-14 text-2xl tabular-nums text-center"
+                // Mismo shape que payment-identifier-dialog (el otro captador
+                // de identificador del cobro): h-10/text-base. El h-14 text-2xl
+                // anterior desentonaba con el resto de los campos del POS.
+                className="h-10 flex-1 text-base tabular-nums text-center"
               />
               <Button
                 variant="outline"
