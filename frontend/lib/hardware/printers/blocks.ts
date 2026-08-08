@@ -33,6 +33,24 @@ export function formatMoney(n: number): string {
   return new Intl.NumberFormat("es-PY", { style: "currency", currency: "PYG" }).format(n)
 }
 
+// ── D4 (context/38): alias de lectura para bloques renombrados ────────────
+// `item_taxAmount`/`item_taxAmount_single` → `item_tax_amount`/
+// `item_tax_amount_single`, SIN migración de datos: las plantillas guardadas
+// siguen persistiendo el string legacy en `config.data[].type`. Este es el
+// ÚNICO lugar que normaliza — a propósito el mismo módulo que ya es "la
+// única fuente" del catálogo de bloques (ver comentario de archivo arriba).
+// Un segundo mapa en el editor o en cada renderer se desincroniza con este
+// tarde o temprano; todo lookup de `block.type` pasa por acá primero
+// (`sortBlocksForRender`, que ambos renderers llaman como entrada única).
+const LEGACY_BLOCK_TYPE_ALIASES: Partial<Record<string, BlockType>> = {
+  item_taxAmount: "item_tax_amount",
+  item_taxAmount_single: "item_tax_amount_single",
+}
+
+export function normalizeBlockType(type: string): BlockType {
+  return (LEGACY_BLOCK_TYPE_ALIASES[type] ?? type) as BlockType
+}
+
 /** Interpolación `{{campo}}` de bloques `custom` contra TicketData — antes
  *  solo la soportaba html-renderer; ESC/POS imprimía `block.text` crudo. */
 export function interpolate(text: string, data: TicketData): string {
@@ -55,15 +73,16 @@ export const ITEM_LINE_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "item_uid",
   "item_tags",
   "item_tax",
-  "item_taxAmount",
-  "item_taxAmount_single",
+  "item_tax_amount",
+  "item_tax_amount_single",
   "item_discount",
   "item_price",
   "item_uni_price",
   "item_price_notax",
   "item_total",
   "item_subtotal",
-  "tax_single",
+  // tax_single NO va acá desde F3c: es un agregado por-tasa a nivel venta
+  // (ver BLOCK_VALUE_RESOLVERS abajo), no algo que se repita por línea.
 ])
 
 /** item_receipt* — un único bloque que arma el listado completo de ítems
@@ -238,6 +257,93 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // fallback HTML del navegador. null cuando la venta no generó documento
   // electrónico — el bloque queda en blanco, como cualquier otro sin dato.
   fe_py: (data) => data.einvoiceUrl ?? null,
+
+  // ── F3c (context/38 §D): bloques parametrizados por tasa ────────────────
+  // El bloque guarda el `taxId` en `block.text` (ver comentario en
+  // BlockType, print-template.ts). Los valores salen de sumar
+  // `taxNet`/`taxAmount` YA CONGELADOS por línea (`groupItemsByTaxRate`
+  // abajo) — nunca se recalcula contra el catálogo.
+  subtotal_by_rate: (data, block) => {
+    const bucket = findTaxBucket(data.items, block.text)
+    return bucket ? formatMoney(bucket.base) : null
+  },
+  iva_by_rate: (data, block) => {
+    const bucket = findTaxBucket(data.items, block.text)
+    return bucket ? formatMoney(bucket.amount) : null
+  },
+  item_total_by_rate: (data, block) => {
+    const bucket = findTaxBucket(data.items, block.text)
+    return bucket ? formatMoney(bucket.base + bucket.amount) : null
+  },
+  // Suma de todos los buckets — mismo total que `tax_total`, expuesto aparte
+  // para plantillas que arman una lista de `iva_by_rate` con un pie
+  // `iva_total` (el legacy los trataba como bloques distintos).
+  iva_total: (data) => formatMoney(data.taxTotal),
+
+  // tax_single (legacy: `documentPrintBuilder.source.js`, `type ==
+  // 'tax_single'`): el operador tipeaba una TASA (ej. "10") en `block.text`
+  // y el bloque imprimía el subtotal de impuesto de TODA la venta para esa
+  // tasa — un agregado a nivel venta, no algo que se repita por línea (así
+  // que NO está en ITEM_LINE_TYPES desde F3c). Ahora resuelto con la misma
+  // infraestructura por-tasa que `iva_by_rate`, buscando el bucket por
+  // `rate` en vez de por `taxId` (bloques legacy no tienen taxId guardado).
+  tax_single: (data, block) => {
+    const rate = Number(block.text)
+    if (Number.isNaN(rate)) return null
+    // Suma TODOS los buckets con esa tasa, no solo el primero — el
+    // agrupamiento ahora es por `taxId` cuando existe (ver
+    // `groupItemsByTaxRate`), así que dos impuestos distintos con la misma
+    // tasa caen en buckets separados y el bloque legacy (que solo conoce la
+    // tasa, no el taxId) necesita juntarlos de nuevo.
+    const matching = groupItemsByTaxRate(data.items).filter((b) => b.rate === rate)
+    if (matching.length === 0) return null
+    return formatMoney(matching.reduce((s, b) => s + b.amount, 0))
+  },
+}
+
+// ── F3c (context/38 §D): agregación por tasa ───────────────────────────────
+// Espejo TS de `SaleService::groupTaxByRate` (PHP) pero del lado del ticket:
+// suma `taxNet`/`taxAmount` que TicketItem YA trae congelados por línea
+// (F3b), nunca recalcula contra el catálogo. A diferencia del PHP no filtra
+// líneas de descuento sintéticas ni de canje de voucher (TicketItem no
+// modela esos flags hoy) — para el ticket impreso el desvío es cosmético
+// (una línea de canje ya llega con `taxAmount=0`/exenta desde el motor, ver
+// build-ticket-data.ts); el Libro Ventas real (F5) usa el agregado del
+// backend, no este.
+export interface TaxByRateBucket {
+  taxId: string | null
+  rate: number | null
+  kind: TicketItem["taxKind"]
+  base: number
+  amount: number
+}
+
+export function groupItemsByTaxRate(items: TicketItem[]): TaxByRateBucket[] {
+  const buckets = new Map<string, TaxByRateBucket>()
+  const order: string[] = []
+  for (const item of items) {
+    if (item.taxRate === null || item.taxKind === null) continue
+    // Agrupar por `taxId` cuando está disponible — dos impuestos distintos
+    // pueden compartir tasa/kind (nada lo impide en el schema: mig 120 no
+    // tiene UNIQUE sobre rate+kind), y agrupar solo por rate|kind mezclaría
+    // sus líneas en un mismo bucket, pisando el `taxId` de una con el de la
+    // otra. Fallback a `rate|kind` únicamente cuando no hay taxId (bloques
+    // legacy como `tax_single`, que buscan por tasa tipeada a mano, no por
+    // impuesto del catálogo).
+    const key = item.taxId ?? `${item.taxRate}|${item.taxKind}`
+    if (!buckets.has(key)) {
+      buckets.set(key, { taxId: item.taxId, rate: item.taxRate, kind: item.taxKind, base: 0, amount: 0 })
+      order.push(key)
+    }
+    const bucket = buckets.get(key)!
+    bucket.base += item.taxNet ?? 0
+    bucket.amount += item.taxAmount ?? 0
+  }
+  return order.map((k) => buckets.get(k)!)
+}
+
+function findTaxBucket(items: TicketItem[], taxId: string): TaxByRateBucket | undefined {
+  return groupItemsByTaxRate(items).find((b) => b.taxId === taxId)
 }
 
 // ── Resolución de valores por ítem (bloques que se repiten por producto) ──
@@ -273,25 +379,19 @@ export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>>
     if (item.taxRate === null) return null
     return `${item.taxRate}%`
   },
-  // Impuesto de la línea completa (todas las unidades).
-  item_taxAmount: (item) => (item.taxAmount === null ? null : formatMoney(item.taxAmount)),
-  // Impuesto de UNA unidad — item_taxAmount / cantidad. qty=0 no debería
+  // Impuesto de la línea completa (todas las unidades). D4: renombrado desde
+  // `item_taxAmount` — el alias de lectura vive en `normalizeBlockType`.
+  item_tax_amount: (item) => (item.taxAmount === null ? null : formatMoney(item.taxAmount)),
+  // Impuesto de UNA unidad — item_tax_amount / cantidad. qty=0 no debería
   // darse (línea sin unidades no se vende), pero se guarda por las dudas.
-  item_taxAmount_single: (item) =>
+  // D4: renombrado desde `item_taxAmount_single`.
+  item_tax_amount_single: (item) =>
     item.taxAmount === null || item.qty === 0 ? null : formatMoney(item.taxAmount / item.qty),
   // Precio unitario NETO (sin impuesto) — item_uni_price/item_price son el
   // precio con impuesto incluido cuando taxIncluded=true; este bloque separa
   // la base imponible por unidad para plantillas que quieren desglosar.
   item_price_notax: (item) =>
     item.taxNet === null || item.qty === 0 ? null : formatMoney(item.taxNet / item.qty),
-  // tax_single: no aparece en la paleta del editor (lib/print-template-palette.ts)
-  // ni hay uso previo en el resto del repo (panel/api) — es un BlockType que
-  // existe en el tipo (print-template.ts) sin plantilla que lo use hoy. Por
-  // nombre/posición junto a item_taxAmount_single en ITEM_LINE_TYPES, se
-  // infiere la misma semántica: impuesto de UNA unidad. Si en el futuro
-  // aparece con otro significado en una plantilla real, corregir acá.
-  tax_single: (item) =>
-    item.taxAmount === null || item.qty === 0 ? null : formatMoney(item.taxAmount / item.qty),
 }
 
 /** true si el tipo es conocido por el catálogo (tiene resolver de valor, es
@@ -317,7 +417,16 @@ export function isKnownBlockType(type: string): type is BlockType {
  * producto) y se diferencian por `left` — ordenar por left los deja en
  * orden de columna real, lo que además corrige el agrupado si el operador
  * los insertó fuera de orden en el editor.
+ *
+ * También es el punto único donde se aplica `normalizeBlockType` (D4,
+ * context/38): ambos renderers (`render-template.ts`, `html-renderer.ts`)
+ * llaman esta función como entrada antes de iterar `template.data`, así que
+ * normalizar acá alcanza para cubrir los dos sin duplicar el alias en cada
+ * uno.
  */
-export function sortBlocksForRender<T extends { top: number; left: number }>(blocks: T[]): T[] {
-  return [...blocks].sort((a, b) => a.top - b.top || a.left - b.left)
+export function sortBlocksForRender<T extends { type: string; top: number; left: number }>(
+  blocks: T[],
+): T[] {
+  const normalized = blocks.map((b) => ({ ...b, type: normalizeBlockType(b.type) })) as T[]
+  return normalized.sort((a, b) => a.top - b.top || a.left - b.left)
 }

@@ -7,19 +7,33 @@
 > D4 renombre con alias sin migrar plantillas.
 > Requerimiento: el sistema apunta a toda LATAM — tasas NO fijas, con opción
 > global de IVA incluido en el precio o sumado al precio.
-> Progreso 2026-08-08: **F0, F1, F2a, F2b, F3a, F3b hechas**. F3a: EInvoice
-> (factura y nota de crédito) lee el IVA congelado por línea, no el catálogo;
-> fallback a `resolveTaxRatesForItems` solo para ventas pre-F2a; hardcode
-> `{10,5,0}` pasó a ser validación de formato SIFEN, no fuente de la tasa.
-> F3b: `TicketItem` (build-ticket-data.ts) lleva id/uid/nota/tasa/monto de
-> impuesto por línea — congelado real (F2a) en las reimpresiones desde
-> transacción/reportes, motor real (lib/tax/engine.ts) en la impresión
-> inmediata del POS. Los 9 bloques de `blocks.ts` que daban `null` quedan
-> resueltos (incluido `tax_single`, inferido por semántica — no hay plantilla
-> real que lo use hoy); `item_tags` sigue `null` porque ningún builder modela
-> etiquetas por línea todavía. Sigue el resto de F3 (plantillas por tasa —
-> bloques `item_total_by_rate` etc., renombre snake_case), después F4
-> (rollup) y F5 (RG90/Libro Ventas).
+> Progreso 2026-08-08: **F0, F1, F2a, F2b, F3a, F3b, F3c hechas — F3
+> COMPLETA**. F3a: EInvoice (factura y nota de crédito) lee el IVA congelado
+> por línea, no el catálogo; fallback a `resolveTaxRatesForItems` solo para
+> ventas pre-F2a; hardcode `{10,5,0}` pasó a ser validación de formato SIFEN,
+> no fuente de la tasa. F3b: `TicketItem` (build-ticket-data.ts) lleva
+> id/uid/nota/tasa/monto de impuesto por línea — congelado real (F2a) en las
+> reimpresiones desde transacción/reportes, motor real (lib/tax/engine.ts) en
+> la impresión inmediata del POS. Los 9 bloques de `blocks.ts` que daban
+> `null` quedan resueltos; `item_tags` sigue `null` porque ningún builder
+> modela etiquetas por línea todavía. F3c: 4 bloques nuevos por-tasa
+> (`item_total_by_rate`/`subtotal_by_rate`/`iva_by_rate`/`iva_total`) —
+> guardan `taxId` en `block.text`, valores salen de sumar
+> `taxNet`/`taxAmount` ya congelados por línea (`groupItemsByTaxRate`,
+> blocks.ts — nunca recalcula), paleta del editor pasa a tener una sección
+> "Impuestos" función de `useTaxes()`. `tax_single` corregido a su semántica
+> real (agregado por tasa a nivel venta, no por línea — se había resuelto mal
+> como per-unidad en F3b). D4 (renombre `item_taxAmount`→`item_tax_amount`)
+> implementado con alias único en `normalizeBlockType` (blocks.ts), aplicado
+> en `sortBlocksForRender` — el único punto de entrada de ambos renderers.
+> Gap heredado de F3b (no nuevo, pero ahora afecta 4 bloques más): la
+> reimpresión desde el panel (`buildTicketDataFromTxDetail`) no tiene
+> `taxId`/`taxRate`/`taxKind` por línea (el endpoint de reportes no los
+> expone), así que ahí los bloques por-tasa imprimen en blanco — el total
+> `tax_total` sigue siendo correcto (usa `transactionTax`), solo el desglose
+> por tasa queda vacío en ese camino. Ampliar el endpoint es trabajo de
+> backend, fuera de F3;
+> sin migración de datos. Sigue F4 (rollup) y F5 (RG90/Libro Ventas).
 
 ## Diagnóstico (auditoría 2026-08-07)
 
@@ -179,9 +193,14 @@ viejas quedan con tax=0 — ver D3.
   (los reportes fiscales arrancan desde el deploy), (b) backfill derivando
   del catálogo actual marcado `derived=true` (aproximado — la tasa pudo
   cambiar). Propuesta: (a); (b) solo si un tenant lo pide.
-- **D4 — Renombre de bloques legacy.** `item_taxAmount` →
-  `item_tax_amount` con alias al leer plantillas guardadas, sin migración
-  de datos. ¿OK?
+- **D4 — Renombre de bloques legacy (cerrada, implementada F3c).**
+  `item_taxAmount` → `item_tax_amount` (ídem `_single`) con alias al leer
+  plantillas guardadas, sin migración de datos. El alias vive en
+  `normalizeBlockType` (frontend/lib/hardware/printers/blocks.ts), aplicado
+  una sola vez en `sortBlocksForRender` — punto de entrada único de ambos
+  renderers (ESC/POS y HTML) — para no duplicar el mapa. El backend
+  (`DocumentTemplateService::present()`) no interpreta `block.type`, solo
+  pasa el JSON `config` opaco, así que no necesita el alias.
 - **D5 — IVA en canje de voucher (cerrada 2026-08-08).** El canje va EXENTO:
   el vale se vende en caja como ítem normal y su IVA se devenga íntegro en la
   venta de emisión; la línea de canje no aporta al `transactionTotal`

@@ -15,11 +15,16 @@ import {
   type PaletteItem,
 } from "@/lib/print-template-palette"
 import type { PaperSize } from "@/lib/types/print-template"
+import type { Tax } from "@/lib/types/tax"
 
 interface Props {
   paperSize: PaperSize
   tinName?: string
   taxName?: string
+  /** F3c (context/38 §D): tasas del tenant — generan la sección "Impuestos"
+   *  de la paleta (una entrada por tasa). Sin esto (todavía cargando/error),
+   *  la sección no aparece. */
+  taxes?: Tax[]
   onAddBlock: (item: PaletteItem) => void
 }
 
@@ -31,10 +36,10 @@ interface Props {
  * drag-from-palette del legacy lo simplificamos: click → drop en (0,0). El
  * usuario lo mueve después.
  */
-export function PaletteSidebar({ paperSize, tinName, taxName, onAddBlock }: Props) {
+export function PaletteSidebar({ paperSize, tinName, taxName, taxes, onAddBlock }: Props) {
   const sections = React.useMemo(
-    () => filterPaletteForSize(paperSize),
-    [paperSize],
+    () => filterPaletteForSize(paperSize, taxes ?? []),
+    [paperSize, taxes],
   )
 
   return (

@@ -11,6 +11,7 @@
  */
 
 import type { BlockType } from "@/lib/types/print-template"
+import { normalizeBlockType } from "@/lib/hardware/printers/blocks"
 
 /**
  * Texto mock por tipo de bloque. Para `custom`, `hor_line`, `ver_line`
@@ -80,6 +81,12 @@ const MOCK_TEXT: Partial<Record<BlockType, string>> = {
   associated_document:  "001-001-0000099",
   fe_py:                "QR FE",
   tax_single:           "10.909",
+  // F3c (context/38 §D): agregados por tasa — preview plano, no distingue
+  // por taxId (no hay tenant real en este mock).
+  subtotal_by_rate:     "100.000",
+  iva_by_rate:          "10.909",
+  item_total_by_rate:   "110.909",
+  iva_total:            "10.909",
   // Artículos — el motor real los desglosa en filas. Para preview, plana.
   item:                 "Producto A\nProducto B",
   item_id:              "PRD001\nPRD002",
@@ -88,8 +95,9 @@ const MOCK_TEXT: Partial<Record<BlockType, string>> = {
   item_note:            "\n",
   item_tags:            "\n",
   item_tax:             "10%\n10%",
-  item_taxAmount:       "9.091\n1.818",
-  item_taxAmount_single: "9.091\n1.818",
+  // D4: renombrados a snake_case — ver normalizeBlockType (blocks.ts).
+  item_tax_amount:       "9.091\n1.818",
+  item_tax_amount_single: "9.091\n1.818",
   item_discount:        "0\n0",
   item_price:           "50.000\n20.000",
   item_uni_price:       "50.000\n20.000",
@@ -110,6 +118,10 @@ const MOCK_TEXT: Partial<Record<BlockType, string>> = {
  * - Resto: usa MOCK_TEXT o cae al texto original (placeholder) si no hay mock.
  */
 export function getBlockMockText(type: BlockType, originalText: string): string {
-  if (type === "custom") return originalText
-  return MOCK_TEXT[type] ?? originalText
+  // D4: plantillas guardadas antes del renombre siguen trayendo el string
+  // legacy en `config.data[].type` (sin migración) — normalizar acá para
+  // que la preview no se rompa.
+  const normalized = normalizeBlockType(type)
+  if (normalized === "custom") return originalText
+  return MOCK_TEXT[normalized] ?? originalText
 }

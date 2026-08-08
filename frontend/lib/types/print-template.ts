@@ -95,9 +95,21 @@ export type BlockType =
   // Artículos
   | "item_receipt" | "item_receipt_2" | "item_receipt_3" | "item_receipt_4"
   | "item_units" | "item" | "item_id" | "item_note" | "item_uid"
-  | "item_tags" | "item_tax" | "item_taxAmount" | "item_taxAmount_single"
+  // D4 (context/38): renombre snake_case de los legacy `item_taxAmount` /
+  // `item_taxAmount_single`. El string viejo NO desaparece del universo de
+  // datos — persiste en `config.data` de plantillas ya guardadas — pero deja
+  // de ser un `BlockType` válido a partir de acá: `normalizeBlockType`
+  // (frontend/lib/hardware/printers/blocks.ts) es el ÚNICO lugar que traduce
+  // el string legacy al canónico, al leer, sin migración de datos.
+  | "item_tags" | "item_tax" | "item_tax_amount" | "item_tax_amount_single"
   | "item_discount" | "item_price" | "item_uni_price" | "item_price_notax"
   | "item_total" | "item_subtotal" | "tax_single"
+  // F3c (context/38 §D): bloques parametrizados por tasa. El bloque guarda
+  // el `taxId` del tenant en `block.text` (mismo mecanismo que ya usaba el
+  // legacy `tax_single` para guardar la tasa tipeada a mano) — sobrevive un
+  // rename del impuesto; si guardara `rate` una plantilla vieja seguiría
+  // apuntando a un valor que el comercio pudo borrar/reemplazar.
+  | "item_total_by_rate" | "subtotal_by_rate" | "iva_by_rate" | "iva_total"
 
 export type TextAlign = "left" | "center" | "right"
 export type TextWrap = "cut" | "wrap"

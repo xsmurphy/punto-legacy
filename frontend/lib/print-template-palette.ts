@@ -9,6 +9,7 @@
 
 import type { BlockType, PaperSize } from "@/lib/types/print-template"
 import { isReceipt } from "@/lib/types/print-template"
+import type { Tax } from "@/lib/types/tax"
 
 export interface PaletteItem {
   type: BlockType
@@ -122,7 +123,14 @@ export const PALETTE: PaletteSection[] = [
       { type: "item_uid", label: "SKU", defaultText: "SKU", receiptHidden: true },
       { type: "item_tags", label: "Etiquetas", defaultText: "Etiquetas", receiptHidden: true },
       { type: "item_tax", label: "__TAX__ %", defaultText: "__TAX__ %", receiptHidden: true },
-      { type: "item_taxAmount", label: "__TAX__", defaultText: "__TAX__", receiptHidden: true },
+      // D4 (context/38): renombrado a snake_case — el alias de lectura de
+      // plantillas guardadas con el string viejo vive en `normalizeBlockType`
+      // (frontend/lib/hardware/printers/blocks.ts), no acá.
+      { type: "item_tax_amount", label: "__TAX__", defaultText: "__TAX__", receiptHidden: true },
+      // item_tax_amount_single: ya tenía resolver en blocks.ts (F3b) pero
+      // faltaba en la paleta — sin esto el operador no podía agregarlo desde
+      // el editor aunque el motor de impresión ya lo soportara.
+      { type: "item_tax_amount_single", label: "__TAX__ (unidad)", defaultText: "__TAX__", receiptHidden: true },
       { type: "item_discount", label: "Descuento", defaultText: "##.###", receiptHidden: true },
       { type: "item_price", label: "Precio", defaultText: "Precio", receiptHidden: true },
       { type: "item_uni_price", label: "Precio de lista", defaultText: "Precio de lista", receiptHidden: true },
@@ -132,13 +140,43 @@ export const PALETTE: PaletteSection[] = [
   },
 ]
 
-/** Filtra la paleta según paper size (oculta receiptOnly/receiptHidden donde corresponde). */
-export function filterPaletteForSize(paperSize: PaperSize): PaletteSection[] {
+/**
+ * F3c (context/38 §D): sección "Impuestos" — UNA entrada por tasa del
+ * comercio (`subtotal_by_rate`/`iva_by_rate`/`item_total_by_rate`) + el pie
+ * `iva_total`. A diferencia del resto de PALETTE (estático), esta sección es
+ * función de `/v1/taxes` — no hay forma de tipar "una entrada por impuesto
+ * del tenant" como catálogo fijo. `defaultText` guarda el `taxId`: es lo que
+ * `handleAddBlock` (template-editor.tsx) copia a `block.text` al insertar el
+ * bloque (mismo mecanismo que ya usaba `tax_single` para la tasa tipeada a
+ * mano).
+ */
+export function buildTaxRateSection(taxes: Tax[]): PaletteSection {
+  const items: PaletteItem[] = []
+  for (const tax of taxes) {
+    const rateLabel = tax.kind === "exempt" ? "Exento" : `${tax.rate ?? tax.name}%`
+    items.push(
+      { type: "subtotal_by_rate", label: `Subtotal __TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
+      { type: "iva_by_rate", label: `__TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
+      { type: "item_total_by_rate", label: `Total __TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
+    )
+  }
+  items.push({ type: "iva_total", label: "Total __TAX__ (todas las tasas)", defaultText: "__TAX__" })
+  return { id: "taxes", label: "Impuestos", items }
+}
+
+/** Filtra la paleta según paper size (oculta receiptOnly/receiptHidden donde
+ *  corresponde) y agrega la sección "Impuestos" cuando llegaron las tasas
+ *  del tenant (`taxes` viene de `useTaxes()`, puede tardar en cargar — sin
+ *  eso, la sección simplemente no aparece, no rompe el render). */
+export function filterPaletteForSize(paperSize: PaperSize, taxes: Tax[] = []): PaletteSection[] {
   const ticket = isReceipt(paperSize)
-  return PALETTE.map((sec) => ({
-    ...sec,
-    items: sec.items.filter((it) => (ticket ? !it.receiptHidden : !it.receiptOnly)),
-  })).filter((sec) => sec.items.length > 0)
+  const sections = taxes.length > 0 ? [...PALETTE, buildTaxRateSection(taxes)] : PALETTE
+  return sections
+    .map((sec) => ({
+      ...sec,
+      items: sec.items.filter((it) => (ticket ? !it.receiptHidden : !it.receiptOnly)),
+    }))
+    .filter((sec) => sec.items.length > 0)
 }
 
 /** Sustituciones de placeholders en labels de la UI (TIN/TAX configurables por país). */

@@ -40,6 +40,7 @@ import {
   useDeleteDocumentTemplate,
   useUpdateDocumentTemplate,
 } from "@/hooks/use-document-templates"
+import { useTaxes } from "@/hooks/use-taxes"
 import type { PaletteItem } from "@/lib/print-template-palette"
 import {
   PAPER_DIMENSIONS,
@@ -87,6 +88,9 @@ export function TemplateEditor({ existing }: Props) {
   const create = useCreateDocumentTemplate()
   const update = useUpdateDocumentTemplate()
   const del = useDeleteDocumentTemplate()
+  // F3c (context/38 §D): tasas del tenant para la sección "Impuestos" de la
+  // paleta (una entrada por tasa) — ver PaletteSidebar/print-template-palette.ts.
+  const taxesQuery = useTaxes()
 
   const initialConfig: PrintTemplateConfig = React.useMemo(() => {
     return parseStoredConfig(existing?.config)
@@ -360,6 +364,7 @@ export function TemplateEditor({ existing }: Props) {
         <aside className="w-[220px] shrink-0 border-r bg-muted/20">
           <PaletteSidebar
             paperSize={config.page_size}
+            taxes={taxesQuery.data?.taxes}
             onAddBlock={handleAddBlock}
           />
         </aside>
