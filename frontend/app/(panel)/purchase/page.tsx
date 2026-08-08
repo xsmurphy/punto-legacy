@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation"
 import { ArrowLeft, Loader2, Plus, Upload, FileText } from "lucide-react"
 import { toast } from "sonner"
 
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
@@ -236,7 +237,10 @@ export default function NewPurchasePage() {
         outletId,
         condition,
         invoiceDate,
-        dueDate,
+        // Al contado no viaja vencimiento: la compra se paga en el momento y
+        // guardar un transactionDueDate ahí es dato falso (aparecería con
+        // fecha de corte en cualquier lectura de vencimientos).
+        dueDate: isCredit ? dueDate : "",
         invoiceNo: invoiceNo || null,
         invoicePrefix,
         authNo,
@@ -356,7 +360,10 @@ export default function NewPurchasePage() {
             )}
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
+          {/* Vencimiento SOLO en crédito: una compra al contado se paga en el
+              momento, no vence (owner 2026-08-08). Al contado la fecha de
+              factura ocupa el ancho completo en vez de dejar un hueco. */}
+          <div className={cn("grid gap-3", isCredit && "grid-cols-2")}>
             <Field label="Fecha factura" id="invoiceDate">
               <DatePicker
                 id="invoiceDate"
@@ -364,13 +371,15 @@ export default function NewPurchasePage() {
                 onChange={setInvoiceDate}
               />
             </Field>
-            <Field label={isCredit ? "Vencimiento *" : "Vencimiento"} id="dueDate">
-              <DatePicker
-                id="dueDate"
-                value={dueDate}
-                onChange={setDueDate}
-              />
-            </Field>
+            {isCredit && (
+              <Field label="Vencimiento *" id="dueDate">
+                <DatePicker
+                  id="dueDate"
+                  value={dueDate}
+                  onChange={setDueDate}
+                />
+              </Field>
+            )}
           </div>
 
           <div className="flex flex-col gap-3 rounded-md border bg-background/40 p-3">

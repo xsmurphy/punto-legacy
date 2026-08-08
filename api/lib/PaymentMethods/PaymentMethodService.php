@@ -245,8 +245,11 @@ final class PaymentMethodService
      * Bancard: el cobro con QR del POS se dispara por systemKey, así que sin
      * este row el botón no tendría contra qué registrar el pago.
      *
-     * Idempotente y NO destructivo: si ya existe un método con systemKey='qr'
-     * (o uno llamado "QR" que el comercio creó a mano) no toca nada.
+     * Idempotente. Si el comercio YA tiene un método llamado "QR" (creado a
+     * mano antes de que existiera el módulo) se lo ADOPTA — se le pone el
+     * systemKey en vez de crear un segundo "QR" al lado. Saltear sin adoptar
+     * dejaba al tenant con el método visible pero sin el flujo del QR, que se
+     * dispara por systemKey.
      */
     public function ensureQrMethod(string $companyId): void
     {
@@ -257,7 +260,21 @@ final class PaymentMethodService
 
         foreach ($this->list($companyId) as $m) {
             if (($m['systemKey'] ?? null) === 'qr') return;
-            if (strcasecmp(trim((string) $m['name']), 'QR') === 0) return;
+            if (strcasecmp(trim((string) $m['name']), 'QR') !== 0) continue;
+
+            // Adopción: systemKey + requiresIdentifier=false (el identificador
+            // del cobro por QR es el UID que genera el POS, no algo que el
+            // cajero tipee). El resto del extra del comercio se preserva.
+            $this->db->Execute(
+                "UPDATE taxonomy
+                    SET taxonomyExtra = (
+                          COALESCE(NULLIF(taxonomyExtra, ''), '{}')::jsonb
+                          || jsonb_build_object('systemKey', 'qr', 'requiresIdentifier', false)
+                        )::text
+                  WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = ?",
+                [(string) $m['id'], $companyId, 'paymentMethod']
+            );
+            return;
         }
 
         // Va al final del orden actual — no se mete arriba de los métodos que

@@ -56,13 +56,15 @@ export interface ModuleCatalogEntry {
 }
 
 export const MODULES_CATALOG: ModuleCatalogEntry[] = [
-  // ── Destacados ───────────────────────────────────────────────────────────
+  // "Destacados" se eliminó (owner 2026-08-08): era una vidriera, no una
+  // categoría — sus 3 módulos no tenían nada en común y quedaban duplicando
+  // el criterio del resto. Cada uno pasó a la categoría que le corresponde.
   {
     key: "einvoicePy",
     title: "Facturación Electrónica",
     description: "Emití facturas electrónicas habilitadas por la SET (SIFEN) directo desde tus ventas.",
     icon: ReceiptText,
-    category: "Destacados",
+    category: "Facturación",
     configKind: "none",
     status: "available",
     configHref: "/settings/facturacion-electronica",
@@ -73,7 +75,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     description:
       "Llevá tu negocio a la web, un canal de ventas sincronizado con tu local.",
     icon: Globe,
-    category: "Destacados",
+    category: "Operativos",
     configKind: "comingSoon",
     status: "soon",
   },
@@ -82,7 +84,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     title: "Control de Asistencia",
     description: "Llevá el control de las horas trabajadas de tu staff.",
     icon: Clock,
-    category: "Destacados",
+    category: "Operativos",
     configKind: "none",
     status: "available",
   },
@@ -201,7 +203,6 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
 
 /** Categorías en el orden de presentación en el catálogo. */
 export const MODULE_CATEGORIES = [
-  "Destacados",
   "Operativos",
   "Marketing y Fidelización",
   "Facturación",
