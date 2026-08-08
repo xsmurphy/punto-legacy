@@ -1720,13 +1720,19 @@ final class SaleService
 
         $ids = array_keys($itemIds);
         $ph  = implode(',', array_fill(0, count($ids), '?'));
-        // taxonomyName guarda la tasa numérica ('0' | '5' | '10') — ver
-        // Taxonomy::getTaxValue.
+        // Los impuestos viven HOY en dos tablas y hay que mirar las dos:
+        // mig 23 sacó `tax` de `taxonomy` reusando el MISMO UUID, pero no
+        // eliminó la vieja — el alta de una empresa todavía siembra el IVA en
+        // `taxonomy` (SignupService) mientras la UI de Ajustes crea en `tax`.
+        // Mirar una sola dejaría al resto como exenta en silencio.
+        // En ambas, el nombre guarda la tasa (ver mig 23 y Taxonomy::getTaxValue).
         $rows = ncmExecute(
-            "SELECT i.itemId AS itemid, t.taxonomyName AS rate
+            "SELECT i.itemId AS itemid, COALESCE(tx.name, tn.taxonomyName) AS rate
                FROM item i
-               LEFT JOIN taxonomy t
-                 ON t.taxonomyId = i.taxId AND t.taxonomyType = 'tax'
+               LEFT JOIN tax tx
+                 ON tx.taxId = i.taxId AND tx.companyId = i.companyId
+               LEFT JOIN taxonomy tn
+                 ON tn.taxonomyId = i.taxId AND tn.taxonomyType = 'tax'
               WHERE i.itemId IN ($ph) AND i.companyId = ?",
             array_merge($ids, [$this->ctx->companyId]),
             false,
