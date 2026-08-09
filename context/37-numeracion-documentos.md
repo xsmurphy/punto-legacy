@@ -1,7 +1,29 @@
 # 37 — Numeración correlativa de documentos
 
-> Estado: **plan abierto** (2026-08-04). D1/D2/D4 cerradas. D3/D5/D6 pendientes
-> del owner. F1 puede arrancar: no depende de ninguna de las tres.
+> Estado (2026-08-09): **F1, F2 y F3 implementadas**. D1/D2/D4 cerradas.
+> D3/D5/D6 siguen pendientes del owner y bloquean F3b, F4 y F5.
+>
+> Lo que YA funciona en producción — no relitigar:
+>
+> | Documento | Scope | Asignador | Desde |
+> |---|---|---|---|
+> | Factura | register | `allocateBlock` vía `numbering_lease` | F2 |
+> | Cotización | register | `allocate` en la TX de la cotización | F2 |
+> | Orden (pedido) | outlet | `allocate` en la TX del create | F2 |
+> | Producción · Merma · Transferencia · Conteo | outlet | `allocate` | F3 |
+>
+> Migraciones: **117** (tabla + seed), **127** (re-seed de factura/cotización
+> antes del cutover de F2), **129** (columnas + backfill de los documentos de
+> stock, re-seed de 'orden'). El re-seed importa: entre que una migración
+> siembra y el emisor empieza a consumir la secuencia, todo lo emitido por el
+> camino viejo deja a `nextnumber` atrás — arrancar desde ahí reemite números.
+> Cualquier documento que se migre al asignador en el futuro necesita su propio
+> re-seed en el MISMO deploy que el cambio de código.
+>
+> El panel administra la numeración por caja en `/outlets/[id]` → tab Cajas:
+> próxima factura, próxima cotización y fin del rango del timbrado. El campo
+> nunca está vacío — `nextnumber` es NOT NULL DEFAULT 1 y se siembra al crear
+> la caja.
 
 > El catálogo de documentos NO es nuevo: el owner ya lo había definido el
 > 2026-07-29 y está en `context/10-roadmap.md` — Factura · Comprobante (sin
@@ -17,7 +39,13 @@ Es obligatorio, no opcional. El número de orden puede ser por sucursal (no es
 documento legal); el resto de los documentos legales van por punto de
 expedición, que en Punto es la caja (`context/29`, `context/25`).
 
-## Estado actual — el gap
+## Estado al escribir el plan — el gap original
+
+> Histórico: esta sección describe el punto de partida (2026-08-04), no el
+> estado de hoy. Lo vigente está en el encabezado y en las fases. Se conserva
+> porque el diagnóstico de POR QUÉ los mecanismos viejos no servían es lo que
+> justifica la arquitectura, y esa parte sigue aplicando a cada documento que
+> falte migrar.
 
 Ojo: la numeración por documento **existe desde el legacy, dormida**. Mig 26
 mantuvo a propósito 9 columnas contador en `register` ("counters atómicos del
@@ -146,21 +174,46 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
   el `MAX` de `numbering_lease` (facturas) y el piso de
   `register.data.registerNumbering`. Los 9 contadores legacy y el piso quedan
   obsoletos y se retiran en F2 — la tabla los subsume.
-- **D5 — Fin de rango del timbrado.** PENDIENTE. ¿Bloquear la emisión al
-  llegar a `rangeTo`, o alertar al acercarse y bloquear recién en el límite?
+- **D5 — Fin de rango del timbrado.** PENDIENTE, pero ya no bloquea nada:
+  el corte duro en `rangeTo` está implementado (es el mínimo legal). Lo que
+  falta decidir es el PREAVISO: a cuántos números del techo avisar y dónde
+  (badge en el listado de cajas, aviso en el POS al abrir turno, ambos).
+  Sin esto la caja se entera al intentar cobrar.
 
 ## Fases
 
-- **F1** — mig `document_sequence` + `DocumentNumber` + backfill desde los MAX
-  actuales. Sin cambio de comportamiento observable.
-- **F2** — migrar los 3 emisores existentes (factura, cotización, orden) al
-  asignador. Retirar `registerQuoteNumber` y el piso de `register.data`.
-- **F3** — numerar los documentos internos de stock, todos scope `outlet`
-  (producción, transferencia, conteo, merma). No depende de D6.
+- **F1 — HECHA** (mig 117, commit `35e447ea`). Tabla `document_sequence` +
+  `DocumentNumber::allocate/peek` + seed. Sin cambio de comportamiento.
+- **F2 — HECHA** (migs 127 y 129). Los 3 emisores existentes consumen el
+  asignador: factura (`v1/numbering/lease.php` vía `allocateBlock`), cotización
+  (`SaleService::getNextQuoteNumber`) y orden (`OrderCoreService::create`, que
+  además perdió el advisory lock — el row lock del `UPDATE ... RETURNING`
+  alcanza). El piso de `register.data.registerNumbering` ya no lo lee ni lo
+  escribe nadie; la 127 lo leyó por última vez.
+  **Queda un resto:** los 9 contadores legacy de `register` (mig 26) siguen en
+  el schema. `registerInvoiceNumber` y `registerQuoteNumber` ya no se leen ni
+  se escriben (verificado: solo los referencia `getSaleType()`, que no tiene
+  callers, y la whitelist de columnas de `functions.php:1540`). Los otros 7
+  sirven documentos que todavía no se emiten, así que se retiran con F5, no
+  antes. Dropear las columnas exige tocar esa whitelist — no es un `ALTER`
+  suelto.
+- **F3 — HECHA** (mig 129). Producción, merma, transferencia y conteo llevan
+  correlativo, todos scope `outlet`. Backfill cronológico por sucursal + índice
+  único parcial `(companyid, outletid, docnumber)`.
+  Detalles que no son obvios: la transferencia se numera por la sucursal que la
+  EMITE (`fromOutletId`); las mermas con `outletid` NULL quedan sin número
+  (histórico anómalo — los emisores actuales siempre mandan outlet).
 - **F3b** — movimientos financieros, una vez resuelta D6 (requiere agregar
   `registerId` a `fin_movement` si se confirma el scope por caja).
-- **F4** — rango del timbrado (`rangeFrom`/`rangeTo`) + bloqueo/alerta, y UI
-  de administración por caja.
+- **F4 — PARCIAL.** Lo hecho: `rangefrom`/`rangeto`/`prefix` se administran
+  desde el panel (tab Cajas), `allocate`/`allocateBlock` cortan con
+  `RangeExhaustedException` al pasarse del techo, el arriendo offline recorta
+  el bloque a lo que queda (`DocumentNumber::remaining()` — pedir 100 con 10
+  autorizados hacía fallar el arriendo entero y dejaba esos 10 sin usarse), y
+  el listado muestra `próxima / techo`.
+  **Falta el aviso anticipado**, y depende de D5: hoy el corte es duro y sin
+  preaviso, así que la caja se entera de que se quedó sin timbrado justo cuando
+  intenta cobrar.
 - **F5** — documentos que todavía no existen: NC, ND, remisión, comprobante
   interno, recibo. Acopladas al pedido de anulaciones/devoluciones del tester.
   Leer antes el ítem del roadmap 2026-07-29: tiene el caso de negocio del
