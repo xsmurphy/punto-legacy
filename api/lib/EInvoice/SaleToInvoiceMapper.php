@@ -38,7 +38,11 @@ namespace Punto\Api\EInvoice;
  *     'nature'   => 'contribuyente'|'fisica'|'innominado',
  *     'name'     => string,
  *     'ruc'      => ?string,            // sin DV separado; el mapper no calcula DV
- *     'ci'       => ?string,
+ *     'ci'       => ?string,            // número de documento (CI paraguaya O el número
+ *                                       // del documento extranjero — mismo campo, ver idType)
+ *     'idType'   => ?int,               // Tabla 3 SET (11-17, ContactService::ID_TYPE_*).
+ *                                       // Solo relevante en nature='fisica' (ver buildClient/
+ *                                       // mapIdType) — 'contribuyente' e 'innominado' no lo usan.
  *   ],
  *   'credit' => [                       // solo si operationCondition === 1
  *     'deadline'    => ?string,         // ej. "30 dias" — requerido si cuotas no aplica
@@ -78,6 +82,35 @@ final class SaleToInvoiceMapper
     // contributorType: con RUC → 1, sin RUC → 2. Ver nota en buildClient().
     private const CONTRIBUTOR_TYPE_CON_RUC = 1;
     private const CONTRIBUTOR_TYPE_SIN_RUC = 2;
+
+    // Tabla 3 SET (ContactService::ID_TYPE_*, 11-17) → identityDocumentTypeCode
+    // de Factomate. DOS CODIFICACIONES DISTINTAS — no confundir:
+    //   - Tabla 3 es la de la SET ("Especificación Técnica para Importación",
+    //     SET, junio 2021), la misma que persiste `contact.contactIdType`.
+    //   - El código de la derecha es el catálogo PROPIO de la API Efatech/
+    //     Factomate (endpoint GET /api/IdentityDocumentType/get — un
+    //     GeneralCodes más, NO documentado con valores estáticos en el manual
+    //     "API TaxPro - Facturación Electrónica", solo linkea al endpoint en
+    //     vivo). Los 4 valores de abajo SÍ están verificados: vienen de la
+    //     implementación de referencia en producción (Automate/efatech,
+    //     config/constants.ts ID_DOC_TYPES + facturas emitidas con éxito
+    //     2026-07-30) — DOC_TYPE_CEDULA (1) y DOC_TYPE_INNOMINADO (5) ya
+    //     existían acá con ese mismo origen; 2 y 3 se suman ahora del mismo
+    //     archivo verificado.
+    //
+    // 14 (CÉDULA EXTRANJERO) y 17 (IDENTIFICACIÓN TRIBUTARIA) QUEDAN AFUERA a
+    // propósito: ningún documento verificado (ni el manual, ni la
+    // implementación de referencia) confirma su código de Factomate.
+    // Adivinarlo arriesga declarar mal el documento del receptor ante SIFEN
+    // — mapIdType() aborta la emisión para esos dos códigos en vez de
+    // inventar un valor. Antes de habilitarlos: confirmar contra
+    // GET /api/IdentityDocumentType/get de la cuenta real.
+    private const SET_TO_FACTOMATE_ID_TYPE = [
+        12 => self::DOC_TYPE_CEDULA,      // CÉDULA DE IDENTIDAD → 1
+        13 => 2,                          // PASAPORTE → 2 (Factomate ID_DOC_TYPES.PASAPORTE)
+        16 => 3,                          // DIPLOMÁTICO → 3 (Factomate ID_DOC_TYPES.CARNET_DIPLOMATICO)
+        15 => self::DOC_TYPE_INNOMINADO,  // SIN NOMBRE → 5
+    ];
 
     // documentTypeCode (guía §"Enviar DE"): 1=Factura, 4=Autofactura,
     // 5=Nota de crédito, 6=Nota de débito, 7=Nota de remisión.
@@ -368,12 +401,18 @@ final class SaleToInvoiceMapper
 
         if ($nature === 'fisica') {
             if (empty($ci)) {
-                throw new \RuntimeException('Falta la cédula del cliente — es obligatoria para facturar a una persona física sin RUC.');
+                throw new \RuntimeException('Falta el documento de identidad del cliente — es obligatorio para facturar a una persona física sin RUC.');
             }
+            // Default 12 (CÉDULA, \Punto\Api\Contacts\ContactService::ID_TYPE_CEDULA)
+            // preserva el comportamiento verificado antes de esta feature:
+            // todo 'fisica' sin idType explícito se asumía cédula paraguaya.
+            // Contactos con idType real (pasaporte, diplomático) usan su
+            // propio código — ver SET_TO_FACTOMATE_ID_TYPE.
+            $idType = (int) ($rawClient['idType'] ?? \Punto\Api\Contacts\ContactService::ID_TYPE_CEDULA);
             return [
                 'nature'                     => self::NATURE_FISICA_O_INNOMINADO,
                 'operationType'              => 2,
-                'identityDocumentTypeCode'   => self::DOC_TYPE_CEDULA,
+                'identityDocumentTypeCode'   => $this->mapIdType($idType),
                 'identityDocumentNumber'     => (string) $ci,
                 'countryCode'                => 107,
                 'countryName'                => 'Paraguay',
@@ -403,6 +442,28 @@ final class SaleToInvoiceMapper
             'email'                      => (string) ($rawClient['email'] ?? ''),
             'phoneNumber'                => (string) ($rawClient['phone'] ?? ''),
         ];
+    }
+
+    /**
+     * Tabla 3 SET → identityDocumentTypeCode de Factomate — ver
+     * SET_TO_FACTOMATE_ID_TYPE para el porqué de cada valor y por qué 14/17
+     * quedan afuera.
+     *
+     * @throws \RuntimeException Si el código no tiene mapeo de Factomate
+     *         VERIFICADO — se aborta la emisión en vez de adivinar un valor
+     *         para un documento fiscal.
+     */
+    private function mapIdType(int $setIdType): int
+    {
+        if (!isset(self::SET_TO_FACTOMATE_ID_TYPE[$setIdType])) {
+            throw new \RuntimeException(
+                "El tipo de documento $setIdType (Tabla 3 SET) no tiene código de Factomate " .
+                'verificado — no se puede emitir sin confirmar el mapeo real contra ' .
+                'GET /api/IdentityDocumentType/get de la cuenta. Tipos soportados hoy: ' .
+                'cédula (12), pasaporte (13), diplomático (16), sin nombre (15).'
+            );
+        }
+        return self::SET_TO_FACTOMATE_ID_TYPE[$setIdType];
     }
 
     /**

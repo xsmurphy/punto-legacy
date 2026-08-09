@@ -71,6 +71,20 @@ final class ContactRepository
     }
 
     /**
+     * Código de país del tenant (`company.config->>'settingCountry'`, ej. 'PY').
+     * '' si la company no existe o no lo configuró. Único lector de este dato
+     * dentro de Contacts — ContactService lo usa para gatear `contactIdType`
+     * (feature exclusiva de Paraguay, ver ContactService::isPyTenant()).
+     */
+    public function companyCountry(string $companyId): string
+    {
+        $sql = "SELECT config->>'settingCountry' AS country FROM company WHERE companyId = ?";
+        $rs  = $this->db->Execute($sql, [$companyId]);
+        if ($rs === false || $rs->EOF) return '';
+        return (string) ($rs->fields['country'] ?? '');
+    }
+
+    /**
      * INSERT vía ncmInsert (genera UUID v7 + JSONB routing).
      * Retorna el contactId nuevo o false si falla.
      */

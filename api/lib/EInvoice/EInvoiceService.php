@@ -1015,7 +1015,12 @@ final class EInvoiceService
                 );
                 if ($contact) {
                     $tin = trim((string) ($contact['contactTIN'] ?? ''));
-                    $ci  = trim((string) ($contact['contactCI'] ?? '')); // flattenJsonb ya trajo contactCI desde `data`
+                    // flattenJsonb ya trajo contactCI desde `data`. Desde mig 125 este
+                    // campo también guarda pasaporte/cédula extranjera/diplomático/
+                    // identificación tributaria (ver ContactService::ID_TYPE_*) — "tiene
+                    // contactCI" sigue siendo el chequeo correcto: "tiene ALGÚN
+                    // documento", sea cual sea su tipo.
+                    $ci  = trim((string) ($contact['contactCI'] ?? ''));
                     $hasTaxId = $tin !== '' || $ci !== '';
                 }
             }
@@ -1640,35 +1645,54 @@ final class EInvoiceService
     /**
      * Receptor del documento a partir del contacto de la transacción. Tres
      * casos fiscales (ver SaleToInvoiceMapper::buildClient): contribuyente con
-     * RUC, persona física con CI, o innominado (consumidor final).
+     * RUC, persona física con documento (CI paraguaya o extranjero), o
+     * innominado (consumidor final).
+     *
+     * `idType` (Tabla 3 SET — ver ContactService::ID_TYPE_*) viaja siempre en
+     * el shape devuelto: el valor persistido en `contactIdType`, o inferido
+     * con la MISMA regla que ContactService::presentRow() para contactos de
+     * antes de esta feature (ContactService::inferIdType() — single source
+     * of truth, no se duplica la regla acá). SaleToInvoiceMapper lo traduce
+     * al código propio de Factomate (catálogo distinto, ver su mapIdType()).
      *
      * @return array<string,mixed>
      */
     private function resolveClient(string $companyId, mixed $clientId): array
     {
         if ($clientId === null || $clientId === '') {
-            return ['nature' => 'innominado'];
+            return ['nature' => 'innominado', 'idType' => \Punto\Api\Contacts\ContactService::ID_TYPE_SIN_NOMBRE];
         }
 
         $contact = ncmExecute(
-            'SELECT contactTIN, contactName, data FROM contact WHERE contactId = ? AND companyId = ?',
+            'SELECT contactTIN, contactName, contactIdType, data FROM contact WHERE contactId = ? AND companyId = ?',
             [$clientId, $companyId]
         );
         if (!$contact) {
-            return ['nature' => 'innominado'];
+            return ['nature' => 'innominado', 'idType' => \Punto\Api\Contacts\ContactService::ID_TYPE_SIN_NOMBRE];
         }
 
         $tin  = trim((string) ($contact['contactTIN'] ?? ''));
         $ci   = trim((string) ($contact['contactCI'] ?? '')); // flattenJsonb ya trajo contactCI desde `data`
         $name = trim((string) ($contact['contactName'] ?? ''));
 
+        $storedIdType = $contact['contactIdType'] ?? null;
+        $idType = $storedIdType !== null
+            ? (int) $storedIdType
+            : \Punto\Api\Contacts\ContactService::inferIdType($tin !== '' ? $tin : null, $ci !== '' ? $ci : null);
+
+        // idType=15 (SIN NOMBRE) es innominado EXPLÍCITO — aunque el contacto
+        // tenga algo cargado en contactCI, declarar el código 15 manda.
+        if ($idType === \Punto\Api\Contacts\ContactService::ID_TYPE_SIN_NOMBRE) {
+            return ['nature' => 'innominado', 'idType' => $idType, 'name' => $name !== '' ? $name : 'Consumidor final'];
+        }
+
         if ($tin !== '') {
-            return ['nature' => 'contribuyente', 'ruc' => $tin, 'ci' => $ci !== '' ? $ci : null, 'name' => $name];
+            return ['nature' => 'contribuyente', 'ruc' => $tin, 'ci' => $ci !== '' ? $ci : null, 'idType' => $idType, 'name' => $name];
         }
         if ($ci !== '') {
-            return ['nature' => 'fisica', 'ci' => $ci, 'name' => $name];
+            return ['nature' => 'fisica', 'ci' => $ci, 'idType' => $idType, 'name' => $name];
         }
-        return ['nature' => 'innominado', 'name' => $name !== '' ? $name : 'Consumidor final'];
+        return ['nature' => 'innominado', 'idType' => \Punto\Api\Contacts\ContactService::ID_TYPE_SIN_NOMBRE, 'name' => $name !== '' ? $name : 'Consumidor final'];
     }
 
     /**

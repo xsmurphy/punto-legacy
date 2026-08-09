@@ -238,6 +238,10 @@ function serialize(values: ContactFormValues): Record<string, unknown> {
     fiscalName: values.kind === "empresa" ? values.fiscalName : "",
     tin: values.tin,
     ci: values.ci,
+    // idType: null se manda tal cual — ContactService lo interpreta como
+    // "limpiar" (contacto vuelve a inferirse on-read). El backend además
+    // ignora el campo entero si el tenant no es PY (ContactService::isPyTenant).
+    idType: values.idType,
     bday: values.bday,
     phone: values.phone ?? "",
     email: values.email,

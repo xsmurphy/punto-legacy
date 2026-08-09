@@ -41,6 +41,13 @@ import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { DatePicker } from "@/components/date-picker"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -48,6 +55,7 @@ import { useCartStore } from "@/lib/cart/store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { searchCustomers } from "@/lib/catalog/search"
 import { executeCreateCustomer } from "@/lib/commands/create-customer"
+import { CONTACT_ID_TYPES, ciFieldCopyForIdType } from "@/lib/contact-id-types"
 import { useTaxpayerLookup } from "@/hooks/use-contacts"
 import { ApiError } from "@/lib/api-client"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
@@ -69,6 +77,9 @@ const customerFormSchema = z.object({
   firstName: z.string().optional(),
   lastName: z.string().optional(),
   ci: z.string().optional(),
+  // Tipo de documento (Tabla 3 SET) — exclusivo de Paraguay. `null` = no
+  // elegido (tenant no-PY, o cajero no tocó el selector → backend infiere).
+  idType: z.number().nullable().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
   // phoneValue: valor nacional visible (solo para el input),
   // phoneE164: E.164 guardado en el store / enviado al backend.
@@ -269,6 +280,12 @@ function CreateCustomerForm({
 }: {
   onCreated: (c: PosCustomer) => void
 }) {
+  // Gate exclusivo de Paraguay — mismo dato que el bootstrap del panel
+  // (PosConfig.country), ya hidratado en el store del POS (sin round-trip
+  // adicional). Ver ContactService::isPyTenant() del lado del backend.
+  const tenantCountry = useCatalogStore((s) => s.config?.country)
+  const isPyTenant = tenantCountry === "PY"
+
   const {
     register,
     handleSubmit,
@@ -286,6 +303,10 @@ function CreateCustomerForm({
       firstName: "",
       lastName: "",
       ci: "",
+      // 12 explícito (no null): el Select pintaba "Cédula" por fallback
+      // cosmético sin llamar nunca a onChange, así que lo visible y lo
+      // enviado podían diferir.
+      idType: 12,
       email: "",
       phoneValue: "",
       phoneE164: null,
@@ -295,6 +316,8 @@ function CreateCustomerForm({
   })
 
   const birthdateValue = watch("birthdate") ?? ""
+  const idType = watch("idType")
+  const ciCopy = ciFieldCopyForIdType(idType)
 
   async function onSubmit(values: CustomerFormValues) {
     // Nombre display: razón social tiene prioridad; si no, nombre + apellido.
@@ -309,6 +332,7 @@ function CreateCustomerForm({
         phone: values.phoneE164 ?? null,
         tin: values.tin?.trim() || undefined,
         ci: values.ci?.trim() || undefined,
+        idType: isPyTenant ? values.idType ?? undefined : undefined,
         email: values.email?.trim() || undefined,
       })
       reset()
@@ -483,13 +507,49 @@ function CreateCustomerForm({
                   />
                 </div>
 
-                {/* Doc. de Identidad */}
+                {/* Tipo de documento — exclusivo de Paraguay (Tabla 3 SET) */}
+                {isPyTenant && (
+                  <div className="flex flex-col gap-1">
+                    <Label htmlFor="idType" className="text-xs">
+                      Tipo de documento
+                    </Label>
+                    <Controller
+                      name="idType"
+                      control={control}
+                      render={({ field }) => (
+                        <Select
+                          value={String(field.value ?? 12)}
+                          onValueChange={(v) => field.onChange(Number(v))}
+                        >
+                          <SelectTrigger id="idType">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CONTACT_ID_TYPES.map((t) => (
+                              <SelectItem key={t.code} value={String(t.code)}>
+                                {t.label}
+                                {t.noEinvoice && (
+                                  <span className="text-xs text-muted-foreground">
+                                    · sin factura electrónica
+                                  </span>
+                                )}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+                    />
+                  </div>
+                )}
+
+                {/* Doc. de Identidad — label/placeholder acompañan el tipo elegido */}
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="ci" className="text-xs">
-                    Doc. de Identidad
+                    {isPyTenant ? ciCopy.label : "Doc. de Identidad"}
                   </Label>
                   <Input
                     id="ci"
+                    placeholder={isPyTenant ? ciCopy.placeholder : undefined}
                     {...register("ci")}
                   />
                 </div>

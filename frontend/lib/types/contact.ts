@@ -19,8 +19,16 @@ export interface ContactListItem {
   fullname: string
   /** RUC paraguayo (Punto-PY context). */
   tin: string | null
-  /** Cédula de identidad. */
+  /** Cédula de identidad (o el número del documento extranjero — ver idType). */
   ci: string | null
+  /**
+   * Tipo de documento de identidad (Tabla 3 SET — ver lib/contact-id-types.ts).
+   * `null` para tenants no-PY (feature gateada server-side, ContactService::
+   * isPyTenant) — en esos casos no se muestra ni se manda. Para PY: el valor
+   * persistido, o inferido si el contacto es de antes de esta feature (tiene
+   * RUC → 11, tiene CI → 12, ninguno → 15).
+   */
+  idType: number | null
   /** Fecha cumpleaños YYYY-MM-DD. */
   bday: string | null
   /** Teléfono primary en E.164 (convención §31). */
@@ -190,6 +198,8 @@ export interface ContactFormValues {
   fiscalName: string
   tin: string
   ci: string
+  /** Tipo de documento (Tabla 3 SET). `null` = no elegido / tenant no-PY. */
+  idType: number | null
   bday: string
   phone: string | null // E.164
   email: string
