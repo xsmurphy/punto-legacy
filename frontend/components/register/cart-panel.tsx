@@ -721,10 +721,23 @@ function SpaceChip({
   const spaceSessionId = useCartStore((s) => s.spaceSessionId)
   if (!spaceName) return null
 
+  // Ícono canónico de Espacios (LayoutGrid, MODE_VISUALS) + la palabra
+  // "Espacio": el nombre solo suele ser un número ("10") y arriba del chip de
+  // cliente se leía como un dato suelto, no como el espacio que se está
+  // cobrando. Badge y no texto plano por lo mismo — crudo parecía un error.
+  // Sin tinte de color a propósito: al cobrar, el carrito está en modo venta y
+  // la regla del POS es que cualquier color significa "no estás cobrando"
+  // (context/20 §"Colores de modo del POS").
+  const SpaceIcon = MODE_VISUALS["orden-espacio"].icon
+
   return (
     <div className="flex items-center gap-2 px-3 py-1.5">
-      <div className="flex-1 min-w-0">
-        <p className="truncate text-xs font-medium text-foreground">{spaceName}</p>
+      <div className="flex min-w-0 flex-1">
+        <Badge variant="secondary" className="min-w-0 gap-1.5">
+          {SpaceIcon && <SpaceIcon className="size-3 shrink-0" aria-hidden />}
+          <span className="shrink-0 text-muted-foreground">Espacio</span>
+          <span className="truncate font-medium text-foreground">{spaceName}</span>
+        </Badge>
       </div>
       {spaceSessionId && (
         <Button
