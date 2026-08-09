@@ -101,7 +101,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | RE-TEST (fix `27ab36b6`, 2026-07-31 19:51) |
 | T4 | Descuento de -20% asignado a un cliente desde el panel no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | RESUELTO `ef6bab48` + `e03c8a2e` |
 | T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO — tab de la ficha + reporte general (ver nota abajo) |
-| T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | ABIERTO |
+| T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | RESUELTO — fuente única con el reporte general (ver nota abajo) |
 | T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
 | T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | ABIERTO |
 | T11 | Modal de detalle de transacción: demasiado chico y con la información pobre y cruda. Debería verse como una factura, con el nivel de detalle de la vista de compras (`/purchase/[id]`), no como una tabla de 3 columnas. Reportado con captura por el owner 2026-08-06. | Panel / transacciones | RESUELTO 2026-08-08 — `2c555b39` + `1dc99c45` (ver nota abajo) |
@@ -154,6 +154,16 @@ faltaban ya existían en BD sin devolverse. Fix en dos fases, plan en
 Queda F4 del plan: migrar el detalle del POS al mismo resolver. El campo legacy
 `toTransactions` quedó deprecado (cero INSERT vivo; `transaction_link` lo
 reemplazó).
+
+**T6 — nota**: `ContactAnalyticsService::openInvoicesTotal()` calculaba el saldo
+restando la columna `transactionPaid`, que nadie en el repo escribe (el pago
+real es una transacción vinculada vía `transaction_link`), así que el
+predicado "impaga" siempre era cierto y el KPI daba un número sin sentido —
+mientras el reporte general (`OpenInvoicesService::general()`) sí calculaba
+bien. Fix: se extrajo `OpenInvoicesService::forContact()` (misma lógica
+per-contacto que `general()`, reusa `payedByParent()`) y la ficha del cliente
+pasó a consumirla — una sola definición de "cuánto debe", no dos que puedan
+volver a divergir.
 
 **T4 — DOS defectos encadenados, ambos silenciosos**:
 

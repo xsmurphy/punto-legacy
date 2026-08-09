@@ -65,14 +65,14 @@ final class OpenInvoicesService
         foreach ($byContact as $cid => $invoices) {
             $contact = getContactData($cid, $isToPay ? 'id' : 'uid', true);
             $name = $contact ? getCustomerName($contact) : 'Sin Contacto Asociado';
-            $totalSales = 0.0; $totalPaid = 0.0; $totalDebt = 0.0; $needsTopay = false;
+            $balance = $this->contactBalance($invoices, $payedMap);
+
+            // El conteo de cuentas/vencidas/por-vencer corre sobre TODAS las
+            // facturas del contacto, gated o no (réplica fiel del legacy: un
+            // contacto que terminó de pagar igual aportaba a estos contadores
+            // mientras estuvo en la lista de "incompletas").
             $outInvoices = [];
-
-            foreach ($invoices as $inv) {
-                $payed = $payedMap[$inv['saleId']] ?? 0;
-                $topay = $inv['total'] - $payed;
-                if ($topay > 0) { $needsTopay = true; }
-
+            foreach ($balance['invoices'] as $inv) {
                 $strDue = $inv['dueDate'] ? strtotime($inv['dueDate']) : 0;
                 $dueStatus = ($strDue <= $today) ? 'expired' : 'toExpire';
                 if ($dueStatus === 'expired') { $kExpired++; } else { $kToExpire++; }
@@ -84,15 +84,14 @@ final class OpenInvoicesService
                     'date'      => $inv['date'],
                     'dueDate'   => $inv['dueDate'],
                     'total'     => $inv['total'],
-                    'payed'     => $payed,
-                    'topay'     => $topay,
+                    'payed'     => $inv['payed'],
+                    'topay'     => $inv['topay'],
                     'dueStatus' => $dueStatus,
                 ];
-                $totalSales += $inv['total']; $totalPaid += $payed; $totalDebt += $topay;
             }
 
-            if (!$needsTopay) { continue; }
-            $kTotalDebt += $totalDebt;
+            if (!$balance['needsTopay']) { continue; }
+            $kTotalDebt += $balance['totalDebt'];
 
             $rows[] = [
                 'contactId'  => (string) $cid,
@@ -100,9 +99,9 @@ final class OpenInvoicesService
                 'tin'        => (string) ($contact['ruc'] ?? '-'),
                 'phone'      => (string) ($contact['phone'] ?? ($contact['phone2'] ?? '')),
                 'email'      => (string) ($contact['email'] ?? ''),
-                'totalSales' => $totalSales,
-                'totalPaid'  => $totalPaid,
-                'totalDebt'  => $totalDebt,
+                'totalSales' => $balance['totalSales'],
+                'totalPaid'  => $balance['totalPaid'],
+                'totalDebt'  => $balance['totalDebt'],
                 'invoices'   => $outInvoices,
             ];
         }
@@ -110,6 +109,98 @@ final class OpenInvoicesService
         return ['rows' => $rows, 'kpi' => [
             'totalDebt' => $kTotalDebt, 'accounts' => $kAccounts, 'expired' => $kExpired, 'toExpire' => $kToExpire,
         ]];
+    }
+
+    /**
+     * Saldo pendiente de UN contacto puntual (cuentas por cobrar si
+     * $isCustomer, por pagar si no) — misma fuente de verdad que general():
+     * transacciones a crédito incompletas (transactionComplete = false)
+     * menos lo saldado vía transaction_link (payedByParent, mig 115/123),
+     * decidido por `contactBalance()` (ver docblock ahí — es el mismo método
+     * que usa general() para calcular cada fila, no una réplica).
+     *
+     * Existe para que `ContactAnalyticsService::compute()` (ficha de
+     * contacto) no reimplemente el cálculo del saldo con su propio criterio
+     * — antes leía la columna muerta `transactionPaid` (nadie la escribe) y
+     * divergía en silencio del reporte general.
+     */
+    public function forContact(string $contactId, string $companyId, bool $isCustomer): float
+    {
+        $type       = $isCustomer ? 3 : 4;
+        $contactCol = $isCustomer ? 'customerId' : 'supplierId';
+
+        $sql = "SELECT transactionId as saleId, transactionTotal as total, transactionDiscount as discount
+                FROM transaction
+                WHERE transactionComplete = false AND transactionType = ? AND companyId = ? AND $contactCol = ?";
+        $res = ncmExecute($sql, [$type, $companyId, $contactId], false, false, true);
+        $res = is_array($res) ? $res : [];
+        if (!$res) {
+            return 0.0;
+        }
+
+        $invoices = [];
+        $saleIds  = [];
+        foreach ($res as $f) {
+            $saleId = (string) $f['saleId'];
+            // Proveedor: total crudo. Cliente: total menos descuento (misma regla que general()).
+            $total = $isCustomer
+                ? ((float) $f['total'] - (float) $f['discount'])
+                : (float) $f['total'];
+            $invoices[] = ['saleId' => $saleId, 'total' => $total];
+            $saleIds[]  = $saleId;
+        }
+
+        $payedMap = $this->payedByParent($saleIds, $companyId);
+        $balance  = $this->contactBalance($invoices, $payedMap);
+
+        return $balance['needsTopay'] ? $balance['totalDebt'] : 0.0;
+    }
+
+    /**
+     * Núcleo único de "cuánto debe un contacto": dado su listado de facturas
+     * abiertas (cada una con al menos `saleId`/`total`) y el `payedMap` ya
+     * resuelto (`payedByParent`), resta payed de total factura por factura.
+     * `general()` (reporte agregado, todos los contactos) y `forContact()`
+     * (ficha de un contacto puntual) pasan AMBOS por acá — es la única resta
+     * `total - payed` de la clase. Antes de esta extracción, T6 se debía a
+     * que `ContactAnalyticsService` reimplementaba esta cuenta con su propio
+     * criterio (columna `transactionPaid`, que nadie escribe) y divergía en
+     * silencio del reporte general; ahora no hay una segunda fórmula que
+     * pueda volver a desincronizarse.
+     *
+     * `needsTopay`: alcanza con que UNA factura tenga saldo positivo para que
+     * el contacto cuente como deudor, aunque el neto total dé negativo por
+     * otra factura sobrepagada (réplica fiel del legacy).
+     *
+     * @param array<int,array{saleId:string,total:float,dueDate?:string,invoiceNo?:string,date?:string}> $invoices
+     * @param array<string,float> $payedMap
+     * @return array{needsTopay:bool,totalSales:float,totalPaid:float,totalDebt:float,invoices:array}
+     */
+    private function contactBalance(array $invoices, array $payedMap): array
+    {
+        $needsTopay = false;
+        $totalSales = 0.0; $totalPaid = 0.0; $totalDebt = 0.0;
+        $detail = [];
+
+        foreach ($invoices as $inv) {
+            $payed = $payedMap[$inv['saleId']] ?? 0;
+            $topay = $inv['total'] - $payed;
+            if ($topay > 0) { $needsTopay = true; }
+
+            $totalSales += $inv['total'];
+            $totalPaid  += $payed;
+            $totalDebt  += $topay;
+
+            $detail[] = $inv + ['payed' => $payed, 'topay' => $topay];
+        }
+
+        return [
+            'needsTopay' => $needsTopay,
+            'totalSales' => $totalSales,
+            'totalPaid'  => $totalPaid,
+            'totalDebt'  => $totalDebt,
+            'invoices'   => $detail,
+        ];
     }
 
     /**

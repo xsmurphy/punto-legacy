@@ -16,8 +16,11 @@ namespace Punto\Api\Contacts;
  * transacciones de venta (transactionType IN (0,3)); para proveedores
  * (type=2) por compras (transactionType IN (1,2,4)).
  *
- * Estado financiero (loyalty, store credit, credit line) sale del row de
- * contact directo — no se calcula acá.
+ * Estado financiero: loyalty/store credit/credit line salen del row de
+ * contact directo. El saldo de cuentas por cobrar/pagar (`openInvoices`) NO
+ * se recalcula acá — delega en `OpenInvoicesService::forContact()`, la misma
+ * fuente que usa el reporte general de cuentas por cobrar (evita que ambos
+ * KPIs diverjan con dos definiciones de "cuánto debe").
  */
 final class ContactAnalyticsService
 {
@@ -252,7 +255,7 @@ final class ContactAnalyticsService
             'storeCredit'    => (float) ($contact['contactStoreCredit']   ?? 0),
             'creditLine'     => (float) ($contact['contactCreditLine']    ?? 0),
             'isCreditable'   => (bool)  ((int) ($contact['contactCreditable'] ?? 0) > 0),
-            'openInvoices'   => $this->openInvoicesTotal($contactId, $companyId, $isCustomer),
+            'openInvoices'   => (new \Punto\Api\Reports\OpenInvoicesService())->forContact($contactId, $companyId, $isCustomer),
         ];
 
         // Segmento del cliente (RFM-lite). Reglas simples basadas en frecuencia +
@@ -316,26 +319,6 @@ final class ContactAnalyticsService
             return ['key' => 'en_riesgo', 'label' => 'En riesgo'];
         }
         return ['key' => 'inactivo', 'label' => 'Inactivo'];
-    }
-
-    /**
-     * Total de cuentas por cobrar (cliente) o por pagar (proveedor) abiertas.
-     * Suma del balance de transacciones a crédito sin saldar — el legacy lo
-     * computa restando `transactionPaid` del total. Si la tabla no tiene esa
-     * columna o el cálculo no aplica, devuelve 0 (no rompe el blob).
-     */
-    private function openInvoicesTotal(string $contactId, string $companyId, bool $isCustomer): float
-    {
-        $linkCol = $isCustomer ? 'customerId' : 'supplierId';
-        $type    = $isCustomer ? 3 : 4;
-        $row = $this->fetchOne(
-            "SELECT COALESCE(SUM(transactionTotal - COALESCE(transactionPaid, 0)), 0) AS owed
-             FROM transaction
-             WHERE companyId = ? AND $linkCol = ? AND transactionType = ?
-                   AND COALESCE(transactionPaid, 0) < transactionTotal",
-            [$companyId, $contactId, $type]
-        );
-        return (float) ($row['owed'] ?? 0);
     }
 
     private function labelForTxType(int $type): string
