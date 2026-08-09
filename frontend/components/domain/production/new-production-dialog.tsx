@@ -110,10 +110,16 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
     producibleResults.find((i) => i.itemId === itemId)?.itemName ??
     null
 
+  const wasteNum = wasteUnits ? Number(wasteUnits.replace(",", ".")) : 0
+  // La merma no puede comerse el lote entero: `qtyProduced` (las buenas) tiene
+  // que quedar > 0 o el backend rechaza el completado.
+  const wasteInvalid = !Number.isFinite(wasteNum) || wasteNum < 0 || wasteNum >= qtyNum
+
   const canSubmit = !!itemId && !!outletId && qtyNum > 0
 
   async function handleSubmit(mode: "draft" | "immediate") {
     if (!itemId || !outletId || qtyNum <= 0) return
+    if (mode === "immediate" && wasteInvalid) return
     try {
       await create.mutateAsync({
         itemId,
@@ -125,8 +131,12 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
         note: note || null,
         ...(mode === "immediate"
           ? {
-              qtyProduced: qtyNum,
-              wasteUnits: wasteUnits ? Number(wasteUnits.replace(",", ".")) : 0,
+              // `qtyProduced` son las unidades BUENAS, no el lote: las
+              // falladas van aparte en `wasteUnits`. Mandar el lote completo
+              // acreditaba a stock las 10 unidades Y registraba las 2 de
+              // merma — 12 unidades de un lote de 10.
+              qtyProduced: qtyNum - wasteNum,
+              wasteUnits: wasteNum,
               wasteReasonId: wasteReasonId === NO_LOCATION ? null : wasteReasonId,
             }
           : {}),
@@ -293,9 +303,17 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
 
           {itemId && outletId && qtyNum > 0 && (
             <div className="space-y-3 rounded-md border p-3">
-              <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Si producís ahora (opcional)
-              </p>
+              {/* "Si producís ahora (opcional)" no decía qué era ni cuándo
+                  aplicaba. Estos campos SOLO viajan con "Producir ahora": el
+                  camino "Crear orden" los descarta, porque la merma se conoce
+                  recién al terminar de producir. */}
+              <div className="space-y-0.5">
+                <p className="text-sm font-medium">Merma</p>
+                <p className="text-xs text-muted-foreground">
+                  Unidades que salieron falladas. No entran al stock, pero su costo se
+                  reparte entre las que sí. Solo se registra con &quot;Producir ahora&quot;.
+                </p>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label>Unidades con merma</Label>
@@ -307,7 +325,14 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
                     value={wasteUnits}
                     onChange={(e) => setWasteUnits(e.target.value)}
                     placeholder="0"
+                    aria-invalid={wasteInvalid}
                   />
+                  {wasteInvalid && (
+                    <p className="text-xs text-destructive">
+                      Tiene que ser menor que las {formatInt(qtyNum, bootstrap)} unidades
+                      del lote.
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <Label>Motivo de merma</Label>
@@ -342,7 +367,10 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
             {create.isPending && <Loader2 className="size-4 animate-spin" />}
             Crear orden
           </Button>
-          <Button disabled={!canSubmit || create.isPending} onClick={() => handleSubmit("immediate")}>
+          <Button
+            disabled={!canSubmit || wasteInvalid || create.isPending}
+            onClick={() => handleSubmit("immediate")}
+          >
             {create.isPending && <Loader2 className="size-4 animate-spin" />}
             Producir ahora
           </Button>
@@ -437,9 +465,13 @@ function RecipePreview({
         })}
       </div>
       {!isEnough && (
+        // El aviso es informativo: la orden se puede crear y completar igual
+        // (el stock de insumos se descuenta al completar y puede quedar en
+        // negativo, es una decisión del negocio). El texto dice qué significa
+        // para quien produce, no cómo está implementado.
         <p className="text-xs text-destructive">
-          Stock insuficiente para {formatInt(qty, bootstrap)} unidades. El backend igual
-          permite completar — este preview es orientativo.
+          No alcanza el stock de insumos para {formatInt(qty, bootstrap)} unidades. Podés
+          crear la orden igual y el stock va a quedar en negativo.
         </p>
       )}
     </div>

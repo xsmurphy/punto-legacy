@@ -48,27 +48,33 @@ final class ProductionService
     /** @return array<int,array<string,mixed>> */
     public function list(string $companyId, array $filters = []): array
     {
-        $where  = ['companyid = ?'];
+        // TODAS las columnas van calificadas con `po.`: `production_order` e
+        // `item` comparten `companyid`, `created_at` y `itemid`, así que un
+        // `WHERE companyid = ?` suelto es ambiguo y PG aborta la query entera
+        // ("column reference companyid is ambiguous"). El listado quedaba
+        // SIEMPRE vacío — parecía "no hay órdenes" y era un error de SQL.
+        // Mismo criterio que listWaste(), que ya calificaba todo con `we.`.
+        $where  = ['po.companyid = ?'];
         $params = [$companyId];
 
         if (!empty($filters['status'])) {
-            $where[]  = 'status = ?';
+            $where[]  = 'po.status = ?';
             $params[] = (string) $filters['status'];
         }
         if (!empty($filters['outletId'])) {
-            $where[]  = 'outletid = ?';
+            $where[]  = 'po.outletid = ?';
             $params[] = (string) $filters['outletId'];
         }
         if (!empty($filters['from'])) {
-            $where[]  = 'created_at >= ?';
+            $where[]  = 'po.created_at >= ?';
             $params[] = (string) $filters['from'];
         }
         if (!empty($filters['to'])) {
-            $where[]  = 'created_at <= ?';
+            $where[]  = 'po.created_at <= ?';
             $params[] = (string) $filters['to'];
         }
         if (!empty($filters['q'])) {
-            $where[]  = 'itemid IN (SELECT itemid FROM item WHERE companyid = ? AND itemname ILIKE ?)';
+            $where[]  = 'po.itemid IN (SELECT itemid FROM item WHERE companyid = ? AND itemname ILIKE ?)';
             $params[] = $companyId;
             $params[] = '%' . $filters['q'] . '%';
         }
@@ -80,8 +86,16 @@ final class ProductionService
                  ORDER BY po.created_at DESC
                  LIMIT 500';
 
+        // Un error de query NO es "no hay órdenes": `Execute` traga la
+        // PDOException y devuelve false, y devolver [] acá convertía un SQL
+        // roto en un listado vacío perfectamente creíble. Es exactamente lo que
+        // escondió el bug de arriba. Que reviente y llegue a GlitchTip.
         $rs = $this->db->Execute($sql, $params);
-        if ($rs === false) return [];
+        if ($rs === false) {
+            throw new \RuntimeException(
+                'No se pudo listar las órdenes de producción: ' . $this->db->ErrorMsg()
+            );
+        }
         $out = [];
         foreach ($rs->GetRows() as $row) {
             $out[] = $this->present($row);
@@ -336,6 +350,23 @@ final class ProductionService
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \InvalidArgumentException('wasteUnits no puede ser negativo');
+        }
+
+        // `qtyProduced` son las unidades BUENAS del lote y `wasteUnits` las
+        // falladas: entre las dos no pueden superar el lote intentado. Sin este
+        // guard, un caller que mandara qtyProduced = lote completo Y merma por
+        // separado acreditaba a stock el lote entero y además registraba la
+        // merma — más unidades de las que se produjeron, con el costo del lote
+        // repartido sobre una base inflada.
+        // Epsilon por el float: las cantidades pueden ser decimales (0.5 kg).
+        $qtyPlanned = (float) ($order['qtyplanned'] ?? 0);
+        if ($qtyPlanned > 0 && ($qtyProduced + $wasteUnits) > $qtyPlanned + 1e-9) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \InvalidArgumentException(
+                'Las unidades buenas más las falladas (' . ($qtyProduced + $wasteUnits) .
+                ') no pueden superar el lote producido (' . $qtyPlanned . ')'
+            );
         }
 
         $wasteReasonId = (isset($data['wasteReasonId']) && $data['wasteReasonId'] !== '')
@@ -700,8 +731,14 @@ final class ProductionService
                  ORDER BY we.created_at DESC
                  LIMIT 500';
 
+        // Mismo criterio que list(): un error de query no puede disfrazarse de
+        // "no hubo mermas".
         $rs = $this->db->Execute($sql, $params);
-        if ($rs === false) return [];
+        if ($rs === false) {
+            throw new \RuntimeException(
+                'No se pudo listar las mermas: ' . $this->db->ErrorMsg()
+            );
+        }
         $out = [];
         foreach ($rs->GetRows() as $row) {
             $out[] = [
