@@ -785,6 +785,44 @@ export function useTransactionDetail(id: string | null) {
   })
 }
 
+/**
+ * Corrige fechas y montos de una caja ya registrada (`action=correct`).
+ *
+ * A diferencia de `close`, que solo actúa sobre una caja abierta, esto pisa
+ * los cuatro campos de una caja YA cerrada — es la corrección de un arqueo
+ * mal cargado. El backend lo scopea por companyId; acá solo se manda el id.
+ *
+ * `closeDate` vacío deja la caja como abierta (el backend lo persiste NULL):
+ * es la forma de revertir un cierre hecho por error.
+ */
+export function useCorrectDrawer() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: {
+      drawerId: string
+      openDate: string
+      openAmount: number
+      closeDate: string
+      closeAmount: number
+    }) =>
+      api.post<{ id: string; action: string }>("/v1/reports/drawers", {
+        action: "correct",
+        id: vars.drawerId,
+        openDate: vars.openDate,
+        openAmount: vars.openAmount,
+        closeDate: vars.closeDate,
+        closeAmount: vars.closeAmount,
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reports", "drawers"] })
+      // El arqueo alimenta el resumen de caja del POS y los reportes de
+      // efectivo: si se corrige el monto, esos números también cambian.
+      qc.invalidateQueries({ queryKey: ["reports", "cashflow"] })
+      qc.invalidateQueries({ queryKey: ["drawer"] })
+    },
+  })
+}
+
 /** Cierra una caja desde el panel (realm panel, companyId por JWT). */
 export function useCloseDrawerPanel() {
   const qc = useQueryClient()

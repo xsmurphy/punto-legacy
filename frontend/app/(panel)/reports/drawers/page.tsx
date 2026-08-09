@@ -12,18 +12,20 @@
  * de venta (`sold`, `expense`, `income`, `return`) para el cálculo de la
  * diferencia entre caja teórica y caja contada.
  *
- * Acciones (cerrar / corregir / eliminar) las deja como follow-up — este
- * slice cubre solo el listado y la diferencia, que es el 80% del uso real.
+ * Corregir el arqueo (fechas y montos de apertura/cierre) se hace desde el
+ * menú de la fila — el cierre se carga a mano en el POS y se equivoca. Cerrar
+ * y eliminar una caja siguen sin exponerse acá.
  */
 
 import * as React from "react"
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, ArrowDown, ArrowUp, Wallet } from "lucide-react"
+import { AlertCircle, ArrowLeft, ArrowDown, ArrowUp, Pencil, Wallet } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import {
   DateRangePicker,
   rangeToBackend,
@@ -33,6 +35,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type DrawerRow, type DrawersReportResponse } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { DrawerDetailModal } from "@/components/reports/drawer-detail-modal"
+import { DrawerCorrectDialog } from "@/components/reports/drawer-correct-dialog"
 import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/empty-state"
 import { formatDateTime } from "@/lib/format-date"
@@ -41,6 +44,7 @@ export default function DrawersReportPage() {
   const { data: bootstrap } = useBootstrap()
   const { range, setRange } = useDateRange()
   const [selectedDrawer, setSelectedDrawer] = React.useState<DrawerRow | null>(null)
+  const [correctDrawer, setCorrectDrawer] = React.useState<DrawerRow | null>(null)
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const { data, isLoading, error } = useReport<DrawersReportResponse>("drawers", opts)
@@ -175,6 +179,26 @@ export default function DrawersReportPage() {
         },
         meta: { label: "Diferencia", className: "tabular-nums" },
       },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => (
+          // stopPropagation: la fila entera abre el detalle (onRowClick) y sin
+          // esto abrir el menú abriría también el modal de detrás.
+          <div onClick={(e) => e.stopPropagation()}>
+            <RowActions
+              actions={[
+                {
+                  label: "Corregir arqueo",
+                  icon: Pencil,
+                  onSelect: () => setCorrectDrawer(row.original),
+                },
+              ]}
+            />
+          </div>
+        ),
+        meta: { className: "w-12" },
+      },
     ],
     [bootstrap, computeDiff],
   )
@@ -228,6 +252,11 @@ export default function DrawersReportPage() {
           // El hook ya invalida la query — solo cerramos el modal.
           setSelectedDrawer(null)
         }}
+      />
+
+      <DrawerCorrectDialog
+        drawer={correctDrawer}
+        onClose={() => setCorrectDrawer(null)}
       />
     </div>
   )
