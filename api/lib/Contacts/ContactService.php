@@ -39,11 +39,73 @@ final class ContactService
     const TYPE_CUSTOMER = 1;
     const TYPE_SUPPLIER = 2;
 
+    /**
+     * Tabla 3 de la SET ("Especificación Técnica para Importación", SET,
+     * junio 2021) — tipo de documento de identidad del receptor. Feature
+     * exclusiva de Paraguay (brief 2026-08-08, cliente extranjero + FE).
+     *
+     * OJO: esto NO es la codificación que usa la API de Factomate para su
+     * propio campo `identityDocumentTypeCode` (catálogo `IdentityDocumentType/
+     * Get`, ej. 1=CÉDULA, 2=PASAPORTE, 5=INNOMINADO). Son dos tablas
+     * distintas — el mapeo explícito entre ambas vive en
+     * SaleToInvoiceMapper::mapIdType(), no acá.
+     */
+    const ID_TYPE_RUC                        = 11;
+    const ID_TYPE_CEDULA                     = 12;
+    const ID_TYPE_PASAPORTE                  = 13;
+    const ID_TYPE_CEDULA_EXTRANJERA          = 14;
+    const ID_TYPE_SIN_NOMBRE                 = 15;
+    const ID_TYPE_DIPLOMATICO                = 16;
+    const ID_TYPE_IDENTIFICACION_TRIBUTARIA  = 17;
+    const ID_TYPES = [
+        self::ID_TYPE_RUC, self::ID_TYPE_CEDULA, self::ID_TYPE_PASAPORTE,
+        self::ID_TYPE_CEDULA_EXTRANJERA, self::ID_TYPE_SIN_NOMBRE,
+        self::ID_TYPE_DIPLOMATICO, self::ID_TYPE_IDENTIFICACION_TRIBUTARIA,
+    ];
+
     private ContactRepository $repo;
+
+    /** Cache in-memory del país del tenant por companyId — un request nunca
+        mezcla tenants, así que 1 lookup por companyId alcanza. Ver isPyTenant(). */
+    private array $countryCache = [];
 
     public function __construct(ContactRepository $repo)
     {
         $this->repo = $repo;
+    }
+
+    /**
+     * Único lugar server-side que decide si el tenant puede usar
+     * `contactIdType`: la feature es exclusiva de Paraguay (brief 2026-08-08).
+     * Tanto la escritura (create/update) como la lectura (presentRow) pasan
+     * por acá — así el gate no se repite ni se puede desincronizar entre
+     * ambos lados.
+     */
+    private function isPyTenant(string $companyId): bool
+    {
+        if (!array_key_exists($companyId, $this->countryCache)) {
+            $this->countryCache[$companyId] = $this->repo->companyCountry($companyId) === 'PY';
+        }
+        return $this->countryCache[$companyId];
+    }
+
+    /**
+     * Regla de inferencia para contactos creados ANTES de esta feature
+     * (2026-08-08) que no tienen `contactIdType` persistido (columna NULL):
+     *   tiene RUC → 11, si no tiene CI → 12, si no → 15 (innominado).
+     * Pública y estática porque EInvoiceService también la necesita al armar
+     * el receptor del documento electrónico — single source of truth, no se
+     * duplica la regla entre el CRUD de contactos y el pipeline de FE.
+     */
+    public static function inferIdType(?string $tin, ?string $ci): int
+    {
+        if (trim((string) $tin) !== '') {
+            return self::ID_TYPE_RUC;
+        }
+        if (trim((string) $ci) !== '') {
+            return self::ID_TYPE_CEDULA;
+        }
+        return self::ID_TYPE_SIN_NOMBRE;
     }
 
     /**
@@ -68,6 +130,24 @@ final class ContactService
         // Fix de bug legacy: edit_customer.php escribía `ci` en contactTIN.
         if (isset($in['ci']))    $rec['contactCI'] = $in['ci'];
         if (!empty($in['bday'])) $rec['contactBirthDay'] = $in['bday'];
+
+        // Tipo de documento (Tabla 3 SET) — feature exclusiva de Paraguay.
+        // mapToColumns es un mapper puro sin acceso a companyId, así que acá
+        // SOLO valida que el código exista en el set permitido; el gate de
+        // país (¿se persiste o se ignora?) vive en create()/update(), que sí
+        // conocen el tenant (ver isPyTenant()). '' o null limpia el campo
+        // (contacto vuelve a inferirse on-read).
+        if (array_key_exists('idType', $in)) {
+            if ($in['idType'] === null || $in['idType'] === '') {
+                $rec['contactIdType'] = null;
+            } else {
+                $idType = (int) $in['idType'];
+                if (!in_array($idType, self::ID_TYPES, true)) {
+                    throw new InvalidArgumentException("Tipo de documento inválido: {$in['idType']}");
+                }
+                $rec['contactIdType'] = $idType;
+            }
+        }
 
         // Migración 25 (2026-06-13): los siguientes campos viven en `data` JSONB.
         // ncmInsert/ncmUpdate los enrutan automáticamente vía _routeToJsonb porque
@@ -155,6 +235,13 @@ final class ContactService
         $rec['contactDate']   = TODAY;
         $rec['updated_at']    = TODAY;
 
+        // contactIdType es exclusivo de Paraguay — un tenant de otro país que
+        // mande el campo igual (ej. cliente viejo del form cacheado) lo ve
+        // ignorado en silencio, no rechazado: no es un error del cajero.
+        if (!$this->isPyTenant($companyId)) {
+            unset($rec['contactIdType']);
+        }
+
         $newId = $this->repo->create($rec);
         if ($newId === false) {
             throw new RuntimeException('No se pudo crear el contacto');
@@ -174,6 +261,11 @@ final class ContactService
     {
         $rec = self::mapToColumns($in);
         $rec['updated_at'] = TODAY;
+
+        // Mismo gate que create() — ver comentario ahí.
+        if (!$this->isPyTenant($companyId)) {
+            unset($rec['contactIdType']);
+        }
 
         $ok = $this->repo->update($id, $companyId, $rec);
         if (!$ok) return false;
@@ -318,6 +410,18 @@ final class ContactService
         $id      = (string) $row['contactId'];
         $address = $this->repo->defaultAddress($id, $companyId);
 
+        // idType: null para tenants no-PY (feature no existe para ellos,
+        // mismo gate que la escritura — ver isPyTenant()). Para PY: el valor
+        // persistido, o inferido si el contacto es de antes de esta feature
+        // (contactIdType NULL) — ver inferIdType().
+        $idType = null;
+        if ($this->isPyTenant($companyId)) {
+            $storedIdType = $row['contactIdType'] ?? null;
+            $idType = $storedIdType !== null
+                ? (int) $storedIdType
+                : self::inferIdType($row['contactTIN'] ?? null, $row['contactCI'] ?? null);
+        }
+
         return [
             'id'          => $id,
             'UID'         => $id,
@@ -325,6 +429,7 @@ final class ContactService
             'fullname'    => toUTF8($row['contactSecondName'] ?? ''),
             'tin'         => $row['contactTIN'] ?? null,
             'ci'          => $row['contactCI'] ?? null,
+            'idType'      => $idType,
             'bday'        => $row['contactBirthDay'] ?? null,
             'phone'       => $row['contactPhone'] ?? null,
             // contactPhone2 ELIMINADO de la tabla (Migración 25). El front ya

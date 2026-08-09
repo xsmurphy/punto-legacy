@@ -149,7 +149,13 @@ switch ($method) {
         unset($patch['id'], $patch['contactId'], $patch['companyId'], $patch['type']);
         if (empty($patch)) apiError('Patch vacío', 422);
 
-        if (!$service->update($id, COMPANY_ID, $patch)) {
+        try {
+            $updated = $service->update($id, COMPANY_ID, $patch);
+        } catch (\InvalidArgumentException $e) {
+            // Ej.: idType fuera de la Tabla 3 de la SET (ContactService::ID_TYPES).
+            apiError($e->getMessage(), 422);
+        }
+        if (!$updated) {
             apiError('Update falló', 500);
         }
 

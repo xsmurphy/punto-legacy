@@ -1485,7 +1485,12 @@ if (!function_exists('_getTableSchema')) {
                                'contactStatus', 'contactLastNotificationSeen', 'debtLastNotify',
                                'type', 'main', 'role', 'lockPass', 'salt', 'parentId', 'categoryId',
                                'userId', 'outletId', 'companyId', 'updated_at', 'data',
-                               'lockPassHash', 'pinhash'],
+                               'lockPassHash', 'pinhash',
+                               // mig 125 — contactIdType (Tabla 3 SET, cliente extranjero).
+                               // Columna real: si falta acá, ncmInsert/ncmUpdate la enruta en
+                               // silencio al JSONB `data` (mismo bug que hasVariants/pinhash,
+                               // ver comentarios arriba).
+                               'contactIdType'],
             ],
             'transaction' => [
                 'pk'       => 'transactionId',

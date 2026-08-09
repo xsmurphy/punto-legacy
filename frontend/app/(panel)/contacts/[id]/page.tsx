@@ -81,6 +81,7 @@ import {
 import { ContactDetailView } from "@/components/domain/contacts/contact-detail-view"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { ApiError } from "@/lib/api-client"
+import { CONTACT_ID_TYPES, ciFieldCopyForIdType } from "@/lib/contact-id-types"
 
 const contactSchema = z
   .object({
@@ -89,6 +90,7 @@ const contactSchema = z
     fiscalName: z.string(),
     tin: z.string(),
     ci: z.string(),
+    idType: z.number().nullable(),
     bday: z.string(),
     phone: z.string().nullable(),
     email: z.union([z.string().email("Email inválido"), z.literal("")]),
@@ -167,6 +169,7 @@ function ContactEditPageInner() {
       fiscalName: kind === "empresa" ? data.name ?? "" : "",
       tin: data.tin ?? "",
       ci: data.ci ?? "",
+      idType: data.idType ?? null,
       bday: data.bday ?? "",
       phone: data.phone ?? null,
       email: data.email ?? "",
@@ -255,7 +258,13 @@ function ContactEditPageInner() {
             </Button>
           </div>
         </header>
-        <ContactFormBody form={form} kind={kind} country={country} setCountry={setCountry} />
+        <ContactFormBody
+          form={form}
+          kind={kind}
+          country={country}
+          setCountry={setCountry}
+          isPyTenant={bootstrap?.country === "PY"}
+        />
       </form>
     </Form>
   )
@@ -269,13 +278,18 @@ function ContactFormBody({
   kind,
   country,
   setCountry,
+  isPyTenant,
 }: {
   form: UseFormReturn<ContactFormValues>
   kind: "persona" | "empresa"
   country: CountryCode
   setCountry: (c: CountryCode) => void
+  /** País del TENANT (Bootstrap.country === "PY") — gate exclusivo de contactIdType. */
+  isPyTenant: boolean
 }) {
   const { data: priceLists } = usePriceLists()
+  const idType = form.watch("idType")
+  const ciCopy = ciFieldCopyForIdType(idType)
   return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Identificación */}
@@ -346,6 +360,46 @@ function ContactFormBody({
               </>
             )}
 
+            {/* Solo para PERSONA: una empresa es contribuyente por definición y
+                se identifica con su RUC. `SaleToInvoiceMapper::buildClient()`
+                ignora el idType en la rama 'contribuyente', así que mostrar el
+                selector ahí haría creer que se configuró un pasaporte o un
+                carnet diplomático en una empresa cuando la emisión no lo mira. */}
+            {isPyTenant && kind === "persona" && (
+              <FormField
+                control={form.control}
+                name="idType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de documento</FormLabel>
+                    <Select
+                      value={String(field.value ?? 12)}
+                      onValueChange={(v) => field.onChange(Number(v))}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {CONTACT_ID_TYPES.map((t) => (
+                          <SelectItem key={t.code} value={String(t.code)}>
+                            {t.label}
+                            {t.noEinvoice && (
+                              <span className="text-xs text-muted-foreground">
+                                · sin factura electrónica
+                              </span>
+                            )}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
+
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <FormField
                 control={form.control}
@@ -369,10 +423,10 @@ function ContactFormBody({
                 name="ci"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>CI</FormLabel>
+                    <FormLabel>{isPyTenant ? ciCopy.label : "CI"}</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Ej: 1234567"
+                        placeholder={isPyTenant ? ciCopy.placeholder : "Ej: 1234567"}
                         className="tabular-nums"
                         {...field}
                       />
@@ -526,6 +580,10 @@ function emptyValues(): ContactFormValues {
     fiscalName: "",
     tin: "",
     ci: "",
+    // 12 (cédula) explícito, no null: el Select pintaba "Cédula" por fallback
+    // cosmético sin haber llamado nunca a onChange, así que lo que se veía y
+    // lo que se enviaba podían diferir. Con el default real coinciden.
+    idType: 12,
     bday: "",
     phone: null,
     email: "",

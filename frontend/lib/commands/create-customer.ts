@@ -41,8 +41,15 @@ export interface CreateCustomerPayload {
   email?: string
   /** RUC / documento fiscal. */
   tin?: string
-  /** Cédula de identidad. */
+  /** Cédula de identidad (o el número del documento extranjero — ver idType). */
   ci?: string
+  /**
+   * Tipo de documento (Tabla 3 SET, ver lib/contact-id-types.ts) — exclusivo
+   * de Paraguay. `undefined` = no mandar el campo (tenant no-PY, o cajero no
+   * tocó el selector). El backend ignora el campo igual si el tenant no es
+   * PY (ContactService::isPyTenant), esto es solo para no mandar ruido.
+   */
+  idType?: number
   note?: string
 }
 
@@ -75,6 +82,7 @@ export async function executeCreateCustomer(
     phone: payload.phone ?? undefined,
     tin: payload.tin ?? undefined,
     ci: payload.ci ?? undefined,
+    idType: payload.idType ?? undefined,
     email: payload.email ?? undefined,
     note: payload.note ?? undefined,
     // type 1 = cliente (TYPE_CUSTOMER en ContactService)
