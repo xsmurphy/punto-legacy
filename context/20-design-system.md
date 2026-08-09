@@ -474,6 +474,28 @@ Ver §2 — `.pos-scope` sube inputs/textareas a `1.0625rem` / `font-weight:
 600` / `letter-spacing: 0.025em` para lectura rápida sin esfuerzo del
 cajero.
 
+**PROHIBIDO tocar el `font-size` de un input dentro del POS.** Nada de
+`text-2xl`, `text-base` ni `text-lg` en un `<Input>` bajo `.pos-scope`:
+el selector `.pos-scope input[type="text"]` de `globals.css` tiene
+especificidad `0,2,1` y le gana a cualquier clase utilitaria (`0,1,0`), así
+que la clase **no hace nada** — es código muerto que hace creer al próximo
+que lee que el tamaño se controla ahí.
+
+Lo que sí se ajusta es el **alto**: `h-10` es el default para un input que
+comparte fila con un botón (`Validar`, lupa del padrón, etc.). Un `h-14` deja
+el campo 20px más alto que el botón de al lado y se ve desalineado — fue el
+bug de los diálogos de Vale y Giftcard (2026-08-09).
+
+Shape canónico de un input de código/identificador en el POS
+(`payment-identifier-dialog.tsx` es la referencia):
+
+```tsx
+<div className="flex gap-2">
+  <Input className="h-10 flex-1 tabular-nums text-center" … />
+  <Button variant="outline">Validar</Button>
+</div>
+```
+
 ### Shortcuts globales (`hooks/use-pos-hotkeys.ts`)
 
 | Tecla | Acción |
@@ -670,6 +692,8 @@ del sistema):
 
 | Fecha | Decisión | Commit | Razón |
 |---|---|---|---|
+| 2026-08-09 | Sidebar del POS ordenado por naturaleza del item: arriba NAVEGACIÓN (HotKeys, Órdenes, Espacios, Guardadas), en el footer los CONTROLES DE ESTADO de la caja (Modo, Bloquear). Los MODOS del POS (Venta/Orden/Cotización/Remisión/Cita) salieron del drawer de Opciones a un selector propio (`PosModeDialog`, cards con el color de `MODE_VISUALS`); el drawer queda SOLO con acciones, filtradas por el modo en curso vía `modes` por opción | `2fce3313`, `c42aaccf` | Owner: un modo cambia el POS entero, una acción opera sobre la transacción en curso — mezclarlos hacía ilegible el menú y mostraba opciones que no aplican (descuento en una orden) |
+| 2026-08-09 | PROHIBIDO setear `font-size` en un `<Input>` bajo `.pos-scope` (§7): el selector de `globals.css` gana por especificidad y la clase es código muerto. El alto sí se ajusta — `h-10` para inputs que comparten fila con un botón | `c42aaccf` | `h-14 text-2xl` copiado en los diálogos de Vale y Giftcard: campo 20px más alto que el botón de al lado, y el `text-2xl` nunca se aplicaba |
 | 2026-08-08 | Menú de acciones de fila (`RowActions`): ítems TEXTO SOLO — sin iconos dentro del dropdown (el `icon` del `RowAction` queda solo para el colapso a botón suelto, donde el icono ES el botón) y sin prefijos redundantes tipo "Marcar como X" — el label es la acción a secas ("Cobrado/Debitado", no "Marcar como Cobrado/Debitado"). Aplicado en el wrapper `components/data-table/row-actions.tsx`, alcanza los 14 consumidores | — | Owner: en un menú de acciones el contexto ya es obvio; el prefijo y los iconos son ruido |
 | 2026-08-01 | `DialogContent` gana `mobileFullscreen` (**OPT-IN, default false**): fullscreen bajo `sm` SOLO para modales de CONTENIDO (listados, módulos de ruta del POS, paneles de dos columnas). Los modales chicos tipo confirmación (nota de venta, lista de precios, modificador de precio, descuento, alerts) quedan CENTRADOS con `max-h-[85dvh]` — el intento de fullscreen-por-default se revirtió el mismo día: pegaba los command-palette a top-0 y agrandaba los confirms a pantalla entera (dos regresiones reportadas por el owner). `content-start` obligatorio en el modo fullscreen (grid + alto fijo estira header/footer). Un dialog que necesite fullscreen por encima de 640px (ej. módulos del POS, breakpoint 768 de `useIsMobile`) declara las clases explícitas con `!` | — | Modales de contenido inutilizables en viewport móvil del POS; los confirm chicos NO se mezclan — decisión owner |
 | 2026-07-31 | Campos dentro de una card `soft` van con fill sólido (`--background`), no con el `bg-input/50` default: la regla vive en `app/globals.css` colgada de `[data-slot="card"][data-variant="soft"]` y alcanza `input`/`textarea`/`select-trigger`. Una card `default` anidada adentro de una soft revierte al fill translúcido (segunda regla, mismo peso, gana por orden). No pintar `bg-background` input por input. Corolario: toda superficie gris se declara con `<Card variant="soft">` — el `bg-[#f3f4f6] dark:bg-muted` a mano no matchea el selector y se queda sin la regla (migrados: aside de `/purchase`, `FinanceCard`/`CustomersCard`/`InfoGeneralCard`/`PlanSidebarCard` del dashboard) | — | Sobre gris, el input translúcido se funde con la card y deja de leerse como campo (reportado por el owner) |
