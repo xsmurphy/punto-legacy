@@ -561,8 +561,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         void posApi.post("/v1/giftcards?resource=consume", {
           code: gcPayment.identifier,
           transactionId: result.transactionId,
-        }).catch(() => {
-          toast.error("Venta confirmada — giftcard pendiente de sincronización. Avisá al soporte.")
+        }).catch((err) => {
+          // El endpoint distingue no-encontrada/vencida/ya-consumida/conflicto
+          // (api/v1/giftcards.php resource=consume) — mostrar el motivo real,
+          // no un genérico: la venta YA está confirmada, así que soporte
+          // necesita saber SI HAY que reconciliar el saldo a mano.
+          const reason = err instanceof Error ? err.message : "error desconocido"
+          toast.error(`Venta confirmada — giftcard no se pudo canjear (${reason}). Avisá al soporte.`)
         })
       }
 

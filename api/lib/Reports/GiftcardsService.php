@@ -105,10 +105,37 @@ final class GiftcardsService
      *
      * `value` edita SOLO currentBalance (saldo disponible) — initialBalance
      * queda intacto como registro histórico de lo emitido/vendido.
+     *
+     * Código único case-insensitive: mismo criterio que
+     * SaleService::issueGiftCard() (emisión desde la venta) — el canje
+     * (api/v1/giftcards.php validate/consume) matchea con
+     * UPPER(code)=UPPER(?), y el índice uq_giftcard_company_code_ci (mig 126)
+     * es sobre UPPER(code), así que esta UPDATE (la otra escritura de `code`
+     * en el repo, vía panel) normaliza a mayúsculas y pre-chequea unicidad
+     * ANTES de tocar la fila — sin esto, editar el código desde el panel
+     * podía recrear el mismo bug de plata fantasma que la mig 126 cierra
+     * para la emisión.
+     *
+     * @throws \InvalidArgumentException si el código editado ya existe en
+     *         OTRA gift card del mismo tenant (case-insensitive) — el
+     *         caller (api/v1/reports/giftcards.php) lo traduce a 422.
      */
     public function update(string $id, array $data, string $companyId): bool
     {
         global $db;
+
+        $code = strtoupper(trim((string) ($data['code'] ?? '')));
+        if ($code !== '') {
+            $dup = $db->Execute(
+                'SELECT id FROM giftcard
+                  WHERE "companyId" = ? AND UPPER(code) = UPPER(?) AND id != ?
+                  LIMIT 1',
+                [$companyId, $code, $id]
+            );
+            if ($dup && !$dup->EOF) {
+                throw new \InvalidArgumentException("El código de gift card '{$code}' ya existe — usá otro");
+            }
+        }
 
         // beneficiaryContactId SOLO se persiste si el lookup scopeado por
         // companyId lo confirma — si el UUID no existe o pertenece a OTRO
@@ -137,7 +164,7 @@ final class GiftcardsService
                     "beneficiaryContactId" = ?, "beneficiaryName" = ?
               WHERE id = ? AND "companyId" = ?',
             [
-                (string) ($data['code'] ?? ''),
+                $code,
                 (float) ($data['value'] ?? 0),
                 ($expires !== '' ? $expires : null),
                 ($note !== '' ? $note : null),
@@ -147,6 +174,18 @@ final class GiftcardsService
                 $companyId,
             ]
         );
+        if ($r === false) {
+            // Carrera concurrente contra uq_giftcard_company_code_ci (mig 126)
+            // que el pre-check de arriba no alcanzó a ver — mismo criterio que
+            // SaleService::issueGiftCard(). Cualquier otra falla de UPDATE
+            // sigue devolviendo false (comportamiento previo, sin exception).
+            $err = $db->ErrorMsg();
+            if (stripos($err, '23505') !== false
+                || stripos($err, 'unique') !== false
+                || stripos($err, 'duplicate') !== false) {
+                throw new \InvalidArgumentException("El código de gift card '{$code}' ya existe — usá otro");
+            }
+        }
         return $r !== false;
     }
 

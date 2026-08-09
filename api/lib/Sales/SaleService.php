@@ -1031,7 +1031,14 @@ final class SaleService
     private function issueGiftCard(array $sD, string $itemId, string $transId, string $companyId): void
     {
         $gc   = is_array($sD['giftcard'] ?? null) ? $sD['giftcard'] : [];
-        $code = trim((string) ($gc['code'] ?? ''));
+        // Normalizado a MAYÚSCULAS acá (no solo confiar en el front): el
+        // canje (api/v1/giftcards.php validate/consume) matchea con
+        // UPPER(code) = UPPER(?), y el índice único es sobre UPPER(code)
+        // (mig 126) — si acá se guardara el case tal cual lo tipeó el
+        // cajero, "GC-ABC" y "gc-abc" serían DOS filas distintas para el
+        // índice pero la MISMA gift card para el canje (que resuelve con
+        // LIMIT 1 y se queda con una sola, arbitrariamente) — plata fantasma.
+        $code = strtoupper(trim((string) ($gc['code'] ?? '')));
         if ($code === '') {
             throw new InvalidSaleInputException('Falta el código de la gift card');
         }
@@ -1051,10 +1058,13 @@ final class SaleService
             throw new InvalidSaleInputException('La gift card debe tener un monto mayor a 0');
         }
 
-        // Pre-check de unicidad (companyId, code) — mensaje claro y rápido.
-        // La UNIQUE INDEX (mig 78) es la garantía real ante carrera concurrente.
+        // Pre-check de unicidad (companyId, UPPER(code)) — mensaje claro y
+        // rápido. El índice único case-insensitive (mig 126,
+        // uq_giftcard_company_code_ci sobre UPPER(code)) es la garantía real
+        // ante carrera concurrente entre dos devices — este SELECT es solo
+        // UX (mensaje legible en vez del 23505 crudo de más abajo).
         $dup = $this->db->Execute(
-            'SELECT id FROM giftcard WHERE "companyId" = ? AND code = ? LIMIT 1',
+            'SELECT id FROM giftcard WHERE "companyId" = ? AND UPPER(code) = UPPER(?) LIMIT 1',
             [$companyId, $code]
         );
         if ($dup && !$dup->EOF) {

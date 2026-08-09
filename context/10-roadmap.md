@@ -97,7 +97,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | # | Qué pasa | Dónde | Estado |
 |---|---|---|---|
 | T1 | Cobro por partes en una mesa: la venta se confirma pero el pago parcial NO se registra en la cuenta de la mesa (toast "no se pudo registrar el pago parcial… Avisá al soporte" junto a "¡Venta confirmada!"). La caja cobró y la mesa sigue debiendo → descuadre. | Espacios / `SpaceSettlementService` | RESUELTO `1f9c8f97` |
-| T2 | Canje de gift card: "Giftcard no encontrada" siempre. En la captura el código tipeado es `490828` y el listado muestra `4908128` (vigente, Gs 700.000) — puede ser un dígito comido por el input o un lookup que no normaliza. | POS / giftcards | ABIERTO |
+| T2 | Canje de gift card: "Giftcard no encontrada" siempre. En la captura el código tipeado es `490828` y el listado muestra `4908128` (vigente, Gs 700.000) — puede ser un dígito comido por el input o un lookup que no normaliza. | POS / giftcards | RESUELTO `634c5aa3` — ver nota abajo |
 | T3 | Descuentos de una cotización se ven bien en caja, pero en Panel → Transacciones → Cotización el monto vuelve al total sin descuento. | Cotizaciones | RE-TEST (fix `27ab36b6`, 2026-07-31 19:51) |
 | T4 | Descuento de -20% asignado a un cliente desde el panel no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | RESUELTO `ef6bab48` + `e03c8a2e` |
 | T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO — tab de la ficha + reporte general (ver nota abajo) |
@@ -109,6 +109,44 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T10 | Orden en venta: al procesar el pedido vuelve a la lista de ventas y pide cobrar de nuevo algo ya pagado. | POS / órdenes | RE-TEST (fix `675a4608`, desplegado hoy) |
 
 El tester ya dio por cerrado el de persistencia de ventas guardadas.
+
+**T2 — nota (2026-08-08)**: NO era el dígito faltante — el caso del reporte
+(`490828` tipeado vs `4908128` real) es un simple typo del cajero. El bug de
+software (`is_array()` sobre un `CaseInsensitiveArray`, que rompía TODO canje
+sin importar el código) ya estaba resuelto por `634c5aa3` (2026-08-05) antes
+de esta auditoría. Lo que la auditoría dejó, y se cerró en esta sesión:
+
+- **Mensajes de error honestos en el consumo del front**: `validate` (dialog
+  de canje) ya devolvía mensaje distinto por caso (no encontrada/vencida/ya
+  usada/saldo insuficiente) desde el diseño original — eso quedaba oculto
+  detrás del bug de `is_array()`, que hacía que TODO cayera en "no
+  encontrada" antes de llegar a esas ramas. Con el bug arreglado, el dialog ya
+  mostraba el mensaje real. Lo que sí faltaba: el `.catch()` fire-and-forget
+  de `resource=consume` en `pay-dialog.tsx` (post-venta) tragaba el motivo y
+  mostraba un toast genérico — ahora incluye `err.message` real, porque ahí
+  la venta YA está cobrada y soporte necesita saber si hay que reconciliar.
+- **Aislamiento multi-tenant confirmado**: el lookup ya escopea por
+  `companyId` en el `WHERE`, así que una gift card de OTRO comercio ya
+  reportaba "no encontrada" (nunca "vencida"/"usada") — sin cambios, solo
+  verificado.
+- **Unicidad del código de emisión, en el backend**: el código de emisión es
+  texto libre (`giftcard-issue-dialog.tsx`) sin `maxLength` (agregado, 64 =
+  ancho de columna) y sin garantía real de unicidad case-insensitive. El
+  canje matchea `UPPER(code)=UPPER(?)` pero la `UNIQUE("companyId", code)` de
+  la mig 44 es case-sensitive — dos códigos que solo difieren en case
+  (`GC-ABC12345` / `gc-abc12345`) pasaban la constraint pero eran la MISMA
+  gift card para el canje (que resuelve con `LIMIT 1` y se queda con una
+  arbitrariamente) — plata fantasma. Fix: `SaleService::issueGiftCard()`
+  normaliza el código a mayúsculas antes de insertar, y mig
+  `126_giftcard_code_unique_ci.sql` agrega
+  `uq_giftcard_company_code_ci UNIQUE ("companyId", UPPER(code))`. La mig
+  detecta duplicados preexistentes y, si los hay, se salta la creación del
+  índice con `RAISE NOTICE` (no aborta el boot) — verificado contra Postgres
+  16 real en Docker con y sin duplicados inyectados; con duplicados el
+  `EXECUTE` cae en `EXCEPTION WHEN unique_violation` sin tocar ninguna fila,
+  y el pre-check de `issueGiftCard()` queda como backstop server-side hasta
+  que se limpien a mano y se re-corra la migración (que sí crea el índice en
+  ese re-run, sin acción extra).
 
 **T5 — nota**: el tab "Órdenes" de la ficha del cliente leía el reporte legacy
 `orders` (`transaction` type=12, pedido online viejo) en vez de `pos_order`

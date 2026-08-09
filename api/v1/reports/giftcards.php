@@ -58,8 +58,13 @@ if ($method === 'POST') {
         'note'          => (string) (validateHttp('note', 'post') ?: ''),
         'beneficiaryId' => $benefId,
     ];
-    if (!$svc->update($id, $data, (string) COMPANY_ID)) {
-        apiError('No se pudo actualizar', 500);
+    try {
+        if (!$svc->update($id, $data, (string) COMPANY_ID)) {
+            apiError('No se pudo actualizar', 500);
+        }
+    } catch (\InvalidArgumentException $e) {
+        // Código duplicado (case-insensitive) — GiftcardsService::update().
+        apiError($e->getMessage(), 422);
     }
     apiOk(['id' => $id, 'action' => 'update']);
 }

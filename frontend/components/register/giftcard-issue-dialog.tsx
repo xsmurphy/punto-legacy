@@ -134,6 +134,14 @@ export function GiftcardIssueDialog() {
                 id="gc-code"
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
+                // El campo es texto libre (el cajero puede borrar el
+                // autogenerado y tipear otro) — maxLength espeja la columna
+                // `giftcard.code VARCHAR(64)` (mig 44) para no depender de
+                // que el backend trunque o rechace un insert con un mensaje
+                // críptico. La unicidad real la garantiza el backend
+                // (SaleService::issueGiftCard + índice único case-insensitive,
+                // mig 125): este input no puede ser la única defensa.
+                maxLength={64}
                 className="flex-1 font-mono uppercase"
               />
               <Button
