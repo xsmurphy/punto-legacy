@@ -225,7 +225,7 @@ final class RegisterAdminService
     {
         // Guard: caja existe y pertenece al tenant
         $reg = ncmExecute(
-            'SELECT registerId, outletId, registerName, data FROM register
+            'SELECT registerId, outletId, registerName, registerStatus, data FROM register
               WHERE registerId = ? AND companyId = ? LIMIT 1',
             [$id, $this->companyId]
         );
@@ -235,6 +235,7 @@ final class RegisterAdminService
         // `data` viene aplanado por Query::flattenJsonb (la columna se hace
         // unset), así que el prefijo actual se lee como clave de la fila.
         $currentPrefix = (string) ($reg['registerInvoicePrefix'] ?? '');
+        $currentStatus = (bool) ($reg['registerStatus'] ?? $reg['registerstatus'] ?? false);
 
         $setParts  = [];
         $params    = [];
@@ -261,16 +262,8 @@ final class RegisterAdminService
         }
 
         if (array_key_exists('status', $fields)) {
-            $status = (bool) $fields['status'];
-            // Reactivar es la otra puerta al mismo problema: la caja vuelve a
-            // emitir con el punto de expedición que tenía guardado, que en el
-            // medio pudo habérsele asignado a otra. Se valida acá y no solo al
-            // editar el timbrado.
-            if ($status && $currentPrefix !== '') {
-                $this->assertPrefixFree($id, $currentPrefix);
-            }
             $setParts[] = 'registerStatus = ?';
-            $params[]   = $status;
+            $params[]   = (bool) $fields['status'];
         }
 
         // Timbrado de la caja — merge sobre `data` JSONB (mig 26). La caja es
@@ -313,10 +306,6 @@ final class RegisterAdminService
                 // sucursal: el establecimiento ya viaja en los primeros tres
                 // dígitos. Solo cuentan las cajas activas — una caja dada de
                 // baja conserva su historial pero no emite.
-                if ($prefix !== '') {
-                    $this->assertPrefixFree($id, $prefix);
-                }
-
                 $fiscalPatch['registerInvoicePrefix'] = $prefix === '' ? null : $prefix;
             }
             foreach (['invoiceAuthStart' => 'registerInvoiceAuthStart', 'invoiceAuthExpiration' => 'registerInvoiceAuthExpiration'] as $in => $key) {
@@ -435,6 +424,29 @@ final class RegisterAdminService
                     apiError('El fin del rango no puede ser menor que la próxima factura', 422);
                 }
             }
+        }
+
+        // ── Un punto de expedición, UNA caja ────────────────────────────────
+        // Se valida sobre el estado RESULTANTE del update, no sobre el
+        // guardado, y solo cuando ese estado cambia. Chequear el prefijo
+        // guardado en cada save dejaba encerrada justamente a la caja con el
+        // duplicado: el 409 bloqueaba la edición que venía a resolverlo.
+        //
+        // Un duplicado preexistente tampoco frena un cambio ajeno (renombrar,
+        // caja a ciegas): se exige que el punto esté libre al ASIGNARLO o al
+        // reactivar una caja que vuelve a emitir con el punto que tenía.
+        $effectivePrefix = array_key_exists('registerInvoicePrefix', $fiscalPatch)
+            ? (string) ($fiscalPatch['registerInvoicePrefix'] ?? '')
+            : $currentPrefix;
+        $willBeActive = array_key_exists('status', $fields)
+            ? (bool) $fields['status']
+            : $currentStatus;
+
+        $prefixChanged = $effectivePrefix !== $currentPrefix;
+        $reactivating  = $willBeActive && !$currentStatus;
+
+        if ($willBeActive && $effectivePrefix !== '' && ($prefixChanged || $reactivating)) {
+            $this->assertPrefixFree($id, $effectivePrefix);
         }
 
         if (empty($setParts) && empty($fiscalPatch) && $numbering === [] && !$rangeToTouched) {
