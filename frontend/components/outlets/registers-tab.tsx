@@ -40,6 +40,15 @@ import {
   type RegisterNumbering,
 } from "@/hooks/use-registers-admin"
 
+/** Hoy en formato YYYY-MM-DD según el reloj local, para comparar contra las
+ *  fechas del timbrado (que son fechas puras, sin hora ni zona). */
+function todayLocalISO(): string {
+  const d = new Date()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
 const EMPTY_FISCAL: RegisterFiscal = {
   invoiceAuth: "",
   invoicePrefix: "",
@@ -119,11 +128,20 @@ export function RegistersTab({ outletId }: { outletId: string }) {
         if (!f.invoiceAuth) {
           return <span className="text-sm text-muted-foreground">Sin timbrado</span>
         }
+        // Vencido = la caja NO puede facturar (el lease de numeración lo corta
+        // server-side). Se avisa acá para que no se enteren recién al cobrar.
+        // Comparación de strings YYYY-MM-DD: ordenan igual que las fechas y
+        // evitan meter una TZ del browser en una fecha que es del tenant.
+        const expired =
+          !!f.invoiceAuthExpiration && f.invoiceAuthExpiration < todayLocalISO()
         return (
-          <span className="text-sm tabular-nums">
-            {f.invoiceAuth}
-            {f.invoicePrefix ? ` · ${f.invoicePrefix}` : ""}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-sm tabular-nums">
+              {f.invoiceAuth}
+              {f.invoicePrefix ? ` · ${f.invoicePrefix}` : ""}
+            </span>
+            {expired && <Badge variant="destructive">Vencido</Badge>}
+          </div>
         )
       },
     },

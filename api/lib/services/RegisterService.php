@@ -118,6 +118,50 @@ final class RegisterService
     }
 
     /**
+     * Vigencia del timbrado de la caja.
+     *
+     * Devuelve `null` si se puede facturar, o el mensaje de error si NO.
+     *
+     * Regla del owner (2026-08-08): el timbrado se configura por caja y tiene
+     * vencimiento; con el timbrado vencido NO se puede facturar. Un documento
+     * emitido con timbrado vencido es inválido ante la SET, así que el corte
+     * tiene que ser duro — no un aviso que el cajero pueda saltear.
+     *
+     * Una caja SIN vencimiento cargado no se bloquea: hay comercios que operan
+     * sin numeración fiscal (ver el filtro de `TransactionsService::registerInfo`)
+     * y bloquearlos por un campo vacío sería romperles la caja.
+     *
+     * La comparación es por FECHA local del tenant, no por timestamp UTC: el
+     * timbrado vence al terminar su último día, y con TZ del servidor un
+     * comercio en Asunción quedaría bloqueado unas horas antes de tiempo.
+     */
+    public function invoiceAuthError(string $registerId, string $companyId): ?string
+    {
+        $row = ncmExecute(
+            'SELECT data FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
+            [$registerId, $companyId]
+        );
+        if (!$row) {
+            return null;   // sin caja no hay nada que validar acá
+        }
+        // Query::flattenJsonb aplana `data` y BORRA la columna: la clave se lee
+        // ya aplanada, `$row['data']` sería null (mismo patrón que lease.php).
+        $expiration = trim((string) ($row['registerInvoiceAuthExpiration'] ?? ''));
+        if ($expiration === '') {
+            return null;   // caja sin timbrado cargado — no aplica
+        }
+
+        // date() ya corre en la TZ del tenant: data.php hace
+        // date_default_timezone_set(settingTimeZone) en el boot.
+        if ($expiration >= date('Y-m-d')) {
+            return null;
+        }
+
+        return 'El timbrado de esta caja venció el ' . $expiration
+             . '. Actualizalo en Sucursales → Cajas para poder seguir facturando.';
+    }
+
+    /**
      * Config general del POS por caja, desde register.data->'posConfig'.
      * Blob libre de toggles; el endpoint mergea con defaults antes de devolver.
      */

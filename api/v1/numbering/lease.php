@@ -22,6 +22,19 @@ $count  = max(1, min(200, (int) ($body['count'] ?? 100)));
 $regId  = $authCtx['registerId'];
 $compId = $authCtx['companyId'];
 
+// Timbrado vencido → no se arriendan números (owner 2026-08-08). Este es EL
+// lugar donde se asigna la numeración fiscal de una venta, así que cortar acá
+// corta la facturación entera, incluido el POS offline: sin números
+// arrendados no puede emitir. Un documento con timbrado vencido es inválido
+// ante la SET; el corte es duro a propósito, no un aviso salteable.
+require_once __DIR__ . '/../../lib/services/RegisterService.php';
+$authError = (new \Punto\Api\Services\RegisterService(
+    \Punto\Api\Context\TenantContext::fromAuth($authCtx)
+))->invoiceAuthError($regId, $compId);
+if ($authError !== null) {
+    apiError($authError, 422);
+}
+
 // Check for existing active leases
 $rsActive = ncmExecute(
     'SELECT "invoiceNo", "leaseId", "expiresAt" FROM "numbering_lease" WHERE "registerId" = ? AND "companyId" = ? AND "consumedAt" IS NULL AND "expiresAt" > NOW() ORDER BY "invoiceNo" ASC',
