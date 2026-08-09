@@ -81,19 +81,33 @@ function CountedQtyCell({
   countId: string
   editable: boolean
 }) {
-  const setQty   = useSetCountedQty()
-  const [editing, setEditing] = React.useState(false)
-  const [value, setValue]     = React.useState<string>(
-    item.countedQty !== null ? String(item.countedQty) : ""
-  )
-  const inputRef = React.useRef<HTMLInputElement>(null)
+  const setQty = useSetCountedQty()
+  const toText = (q: number | null) => (q !== null ? String(q) : "")
 
+  const [value, setValue] = React.useState<string>(() => toText(item.countedQty))
+
+  // El input está SIEMPRE montado, así que el valor del server puede cambiar
+  // por debajo (nuestra propia mutación, o el realtime si cuenta otra persona).
+  // Se sincroniza solo cuando ese valor cambia de verdad — comparar contra el
+  // texto tipeado pisaría lo que el cajero está escribiendo en ese momento.
+  const lastSynced = React.useRef(item.countedQty)
   React.useEffect(() => {
-    if (editing) inputRef.current?.select()
-  }, [editing])
+    if (item.countedQty !== lastSynced.current) {
+      lastSynced.current = item.countedQty
+      setValue(toText(item.countedQty))
+    }
+  }, [item.countedQty])
+
+  // Escape descarta: `setValue` no se ve reflejado en el `value` que cierra
+  // sobre `commit` en este mismo tick, así que sin este flag el blur que
+  // dispara Escape guardaría justo lo que el usuario acaba de descartar.
+  const skipCommit = React.useRef(false)
 
   async function commit() {
-    setEditing(false)
+    if (skipCommit.current) {
+      skipCommit.current = false
+      return
+    }
     const parsed = parseFloat(value)
     if (isNaN(parsed)) return
     if (parsed === item.countedQty) return
@@ -109,38 +123,35 @@ function CountedQtyCell({
     return <span>{item.countedQty !== null ? item.countedQty : "—"}</span>
   }
 
-  if (editing) {
-    return (
-      <Input
-        ref={inputRef}
-        type="number"
-        step="0.0001"
-        className="h-7 w-28 text-right"
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit()
-          if (e.key === "Escape") {
-            setValue(item.countedQty !== null ? String(item.countedQty) : "")
-            setEditing(false)
-          }
-        }}
-      />
-    )
-  }
-
+  // Input siempre visible, no click-to-edit: un conteo es tipear una cantidad
+  // por fila, y un número que parece texto plano no se lee como editable —
+  // había que descubrir el click. Además así se tabula de fila en fila.
   return (
-    <button
-      className="min-w-[4rem] rounded px-2 py-0.5 text-right hover:bg-accent"
-      onClick={() => setEditing(true)}
-    >
-      {item.countedQty !== null ? (
-        item.countedQty
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      )}
-    </button>
+    <Input
+      type="number"
+      step="0.0001"
+      inputMode="decimal"
+      aria-label={`Cantidad contada de ${item.name}`}
+      placeholder="—"
+      className="h-8 w-28 text-right tabular-nums"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onFocus={(e) => e.currentTarget.select()}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        // Enter guarda y suelta el foco; el blur no vuelve a guardar porque
+        // commit() sale temprano cuando el valor no cambió.
+        if (e.key === "Enter") {
+          e.preventDefault()
+          e.currentTarget.blur()
+        }
+        if (e.key === "Escape") {
+          skipCommit.current = true
+          setValue(toText(item.countedQty))
+          e.currentTarget.blur()
+        }
+      }}
+    />
   )
 }
 
@@ -369,8 +380,12 @@ export default function InventoryCountDetailPage() {
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="text-muted-foreground">{item.sku ?? "—"}</TableCell>
                   <TableCell className="text-right">{item.expectedQty}</TableCell>
-                  <TableCell className="text-right">
-                    <CountedQtyCell item={item} countId={id} editable={isInProgress} />
+                  {/* `flex justify-end` en vez de `text-right`: el input es un
+                      bloque de ancho fijo y text-align no lo alinea. */}
+                  <TableCell>
+                    <div className="flex justify-end">
+                      <CountedQtyCell item={item} countId={id} editable={isInProgress} />
+                    </div>
                   </TableCell>
                   <TableCell className={`text-right font-medium ${diffColor}`}>
                     {diff !== null ? (diff > 0 ? `+${diff}` : String(diff)) : "—"}
