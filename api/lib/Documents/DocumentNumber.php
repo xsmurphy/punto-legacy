@@ -199,4 +199,35 @@ final class DocumentNumber
 
         return $row ? (int) ($row['nextnumber'] ?? 1) : 1;
     }
+
+    /**
+     * Cuántos números quedan hasta el fin del rango autorizado, o null si la
+     * secuencia no declara techo.
+     *
+     * Lo usa el arriendo offline para PEDIR un bloque que entre en el rango en
+     * vez de pedir 100 y que le rebote: con 10 números autorizados sin usar, un
+     * bloque de 100 falla entero y la caja se queda sin poder facturar esos 10
+     * que sí eran válidos.
+     *
+     * Es una lectura sin reserva — solo sirve para dimensionar el pedido; el
+     * corte real lo hace allocateBlock() sobre el valor ya reservado.
+     */
+    public static function remaining(
+        string $docType,
+        string $scopeType,
+        string $scopeId,
+        string $companyId,
+    ): ?int {
+        $row = ncmExecute(
+            'SELECT nextnumber, rangeto FROM document_sequence
+              WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?
+              LIMIT 1',
+            [$companyId, $docType, $scopeType, $scopeId]
+        );
+
+        if (!$row || ($row['rangeto'] ?? null) === null) {
+            return null;
+        }
+        return max(0, (int) $row['rangeto'] - (int) ($row['nextnumber'] ?? 1) + 1);
+    }
 }

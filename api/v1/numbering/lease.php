@@ -138,6 +138,27 @@ if ($rsRecheck !== false && $rsRecheck !== 0) {
 // primer número del bloque. (Sin require_once: `Punto\Api\Documents\*` lo
 // resuelve el autoloader PSR-4 de bootstrap.php.)
 
+// Si el timbrado declara techo, el bloque se recorta a lo que queda: pedir 100
+// cuando quedan 10 autorizados haría fallar el arriendo entero y la caja se
+// quedaría sin poder emitir esos 10, que sí son válidos.
+$left = \Punto\Api\Documents\DocumentNumber::remaining(
+    'factura',
+    \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER,
+    $regId,
+    $compId,
+);
+if ($left !== null) {
+    if ($left < 1) {
+        $db->FailTrans();
+        $db->CompleteTrans();
+        apiError(
+            'La numeración de esta caja llegó al fin del rango autorizado. Cargá un timbrado nuevo para seguir emitiendo.',
+            422
+        );
+    }
+    $count = min($count, $left);
+}
+
 try {
     $next = \Punto\Api\Documents\DocumentNumber::allocateBlock(
         'factura',

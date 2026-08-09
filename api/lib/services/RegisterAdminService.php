@@ -225,13 +225,16 @@ final class RegisterAdminService
     {
         // Guard: caja existe y pertenece al tenant
         $reg = ncmExecute(
-            'SELECT registerId, outletId, registerName FROM register
+            'SELECT registerId, outletId, registerName, data FROM register
               WHERE registerId = ? AND companyId = ? LIMIT 1',
             [$id, $this->companyId]
         );
         if (!$reg) {
             apiError('Caja no encontrada', 404);
         }
+        // `data` viene aplanado por Query::flattenJsonb (la columna se hace
+        // unset), así que el prefijo actual se lee como clave de la fila.
+        $currentPrefix = (string) ($reg['registerInvoicePrefix'] ?? '');
 
         $setParts  = [];
         $params    = [];
@@ -258,8 +261,16 @@ final class RegisterAdminService
         }
 
         if (array_key_exists('status', $fields)) {
+            $status = (bool) $fields['status'];
+            // Reactivar es la otra puerta al mismo problema: la caja vuelve a
+            // emitir con el punto de expedición que tenía guardado, que en el
+            // medio pudo habérsele asignado a otra. Se valida acá y no solo al
+            // editar el timbrado.
+            if ($status && $currentPrefix !== '') {
+                $this->assertPrefixFree($id, $currentPrefix);
+            }
             $setParts[] = 'registerStatus = ?';
-            $params[]   = (bool)$fields['status'];
+            $params[]   = $status;
         }
 
         // Timbrado de la caja — merge sobre `data` JSONB (mig 26). La caja es
@@ -288,6 +299,24 @@ final class RegisterAdminService
                 if ($prefix !== '' && !preg_match('/^\d{3}-\d{3}$/', $prefix)) {
                     apiError('Establecimiento y punto de expedición van como EEE-PPP (ej. 001-001)', 422);
                 }
+
+                // ── Un punto de expedición, UNA caja ───────────────────────
+                // El EEE-PPP identifica el punto de expedición ante la SET y la
+                // numeración correlativa es POR punto de expedición. Dos cajas
+                // con el mismo EEE-PPP llevan dos secuencias independientes
+                // sobre el mismo talonario: en cuanto las dos emiten (y con el
+                // POS offline emiten sin verse) salen dos facturas distintas
+                // con el mismo número. Es un documento duplicado, no un choque
+                // de datos — de ahí el 409 duro y no un aviso.
+                //
+                // El scope es la COMPANY (el RUC es de la empresa), no la
+                // sucursal: el establecimiento ya viaja en los primeros tres
+                // dígitos. Solo cuentan las cajas activas — una caja dada de
+                // baja conserva su historial pero no emite.
+                if ($prefix !== '') {
+                    $this->assertPrefixFree($id, $prefix);
+                }
+
                 $fiscalPatch['registerInvoicePrefix'] = $prefix === '' ? null : $prefix;
             }
             foreach (['invoiceAuthStart' => 'registerInvoiceAuthStart', 'invoiceAuthExpiration' => 'registerInvoiceAuthExpiration'] as $in => $key) {
@@ -463,6 +492,41 @@ final class RegisterAdminService
 
         realtimePublish('register', 'update', $id);
         return ['ok' => true];
+    }
+
+    /**
+     * Corta si otra caja activa del tenant ya usa ese punto de expedición.
+     *
+     * El EEE-PPP identifica el punto de expedición ante la SET y la numeración
+     * correlativa es POR punto de expedición. Dos cajas con el mismo EEE-PPP
+     * llevan dos secuencias independientes sobre el mismo talonario: en cuanto
+     * las dos emiten — y con el POS offline emiten sin verse — salen dos
+     * facturas distintas con el mismo número. Es un documento duplicado, no un
+     * choque de datos: de ahí el 409 duro y no un aviso.
+     *
+     * Scope COMPANY, no sucursal: el RUC es de la empresa y el establecimiento
+     * ya viaja en los primeros tres dígitos. Solo cuentan las cajas ACTIVAS —
+     * una caja dada de baja conserva su historial pero no emite.
+     */
+    private function assertPrefixFree(string $registerId, string $prefix): void
+    {
+        $clash = ncmExecute(
+            "SELECT registerName FROM register
+              WHERE companyId = ? AND registerId != ? AND registerStatus = TRUE
+                AND data ->> 'registerInvoicePrefix' = ?
+              LIMIT 1",
+            [$this->companyId, $registerId, $prefix]
+        );
+        if (!$clash) {
+            return;
+        }
+        $other = (string) ($clash['registerName'] ?? $clash['registername'] ?? '');
+        apiError(
+            'El punto de expedición ' . $prefix . ' ya lo usa la caja "' . $other .
+            '". Dos cajas con el mismo punto de expedición emitirían facturas con el ' .
+            'mismo número: asignale otro punto a esta caja.',
+            409
+        );
     }
 
     /**
