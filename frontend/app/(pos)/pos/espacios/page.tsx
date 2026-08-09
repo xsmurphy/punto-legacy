@@ -25,7 +25,6 @@ import { EmptyState } from "@/components/empty-state"
 import { PosSpaceTile } from "@/components/spaces/pos-space-tile"
 import { OpenSpaceDialog } from "@/components/spaces/open-space-dialog"
 import { SpaceSessionDialog } from "@/components/spaces/space-session-dialog"
-import { SplitBillDialog, type SplitSelection } from "@/components/spaces/split-bill-dialog"
 import { defaultSize } from "@/components/spaces/canvas-space-block"
 import {
   usePosSpacesState,
@@ -35,40 +34,9 @@ import {
   useCancelSpaceSession,
   type SpaceWithState,
 } from "@/hooks/use-pos-spaces"
-import { fetchOrderDetail, fetchOrdersBySession } from "@/hooks/use-orders"
-import {
-  fetchSessionBalance,
-  useSessionBalance,
-  type SessionBalance,
-} from "@/hooks/use-space-settlement"
-import { useCartStore, type SettlementIntent } from "@/lib/cart/store"
-import {
-  buildItemsLines,
-  buildProportionalLines,
-  currencyDecimals,
-  sourcesFromOrders,
-  splitShares,
-  MONEY_EPSILON,
-  type SettlementSource,
-} from "@/lib/spaces/settlement-lines"
-import { useCatalogStore } from "@/lib/catalog/store"
-import { formatMoney } from "@/lib/format-money"
-import { usePosUIStore } from "@/lib/ui/store"
+import { useCartStore } from "@/lib/cart/store"
+import { useSpaceSettlementStore } from "@/lib/spaces/settlement-store"
 import { usePersistedView } from "@/lib/ui/use-persisted-view"
-
-/**
- * El monto a cobrar no puede exceder el saldo RECIÉN LEÍDO. El backend
- * también lo valida, pero recién cuando se registra el pago — es decir,
- * después de haber creado la venta. Un rechazo ahí deja plata cobrada sin
- * renglón en el ledger.
- */
-function assertFitsBalance(target: number, balance: SessionBalance): void {
-  if (target - balance.balance > MONEY_EPSILON) {
-    throw new Error(
-      "El saldo de la mesa cambió (otro cobro entró recién). Revisá el monto e intentá de nuevo.",
-    )
-  }
-}
 
 const CANVAS_WIDTH = 900
 const CANVAS_HEIGHT = 600
@@ -120,38 +88,20 @@ export default function EspaciosPage() {
 
   const [openingTable, setOpeningTable] = React.useState<SpaceWithState | null>(null)
   const [sessionTable, setSessionTable] = React.useState<SpaceWithState | null>(null)
-  /** Mesa con el diálogo de split abierto (elección de modo de cobro). */
-  const [splitTable, setSplitTable] = React.useState<SpaceWithState | null>(null)
-  const [preparingCharge, setPreparingCharge] = React.useState(false)
-  /**
-   * Mesa con un cobro PARCIAL en curso en el PayDialog. Al cerrarse el
-   * PayDialog se relee el saldo: si quedó en 0 el backend ya liberó el
-   * espacio y se vuelve al mapa; si queda saldo, se reabre el split para
-   * cobrar la parte siguiente.
-   */
-  const [settlingTable, setSettlingTable] = React.useState<SpaceWithState | null>(null)
-  const chargeInFlight = React.useRef(false)
 
   const openSession = useOpenSpaceSession()
   const requestBill = useRequestBill()
   const cancelSession = useCancelSpaceSession()
 
-  const config = useCatalogStore((s) => s.config)
   const setSelectedSpace = useCartStore((s) => s.setSelectedSpace)
-  const loadFromSession = useCartStore((s) => s.loadFromSession)
-  const loadForSettlement = useCartStore((s) => s.loadForSettlement)
-  const payOpen = usePosUIStore((s) => s.payOpen)
-  const { refetch: refetchSettlingBalance } = useSessionBalance(
-    settlingTable?.session?.id ?? null,
-  )
-
-  // Mesa del split siempre "fresca": el estado del espacio puede haber
-  // cambiado (otra caja cobró una parte) mientras el diálogo estaba abierto.
-  // Sin useMemo a propósito: `tables` se recrea en cada render y memoizar acá
-  // no ahorraría nada (un find sobre la lista de mesas de un sector).
-  const liveSplitTable = splitTable
-    ? (tables.find((t) => t.id === splitTable.id) ?? splitTable)
-    : null
+  // El diálogo de split (elección de modo de cobro), su carga del carrito y
+  // la reconciliación post-cobro parcial viven en un provider persistente
+  // del layout del POS (`components/spaces/space-settlement-provider.tsx`,
+  // montado en `app/(pos)/pos/layout.tsx`) — no acá. Bug T8: ese flujo
+  // necesita sobrevivir a la navegación a `/pos` (el carrito recién cargado
+  // queda accesible detrás), y este módulo puede desmontarse al navegar. Acá
+  // solo se DISPARA el flujo — ver `handleCharge` abajo.
+  const setSplitTarget = useSpaceSettlementStore((s) => s.setSplitTarget)
 
   function handleTileClick(table: SpaceWithState) {
     if (table.state === "free") {
@@ -208,178 +158,17 @@ export default function EspaciosPage() {
     }
   }
 
-  /** "Cobrar" en el diálogo de sesión → elegir modo de cobro (total o split). */
+  /**
+   * "Cobrar" en el diálogo de sesión → elegir modo de cobro (total o split).
+   * El diálogo de split en sí y todo lo que sigue (armar el carrito,
+   * navegar a `/pos`, reconciliar el saldo) lo maneja `SpaceSettlementProvider`
+   * — acá solo se le pasa la posta.
+   */
   function handleCharge() {
     if (!sessionTable?.session) return
-    setSplitTable(sessionTable)
+    setSplitTarget({ sessionId: sessionTable.session.id, spaceName: sessionTable.name })
     setSessionTable(null)
   }
-
-  /**
-   * Arma el carrito para el modo elegido y abre el PayDialog.
-   *
-   * - `total` sin pagos previos → camino de SIEMPRE (`loadFromSession`):
-   *   markPaid de cada orden + close de la sesión los sigue haciendo
-   *   `pay-dialog.tsx`. Intacto.
-   * - Cualquier otro caso → cobro parcial (`loadForSettlement`): la venta se
-   *   registra en el ledger y el cierre lo decide el backend.
-   *
-   * Todo lo que puede fallar (ítem sin artículo de catálogo, monto que no
-   * entra) falla ACÁ, antes de crear la venta — después de cobrar ya no hay
-   * vuelta atrás.
-   */
-  async function handleSplitCharge(selection: SplitSelection) {
-    const table = liveSplitTable
-    if (!table?.session) return
-    // Guarda de doble tap: `preparingCharge` deshabilita el botón, pero entre
-    // dos taps consecutivos puede no haber re-render. Dos cobros en vuelo
-    // serían dos ventas (el backend deduplica el LEDGER por transactionId,
-    // no las transacciones — serían dos comprobantes por la misma parte).
-    if (chargeInFlight.current) return
-    chargeInFlight.current = true
-    const sessionId = table.session.id
-    const spaceName = table.name
-    setPreparingCharge(true)
-    try {
-      // El saldo se RELEE acá, no se usa el que mostró el diálogo: entre que
-      // se abrió y el cajero tocó "Cobrar" pudo entrar un parcial de otra
-      // caja. Con un `paid` viejo se tomaría el camino de mesa completa
-      // (markPaid + close, sin pasar por el ledger) sobre una mesa que ya
-      // tenía plata cobrada, y `SpaceSessionService::close()` no valida
-      // saldo: nadie lo atraparía. El saldo cacheado es para mirar; para
-      // cobrar, este.
-      const [balance, { orders: summaries }] = await Promise.all([
-        fetchSessionBalance(sessionId),
-        fetchOrdersBySession(sessionId),
-      ])
-      const billable = summaries.filter((o) => o.status !== "closed" && o.status !== "cancelled")
-      if (billable.length === 0) {
-        toast.error("El espacio no tiene órdenes por cobrar")
-        return
-      }
-      const orders = await Promise.all(billable.map((o) => fetchOrderDetail(o.id)))
-
-      if (selection.mode === "total" && balance.paid <= 0) {
-        loadFromSession(sessionId, spaceName, orders)
-        setSplitTable(null)
-        // Sin abrir el PayDialog: el CartPanel ya está visible acá mismo
-        // (persistente en el layout de /pos, incluida /pos/espacios — ver
-        // app/(pos)/pos/layout.tsx) "en modo espacio" con el carrito recién
-        // cargado. El cajero suma cliente/descuento ahí, igual que en una
-        // venta walk-in, y dispara "Cobrar" cuando esté listo — no navegamos
-        // a otra ruta: `settlingTable`/la reconciliación post-cobro de abajo
-        // depende de que este componente siga montado.
-        return
-      }
-
-      const sources = sourcesFromOrders(orders)
-      const decimals = currencyDecimals(config)
-
-      let lines
-      let intent: SettlementIntent
-
-      if (selection.mode === "items") {
-        // Contra el saldo recién leído: si otra caja cobró alguno de estos
-        // ítems mientras el diálogo estaba abierto, el CAS del backend
-        // abortaría — pero recién DESPUÉS de crear la venta, con la plata ya
-        // cobrada. Se corta acá.
-        const alreadySettled = balance.items.filter(
-          (i) => i.settled && selection.orderItemIds.includes(i.id),
-        )
-        if (alreadySettled.length > 0) {
-          toast.error("Otro cobro ya se llevó alguno de esos ítems", {
-            description: "El saldo de la mesa cambió. Revisá la selección.",
-          })
-          setSplitTable(table)
-          return
-        }
-        lines = buildItemsLines(sources, selection.orderItemIds)
-        intent = { sessionId, kind: "items", orderItemIds: selection.orderItemIds }
-      } else {
-        // Base del prorrateo: SOLO los ítems todavía no saldados — los ya
-        // cobrados por `kind='items'` no se vuelven a facturar ni a
-        // descontar de stock.
-        const unsettled = balance.items
-          .filter((i) => !i.settled)
-          .map((i) => sources.get(i.id))
-          .filter((s): s is SettlementSource => s !== undefined)
-
-        if (selection.mode === "share") {
-          const target = splitShares(balance.total, selection.shareCount, decimals)[
-            selection.shareIndex - 1
-          ]
-          assertFitsBalance(target, balance)
-          lines = buildProportionalLines(
-            unsettled,
-            target,
-            decimals,
-            `Parte ${selection.shareIndex} de ${selection.shareCount}`,
-          )
-          intent = {
-            sessionId,
-            kind: "share",
-            shareCount: selection.shareCount,
-            shareIndex: selection.shareIndex,
-          }
-        } else {
-          // `amount` explícito, o `total` con pagos previos (se cobra el saldo).
-          const target = selection.mode === "amount" ? selection.amount : balance.balance
-          assertFitsBalance(target, balance)
-          lines = buildProportionalLines(unsettled, target, decimals)
-          intent = { sessionId, kind: "amount", amount: target }
-        }
-      }
-
-      loadForSettlement(spaceName, lines, intent)
-      setSettlingTable(table)
-      setSplitTable(null)
-      // Mismo criterio que el camino "total": el CartPanel ya está visible acá
-      // con el carrito cargado, sin abrir el PayDialog — el cajero edita y
-      // cobra desde ahí cuando esté listo (ver comentario arriba).
-    } catch (err) {
-      toast.error("No se pudo preparar el cobro del espacio", {
-        description: err instanceof Error ? err.message : String(err),
-      })
-    } finally {
-      chargeInFlight.current = false
-      setPreparingCharge(false)
-    }
-  }
-
-  // ── Post-cobro parcial ────────────────────────────────────────────────────
-  //
-  // El PayDialog se cerró y había un cobro parcial en curso: se relee el
-  // saldo (el registro en el ledger lo invalida, esto además cubre el caso de
-  // que todavía estuviera en vuelo). Saldo 0 → el backend ya cerró órdenes y
-  // sesión, el espacio quedó libre y se ve el mapa. Saldo > 0 → se reabre el
-  // split para cobrar la parte siguiente, ya con el saldo nuevo.
-  const prevPayOpen = React.useRef(payOpen)
-  React.useEffect(() => {
-    const wasOpen = prevPayOpen.current
-    prevPayOpen.current = payOpen
-    if (!wasOpen || payOpen || !settlingTable) return
-
-    const table = settlingTable
-    void (async () => {
-      try {
-        // El refetch va ANTES de limpiar `settlingTable`: al limpiarlo, el
-        // sessionId del hook pasa a null y la query queda deshabilitada.
-        const { data } = await refetchSettlingBalance()
-        const remaining = data?.balance ?? 0
-        if (remaining > MONEY_EPSILON) {
-          toast.info(`${table.name} — saldo pendiente ${formatMoney(remaining, config)}`)
-          setSplitTable(table)
-        } else {
-          toast.success(`${table.name} — cuenta saldada`)
-        }
-      } catch {
-        // Sin saldo confiable no se decide nada: el mapa se refresca solo por
-        // la invalidación de ["spaces"] y el cajero reabre la mesa si hace falta.
-      } finally {
-        setSettlingTable(null)
-      }
-    })()
-  }, [payOpen, settlingTable, refetchSettlingBalance, config])
 
   return (
     <div className="relative flex h-full flex-col overflow-hidden">
@@ -398,12 +187,6 @@ export default function EspaciosPage() {
         onCancelSession={handleCancelSession}
         requestBillPending={requestBill.isPending}
         cancelPending={cancelSession.isPending}
-      />
-      <SplitBillDialog
-        table={liveSplitTable}
-        onOpenChange={(v) => !v && setSplitTable(null)}
-        onCharge={handleSplitCharge}
-        preparing={preparingCharge}
       />
 
       {/* pb-16: deja espacio para que la barra flotante no tape los tiles. */}

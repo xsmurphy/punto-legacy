@@ -44,7 +44,7 @@ import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useSessionBalance, type SessionBalance } from "@/hooks/use-space-settlement"
 import { currencyDecimals, splitShares, MONEY_EPSILON } from "@/lib/spaces/settlement-lines"
-import type { SpaceWithState } from "@/hooks/use-pos-spaces"
+import type { SpaceSplitTarget } from "@/lib/spaces/settlement-store"
 
 const MAX_SHARES = 12
 
@@ -59,21 +59,28 @@ export type SplitSelection =
   | { mode: "share"; shareCount: number; shareIndex: number }
 
 interface Props {
-  table: SpaceWithState | null
+  /**
+   * `sessionId` + `spaceName` nada más — este diálogo nunca necesitó el resto
+   * de `SpaceWithState` (confirmado antes de que `target` se moviera a
+   * `lib/spaces/settlement-store.ts`, F3/T8): así puede reabrirse tras la
+   * reconciliación post-cobro parcial sin depender de la lista de mesas
+   * (`usePosSpacesState`) del módulo Espacios, que puede no estar montado.
+   */
+  target: SpaceSplitTarget | null
   onOpenChange: (open: boolean) => void
   onCharge: (selection: SplitSelection) => void
   /** true mientras el caller arma el carrito — bloquea el doble tap en Cobrar. */
   preparing: boolean
 }
 
-export function SplitBillDialog({ table, onOpenChange, onCharge, preparing }: Props) {
-  const sessionId = table?.session?.id ?? null
+export function SplitBillDialog({ target, onOpenChange, onCharge, preparing }: Props) {
+  const sessionId = target?.sessionId ?? null
 
   return (
-    <Dialog open={table !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
+    <Dialog open={target !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-semibold">{table?.name}</DialogTitle>
+          <DialogTitle className="text-2xl font-semibold">{target?.spaceName}</DialogTitle>
           <DialogDescription>Cobrar la mesa completa o dividir la cuenta</DialogDescription>
         </DialogHeader>
 

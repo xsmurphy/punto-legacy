@@ -75,6 +75,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { CartPanel } from "@/components/register/cart-panel"
 import { LockScreen } from "@/components/register/lock-screen"
 import { PosLoadingScreen } from "@/components/register/pos-loading-screen"
+import { SpaceSettlementProvider } from "@/components/spaces/space-settlement-provider"
 import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
@@ -208,6 +209,11 @@ function PosWorkspaceLayoutInner({
       <BeforeUnloadGuard />
       <HotkeysEditScope />
       <OfflineSyncRunner />
+      {/* Diálogo de split + reconciliación de cobro de espacios (context/15
+          §F3, bug T8) — persistente acá (no en /pos/espacios) para que
+          sobreviva la navegación a /pos tras cargar el carrito. Ver docblock
+          de `space-settlement-provider.tsx`. */}
+      <SpaceSettlementProvider />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {!moduleAsDialog && (
           <div className="hidden flex-[7] overflow-hidden md:block">
