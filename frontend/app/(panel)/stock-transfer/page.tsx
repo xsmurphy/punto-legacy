@@ -38,6 +38,18 @@ function outletLabel(outletName: string, locationName: string | null): string {
 
 const columns: ColumnDef<StockTransfer>[] = [
   {
+    id: "docNumber",
+    header: "Nº",
+    // Correlativo por sucursal (mig 129). Los registros anteriores a la
+    // migración pueden no tener número.
+    cell: ({ row }) => (
+      <span className="tabular-nums text-sm text-muted-foreground">
+        {row.original.docNumber ?? "—"}
+      </span>
+    ),
+    meta: { label: "Nº de transferencia" },
+  },
+  {
     accessorKey: "createdAt",
     header: "Fecha",
     cell: ({ row }) => formatDate(row.original.createdAt),

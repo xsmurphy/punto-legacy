@@ -5,6 +5,9 @@ import { api } from "@/lib/api-client"
 
 export interface StockTransfer {
   stockTransferId: string
+  /** Correlativo del documento por sucursal (mig 129). Null en los
+   *  registros anteriores que no se pudieron numerar. */
+  docNumber: number | null
   status: 0 | 1
   createdAt: string
   note: string | null
@@ -31,6 +34,8 @@ export interface StockTransferItem {
 export interface StockTransferDetail {
   transfer: {
     stockTransferId: string
+    /** Correlativo del documento por sucursal (mig 129). */
+    docNumber: number | null
     companyId: string
     status: 0 | 1
     createdAt: string

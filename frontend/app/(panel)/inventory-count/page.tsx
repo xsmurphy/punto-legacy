@@ -183,6 +183,18 @@ function NewSessionDialog() {
 
 const columns: ColumnDef<InventoryCountSession>[] = [
   {
+    id: "docNumber",
+    header: "Nº",
+    // Correlativo por sucursal (mig 129). Los registros anteriores a la
+    // migración pueden no tener número.
+    cell: ({ row }) => (
+      <span className="tabular-nums text-sm text-muted-foreground">
+        {row.original.docNumber ?? "—"}
+      </span>
+    ),
+    meta: { label: "Nº de conteo" },
+  },
+  {
     accessorKey: "startedAt",
     header: "Fecha inicio",
     cell: ({ row }) => formatDate(row.original.startedAt),

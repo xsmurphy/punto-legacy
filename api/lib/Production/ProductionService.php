@@ -261,13 +261,25 @@ final class ProductionService
             throw new \InvalidArgumentException('El item no tiene receta configurada (item_compound vacío)');
         }
 
+        // Correlativo del documento (F3, context/37), scope sucursal: la orden
+        // de producción no es un documento fiscal, así que no va por punto de
+        // expedición. El INSERT corre en autocommit acá — si falla, el número
+        // asignado queda como hueco, que es el mismo trade-off ya documentado
+        // arriba para el modo 'immediate'.
+        $docNumber = DocumentNumber::allocate(
+            'produccion',
+            DocumentNumber::SCOPE_OUTLET,
+            $outletId,
+            $companyId,
+        );
+
         $rs = $this->db->Execute(
             'INSERT INTO production_order
                 (orderid, companyid, outletid, locationid, outputlocationid, itemid,
-                 qtyplanned, status, note, userid)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, \'draft\', ?, ?)
+                 qtyplanned, status, note, userid, docnumber)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, \'draft\', ?, ?, ?)
              RETURNING orderid',
-            [$companyId, $outletId, $locationId, $outputLocationId, $itemId, $qtyPlanned, $note, $userId ?: null]
+            [$companyId, $outletId, $locationId, $outputLocationId, $itemId, $qtyPlanned, $note, $userId ?: null, $docNumber]
         );
         if ($rs === false || $rs->EOF) {
             throw new \RuntimeException('No se pudo crear la orden de producción');
@@ -534,11 +546,19 @@ final class ProductionService
 
         if ($wasteUnits > 0) {
             $wasteCost = $wasteUnits * $unitCogs;
+            // La merma de una producción es un documento propio (no un renglón
+            // de la orden): lleva su correlativo igual que la merma manual.
+            $wasteDocNumber = DocumentNumber::allocate(
+                'merma',
+                DocumentNumber::SCOPE_OUTLET,
+                $outletId,
+                $companyId,
+            );
             $ok = $this->db->Execute(
                 'INSERT INTO waste_event
-                    (wasteid, companyid, outletid, locationid, itemid, qty, reasonid, source, orderid, cost, userid)
-                 VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, \'production\', ?, ?, ?)',
-                [$companyId, $outletId, $outputLocation, $order['itemid'], $wasteUnits, $wasteReasonId, $id, $wasteCost, $userId ?: null]
+                    (wasteid, companyid, outletid, locationid, itemid, qty, reasonid, source, orderid, cost, userid, docnumber)
+                 VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, \'production\', ?, ?, ?, ?)',
+                [$companyId, $outletId, $outputLocation, $order['itemid'], $wasteUnits, $wasteReasonId, $id, $wasteCost, $userId ?: null, $wasteDocNumber]
             );
             if ($ok === false) {
                 $db->FailTrans();
@@ -668,12 +688,19 @@ final class ProductionService
             throw new \RuntimeException('No se pudo descontar el stock para la merma');
         }
 
+        $docNumber = DocumentNumber::allocate(
+            'merma',
+            DocumentNumber::SCOPE_OUTLET,
+            $outletId,
+            $companyId,
+        );
+
         $rs = $this->db->Execute(
             "INSERT INTO waste_event
-                (wasteid, companyid, outletid, locationid, itemid, qty, reasonid, source, cost, note, userid)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?)
+                (wasteid, companyid, outletid, locationid, itemid, qty, reasonid, source, cost, note, userid, docnumber)
+             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)
              RETURNING wasteid",
-            [$companyId, $outletId, $locationId, $itemId, $qty, $reasonId, $qty * $cost, $note, $userId ?: null]
+            [$companyId, $outletId, $locationId, $itemId, $qty, $reasonId, $qty * $cost, $note, $userId ?: null, $docNumber]
         );
         if ($rs === false || $rs->EOF) {
             $db->FailTrans();
@@ -743,6 +770,7 @@ final class ProductionService
         foreach ($rs->GetRows() as $row) {
             $out[] = [
                 'id'         => (string) ($row['wasteid'] ?? ''),
+                'docNumber'  => isset($row['docnumber']) ? (int) $row['docnumber'] : null,
                 'itemId'     => (string) ($row['itemid'] ?? ''),
                 'itemName'   => (string) ($row['itemname'] ?? ''),
                 'qty'        => (float) ($row['qty'] ?? 0),
@@ -773,6 +801,9 @@ final class ProductionService
 
         return [
             'id'                => (string) ($row['orderid'] ?? ''),
+            // Correlativo del documento. Null en las órdenes anteriores a la
+            // mig 129 que no se pudieron numerar (sucursal nula).
+            'docNumber'         => isset($row['docnumber']) ? (int) $row['docnumber'] : null,
             'companyId'         => (string) ($row['companyid'] ?? ''),
             'outletId'          => (string) ($row['outletid'] ?? ''),
             'locationId'        => $row['locationid'] ?? null,

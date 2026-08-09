@@ -29,10 +29,19 @@ final class InventoryCountService
 
         $db->StartTrans();
 
+        // Correlativo del documento (F3, context/37), scope sucursal. Dentro de
+        // la TX: si el conteo no persiste, el rollback devuelve el número.
+        $docNumber = \Punto\Api\Documents\DocumentNumber::allocate(
+            'conteo',
+            \Punto\Api\Documents\DocumentNumber::SCOPE_OUTLET,
+            $outletId,
+            $companyId,
+        );
+
         $sessionRow = ncmExecute(
-            'INSERT INTO inventory_count ("companyId", "outletId", "locationId", "startedBy", "note")
-             VALUES (?, ?, ?, ?, ?) RETURNING "inventoryCountId"',
-            [$companyId, $outletId, $locationId ?: null, $startedBy, $note ?: null]
+            'INSERT INTO inventory_count ("companyId", "outletId", "locationId", "startedBy", "note", "docNumber")
+             VALUES (?, ?, ?, ?, ?, ?) RETURNING "inventoryCountId"',
+            [$companyId, $outletId, $locationId ?: null, $startedBy, $note ?: null, $docNumber]
         );
 
         if (!$sessionRow || empty($sessionRow['inventoryCountId'])) {
@@ -138,6 +147,8 @@ final class InventoryCountService
         return [
             'session' => [
                 'inventoryCountId' => $session['inventoryCountId'],
+                // Correlativo del documento (mig 129).
+                'docNumber'        => isset($session['docNumber']) ? (int) $session['docNumber'] : null,
                 'companyId'        => $session['companyId'],
                 'outletId'         => $session['outletId'],
                 'locationId'       => $session['locationId'],
@@ -330,7 +341,7 @@ final class InventoryCountService
 
         $countParams = array_merge($params, [$limit, $offset]);
         $rowsRs = ncmExecute(
-            "SELECT ic.\"inventoryCountId\", ic.\"outletId\", ic.\"locationId\", ic.\"status\",
+            "SELECT ic.\"inventoryCountId\", ic.\"docNumber\", ic.\"outletId\", ic.\"locationId\", ic.\"status\",
                     ic.\"startedAt\", ic.\"finishedAt\", ic.\"note\",
                     o.outletname,
                     t.taxonomyname as \"locationName\",
@@ -354,6 +365,7 @@ final class InventoryCountService
                 $r      = $rowsRs->fields;
                 $rows[] = [
                     'inventoryCountId' => $r['inventoryCountId'],
+                    'docNumber'        => isset($r['docNumber']) ? (int) $r['docNumber'] : null,
                     'outletId'         => $r['outletId'],
                     'outletName'       => $r['outletname'],
                     'locationId'       => $r['locationId'],

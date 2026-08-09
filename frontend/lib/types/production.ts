@@ -15,6 +15,9 @@ export interface RecipeSnapshotLine {
 
 export interface ProductionOrder {
   id: string
+  /** Correlativo del documento por sucursal (mig 129). Null en los
+   *  registros anteriores que no se pudieron numerar. */
+  docNumber: number | null
   companyId: string
   outletId: string
   locationId: string | null
@@ -88,6 +91,9 @@ export type WasteSource = "manual" | "production"
 
 export interface WasteEvent {
   id: string
+  /** Correlativo del documento por sucursal (mig 129). Null en los
+   *  registros anteriores que no se pudieron numerar. */
+  docNumber: number | null
   itemId: string
   itemName: string
   qty: number

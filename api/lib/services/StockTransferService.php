@@ -133,9 +133,20 @@ final class StockTransferService
         // --- TX ---
         $db->StartTrans();
 
+        // Correlativo del documento (F3, context/37). Se numera por la sucursal
+        // que la EMITE — la de destino recibe el documento, no lo emite.
+        // Dentro de la TX: si la transferencia falla, el rollback devuelve el
+        // número y no queda hueco.
+        $docNumber = \Punto\Api\Documents\DocumentNumber::allocate(
+            'transferencia',
+            \Punto\Api\Documents\DocumentNumber::SCOPE_OUTLET,
+            $from['outletId'],
+            $companyId,
+        );
+
         $headerRow = ncmExecute(
-            'INSERT INTO stock_transfer ("companyId", "fromOutletId", "fromLocationId", "toOutletId", "toLocationId", "note", "createdBy")
-             VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING "stockTransferId"',
+            'INSERT INTO stock_transfer ("companyId", "fromOutletId", "fromLocationId", "toOutletId", "toLocationId", "note", "createdBy", "docNumber")
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING "stockTransferId"',
             [
                 $companyId,
                 $from['outletId'],
@@ -144,6 +155,7 @@ final class StockTransferService
                 $toLocationId,
                 $note ?: null,
                 $userId,
+                $docNumber,
             ]
         );
 
@@ -260,7 +272,7 @@ final class StockTransferService
 
         $listParams = array_merge($params, [$limit, $offset]);
         $rowsRs = ncmExecute(
-            'SELECT st."stockTransferId", st."status", st."createdAt", st."note",
+            'SELECT st."stockTransferId", st."docNumber", st."status", st."createdAt", st."note",
                     st."fromOutletId", st."fromLocationId",
                     st."toOutletId",   st."toLocationId",
                     fo.outletname as "fromOutletName",
@@ -287,6 +299,9 @@ final class StockTransferService
                 $r      = $rowsRs->fields;
                 $rows[] = [
                     'stockTransferId'  => $r['stockTransferId'],
+                    // Correlativo del documento (mig 129). Null en las
+                    // transferencias anteriores que no se pudieron numerar.
+                    'docNumber'        => isset($r['docNumber']) ? (int) $r['docNumber'] : null,
                     'status'           => (int) $r['status'],
                     'createdAt'        => $r['createdAt'],
                     'note'             => $r['note'],
@@ -363,6 +378,7 @@ final class StockTransferService
         return [
             'transfer' => [
                 'stockTransferId'  => $header['stockTransferId'],
+                'docNumber'        => isset($header['docNumber']) ? (int) $header['docNumber'] : null,
                 'companyId'        => $header['companyId'],
                 'status'           => (int) $header['status'],
                 'createdAt'        => $header['createdAt'],

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Punto\Api\Orders;
 
+use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Services\TransactionLinkService;
 
 /**
@@ -266,20 +267,20 @@ final class OrderCoreService
         // en UTC. Si algún negocio pide numeración diaria, va como opción de
         // SUCURSAL — no de caja — ver _feature-requests.md).
         //
-        // El advisory lock transaction-scoped serializa dos creates
-        // concurrentes del mismo outlet (multi-caja): MAX+1 + INSERT quedan
-        // atómicos entre sí. Si el volumen revela contención real, se migra a
-        // secuencia dedicada por outlet; el lock suave alcanza hoy.
-        $lockKey = $companyId . ':' . $outletId . ':ordernumber';
-        $db->Execute('SELECT pg_advisory_xact_lock(hashtext(?))', [$lockKey]);
-
-        $numRow = ncmExecute(
-            "SELECT COALESCE(MAX(ordernumber), 0) + 1 AS nextnum
-               FROM pos_order
-              WHERE companyid = ? AND outletid = ?",
-            [$companyId, $outletId]
+        // F2 de context/37: el número sale de `document_sequence`, no de
+        // `MAX(ordernumber)+1`. Se fue el advisory lock junto con el MAX — el
+        // asignador hace `UPDATE ... RETURNING`, que ya toma el row lock de PG,
+        // así que es atómico sin serializar el outlet entero ni escanear
+        // `pos_order`, que crece con el histórico.
+        //
+        // Corre DENTRO de la transacción del create: si el INSERT falla, el
+        // rollback devuelve el número y no queda hueco en el correlativo.
+        $orderNumber = DocumentNumber::allocate(
+            'orden',
+            DocumentNumber::SCOPE_OUTLET,
+            $outletId,
+            $companyId,
         );
-        $orderNumber = (int) ($numRow['nextnum'] ?? 1);
 
         $status = $sendNow ? 'sent' : 'open';
 

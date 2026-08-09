@@ -81,6 +81,18 @@ function ProduccionPageInner() {
   const orderColumns: ColumnDef<ProductionOrder, unknown>[] = React.useMemo(
     () => [
       {
+        id: "docNumber",
+        header: "Nº",
+        // Correlativo por sucursal (mig 129). Los registros anteriores a la
+        // migración pueden no tener número.
+        cell: ({ row }) => (
+          <span className="tabular-nums text-sm text-muted-foreground">
+            {row.original.docNumber ?? "—"}
+          </span>
+        ),
+        meta: { label: "Nº de orden" },
+      },
+      {
         accessorKey: "itemName",
         header: "Producto",
         cell: ({ row }) => <span className="font-medium">{row.original.itemName ?? "—"}</span>,
@@ -137,6 +149,18 @@ function ProduccionPageInner() {
 
   const wasteColumns: ColumnDef<WasteEvent, unknown>[] = React.useMemo(
     () => [
+      {
+        id: "docNumber",
+        header: "Nº",
+        // Correlativo por sucursal (mig 129). Los registros anteriores a la
+        // migración pueden no tener número.
+        cell: ({ row }) => (
+          <span className="tabular-nums text-sm text-muted-foreground">
+            {row.original.docNumber ?? "—"}
+          </span>
+        ),
+        meta: { label: "Nº de merma" },
+      },
       {
         accessorKey: "itemName",
         header: "Producto",

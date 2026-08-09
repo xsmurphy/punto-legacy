@@ -5,6 +5,9 @@ import { api } from "@/lib/api-client"
 
 export interface InventoryCountSession {
   inventoryCountId: string
+  /** Correlativo del documento por sucursal (mig 129). Null en los
+   *  registros anteriores que no se pudieron numerar. */
+  docNumber: number | null
   outletId: string
   outletName: string
   locationId: string | null
@@ -33,6 +36,8 @@ export interface InventoryCountItem {
 export interface InventoryCountDetail {
   session: {
     inventoryCountId: string
+    /** Correlativo del documento por sucursal (mig 129). */
+    docNumber: number | null
     outletId: string
     locationId: string | null
     status: 0 | 1 | 2
