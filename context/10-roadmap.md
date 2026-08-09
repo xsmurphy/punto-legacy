@@ -103,7 +103,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO — tab de la ficha + reporte general (ver nota abajo) |
 | T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | RESUELTO — fuente única con el reporte general (ver nota abajo) |
 | T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
-| T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | ABIERTO |
+| T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | RESUELTO — arrastre del reporte anterior, verificado por el owner 2026-08-09 (ver nota abajo) |
 | T11 | Modal de detalle de transacción: demasiado chico y con la información pobre y cruda. Debería verse como una factura, con el nivel de detalle de la vista de compras (`/purchase/[id]`), no como una tabla de 3 columnas. Reportado con captura por el owner 2026-08-06. | Panel / transacciones | RESUELTO 2026-08-08 — `2c555b39` + `1dc99c45` (ver nota abajo) |
 | T9 | Modificar cantidad de un ítem del carrito: no deja tipear cantidad ni decimales, "persiste incluso usando Shift". | POS / carrito | RE-TEST (fix `4c0158d0`, desplegado hoy) |
 | T10 | Orden en venta: al procesar el pedido vuelve a la lista de ventas y pide cobrar de nuevo algo ya pagado. | POS / órdenes | RE-TEST (fix `675a4608`, desplegado hoy) |
@@ -167,6 +167,36 @@ Frontend: `OrderRow.status` pasó a la union de `OrderStatus`, y
 compartido (adaptando `OrderRow`→`Order` con `toOrderStub`, `interactive`
 `false`). `api/lib/services/OrderService.php` (legacy, type=12) queda
 intacto — dominio aparte, no se tocó.
+
+**T8 — nota (2026-08-09)**: el owner verificó el flujo y ya funcionaba — el
+ítem venía arrastrado del reporte anterior sin borrar. Vale como advertencia de
+proceso: se diagnosticó y se cambió código antes de confirmar que el bug
+existía todavía.
+
+El primer diagnóstico ADEMÁS estuvo mal. Se concluyó que en tablet el módulo
+`/pos/espacios` se pinta como Dialog fullscreen encima del `CartPanel`
+(`layout.tsx`, `moduleAsDialog`) y tapaba el botón "Cliente". Falso para este
+caso: `useIsMobile` (`hooks/use-mobile.ts`) corta en ancho `< 768px` — el
+comentario del propio archivo aclara que "una tablet POS >768px sigue siendo
+táctil" —, y el reporte se hizo en una notebook a resolución alta, donde el
+módulo va al 70% y el carrito al 30%, ambos visibles. **Regla que sale de
+acá**: `useIsMobile` es ancho de viewport, no tipo de dispositivo; para
+capacidad táctil está `useIsCoarsePointer`. No inferir "tablet" de ninguno de
+los dos sin el dato del dispositivo.
+
+Lo que sí quedó del intento (`4000df23`, defendible por sí solo): el estado de
+reconciliación del cobro parcial salió del estado local de `espacios/page.tsx`
+y vive en `lib/spaces/settlement-store.ts`, con el efecto montado en
+`SpaceSettlementProvider` (hermano del `CartPanel` en el layout del POS, fuera
+del slot de ruta). Antes, cualquier navegación mataba la reconciliación — por
+eso `40e8cbf9` había sacado la navegación a propósito. Efecto lateral: la
+guarda de doble cobro (`chargeInFlight`) ahora sobrevive un cobro en vuelo.
+Detalle verificado en código: `clearCart()` resetea `settlementIntent` ANTES
+de que se dispare el cierre del PayDialog, así que guardar ese estado en el
+cart store lo habría dejado en `null` justo cuando la reconciliación lo lee.
+
+Además se corrigió un comentario mentiroso: el docblock de `handleSplitCharge`
+decía "abre el PayDialog" y nunca lo abrió.
 
 **T11 — nota (2026-08-08)**: no se agrandó el modal, se lo reemplazó. El
 diagnóstico fue que había CUATRO vistas divergentes del detalle de una
