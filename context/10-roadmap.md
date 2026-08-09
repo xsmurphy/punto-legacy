@@ -71,9 +71,17 @@ evidencia de dónde quedó el fix.
 **Pendientes de decisión / de datos**
 
 - Numeración correlativa de TODOS los documentos → `context/37-numeracion-documentos.md`.
-- Anulaciones / devoluciones / notas de crédito, columnas y totales de IVA en
-  plantillas, export RG90 + Libro Ventas, reporte detallado de productos e
-  historial por artículo: alta de funcionalidad, sin empezar.
+- ~~Columnas y totales de IVA en plantillas~~ **RESUELTO 2026-08-08** (F3 de
+  `context/38-impuestos-multi-pais.md`): la facturación electrónica lee el IVA
+  congelado por línea en vez del catálogo actual (`f9db4ffc`), el ticket lleva
+  el desglose fiscal por línea (`74252a02`) y existen bloques de plantilla
+  parametrizados por tasa — `item_total_by_rate`, `subtotal_by_rate`,
+  `iva_by_rate`, `iva_total` — con paleta generada según los impuestos del
+  comercio (`66503f24`). Verificado con una venta de 4 líneas (10% incluido,
+  5% incluido, exenta, 10% añadido con descuento) en `decimals` 0 y 2.
+- Anulaciones / devoluciones / notas de crédito, export RG90 + Libro Ventas,
+  reporte detallado de productos e historial por artículo: alta de
+  funcionalidad, sin empezar.
 - SQL 25P02 al crear cuenta: mismo enmascaramiento que las ventas con
   decimales; esperar el error real de PG ahora que `62941d41` lo deja pasar.
 
@@ -96,7 +104,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | ABIERTO |
 | T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
 | T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | ABIERTO |
-| T11 | Modal de detalle de transacción: demasiado chico y con la información pobre y cruda. Debería verse como una factura, con el nivel de detalle de la vista de compras (`/purchase/[id]`), no como una tabla de 3 columnas. Componente: `frontend/components/domain/transactions/transactions-list.tsx` — `DialogContent` en `max-w-2xl` (~L920), header ~L1032, tabla de ítems ~L1050 (solo Cant./Artículo/Total: sin precio unitario, sin descuento por línea, sin impuestos). Reportado con captura por el owner 2026-08-06. | Panel / transacciones | ABIERTO |
+| T11 | Modal de detalle de transacción: demasiado chico y con la información pobre y cruda. Debería verse como una factura, con el nivel de detalle de la vista de compras (`/purchase/[id]`), no como una tabla de 3 columnas. Reportado con captura por el owner 2026-08-06. | Panel / transacciones | RESUELTO 2026-08-08 — `2c555b39` + `1dc99c45` (ver nota abajo) |
 | T9 | Modificar cantidad de un ítem del carrito: no deja tipear cantidad ni decimales, "persiste incluso usando Shift". | POS / carrito | RE-TEST (fix `4c0158d0`, desplegado hoy) |
 | T10 | Orden en venta: al procesar el pedido vuelve a la lista de ventas y pide cobrar de nuevo algo ya pagado. | POS / órdenes | RE-TEST (fix `675a4608`, desplegado hoy) |
 
@@ -121,6 +129,31 @@ Frontend: `OrderRow.status` pasó a la union de `OrderStatus`, y
 compartido (adaptando `OrderRow`→`Order` con `toOrderStub`, `interactive`
 `false`). `api/lib/services/OrderService.php` (legacy, type=12) queda
 intacto — dominio aparte, no se tocó.
+
+**T11 — nota (2026-08-08)**: no se agrandó el modal, se lo reemplazó. El
+diagnóstico fue que había CUATRO vistas divergentes del detalle de una
+transacción (`PanelDetailView`, `TransactionDetailContent` del POS, el
+`TransactionDetail` local de `pos-transactions-dialog.tsx`, y ninguna para
+"Pagos recibidos") contra UNA sola de compras, y que casi todos los datos que
+faltaban ya existían en BD sin devolverse. Fix en dos fases, plan en
+`context/39-detalle-transaccion.md`:
+
+- `2c555b39` — resolver canónico `Transactions/TransactionDetailService`, al
+  nivel de `PurchasesService::find()`. Devuelve timbrado (`register.invoiceAuth`),
+  sucursal, caja, cajero resuelto a nombre, fecha con hora, condición
+  contado/crédito, descuento por línea en monto y %, comisión y usuario
+  asignado por línea, impuesto congelado por línea (F2a) y desglose por tasa
+  (`toTaxObj`), y documentos vinculados vía `TransactionLinkService`
+  (`quote_to_sale` en ambas direcciones + órdenes cobradas, que existían sin
+  usarse). Muere la query inline de `api/v1/reports/transactions.php`.
+- `1dc99c45` — página dedicada `/transactions/{id}`, espejo de `/purchase/{id}`
+  (decisión del owner: página, no modal más grande). El tab Cotizaciones usa la
+  misma página. "Pagos recibidos" recibió un modal chico — antes ese tab no
+  tenía ni click de fila. Se borraron `PanelDetailView` y `PanelEditView`.
+
+Queda F4 del plan: migrar el detalle del POS al mismo resolver. El campo legacy
+`toTransactions` quedó deprecado (cero INSERT vivo; `transaction_link` lo
+reemplazó).
 
 **T4 — DOS defectos encadenados, ambos silenciosos**:
 
