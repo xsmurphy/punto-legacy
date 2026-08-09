@@ -110,6 +110,73 @@ final class DocumentNumber
     }
 
     /**
+     * Reserva un BLOQUE contiguo de $count números y devuelve el primero.
+     *
+     * Existe para el POS offline: `numbering_lease` arrienda ~100 números por
+     * adelantado para poder facturar sin red. Hacer N llamadas a allocate()
+     * daría N round-trips y, peor, no garantiza contigüidad si otra caja de la
+     * misma secuencia asigna en el medio.
+     *
+     * @return int el PRIMER número del bloque; el último es $first + $count - 1.
+     *
+     * @throws RangeExhaustedException si el bloque se pasa del rango autorizado.
+     */
+    public static function allocateBlock(
+        string $docType,
+        string $scopeType,
+        string $scopeId,
+        string $companyId,
+        int $count,
+    ): int {
+        global $db;
+
+        if ($count < 1) {
+            throw new \InvalidArgumentException('count debe ser >= 1');
+        }
+        if (!in_array($scopeType, [self::SCOPE_REGISTER, self::SCOPE_OUTLET, self::SCOPE_COMPANY], true)) {
+            throw new \InvalidArgumentException('scopeType inválido: ' . $scopeType);
+        }
+
+        $rs = $db->Execute(
+            'INSERT INTO document_sequence
+                 (companyid, doctype, scopetype, scopeid, nextnumber)
+             VALUES (?, ?, ?, ?, 1 + ?::bigint)
+             ON CONFLICT (companyid, doctype, scopetype, scopeid)
+             DO UPDATE SET nextnumber = document_sequence.nextnumber + ?::bigint,
+                           updated_at = now()
+             RETURNING nextnumber - ?::bigint AS allocated, rangeto',
+            [$companyId, $docType, $scopeType, $scopeId, $count, $count, $count]
+        );
+
+        if ($rs === false || $rs->EOF) {
+            throw new \RuntimeException(
+                'No se pudo asignar el bloque de números para el documento ' . $docType
+            );
+        }
+
+        $first   = (int) ($rs->fields['allocated'] ?? 0);
+        $rangeTo = $rs->fields['rangeto'] ?? null;
+
+        if ($first < 1) {
+            throw new \RuntimeException(
+                'Bloque asignado inválido para el documento ' . $docType
+            );
+        }
+
+        // Se valida el ÚLTIMO del bloque: arrendar números por encima del rango
+        // autorizado dejaría al POS offline emitiendo fuera de timbrado sin red
+        // para enterarse.
+        if ($rangeTo !== null && ($first + $count - 1) > (int) $rangeTo) {
+            throw new RangeExhaustedException(
+                docType: $docType,
+                rangeTo: (int) $rangeTo,
+            );
+        }
+
+        return $first;
+    }
+
+    /**
      * Número que se asignaría, SIN reservarlo. Solo para mostrar en pantalla
      * (ej. "próxima factura" en Ajustes).
      *

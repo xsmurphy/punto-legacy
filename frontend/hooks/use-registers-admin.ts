@@ -20,23 +20,34 @@ export interface RegisterFiscal {
 }
 
 /**
- * Piso de numeración por tipo de documento — el PRÓXIMO número a emitir. Un
- * timbrado no siempre arranca en 1: la SET puede autorizar un rango que empieza
- * en 1234. Vacío = sin piso, el número se deriva de lo ya emitido.
+ * PRÓXIMO número a emitir por tipo de documento — sale de `document_sequence`
+ * (context/37), que es el correlativo real de la caja. Nunca llega vacío: la
+ * secuencia arranca en 1 y se siembra al crear la caja. Un timbrado no siempre
+ * arranca en 1 (la SET puede autorizar desde 2336) y eso es exactamente lo que
+ * este campo fija.
+ *
+ * Al ESCRIBIR, vacío significa "no lo toques" — no "sin numeración".
  *
  * Solo están los documentos que HOY tienen emisión real y numerada por caja.
  * Faltan de la lista del owner, por motivos distintos:
  *   - Nota de crédito / remisión / comprobante interno: el documento todavía no
- *     existe (la remisión tiene el SaleType 10 declarado pero nada lo emite, y
- *     el flag `interno` ni siquiera se persiste). Numerar algo que no se emite
- *     sería un campo muerto.
+ *     existe (la remisión tiene el SaleType 10 declarado pero nada lo emite).
+ *     Numerar algo que no se emite sería un campo muerto.
  *   - Recibo: los pagos de crédito (type 5) no llevan numeración propia hoy.
- *   - Orden: `pos_order.ordernumber` es por SUCURSAL, no por caja — su piso no
- *     puede vivir acá sin cambiarle el scope a la secuencia.
+ *   - Orden: `pos_order.ordernumber` es por SUCURSAL, no por caja — su
+ *     secuencia existe pero con scope `outlet`.
  */
 export interface RegisterNumbering {
   factura: string
   cotizacion: string
+}
+
+/**
+ * Fin del rango autorizado por el timbrado. Al agotarse, el asignador corta la
+ * emisión en vez de facturar fuera de timbrado. Null = sin techo declarado.
+ */
+export interface RegisterRange {
+  facturaTo: number | null
 }
 
 export interface RegisterListItem {
@@ -51,6 +62,7 @@ export interface RegisterListItem {
   blindControl: boolean
   fiscal: RegisterFiscal
   numbering: RegisterNumbering
+  range: RegisterRange
 }
 
 export function useRegistersAdmin() {
@@ -63,13 +75,30 @@ export function useRegistersAdmin() {
 
 export function useCreateRegister() {
   const qc = useQueryClient()
-  return useMutation<{ id: string; name: string }, Error, { outletId: string; name: string }>({
-    mutationFn: (vars) =>
-      api.post<{ id: string; name: string }>("/v1/register", {
+  return useMutation<
+    { id: string; name: string },
+    Error,
+    {
+      outletId: string
+      name: string
+      /** Timbrado y numeración van en el alta: la caja es el punto de
+       *  expedición y el número desde el que arranca es dato del timbrado. */
+      fiscal?: Partial<RegisterFiscal>
+      numbering?: Partial<RegisterNumbering>
+      range?: { facturaTo?: string }
+    }
+  >({
+    mutationFn: (vars) => {
+      const payload: Record<string, unknown> = {
         action: "create",
         outletId: vars.outletId,
         name: vars.name,
-      }),
+      }
+      if (vars.fiscal !== undefined)    payload.fiscal    = vars.fiscal
+      if (vars.numbering !== undefined) payload.numbering = vars.numbering
+      if (vars.range !== undefined)     payload.range     = vars.range
+      return api.post<{ id: string; name: string }>("/v1/register", payload)
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["registers"] })
       qc.invalidateQueries({ queryKey: ["bootstrap"] })
@@ -90,6 +119,7 @@ export function useUpdateRegister() {
       blindControl?: boolean
       fiscal?: Partial<RegisterFiscal>
       numbering?: Partial<RegisterNumbering>
+      range?: { facturaTo?: string }
     }
   >({
     mutationFn: (vars) => {
@@ -99,6 +129,7 @@ export function useUpdateRegister() {
       if (vars.blindControl !== undefined) payload.blindControl = vars.blindControl
       if (vars.fiscal !== undefined)       payload.fiscal       = vars.fiscal
       if (vars.numbering !== undefined)    payload.numbering    = vars.numbering
+      if (vars.range !== undefined)        payload.range        = vars.range
       return api.post<{ ok: boolean }>("/v1/register", payload)
     },
     onSuccess: () => {

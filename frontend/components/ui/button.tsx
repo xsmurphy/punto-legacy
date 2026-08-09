@@ -44,6 +44,7 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  type,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
@@ -56,6 +57,19 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
+      // `<button>` nativo default a type="submit": CUALQUIER botón dentro de un
+      // <form> lo submitea aunque su onClick haga otra cosa. Eso rompía el tab
+      // "Cajas" de /outlets/[id] — el form de la sucursal envuelve los tabs, y
+      // "Nueva caja" disparaba el submit del outlet: zod fallaba, `onInvalid`
+      // saltaba al tab con error y el usuario terminaba mirando el form de
+      // Contacto de la sucursal en vez del diálogo de caja.
+      //
+      // El fix va acá y no en el call-site: es el wrapper compartido, y el
+      // mismo bug estaba latente en el trigger de eliminar sucursal y en todo
+      // control de <DataTable> renderizado dentro de un form. Los botones que
+      // SÍ submitean lo declaran explícito (`type="submit"`) — verificado:
+      // los 26 archivos con <form> tienen su submit declarado.
+      type={asChild ? type : (type ?? "button")}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />

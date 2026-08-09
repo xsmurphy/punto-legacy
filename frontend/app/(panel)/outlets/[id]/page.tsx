@@ -15,7 +15,9 @@ import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { EmptyState } from "@/components/empty-state"
 import { FormSection } from "@/components/forms/form-section"
+import { RowActions } from "@/components/data-table/row-actions"
 import { RegistersTab } from "@/components/outlets/registers-tab"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -798,7 +800,13 @@ function LocationsSection({ outletId }: { outletId: string }) {
         {isLoading ? (
           <Skeleton className="h-20 w-full" />
         ) : locations.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Sin depósitos aún.</p>
+          <EmptyState
+            icon={Boxes}
+            title="Sin depósitos"
+            description="Los depósitos subdividen el stock dentro de esta sucursal."
+            actions={<Button onClick={openCreate}>Agregar depósito</Button>}
+            ghost={2}
+          />
         ) : (
           <Table>
             <TableHeader>
@@ -812,12 +820,20 @@ function LocationsSection({ outletId }: { outletId: string }) {
                 <TableRow key={loc.id}>
                   <TableCell>{loc.name}</TableCell>
                   <TableCell className="text-right">
-                    <Button type="button" variant="ghost" size="icon" onClick={() => openEdit(loc)}>
-                      <Pencil className="h-4 w-4" />
-                    </Button>
-                    <Button type="button" variant="ghost" size="icon" onClick={() => setDeleteTarget(loc)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {/* Menú de fila en vez de dos iconos sueltos: es la única
+                        forma válida de renderizar acciones de fila y deja el
+                        borrado detrás de un click de fricción. */}
+                    <RowActions
+                      actions={[
+                        { label: "Editar", icon: Pencil, onSelect: () => openEdit(loc) },
+                        {
+                          label: "Eliminar",
+                          icon: Trash2,
+                          variant: "destructive",
+                          onSelect: () => setDeleteTarget(loc),
+                        },
+                      ]}
+                    />
                   </TableCell>
                 </TableRow>
               ))}

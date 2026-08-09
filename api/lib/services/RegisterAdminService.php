@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 
+use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Sales\SaleType;
 
 /**
@@ -28,31 +29,53 @@ final class RegisterAdminService
     private const DOC_TYPES = ['factura', 'cotizacion'];
 
     /**
-     * Lee `registerNumbering` de una fila ya aplanada por Query::flattenJsonb
-     * y la normaliza a un mapa completo (todos los DOC_TYPES, null si no hay
-     * piso). El valor viene del JSONB, así que puede ser array o JSON-string
-     * según por dónde haya pasado la fila.
+     * Próximos números de la caja, leídos de `document_sequence` (context/37).
      *
-     * @return array<string,int|null>
+     * NUNCA devuelve vacío: la secuencia es NOT NULL DEFAULT 1 y las cajas se
+     * siembran al crearse (mig 127 sembró las existentes). Si por lo que fuera
+     * faltara la fila, el fallback es 1 — que es exactamente lo que asignaría
+     * el asignador. Antes esto leía un "piso" opcional de `register.data` y
+     * devolvía '' cuando no había ninguno: el panel mostraba el campo en blanco
+     * y el número real recién existía al facturar.
+     *
+     * @return array<string,array<string,int|null>> registerId → docType → next
      */
-    private static function numberingFromRow(mixed $f): array
+    private function numberingByRegister(): array
     {
-        $raw = $f['registerNumbering'] ?? null;
-        if (is_string($raw)) {
-            $raw = json_decode($raw, true);
-        }
-        $raw = is_array($raw) ? $raw : [];
+        $rs = ncmExecute(
+            'SELECT s.scopeid, s.doctype, s.nextnumber, s.rangeto
+               FROM document_sequence s
+              WHERE s.companyid = ? AND s.scopetype = ?',
+            [$this->companyId, DocumentNumber::SCOPE_REGISTER],
+            false,
+            true  // forceObj → recordset
+        );
 
         $out = [];
-        foreach (self::DOC_TYPES as $docType) {
-            $v = $raw[$docType] ?? null;
-            $out[$docType] = ($v === null || $v === '') ? null : (int) $v;
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f  = $rs->fields;
+                $id = (string) ($f['scopeid'] ?? '');
+                $dt = (string) ($f['doctype'] ?? '');
+                if ($id === '' || !in_array($dt, self::DOC_TYPES, true)) {
+                    $rs->MoveNext();
+                    continue;
+                }
+                $out[$id][$dt] = [
+                    'next'    => (int) ($f['nextnumber'] ?? 1),
+                    'rangeTo' => $f['rangeto'] === null ? null : (int) $f['rangeto'],
+                ];
+                $rs->MoveNext();
+            }
+            $rs->Close();
         }
         return $out;
     }
 
     public function listAll(): array
     {
+        $seq = $this->numberingByRegister();
+
         $rs = ncmExecute(
             'SELECT r.registerId, r.registerName, r.outletId, o.outletName, r.registerStatus, r.data
                FROM register r
@@ -81,8 +104,9 @@ final class RegisterAdminService
                 // 2026-08-04). Mismo bug silencioso que parked-sales/pinhash
                 // (2026-07-30); el patrón correcto ya estaba en
                 // api/v1/register.php:110 — leer las claves ya aplanadas.
+                $regId = (string)($f['registerId'] ?? $f['registerid'] ?? '');
                 $out[] = [
-                    'id'         => (string)($f['registerId']    ?? $f['registerid']    ?? ''),
+                    'id'         => $regId,
                     'name'       => (string)($f['registerName']  ?? $f['registername']  ?? ''),
                     'outletId'   => (string)($f['outletId']      ?? $f['outletid']      ?? ''),
                     'outletName' => (string)($f['outletName']    ?? $f['outletname']    ?? ''),
@@ -99,13 +123,17 @@ final class RegisterAdminService
                         'invoiceAuthStart'      => (string) ($f['registerInvoiceAuthStart'] ?? ''),
                         'invoiceAuthExpiration' => (string) ($f['registerInvoiceAuthExpiration'] ?? ''),
                     ],
-                    // Piso de numeración por documento (ver update()). El front
-                    // lo muestra vacío cuando no hay piso: ahí el número se
-                    // deriva de lo ya emitido, que es el comportamiento previo.
-                    'numbering' => array_map(
-                        static fn($v) => $v === null ? '' : (string) $v,
-                        self::numberingFromRow($f),
-                    ),
+                    // Próximo número de cada documento, de `document_sequence`.
+                    // Siempre presente — es el número que la caja va a emitir.
+                    'numbering' => [
+                        'factura'    => (string) ($seq[$regId]['factura']['next'] ?? 1),
+                        'cotizacion' => (string) ($seq[$regId]['cotizacion']['next'] ?? 1),
+                    ],
+                    // Fin del rango autorizado del timbrado. Null = sin techo
+                    // declarado; el asignador solo corta cuando hay uno.
+                    'range' => [
+                        'facturaTo' => $seq[$regId]['factura']['rangeTo'] ?? null,
+                    ],
                 ];
                 $rs->MoveNext();
             }
@@ -116,8 +144,13 @@ final class RegisterAdminService
 
     /**
      * Crea una caja.
+     *
+     * `$extra` acepta los mismos `fiscal` / `numbering` / `range` que update():
+     * el timbrado y el número desde el que arranca la caja son parte del ALTA,
+     * no un segundo paso. Una caja creada sin ellos igual queda con secuencia
+     * en 1 — nunca sin numeración.
      */
-    public function create(string $outletId, string $name): array
+    public function create(string $outletId, string $name, array $extra = []): array
     {
         $name     = trim($name);
         $outletId = trim($outletId);
@@ -147,6 +180,13 @@ final class RegisterAdminService
             apiError('Ya existe una caja con ese nombre en la sucursal', 409);
         }
 
+        // Caja + secuencias + timbrado en UNA transacción: el timbrado se
+        // valida recién en update(), y un `apiError` ahí corta el request. Sin
+        // la transacción quedaría una caja creada a medias, sin el timbrado que
+        // el operador acaba de cargar y sin forma de darse cuenta.
+        global $db;
+        $db->StartTrans();
+
         $row = ncmExecute(
             'INSERT INTO register (registerId, companyId, outletId, registerName, registerStatus)
              VALUES (gen_random_uuid(), ?, ?, ?, TRUE)
@@ -155,6 +195,25 @@ final class RegisterAdminService
         );
 
         $id = (string)($row['registerId'] ?? $row['registerid'] ?? '');
+
+        // Secuencias de la caja recién creada. Se siembran SIEMPRE, con o sin
+        // datos del alta: `document_sequence` es de dónde sale el próximo
+        // número y una caja sin fila ahí le haría mostrar al panel un 1 que no
+        // está respaldado por nada.
+        foreach (self::DOC_TYPES as $docType) {
+            $this->seedSequence($id, $docType, null, null, false, null);
+        }
+
+        // El resto del alta reusa update(): mismas validaciones de timbrado,
+        // mismo invariante de "no pisar un número emitido" (trivial en una caja
+        // nueva, pero no se duplica la regla).
+        $fields = array_intersect_key($extra, array_flip(['fiscal', 'numbering', 'range', 'blindControl']));
+        if ($fields !== []) {
+            $this->update($id, $fields);
+        }
+
+        $db->CompleteTrans();
+
         realtimePublish('register', 'create', $id);
         return ['id' => $id, 'name' => $name];
     }
@@ -244,29 +303,27 @@ final class RegisterAdminService
 
         // ── Numeración por documento ────────────────────────────────────────
         // Un timbrado no siempre arranca en 1: la SET puede autorizar un rango
-        // que empieza en, por ejemplo, 1234. Sin un piso configurable la caja
-        // emitía siempre desde 1 (el número se derivaba de MAX(invoiceNo)+1),
-        // que cae fuera del rango autorizado.
+        // que empieza en, por ejemplo, 2336. Esto es lo que mueve el próximo
+        // número de la secuencia (`document_sequence.nextnumber`) a ese valor.
         //
-        // El piso se guarda por TIPO de documento desde el arranque aunque hoy
-        // solo exista 'factura': en PY la nota de crédito, la nota de débito y
-        // la remisión llevan timbrado y rango PROPIOS, así que un contador
-        // único habría que rehacerlo al implementarlas.
+        // Se guarda por TIPO de documento porque en PY la nota de crédito, la
+        // nota de débito y la remisión llevan timbrado y rango PROPIOS: un
+        // contador único habría que rehacerlo al implementarlas.
         //
-        // Invariante (decisión del owner): el piso NUNCA puede pisar un número
-        // ya emitido — sería una factura duplicada. Se valida contra
-        // `transaction` acá; el cálculo del próximo número sigue tomando el
-        // máximo entre el piso y lo ya usado (v1/numbering/lease.php), así que
-        // ni siquiera un piso viejo puede reemitir.
+        // Invariante (decisión del owner): NUNCA puede pisar un número ya
+        // emitido — sería una factura duplicada. Se valida contra `transaction`
+        // y contra los arriendos pendientes antes de mover la secuencia.
+        $numbering = [];
         if (array_key_exists('numbering', $fields) && is_array($fields['numbering'])) {
-            $numbering = [];
             foreach ($fields['numbering'] as $docType => $raw) {
                 if (!in_array($docType, self::DOC_TYPES, true)) {
                     apiError('Tipo de documento desconocido: ' . (string) $docType, 422);
                 }
                 $n = trim((string) $raw);
                 if ($n === '') {
-                    $numbering[$docType] = null;   // sin piso — vuelve a derivarse
+                    // Vacío ya NO significa "sin numeración": la secuencia
+                    // siempre tiene un próximo número. Un campo en blanco es
+                    // simplemente "no lo toques".
                     continue;
                 }
                 if (!preg_match('/^\d+$/', $n) || (int) $n < 1) {
@@ -327,12 +384,31 @@ final class RegisterAdminService
                 }
                 $numbering[$docType] = $n;
             }
-            if ($numbering !== []) {
-                $fiscalPatch['registerNumbering'] = $numbering;
+        }
+
+        // Fin del rango autorizado del timbrado. Es lo que le permite al
+        // asignador cortar la emisión al agotarse en vez de emitir fuera de
+        // timbrado (F4, context/37). Se guarda en la secuencia de la factura:
+        // el rango es del timbrado, no de la caja entera.
+        $rangeTo = null;
+        $rangeToTouched = false;
+        if (array_key_exists('range', $fields) && is_array($fields['range'])
+            && array_key_exists('facturaTo', $fields['range'])) {
+            $rangeToTouched = true;
+            $rt = trim((string) $fields['range']['facturaTo']);
+            if ($rt !== '') {
+                if (!preg_match('/^\d+$/', $rt) || (int) $rt < 1) {
+                    apiError('El fin del rango debe ser un entero positivo', 422);
+                }
+                $rangeTo = (int) $rt;
+                $from = $numbering['factura'] ?? null;
+                if ($from !== null && $rangeTo < $from) {
+                    apiError('El fin del rango no puede ser menor que la próxima factura', 422);
+                }
             }
         }
 
-        if (empty($setParts) && empty($fiscalPatch)) {
+        if (empty($setParts) && empty($fiscalPatch) && $numbering === [] && !$rangeToTouched) {
             return ['ok' => true];
         }
 
@@ -358,8 +434,88 @@ final class RegisterAdminService
             );
         }
 
+        // El prefijo EEE-PPP viaja a la secuencia de la factura: el asignador
+        // lo necesita para componer el número fiscal completo sin volver a
+        // leer la caja.
+        $prefix = array_key_exists('registerInvoicePrefix', $fiscalPatch)
+            ? $fiscalPatch['registerInvoicePrefix']
+            : null;
+
+        // La secuencia de la FACTURA se toca si cambió cualquiera de las tres
+        // cosas que viven en ella: el próximo número, el techo del rango o el
+        // prefijo del timbrado. Los tres llegan por caminos distintos del
+        // request, de ahí el OR — un cambio de solo prefijo también tiene que
+        // bajar a la secuencia.
+        if (isset($numbering['factura']) || $rangeToTouched || $prefix !== null) {
+            $this->seedSequence(
+                $id,
+                'factura',
+                $numbering['factura'] ?? null,
+                $rangeTo,
+                $rangeToTouched,
+                $prefix,
+            );
+        }
+        // La cotización no lleva timbrado propio: solo su contador.
+        if (isset($numbering['cotizacion'])) {
+            $this->seedSequence($id, 'cotizacion', $numbering['cotizacion'], null, false, null);
+        }
+
         realtimePublish('register', 'update', $id);
         return ['ok' => true];
+    }
+
+    /**
+     * Crea o mueve la secuencia de un documento de esta caja.
+     *
+     * `$next === null` deja el contador donde está (solo se está tocando el
+     * rango o el prefijo). Nunca se llama desde el camino de emisión: mover un
+     * contador es una operación de administración y ya viene validada contra lo
+     * realmente emitido por el caller.
+     */
+    private function seedSequence(
+        string $registerId,
+        string $docType,
+        ?int $next,
+        ?int $rangeTo,
+        bool $rangeTouched,
+        ?string $prefix,
+    ): void {
+        global $db;
+
+        // El SET del rango se arma en PHP y no con un placeholder booleano:
+        // PDO bindea `false` como '' / 0 y PG rechaza `CASE WHEN 0` ("argument
+        // of CASE/WHEN must be type boolean"). Un update que no trae rango no
+        // puede borrar el techo del timbrado, así que la columna ni aparece.
+        // `rangefrom` es documental (desde dónde autorizó la SET) y solo se
+        // mueve cuando el admin declara el rango. Si se moviera con cada cambio
+        // de `nextnumber`, un ajuste del contador a mitad del talonario
+        // reescribiría el inicio del rango con un dato falso.
+        $rangeSet    = $rangeTouched ? 'rangefrom = ?::bigint, rangeto = ?::bigint,' : '';
+        $rangeParams = $rangeTouched ? [$next, $rangeTo] : [];
+
+        // Casts explícitos en todos los placeholders: sin ellos PG no puede
+        // inferir el tipo de un `?` dentro de COALESCE y aborta con "could not
+        // determine data type of parameter".
+        $db->Execute(
+            'INSERT INTO document_sequence
+                 (companyid, doctype, scopetype, scopeid, nextnumber, rangefrom, rangeto, prefix)
+             VALUES (?, ?, ?, ?, COALESCE(?::bigint, 1), ?::bigint, ?::bigint, ?::varchar)
+             ON CONFLICT (companyid, doctype, scopetype, scopeid) DO UPDATE SET
+                 nextnumber = COALESCE(?::bigint, document_sequence.nextnumber),
+                 ' . $rangeSet . '
+                 prefix     = COALESCE(?::varchar, document_sequence.prefix),
+                 updated_at = now()',
+            array_merge(
+                [
+                    $this->companyId, $docType, DocumentNumber::SCOPE_REGISTER, $registerId,
+                    $next, $next, $rangeTo, $prefix,
+                    $next,
+                ],
+                $rangeParams,
+                [$prefix]
+            )
+        );
     }
 
     /**

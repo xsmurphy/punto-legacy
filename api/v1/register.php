@@ -54,7 +54,14 @@ if ($method === 'POST') {
     if ($action === 'create') {
         $reqOutletId = trim((string)($body['outletId'] ?? ''));
         $name        = trim((string)($body['name'] ?? ''));
-        apiOk($adminSvc->create($reqOutletId, $name));
+        // Timbrado + numeración van en el ALTA: la caja es el punto de
+        // expedición y el número desde el que arranca es dato del timbrado que
+        // la SET le autorizó, no una config posterior.
+        $extra = [];
+        foreach (['fiscal', 'numbering', 'range'] as $k) {
+            if (isset($body[$k]) && is_array($body[$k])) { $extra[$k] = $body[$k]; }
+        }
+        apiOk($adminSvc->create($reqOutletId, $name, $extra));
     }
 
     if ($action === 'update') {
@@ -65,8 +72,10 @@ if ($method === 'POST') {
         // Timbrado de la caja (número, EEE-PPP, vigencia) — la caja es el
         // punto de expedición; ver RegisterAdminService::update.
         if (isset($body['fiscal']) && is_array($body['fiscal'])) { $fields['fiscal'] = $body['fiscal']; }
-        // Piso de numeración por documento — ver RegisterAdminService::update.
+        // Próximo número por documento y fin del rango autorizado — mueven
+        // `document_sequence`; ver RegisterAdminService::update.
         if (isset($body['numbering']) && is_array($body['numbering'])) { $fields['numbering'] = $body['numbering']; }
+        if (isset($body['range']) && is_array($body['range']))         { $fields['range']     = $body['range']; }
         // Control de caja a ciegas — flag panel-only (el device lo lee en
         // GET ?resource=config pero su PUT no puede tocarlo).
         if (isset($body['blindControl'])) {

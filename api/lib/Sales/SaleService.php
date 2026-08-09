@@ -5,6 +5,7 @@ namespace Punto\Api\Sales;
 
 use DB; // wrapper PDO en namespace global, en `app/includes/lib/DB.php`
 use Punto\Api\Context\TenantContext;
+use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
@@ -1602,9 +1603,13 @@ final class SaleService
         $userId        = $input->userId ?? $this->ctx->userId;
         $responsibleId = ($userId !== $this->ctx->userId) ? $this->ctx->userId : null;
 
-        $quoteNo = $this->getNextQuoteNumber();
-
         $this->db->StartTrans();
+
+        // DENTRO de la transacción a propósito (D1, context/37): si la
+        // cotización no persiste, el rollback devuelve también el número y no
+        // queda hueco en el correlativo. Antes se calculaba antes del
+        // StartTrans y una cotización abortada quemaba el número.
+        $quoteNo = $this->getNextQuoteNumber();
 
         $record = $this->buildTransactionRecord(
             input:         $input,
@@ -1645,10 +1650,9 @@ final class SaleService
             );
         }
 
-        $this->db->Execute(
-            'UPDATE register SET registerQuoteNumber = ? WHERE registerId = ? AND companyId = ?',
-            [$quoteNo, $this->ctx->registerId, $this->ctx->companyId]
-        );
+        // El contador legacy `registerQuoteNumber` ya no se escribe: la
+        // secuencia se incrementó sola al reservar el número. Mantener ambos
+        // dejaría dos fuentes de verdad divergiendo en silencio.
 
         return [
             'transactionId'  => enc((string) $transId),
@@ -2054,40 +2058,24 @@ final class SaleService
         return $out;
     }
 
+    /**
+     * Próximo número de cotización, reservado atómicamente (F2, context/37).
+     *
+     * Antes esto era `max(registerQuoteNumber + 1, último emitido + 1, piso)`
+     * seguido de un UPDATE aparte al cerrar: lectura pura, así que dos cajeros
+     * cotizando a la vez obtenían el MISMO número. Ahora la reserva y el
+     * incremento son un solo statement en `document_sequence`.
+     *
+     * Llamar SIEMPRE dentro de la transacción de la cotización.
+     */
     private function getNextQuoteNumber(): int
     {
-        $register = ncmExecute(
-            'SELECT * FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
-            [$this->ctx->registerId, $this->ctx->companyId],
-            false
+        return DocumentNumber::allocate(
+            'cotizacion',
+            DocumentNumber::SCOPE_REGISTER,
+            $this->ctx->registerId,
+            $this->ctx->companyId,
         );
-        $stored  = $register ? (int) ($register['registerQuoteNumber'] ?? 0) : 0;
-        $current = $stored + 1;
-
-        $row = $this->db->Execute(
-            'SELECT invoiceNo FROM transaction
-              WHERE companyId = ? AND registerId = ?
-                AND invoiceNo IS NOT NULL AND invoiceNo > 0
-                AND transactionType = 9
-              ORDER BY transactionDate DESC LIMIT 1',
-            [$this->ctx->companyId, $this->ctx->registerId]
-        );
-        $lastUsed = ($row && !$row->EOF) ? (int) $row->fields['invoiceno'] : 0;
-
-        // Piso configurable de la caja (RegisterAdminService::update). OJO a la
-        // diferencia de semántica: `registerQuoteNumber` guarda la ÚLTIMA usada
-        // (por eso el +1 de arriba), mientras que `registerNumbering` guarda la
-        // PRÓXIMA — es lo que el operador carga en el form. Se toma el máximo:
-        // un piso viejo nunca puede reemitir un número ya usado.
-        $numbering = $register['registerNumbering'] ?? null;
-        if (is_string($numbering)) {
-            $numbering = json_decode($numbering, true);
-        }
-        $floor = (is_array($numbering) && isset($numbering['cotizacion']))
-            ? (int) $numbering['cotizacion']
-            : 0;
-
-        return max($lastUsed + 1, $current, $floor);
     }
 
     /**

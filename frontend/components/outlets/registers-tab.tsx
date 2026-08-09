@@ -30,6 +30,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
+import { formatDate } from "@/lib/format-date"
 import {
   useRegistersAdmin,
   useCreateRegister,
@@ -49,6 +50,15 @@ function todayLocalISO(): string {
   return `${d.getFullYear()}-${mm}-${dd}`
 }
 
+/** Fecha local a N días de hoy, YYYY-MM-DD. Para el aviso de "por vencer". */
+function inDaysLocalISO(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${mm}-${dd}`
+}
+
 const EMPTY_FISCAL: RegisterFiscal = {
   invoiceAuth: "",
   invoicePrefix: "",
@@ -56,6 +66,9 @@ const EMPTY_FISCAL: RegisterFiscal = {
   invoiceAuthExpiration: "",
 }
 
+/** En el ALTA los campos arrancan vacíos y el backend siembra la secuencia en
+ *  1 si el usuario no carga nada. En la EDICIÓN llegan siempre con el próximo
+ *  número real de la caja — nunca en blanco. */
 const EMPTY_NUMBERING: RegisterNumbering = {
   factura: "",
   cotizacion: "",
@@ -76,6 +89,9 @@ export function RegistersTab({ outletId }: { outletId: string }) {
 
   const [showCreate, setShowCreate] = React.useState(false)
   const [newName, setNewName] = React.useState("")
+  const [newFiscal, setNewFiscal] = React.useState<RegisterFiscal>(EMPTY_FISCAL)
+  const [newNumbering, setNewNumbering] = React.useState<RegisterNumbering>(EMPTY_NUMBERING)
+  const [newRangeTo, setNewRangeTo] = React.useState("")
 
   const [editTarget, setEditTarget] = React.useState<RegisterListItem | null>(null)
   const [editName, setEditName] = React.useState("")
@@ -83,10 +99,19 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   const [editBlind, setEditBlind] = React.useState(false)
   const [editFiscal, setEditFiscal] = React.useState<RegisterFiscal>(EMPTY_FISCAL)
   const [editNumbering, setEditNumbering] = React.useState<RegisterNumbering>(EMPTY_NUMBERING)
+  const [editRangeTo, setEditRangeTo] = React.useState("")
 
   const [deleteTarget, setDeleteTarget] = React.useState<RegisterListItem | null>(null)
 
   const registers = (data?.registers ?? []).filter((r) => r.outletId === outletId)
+
+  function openCreate() {
+    setNewName("")
+    setNewFiscal(EMPTY_FISCAL)
+    setNewNumbering(EMPTY_NUMBERING)
+    setNewRangeTo("")
+    setShowCreate(true)
+  }
 
   function openEdit(reg: RegisterListItem) {
     setEditTarget(reg)
@@ -95,10 +120,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
     setEditBlind(reg.blindControl)
     setEditFiscal({ ...EMPTY_FISCAL, ...reg.fiscal })
     setEditNumbering({ ...EMPTY_NUMBERING, ...reg.numbering })
-  }
-
-  function patchFiscal(p: Partial<RegisterFiscal>) {
-    setEditFiscal((f) => ({ ...f, ...p }))
+    setEditRangeTo(reg.range?.facturaTo != null ? String(reg.range.facturaTo) : "")
   }
 
   const columns = React.useMemo<ColumnDef<RegisterListItem>[]>(() => [
@@ -132,15 +154,51 @@ export function RegistersTab({ outletId }: { outletId: string }) {
         // server-side). Se avisa acá para que no se enteren recién al cobrar.
         // Comparación de strings YYYY-MM-DD: ordenan igual que las fechas y
         // evitan meter una TZ del browser en una fecha que es del tenant.
-        const expired =
-          !!f.invoiceAuthExpiration && f.invoiceAuthExpiration < todayLocalISO()
+        return (
+          <span className="text-sm tabular-nums">
+            {f.invoiceAuth}
+            {f.invoicePrefix ? ` · ${f.invoicePrefix}` : ""}
+          </span>
+        )
+      },
+    },
+    {
+      id: "numeracion",
+      header: "Próxima factura",
+      // El correlativo vive en `document_sequence` y siempre tiene valor: es el
+      // número exacto que va a salir en la próxima venta de esta caja. Si hay
+      // rango de timbrado cargado se muestra el techo al lado — es la única
+      // pista de cuánto queda antes de que la caja deje de poder facturar.
+      cell: ({ row }) => {
+        const next = row.original.numbering.factura
+        const to = row.original.range?.facturaTo
+        return (
+          <span className="text-sm tabular-nums">
+            {next}
+            {to != null && (
+              <span className="text-muted-foreground"> / {to}</span>
+            )}
+          </span>
+        )
+      },
+    },
+    {
+      id: "vence",
+      header: "Vence",
+      // Vencido = la caja NO puede facturar (el asignador de numeración lo
+      // corta server-side). Se avisa acá para que no se enteren recién al
+      // cobrar. Comparación de strings YYYY-MM-DD: ordenan igual que las fechas
+      // y evitan meter una TZ del browser en una fecha que es del tenant.
+      cell: ({ row }) => {
+        const exp = row.original.fiscal.invoiceAuthExpiration
+        if (!exp) return <span className="text-sm text-muted-foreground">—</span>
+        const expired = exp < todayLocalISO()
+        const soon = !expired && exp <= inDaysLocalISO(30)
         return (
           <div className="flex items-center gap-2">
-            <span className="text-sm tabular-nums">
-              {f.invoiceAuth}
-              {f.invoicePrefix ? ` · ${f.invoicePrefix}` : ""}
-            </span>
+            <span className="text-sm tabular-nums">{formatDate(exp)}</span>
             {expired && <Badge variant="destructive">Vencido</Badge>}
+            {soon && <Badge variant="secondary">Por vencer</Badge>}
           </div>
         )
       },
@@ -167,7 +225,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   return (
     <>
       <div className="flex justify-end mb-4">
-        <Button onClick={() => { setNewName(""); setShowCreate(true) }}>
+        <Button onClick={openCreate}>
           <Plus className="size-4 mr-1.5" />
           Nueva caja
         </Button>
@@ -183,7 +241,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
       />
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-2xl font-semibold">Nueva caja</DialogTitle>
           </DialogHeader>
@@ -198,6 +256,23 @@ export function RegistersTab({ outletId }: { outletId: string }) {
                 autoFocus
               />
             </div>
+
+            <Separator />
+
+            {/* El timbrado se carga en el ALTA y no en un segundo paso: la caja
+                ES el punto de expedición, y el número desde el que arranca sale
+                del rango que la SET autorizó para ese timbrado. Sin esto la
+                caja empieza en 1, que casi nunca es lo que corresponde. */}
+            <StampAndNumbering
+              idPrefix="new"
+              fiscal={newFiscal}
+              onFiscal={(p) => setNewFiscal((f) => ({ ...f, ...p }))}
+              numbering={newNumbering}
+              onNumbering={(p) => setNewNumbering((n) => ({ ...n, ...p }))}
+              rangeTo={newRangeTo}
+              onRangeTo={setNewRangeTo}
+              numberingHint="Desde qué número emite esta caja. Vacío arranca en 1."
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancelar</Button>
@@ -205,7 +280,13 @@ export function RegistersTab({ outletId }: { outletId: string }) {
               disabled={!newName.trim() || createRegister.isPending}
               onClick={() => {
                 createRegister.mutate(
-                  { outletId, name: newName.trim() },
+                  {
+                    outletId,
+                    name: newName.trim(),
+                    fiscal: newFiscal,
+                    numbering: newNumbering,
+                    range: { facturaTo: newRangeTo },
+                  },
                   {
                     onSuccess: () => { toast.success("Caja creada"); setShowCreate(false) },
                     onError: (err) => toast.error(err.message),
@@ -252,99 +333,16 @@ export function RegistersTab({ outletId }: { outletId: string }) {
 
             <Separator />
 
-            {/* Timbrado — la caja es el punto de expedición: estos datos son
-                de la caja (sirven a la numeración fiscal y a la impresión,
-                tenga o no el comercio facturación electrónica). */}
-            <div className="space-y-3">
-              <div>
-                <h3 className="text-base font-semibold tracking-tight">Timbrado</h3>
-                <p className="text-sm text-muted-foreground">
-                  El timbrado que la SET asignó a este punto de expedición.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-stamp-auth">Número de timbrado</Label>
-                  <Input
-                    id="edit-stamp-auth"
-                    value={editFiscal.invoiceAuth}
-                    onChange={(e) => patchFiscal({ invoiceAuth: e.target.value.replace(/\D/g, "") })}
-                    placeholder="12345678"
-                    className="tabular-nums"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-stamp-prefix">Establecimiento y punto (EEE-PPP)</Label>
-                  <Input
-                    id="edit-stamp-prefix"
-                    value={editFiscal.invoicePrefix}
-                    onChange={(e) => patchFiscal({ invoicePrefix: e.target.value.replace(/[^0-9-]/g, "").slice(0, 7) })}
-                    placeholder="001-001"
-                    className="tabular-nums"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-stamp-start">Vigente desde</Label>
-                  <Input
-                    id="edit-stamp-start"
-                    type="date"
-                    value={editFiscal.invoiceAuthStart}
-                    onChange={(e) => patchFiscal({ invoiceAuthStart: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-stamp-exp">Vence</Label>
-                  <Input
-                    id="edit-stamp-exp"
-                    type="date"
-                    value={editFiscal.invoiceAuthExpiration}
-                    onChange={(e) => patchFiscal({ invoiceAuthExpiration: e.target.value })}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Numeración — el próximo número de cada documento. Va aparte del
-                timbrado: el timbrado es lo que la SET autoriza, esto es dónde
-                está parado el contador de la caja hoy. */}
-            <div className="space-y-3">
-              <div>
-                <h3 className="text-base font-semibold tracking-tight">Numeración</h3>
-                <p className="text-sm text-muted-foreground">
-                  El próximo número que va a emitir esta caja. Dejalo vacío para continuar
-                  desde el último emitido.
-                </p>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-next-invoice">Próxima factura</Label>
-                  <Input
-                    id="edit-next-invoice"
-                    value={editNumbering.factura}
-                    onChange={(e) =>
-                      setEditNumbering((n) => ({ ...n, factura: e.target.value.replace(/\D/g, "") }))
-                    }
-                    placeholder="1234"
-                    className="tabular-nums"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-next-quote">Próxima cotización</Label>
-                  <Input
-                    id="edit-next-quote"
-                    value={editNumbering.cotizacion}
-                    onChange={(e) =>
-                      setEditNumbering((n) => ({ ...n, cotizacion: e.target.value.replace(/\D/g, "") }))
-                    }
-                    placeholder="1"
-                    className="tabular-nums"
-                  />
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                No se puede repetir un número ya emitido en esta caja.
-              </p>
-            </div>
+            <StampAndNumbering
+              idPrefix="edit"
+              fiscal={editFiscal}
+              onFiscal={(p) => setEditFiscal((f) => ({ ...f, ...p }))}
+              numbering={editNumbering}
+              onNumbering={(p) => setEditNumbering((n) => ({ ...n, ...p }))}
+              rangeTo={editRangeTo}
+              onRangeTo={setEditRangeTo}
+              numberingHint="El próximo número que va a emitir esta caja."
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditTarget(null)}>Cancelar</Button>
@@ -360,6 +358,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
                     blindControl: editBlind,
                     fiscal: editFiscal,
                     numbering: editNumbering,
+                    range: { facturaTo: editRangeTo },
                   },
                   {
                     onSuccess: () => { toast.success("Caja actualizada"); setEditTarget(null) },
@@ -409,6 +408,140 @@ export function RegistersTab({ outletId }: { outletId: string }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </>
+  )
+}
+
+/**
+ * Timbrado + numeración de una caja. Compartido por el alta y la edición:
+ * son los MISMOS datos y divergir los dos formularios fue lo que dejó el alta
+ * pidiendo solo el nombre y obligando a un segundo paso para cargar el
+ * timbrado que la caja necesita para poder facturar.
+ */
+function StampAndNumbering({
+  idPrefix,
+  fiscal,
+  onFiscal,
+  numbering,
+  onNumbering,
+  rangeTo,
+  onRangeTo,
+  numberingHint,
+}: {
+  idPrefix: string
+  fiscal: RegisterFiscal
+  onFiscal: (patch: Partial<RegisterFiscal>) => void
+  numbering: RegisterNumbering
+  onNumbering: (patch: Partial<RegisterNumbering>) => void
+  rangeTo: string
+  onRangeTo: (v: string) => void
+  numberingHint: string
+}) {
+  const digits = (v: string) => v.replace(/\D/g, "")
+
+  return (
+    <>
+      {/* Timbrado — la caja es el punto de expedición: estos datos son de la
+          caja (sirven a la numeración fiscal y a la impresión, tenga o no el
+          comercio facturación electrónica). */}
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-base font-semibold tracking-tight">Timbrado</h3>
+          <p className="text-sm text-muted-foreground">
+            El timbrado que la SET asignó a este punto de expedición.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idPrefix}-stamp-auth`}>Número de timbrado</Label>
+            <Input
+              id={`${idPrefix}-stamp-auth`}
+              value={fiscal.invoiceAuth}
+              onChange={(e) => onFiscal({ invoiceAuth: digits(e.target.value) })}
+              placeholder="12345678"
+              className="tabular-nums"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idPrefix}-stamp-prefix`}>Establecimiento y punto (EEE-PPP)</Label>
+            <Input
+              id={`${idPrefix}-stamp-prefix`}
+              value={fiscal.invoicePrefix}
+              onChange={(e) =>
+                onFiscal({ invoicePrefix: e.target.value.replace(/[^0-9-]/g, "").slice(0, 7) })
+              }
+              placeholder="001-001"
+              className="tabular-nums"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idPrefix}-stamp-start`}>Vigente desde</Label>
+            <Input
+              id={`${idPrefix}-stamp-start`}
+              type="date"
+              value={fiscal.invoiceAuthStart}
+              onChange={(e) => onFiscal({ invoiceAuthStart: e.target.value })}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idPrefix}-stamp-exp`}>Vence</Label>
+            <Input
+              id={`${idPrefix}-stamp-exp`}
+              type="date"
+              value={fiscal.invoiceAuthExpiration}
+              onChange={(e) => onFiscal({ invoiceAuthExpiration: e.target.value })}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Numeración — el correlativo real de la caja (`document_sequence`). Va
+          aparte del timbrado: el timbrado es lo que la SET autoriza, esto es
+          dónde está parado el contador hoy. */}
+      <div className="space-y-3">
+        <div>
+          <h3 className="text-base font-semibold tracking-tight">Numeración</h3>
+          <p className="text-sm text-muted-foreground">{numberingHint}</p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idPrefix}-next-invoice`}>Próxima factura</Label>
+            <Input
+              id={`${idPrefix}-next-invoice`}
+              value={numbering.factura}
+              onChange={(e) => onNumbering({ factura: digits(e.target.value) })}
+              placeholder="1"
+              className="tabular-nums"
+            />
+          </div>
+          <div className="space-y-1.5">
+            {/* Techo del rango autorizado: al agotarse, la caja deja de
+                facturar en vez de emitir fuera de timbrado. Vacío = sin techo
+                declarado (no bloquea). */}
+            <Label htmlFor={`${idPrefix}-range-to`}>Última factura del rango</Label>
+            <Input
+              id={`${idPrefix}-range-to`}
+              value={rangeTo}
+              onChange={(e) => onRangeTo(digits(e.target.value))}
+              placeholder="Opcional"
+              className="tabular-nums"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idPrefix}-next-quote`}>Próxima cotización</Label>
+            <Input
+              id={`${idPrefix}-next-quote`}
+              value={numbering.cotizacion}
+              onChange={(e) => onNumbering({ cotizacion: digits(e.target.value) })}
+              placeholder="1"
+              className="tabular-nums"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          No se puede repetir un número ya emitido en esta caja.
+        </p>
+      </div>
     </>
   )
 }

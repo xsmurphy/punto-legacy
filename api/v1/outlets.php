@@ -73,7 +73,15 @@ if ($method === 'POST') {
 
     $poRaw = (string) (validateHttp('purchaseOrderNo', 'post') ?: '');
     $po    = ($poRaw !== '' && is_numeric($poRaw)) ? (int) $poRaw : null;
-    $taxId = (string) (validateHttp('tax', 'post') ?: '');
+    // `taxId` es el nombre que manda el frontend (y el que espera
+    // OutletsService::update). El port leía `tax`, la clave del legacy: el
+    // impuesto por defecto de la sucursal NUNCA se guardaba y, peor, cada save
+    // lo mandaba vacío → la columna quedaba en NULL. Se aceptan las dos por el
+    // legacy que todavía postea `tax`.
+    $taxId = (string) (validateHttp('taxId', 'post') ?: '');
+    if ($taxId === '') {
+        $taxId = (string) (validateHttp('tax', 'post') ?: '');
+    }
     if ($taxId !== '' && !preg_match($uuidRe, $taxId)) {
         apiError('impuesto inválido', 422);
     }

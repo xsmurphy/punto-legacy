@@ -70,15 +70,12 @@ if ($rsActive !== false && $rsActive !== 0) {
 
 // No active lease — emitir un bloque nuevo de números.
 //
-// P0 race condition (code-review S4): sin serialización, dos requests
-// concurrentes para la misma caja leen el mismo MAX(invoiceNo) y ambos
-// intentan INSERT con los mismos valores → el segundo falla en el UNIQUE
-// constraint con un error 500 no manejado. Fix: advisory lock de sesión
-// (pg_advisory_xact_lock) serializa el bloque MAX→INSERT. El lock se
-// libera al commitear la transacción. Si el segundo request llega mientras
-// el primero mantiene el lock, espera. Al obtenerlo, el check de lease
-// activo al inicio del bloque (re-chequeado antes de emitir) lo detectará
-// y retornará el lease del primero sin emitir uno nuevo.
+// El advisory lock sigue acá pero por un motivo distinto al original: la
+// asignación en sí ya es atómica (DocumentNumber::allocateBlock hace
+// `UPDATE ... RETURNING`, que toma el row lock de PG). Lo que serializa el
+// lock es el par "chequear lease activo → arrendar": sin él, dos requests
+// concurrentes de la misma caja no verían el lease del otro y arrendarían dos
+// bloques, quemando 100 números de timbrado por nada.
 //
 // hashtext() produce un int4 estable desde un string arbitrario — lo usamos
 // para derivar el lock key desde el UUID de la caja sin truncarlo a int.
@@ -128,46 +125,35 @@ if ($rsRecheck !== false && $rsRecheck !== 0) {
     }
 }
 
-// Tabla legacy `transaction`: columnas creadas sin quotes en el DDL → PG las
-// almacena en lowercase. NO usar quoted identifiers acá (causaría error
-// "column invoiceNo does not exist"). Tablas nuevas (camelCase quoted §44)
-// como numbering_lease sí usan quotes.
-$maxRow  = ncmExecute(
-    'SELECT MAX(invoiceno) AS maxno FROM transaction WHERE registerid = ? AND companyid = ?',
-    [$regId, $compId]
-);
-$maxno   = ($maxRow && isset($maxRow['maxno']) && $maxRow['maxno'] !== null) ? (int) $maxRow['maxno'] : 0;
+// Asignación del bloque (F2, context/37). Antes acá se calculaba
+// `max(MAX(invoiceno)+1, MAX(lease)+1, piso)`: una DERIVACIÓN, no un
+// correlativo — borrar la última fila reemitía su número, no había techo de
+// timbrado y cada arriendo escaneaba `transaction`. Ahora el próximo número
+// sale de `document_sequence`, que es la única fuente de verdad y el mismo
+// número que el panel muestra en la caja.
+//
+// `numbering_lease` NO desaparece: sigue siendo el registro auditable de los
+// huecos que el modo offline genera por diseño (un número arrendado y nunca
+// consumido ES un hueco, D1 de context/37). Lo que cambia es de dónde saca el
+// primer número del bloque. (Sin require_once: `Punto\Api\Documents\*` lo
+// resuelve el autoloader PSR-4 de bootstrap.php.)
 
-// También considerar el máximo ya en lease (por si hay leases consumidos
-// recientes que aún no están en transaction — evita gaps dobles).
-$maxLeaseRow = ncmExecute(
-    'SELECT MAX("invoiceNo") AS maxno FROM "numbering_lease" WHERE "registerId" = ? AND "companyId" = ?',
-    [$regId, $compId]
-);
-$maxLease = ($maxLeaseRow && isset($maxLeaseRow['maxno']) && $maxLeaseRow['maxno'] !== null)
-    ? (int) $maxLeaseRow['maxno']
-    : 0;
-
-// Piso configurado para la caja (RegisterAdminService::update): un timbrado
-// puede arrancar en 1234 y no en 1. Se toma el MÁXIMO entre el piso y lo ya
-// emitido +1 — nunca al revés: un piso viejo o mal cargado no puede reemitir
-// un número que ya salió (invariante del owner: no duplicar documentos).
-$regRow  = ncmExecute(
-    'SELECT data FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
-    [$regId, $compId]
-);
-// OJO: ncmExecute aplana `data` al nivel de la fila y hace unset de la columna
-// (Query::flattenJsonb) — leer `$regRow['data']` daría null. La clave del
-// JSONB se lee directo de la fila aplanada.
-$numbering = is_array($regRow) || $regRow instanceof \ArrayAccess
-    ? ($regRow['registerNumbering'] ?? null)
-    : null;
-if (is_string($numbering)) {
-    $numbering = json_decode($numbering, true);
+try {
+    $next = \Punto\Api\Documents\DocumentNumber::allocateBlock(
+        'factura',
+        \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER,
+        $regId,
+        $compId,
+        $count,
+    );
+} catch (\Punto\Api\Documents\RangeExhaustedException $e) {
+    // Igual que el timbrado vencido: emitir por encima del rango autorizado da
+    // un documento inválido ante la SET. Corte duro, y el rollback devuelve los
+    // números al no commitear.
+    $db->FailTrans();
+    $db->CompleteTrans();
+    apiError($e->getMessage(), 422);
 }
-$floor = (is_array($numbering) && isset($numbering['factura'])) ? (int) $numbering['factura'] : 0;
-
-$next = max($maxno + 1, $maxLease + 1, $floor);
 
 $expiresAtDb   = date('Y-m-d H:i:s', strtotime('+24 hours'));
 $expiresAtJson = date('c', strtotime('+24 hours'));

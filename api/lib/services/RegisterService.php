@@ -66,12 +66,22 @@ final class RegisterService
 
         return [
             'registerId' => $register['registerId'],
-            'invoiceNo'  => (int) ($register['registerInvoiceNumber'] ?? 0),
+            // Factura y cotización ya salen de `document_sequence` (F2,
+            // context/37): son las dos que tienen emisor migrado, así que leer
+            // los contadores legacy acá devolvería un número viejo — el emisor
+            // dejó de escribirlos. `peek` NO reserva: esto es solo pantalla.
+            'invoiceNo'  => \Punto\Api\Documents\DocumentNumber::peek(
+                'factura', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId
+            ),
+            'quoteNo'    => \Punto\Api\Documents\DocumentNumber::peek(
+                'cotizacion', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId
+            ),
+            // El resto sigue en los contadores legacy: sus documentos todavía
+            // no se emiten (F3/F5 de context/37).
             'ticketNo'   => (int) ($register['registerTicketNumber'] ?? 0),
             'returnNo'   => $this->nextDocNumber((int) ($register['registerReturnNumber'] ?? 0), 6, $companyId, $registerId),
             'scheduleNo' => $this->nextDocNumber((int) ($register['registerScheduleNumber'] ?? 0), 13, $companyId, $registerId),
             'orderNo'    => $this->nextDocNumber((int) ($register['registerPedidoNumber'] ?? 0), 12, $companyId, $registerId),
-            'quoteNo'    => $this->nextDocNumber((int) ($register['registerQuoteNumber'] ?? 0), 9, $companyId, $registerId),
         ];
     }
 
