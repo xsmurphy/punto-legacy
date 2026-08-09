@@ -224,13 +224,6 @@ export function RegistersTab({ outletId }: { outletId: string }) {
 
   return (
     <>
-      <div className="flex justify-end mb-4">
-        <Button onClick={openCreate}>
-          <Plus className="size-4 mr-1.5" />
-          Nueva caja
-        </Button>
-      </div>
-
       <DataTable
         tableId={`registers-outlet-${outletId}`}
         columns={columns}
@@ -238,6 +231,17 @@ export function RegistersTab({ outletId }: { outletId: string }) {
         isLoading={isLoading}
         searchPlaceholder="Buscar caja..."
         exportFileName={null}
+        // Va en el toolbar de la tabla y no en una fila propia arriba: el
+        // <DataTable> ya tiene su barra con el buscador y "Columnas", y una
+        // segunda fila solo para un botón desperdicia el alto.
+        rightToolbarSlot={
+          // `size="sm" h-9` para alinear con el buscador y "Columnas" del
+          // toolbar, que van a esa altura.
+          <Button size="sm" className="h-9" onClick={openCreate}>
+            <Plus className="size-3.5" />
+            Nueva caja
+          </Button>
+        }
       />
 
       <Dialog open={showCreate} onOpenChange={setShowCreate}>

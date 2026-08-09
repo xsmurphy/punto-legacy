@@ -6,7 +6,7 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeft, Boxes, Calculator, Loader2, MapPin, Pencil, Phone, Receipt, Store, Trash2 } from "lucide-react"
+import { ArrowLeft, Boxes, Calculator, Loader2, Pencil, Store, Trash2 } from "lucide-react"
 import { isValidPhoneNumber } from "libphonenumber-js"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
@@ -159,19 +159,20 @@ export default function OutletEditPage() {
   // campos del form), no hay nada ahí que pueda quedar "invisible".
   const { tabsWithErrors, onInvalid } = useFormTabErrors({
     form,
+    // Un solo tab de formulario: perfil, contacto, datos fiscales y ubicación
+    // son la ficha de la sucursal, no cuatro pantallas. El hook se mantiene
+    // igual de necesario — si el usuario submitea parado en Depósitos o Cajas,
+    // esto lo devuelve al formulario, enfoca el campo inválido y avisa.
     fields: {
-      general: ["name", "description", "status", "ecom", "priceListId"],
-      fiscal: ["billingName", "ruc", "taxId", "taxIncluded", "purchaseOrderNo"],
-      contacto: ["address", "phone", "whatsApp", "email"],
-      ubicacion: ["lat", "lng"],
+      general: [
+        "name", "description", "status", "ecom", "priceListId",
+        "address", "phone", "whatsApp", "email",
+        "billingName", "ruc", "taxId", "taxIncluded", "purchaseOrderNo",
+        "lat", "lng",
+      ],
     },
     onTabChange: setActiveTab,
-    tabLabels: {
-      general: "General",
-      fiscal: "Datos fiscales",
-      contacto: "Contacto",
-      ubicacion: "Ubicación",
-    },
+    tabLabels: { general: "Sucursal" },
   })
 
   // Reset form cuando llegan los datos del backend (sólo en edit).
@@ -303,23 +304,8 @@ export default function OutletEditPage() {
             <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
               <TabsTrigger value="general" className="gap-1.5">
                 <Store className="size-3.5" />
-                General
+                Sucursal
                 {tabsWithErrors.has("general") && <TabErrorDot />}
-              </TabsTrigger>
-              <TabsTrigger value="fiscal" className="gap-1.5">
-                <Receipt className="size-3.5" />
-                Datos fiscales
-                {tabsWithErrors.has("fiscal") && <TabErrorDot />}
-              </TabsTrigger>
-              <TabsTrigger value="contacto" className="gap-1.5">
-                <Phone className="size-3.5" />
-                Contacto
-                {tabsWithErrors.has("contacto") && <TabErrorDot />}
-              </TabsTrigger>
-              <TabsTrigger value="ubicacion" className="gap-1.5">
-                <MapPin className="size-3.5" />
-                Ubicación
-                {tabsWithErrors.has("ubicacion") && <TabErrorDot />}
               </TabsTrigger>
               <TabsTrigger value="depositos" className="gap-1.5" disabled={isNew}>
                 <Boxes className="size-3.5" />
@@ -332,20 +318,15 @@ export default function OutletEditPage() {
             </TabsList>
           </div>
 
+          {/* Ficha completa en dos columnas. `items-start` para que cada
+              sección se quede en su alto y no se estire a la más larga. */}
           <TabsContent value="general" className="mt-6">
-            <GeneralTab form={form} priceLists={priceLists ?? []} />
-          </TabsContent>
-
-          <TabsContent value="fiscal" className="mt-6">
-            <FiscalTab form={form} availableTaxes={data?.availableTaxes ?? []} />
-          </TabsContent>
-
-          <TabsContent value="contacto" className="mt-6">
-            <ContactoTab form={form} />
-          </TabsContent>
-
-          <TabsContent value="ubicacion" className="mt-6">
-            <UbicacionTab form={form} />
+            <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+              <GeneralTab form={form} priceLists={priceLists ?? []} />
+              <ContactoTab form={form} />
+              <FiscalTab form={form} availableTaxes={data?.availableTaxes ?? []} />
+              <UbicacionTab form={form} />
+            </div>
           </TabsContent>
 
           <TabsContent value="depositos" className="mt-6">
@@ -370,7 +351,7 @@ function GeneralTab({
   priceLists,
 }: FormProp & { priceLists: Array<{ priceListId: string; priceListName: string; status: boolean; defaultAdjustment: number }> }) {
   return (
-    <Section title="General">
+    <Section title="Perfil">
       <FormField
         control={form.control}
         name="name"
