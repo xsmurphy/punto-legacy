@@ -3,15 +3,40 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { posApi as api } from "@/lib/api/pos-client"
 
-interface CreateCreditPaymentVars {
+/** Un renglón de imputación: cuánto de ESTE recibo va a cada factura. */
+export interface CreditPaymentAllocation {
   parentTransactionId: string
   amount: number
+}
+
+interface CreateCreditPaymentVarsCommon {
   paymentMethodKey: string
   // paymentMethodName resuelto server-side — no enviar al backend
   note?: string
   // Identificador del pago (nº de operación, voucher) para métodos que lo exigen
   identifier?: string
 }
+
+/** Forma vieja — un recibo, una factura. La sigue usando el POS (no tocar ese call-site). */
+interface CreateCreditPaymentVarsLegacy extends CreateCreditPaymentVarsCommon {
+  parentTransactionId: string
+  amount: number
+  allocations?: never
+}
+
+/**
+ * Forma nueva (mig 123) — un recibo repartido en VARIAS facturas del mismo
+ * cliente. El backend (`api/v1/credit-payments.php`) acepta ambas formas tal
+ * cual llegan en el body, así que un solo hook cubre los dos casos sin lógica
+ * de traducción acá — el mutationFn solo hace spread de `vars`.
+ */
+interface CreateCreditPaymentVarsMulti extends CreateCreditPaymentVarsCommon {
+  allocations: CreditPaymentAllocation[]
+  parentTransactionId?: never
+  amount?: never
+}
+
+type CreateCreditPaymentVars = CreateCreditPaymentVarsLegacy | CreateCreditPaymentVarsMulti
 
 interface CreateCreditPaymentResult {
   id: string
@@ -22,6 +47,16 @@ interface CreateCreditPaymentResult {
   parentComplete: boolean
   paid: number
   debtRemaining: number
+  /**
+   * Presente cuando el pago se hizo vía `allocations` (mig 123) — el detalle
+   * por factura saldada. Ausente (undefined) en la forma legacy de 1 factura.
+   */
+  allocations?: Array<{
+    parentTransactionId: string
+    amount: number
+    parentComplete: boolean
+    debtRemaining: number
+  }>
 }
 
 export function useCreateCreditPayment() {
@@ -51,6 +86,10 @@ export function useCreateCreditPayment() {
       // El saldo/deuda agregado del contacto (tab Financiero) vive en
       // ["contacts", id, "analytics", type] — invalidamos el prefijo completo.
       qc.invalidateQueries({ queryKey: ["contacts"] })
+      // Reporte de cuentas por cobrar (mismo endpoint que alimenta el diálogo
+      // de cobro multi-factura) — sin esto, reabrir el diálogo tras un pago
+      // repartido muestra facturas ya saldadas como pendientes.
+      qc.invalidateQueries({ queryKey: ["reports", "open_invoices"] })
     },
   })
 }

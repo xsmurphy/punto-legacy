@@ -22,21 +22,35 @@ namespace Punto\Api\Reports;
  */
 final class OpenInvoicesService
 {
-    /** @param string $state 'income' (tipo 3, clientes) | 'outcome' (tipo 4, proveedores). */
-    public function general($state, $companyId)
+    /**
+     * @param string $state 'income' (tipo 3, clientes) | 'outcome' (tipo 4, proveedores).
+     * @param string|null $contactId Filtra a UN contacto puntual (customerId/supplierId
+     *   según $state) — usado por el diálogo de cobro multi-factura del panel para listar
+     *   las facturas a crédito pendientes de un cliente sin traer las de toda la empresa.
+     *   Reusa el mismo cálculo que el reporte agregado (mismo dueStatus, mismo
+     *   payedByParent vía transaction_link) en vez de duplicar la query.
+     */
+    public function general($state, $companyId, ?string $contactId = null)
     {
         $isToPay    = ($state === 'outcome');
         $type       = $isToPay ? 4 : 3;
         $contactCol = $isToPay ? 'supplierId' : 'customerId';
+
+        $params = [$type, $companyId];
+        $contactFilter = '';
+        if ($contactId !== null && $contactId !== '') {
+            $contactFilter = " AND $contactCol = ?";
+            $params[] = $contactId;
+        }
 
         $sql = "SELECT $contactCol as cid, transactionId as saleId, transactionDate as date,
                        transactionDueDate as dueDate, invoiceNo as invoice, invoicePrefix as prefix,
                        transactionTotal as total, transactionDiscount as discount,
                        transactionComplete as complete
                 FROM transaction
-                WHERE transactionComplete = false AND transactionType = ? AND companyId = ?
+                WHERE transactionComplete = false AND transactionType = ? AND companyId = ?$contactFilter
                 ORDER BY transactionDueDate DESC LIMIT 5000";
-        $res = ncmExecute($sql, [$type, $companyId], false, false, true);
+        $res = ncmExecute($sql, $params, false, false, true);
         $res = is_array($res) ? $res : [];
         if (!$res) {
             return ['rows' => [], 'kpi' => ['totalDebt' => 0, 'accounts' => 0, 'expired' => 0, 'toExpire' => 0]];

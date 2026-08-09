@@ -49,7 +49,7 @@ import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { buildTicketDataFromTxDetail } from "@/lib/hardware/printers/build-ticket-data"
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
-import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
+import { MultiInvoicePaymentDialog } from "@/components/domain/transactions/multi-invoice-payment-dialog"
 import { TransactionEditDialog } from "@/components/domain/transactions/transaction-edit-dialog"
 import { txTypeLabel } from "@/components/domain/transactions/transactions-list"
 
@@ -433,12 +433,13 @@ function TransactionDetailView({
         />
       )}
 
-      {canPay && (
-        <CreditPaymentDialog
+      {canPay && tx.customerId && (
+        <MultiInvoicePaymentDialog
           open={payDialogOpen}
           onOpenChange={setPayDialogOpen}
-          parentTransactionId={tx.transactionId}
-          debt={detail.creditPayments!.debt}
+          customerId={tx.customerId}
+          primaryTransactionId={tx.transactionId}
+          primaryDebt={detail.creditPayments!.debt}
           customerName={tx.customerName || "Cliente"}
           paymentMethods={panelPaymentMethods}
           config={bootstrap ?? null}
