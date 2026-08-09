@@ -142,7 +142,7 @@ export function GiftcardValidationDialog({
                 // Mismo shape que payment-identifier-dialog (el otro captador
                 // de identificador del cobro): h-10/text-base. El h-14 text-2xl
                 // anterior desentonaba con el resto de los campos del POS.
-                className="h-10 flex-1 text-base tabular-nums text-center"
+                className="h-10 flex-1 tabular-nums text-center"
               />
               <Button
                 variant="outline"

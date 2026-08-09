@@ -137,21 +137,6 @@ export function PosSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
 
-              {!modoSoloOrdenes && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    tooltip="Modo del POS"
-                    onClick={() => setModeDialogOpen(true)}
-                    className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 [&:hover]:!bg-[#E3E5E9] dark:[&:hover]:!bg-[#1A1D1F]"
-                  >
-                    {/* El tinte del ícono replica la señal de la banda del
-                        carrito: modo activo visible sin abrir nada. */}
-                    <Repeat style={modeColor ? { color: modeColor } : undefined} />
-                    <span>Modo</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              )}
-
               {ordersEnabled && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
@@ -210,8 +195,26 @@ export function PosSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
+      {/* Footer = controles del ESTADO de la caja (modo activo, bloqueo),
+          separados de la navegación de arriba — misma distinción que sacó los
+          modos del drawer de Opciones: navegar te lleva a un lugar, esto
+          cambia cómo está operando la caja. */}
       <SidebarFooter className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
         <SidebarMenu>
+          {!modoSoloOrdenes && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip="Modo del POS"
+                onClick={() => setModeDialogOpen(true)}
+                className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 [&:hover]:!bg-[#E3E5E9] dark:[&:hover]:!bg-[#1A1D1F]"
+              >
+                {/* El tinte del ícono replica la señal de la banda del
+                    carrito: modo activo visible sin abrir nada. */}
+                <Repeat style={modeColor ? { color: modeColor } : undefined} />
+                <span>Modo</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           <SidebarMenuItem>
             <SidebarMenuButton
               tooltip="Bloquear"
