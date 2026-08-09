@@ -303,20 +303,22 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
 
           {itemId && outletId && qtyNum > 0 && (
             <div className="space-y-3 rounded-md border p-3">
-              {/* "Si producís ahora (opcional)" no decía qué era ni cuándo
-                  aplicaba. Estos campos SOLO viajan con "Producir ahora": el
-                  camino "Crear orden" los descarta, porque la merma se conoce
-                  recién al terminar de producir. */}
-              <div className="space-y-0.5">
-                <p className="text-sm font-medium">Merma</p>
-                <p className="text-xs text-muted-foreground">
-                  Unidades que salieron falladas. No entran al stock, pero su costo se
-                  reparte entre las que sí. Solo se registra con &quot;Producir ahora&quot;.
-                </p>
-              </div>
+              {/* Un encabezado que define el término ("Merma: unidades que
+                  salieron falladas…") obliga a leer un párrafo para entender
+                  un campo. Se reemplaza por la pregunta concreta del momento —
+                  cuántas salieron mal — y por el desglose en vivo de abajo, que
+                  muestra la consecuencia sin explicarla.
+
+                  Estos campos SOLO viajan con "Producir ahora": el camino
+                  "Crear orden" los descarta, porque cuántas salieron falladas
+                  se sabe recién al terminar de producir. */}
+              <p className="text-sm font-medium">
+                De las {formatInt(qtyNum, bootstrap)} unidades, ¿cuántas salieron
+                falladas?
+              </p>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label>Unidades con merma</Label>
+                  <Label>Unidades falladas</Label>
                   <Input
                     type="number"
                     min="0"
@@ -335,13 +337,13 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
                   )}
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Motivo de merma</Label>
+                  <Label>¿Por qué?</Label>
                   <Select value={wasteReasonId} onValueChange={setWasteReasonId}>
                     <SelectTrigger>
-                      <SelectValue placeholder="Sin merma" />
+                      <SelectValue placeholder="Ninguna fallada" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NO_LOCATION}>Sin merma</SelectItem>
+                      <SelectItem value={NO_LOCATION}>Ninguna fallada</SelectItem>
                       {(wasteReasonsData?.wasteReasons ?? []).map((r) => (
                         <SelectItem key={r.id} value={r.id}>
                           {r.name}
@@ -351,6 +353,19 @@ export function NewProductionDialog({ open, onOpenChange, initialItemId }: Props
                   </Select>
                 </div>
               </div>
+              {/* El desglose en vivo es la explicación: mostrar "entran 8, se
+                  descartan 2" ahorra el párrafo sobre qué es la merma. */}
+              {!wasteInvalid && wasteNum > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Entran al stock {formatInt(qtyNum - wasteNum, bootstrap)} unidades y se
+                  descartan {formatInt(wasteNum, bootstrap)}. Los insumos se consumen por
+                  las {formatInt(qtyNum, bootstrap)}, así que las falladas encarecen a las
+                  que sí salieron bien.
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Se registra solo si tocás &quot;Producir ahora&quot;.
+              </p>
             </div>
           )}
         </div>
