@@ -15,6 +15,13 @@ interface PosUIState {
   payOpen: boolean
   menuOpen: boolean
   optionsOpen: boolean
+  /**
+   * Selector de MODO del POS (venta / orden / cotización / …). Vive en el
+   * store y no como estado local del sidebar: el trigger está en el sidebar
+   * (que en mobile es un Sheet que se cierra al tocar) y el dialog tiene que
+   * sobrevivir a ese cierre montado desde el layout del POS.
+   */
+  modeDialogOpen: boolean
   /** Query activo del buscador de productos. Persiste al cerrar el modal. */
   itemSearchQuery: string
   /** Query activo del buscador de clientes. Persiste al cerrar el modal. */
@@ -25,6 +32,7 @@ interface PosUIState {
   setPayOpen: (v: boolean) => void
   setMenuOpen: (v: boolean) => void
   setOptionsOpen: (v: boolean) => void
+  setModeDialogOpen: (v: boolean) => void
   setItemSearchQuery: (q: string) => void
   setCustomerSearchQuery: (q: string) => void
   clearItemSearchQuery: () => void
@@ -58,6 +66,7 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   payOpen: false,
   menuOpen: false,
   optionsOpen: false,
+  modeDialogOpen: false,
   itemSearchQuery: "",
   customerSearchQuery: "",
   discountPadMode: "money",
@@ -66,6 +75,7 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   setPayOpen: (v) => set({ payOpen: v }),
   setMenuOpen: (v) => set({ menuOpen: v }),
   setOptionsOpen: (v) => set({ optionsOpen: v }),
+  setModeDialogOpen: (v) => set({ modeDialogOpen: v }),
   setItemSearchQuery: (q) => set({ itemSearchQuery: q }),
   setCustomerSearchQuery: (q) => set({ customerSearchQuery: q }),
   clearItemSearchQuery: () => set({ itemSearchQuery: "" }),

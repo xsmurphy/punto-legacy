@@ -3,6 +3,7 @@ import { SidebarInset } from "@/components/ui/sidebar"
 import { PosSidebarProvider } from "@/components/layout/pos-sidebar-provider"
 import { PosAuthGuard } from "@/components/layout/pos-auth-guard"
 import { PosSidebar } from "@/components/layout/pos-sidebar"
+import { PosModeDialog } from "@/components/register/pos-mode-dialog"
 import { InstallPrompt } from "@/components/pos/install-prompt"
 import { ChunkErrorListener } from "@/components/pos/chunk-error-listener"
 import { PosConfigSync } from "@/lib/pos/config-sync"
@@ -35,6 +36,9 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
               Todas las rutas del grupo (pos) cuelgan de /pos y montan el
               CartPanel, así que el trigger sigue presente en todas. */}
           {children}
+          {/* Selector de modo — montado en el layout (no en el sidebar) para
+              sobrevivir al cierre del Sheet mobile que contiene su trigger. */}
+          <PosModeDialog />
           <InstallPrompt />
         </SidebarInset>
       </PosAuthGuard>

@@ -7,8 +7,9 @@
  * guardar, lista de precios. El descuento es un único ítem dinámico:
  * "Descuento global" para aplicar cuando no hay uno activo, "Descuento:
  * <valor>" (con ícono de quitar) cuando sí — nunca ambas opciones a la vez.
- * Acciones stub (Próximamente): remisión, cita.
- * Eliminados: moneda, devolución.
+ * Los MODOS (Orden, Cotización, Remisión, Cita) ya no viven acá: se eligen
+ * desde el selector del sidebar (PosModeDialog). Este menú muestra SOLO las
+ * acciones que aplican al modo en curso (ver `modes` por opción).
  */
 
 import * as React from "react"
@@ -19,15 +20,10 @@ import {
   User,
   Tag,
   Save,
-  FileText,
-  Truck,
-  CalendarPlus,
-  ClipboardList,
   Tags,
   X,
   XCircle,
   MoreVertical,
-  Undo2,
   Ticket,
   type LucideIcon,
 } from "lucide-react"
@@ -123,10 +119,10 @@ export function SaleOptionsDrawer({
 
   const config = useCatalogStore((s) => s.config)
 
-  // Modo orden (O1) — el toggle vive acá; modoSoloOrdenes bloquea la vuelta a venta.
+  // El toggle de modo ya NO vive acá (PosModeDialog en el sidebar) — solo
+  // queda el gate de "Guardar" por Ajustes.
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
-  const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
   const permitirGuardarVentas = registerConfigData?.config?.permitirGuardarVentas ?? true
 
   // Impresión de cotización — mismo pipeline que el flujo de quote existente
@@ -136,7 +132,6 @@ export function SaleOptionsDrawer({
   const allBindings = bindingsData?.bindings ?? []
   const { requestPrint, pickerDialog } = usePrintWithPicker()
   const posMode = useCartStore((s) => s.posMode)
-  const setPosMode = useCartStore((s) => s.setPosMode)
 
   // Selectors for icon active state.
   const note = useCartStore((s) => s.note)
@@ -257,21 +252,39 @@ export function SaleOptionsDrawer({
     toast.info("Impresión de la venta en curso — falta definir el documento no fiscal")
   }
 
-  // ── Opciones de la venta ───────────────────────────────────────────────────
+  // ── Opciones de la transacción en curso ────────────────────────────────────
+  //
+  // SOLO acciones — los MODOS (Orden, Cotización, Remisión, Cita) salieron de
+  // acá al selector del sidebar (PosModeDialog, owner 2026-08-09): un modo
+  // cambia el POS entero, una acción opera sobre la transacción en curso.
+  // Mezclarlos hacía ilegible el menú.
+  //
+  // `modes` declara en qué modos aplica cada acción (decisión owner):
+  //   - orden: sin descuento, sin lista de precios, sin guardar — el precio y
+  //     el cobro se definen recién al cobrar la orden. Sin vale (el canje es
+  //     de venta) y sin imprimir (la orden se imprime al enviarse a cocina).
+  //   - cotización: sin guardar (guardar es una venta pausada, la cotización
+  //     ES su propio documento) y sin vale; descuento y lista de precios SÍ
+  //     (definen el precio cotizado).
+  //   - venta: todo.
 
-  const options: Array<{
+  // Tipada ANTES del filter: la anotación sobre el resultado de .filter() no
+  // tipa contextualmente el literal y `modes` se ensancharía a string[].
+  const allOptions: Array<{
     key: string
     label: string
     icon: LucideIcon
     action?: () => void
     stub?: boolean
     active?: boolean
+    modes: Array<"venta" | "orden" | "cotizacion">
   }> = [
     {
       key: "print",
       label: "Imprimir",
       icon: Printer,
       action: handlePrintCart,
+      modes: ["venta", "cotizacion"],
     },
     {
       key: "discount",
@@ -285,6 +298,7 @@ export function SaleOptionsDrawer({
           }
         : () => openDialog("discount"),
       active: hasGlobalDiscount,
+      modes: ["venta", "cotizacion"],
     },
     {
       key: "note",
@@ -292,6 +306,7 @@ export function SaleOptionsDrawer({
       icon: MessageSquare,
       action: () => openDialog("note"),
       active: Boolean(note),
+      modes: ["venta", "orden", "cotizacion"],
     },
     {
       key: "user",
@@ -299,6 +314,7 @@ export function SaleOptionsDrawer({
       icon: User,
       action: () => openDialog("user"),
       active: hasGlobalSeller,
+      modes: ["venta", "orden", "cotizacion"],
     },
     {
       key: "tags",
@@ -306,6 +322,7 @@ export function SaleOptionsDrawer({
       icon: Tag,
       action: () => openDialog("tags"),
       active: cartTags.length > 0,
+      modes: ["venta", "orden", "cotizacion"],
     },
     {
       // Entrypoint del canje de vale (context/36-vouchers-plan.md F2) — se
@@ -316,6 +333,7 @@ export function SaleOptionsDrawer({
       icon: Ticket,
       action: () => openDialog("voucher"),
       active: hasVoucher,
+      modes: ["venta"],
     },
     {
       key: "save",
@@ -325,67 +343,22 @@ export function SaleOptionsDrawer({
         setOpen(false)
         setShowSaveTitleDialog(true)
       },
+      modes: ["venta"],
     },
-    {
-      // Modo sticky (decisión owner 2026-07-30), mismo mecanismo que Orden:
-      // elegir "Cotización" NO guarda nada — pinta el POS de amber para cargar
-      // ítems, y la cotización se genera recién con el CTA amber del carrito
-      // (que dispara handleSaveAsQuote vía requestQuoteSave).
-      key: "quote",
-      label: "Cotización",
-      icon: FileText,
-      active: posMode === "cotizacion",
-      action: () => {
-        if (posMode === "cotizacion") return // ya activo — usar "Volver a venta"
-        setPosMode("cotizacion")
-        setOpen(false)
-        toast.success("Modo cotización activado — el botón principal genera la cotización")
-      },
-    },
-    {
-      key: "remission",
-      label: "Remisión",
-      icon: Truck,
-      stub: true,
-    },
-    {
-      key: "schedule",
-      label: "Cita",
-      icon: CalendarPlus,
-      stub: true,
-    },
-    {
-      key: "order",
-      label: "Orden",
-      icon: ClipboardList,
-      active: posMode === "orden",
-      action: () => {
-        if (posMode === "orden") return // ya activo — usar "Volver a venta" para salir
-        setPosMode("orden")
-        setOpen(false)
-        toast.success("Modo orden activado — el botón principal ahora envía a cocina")
-      },
-    },
-    ...(posMode !== "venta" && !(posMode === "orden" && modoSoloOrdenes)
-      ? [{
-          key: "back-to-venta",
-          label: "Volver a venta",
-          icon: Undo2 as LucideIcon,
-          action: () => {
-            setPosMode("venta")
-            setOpen(false)
-            toast.success("Modo venta activado")
-          },
-        }]
-      : []),
     {
       key: "priceList",
       label: "Lista de precios",
       icon: Tags,
       action: () => openDialog("priceList"),
+      modes: ["venta", "cotizacion"],
     },
-    // "Guardar" se filtra cuando permitirGuardarVentas=false (Ajustes → gate).
-  ].filter((opt) => opt.key !== "save" || permitirGuardarVentas)
+  ]
+  const options = allOptions.filter(
+    (opt) =>
+      opt.modes.includes(posMode) &&
+      // "Guardar" además se gatea por Ajustes → permitirGuardarVentas.
+      (opt.key !== "save" || permitirGuardarVentas),
+  )
 
   // ── Disparo del guardado de cotización desde el CTA amber del carrito ─────
   // (usePosUIStore.requestQuoteSave — ver el docblock del nonce en lib/ui/store).
@@ -444,14 +417,22 @@ export function SaleOptionsDrawer({
             variant="ghost"
             size="icon"
             className="size-9"
-            aria-label="Opciones de venta"
+            aria-label="Opciones de la transacción"
           >
             <MoreVertical className="size-5" />
           </Button>
         </DrawerTrigger>
         <DrawerContent className="mx-auto max-w-lg">
           <DrawerHeader className="pb-2">
-            <DrawerTitle>Opciones de venta</DrawerTitle>
+            {/* El título dice sobre QUÉ operan las acciones: el menú cambia
+                con el modo (ver `modes` en cada opción). */}
+            <DrawerTitle>
+              {posMode === "orden"
+                ? "Opciones de la orden"
+                : posMode === "cotizacion"
+                  ? "Opciones de la cotización"
+                  : "Opciones de venta"}
+            </DrawerTitle>
           </DrawerHeader>
 
           <div className="overflow-y-auto px-2 pb-4">

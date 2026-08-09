@@ -9,6 +9,7 @@ import {
   ClipboardList,
   LayoutGrid,
   Lock,
+  Repeat,
 } from "lucide-react"
 import {
   Sidebar,
@@ -32,6 +33,9 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { useModules } from "@/hooks/use-modules"
 import type { ModulesMap } from "@/lib/types/module"
+import { usePosUIStore } from "@/lib/ui/store"
+import { useCartStore } from "@/lib/cart/store"
+import { MODE_VISUALS } from "@/lib/pos/mode-visuals"
 
 // Mismo criterio conservador que `panel-auth-guard.tsx` (posNav): mientras
 // isLoading o error, el item condicional NO se muestra — evita parpadeo.
@@ -76,6 +80,23 @@ export function PosSidebar() {
   const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
   const permitirGuardarVentas = registerConfigData?.config?.permitirGuardarVentas ?? true
 
+  // Selector de modo (owner 2026-08-09): los modos salieron del drawer de
+  // Opciones — cambian el POS entero, no la transacción en curso. Con
+  // modoSoloOrdenes el POS queda lockeado en orden y el selector se oculta:
+  // ofrecer cambiar de modo ahí sería un botón que no puede cumplir.
+  const setModeDialogOpen = usePosUIStore((s) => s.setModeDialogOpen)
+  const posMode = useCartStore((s) => s.posMode)
+  const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
+  // Color del modo activo sobre el ícono del trigger: la misma señal que la
+  // banda del carrito, para que el sidebar delate el modo aunque el carrito
+  // esté vacío. Venta = sin tinte (null).
+  const modeColor =
+    posMode === "orden"
+      ? MODE_VISUALS["orden-mostrador"].color
+      : posMode === "cotizacion"
+        ? MODE_VISUALS.cotizacion.color
+        : null
+
   return (
     <Sidebar collapsible="icon" variant="inset">
       <SidebarHeader className="pt-[calc(0.5rem+env(safe-area-inset-top))]">
@@ -115,6 +136,21 @@ export function PosSidebar() {
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+
+              {!modoSoloOrdenes && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    tooltip="Modo del POS"
+                    onClick={() => setModeDialogOpen(true)}
+                    className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 [&:hover]:!bg-[#E3E5E9] dark:[&:hover]:!bg-[#1A1D1F]"
+                  >
+                    {/* El tinte del ícono replica la señal de la banda del
+                        carrito: modo activo visible sin abrir nada. */}
+                    <Repeat style={modeColor ? { color: modeColor } : undefined} />
+                    <span>Modo</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
 
               {ordersEnabled && (
                 <SidebarMenuItem>
