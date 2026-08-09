@@ -26,6 +26,10 @@
 > como per-unidad en F3b). D4 (renombre `item_taxAmount`→`item_tax_amount`)
 > implementado con alias único en `normalizeBlockType` (blocks.ts), aplicado
 > en `sortBlocksForRender` — el único punto de entrada de ambos renderers.
+> Fixes de infra 2026-08-09 (mig 121/124, fuera de las fases): `sortOrder` en
+> `tax` para orden manual + default al primer impuesto en compras; `toTaxObjText`
+> pasó de VARCHAR(255) a TEXT porque con 6+ tasas el desglose JSON excedía el
+> límite y abortaba la venta entera (22001).
 > Gap heredado de F3b (no nuevo, pero ahora afecta 4 bloques más): la
 > reimpresión desde el panel (`buildTicketDataFromTxDetail`) no tiene
 > `taxId`/`taxRate`/`taxKind` por línea (el endpoint de reportes no los
