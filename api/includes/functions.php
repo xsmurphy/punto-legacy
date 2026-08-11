@@ -1424,261 +1424,20 @@ if (!function_exists('generateUuidV7')) {
     }
 }
 
-if (!function_exists('_getTableSchema')) {
-    /**
-     * Registro de esquemas de tablas con columnas JSONB. PORT FIEL de
-     * panel/includes/functions.php:4632 — mismo map, mismo orden, misma semántica.
-     */
-    function _getTableSchema(): array
-    {
-        static $schema = null;
-        if ($schema !== null) {
-            return $schema;
-        }
-        $schema = [
-            'company' => [
-                'pk'       => 'companyId',
-                'jsonbCol' => 'config',
-                // aiCreditsBalance (mig 28) hoy solo se escribe por SQL crudo, así
-                // que nunca pasó por este map — pero el día que alguien la escriba
-                // con ncmUpdate, sin estar acá el saldo de créditos se perdería en
-                // el JSONB `config` sin ningún error. Se lista por adelantado.
-                'columns'  => ['companyId', 'status', 'plan', 'balance', 'slug', 'blocked',
-                               'planExpired', 'isTrial', 'smsCredit', 'parentId', 'isParent',
-                               'createdAt', 'updatedAt', 'expiresAt', 'config',
-                               'aiCreditsBalance'],
-            ],
-            'item' => [
-                'pk'       => 'itemId',
-                'jsonbCol' => 'data',
-                // hasVariants / variantParentId / variantAttributes son COLUMNAS
-                // reales de `item` (los SELECT las leen directo). Faltaban acá, así
-                // que _routeToJsonb las trataba como campos desconocidos y las
-                // escribía dentro del JSONB `data`: el UPDATE respondía 200, el
-                // dato quedaba en `data->>'hasVariants'` y la columna seguía en
-                // false — activar el switch de variantes "no hacía nada"
-                // (incidente 2026-07-29). Toda columna nueva de esta tabla tiene
-                // que sumarse a esta lista o la escritura se pierde en silencio.
-                'columns'  => ['itemId', 'itemName', 'itemDate', 'itemSKU', 'itemCost', 'itemPrice',
-                               'itemIsParent', 'itemParentId', 'itemType', 'itemKind', 'itemStatus',
-                               'itemTrackInventory', 'itemCanSale', 'itemSort', 'itemProduction',
-                               'taxId', 'brandId', 'categoryId', 'supplierId', 'locationId',
-                               'outletId', 'companyId', 'updated_at', 'data',
-                               'hasVariants', 'variantParentId', 'variantAttributes'],
-            ],
-            'contact' => [
-                'pk'       => 'contactId',
-                'jsonbCol' => 'data',
-                // Migración 25 (2026-06-13): contactSecondName, contactAddress,
-                // contactAddress2, contactNote, contactCity, contactLocation,
-                // contactCountry, contactCI, contactBirthDay demoted al JSONB
-                // `data`. contactPhone2 ELIMINADO (decisión de producto).
-                // lockPassHash (mig 49) y pinhash (mig 55) son columnas reales:
-                // faltaban acá, así que UsersService::create/update las escribía
-                // en el JSONB mientras el unlock del POS seguía validando contra
-                // la columna — cambiar el PIN parecía funcionar y no tenía efecto.
-                // Mismo bug que las variantes de item (2026-07-29).
-                'columns'  => ['contactId', 'contactName', 'contactEmail',
-                               'contactPhone', 'contactTIN', 'contactDate',
-                               'contactPassword', 'contactLoyalty', 'contactLoyaltyAmount',
-                               'contactStoreCredit', 'contactCreditable', 'contactCreditLine',
-                               'contactStatus', 'contactLastNotificationSeen', 'debtLastNotify',
-                               'type', 'main', 'role', 'lockPass', 'salt', 'parentId', 'categoryId',
-                               'userId', 'outletId', 'companyId', 'updated_at', 'data',
-                               'lockPassHash', 'pinhash',
-                               // mig 125 — contactIdType (Tabla 3 SET, cliente extranjero).
-                               // Columna real: si falta acá, ncmInsert/ncmUpdate la enruta en
-                               // silencio al JSONB `data` (mismo bug que hasVariants/pinhash,
-                               // ver comentarios arriba).
-                               'contactIdType'],
-            ],
-            'transaction' => [
-                'pk'       => 'transactionId',
-                'jsonbCol' => 'meta',
-                'columns'  => ['transactionId', 'transactionDate', 'transactionDiscount',
-                               'transactionTax', 'transactionTotal', 'transactionUnitsSold',
-                               'transactionNote', 'transactionStatus', 'transactionType',
-                               'transactionDoc', 'transactionDocNumber', 'transactionWriteOff',
-                               'transactionRecurringId', 'transactionPurpose',
-                               'transactionDeliveryDate', 'lastEditDate', 'lastUserId',
-                               'parentId', 'roundedAmount', 'taxAmount', 'discountAmount',
-                               'cashbackAmount', 'returnedAmount', 'customerId', 'supplierId',
-                               'userId', 'registerId', 'outletId', 'companyId',
-                               'transactionPaymentMethod', 'transactionPaymentDate',
-                               'updated_at', 'meta',
-                               // mig 101 — venta emitida sin IVA (toggle del POS).
-                               'ivaRemoved',
-                               // mig 102 — faltaba acá: ncmInsert (PurchasesService::create)
-                               // enrutaba transactionPaymentType al JSONB `meta` en vez de la
-                               // columna real, dejando las compras sin línea de pago legible
-                               // para FinanceLedger::recordPurchase (Parte 2 del incidente
-                               // 737M). SaleService/CreditPaymentService no sufrían el bug
-                               // porque escriben con AutoExecute directo, no con ncmInsert.
-                               'transactionPaymentType'],
-            ],
-            'outlet' => [
-                'pk'       => 'outletId',
-                'jsonbCol' => 'data',
-                // Migración 14 (2026-06-11): outletAddress/Phone/WhatsApp/Email/
-                // BillingName/RUC/Description demoted; latLng → lat/lng numéricas.
-                // Migración 27 (2026-06-13): outletNextExpirationDate demoted.
-                // Counters outletPurchaseOrderNo / outletOrderTransferNo se
-                // mantienen en columnas por incremento atómico en hot path.
-                'columns'  => ['outletId', 'outletName', 'outletStatus',
-                               'lat', 'lng',
-                               'outletCreationDate',
-                               'outletPurchaseOrderNo', 'outletOrderTransferNo',
-                               'taxId', 'companyId', 'data'],
-            ],
-            'register' => [
-                'pk'       => 'registerId',
-                'jsonbCol' => 'data',
-                // Migración 26 (2026-06-13): registerInvoiceAuth, registerInvoiceAuthExpiration,
-                // registerInvoicePrefix, registerInvoiceSufix, registerDocsLeadingZeros
-                // demoted. Counters atómicos (Number, RemitoNumber, etc.) se mantienen.
-                'columns'  => ['registerId', 'registerName', 'registerStatus', 'registerCreationDate',
-                               'registerInvoiceNumber',
-                               'registerRemitoNumber', 'registerQuoteNumber', 'registerReturnNumber',
-                               'registerTicketNumber', 'registerOrderNumber', 'registerPedidoNumber',
-                               'registerBoletaNumber', 'registerScheduleNumber',
-                               'lastupdated', 'sessionId',
-                               'outletId', 'companyId', 'data'],
-            ],
-            'plans' => [
-                'pk'       => 'id',
-                'jsonbCol' => 'features',
-                'columns'  => ['id', 'name', 'type', 'price', 'duration_days', 'max_items',
-                               'max_users', 'max_customers', 'max_outlets', 'max_registers',
-                               'max_suppliers', 'max_categories', 'max_brands', 'features'],
-            ],
-            'recurring' => [
-                'pk'       => 'recurringId',
-                'jsonbCol' => 'data',
-                'columns'  => ['recurringId', 'recurringNextDate', 'recurringEndDate',
-                               'recurringFrecuency', 'recurringStatus', 'recurringTransactionData',
-                               'companyId', 'data'],
-            ],
-            // itemSold: líneas de venta/compra. Schema verificado vía
-            // information_schema.columns en prod. La columna 'taxId' que el
-            // panel legacy mete en el record NO existe físicamente — termina
-            // ruteada al JSONB 'meta' por _routeToJsonb. PK = itemSoldId (uuid).
-            'itemSold' => [
-                'pk'       => 'itemSoldId',
-                'jsonbCol' => 'meta',
-                'columns'  => ['itemSoldId', 'itemSoldTotal', 'itemSoldTax', 'itemSoldDate',
-                               'itemSoldUnits', 'itemSoldDiscount', 'itemSoldCogs',
-                               'itemSoldComission', 'itemSoldDescription',
-                               'itemSoldParent', 'itemSoldCategory',
-                               'itemId', 'userId', 'transactionId', 'meta'],
-            ],
-            'tasks' => [
-                'pk'       => 'ID',
-                'jsonbCol' => 'data',
-                'columns'  => ['ID', 'date', 'dueDate', 'type', 'sourceId', 'status',
-                               'outletId', 'companyId', 'data'],
-            ],
-            'customerRecord' => [
-                'pk'       => 'customerRecordId',
-                'jsonbCol' => 'data',
-                'columns'  => ['customerRecordId', 'customerRecordSort', 'customerRecordName',
-                               'companyId', 'data'],
-            ],
-            // Sin JSONB: `expenses` no tiene columna `data`, así que jsonbCol es
-            // null y cualquier campo fuera de esta lista llega al SQL y falla
-            // fuerte (no hay dónde guardarlo en silencio). Estaba SIN registrar,
-            // y por eso ncmInsert caía al pk por defecto 'id' e inyectaba una
-            // columna inexistente: toda extracción/ingreso de caja moría con
-            // "Error al registrar extracción" (incidente 2026-07-29).
-            'expenses' => [
-                'pk'       => 'expensesId',
-                'jsonbCol' => null,
-                'columns'  => ['expensesId', 'expensesNameId', 'expensesAmount',
-                               'expensesDescription', 'expensesDate', 'expensesUID',
-                               'type', 'userId', 'registerId', 'outletId', 'companyId'],
-            ],
-            'inventoryCount' => [
-                'pk'       => 'inventoryCountId',
-                'jsonbCol' => 'data',
-                'columns'  => ['inventoryCountId', 'inventoryCountDate', 'inventoryCountUpdated',
-                               'inventoryCountName', 'inventoryCountStatus', 'inventoryCountCounted',
-                               'inventoryCountNote', 'inventoryCountBlind',
-                               'userId', 'outletId', 'companyId', 'data'],
-            ],
-            'priceList' => [
-                'pk'       => 'ID',
-                'jsonbCol' => 'data',
-                'columns'  => ['ID', 'data', 'companyId'],
-            ],
-            'vPayments' => [
-                'pk'       => 'ID',
-                'jsonbCol' => 'data',
-                'columns'  => ['ID', 'date', 'payoutDate', 'depositedDate', 'amount', 'payoutAmount',
-                               'comission', 'tax', 'deposited', 'orderNo', 'authCode', 'operationNo',
-                               'inBank', 'status', 'UID', 'source', 'transactionId', 'customerId',
-                               'userId', 'outletId', 'companyId', 'updated_at', 'data'],
-            ],
-            'taxonomy' => [
-                'pk'       => 'taxonomyId',
-                'jsonbCol' => 'taxonomyExtra',
-                'columns'  => ['taxonomyId', 'taxonomyName', 'taxonomyType', 'taxonomyExtra',
-                               'sourceId', 'outletId', 'companyId'],
-            ],
-            'customerAddress' => [
-                'pk'       => 'customerAddressId',
-                'jsonbCol' => 'data',
-                // 'reference' y 'status' agregados en mig 87 (libreta de
-                // direcciones, context/27 PARTE D) — sin esta entrada,
-                // ncmInsert/ncmUpdate los enrutarían silenciosamente al JSONB
-                // `data` en vez de a las columnas reales (mismo footgun
-                // documentado en context/04 para esta tabla).
-                'columns'  => ['customerAddressId', 'customerAddressDate', 'customerAddressName',
-                               'customerAddressText', 'customerAddressLat', 'customerAddressLng',
-                               'customerAddressDefault', 'customerAddressLocation', 'customerAddressCity',
-                               'customerId', 'companyId', 'updated_at', 'reference', 'status'],
-            ],
-            // Módulo Finanzas (mig 72). Tablas nuevas, columnas físicas lowercase
-            // sin quotes (§40.1/§44) — escritas vía ncmInsert/ncmUpdate.
-            'fin_account' => [
-                'pk'       => 'accountid',
-                'jsonbCol' => 'data',
-                'columns'  => ['accountid', 'companyid', 'name', 'type', 'openingbalance',
-                               'currentbalance', 'bankname', 'accountnumber', 'outletid',
-                               'issystem', 'status', 'created_at', 'data'],
-            ],
-            'fin_category' => [
-                'pk'       => 'categoryid',
-                'jsonbCol' => 'data',
-                'columns'  => ['categoryid', 'companyid', 'name', 'kind', 'parentid',
-                               'sortorder', 'issystem', 'status', 'created_at', 'data'],
-            ],
-            'fin_movement' => [
-                'pk'       => 'movementid',
-                'jsonbCol' => 'data',
-                'columns'  => ['movementid', 'companyid', 'accountid', 'categoryid', 'kind',
-                               'amount', 'date', 'description', 'paymentmethod', 'source',
-                               'sourceid', 'transfergroupid', 'checkid', 'reconciliationid',
-                               'reconciled', 'reconciled_at', 'userid', 'outletid', 'status',
-                               'created_at', 'data'],
-            ],
-            'fin_check' => [
-                'pk'       => 'checkid',
-                'jsonbCol' => 'data',
-                'columns'  => ['checkid', 'companyid', 'direction', 'accountid', 'bankname',
-                               'checknumber', 'amount', 'issuedate', 'duedate', 'contactid',
-                               'partyname', 'categoryid', 'status', 'cleareddate', 'description',
-                               'created_at', 'data'],
-            ],
-            'fin_reconciliation' => [
-                'pk'       => 'reconciliationid',
-                'jsonbCol' => 'data',
-                'columns'  => ['reconciliationid', 'companyid', 'accountid', 'statementdate',
-                               'statementbalance', 'status', 'closed_at', 'userid', 'created_at',
-                               'data'],
-            ],
-        ];
-        return $schema;
-    }
-}
+/**
+ * El mapa a mano de esquemas (`_getTableSchema`) fue ELIMINADO: era una copia
+ * de 22 tablas sobre las 137 que tiene la base, y cada migración lo dejaba más
+ * viejo. Las decisiones que tomaba —qué es columna, cuál es la PK, si es uuid,
+ * cuál es la columna JSONB— ahora las contesta `Punto\App\Database\Schema`
+ * leyendo el catálogo de PG.
+ *
+ * Los dos bugs que causaba, repetidos durante meses:
+ *   - columna real ausente del mapa: el valor se escribía en el JSONB y el dato
+ *     desaparecía en silencio (hasVariants, pinhash — cambiar el PIN respondía
+ *     OK y se seguía entrando con el viejo);
+ *   - tabla ausente del mapa: la PK se resolvía en minúsculas contra un record
+ *     en camelCase, dando columna duplicada (tax) o PK inventada (expenses).
+ */
 
 if (!function_exists('_routeToJsonb')) {
     /**
@@ -1688,30 +1447,12 @@ if (!function_exists('_routeToJsonb')) {
      */
     function _routeToJsonb(string $table, array $record): array
     {
-        $schema = _getTableSchema();
-        if (!isset($schema[$table])) {
-            return [$record, [], ''];
-        }
-        $jsonbCol  = $schema[$table]['jsonbCol'] ?? null;
-        // Tabla registrada SIN columna JSONB (ej. `expenses`): no hay dónde
-        // enrutar lo desconocido. Se devuelve el record entero como columnas —
-        // un campo que no exista revienta en el SQL, que es lo correcto: el
-        // silencio es peor que el error (ver hasVariants/pinhash, 2026-07-29).
-        if (empty($jsonbCol)) {
-            return [$record, [], ''];
-        }
-        $knownCols = array_flip($schema[$table]['columns']);
-
-        $cleanRecord = [];
-        $jsonbExtra  = [];
-        foreach ($record as $key => $value) {
-            if (isset($knownCols[$key])) {
-                $cleanRecord[$key] = $value;
-            } else {
-                $jsonbExtra[$key] = $value;
-            }
-        }
-        return [$cleanRecord, $jsonbExtra, $jsonbCol];
+        // Delega en el schema REAL de PG (`Schema::split`). Antes decidía
+        // contra `_getTableSchema()`, una copia a mano de 22 tablas sobre las
+        // 137 que tiene la base: una columna que faltara en esa copia se
+        // escribía dentro del JSONB y el dato desaparecía en silencio
+        // (hasVariants, pinhash). Ahora "es columna" lo contesta la tabla.
+        return \Punto\App\Database\Schema::split($table, $record);
     }
 }
 
@@ -1737,44 +1478,25 @@ function ncmInsert($options)
     $table  = $options['table'];
     $record = $options['records'];
 
-    // Determinar la columna PK. Antes el fallback para tablas no registradas era
-    // 'id' a ciegas: si la tabla no tenía esa columna (la mayoría usa
-    // <entidad>Id), el INSERT incluía una columna inexistente y fallaba entero.
-    // Así moría toda extracción de caja — `expenses` no estaba en el map.
-    // Ahora, si el map no la conoce, se le pregunta al catálogo de PG.
-    $pkCol = _resolveTablePk($table);
-
-    // Generar UUID v7 si el registro no trae el PK. Solo para PKs uuid: en una
-    // PK serial/bigint el uuid rompería el INSERT, y ahí el default de la
-    // columna ya sabe generarlo.
-    //
-    // La comparación es CASE-INSENSITIVE a propósito. `_resolveTablePk()`
-    // devuelve el nombre como lo guarda PG (minúsculas: `taxid`) cuando la
-    // tabla no está en el schema map, pero los callers escriben el record en
-    // camelCase (`taxId`) siguiendo la convención del resto del código. Un
-    // `empty($record['taxid'])` contra un record que tiene `taxId` daba true y
-    // agregaba la MISMA columna una segunda vez → "column taxid specified more
-    // than once" y el alta de empresa entera abortada (reporte 2026-08-11).
-    // Se arregla acá, en el wrapper, y no en el caller: le pasa a cualquier
-    // tabla fuera del schema map, no solo a `tax`.
-    $pkInRecord = null;
-    if ($pkCol !== null) {
-        foreach (array_keys($record) as $key) {
-            if (strcasecmp((string) $key, $pkCol) === 0) {
-                $pkInRecord = $key;
-                break;
-            }
-        }
-    }
-
-    if ($pkCol !== null && ($pkInRecord === null || empty($record[$pkInRecord])) && _pkIsUuid($table, $pkCol)) {
-        // Si la clave ya existe pero vacía, se rellena ESA (no se agrega otra).
-        $pkInRecord = $pkInRecord ?? $pkCol;
-        $record[$pkInRecord] = generateUuidV7();
-    }
-
-    // Enrutar campos desconocidos al JSONB de la tabla
+    // 1. Separar columnas reales de campos para el JSONB, contra el schema REAL
+    //    de PG. `split()` además NORMALIZA las claves al nombre real de cada
+    //    columna: un record con `taxId` sale con la clave que la tabla tiene de
+    //    verdad. Eso es lo que hace imposible el duplicado de PK que abortaba el
+    //    alta de empresa ("column taxid specified more than once").
     [$record, $jsonbExtra, $jsonbCol] = _routeToJsonb($table, $record);
+
+    // 2. PK con su nombre real. null si la tabla no tiene o es compuesta: ahí no
+    //    hay UNA columna que generar y la DB se encarga.
+    $pkCol = \Punto\App\Database\Schema::primaryKey($table);
+
+    // 3. UUID v7 si el record no trae la PK. Solo para PKs uuid: en una PK
+    //    serial/bigint el uuid rompería el INSERT, y ahí el default de la
+    //    columna ya sabe generarlo. Las claves ya están normalizadas, así que
+    //    esta comparación no puede fallar por mayúsculas.
+    if ($pkCol !== null && empty($record[$pkCol]) && \Punto\App\Database\Schema::primaryKeyIsUuid($table)) {
+        $record[$pkCol] = generateUuidV7();
+    }
+
     if (!empty($jsonbExtra)) {
         $existing = [];
         if (isset($record[$jsonbCol]) && is_string($record[$jsonbCol])) {
@@ -1787,97 +1509,13 @@ function ncmInsert($options)
     if ($insert === false) {
         return false;
     }
+
     // Sin PK conocida (o generada por la DB) no hay id que devolver: `true`
-    // dice "insertó" sin mentir con un id inventado. Los callers que necesitan
-    // el id usan tablas registradas con PK uuid.
-    // Se lee por la clave REAL del record (`$pkInRecord`): con la PK en
-    // camelCase, `$record[$pkCol]` no existía y el caller recibía `true` en vez
-    // del id que acababa de insertar.
-    return ($pkInRecord !== null && isset($record[$pkInRecord])) ? $record[$pkInRecord] : true;
+    // dice "insertó" sin mentir con un id inventado.
+    return ($pkCol !== null && isset($record[$pkCol])) ? $record[$pkCol] : true;
 }
 
-/**
- * PK de una tabla: primero el schema map, y si no está registrada se consulta
- * el catálogo de PG (cacheado por request).
- *
- * Existe porque el fallback anterior era 'id' a ciegas y rompía el INSERT
- * entero en toda tabla no registrada cuya PK no se llamara así.
- */
-function _resolveTablePk(string $table): ?string
-{
-    static $cache = [];
-    if (array_key_exists($table, $cache)) {
-        return $cache[$table];
-    }
-    $schema = _getTableSchema();
-    if (isset($schema[$table]['pk'])) {
-        return $cache[$table] = $schema[$table]['pk'];
-    }
-    global $db;
-    try {
-        // Sin LIMIT 1: con PK compuesta la query devuelve N filas y quedarse con
-        // una sería elegir a ciegas la columna equivocada. En ese caso no hay
-        // una "PK" que generar — se devuelve null y la DB se encarga.
-        $rs = $db->Execute(
-            "SELECT a.attname
-               FROM pg_index i
-               JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
-              WHERE i.indrelid = ?::regclass AND i.indisprimary",
-            [$table]
-        );
-        $cols = [];
-        while ($rs && !$rs->EOF) {
-            $cols[] = (string) $rs->fields['attname'];
-            $rs->MoveNext();
-        }
-        if (count($cols) === 1) {
-            return $cache[$table] = $cols[0];
-        }
-        if (count($cols) > 1) {
-            error_log('[ncmInsert] ' . $table . ' tiene PK compuesta (' . implode(',', $cols) . ') — no se genera id');
-        }
-    } catch (\Throwable $e) {
-        error_log('[ncmInsert] no se pudo resolver la PK de ' . $table . ': ' . $e->getMessage());
-    }
-    return $cache[$table] = null;
-}
 
-/**
- * true si la PK es de tipo uuid — la única en la que tiene sentido generar un v7.
- *
- * Para tablas del schema map se responde sin tocar la DB: todas tienen PK uuid y
- * este chequeo corre en cada INSERT (transaction, itemSold, item son paths
- * calientes). El catálogo solo se consulta para tablas NO registradas.
- */
-function _pkIsUuid(string $table, string $pkCol): bool
-{
-    $schema = _getTableSchema();
-    if (isset($schema[$table]['pk'])) {
-        return true;
-    }
-    static $cache = [];
-    $key = $table . '.' . $pkCol;
-    if (array_key_exists($key, $cache)) {
-        return $cache[$key];
-    }
-    global $db;
-    try {
-        $rs = $db->Execute(
-            'SELECT data_type FROM information_schema.columns
-              WHERE table_schema = current_schema()
-                AND table_name = ? AND lower(column_name) = lower(?) LIMIT 1',
-            [$table, $pkCol]
-        );
-        if ($rs && !$rs->EOF) {
-            return $cache[$key] = (strtolower((string) $rs->fields['data_type']) === 'uuid');
-        }
-    } catch (\Throwable $e) {
-        error_log('[ncmInsert] no se pudo leer el tipo de ' . $key . ': ' . $e->getMessage());
-    }
-    // Falla cerrada: ante la duda NO se inventa un id. Inyectar un uuid en una
-    // PK que no lo es reintroduce exactamente el bug que esto arregla.
-    return $cache[$key] = false;
-}
 
 /**
  * @deprecated Slice 10 (PSR-4). Usar `\Punto\App\Database\Query::delete()`. ~3 callers.
