@@ -1436,7 +1436,10 @@ final class SaleService
             } elseif (in_array($itemType, ['precombo', 'combo'], true)) {
                 $itemSoldCOGS['stockOnHandCOGS'] = getComboCOGS($itemId);
             } else {
-                $itemSoldCOGS = getItemStock($itemId);
+                // Con la sucursal de la VENTA: sin ella cae en OUTLET_ID (la de la
+                // sesión) y el costo del item vendido sale del stock de otra
+                // sucursal.
+                $itemSoldCOGS = getItemStock($itemId, $this->ctx->outletId);
             }
             $cogsVal = (is_array($itemSoldCOGS) || $itemSoldCOGS instanceof \ArrayAccess)
                 ? ($itemSoldCOGS['stockOnHandCOGS'] ?? null)
@@ -1708,7 +1711,7 @@ final class SaleService
                 ? getUserComissionTotal($comissionTotal, $userComission)
                 : getItemComsissionTotal($itemId, $sD['count'], $comissionTotal);
 
-            $itemSoldCOGS = getItemStock($itemId);
+            $itemSoldCOGS = getItemStock($itemId, $this->ctx->outletId);
             $cogsVal = (is_array($itemSoldCOGS) || $itemSoldCOGS instanceof \ArrayAccess)
                 ? ($itemSoldCOGS['stockOnHandCOGS'] ?? null)
                 : null;

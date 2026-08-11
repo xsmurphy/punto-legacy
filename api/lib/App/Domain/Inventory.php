@@ -280,6 +280,35 @@ final class Inventory
     }
 
     /**
+     * Saldo real de un ítem en una sucursal: la SUMA de sus movimientos.
+     *
+     * `stock.stockCount` guarda el movimiento con signo ('-0.080', '50.000'),
+     * así que la suma ES el saldo, por definición y sin depender del orden en
+     * que se hayan insertado las filas. `stock.stockOnHand` es un saldo
+     * ACUMULADO cacheado al momento del INSERT: sirve para leer rápido y para
+     * mostrar el historial, pero se desincroniza si alguien inserta un
+     * movimiento con fecha anterior a la última fila (compra cargada con fecha
+     * de ayer), porque nadie recalcula las filas que quedaron después.
+     *
+     * Por eso esta función es la fuente de verdad para CALCULAR, y
+     * `getItemStock()` sigue sirviendo para LEER el último saldo cacheado.
+     */
+    public static function onHand(mixed $itemId, mixed $outletId): float
+    {
+        if (!validity($itemId) || !$outletId) {
+            return 0.0;
+        }
+
+        $row = ncmExecute(
+            'SELECT COALESCE(SUM(stockCount), 0) AS onhand
+               FROM stock WHERE itemId = ? AND outletId = ?',
+            [$itemId, $outletId]
+        );
+
+        return $row ? (float) ($row['onhand'] ?? 0) : 0.0;
+    }
+
+    /**
      * Stock principal de un ítem (descontando ubicaciones de depósito).
      * Equivalente legacy: `getItemMainStock($itemId, $outletId)`.
      */
@@ -402,10 +431,27 @@ final class Inventory
             return false;
         }
 
-        $stock    = self::getItemStock($itemId);
+        // El saldo se lee de la MISMA sucursal a la que se escribe el
+        // movimiento. Antes esto era `getItemStock($itemId)` sin sucursal, que
+        // cae en el default `OUTLET_ID` — la sucursal de la SESIÓN, no la de la
+        // operación. Una compra cargada desde el panel (sesión en sucursal A)
+        // hacia la sucursal B leía el saldo de A: si A no tenía ese ítem, la
+        // compra escribía en B un saldo como si B estuviera en cero, pisando lo
+        // que B ya tenía.
+        $stock    = self::getItemStock($itemId, $outlet);
         $hasStock = ($stock instanceof \ArrayAccess) || is_array($stock);
-        $oldStock = ($hasStock && isset($stock['stockOnHand'])     && is_numeric($stock['stockOnHand']))     ? $stock['stockOnHand']     : 0;
         $oldACOGS = ($hasStock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS'])) ? $stock['stockOnHandCOGS'] : 0;
+
+        // El saldo sale de la SUMA de los movimientos, no del `stockOnHand` de
+        // la última fila. Encadenar contra el snapshot de la última fila hace
+        // que un movimiento con fecha anterior (una compra cargada con fecha de
+        // ayer, típico) se pierda: se inserta en el medio del historial y las
+        // filas posteriores, que ya tenían su saldo calculado, nunca se
+        // recalculan — los +50 de la compra desaparecen del saldo.
+        //
+        // La suma es independiente del orden de inserción, así que además
+        // corrige sola cualquier fila vieja que haya quedado mal.
+        $oldStock = self::onHand($itemId, $outlet);
 
         if (!validity($COGS)) {
             $COGS = ($hasStock && isset($stock['stockCOGS'])) ? $stock['stockCOGS'] : '';
