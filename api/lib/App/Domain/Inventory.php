@@ -81,6 +81,15 @@ final class Inventory
      * roll pierde 10% y su insumo otro 5%, las dos mermas se acumulan, que es
      * lo que pasa en la cocina.
      *
+     * Las cantidades se MULTIPLICAN nivel a nivel (owner, 2026-08-11): 2
+     * combos × 3 unidades del hijo = 6, y si ese hijo es de producción directa
+     * sus insumos se multiplican por esas 6, y así hasta las hojas. La
+     * profundidad NO se limita con un tope fijo: el guard de ciclos ya
+     * garantiza que la recursión termina (un ítem no puede repetirse en la
+     * misma rama), y un tope cortaría sin descontar una receta legítima más
+     * profunda — la misma clase de bug que esta función vino a arreglar, pero
+     * silencioso.
+     *
      * @param  array<string,bool> $visitados Guard de ciclos (A→B→A): una receta
      *         circular colgaría el proceso. Interno de la recursión.
      * @return array<string,float> itemId → cantidad a mover
