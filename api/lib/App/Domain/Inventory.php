@@ -59,6 +59,89 @@ final class Inventory
     }
 
     /**
+     * Explota la receta de un ítem hasta las hojas que REALMENTE mueven stock.
+     *
+     * El problema que resuelve: la receta puede tener varios niveles. Un combo
+     * está hecho de rolls y cada roll de insumos. Recorrer un solo nivel deja
+     * sin descontar todo lo que cuelga de un hijo que no lleva stock propio:
+     * en "Combo 30 Piezas" (combo → 3 rolls → insumos) solo se descontaba el
+     * único roll que trackea inventario, y los insumos de los otros dos no se
+     * tocaban nunca. Lo mismo en producción, con recetas que usan
+     * sub-preparaciones.
+     *
+     * La regla de corte es la misma que `saleExplodesRecipe()`, aplicada nivel
+     * a nivel:
+     *   - el hijo lleva stock propio (`itemTrackInventory`) o es de producción
+     *     previa → se consume ESE hijo y se corta. Su receta ya se descontó
+     *     cuando se produjo; volver a bajar la descontaría dos veces.
+     *   - el hijo no lleva stock propio → no hay qué descontar de él, se baja
+     *     a su receta.
+     *
+     * La merma planificada (`item.itemWaste`) se aplica en CADA nivel: si el
+     * roll pierde 10% y su insumo otro 5%, las dos mermas se acumulan, que es
+     * lo que pasa en la cocina.
+     *
+     * @param  array<string,bool> $visitados Guard de ciclos (A→B→A): una receta
+     *         circular colgaría el proceso. Interno de la recursión.
+     * @return array<string,float> itemId → cantidad a mover
+     */
+    public static function explodeRecipe(
+        mixed $itemId,
+        mixed $companyId,
+        float $units,
+        array $visitados = [],
+    ): array {
+        if (!validity($itemId) || $units <= 0) {
+            return [];
+        }
+
+        // Ciclo: la receta se referencia a sí misma en algún nivel. Se corta y
+        // se deja rastro — es un dato mal cargado, no una condición normal.
+        if (isset($visitados[$itemId])) {
+            error_log('Inventory::explodeRecipe: receta circular detectada en item ' . $itemId);
+            return [];
+        }
+        $visitados[$itemId] = true;
+
+        $compounds = self::getCompoundsArray($itemId);
+        if (!is_array($compounds) || $compounds === []) {
+            return [];
+        }
+
+        $allWaste = self::getAllWasteValue();
+        $out      = [];
+
+        foreach ($compounds as $comp) {
+            $childId = $comp['compoundId'] ?? null;
+            if (!$childId) {
+                continue;
+            }
+
+            $need = (float) ($comp['toCompoundQty'] ?? 0) * $units;
+            if ($need <= 0) {
+                continue;
+            }
+
+            $wasteP = $allWaste[$childId] ?? '';
+            if ($wasteP > 0) {
+                $need = (float) self::getNeedWithWaste($need, $wasteP);
+            }
+
+            if (self::saleExplodesRecipe($childId, $companyId)) {
+                // No lleva stock propio: lo que se consume está más abajo.
+                foreach (self::explodeRecipe($childId, $companyId, $need, $visitados) as $leafId => $leafQty) {
+                    $out[$leafId] = ($out[$leafId] ?? 0) + $leafQty;
+                }
+            } else {
+                // Lleva stock propio (o es producción previa): se consume acá.
+                $out[$childId] = ($out[$childId] ?? 0) + $need;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
      * ¿Vender este ítem debe consumir su receta (descontar los insumos)?
      *
      * Los dos modelos de un ítem con receta son EXCLUYENTES — un ítem lleva

@@ -479,28 +479,81 @@ final class ProductionService
             // — el costo de la receta incluye todos los insumos, tengan o no
             // ledger de stock. `false` de manageStock queda reservado como
             // fatal SOLO para insumos stockeables.
-            if ($tracked) {
-                $result = Inventory::manageStock([
-                    'itemId'        => $childId,
-                    'source'        => 'production',
-                    'count'         => $need,
-                    'type'          => '-',
-                    'userId'        => $userId,
-                    'transactionId' => null,
-                    'outletId'      => $outletId,
-                    'locationId'    => $childLocation,
-                    'note'          => 'Producción #' . $id,
-                    'date'          => $now,
-                    'companyId'     => $companyId,
-                ]);
-                if ($result === false) {
-                    $db->FailTrans();
-                    $db->CompleteTrans();
-                    throw new \RuntimeException('No se pudo descontar stock del insumo ' . $childId);
+            // Un insumo que NO lleva stock propio pero SÍ tiene receta es una
+            // sub-preparación: lo que hay que descontar está un nivel más
+            // abajo. Recorrer un solo nivel la dejaba sin consumir nada — el
+            // mismo defecto que tenía la venta de combos.
+            $subLeaves = (!$tracked)
+                ? Inventory::explodeRecipe($childId, $companyId, $need)
+                : [];
+
+            if ($subLeaves !== []) {
+                // El costo de la sub-preparación es la suma de lo que consume,
+                // NO su `itemCost` de catálogo: sumar las dos cosas contaría el
+                // mismo insumo dos veces.
+                $lineCost = 0.0;
+                foreach ($subLeaves as $leafId => $leafQty) {
+                    $leafRow = ncmExecute(
+                        'SELECT locationid, itemtrackinventory, itemcost FROM item WHERE itemid = ? AND companyid = ? LIMIT 1',
+                        [$leafId, $companyId]
+                    );
+                    if (!$leafRow || empty($leafRow['itemtrackinventory'])) {
+                        // Hoja sin control de stock (agua, sal): sin movimiento,
+                        // pero su costo entra igual.
+                        $lineCost += ((float) ($leafRow['itemcost'] ?? 0)) * $leafQty;
+                        continue;
+                    }
+
+                    $leafStock = Inventory::getItemStock($leafId, $outletId);
+                    $leafCost  = ($leafStock && isset($leafStock['stockOnHandCOGS']) && is_numeric($leafStock['stockOnHandCOGS']) && (float) $leafStock['stockOnHandCOGS'] > 0)
+                        ? (float) $leafStock['stockOnHandCOGS']
+                        : (float) ($leafRow['itemcost'] ?? 0);
+
+                    $result = Inventory::manageStock([
+                        'itemId'        => $leafId,
+                        'source'        => 'production',
+                        'count'         => $leafQty,
+                        'type'          => '-',
+                        'userId'        => $userId,
+                        'transactionId' => null,
+                        'outletId'      => $outletId,
+                        'locationId'    => $inLocation ?: ($leafRow['locationid'] ?? null),
+                        'note'          => 'Producción #' . $id,
+                        'date'          => $now,
+                        'companyId'     => $companyId,
+                    ]);
+                    if ($result === false) {
+                        $db->FailTrans();
+                        $db->CompleteTrans();
+                        throw new \RuntimeException('No se pudo descontar stock del insumo ' . $leafId);
+                    }
+
+                    $lineCost += $leafCost * $leafQty;
                 }
+            } else {
+                if ($tracked) {
+                    $result = Inventory::manageStock([
+                        'itemId'        => $childId,
+                        'source'        => 'production',
+                        'count'         => $need,
+                        'type'          => '-',
+                        'userId'        => $userId,
+                        'transactionId' => null,
+                        'outletId'      => $outletId,
+                        'locationId'    => $childLocation,
+                        'note'          => 'Producción #' . $id,
+                        'date'          => $now,
+                        'companyId'     => $companyId,
+                    ]);
+                    if ($result === false) {
+                        $db->FailTrans();
+                        $db->CompleteTrans();
+                        throw new \RuntimeException('No se pudo descontar stock del insumo ' . $childId);
+                    }
+                }
+                $lineCost = $cost * $need;
             }
 
-            $lineCost        = $cost * $need;
             $ingredientCost += $lineCost;
 
             $snapshot[] = [

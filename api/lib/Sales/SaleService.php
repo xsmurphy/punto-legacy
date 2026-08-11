@@ -1489,26 +1489,32 @@ final class SaleService
             // campo es opcional y el POS nunca lo manda, así que el chequeo
             // `!== 'production'` de acá jamás cortaba y un terminado ya
             // producido volvía a consumir sus insumos en cada venta.
+            // Se van los chequeos contra `$sD['type']` ('combo' / 'production'):
+            // el propio comentario de arriba dice que el POS no manda ese campo,
+            // así que no cortaban nada — pero si algún cliente empezaba a
+            // mandarlo, `type = 'combo'` habría apagado la explosión justo en el
+            // caso que hay que explotar. El predicado real es
+            // `saleExplodesRecipe()`, que se resuelve contra la BD.
             $compound = getCompoundsArray($itemId);
             if (is_array($compound) && $compound !== []
-                && ($sD['type'] ?? '') !== 'combo' && ($sD['type'] ?? '') !== 'production'
                 && \Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId)) {
-                $allWaste = getAllWasteValue();
-                foreach ($compound as $comr) {
-                    $comid    = $comr['compoundId'];
-                    $comunits = (float) $comr['toCompoundQty'] * $units;
+                // Explosión RECURSIVA: la receta puede tener varios niveles y
+                // recorrer solo el primero deja sin descontar todo lo que
+                // cuelga de un hijo sin stock propio. En "Combo 30 Piezas"
+                // (combo → 3 rolls → insumos) se descontaba únicamente el roll
+                // que trackea inventario; los insumos de los otros dos no se
+                // tocaban nunca. `explodeRecipe` baja hasta lo que realmente
+                // mueve stock y acumula la merma de cada nivel.
+                $source = (($sD['type'] ?? '') === 'direct_production') ? 'production' : 'sale';
+                $leaves = \Punto\App\Domain\Inventory::explodeRecipe($itemId, $companyId, (float) $units);
+
+                foreach ($leaves as $comid => $comunits) {
                     $locRow   = $this->db->Execute(
                         'SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
                         [$comid, $companyId]
                     );
                     $comLoc   = ($locRow && !$locRow->EOF) ? ($locRow->fields['locationid'] ?? null) : null;
 
-                    $wasteP = $allWaste[$comid] ?? '';
-                    if ($wasteP > 0) {
-                        $comunits = getNeedWithWaste($comunits, $wasteP);
-                    }
-
-                    $source = (($sD['type'] ?? '') === 'direct_production') ? 'production' : 'sale';
                     manageStock([
                         'itemId'        => $comid,
                         'outletId'      => $this->ctx->outletId,
