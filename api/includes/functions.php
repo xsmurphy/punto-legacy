@@ -1747,8 +1747,30 @@ function ncmInsert($options)
     // Generar UUID v7 si el registro no trae el PK. Solo para PKs uuid: en una
     // PK serial/bigint el uuid rompería el INSERT, y ahí el default de la
     // columna ya sabe generarlo.
-    if ($pkCol !== null && empty($record[$pkCol]) && _pkIsUuid($table, $pkCol)) {
-        $record[$pkCol] = generateUuidV7();
+    //
+    // La comparación es CASE-INSENSITIVE a propósito. `_resolveTablePk()`
+    // devuelve el nombre como lo guarda PG (minúsculas: `taxid`) cuando la
+    // tabla no está en el schema map, pero los callers escriben el record en
+    // camelCase (`taxId`) siguiendo la convención del resto del código. Un
+    // `empty($record['taxid'])` contra un record que tiene `taxId` daba true y
+    // agregaba la MISMA columna una segunda vez → "column taxid specified more
+    // than once" y el alta de empresa entera abortada (reporte 2026-08-11).
+    // Se arregla acá, en el wrapper, y no en el caller: le pasa a cualquier
+    // tabla fuera del schema map, no solo a `tax`.
+    $pkInRecord = null;
+    if ($pkCol !== null) {
+        foreach (array_keys($record) as $key) {
+            if (strcasecmp((string) $key, $pkCol) === 0) {
+                $pkInRecord = $key;
+                break;
+            }
+        }
+    }
+
+    if ($pkCol !== null && ($pkInRecord === null || empty($record[$pkInRecord])) && _pkIsUuid($table, $pkCol)) {
+        // Si la clave ya existe pero vacía, se rellena ESA (no se agrega otra).
+        $pkInRecord = $pkInRecord ?? $pkCol;
+        $record[$pkInRecord] = generateUuidV7();
     }
 
     // Enrutar campos desconocidos al JSONB de la tabla
@@ -1768,7 +1790,10 @@ function ncmInsert($options)
     // Sin PK conocida (o generada por la DB) no hay id que devolver: `true`
     // dice "insertó" sin mentir con un id inventado. Los callers que necesitan
     // el id usan tablas registradas con PK uuid.
-    return ($pkCol !== null && isset($record[$pkCol])) ? $record[$pkCol] : true;
+    // Se lee por la clave REAL del record (`$pkInRecord`): con la PK en
+    // camelCase, `$record[$pkCol]` no existía y el caller recibía `true` en vez
+    // del id que acababa de insertar.
+    return ($pkInRecord !== null && isset($record[$pkInRecord])) ? $record[$pkInRecord] : true;
 }
 
 /**
