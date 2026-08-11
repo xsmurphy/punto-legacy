@@ -309,6 +309,87 @@ final class Inventory
     }
 
     /**
+     * Recalcula el historial cacheado de un ítem en una sucursal:
+     * `stockOnHand` de todas las filas, `stockOnHandCOGS` de todas, y
+     * `stockCOGS` de los EGRESOS (que salen al promedio vigente).
+     *
+     * Hace falta porque `stockOnHand`/`stockOnHandCOGS` son acumulados
+     * calculados al INSERT. Un movimiento con fecha anterior a la última fila
+     * —una compra cargada con fecha de ayer— se mete en el medio del historial
+     * y todas las filas posteriores quedan con su acumulado viejo. Recalcular
+     * la cadena es la única forma de que el historial cierre.
+     *
+     * El costo de los INGRESOS (`stockCOGS`) es dato de entrada y no se toca:
+     * es lo que se pagó. Todo lo demás se deriva de ahí.
+     *
+     * Mismas reglas que `manageStock()`, a propósito — si una cambia, la otra
+     * también.
+     */
+    public static function rebuildLedger(mixed $itemId, mixed $outletId): void
+    {
+        global $db;
+
+        if (!validity($itemId) || !$outletId) {
+            return;
+        }
+
+        $rs = ncmExecute(
+            'SELECT stockId, stockCount, stockCOGS, stockOnHand, stockOnHandCOGS
+               FROM stock
+              WHERE itemId = ? AND outletId = ?
+              ORDER BY stockDate ASC, stockId ASC',
+            [$itemId, $outletId],
+            false,
+            true // forceObj → recordset
+        );
+        if (!$rs || !is_object($rs)) {
+            return;
+        }
+
+        $qty = 0.0;
+        $avg = 0.0;
+
+        while (!$rs->EOF) {
+            $f     = $rs->fields;
+            $id    = (string) ($f['stockId'] ?? $f['stockid'] ?? '');
+            $delta = (float) ($f['stockCount'] ?? $f['stockcount'] ?? 0);
+            $cost  = (float) ($f['stockCOGS'] ?? $f['stockcogs'] ?? 0);
+
+            if ($delta > 0) {
+                // Ingreso: recalcula el promedio con su propio costo. Un saldo
+                // negativo no aporta base (no se compró a ningún precio).
+                $base  = $qty > 0 ? $qty : 0.0;
+                $total = $base + $delta;
+                $avg   = $total > 0 ? ((($avg * $base) + ($cost * $delta)) / $total) : $cost;
+            } else {
+                // Egreso: sale al promedio vigente y no lo altera.
+                $cost = $avg;
+            }
+
+            $qty += $delta;
+
+            $prevOnHand = (float) ($f['stockOnHand']     ?? $f['stockonhand']     ?? 0);
+            $prevAvg    = (float) ($f['stockOnHandCOGS'] ?? $f['stockonhandcogs'] ?? 0);
+            $prevCost   = (float) ($f['stockCOGS']       ?? $f['stockcogs']       ?? 0);
+
+            // Solo escribe lo que cambió: en el caso normal (movimiento al
+            // final del historial) no hay ninguna fila que tocar.
+            if (abs($prevOnHand - $qty) > 1e-9
+                || abs($prevAvg - $avg) > 1e-9
+                || ($delta <= 0 && abs($prevCost - $cost) > 1e-9)) {
+                $db->Execute(
+                    'UPDATE stock SET stockOnHand = ?, stockOnHandCOGS = ?, stockCOGS = ?
+                      WHERE stockId = ?',
+                    [$qty, $avg, $cost, $id]
+                );
+            }
+
+            $rs->MoveNext();
+        }
+        $rs->Close();
+    }
+
+    /**
      * Stock principal de un ítem (descontando ubicaciones de depósito).
      * Equivalente legacy: `getItemMainStock($itemId, $outletId)`.
      */
@@ -457,21 +538,42 @@ final class Inventory
             $COGS = ($hasStock && isset($stock['stockCOGS'])) ? $stock['stockCOGS'] : '';
         }
 
+        // ── Costeo: promedio ponderado móvil ────────────────────────────────
+        // `stockCOGS`       = costo unitario DE ESTE movimiento.
+        // `stockOnHandCOGS` = costo promedio del saldo DESPUÉS del movimiento.
+        //
+        // Cada ingreso recalcula el promedio con su propio costo; cada egreso
+        // sale al promedio vigente y NO lo altera. Los dos dejan su fila con el
+        // costo del movimiento y el promedio resultante.
+        //
+        // No se usa `divider()` acá: `Math::divide` devuelve 0 cuando cualquiera
+        // de los dos operandos es <= 0, así que una compra sobre saldo negativo
+        // borraba el costo promedio en silencio en vez de recalcularlo.
+        $count = (float) $count;
+
         if ($type == '+') {
             $newOnHand = $oldStock + $count;
 
-            if ($oldStock < 0) {
-                $newCOGS = $COGS * $newOnHand;
-            } else {
-                $newCOGS = $COGS * $count;
-            }
+            // Saldo negativo o cero no tiene costo que promediar: lo que había
+            // "de menos" no se compró a ningún precio. La base del promedio
+            // arranca en 0 y el promedio nuevo queda en el costo de esta compra
+            // — antes, multiplicar el promedio viejo por un saldo negativo daba
+            // un numerador negativo y el resultado terminaba en 0.
+            $baseQty = $oldStock > 0 ? $oldStock : 0.0;
+            $totalQty = $baseQty + $count;
 
-            $newTotalCOGS = (($oldACOGS * $oldStock) + $newCOGS);
-            $newTotalCOGS = divider($newTotalCOGS, $newOnHand, true);
+            $newTotalCOGS = $totalQty > 0
+                ? ((($oldACOGS * $baseQty) + ((float) $COGS * $count)) / $totalQty)
+                : (float) $COGS;
         } else {
-            $newOnHand    = $oldStock - $count;
+            $newOnHand = $oldStock - $count;
+            // El egreso sale al promedio vigente y lo DEJA INTACTO. Antes se
+            // reseteaba a 0 al llegar a saldo <= 0, y como el saldo venía mal
+            // calculado (ver onHand()), el costo promedio se borraba en casi
+            // todos los ítems: 335 de 412 filas quedaron con costo 0 y los
+            // márgenes de esas ventas salieron inflados.
             $COGS         = $oldACOGS;
-            $newTotalCOGS = ($newOnHand <= 0) ? 0 : $oldACOGS;
+            $newTotalCOGS = $oldACOGS;
         }
 
         $row['stockSource']     = $source;
@@ -492,10 +594,23 @@ final class Inventory
             $row['stockDate'] = $date;
         }
 
+        // ¿El movimiento queda en el MEDIO del historial? Pasa siempre que se
+        // carga con fecha anterior a la última fila (una compra fechada ayer).
+        // Se mira ANTES del INSERT para no compararlo contra sí mismo.
+        $lastDate = ($hasStock && isset($stock['stockDate'])) ? $stock['stockDate'] : null;
+        $isBackdated = $date && $lastDate && strtotime((string) $date) < strtotime((string) $lastDate);
+
         $insert = $db->AutoExecute('stock', $row, 'INSERT');
 
         if ($insert !== true) {
             return false;
+        }
+
+        // Insertado en el medio: las filas posteriores quedaron con su saldo y
+        // su costo promedio viejos, así que hay que rehacer la cadena. En el
+        // caso normal (movimiento al final) esto no corre.
+        if ($isBackdated) {
+            self::rebuildLedger($itemId, $outlet);
         }
 
         // PG: UUID entre comillas simples (§22.5).
