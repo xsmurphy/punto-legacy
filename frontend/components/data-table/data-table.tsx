@@ -77,6 +77,18 @@ export interface DataTableProps<T> {
   bulkActions?: (selected: T[], clearSelection: () => void) => React.ReactNode
   /** Visibilidad inicial de columnas. Solo aplica si no hay valor persistido en localStorage. */
   initialColumnVisibility?: VisibilityState
+  /**
+   * Fija la primera columna de datos (nombre del producto / cliente / sucursal)
+   * al hacer scroll horizontal. Default: true.
+   *
+   * Con muchas columnas, al desplazarse a la derecha se pierde de vista de qué
+   * fila se está leyendo y hay que volver al inicio para ubicarse. La columna
+   * identificatoria siempre es la primera, así que se fija esa.
+   *
+   * Se puede apagar en tablas angostas donde nunca hay scroll horizontal y la
+   * sombra del borde sería ruido visual.
+   */
+  stickyFirstColumn?: boolean
 }
 
 export function DataTable<T>({
@@ -95,6 +107,7 @@ export function DataTable<T>({
   enableSelection,
   bulkActions,
   initialColumnVisibility,
+  stickyFirstColumn = true,
 }: DataTableProps<T>) {
   // El footer de sumas se renderiza en el primer paint, así que pasa por SSR:
   // un `toLocaleString()` sin locale explícito daba "1,234" en el server y
@@ -190,6 +203,39 @@ export function DataTable<T>({
   // página visible — el pie representa el total del período filtrado, no
   // de la página actual.
   const visibleLeafColumns = table.getVisibleLeafColumns()
+
+  /**
+   * Clases para fijar la columna identificatoria al hacer scroll horizontal.
+   *
+   * Se fija por ÍNDICE de columna visible, no por id: cada listado nombra su
+   * primera columna distinto (itemName, contactName, outletName…) y el wrapper
+   * no puede conocerlos a todos. Cuando la selección está activa, la columna 0
+   * es el checkbox y hay que fijar las dos — el checkbox pegado al borde y el
+   * nombre corrido por el ancho del checkbox (`w-10` = 2.5rem).
+   *
+   * El fondo opaco es obligatorio: sin él, las celdas que pasan por debajo se
+   * ven a través de la columna fija. Por eso `bg-background`, y `bg-muted/40` no
+   * alcanza en el header — lleva su propio fondo sólido.
+   */
+  function stickyCols(index: number, variant: "head" | "cell" | "foot"): string | undefined {
+    if (!stickyFirstColumn) return undefined
+
+    const idxCheckbox = enableSelection ? 0 : -1
+    const idxNombre   = enableSelection ? 1 : 0
+    if (index !== idxCheckbox && index !== idxNombre) return undefined
+
+    const fondo =
+      variant === "head" ? "bg-muted" : variant === "foot" ? "bg-muted/50" : "bg-background"
+
+    return cn(
+      "sticky z-20",
+      index === idxCheckbox ? "left-0" : enableSelection ? "left-10" : "left-0",
+      fondo,
+      // La sombra marca el corte solo en la columna del nombre (la última del
+      // bloque fijo): en el checkbox quedaría en el medio del bloque.
+      index === idxNombre && "after:absolute after:inset-y-0 after:-right-px after:w-px after:bg-border",
+    )
+  }
   const hasFooterSum = visibleLeafColumns.some((c) => c.columnDef.meta?.footerSum)
   const footerSums = React.useMemo(() => {
     if (!hasFooterSum) return {}
@@ -295,11 +341,21 @@ export function DataTable<T>({
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
               <TableRow key={hg.id}>
-                {hg.headers.map((header) => {
+                {hg.headers.map((header, i) => {
                   const sortDir = header.column.getIsSorted()
                   const canSort = header.column.getCanSort()
                   return (
-                    <TableHead key={header.id} className={header.column.columnDef.meta?.className}>
+                    <TableHead
+                      key={header.id}
+                      className={cn(header.column.columnDef.meta?.className, stickyCols(i, "head"))}
+                    >
+                      {/* La tipografía del encabezado (`text-xs font-medium`)
+                          vive acá y NO dentro del botón de orden: cuando estaba
+                          solo en el botón, una columna no ordenable se pintaba
+                          cruda y heredaba el tamaño del <th>, así que en la
+                          misma fila convivían encabezados de dos tamaños
+                          distintos. El `h-8` iguala el alto para que la línea
+                          base no salte entre una columna y la siguiente. */}
                       {header.isPlaceholder ? null : canSort ? (
                         <button
                           type="button"
@@ -316,7 +372,9 @@ export function DataTable<T>({
                           )}
                         </button>
                       ) : (
-                        flexRender(header.column.columnDef.header, header.getContext())
+                        <span className="inline-flex h-8 items-center text-xs font-medium">
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </span>
                       )}
                     </TableHead>
                   )
@@ -354,8 +412,11 @@ export function DataTable<T>({
                   className={cn(onRowClick && "cursor-pointer")}
                   onClick={() => onRowClick?.(row.original)}
                 >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className={cell.column.columnDef.meta?.className}>
+                  {row.getVisibleCells().map((cell, i) => (
+                    <TableCell
+                      key={cell.id}
+                      className={cn(cell.column.columnDef.meta?.className, stickyCols(i, "cell"))}
+                    >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
@@ -370,7 +431,7 @@ export function DataTable<T>({
                   if (meta?.footerSum) {
                     const sum = footerSums[col.id] ?? 0
                     return (
-                      <TableCell key={col.id} className={meta.className}>
+                      <TableCell key={col.id} className={cn(meta.className, stickyCols(i, "foot"))}>
                         {meta.footerFormat ? meta.footerFormat(sum) : formatInt(sum, bootstrapForFooter)}
                       </TableCell>
                     )
@@ -379,7 +440,7 @@ export function DataTable<T>({
                   // columna del set (la más a la izquierda) que lleva un
                   // label discreto "Total".
                   return (
-                    <TableCell key={col.id} className={meta?.className}>
+                    <TableCell key={col.id} className={cn(meta?.className, stickyCols(i, "foot"))}>
                       {i === 0 ? (
                         <span className="text-muted-foreground">Total</span>
                       ) : null}

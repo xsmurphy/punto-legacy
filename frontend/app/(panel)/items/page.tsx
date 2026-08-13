@@ -261,6 +261,10 @@ function ItemsPageInner() {
       },
       {
         id: "stockOnHand",
+        // `accessorFn` para que sea ORDENABLE: "mostrame lo que está más bajo"
+        // es la razón principal para mirar esta columna. Sin accessor,
+        // TanStack no sabe por qué valor ordenar.
+        accessorFn: (row) => row.stockOnHand ?? 0,
         header: "Stock",
         // La cifra más consultada del listado: cuántas unidades quedan. El
         // color sale de `stockStatus`, compartido con el detalle para que las
