@@ -24,6 +24,17 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useCreatePurchase, type PurchaseFormItem } from "@/hooks/use-purchases"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { useUploadInvoice, usePendingDraftsCount } from "@/hooks/use-purchase-drafts"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import type { PurchaseCreatePayload } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
 import { DatePicker } from "@/components/date-picker"
 import { MoneyInput } from "@/components/ui/money-input"
@@ -200,6 +211,9 @@ export default function NewPurchasePage() {
     setLines([fresh])
   }
 
+  /** Compra armada y validada, esperando confirmación. null = sin diálogo. */
+  const [pendiente, setPendiente] = React.useState<PurchaseCreatePayload | null>(null)
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit) {
@@ -231,8 +245,13 @@ export default function NewPurchasePage() {
       return
     }
 
-    try {
-      await createPurchase.mutateAsync({
+    // Registrar una compra mueve stock y deuda con el proveedor, y el form se
+    // resetea de inmediato para cargar la siguiente factura — no hay una
+    // pantalla intermedia donde darse cuenta del error. Se confirma antes.
+    // El payload se congela ACÁ y el diálogo emite exactamente esto: si se
+    // reconstruyera al confirmar, lo que se envía podría no ser lo que se
+    // mostró.
+    setPendiente({
         supplierId: supplierId || null,
         outletId,
         condition,
@@ -256,13 +275,24 @@ export default function NewPurchasePage() {
         discount: discount ?? 0,
         note,
         items,
-      })
+    })
+  }
+
+  /** Emite la compra ya confirmada. */
+  async function registrar() {
+    if (!pendiente) return
+    try {
+      await createPurchase.mutateAsync(pendiente)
       // Carga de alto volumen: NO navegamos. Reseteamos el form para cargar la
       // siguiente factura de inmediato. La sucursal se conserva (suelen cargar
       // un lote de la misma); el resto vuelve a default.
       toast.success("Compra registrada — cargá la siguiente")
+      setPendiente(null)
       resetForm()
     } catch (err) {
+      // El diálogo se cierra igual: el error va al toast y el form conserva los
+      // datos para corregir y reintentar.
+      setPendiente(null)
       toast.error("No se pudo registrar la compra", {
         description: err instanceof Error ? err.message : undefined,
       })
@@ -308,6 +338,50 @@ export default function NewPurchasePage() {
           </Button>
         </div>
       </header>
+
+      <AlertDialog open={pendiente !== null} onOpenChange={(o) => { if (!o) setPendiente(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Registrar esta compra?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  Va a sumar el stock de los ítems y, si es a crédito, generar la deuda
+                  con el proveedor.
+                </p>
+                <div className="rounded-md border p-3 text-sm text-foreground">
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Proveedor</span>
+                    <span className="text-right">{supplierName || "Sin proveedor"}</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Condición</span>
+                    <span>{isCredit ? "Crédito" : "Contado"}</span>
+                  </div>
+                  <div className="flex justify-between gap-4">
+                    <span className="text-muted-foreground">Ítems</span>
+                    <span className="tabular-nums">{pendiente?.items.length ?? 0}</span>
+                  </div>
+                  <div className="mt-1 flex justify-between gap-4 border-t pt-1 font-medium">
+                    <span>Total</span>
+                    <span className="tabular-nums">{formatMoney(totals.total, bootstrap)}</span>
+                  </div>
+                </div>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={createPurchase.isPending}>Volver a revisar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={createPurchase.isPending}
+              onClick={(e) => { e.preventDefault(); void registrar() }}
+            >
+              {createPurchase.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
+              Registrar compra
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Layout 2-col: izquierda datos generales, derecha items + totales */}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">

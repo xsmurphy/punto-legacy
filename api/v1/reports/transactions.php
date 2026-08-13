@@ -91,7 +91,9 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
 
     // Verificar que la transacción pertenece al tenant del JWT
     $existing = ncmExecute(
-        "SELECT transactionId, transactionType FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1",
+        "SELECT transactionId, transactionType, transactionDate, transactionDiscount,
+                transactionTotal, customerId, outletId, invoiceNo, transactionPaymentType
+           FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1",
         [$txId, COMPANY_ID]
     );
     if (!$existing) {
@@ -107,6 +109,120 @@ if ($method === 'PUT' && isset($_GET['id']) && $_GET['id'] !== '') {
         apiError('Este tipo de documento no es editable', 422);
     }
     $isQuote = (int) $existing['transactionType'] === 9;
+
+    // ── Inmutabilidad del documento fiscal ──────────────────────────────────
+    // Una factura emitida (contado 0 / crédito 3) ya salió con un timbrado, un
+    // número y un contenido declarado. Nada de eso puede cambiar después:
+    // corregir una factura emitida es emitir una nota de crédito, no editarla.
+    // Editable queda solo lo que NO está en el documento: quién la hizo, el
+    // usuario por línea, notas y etiquetas.
+    //
+    // La cotización (9) no es documento fiscal — sigue siendo editable entera.
+    //
+    // Se bloquea por CAMBIO REAL, no por presencia del campo: el formulario
+    // manda el body completo en cada guardado, así que rechazar por venir
+    // presente haría fallar hasta un cambio de nota. Se compara contra lo
+    // guardado y solo se corta si el valor es distinto.
+    $esFiscal = !$isQuote;
+
+    /** Compara laxo: el body manda números como string y null como ''. */
+    $cambia = static function (mixed $nuevo, mixed $actual, bool $numerico = false): bool {
+        if ($nuevo === null || $nuevo === '') {
+            return $actual !== null && (string) $actual !== '';
+        }
+        if ($numerico) {
+            return abs((float) $nuevo - (float) $actual) > 0.0001;
+        }
+        return (string) $nuevo !== (string) $actual;
+    };
+
+    if ($esFiscal) {
+        $bloqueados = [];
+
+        if (isset($body['date']) && $cambia(substr((string) $body['date'], 0, 10), substr((string) $existing['transactionDate'], 0, 10))) {
+            $bloqueados[] = 'la fecha';
+        }
+        if (array_key_exists('customerId', $body) && $cambia($body['customerId'], $existing['customerId'])) {
+            $bloqueados[] = 'el cliente';
+        }
+        if (array_key_exists('outletId', $body) && $cambia($body['outletId'], $existing['outletId'])) {
+            $bloqueados[] = 'la sucursal';
+        }
+        if (array_key_exists('invoiceNo', $body) && $cambia($body['invoiceNo'], $existing['invoiceNo'], true)) {
+            $bloqueados[] = 'el número de factura';
+        }
+        if (isset($body['transactionType']) && (int) $body['transactionType'] !== (int) $existing['transactionType']) {
+            $bloqueados[] = 'el tipo (contado/crédito)';
+        }
+
+        // Formas de pago: van impresas en el documento.
+        if (isset($body['payments']) && is_array($body['payments'])) {
+            $normalizar = static function (array $lista): string {
+                $out = [];
+                foreach ($lista as $p) {
+                    $tipo  = (string) ($p['type'] ?? '');
+                    $monto = round((float) ($p['total'] ?? 0), 4);
+                    if ($tipo !== '' && $monto > 0) {
+                        $out[] = $tipo . ':' . $monto;
+                    }
+                }
+                sort($out);
+                return implode('|', $out);
+            };
+            $actuales = json_decode((string) ($existing['transactionPaymentType'] ?? '[]'), true);
+            if ($normalizar($body['payments']) !== $normalizar(is_array($actuales) ? $actuales : [])) {
+                $bloqueados[] = 'las formas de pago';
+            }
+        }
+
+        // Líneas: cantidad e importe. El usuario por línea sí se puede corregir.
+        if (isset($body['items']) && is_array($body['items']) && $body['items'] !== []) {
+            $ids = [];
+            foreach ($body['items'] as $itm) {
+                $sid = (string) ($itm['itemSoldId'] ?? '');
+                if (preg_match($uuidRe, $sid)) {
+                    $ids[$sid] = $itm;
+                }
+            }
+            if ($ids !== []) {
+                $ph  = implode(',', array_fill(0, count($ids), '?'));
+                $rsL = ncmExecute(
+                    "SELECT itemSoldId, itemSoldUnits, itemSoldTotal FROM itemSold
+                      WHERE itemSoldId IN ($ph) AND transactionId = ?",
+                    array_merge(array_keys($ids), [$txId]),
+                    false,
+                    true
+                );
+                if ($rsL !== false && is_object($rsL)) {
+                    while (!$rsL->EOF) {
+                        $f   = $rsL->fields;
+                        $sid = (string) ($f['itemsoldid'] ?? $f['itemSoldId'] ?? '');
+                        $itm = $ids[$sid] ?? null;
+                        if ($itm !== null) {
+                            if (isset($itm['itemSoldUnits']) && $cambia($itm['itemSoldUnits'], $f['itemsoldunits'] ?? $f['itemSoldUnits'] ?? 0, true)) {
+                                $bloqueados[] = 'las cantidades';
+                            }
+                            if (isset($itm['itemSoldTotal']) && $cambia($itm['itemSoldTotal'], $f['itemsoldtotal'] ?? $f['itemSoldTotal'] ?? 0, true)) {
+                                $bloqueados[] = 'los importes';
+                            }
+                        }
+                        $rsL->MoveNext();
+                    }
+                    $rsL->Close();
+                }
+            }
+        }
+
+        $bloqueados = array_values(array_unique($bloqueados));
+        if ($bloqueados !== []) {
+            apiError(
+                'No se puede modificar ' . implode(', ', $bloqueados) . ' de una factura ya emitida. '
+                . 'Para corregirla, emití una nota de crédito. '
+                . 'Sí podés editar el usuario, el usuario por ítem, las notas y las etiquetas.',
+                422
+            );
+        }
+    }
 
     global $db;
     $record = [];

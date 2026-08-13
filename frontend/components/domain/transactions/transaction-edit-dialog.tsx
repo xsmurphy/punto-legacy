@@ -40,7 +40,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
-import { X } from "lucide-react"
+import { Lock, X } from "lucide-react"
 
 import { useContacts } from "@/hooks/use-contacts"
 import { useOutlets } from "@/hooks/use-outlets"
@@ -206,12 +206,33 @@ function EditDialogBody({
   const tx = detail.transaction
   const isCredit = form.transactionType === 3
   const isQuote = tx.transactionType === 9
-  const canEditType = tx.transactionType === 0 || tx.transactionType === 3
+
+  /**
+   * Factura emitida: contado (0) o crédito (3). Ya salió con timbrado, número y
+   * un contenido declarado, así que nada de eso se toca — corregir una factura
+   * emitida es emitir una nota de crédito, no editarla. El backend lo rechaza
+   * igual; acá se bloquea para que no se llegue a intentar.
+   *
+   * La cotización no es documento fiscal: se sigue editando entera.
+   */
+  const esFiscal = !isQuote
+  const canEditType = !esFiscal && (tx.transactionType === 0 || tx.transactionType === 3)
   const canEditItems = tx.transactionType === 0 || tx.transactionType === 3 || isQuote
 
   return (
     <>
       <div className="flex flex-col gap-5 py-2">
+        {esFiscal && (
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
+            <Lock className="mt-0.5 size-4 shrink-0 text-amber-600" />
+            <p className="text-muted-foreground">
+              Es una factura emitida: el cliente, los ítems, los importes, las formas
+              de pago y la numeración no se pueden modificar. Para corregirla, emití
+              una nota de crédito. Sí podés cambiar el vendedor, el responsable, el
+              usuario de cada ítem, la nota y las etiquetas.
+            </p>
+          </div>
+        )}
         {canEditType && (
           <div className="flex flex-col gap-1.5">
             <Label>Tipo</Label>
@@ -235,6 +256,7 @@ function EditDialogBody({
           <Input
             type="datetime-local"
             value={form.date}
+            disabled={esFiscal}
             onChange={(e) => setForm((prev) => ({ ...prev, date: e.target.value }))}
           />
         </div>
@@ -255,6 +277,7 @@ function EditDialogBody({
           <Input
             type="number"
             value={form.invoiceNo}
+            disabled={esFiscal}
             onChange={(e) => setForm((prev) => ({ ...prev, invoiceNo: e.target.value }))}
             placeholder="—"
           />
@@ -264,6 +287,7 @@ function EditDialogBody({
           <Label>Cliente</Label>
           <Select
             value={form.customerId}
+            disabled={esFiscal}
             onValueChange={(v) => setForm((prev) => ({ ...prev, customerId: v }))}
           >
             <SelectTrigger>
@@ -283,6 +307,7 @@ function EditDialogBody({
           <Label>Sucursal</Label>
           <Select
             value={form.outletId}
+            disabled={esFiscal}
             onValueChange={(v) => setForm((prev) => ({ ...prev, outletId: v }))}
           >
             <SelectTrigger>
@@ -366,6 +391,7 @@ function EditDialogBody({
                         type="text"
                         inputMode="numeric"
                         value={item.itemSoldUnits}
+                        disabled={esFiscal}
                         onChange={(e) => updateItem(i, "itemSoldUnits", Number(e.target.value))}
                         className="w-16"
                       />
@@ -374,6 +400,7 @@ function EditDialogBody({
                     <TableCell>
                       <MoneyInput
                         value={item.itemSoldTotal}
+                        disabled={esFiscal}
                         onChange={(v) => updateItem(i, "itemSoldTotal", v)}
                       />
                     </TableCell>
@@ -393,6 +420,7 @@ function EditDialogBody({
                   {paymentMethods.length > 0 ? (
                     <Select
                       value={p.type}
+                      disabled={esFiscal}
                       onValueChange={(v) => {
                         const m = paymentMethods.find((pm) => pm.id === v)
                         setForm((prev) => {
