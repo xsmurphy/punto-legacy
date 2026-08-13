@@ -705,12 +705,19 @@ function PerfilTab({
   const markup = cost > 0 ? ((price - cost) / cost) * 100 : 0
   const margen = price > 0 ? ((price - cost) / price) * 100 : 0
 
-  // Layout: si tenemos ambos price+cost mostramos 2 columnas. Si solo price
-  // (servicio/giftcard etc), colapsa a 1 columna — evita el card mayormente
-  // vacío que el usuario reportó.
-  const hasBothMonetary = visibility.showPrice && visibility.showCost
+  // La ficha del artículo va SIEMPRE en dos columnas en desktop.
+  //
+  // Antes el layout dependía de que el tipo tuviera precio Y costo: un "insumo
+  // con stock" no vende, así que no muestra precio, y toda la ficha colapsaba a
+  // una sola columna. Resultado: "Datos básicos" ocupando el ancho completo con
+  // los campos estirados, y el costo empujado tan abajo que había que scrollear
+  // para verlo, con media pantalla vacía al costado.
+  //
+  // Un card con pocos campos al lado de otro no molesta; lo que molesta es una
+  // columna de ancho completo con dos campos y el resto del contenido fuera de
+  // vista.
   return (
-    <div className={cn("grid grid-cols-1 gap-6", hasBothMonetary && "lg:grid-cols-2")}>
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
       <Card>
         <CardHeader>
           <CardTitle className="text-base font-semibold tracking-tight">Datos básicos</CardTitle>
