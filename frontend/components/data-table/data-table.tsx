@@ -204,37 +204,68 @@ export function DataTable<T>({
   // de la página actual.
   const visibleLeafColumns = table.getVisibleLeafColumns()
 
+  // Ancho REAL de la columna de selección, medido del DOM.
+  //
+  // Estaba hardcodeado en `left-10` (40px) asumiendo el `w-10` de la columna,
+  // pero `w-*` en una tabla con layout automático es una sugerencia: el ancho
+  // final lo define el contenido más el padding de la celda. La columna medía
+  // más de 40px, así que el nombre se fijaba 8px a la izquierda de donde
+  // termina el checkbox y se montaba sobre él.
+  //
+  // Medirlo es lo único que no se desincroniza cuando cambie el padding del
+  // primitive Table o el tamaño del checkbox.
+  const selectColRef = React.useRef<HTMLTableCellElement | null>(null)
+  const [selectColWidth, setSelectColWidth] = React.useState(0)
+
+  React.useLayoutEffect(() => {
+    if (!enableSelection || !stickyFirstColumn) return
+    const el = selectColRef.current
+    if (!el) return
+    const medir = () => setSelectColWidth(el.getBoundingClientRect().width)
+    medir()
+    // El ancho cambia al re-renderizar la tabla (otro dataset, otra fuente).
+    const ro = new ResizeObserver(medir)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [enableSelection, stickyFirstColumn])
+
   /**
-   * Clases para fijar la columna identificatoria al hacer scroll horizontal.
+   * Fija la columna identificatoria al hacer scroll horizontal.
    *
    * Se fija por ÍNDICE de columna visible, no por id: cada listado nombra su
    * primera columna distinto (itemName, contactName, outletName…) y el wrapper
    * no puede conocerlos a todos. Cuando la selección está activa, la columna 0
-   * es el checkbox y hay que fijar las dos — el checkbox pegado al borde y el
-   * nombre corrido por el ancho del checkbox (`w-10` = 2.5rem).
+   * es el checkbox y se fijan las dos.
    *
    * El fondo opaco es obligatorio: sin él, las celdas que pasan por debajo se
-   * ven a través de la columna fija. Por eso `bg-background`, y `bg-muted/40` no
-   * alcanza en el header — lleva su propio fondo sólido.
+   * ven a través de la columna fija.
    */
-  function stickyCols(index: number, variant: "head" | "cell" | "foot"): string | undefined {
-    if (!stickyFirstColumn) return undefined
+  function stickyCols(
+    index: number,
+    variant: "head" | "cell" | "foot",
+  ): { className?: string; style?: React.CSSProperties } {
+    if (!stickyFirstColumn) return {}
 
     const idxCheckbox = enableSelection ? 0 : -1
     const idxNombre   = enableSelection ? 1 : 0
-    if (index !== idxCheckbox && index !== idxNombre) return undefined
+    if (index !== idxCheckbox && index !== idxNombre) return {}
 
     const fondo =
       variant === "head" ? "bg-muted" : variant === "foot" ? "bg-muted/50" : "bg-background"
 
-    return cn(
-      "sticky z-20",
-      index === idxCheckbox ? "left-0" : enableSelection ? "left-10" : "left-0",
-      fondo,
-      // La sombra marca el corte solo en la columna del nombre (la última del
-      // bloque fijo): en el checkbox quedaría en el medio del bloque.
-      index === idxNombre && "after:absolute after:inset-y-0 after:-right-px after:w-px after:bg-border",
-    )
+    return {
+      className: cn(
+        "sticky z-20",
+        fondo,
+        // El borde marca el corte solo en la columna del nombre (la última del
+        // bloque fijo): en el checkbox quedaría en el medio del bloque.
+        index === idxNombre &&
+          "after:absolute after:inset-y-0 after:right-0 after:w-px after:bg-border",
+      ),
+      // `left` va inline y no como clase: el offset del nombre es el ancho
+      // medido del checkbox, un valor que Tailwind no puede expresar.
+      style: { left: index === idxCheckbox ? 0 : enableSelection ? selectColWidth : 0 },
+    }
   }
   const hasFooterSum = visibleLeafColumns.some((c) => c.columnDef.meta?.footerSum)
   const footerSums = React.useMemo(() => {
@@ -347,7 +378,9 @@ export function DataTable<T>({
                   return (
                     <TableHead
                       key={header.id}
-                      className={cn(header.column.columnDef.meta?.className, stickyCols(i, "head"))}
+                      ref={enableSelection && i === 0 ? selectColRef : undefined}
+                      className={cn(header.column.columnDef.meta?.className, stickyCols(i, "head").className)}
+                      style={stickyCols(i, "head").style}
                     >
                       {/* La tipografía del encabezado (`text-xs font-medium`)
                           vive acá y NO dentro del botón de orden: cuando estaba
@@ -415,7 +448,8 @@ export function DataTable<T>({
                   {row.getVisibleCells().map((cell, i) => (
                     <TableCell
                       key={cell.id}
-                      className={cn(cell.column.columnDef.meta?.className, stickyCols(i, "cell"))}
+                      className={cn(cell.column.columnDef.meta?.className, stickyCols(i, "cell").className)}
+                      style={stickyCols(i, "cell").style}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
@@ -431,7 +465,11 @@ export function DataTable<T>({
                   if (meta?.footerSum) {
                     const sum = footerSums[col.id] ?? 0
                     return (
-                      <TableCell key={col.id} className={cn(meta.className, stickyCols(i, "foot"))}>
+                      <TableCell
+                        key={col.id}
+                        className={cn(meta.className, stickyCols(i, "foot").className)}
+                        style={stickyCols(i, "foot").style}
+                      >
                         {meta.footerFormat ? meta.footerFormat(sum) : formatInt(sum, bootstrapForFooter)}
                       </TableCell>
                     )
@@ -440,7 +478,11 @@ export function DataTable<T>({
                   // columna del set (la más a la izquierda) que lleva un
                   // label discreto "Total".
                   return (
-                    <TableCell key={col.id} className={cn(meta?.className, stickyCols(i, "foot"))}>
+                    <TableCell
+                      key={col.id}
+                      className={cn(meta?.className, stickyCols(i, "foot").className)}
+                      style={stickyCols(i, "foot").style}
+                    >
                       {i === 0 ? (
                         <span className="text-muted-foreground">Total</span>
                       ) : null}
