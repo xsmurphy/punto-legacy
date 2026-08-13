@@ -77,6 +77,9 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         'hasvariants'         => 'hasVariants',
         'variantattributes'   => 'variantAttributes',
         'variantcount'        => 'variantCount',
+        'itemminstock'        => 'itemMinStock',
+        'itemmaxstock'        => 'itemMaxStock',
+        'stockonhand'         => 'stockOnHand',
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -104,6 +107,16 @@ function presentItem(array|\CaseInsensitiveArray $row): array
     // childCount como int (PG devuelve string para COUNT en algunos drivers).
     if (isset($out['childCount'])) {
         $out['childCount'] = (int) $out['childCount'];
+    }
+    // Saldo y mínimo como float. `itemMinStock` conserva el null: NULL es "sin
+    // mínimo definido", que no es lo mismo que 0 ("avisame al llegar a cero").
+    if (array_key_exists('stockOnHand', $out)) {
+        $out['stockOnHand'] = (float) $out['stockOnHand'];
+    }
+    foreach (['itemMinStock', 'itemMaxStock'] as $umbral) {
+        if (array_key_exists($umbral, $out)) {
+            $out[$umbral] = $out[$umbral] === null ? null : (float) $out[$umbral];
+        }
     }
     // tags desde JSONB (data.tags es array o null)
     if (!isset($out['tags'])) {
@@ -537,6 +550,11 @@ if ($id !== null && $resource === 'inventory-movements') {
         $page   = $stockMovementsSvc->movements($id, $companyId, $limit, $offset);
         apiOk([
             'summary' => $stockMovementsSvc->summary($id, $companyId),
+            // Cuánto hay y dónde. Viaja con el resumen y no como recurso
+            // aparte: es el dato principal del tab, así que pedirlo en una
+            // segunda request lo dejaría llegando después de las cifras
+            // secundarias.
+            'breakdown' => $stockMovementsSvc->breakdown($id, $companyId),
             ...$page,
         ]);
     }
@@ -725,6 +743,8 @@ switch ($method) {
                        i.itemIsParent, i.itemParentId,
                        i.variantParentId, i.hasVariants, i.variantAttributes,
                        i.categoryId, i.brandId, i.outletId, i.data,
+                       i.itemMinStock, i.itemMaxStock,
+                       COALESCE(st.onhand, 0) AS stockOnHand,
                        cat.taxonomyName AS categoryName,
                        brand.taxonomyName AS brandName,
                        o.outletName AS outletName,
@@ -748,6 +768,14 @@ switch ($method) {
                   SELECT COUNT(*) AS vcnt FROM item v
                    WHERE v.variantParentId = i.itemId AND v.itemStatus = 1
              ) vc ON true
+             -- Saldo real: SUMA de los movimientos, no el `stockOnHand` de la
+             -- última fila. El snapshot de la última fila se desincroniza con
+             -- cualquier movimiento cargado con fecha anterior (una compra
+             -- fechada ayer) — mismo criterio que `Inventory::onHand()`.
+             LEFT JOIN LATERAL (
+                  SELECT SUM(s.stockCount) AS onhand FROM stock s
+                   WHERE s.itemId = i.itemId AND s.companyId = i.companyId
+             ) st ON true
                  WHERE $whereSql
                  ORDER BY i.itemDate DESC
                  LIMIT $limit OFFSET $offset";

@@ -7,12 +7,12 @@ namespace Punto\Api\Items;
  * Tab "Stock" del detalle de ítem — resumen de valorización, historial de
  * movimientos y ajustes manuales, para UN ítem across todas las sucursales.
  *
- * `stock` (db-schema-postgres.sql) es un ledger: cada fila es un movimiento
- * y `stockOnHand`/`stockOnHandCOGS` ya son el saldo ACUMULADO en ese momento
- * (no hay que sumar deltas históricos) — la fila más reciente por sucursal es
- * el estado actual de esa sucursal (mismo criterio que
- * `Inventory::getItemStock()`, que hace esto para UNA sucursal a la vez).
- * `summary()` generaliza esa misma lectura a todas las sucursales del tenant.
+ * `stock` es un ledger: cada fila es un movimiento. El saldo se calcula
+ * SUMANDO `stockCount`, NO leyendo el `stockOnHand` de la última fila: ese
+ * snapshot se desincroniza en cuanto entra un movimiento fechado hacia atrás
+ * (una compra cargada con fecha de ayer se inserta en el medio del historial y
+ * las filas posteriores conservan su acumulado viejo). Mismo criterio que
+ * `Inventory::onHand()`.
  *
  * "Precio de compra" (el otro KPI del tab) NO vive acá — ya existe
  * `GET /v1/items?id=&resource=last-purchase-price` (último precio de compra
@@ -22,23 +22,32 @@ namespace Punto\Api\Items;
 final class StockMovementsService
 {
     /**
-     * Stock actual + costo promedio ponderado + valor total, sumando la fila
-     * más reciente de CADA sucursal (DISTINCT ON). Devuelve ceros si el ítem
-     * no trackea inventario o nunca tuvo movimientos.
+     * Stock actual + costo promedio ponderado + valor total del ítem, sumando
+     * todas las sucursales. Devuelve ceros si el ítem no trackea inventario o
+     * nunca tuvo movimientos.
      *
      * @return array{qty:float,avgCost:float,totalValue:float}
      */
     public function summary(string $itemId, string $companyId): array
     {
+        // El saldo por sucursal sale de la SUMA de sus movimientos; el costo
+        // promedio, de la última fila de esa sucursal (es el acumulado vigente).
         $row = ncmExecute(
-            "SELECT COALESCE(SUM(stockOnHand), 0) AS qty,
-                    COALESCE(SUM(stockOnHand * stockOnHandCOGS), 0) AS value
+            "SELECT COALESCE(SUM(qty), 0) AS qty,
+                    COALESCE(SUM(qty * cogs), 0) AS value
                FROM (
-                 SELECT DISTINCT ON (outletId) stockOnHand, stockOnHandCOGS
-                   FROM stock
-                  WHERE itemId = ? AND companyId = ?
-                  ORDER BY outletId, stockDate DESC, stockId DESC
-               ) latest",
+                 SELECT s.outletId,
+                        SUM(s.stockCount) AS qty,
+                        (SELECT s2.stockOnHandCOGS
+                           FROM stock s2
+                          WHERE s2.itemId = s.itemId AND s2.companyId = s.companyId
+                            AND s2.outletId = s.outletId
+                          ORDER BY s2.stockDate DESC, s2.stockId DESC
+                          LIMIT 1) AS cogs
+                   FROM stock s
+                  WHERE s.itemId = ? AND s.companyId = ?
+                  GROUP BY s.itemId, s.companyId, s.outletId
+               ) porSucursal",
             [$itemId, $companyId]
         );
 
@@ -53,6 +62,70 @@ final class StockMovementsService
             'avgCost'    => $qty > 0.0000001 ? $value / $qty : 0.0,
             'totalValue' => $value,
         ];
+    }
+
+    /**
+     * Cuánto hay y DÓNDE: saldo por sucursal, con el detalle por depósito.
+     *
+     * Era el dato que faltaba. El tab "Stock" mostraba precio de compra, costo
+     * promedio y stock valorizado —tres cifras en dinero— y en ningún lado
+     * cuántas unidades hay, que es lo primero que se va a mirar.
+     *
+     * El depósito (`locationId`) es opcional en el ledger: los movimientos sin
+     * depósito son del "principal" de esa sucursal. Se devuelven como una línea
+     * más con `locationId = null` en vez de omitirse, porque si no el detalle
+     * no suma el total de la sucursal y parece que faltan unidades.
+     *
+     * @return array{total: float, outlets: list<array<string,mixed>>}
+     */
+    public function breakdown(string $itemId, string $companyId): array
+    {
+        $rs = ncmExecute(
+            "SELECT s.outletId, o.outletName, s.locationId, l.taxonomyName AS locationName,
+                    SUM(s.stockCount) AS qty
+               FROM stock s
+               JOIN outlet o ON o.outletId = s.outletId
+          LEFT JOIN taxonomy l ON l.taxonomyId = s.locationId
+              WHERE s.itemId = ? AND s.companyId = ?
+              GROUP BY s.outletId, o.outletName, s.locationId, l.taxonomyName
+              ORDER BY o.outletName ASC, l.taxonomyName ASC NULLS FIRST",
+            [$itemId, $companyId],
+            false,
+            true
+        );
+
+        $porSucursal = [];
+        $total       = 0.0;
+
+        if ($rs !== false && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f        = $rs->fields;
+                $outletId = (string) ($f['outletid'] ?? '');
+                $qty      = (float) ($f['qty'] ?? 0);
+
+                if (!isset($porSucursal[$outletId])) {
+                    $porSucursal[$outletId] = [
+                        'outletId'   => $outletId,
+                        'outletName' => (string) ($f['outletname'] ?? ''),
+                        'qty'        => 0.0,
+                        'locations'  => [],
+                    ];
+                }
+
+                $porSucursal[$outletId]['qty'] += $qty;
+                $porSucursal[$outletId]['locations'][] = [
+                    'locationId'   => $f['locationid'] ?? null,
+                    'locationName' => $f['locationname'] ?? null,
+                    'qty'          => $qty,
+                ];
+                $total += $qty;
+
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        return ['total' => $total, 'outlets' => array_values($porSucursal)];
     }
 
     /**

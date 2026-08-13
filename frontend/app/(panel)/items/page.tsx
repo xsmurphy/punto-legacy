@@ -59,7 +59,9 @@ import {
 import { BulkEditDialog } from "@/components/items/bulk-edit-dialog"
 import { ImportItemsDialog } from "@/components/items/import-dialog"
 import { NewItemKindDialog } from "@/components/items/new-item-kind-dialog"
-import { formatMoney } from "@/lib/format"
+import { formatInt, formatMoney } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import { STOCK_STATUS_CLASS, STOCK_STATUS_LABEL, stockStatus } from "@/lib/stock-status"
 import {
   KIND_META,
   ALL_KINDS,
@@ -256,6 +258,52 @@ function ItemsPageInner() {
           )
         },
         meta: { label: "Unidad de medida" },
+      },
+      {
+        id: "stockOnHand",
+        header: "Stock",
+        // La cifra más consultada del listado: cuántas unidades quedan. El
+        // color sale de `stockStatus`, compartido con el detalle para que las
+        // dos pantallas no puedan discrepar sobre el mismo ítem.
+        cell: ({ row }) => {
+          const it = row.original
+          const estado = stockStatus({
+            qty: it.stockOnHand,
+            min: it.itemMinStock,
+            max: it.itemMaxStock,
+            tracked: it.itemTrackInventory,
+          })
+          // Ítem que no lleva stock: un guión gris, no un 0 que se leería como
+          // "se quedó sin nada".
+          if (estado === null) return <span className="opacity-40">—</span>
+          return (
+            <span
+              className={cn("tabular-nums", STOCK_STATUS_CLASS[estado])}
+              title={STOCK_STATUS_LABEL[estado]}
+            >
+              {formatInt(it.stockOnHand ?? 0, bootstrap)}
+            </span>
+          )
+        },
+        meta: { label: "Stock", className: "tabular-nums text-right" },
+      },
+      {
+        id: "stockThresholds",
+        header: "Mín / Máx",
+        // Los dos umbrales juntos: sueltos ocupan dos columnas para dos cifras
+        // que solo tienen sentido leídas contra el stock de al lado.
+        cell: ({ row }) => {
+          const { itemMinStock: min, itemMaxStock: max } = row.original
+          if (min == null && max == null) return <span className="opacity-40">—</span>
+          const fmt = (v: number | null | undefined) =>
+            v == null ? "—" : formatInt(v, bootstrap)
+          return (
+            <span className="tabular-nums text-muted-foreground">
+              {fmt(min)} / {fmt(max)}
+            </span>
+          )
+        },
+        meta: { label: "Mínimo / Máximo", className: "tabular-nums text-right" },
       },
       {
         accessorKey: "itemCost",

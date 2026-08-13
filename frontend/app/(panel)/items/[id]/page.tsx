@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils"
 
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
-import { Card, CardAction, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { MoneyInput } from "@/components/ui/money-input"
 import { Textarea } from "@/components/ui/textarea"
@@ -154,6 +154,10 @@ const itemSchema = z.object({
   outletId: z.string(),
   supplierId: z.string(),
   waste: z.number().min(0).max(99).nullable(),
+  // Umbrales de stock. Nullable a propósito: null es "no se controla por este
+  // umbral", que NO es lo mismo que 0 ("avisame al llegar a cero").
+  minStock: z.number().min(0).nullable(),
+  maxStock: z.number().min(0).nullable(),
   sort: z.number().int().nullable(),
   commission: z.number().min(0).nullable(),
   commissionType: z.enum(["percent", "fixed"]),
@@ -326,6 +330,8 @@ function ItemEditPageInner() {
       outletId: toStr(data.outletId),
       supplierId: toStr(data.supplierId),
       waste: toNum(data.itemWaste),
+      minStock: toNum(data.itemMinStock),
+      maxStock: toNum(data.itemMaxStock),
       sort: toNum(data.itemSort) ?? 99999,
       commission: toNum(data.itemComissionPercent),
       commissionType: data.itemComissionType === "1" ? "fixed" : "percent",
@@ -652,7 +658,7 @@ function ItemEditPageInner() {
             <CotizacionesTab form={form} />
           </TabsContent>
           <TabsContent value="stock" className="mt-6">
-            <StockTab id={id} isNew={isNew} />
+            <StockTab id={id} isNew={isNew} form={form} />
           </TabsContent>
           {hasVariants && !isNew && (
             <TabsContent value="variantes" className="mt-6">
@@ -1524,7 +1530,15 @@ function ConfigTab({
 
 // ── STOCK TAB ────────────────────────────────────────────────────────────────
 
-function StockTab({ id, isNew }: { id: string; isNew: boolean }) {
+function StockTab({
+  id,
+  isNew,
+  form,
+}: {
+  id: string
+  isNew: boolean
+  form: ReturnType<typeof useForm<ItemFormValues>>
+}) {
   if (isNew) {
     return (
       <Card>
@@ -1536,9 +1550,77 @@ function StockTab({ id, isNew }: { id: string; isNew: boolean }) {
     )
   }
 
+  // Se leen del form (no del ítem guardado) para que el semáforo responda
+  // mientras se edita el umbral, sin esperar al guardado.
+  const minStock = form.watch("minStock")
+  const maxStock = form.watch("maxStock")
+
   return (
     <div className="flex flex-col gap-6">
-      <ItemStockTab itemId={id} />
+      <ItemStockTab itemId={id} minStock={minStock} maxStock={maxStock} />
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base font-semibold tracking-tight">
+            Umbrales de stock
+          </CardTitle>
+          <CardDescription>
+            Debajo del mínimo el artículo se marca en el listado como próximo al
+            quiebre; por encima del máximo, como sobrestockeado. Dejalos vacíos
+            para no controlarlos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField
+            control={form.control}
+            name="minStock"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Stock mínimo</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    className="tabular-nums"
+                    placeholder="Sin mínimo"
+                    value={field.value ?? ""}
+                    onChange={(e) =>
+                      field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                    }
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <FormField
+            control={form.control}
+            name="maxStock"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Stock máximo</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min="0"
+                    step="any"
+                    inputMode="decimal"
+                    className="tabular-nums"
+                    placeholder="Sin máximo"
+                    value={field.value ?? ""}
+                    onChange={(e) =>
+                      field.onChange(e.target.value === "" ? null : Number(e.target.value))
+                    }
+                  />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -1926,6 +2008,8 @@ function emptyValues(): ItemFormValues {
     outletId: "",
     supplierId: "",
     waste: null,
+    minStock: null,
+    maxStock: null,
     sort: 99999,
     commission: null,
     commissionType: "percent",

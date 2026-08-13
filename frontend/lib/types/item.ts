@@ -111,6 +111,16 @@ export interface ItemListItem {
   outletName: string | null
   /** URL de la imagen de portada (sort=0). Null si no hay galería. */
   coverImageUrl: string | null
+  /** ¿Lleva stock? Los que no (servicios, combos) no tienen estado de stock
+   *  y no se pintan en el listado. */
+  itemTrackInventory?: number | boolean | null
+  /** Saldo total del ítem sumando todas las sucursales. */
+  stockOnHand?: number | null
+  /** Umbral de quiebre. NULL = el ítem no se controla por mínimo; es distinto
+   *  de 0, que significa "avisame recién cuando llegue a cero". */
+  itemMinStock?: number | null
+  /** Umbral de sobrestock. NULL = no se controla por máximo. */
+  itemMaxStock?: number | null
   /** True si este item es un grupo (itemIsParent). */
   itemIsParent?: boolean | number | null
   /** Si es hijo de un grupo, apunta al grupo padre. */
@@ -200,6 +210,10 @@ export interface ItemFormValues {
   outletId: string
   supplierId: string
   waste: number | null
+  /** Umbral de quiebre. null = no se controla por mínimo. */
+  minStock: number | null
+  /** Umbral de sobrestock. null = no se controla por máximo. */
+  maxStock: number | null
   sort: number | null
   commission: number | null
   commissionType: "percent" | "fixed"

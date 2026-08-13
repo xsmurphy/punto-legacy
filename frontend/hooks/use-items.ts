@@ -613,6 +613,9 @@ function serialize(
     supplierId: values.supplierId || null,
     itemSort: values.sort ?? 99999,
     itemWaste: values.waste ?? 0,
+    // null viaja como null: es "sin umbral", no 0.
+    itemMinStock: values.minStock,
+    itemMaxStock: values.maxStock,
     itemComissionPercent: values.commission ?? 0,
     itemComissionType: values.commissionType === "percent" ? "0" : "1",
     itemPricePercent: values.pricePercent ?? 0,

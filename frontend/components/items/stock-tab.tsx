@@ -41,14 +41,29 @@ import {
   useAdjustItemStock,
   useItemStockMovements,
   useLastPurchasePrice,
+  type StockBreakdown,
 } from "@/hooks/use-item-stock"
-import { formatMoney } from "@/lib/format"
+import { Badge } from "@/components/ui/badge"
+import { formatInt, formatMoney } from "@/lib/format"
+import { cn } from "@/lib/utils"
+import { STOCK_STATUS_CLASS, STOCK_STATUS_LABEL, stockStatus } from "@/lib/stock-status"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatDateTime } from "@/lib/format-date"
 
 const PAGE_SIZE = 20
 
-export function ItemStockTab({ itemId }: { itemId: string }) {
+export function ItemStockTab({
+  itemId,
+  minStock,
+  maxStock,
+}: {
+  itemId: string
+  /** Umbrales del ítem, para el semáforo y la referencia bajo el saldo.
+   *  Llegan del detalle ya cargado — pedirlos de nuevo acá sería una request
+   *  extra por un dato que la página ya tiene. */
+  minStock?: number | null
+  maxStock?: number | null
+}) {
   const { data: bootstrap } = useBootstrap()
   const [offset, setOffset] = React.useState(0)
   const { data, isLoading } = useItemStockMovements(itemId, { limit: PAGE_SIZE, offset })
@@ -56,22 +71,69 @@ export function ItemStockTab({ itemId }: { itemId: string }) {
   const [adjustOpen, setAdjustOpen] = React.useState(false)
 
   const summary = data?.summary
+  const breakdown = data?.breakdown
   const total = data?.total ?? 0
   const items = data?.items ?? []
 
+  const estado = stockStatus({ qty: summary?.qty, min: minStock, max: maxStock, tracked: true })
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <StockKpi
-          label="Precio de compra"
-          value={lastPurchase ? formatMoney(lastPurchase.price, bootstrap) : undefined}
-        />
-        <StockKpi label="Costo promedio" value={summary ? formatMoney(summary.avgCost, bootstrap) : undefined} />
-        <StockKpi
-          label="Valor total del stock"
-          value={summary ? formatMoney(summary.totalValue, bootstrap) : undefined}
-        />
-      </div>
+      {/* CUÁNTO HAY, primero y grande. Antes el tab abría con precio de compra,
+          costo promedio y stock valorizado —tres cifras en dinero— y las
+          unidades no aparecían en ningún lado. El valorizado importa una vez al
+          mes; cuántas unidades quedan se mira todos los días. */}
+      <Card>
+        <CardContent className="p-5">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                Stock actual
+              </div>
+              <div className="mt-1 flex items-baseline gap-3">
+                {summary ? (
+                  <span className={cn("text-4xl font-semibold tabular-nums", estado && STOCK_STATUS_CLASS[estado])}>
+                    {formatInt(summary.qty, bootstrap)}
+                  </span>
+                ) : (
+                  <Skeleton className="h-10 w-28" />
+                )}
+                {estado && estado !== "ok" && (
+                  <Badge variant={estado === "quiebre" ? "destructive" : "secondary"}>
+                    {STOCK_STATUS_LABEL[estado]}
+                  </Badge>
+                )}
+              </div>
+              {(minStock != null || maxStock != null) && (
+                <div className="mt-1.5 text-xs text-muted-foreground tabular-nums">
+                  Mínimo {minStock != null ? formatInt(minStock, bootstrap) : "—"}
+                  {" · "}
+                  Máximo {maxStock != null ? formatInt(maxStock, bootstrap) : "—"}
+                </div>
+              )}
+            </div>
+
+            {/* Las cifras en dinero pasan a segundo plano: siguen estando, pero
+                ya no compiten con la que se viene a buscar. */}
+            <div className="flex flex-wrap gap-x-8 gap-y-2">
+              <MiniStat
+                label="Costo promedio"
+                value={summary ? formatMoney(summary.avgCost, bootstrap) : undefined}
+              />
+              <MiniStat
+                label="Precio de compra"
+                value={lastPurchase ? formatMoney(lastPurchase.price, bootstrap) : undefined}
+              />
+              <MiniStat
+                label="Stock valorizado"
+                value={summary ? formatMoney(summary.totalValue, bootstrap) : undefined}
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <StockBreakdownCard breakdown={breakdown} isLoading={isLoading} bootstrap={bootstrap} />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-3">
@@ -183,14 +245,93 @@ function sourceLabel(source: string): string {
   return labels[source] ?? source
 }
 
-function StockKpi({ label, value }: { label: string; value: string | undefined }) {
+/** Cifra secundaria: misma información que antes, sin robarle la atención al
+ *  saldo. Sin card propia — tres cards iguales daban a entender que las tres
+ *  cifras pesaban lo mismo. */
+function MiniStat({ label, value }: { label: string; value: string | undefined }) {
+  return (
+    <div>
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-0.5 text-base font-medium tabular-nums">
+        {value ?? <Skeleton className="h-5 w-20" />}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Dónde está el stock: una fila por sucursal con su detalle por depósito.
+ *
+ * Faltaba por completo. Con varias sucursales, un total de 40 no dice si hay 40
+ * donde se necesitan o 39 en una y 1 en la otra.
+ */
+function StockBreakdownCard({
+  breakdown,
+  isLoading,
+  bootstrap,
+}: {
+  breakdown: StockBreakdown | undefined
+  isLoading: boolean
+  bootstrap: ReturnType<typeof useBootstrap>["data"]
+}) {
+  const outlets = breakdown?.outlets ?? []
+
   return (
     <Card>
-      <CardContent className="p-4 text-center">
-        <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
-        <div className="mt-1 text-2xl font-semibold tabular-nums">
-          {value ?? <Skeleton className="mx-auto h-7 w-24" />}
-        </div>
+      <CardHeader>
+        <CardTitle className="text-base font-semibold tracking-tight">Dónde está el stock</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-9 w-full" />
+            <Skeleton className="h-9 w-full" />
+          </div>
+        ) : outlets.length === 0 ? (
+          <EmptyState
+            icon={Package}
+            title="Sin stock en ninguna sucursal"
+            description="Cuando entre mercadería por una compra o un ajuste, va a aparecer acá."
+            ghost={false}
+          />
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Sucursal</TableHead>
+                <TableHead>Depósito</TableHead>
+                <TableHead className="text-right">Cantidad</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {outlets.map((o) => (
+                <React.Fragment key={o.outletId}>
+                  <TableRow className="bg-muted/40">
+                    <TableCell className="font-medium">{o.outletName}</TableCell>
+                    <TableCell className="text-muted-foreground">Total sucursal</TableCell>
+                    <TableCell className="text-right font-semibold tabular-nums">
+                      {formatInt(o.qty, bootstrap)}
+                    </TableCell>
+                  </TableRow>
+                  {/* El detalle por depósito solo aporta cuando hay más de uno:
+                      con uno solo repetiría la fila de la sucursal. */}
+                  {o.locations.length > 1 &&
+                    o.locations.map((l) => (
+                      <TableRow key={`${o.outletId}-${l.locationId ?? "principal"}`}>
+                        <TableCell />
+                        <TableCell className="text-sm text-muted-foreground">
+                          {l.locationName ?? "Depósito principal"}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {formatInt(l.qty, bootstrap)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                </React.Fragment>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
   )

@@ -23,8 +23,30 @@ export interface StockMovement {
   locationName: string | null
 }
 
+/** Saldo de un depósito dentro de una sucursal. `locationId` null = depósito
+ *  principal (los movimientos del ledger sin depósito asignado). */
+export interface StockLocationBalance {
+  locationId: string | null
+  locationName: string | null
+  qty: number
+}
+
+export interface StockOutletBalance {
+  outletId: string
+  outletName: string
+  qty: number
+  locations: StockLocationBalance[]
+}
+
+/** Cuánto hay y dónde — el dato principal del tab Stock. */
+export interface StockBreakdown {
+  total: number
+  outlets: StockOutletBalance[]
+}
+
 export interface StockMovementsPage {
   summary: StockSummary
+  breakdown: StockBreakdown
   items: StockMovement[]
   total: number
   limit: number
