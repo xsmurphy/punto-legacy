@@ -13,7 +13,13 @@ namespace Punto\Api\Items;
  * Headers esperados (case-insensitive, sin acentos):
  *   KIND, NOMBRE, SKU, MARCA, CATEGORIA, ETIQUETAS, DESCRIPCION, COSTO,
  *   PRECIO, IMPUESTO, SUCURSAL, DESCUENTO_PCT, UOM, MERMA_PCT, COMISION_PCT,
- *   STOCK_MINIMO
+ *   STOCK_MINIMO, STOCK_MAXIMO, STOCK_INICIAL
+ *
+ * STOCK_INICIAL solo se aplica en ALTAS y necesita SUCURSAL en la fila: un
+ * saldo vive en una sucursal concreta. Se registra como movimiento de ajuste
+ * —no como columna— porque el stock es un ledger; así queda en el historial con
+ * su costo y el costeo promedio arranca bien. En modo update se ignora:
+ * reimportar la planilla volvería a sumar las mismas unidades.
  *
  * ETIQUETAS acepta aliases TAGS / LABELS. Celda puede ser lista separada por
  * coma, punto-y-coma o pipe. Cada etiqueta se crea en taxonomy(type='tag')
@@ -33,19 +39,19 @@ final class ItemImporter
     public const HEADERS = [
         'KIND', 'NOMBRE', 'SKU', 'MARCA', 'CATEGORIA', 'ETIQUETAS', 'DESCRIPCION',
         'COSTO', 'PRECIO', 'IMPUESTO', 'SUCURSAL', 'DESCUENTO_PCT', 'UOM',
-        'MERMA_PCT', 'COMISION_PCT', 'STOCK_MINIMO',
+        'MERMA_PCT', 'COMISION_PCT', 'STOCK_MINIMO', 'STOCK_MAXIMO', 'STOCK_INICIAL',
     ];
 
     public const TEMPLATE_EXAMPLES = [
         [
             'producto', 'Café Espresso', 'CAF-001', 'Nespresso', 'Bebidas',
             'Artesanal,Premium', 'Café espresso doble', '5000', '12000', '10', '', '0',
-            'unidad', '0', '0', '5',
+            'unidad', '0', '0', '5', '80', '20',
         ],
         [
             'servicio', 'Corte de cabello', 'SRV-001', '', 'Servicios',
             '', 'Corte y peinado', '0', '25000', '10', 'Central', '0',
-            '', '0', '10', '',
+            '', '0', '10', '', '', '',
         ],
     ];
 
@@ -194,6 +200,10 @@ final class ItemImporter
             'COMISION'         => 'COMISION_PCT',
             'PERC_COMISION'    => 'COMISION_PCT',
             'STOCK_MIN'        => 'STOCK_MINIMO',
+            'STOCK_MAX'        => 'STOCK_MAXIMO',
+            'STOCK'            => 'STOCK_INICIAL',
+            'CANTIDAD'         => 'STOCK_INICIAL',
+            'EXISTENCIA'       => 'STOCK_INICIAL',
             'UNIDAD'           => 'UOM',
             'UNIDAD_DE_MEDIDA' => 'UOM',
             // Etiquetas
@@ -269,8 +279,13 @@ final class ItemImporter
             'itemUOM'               => $get('UOM'),
             'itemWaste'             => $this->numOrZero($get('MERMA_PCT')),
             'itemComissionPercent'  => $this->numOrZero($get('COMISION_PCT')),
-            'autoReOrder'           => $this->numOrZero($get('STOCK_MINIMO')) > 0 ? 1 : 0,
-            'autoReOrderLevel'      => $this->numOrZero($get('STOCK_MINIMO')),
+            // `autoReOrder`/`autoReOrderLevel` NO son columnas de `item`: el
+            // wrapper las mandaba al JSONB y el stock mínimo de la planilla no
+            // llegaba a ningún lado — la columna que el panel lee es
+            // `itemMinStock` (mig 133). Vacío queda NULL ("no se controla por
+            // este umbral"), que no es lo mismo que 0.
+            'itemMinStock'          => $this->numOrNull($get('STOCK_MINIMO')),
+            'itemMaxStock'          => $this->numOrNull($get('STOCK_MAXIMO')),
             'brandId'               => $brandId,
             'categoryId'            => $categoryId,
             'taxId'                 => $taxId,
@@ -310,7 +325,70 @@ final class ItemImporter
             isset($headerMap['MARCA'])     ? $brandIds    : null,
             isset($headerMap['ETIQUETAS']) ? $tagIds      : null,
         );
+
+        $this->cargarStockInicial(
+            $newId,
+            $companyId,
+            $outletId,
+            $this->numOrZero($get('STOCK_INICIAL')),
+            $this->numOrNull($get('COSTO')),
+            $legacyFlags['itemTrackInventory'] === 1,
+        );
+
         return 'created';
+    }
+
+    /**
+     * Carga inicial de existencias del ítem recién creado.
+     *
+     * El stock NO es una columna: es un ledger de movimientos. Crear el ítem no
+     * crea existencias, por eso la planilla nunca cargó stock — se importaba el
+     * catálogo y después había que cargar cada saldo a mano o con un ajuste.
+     *
+     * Se registra como un movimiento de ajuste, igual que si se hubiera cargado
+     * desde el panel: así queda en el historial con su origen y su costo, y el
+     * costeo promedio arranca bien desde el primer movimiento.
+     *
+     * Solo en ALTAS. En modo update no se toca: reimportar la misma planilla
+     * volvería a sumar las mismas unidades cada vez.
+     */
+    private function cargarStockInicial(
+        string $itemId,
+        string $companyId,
+        ?string $outletId,
+        float $cantidad,
+        ?float $costo,
+        bool $trackeaStock,
+    ): void {
+        if ($cantidad <= 0 || !$trackeaStock) {
+            return;
+        }
+
+        // Sin sucursal en la fila (columna SUCURSAL vacía = "todas") no hay
+        // dónde imputar las existencias: un saldo tiene que vivir en UNA
+        // sucursal. Se omite en vez de adivinar una.
+        if ($outletId === null || $outletId === '') {
+            error_log(
+                '[ItemImporter] STOCK_INICIAL ignorado en ' . $itemId
+                . ': la fila no indica SUCURSAL y el stock no puede imputarse sin una.'
+            );
+            return;
+        }
+
+        \Punto\App\Domain\Inventory::manageStock([
+            'itemId'        => $itemId,
+            'source'        => 'adjustment',
+            'count'         => $cantidad,
+            'type'          => '+',
+            'cogs'          => $costo ?? 0,
+            'userId'        => \USER_ID,
+            'transactionId' => null,
+            'outletId'      => $outletId,
+            'locationId'    => null,
+            'note'          => 'Carga inicial por importación',
+            'date'          => \TODAY,
+            'companyId'     => $companyId,
+        ]);
     }
 
     /**
