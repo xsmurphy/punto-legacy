@@ -18,6 +18,14 @@ use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 final class SaleInput
 {
     /**
+     * Tope de add-ons por línea de venta (F3, context/41). Espeja
+     * `AddonService::MAX_OPTIONS_PER_GROUP`: más que eso no puede venir de un
+     * carrito legítimo y evita que un payload inflado haga trabajar de más al
+     * validador.
+     */
+    private const MAX_SELECTIONS_PER_LINE = 50;
+
+    /**
      * @param array<int,array<string,mixed>> $sale  Items vendidos (cada uno: itemId, count, price, total, tax, …)
      * @param array<int,array<string,mixed>> $payment  Métodos de pago aplicados
      * @param array<int,mixed>|null $tags  IDs de tags asociados a la venta
@@ -124,6 +132,12 @@ final class SaleInput
         // 35a.7) los rute al legacy processData. El front ya hace este check antes de
         // llamar; esto es la segunda línea por si entra un payload no-simple.
         self::assertSimplePathEligible($payload, $sale);
+
+        // F3 (context/41): shape de `selections` por línea. Solo forma —
+        // la validación de NEGOCIO (que la opción exista, pertenezca al ítem,
+        // respete min/max/maxQty y cuánto suma) es server-side contra la BD en
+        // AddonService::validateSelections, llamado desde SaleService.
+        self::assertSelectionsShape($sale);
 
         return new self(
             uid:        $uid,
@@ -233,6 +247,64 @@ final class SaleInput
         $reason = \saleIsSimplePathEligible($payload, $sale);
         if ($reason !== null) {
             throw new InvalidSaleInputException($reason);
+        }
+    }
+
+    /**
+     * Valida el shape de `selections` (add-ons elegidos) en cada línea de venta
+     * — F3, context/41.
+     *
+     * Contrato: `selections?: [{ optionId: uuid, qty: number >= 1 }]`.
+     *
+     * Una línea SIN la key `selections` no se toca: es el 100% del tráfico
+     * hasta que exista la UI (F4) y no debe cambiar en nada. Con la key
+     * presente exigimos forma estricta y fail-fast, porque un optionId mal
+     * tipado terminaría en una query de add-ons que no matchea nada y el
+     * cajero vería "opción inválida" sin saber por qué.
+     *
+     * `qty` acepta cualquier numérico (el front puede mandar "2"), pero tiene
+     * que ser entero: media porción de un add-on no existe en el modelo
+     * (`addon_group_option.maxQty` es SMALLINT).
+     *
+     * @param array<int,array<string,mixed>> $sale
+     */
+    private static function assertSelectionsShape(array $sale): void
+    {
+        foreach ($sale as $i => $item) {
+            if (!is_array($item) || !array_key_exists('selections', $item)) {
+                continue;
+            }
+            $selections = $item['selections'];
+            if (!is_array($selections)) {
+                throw new InvalidSaleInputException("sale[$i].selections debe ser array");
+            }
+            if (count($selections) > self::MAX_SELECTIONS_PER_LINE) {
+                throw new InvalidSaleInputException(
+                    "sale[$i].selections excede el máximo de " . self::MAX_SELECTIONS_PER_LINE . ' opciones'
+                );
+            }
+            foreach ($selections as $j => $sel) {
+                if (!is_array($sel)) {
+                    throw new InvalidSaleInputException("sale[$i].selections[$j] debe ser objeto");
+                }
+                $optionId = (string) ($sel['optionId'] ?? '');
+                if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $optionId)) {
+                    throw new InvalidSaleInputException(
+                        "sale[$i].selections[$j].optionId debe ser un UUID: " . var_export($sel['optionId'] ?? null, true)
+                    );
+                }
+                $qty = $sel['qty'] ?? 1;
+                if (!is_numeric($qty)) {
+                    throw new InvalidSaleInputException(
+                        "sale[$i].selections[$j].qty debe ser numérico: " . var_export($qty, true)
+                    );
+                }
+                if ((float) $qty < 1 || (float) $qty !== floor((float) $qty)) {
+                    throw new InvalidSaleInputException(
+                        "sale[$i].selections[$j].qty debe ser un entero >= 1: " . var_export($qty, true)
+                    );
+                }
+            }
         }
     }
 

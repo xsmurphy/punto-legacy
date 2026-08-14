@@ -210,16 +210,27 @@ final class AddonService
     }
 
     /**
-     * Valida una selección de add-ons contra el modelo (F3, todavía sin
-     * caller). El precio NUNCA viaja del cliente: se recalcula acá desde
-     * `priceDelta` en BD.
+     * Valida una selección de add-ons contra el modelo (F3, caller:
+     * `SaleService::expandAddonSelections`). El precio NUNCA viaja del
+     * cliente: se recalcula acá desde `priceDelta` en BD.
      *
      * Los `isLocked` se agregan solos con qty=1 si el caller no los mandó —
      * un add-on fijo está siempre elegido, no depende de que el POS lo haya
      * incluido en el payload.
      *
+     * Errores: `InvalidAddonSelectionException`, NO `apiError()` como el
+     * resto de la clase — ver el docblock de la excepción (offline-sync
+     * procesa un lote de ventas y un `exit` se llevaría puestas las que
+     * faltan). Los métodos de CRUD siguen cortando con `apiError`.
+     *
+     * `itemName` viaja en cada línea porque el caller lo necesita para el
+     * detalle de la venta (`meta.transactionDetails`, ticket y comanda) y ya
+     * está en memoria acá — evita una query por opción del lado de la venta.
+     *
      * @param array<int,array{optionId:string,qty:int}> $selections
-     * @return array{ok:true,priceDelta:float,lines:array<int,array{optionId:string,itemId:string,qty:int,priceDelta:float}>}
+     * @return array{ok:true,priceDelta:float,lines:array<int,array{optionId:string,itemId:string,itemName:string,qty:int,priceDelta:float}>}
+     *
+     * @throws Exceptions\InvalidAddonSelectionException
      */
     public function validateSelections(string $itemId, string $companyId, array $selections): array
     {
@@ -239,14 +250,14 @@ final class AddonService
         foreach ($selections as $sel) {
             $optionId = (string) ($sel['optionId'] ?? '');
             if ($optionId === '' || !isset($byOption[$optionId])) {
-                apiError('Opción inválida para este ítem: ' . $optionId, 422);
+                throw new Exceptions\InvalidAddonSelectionException('Opción inválida para este ítem: ' . $optionId);
             }
             if (isset($qtyByOption[$optionId])) {
-                apiError('Opción repetida en la selección: ' . $optionId, 422);
+                throw new Exceptions\InvalidAddonSelectionException('Opción repetida en la selección: ' . $optionId);
             }
             $qty = (int) ($sel['qty'] ?? 1);
             if ($qty < 1) {
-                apiError('La cantidad debe ser al menos 1', 422);
+                throw new Exceptions\InvalidAddonSelectionException('La cantidad debe ser al menos 1');
             }
             $qtyByOption[$optionId] = $qty;
         }
@@ -268,10 +279,14 @@ final class AddonService
             $group  = $entry['group'];
 
             if (!$group['status']) {
-                apiError('El grupo "' . $group['name'] . '" ya no está disponible', 422);
+                throw new Exceptions\InvalidAddonSelectionException(
+                    'El grupo "' . $group['name'] . '" ya no está disponible'
+                );
             }
             if ($qty > $option['maxQty']) {
-                apiError('La opción "' . $option['itemName'] . '" admite como máximo ' . $option['maxQty'], 422);
+                throw new Exceptions\InvalidAddonSelectionException(
+                    'La opción "' . $option['itemName'] . '" admite como máximo ' . $option['maxQty']
+                );
             }
 
             $selectedByGroup[$group['id']] = ($selectedByGroup[$group['id']] ?? 0) + 1;
@@ -281,6 +296,7 @@ final class AddonService
             $lines[] = [
                 'optionId'   => $optionId,
                 'itemId'     => $option['itemId'],
+                'itemName'   => $option['itemName'],
                 'qty'        => $qty,
                 'priceDelta' => $lineDelta,
             ];
@@ -295,10 +311,14 @@ final class AddonService
             }
             $selectedCount = $selectedByGroup[$group['id']] ?? 0;
             if ($selectedCount < $group['minSelect']) {
-                apiError('El grupo "' . $group['name'] . '" requiere al menos ' . $group['minSelect'] . ' opción(es)', 422);
+                throw new Exceptions\InvalidAddonSelectionException(
+                    'El grupo "' . $group['name'] . '" requiere al menos ' . $group['minSelect'] . ' opción(es)'
+                );
             }
             if ($group['maxSelect'] !== null && $selectedCount > $group['maxSelect']) {
-                apiError('El grupo "' . $group['name'] . '" admite como máximo ' . $group['maxSelect'] . ' opción(es)', 422);
+                throw new Exceptions\InvalidAddonSelectionException(
+                    'El grupo "' . $group['name'] . '" admite como máximo ' . $group['maxSelect'] . ' opción(es)'
+                );
             }
         }
 

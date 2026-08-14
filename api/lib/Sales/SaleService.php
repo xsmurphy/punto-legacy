@@ -6,6 +6,8 @@ namespace Punto\Api\Sales;
 use DB; // wrapper PDO en namespace global, en `app/includes/lib/DB.php`
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\Items\AddonService;
+use Punto\Api\Items\Exceptions\InvalidAddonSelectionException;
 use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
@@ -40,11 +42,15 @@ final class SaleService
 {
     private \Punto\Api\Services\TransactionLinkService $links;
 
+    /** F3 add-ons (context/41): revalidador server-side de las selecciones. */
+    private AddonService $addons;
+
     public function __construct(
         private readonly TenantContext $ctx,
         private readonly DB $db,
     ) {
-        $this->links = new \Punto\Api\Services\TransactionLinkService();
+        $this->links  = new \Punto\Api\Services\TransactionLinkService();
+        $this->addons = new AddonService();
     }
 
     /**
@@ -92,8 +98,17 @@ final class SaleService
         // taxAmount/taxNet por línea. $decimals sale de la config del tenant y
         // se reusa para las sumas de transactionTax/toTaxObj más abajo, así
         // no hay redondeos divergentes entre el detalle y los agregados.
+        // F3 (context/41): expandAddonSelections corre ENTRE el sanitizer y el
+        // motor de impuestos — revalida las selecciones contra la BD y agrega
+        // las líneas hijas. Va acá, ANTES de StartTrans, para que un rechazo
+        // (422) no deje una transacción abierta a medias (mismo criterio que
+        // el dupli check y la validación del cliente, arriba).
         $decimals   = $this->currencyDecimals();
-        $saleDetail = $this->enrichWithTaxes(saleArraySanitizer($input->sale), $input->ivaRemoved, $decimals);
+        $saleDetail = $this->enrichWithTaxes(
+            $this->expandAddonSelections(saleArraySanitizer($input->sale), $decimals),
+            $input->ivaRemoved,
+            $decimals
+        );
         $totalUnits = countUnitSold($saleDetail);
 
         // ── B1: resolver userId + responsibleId ──────────────────────────────
@@ -1402,24 +1417,177 @@ final class SaleService
      * justamente eso a futuro. `null` si la línea no trae tags: no persiste
      * un objeto vacío de más.
      *
+     * F3 (context/41): `meta.addon` es además el ÚNICO lugar donde queda el
+     * vínculo con la LÍNEA padre exacta. `itemSold.itemSoldParent` NO sirve
+     * para eso: su FK es a `item(itemId)` (no a `itemSold`), así que guarda el
+     * ítem padre — con dos líneas del mismo producto en el carrito (una con
+     * queso, otra sin) sería ambiguo a qué línea pertenece cada add-on. El
+     * comentario del schema reserva `itemSold.meta` justamente para esto
+     * ("future per-line metadata (modifiers, prep notes…)").
+     *
      * @param array<string,mixed> $sD
+     * @param ?string $addonParentItemSoldId itemSoldId de la línea padre, ya
+     *   insertada (null en cotizaciones y en líneas que no son add-on).
      */
-    private function resolveItemSoldMeta(array $sD): ?string
+    private function resolveItemSoldMeta(array $sD, ?string $addonParentItemSoldId = null): ?string
     {
-        $raw = $sD['tags'] ?? null;
-        if (!is_array($raw)) {
-            return null;
-        }
+        $meta = [];
 
-        $tags = [];
-        foreach ($raw as $t) {
-            $t = trim((string) $t);
-            if ($t !== '') {
-                $tags[] = $t;
+        $raw = $sD['tags'] ?? null;
+        if (is_array($raw)) {
+            $tags = [];
+            foreach ($raw as $t) {
+                $t = trim((string) $t);
+                if ($t !== '') {
+                    $tags[] = $t;
+                }
+            }
+            if ($tags !== []) {
+                $meta['tags'] = $tags;
             }
         }
 
-        return $tags !== [] ? json_encode(['tags' => $tags]) : null;
+        if (!empty($sD['addonOptionId'])) {
+            $meta['addon'] = [
+                'optionId'         => (string) $sD['addonOptionId'],
+                'parentItemSoldId' => $addonParentItemSoldId,
+            ];
+        }
+
+        return $meta !== [] ? json_encode($meta) : null;
+    }
+
+    /**
+     * F3 (context/41) — expande las selecciones de add-ons de cada línea en
+     * LÍNEAS HIJAS de `$saleDetail`. Corre entre `saleArraySanitizer` y
+     * `enrichWithTaxes`, ANTES de abrir la transacción.
+     *
+     * Por qué acá y no adentro del loop de `itemSold`: así las hijas entran al
+     * pipeline como CUALQUIER otra línea de venta y no hay una sola línea de
+     * lógica duplicada — se les calcula el IVA con su propio `taxId`
+     * (enrichWithTaxes), suman a `transactionTax`/`toTaxObj`, viajan en
+     * `meta.transactionDetails` para el ticket y la comanda, generan su
+     * `itemSold` y descuentan stock con el MISMO código que las líneas
+     * top-level, incluida la explosión recursiva de recetas. Un add-on con
+     * receta propia (queso porcionado) descuenta sus insumos igual que si se
+     * hubiera vendido suelto.
+     *
+     * Reparto de la plata (así el DETALLE no cuenta dos veces el recargo): la
+     * línea PADRE conserva su importe base tal cual vino del carrito; cada
+     * hija lleva ÚNICAMENTE su `priceDelta` (0 si la opción no suma, D2).
+     *
+     * OJO — `transaction.transactionTotal` NO se deriva de estas líneas: sigue
+     * siendo `$input->subtotal`, o sea lo que informa el cliente, EXACTAMENTE
+     * con el mismo nivel de confianza que hoy tiene el precio base de
+     * cualquier línea (el server recalcula el IVA, no el precio). F3 no
+     * cambia ese contrato: hacerlo solo para los add-ons dejaría el precio
+     * base sin tocar, y derivar el total de la suma de líneas ROMPERÍA casos
+     * vivos donde esa suma no es el total a propósito — el canje de voucher
+     * lleva total bruto en la línea y su plata NO está en `transactionTotal`
+     * (context/36, ver enrichWithTaxes), y los descuentos viajan aparte en
+     * `transactionDiscount`. Consecuencia para F4: el POS DEBE sumar los
+     * deltas al `subtotal` y al cobro, igual que ya hace con el precio de
+     * cada línea. Cerrar el hueco de verdad = validar el total contra el
+     * detalle para TODAS las ventas, no solo las que traen add-ons: es un
+     * cambio de contrato propio, no un detalle de esta fase.
+     *
+     * Cantidades: la qty de la opción se multiplica por las unidades del padre
+     * — 2 hamburguesas con queso extra son 2 quesos de stock.
+     *
+     * El precio NUNCA viaja del cliente: `priceDelta` sale de
+     * `addon_group_option`. El payload solo aporta `optionId` + `qty`, y
+     * `validateSelections` además agrega solo los `isLocked` que el cliente no
+     * mandó (un add-on fijo se cobra y se descuenta aunque el POS lo omita).
+     *
+     * Línea SIN la key `selections` → se devuelve intacta y no se consulta
+     * NADA: la venta del POS actual no cambia en un solo byte.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail Ya pasado por saleArraySanitizer.
+     * @return array<int,array<string,mixed>> Lista reindexada (enrichWithTaxes
+     *   asume claves 0..n-1 alineadas con su array interno de líneas).
+     * @throws InvalidSaleInputException Selección inválida → 422 (el endpoint
+     *   de venta y el de sync offline ya mapean esta excepción).
+     */
+    private function expandAddonSelections(array $saleDetail, int $decimals): array
+    {
+        $expanded = [];
+
+        foreach ($saleDetail as $idx => $sD) {
+            $selections = $sD['selections'] ?? null;
+            $itemId     = (string) ($sD['itemId'] ?? '');
+
+            // Sin key `selections`, sin itemId (descuento / inCredit / gift card
+            // legacy) o línea de descuento → nada que expandir.
+            if (!is_array($selections) || $itemId === '' || ($sD['type'] ?? '') === 'discount') {
+                $expanded[] = $sD;
+                continue;
+            }
+
+            try {
+                $validated = $this->addons->validateSelections($itemId, $this->ctx->companyId, $selections);
+            } catch (InvalidAddonSelectionException $e) {
+                // Se traduce al mecanismo de errores de validación que la venta
+                // YA usa (422 en sales.php y por-venta en offline-sync.php), en
+                // vez de inventar uno nuevo.
+                throw new InvalidSaleInputException($e->getMessage());
+            }
+
+            // Ancla para que las hijas puedan referenciar el `itemSoldId` del
+            // padre en su `meta` (ver resolveItemSoldMeta). Es el índice de la
+            // línea en el carrito: único y estable dentro de esta venta.
+            $parentUid          = 'ln' . $idx;
+            $sD['addonLineUid'] = $parentUid;
+            $expanded[]         = $sD;
+
+            $parentUnits = (float) ($sD['count'] ?? 0);
+
+            foreach ($validated['lines'] as $line) {
+                // `priceDelta` de la línea ya viene multiplicado por su qty
+                // (unitario × qty). Lo bajamos a unitario para que el motor de
+                // impuestos calcule sobre qty × precio como con cualquier otra
+                // línea, y el total se redondea con los decimales del tenant.
+                $optQty     = (float) $line['qty'];
+                $unitDelta  = $optQty > 0 ? ((float) $line['priceDelta'] / $optQty) : 0.0;
+                $childUnits = $optQty * $parentUnits;
+                $childTotal = round($unitDelta * $childUnits, $decimals);
+
+                $expanded[] = [
+                    'itemId'        => (string) $line['itemId'],
+                    'count'         => $childUnits,
+                    'oQty'          => $childUnits,
+                    'name'          => (string) ($line['itemName'] ?? ''),
+                    'uniPrice'      => $unitDelta,
+                    'price'         => $unitDelta,
+                    'total'         => $childTotal,
+                    'tax'           => 0.0,   // lo congela enrichWithTaxes con el taxId del add-on
+                    'discount'      => 0.0,
+                    'totalDiscount' => 0.0,
+                    'tags'          => [],
+                    // Hereda el vendedor del padre: la comisión del add-on va a
+                    // quien vendió el producto.
+                    'user'          => $sD['user'] ?? '',
+                    'type'          => 'addon',
+                    'date'          => $sD['date'] ?? '',
+                    'note'          => '',
+                    'currency'      => $sD['currency'] ?? '',
+                    'uId'           => 0,
+                    // `parent` alimenta `itemSold.itemSoldParent`, cuya FK es a
+                    // item(itemId) → va el ÍTEM padre, no el itemSoldId. Es lo
+                    // que ya esperan sus lectores (ItemRepository::hardDelete
+                    // bloquea borrar un ítem que fue padre de una venta;
+                    // ProductsService lo indenta con "↳"). El link a la LÍNEA
+                    // exacta va en `meta.addon.parentItemSoldId`.
+                    'parent'        => $itemId,
+                    'isParent'      => null,
+                    'giftcard'      => null,
+                    'voucher'       => null,
+                    'addonOptionId'  => (string) $line['optionId'],
+                    'addonParentUid' => $parentUid,
+                ];
+            }
+        }
+
+        return $expanded;
     }
 
     private function persistItemsAndStock(SaleInput $input, string $transId, array $saleDetail): void
@@ -1438,6 +1606,12 @@ final class SaleService
         $typeStr     = (string) $input->type->value;
         $companyId   = $this->ctx->companyId;
         $hadSessions = false; // flag para updateLastTimeEdit una sola vez al final
+
+        // F3 add-ons (context/41): addonLineUid del padre → su itemSoldId ya
+        // insertado. `expandAddonSelections` deja cada hija INMEDIATAMENTE
+        // después de su padre, así que para cuando se procesa una hija el
+        // padre ya está en el mapa.
+        $addonParents = [];
 
         foreach ($saleDetail as $sD) {
             if (($sD['type'] ?? '') === 'discount') {
@@ -1545,12 +1719,25 @@ final class SaleService
             if ($itemSoldDescription !== null) {
                 $records['itemSoldDescription'] = $itemSoldDescription;
             }
-            $itemSoldMeta = $this->resolveItemSoldMeta($sD);
+            // F3 add-ons: si esta línea es una hija, su `meta` guarda el
+            // itemSoldId de la línea padre (ya insertada en una vuelta previa).
+            $addonParentItemSoldId = !empty($sD['addonParentUid'])
+                ? ($addonParents[(string) $sD['addonParentUid']] ?? null)
+                : null;
+            $itemSoldMeta = $this->resolveItemSoldMeta($sD, $addonParentItemSoldId);
             if ($itemSoldMeta !== null) {
                 $records['meta'] = $itemSoldMeta;
             }
             $this->db->AutoExecute('itemSold', $records, 'INSERT');
             $itemSoldId = (string) $this->db->Insert_ID();
+
+            // F3 add-ons: el padre publica su itemSoldId para las hijas que
+            // vienen atrás. Best-effort a propósito: si el mapa no tuviera la
+            // entrada, la hija se guarda igual con parentItemSoldId=null — un
+            // add-on nunca debe hacer fallar la venta por un dato de trazabilidad.
+            if (!empty($sD['addonLineUid'])) {
+                $addonParents[(string) $sD['addonLineUid']] = $itemSoldId;
+            }
 
             // ── B8 (35d): sesiones agendadas ────────────────────────────────
             // Si el item tiene itemSessions > 0 en BD (campo demoted a JSONB) y
@@ -1651,6 +1838,14 @@ final class SaleService
      *   - NO factura electrónica
      *   - SÍ guarda transaction + itemSold con type=9
      *   - SÍ genera quoteNo desde register.registerQuoteNumber
+     *   - NO expande add-ons (F3 es solo la VENTA, context/41): si una línea
+     *     trae `selections`, se IGNORAN en silencio — quedan en el JSON del
+     *     detalle, sin líneas hijas ni recargo. Se eligió ignorar y no
+     *     rechazar por coherencia con el resto de saveQuote, que ya acepta
+     *     payloads que la venta rechaza (no corre assertSimplePathEligible) y
+     *     nunca falla por algo que no afecta plata: una cotización no cobra ni
+     *     mueve stock. Cotizar con add-ons entra con la UI (F4/F5), junto con
+     *     la conversión quote→venta.
      *
      * // TODO: quote-to-sale conversion — context/12 sprint futuro
      */

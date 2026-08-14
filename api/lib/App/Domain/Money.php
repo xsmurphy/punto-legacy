@@ -249,7 +249,26 @@ final class Money
                     ];
                 }
 
-                $out[] = [
+                // Add-ons elegidos en la línea (F3, context/41). Whitelist
+                // explícita, mismo criterio que giftcardMeta/voucherMeta: nunca
+                // pasar el objeto crudo del front. Acá SOLO viajan optionId+qty:
+                // el PRECIO lo recalcula SaleService::expandAddonSelections desde
+                // `addon_group_option.priceDelta` en BD, nunca del cliente.
+                $selections = null;
+                if (array_key_exists('selections', $value) && is_array($value['selections'])) {
+                    $selections = [];
+                    foreach ($value['selections'] as $sel) {
+                        if (!is_array($sel)) {
+                            continue;
+                        }
+                        $selections[] = [
+                            'optionId' => markupt2HTML(['text' => (string) ($sel['optionId'] ?? ''), 'type' => 'HtM']),
+                            'qty'      => (int) ($sel['qty'] ?? 1),
+                        ];
+                    }
+                }
+
+                $line = [
                     'itemId'        => markupt2HTML(['text' => $value['itemId'], 'type' => 'HtM']),
                     'count'         => floatval($value['count']),
                     'oQty'          => floatval($value['oQty'] ?? 0),
@@ -272,6 +291,20 @@ final class Money
                     'giftcard'      => $giftcardMeta,
                     'voucher'       => $voucherMeta,
                 ];
+
+                // La key SOLO existe si el cliente la mandó: una línea sin
+                // `selections` produce EXACTAMENTE el mismo array que antes de
+                // F3 (el POS actual no las manda y su venta no cambia en nada,
+                // ni siquiera en el JSON que se persiste en
+                // `transaction.meta.transactionDetails`). Se distingue a
+                // propósito "no mandó nada" (sin key → la venta ni consulta los
+                // grupos) de "mandó lista vacía" (con key → se valida min/max y
+                // se inyectan los add-ons fijos).
+                if ($selections !== null) {
+                    $line['selections'] = $selections;
+                }
+
+                $out[] = $line;
             }
 
             $i++;
