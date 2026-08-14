@@ -1,7 +1,7 @@
 # 41 — Add-ons y combos
 
-> Estado: **plan abierto** (2026-08-14). Análisis hecho, D1–D3 pendientes del
-> owner. Nada implementado.
+> Estado: **plan cerrado** (2026-08-14). D1–D3 decididas por el owner. Listo
+> para ejecutar por fases. Nada implementado.
 
 ## Pedido del owner (2026-08-14)
 
@@ -33,10 +33,11 @@ texto suelto): así hereda stock, receta, costo e impuestos, y la venta lo
 descuenta con la misma maquinaria que cualquier ítem.
 
 ```sql
--- Grupo de opciones, reusable a nivel tenant ("Salsas", "Extras", "Bebida").
+-- Grupo de opciones DEL PRODUCTO (D1: por producto, no reusable).
 CREATE TABLE addon_group (
   groupId    UUID PRIMARY KEY,
   companyId  UUID NOT NULL,
+  itemId     UUID NOT NULL REFERENCES item ON DELETE CASCADE,  -- el dueño
   name       VARCHAR(80) NOT NULL,
   minSelect  SMALLINT NOT NULL DEFAULT 0,   -- 0 = opcional
   maxSelect  SMALLINT,                      -- NULL = sin tope
@@ -47,23 +48,20 @@ CREATE TABLE addon_group (
 -- Opciones del grupo: cada una apunta a un producto real.
 CREATE TABLE addon_group_option (
   optionId    UUID PRIMARY KEY,
-  groupId     UUID NOT NULL REFERENCES addon_group,
+  groupId     UUID NOT NULL REFERENCES addon_group ON DELETE CASCADE,
   itemId      UUID NOT NULL REFERENCES item,    -- el producto que se agrega
-  priceDelta  NUMERIC(14,2) NOT NULL DEFAULT 0, -- 0 = no suma al precio
+  priceDelta  NUMERIC(14,2) NOT NULL DEFAULT 0, -- 0 = no suma al precio (D2)
   isDefault   BOOLEAN NOT NULL DEFAULT FALSE,   -- preseleccionado
   isLocked    BOOLEAN NOT NULL DEFAULT FALSE,   -- fijo: no se puede quitar
   maxQty      SMALLINT NOT NULL DEFAULT 1,      -- cuántas veces la misma opción
   sort        SMALLINT NOT NULL DEFAULT 0
 );
-
--- Qué grupos usa cada producto (N:M, con orden por producto).
-CREATE TABLE item_addon_group (
-  itemId   UUID NOT NULL REFERENCES item,
-  groupId  UUID NOT NULL REFERENCES addon_group,
-  sort     SMALLINT NOT NULL DEFAULT 0,
-  PRIMARY KEY (itemId, groupId)
-);
 ```
+
+Sin tabla N:M: D1 eliminó la reusabilidad, así que el grupo cuelga directo del
+producto (`addon_group.itemId`, CASCADE al borrar el producto). Para agilizar la
+carga en el panel, "duplicar grupos desde otro producto" es una COPIA — después
+de copiar, cada producto edita lo suyo sin efecto dominó.
 
 - `isLocked` implica `isDefault` (un fijo está siempre elegido). El guard va en
   el servicio, no en la UI.
@@ -106,38 +104,37 @@ CREATE TABLE item_addon_group (
 
 - **Ficha del producto**: sección "Add-ons" — adjuntar grupos existentes,
   crear uno nuevo inline, ordenar. Vista previa de cómo lo ve el cajero.
-- **Catálogo de grupos** (`/settings/catalog` o sección propia): CRUD de
-  grupos y opciones. Un grupo editado impacta en todos los productos que lo
-  usan — esa es la gracia de que sea reusable.
 - **Combo fijo**: la ficha ya edita `item_compound`; se agrega el bloque de
   precio que muestre suma de componentes vs precio del combo y el descuento
   resultante.
 
-## Decisiones pendientes del owner
+## Decisiones (todas cerradas, owner 2026-08-14)
 
-- **D1 — ¿Grupos reusables a nivel comercio, o por producto?** El modelo
-  propone REUSABLES ("Salsas" se define una vez y se adjunta a 20 productos;
-  editarlo impacta en los 20). La alternativa (grupos embebidos en cada
-  producto) evita el efecto dominó pero multiplica mantenimiento. Recomendado:
-  reusables.
-- **D2 — Precio del combo dinámico**: ¿precio FIJO del combo sin importar lo
-  elegido (las opciones premium usan `priceDelta` para recargo), o precio =
-  suma de lo elegido con un % de descuento? Cambia el modelo de pricing y el
-  ticket. Recomendado: fijo + deltas (es lo que hace toda la industria y lo que
-  el modelo ya soporta sin campos extra).
-- **D3 — ¿El add-on con priceDelta=0 imprime en el ticket del cliente?** En
-  cocina siempre sale; en el ticket fiscal un add-on sin precio puede listar o
-  no. (Detalle de impresión, no bloquea el modelo — decidir antes de F5.)
+- **D1 — Grupos POR PRODUCTO**, no reusables. Cada producto es dueño de sus
+  grupos; sin efecto dominó entre productos. Se descartó la recomendación de
+  reusables — prioridad del owner: aislamiento. Consecuencia de modelo: sin
+  tabla N:M, `addon_group.itemId` directo. En el panel, "copiar grupos de otro
+  producto" mitiga la carga repetida (copia real, no referencia).
+- **D2 — El precio lo define CADA OPCIÓN**: `priceDelta` por opción, donde 0 =
+  no suma y >0 = recarga. El combo/producto tiene su precio propio y las
+  opciones suman o no individualmente — "puede pasar que varios productos no
+  sumen pero otros sí" (owner). Es exactamente lo que el modelo ya expresaba;
+  no hay % de descuento sobre suma.
+- **D3 — El ticket del cliente SOLO lista add-ons con precio.** Los de
+  priceDelta=0 van a cocina siempre pero no al ticket fiscal. La impresión de
+  cocina y la fiscal divergen por diseño.
 
 ## Fases
 
 - **F1** — Migs (3 tablas) + `AddonService` (CRUD + validador de selecciones).
-- **F2** — Panel: catálogo de grupos + sección en ficha del producto.
+- **F2** — Panel: sección "Add-ons" en la ficha del producto (grupos propios,
+  D1) + acción "copiar grupos desde otro producto".
 - **F3** — Venta: `SaleInput.selections`, revalidación server-side, líneas
   padre/hijo, stock por selección. SIN UI todavía — testeable por API.
 - **F4** — POS: modal de selección + carrito expandible + teclado.
 - **F5** — Combo fijo: descuento visible en ficha/ticket; combo dinámico
-  migrado al mecanismo de grupos; impresión cocina/cliente (D3).
+  migrado al mecanismo de grupos; impresión: cocina lista todo, ticket fiscal
+  solo add-ons con precio (D3).
 - **F6** — Reportes: ventas por add-on (qué opciones salen más), respetando
   líneas padre/hijo en los rollups.
 
