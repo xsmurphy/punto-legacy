@@ -934,12 +934,18 @@ function AccountOverview({
                             />
                           }
                         />
+                        {/* Radios en %, no en px: el dashboard no scrollea y
+                            este card absorbe el alto sobrante, así que la caja
+                            del chart se achica según el tenant. Con px fijos el
+                            círculo terminaba más grande que su SVG y se
+                            recortaba por los 4 lados — se veía octogonal.
+                            Mismo patrón que contact-detail-view.tsx. */}
                         <Pie
                           data={paymentSlices}
                           dataKey="amount"
                           nameKey="name"
-                          innerRadius={38}
-                          outerRadius={65}
+                          innerRadius="58%"
+                          outerRadius="100%"
                           paddingAngle={2}
                           strokeWidth={0}
                         >
