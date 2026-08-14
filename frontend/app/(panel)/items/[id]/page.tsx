@@ -105,6 +105,7 @@ import { ItemGallery } from "@/components/items/item-gallery"
 import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
 import { ComboGroupsEditor } from "@/components/items/combo-groups-editor"
+import { AddonsSection } from "@/components/items/addons-section"
 import { LocationsEditor } from "@/components/items/locations-editor"
 import { ItemStockTab } from "@/components/items/stock-tab"
 import { PackComponentsEditor } from "@/components/items/pack-components-editor"
@@ -1100,6 +1101,13 @@ function PerfilTab({
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* Add-ons (context/41): solo para artículos que se pueden vender
+          (itemCanSale=1 en KIND_META) y solo con el ítem ya guardado — los
+          grupos cuelgan de un itemId real (FK con ON DELETE CASCADE). */}
+      {!isNew && KIND_META[kind].backend.itemCanSale === 1 && (
+        <AddonsSection itemId={itemId} />
       )}
     </div>
   )
