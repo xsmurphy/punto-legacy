@@ -2,7 +2,8 @@
 
 > Estado: **plan abierto** (2026-08-14). Pedido del owner desde `/pos` → detalle
 > de transacción: los botones "Anular" y "Devolución" están deshabilitados.
-> D1 cerrada. Bloqueado por D2–D4 (abajo) solo en F4. F1 y F3 pueden arrancar.
+> D1 y D2 cerradas. Falta D3 (dinero o saldo a favor) para F4, y D4 (plazo)
+> para F2. F1 y F3 pueden arrancar ya.
 
 ## Qué pidió el owner, textual
 
@@ -68,9 +69,20 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
   - la relación factura→NC es 1:N (`transaction_link` ya lo soporta: su unique
     es por `(companyid, originid, derivedid, kind)` y cada NC es un `derivedid`
     distinto).
-- **D2 — ¿La mercadería devuelta vuelve al stock?** Siempre, nunca, o se elige
-  por ítem al hacer la devolución. Un producto devuelto por fallado no vuelve a
-  estar disponible para vender.
+- **D2 — ¿La mercadería devuelta vuelve al stock?** CERRADA (owner,
+  2026-08-14): **se elige por ítem al hacer la devolución**. El cajero marca,
+  línea por línea, si esa mercadería vuelve a estar disponible. Consecuencias:
+  - el detalle de la NC lleva un flag por línea (`restock`), no un flag por
+    documento;
+  - la línea que NO repone stock igual entra en el monto de la NC: al cliente se
+    le devuelve la plata aunque el producto no se pueda revender;
+  - lo que no vuelve al stock tampoco desaparece: la mercadería devuelta y
+    descartada es una MERMA, así que esa línea genera un `waste_event` con su
+    costo. Si no, el costo de esa unidad se evapora del inventario sin quedar
+    registrado en ningún lado. Esto reusa el módulo de merma que ya existe
+    (`waste_event`, con su correlativo desde la mig 129) y necesita un motivo de
+    merma — se resuelve con un `wasteReason` sembrado tipo "Devolución de
+    cliente".
 - **D3 — ¿La NC devuelve dinero o deja saldo a favor?** Salida de caja en el
   momento, o crédito del cliente para descontar en la próxima compra. Si es
   salida de caja, ¿de qué caja sale si la venta fue en otro turno?
@@ -87,7 +99,7 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
 - **F3** — Numeración de NC: doctype `nota_credito`, rango de timbrado propio
   por caja, UI en el tab Cajas.
 - **F4** — Nota de crédito interna: documento, detalle, vínculo con la original,
-  reverso de stock y plata. Depende de D1, D2 y D3.
+  reverso de stock y plata. D1 y D2 cerradas; falta D3.
 - **F5** — NC electrónica: emisión con `documentType=5` + `associatedCdc`,
   reusando el mapper que ya existe.
 - **F6** — UI en `/pos`: habilitar los botones con sus confirmaciones.
