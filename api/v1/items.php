@@ -21,6 +21,8 @@
  *
  * Auth: MULTI-REALM — `apiAuthTenant(['panel','pos-app'])`. Items son recursos
  * compartidos: el panel los administra, el POS los consulta en la caja.
+ * `pos-app` (token del dispositivo) es GET-only: toda escritura (POST/PUT/
+ * DELETE) exige realm `panel`.
  *
  * Servicios:
  *   - `Punto\Api\Items\*`             (panel CRUD: F2 port de panel/lib/items/)
@@ -230,6 +232,16 @@ $ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
 
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+// El realm `pos-app` es el token del DISPOSITIVO (una caja), no el de un
+// operador del panel: se agregó solo para que el POS pueda CONSULTAR el
+// catálogo. La administración del catálogo es del panel, así que una caja
+// comprometida no debe poder crear, editar ni archivar ítems del tenant.
+// Guard único acá arriba: cubre también los verbos PUT/DELETE del final.
+if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET') {
+    apiError('El dispositivo POS solo puede leer el catálogo', 403);
+}
+
 $resource = (string) ($_GET['resource'] ?? '');
 
 global $db;
