@@ -15,7 +15,7 @@
 
 import * as React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { ChevronLeft, Plus, X, Check, Loader2 } from "lucide-react"
+import { ChevronLeft, Plus, X, Check, Loader2, Info } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -27,6 +27,7 @@ import { useHotkeys } from "@/hooks/use-hotkeys"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { HotkeyAssignDialog } from "@/components/register/hotkey-assign-dialog"
 import { GroupItemsDialog } from "@/components/register/group-items-dialog"
+import { ProductInfoDialog } from "@/components/register/product-info-dialog"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 
 // Grilla 6 columnas × 50 filas (300 slots), scroll vertical.
@@ -85,6 +86,9 @@ export function ProductArea() {
 
   // Grupo de catálogo seleccionado (abre GroupItemsDialog con sus hijos).
   const [groupPicker, setGroupPicker] = React.useState<PosItem | null>(null)
+
+  // Ítem cuya ficha está abierta (ícono de info del tile). null = cerrada.
+  const [infoItem, setInfoItem] = React.useState<PosItem | null>(null)
 
   // Drag & drop nativo: posición de origen.
   const dragFrom = React.useRef<number | null>(null)
@@ -245,6 +249,7 @@ export function ProductArea() {
                   }
                   editing={editing}
                   onClick={() => handleHotkeyClick(h)}
+                  onInfo={setInfoItem}
                   onRemove={() => removeHotkey(pos)}
                   onColorChange={(color) => setColor(pos, color)}
                   onDragStart={() => { dragFrom.current = pos }}
@@ -265,7 +270,12 @@ export function ProductArea() {
             style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}
           >
             {categoryItems.map((item) => (
-              <ProductTile key={item.id} item={item} onClick={() => handleProductClick(item)} />
+              <ProductTile
+                key={item.id}
+                item={item}
+                onClick={() => handleProductClick(item)}
+                onInfo={setInfoItem}
+              />
             ))}
             {categoryItems.length === 0 && (
               <p className="col-span-full py-10 text-center text-sm text-muted-foreground">
@@ -336,7 +346,38 @@ export function ProductArea() {
         onClose={() => setGroupPicker(null)}
         onPick={(it) => addCatalogItem(it)}
       />
+
+      {/* Ficha del producto (ícono de info del tile). */}
+      <ProductInfoDialog item={infoItem} onClose={() => setInfoItem(null)} />
     </div>
+  )
+}
+
+// ── Ícono de info del tile ───────────────────────────────────────────────────
+
+/**
+ * Affordance SECUNDARIO de la ficha: se pinta SOBRE el tile, absolute, sin
+ * ocupar lugar en el flujo — la grilla no se corre un pixel y el tap principal
+ * (agregar al carrito) sigue cubriendo el resto del tile (§14 regla #10:
+ * posiciones estables, el cajero opera de memoria).
+ *
+ * `size="icon"` = 32px de hit area, el mínimo táctil aunque el ícono sea de
+ * 16. `stopPropagation` para que abrir la ficha nunca agregue el ítem.
+ */
+function TileInfoButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label={`Ver ficha de ${label}`}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className="absolute right-0.5 top-0.5 z-10 text-white/75 hover:bg-white/20 hover:text-white"
+    >
+      <Info />
+    </Button>
   )
 }
 
@@ -348,6 +389,7 @@ function HotkeyTile({
   label,
   editing,
   onClick,
+  onInfo,
   onRemove,
   onColorChange,
   onDragStart,
@@ -359,6 +401,8 @@ function HotkeyTile({
   label: string
   editing: boolean
   onClick: () => void
+  /** Abre la ficha. Solo para tiles de artículo — un tile de categoría no tiene ficha. */
+  onInfo: (item: PosItem) => void
   onRemove: () => void
   onColorChange: (color: string) => void
   onDragStart: () => void
@@ -412,6 +456,11 @@ function HotkeyTile({
         <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
       </button>
 
+      {/* Ficha del producto. Fuera del <button> (un botón no puede anidar otro)
+          y oculta en edición: esa esquina la ocupa el botón de quitar. Las
+          categorías no llevan ficha. */}
+      {!editing && item && <TileInfoButton label={label} onClick={() => onInfo(item)} />}
+
       {/* Overlay de edición (solo en modo edición) */}
       {editing && (
         <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-white/30">
@@ -443,35 +492,52 @@ function HotkeyTile({
 
 // ── Tile de producto (vista drill-in de categoría) ────────────────────────────
 
-function ProductTile({ item, onClick }: { item: PosItem; onClick: () => void }) {
+function ProductTile({
+  item,
+  onClick,
+  onInfo,
+}: {
+  item: PosItem
+  onClick: () => void
+  onInfo: (item: PosItem) => void
+}) {
   return (
-    <button
-      onClick={onClick}
-      aria-label={item.name}
-      className="group relative flex aspect-square flex-col overflow-hidden rounded-xl transition-all active:scale-95"
-      style={item.imageUrl ? undefined : { backgroundColor: DEFAULT_TILE }}
-    >
-      {item.imageUrl && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.imageUrl}
-          alt={item.name}
-          className="absolute inset-0 h-full w-full object-cover"
-        />
-      )}
-      <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
-      <div className="absolute inset-x-0 bottom-0 p-2">
-        <span className="line-clamp-2 text-left text-[11px] font-medium leading-tight text-white">
-          {item.name}
-        </span>
-      </div>
-      {item.isGroup && (
-        <span className="absolute top-1 right-1 bg-black/60 text-white text-[10px] uppercase px-1.5 py-0.5 rounded font-medium leading-none">
-          Grupo
-        </span>
-      )}
-      <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
-    </button>
+    // El tile pasó de ser un <button> a un <div> con el botón adentro: el ícono
+    // de la ficha es otro botón y anidarlos es HTML inválido (el click interno
+    // se lo come el externo en varios navegadores).
+    <div className="group relative aspect-square">
+      <button
+        onClick={onClick}
+        aria-label={item.name}
+        className="relative flex h-full w-full flex-col overflow-hidden rounded-xl transition-all active:scale-95"
+        style={item.imageUrl ? undefined : { backgroundColor: DEFAULT_TILE }}
+      >
+        {item.imageUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.imageUrl}
+            alt={item.name}
+            className="absolute inset-0 h-full w-full object-cover"
+          />
+        )}
+        <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 p-2">
+          <span className="line-clamp-2 text-left text-[11px] font-medium leading-tight text-white">
+            {item.name}
+          </span>
+        </div>
+        {item.isGroup && (
+          // A la izquierda: la esquina derecha es del ícono de la ficha, que
+          // está en el mismo lugar en toda la grilla.
+          <span className="absolute top-1 left-1 bg-black/60 text-white text-[10px] uppercase px-1.5 py-0.5 rounded font-medium leading-none">
+            Grupo
+          </span>
+        )}
+        <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
+      </button>
+
+      <TileInfoButton label={item.name} onClick={() => onInfo(item)} />
+    </div>
   )
 }
 
