@@ -93,18 +93,20 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
   stock" en una hamburguesa preparada es ofrecer algo que el sistema no puede
   hacer bien.
 
-  **b) Qué se hace por DEFECTO — regla del comercio, configurable por tenant.**
-  En `company.config` (mismo lugar que el resto de los `setting*`):
-  - `settingReturnRestock`: `restock` | `waste` | `ask` (default `ask`).
-  - `settingReturnAllowIngredientReversal`: bool, default `false`. Habilita
-    reponer los INSUMOS de una producción directa cuando el producto no llegó a
-    prepararse. Va apagado por defecto porque el caso normal es que ya se
-    preparó, y reponer insumos que sí se consumieron infla el inventario.
-
-  **c) Qué decide el CAJERO en el momento** — solo cuando la regla del comercio
-  dice `ask`, y solo dentro de lo que (a) habilita. El sistema no puede saber si
-  la hamburguesa se preparó o no; esa información solo la tiene la persona que
-  está atendiendo.
+  **b) Qué decide el CAJERO — SIEMPRE, línea por línea** (revisión final del
+  owner, 2026-08-14: "solo el operador conoce si realmente aplica la devolución
+  al stock"). No hay política de tenant para esto: un ítem CON stock propio
+  también puede volver roto, vencido o consumido a medias, y eso solo lo ve
+  quien tiene el producto en la mano. La decisión es del cajero en cada línea,
+  dentro de lo que (a) habilita — la tabla de arriba define qué opciones se
+  OFRECEN, el cajero elige entre ellas. Default visual del toggle: "repone" para
+  ítems con stock propio, "a pérdida" para producción directa/combos.
+  - Se elimina `settingReturnRestock` del diseño (estaba propuesto, no
+    implementado). Queda solo `settingReturnAllowIngredientReversal` (bool,
+    default `false`): habilita OFRECER la reposición de INSUMOS de una
+    producción directa que no llegó a prepararse. Es un capability switch —
+    amplía el menú de lo posible — no una política que decida por el cajero.
+    Apagado por defecto: reponer insumos ya consumidos infla el inventario.
 
   Lo que NO vuelve al stock no desaparece: genera su `waste_event` con el costo,
   para que la pérdida quede registrada en vez de evaporarse del inventario.
@@ -113,10 +115,10 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
 
 - **D3 — ¿La NC devuelve dinero o deja saldo a favor?** CERRADA y REVISADA
   (owner, 2026-08-14). Se implementan las dos salidas, pero por el mismo
-  criterio que D2 **la política es del comercio**, no nuestra ni del cajero por
-  defecto: `settingReturnRefund`: `cash` | `credit` | `ask` (default `ask`).
-  Con `ask`, el cajero elige en cada devolución; con las otras dos, la salida
-  está fijada y la pantalla no pregunta.
+  criterio de D2, el cajero elige en cada devolución entre salida de caja y
+  saldo a favor. `settingReturnRefund` (`cash` | `credit` | `ask`, default
+  `ask`) existe para el comercio que SÍ quiera fijar una política única; con
+  `ask` —el default— la pantalla pregunta siempre.
   - **Salida de caja** → `fin_movement` (`kind='expense'`) contra la caja y el
     turno ABIERTOS al momento de la devolución, NO contra los de la venta
     original. Resuelve solo el caso "la venta fue en otro turno o en otra
@@ -175,12 +177,12 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
 - Todo lo que revierta stock tiene que pasar por `Inventory::manageStock` y
   respetar la explosión recursiva de recetas: anular la venta de un combo tiene
   que devolver los insumos de TODOS sus niveles, no solo el primero.
-- **Criterio general, del owner (2026-08-14):** lo que es política del negocio
-  —si repone stock, si devuelve plata o deja saldo— no se cablea ni se deja
-  librado al cajero por defecto: se configura por tenant, con `ask` como valor
-  inicial para no imponer una respuesta a comercios que todavía no la
-  definieron. Lo que el sistema SÍ decide solo es qué es técnicamente posible.
-  Esa frontera vale para todo el módulo, no solo para D2 y D3.
+- **Criterio general, del owner (2026-08-14, afinado en dos pasadas):** el
+  sistema decide qué es técnicamente POSIBLE; el CAJERO decide, dentro de eso,
+  lo que depende del estado físico de la mercadería (¿vuelve al stock?), porque
+  solo él lo ve; y el COMERCIO puede fijar por configuración lo que es política
+  comercial (¿plata o saldo a favor?), con `ask` como default. Tres niveles,
+  tres dueños distintos.
 - La ANULACIÓN usa las mismas reglas de reposición que la NC. El caso típico
   —anular a los dos minutos, antes de preparar— es justamente donde reponer
   insumos de una producción directa SÍ corresponde, y es la razón de que
