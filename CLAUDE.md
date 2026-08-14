@@ -49,7 +49,8 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Numeración correlativa de documentos** | `37-numeracion-documentos.md` (plan abierto, D2/D3/D5 pendientes) |
 | **Impuestos multi-tasa / multi-país** | `38-impuestos-multi-pais.md` (plan abierto, auditoría 2026-08-07, D1–D4 pendientes) |
 | **Detalle de transacción (resolver canónico)** | `39-detalle-transaccion.md` (F1 backend implementada 2026-08-08, F2-F4 abiertas) |
-| **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (plan abierto, D1-D4 pendientes) |
+| **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (plan cerrado 2026-08-14, D1-D4 decididas, sin implementar) |
+| **Add-ons y combos** | `41-addons-y-combos.md` (plan abierto, D1-D3 pendientes) |
 | **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
 | Bitácora de sesiones | `_session-log.md` (índice histórico, append) |
 
