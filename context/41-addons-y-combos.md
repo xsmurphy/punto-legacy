@@ -67,9 +67,19 @@ de copiar, cada producto edita lo suyo sin efecto dominó.
   el servicio, no en la UI.
 - `minSelect > 0` = el POS no deja confirmar sin elegir (ej. "Bebida: min 1
   max 1" = radio obligatorio).
-- **Combo dinámico se unifica acá**: `combo_dinamico` pasa a ser un producto
-  cuyo precio es el del combo y cuyos grupos son obligatorios (min=max). No
-  hay una segunda maquinaria.
+- **Combo dinámico se unifica acá y NO es un tipo con maquinaria propia**
+  (owner, 2026-08-14: "¿es solo un producto con add-on?" — sí). Las tres
+  variantes de precio que planteó son el mismo modelo con valores distintos:
+  precio base 0 + todo por deltas; base > 0 que crece con deltas; o precio
+  fijo menor que la suma de los ítems por separado (descuento implícito,
+  deltas en 0). El kind `combo_dinamico` EXISTENTE se conserva como etiqueta
+  semántica —filtros de reportes/catálogo y preset de UI en la ficha (grupos
+  obligatorios min=max)— pero cero lógica propia: un `producto` común con
+  grupos se comporta idéntico. No se crea ningún kind nuevo ni se borra el
+  existente.
+  - Consecuencia a verificar en F3: un ítem con grupos debe poder tener
+    **precio base 0** sin que la venta lo rechace — la variante "el precio se
+    construye por add-ons" depende de eso.
 - **Combo fijo sigue en `item_compound`** (receta fija, sin elección). Su
   descuento implícito = suma de precios de los hijos − precio del combo; se
   muestra en ficha y ticket, no requiere schema.
