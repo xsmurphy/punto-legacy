@@ -150,6 +150,18 @@ de copiar, cada producto edita lo suyo sin efecto dominó.
 
 ## Notas
 
+- **Hallazgo de F2 (2026-08-14), corrige el relevamiento inicial:** SÍ existía
+  una maquinaria de combo dinámico a medio construir que el análisis no vio:
+  `combo_group`/`combo_group_item` (mig 20) + `ComboGroupService` +
+  `ComboGroupsEditor` en la ficha (kind `combo_dinamico`), vía
+  `/v1/items?resource=combo-groups`. Es PANEL-ONLY: la venta no la lee — 
+  `SaleService` no consulta `combo_group`, así que esos grupos jamás afectaron
+  precio ni stock de una venta. En prod hay 2 filas. Per la unificación
+  decidida, en F5 se migran esas filas a `addon_group`, se retira el editor
+  viejo de la ficha y se depreca `ComboGroupService` + el sub-recurso. Hasta
+  F5 conviven: el editor viejo solo aparece en `combo_dinamico` y el nuevo en
+  todo lo vendible, así que un combo dinámico hoy muestra los DOS — resolver
+  en F5, no antes (tocar la ficha de nuevo ahora es churn).
 - NO tocar `toCompound`/`CompoundService` (deprecados). Todo lo nuevo va sobre
   `item_compound` y las tablas nuevas.
 - `ProductsService` (reportes) filtra por `combo/precombo/comboAddons` — al
