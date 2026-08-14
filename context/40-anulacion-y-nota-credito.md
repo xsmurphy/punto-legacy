@@ -2,8 +2,8 @@
 
 > Estado: **plan abierto** (2026-08-14). Pedido del owner desde `/pos` → detalle
 > de transacción: los botones "Anular" y "Devolución" están deshabilitados.
-> D1 y D2 cerradas. Falta D3 (dinero o saldo a favor) para F4, y D4 (plazo)
-> para F2. F1 y F3 pueden arrancar ya.
+> D1, D2 y D3 cerradas. Solo falta D4 (plazo de anulación), que afecta a F2.
+> F1, F3 y F4 pueden arrancar.
 
 ## Qué pidió el owner, textual
 
@@ -83,9 +83,21 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
     (`waste_event`, con su correlativo desde la mig 129) y necesita un motivo de
     merma — se resuelve con un `wasteReason` sembrado tipo "Devolución de
     cliente".
-- **D3 — ¿La NC devuelve dinero o deja saldo a favor?** Salida de caja en el
-  momento, o crédito del cliente para descontar en la próxima compra. Si es
-  salida de caja, ¿de qué caja sale si la venta fue en otro turno?
+- **D3 — ¿La NC devuelve dinero o deja saldo a favor?** CERRADA (owner,
+  2026-08-14): **elige el cajero en cada devolución**. Las dos salidas se
+  implementan y la pantalla pregunta.
+  - **Salida de caja** → `fin_movement` (`kind='expense'`) contra la caja y el
+    turno ABIERTOS al momento de la devolución, NO contra los de la venta
+    original. Eso resuelve solo el caso "la venta fue en otro turno o en otra
+    sucursal": la plata sale de donde efectivamente se entrega. El arqueo de ese
+    turno tiene que mostrarla como salida, si no el cajero cierra con
+    diferencia.
+  - **Saldo a favor** → acredita `contact.contactStoreCredit`. La columna YA
+    existe y está VIVA: `SaleService` la acredita con los ítems `inCredit` y
+    `Customer` la debita al usarla, así que la NC solo suma un origen nuevo al
+    mismo mecanismo — no hay cuenta corriente que inventar.
+  - Saldo a favor exige cliente identificado. Si la venta fue sin cliente, esa
+    opción no se ofrece: no hay a quién acreditarle nada.
 - **D4 — ¿Hasta cuándo se puede anular?** La cancelación de SIFEN tiene plazo
   (48 h desde la emisión). Pasado ese plazo, ¿se bloquea la anulación y se
   obliga a nota de crédito? Es la práctica correcta, pero hay que confirmarlo.
@@ -99,7 +111,7 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
 - **F3** — Numeración de NC: doctype `nota_credito`, rango de timbrado propio
   por caja, UI en el tab Cajas.
 - **F4** — Nota de crédito interna: documento, detalle, vínculo con la original,
-  reverso de stock y plata. D1 y D2 cerradas; falta D3.
+  reverso de stock y plata. D1, D2 y D3 cerradas — no depende de nada.
 - **F5** — NC electrónica: emisión con `documentType=5` + `associatedCdc`,
   reusando el mapper que ya existe.
 - **F6** — UI en `/pos`: habilitar los botones con sus confirmaciones.
