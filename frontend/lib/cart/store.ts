@@ -59,9 +59,12 @@ export interface CartLine {
    */
   discount?: number
   /**
-   * Tags / etiquetas asignadas a la línea (ids de taxonomy). Se renderizan
-   * como un icono <Tag /> debajo del nombre cuando hay al menos 1.
-   * UI de modificación: TODO Slice posterior (drawer con autocomplete).
+   * Etiquetas de línea — texto libre (nombres, no IDs), mismo catálogo de
+   * sugerencias que las etiquetas de VENTA (`useTags()`). Uso interno: salen
+   * en comandas, nunca en facturas (pedido owner 2026-08-14). Se renderizan
+   * como un icono <Tag /> debajo del nombre cuando hay al menos 1. UI de
+   * modificación: setLineTags + LineTagsDialog (tile "Etiquetas" del
+   * actionsheet de línea, cart-panel.tsx).
    */
   tags?: string[]
   /**
@@ -541,6 +544,9 @@ interface CartState {
   /** Actualiza la nota de una línea. */
   setLineNote: (lineId: string, note: string) => void
 
+  /** Actualiza las etiquetas de una línea (uso interno — comandas, no facturas). */
+  setLineTags: (lineId: string, tags: string[]) => void
+
   /** Fija el flag de agrupado de ítems repetidos. */
   setMergeRepeated: (v: boolean) => void
 
@@ -917,6 +923,14 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     }))
   },
 
+  setLineTags: (lineId, tags) => {
+    set((state) => ({
+      lines: state.lines.map((l) =>
+        l.lineId === lineId ? { ...l, tags } : l,
+      ),
+    }))
+  },
+
   setMergeRepeated: (v) => {
     set({ mergeRepeated: v })
   },
@@ -1075,6 +1089,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
           // sobre el precio YA descontado. Ver applyResolvedPrices.
           basePrice: oi.price ?? 0,
           note: oi.note ?? undefined,
+          tags: oi.tags ?? undefined,
           taxId: cat?.taxId ?? null,
           taxIncluded: cat?.taxIncluded ?? null,
         }
@@ -1151,6 +1166,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
             // resuelto se realimenta y se descuenta una vez por ciclo.
             basePrice: oi.price ?? 0,
             note: oi.note ?? undefined,
+            tags: oi.tags ?? undefined,
             taxId: cat?.taxId ?? null,
             taxIncluded: cat?.taxIncluded ?? null,
           }

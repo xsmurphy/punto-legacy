@@ -1,0 +1,23 @@
+-- 135_pos_order_item_tags.sql
+-- Etiquetas por línea de orden (pedido owner 2026-08-14): "son etiquetas
+-- generales así como los comentarios, salen en comandas etc pero no se
+-- imprimen en facturas, se usan internamente" — mismo catálogo y
+-- comportamiento que las etiquetas de VENTA (useTags(), tabla `tag`
+-- dedicada, mig 39): texto libre sugerido desde ese catálogo, sin FK.
+--
+-- A diferencia de las etiquetas de VENTA (`toTag` + `taxonomy` tipo 'tag',
+-- ver SaleService::persistRelations B7) esto NO valida contra ningún
+-- catálogo al persistir — es una lista de strings, igual que
+-- itemSold.itemSoldDescription. `itemSold` ya tenía `meta JSONB` para
+-- "future per-line metadata" (ver db-schema-postgres.sql) y se reusa esa
+-- columna para las etiquetas de línea de VENTA, sin necesidad de mig.
+--
+-- `pos_order_item` (mig 79) no tenía ninguna columna JSONB — se agrega acá
+-- para que la etiqueta sobreviva carrito → orden → comanda (OrderCoreService
+-- ya la persiste en el INSERT y la devuelve en presentOrderItem()).
+--
+-- Todo lowercase sin comillas (patrón migs 79+ de este módulo, ver mig 97).
+-- Idempotente — corre en cada boot (patrón migs 94/96/97). Nullable, sin
+-- default ni CHECK: no rompe filas existentes ni bloquea el boot.
+
+ALTER TABLE pos_order_item ADD COLUMN IF NOT EXISTS tags JSONB;

@@ -66,6 +66,9 @@ export async function createQuote(input: CreateQuoteInput): Promise<CreateQuoteR
     totalDiscount: allocations[i].totalDiscount,
     tax: 0,
     note: line.note ?? null,
+    // Etiquetas de línea (uso interno) — espejo de note. persistQuoteItems
+    // (SaleService.php) usa el mismo resolveItemSoldMeta() que persistItemsAndStock.
+    tags: line.tags ?? [],
   }))
 
   const subtotal = saleItems.reduce((s, i) => s + i.total, 0)

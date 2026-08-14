@@ -365,8 +365,13 @@ export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>>
   item_subtotal: (item) => formatMoney(item.total),
   // F3b (context/38): TicketItem ya lleva id/sku/nota/tasa/monto de impuesto
   // — poblado por cada builder según lo que su fuente realmente tiene (ver
-  // build-ticket-data.ts). item_tags sigue null en los 3 builders (ninguno
-  // modela etiquetas por ítem hoy, solo a nivel venta).
+  // build-ticket-data.ts). item_tags (pedido owner 2026-08-14): etiquetas de
+  // línea, uso interno — pobladas por buildTicketData/buildOrderTicketData/
+  // buildTicketItemsFromTransaction; `null` en buildTicketDataFromTxDetail
+  // (endpoint del panel sin ese dato, igual límite que item_note ahí). Que
+  // NO aparezcan en facturas depende de que el comercio no agregue este
+  // bloque a la plantilla de su impresora fiscal — no hay una restricción
+  // estructural por docType en la paleta (print-template-palette.ts) hoy.
   item_id: (item) => item.id,
   item_uid: (item) => item.uid,
   item_note: (item) => item.note,

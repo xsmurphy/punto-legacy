@@ -43,7 +43,12 @@ export function buildOrderTicketData(order: Order, config: PosConfig | null): Ti
       id: oi.itemId,
       uid: catalogItem?.sku ?? null,
       note: oi.note,
-      tags: null,
+      // Etiquetas de línea (uso interno, pedido owner 2026-08-14) — viajan
+      // desde CartLine.tags → CreateOrderItemInput.tags → pos_order_item.tags
+      // (mig 135) → OrderItem.tags. NO se imprimen en facturas: eso depende
+      // de que la plantilla de la impresora fiscal no incluya el bloque
+      // `item_tags` (blocks.ts) — este builder es solo para docType="order".
+      tags: oi.tags,
       // Comanda: se imprime ANTES de cobrar, sin impuesto congelado ni
       // motor corrido sobre estas líneas (F3b no lo pide — el ticket fiscal
       // es el de la venta, no la comanda de cocina/estación).

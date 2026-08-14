@@ -68,6 +68,10 @@ export interface TransactionDataItem {
   discount: number
   totalDiscount: number
   note: string
+  /** Etiquetas de línea (uso interno) — decode de `meta.transactionDetails`,
+   *  ya venía sanitizado por `Money::sanitizeSaleArray`. Ausente en ventas
+   *  anteriores a este corte (2026-08-14), igual que los campos de IVA. */
+  tags?: string[]
   sku: string
   status: number
   /**

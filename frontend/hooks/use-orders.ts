@@ -49,6 +49,12 @@ export interface OrderItem {
   qty: number
   price: number | null
   note: string | null
+  /**
+   * Etiquetas de línea (uso interno — pedido del owner 2026-08-14: mismo
+   * catálogo/comportamiento que las etiquetas de venta, salen en comandas,
+   * NUNCA en facturas). `null` cuando la línea no tiene ninguna.
+   */
+  tags: string[] | null
   stationId: string | null
   stationName: string | null
   status: OrderItemStatus
@@ -152,6 +158,8 @@ export interface CreateOrderItemInput {
   qty: number
   price?: number
   note?: string
+  /** Etiquetas de línea — espejo de `CartLine.tags` (lib/cart/store.ts). */
+  tags?: string[]
   course?: number
 }
 

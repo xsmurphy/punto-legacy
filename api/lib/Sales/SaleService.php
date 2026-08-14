@@ -1379,6 +1379,49 @@ final class SaleService
             : $note;
     }
 
+    /**
+     * Resuelve el JSONB `itemSold.meta` para una línea vendida — hoy solo
+     * transporta `tags` (etiquetas de línea, uso interno, pedido owner
+     * 2026-08-14: "salen en comandas... pero no se imprimen en facturas, se
+     * usan internamente"). `itemSold.meta` ya existía para esto exactamente
+     * ("future per-line metadata", ver db-schema-postgres.sql) — no hace
+     * falta migración.
+     *
+     * A diferencia de las etiquetas de VENTA (persistRelations B7: `toTag` +
+     * `taxonomy` tipo 'tag', requieren que cada tag exista en ese catálogo)
+     * acá NO se valida contra ningún catálogo — son texto libre, mismo
+     * criterio que `itemSoldDescription`/`note` arriba. `Money::
+     * sanitizeSaleArray` ya sanitiza cada entrada (markupt2HTML) antes de
+     * que `$sD['tags']` llegue acá.
+     *
+     * Guardar esto en una columna de `itemSold` (en vez de solo en
+     * `transaction.meta.transactionDetails`, que ya las trae vía el mismo
+     * sanitizer) es lo que habilita reportar "qué se vendió con la etiqueta
+     * X" con una query directa sobre `itemSold`, sin decodificar JSON de
+     * cada transacción — el pedido del owner de que sean "uso interno" pide
+     * justamente eso a futuro. `null` si la línea no trae tags: no persiste
+     * un objeto vacío de más.
+     *
+     * @param array<string,mixed> $sD
+     */
+    private function resolveItemSoldMeta(array $sD): ?string
+    {
+        $raw = $sD['tags'] ?? null;
+        if (!is_array($raw)) {
+            return null;
+        }
+
+        $tags = [];
+        foreach ($raw as $t) {
+            $t = trim((string) $t);
+            if ($t !== '') {
+                $tags[] = $t;
+            }
+        }
+
+        return $tags !== [] ? json_encode(['tags' => $tags]) : null;
+    }
+
     private function persistItemsAndStock(SaleInput $input, string $transId, array $saleDetail): void
     {
         // El loop hardcodea source='sale'/type='-' (descuento de inventario). Las
@@ -1501,6 +1544,10 @@ final class SaleService
             $itemSoldDescription = $this->resolveItemSoldDescription($sD);
             if ($itemSoldDescription !== null) {
                 $records['itemSoldDescription'] = $itemSoldDescription;
+            }
+            $itemSoldMeta = $this->resolveItemSoldMeta($sD);
+            if ($itemSoldMeta !== null) {
+                $records['meta'] = $itemSoldMeta;
             }
             $this->db->AutoExecute('itemSold', $records, 'INSERT');
             $itemSoldId = (string) $this->db->Insert_ID();
@@ -1776,6 +1823,10 @@ final class SaleService
             $itemSoldDescription = $this->resolveItemSoldDescription($sD);
             if ($itemSoldDescription !== null) {
                 $records['itemSoldDescription'] = $itemSoldDescription;
+            }
+            $itemSoldMeta = $this->resolveItemSoldMeta($sD);
+            if ($itemSoldMeta !== null) {
+                $records['meta'] = $itemSoldMeta;
             }
             $this->db->AutoExecute('itemSold', $records, 'INSERT');
         }

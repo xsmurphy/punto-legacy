@@ -76,6 +76,8 @@ export interface SettlementSource {
   qty: number
   price: number
   note?: string
+  /** Etiquetas de línea (uso interno) — espejo de `note`, mismo criterio. */
+  tags?: string[]
 }
 
 /**
@@ -122,6 +124,7 @@ export function sourcesFromOrders(orders: Order[]): Map<string, SettlementSource
         qty: oi.qty,
         price: oi.price ?? 0,
         note: oi.note ?? undefined,
+        tags: oi.tags ?? undefined,
       })
     }
   }
@@ -166,6 +169,7 @@ export function buildItemsLines(
       qty: source.qty,
       unitPrice: source.price,
       note: source.note,
+      tags: source.tags,
     }
   })
 }
@@ -257,6 +261,7 @@ export function buildProportionalLines(
       qty,
       unitPrice: amount / qty,
       note: [source.note, note].filter(Boolean).join(" · ") || undefined,
+      tags: source.tags,
     })
   })
 

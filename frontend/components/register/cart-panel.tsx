@@ -59,6 +59,7 @@ import { QtyEditDialog } from "@/components/register/qty-edit-dialog"
 import { LinePriceDialog } from "@/components/register/line-price-dialog"
 import { LineDiscountDialog } from "@/components/register/line-discount-dialog"
 import { LineNoteDialog } from "@/components/register/line-note-dialog"
+import { LineTagsDialog } from "@/components/register/line-tags-dialog"
 import { LineSellerDialog } from "@/components/register/line-seller-dialog"
 import { cn } from "@/lib/utils"
 import {
@@ -250,11 +251,13 @@ export function CartPanel() {
   const setLinePrice = useCartStore((s) => s.setLinePrice)
   const setLineDiscount = useCartStore((s) => s.setLineDiscount)
   const setLineNote = useCartStore((s) => s.setLineNote)
+  const setLineTags = useCartStore((s) => s.setLineTags)
 
   // Dialogs de precio y descuento por línea.
   const [priceLine, setPriceLine] = React.useState<CartLine | null>(null)
   const [discountLine, setDiscountLine] = React.useState<CartLine | null>(null)
   const [noteLine, setNoteLine] = React.useState<CartLine | null>(null)
+  const [tagsLine, setTagsLine] = React.useState<CartLine | null>(null)
 
   // Confirm para vaciar la venta — acción destructiva. Tanto el chip VACIAR
   // del bottom como el "Cancelar venta" del drawer de opciones pasan por acá.
@@ -323,6 +326,7 @@ export function CartPanel() {
           qty: l.qty,
           price: l.unitPrice,
           note: l.note,
+          tags: l.tags,
         })),
         customerId: customer?.id,
         note: note ?? undefined,
@@ -475,6 +479,17 @@ export function CartPanel() {
         onClose={() => setNoteLine(null)}
       />
 
+      {/* Etiquetas por línea */}
+      <LineTagsDialog
+        open={tagsLine !== null}
+        line={tagsLine}
+        onConfirm={(lineId, tags) => {
+          setLineTags(lineId, tags)
+          setTagsLine(null)
+        }}
+        onClose={() => setTagsLine(null)}
+      />
+
       {/* Confirm de quitar IVA — modifica el total de la venta. */}
       <AlertDialog open={confirmIvaOpen} onOpenChange={setConfirmIvaOpen}>
         <AlertDialogContent>
@@ -576,6 +591,7 @@ export function CartPanel() {
                       onEditPrice={() => setPriceLine(line)}
                       onApplyDiscount={() => setDiscountLine(line)}
                       onEditNote={() => setNoteLine(line)}
+                      onEditTags={() => setTagsLine(line)}
                     />
                   ) : (
                     <CartRowCollapsed
@@ -989,6 +1005,7 @@ function CartRowExpanded({
   onEditPrice,
   onApplyDiscount,
   onEditNote,
+  onEditTags,
 }: {
   line: CartLine
   onInc: () => void
@@ -998,6 +1015,7 @@ function CartRowExpanded({
   onEditPrice: () => void
   onApplyDiscount: () => void
   onEditNote: () => void
+  onEditTags: () => void
 }) {
   const [qtyOpen, setQtyOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
@@ -1159,13 +1177,17 @@ function CartRowExpanded({
               onClick={() => { onApplyDiscount(); setMoreOpen(false) }}
               disabled={isVoucher}
             />
-            <LineActionTile icon={Tag} label="Etiquetas" onClick={() => {}} disabled />
-            {/* Comentario: a diferencia de precio/descuento, no depende de
-                isVoucher/qtyLocked — esos bloqueos existen porque el vale
-                congela precio/cantidad al emitirse (regla de negocio,
-                context/36). Un comentario es metadata de texto libre sin
-                ningún efecto en el total ni el stock: no hay razón para
-                impedir anotar una línea de vale o de gift card. */}
+            {/* Etiquetas y Comentario: a diferencia de precio/descuento, no
+                dependen de isVoucher/qtyLocked — esos bloqueos existen
+                porque el vale congela precio/cantidad al emitirse (regla de
+                negocio, context/36). Etiquetas/comentario son metadata de
+                texto libre sin ningún efecto en el total ni el stock: no hay
+                razón para impedir anotar una línea de vale o de gift card. */}
+            <LineActionTile
+              icon={Tag}
+              label="Etiquetas"
+              onClick={() => { onEditTags(); setMoreOpen(false) }}
+            />
             <LineActionTile
               icon={MessageSquare}
               label="Comentario"

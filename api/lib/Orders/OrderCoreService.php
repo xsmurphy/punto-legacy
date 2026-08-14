@@ -357,11 +357,28 @@ final class OrderCoreService
             $itemNote  = isset($item['note']) && $item['note'] !== '' ? (string) $item['note'] : null;
             $course    = isset($item['course']) ? (int) $item['course'] : 1;
 
+            // Etiquetas de línea (uso interno — pedido owner 2026-08-14, mig
+            // 135): texto libre, sin FK contra ningún catálogo — mismo
+            // criterio que $itemNote, a diferencia de las etiquetas de VENTA
+            // (SaleService::persistRelations B7, que sí validan contra
+            // taxonomy/toTag). NULL si la línea no trae ninguna, para no
+            // guardar un array vacío de más.
+            $itemTags = [];
+            if (isset($item['tags']) && is_array($item['tags'])) {
+                foreach ($item['tags'] as $t) {
+                    $t = trim((string) $t);
+                    if ($t !== '') {
+                        $itemTags[] = $t;
+                    }
+                }
+            }
+            $itemTagsJson = $itemTags !== [] ? json_encode($itemTags) : null;
+
             $itemOk = $this->db->Execute(
                 'INSERT INTO pos_order_item
-                    (orderitemid, orderid, companyid, itemid, name, qty, price, note, stationid, course)
-                 VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [$orderId, $companyId, $itemId, $name, $qty, $price, $itemNote, $stationId, $course]
+                    (orderitemid, orderid, companyid, itemid, name, qty, price, note, tags, stationid, course)
+                 VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [$orderId, $companyId, $itemId, $name, $qty, $price, $itemNote, $itemTagsJson, $stationId, $course]
             );
             if ($itemOk === false) {
                 $db->FailTrans();
@@ -1319,6 +1336,13 @@ final class OrderCoreService
             'qty'         => (float) ($item['qty'] ?? 0),
             'price'       => isset($item['price']) ? (float) $item['price'] : null,
             'note'        => $item['note'] ?? null,
+            // `tags` es JSONB (mig 135) — PDO lo devuelve como texto JSON, no
+            // auto-decodificado (pos_order_item no pasa por ncmExecute/
+            // _flattenJsonb). Mismo patrón que TransactionService decodificando
+            // meta->transactionDetails.
+            'tags'        => isset($item['tags']) && $item['tags'] !== null
+                ? (json_decode((string) $item['tags'], true) ?: [])
+                : null,
             'stationId'   => $item['stationid'] ?? null,
             'stationName' => $item['stationname'] ?? null,
             'status'      => (string) ($item['status'] ?? ''),

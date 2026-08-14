@@ -145,8 +145,18 @@ export interface TicketItem {
   uid: string | null
   /** Nota de línea. `null` si la fuente no la modela (panel). */
   note: string | null
-  /** Etiquetas de línea. Hoy ningún builder las modela por ítem (solo a nivel
-   *  venta, ver `TicketData.tags`) — siempre `null` hasta que exista ese dato. */
+  /**
+   * Etiquetas de línea (uso interno — pedido owner 2026-08-14, ver
+   * `CartLine.tags`). Pobladas por `buildTicketData` (recién cobrada, desde
+   * `payload.sale[i].tags`) y `buildTicketItemsFromTransaction` (reimpresión,
+   * desde `transactionDatas[i].tags` — decode de `itemSold`/`meta.
+   * transactionDetails`). `buildTicketDataFromTxDetail` (panel, TxDetailFull)
+   * sigue en `null`: ese endpoint no expone tags por ítem, mismo límite que
+   * `note` ahí. El bloque `item_tags` (blocks.ts) las imprime en la comanda
+   * si la plantilla del binding lo trae — el que NO deben salir en facturas
+   * depende de que el comercio no agregue ese bloque a su plantilla fiscal,
+   * no hay una restricción estructural por docType hoy.
+   */
   tags: string[] | null
   // ── Fiscal (F3b, context/38) — congelado server-side (F2a) cuando la
   // fuente es una transacción persistida; calculado con el motor real
@@ -229,7 +239,10 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
       id: s.itemId,
       uid: line.catalogItem?.sku ?? null,
       note: s.note,
-      tags: null,
+      // Etiquetas de línea (pedido owner 2026-08-14) — vienen directo del
+      // payload que se acaba de mandar (ticket recién cobrado, sin volver a
+      // consultar el backend).
+      tags: s.tags ?? null,
       taxId: line.taxId,
       taxRate: line.taxRate,
       taxKind: line.taxKind,
@@ -315,6 +328,9 @@ export interface TicketableTransactionItem {
   status?: number
   sku?: string
   note?: string
+  /** Etiquetas de línea (uso interno) — `Money::sanitizeSaleArray` ya las
+   *  incluye en `meta.transactionDetails`, decodificado tal cual acá. */
+  tags?: string[] | null
   /**
    * IVA congelado por línea (F2a) — `TransactionService::getSingle` decodifica
    * `meta->transactionDetails` a `transactionDatas` (api/lib/services/
@@ -358,7 +374,7 @@ export function buildTicketItemsFromTransaction(
         id: i.itemId ?? null,
         uid: i.sku ?? null,
         note: i.note ?? null,
-        tags: null,
+        tags: i.tags ?? null,
         // Congelado real (F2a) tal cual, sin recalcular — ver comentario en
         // TicketableTransactionItem. `?? null`/`?? undefined` acá cubre tanto
         // el caller que no tipa estos campos como la venta pre-F2 sin ellos.

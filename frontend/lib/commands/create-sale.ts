@@ -61,6 +61,18 @@ export interface SaleItem {
   totalDiscount: number
   note: string | null
   /**
+   * Etiquetas de línea (uso interno — pedido del owner 2026-08-14, mismo
+   * catálogo y comportamiento que `tags` a nivel venta más abajo, pero NO
+   * se persisten igual: `Money::sanitizeSaleArray` ya whitelisteaba esta key
+   * por ítem — SaleService::resolveItemSoldMeta la escribe en
+   * `itemSold.meta->'tags'`, sin FK contra ningún catálogo (a diferencia de
+   * las etiquetas de VENTA, que sí validan contra `taxonomy`/`toTag` en
+   * SaleService::persistRelations). Salen en comandas, nunca en facturas —
+   * eso depende de qué bloques tenga la plantilla de cada impresora, no de
+   * este payload.
+   */
+  tags?: string[]
+  /**
    * Metadata de EMISIÓN de gift card (F2 giftcard-issue-flow) — presente solo
    * cuando la línea viene de `GiftcardIssueDialog` (item kind="giftcard").
    * El backend (Money::sanitizeSaleArray → SaleService::issueGiftCard) la usa
@@ -306,6 +318,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     // descuento por producto/categoría/marca no mostraban nada.
     totalDiscount: allocations[i].totalDiscount,
     note: line.note ?? null,
+    tags: line.tags ?? [],
     ...(line.giftcard
       ? {
           giftcard: {

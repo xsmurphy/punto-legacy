@@ -64,6 +64,7 @@ import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import { posApi } from "@/lib/api/pos-client"
 import { useTags } from "@/hooks/use-tags"
+import { TagsChipsField, type TagsChipsFieldHandle } from "@/components/register/tags-chips-field"
 import { useSaveParkedSale } from "@/hooks/use-parked-sales"
 import { toast } from "sonner"
 import { createQuote } from "@/lib/commands/create-quote"
@@ -209,6 +210,7 @@ export function SaleOptionsDrawer({
           discount: 0,
           totalDiscount: 0,
           note: l.note ?? "",
+          tags: l.tags ?? [],
           sku: "",
           status: 1,
         })),
@@ -786,58 +788,12 @@ function TagsDialog({
   const currentTags = useCartStore((s) => s.tags)
   const { data } = useTags()
   const suggestions = (data?.tags ?? []).map((t) => t.name)
-
-  const [chips, setChips] = React.useState<string[]>([])
-  const [inputValue, setInputValue] = React.useState("")
-  const inputRef = React.useRef<HTMLInputElement>(null)
-
-  React.useEffect(() => {
-    if (open) {
-      setChips(currentTags)
-      setInputValue("")
-    }
-  }, [open, currentTags])
-
-  const addChip = (raw: string) => {
-    const value = raw.trim()
-    if (!value) return
-    if (!chips.includes(value)) {
-      setChips((prev) => [...prev, value])
-    }
-    setInputValue("")
-  }
-
-  const removeChip = (chip: string) => {
-    setChips((prev) => prev.filter((c) => c !== chip))
-  }
-
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault()
-      addChip(inputValue)
-    } else if (e.key === "Backspace" && inputValue === "") {
-      setChips((prev) => prev.slice(0, -1))
-    } else if (e.key === "Escape") {
-      onClose()
-    }
-  }
+  const fieldRef = React.useRef<TagsChipsFieldHandle>(null)
 
   const handleConfirm = () => {
-    const pending = inputValue.trim()
-    const finalChips = pending && !chips.includes(pending)
-      ? [...chips, pending]
-      : chips
-    useCartStore.getState().setTags(finalChips)
+    useCartStore.getState().setTags(fieldRef.current?.flush() ?? currentTags)
     onClose()
   }
-
-  const filteredSuggestions = inputValue.trim().length > 0
-    ? suggestions.filter(
-        (s) =>
-          s.toLowerCase().includes(inputValue.toLowerCase()) &&
-          !chips.includes(s),
-      )
-    : []
 
   return (
     <ResponsiveDialog open={open} onOpenChange={(v) => { if (!v) onClose() }}>
@@ -846,55 +802,13 @@ function TagsDialog({
           <ResponsiveDialogTitle>Etiquetas de la venta</ResponsiveDialogTitle>
         </ResponsiveDialogHeader>
 
-        <div
-          className="flex min-h-[2.5rem] flex-wrap gap-1.5 rounded-md border border-input bg-background px-3 py-2 cursor-text"
-          onClick={() => inputRef.current?.focus()}
-        >
-          {chips.map((chip) => (
-            <Badge
-              key={chip}
-              variant="secondary"
-              className="flex items-center gap-1 pr-1"
-            >
-              {chip}
-              <button
-                type="button"
-                onClick={(e) => { e.stopPropagation(); removeChip(chip) }}
-                aria-label={`Quitar ${chip}`}
-                className="ml-0.5 flex size-3.5 items-center justify-center rounded-full hover:bg-muted-foreground/20"
-              >
-                <X className="size-2.5" />
-              </button>
-            </Badge>
-          ))}
-          <Input
-            ref={inputRef}
-            value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={chips.length === 0 ? "Escribí una etiqueta y presioná Enter..." : ""}
-            className="h-auto min-w-[8rem] flex-1 border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0"
-          />
-        </div>
-
-        {filteredSuggestions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {filteredSuggestions.slice(0, 8).map((s) => (
-              <button
-                type="button"
-                key={s}
-                onClick={() => addChip(s)}
-                className="rounded-full border border-border px-2.5 py-0.5 text-xs text-foreground transition-colors hover:bg-muted"
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
-
-        <p className="text-xs text-muted-foreground">
-          Enter o coma para agregar. Backspace sobre campo vacío elimina la última.
-        </p>
+        <TagsChipsField
+          ref={fieldRef}
+          open={open}
+          value={currentTags}
+          suggestions={suggestions}
+          onEscape={onClose}
+        />
 
         <ResponsiveDialogFooter>
           <Button variant="outline" onClick={onClose}>
