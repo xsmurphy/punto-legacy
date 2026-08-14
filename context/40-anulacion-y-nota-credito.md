@@ -69,35 +69,67 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
   - la relación factura→NC es 1:N (`transaction_link` ya lo soporta: su unique
     es por `(companyid, originid, derivedid, kind)` y cada NC es un `derivedid`
     distinto).
-- **D2 — ¿La mercadería devuelta vuelve al stock?** CERRADA (owner,
-  2026-08-14): **se elige por ítem al hacer la devolución**. El cajero marca,
-  línea por línea, si esa mercadería vuelve a estar disponible. Consecuencias:
-  - el detalle de la NC lleva un flag por línea (`restock`), no un flag por
-    documento;
-  - la línea que NO repone stock igual entra en el monto de la NC: al cliente se
-    le devuelve la plata aunque el producto no se pueda revender;
-  - lo que no vuelve al stock tampoco desaparece: la mercadería devuelta y
-    descartada es una MERMA, así que esa línea genera un `waste_event` con su
-    costo. Si no, el costo de esa unidad se evapora del inventario sin quedar
-    registrado en ningún lado. Esto reusa el módulo de merma que ya existe
-    (`waste_event`, con su correlativo desde la mig 129) y necesita un motivo de
-    merma — se resuelve con un `wasteReason` sembrado tipo "Devolución de
-    cliente".
-- **D3 — ¿La NC devuelve dinero o deja saldo a favor?** CERRADA (owner,
-  2026-08-14): **elige el cajero en cada devolución**. Las dos salidas se
-  implementan y la pantalla pregunta.
+- **D2 — ¿La mercadería devuelta vuelve al stock?** CERRADA y REVISADA (owner,
+  2026-08-14). La primera respuesta fue "lo elige el cajero por ítem", pero el
+  owner corrigió con un caso que rompe esa simplificación: una hamburguesa
+  preparada que se devuelve NO puede volver al stock — los insumos ya se
+  consumieron y no se des-preparan. Y sumó el criterio de fondo: **estas no son
+  decisiones nuestras, son reglas del comercio.**
+
+  Quedan separadas TRES cosas que se estaban mezclando:
+
+  **a) Qué es POSIBLE — lo determina el sistema, no es opinable.** Depende de
+  cómo el ítem descuenta stock al venderse:
+
+  | Tipo de ítem | Al vender descontó | Se puede reponer |
+  |---|---|---|
+  | Con stock propio | ese mismo ítem | **Sí** — vuelve a su saldo |
+  | Producción previa | el terminado, que tiene stock propio | **Sí** — vuelve el terminado |
+  | Producción directa (receta al vender) | los INSUMOS de la receta | **No como ítem**: no tiene saldo propio. Solo cabe reponer los insumos, y únicamente si nunca se preparó |
+  | Combo | lo que explotó su receta, en todos sus niveles | Igual que producción directa |
+  | Servicio / sin stock | nada | **No** — no hay nada que reponer |
+
+  La UI solo puede OFRECER lo que esta tabla habilita. Ofrecer "devolver al
+  stock" en una hamburguesa preparada es ofrecer algo que el sistema no puede
+  hacer bien.
+
+  **b) Qué se hace por DEFECTO — regla del comercio, configurable por tenant.**
+  En `company.config` (mismo lugar que el resto de los `setting*`):
+  - `settingReturnRestock`: `restock` | `waste` | `ask` (default `ask`).
+  - `settingReturnAllowIngredientReversal`: bool, default `false`. Habilita
+    reponer los INSUMOS de una producción directa cuando el producto no llegó a
+    prepararse. Va apagado por defecto porque el caso normal es que ya se
+    preparó, y reponer insumos que sí se consumieron infla el inventario.
+
+  **c) Qué decide el CAJERO en el momento** — solo cuando la regla del comercio
+  dice `ask`, y solo dentro de lo que (a) habilita. El sistema no puede saber si
+  la hamburguesa se preparó o no; esa información solo la tiene la persona que
+  está atendiendo.
+
+  Lo que NO vuelve al stock no desaparece: genera su `waste_event` con el costo,
+  para que la pérdida quede registrada en vez de evaporarse del inventario.
+  Reusa el módulo de merma existente (correlativo desde la mig 129) con un
+  `wasteReason` sembrado tipo "Devolución de cliente".
+
+- **D3 — ¿La NC devuelve dinero o deja saldo a favor?** CERRADA y REVISADA
+  (owner, 2026-08-14). Se implementan las dos salidas, pero por el mismo
+  criterio que D2 **la política es del comercio**, no nuestra ni del cajero por
+  defecto: `settingReturnRefund`: `cash` | `credit` | `ask` (default `ask`).
+  Con `ask`, el cajero elige en cada devolución; con las otras dos, la salida
+  está fijada y la pantalla no pregunta.
   - **Salida de caja** → `fin_movement` (`kind='expense'`) contra la caja y el
     turno ABIERTOS al momento de la devolución, NO contra los de la venta
-    original. Eso resuelve solo el caso "la venta fue en otro turno o en otra
+    original. Resuelve solo el caso "la venta fue en otro turno o en otra
     sucursal": la plata sale de donde efectivamente se entrega. El arqueo de ese
-    turno tiene que mostrarla como salida, si no el cajero cierra con
-    diferencia.
+    turno tiene que mostrarla, si no el cajero cierra con diferencia.
   - **Saldo a favor** → acredita `contact.contactStoreCredit`. La columna YA
     existe y está VIVA: `SaleService` la acredita con los ítems `inCredit` y
-    `Customer` la debita al usarla, así que la NC solo suma un origen nuevo al
+    `Customer` la debita al usarla, así que la NC solo suma un origen más al
     mismo mecanismo — no hay cuenta corriente que inventar.
   - Saldo a favor exige cliente identificado. Si la venta fue sin cliente, esa
-    opción no se ofrece: no hay a quién acreditarle nada.
+    opción no se ofrece aunque la política diga `credit`: no hay a quién
+    acreditarle. Ahí se cae a salida de caja.
+
 - **D4 — ¿Hasta cuándo se puede anular?** CERRADA (owner, 2026-08-14): **48
   horas desde la emisión**, y el corte se aplica en LOS DOS lados.
   - El botón "Anular" se deshabilita en la UI pasado el plazo, con el motivo a
@@ -143,3 +175,13 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
 - Todo lo que revierta stock tiene que pasar por `Inventory::manageStock` y
   respetar la explosión recursiva de recetas: anular la venta de un combo tiene
   que devolver los insumos de TODOS sus niveles, no solo el primero.
+- **Criterio general, del owner (2026-08-14):** lo que es política del negocio
+  —si repone stock, si devuelve plata o deja saldo— no se cablea ni se deja
+  librado al cajero por defecto: se configura por tenant, con `ask` como valor
+  inicial para no imponer una respuesta a comercios que todavía no la
+  definieron. Lo que el sistema SÍ decide solo es qué es técnicamente posible.
+  Esa frontera vale para todo el módulo, no solo para D2 y D3.
+- La ANULACIÓN usa las mismas reglas de reposición que la NC. El caso típico
+  —anular a los dos minutos, antes de preparar— es justamente donde reponer
+  insumos de una producción directa SÍ corresponde, y es la razón de que
+  `settingReturnAllowIngredientReversal` exista en vez de prohibirlo siempre.
