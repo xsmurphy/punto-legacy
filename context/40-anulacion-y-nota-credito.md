@@ -2,7 +2,7 @@
 
 > Estado: **plan abierto** (2026-08-14). Pedido del owner desde `/pos` → detalle
 > de transacción: los botones "Anular" y "Devolución" están deshabilitados.
-> Bloqueado por D1–D4 (abajo). Nada implementado todavía.
+> D1 cerrada. Bloqueado por D2–D4 (abajo) solo en F4. F1 y F3 pueden arrancar.
 
 ## Qué pidió el owner, textual
 
@@ -57,11 +57,17 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
 
 ## Decisiones pendientes del owner
 
-- **D1 — ¿La nota de crédito puede ser parcial?** ¿Se devuelven ítems sueltos y
-  cantidades parciales, o siempre es por el total de la factura? Cambia el
-  modelo: parcial exige detalle propio de la NC (qué ítems, cuántas unidades) y
-  permite varias NC contra la misma factura; total puede derivarse de la
-  original.
+- **D1 — ¿La NC puede ser parcial?** CERRADA (owner, 2026-08-14): **parcial por
+  ítem**. Se eligen qué ítems y cuántas unidades se devuelven, la NC lleva su
+  propio detalle y se pueden emitir varias contra la misma factura hasta
+  cubrirla. Consecuencias de modelo, a respetar desde el arranque:
+  - la NC necesita detalle propio (`itemSold` de la NC), no derivado;
+  - hay que acumular lo ya devuelto por factura para no permitir devolver más
+    de lo vendido — el guard va contra la SUMA de las NC previas, no contra la
+    última;
+  - la relación factura→NC es 1:N (`transaction_link` ya lo soporta: su unique
+    es por `(companyid, originid, derivedid, kind)` y cada NC es un `derivedid`
+    distinto).
 - **D2 — ¿La mercadería devuelta vuelve al stock?** Siempre, nunca, o se elige
   por ítem al hacer la devolución. Un producto devuelto por fallado no vuelve a
   estar disponible para vender.
