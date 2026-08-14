@@ -2,8 +2,8 @@
 
 > Estado: **plan abierto** (2026-08-14). Pedido del owner desde `/pos` → detalle
 > de transacción: los botones "Anular" y "Devolución" están deshabilitados.
-> D1, D2 y D3 cerradas. Solo falta D4 (plazo de anulación), que afecta a F2.
-> F1, F3 y F4 pueden arrancar.
+> **Las cuatro decisiones están cerradas.** Todas las fases pueden ejecutarse.
+> Nada implementado todavía.
 
 ## Qué pidió el owner, textual
 
@@ -56,7 +56,7 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
 
 `SaleType::Canceled = 7` queda como está: declarado y sin uso.
 
-## Decisiones pendientes del owner
+## Decisiones (todas cerradas)
 
 - **D1 — ¿La NC puede ser parcial?** CERRADA (owner, 2026-08-14): **parcial por
   ítem**. Se eligen qué ítems y cuántas unidades se devuelven, la NC lleva su
@@ -98,16 +98,34 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
     mismo mecanismo — no hay cuenta corriente que inventar.
   - Saldo a favor exige cliente identificado. Si la venta fue sin cliente, esa
     opción no se ofrece: no hay a quién acreditarle nada.
-- **D4 — ¿Hasta cuándo se puede anular?** La cancelación de SIFEN tiene plazo
-  (48 h desde la emisión). Pasado ese plazo, ¿se bloquea la anulación y se
-  obliga a nota de crédito? Es la práctica correcta, pero hay que confirmarlo.
+- **D4 — ¿Hasta cuándo se puede anular?** CERRADA (owner, 2026-08-14): **48
+  horas desde la emisión**, y el corte se aplica en LOS DOS lados.
+  - El botón "Anular" se deshabilita en la UI pasado el plazo, con el motivo a
+    la vista y ofreciendo "Devolución" en su lugar.
+  - El endpoint RECHAZA la anulación pasado el plazo, aunque el request llegue
+    igual. El guard de UI es comodidad; el que manda es el del servidor —
+    deshabilitar un botón no es un control de acceso, y este es un límite
+    fiscal, no una preferencia de interfaz.
+  - El plazo se cuenta desde la **fecha de emisión de la factura**
+    (`transactionDate`), no desde el último cambio ni desde el momento del
+    pedido. Es la fecha que mira SIFEN.
+  - **Aplica a todos los tenants, tengan o no facturación electrónica**
+    (asunción declarada, no preguntada de nuevo). El owner respondió el plazo
+    sin distinguir, y un documento fiscal no deja de serlo porque no se
+    transmita: permitir anular una factura en papel un mes después es peor para
+    la auditoría que el caso con FE, donde al menos SIFEN lo rechazaría. Si más
+    adelante se quiere relajar para tenants sin FE, es un flag, no un rediseño.
+  - Pasado el plazo el camino correcto es la **nota de crédito**, que no tiene
+    límite de tiempo.
 
 ## Fases propuestas
 
 - **F1** — Anulación interna: estado sobre la venta, reverso de stock, reverso
   del movimiento financiero, exclusión de reportes. Sin FE.
 - **F2** — Anulación integrada con FE: dispara `EInvoiceService::cancel()`
-  cuando el tenant la tiene. El corte por plazo depende de D4.
+  cuando el tenant la tiene. El corte de 48 h (D4) va en F1, no acá: es un
+  límite del documento, no de la integración, y tiene que valer también para
+  quien no emite electrónicamente.
 - **F3** — Numeración de NC: doctype `nota_credito`, rango de timbrado propio
   por caja, UI en el tab Cajas.
 - **F4** — Nota de crédito interna: documento, detalle, vínculo con la original,
