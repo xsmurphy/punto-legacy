@@ -58,6 +58,7 @@ import {
 import { QtyEditDialog } from "@/components/register/qty-edit-dialog"
 import { LinePriceDialog } from "@/components/register/line-price-dialog"
 import { LineDiscountDialog } from "@/components/register/line-discount-dialog"
+import { LineNoteDialog } from "@/components/register/line-note-dialog"
 import { LineSellerDialog } from "@/components/register/line-seller-dialog"
 import { cn } from "@/lib/utils"
 import {
@@ -248,10 +249,12 @@ export function CartPanel() {
 
   const setLinePrice = useCartStore((s) => s.setLinePrice)
   const setLineDiscount = useCartStore((s) => s.setLineDiscount)
+  const setLineNote = useCartStore((s) => s.setLineNote)
 
   // Dialogs de precio y descuento por línea.
   const [priceLine, setPriceLine] = React.useState<CartLine | null>(null)
   const [discountLine, setDiscountLine] = React.useState<CartLine | null>(null)
+  const [noteLine, setNoteLine] = React.useState<CartLine | null>(null)
 
   // Confirm para vaciar la venta — acción destructiva. Tanto el chip VACIAR
   // del bottom como el "Cancelar venta" del drawer de opciones pasan por acá.
@@ -461,6 +464,17 @@ export function CartPanel() {
         onClose={() => setDiscountLine(null)}
       />
 
+      {/* Comentario por línea */}
+      <LineNoteDialog
+        open={noteLine !== null}
+        line={noteLine}
+        onConfirm={(lineId, note) => {
+          setLineNote(lineId, note)
+          setNoteLine(null)
+        }}
+        onClose={() => setNoteLine(null)}
+      />
+
       {/* Confirm de quitar IVA — modifica el total de la venta. */}
       <AlertDialog open={confirmIvaOpen} onOpenChange={setConfirmIvaOpen}>
         <AlertDialogContent>
@@ -561,6 +575,7 @@ export function CartPanel() {
                       onRemove={() => removeLine(line.lineId)}
                       onEditPrice={() => setPriceLine(line)}
                       onApplyDiscount={() => setDiscountLine(line)}
+                      onEditNote={() => setNoteLine(line)}
                     />
                   ) : (
                     <CartRowCollapsed
@@ -973,6 +988,7 @@ function CartRowExpanded({
   onRemove,
   onEditPrice,
   onApplyDiscount,
+  onEditNote,
 }: {
   line: CartLine
   onInc: () => void
@@ -981,6 +997,7 @@ function CartRowExpanded({
   onRemove: () => void
   onEditPrice: () => void
   onApplyDiscount: () => void
+  onEditNote: () => void
 }) {
   const [qtyOpen, setQtyOpen] = React.useState(false)
   const [moreOpen, setMoreOpen] = React.useState(false)
@@ -1143,7 +1160,17 @@ function CartRowExpanded({
               disabled={isVoucher}
             />
             <LineActionTile icon={Tag} label="Etiquetas" onClick={() => {}} disabled />
-            <LineActionTile icon={MessageSquare} label="Comentario" onClick={() => {}} disabled />
+            {/* Comentario: a diferencia de precio/descuento, no depende de
+                isVoucher/qtyLocked — esos bloqueos existen porque el vale
+                congela precio/cantidad al emitirse (regla de negocio,
+                context/36). Un comentario es metadata de texto libre sin
+                ningún efecto en el total ni el stock: no hay razón para
+                impedir anotar una línea de vale o de gift card. */}
+            <LineActionTile
+              icon={MessageSquare}
+              label="Comentario"
+              onClick={() => { onEditNote(); setMoreOpen(false) }}
+            />
           </div>
         </DrawerContent>
       </Drawer>

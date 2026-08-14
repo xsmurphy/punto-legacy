@@ -1344,6 +1344,41 @@ final class SaleService
      *
      * @param array<int,array<string,mixed>> $saleDetail
      */
+    /**
+     * Resuelve `itemSoldDescription` para una línea vendida.
+     *
+     * Antes esto vivía inline en `persistItemsAndStock` y `persistQuoteItems`,
+     * cada uno con la misma condición `$sD['type'] === 'dynamic'` — un item
+     * `dynamic` (legacy, freeform sin catalog item) usa `note` como su
+     * DESCRIPCIÓN, cargada desde un editor rico, por eso pasa por
+     * `markupt2HTML` (HtM: HTML → markup liviano) antes de guardarse.
+     *
+     * El bug: para CUALQUIER OTRA línea (el caso normal — comentario de línea
+     * que el cajero escribe en un textarea plano del POS) la condición nunca
+     * matcheaba, así que `itemSoldDescription` quedaba vacío. El comentario
+     * sí viajaba y se guardaba en `meta.transactionDetails`, pero cualquier
+     * reporte que lee `itemSold` directamente jamás lo veía.
+     *
+     * `note` es una propiedad de la LÍNEA, no una peculiaridad de `dynamic` —
+     * se persiste siempre que venga. Para el caso normal se guarda tal cual:
+     * es texto plano de un textarea, no HTML, así que correrlo por HtM no
+     * corresponde (esa conversión asume marcado HTML de verdad, que no existe
+     * acá — en el peor caso es un no-op, pero afirma una garantía falsa).
+     *
+     * @param array<string,mixed> $sD
+     */
+    private function resolveItemSoldDescription(array $sD): ?string
+    {
+        $note = trim((string) ($sD['note'] ?? ''));
+        if ($note === '') {
+            return null;
+        }
+
+        return ($sD['type'] ?? '') === 'dynamic'
+            ? markupt2HTML(['text' => $note, 'type' => 'HtM'])
+            : $note;
+    }
+
     private function persistItemsAndStock(SaleInput $input, string $transId, array $saleDetail): void
     {
         // El loop hardcodea source='sale'/type='-' (descuento de inventario). Las
@@ -1463,8 +1498,9 @@ final class SaleService
                 'transactionId'     => $transId,
                 'userId'            => !empty($sD['user']) ? (string) $sD['user'] : null,
             ];
-            if (($sD['type'] ?? '') === 'dynamic') {
-                $records['itemSoldDescription'] = markupt2HTML(['text' => $sD['note'] ?? '', 'type' => 'HtM']);
+            $itemSoldDescription = $this->resolveItemSoldDescription($sD);
+            if ($itemSoldDescription !== null) {
+                $records['itemSoldDescription'] = $itemSoldDescription;
             }
             $this->db->AutoExecute('itemSold', $records, 'INSERT');
             $itemSoldId = (string) $this->db->Insert_ID();
@@ -1737,8 +1773,9 @@ final class SaleService
                 'transactionId'     => $transId,
                 'userId'            => !empty($sD['user']) ? (string) $sD['user'] : null,
             ];
-            if (($sD['type'] ?? '') === 'dynamic') {
-                $records['itemSoldDescription'] = markupt2HTML(['text' => $sD['note'] ?? '', 'type' => 'HtM']);
+            $itemSoldDescription = $this->resolveItemSoldDescription($sD);
+            if ($itemSoldDescription !== null) {
+                $records['itemSoldDescription'] = $itemSoldDescription;
             }
             $this->db->AutoExecute('itemSold', $records, 'INSERT');
         }
