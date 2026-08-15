@@ -38,6 +38,83 @@
 > por tasa queda vacío en ese camino. Ampliar el endpoint es trabajo de
 > backend, fuera de F3;
 > sin migración de datos. Sigue F4 (rollup) y F5 (RG90/Libro Ventas).
+>
+> Progreso 2026-08-15: **F5 hecha (RG90 + Libro Ventas), SIN esperar F4.**
+> F4 (`rollup_tax`) es agregado diario — RG90 necesita filas por
+> COMPROBANTE, no por día, así que el export lee directo del desglose
+> congelado por venta (`toTaxObj`/`meta.transactionDetails`), nunca de un
+> rollup. La dependencia F4→F5 de la tabla de Fases de abajo no aplicaba en
+> la práctica; se corrige acá. F4 (rollup_tax + Summary/reportes por tasa)
+> sigue pendiente, desacoplado de F5.
+>
+> Qué se construyó: `Tax\TaxBreakdownResolver` (nuevo, compartido) extrae la
+> regla "primario `toTaxObj`, fallback a `meta.transactionDetails` si falta o
+> no parsea" que antes vivía privada en `Transactions\TransactionDetailService`
+> — F5 la necesitaba en BATCH para un rango de fechas, así que se sacó al
+> wrapper compartido en vez de duplicarla (`resolveMany()`); el detalle de
+> transacción (F1, context/39) se refactorizó para delegar en el mismo
+> resolver, sin cambios de comportamiento. `Reports\FiscalService::rg90()` /
+> `::libroVentas()` arman las filas; endpoint `GET /v1/reports/fiscal?dataset=
+> rg90|libro-ventas&from=&to=`, gateado `COUNTRY==='PY'` (403 para otros
+> países). Frontend: botón "Exportar fiscal" en `/reports/transactions`
+> (visible solo panel + tenant PY), XLSX vía `exportRowsToXlsx` — se extrajo
+> el core de `<DataTable>`'s `exportToXlsx` (antes atado al row-model de
+> TanStack) porque RG90 es un layout FIJO de 20 columnas con datos que no
+> viven en ninguna tabla en pantalla.
+>
+> Decisiones tomadas en F5 (no relitigar):
+> - **Montos "gravado X%"**: el layout SET de RG90 los define CON IVA
+>   incluido (`base+amount` del bucket, no la base neta) — así cierran
+>   `gravado10+gravado5+exento == total del comprobante`. Verificado con el
+>   caso `py-multi-rate` del arnés (`verify_chain`): cierra exacto
+>   (58600+14700+14000=87300). El legacy hacía lo mismo (usaba su bucket
+>   `'total'` — base+tax — para esa columna); no era el bug, aunque el
+>   nombre de columna sea confuso.
+> - **`kind=exempt` y `kind=rate,rate=0`**: fiscalmente distintos (D2), pero
+>   el layout RG90 solo tiene 3 columnas de monto (10%/5%/exento) — sin una
+>   4ª para "gravado a otra tasa". Ambos casos, y cualquier tasa custom
+>   ≠10/5 de un tenant multi-país, caen en "MONTO NO GRAVADO O EXENTO" por
+>   falta de columna en el formato fijo del SET — limitación del layout, no
+>   del dato (que sigue distinguible en Libro Ventas / `toTaxObj`).
+> - **Histórico pre-F2a (D3)**: sin desglose congelado reconstruible → la
+>   venta se EXCLUYE del export (no se inventa desglose) y se cuenta en
+>   `meta.excludedCount` de la respuesta; el front avisa con un toast. Filas
+>   con `toTaxObjText` truncado/ausente pero `meta.transactionDetails`
+>   congelado (F2a sí corrió) degradan al fallback y se cuentan en
+>   `fallbackCount` (informativo, no bloquea).
+> - **Anuladas y notas de crédito**: NO incluidas. `transactionType IN
+>   (0,3)` únicamente — igual que el WHERE real del legacy (su propio código
+>   para NC/anuladas, `transType=110` y las columnas de "comprobante
+>   asociado", era código MUERTO: su query nunca traía type=6/7). Hoy
+>   tampoco existen: context/40 (anulación y NC) está "sin implementar
+>   todavía". Cuando F1/F4 de context/40 aterricen, este Service necesita
+>   excluir `voidedAt IS NOT NULL` del total vendido e incluir las NC como
+>   filas propias.
+> - **`ivaRemoved` (mig 101)**: sin caso especial — F2a ya fuerza
+>   taxRate=0/kind=exempt por línea en `enrichWithTaxes` cuando el toggle
+>   está activo, así que el desglose congelado YA sale correcto. A
+>   diferencia de `TransactionsService::detail()` (que sigue re-chequeando
+>   el flag por compat con reportes viejos), `FiscalService` no lo necesita.
+> - **Identificación del comprador**: se usa `contact.contactIdType` (Tabla
+>   3 SET, mig 125) + `contactTIN`/`contactCI` — NO el parseo legacy
+>   ("`strpos(ruc,'-')` → RUC, si no → CI") que ese código hacía contra
+>   `contactTIN`. Es la fuente correcta y ya existe (`ContactService::
+>   inferIdType`), el legacy es anterior a esa migración.
+> - **Libro compras**: fuera de alcance (brief F5) — el legacy lo tenía
+>   comentado; otra fuente de datos (`purchase`), documento separado.
+>   Pendiente, sin planificar.
+> - **No replicado del legacy, a propósito**: el bug de Libro Ventas donde
+>   `grav5`/`tax5` (base/IVA de la columna 5%) estaban CRUZADOS en el código
+>   fuente (asignaba `$totalTaxes['tax']['5']` a la variable `grav5` y
+>   viceversa) — `FiscalService` calcula base5/tax5 directo del bucket
+>   correcto, sin ese bug. También se colapsó la columna redundante
+>   `EXENTA`/`EXENTO` del legacy (dos columnas con el mismo valor, porque
+>   exento no tiene IVA — base==gross) en una sola `EXENTA`.
+> - **Moneda extranjera / imputa IVA-IRE-IRP**: se mantuvieron los mismos
+>   valores fijos del legacy (`N` / `S,N,N,N`) — el sistema no modela venta
+>   en moneda extranjera ni el régimen fiscal del comprador, no hay dato real
+>   que usar en su lugar. Documentado como limitación conocida, igual que en
+>   el legacy.
 
 ## Diagnóstico (auditoría 2026-08-07)
 
@@ -168,9 +245,14 @@ Pero el backend de compras confía en el `taxValue` del payload.
 
 - Tabla nueva `rollup_tax(companyId, outletId, day, taxId, rate, kind,
   base, amount)` — dimensión por tasa; la columna `tax` única de migs 41/42
-  queda para compat.
-- Con eso: RG90, Libro Ventas y libro compras son SELECTs formateados
-  (export XLSX vía DataTable). Son fase propia.
+  queda para compat. **Pendiente (F4 no implementada)** — sigue siendo
+  correcta para Summary/reportes agregados por día, que sí toleran esa
+  granularidad.
+- RG90/Libro Ventas (F5, hecha 2026-08-15) NO usan `rollup_tax`: el formato
+  exige una fila por COMPROBANTE con su desglose por tasa, no un agregado
+  diario — leen directo `toTaxObj`/`meta.transactionDetails` por venta
+  (`Tax\TaxBreakdownResolver`, batch por rango de fechas). Libro compras
+  queda pendiente, sin planificar (otra fuente de datos, `purchase`).
 
 ## Fases
 
@@ -181,7 +263,7 @@ Pero el backend de compras confía en el `taxValue` del payload.
 | **F2** | Venta/compra persisten por línea server-side; POS usa el motor; muere TAX_RATE; muere el payload confiado | F1 |
 | **F3** | EInvoice congelado; bloques de plantilla por tasa; renombre snake_case | F2 |
 | **F4** | rollup_tax + Summary/reportes por tasa | F2 |
-| **F5** | RG90 · Libro Ventas · libro compras (exports) | F4 |
+| **F5** ✅ | RG90 · Libro Ventas (exports). Libro compras quedó FUERA — pendiente sin planificar. **No dependía de F4 en la práctica** (RG90 es por comprobante, no por día — lee `toTaxObj` directo, ver progreso 2026-08-15 arriba) | F2 |
 
 F2 es el corte de deploy delicado: cambia qué persiste cada venta. Ventas
 viejas quedan con tax=0 — ver D3.
