@@ -88,6 +88,29 @@ if ($id !== null && $resource === 'analytics') {
     apiOk($data);
 }
 
+// ── Sub-recurso: statement (estado de cuenta — detalle de deuda/cobros) ────
+// Alimenta el tab "Financiero" del perfil: cada factura a crédito abierta con
+// su saldo y qué recibos se le aplicaron (un recibo puede repartirse entre
+// varias facturas). Misma fuente de saldo que `analytics.financial.
+// openInvoices` — `OpenInvoicesService::contactStatement()`, no una segunda
+// fórmula (ver docblock del Service).
+if ($id !== null && $resource === 'statement') {
+    if ($method !== 'GET') {
+        apiError('Method not allowed for /contacts/statement', 405);
+    }
+    $sType = (int) ($_GET['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+    if (!in_array($sType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
+        $sType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
+    }
+    // Confirma pertenencia al tenant antes de calcular (mismo guard que el detalle por id).
+    if ($service->getById($id, COMPANY_ID) === null) {
+        apiError('Contacto no encontrado', 404);
+    }
+    $svc  = new \Punto\Api\Reports\OpenInvoicesService();
+    $data = $svc->contactStatement($id, COMPANY_ID, $sType === \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+    apiOk($data);
+}
+
 // ── JSON body → $_POST (el front manda JSON, PHP no lo parsea automáticamente) ──
 $_raw = file_get_contents('php://input');
 if (is_string($_raw) && $_raw !== '') {

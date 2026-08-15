@@ -171,6 +171,100 @@ final class OpenInvoicesService
     }
 
     /**
+     * Estado de cuenta completo de UN contacto — mismo cálculo de saldo que
+     * `forContact()`/`general()` (pasa por `contactBalance()`, la única resta
+     * `total - payed` de la clase) pero devuelve el DETALLE que la ficha de
+     * contacto necesita: cada factura a crédito abierta con su saldo, y qué
+     * recibos se le aplicaron (un recibo puede repartirse entre varias
+     * facturas — mig 123, `TransactionLinkService::mapDerivedDetailsByOrigins()`).
+     *
+     * Alcance: solo facturas ABIERTAS (`transactionComplete = false`), igual
+     * que `forContact()` — es "cuánto debe hoy", no el historial completo de
+     * ventas a crédito (eso ya lo cubre el tab "Transacciones" del perfil).
+     * Por eso `summary.totalCredited` (suma de esas facturas) cierra
+     * exactamente con `totalPaid + totalDebt` — no hay una tercera cifra
+     * flotando sin relación con las otras dos.
+     *
+     * @return array{summary:array{totalDebt:float,totalCredited:float,totalPaid:float},invoices:array}
+     */
+    public function contactStatement(string $contactId, string $companyId, bool $isCustomer): array
+    {
+        $type       = $isCustomer ? 3 : 4;
+        $contactCol = $isCustomer ? 'customerId' : 'supplierId';
+
+        $sql = "SELECT transactionId as saleId, transactionDate as date, transactionDueDate as dueDate,
+                       invoiceNo as invoice, invoicePrefix as prefix,
+                       transactionTotal as total, transactionDiscount as discount
+                FROM transaction
+                WHERE transactionComplete = false AND transactionType = ? AND companyId = ? AND $contactCol = ?
+                ORDER BY transactionDate DESC";
+        $res = ncmExecute($sql, [$type, $companyId, $contactId], false, false, true);
+        $res = is_array($res) ? $res : [];
+
+        $empty = ['summary' => ['totalDebt' => 0.0, 'totalCredited' => 0.0, 'totalPaid' => 0.0], 'invoices' => []];
+        if (!$res) {
+            return $empty;
+        }
+
+        $invoices = [];
+        $saleIds  = [];
+        foreach ($res as $f) {
+            $saleId = (string) $f['saleId'];
+            // Proveedor: total crudo. Cliente: total menos descuento (misma regla que general()/forContact()).
+            $total = $isCustomer
+                ? ((float) $f['total'] - (float) $f['discount'])
+                : (float) $f['total'];
+            $invoices[] = [
+                'saleId'    => $saleId,
+                'invoiceNo' => (string) ($f['prefix'] ?? '') . (string) ($f['invoice'] ?? ''),
+                'date'      => (string) ($f['date'] ?? ''),
+                'dueDate'   => (string) ($f['dueDate'] ?? ''),
+                'total'     => $total,
+            ];
+            $saleIds[] = $saleId;
+        }
+
+        $payedMap = $this->payedByParent($saleIds, $companyId);
+        $balance  = $this->contactBalance($invoices, $payedMap);
+
+        $links = new \Punto\Api\Services\TransactionLinkService();
+        $paymentsByOrigin = $links->mapDerivedDetailsByOrigins($companyId, $saleIds, 'credit_payment');
+
+        $today = strtotime(date('Y-m-d 00:00:00'));
+        $out   = [];
+        foreach ($balance['invoices'] as $inv) {
+            $strDue    = $inv['dueDate'] ? strtotime($inv['dueDate']) : 0;
+            $dueStatus = $inv['topay'] <= 0 ? 'paid' : (($strDue <= $today) ? 'expired' : 'toExpire');
+
+            $out[] = [
+                'saleId'    => $inv['saleId'],
+                'invoiceNo' => $inv['invoiceNo'],
+                'date'      => $inv['date'],
+                'dueDate'   => $inv['dueDate'],
+                'total'     => $inv['total'],
+                'paid'      => $inv['payed'],
+                'balance'   => $inv['topay'],
+                'dueStatus' => $dueStatus,
+                'payments'  => array_map(static fn ($p) => [
+                    'transactionId' => $p['derivedId'],
+                    'invoiceNo'     => $p['invoiceNo'],
+                    'date'          => $p['date'],
+                    'amount'        => $p['amount'],
+                ], $paymentsByOrigin[$inv['saleId']] ?? []),
+            ];
+        }
+
+        return [
+            'summary' => [
+                'totalDebt'      => $balance['totalDebt'],
+                'totalCredited'  => $balance['totalSales'],
+                'totalPaid'      => $balance['totalPaid'],
+            ],
+            'invoices' => $out,
+        ];
+    }
+
+    /**
      * Núcleo único de "cuánto debe un contacto": dado su listado de facturas
      * abiertas (cada una con al menos `saleId`/`total`) y el `payedMap` ya
      * resuelto (`payedByParent`), resta payed de total factura por factura.

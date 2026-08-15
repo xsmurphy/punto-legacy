@@ -148,6 +148,44 @@ export interface ContactAnalytics {
   }>
 }
 
+/**
+ * Shape de `GET /v1/contacts?id=<uuid>&resource=statement`.
+ * Mirror de `OpenInvoicesService::contactStatement()`
+ * (api/lib/Reports/OpenInvoicesService.php). Estado de cuenta: solo facturas
+ * a crédito ABIERTAS (no el historial completo — eso lo cubre el tab
+ * "Transacciones"), con el detalle de qué recibos se aplicaron a cada una.
+ */
+export interface ContactStatement {
+  summary: {
+    /** Suma de saldos pendientes de las facturas abiertas. */
+    totalDebt: number
+    /** Suma de los totales de las facturas a crédito abiertas. */
+    totalCredited: number
+    /** Suma de lo cobrado de esas facturas (totalCredited - totalDebt). */
+    totalPaid: number
+  }
+  invoices: Array<{
+    /** transactionId de la factura — navega a /transactions/{saleId}. */
+    saleId: string
+    invoiceNo: string
+    date: string | null
+    dueDate: string | null
+    total: number
+    paid: number
+    balance: number
+    /** "paid": saldo <= 0. "expired": vencida (dueDate <= hoy). "toExpire": vigente. */
+    dueStatus: "paid" | "expired" | "toExpire"
+    /** Recibos aplicados a esta factura — un recibo puede repartirse entre varias. */
+    payments: Array<{
+      /** transactionId del recibo — navega a /transactions/{transactionId}. */
+      transactionId: string
+      invoiceNo: string
+      date: string | null
+      amount: number
+    }>
+  }>
+}
+
 /** Un componente dentro de un pack vendido — incluye saldo restante. */
 export interface SoldPackComponent {
   packComponentId: string

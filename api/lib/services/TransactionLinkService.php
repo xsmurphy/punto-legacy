@@ -264,6 +264,60 @@ final class TransactionLinkService
         return $map;
     }
 
+    /**
+     * Versión "detalle" de mapSumDerivedAmounts() — no solo la suma por
+     * origen, sino CADA documento derivado que aportó (fecha, número, monto
+     * imputado). Usado por el estado de cuenta del contacto
+     * (`OpenInvoicesService::contactStatement()`) para mostrar qué recibo se
+     * aplicó a qué factura — un recibo puede repartirse entre varias
+     * facturas, así que esto es un detalle N:M, no un mapa 1:1.
+     *
+     * Mismo criterio de exclusión de anulados y mismo
+     * `COALESCE(tl.amount, t.transactionTotal)` que sumDerivedAmounts() /
+     * mapSumDerivedAmounts() — el monto mostrado acá nunca puede divergir del
+     * que ya se usa para calcular el saldo.
+     *
+     * @param list<string> $originIds
+     * @return array<string, list<array{derivedId:string,date:?string,invoiceNo:string,amount:float}>> originId → detalle
+     */
+    public function mapDerivedDetailsByOrigins(string $companyId, array $originIds, string $kind): array
+    {
+        $originIds = array_values(array_unique(array_filter($originIds, static fn ($v) => $v !== '' && $v !== null)));
+        $map = [];
+        if ($originIds === []) {
+            return $map;
+        }
+        $placeholders = implode(',', array_fill(0, count($originIds), '?'));
+        $sql = "SELECT tl.originid AS originid, tl.derivedid AS derivedid,
+                       COALESCE(tl.amount, t.transactionTotal) AS amount,
+                       t.transactionDate AS date,
+                       COALESCE(t.invoicePrefix, '') AS prefix,
+                       COALESCE(t.invoiceNo, '') AS invoiceno
+                  FROM transaction_link tl
+                  JOIN transaction t ON t.transactionId = tl.derivedid AND t.companyId = tl.companyid
+                 WHERE tl.companyid = ? AND tl.originid IN ($placeholders) AND tl.kind = ?
+                   AND COALESCE(t.transactionStatus, 1) <> 6
+                 ORDER BY t.transactionDate ASC";
+        $params = array_merge([$companyId], $originIds, [$kind]);
+        $rs = ncmExecute($sql, $params, false, true);
+        if ($rs) {
+            while (!$rs->EOF) {
+                $f = $rs->fields;
+                $o = (string) ($f['originid'] ?? '');
+                if ($o !== '') {
+                    $map[$o][] = [
+                        'derivedId'  => (string) ($f['derivedid'] ?? ''),
+                        'date'       => $f['date'] !== null ? (string) $f['date'] : null,
+                        'invoiceNo'  => (string) ($f['prefix'] ?? '') . (string) ($f['invoiceno'] ?? ''),
+                        'amount'     => (float) ($f['amount'] ?? 0),
+                    ];
+                }
+                $rs->MoveNext();
+            }
+        }
+        return $map;
+    }
+
     // ------------------------------------------------------------------
     // order_transaction_link
     // ------------------------------------------------------------------

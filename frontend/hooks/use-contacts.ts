@@ -7,6 +7,7 @@ import type {
   ContactFormValues,
   ContactFull,
   ContactListItem,
+  ContactStatement,
   CustomerAddress,
   SoldPack,
 } from "@/lib/types/contact"
@@ -66,6 +67,23 @@ export function useContactAnalytics(id: string | undefined, type: ContactType = 
     enabled: !!id,
     // Analytics agregadas son caras de computar (varios SQL) y cambian lento;
     // 2 min de cache es suficiente para evitar refetches al navegar entre tabs.
+    staleTime: 2 * 60 * 1000,
+  })
+}
+
+/**
+ * Estado de cuenta del contacto: facturas a crédito abiertas + recibos
+ * aplicados a cada una. Alimenta la sección "Estado de cuenta" del tab
+ * "Financiero" del perfil — misma fuente de saldo que `useContactAnalytics`
+ * (`analytics.financial.openInvoices`), con el detalle documento por
+ * documento que ese KPI no trae.
+ */
+export function useContactStatement(id: string | undefined, type: ContactType = 1) {
+  return useQuery<ContactStatement>({
+    queryKey: ["contacts", id, "statement", type],
+    queryFn: () =>
+      api.get<ContactStatement>(`/v1/contacts?id=${id}&resource=statement&type=${type}`),
+    enabled: !!id,
     staleTime: 2 * 60 * 1000,
   })
 }

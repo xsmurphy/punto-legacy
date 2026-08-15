@@ -137,6 +137,28 @@ de copiar, cada producto edita lo suyo sin efecto dominó.
 - **D3 — El ticket del cliente SOLO lista add-ons con precio.** Los de
   priceDelta=0 van a cocina siempre pero no al ticket fiscal. La impresión de
   cocina y la fiscal divergen por diseño.
+- **D4 — La divergencia D3 se resuelve con VARIANTES DE BLOQUE, no con lógica
+  en el renderer** (owner, 2026-08-09). Regla general del proyecto: lo que se
+  imprime lo decide la plantilla — si el bloque está, sale; si no está, no sale
+  (ver `context/20-design-system.md` y la convención de impresión). D3 no es la
+  excepción: los add-ons viven DENTRO del bloque de artículos, y ese bloque
+  "está más enfocado al artículo que se factura" (owner), así que la decisión
+  correcta es ofrecer **más de una variante de listado de artículos** y que el
+  comercio elija cuál pone en cada plantilla:
+
+  - una variante **completa** — todas las líneas de la venta u orden, add-ons
+    incluidos aunque sean gratis (comandas, órdenes, uso interno);
+  - una variante **facturable** — solo líneas con precio (facturas).
+
+  El renderer no decide nada: itera las líneas que la variante define. La
+  sección "Artículos" de la paleta ya tiene precedente de esto — `item_receipt`
+  ("Listado de Venta"), `item_receipt_4` (sin IVA), `item_receipt_2` (sin
+  precios) y `item_receipt_3` (simple) ya son variantes de listado que difieren
+  en qué columnas muestran; estas nuevas difieren en qué LÍNEAS incluyen.
+
+  ⚠ **Bloqueada por el primer gap de abajo**: mientras la ORDEN no persista
+  líneas hijas, la variante completa no tiene add-ons que listar en una
+  comanda. Implementar las variantes antes que eso es pintar una opción vacía.
 
 ## Gaps abiertos (destapados en F5, no bloquean el uso)
 
