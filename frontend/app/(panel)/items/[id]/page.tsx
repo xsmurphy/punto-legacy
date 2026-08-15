@@ -603,16 +603,20 @@ function ItemEditPageInner() {
                   Variantes
                 </TabsTrigger>
               )}
+              {/* "Producción" solo cuando hay receta que producir; el resto es
+                  "Componentes" — incluye al producto común, cuya composición
+                  son sus add-ons (antes decía "Producción" y adentro "este
+                  tipo no tiene ingredientes"). */}
               <TabsTrigger value="produccion" className="gap-1.5" disabled={isNew}>
-                {kind === "combo_fijo" || kind === "combo_dinamico" || kind === "pack" ? (
-                  <>
-                    <Package2 className="size-3.5" />
-                    Componentes
-                  </>
-                ) : (
+                {kind === "produccion_directa" || kind === "produccion_previa" ? (
                   <>
                     <ChefHat className="size-3.5" />
                     Producción
+                  </>
+                ) : (
+                  <>
+                    <Package2 className="size-3.5" />
+                    Componentes
                   </>
                 )}
                 {tabsWithErrors.has("produccion") && <TabErrorDot />}
@@ -1111,16 +1115,9 @@ function PerfilTab({
         </Card>
       )}
 
-      {/* Add-ons (context/41): solo para artículos que se pueden vender
-          (itemCanSale=1 en KIND_META) y solo con el ítem ya guardado — los
-          grupos cuelgan de un itemId real (FK con ON DELETE CASCADE).
-          El combo dinámico NO va acá: sus grupos SON sus componentes, así que
-          se editan en la pestaña Componentes (ProduccionTab), igual que el
-          combo fijo edita los suyos. Tenerlos en Perfil dejaba esa pestaña
-          visible pero vacía (reporte del owner 2026-08-09). */}
-      {!isNew && kind !== "combo_dinamico" && KIND_META[kind].backend.itemCanSale === 1 && (
-        <AddonsSection itemId={itemId} />
-      )}
+      {/* Add-ons (context/41) NO van acá: son composición del artículo y viven
+          en la pestaña Componentes con la receta/componentes, para todo tipo
+          vendible (decisión del owner 2026-08-09, ver ProduccionTab). */}
     </div>
   )
 }
@@ -1861,68 +1858,68 @@ function ProduccionTab({
     return (
       <Card>
         <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Primero creá el artículo. Una vez guardado, podés agregar ingredientes
-          (compounds) y el procedimiento si el tipo lo requiere.
+          Primero creá el artículo. Una vez guardado, podés cargar acá de qué se
+          compone: receta, componentes del combo o grupos de add-ons, según el
+          tipo.
         </CardContent>
       </Card>
     )
   }
+
+  // Esta pestaña es LA composición del artículo, sea del tipo que sea: receta
+  // (producción), componentes (combo fijo), servicios (pack), y — para todo lo
+  // vendible — los grupos de add-ons. Decisión del owner (2026-08-09): la
+  // distinción entre "definición" y "extras opcionales" es de modelado, no
+  // algo que le sirva a quien edita la ficha; "de qué se compone y qué extras
+  // admite" es una sola pregunta y va en un solo lugar. Antes los add-ons
+  // vivían en Perfil y esta pestaña quedaba visible sin uso para un producto
+  // común. Los grupos cuelgan de un itemId real (FK ON DELETE CASCADE), por
+  // eso solo con el ítem ya guardado (isNew ya cortó arriba).
+  const canSale = KIND_META[kind].backend.itemCanSale === 1
+  // Un grupo de combo dinámico es una decisión obligatoria y única ("elegí 1
+  // hamburguesa"): arranca en min=1/max=1. El preset opcional del producto
+  // común obligaría a corregir cada grupo a mano.
+  const addons = canSale ? (
+    <AddonsSection
+      itemId={id}
+      newGroupPreset={kind === "combo_dinamico" ? { minSelect: 1, maxSelect: 1 } : undefined}
+    />
+  ) : null
 
   // Pack de servicios: usa PackComponentsEditor (tabla pack_component).
   if (kind === "pack") {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Servicios del pack</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-xs text-muted-foreground">
-            Agregá los servicios (o productos) que incluye este pack con la cantidad de
-            canjes disponibles. El cliente los consume desde el POS dentro del período
-            de vigencia configurado en Perfil.
-          </p>
-          <PackComponentsEditor itemId={id} />
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-6">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-semibold tracking-tight">Servicios del pack</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-xs text-muted-foreground">
+              Agregá los servicios (o productos) que incluye este pack con la cantidad de
+              canjes disponibles. El cliente los consume desde el POS dentro del período
+              de vigencia configurado en Perfil.
+            </p>
+            <PackComponentsEditor itemId={id} />
+          </CardContent>
+        </Card>
+        {addons}
+      </div>
     )
   }
 
-  // Combo dinámico: acá vivía `ComboGroupsEditor` (combo_group/combo_group_item),
-  // borrado en F5 (context/41). Los grupos de selección del combo son ahora los
-  // mismos add-ons que cualquier producto vendible — un combo dinámico "es un
-  // producto con grupos", sin maquinaria propia — y se editan en la sección
-  // "Add-ons" de la pestaña Perfil, que sí los vende (F3: revalidación
-  // server-side, líneas padre/hijo, stock por opción). Este branch queda solo
-  // para no caer en el copy genérico de abajo ("no tiene ingredientes"), que
-  // dejaría al dueño sin saber a dónde se fue su editor.
+  // Combo dinámico: sus grupos de selección SON sus componentes — no tiene
+  // receta propia (`ComboGroupsEditor` murió en F5 de context/41; un combo
+  // dinámico "es un producto con grupos", misma maquinaria que los add-ons).
   if (kind === "combo_dinamico") {
-    // Los grupos de selección SON los componentes del combo dinámico: cada
-    // grupo es una decisión que el cliente toma al armar el combo ("elegí 1
-    // hamburguesa"), con su mínimo, su máximo y el precio adicional de cada
-    // opción. Van acá y no en Perfil por paridad con el combo fijo, que edita
-    // sus componentes en esta misma pestaña. Un grupo de combo es una decisión
-    // obligatoria y única, así que arranca en min=1/max=1 — el preset opcional
-    // del producto común obligaría a corregir cada grupo a mano.
-    return <AddonsSection itemId={id} newGroupPreset={{ minSelect: 1, maxSelect: 1 }} />
-  }
-
-  if (!visibility.showCompounds) {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Este tipo de artículo no tiene ingredientes ni componentes. Si querés
-          agregar una receta o un combo, cambialo a un tipo &quot;Producción&quot;
-          o &quot;Combo&quot; en la pestaña Perfil.
-        </CardContent>
-      </Card>
-    )
+    return <div className="flex flex-col gap-6">{addons}</div>
   }
 
   // combo_fijo: usa el mismo CompoundsEditor (table parent → child + quantity)
   // pero con copy enfocado en la venta del combo, no en producción.
   if (kind === "combo_fijo") {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-6">
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-semibold tracking-tight">Componentes del combo</CardTitle>
@@ -1938,7 +1935,24 @@ function ProduccionTab({
           </CardContent>
         </Card>
         <ComboPricingCard pricing={comboPricing} />
+        {addons}
       </div>
+    )
+  }
+
+  // Sin receta ni componentes (producto común, servicio, etc.): la
+  // composición del artículo son sus add-ons, si es vendible. Si además no se
+  // vende, no hay nada que componer y se explica por qué.
+  if (!visibility.showCompounds) {
+    if (addons) return <div className="flex flex-col gap-6">{addons}</div>
+    return (
+      <Card>
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          Este tipo de artículo no se vende ni tiene ingredientes ni componentes.
+          Si querés agregar una receta o un combo, cambialo a un tipo
+          &quot;Producción&quot; o &quot;Combo&quot; en la pestaña Perfil.
+        </CardContent>
+      </Card>
     )
   }
 
@@ -1989,6 +2003,7 @@ function ProduccionTab({
           </Card>
         )}
       />
+      {addons}
     </div>
   )
 }
