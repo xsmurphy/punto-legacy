@@ -128,6 +128,22 @@ export interface TicketData {
    * valor best-effort del bloque `table_number` (ver blocks.ts).
    */
   orderDestination?: string
+  // ── Remisión (context/42) — resuelven los bloques `transfer_reason`/
+  // `transfer_origin`/`transfer_destination` (blocks.ts). Pobladas por
+  // `buildTicketDataFromStockTransfer` (traslado entre depósitos propios) y
+  // `buildTicketDataFromRemision` (venta/devolución a proveedor/consignación/
+  // exposición/compra) — los dos "orígenes" de datos de una nota de
+  // remisión, ver docblock de la mig 137. `null` en cualquier otro docType:
+  // el bloque queda en blanco, no es un dato "no disponible" sino "no
+  // aplica" para ese documento — el comercio decide si lo agrega a su
+  // plantilla de factura/comanda igual (owner: "es problema del cliente").
+  /** Label de `RemisionMotivo` (o "Transferencia entre depósitos" para stock_transfer). */
+  transferReason?: string | null
+  /** Sucursal [→ depósito] de origen del traslado. */
+  originLabel?: string | null
+  /** Sucursal [→ depósito] destino, o el contacto/nota libre cuando el
+   *  destino no es un outlet propio (ver `document_remision.destinationnote`). */
+  destinationLabel?: string | null
 }
 
 export interface TicketItem {
@@ -583,5 +599,147 @@ export function buildTicketDataFromTxDetail(
     total: tx.transactionTotal,
     payments,
     note: tx.transactionNote || undefined,
+  }
+}
+
+// ── Reconstrucción de TicketData para nota de remisión (context/42) ────────
+// Dos fuentes distintas, mismo docType "delivery" al imprimir:
+//   - stock_transfer: traslado entre depósitos/sucursales PROPIOS (ya movió
+//     stock de doble entrada, StockTransferService).
+//   - document_remision: venta/devolución a proveedor/consignación/
+//     exposición/compra — documental, no mueve stock (ver mig 137).
+// Ninguno de los dos trae precios: una remisión ampara TRASLADO, no venta —
+// TicketItem.unitPrice/total van en 0 a propósito (los bloques `item_price`/
+// `item_total`/`total` imprimirán "Gs. 0" si el comercio los agrega a su
+// plantilla de remisión; es su elección, no una restricción de acá).
+
+/** Shape mínimo de StockTransferDetail (hooks/use-stock-transfers.ts) que
+ *  este adapter necesita — no importa el hook para no acoplar este módulo. */
+export interface TicketableStockTransfer {
+  transfer: {
+    stockTransferId: string
+    docNumber: number | null
+    createdAt: string
+    note: string | null
+    fromOutletName: string
+    fromLocationName: string | null
+    toOutletName: string
+    toLocationName: string | null
+  }
+  items: Array<{ itemId: string; name: string; sku: string | null; qty: number }>
+}
+
+function locationJoin(outletName: string, locationName: string | null): string {
+  return locationName ? `${outletName} → ${locationName}` : outletName
+}
+
+export function buildTicketDataFromStockTransfer(
+  detail: TicketableStockTransfer,
+  companyName: string,
+): TicketData {
+  const { transfer, items } = detail
+  const ticketItems: TicketItem[] = items.map((i) => ({
+    name: i.name,
+    qty: i.qty,
+    unitPrice: 0,
+    discount: 0,
+    total: 0,
+    categoryId: null,
+    id: i.itemId,
+    uid: i.sku,
+    note: null,
+    tags: null,
+    taxId: null,
+    taxRate: null,
+    taxKind: null,
+    taxIncluded: null,
+    taxAmount: null,
+    taxNet: null,
+  }))
+
+  return {
+    companyName,
+    docType: "delivery",
+    documentNumber: transfer.docNumber !== null ? String(transfer.docNumber) : undefined,
+    transactionId: transfer.stockTransferId,
+    date: transfer.createdAt,
+    transferReason: "Transferencia entre sucursales/depósitos",
+    originLabel: locationJoin(transfer.fromOutletName, transfer.fromLocationName),
+    destinationLabel: locationJoin(transfer.toOutletName, transfer.toLocationName),
+    items: ticketItems,
+    subtotal: 0,
+    discount: 0,
+    taxTotal: 0,
+    total: 0,
+    payments: [],
+    note: transfer.note || undefined,
+  }
+}
+
+/** Shape mínimo de RemisionDetail (hooks/use-remisiones.ts) que este adapter
+ *  necesita — no importa el hook para no acoplar este módulo. */
+export interface TicketableRemision {
+  remision: {
+    remisionId: string
+    docNumber: number | null
+    motivo: string
+    motivoLabel: string
+    transferDate: string
+    note: string | null
+    outletName: string
+    locationName: string | null
+    destinationContactName: string | null
+    destinationNote: string | null
+  }
+  items: Array<{ itemId: string; name: string; sku: string | null; qty: number; note: string | null }>
+}
+
+/** Destino: contacto (cliente/proveedor) y/o nota libre — los dos pueden
+ *  coexistir (ej. "Cliente X" + "Entregar en depósito de Ruta 2"). */
+function remisionDestinationLabel(r: TicketableRemision["remision"]): string | null {
+  const parts = [r.destinationContactName, r.destinationNote].filter((s): s is string => !!s && s.trim() !== "")
+  return parts.length > 0 ? parts.join(" — ") : null
+}
+
+export function buildTicketDataFromRemision(
+  detail: TicketableRemision,
+  companyName: string,
+): TicketData {
+  const { remision, items } = detail
+  const ticketItems: TicketItem[] = items.map((i) => ({
+    name: i.name,
+    qty: i.qty,
+    unitPrice: 0,
+    discount: 0,
+    total: 0,
+    categoryId: null,
+    id: i.itemId,
+    uid: i.sku,
+    note: i.note,
+    tags: null,
+    taxId: null,
+    taxRate: null,
+    taxKind: null,
+    taxIncluded: null,
+    taxAmount: null,
+    taxNet: null,
+  }))
+
+  return {
+    companyName,
+    docType: "delivery",
+    documentNumber: remision.docNumber !== null ? String(remision.docNumber) : undefined,
+    transactionId: remision.remisionId,
+    date: remision.transferDate,
+    transferReason: remision.motivoLabel,
+    originLabel: locationJoin(remision.outletName, remision.locationName),
+    destinationLabel: remisionDestinationLabel(remision),
+    items: ticketItems,
+    subtotal: 0,
+    discount: 0,
+    taxTotal: 0,
+    total: 0,
+    payments: [],
+    note: remision.note || undefined,
   }
 }

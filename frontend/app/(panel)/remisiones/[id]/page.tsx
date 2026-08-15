@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, ArrowLeftRight, Printer, XCircle, Loader2 } from "lucide-react"
+import { ArrowLeft, Printer, XCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -29,15 +29,10 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
-import { useStockTransfer, useCancelStockTransfer } from "@/hooks/use-stock-transfers"
+import { useRemision, useCancelRemision, REMISION_MOTIVO_LABELS } from "@/hooks/use-remisiones"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
-import { buildTicketDataFromStockTransfer } from "@/lib/hardware/printers/build-ticket-data"
-import { formatMoney as _formatMoney } from "@/lib/format"
-
-function formatMoney(v: number): string {
-  return _formatMoney(v, undefined)
-}
+import { buildTicketDataFromRemision } from "@/lib/hardware/printers/build-ticket-data"
 
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return "—"
@@ -56,7 +51,7 @@ function outletLabel(outletName: string, locationName: string | null | undefined
 
 const STATUS_LABEL: Record<number, string> = {
   0: "Cancelada",
-  1: "Completada",
+  1: "Activa",
 }
 
 const STATUS_VARIANT: Record<number, "default" | "secondary" | "destructive" | "outline"> = {
@@ -64,14 +59,14 @@ const STATUS_VARIANT: Record<number, "default" | "secondary" | "destructive" | "
   1: "default",
 }
 
-export default function StockTransferDetailPage() {
+export default function RemisionDetailPage() {
   const params = useParams<{ id: string }>()
   const router = useRouter()
   const id     = params.id
 
-  const { data, isLoading } = useStockTransfer(id)
-  const { data: bootstrap } = useBootstrap()
-  const cancel               = useCancelStockTransfer()
+  const { data, isLoading } = useRemision(id)
+  const { data: bootstrap }  = useBootstrap()
+  const cancel                = useCancelRemision()
   const [printing, setPrinting] = React.useState(false)
 
   if (isLoading) {
@@ -87,7 +82,7 @@ export default function StockTransferDetailPage() {
   if (!data) {
     return (
       <div className="flex flex-col gap-4">
-        <p className="text-muted-foreground">Transferencia no encontrada.</p>
+        <p className="text-muted-foreground">Remisión no encontrada.</p>
         <Button variant="ghost" className="w-fit" onClick={() => router.back()}>
           <ArrowLeft className="mr-2 h-4 w-4" />
           Volver
@@ -96,31 +91,34 @@ export default function StockTransferDetailPage() {
     )
   }
 
-  const { transfer, items } = data
-  const isCompleted = transfer.status === 1
+  const { remision, items } = data
+  const isActive = remision.status === 1
+  const destination = [remision.destinationContactName, remision.destinationNote]
+    .filter((s): s is string => !!s && s.trim() !== "")
+    .join(" — ") || "—"
 
-  async function handleCancel() {
-    try {
-      await cancel.mutateAsync({ id })
-      toast.success("Transferencia cancelada. Los movimientos de stock fueron revertidos.")
-      router.refresh()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al cancelar")
-    }
-  }
-
-  // Reporte de transferencias con formato de Nota de Remisión (pedido owner,
-  // context/_feature-requests.md 2026-07-31) — mismo docType "delivery" y
-  // mismo motor de impresión que RemisiónDetailPage, ver context/42.
   async function handlePrint() {
     setPrinting(true)
     try {
-      const ticketData = buildTicketDataFromStockTransfer(data!, bootstrap?.companyName ?? "")
+      const ticketData = buildTicketDataFromRemision(
+        { remision: { ...data!.remision, motivoLabel: REMISION_MOTIVO_LABELS[remision.motivo] ?? remision.motivo }, items: data!.items },
+        bootstrap?.companyName ?? "",
+      )
       await printTicketInBrowser({ docType: "delivery", data: ticketData })
     } catch {
       toast.error("No se pudo imprimir")
     } finally {
       setPrinting(false)
+    }
+  }
+
+  async function handleCancel() {
+    try {
+      await cancel.mutateAsync({ id })
+      toast.success("Remisión cancelada")
+      router.refresh()
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al cancelar")
     }
   }
 
@@ -132,16 +130,20 @@ export default function StockTransferDetailPage() {
             <Button variant="ghost" size="icon" onClick={() => router.back()}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
-            <h1 className="text-2xl font-semibold">Transferencia de stock</h1>
-            <Badge variant={STATUS_VARIANT[transfer.status]}>
-              {STATUS_LABEL[transfer.status] ?? "Desconocido"}
+            <h1 className="text-2xl font-semibold">
+              Remisión {remision.docNumber !== null ? `Nº ${remision.docNumber}` : ""}
+            </h1>
+            <Badge variant={STATUS_VARIANT[remision.status]}>
+              {STATUS_LABEL[remision.status] ?? "Desconocido"}
             </Badge>
           </div>
           <div className="pl-10 text-sm text-muted-foreground space-y-0.5">
-            <p>Creada: {formatDate(transfer.createdAt)} por {transfer.createdByName ?? transfer.createdBy}</p>
-            <p>Origen: <span className="font-medium text-foreground">{outletLabel(transfer.fromOutletName, transfer.fromLocationName)}</span></p>
-            <p>Destino: <span className="font-medium text-foreground">{outletLabel(transfer.toOutletName, transfer.toLocationName)}</span></p>
-            {transfer.note && <p>Nota: {transfer.note}</p>}
+            <p>Motivo: <span className="font-medium text-foreground">{REMISION_MOTIVO_LABELS[remision.motivo] ?? remision.motivo}</span></p>
+            <p>Fecha de traslado: {formatDate(remision.transferDate)}</p>
+            <p>Origen: <span className="font-medium text-foreground">{outletLabel(remision.outletName, remision.locationName)}</span></p>
+            <p>Destino: <span className="font-medium text-foreground">{destination}</span></p>
+            <p>Creada por {remision.createdByName ?? remision.createdBy}</p>
+            {remision.note && <p>Nota: {remision.note}</p>}
           </div>
         </div>
 
@@ -150,21 +152,20 @@ export default function StockTransferDetailPage() {
             {printing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
             Imprimir
           </Button>
-          {isCompleted && (
+          {isActive && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm">
                   <XCircle className="mr-2 h-4 w-4" />
-                  Cancelar transferencia
+                  Cancelar remisión
                 </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Cancelar transferencia</AlertDialogTitle>
+                  <AlertDialogTitle>Cancelar remisión</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Esta acción genera movimientos de reversa en el ledger de stock y puede resultar
-                    en stock negativo si el inventario ya fue utilizado. Los movimientos quedan
-                    registrados para auditoría.
+                    Esta remisión no movió stock (el motivo la deja documental), así que cancelarla
+                    solo marca el documento como anulado — no hay movimientos que revertir.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -184,9 +185,9 @@ export default function StockTransferDetailPage() {
         </div>
       </header>
 
-      {transfer.status === 0 && (
+      {remision.status === 0 && (
         <Alert variant="destructive">
-          <AlertDescription>Esta transferencia fue cancelada. Los movimientos de stock fueron revertidos.</AlertDescription>
+          <AlertDescription>Esta remisión fue cancelada.</AlertDescription>
         </Alert>
       )}
 
@@ -197,25 +198,23 @@ export default function StockTransferDetailPage() {
               <TableHead>Artículo</TableHead>
               <TableHead>SKU</TableHead>
               <TableHead className="text-right">Cantidad</TableHead>
-              <TableHead className="text-right">Costo unitario (snapshot)</TableHead>
-              <TableHead className="text-right">Valor transferido</TableHead>
+              <TableHead>Nota</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {items.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={4} className="text-center text-muted-foreground py-8">
                   Sin artículos registrados
                 </TableCell>
               </TableRow>
             )}
             {items.map((item) => (
-              <TableRow key={item.stockTransferItemId}>
+              <TableRow key={item.remisionItemId}>
                 <TableCell className="font-medium">{item.name}</TableCell>
                 <TableCell className="text-muted-foreground">{item.sku ?? "—"}</TableCell>
                 <TableCell className="text-right">{item.qty}</TableCell>
-                <TableCell className="text-right">{formatMoney(item.unitCost)}</TableCell>
-                <TableCell className="text-right">{formatMoney(item.qty * item.unitCost)}</TableCell>
+                <TableCell className="text-muted-foreground">{item.note ?? "—"}</TableCell>
               </TableRow>
             ))}
           </TableBody>

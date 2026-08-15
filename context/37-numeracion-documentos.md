@@ -11,6 +11,7 @@
 > | Cotización | register | `allocate` en la TX de la cotización | F2 |
 > | Orden (pedido) | outlet | `allocate` en la TX del create | F2 |
 > | Producción · Merma · Transferencia · Conteo | outlet | `allocate` | F3 |
+> | Remisión (`document_remision`) | outlet | `allocate` | mig 137, ver `context/42` |
 >
 > Migraciones: **117** (tabla + seed), **127** (re-seed de factura/cotización
 > antes del cutover de F2), **129** (columnas + backfill de los documentos de
@@ -151,6 +152,13 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
 - **D2 — Scope por documento.** CERRADA salvo el financiero:
   - Fiscales (factura, NC, ND, remisión, recibo) → `register` (punto de expedición)
   - Orden → `outlet`
+  - ⚠ **Remisión implementada con scope `outlet`, no `register`** —
+    ver `context/42-remision.md` §"Numeración". Esta nota se escribió
+    prospectivamente (F5, sin ver los motivos reales); al implementarla se
+    encontró que la mayoría de los motivos de traslado (compra, devolución a
+    proveedor, consignación, exposición) se emiten desde panel/backoffice
+    sin caja de por medio, así que `register` los habría dejado sin
+    secuencia. Revisar si SIFEN exige punto de expedición antes de migrar.
   - Stock (producción, transferencia, conteo, merma) → `outlet`
   - Movimiento financiero → `register` (pedido del owner) — **bloqueado, ver D6**
   - Compra / gasto recibido → `outlet`
@@ -214,8 +222,11 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
   **Falta el aviso anticipado**, y depende de D5: hoy el corte es duro y sin
   preaviso, así que la caja se entera de que se quedó sin timbrado justo cuando
   intenta cobrar.
-- **F5** — documentos que todavía no existen: NC, ND, remisión, comprobante
-  interno, recibo. Acopladas al pedido de anulaciones/devoluciones del tester.
+- **F5** — documentos que todavía no existen: NC, ND, comprobante interno,
+  recibo. **Remisión salió de este grupo** — implementada aparte (mig 137,
+  `context/42-remision.md`, 2026-08-15) con scope `outlet` en vez del
+  `register` que D2 proponía, ver nota arriba. Las que quedan siguen
+  acopladas al pedido de anulaciones/devoluciones del tester.
   Leer antes el ítem del roadmap 2026-07-29: tiene el caso de negocio del
   Comprobante y señala que hoy la venta interna **quema numeración fiscal**
   (el flag ya persiste desde mig 118, pero el documento propio no existe).

@@ -32,6 +32,7 @@ import {
   Wallet,
   Banknote,
   Landmark,
+  Route,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -75,6 +76,12 @@ const panelNav: NavEntry[] = [
       { title: "Inventario", to: "/inventory-count", icon: Boxes, requires: "inventory.stock.adjust" },
       { title: "Ajustes de stock", to: "/stock-adjustment", icon: ClipboardEdit, requires: "inventory.stock.adjust" },
       { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight, requires: "inventory.transfer" },
+      // Remisión (context/42) — cubre motivos que NO son traslado entre
+      // depósitos propios (ese es "Transferencias" arriba): venta,
+      // devolución a proveedor, consignación, exposición, compra. Mismo
+      // permiso que Transferencias — es el mismo dominio de traslado de
+      // mercadería, no hay una permission key dedicada todavía.
+      { title: "Remisiones", to: "/remisiones", icon: Route, requires: "inventory.transfer" },
       { title: "Producción", to: "/produccion", icon: Factory, requires: "production.manage" },
     ],
   },
