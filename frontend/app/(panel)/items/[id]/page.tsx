@@ -1113,19 +1113,13 @@ function PerfilTab({
 
       {/* Add-ons (context/41): solo para artículos que se pueden vender
           (itemCanSale=1 en KIND_META) y solo con el ítem ya guardado — los
-          grupos cuelgan de un itemId real (FK con ON DELETE CASCADE). */}
-      {!isNew && KIND_META[kind].backend.itemCanSale === 1 && (
-        <AddonsSection
-          itemId={itemId}
-          // Combo dinámico (F5): sus grupos SON esta sección desde que se
-          // retiró ComboGroupsEditor. Un grupo de combo es una decisión
-          // obligatoria y única ("elegí 1 hamburguesa"), así que arranca en
-          // min=1/max=1 — el preset opcional del producto común obligaría a
-          // corregir cada grupo a mano.
-          newGroupPreset={
-            kind === "combo_dinamico" ? { minSelect: 1, maxSelect: 1 } : undefined
-          }
-        />
+          grupos cuelgan de un itemId real (FK con ON DELETE CASCADE).
+          El combo dinámico NO va acá: sus grupos SON sus componentes, así que
+          se editan en la pestaña Componentes (ProduccionTab), igual que el
+          combo fijo edita los suyos. Tenerlos en Perfil dejaba esa pestaña
+          visible pero vacía (reporte del owner 2026-08-09). */}
+      {!isNew && kind !== "combo_dinamico" && KIND_META[kind].backend.itemCanSale === 1 && (
+        <AddonsSection itemId={itemId} />
       )}
     </div>
   )
@@ -1902,17 +1896,14 @@ function ProduccionTab({
   // para no caer en el copy genérico de abajo ("no tiene ingredientes"), que
   // dejaría al dueño sin saber a dónde se fue su editor.
   if (kind === "combo_dinamico") {
-    return (
-      <Card>
-        <CardContent className="p-8 text-center text-sm text-muted-foreground">
-          Los grupos de selección de este combo se configuran en la sección
-          <strong> Add-ons</strong> de la pestaña <strong>Perfil</strong>. Cada
-          grupo es una decisión que el cliente toma al armar el combo (ej:{" "}
-          <em>elegí 1 hamburguesa</em>), con su mínimo, su máximo y el precio
-          adicional de cada opción.
-        </CardContent>
-      </Card>
-    )
+    // Los grupos de selección SON los componentes del combo dinámico: cada
+    // grupo es una decisión que el cliente toma al armar el combo ("elegí 1
+    // hamburguesa"), con su mínimo, su máximo y el precio adicional de cada
+    // opción. Van acá y no en Perfil por paridad con el combo fijo, que edita
+    // sus componentes en esta misma pestaña. Un grupo de combo es una decisión
+    // obligatoria y única, así que arranca en min=1/max=1 — el preset opcional
+    // del producto común obligaría a corregir cada grupo a mano.
+    return <AddonsSection itemId={id} newGroupPreset={{ minSelect: 1, maxSelect: 1 }} />
   }
 
   if (!visibility.showCompounds) {
