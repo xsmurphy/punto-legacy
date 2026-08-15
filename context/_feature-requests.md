@@ -303,13 +303,13 @@ anteriores. Varios items pueden estar ya resueltos en el sprint del 2026-06-23
 Auditado contra el código el 2026-07-30.
 
 ### Bugs P0
-- **Guardar venta falla** — toast "No se pudo guardar la venta" al confirmar. Posible nuevo bug del sprint retail (similar a los boolean-vs-int de hoy). Investigar logs prod. (sigue abierto — P0 de junio, necesita logs de prod)
+- **Guardar venta falla** — toast "No se pudo guardar la venta" al confirmar. — CERRADO (owner confirmó 2026-08-09 que hace tiempo no ocurre)
 
 ### Numpad / cantidades
 - **Primer keystroke = reemplazo**, no append. Hoy: abre con `5`, presiono `3` → muestra `53`. Esperado: `3`. — CERRADO (`frontend/components/pos/numeric-pad.tsx:51-79`, `isFirstRef`)
-- **Numpad virtual cierra modal** al presionar — bug. (sigue abierto — necesita repro táctil)
+- **Numpad virtual cierra modal** al presionar — bug. — CERRADO (owner confirmó 2026-08-09; el fix es `4c0158d0`, `hooks/use-outside-pointerdown.ts`)
 - **Softkeyboards visibles solo si el operador los activa en Ajustes** — útiles solo en pantallas touch; default OFF. — CERRADO (`frontend/lib/ui/store.ts:74`)
-- **SHIFT togglea entero ↔ decimales (3 decimales)** para cantidades — gramos, comida por peso, etc. (Ya estaba pedido en el primer batch; reconfirmar que funcione en runtime, la auditoría dijo ✓ pero el owner dice que algo está mal.)
+- **SHIFT togglea entero ↔ decimales (3 decimales)** para cantidades — gramos, comida por peso, etc. — CERRADO (owner confirmó 2026-08-09)
 
 ### Inconsistencia de diseño POS
 - **Modal "Agregar usuario" tiene dos UI distintas** según desde dónde se abra:
