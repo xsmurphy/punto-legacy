@@ -39,6 +39,13 @@ export interface ParkedSale {
 // después `title`/`customer`) — el próximo campo faltante iba a volver a
 // tumbar la página. Normalizamos ACÁ, una sola vez, para que el resto de la
 // app pueda confiar en el shape de `ParkedSale.data` sin `?.` disperso.
+//
+// OJO: el map de abajo es una WHITELIST, no un spread — todo campo de
+// `CartLine` que NO esté enumerado se descarta en silencio al retomar, y TS no
+// avisa (sobran propiedades, no faltan). Campo nuevo en `CartLine` ⇒ rama nueva
+// acá. Los cinco que faltaban (`basePrice`, `priceOverridden`, `taxId`,
+// `taxIncluded`, `voucher`) tocaban plata del carrito; ver los comentarios en
+// cada rama.
 /**
  * Add-ons guardados en una línea aparcada. `undefined` si no hay ninguno
  * válido, para que la línea quede idéntica a una sin add-ons (la clave de
@@ -60,6 +67,34 @@ function normalizeSelections(raw: unknown): CartLine["selections"] {
   return out.length > 0 ? out : undefined
 }
 
+/**
+ * Metadata de CANJE de vale de una línea aparcada (context/36). Se exige que
+ * `voucherId` Y `code` sean strings no vacíos: una línea con `voucher`
+ * incompleto no se puede quitar con `removeVoucher()` (busca por voucherId),
+ * así que preferimos degradarla a línea normal antes que dejar una cobertura
+ * imposible de deshacer.
+ */
+function normalizeVoucher(raw: unknown): CartLine["voucher"] {
+  if (!raw || typeof raw !== "object") return undefined
+  const v = raw as Record<string, unknown>
+  if (typeof v.voucherId !== "string" || v.voucherId === "") return undefined
+  if (typeof v.code !== "string" || v.code === "") return undefined
+  return { voucherId: v.voucherId, code: v.code }
+}
+
+/**
+ * Campo tri-estado `T | null | undefined` de la línea: se preserva el `null`
+ * explícito (que en `taxId`/`taxIncluded` significa "sin impuesto" / "sin
+ * override", no "dato faltante"). Cualquier otro tipo cae a `undefined`.
+ */
+function normalizeNullable<T>(raw: unknown, is: (x: unknown) => x is T): T | null | undefined {
+  if (raw === null) return null
+  return is(raw) ? raw : undefined
+}
+
+const isString = (x: unknown): x is string => typeof x === "string"
+const isBoolean = (x: unknown): x is boolean => typeof x === "boolean"
+
 function normalizeParkedSaleData(raw: unknown): ParkedSaleData {
   const d = (raw ?? {}) as Record<string, unknown>
   const rawCart: unknown[] = Array.isArray(d.cart) ? d.cart : []
@@ -71,11 +106,33 @@ function normalizeParkedSaleData(raw: unknown): ParkedSaleData {
       name: typeof l.name === "string" ? l.name : "(sin nombre)",
       qty: typeof l.qty === "number" && Number.isFinite(l.qty) ? l.qty : 0,
       unitPrice: typeof l.unitPrice === "number" && Number.isFinite(l.unitPrice) ? l.unitPrice : 0,
+      // Precio PELADO de catálogo (sin recargos de add-ons). Perderlo no era
+      // cosmético: `applyResolvedPrices` re-fija la base desde `unitPrice`
+      // cuando la línea llega sin ella, así que una venta retomada tomaba como
+      // base un precio YA resuelto y cada ciclo de `usePriceContext` le volvía
+      // a aplicar el ajuste de la lista (mismo bucle de realimentación que
+      // documenta store.ts:1076 — 60.000 caían a ~168).
+      basePrice:
+        typeof l.basePrice === "number" && Number.isFinite(l.basePrice) ? l.basePrice : undefined,
+      // Override manual del cajero. Sin este flag, la resolución automática de
+      // precios pisa un precio que el cajero fijó a mano.
+      priceOverridden: typeof l.priceOverridden === "boolean" ? l.priceOverridden : undefined,
       note: typeof l.note === "string" ? l.note : undefined,
       sellerId: typeof l.sellerId === "string" ? l.sellerId : undefined,
       discount: typeof l.discount === "number" ? l.discount : undefined,
       tags: Array.isArray(l.tags) ? (l.tags as string[]) : undefined,
       giftcard: (l.giftcard && typeof l.giftcard === "object" ? l.giftcard : undefined) as CartLine["giftcard"],
+      // Canje de vale (context/36). Perderlo convertía la línea cubierta por
+      // el vale en una línea normal: `lineSubtotal` devuelve 0 SOLO si hay
+      // `voucher`, así que retomar cobraba de nuevo algo ya pagado al emitir
+      // el vale, y la línea entraba en el prorrateo del descuento de venta.
+      voucher: normalizeVoucher(l.voucher),
+      // Impuesto congelado al agregar (F2b, context/38). `selectCartIva` busca
+      // la tasa por `taxId`; sin él trata la línea como EXENTA — retomar
+      // cambiaba el IVA informativo del ticket. El `null` explícito se
+      // preserva: es "sin impuesto", distinto de "el dato no vino".
+      taxId: normalizeNullable(l.taxId, isString),
+      taxIncluded: normalizeNullable(l.taxIncluded, isBoolean),
       // Add-ons de la línea (F4, context/41). Este normalizador es una
       // WHITELIST: sin esta rama, retomar una venta aparcada devolvía la línea
       // con el precio de los add-ons ya sumado en `unitPrice` pero SIN las
