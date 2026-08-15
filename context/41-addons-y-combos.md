@@ -1,7 +1,11 @@
 # 41 — Add-ons y combos
 
-> Estado: **plan cerrado** (2026-08-14). D1–D3 decididas por el owner. Listo
-> para ejecutar por fases. Nada implementado.
+> Estado (2026-08-14): **F1–F5 implementadas y en main.** Falta F6 (reportes)
+> y dos gaps que F5 destapó (abajo, "Gaps abiertos"). D1–D3 cerradas.
+>
+> Commits: F1 `59737f80` · F2 `c592e899` · F3 `1da91b40` · F4 `f71496f6` ·
+> F5 `79e97e71` (merge `5dc7e6b3`). Migs **134** (tablas) y **136** (migra
+> `combo_group` → add-ons; la 135 es de otra sesión).
 
 ## Pedido del owner (2026-08-14)
 
@@ -24,7 +28,7 @@
 | Venta de combo | El POS lo agrega como ítem plano; `SaleService` explota la receta recursivamente para stock (explodeRecipe, 2026-08-11). Sin UI de selección. |
 | `itemSold.itemsoldparent` | Columna YA existe — soporte de líneas padre/hijo sin migración. |
 | `toCompound` + `CompoundService` | **Deprecados** (F0 producción). El legacy tenía flags `preselected` — la idea de "fijo" ya existió. NO revivir. |
-| Add-ons | No existe nada: ni tablas, ni UI, ni referencias vivas. |
+| Add-ons | (Al inicio) no existía nada. Hoy: F1–F5 completas. |
 
 ## Modelo propuesto
 
@@ -134,17 +138,43 @@ de copiar, cada producto edita lo suyo sin efecto dominó.
   priceDelta=0 van a cocina siempre pero no al ticket fiscal. La impresión de
   cocina y la fiscal divergen por diseño.
 
+## Gaps abiertos (destapados en F5, no bloquean el uso)
+
+- **Comanda de cocina sin add-ons.** Existe builder de comanda
+  (`frontend/lib/orders/print-comandas.ts`) pero arma desde `Order.items`
+  (`pos_order_item`), que NO lleva líneas hijas: F3 solo tocó `SaleService`
+  (venta directa), no el flujo de órdenes. La regla D3 del ticket FISCAL está
+  viva; la de cocina ("lista todo") queda cableada (`includeFreeAddons`,
+  `ticketItemName()`) pero sin datos que mostrar hasta que la ORDEN persista
+  add-ons. Es trabajo del módulo de órdenes, no de este plan — pero es el caso
+  de uso principal de los add-ons en gastronomía, así que va primero en la cola.
+- **Detalle de transacción del panel sin padre/hijo.** `TxDetailFull` no expone
+  `meta.addon`, así que `buildTicketDataFromTxDetail` (reimpresión desde el
+  panel) no puede indentar hijas ni aplicar D3. Se resuelve en context/39
+  (detalle de transacción) exponiendo el meta por línea.
+
 ## Fases
 
-- **F1** — Migs (3 tablas) + `AddonService` (CRUD + validador de selecciones).
-- **F2** — Panel: sección "Add-ons" en la ficha del producto (grupos propios,
+- **F1 — HECHA** — Migs (3 tablas) + `AddonService` (CRUD + validador de selecciones).
+- **F2 — HECHA** — Panel: sección "Add-ons" en la ficha del producto (grupos propios,
   D1) + acción "copiar grupos desde otro producto".
-- **F3** — Venta: `SaleInput.selections`, revalidación server-side, líneas
+- **F3 — HECHA** — Venta: `SaleInput.selections`, revalidación server-side, líneas
   padre/hijo, stock por selección. SIN UI todavía — testeable por API.
-- **F4** — POS: modal de selección + carrito expandible + teclado.
-- **F5** — Combo fijo: descuento visible en ficha/ticket; combo dinámico
+- **F4 — HECHA** — POS: modal de selección + carrito expandible + teclado.
+- **F5 — HECHA** — Combo fijo: descuento visible en ficha/ticket; combo dinámico
   migrado al mecanismo de grupos; impresión: cocina lista todo, ticket fiscal
   solo add-ons con precio (D3).
+  Detalles de la mig 136 que importan si se re-corre o se audita: grupos con el
+  mismo nombre en un ítem se FUSIONAN (no se descarta uno — el reviewer propuso
+  DISTINCT ON y habría perdido opciones), heredando todas las opciones y, en
+  duplicados, el `priceDelta` mayor; `extraPrice`/`isPreselected` del legacy se
+  preservan como `priceDelta`/`isDefault` (son lo mismo, D2); los grupos por
+  CATEGORÍA se expandieron a las opciones = ítems activos de la categoría al
+  momento de migrar, leyendo `item_category` Y el legacy `item.categoryId`
+  (solo m2m perdía ítems); `maxSelection=0` se elevó a 1 por el CHECK de la
+  134. `combo_group`/`combo_group_item` siguen existiendo (deprecadas, sin
+  drop) y `ComboGroupService` + el sub-recurso `combo-groups` responden pero
+  con `@deprecated`. El editor viejo se borró.
 - **F6** — Reportes: ventas por add-on (qué opciones salen más), respetando
   líneas padre/hijo en los rollups.
 
