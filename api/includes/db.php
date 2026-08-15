@@ -26,7 +26,14 @@ if (file_exists($envFile)) {
             }
         }
 
-        $_ENV[$m[1]] = $value;
+        // No pisar env vars ya presentes (mismo criterio que
+        // api/database/migrate.php): un caller que exporta POSTGRES_HOST/PORT
+        // antes de invocar PHP (ej. api/lib/Sales/verify_chain/run.sh, que
+        // apunta a un Postgres descartable en Docker) tiene que ganarle al
+        // .env del repo, no al revés.
+        if (!isset($_ENV[$m[1]])) {
+            $_ENV[$m[1]] = $value;
+        }
     }
 }
 
