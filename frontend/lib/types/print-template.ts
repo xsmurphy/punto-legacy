@@ -110,6 +110,14 @@ export type BlockType =
   // rename del impuesto; si guardara `rate` una plantilla vieja seguiría
   // apuntando a un valor que el comercio pudo borrar/reemplazar.
   | "item_total_by_rate" | "subtotal_by_rate" | "iva_by_rate" | "iva_total"
+  // Remisión (context/42): motivo/origen/destino del traslado. Resuelven
+  // TicketData.transferReason/originLabel/destinationLabel — null en
+  // cualquier docType que no los pueble (build-ticket-data.ts), el bloque
+  // queda en blanco como cualquier otro sin dato. Disponibles en la paleta
+  // para TODO docType, sin gating — el comercio decide en qué plantilla los
+  // usa (criterio del owner 2026-08-15: el constructor de documentos no
+  // restringe qué bloque va en qué documento).
+  | "transfer_reason" | "transfer_origin" | "transfer_destination"
 
 export type TextAlign = "left" | "center" | "right"
 export type TextWrap = "cut" | "wrap"

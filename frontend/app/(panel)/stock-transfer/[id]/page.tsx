@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { useParams, useRouter } from "next/navigation"
-import { ArrowLeft, ArrowLeftRight, XCircle, Loader2 } from "lucide-react"
+import { ArrowLeft, ArrowLeftRight, Printer, XCircle, Loader2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,9 @@ import {
 } from "@/components/ui/table"
 
 import { useStockTransfer, useCancelStockTransfer } from "@/hooks/use-stock-transfers"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
+import { buildTicketDataFromStockTransfer } from "@/lib/hardware/printers/build-ticket-data"
 import { formatMoney as _formatMoney } from "@/lib/format"
 
 function formatMoney(v: number): string {
@@ -67,7 +70,9 @@ export default function StockTransferDetailPage() {
   const id     = params.id
 
   const { data, isLoading } = useStockTransfer(id)
-  const cancel              = useCancelStockTransfer()
+  const { data: bootstrap } = useBootstrap()
+  const cancel               = useCancelStockTransfer()
+  const [printing, setPrinting] = React.useState(false)
 
   if (isLoading) {
     return (
@@ -104,6 +109,21 @@ export default function StockTransferDetailPage() {
     }
   }
 
+  // Reporte de transferencias con formato de Nota de Remisión (pedido owner,
+  // context/_feature-requests.md 2026-07-31) — mismo docType "delivery" y
+  // mismo motor de impresión que RemisiónDetailPage, ver context/42.
+  async function handlePrint() {
+    setPrinting(true)
+    try {
+      const ticketData = buildTicketDataFromStockTransfer(data!, bootstrap?.companyName ?? "")
+      await printTicketInBrowser({ docType: "delivery", data: ticketData })
+    } catch {
+      toast.error("No se pudo imprimir")
+    } finally {
+      setPrinting(false)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -125,8 +145,12 @@ export default function StockTransferDetailPage() {
           </div>
         </div>
 
-        {isCompleted && (
-          <div className="pl-10 sm:pl-0">
+        <div className="flex items-center gap-2 pl-10 sm:pl-0">
+          <Button variant="outline" size="sm" onClick={handlePrint} disabled={printing}>
+            {printing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
+            Imprimir
+          </Button>
+          {isCompleted && (
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -156,8 +180,8 @@ export default function StockTransferDetailPage() {
                 </AlertDialogFooter>
               </AlertDialogContent>
             </AlertDialog>
-          </div>
-        )}
+          )}
+        </div>
       </header>
 
       {transfer.status === 0 && (

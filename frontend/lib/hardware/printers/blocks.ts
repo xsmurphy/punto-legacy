@@ -258,6 +258,13 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // electrónico — el bloque queda en blanco, como cualquier otro sin dato.
   fe_py: (data) => data.einvoiceUrl ?? null,
 
+  // Remisión (context/42) — poblados solo por buildTicketDataFromStockTransfer
+  // y buildTicketDataFromRemision (build-ticket-data.ts); null en cualquier
+  // otro origen de TicketData, igual que fe_py arriba.
+  transfer_reason: (data) => data.transferReason ?? null,
+  transfer_origin: (data) => data.originLabel ?? null,
+  transfer_destination: (data) => data.destinationLabel ?? null,
+
   // ── F3c (context/38 §D): bloques parametrizados por tasa ────────────────
   // El bloque guarda el `taxId` en `block.text` (ver comentario en
   // BlockType, print-template.ts). Los valores salen de sumar

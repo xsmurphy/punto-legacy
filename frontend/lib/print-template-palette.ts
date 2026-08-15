@@ -106,6 +106,14 @@ export const PALETTE: PaletteSection[] = [
       { type: "note", label: "Nota", defaultText: "Nota" },
       { type: "transaction_id", label: "ID de transacción", defaultText: "ID" },
       { type: "associated_document", label: "Documento Asociado", defaultText: "######" },
+      // Remisión (context/42) — disponibles para cualquier documento, no
+      // solo "delivery": es el comercio quien decide en qué plantilla los
+      // usa (owner 2026-08-15). Sin dato en documentos que no son un
+      // traslado (venta/factura/comanda/etc.), igual que cualquier otro
+      // bloque con hueco de dato — se imprimen en blanco, no es un error.
+      { type: "transfer_reason", label: "Motivo de Traslado", defaultText: "Motivo de Traslado" },
+      { type: "transfer_origin", label: "Origen del Traslado", defaultText: "Origen" },
+      { type: "transfer_destination", label: "Destino del Traslado", defaultText: "Destino" },
     ],
   },
   {
