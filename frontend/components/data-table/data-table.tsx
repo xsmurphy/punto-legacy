@@ -580,31 +580,55 @@ function columnLabel(colDef: ColumnDef<unknown, unknown>): string {
  *   - Filtros activos (table.getFilteredRowModel())
  *   - Columnas visibles (excluye 'actions')
  *   - Headers como string (o meta.label si el header no es string)
- * Lazy-import de exceljs para no inflar el bundle inicial.
+ * Delega en `exportRowsToXlsx` (core reusable) — acá solo arma columnas/filas
+ * desde el row model de TanStack Table.
  */
 async function exportToXlsx<T>(
   rows: { getValue(id: string): unknown; original: T }[],
   cols: Array<{ id: string; columnDef: ColumnDef<T, unknown> }>,
   fileName: string,
 ) {
+  const columns = cols.map((c) => ({
+    key: c.id,
+    header: columnLabel(c.columnDef as ColumnDef<unknown, unknown>),
+  }))
+  const plainRows = rows.map((row) => {
+    const obj: Record<string, unknown> = {}
+    for (const c of cols) {
+      obj[c.id] = formatCellForExport(row.getValue(c.id))
+    }
+    return obj
+  })
+  await exportRowsToXlsx(plainRows, columns, fileName)
+}
+
+/**
+ * Core reusable de export a XLSX (exceljs, lazy-import para no inflar el
+ * bundle inicial). Recibe filas y columnas YA resueltas — sin depender de un
+ * `Table` de TanStack — para que reportes con layout FIJO (ej. RG90/Libro
+ * Ventas, context/38-impuestos-multi-pais.md §F5: 20 columnas en un orden
+ * exacto que exige Marangatu, con datos que no viven en ninguna tabla en
+ * pantalla) puedan reusar el mismo mecanismo de export sin duplicar la
+ * llamada a exceljs ni el trigger de descarga.
+ */
+export async function exportRowsToXlsx(
+  rows: Array<Record<string, unknown>>,
+  columns: Array<{ key: string; header: string; width?: number }>,
+  fileName: string,
+) {
   const { default: ExcelJS } = await import("exceljs")
   const wb = new ExcelJS.Workbook()
   const ws = wb.addWorksheet("Datos")
 
-  ws.columns = cols.map((c) => ({
-    header: columnLabel(c.columnDef as ColumnDef<unknown, unknown>),
-    key: c.id,
-    width: 22,
+  ws.columns = columns.map((c) => ({
+    header: c.header,
+    key: c.key,
+    width: c.width ?? 22,
   }))
   ws.getRow(1).font = { bold: true }
 
   for (const row of rows) {
-    const obj: Record<string, unknown> = {}
-    for (const c of cols) {
-      const value = row.getValue(c.id)
-      obj[c.id] = formatCellForExport(value)
-    }
-    ws.addRow(obj)
+    ws.addRow(row)
   }
 
   const buf = await wb.xlsx.writeBuffer()

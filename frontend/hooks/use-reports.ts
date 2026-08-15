@@ -599,6 +599,46 @@ export interface CobrosRow {
 }
 export interface CobrosReportResponse { rows: CobrosRow[] }
 
+// ── Fiscal PY (RG90 / Libro Ventas, F5 context/38 §E) ────────────────────────
+
+/**
+ * Fila cruda de `/v1/reports/fiscal?dataset=rg90|libro-ventas` — el backend
+ * ya devuelve las columnas con el HEADER exacto como key (RG90 debe importar
+ * a Marangatu con nombre/orden fijo, ver `FiscalService::rg90`), así el
+ * front solo arma la matriz de export, no vuelve a nombrar columnas.
+ */
+export type FiscalReportRow = Record<string, string | number>
+
+export interface FiscalReportResponse {
+  rows: FiscalReportRow[]
+  meta: {
+    /** Ventas en el rango con desglose fiscal válido, ya filtradas. */
+    totalCount: number
+    /** De esas, cuántas resolvieron por fallback (meta.transactionDetails
+     *  en vez de toTaxObj — típicamente ventas anteriores a la mig 124 con
+     *  el JSON truncado). Informativo, no bloquea el export. */
+    fallbackCount: number
+    /** Ventas del rango EXCLUIDAS por no tener desglose fiscal congelado
+     *  reconstruible (anteriores a F2a, D3 del plan) — no se inventó un
+     *  desglose para ellas. */
+    excludedCount: number
+    /** El backend cortó en 5000 filas (mismo cap que el resto de
+     *  /v1/reports) — para un documento que se declara ante el SET, un
+     *  rango con más ventas que eso queda INCOMPLETO. Achicar el rango. */
+    truncated: boolean
+  }
+}
+
+/** Fetch imperativo (no `useQuery` — se dispara on-demand desde el botón de export). */
+export async function fetchFiscalReport(
+  dataset: "rg90" | "libro-ventas",
+  from: string,
+  to: string,
+): Promise<FiscalReportResponse> {
+  const params = new URLSearchParams({ dataset, from, to })
+  return api.get<FiscalReportResponse>(`/v1/reports/fiscal?${params.toString()}`)
+}
+
 // ── Auditoría Tenant ──────────────────────────────────────────────────────────
 
 /** Fila del endpoint /v1/reports/audit. */

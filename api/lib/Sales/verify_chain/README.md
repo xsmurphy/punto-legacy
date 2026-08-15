@@ -44,6 +44,11 @@ seteados y no toca Docker.
 - Que los bloques de impresión (`item_total_by_rate`, `subtotal_by_rate`,
   `iva_by_rate`, `iva_total`, `item_tax`, `item_tax_amount`,
   `item_price_notax`) resuelvan los números correctos sobre la venta real.
+- F5 (context/38 §E): que `FiscalService::rg90()` genere, para el caso
+  multi-tasa, una fila que CIERRE (`gravado10 + gravado5 + exento == total
+  del comprobante`) y cuyos montos por tasa coincidan con el desglose
+  `toTaxObj` ya verificado en el paso 3 (`verifyRg90()` en
+  `run_sale_chain.php`).
 - Aislamiento multi-tenant: una línea que referencia el `itemId` real de
   OTRO tenant no puede heredar su tasa/precio.
 

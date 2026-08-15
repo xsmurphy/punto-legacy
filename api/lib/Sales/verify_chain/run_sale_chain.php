@@ -272,6 +272,17 @@ foreach ($cases as $case) {
     $sumItemSoldTotal = array_sum(array_map(static fn ($r) => (float) $r['itemsoldtotal'], $soldRows));
     assertEq('Σ(itemSold.itemSoldTotal) == transactionTotal', $case['expectedTotals']['gross'], $sumItemSoldTotal, $failures);
 
+    // ── 3b. RG90 (F5, context/38 §E): la fila que genera FiscalService para
+    //    ESTA venta tiene que cerrar (grav10+grav5+exento == total) y sus
+    //    montos por tasa tienen que coincidir con el desglose congelado que
+    //    el paso 3 ya validó — mismo criterio que el pedido del owner en la
+    //    tarea de F5 ("sumale un caso: generá el RG90 y verificá que cada
+    //    fila cierre"). Solo en el caso multi-tasa (10/5/0%-real/exenta
+    //    conviviendo) — es el que ejercita las 3 columnas de monto a la vez. ──
+    if ($case['id'] === 'py-multi-rate') {
+        verifyRg90($case, $companyId, $failures);
+    }
+
     // ── 4. Facturación electrónica (solo donde el caso lo pide) ─────────
     if (($case['checkEInvoice'] ?? 'skip') !== 'skip') {
         verifyEInvoice($case, $transId, $companyId, $failures);
@@ -405,6 +416,66 @@ function verifyEInvoice(array $case, string $transId, string $companyId, int &$f
             $db->Execute("UPDATE tax SET rate = 10 WHERE taxId = '3cf780bb-51d6-4b41-b52d-1e77bfb60969'");
         }
     }
+}
+
+/**
+ * Verifica `FiscalService::rg90()` (F5, context/38 §E) sobre la venta YA
+ * persistida por este caso: la fila del export tiene que CERRAR
+ * (gravado10 + gravado5 + exento == total del comprobante, D1 del plan) y
+ * sus montos por tasa tienen que salir del MISMO desglose congelado
+ * (`toTaxObj`) que el paso 3 ya verificó — no de un recálculo nuevo.
+ *
+ * Matchea la fila por 'MONTO TOTAL DEL COMPROBANTE' (único entre los casos
+ * del mismo tenant/día en este arnés) en vez de por transactionId — RG90 es
+ * un export de cara al SET, no expone IDs internos por diseño (mismo layout
+ * que consume Marangatu).
+ */
+function verifyRg90(array $case, string $companyId, int &$failures): void
+{
+    $roc  = \Punto\Api\Reports\Roc::build($companyId, '');
+    $from = date('Y-m-d 00:00:00');
+    $to   = date('Y-m-d 23:59:59');
+    $report = (new \Punto\Api\Reports\FiscalService())->rg90($from, $to, $roc, $companyId);
+
+    $expectedTotal = round((float) $case['expectedTotals']['gross'], 6);
+    $row = null;
+    foreach ($report['rows'] as $r) {
+        if (round((float) $r['MONTO TOTAL DEL COMPROBANTE'], 6) === $expectedTotal) {
+            $row = $r;
+            break;
+        }
+    }
+    if ($row === null) {
+        echo "  FAIL  RG90: no se encontró la fila de esta venta en el export ({$report['meta']['totalCount']} filas, {$report['meta']['excludedCount']} excluidas)\n";
+        $failures++;
+        return;
+    }
+
+    $grav10 = (float) $row['MONTO GRAVADO AL 10%'];
+    $grav5  = (float) $row['MONTO GRAVADO AL 5%'];
+    $exento = (float) $row['MONTO NO GRAVADO O EXENTO'];
+    $total  = (float) $row['MONTO TOTAL DEL COMPROBANTE'];
+
+    assertEq('RG90 fila: grav10+grav5+exento == total', round($total, 6), round($grav10 + $grav5 + $exento, 6), $failures);
+
+    // Montos por tasa == GROSS (base+tax) del desglose congelado por bucket
+    // — así define "monto gravado" el layout RG90/SET (ver docblock de
+    // FiscalService::loadSales). El 0%-real y el exento se suman en la MISMA
+    // columna (sin columna propia para "gravado a otra tasa" en el layout).
+    $grossByBucket = [];
+    foreach ($case['expectedByRate'] as $b) {
+        $key = $b['rate'] . '|' . $b['kind'];
+        $grossByBucket[$key] = ($grossByBucket[$key] ?? 0) + $b['base'] + $b['amount'];
+    }
+    $expectedGrav10 = $grossByBucket['10|rate'] ?? 0;
+    $expectedGrav5  = $grossByBucket['5|rate'] ?? 0;
+    $expectedExento = ($grossByBucket['0|rate'] ?? 0) + ($grossByBucket['0|exempt'] ?? 0);
+
+    assertEq('RG90 MONTO GRAVADO AL 10%', $expectedGrav10, $grav10, $failures);
+    assertEq('RG90 MONTO GRAVADO AL 5%', $expectedGrav5, $grav5, $failures);
+    assertEq('RG90 MONTO NO GRAVADO O EXENTO', $expectedExento, $exento, $failures);
+
+    echo "  PASS  RG90: fila generada para esta venta, columnas verificadas contra el desglose congelado\n";
 }
 
 echo "\n";

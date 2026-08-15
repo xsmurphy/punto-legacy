@@ -4,7 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Banknote, Ban, Copy, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket } from "lucide-react"
+import { AlertCircle, ArrowLeft, Banknote, Ban, Copy, Download, FileText, MoreVertical, Printer, Receipt, RotateCcw, ShoppingBasket } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -20,7 +20,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { DataTable } from "@/components/data-table/data-table"
+import { DataTable, exportRowsToXlsx } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
   defaultDateRange,
@@ -59,6 +59,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   useReport,
+  fetchFiscalReport,
   type TransactionRow,
   type TransactionsReportResponse,
   type CobrosRow,
@@ -138,6 +139,48 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
     () => ({ ...rangeToBackend(range), params: { view: "quotes" } }),
     [range],
   )
+
+  // Exports fiscales PY (RG90 / Libro Ventas, F5 context/38 §E). Acción
+  // on-demand sobre el rango activo — no un <DataTable exportFileName>
+  // porque el layout es fijo (20 columnas exactas que exige Marangatu) y los
+  // datos no viven en ninguna tabla en pantalla (desglose por tasa
+  // congelado, no las columnas del listado de Transacciones).
+  const [fiscalExporting, setFiscalExporting] = React.useState<"rg90" | "libro-ventas" | null>(null)
+  const isPyTenant = bootstrap?.country === "PY"
+
+  async function handleExportFiscal(dataset: "rg90" | "libro-ventas") {
+    setFiscalExporting(dataset)
+    try {
+      const { from, to } = rangeToBackend(range)
+      const report = await fetchFiscalReport(dataset, from, to)
+      if (report.rows.length === 0) {
+        toast.error("No hay ventas con desglose fiscal en el rango elegido")
+        return
+      }
+      const columns = Object.keys(report.rows[0]).map((key) => ({ key, header: key }))
+      const label = dataset === "rg90" ? "RG90" : "libro-ventas"
+      const fileName = `${label}-${from.slice(0, 10)}_a_${to.slice(0, 10)}`
+      await exportRowsToXlsx(report.rows, columns, fileName)
+      // `truncated` (backend cortó en 5000 filas) es más grave que
+      // `excludedCount`: significa que el archivo NO tiene todas las ventas
+      // del rango, no que algunas quedaron sin desglose — achicar el rango
+      // es la única forma de declarar completo ante el SET.
+      if (report.meta.truncated) {
+        toast.error(
+          "El rango tiene más de 5.000 ventas — el export quedó INCOMPLETO. Achicá el rango de fechas y exportá por partes.",
+        )
+      }
+      if (report.meta.excludedCount > 0) {
+        toast.warning(
+          `${report.meta.excludedCount} venta${report.meta.excludedCount === 1 ? "" : "s"} sin desglose fiscal congelado (anteriores) quedaron fuera del export`,
+        )
+      }
+    } catch {
+      toast.error("No se pudo generar el export fiscal")
+    } finally {
+      setFiscalExporting(null)
+    }
+  }
 
   // En modo POS el listado viaja con el cliente del DEVICE (Bearer): el scope
   // de sucursal sale de la fila `device`, no del view-scope del panel. Con el
@@ -632,7 +675,27 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
             Si necesitás ver más de 5.000 movimientos, achicá el rango de fechas.
           </p>
         </div>
-        <DateRangePicker value={range} onChange={setRange} />
+        <div className="flex items-center gap-2">
+          {mode === "panel" && isPyTenant && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" disabled={fiscalExporting !== null}>
+                  <Download className="size-4" />
+                  {fiscalExporting ? "Exportando…" : "Exportar fiscal"}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => handleExportFiscal("rg90")}>
+                  RG90 (Marangatu)
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => handleExportFiscal("libro-ventas")}>
+                  Libro Ventas
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+          <DateRangePicker value={range} onChange={setRange} />
+        </div>
       </header>
 
       {error && (

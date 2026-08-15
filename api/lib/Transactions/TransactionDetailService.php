@@ -399,9 +399,19 @@ final class TransactionDetailService
      * Desglose de impuestos por tasa: `toTaxObj.toTaxObjText` (congelado por
      * SaleService::persistRelations, F2a) es la fuente primaria. Si no hay
      * fila, o el JSON no parsea, degrada reconstruyendo desde las líneas YA
-     * congeladas de meta.transactionDetails, agrupadas por (taxRate,taxKind)
-     * — mismo criterio que SaleService::groupTaxByRate(), sin re-invocar el
-     * motor (los montos por línea ya están frozen).
+     * congeladas de meta.transactionDetails — mismo criterio que
+     * SaleService::groupTaxByRate(), sin re-invocar el motor (los montos por
+     * línea ya están frozen).
+     *
+     * F5 (context/38 §E, RG90/Libro Ventas) necesitó la MISMA regla en batch
+     * para un rango de fechas — la lógica se extrajo a
+     * `Tax\TaxBreakdownResolver` (decodeStoredJson/fromMetaLines) para no
+     * duplicarla; acá solo queda la orquestación de un único transactionId
+     * (misma query que antes). Único cambio de comportamiento, inocuo:
+     * `decodeStoredJson()` normaliza cada bucket a `{taxId,rate,kind,base,
+     * amount}` con cast de tipos (antes se devolvía el JSON decodificado tal
+     * cual) y trata `"[]"` como ausente igual que un JSON vacío — más
+     * estricto, no más laxo.
      *
      * El techo de VARCHAR(255) de `toTaxObjText` se levantó en la mig 124
      * (TEXT), así que las ventas nuevas ya no pueden truncar el desglose. El
@@ -414,37 +424,12 @@ final class TransactionDetailService
             'SELECT toTaxObjText FROM toTaxObj WHERE transactionId = ? AND companyId = ? LIMIT 1',
             [$transactionId, $companyId]
         );
-        if ($row && !empty($row['toTaxObjText'])) {
-            $decoded = json_decode((string) $row['toTaxObjText'], true);
-            if (is_array($decoded)) {
-                return $decoded;
-            }
+        $decoded = $row ? \Punto\Api\Tax\TaxBreakdownResolver::decodeStoredJson((string) ($row['toTaxObjText'] ?? '')) : null;
+        if ($decoded !== null) {
+            return $decoded;
         }
 
-        $buckets = [];
-        $order   = [];
-        foreach ($metaLines as $ml) {
-            if (!is_array($ml) || ($ml['type'] ?? '') === 'discount' || !array_key_exists('taxRate', $ml)) {
-                continue;
-            }
-            if (is_array($ml['voucher'] ?? null)) {
-                continue; // canje de vale: no suma a la base fiscal (ver SaleService::groupTaxByRate)
-            }
-            $rate = (float) $ml['taxRate'];
-            $kind = (string) ($ml['taxKind'] ?? 'exempt');
-            $key  = $rate . '|' . $kind;
-            if (!isset($buckets[$key])) {
-                $buckets[$key] = ['taxId' => $ml['taxId'] ?? null, 'rate' => $rate, 'kind' => $kind, 'base' => 0.0, 'amount' => 0.0];
-                $order[] = $key;
-            }
-            $buckets[$key]['base']   += (float) ($ml['taxNet']   ?? 0);
-            $buckets[$key]['amount'] += (float) ($ml['taxAmount'] ?? 0);
-        }
-        $out = [];
-        foreach ($order as $key) {
-            $out[] = $buckets[$key];
-        }
-        return $out;
+        return \Punto\Api\Tax\TaxBreakdownResolver::fromMetaLines($metaLines);
     }
 
     /**
