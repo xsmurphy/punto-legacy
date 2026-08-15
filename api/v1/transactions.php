@@ -84,6 +84,19 @@ if ($method === 'DELETE') {
     if (!$svc->delete($transactionId, $companyId)) {
         apiError('No se pudo eliminar la transacción', 500);
     }
+
+    // Realtime best-effort, scope 'all': este endpoint corre con
+    // apiAuthPosContext(), que NO pasa por apiAuthTenant()/realtimeAfterMutation()
+    // (bootstrap.php), así que el publish tiene que ser explícito acá — mismo
+    // patrón que CreditPaymentService::allocate(). Borrar una transacción es
+    // justo el caso que el owner pidió que llegue a todos los dispositivos
+    // en caliente (context/15, hallazgo B).
+    try {
+        realtimePublish('transaction', 'delete', $transactionId, 'all');
+    } catch (\Throwable $e) {
+        // Ignorar — no crítico.
+    }
+
     apiOk(['deleted' => true]);
 }
 
@@ -106,6 +119,9 @@ if ($method === 'PUT' && $resource === 'reject') {
             'event'   => 'order',
             'message' => json_encode(['ID' => $transactionId, 'registerID' => $registerId]),
         ]);
+        // Realtime, scope 'all' — mismo motivo que en DELETE arriba: este
+        // endpoint no pasa por apiAuthTenant(), el publish es explícito acá.
+        realtimePublish('transaction', 'update', $transactionId, 'all');
     } catch (\Throwable $e) {
         error_log('[transactions.reject] side-effect falló (ignorado): ' . $e->getMessage());
     }
@@ -150,6 +166,11 @@ if ($method === 'PUT' && $resource === 'status') {
                 'message' => json_encode(['ID' => enc($transactionId), 'registerID' => enc($registerId)]),
             ]);
         }
+        // Realtime, scope 'all' — cambiar el estado de una transacción es
+        // justo el caso que el owner pidió que llegue a todos los
+        // dispositivos en caliente (context/15, hallazgo B). Este endpoint
+        // no pasa por apiAuthTenant(), el publish es explícito acá.
+        realtimePublish('transaction', 'update', $transactionId, 'all');
     } catch (\Throwable $e) {
         error_log('[transactions.status] WS falló (ignorado): ' . $e->getMessage());
     }
@@ -310,6 +331,16 @@ if ($method === 'PUT' && $resource === 'void') {
         error_log('[transactions.void] side-effect falló (ignorado): ' . $e->getMessage());
     }
 
+    // Realtime, scope 'all' — el caso LITERAL del owner: "si anulo una
+    // factura todos los dispositivos se actualizan a la vez" (context/15,
+    // hallazgo B). Este endpoint no pasa por apiAuthTenant(), el publish es
+    // explícito acá (mismo patrón que CreditPaymentService::allocate()).
+    try {
+        realtimePublish('transaction', 'update', $transactionId, 'all');
+    } catch (\Throwable $e) {
+        // Ignorar — no crítico.
+    }
+
     apiOk(['voided' => true]);
 }
 
@@ -323,6 +354,17 @@ if ($method === 'POST' && $resource === 'itemDeletion') {
     if (!$svc->recordItemDeletion($itemId, $motive, $userId, $companyId, $outletId)) {
         apiError('No se pudo registrar la eliminación', 500);
     }
+
+    // Realtime, scope 'all' — quitar un ítem de una transacción abierta es
+    // parte del mismo caso de uso que void/status/reject (context/15,
+    // hallazgo B). No hay transactionId puntual acá (el recurso es el
+    // itemDeleted), así que va sin id — el front invalida por entity.
+    try {
+        realtimePublish('transaction', 'update', null, 'all');
+    } catch (\Throwable $e) {
+        // Ignorar — no crítico.
+    }
+
     apiOk(['recorded' => true]);
 }
 

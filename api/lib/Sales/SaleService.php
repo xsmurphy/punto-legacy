@@ -252,6 +252,20 @@ final class SaleService
             error_log('[SaleService] FinanceLedger::recordSale falló para ' . $transId . ': ' . $e->getMessage());
         }
 
+        // Realtime best-effort, scope 'dashboard' — mismo motivo que
+        // FinanceLedger arriba: api/v1/sales.php y api/v1/offline-sync.php
+        // corren con apiAuthPosContext(), que NO pasa por
+        // apiAuthTenant()/realtimeAfterMutation() (bootstrap.php), así que sin
+        // este publish explícito el dashboard del panel nunca se enteraba de
+        // una venta hecha desde el POS (caso de uso 2 de context/15). scope
+        // 'dashboard' porque el POS mismo debe seguir ignorando sus propias
+        // ventas — no es ruido que el cajero necesite (context/15, hallazgo B).
+        try {
+            realtimePublish('transaction', 'create', (string) $transId, 'dashboard');
+        } catch (\Throwable $e) {
+            error_log('[SaleService] realtimePublish falló para ' . $transId . ': ' . $e->getMessage());
+        }
+
         // F6 — link del portal de consulta del comprador para imprimir en el
         // comprobante. null cuando la venta no encoló documento (comercio sin
         // facturación electrónica, autoIssue apagado): el bloque `fe_py` de la

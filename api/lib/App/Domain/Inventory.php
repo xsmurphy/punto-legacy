@@ -25,6 +25,12 @@ namespace Punto\App\Domain;
 final class Inventory
 {
     /**
+     * Dedup de `realtimePublish` dentro de `manageStock()` — ver comentario
+     * ahí. Un solo evento `item` por request aunque haya N movimientos.
+     */
+    private static bool $stockEventPublished = false;
+
+    /**
      * Compuestos de un ítem (receta/ingredientes). Usa $getAssoc=true.
      * Equivalente legacy: `getCompoundsArray($itemId, $cache)`.
      *
@@ -707,6 +713,35 @@ final class Inventory
 
         // PG: UUID entre comillas simples (§22.5).
         updateRowLastUpdate('item', "itemId = '" . $itemId . "'");
+
+        // Realtime best-effort — ÚNICO lugar que publica invalidación de stock.
+        // manageStock() es la puerta por la que pasa TODO movimiento (venta,
+        // compra, anulación, devolución, producción, merma, ajuste, transfer,
+        // conteo, variantes — 27 callers). Publicar acá, no en cada caller,
+        // es lo que hace estructuralmente imposible que un caller nuevo se
+        // "olvide" de avisar (regla del owner, ver context/15).
+        //
+        // Dedup por request: una venta con 30 líneas dispara 30 movimientos.
+        // El front NO usa el `id` del evento (invalida por entity, ver
+        // use-realtime-sync.ts) así que un solo evento sin id alcanza — evita
+        // 30 invalidaciones del bootstrap del POS por una sola venta. El flag
+        // es `static` de la clase: se resetea entre requests (SAPI clásica,
+        // shared-nothing — `php -S`/FPM, no hay proceso persistente tipo
+        // Swoole en este stack) así que no hay leak entre tenants ni entre
+        // requests distintos.
+        if (!self::$stockEventPublished) {
+            self::$stockEventPublished = true;
+            try {
+                // scope 'all': el POS necesita enterarse de cambios de stock en
+                // caliente (venta/anulación en otra caja afecta lo que puede
+                // vender esta). companyId explícito: $company ya resolvió
+                // ops['companyId'] ?? COMPANY_ID arriba — no asumir la constante
+                // global, que puede estar vacía en un job/CLI.
+                realtimePublish('item', 'update', null, 'all', $company);
+            } catch (\Throwable $e) {
+                // Ignorar — nunca interrumpir el movimiento de stock.
+            }
+        }
 
         if ($location) {
             $isLocation = ncmExecute(

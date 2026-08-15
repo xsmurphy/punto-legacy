@@ -222,9 +222,10 @@ final class StockTransferService
 
         $db->CompleteTrans();
 
-        // best-effort realtime
+        // best-effort realtime — 'item' ya lo publica Inventory::manageStock()
+        // (única puerta, dedup por request). Acá solo la entity propia del
+        // transfer, que no sale sola del path (ver context/15).
         realtimePublish('stock-transfer', 'create', $transferId);
-        realtimePublish('item', 'update', null);
 
         return [
             'id'             => $transferId,
@@ -486,8 +487,9 @@ final class StockTransferService
 
         $db->CompleteTrans();
 
+        // 'item' ya lo publica Inventory::manageStock() al revertir los
+        // movimientos arriba (única puerta, dedup por request).
         realtimePublish('stock-transfer', 'cancel', $id);
-        realtimePublish('item', 'update', null);
 
         return ['ok' => true];
     }

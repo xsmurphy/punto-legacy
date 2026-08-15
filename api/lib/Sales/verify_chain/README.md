@@ -51,6 +51,11 @@ seteados y no toca Docker.
   `run_sale_chain.php`).
 - Aislamiento multi-tenant: una línea que referencia el `itemId` real de
   OTRO tenant no puede heredar su tasa/precio.
+- Realtime (context/15-realtime-sync-plan.md, `verify_realtime.php`): N
+  movimientos de stock en el mismo proceso publican UN solo evento `item`
+  (dedup en `Inventory::manageStock()`), y anular una transacción publica
+  `transaction` con `scope: 'all'`. Sin Redis real — intercepta con un
+  listener TCP fake, mismo código de producción sin mocks.
 
 ## Fallas conocidas (no se ocultan — ver reporte de la tarea)
 
@@ -70,12 +75,16 @@ arreglar (a propósito: el arnés reporta lo que encuentra, no lo esconde):
 ## Estructura
 
 - `seed.sql` — dos tenants aislados (companies/outlets/registers/items/tax),
-  idempotente.
+  idempotente. Incluye un ítem `itemtrackinventory=TRUE` (VERIFY-STOCK-TRACK)
+  que solo usa `verify_realtime.php`.
 - `fixtures.json` — casos declarativos: líneas + valores esperados
   calculados a mano.
 - `run_sale_chain.php` — corre `SaleService::save()` real, verifica BD +
   EInvoice, escribe un dump JSON por caso en `$TMPDIR/punto-verify-chain/`.
-- `run.sh` — orquesta Postgres + ambos tenants + el paso de impresión.
+- `verify_realtime.php` — dedup del publish de stock + scope de la
+  anulación (context/15). Ver sección "Qué cubre" arriba.
+- `run.sh` — orquesta Postgres + ambos tenants + realtime + el paso de
+  impresión.
 - `../../../../frontend/lib/hardware/printers/verify_chain/` — paso de
   impresión en Node (runtime nativo de TS, sin tsx/ts-node): `run.mjs` lee
   los dumps y corre los resolvers reales; `alias-loader.mjs` resuelve el
