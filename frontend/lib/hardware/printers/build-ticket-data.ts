@@ -158,6 +158,17 @@ export interface TicketItem {
    * no hay una restricción estructural por docType hoy.
    */
   tags: string[] | null
+  /**
+   * La línea es un add-on de la línea inmediatamente anterior (F5, D3 de
+   * context/41), no un ítem suelto: se imprime indentada y con "+" delante.
+   *
+   * Es presentación pura — el renglón sigue siendo una línea de venta normal
+   * (tiene su propio itemId, su impuesto congelado y su descuento de stock,
+   * ver F3). La indentación la aplica el resolver `item` de blocks.ts, que es
+   * el único punto donde el nombre se convierte en texto para ambos renderers
+   * (ESC/POS y HTML).
+   */
+  isAddonChild?: boolean
   // ── Fiscal (F3b, context/38) — congelado server-side (F2a) cuando la
   // fuente es una transacción persistida; calculado con el motor real
   // (lib/tax/engine.ts) cuando la fuente es el carrito pre-venta. `null`
@@ -345,6 +356,18 @@ export interface TicketableTransactionItem {
   taxIncluded?: boolean
   taxAmount?: number
   taxNet?: number
+  /**
+   * Tipo de línea, tal cual lo escribió `SaleService` en
+   * `meta.transactionDetails` (`TransactionService::getSingle` hace un
+   * `json_decode` directo, sin whitelist de campos, así que TODA clave que la
+   * venta escribió llega hasta acá). `"addon"` = línea hija de add-on
+   * (`SaleService::expandAddonSelections`, F3). Las hijas quedan SIEMPRE
+   * inmediatamente después de su padre en el detalle.
+   */
+  type?: string
+  /** Opción de add-on que originó la línea (`addon_group_option.optionId`).
+   *  Solo en líneas con `type === "addon"`. */
+  addonOptionId?: string | null
 }
 
 export interface TicketablePaymentMethod {
@@ -353,15 +376,40 @@ export interface TicketablePaymentMethod {
   amount: number
 }
 
-/** Mapea items de una transacción a TicketItem, resolviendo categoryId real
- *  contra el catálogo cargado (necesario para el filtrado por categoría de
- *  `printSale`/`getBindingsForSale` — categoryId=null hardcodeado lo rompía). */
+/**
+ * Mapea items de una transacción a TicketItem, resolviendo categoryId real
+ * contra el catálogo cargado (necesario para el filtrado por categoría de
+ * `printSale`/`getBindingsForSale` — categoryId=null hardcodeado lo rompía).
+ *
+ * Add-ons (D3 de context/41): el ticket del CLIENTE lista solo los add-ons que
+ * COBRAN. Un "sin cebolla" o un "punto de cocción" con importe 0 es
+ * información de COCINA, no un renglón de un documento fiscal — ensucia la
+ * factura sin aportar plata. Los que sí cobran se listan indentados bajo su
+ * padre, porque el importe tiene que poder atribuirse a algo.
+ *
+ * La cocina imprime TODO, y por eso este filtro es un parámetro y no una
+ * constante: es la única diferencia entre las dos impresiones.
+ *
+ * @param opts.includeFreeAddons `true` = comanda (lista add-ons de importe 0).
+ *   Default `false` = ticket fiscal. Lo decide `buildTicketDataFromTransaction`
+ *   por `docType`; un caller directo tiene que elegirlo a mano.
+ */
 export function buildTicketItemsFromTransaction(
   items: TicketableTransactionItem[] | null | undefined,
+  opts?: { includeFreeAddons?: boolean },
 ): TicketItem[] {
   const catalogItems = useCatalogStore.getState().items
+  const includeFreeAddons = opts?.includeFreeAddons ?? false
   return (items ?? [])
     .filter((i) => i.status !== 0)
+    .filter((i) => {
+      // Solo se descartan HIJAS gratuitas. Una línea top-level de importe 0
+      // (promo, cortesía, canje) se sigue imprimiendo: es una entrega real al
+      // cliente y su ausencia del ticket sería un faltante, no una limpieza.
+      if (i.type !== "addon") return true
+      if (includeFreeAddons) return true
+      return (i.total ?? 0) !== 0
+    })
     .map((i) => {
       const catalogItem = i.itemId ? catalogItems.find((c) => c.id === i.itemId) : undefined
       return {
@@ -375,6 +423,7 @@ export function buildTicketItemsFromTransaction(
         uid: i.sku ?? null,
         note: i.note ?? null,
         tags: i.tags ?? null,
+        isAddonChild: i.type === "addon",
         // Congelado real (F2a) tal cual, sin recalcular — ver comentario en
         // TicketableTransactionItem. `?? null`/`?? undefined` acá cubre tanto
         // el caller que no tipa estos campos como la venta pre-F2 sin ellos.
@@ -393,7 +442,12 @@ export function buildTicketDataFromTransaction(
   config: PosConfig | null,
   docType: string,
 ): TicketData {
-  const items = buildTicketItemsFromTransaction(tx.transactionDatas)
+  // D3 (context/41): la comanda lista TODOS los add-ons, el ticket del cliente
+  // solo los que cobran. `docType` es lo único que distingue una impresión de
+  // la otra en este builder.
+  const items = buildTicketItemsFromTransaction(tx.transactionDatas, {
+    includeFreeAddons: docType === "order",
+  })
   const payments: TicketPayment[] = (tx.pMethods ?? []).map((p) => ({
     method: p.name || p.type || "—",
     amount: p.amount,

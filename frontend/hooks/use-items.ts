@@ -5,7 +5,6 @@ import { api } from "@/lib/api-client"
 import {
   kindToBackendFields,
   defaultAvailability,
-  type ComboGroup,
   type ItemAvailability,
   type ItemCompound,
   type ItemFormValues,
@@ -302,7 +301,13 @@ export function useAddCompound() {
     mutationFn: ({ itemId, childItemId, quantity }) =>
       api.post(`/v1/items?id=${itemId}&resource=compounds`, { childItemId, quantity }),
     onSuccess: (_, { itemId }) => {
-      qc.invalidateQueries({ queryKey: ["items", itemId, "compounds"] })
+      // Invalida el ITEM entero, no solo ["items", itemId, "compounds"]: desde
+      // F5 (context/41) el detalle del ítem trae `comboPricing`, derivado de
+      // estos mismos compounds. Invalidar solo la sub-key dejaba el descuento
+      // del combo mostrando el valor viejo hasta un refresh manual. La key es
+      // prefijo de la de compounds, así que esto la cubre — no es una
+      // invalidación de más.
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
     },
   })
 }
@@ -317,7 +322,13 @@ export function useUpdateCompoundQuantity() {
     mutationFn: ({ itemId, compoundId, quantity }) =>
       api.put(`/v1/items?id=${itemId}&resource=compounds`, { compoundId, quantity }),
     onSuccess: (_, { itemId }) => {
-      qc.invalidateQueries({ queryKey: ["items", itemId, "compounds"] })
+      // Invalida el ITEM entero, no solo ["items", itemId, "compounds"]: desde
+      // F5 (context/41) el detalle del ítem trae `comboPricing`, derivado de
+      // estos mismos compounds. Invalidar solo la sub-key dejaba el descuento
+      // del combo mostrando el valor viejo hasta un refresh manual. La key es
+      // prefijo de la de compounds, así que esto la cubre — no es una
+      // invalidación de más.
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
     },
   })
 }
@@ -332,7 +343,13 @@ export function useDeleteCompound() {
     mutationFn: ({ itemId, compoundId }) =>
       api.del(`/v1/items?id=${itemId}&resource=compounds&compoundId=${compoundId}`),
     onSuccess: (_, { itemId }) => {
-      qc.invalidateQueries({ queryKey: ["items", itemId, "compounds"] })
+      // Invalida el ITEM entero, no solo ["items", itemId, "compounds"]: desde
+      // F5 (context/41) el detalle del ítem trae `comboPricing`, derivado de
+      // estos mismos compounds. Invalidar solo la sub-key dejaba el descuento
+      // del combo mostrando el valor viejo hasta un refresh manual. La key es
+      // prefijo de la de compounds, así que esto la cubre — no es una
+      // invalidación de más.
+      qc.invalidateQueries({ queryKey: ["items", itemId] })
     },
   })
 }
@@ -358,82 +375,6 @@ export function useItemLocations(itemId: string | undefined) {
     },
     enabled: !!itemId,
     staleTime: 30 * 1000,
-  })
-}
-
-// ── Combo dinámico — grupos ────────────────────────────────────────────────
-
-export function useComboGroups(itemId: string | undefined) {
-  return useQuery<{ groups: ComboGroup[] }>({
-    queryKey: ["items", itemId, "combo-groups"],
-    queryFn: () => api.get(`/v1/items?id=${itemId}&resource=combo-groups`),
-    enabled: !!itemId,
-    staleTime: 30 * 1000,
-  })
-}
-
-export interface ComboGroupInput {
-  name: string
-  sourceType: "items" | "category"
-  sourceCategoryId?: string | null
-  minSelection: number
-  maxSelection: number
-  items?: Array<{
-    childItemId: string
-    extraPrice: number
-    isPreselected: boolean
-    sort?: number
-  }>
-}
-
-export function useCreateComboGroup() {
-  const qc = useQueryClient()
-  return useMutation<
-    { groupId: string; groups: ComboGroup[] },
-    Error,
-    { itemId: string; input: ComboGroupInput }
-  >({
-    mutationFn: ({ itemId, input }) =>
-      api.post(
-        `/v1/items?id=${itemId}&resource=combo-groups`,
-        input as unknown as Record<string, unknown>,
-      ),
-    onSuccess: (_, { itemId }) => {
-      qc.invalidateQueries({ queryKey: ["items", itemId, "combo-groups"] })
-    },
-  })
-}
-
-export function useUpdateComboGroup() {
-  const qc = useQueryClient()
-  return useMutation<
-    { groups: ComboGroup[] },
-    Error,
-    { itemId: string; groupId: string; input: Partial<ComboGroupInput> }
-  >({
-    mutationFn: ({ itemId, groupId, input }) =>
-      api.put(
-        `/v1/items?id=${itemId}&resource=combo-groups&groupId=${groupId}`,
-        input as unknown as Record<string, unknown>,
-      ),
-    onSuccess: (_, { itemId }) => {
-      qc.invalidateQueries({ queryKey: ["items", itemId, "combo-groups"] })
-    },
-  })
-}
-
-export function useDeleteComboGroup() {
-  const qc = useQueryClient()
-  return useMutation<
-    { deleted: boolean; groups: ComboGroup[] },
-    Error,
-    { itemId: string; groupId: string }
-  >({
-    mutationFn: ({ itemId, groupId }) =>
-      api.del(`/v1/items?id=${itemId}&resource=combo-groups&groupId=${groupId}`),
-    onSuccess: (_, { itemId }) => {
-      qc.invalidateQueries({ queryKey: ["items", itemId, "combo-groups"] })
-    },
   })
 }
 

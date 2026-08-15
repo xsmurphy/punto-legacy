@@ -11,6 +11,23 @@ namespace Punto\Api\Items;
  * sus items — más fácil de razonar para el frontend que partial updates row-by-row.
  *
  * Combo fijo usa item_compound (la otra tabla). Combo dinámico usa estas dos.
+ *
+ * @deprecated F5 (context/41, 2026-08-15). Usar `AddonService` sobre
+ * `addon_group` / `addon_group_option`.
+ *
+ * Por qué muere: esta maquinaria quedó a medio construir y fue siempre
+ * PANEL-ONLY — `SaleService` nunca consultó `combo_group`, así que estos
+ * grupos jamás afectaron el precio ni el stock de una venta. La decisión del
+ * owner (context/41, 2026-08-14) unificó el combo dinámico con los add-ons:
+ * un combo dinámico es un producto con grupos de opciones, sin maquinaria
+ * propia. El modelo nuevo SÍ lo vende (F3: selecciones revalidadas
+ * server-side, líneas padre/hijo, stock por opción).
+ *
+ * La migración 136 copió las filas existentes a `addon_group` y el panel ya
+ * no monta `ComboGroupsEditor`. Esta clase queda sin consumidores propios,
+ * viva solo para que el sub-recurso `/v1/items?resource=combo-groups` siga
+ * respondiendo a integradores externos. NO extender: cualquier feature nueva
+ * va a `AddonService`.
  */
 final class ComboGroupService
 {

@@ -402,6 +402,16 @@ if ($resource === 'import') {
 $id = $_GET['id'] ?? null;
 
 // Sub-recurso: grupos de combo dinámico (combo_group + combo_group_item).
+//
+// @deprecated F5 (context/41, 2026-08-15) — reemplazado por `addon_group` /
+// `addon_group_option` y `AddonService` (sub-recurso `resource=addons`). El
+// combo dinámico se unificó con add-ons: es "un producto con grupos", sin
+// maquinaria propia. La mig 136 copió las filas existentes al modelo nuevo y
+// el panel ya no monta `ComboGroupsEditor`.
+//
+// Sigue respondiendo a propósito: es una API pública y romperla en silencio a
+// un integrador es peor que mantener un endpoint sin consumidores. NO agregar
+// features acá — todo lo nuevo va por AddonService.
 if ($id !== null && $resource === 'combo-groups') {
     $cgSvc = new \Punto\Api\Items\ComboGroupService($db);
 
@@ -691,6 +701,19 @@ switch ($method) {
             $s3 = new \Punto\Api\Storage\S3Client(S3_ENDPOINT, S3_REGION, S3_BUCKET, S3_KEY, S3_SECRET, S3_KEY_PREFIX);
             $imgSvc = new \Punto\Api\Items\ItemImageService($db, $s3);
             $presented['images'] = $imgSvc->listForItem($id, $companyId);
+            // F5 (context/41): descuento implícito del combo fijo. Derivado de
+            // item_compound vs itemPrice, sin columna ni migración detrás. Solo
+            // para combo_fijo — es el único kind cuyo precio es fijo mientras su
+            // contenido tiene precio propio; en el resto la comparación no
+            // significa nada. `null` (sin componentes) no viaja: la ficha
+            // distingue "no hay combo que comparar" por la ausencia de la key.
+            if (($presented['kind'] ?? '') === 'combo_fijo') {
+                $comboPricing = (new \Punto\Api\Items\ItemCompoundService($db))
+                    ->comboPricing($id, $companyId, (float) ($presented['itemPrice'] ?? 0));
+                if ($comboPricing !== null) {
+                    $presented['comboPricing'] = $comboPricing;
+                }
+            }
             apiOk($presented);
         }
 

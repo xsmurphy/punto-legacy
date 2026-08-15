@@ -350,8 +350,29 @@ function findTaxBucket(items: TicketItem[], taxId: string): TaxByRateBucket | un
 
 export type ItemFieldResolver = (item: TicketItem, data: TicketData) => string | null
 
+/**
+ * Prefijo de una línea hija de add-on (F5, D3 de context/41).
+ *
+ * Ambos renderers (ESC/POS y HTML) pintan el nombre del ítem con el mismo
+ * resolver, así que la indentación se hace en el TEXTO y no con CSS: una
+ * comandera térmica no tiene padding. Dos espacios + "+" es lo que ya lee un
+ * cajero en cualquier comanda: `  + Queso extra`.
+ */
+const ADDON_CHILD_PREFIX = "  + "
+
+/**
+ * Nombre imprimible de una línea. ÚNICA fuente: el nombre del ítem se pinta en
+ * tres lugares (el resolver del bloque `item`, y la tabla `item_receipt*` de
+ * cada uno de los dos renderers), y la indentación del add-on tiene que ser la
+ * misma en los tres o la comanda y el ticket dejan de coincidir. Cualquier
+ * regla nueva sobre el nombre de línea va acá, no en el call-site.
+ */
+export function ticketItemName(item: TicketItem): string {
+  return item.isAddonChild ? `${ADDON_CHILD_PREFIX}${item.name}` : item.name
+}
+
 export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>> = {
-  item: (item) => item.name,
+  item: (item) => ticketItemName(item),
   item_units: (item) => String(item.qty),
   item_uni_price: (item) => formatMoney(item.unitPrice),
   // item_price ("Precio") no tiene hoy un valor distinto de item_uni_price

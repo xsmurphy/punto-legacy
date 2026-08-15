@@ -34,7 +34,7 @@ final class ItemCompoundService
         // schema físico). Hay que leerlo via `data->>'itemUOM'` — buscarlo
         // como columna física falla con "column i.itemuom does not exist".
         $sql = "SELECT ic.compoundId, ic.parentItemId, ic.childItemId, ic.quantity, ic.sort,
-                       i.itemName, i.itemSKU, i.itemCost, i.itemKind,
+                       i.itemName, i.itemSKU, i.itemCost, i.itemPrice, i.itemKind,
                        i.data->>'itemUOM' AS itemUOM
                   FROM item_compound ic
              LEFT JOIN item i ON i.itemId = ic.childItemId
@@ -46,6 +46,10 @@ final class ItemCompoundService
         foreach ($rs->GetRows() as $r) {
             $qty  = (float) ($r['quantity'] ?? 0);
             $cost = (float) ($r['itemcost'] ?? $r['itemCost'] ?? 0);
+            // itemPrice del hijo: es lo que costaría comprar ese componente por
+            // separado. Lo consume comboPricing() para el descuento implícito
+            // del combo fijo (F5, context/41) — el costo NO sirve para eso.
+            $price = (float) ($r['itemprice'] ?? $r['itemPrice'] ?? 0);
             $out[] = [
                 'compoundId'   => $r['compoundid']   ?? $r['compoundId']   ?? null,
                 'parentItemId' => $r['parentitemid'] ?? $r['parentItemId'] ?? null,
@@ -56,11 +60,59 @@ final class ItemCompoundService
                 'childSKU'     => $r['itemsku']      ?? $r['itemSKU']      ?? null,
                 'childUOM'     => $r['itemuom']      ?? $r['itemUOM']      ?? null,
                 'childCost'    => $cost,
+                'childPrice'   => $price,
                 'childKind'    => $r['itemkind']     ?? $r['itemKind']     ?? null,
                 'lineCost'     => round($qty * $cost, 4),
+                'linePrice'    => round($qty * $price, 4),
             ];
         }
         return $out;
+    }
+
+    /**
+     * Descuento implícito de un combo fijo (F5, context/41).
+     *
+     * El combo fijo tiene precio propio (`item.itemPrice`) y su receta vive en
+     * `item_compound`. La diferencia entre "comprar los componentes sueltos" y
+     * "comprar el combo" es el descuento que el cliente recibe sin que exista
+     * ninguna fila de descuento: está implícito en el precio. El dueño no lo ve
+     * en ningún lado hoy, y es EL número que decide si el combo tiene sentido.
+     *
+     * Solo lectura y derivado — no hay columna ni migración detrás. Esta es la
+     * ÚNICA implementación de la fórmula: cualquier consumidor (ficha, ticket,
+     * reportes) la lee de acá en vez de recalcularla.
+     *
+     * `discount` puede ser NEGATIVO: un combo más caro que la suma de sus
+     * partes es un dato legítimo (y probablemente un error de carga que el
+     * dueño quiere ver), no un caso a esconder con un max(0).
+     *
+     * @return array{componentsSum:float,comboPrice:float,discount:float,discountPct:float}|null
+     *   null cuando el combo no tiene componentes cargados todavía — no hay
+     *   nada con qué comparar, y un 0% ahí mentiría.
+     */
+    public function comboPricing(string $parentItemId, string $companyId, float $comboPrice): ?array
+    {
+        $components = $this->listForParent($parentItemId, $companyId);
+        if ($components === []) {
+            return null;
+        }
+
+        $sum = 0.0;
+        foreach ($components as $c) {
+            $sum += (float) $c['linePrice'];
+        }
+
+        $discount = $sum - $comboPrice;
+
+        return [
+            'componentsSum' => round($sum, 4),
+            'comboPrice'    => round($comboPrice, 4),
+            'discount'      => round($discount, 4),
+            // Porcentaje sobre la suma de componentes (la base contra la que el
+            // cliente compara). Sin componentes con precio la base es 0 y el
+            // porcentaje no existe: 0.0 en vez de una división por cero.
+            'discountPct'   => $sum > 0 ? round(($discount / $sum) * 100, 2) : 0.0,
+        ];
     }
 
     /** Crea un compound. Si ya existe (UNIQUE parent+child), suma la cantidad. */
