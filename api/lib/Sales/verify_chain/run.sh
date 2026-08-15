@@ -92,35 +92,12 @@ if [ -z "${POSTGRES_HOST:-}" ]; then
     < "$REPO_ROOT/db-schema-postgres.sql" >/dev/null
 
   echo "[run.sh] corriendo migrate.php..."
-  # ── ⚠ Workaround de arranque desde cero — NO es un fix del bug, es cómo
-  # este arnés se mantiene corrible mientras el bug siga abierto (ver
-  # hallazgo #1 del reporte de esta tarea). `migrate.php` detecta "DB
-  # existente pre-migración-14" por la columna `outlet.outletaddress`, que
-  # `db-schema-postgres.sql` SIEMPRE trae (es un remanente del schema
-  # viejo) — así que en un bootstrap fresco marca 01-13 como
-  # "ya aplicadas" sin haberlas corrido de verdad, y faltan tablas enteras
-  # (`device`, `admin_user`, etc.). Migraciones 06/07 son no-ops reales
-  # sobre este schema (columnas que demuestran ya venían demoted); 12
-  # asume `contact.role` INTEGER pero el schema base ya lo tiene VARCHAR
-  # (mig 58) — se re-aplica su intención (UNIQUE INDEX) adaptada al tipo
-  # real. Sin este bloque, migrate.php aborta en la migración 60
-  # ("relation device does not exist") y NINGUNA de las migraciones 60-137
-  # llega a aplicarse — el schema queda inservible para vender.
-  php -d variables_order=EGPCS "$API_DIR/database/migrate.php" || true
-  docker exec "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c \
-    "DELETE FROM schema_migrations WHERE filename ~ '^(0[1-9]|1[0-3])_';" >/dev/null
-  php -d variables_order=EGPCS "$API_DIR/database/migrate.php" 2>&1 | grep -v "^\[migrate\] OK" || true
-  docker exec "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c "
-    DROP INDEX IF EXISTS idx_contact_phone;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_phone_tenant_unique
-        ON contact (contactPhone)
-        WHERE contactPhone IS NOT NULL AND contactPhone <> '' AND type = 0 AND role IN ('0','1','2','7');
-    CREATE INDEX IF NOT EXISTS idx_contact_phone_company ON contact (contactPhone, companyId);
-    INSERT INTO schema_migrations (filename) VALUES
-      ('06_contact_jsonb_demote.sql'), ('07_item_jsonb_demote.sql'), ('12_contact_phone_unique.sql')
-      ON CONFLICT DO NOTHING;
-  " >/dev/null
-  php -d variables_order=EGPCS "$API_DIR/database/migrate.php" | grep -v "^\[migrate\] OK" || true
+  # Sin filtrar el output (antes se pipeaba a `grep -v "OK"` para recortar
+  # ruido de los 3 reintentos del workaround) — ahora es una sola corrida,
+  # y filtrar con grep bajo `pipefail` es un footgun: si migrate.php algún
+  # día imprimiera SOLO líneas "OK", `grep -v` saldría 1 por "sin matches"
+  # y abortaría el arnés aunque migrate.php haya salido 0.
+  php -d variables_order=EGPCS "$API_DIR/database/migrate.php"
 else
   # Safety: este script SIEMBRA dos companies fixture y VENDE de verdad
   # (SaleService::save() real, no un dry-run) contra el Postgres que le

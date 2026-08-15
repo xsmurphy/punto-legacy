@@ -247,10 +247,12 @@ Las libs front se sirven desde `assets/vendor/js/*.min.js` (las concatena el bui
 ## Seeds (datos iniciales)
 
 ```bash
-cd database/seeds && ./run_seeds.sh
+cd database/seeds/postgres && ./run_seeds.sh
 ```
 
-Ejecuta en orden: base → panel_user → **03_dev_plan** → catalog → sample_items
+Ejecuta en orden: master_admin → sample_company → dev_plan → dev_register_and_items.
+El runner MySQL legacy (`database/seeds/run_seeds.sh`, en la raíz de seeds) se eliminó —
+era el flujo pre-migración a Postgres, no aplicaba a este schema.
 
 | Seed | Archivo | Qué inserta |
 |------|---------|-------------|

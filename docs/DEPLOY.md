@@ -129,7 +129,7 @@ done
 ### 3.3 · Seeds (opcional para staging)
 
 ```bash
-cd database/seeds && PG_URL="..." ./run_seeds.sh
+cd database/seeds/postgres && POSTGRES_HOST=... POSTGRES_USER=... POSTGRES_PASSWORD=... ./run_seeds.sh
 ```
 
 ### 3.4 · Super-admin

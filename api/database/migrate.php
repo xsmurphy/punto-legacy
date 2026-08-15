@@ -10,11 +10,24 @@
  * Convención de filenames: `NN_description.sql` (NN = número entero, no
  * zero-padded). El sort es numérico (no lexicográfico) → 13 < 14, no "13" > "14".
  *
- * Bootstrap one-time: si `schema_migrations` está vacía Y la BD tiene schema
- * "viejo" (columna `outletAddress` presente — el marker de pre-migración-14),
- * asumimos que las migraciones 01-13 ya se aplicaron manualmente (era el flujo
- * antiguo) y las marcamos como done sin re-ejecutar. La 14+ corren al ritmo
- * normal del runner desde el primer deploy.
+ * Bootstrap one-time: si `schema_migrations` está vacía, hay que decidir si
+ * la BD es fresca (recién cargada desde `db-schema-postgres.sql`, hay que
+ * correr TODO desde 01) o si es una BD real pre-existente donde 01-13 ya se
+ * aplicaron a mano (flujo manual anterior a este runner) y hay que marcarlas
+ * done sin re-ejecutar. La 14+ corren al ritmo normal del runner en ambos
+ * casos.
+ *
+ * Marker: existencia de las tablas `device` (migración 11) y `admin_user`
+ * (migración 9). Ninguna de las dos vive en `db-schema-postgres.sql` — un
+ * install fresco cargado desde ese archivo jamás las tiene — mientras que
+ * toda BD real de producción sí (device pairing y el realm /admin están en
+ * uso desde antes de que este runner existiera). Antes se usaba la columna
+ * `outlet.outletAddress` como marker de "pre-migración-14", pero esa columna
+ * SIEMPRE está presente en `db-schema-postgres.sql` (es un remanente del
+ * schema base, no depende de si 01-13 corrieron) → daba falso positivo en
+ * todo install fresco: saltaba 01-13 (sin crear `device`/`admin_user`, sin
+ * demotar columnas a JSONB, etc.) y la migración 60+ fallaba por asumir
+ * tablas que nunca se crearon.
  *
  * Failure: si una migración falla, log al stderr + exit 1 → entrypoint corta y
  * el container no arranca. Mejor fail-fast que servir requests contra un schema
@@ -119,19 +132,21 @@ foreach ($stmt as $row) {
     $applied[(string) $row['filename']] = true;
 }
 
-// 4. Bootstrap one-time: si la tracking table está vacía y la BD parece "vieja"
-// (pre-14), marcamos 01-13 como already-applied. Detección: si existe la columna
-// `outletAddress` en la tabla `outlet`, asumimos que sigue pre-migración-14 → las
-// migraciones 01-13 ya estaban aplicadas via flujo manual. Si la columna no existe
-// pero schema_migrations está vacía, es DB fresca → corremos todo desde 01.
+// 4. Bootstrap one-time: si la tracking table está vacía, decidir si esta BD
+// es fresca (correr 01-13 de verdad) o es una BD real donde 01-13 ya se
+// aplicaron a mano antes de que existiera este runner (marcarlas done sin
+// re-ejecutar). Ver docblock arriba para el porqué del marker.
 if (!$applied) {
     $check = $pdo->query(
-        "SELECT 1 FROM information_schema.columns
-         WHERE table_name = 'outlet' AND column_name = 'outletaddress'"
+        "SELECT to_regclass('public.device')     AS has_device,
+                to_regclass('public.admin_user') AS has_admin_user"
     );
-    $isExistingDB = ($check && $check->fetch() !== false);
-    if ($isExistingDB) {
-        echo "[migrate] bootstrap: detectada BD existente (pre-migración 14)\n";
+    $row        = $check ? $check->fetch() : false;
+    $hasDevice  = $row && $row['has_device']     !== null;
+    $hasAdmin   = $row && $row['has_admin_user'] !== null;
+
+    if ($hasDevice && $hasAdmin) {
+        echo "[migrate] bootstrap: detectada BD existente (device/admin_user ya presentes)\n";
         echo "[migrate] bootstrap: marcando migraciones 01-13 como already-applied\n";
         $ins = $pdo->prepare('INSERT INTO schema_migrations (filename) VALUES (?) ON CONFLICT DO NOTHING');
         foreach ($files as $file) {
@@ -143,8 +158,17 @@ if (!$applied) {
                 $applied[$name] = true;
             }
         }
+    } elseif (!$hasDevice && !$hasAdmin) {
+        echo "[migrate] tracking table vacía y schema parece fresco — corro todas desde 01\n";
     } else {
-        echo "[migrate] tracking table vacía y schema parece fresco — corro todas\n";
+        // Estado ambiguo (una tabla está, la otra no) — no es ni "fresco" ni
+        // "viejo consistente". Adivinar mal acá deja el schema a medio migrar
+        // de una forma difícil de diagnosticar después. Fail-fast, igual que
+        // una migración fallida.
+        fwrite(STDERR, "[migrate] bootstrap: estado ambiguo — device existe=" .
+            ($hasDevice ? 'sí' : 'no') . ", admin_user existe=" . ($hasAdmin ? 'sí' : 'no') . "\n");
+        fwrite(STDERR, "[migrate] bootstrap: no puedo decidir si 01-13 ya corrieron — abortando, revisar manualmente\n");
+        exit(1);
     }
 }
 
