@@ -263,6 +263,56 @@ Solo se documenta (el subagente NO toca Coolify). Pasos:
 
 A medida que cada slice se cierra, se anota el commit en la **Cronología** al final.
 
+## Hardening 2026-08-15 — que olvidarse sea imposible, no improbable
+
+Auditoría previa (misma fecha) encontró 6 gaps: stock sin publish en el flujo dominante (venta/compra/anulación/devolución/producción/merma), `scope: dashboard` escondiendo operaciones de transacción que el POS sí necesita, 10 endpoints mutantes sin mapear, `contact` sin invalidar `pos-bootstrap`, reconexión sin resync, y 6 entities publicadas que el front descartaba en silencio. Los cinco cambios de esta sesión, en orden de prioridad:
+
+### 1. Stock: el publish vive en `manageStock()`, no en los callers
+
+`Inventory::manageStock()` (`api/lib/App/Domain/Inventory.php`) es la única puerta de todo movimiento de stock (27 callers). Ahora publica `realtimePublish('item', 'update', null, 'all', $company)` ella misma, justo después del INSERT. Cubre de una sola vez venta, compra, anulación, devolución, producción, merma, ajuste, transfer, conteo y variantes — y a cualquier caller futuro, sin acordarse de nada.
+
+- **Dedup por request**: `private static bool $stockEventPublished` en la clase — UN evento `item` por proceso PHP aunque `manageStock()` se llame N veces (venta de 30 líneas = 30 movimientos = 1 evento). Seguro porque el stack corre `php -S`/FPM (SAPI shared-nothing, sin proceso persistente tipo Swoole) — el flag se resetea entre requests. El front no usa el `id` del evento (invalida por `entity`, ver `use-realtime-sync.ts`), así que el evento va sin id.
+- **Callers que publicaban `item` a mano** (`StockAdjustmentService`, `InventoryCountService`, `StockTransferService`, `StockMovementsService`) — se les sacó ese publish, queda uno solo.
+- **companyId explícito**: `realtimePublish()` ahora acepta un 5º parámetro `$companyId` opcional (default `null` → cae a la constante global `COMPANY_ID`, back-compat total con los ~30 callers existentes). `manageStock()` lo pasa explícito porque `$company` puede venir de `ops['companyId']` (jobs/CLI como `ItemImporter`, sin request HTTP ni constante global definida).
+- Best-effort intacto: `wsPublish()` ya absorbía el error de conexión — confirmado con el arnés corriendo SIN Redis (ver Verificación).
+
+### 2. `bootstrap.php`: default invertido — todo mutante bajo `/v1/` publica
+
+`realtimeAfterMutation()` dejó de ser una lista cerrada endpoint→entity. Ahora:
+
+- **`$overrides`** — chico, solo para lo que el path no puede dar solo: alias semántico (`customers`→`contact`), `scope` distinto de `'all'` (`sales`/`transactions`/`orders`/`drawer`/`purchases` → `'dashboard'`), y `skipResources` (`giftcards?resource=validate`).
+- **`$excluded`** — allowlist explícita y chica de endpoints que NO publican nada (hoy solo `/v1/admin`, fuera de alcance del plan). Ausencia en esta lista NUNCA silencia un endpoint — es lo opuesto del mapa viejo.
+- **Cualquier otro endpoint mutante** deriva su `entity` del primer segmento del path, singularizado (`deriveEntityFromPath`/`singularizeSegment`) — `/v1/returns`→`return`, `/v1/waste`→`waste`, `/v1/order_items`→override `order`, etc. Esto cubre los 10 endpoints que antes quedaban mudos (returns, waste, production, order_items, item_addons, space-sectors, vouchers, sold_pack\*, customer_address, customer_note) sin tocarlos.
+- **Fix de colisión**: el matching pasó de `str_starts_with` crudo a `endpointMatches()` (por segmento completo). El mapa viejo hacía que `/v1/orders-core` matcheara el prefijo `/v1/orders` Y `OrderCoreService` publicara su propio evento `order` — doble publish en cada mutación de `orders-core`. Ya no colisiona.
+
+### 3. Scope por operación: transacción vs venta
+
+`api/v1/transactions.php` (void/status/reject/DELETE/itemDeletion) y `SaleService::save()` (creación) autentican con `apiAuthPosContext()`, NO `apiAuthTenant()` — **nunca pasaban por `realtimeAfterMutation()`, con o sin mapa**. El publish ahí es explícito, mismo patrón que `CreditPaymentService::allocate()`:
+
+- **void/status/reject/DELETE/itemDeletion** → `realtimePublish('transaction', op, $id, 'all')` — llegan al POS en caliente (el caso literal del owner).
+- **creación de venta** (`SaleService::save()`, cubre `sales.php` Y `offline-sync.php`) → `realtimePublish('transaction', 'create', $id, 'dashboard')` — el panel actualiza KPIs en vivo; el POS sigue ignorando sus propias ventas (era ruido y además, antes de este cambio, el dashboard tampoco se enteraba: el gap era más profundo de lo que parecía).
+
+### 4. Front: `contact`→`pos-bootstrap`, 9 entities nuevas con queryKey, warning en dev
+
+`use-realtime-sync.ts`: `contact` suma `["pos-bootstrap"]`. Entities que se publicaban pero no tenían queryKey: `payment-method`, `giftcard`, `pack`, `schedule`, `printJob`, `remision` (hallazgo F) + `return`, `production`, `waste` (nuevas por el punto 2). Un `entity` sin mapear ya NO se descarta en silencio — `console.warn` en dev (gateado por `NODE_ENV`).
+
+### 5. Reconexión = resync total
+
+`frontend/lib/realtime.ts`: `hasEverConnected` distingue primera conexión de reconexión. En cada reconexión (no en la primera), dispara `subscribeReconnect()` → `use-realtime-sync.ts` llama `qc.invalidateQueries()` SIN queryKey (todo el cache). Justificación: `ws-server` es un relay puro sin backlog/replay — no hay forma de saber qué se perdió mientras el WS estuvo caído, así que invalidar todo es la única respuesta honesta.
+
+### Verificación
+
+- `npm run build` (frontend) — sin errores de tipos.
+- `bash api/lib/Sales/verify_chain/run.sh` — arnés end-to-end completo (venta multi-tasa, impuestos, EInvoice, impresión) sin Redis en el entorno: el log muestra `[wsPublish] No se pudo conectar a Redis ... Connection refused` en cada venta y la venta se persiste igual (best-effort confirmado). Un bug de espera preexistente del arnés (`pg_isready` daba OK contra la instancia TEMPORAL de Postgres, antes de `CREATE DATABASE`) se arregló de paso — no relacionado con este cambio, pero bloqueaba correrlo.
+- **`verify_realtime.php`** (nuevo, junto al arnés) — intercepta el PUBLISH real con un listener TCP fake (sin mocks) y demuestra: 5 movimientos de stock en el mismo proceso → 1 solo evento `item`; una anulación → evento `transaction` con `scope: 'all'`. Wireado como paso 3.5 de `run.sh`.
+
+### Qué quedó fuera
+
+- Endpoints que autentican con `apiAuthPosContext()` sin publish explícito propio: `parked-sales.php`, `screens.php`, `numbering/lease.php`, `unpair-pos-device.php` — si alguno empieza a mutar algo que otro dispositivo necesita saber en caliente, necesita su propio `realtimePublish()` explícito (no lo cubre el mapa).
+- `/v1/register` sigue con publish redundante (mapa/derivación genérica + `RegisterAdminService` explícito) — preexistente, no introducido por este cambio, no tocado (no estaba en el alcance nombrado por el owner).
+- Deduplicación de invalidaciones en ráfaga (mitigación de "Tormenta de invalidaciones" de la sección de abajo) — sigue pendiente, TanStack ya amortigua con `staleTime`/`gcTime`.
+- Firma JWT en el subscribe del WS (mitigación de "Auth WS débil" de abajo) — sigue MVP.
+
 ## Riesgos y mitigaciones
 
 - **Tormenta de invalidaciones** (100 ventas/min en un POS de alto volumen): el cliente debounce queryClient invalidations con `staleTime` y `gcTime` de TanStack — invalidar 10 veces en 1s solo hace 1 refetch real. Si llega a ser problema: agregar `debounce` de 300ms en el hook.

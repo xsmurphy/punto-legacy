@@ -76,8 +76,19 @@ if [ -z "${POSTGRES_HOST:-}" ]; then
     -p "$POSTGRES_PORT:5432" postgres:16-alpine >/dev/null
 
   echo -n "[run.sh] esperando Postgres"
-  for _ in $(seq 1 30); do
-    if docker exec "$CONTAINER_NAME" pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+  # NO pg_isready: el server oficial de postgres arranca una instancia TEMPORAL
+  # solo para correr initdb (crear el usuario/DB de POSTGRES_DB), la apaga, y
+  # recién ahí levanta la instancia REAL que queda escuchando. pg_isready
+  # devuelve "accepting connections" apenas la instancia TEMPORAL abre el
+  # socket — incluso si el intento de conexión es rechazado por "database
+  # POSTGRES_DB does not exist" (libpq lo cuenta como server vivo, no como
+  # "not ready"), así que el loop viejo salía del wait ANTES de que
+  # `CREATE DATABASE` corriera, y el `psql -d "$POSTGRES_DB"` de más abajo
+  # fallaba con "database does not exist" (visto reproducible 2/2 corridas
+  # en este entorno). Esperamos un `SELECT 1` real CONTRA esa DB — eso solo
+  # responde OK una vez que la instancia FINAL (post-initdb) está arriba.
+  for _ in $(seq 1 60); do
+    if docker exec "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -tAc 'SELECT 1' >/dev/null 2>&1; then
       echo " OK"
       break
     fi
@@ -146,6 +157,16 @@ fi
 echo ""
 echo "[run.sh] === tenant MX (decimals=2) ==="
 if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/run_sale_chain.php" "$MX_COMPANY"; then
+  OVERALL_STATUS=1
+fi
+
+# ── 3.5. Realtime (context/15): dedup del publish de stock y scope de la
+#    anulación — ver verify_realtime.php. Corre contra el mismo Postgres
+#    seedeado arriba (usa VERIFY-STOCK-TRACK de seed.sql), sin Redis real
+#    (intercepta con un listener TCP fake apuntando REDIS_HOST/REDIS_PORT).
+echo ""
+echo "[run.sh] === realtime (dedup stock + scope anulación) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_realtime.php"; then
   OVERALL_STATUS=1
 fi
 

@@ -300,61 +300,172 @@ function tenantAudit(array $ctx, string $method, string $endpoint, ?string $targ
  * después de cada POST/PUT/PATCH/DELETE para que todos los browsers del
  * tenant invaliden las queries afectadas.
  *
- * Mapeo cerrado endpoint→entity: si agregás un endpoint nuevo que muta,
- * agregá la línea acá. No hay auto-detección.
+ * Default INVERTIDO (2026-08-15, ver context/15-realtime-sync-plan.md): todo
+ * mutante bajo /v1/ publica. `$overrides` YA NO es "la lista de lo que
+ * avisa" — es (a) el nombre de entity cuando el path no alcanza para
+ * derivarlo solo (plurales irregulares, alias semántico como
+ * customers→contact), (b) el `scope` cuando no es 'all' por defecto, y
+ * (c) `skipResources` para excluir un `?resource=` puntual que es consulta
+ * disfrazada de POST. `$excluded` es la allowlist EXPLÍCITA y chica de
+ * endpoints que NO publican nada (no un default: la ausencia de entrada acá
+ * NUNCA silencia un endpoint, solo la presencia explícita lo hace).
+ *
+ * Un endpoint mutante nuevo que no aparece en ninguna de las dos listas
+ * IGUAL publica: la entity sale del primer segmento del path, singularizado
+ * (`deriveEntityFromPath`). Esto es lo que hace estructuralmente imposible
+ * "olvidarse" de mapear un endpoint nuevo — antes era la ausencia en el mapa
+ * la que dejaba un endpoint mudo por default.
  */
 function realtimeAfterMutation(string $method, string $endpoint, ?string $targetId): void
 {
-    static $map = [
-        '/v1/items'                 => ['entity' => 'item',        'scope' => 'all'],
-        '/v1/contacts'              => ['entity' => 'contact',     'scope' => 'all'],
-        '/v1/customers'             => ['entity' => 'contact',     'scope' => 'all'],
-        '/v1/outlets'               => ['entity' => 'outlet',      'scope' => 'all'],
-        '/v1/categories'            => ['entity' => 'category',    'scope' => 'all'],
-        '/v1/brands'                => ['entity' => 'brand',       'scope' => 'all'],
-        '/v1/tags'                  => ['entity' => 'tag',         'scope' => 'all'],
-        '/v1/taxes'                 => ['entity' => 'tax',         'scope' => 'all'],
+    // Overrides: entity/scope/skipResources que el path NO puede dar solo.
+    static $overrides = [
+        '/v1/customers'             => ['entity' => 'contact'],
+        // sales.php y transactions.php entran acá por completitud/simetría
+        // con el resto del mapa, pero HOY son entries vestigiales: ambos
+        // autentican con apiAuthPosContext(), no apiAuthTenant(), así que
+        // NUNCA pasan por esta función — el publish real de esos dos vive
+        // explícito en SaleService::save() y en cada resource de
+        // transactions.php (void/status/reject/DELETE/itemDeletion). Si algún
+        // día ese endpoint migra a apiAuthTenant(), estos overrides ya están
+        // listos y quedan consistentes con esos publishes explícitos.
         '/v1/sales'                 => ['entity' => 'transaction', 'scope' => 'dashboard'],
         '/v1/transactions'          => ['entity' => 'transaction', 'scope' => 'dashboard'],
+        // /v1/orders es distinto de /v1/orders-core (OrderCoreService publica
+        // su propia entity 'order' con scope 'all' — ver ese Service). Este
+        // override es solo para las mutaciones propias de orders.php
+        // (accept/outlet/user); el matching es por segmento completo
+        // (endpointMatches), así que NO colisiona con /v1/orders-core.
         '/v1/orders'                => ['entity' => 'transaction', 'scope' => 'dashboard'],
         '/v1/drawer'                => ['entity' => 'drawer',      'scope' => 'dashboard'],
         '/v1/reports/drawers'       => ['entity' => 'drawer',      'scope' => 'dashboard'],
-        '/v1/settings'              => ['entity' => 'setting',     'scope' => 'all'],
-        '/v1/modules'               => ['entity' => 'setting',     'scope' => 'all'],
-        '/v1/price_list'            => ['entity' => 'item',        'scope' => 'all'],
-        '/v1/price_list_item'       => ['entity' => 'item',        'scope' => 'all'],
-        '/v1/screens'               => ['entity' => 'screen',           'scope' => 'all'],
-        '/v1/vpayments'             => ['entity' => 'payment-method',   'scope' => 'all'],
-        // validate es POST de consulta pura — no muta; solo consume dispara evento.
-        '/v1/giftcards'             => ['entity' => 'giftcard',         'scope' => 'all', 'skipResources' => ['validate']],
-        '/v1/users'                 => ['entity' => 'user',             'scope' => 'all'],
-        '/v1/packs'                 => ['entity' => 'pack',             'scope' => 'all'],
-        '/v1/pack_component'        => ['entity' => 'pack',             'scope' => 'all'],
-        '/v1/parked-sales'          => ['entity' => 'parked-sale',      'scope' => 'all'],
-        '/v1/tables'                => ['entity' => 'table',            'scope' => 'all'],
-        '/v1/schedule'              => ['entity' => 'schedule',         'scope' => 'all'],
-        '/v1/document-templates'    => ['entity' => 'document-template','scope' => 'all'],
-        '/v1/purchases'             => ['entity' => 'purchase',         'scope' => 'dashboard'],
-        '/v1/register'              => ['entity' => 'register',         'scope' => 'all'],
+        '/v1/modules'               => ['entity' => 'setting'],
+        '/v1/price_list'            => ['entity' => 'item'],
+        '/v1/price_list_item'       => ['entity' => 'item'],
+        '/v1/vpayments'             => ['entity' => 'payment-method'],
+        // validate es POST de consulta pura — no muta; solo canjear/emitir dispara evento.
+        '/v1/giftcards'             => ['entity' => 'giftcard', 'skipResources' => ['validate']],
+        '/v1/pack_component'        => ['entity' => 'pack'],
+        '/v1/sold_pack'             => ['entity' => 'pack'],
+        '/v1/sold_pack_usage'       => ['entity' => 'pack'],
+        '/v1/order_items'           => ['entity' => 'order'],
+        '/v1/item_addons'           => ['entity' => 'item'],
+        '/v1/customer_address'      => ['entity' => 'contact'],
+        '/v1/customer_note'         => ['entity' => 'contact'],
+        '/v1/purchases'             => ['entity' => 'purchase',    'scope' => 'dashboard'],
+        // Alinea con la entity 'space' que ya publican SpaceService/
+        // SpaceSessionService/SpaceSettlementService — sin este override,
+        // el path derivaría 'space-sector' (string distinto) y el front no
+        // lo reconocería (ver ENTITY_TO_QUERY_KEYS en use-realtime-sync.ts).
+        '/v1/space-sectors'         => ['entity' => 'space'],
     ];
 
-    foreach ($map as $prefix => $cfg) {
-        if (str_starts_with($endpoint, $prefix)) {
-            // Si el entry declara skipResources, omitir el emit para esos ?resource=.
-            if (!empty($cfg['skipResources'])) {
-                $res = (string) ($_GET['resource'] ?? '');
-                if (in_array($res, $cfg['skipResources'], true)) {
-                    return;
-                }
-            }
-            $op = match ($method) {
-                'POST'         => 'create',
-                'PUT', 'PATCH' => 'update',
-                'DELETE'       => 'delete',
-                default        => 'update',
-            };
-            realtimePublish($cfg['entity'], $op, $targetId, $cfg['scope']);
+    // Allowlist EXPLÍCITA y chica de endpoints que NO publican. Fuera de
+    // alcance del plan (context/15 § "El alcance NO incluye") o consultas
+    // puntuales que no ameritan un broadcast — no un default, una excepción.
+    static $excluded = [
+        '/v1/admin',           // mutaciones de admin realm — plan explícitamente las excluye.
+        // CreditPaymentService::allocate() ya publica 'transaction'/'all'
+        // explícito (patrón de referencia, ver context/15) — sin esto, el
+        // default derivaría 'credit-payment' (sin queryKey en el front) Y
+        // dispararía un segundo evento por la misma request.
+        '/v1/credit-payments',
+    ];
+
+    foreach ($excluded as $prefix) {
+        if (endpointMatches($endpoint, $prefix)) {
             return;
         }
     }
+
+    $cfg = null;
+    foreach ($overrides as $prefix => $c) {
+        if (endpointMatches($endpoint, $prefix)) {
+            $cfg = $c;
+            break;
+        }
+    }
+
+    if ($cfg !== null && !empty($cfg['skipResources'])) {
+        $res = (string) ($_GET['resource'] ?? '');
+        if (in_array($res, $cfg['skipResources'], true)) {
+            return;
+        }
+    }
+
+    $entity = $cfg['entity'] ?? deriveEntityFromPath($endpoint);
+    if ($entity === null) {
+        return;
+    }
+    $scope = $cfg['scope'] ?? 'all';
+
+    $op = match ($method) {
+        'POST'         => 'create',
+        'PUT', 'PATCH' => 'update',
+        'DELETE'       => 'delete',
+        default        => 'update',
+    };
+    realtimePublish($entity, $op, $targetId, $scope);
+}
+
+/**
+ * Match de endpoint por SEGMENTO completo, no por substring crudo.
+ * `str_starts_with('/v1/orders-core', '/v1/orders')` da true y eso es un bug:
+ * dos endpoints distintos ('/v1/orders' y '/v1/orders-core') colisionaban en
+ * el mapa viejo (causaba doble-publish en /v1/orders-core — el mapa emitía
+ * 'transaction'/dashboard Y OrderCoreService emitía 'order'/all para la misma
+ * request). Acá exigimos que el próximo carácter después del prefijo sea '/'
+ * o que el endpoint termine exactamente ahí.
+ */
+function endpointMatches(string $endpoint, string $prefix): bool
+{
+    if ($endpoint === $prefix) {
+        return true;
+    }
+    return str_starts_with($endpoint, $prefix . '/');
+}
+
+/**
+ * Deriva un nombre de entity del primer segmento de path bajo /v1/,
+ * singularizado. Best-effort: si el resultado no matchea ningún queryKey del
+ * front, `useRealtimeSync` lo ignora (con warning en dev, ver
+ * use-realtime-sync.ts) — nunca rompe nada, en el peor caso es un broadcast
+ * de más que nadie escucha.
+ */
+function deriveEntityFromPath(string $endpoint): ?string
+{
+    $parts = explode('/', trim($endpoint, '/'));
+    // $parts[0] === 'v1', $parts[1] es el recurso (ej. 'items', 'order_items').
+    if (($parts[0] ?? '') !== 'v1' || empty($parts[1])) {
+        return null;
+    }
+    return singularizeSegment($parts[1]);
+}
+
+/**
+ * Singulariza la última palabra de un segmento de path (separada por '-' o
+ * '_'), preservando el resto como prefijo — "space-sectors" → "space-sector",
+ * "giftcards" → "giftcard". Heurística simple (plurales regulares del
+ * inglés/nombres de tabla en este codebase), no un singularizador general.
+ */
+function singularizeSegment(string $segment): string
+{
+    // OJO: `?:` trata 0 como falsy — si el separador estuviera en la
+    // posición 0 (no pasa hoy con ningún endpoint real) se perdería. Chequeo
+    // explícito contra `false` para no repetir ese bug.
+    $dashPos   = strrpos($segment, '-');
+    $underPos  = strrpos($segment, '_');
+    $lastSep   = max($dashPos === false ? -1 : $dashPos, $underPos === false ? -1 : $underPos);
+    $prefix  = $lastSep >= 0 ? substr($segment, 0, $lastSep + 1) : '';
+    $word    = $lastSep >= 0 ? substr($segment, $lastSep + 1) : $segment;
+
+    if (preg_match('/ies$/', $word)) {
+        $word = substr($word, 0, -3) . 'y';
+    } elseif (preg_match('/(s|x|z|ch|sh)es$/', $word)) {
+        $word = substr($word, 0, -2);
+    } elseif (str_ends_with($word, 's') && !str_ends_with($word, 'ss')) {
+        $word = substr($word, 0, -1);
+    }
+
+    return $prefix . $word;
 }

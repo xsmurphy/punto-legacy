@@ -425,6 +425,21 @@ Si el realtime deja de funcionar en prod, verificar primero: (a) que `REDIS_URL`
 
 ---
 
+## §52 — Realtime: todo mutante bajo `/v1/` publica por default (2026-08-15)
+
+`realtimeAfterMutation()` (`api/bootstrap.php`) es INVERTIDO: cualquier POST/PUT/PATCH/DELETE bajo `/v1/` que pase por `apiAuthTenant()` publica un evento de invalidación, salvo que el endpoint esté en la allowlist explícita `$excluded`. El nombre de la `entity` sale del primer segmento del path, singularizado (`deriveEntityFromPath`/`singularizeSegment`) — el array `$overrides` es solo para los casos donde el path no alcanza (alias semántico, scope distinto de `'all'`, `skipResources`).
+
+**No agregues un endpoint nuevo a ninguna lista para que publique — ya publica solo.** Solo tocás el mapa si necesitás un override (entity/scope) o una exclusión explícita.
+
+- Match de prefijo por SEGMENTO completo (`endpointMatches()`), no `str_starts_with` crudo — evita colisiones tipo `/v1/orders` vs `/v1/orders-core`.
+- Endpoints POS que autentican con `apiAuthPosContext()` (no `apiAuthTenant()`) — `sales.php`, `transactions.php`, `parked-sales.php`, `screens.php`, `offline-sync.php`, `numbering/lease.php`, `unpair-pos-device.php` — NUNCA pasan por `realtimeAfterMutation()`. Si mutan algo que el resto del tenant necesita saber, el publish tiene que ser explícito en el endpoint o el Service (patrón `CreditPaymentService::allocate()` / `SaleService::save()` / `transactions.php` void-status-reject-delete-itemDeletion).
+- Stock: el publish de `item` vive ÚNICO en `Inventory::manageStock()` (`api/lib/App/Domain/Inventory.php`), con dedup por request (`static bool $stockEventPublished`) — un caller de `manageStock()` NUNCA debe publicar `item` por su cuenta.
+- `realtimePublish()` acepta `$companyId` explícito (5º parámetro) — usalo cuando el caller ya resolvió su companyId por otra vía (`manageStock()` con `ops['companyId']` para jobs/CLI), la constante global `COMPANY_ID` puede estar vacía o ser de otro tenant en ese contexto.
+- Frontend: `ENTITY_TO_QUERY_KEYS` (`frontend/hooks/use-realtime-sync.ts`) es best-effort — un `entity` sin mapear no rompe nada, solo tira `console.warn` en dev. Sumale el queryKey cuando exista un hook que lo consuma.
+- Ver `context/15-realtime-sync-plan.md` y el arnés `api/lib/Sales/verify_chain/verify_realtime.php`.
+
+---
+
 ## §41 — `ncmExecute` con `forceObj: true` devuelve RECORDSET, no array
 
 Cuando `ncmExecute($db, $sql, $params, forceObj: true)` se usa para evitar el aplanado JSONB de `§18`, el valor de retorno es un **objeto RECORDSET** (DB wrapper interno), NO un array PHP.

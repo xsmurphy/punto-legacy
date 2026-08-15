@@ -284,7 +284,9 @@ final class InventoryCountService
 
         $db->CompleteTrans();
 
-        realtimePublish('item', 'update', null);
+        // El publish de 'item' ahora vive en Inventory::manageStock() (única
+        // puerta de todo movimiento de stock, dedup por request) — este caller
+        // ya no necesita avisar a mano. Ver context/15-realtime-sync-plan.md.
 
         return [
             'adjustmentsCount' => $adjustmentsCount,
