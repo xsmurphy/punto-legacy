@@ -1,0 +1,173 @@
+[
+  {
+    "id": "py-multi-rate",
+    "company": "0ea6c5d8-57e5-4226-8140-ec914deec024",
+    "decimals": 0,
+    "description": "PY (decimals=0): IVA incluido + añadido en la misma venta, 10%/5%/0%-real/exenta conviviendo, precio modificado en línea, descuento por línea, cantidad decimal",
+    "lines": [
+      {
+        "note": "L1 — incluido, tasa 10%. gross=qty*price-discount=2*11000=22000. tax=round(22000*10/110)=2000. net=20000.",
+        "itemSku": "VERIFY-10-INC",
+        "qty": 2,
+        "unitPrice": 11000,
+        "discount": 0,
+        "taxIncluded": true,
+        "expected": { "net": 20000, "tax": 2000, "gross": 22000 }
+      },
+      {
+        "note": "L2 — añadido, tasa 5%, con descuento de línea. net=3*5000-1000=14000. tax=round(14000*5/100)=700. gross=14700.",
+        "itemSku": "VERIFY-5-ADD",
+        "qty": 3,
+        "unitPrice": 5000,
+        "discount": 1000,
+        "taxIncluded": false,
+        "expected": { "net": 14000, "tax": 700, "gross": 14700 }
+      },
+      {
+        "note": "L3 — añadido, tasa 0% REAL (kind=rate, no exenta). net=8000. tax=round(8000*0/100)=0. gross=8000.",
+        "itemSku": "VERIFY-0RATE-ADD",
+        "qty": 1,
+        "unitPrice": 8000,
+        "discount": 0,
+        "taxIncluded": false,
+        "expected": { "net": 8000, "tax": 0, "gross": 8000 }
+      },
+      {
+        "note": "L4 — incluido, EXENTA (taxKind=exempt, distinto de 0% real). net=gross=6000, tax=0.",
+        "itemSku": "VERIFY-EXEMPT-INC",
+        "qty": 1,
+        "unitPrice": 6000,
+        "discount": 0,
+        "taxIncluded": true,
+        "expected": { "net": 6000, "tax": 0, "gross": 6000 }
+      },
+      {
+        "note": "L5 — PRECIO MODIFICADO en la línea: catálogo lista a 50000, la venta cobra 30000 (cajero lo bajó a mano). incluido, tasa 10%. gross=30000. tax=round(30000*10/110)=round(2727.2727..)=2727. net=27273.",
+        "itemSku": "VERIFY-10-PRICEMOD",
+        "qty": 1,
+        "unitPrice": 30000,
+        "discount": 0,
+        "taxIncluded": true,
+        "expected": { "net": 27273, "tax": 2727, "gross": 30000 }
+      },
+      {
+        "note": "L6 — CANTIDAD DECIMAL (1.5), añadido, tasa 10%. net=1.5*4000=6000. tax=round(6000*10/100)=600. gross=6600.",
+        "itemSku": "VERIFY-10-DECIMALQTY",
+        "qty": 1.5,
+        "unitPrice": 4000,
+        "discount": 0,
+        "taxIncluded": false,
+        "expected": { "net": 6000, "tax": 600, "gross": 6600 }
+      }
+    ],
+    "expectedByRate": [
+      { "rate": 10, "kind": "rate", "base": 53273, "amount": 5327, "gross": 58600 },
+      { "rate": 5, "kind": "rate", "base": 14000, "amount": 700, "gross": 14700 },
+      { "rate": 0, "kind": "rate", "base": 8000, "amount": 0, "gross": 8000 },
+      { "rate": 0, "kind": "exempt", "base": 6000, "amount": 0, "gross": 6000 }
+    ],
+    "expectedTotals": { "net": 81273, "tax": 6027, "gross": 87300 },
+    "expectedUnitsSold": 9.5,
+    "checkEInvoice": "success",
+    "expectedEInvoiceTaxRates": [10, 5, 0, 0, 10, 10]
+  },
+  {
+    "id": "py-sifen-unsupported-rate",
+    "company": "0ea6c5d8-57e5-4226-8140-ec914deec024",
+    "decimals": 0,
+    "description": "PY (decimals=0): venta con tasa 21% se persiste bien (SaleService no valida SIFEN), pero facturar debe fallar con error claro (SIFEN solo admite 10|5|0)",
+    "lines": [
+      {
+        "note": "Única línea, añadido, tasa 21% (fuera del catálogo SIFEN). net=1000. tax=round(1000*21/100)=210. gross=1210.",
+        "itemSku": "VERIFY-BAD21",
+        "qty": 1,
+        "unitPrice": 1000,
+        "discount": 0,
+        "taxIncluded": false,
+        "expected": { "net": 1000, "tax": 210, "gross": 1210 }
+      }
+    ],
+    "expectedByRate": [
+      { "rate": 21, "kind": "rate", "base": 1000, "amount": 210, "gross": 1210 }
+    ],
+    "expectedTotals": { "net": 1000, "tax": 210, "gross": 1210 },
+    "expectedUnitsSold": 1,
+    "checkEInvoice": "rejects",
+    "expectedEInvoiceErrorContains": ["21%", "SIFEN"]
+  },
+  {
+    "id": "py-cross-tenant-isolation",
+    "company": "0ea6c5d8-57e5-4226-8140-ec914deec024",
+    "decimals": 0,
+    "description": "Aislamiento multi-tenant: la línea referencia el itemId REAL de un item de OTRO tenant (Verify MX, tasa 16%). enrichWithTaxes resuelve el impuesto con `WHERE itemId=? AND companyId=ctx->companyId` — al no matchear, tiene que caer a exenta/0, NUNCA usar la tasa/precio del item ajeno (fuga cross-tenant).",
+    "lines": [
+      {
+        "note": "itemId de 'Verify 16% incluido' (tenant Verify MX) referenciado desde una venta de Verify PY. Si el impuesto del item ajeno se filtrara, tax sería round(1000*16/116)=138. El comportamiento correcto es exenta: tax=0, net=gross=1000.",
+        "itemIdOverride": "52b6ee53-3702-4127-a5a9-f31c8a75b938",
+        "itemSku": "VERIFY-16-INC (de OTRO tenant, no del que vende)",
+        "qty": 1,
+        "unitPrice": 1000,
+        "discount": 0,
+        "taxIncluded": true,
+        "expected": { "net": 1000, "tax": 0, "gross": 1000 }
+      }
+    ],
+    "expectedByRate": [
+      { "rate": 0, "kind": "exempt", "base": 1000, "amount": 0, "gross": 1000 }
+    ],
+    "expectedTotals": { "net": 1000, "tax": 0, "gross": 1000 },
+    "expectedUnitsSold": 1,
+    "checkEInvoice": "skip"
+  },
+  {
+    "id": "mx-decimals-2",
+    "company": "fa8cf679-9003-417e-8726-5b772d3b6e88",
+    "decimals": 2,
+    "description": "Tenant decimals=2 (MX-style): incluido + añadido, tasa 16% + exenta, descuento por línea, cantidad decimal",
+    "lines": [
+      {
+        "note": "L1 — incluido, tasa 16%, con descuento. gross=2*58-1.16=114.84. tax=round(114.84*16/116,2)=15.84. net=99.00.",
+        "itemSku": "VERIFY-16-INC",
+        "qty": 2,
+        "unitPrice": 58,
+        "discount": 1.16,
+        "taxIncluded": true,
+        "expected": { "net": 99.00, "tax": 15.84, "gross": 114.84 }
+      },
+      {
+        "note": "L2 — añadido, tasa 16%, con descuento. net=3*25-5=70.00. tax=round(70*16/100,2)=11.20. gross=81.20.",
+        "itemSku": "VERIFY-16-ADD",
+        "qty": 3,
+        "unitPrice": 25,
+        "discount": 5,
+        "taxIncluded": false,
+        "expected": { "net": 70.00, "tax": 11.20, "gross": 81.20 }
+      },
+      {
+        "note": "L3 — incluido, EXENTA. net=gross=40.00, tax=0.",
+        "itemSku": "VERIFY-B-EXEMPT",
+        "qty": 1,
+        "unitPrice": 40,
+        "discount": 0,
+        "taxIncluded": true,
+        "expected": { "net": 40.00, "tax": 0, "gross": 40.00 }
+      },
+      {
+        "note": "L4 — CANTIDAD DECIMAL (2.25), añadido, tasa 16%. net=2.25*10=22.50. tax=round(22.50*16/100,2)=3.60. gross=26.10.",
+        "itemSku": "VERIFY-B-DECIMALQTY",
+        "qty": 2.25,
+        "unitPrice": 10,
+        "discount": 0,
+        "taxIncluded": false,
+        "expected": { "net": 22.50, "tax": 3.60, "gross": 26.10 }
+      }
+    ],
+    "expectedByRate": [
+      { "rate": 16, "kind": "rate", "base": 191.50, "amount": 30.64, "gross": 222.14 },
+      { "rate": 0, "kind": "exempt", "base": 40.00, "amount": 0, "gross": 40.00 }
+    ],
+    "expectedTotals": { "net": 231.50, "tax": 30.64, "gross": 262.14 },
+    "expectedUnitsSold": 8.25,
+    "checkEInvoice": "skip"
+  }
+]
