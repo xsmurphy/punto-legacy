@@ -84,6 +84,13 @@ evidencia de dónde quedó el fix.
   funcionalidad, sin empezar.
 - SQL 25P02 al crear cuenta: mismo enmascaramiento que las ventas con
   decimales; esperar el error real de PG ahora que `62941d41` lo deja pasar.
+- **Etiquetas de venta: el catálogo que sugiere no es el que valida** (hallazgo
+  2026-08-09, salido del review de las etiquetas por línea `37bd618c`). El
+  picker sugiere desde un catálogo y el backend valida contra otro
+  (`taxonomy`/`toTag`), así que una etiqueta elegida de la sugerencia puede
+  ser rechazada al guardar y **abortar la venta**. Es plata: sin implementar,
+  sin confirmar en prod. Las etiquetas por LÍNEA no tienen este problema (no
+  validan contra FK, son texto libre en `itemSold.meta`).
 
 ### Reporte del tester — 2026-08-03 (`requerimientos_punto_de_venta`)
 
