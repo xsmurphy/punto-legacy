@@ -3,6 +3,8 @@
     "id": "py-multi-rate",
     "company": "0ea6c5d8-57e5-4226-8140-ec914deec024",
     "decimals": 0,
+    "currency": "Gs.",
+    "thousand": "dot",
     "description": "PY (decimals=0): IVA incluido + añadido en la misma venta, 10%/5%/0%-real/exenta conviviendo, precio modificado en línea, descuento por línea, cantidad decimal",
     "lines": [
       {
@@ -75,6 +77,8 @@
     "id": "py-sifen-unsupported-rate",
     "company": "0ea6c5d8-57e5-4226-8140-ec914deec024",
     "decimals": 0,
+    "currency": "Gs.",
+    "thousand": "dot",
     "description": "PY (decimals=0): venta con tasa 21% se persiste bien (SaleService no valida SIFEN), pero facturar debe fallar con error claro (SIFEN solo admite 10|5|0)",
     "lines": [
       {
@@ -99,6 +103,8 @@
     "id": "py-cross-tenant-isolation",
     "company": "0ea6c5d8-57e5-4226-8140-ec914deec024",
     "decimals": 0,
+    "currency": "Gs.",
+    "thousand": "dot",
     "description": "Aislamiento multi-tenant: la línea referencia el itemId REAL de un item de OTRO tenant (Verify MX, tasa 16%). enrichWithTaxes resuelve el impuesto con `WHERE itemId=? AND companyId=ctx->companyId` — al no matchear, tiene que caer a exenta/0, NUNCA usar la tasa/precio del item ajeno (fuga cross-tenant).",
     "lines": [
       {
@@ -123,6 +129,8 @@
     "id": "mx-decimals-2",
     "company": "fa8cf679-9003-417e-8726-5b772d3b6e88",
     "decimals": 2,
+    "currency": "MX$",
+    "thousand": "comma",
     "description": "Tenant decimals=2 (MX-style): incluido + añadido, tasa 16% + exenta, descuento por línea, cantidad decimal",
     "lines": [
       {

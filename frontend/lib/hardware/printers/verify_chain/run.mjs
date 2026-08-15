@@ -65,7 +65,15 @@ for (const file of files.sort()) {
   const dump = JSON.parse(readFileSync(path.join(dumpDir, file), "utf8"))
   console.log(`\n=== impresión: ${dump.caseId} ===`)
 
-  const data = buildTicketDataFromTransaction(dump.transaction, null, "receipt")
+  // moneyConfig (run_sale_chain.php ← fixtures.json): config de moneda REAL
+  // del tenant del caso, para probar que formatMoney (blocks.ts) sale de acá
+  // y no de un hardcode "es-PY"/PYG (hallazgo #2 del reporte de esta tarea).
+  const config = {
+    currency: dump.moneyConfig.currency,
+    thousand: dump.moneyConfig.thousand,
+    decimal: dump.moneyConfig.decimal,
+  }
+  const data = buildTicketDataFromTransaction(dump.transaction, config, "receipt")
 
   // ── Bloques por tasa: item_total_by_rate / subtotal_by_rate / iva_by_rate,
   //    y el agregado iva_total — sobre el desglose que arma groupItemsByTaxRate
@@ -92,23 +100,23 @@ for (const file of files.sort()) {
       continue
     }
     const block = { text: bucket.taxId }
-    check(`subtotal_by_rate ${label}`, formatMoney(expBucket.base), BLOCK_VALUE_RESOLVERS.subtotal_by_rate(data, block))
-    check(`iva_by_rate ${label}`, formatMoney(expBucket.amount), BLOCK_VALUE_RESOLVERS.iva_by_rate(data, block))
-    check(`item_total_by_rate ${label}`, formatMoney(expBucket.base + expBucket.amount), BLOCK_VALUE_RESOLVERS.item_total_by_rate(data, block))
+    check(`subtotal_by_rate ${label}`, formatMoney(expBucket.base, data), BLOCK_VALUE_RESOLVERS.subtotal_by_rate(data, block))
+    check(`iva_by_rate ${label}`, formatMoney(expBucket.amount, data), BLOCK_VALUE_RESOLVERS.iva_by_rate(data, block))
+    check(`item_total_by_rate ${label}`, formatMoney(expBucket.base + expBucket.amount, data), BLOCK_VALUE_RESOLVERS.item_total_by_rate(data, block))
   }
-  check("iva_total", formatMoney(dump.expectedTotals.tax), BLOCK_VALUE_RESOLVERS.iva_total(data))
-  check("total", formatMoney(dump.expectedTotals.gross), BLOCK_VALUE_RESOLVERS.total(data))
-  check("subtotal", formatMoney(dump.expectedTotals.gross), BLOCK_VALUE_RESOLVERS.subtotal(data))
+  check("iva_total", formatMoney(dump.expectedTotals.tax, data), BLOCK_VALUE_RESOLVERS.iva_total(data))
+  check("total", formatMoney(dump.expectedTotals.gross, data), BLOCK_VALUE_RESOLVERS.total(data))
+  check("subtotal", formatMoney(dump.expectedTotals.gross, data), BLOCK_VALUE_RESOLVERS.subtotal(data))
 
-  // ── HALLAZGO — formatMoney() (blocks.ts) hardcodea Intl.NumberFormat
-  //    "es-PY"/PYG para TODA la app, sin mirar la moneda/decimals del tenant
-  //    (TicketData no lleva currency). Para un tenant decimals=2 esto no es
-  //    cosmético: PYG formatea con 0 decimales, así que los centavos se
-  //    PIERDEN en el ticket impreso (114.84 → "Gs. 115", ni siquiera trunca,
-  //    REDONDEA). No se compara contra otro formateo "correcto" inventado —
-  //    se extraen los dígitos del string ya impreso y se confirma que
-  //    representan el monto real; si no coinciden, es la pérdida de
-  //    precisión, no un problema de tolerancia del test. */
+  // ── FIX verificado acá — formatMoney() (blocks.ts) ya NO hardcodea
+  //    Intl.NumberFormat "es-PY"/PYG: sale de TicketData.currency/thousand/
+  //    decimal (poblados desde `config`, arriba). Para un tenant decimals=2
+  //    esto no es cosmético: antes PYG formateaba con 0 decimales y los
+  //    centavos se PERDÍAN en el ticket impreso (114.84 → "Gs. 115",
+  //    redondeado, no truncado). No se compara contra otro formateo
+  //    "correcto" inventado — se extraen los dígitos del string ya impreso y
+  //    se confirma que representan el monto real; si no coinciden, es
+  //    pérdida de precisión, no un problema de tolerancia del test.
   if (dump.decimals === 2) {
     const printed = BLOCK_VALUE_RESOLVERS.total(data)
     const digitsOnly = printed.replace(/[^\d.,]/g, "").replace(",", ".")
@@ -118,7 +126,7 @@ for (const file of files.sort()) {
       console.log(`  PASS  total impreso conserva los centavos (${printed})`)
     } else {
       failures++
-      console.log("  FAIL  total impreso (BUG conocido, ver reporte): formatMoney() hardcodea PYG/0-decimales")
+      console.log("  FAIL  total impreso: formatMoney() sigue perdiendo precisión")
       console.log(`        esperado (monto real): ${dump.expectedTotals.gross}`)
       console.log(`        impreso: "${printed}" (interpretado como ${parsed})`)
     }
@@ -135,19 +143,23 @@ for (const file of files.sort()) {
     }
     const label = `línea ${i} (${expLine.itemSku})`
     const expTaxLabel = expLine.expected.tax === 0 && item.taxKind === "exempt" ? "Exento" : `${item.taxRate}%`
-    check(`${label} item_tax`, expTaxLabel, ITEM_FIELD_RESOLVERS.item_tax(item))
-    check(`${label} item_tax_amount`, formatMoney(expLine.expected.tax), ITEM_FIELD_RESOLVERS.item_tax_amount(item))
-    const expNetPerUnit = item.qty !== 0 ? formatMoney(expLine.expected.net / item.qty) : null
-    check(`${label} item_price_notax`, expNetPerUnit, ITEM_FIELD_RESOLVERS.item_price_notax(item))
+    check(`${label} item_tax`, expTaxLabel, ITEM_FIELD_RESOLVERS.item_tax(item, data))
+    check(`${label} item_tax_amount`, formatMoney(expLine.expected.tax, data), ITEM_FIELD_RESOLVERS.item_tax_amount(item, data))
+    const expNetPerUnit = item.qty !== 0 ? formatMoney(expLine.expected.net / item.qty, data) : null
+    check(`${label} item_price_notax`, expNetPerUnit, ITEM_FIELD_RESOLVERS.item_price_notax(item, data))
 
-    // item_discount: HALLAZGO — el resolver formatea `item.discount` como
-    // dinero, pero el valor persistido en esa key es el % efectivo de la
-    // línea (frontend/lib/commands/create-sale.ts:331), no el monto
-    // (`totalDiscount`, mig del campo). Con descuento > 0 este check FALLA
-    // a propósito — no se ajusta el esperado para taparlo (ver reporte).
-    if (expLine.discount > 0) {
-      check(`${label} item_discount (BUG conocido, ver reporte)`, formatMoney(expLine.discount), ITEM_FIELD_RESOLVERS.item_discount(item))
-    }
+    // item_discount / item_discount_percent — FIX verificado acá: antes un
+    // solo campo ambiguo (`item.discount`) alimentaba el bloque `item_discount`
+    // con el % en vez de la plata en 2 de los 3 builders (ver reporte). Ahora
+    // TicketItem separa discountAmount (plata) de discountPercent (%), y hay
+    // un bloque por cada uno — los dos se verifican siempre, no solo cuando
+    // el descuento es > 0 (antes el check ni corría si daba 0, porque 0% y
+    // Gs.0 son indistinguibles y no probaban nada; ahora corre siempre para
+    // que quede como resguardo permanente de regresión).
+    check(`${label} item_discount`, formatMoney(expLine.discount, data), ITEM_FIELD_RESOLVERS.item_discount(item, data))
+    const grossBase = expLine.qty * expLine.unitPrice
+    const expectedPercent = grossBase > 0 ? Math.round((expLine.discount / grossBase) * 100 * 10000) / 10000 : 0
+    check(`${label} item_discount_percent`, `${Number(expectedPercent.toFixed(2))}%`, ITEM_FIELD_RESOLVERS.item_discount_percent(item, data))
   })
 }
 

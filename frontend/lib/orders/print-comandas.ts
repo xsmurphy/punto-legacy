@@ -37,7 +37,8 @@ export function buildOrderTicketData(order: Order, config: PosConfig | null): Ti
       name: oi.name,
       qty: oi.qty,
       unitPrice,
-      discount: 0,
+      discountAmount: 0,
+      discountPercent: 0,
       total: unitPrice * oi.qty,
       categoryId: catalogItem?.categoryId ?? null,
       id: oi.itemId,
@@ -77,6 +78,9 @@ export function buildOrderTicketData(order: Order, config: PosConfig | null): Ti
     // A DÓNDE VA es lo primero que mira quien arma la comanda — ver el
     // forzado de esta línea en render-template.ts/html-renderer.ts.
     orderDestination: orderDestinationText(order),
+    currency: config?.currency ?? null,
+    thousand: config?.thousand ?? null,
+    decimal: config?.decimal ?? null,
   }
 }
 

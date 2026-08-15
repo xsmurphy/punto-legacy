@@ -132,7 +132,7 @@ function TransactionDetailView({
   // (que resuelve un binding físico, solo tiene sentido en el POS).
   async function handleReprint() {
     const docType = isQuote ? "quote" : "factura"
-    const data = buildTicketDataFromTxDetail(detail, bootstrap?.companyName ?? "", docType)
+    const data = buildTicketDataFromTxDetail(detail, bootstrap?.companyName ?? "", docType, bootstrap)
     try {
       await printTicketInBrowser({ docType, data })
     } catch {
@@ -144,7 +144,7 @@ function TransactionDetailView({
     setPrintingReceipt(true)
     try {
       const paymentDetail = await api.get<TxDetailFull>(`/v1/reports/transactions?id=${paymentId}`)
-      const data = buildTicketDataFromTxDetail(paymentDetail, bootstrap?.companyName ?? "", "receipt")
+      const data = buildTicketDataFromTxDetail(paymentDetail, bootstrap?.companyName ?? "", "receipt", bootstrap)
       await printTicketInBrowser({ docType: "receipt", data })
     } catch {
       toast.error("No se pudo imprimir el recibo")

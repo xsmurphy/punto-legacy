@@ -27,10 +27,43 @@
  */
 
 import type { BlockType, PrintBlock } from "@/lib/types/print-template"
+import { formatMoney as formatMoneyShared } from "@/lib/format-money"
 import type { TicketData, TicketItem } from "./build-ticket-data"
 
-export function formatMoney(n: number): string {
-  return new Intl.NumberFormat("es-PY", { style: "currency", currency: "PYG" }).format(n)
+/**
+ * Formatea un monto para el ticket según la moneda/separadores del TENANT
+ * (`TicketData.currency`/`thousand`/`decimal`, poblados desde `PosConfig` por
+ * cada builder que tiene bootstrap disponible — build-ticket-data.ts).
+ *
+ * Delega en el helper YA compartido por el resto del panel/POS
+ * (`lib/format-money.ts`) — antes esta función hardcodeaba
+ * `Intl.NumberFormat("es-PY", {currency:"PYG"})`, así que CUALQUIER tenant
+ * (sin importar su config real) perdía los centavos en todo ticket impreso:
+ * un comercio con `decimal="yes"` veía 114.84 impreso como "Gs. 115"
+ * (redondeado, no truncado).
+ *
+ * Fallback cuando `TicketData` no trae la config de moneda (builders sin
+ * `config` disponible: remisión, traslado de stock, cierre de caja — ninguno
+ * imprime un monto real de todos modos): el MISMO default que ya usa
+ * `formatMoney` de `lib/format-money.ts` en el resto de la app, no un
+ * hardcode nuevo específico de impresión.
+ */
+export function formatMoney(n: number, data: Pick<TicketData, "currency" | "thousand" | "decimal">): string {
+  return formatMoneyShared(n, {
+    currency: data.currency ?? "Gs",
+    thousand: data.thousand ?? "dot",
+    decimal: data.decimal ?? "no",
+  })
+}
+
+/**
+ * Formatea el % de descuento de una línea (`TicketItem.discountPercent`) —
+ * hasta 2 decimales, sin ceros de más (6.67% en vez de 6.6666666666667%). Es
+ * un % EFECTIVO calculado por `allocateLineDiscounts`
+ * (frontend/lib/cart/allocate-discounts.ts), casi nunca un entero.
+ */
+export function formatPercent(n: number): string {
+  return `${Number(n.toFixed(2))}%`
 }
 
 // ── D4 (context/38): alias de lectura para bloques renombrados ────────────
@@ -76,6 +109,7 @@ export const ITEM_LINE_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "item_tax_amount",
   "item_tax_amount_single",
   "item_discount",
+  "item_discount_percent",
   "item_price",
   "item_uni_price",
   "item_price_notax",
@@ -230,10 +264,10 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   document_type: (data) => documentTypeLabel(data.docType),
   date: (data) => data.date,
   duedate: (data) => data.dueDate ?? null,
-  discount: (data) => formatMoney(data.discount),
-  subtotal: (data) => formatMoney(data.subtotal),
-  tax_total: (data) => formatMoney(data.taxTotal),
-  total: (data) => formatMoney(data.total),
+  discount: (data) => formatMoney(data.discount, data),
+  subtotal: (data) => formatMoney(data.subtotal, data),
+  tax_total: (data) => formatMoney(data.taxTotal, data),
+  total: (data) => formatMoney(data.total, data),
   // ⚠ nums_to_words: requiere conversión número→letras en español (ej. "Cien
   // mil guaraníes"). No hay librería ni función propia hoy — implementar un
   // total-en-letras incorrecto en un comprobante fiscal es peor que no
@@ -272,20 +306,20 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // abajo) — nunca se recalcula contra el catálogo.
   subtotal_by_rate: (data, block) => {
     const bucket = findTaxBucket(data.items, block.text)
-    return bucket ? formatMoney(bucket.base) : null
+    return bucket ? formatMoney(bucket.base, data) : null
   },
   iva_by_rate: (data, block) => {
     const bucket = findTaxBucket(data.items, block.text)
-    return bucket ? formatMoney(bucket.amount) : null
+    return bucket ? formatMoney(bucket.amount, data) : null
   },
   item_total_by_rate: (data, block) => {
     const bucket = findTaxBucket(data.items, block.text)
-    return bucket ? formatMoney(bucket.base + bucket.amount) : null
+    return bucket ? formatMoney(bucket.base + bucket.amount, data) : null
   },
   // Suma de todos los buckets — mismo total que `tax_total`, expuesto aparte
   // para plantillas que arman una lista de `iva_by_rate` con un pie
   // `iva_total` (el legacy los trataba como bloques distintos).
-  iva_total: (data) => formatMoney(data.taxTotal),
+  iva_total: (data) => formatMoney(data.taxTotal, data),
 
   // tax_single (legacy: `documentPrintBuilder.source.js`, `type ==
   // 'tax_single'`): el operador tipeaba una TASA (ej. "10") en `block.text`
@@ -304,7 +338,7 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
     // tasa, no el taxId) necesita juntarlos de nuevo.
     const matching = groupItemsByTaxRate(data.items).filter((b) => b.rate === rate)
     if (matching.length === 0) return null
-    return formatMoney(matching.reduce((s, b) => s + b.amount, 0))
+    return formatMoney(matching.reduce((s, b) => s + b.amount, 0), data)
   },
 }
 
@@ -381,16 +415,23 @@ export function ticketItemName(item: TicketItem): string {
 export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>> = {
   item: (item) => ticketItemName(item),
   item_units: (item) => String(item.qty),
-  item_uni_price: (item) => formatMoney(item.unitPrice),
+  item_uni_price: (item, data) => formatMoney(item.unitPrice, data),
   // item_price ("Precio") no tiene hoy un valor distinto de item_uni_price
   // ("Precio de lista") — TicketItem solo lleva un único unitPrice. Se
   // resuelve igual hasta que se modele precio neto vs. precio de lista.
-  item_price: (item) => formatMoney(item.unitPrice),
-  item_discount: (item) => formatMoney(item.discount),
-  item_total: (item) => formatMoney(item.total),
+  item_price: (item, data) => formatMoney(item.unitPrice, data),
+  // item_discount = MONTO del descuento de la línea (defaultText "##.###" en
+  // print-template-palette.ts ya lo daba a entender: formato de plata, no de
+  // %). Plantillas guardadas con este tipo NO se rompen: su significado no
+  // cambia, lo que se corrige es QUÉ dato le llegaba (antes, 2 de los 3
+  // builders lo llenaban con el % en vez de la plata — ver TicketItem arriba).
+  // El % vive en el bloque nuevo `item_discount_percent`.
+  item_discount: (item, data) => formatMoney(item.discountAmount, data),
+  item_discount_percent: (item) => formatPercent(item.discountPercent),
+  item_total: (item, data) => formatMoney(item.total, data),
   // item_subtotal ("Total" antes de impuesto) — sin desglose de impuesto
   // por ítem hoy, se resuelve igual que item_total.
-  item_subtotal: (item) => formatMoney(item.total),
+  item_subtotal: (item, data) => formatMoney(item.total, data),
   // F3b (context/38): TicketItem ya lleva id/sku/nota/tasa/monto de impuesto
   // — poblado por cada builder según lo que su fuente realmente tiene (ver
   // build-ticket-data.ts). item_tags (pedido owner 2026-08-14): etiquetas de
@@ -414,17 +455,17 @@ export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>>
   },
   // Impuesto de la línea completa (todas las unidades). D4: renombrado desde
   // `item_taxAmount` — el alias de lectura vive en `normalizeBlockType`.
-  item_tax_amount: (item) => (item.taxAmount === null ? null : formatMoney(item.taxAmount)),
+  item_tax_amount: (item, data) => (item.taxAmount === null ? null : formatMoney(item.taxAmount, data)),
   // Impuesto de UNA unidad — item_tax_amount / cantidad. qty=0 no debería
   // darse (línea sin unidades no se vende), pero se guarda por las dudas.
   // D4: renombrado desde `item_taxAmount_single`.
-  item_tax_amount_single: (item) =>
-    item.taxAmount === null || item.qty === 0 ? null : formatMoney(item.taxAmount / item.qty),
+  item_tax_amount_single: (item, data) =>
+    item.taxAmount === null || item.qty === 0 ? null : formatMoney(item.taxAmount / item.qty, data),
   // Precio unitario NETO (sin impuesto) — item_uni_price/item_price son el
   // precio con impuesto incluido cuando taxIncluded=true; este bloque separa
   // la base imponible por unidad para plantillas que quieren desglosar.
-  item_price_notax: (item) =>
-    item.taxNet === null || item.qty === 0 ? null : formatMoney(item.taxNet / item.qty),
+  item_price_notax: (item, data) =>
+    item.taxNet === null || item.qty === 0 ? null : formatMoney(item.taxNet / item.qty, data),
 }
 
 /** true si el tipo es conocido por el catálogo (tiene resolver de valor, es

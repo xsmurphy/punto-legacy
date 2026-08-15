@@ -139,7 +139,12 @@ export const PALETTE: PaletteSection[] = [
       // faltaba en la paleta — sin esto el operador no podía agregarlo desde
       // el editor aunque el motor de impresión ya lo soportara.
       { type: "item_tax_amount_single", label: "__TAX__ (unidad)", defaultText: "__TAX__", receiptHidden: true },
-      { type: "item_discount", label: "Descuento", defaultText: "##.###", receiptHidden: true },
+      { type: "item_discount", label: "Descuento (monto)", defaultText: "##.###", receiptHidden: true },
+      // Bloque nuevo (bug de impresión — el viejo `item_discount` confundía
+      // monto y % según qué builder armara el ticket, ver build-ticket-data.ts
+      // TicketItem.discountAmount/discountPercent): el operador ahora elige
+      // explícitamente cuál de los dos quiere en su plantilla.
+      { type: "item_discount_percent", label: "Descuento (%)", defaultText: "##%", receiptHidden: true },
       { type: "item_price", label: "Precio", defaultText: "Precio", receiptHidden: true },
       { type: "item_uni_price", label: "Precio de lista", defaultText: "Precio de lista", receiptHidden: true },
       { type: "item_price_notax", label: "Precio sin __TAX__", defaultText: "Precio sin __TAX__", receiptHidden: true },

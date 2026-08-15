@@ -113,6 +113,17 @@ export interface TicketData {
   discount: number
   taxTotal: number
   total: number
+  // ── Moneda / formato de números del tenant (PosConfig.currency/thousand/
+  // decimal, `/api/pos/bootstrap` ← `/v1/bootstrap`) — de acá sale el
+  // `formatMoney` del ticket (blocks.ts), NUNCA de un locale hardcodeado.
+  // `null`/`undefined` en los builders que no reciben `config` (remisión,
+  // traslado de stock, cierre de caja): esos documentos no imprimen montos
+  // reales de todos modos, y `formatMoney` cae al mismo default que ya usa
+  // el resto de la app (lib/format-money.ts), no a un hardcode nuevo de
+  // impresión.
+  currency?: string | null
+  thousand?: "comma" | "dot" | null
+  decimal?: string | null
   // pagos
   payments: TicketPayment[]
   // nota
@@ -150,7 +161,22 @@ export interface TicketItem {
   name: string
   qty: number
   unitPrice: number
-  discount: number
+  /**
+   * Descuento de la línea — DOS datos distintos, nunca uno solo (hallazgo del
+   * bug de impresión: `item_discount` imprimía "Gs. 7" en vez de "Gs. 1.000"
+   * porque 2 de los 3 builders llenaban este campo con el % en vez de la
+   * plata). Cada builder puebla los dos con el MISMO criterio; cuál se
+   * imprime lo decide la plantilla del comercio, vía dos bloques distintos
+   * (`item_discount` = monto, `item_discount_percent` = %, ver blocks.ts).
+   */
+  /** Plata del descuento de la línea — `SaleItem.totalDiscount` /
+   *  `itemSold.itemSoldDiscount`. Imprime `item_discount`. */
+  discountAmount: number
+  /** Porcentaje EFECTIVO de descuento de la línea (propio + prorrateo del
+   *  descuento de venta) — `SaleItem.discount` (allocateLineDiscounts). NUNCA
+   *  confundir con `discountAmount` aunque ambos midan "el descuento": uno es
+   *  plata, el otro %. Imprime `item_discount_percent`. */
+  discountPercent: number
   total: number
   categoryId: string | null
   /** UUID del ítem de catálogo. `null` si la línea no está atada a un ítem
@@ -260,7 +286,10 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
       name: s.name,
       qty: s.count,
       unitPrice: s.price,
-      discount: s.discount,
+      // s.discount = % efectivo, s.totalDiscount = plata (create-sale.ts) —
+      // ambos ya vienen calculados en el payload, sin recalcular acá.
+      discountAmount: s.totalDiscount,
+      discountPercent: s.discount,
       total: s.total,
       categoryId: line.catalogItem?.categoryId ?? null,
       id: s.itemId,
@@ -319,6 +348,9 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     total: result.total,
     payments,
     note: payload.note ?? undefined,
+    currency: config?.currency ?? null,
+    thousand: config?.thousand ?? null,
+    decimal: config?.decimal ?? null,
   }
 }
 
@@ -351,7 +383,14 @@ export interface TicketableTransactionItem {
   count: number
   price: number
   total: number
+  /** Porcentaje EFECTIVO de descuento de la línea (`SaleItem.discount`, ver
+   *  frontend/lib/commands/create-sale.ts). NO es plata — ver `totalDiscount`. */
   discount: number
+  /** Plata del descuento de la línea (`SaleItem.totalDiscount` →
+   *  `itemSold.itemSoldDiscount`). Presente en `meta.transactionDetails` desde
+   *  que existe el reparto por línea (allocate-discounts.ts) — `undefined` en
+   *  ventas anteriores a ese corte, tratado como 0 (ver `buildTicketItemsFromTransaction`). */
+  totalDiscount?: number
   status?: number
   sku?: string
   note?: string
@@ -432,7 +471,11 @@ export function buildTicketItemsFromTransaction(
         name: i.name,
         qty: i.count,
         unitPrice: i.price,
-        discount: i.discount,
+        // i.discount = % efectivo, i.totalDiscount = plata — mismo criterio
+        // que buildTicketData (ver TicketableTransactionItem arriba). `?? 0`
+        // cubre ventas anteriores al reparto por línea, sin `totalDiscount`.
+        discountAmount: i.totalDiscount ?? 0,
+        discountPercent: i.discount,
         total: i.total,
         categoryId: catalogItem?.categoryId ?? null,
         id: i.itemId ?? null,
@@ -508,6 +551,9 @@ export function buildTicketDataFromTransaction(
     total,
     payments,
     note: tx.note || undefined,
+    currency: config?.currency ?? null,
+    thousand: config?.thousand ?? null,
+    decimal: config?.decimal ?? null,
   }
 }
 
@@ -550,13 +596,20 @@ export function buildTicketDataFromTxDetail(
   detail: TicketableTxDetail,
   companyName: string,
   docType: string,
+  /** Moneda del tenant (Bootstrap.currency/thousand/decimal, panel) — mismo
+   *  shape que PosConfig, opcional para no romper callers existentes. `null`
+   *  cae al default de `formatMoney` (ver TicketData.currency arriba). */
+  moneyConfig?: Pick<PosConfig, "currency" | "thousand" | "decimal"> | null,
 ): TicketData {
   const tx = detail.transaction
   const items: TicketItem[] = detail.items.map((i) => ({
     name: i.itemName,
     qty: i.itemSoldUnits,
     unitPrice: i.itemSoldUnits > 0 ? i.itemSoldTotal / i.itemSoldUnits : i.itemSoldTotal,
-    discount: 0,
+    // Sin desglose de descuento por ítem en este endpoint (TxDetailItem no lo
+    // trae) — igual límite que taxRate/taxKind/etc. abajo.
+    discountAmount: 0,
+    discountPercent: 0,
     total: i.itemSoldTotal,
     // Sin catálogo POS hidratado en el panel — printTicketInBrowser no filtra
     // por categoría (solo lo hace el matching de bindings de hardware, que
@@ -599,6 +652,9 @@ export function buildTicketDataFromTxDetail(
     total: tx.transactionTotal,
     payments,
     note: tx.transactionNote || undefined,
+    currency: moneyConfig?.currency ?? null,
+    thousand: moneyConfig?.thousand ?? null,
+    decimal: moneyConfig?.decimal ?? null,
   }
 }
 
@@ -642,7 +698,8 @@ export function buildTicketDataFromStockTransfer(
     name: i.name,
     qty: i.qty,
     unitPrice: 0,
-    discount: 0,
+    discountAmount: 0,
+    discountPercent: 0,
     total: 0,
     categoryId: null,
     id: i.itemId,
@@ -710,7 +767,8 @@ export function buildTicketDataFromRemision(
     name: i.name,
     qty: i.qty,
     unitPrice: 0,
-    discount: 0,
+    discountAmount: 0,
+    discountPercent: 0,
     total: 0,
     categoryId: null,
     id: i.itemId,

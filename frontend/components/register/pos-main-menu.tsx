@@ -79,6 +79,7 @@ import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import type { TicketData, TicketItem } from "@/lib/hardware/printers"
+import type { PosConfig } from "@/lib/types/pos-bootstrap"
 import { NumericPadDialog } from "@/components/pos/numeric-pad-dialog"
 import { CashMovementDialog } from "@/components/register/cash-movement-dialog"
 import { formatMoney } from "@/lib/format-money"
@@ -1002,7 +1003,7 @@ function AccountOverview({
  */
 function buildCloseRegTicket(
   summary: DrawerSummary,
-  config: { companyName?: string } | null,
+  config: Pick<PosConfig, "companyName" | "currency" | "thousand" | "decimal"> | null,
 ): TicketData {
   const closingPayments = summary.list.map((row) => ({
     method: row.name,
@@ -1018,7 +1019,8 @@ function buildCloseRegTicket(
     name: p.name,
     qty: p.qty,
     unitPrice: p.qty !== 0 ? p.total / p.qty : p.total,
-    discount: 0,
+    discountAmount: 0,
+    discountPercent: 0,
     total: p.total,
     categoryId: null,
     id: null,
@@ -1046,6 +1048,9 @@ function buildCloseRegTicket(
     total: summary.total,
     payments: closingPayments,
     note: summary.tips > 0 ? `Propinas: ${summary.tips}` : undefined,
+    currency: config?.currency ?? null,
+    thousand: config?.thousand ?? null,
+    decimal: config?.decimal ?? null,
   }
 }
 

@@ -102,7 +102,15 @@ export type BlockType =
   // (frontend/lib/hardware/printers/blocks.ts) es el ÚNICO lugar que traduce
   // el string legacy al canónico, al leer, sin migración de datos.
   | "item_tags" | "item_tax" | "item_tax_amount" | "item_tax_amount_single"
-  | "item_discount" | "item_price" | "item_uni_price" | "item_price_notax"
+  // item_discount = MONTO del descuento de línea; item_discount_percent = %
+  // efectivo. Antes un solo bloque ambiguo (bug de impresión — ver
+  // TicketItem.discountAmount/discountPercent en build-ticket-data.ts):
+  // 2 de los 3 builders llenaban `item.discount` con el % en vez de la
+  // plata, así que el mismo ticket imprimía distinto según cuándo se
+  // imprimiera. `item_discount` NO se renombra (plantillas guardadas ya lo
+  // usan con el significado "monto" — ver defaultText "##.###" en
+  // print-template-palette.ts) — se agrega el bloque nuevo para el %.
+  | "item_discount" | "item_discount_percent" | "item_price" | "item_uni_price" | "item_price_notax"
   | "item_total" | "item_subtotal" | "tax_single"
   // F3c (context/38 §D): bloques parametrizados por tasa. El bloque guarda
   // el `taxId` del tenant en `block.text` (mismo mecanismo que ya usaba el

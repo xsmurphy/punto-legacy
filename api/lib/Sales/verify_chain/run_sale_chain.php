@@ -285,6 +285,16 @@ foreach ($cases as $case) {
     $dump = [
         'caseId'   => $case['id'],
         'decimals' => $case['decimals'],
+        // Moneda/separadores del tenant (fixtures.json) — el paso de Node
+        // arma con esto el `config` (PosConfig) que le pasa a
+        // buildTicketDataFromTransaction, para probar que formatMoney
+        // (blocks.ts) sale de la config real y no de un hardcode "es-PY"
+        // (hallazgo #2 del reporte de esta tarea).
+        'moneyConfig' => [
+            'currency' => $case['currency'],
+            'thousand' => $case['thousand'],
+            'decimal'  => $case['decimals'] === 2 ? 'yes' : 'no',
+        ],
         'transaction' => [
             'transactionId'          => $transId,
             'customerName'           => null,
