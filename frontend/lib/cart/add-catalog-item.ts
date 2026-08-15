@@ -14,16 +14,33 @@
  * abre `GiftcardIssueDialog` (vía giftcard-issue-store) para capturar monto/
  * código/beneficiario/vencimiento. La línea se agrega recién al confirmar
  * ese dialog.
+ *
+ * hasAddons (F4, context/41): mismo mecanismo — abre `AddonPickerDialog` para
+ * elegir los add-ons y la línea entra recién al confirmar. El chequeo va acá y
+ * no en el call-site del grid: la búsqueda de productos y el scanner de barras
+ * agregan por esta misma puerta y tienen que preguntar igual, o venderían el
+ * producto con el precio base y sin lo que va a cocina.
  */
 
 import { toast } from "sonner"
 import { useCartStore } from "@/lib/cart/store"
 import { useGiftcardIssueStore } from "@/lib/cart/giftcard-issue-store"
+import { useAddonPickerStore } from "@/lib/cart/addon-picker-store"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 
 export function addCatalogItem(item: PosItem): void {
   if (item.kind === "giftcard") {
     useGiftcardIssueStore.getState().open(item)
+    return
+  }
+
+  // Producto SIN grupos → sigue de largo y se agrega directo, exactamente como
+  // antes: cero fricción para el comercio que no usa la feature.
+  // `kind === "descuento"` queda afuera aunque tuviera grupos: no entra como
+  // línea de carrito (aplica un % de descuento de venta), así que un modal de
+  // add-ons ahí no tendría dónde guardar la selección.
+  if (item.hasAddons && item.kind !== "descuento") {
+    useAddonPickerStore.getState().open(item)
     return
   }
 

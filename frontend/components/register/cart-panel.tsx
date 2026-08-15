@@ -34,6 +34,7 @@ import {
   StickyNote,
   UserCircle2,
   Ticket,
+  ListPlus,
 } from "lucide-react"
 import { MODE_VISUALS, resolveCartMode, type CartModeKey } from "@/lib/pos/mode-visuals"
 import { Button } from "@/components/ui/button"
@@ -81,6 +82,8 @@ import { ProductSearchDialog } from "@/components/register/product-search-dialog
 import { CustomerDialog } from "@/components/register/customer-dialog"
 import { PayDialog } from "@/components/register/pay-dialog"
 import { GiftcardIssueDialog } from "@/components/register/giftcard-issue-dialog"
+import { AddonPickerDialog } from "@/components/register/addon-picker-dialog"
+import { useAddonPickerStore } from "@/lib/cart/addon-picker-store"
 import { SaleOptionsDrawer } from "@/components/register/sale-options-drawer"
 import { TransactionSuccessDialog } from "@/components/register/transaction-success-dialog"
 import { PosMainMenu } from "@/components/register/pos-main-menu"
@@ -439,6 +442,10 @@ export function CartPanel() {
         />
       )}
       <GiftcardIssueDialog />
+      {/* Selección de add-ons (F4, context/41) — alta desde el catálogo y
+          edición de una línea existente. Montado acá por el mismo motivo que
+          GiftcardIssueDialog: el carrito vive montado en todo el workspace. */}
+      <AddonPickerDialog />
       <SyncQueueDialog open={syncQueueOpen} onOpenChange={setSyncQueueOpen} />
       <DrawerOpenDialog
         open={drawerOpenDialogOpen}
@@ -877,6 +884,38 @@ function DeliveryAddressChip({
 
 // ── Fila colapsada (no seleccionada) ──────────────────────────────────────────
 
+/**
+ * Add-ons elegidos de una línea (F4, context/41) — se listan indentados debajo
+ * del nombre del producto, con la misma escala tipográfica que la nota de
+ * línea. El recargo se muestra solo si suma (D2: `priceDelta = 0` es una
+ * opción sin costo, un "sin cebolla"; imprimirle "+0" sería ruido).
+ *
+ * Renderiza desde la COPIA guardada en la línea (`name`/`priceDelta`), no de la
+ * red: el carrito tiene que verse igual con el device offline. El importe de
+ * autoridad lo recalcula el server al vender.
+ */
+function LineAddons({
+  line,
+  config,
+}: {
+  line: CartLine
+  config: ReturnType<typeof useCatalogStore.getState>["config"]
+}) {
+  if (!line.selections || line.selections.length === 0) return null
+  return (
+    <div className="mt-0.5 flex flex-col gap-px pl-2 text-[10px] text-muted-foreground">
+      {line.selections.map((addon) => (
+        <span key={addon.optionId} className="truncate">
+          {"· "}
+          {addon.qty > 1 ? `${addon.qty}× ` : ""}
+          {addon.name}
+          {addon.priceDelta > 0 ? ` +${formatAmount(addon.priceDelta * addon.qty, config)}` : ""}
+        </span>
+      ))}
+    </div>
+  )
+}
+
 function CartRowCollapsed({
   line,
   config,
@@ -934,6 +973,7 @@ function CartRowCollapsed({
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground">{line.name}</p>
+        <LineAddons line={line} config={config} />
         {showSubtitle && (
           <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
             {isVoucher && (
@@ -1043,6 +1083,12 @@ function CartRowExpanded({
   const hasDiscount = (line.discount ?? 0) > 0 || coveredBySaleDiscount
   const removeVoucher = useCartStore((s) => s.removeVoucher)
 
+  // F4 (context/41): el modal de add-ons necesita el PosItem del catálogo (el
+  // precio base y el flag). Sin el ítem en el catálogo del device no hay nada
+  // que reabrir; con selecciones guardadas pero sin grupos vigentes tampoco.
+  const catalogItem = useCatalogStore((s) => s.items.find((i) => i.id === line.itemId))
+  const canEditAddons = Boolean(catalogItem?.hasAddons) && !isVoucher && !line.giftcard
+
   return (
     <div
       className={cn(
@@ -1055,6 +1101,13 @@ function CartRowExpanded({
         <span className="truncate text-sm font-bold text-foreground">
           {line.name}
         </span>
+        {(line.selections?.length ?? 0) > 0 && (
+          <span className="text-[10px] text-muted-foreground">
+            {line.selections
+              ?.map((a) => (a.qty > 1 ? `${a.qty}× ${a.name}` : a.name))
+              .join(" · ")}
+          </span>
+        )}
         {isVoucher && (
           <span className="inline-flex items-center gap-1 text-[11px] font-medium text-blue-500">
             <Ticket className="size-3" aria-hidden />
@@ -1192,6 +1245,23 @@ function CartRowExpanded({
               icon={MessageSquare}
               label="Comentario"
               onClick={() => { onEditNote(); setMoreOpen(false) }}
+            />
+            {/* Add-ons (F4, context/41): reabre el modal con lo elegido y
+                reemplaza la selección de ESTA línea. El tile existe siempre —
+                deshabilitado cuando el producto no tiene grupos— para que los
+                otros no cambien de posición entre productos (§14 §10). */}
+            <LineActionTile
+              icon={ListPlus}
+              label="Add-ons"
+              disabled={!canEditAddons}
+              onClick={() => {
+                if (catalogItem) {
+                  useAddonPickerStore
+                    .getState()
+                    .openForLine(catalogItem, line.lineId, line.selections ?? [])
+                }
+                setMoreOpen(false)
+              }}
             />
           </div>
         </DrawerContent>

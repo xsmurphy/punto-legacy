@@ -153,6 +153,15 @@ export interface PosItem {
   isGroup: boolean
   /** UUID del padre si este item es hijo de un grupo (itemParentId). null si es top-level. */
   parentId: string | null
+  /**
+   * F4 (context/41): el ítem tiene al menos un grupo de add-ons vigente (activo
+   * y con opciones). Viaja en el bootstrap —un `EXISTS` en el LIST de
+   * `/v1/items`— para que el tap en el tile decida SIN un fetch por producto:
+   * `true` abre `<AddonPickerDialog>`, `false` agrega directo como siempre.
+   * El detalle de los grupos se pide recién al abrir el modal
+   * (`useItemAddonsPos`).
+   */
+  hasAddons: boolean
 }
 
 // ── Impuestos del tenant (F2b, context/38) ───────────────────────────────────

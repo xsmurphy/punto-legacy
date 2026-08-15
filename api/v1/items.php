@@ -82,6 +82,7 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         'itemminstock'        => 'itemMinStock',
         'itemmaxstock'        => 'itemMaxStock',
         'stockonhand'         => 'stockOnHand',
+        'hasaddons'           => 'hasAddons',
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -92,7 +93,7 @@ function presentItem(array|\CaseInsensitiveArray $row): array
     // Normalizar booleanos: PG con PDO puede devolver 't'/'f' string en vez de
     // bool dependiendo del driver/version. Forzamos bool real para que el
     // frontend no tenga que adivinar.
-    foreach (['itemIsParent', 'itemTrackInventory', 'itemCanSale', 'itemProduction', 'itemTaxIncluded', 'itemEcom', 'itemFeatured', 'itemImage', 'hasVariants'] as $boolKey) {
+    foreach (['itemIsParent', 'itemTrackInventory', 'itemCanSale', 'itemProduction', 'itemTaxIncluded', 'itemEcom', 'itemFeatured', 'itemImage', 'hasVariants', 'hasAddons'] as $boolKey) {
         if (array_key_exists($boolKey, $out)) {
             $v = $out[$boolKey];
             if (is_string($v)) {
@@ -762,7 +763,24 @@ switch ($method) {
                        o.outletName AS outletName,
                        cov.url AS coverImageUrl,
                        COALESCE(ch.cnt, 0) AS childCount,
-                       COALESCE(vc.vcnt, 0) AS variantCount
+                       COALESCE(vc.vcnt, 0) AS variantCount,
+                       -- F4 (context/41): ¿el ítem tiene grupos de add-ons
+                       -- vigentes? El POS lo necesita POR ÍTEM para decidir si
+                       -- el tap abre el modal de selección o agrega directo —
+                       -- sin este flag serían N fetch (uno por tile). EXISTS
+                       -- correlacionado, no un JOIN que multiplique filas.
+                       -- Un grupo activo SIN opciones no cuenta: abriría un
+                       -- modal vacío.
+                       EXISTS (
+                            SELECT 1 FROM \"addon_group\" ag
+                             WHERE ag.\"itemId\" = i.itemId
+                               AND ag.\"companyId\" = i.companyId
+                               AND ag.\"status\" = TRUE
+                               AND EXISTS (
+                                    SELECT 1 FROM \"addon_group_option\" ago
+                                     WHERE ago.\"groupId\" = ag.\"groupId\"
+                               )
+                       ) AS hasAddons
                   FROM item i
              LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
              LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId

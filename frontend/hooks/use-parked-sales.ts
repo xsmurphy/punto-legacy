@@ -39,6 +39,27 @@ export interface ParkedSale {
 // después `title`/`customer`) — el próximo campo faltante iba a volver a
 // tumbar la página. Normalizamos ACÁ, una sola vez, para que el resto de la
 // app pueda confiar en el shape de `ParkedSale.data` sin `?.` disperso.
+/**
+ * Add-ons guardados en una línea aparcada. `undefined` si no hay ninguno
+ * válido, para que la línea quede idéntica a una sin add-ons (la clave de
+ * identidad del carrito compara `selections` vacío y ausente como lo mismo,
+ * pero un array vacío ensuciaría el payload de la venta).
+ */
+function normalizeSelections(raw: unknown): CartLine["selections"] {
+  if (!Array.isArray(raw)) return undefined
+  const out = raw
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === "object")
+    .map((s) => ({
+      optionId: typeof s.optionId === "string" ? s.optionId : "",
+      qty: typeof s.qty === "number" && Number.isFinite(s.qty) && s.qty >= 1 ? Math.trunc(s.qty) : 1,
+      itemId: typeof s.itemId === "string" ? s.itemId : "",
+      name: typeof s.name === "string" ? s.name : "",
+      priceDelta: typeof s.priceDelta === "number" && Number.isFinite(s.priceDelta) ? s.priceDelta : 0,
+    }))
+    .filter((s) => s.optionId !== "")
+  return out.length > 0 ? out : undefined
+}
+
 function normalizeParkedSaleData(raw: unknown): ParkedSaleData {
   const d = (raw ?? {}) as Record<string, unknown>
   const rawCart: unknown[] = Array.isArray(d.cart) ? d.cart : []
@@ -55,6 +76,12 @@ function normalizeParkedSaleData(raw: unknown): ParkedSaleData {
       discount: typeof l.discount === "number" ? l.discount : undefined,
       tags: Array.isArray(l.tags) ? (l.tags as string[]) : undefined,
       giftcard: (l.giftcard && typeof l.giftcard === "object" ? l.giftcard : undefined) as CartLine["giftcard"],
+      // Add-ons de la línea (F4, context/41). Este normalizador es una
+      // WHITELIST: sin esta rama, retomar una venta aparcada devolvía la línea
+      // con el precio de los add-ons ya sumado en `unitPrice` pero SIN las
+      // selecciones — se cobraba el recargo y no llegaba nada a cocina.
+      // `unitPrice` no se toca acá: ya venía con el recargo incluido.
+      selections: normalizeSelections(l.selections),
     }))
 
   const customer =

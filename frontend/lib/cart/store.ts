@@ -122,6 +122,68 @@ export interface CartLine {
    * `PosItem.taxIncluded` / `SaleService::enrichWithTaxes`.
    */
   taxIncluded?: boolean | null
+  /**
+   * Add-ons elegidos para esta línea (F4, context/41). Ausente/vacío = línea
+   * sin add-ons, el 100% del tráfico de un comercio que no usa la feature.
+   *
+   * DOS invariantes que no se pueden romper:
+   *
+   * 1. `unitPrice` YA incluye la suma de `priceDelta * qty` de estas
+   *    selecciones (ver `addonsDelta`). No es una optimización: el server NO
+   *    deriva el total de la venta del detalle —lo toma del `subtotal` que
+   *    informa el cliente— así que si el delta no está en el precio de la
+   *    línea, el add-on se vende gratis (ver el docblock de
+   *    `SaleService::expandAddonSelections`, F3).
+   * 2. `name`/`priceDelta` son COPIA para RENDER (la fila del carrito, la
+   *    venta aparcada que se retoma sin red). El server revalida optionId,
+   *    mínimos/máximos y recalcula el delta contra la BD al vender — nunca
+   *    confía en estos valores, y el payload solo le manda `optionId` + `qty`.
+   */
+  selections?: CartLineAddon[]
+}
+
+/** Una opción de add-on elegida en una línea del carrito (F4, context/41). */
+export interface CartLineAddon {
+  /** `addon_group_option.optionId` — lo ÚNICO, con `qty`, que viaja al server. */
+  optionId: string
+  /** Cuántas veces se eligió la opción (entero ≥ 1, tope `maxQty` del grupo). */
+  qty: number
+  /** Producto real detrás de la opción. Informativo en el front. */
+  itemId: string
+  /** Copia del nombre para render offline. */
+  name: string
+  /** Copia del recargo unitario para render offline. 0 = no suma. */
+  priceDelta: number
+}
+
+/**
+ * Recargo total de los add-ons de una línea (por unidad del producto padre).
+ * Es lo que `unitPrice` lleva sumado sobre el precio base — ver
+ * `CartLine.selections`.
+ */
+export function addonsDelta(selections: CartLineAddon[] | undefined): number {
+  if (!selections || selections.length === 0) return 0
+  return selections.reduce((sum, s) => sum + s.priceDelta * s.qty, 0)
+}
+
+/**
+ * Firma estable de las selecciones de una línea — clave de IDENTIDAD del
+ * producto en el carrito junto con `itemId`.
+ *
+ * Dos líneas del mismo ítem con selecciones DISTINTAS son líneas distintas
+ * (una hamburguesa con queso extra no es la misma que una sin). Con la misma
+ * firma sí se colapsan sumando cantidad, que es el comportamiento que el
+ * cajero ya espera de `mergeRepeated`.
+ *
+ * Ordenada por optionId: el orden en que el cajero tocó las opciones no puede
+ * cambiar la identidad de la línea.
+ */
+export function selectionsKey(selections: CartLineAddon[] | undefined): string {
+  if (!selections || selections.length === 0) return ""
+  return selections
+    .map((s) => `${s.optionId}:${s.qty}`)
+    .sort()
+    .join(",")
 }
 
 /** Un ítem del vale, tal como lo devuelve `POST /v1/vouchers?resource=validate`. */
@@ -509,6 +571,13 @@ interface CartState {
     /** F2b (context/38): impuesto del ítem — ver `CartLine.taxId/taxIncluded`. */
     taxId?: string | null
     taxIncluded?: boolean | null
+    /**
+     * F4 (context/41): add-ons elegidos en `<AddonPickerDialog>`. `price` sigue
+     * siendo el precio BASE del catálogo — el store le suma los deltas para
+     * armar `unitPrice` (ver `CartLine.selections`), así ningún caller puede
+     * mandar un precio ya sumado y duplicar el recargo.
+     */
+    selections?: CartLineAddon[]
   }) => "added" | "discount-applied" | "discount-missing"
 
   /** Elimina una línea del carrito. */
@@ -546,6 +615,17 @@ interface CartState {
 
   /** Actualiza las etiquetas de una línea (uso interno — comandas, no facturas). */
   setLineTags: (lineId: string, tags: string[]) => void
+
+  /**
+   * Reemplaza los add-ons de una línea (F4, context/41) — lo que confirma
+   * `<AddonPickerDialog>` cuando se reabre desde el carrito.
+   *
+   * Ajusta `unitPrice` por DIFERENCIA (saca el delta viejo, suma el nuevo) en
+   * vez de recomponerlo desde `basePrice`: así funciona igual sobre una línea
+   * con precio editado a mano (`priceOverridden`) o re-cotizada por lista de
+   * precios, sin pisar ninguna de esas resoluciones.
+   */
+  setLineSelections: (lineId: string, selections: CartLineAddon[]) => void
 
   /** Fija el flag de agrupado de ítems repetidos. */
   setMergeRepeated: (v: boolean) => void
@@ -778,15 +858,22 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     // info del producto). Los controles/tools aparecen solo al click en la línea
     // (selectLine) y se ocultan al click afuera. Ver CartPanel.
     set((state) => {
+      // F4 (context/41): el precio de la línea es base + recargos. `basePrice`
+      // queda en el precio PELADO de catálogo — es la referencia que
+      // `usePriceContext` re-cotiza contra la lista de precios, y sobre esa
+      // resolución se vuelven a sumar los deltas (ver applyResolvedPrices).
+      const selections = item.selections && item.selections.length > 0 ? item.selections : undefined
+      const delta = addonsDelta(selections)
       const newLine = (): CartLine => ({
         lineId: crypto.randomUUID(),
         itemId: item.id,
         name: item.name,
         qty: 1,
-        unitPrice: item.price,
+        unitPrice: item.price + delta,
         basePrice: item.price,
         taxId: item.taxId ?? null,
         taxIncluded: item.taxIncluded ?? null,
+        ...(selections ? { selections } : {}),
       })
 
       if (!state.mergeRepeated) {
@@ -802,8 +889,17 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       // creyendo que agregó uno, y en realidad infló silenciosamente la
       // cantidad "gratis" del vale. Crea una línea nueva, como si no hubiera
       // coincidido.
+      // La identidad de la línea incluye sus add-ons (F4, context/41): el
+      // mismo producto con selecciones distintas son líneas DISTINTAS —
+      // sumarle cantidad a la anterior cambiaría en silencio lo que se prepara
+      // en cocina. Misma selección exacta sí colapsa, como cualquier repetido.
       const lastLine = state.lines.at(-1)
-      if (lastLine && lastLine.itemId === item.id && !lastLine.voucher) {
+      if (
+        lastLine &&
+        lastLine.itemId === item.id &&
+        !lastLine.voucher &&
+        selectionsKey(lastLine.selections) === selectionsKey(selections)
+      ) {
         return {
           lines: state.lines.map((l) =>
             l.lineId === lastLine.lineId ? { ...l, qty: l.qty + 1 } : l,
@@ -931,6 +1027,17 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     }))
   },
 
+  setLineSelections: (lineId, selections) => {
+    set((state) => ({
+      lines: state.lines.map((l) => {
+        if (l.lineId !== lineId) return l
+        const next = selections.length > 0 ? selections : undefined
+        const unitPrice = l.unitPrice - addonsDelta(l.selections) + addonsDelta(next)
+        return { ...l, selections: next, unitPrice }
+      }),
+    }))
+  },
+
   setMergeRepeated: (v) => {
     set({ mergeRepeated: v })
   },
@@ -974,9 +1081,13 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         // 60.000 caía a ~168 en unos segundos (reporte del owner 2026-08-04,
         // cobro en partes de un espacio). Los creadores de línea ya setean
         // basePrice; esto cubre cualquier camino nuevo que se olvide.
-        const base = l.basePrice ?? l.unitPrice
-        if (r.price === l.unitPrice && l.basePrice !== undefined) return l
-        return { ...l, basePrice: base, unitPrice: r.price }
+        // F4 (context/41): la lista de precios re-cotiza el producto BASE; los
+        // recargos de los add-ons se vuelven a sumar encima. Sin esto, resolver
+        // precios borraba los add-ons del total y se vendían gratis.
+        const delta = addonsDelta(l.selections)
+        const base = l.basePrice ?? l.unitPrice - delta
+        if (r.price + delta === l.unitPrice && l.basePrice !== undefined) return l
+        return { ...l, basePrice: base, unitPrice: r.price + delta }
       })
       return { lines, priceListName: activeName }
     })
@@ -984,11 +1095,13 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   restoreBasePrices: () => {
     set((state) => ({
-      lines: state.lines.map((l) =>
-        l.priceOverridden || l.unitPrice === (l.basePrice ?? l.unitPrice)
-          ? l
-          : { ...l, unitPrice: l.basePrice ?? l.unitPrice },
-      ),
+      lines: state.lines.map((l) => {
+        // El precio base al que se vuelve incluye los add-ons de la línea
+        // (F4, context/41) — quitar el contexto de precio no puede regalar el
+        // recargo que el cajero cargó.
+        const target = (l.basePrice ?? l.unitPrice - addonsDelta(l.selections)) + addonsDelta(l.selections)
+        return l.priceOverridden || l.unitPrice === target ? l : { ...l, unitPrice: target }
+      }),
       priceListName: null,
     }))
   },

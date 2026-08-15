@@ -103,6 +103,22 @@ export interface SaleItem {
     voucherId: string
     code: string
   }
+  /**
+   * Add-ons elegidos en la línea (F4, context/41). SOLO `optionId` + `qty`:
+   * `SaleInput::assertSelectionsShape` valida exactamente ese shape (qty entero
+   * ≥ 1, máximo 50 opciones por línea) y `AddonService::validateSelections`
+   * resuelve nombre y `priceDelta` contra la BD — mandar el nombre o la plata
+   * de la copia local sería mandar datos que el server descarta.
+   *
+   * Una línea SIN add-ons NO lleva la key: es el 100% del tráfico de un
+   * comercio que no usa la feature y el backend distingue "ausente" de
+   * "array vacío".
+   *
+   * El recargo YA está en `price`/`total` de la línea (viene en
+   * `CartLine.unitPrice`): el server no deriva `transactionTotal` del detalle
+   * — ver el docblock de `SaleService::expandAddonSelections`.
+   */
+  selections?: { optionId: string; qty: number }[]
 }
 
 /**
@@ -335,6 +351,14 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
             voucherId: line.voucher.voucherId,
             code: line.voucher.code,
           },
+        }
+      : {}),
+    ...(line.selections && line.selections.length > 0
+      ? {
+          selections: line.selections.map((s) => ({
+            optionId: s.optionId,
+            qty: s.qty,
+          })),
         }
       : {}),
   }))

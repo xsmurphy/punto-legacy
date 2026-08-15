@@ -188,6 +188,8 @@ interface UpstreamItemRow {
   kind?: string
   /** % de descuento de catálogo (JSONB flattened). Ver PosItem.discountPercent. */
   itemDiscount?: number | string | null
+  /** F4 (context/41): el ítem tiene grupos de add-ons vigentes. Ver PosItem.hasAddons. */
+  hasAddons?: boolean | string | number | null
 }
 
 interface UpstreamItemsList {
@@ -342,6 +344,11 @@ function reshapeItem(row: UpstreamItemRow): PosItem {
     stock: null,
     isGroup: row.itemIsParent === true,
     parentId: row.itemParentId ?? null,
+    // F4 (context/41): PG con PDO puede devolver el boolean del EXISTS como
+    // 't'/'f' string según driver — presentItem() ya lo normaliza a bool, pero
+    // el reshape no puede asumirlo (un 'f' string es truthy en JS). Solo el
+    // `true` real y sus representaciones explícitas cuentan.
+    hasAddons: row.hasAddons === true || row.hasAddons === "t" || row.hasAddons === "true" || row.hasAddons === 1,
   }
 }
 
