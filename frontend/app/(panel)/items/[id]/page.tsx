@@ -25,6 +25,7 @@ import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { EmptyState } from "@/components/empty-state"
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -94,6 +95,7 @@ import {
   DEFAULT_GIFTCARD_COLOR,
   GIFTCARD_COLORS,
   defaultAvailability,
+  type ComboPricing,
   type DayOfWeek,
   type ItemFormValues,
   type ItemImage,
@@ -104,7 +106,6 @@ import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { ItemGallery } from "@/components/items/item-gallery"
 import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
-import { ComboGroupsEditor } from "@/components/items/combo-groups-editor"
 import { AddonsSection } from "@/components/items/addons-section"
 import { LocationsEditor } from "@/components/items/locations-editor"
 import { ItemStockTab } from "@/components/items/stock-tab"
@@ -667,7 +668,14 @@ function ItemEditPageInner() {
             </TabsContent>
           )}
           <TabsContent value="produccion" className="mt-6">
-            <ProduccionTab form={form} id={id} isNew={isNew} visibility={visibility} kind={kind} />
+            <ProduccionTab
+              form={form}
+              id={id}
+              isNew={isNew}
+              visibility={visibility}
+              kind={kind}
+              comboPricing={data?.comboPricing}
+            />
           </TabsContent>
         </Tabs>
       </form>
@@ -1107,7 +1115,17 @@ function PerfilTab({
           (itemCanSale=1 en KIND_META) y solo con el ítem ya guardado — los
           grupos cuelgan de un itemId real (FK con ON DELETE CASCADE). */}
       {!isNew && KIND_META[kind].backend.itemCanSale === 1 && (
-        <AddonsSection itemId={itemId} />
+        <AddonsSection
+          itemId={itemId}
+          // Combo dinámico (F5): sus grupos SON esta sección desde que se
+          // retiró ComboGroupsEditor. Un grupo de combo es una decisión
+          // obligatoria y única ("elegí 1 hamburguesa"), así que arranca en
+          // min=1/max=1 — el preset opcional del producto común obligaría a
+          // corregir cada grupo a mano.
+          newGroupPreset={
+            kind === "combo_dinamico" ? { minSelect: 1, maxSelect: 1 } : undefined
+          }
+        />
       )}
     </div>
   )
@@ -1835,12 +1853,15 @@ function ProduccionTab({
   isNew,
   visibility,
   kind,
+  comboPricing,
 }: {
   form: UseFormReturn<ItemFormValues>
   id: string
   isNew: boolean
   visibility: KindFieldVisibility
   kind: ItemKind
+  /** Solo llega con `kind = combo_fijo` y componentes cargados (F5). */
+  comboPricing?: ComboPricing
 }) {
   if (isNew) {
     return (
@@ -1872,27 +1893,23 @@ function ProduccionTab({
     )
   }
 
-  // Combo dinámico: grupos de selección (items específicos o por categoría),
-  // min/max por grupo, extraPrice + preselected por item del grupo.
-  // NOTA: este branch va ANTES del gate de showCompounds — combo_dinamico
-  // tiene showCompounds:false en KIND_META (no usa CompoundsEditor), pero sí
-  // necesita su propio editor de grupos.
+  // Combo dinámico: acá vivía `ComboGroupsEditor` (combo_group/combo_group_item),
+  // borrado en F5 (context/41). Los grupos de selección del combo son ahora los
+  // mismos add-ons que cualquier producto vendible — un combo dinámico "es un
+  // producto con grupos", sin maquinaria propia — y se editan en la sección
+  // "Add-ons" de la pestaña Perfil, que sí los vende (F3: revalidación
+  // server-side, líneas padre/hijo, stock por opción). Este branch queda solo
+  // para no caer en el copy genérico de abajo ("no tiene ingredientes"), que
+  // dejaría al dueño sin saber a dónde se fue su editor.
   if (kind === "combo_dinamico") {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">
-            Grupos de selección del combo
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-xs text-muted-foreground">
-            Cada grupo es una decisión que el cliente toma al armar el combo
-            (ej: <em>elegí 1 hamburguesa</em>). Podés definir un mínimo y
-            máximo, y el grupo puede ofrecer una lista explícita de items o
-            cualquier item de una categoría.
-          </p>
-          <ComboGroupsEditor itemId={id} />
+        <CardContent className="p-8 text-center text-sm text-muted-foreground">
+          Los grupos de selección de este combo se configuran en la sección
+          <strong> Add-ons</strong> de la pestaña <strong>Perfil</strong>. Cada
+          grupo es una decisión que el cliente toma al armar el combo (ej:{" "}
+          <em>elegí 1 hamburguesa</em>), con su mínimo, su máximo y el precio
+          adicional de cada opción.
         </CardContent>
       </Card>
     )
@@ -1914,20 +1931,23 @@ function ProduccionTab({
   // pero con copy enfocado en la venta del combo, no en producción.
   if (kind === "combo_fijo") {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base font-semibold tracking-tight">Componentes del combo</CardTitle>
-        </CardHeader>
-        <CardContent className="flex flex-col gap-3">
-          <p className="text-xs text-muted-foreground">
-            Items que se entregan al cliente cuando vende este combo. El{" "}
-            <strong>precio del combo es fijo</strong> (definido en la pestaña
-            Perfil). El costo total se suma del costo de cada componente —
-            sirve para calcular margen del combo vs venderlos por separado.
-          </p>
-          <CompoundsEditor itemId={id} />
-        </CardContent>
-      </Card>
+      <div className="flex flex-col gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-semibold tracking-tight">Componentes del combo</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <p className="text-xs text-muted-foreground">
+              Items que se entregan al cliente cuando vende este combo. El{" "}
+              <strong>precio del combo es fijo</strong> (definido en la pestaña
+              Perfil). El costo total se suma del costo de cada componente —
+              sirve para calcular margen del combo vs venderlos por separado.
+            </p>
+            <CompoundsEditor itemId={id} />
+          </CardContent>
+        </Card>
+        <ComboPricingCard pricing={comboPricing} />
+      </div>
     )
   }
 
@@ -1983,6 +2003,90 @@ function ProduccionTab({
 }
 
 // ── HELPERS ─────────────────────────────────────────────────────────────────
+
+/**
+ * Descuento implícito del combo fijo (F5, context/41).
+ *
+ * El combo tiene precio propio y sus componentes tienen el suyo: la diferencia
+ * es un descuento real que el cliente recibe sin que exista ninguna línea de
+ * descuento en ningún lado. Hasta acá el dueño no lo veía — armaba el combo a
+ * ojo. Los tres números salen del server (`comboPricing`), que es donde vive la
+ * única implementación de la fórmula.
+ *
+ * El caso "el combo sale MÁS caro que comprar suelto" se muestra en tono
+ * destructivo en vez de esconderse con un max(0): casi siempre es un error de
+ * carga, y es exactamente el dato que justifica este bloque.
+ */
+function ComboPricingCard({ pricing }: { pricing?: ComboPricing }) {
+  const { data: bootstrap } = useBootstrap()
+
+  // Sin componentes cargados el server no manda nada — no hay comparación
+  // posible y un "0% de descuento" sería mentira.
+  if (!pricing) return null
+
+  const isMoreExpensive = pricing.discount < 0
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base font-semibold tracking-tight">Precio del combo</CardTitle>
+        <CardAction>
+          {isMoreExpensive ? (
+            <Badge variant="destructive">Más caro que por separado</Badge>
+          ) : (
+            <Badge variant="secondary">
+              {pricing.discountPct.toFixed(1)}% de descuento
+            </Badge>
+          )}
+        </CardAction>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-3">
+        <div className="grid grid-cols-3 gap-2 rounded-md border bg-muted/30 p-3 text-center text-xs">
+          <div>
+            <div className="text-muted-foreground">Suma de componentes</div>
+            <div className="text-base font-semibold tabular-nums">
+              {formatMoney(pricing.componentsSum, bootstrap)}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">Precio del combo</div>
+            <div className="text-base font-semibold tabular-nums">
+              {formatMoney(pricing.comboPrice, bootstrap)}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground">
+              {isMoreExpensive ? "Recargo" : "Descuento"}
+            </div>
+            <div
+              className={cn(
+                "text-base font-semibold tabular-nums",
+                isMoreExpensive && "text-destructive",
+              )}
+            >
+              {formatMoney(Math.abs(pricing.discount), bootstrap)}
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {isMoreExpensive ? (
+            <>
+              Este combo cuesta más que comprar sus componentes por separado.
+              Revisá el precio en la pestaña Perfil o las cantidades de la
+              receta.
+            </>
+          ) : (
+            <>
+              Lo que el cliente ahorra comprando el combo en vez de sus
+              componentes sueltos. El descuento queda implícito en el precio —
+              no se imprime como línea aparte en el ticket.
+            </>
+          )}
+        </p>
+      </CardContent>
+    </Card>
+  )
+}
 
 function toNum(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null

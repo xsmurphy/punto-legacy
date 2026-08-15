@@ -8,6 +8,7 @@ import {
   formatMoney,
   itemTableColumns,
   sortBlocksForRender,
+  ticketItemName,
 } from "./blocks"
 
 function esc(s: string): string {
@@ -48,7 +49,11 @@ function renderItemTable(block: PrintBlock, data: TicketData): string {
   const rows = data.items
     .map((item) => {
       const cells =
-        `<td>${esc(item.name)}</td>` +
+        // `white-space:pre-wrap`: la indentación de un add-on hijo viaja como
+        // espacios en el texto (ticketItemName) para que el ESC/POS y el HTML
+        // impriman lo mismo. HTML colapsa espacios repetidos por default y
+        // comería justamente esa sangría.
+        `<td style="white-space:pre-wrap">${esc(ticketItemName(item))}</td>` +
         (cols.qty ? `<td style="text-align:right">${item.qty}</td>` : "") +
         (cols.unitPrice ? `<td style="text-align:right">${esc(formatMoney(item.unitPrice))}</td>` : "") +
         (cols.total ? `<td style="text-align:right">${esc(formatMoney(item.total))}</td>` : "")

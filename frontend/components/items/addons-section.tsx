@@ -73,7 +73,22 @@ import { cn } from "@/lib/utils"
 
 interface Props {
   itemId: string
+  /**
+   * Valores con los que arranca un grupo recién creado (F5, context/41).
+   *
+   * Default `{ minSelect: 0, maxSelect: null }` = grupo opcional sin tope, que
+   * es lo correcto para un producto común: los add-ons no deberían frenar una
+   * venta. Un `combo_dinamico` pasa `{ minSelect: 1, maxSelect: 1 }` porque su
+   * semántica es la opuesta — "elegí 1 hamburguesa" es una decisión OBLIGATORIA
+   * y única, y arrancar en opcional obligaría a corregir cada grupo a mano.
+   *
+   * Es solo el punto de partida del draft: el dueño lo edita después como
+   * cualquier otro grupo.
+   */
+  newGroupPreset?: { minSelect: number; maxSelect: number | null }
 }
+
+const DEFAULT_NEW_GROUP_PRESET = { minSelect: 0, maxSelect: null } as const
 
 // ── Draft shapes (estado local, editable, sin persistir hasta "Guardar") ──
 
@@ -165,7 +180,10 @@ function validateDraft(groups: DraftGroup[], itemId: string): string | null {
   return null
 }
 
-export function AddonsSection({ itemId }: Props) {
+export function AddonsSection({
+  itemId,
+  newGroupPreset = DEFAULT_NEW_GROUP_PRESET,
+}: Props) {
   const { data, isLoading } = useItemAddons(itemId)
   const replace = useReplaceItemAddons()
 
@@ -194,8 +212,8 @@ export function AddonsSection({ itemId }: Props) {
       {
         clientId: nextClientId(),
         name: "",
-        minSelect: 0,
-        maxSelect: null,
+        minSelect: newGroupPreset.minSelect,
+        maxSelect: newGroupPreset.maxSelect,
         status: true,
         options: [],
       },

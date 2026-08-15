@@ -30,38 +30,11 @@ export interface ItemCategory {
   isPrimary: boolean
 }
 
-/** Item dentro de un grupo de combo dinámico (sourceType='items'). */
-export interface ComboGroupItem {
-  groupItemId: string
-  childItemId: string
-  extraPrice: number
-  isPreselected: boolean
-  sort: number
-  /** Datos del item resueltos via JOIN. */
-  childName: string | null
-  childSKU: string | null
-  childPrice: number
-  childUOM: string | null
-  childKind: ItemKind | null
-}
-
-/** Grupo de selección de un combo dinámico. */
-export interface ComboGroup {
-  groupId: string
-  name: string
-  /** 'items' = lista explícita | 'category' = todos los items de una categoría. */
-  sourceType: "items" | "category"
-  sourceCategoryId: string | null
-  sourceCategoryName: string | null
-  minSelection: number
-  maxSelection: number
-  sort: number
-  /** Solo cuando sourceType='items' — vacío si es 'category'. */
-  items: ComboGroupItem[]
-}
-
-/** Regla de precio del combo dinámico. */
-export type ComboPriceRule = "topPrice" | "lowPrice" | "average" | null
+// Los tipos `ComboGroup` / `ComboGroupItem` / `ComboPriceRule` vivían acá para
+// `ComboGroupsEditor`, borrado en F5 (context/41): el combo dinámico se unificó
+// con add-ons y sus grupos ahora son `AddonGroup` (hooks/use-item-addons.ts).
+// El sub-recurso `/v1/items?resource=combo-groups` sigue vivo y deprecado en el
+// backend, pero ya no tiene consumidor en el frontend.
 
 /** Componente de un pack de servicios. */
 export interface PackComponent {
@@ -84,8 +57,33 @@ export interface ItemCompound {
   childSKU: string | null
   childUOM: string | null
   childCost: number
+  /** Precio de venta del componente por unidad — lo que costaría comprarlo
+   *  suelto. Base del descuento implícito del combo fijo (F5, context/41). */
+  childPrice: number
   childKind: ItemKind | null
   lineCost: number
+  /** `childPrice` x `quantity`. */
+  linePrice: number
+}
+
+/**
+ * Descuento implícito de un combo fijo (F5, context/41): cuánto se ahorra el
+ * cliente comprando el combo en vez de sus componentes sueltos.
+ *
+ * Derivado server-side desde `item_compound` vs `item.itemPrice`
+ * (`ItemCompoundService::comboPricing`) — sin columna detrás. Solo viene en el
+ * detalle (`GET /v1/items?id=`), solo para `kind = combo_fijo`, y solo cuando
+ * el combo ya tiene componentes cargados: sin ellos no hay nada que comparar.
+ */
+export interface ComboPricing {
+  /** Suma de (precio del componente x cantidad). */
+  componentsSum: number
+  comboPrice: number
+  /** `componentsSum - comboPrice`. NEGATIVO = el combo sale más caro que
+   *  comprar los componentes por separado. */
+  discount: number
+  /** `discount` como % de `componentsSum`. Negativo con el mismo criterio. */
+  discountPct: number
 }
 
 /** Shape del listado — GET /v1/items */
@@ -176,6 +174,9 @@ export interface ItemFull extends ItemListItem {
   tagsDetail?: { id: string; name: string }[]
   /** Galería de imágenes (0..5). Solo presente en el detalle. */
   images: ItemImage[]
+  /** Descuento implícito del combo. Ausente salvo `kind = combo_fijo` con
+   *  componentes cargados (F5, context/41). */
+  comboPricing?: ComboPricing
   /** Campos JSONB flattened — disponibles pero no tipeados explícitamente.
    * Slice D los tipará por kind cuando los forms sean dedicados. */
   [key: string]: unknown

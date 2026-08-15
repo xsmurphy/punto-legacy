@@ -9,6 +9,7 @@ import {
   formatMoney,
   itemTableColumns,
   sortBlocksForRender,
+  ticketItemName,
 } from "./blocks"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,7 +39,7 @@ function applyBlockText(encoder: Encoder, block: PrintBlock, text: string): Enco
 function renderItemTable(encoder: Encoder, block: PrintBlock, data: TicketData): Encoder {
   const cols = itemTableColumns(block.type)
   for (const item of data.items) {
-    encoder = applyBlockText(encoder, { ...block, bold: "normal" }, item.name)
+    encoder = applyBlockText(encoder, { ...block, bold: "normal" }, ticketItemName(item))
     if (cols.qty || cols.unitPrice || cols.total) {
       const parts: string[] = []
       if (cols.qty) parts.push(`${item.qty}x`)
