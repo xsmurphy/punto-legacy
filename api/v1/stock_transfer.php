@@ -67,6 +67,14 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
+    // Mover stock entre sucursales es una acción de inventario, no algo que
+    // habilite el solo hecho de tener acceso al panel: sin este gate cualquier
+    // usuario del comercio podía transferir mercadería. El GET queda con la
+    // auth de panel, mismo criterio que production.php/waste.php.
+    if (!hasPermission('inventory.transfer')) {
+        apiError('No tenés permiso para esta acción (requiere: inventory.transfer)', 403);
+    }
+
     $body   = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
     $action = (string) ($body['action'] ?? '');
 

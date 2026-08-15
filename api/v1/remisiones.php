@@ -74,6 +74,17 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
+    // Mismo gate que /v1/stock_transfer.php: emitir una remisión es amparar
+    // mercadería que sale del comercio, no algo que habilite el solo hecho de
+    // tener acceso al panel. Se reusa `inventory.transfer` en vez de crear una
+    // clave nueva — un permiso nuevo no lo tendría ningún rol existente y
+    // dejaría a todos afuera hasta editar cada rol a mano. Si más adelante hace
+    // falta separar remisión de transferencia, se agrega la clave Y se siembra
+    // en los roles que ya tienen `inventory.transfer`.
+    if (!hasPermission('inventory.transfer')) {
+        apiError('No tenés permiso para esta acción (requiere: inventory.transfer)', 403);
+    }
+
     $body   = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
     $action = (string) ($body['action'] ?? '');
 
