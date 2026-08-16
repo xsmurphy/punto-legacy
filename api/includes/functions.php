@@ -476,6 +476,12 @@ function updateLastTimeEdit($id,$table=false){
 	else if ($table == 'item')     { $config['itemsLastUpdate']      = $date; }
 	else if ($table == 'calendar') { $config['calendarLastUpdate']   = $date; }
 	else if ($table == 'order')    { $config['orderLastUpdate']      = $date; }
+	// 'settings': sección "settings" del sync incremental del POS
+	// (context/43-sync-incremental.md) — bundle de outlet/register/tax/
+	// category/brand/tag/payment-method/printer_binding/user. Bumpeado desde
+	// `syncSectionAfterMutation()` en bootstrap.php, NO por call-site (mismo
+	// choke point default-on que ya usa el realtime — ver ese archivo).
+	else if ($table == 'settings') { $config['settingsLastUpdate']   = $date; }
 
 	$db->Execute('UPDATE company SET config = ?::jsonb WHERE companyId = ?', [json_encode($config), $id]);
 	return $date;

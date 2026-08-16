@@ -244,7 +244,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
             $__auditEndpoint,
             $__auditTargetId
         );
-        realtimeAfterMutation($__auditMethod, $__auditEndpoint, $__auditTargetId);
+        realtimeAfterMutation($__auditMethod, $__auditEndpoint, $__auditTargetId, $companyId);
     }
 
     return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm', 'module');
@@ -316,7 +316,7 @@ function tenantAudit(array $ctx, string $method, string $endpoint, ?string $targ
  * "olvidarse" de mapear un endpoint nuevo — antes era la ausencia en el mapa
  * la que dejaba un endpoint mudo por default.
  */
-function realtimeAfterMutation(string $method, string $endpoint, ?string $targetId): void
+function realtimeAfterMutation(string $method, string $endpoint, ?string $targetId, ?string $companyId = null): void
 {
     // Overrides: entity/scope/skipResources que el path NO puede dar solo.
     static $overrides = [
@@ -380,6 +380,12 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         // default derivaría 'credit-payment' (sin queryKey en el front) Y
         // dispararía un segundo evento por la misma request.
         '/v1/credit-payments',
+        // /v1/sync (context/43-sync-incremental.md) es SIEMPRE lectura — el
+        // POST es solo por tamaño del body (mismo criterio que bulk-get de
+        // items/contacts), nunca muta nada. Sin este excluded, el default
+        // derivaría entity 'sync' (sin queryKey en el front, warning en dev)
+        // y dispararía un broadcast fantasma en cada delta pedido.
+        '/v1/sync',
     ];
 
     foreach ($excluded as $prefix) {
@@ -416,6 +422,47 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         default        => 'update',
     };
     realtimePublish($entity, $op, $targetId, $scope);
+    syncSectionAfterMutation($entity, $companyId);
+}
+
+/**
+ * Watermark de la sección "settings" del sync incremental del POS
+ * (context/43-sync-incremental.md). Mismo choke point default-on que
+ * `realtimeAfterMutation` (se llama desde ahí, con el `$entity` YA
+ * derivado) — así un endpoint nuevo bajo /v1/ que mute alguna de estas
+ * entidades bumpea el watermark sin que nadie tenga que acordarse de
+ * llamar nada a mano.
+ *
+ * `item`/`contact` NO pasan por acá: su propia columna `updated_at` (con
+ * índice) ES su watermark — sección "items"/"customers" del sync, delta por
+ * fila. `transaction`/`drawer`/`expense`/`purchase`/etc. TAMPOCO: son ruido
+ * de alta frecuencia (una venta por minuto) ajeno al bootstrap "estático"
+ * del POS — bumpear acá los invalidaría constantemente sin necesidad.
+ *
+ * El resto del catálogo "settings" (outlet/register/tax/category/brand/tag/
+ * payment-method/printer_binding/user/setting) es de cardinalidad baja
+ * (decenas, no miles) — no necesita delta por fila: cuando el watermark
+ * queda stale, el POS simplemente vuelve a pedir el bundle completo
+ * (barato) en vez de reconciliar filas borradas/creadas una por una.
+ */
+function syncSectionAfterMutation(string $entity, ?string $companyId): void
+{
+    if (!$companyId) {
+        return;
+    }
+    static $settingsEntities = [
+        'outlet', 'register', 'tax', 'category', 'brand', 'tag',
+        'payment-method', 'printer_binding', 'user', 'setting',
+    ];
+    if (!in_array($entity, $settingsEntities, true)) {
+        return;
+    }
+    try {
+        updateLastTimeEdit($companyId, 'settings');
+    } catch (\Throwable $e) {
+        // Best-effort: nunca interrumpir la mutación por esto.
+        error_log('[syncSectionAfterMutation] Error actualizando settingsLastUpdate: ' . $e->getMessage());
+    }
 }
 
 /**

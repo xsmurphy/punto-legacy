@@ -61,11 +61,21 @@ final class ItemRepository
 
     /**
      * Soft-delete: itemStatus = 0.
+     *
+     * `updated_at = TODAY` (reloj del server PHP), NO `NOW()` de Postgres —
+     * el sync incremental (context/43-sync-incremental.md) compara este
+     * campo contra un watermark generado con `TODAY` (`SyncService::
+     * watermarks()`). Si esta fila usara el reloj de la DB en vez del reloj
+     * de PHP, un desfase entre ambos (aunque sea de milisegundos) podría
+     * dejar un archive() justo en el borde de una ventana de delta sin
+     * aparecer — el peor bug posible acá es una actualización perdida en
+     * silencio. Mismo criterio ya usado por el resto de los writes de
+     * `item`/`contact` (`ItemService::update()`, `ContactService::update()`).
      */
     public function archive(string $id, string $companyId): bool
     {
-        $sql = "UPDATE item SET itemStatus = 0, updated_at = NOW() WHERE itemId = ? AND companyId = ?";
-        return $this->db->Execute($sql, [$id, $companyId]) !== false;
+        $sql = "UPDATE item SET itemStatus = 0, updated_at = ? WHERE itemId = ? AND companyId = ?";
+        return $this->db->Execute($sql, [TODAY, $id, $companyId]) !== false;
     }
 
     /**
