@@ -46,11 +46,18 @@ evidencia de dónde quedó el fix.
 
 - **Cuentas por cobrar no detecta ventas a crédito**: funciona (verificado en
   prod 2026-08-04, 7 clientes / Gs. 2.015.000).
-- **Cuentas por pagar no muestra compras a crédito**: el reporte está bien y no
-  filtra por fecha — **no existe ninguna compra a crédito en el sistema**. Las
-  68 cargadas son Contado. La creación a crédito está bien cableada de punta a
-  punta (front manda `condition`, `PurchasesService` escribe type 4 +
-  `transactionComplete = 0`). Preguntarle al tester cómo las cargó.
+- ~~**Cuentas por pagar no muestra compras a crédito**: no existe ninguna
+  compra a crédito en el sistema, las 68 cargadas son Contado.~~
+  **REABIERTO 2026-08-16** — el owner mostró una compra a crédito real
+  (`002-010--0934535`, proveedor Don Ruben, con vencimiento 20/08/2026). El
+  diagnóstico de "no reproduce" era falso: se apoyaba en un conteo del momento,
+  no en el flujo. Hay que volver a verificar el reporte de cuentas por pagar
+  contra datos reales antes de darlo por bueno.
+
+  Nota de por qué costó verlo: hasta `c338595b` el DETALLE de compra no
+  mostraba la modalidad — solo el listado —, así que una compra a crédito se
+  veía idéntica a una de contado al abrirla. Cualquier verificación manual
+  hecha desde el detalle daba "todas contado".
 
 **Diagnosticados, sin implementar**
 
