@@ -339,10 +339,6 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     setErrorMsg(null)
     setOrderDraft(null) // limpiar snapshot de "Ordenar" de una venta previa en el mismo mount
 
-    // Obtener número de comprobante del lease (best-effort)
-    let leasedInvoiceNo = 0
-    try { leasedInvoiceNo = getNextInvoiceNo() } catch { /* NO_LEASE — sin offline numbering */ }
-
     try {
       // Bug Control de Caja: se mandaba `name: r.method.id` — el UUID de
       // taxonomía (o el slug nativo) quedaba persistido como "nombre" del
@@ -513,6 +509,42 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           }
           throw new Error(
             "Sin conexión con el servidor — el cobro de espacios/órdenes necesita estar online. Reintentá.",
+          )
+        }
+
+        // Número de comprobante — recién ACÁ, porque es lo único que este
+        // camino (offline, encolado) necesita: la venta online consigue su
+        // número del lado del servidor (`DocumentNumber::allocate`, ver
+        // context/37-numeracion-documentos.md), así que consumir el lease
+        // local en TODA venta (como hacía antes, arriba de este try) drenaba
+        // el arriendo 100x más rápido de lo necesario — el caso común
+        // (online) nunca lo usaba.
+        //
+        // Regla escalada por el owner 2026-08-16 ("no puede salir una venta
+        // sin número de factura", context/08 §53) — sin número no hay
+        // documento válido para entregar. Antes esto se atrapaba en silencio
+        // y la venta salía igual con `invoiceNumber: null`; ahora BLOQUEA acá
+        // (throw sube al catch de handleConfirm: no encola, no imprime, no
+        // limpia el carrito, el cajero ve el motivo).
+        //
+        // SIEMPRE requiere número acá, `interno` incluido — verificado contra
+        // context/37-numeracion-documentos.md §Fases F5: el doctype
+        // 'comprobante' (sin valor fiscal) todavía NO EXISTE — hoy una venta
+        // interna sigue siendo `SaleInput` type 0/3 como cualquier otra y el
+        // backend le asigna un invoiceNo fiscal real (`DocumentNumber::
+        // allocate`, "la venta interna quema numeración fiscal" — nota
+        // textual de ese doc). Tratarla como exenta acá habría sido asumir
+        // un estado futuro que el backend todavía no tiene: si mañana existe
+        // el doctype propio, este gate se vuelve `!interno`, no antes.
+        // Cotización SÍ queda afuera de este bloqueo — no pasa por acá, es
+        // un comando aparte (create-quote.ts) que nunca llega a
+        // numbering-lease.
+        let leasedInvoiceNo = 0
+        try {
+          leasedInvoiceNo = getNextInvoiceNo()
+        } catch {
+          throw new Error(
+            'No hay números de comprobante disponibles — conectate a internet para renovar antes de seguir vendiendo.',
           )
         }
 

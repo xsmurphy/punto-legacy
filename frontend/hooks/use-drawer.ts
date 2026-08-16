@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { tenantNow } from "@/lib/format-date"
+import { refreshLease } from "@/lib/pos/numbering-lease"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -192,7 +193,7 @@ export function useDrawerHourlyStats(enabled = true) {
 
 // ── Mutaciones ────────────────────────────────────────────────────────────────
 
-function useDrawerMutation(action: string) {
+function useDrawerMutation(action: string, onMutated?: () => void) {
   const qc = useQueryClient()
   // TZ del tenant (PosConfig.timezone). Convención de storage: las fechas de
   // caja se guardan en hora LOCAL del tenant, naive — la misma que las ventas
@@ -214,13 +215,23 @@ function useDrawerMutation(action: string) {
       qc.invalidateQueries({ queryKey: DRAWER_KEYS.status })
       qc.invalidateQueries({ queryKey: DRAWER_KEYS.summary })
       qc.invalidateQueries({ queryKey: DRAWER_KEYS.hourly })
+      onMutated?.()
     },
   })
 }
 
-/** Abre la caja con el monto inicial. */
+/**
+ * Abre la caja con el monto inicial.
+ *
+ * También renueva el arriendo de numeración (context/08 §53, escalado por
+ * el owner 2026-08-16) — segundo disparador proactivo junto al montaje del
+ * POS (`NumberingLeaseRunner`, app/(pos)/pos/layout.tsx). "Abrir caja" es el
+ * momento en que el cajero recién empieza a vender, así que es el punto
+ * natural para asegurarse de tener números antes de la primera factura del
+ * turno — best-effort, no bloquea la apertura si falla.
+ */
 export function useOpenDrawer() {
-  return useDrawerMutation("open")
+  return useDrawerMutation("open", () => void refreshLease())
 }
 
 /** Cierra la caja con el monto contado. */
