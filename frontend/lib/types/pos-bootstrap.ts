@@ -8,6 +8,8 @@
  * Ver context/16-app-next-rewrite.md §4 (arquitectura BFF) y §7 Sprint 0/Slice A.
  */
 
+import type { DocumentTemplateRow } from "@/lib/types/print-template"
+
 // ── Método de pago configurable ───────────────────────────────────────────────
 
 export interface PaymentMethodConfig {
@@ -167,10 +169,60 @@ export interface PosItem {
    * y con opciones). Viaja en el bootstrap —un `EXISTS` en el LIST de
    * `/v1/items`— para que el tap en el tile decida SIN un fetch por producto:
    * `true` abre `<AddonPickerDialog>`, `false` agrega directo como siempre.
-   * El detalle de los grupos se pide recién al abrir el modal
-   * (`useItemAddonsPos`).
    */
   hasAddons: boolean
+  /**
+   * Grupos de add-ons del ítem, completos (nombre + opciones), embebidos
+   * DIRECTO en el ítem — hueco P0 cerrado 2026-08-16 (context/08 §53:
+   * `useItemAddonsPos` pedía esto al server al abrir el modal; sin conexión,
+   * cualquier ítem con un grupo obligatorio (`minSelect > 0`) era invendible,
+   * y en gastronomía ese es el flujo NORMAL, no un borde).
+   *
+   * Alineado con `context/45-satelites-item-contact-sync.md` (plan sin
+   * implementar): add-ons es satélite de `item`, así que la forma correcta
+   * es que viaje DENTRO del payload del ítem, no un mecanismo de cache
+   * paralelo. El trigger de DB que bumpea `item.updatedAt` al editar un
+   * `addon_group` (para que el DELTA de reconexión, context/43, lo levante
+   * solo) sigue sin implementar — hoy el catálogo completo (bootstrap) sí
+   * trae la copia fresca, y el WS en caliente invalida `pos-bootstrap`
+   * cuando se edita (ver `item_addons.php` alias-eado a entity `item` en
+   * `use-realtime-sync.ts`); lo que falta es el camino de delta puntual sin
+   * bootstrap completo — ver TODO en `context/41-addons-y-combos.md`.
+   *
+   * Array vacío = sin grupos (nunca `null`, `presentItem()` en el backend lo
+   * normaliza). `PosAddonGroup`/`PosAddonOption`: mismo shape que
+   * `useItemAddonsPos` consumía del fetch — se mueve la fuente de verdad
+   * acá, ese hook pasa a leer del store en vez de hacer red.
+   */
+  addonGroups: PosAddonGroup[]
+}
+
+/** Opción de un grupo de add-ons. Espejo de `AddonService::listForItem` (sin `itemPrice` — D2, context/41). */
+export interface PosAddonOption {
+  id: string
+  itemId: string
+  itemName: string
+  /** Recargo de la opción. 0 = no suma al precio (D2). */
+  priceDelta: number
+  /** Preseleccionada al abrir el modal. */
+  isDefault: boolean
+  /** Fija: marcada y no se puede desmarcar (implica isDefault). */
+  isLocked: boolean
+  /** Cuántas veces se puede repetir la misma opción (≥ 1). */
+  maxQty: number
+  sort: number
+}
+
+/** Grupo de add-ons de un ítem. Ver `PosItem.addonGroups`. */
+export interface PosAddonGroup {
+  id: string
+  name: string
+  /** 0 = grupo opcional. > 0 = el POS no deja confirmar sin elegir. */
+  minSelect: number
+  /** null = sin tope. */
+  maxSelect: number | null
+  sort: number
+  options: PosAddonOption[]
 }
 
 // ── Categorías y marcas del tenant (context/45) ──────────────────────────────
@@ -211,6 +263,26 @@ export interface PosTaxRate {
   /** `exempt` ≠ tasa 0% — distinción fiscal (MX/CO). Ver context/38 §Reglas LATAM. */
   kind: "rate" | "exempt"
 }
+
+// ── Plantillas de impresión (context/08 §53, hueco P0 cerrado 2026-08-16) ────
+
+/**
+ * Plantilla de impresión (ticket/factura/cotización), bajada al bootstrap
+ * del POS. Reusa el shape EXACTO de `DocumentTemplateRow`
+ * (`lib/types/print-template.ts`, la fuente canónica que ya consume el editor
+ * del panel) — un solo shape para las tres superficies (editor panel, GET
+ * puntual `/v1/document-templates?id=`, este bundle), en vez de un tipo
+ * paralelo que puede divergir.
+ *
+ * Antes de esta fecha, `printSale`/`printTicketInBrowser` pedían la
+ * plantilla al server EN EL MOMENTO de imprimir — sin cache ni fallback, así
+ * que offline el ticket físico no salía aunque la venta ya se hubiera
+ * emitido bien (contradice context/08 §53: la emisión depende SOLO del
+ * dispositivo y la impresora). Son pocas filas por tenant (una por
+ * combinación docType/variante) — mismo criterio de tamaño que
+ * categories/brands/taxes, no items/customers.
+ */
+export type PosPrintTemplate = DocumentTemplateRow
 
 // ── Cliente (para búsqueda en el POS) ────────────────────────────────────────
 
@@ -287,6 +359,8 @@ export interface PosBootstrap {
   categories: PosCategory[]
   /** Marcas del tenant. Ver `PosBrand`. */
   brands: PosBrand[]
+  /** Plantillas de impresión del tenant. Ver `PosPrintTemplate`. */
+  printTemplates: PosPrintTemplate[]
   /**
    * Default incluido/añadido del IVA de la sucursal activa
    * (`outlet.itemsTaxIncluded`). Fallback cuando `PosItem.taxIncluded` es

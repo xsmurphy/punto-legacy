@@ -75,6 +75,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-002",
@@ -94,6 +95,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-003",
@@ -113,6 +115,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
 
   // Minutas
@@ -134,6 +137,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-005",
@@ -153,6 +157,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-006",
@@ -172,6 +177,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
 
   // Bebidas con alcohol
@@ -193,6 +199,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-008",
@@ -212,6 +219,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-009",
@@ -231,6 +239,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
 
   // Promos
@@ -252,6 +261,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-011",
@@ -271,6 +281,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
 
   // Pizzas Gourmet
@@ -292,6 +303,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-013",
@@ -311,6 +323,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-014",
@@ -330,6 +343,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
   {
     id: "item-015",
@@ -349,6 +363,7 @@ export const fixtureItems: PosItem[] = [
     isGroup: false,
     parentId: null,
     hasAddons: false,
+    addonGroups: [],
   },
 ]
 
@@ -451,4 +466,9 @@ export const fixtureBootstrap = {
   outletTaxIncluded: fixtureOutletTaxIncluded,
   categories: fixtureCategories,
   brands: fixtureBrands,
+  // Sin fixture propia: el flujo de impresión ya degrada a
+  // `renderFallbackTicketHtml` cuando no hay plantilla resuelta (ver
+  // `lib/hardware/printers/print-in-browser.ts`), así que [] es suficiente
+  // para diseñar UI sin backend real.
+  printTemplates: [] as import("@/lib/types/pos-bootstrap").PosPrintTemplate[],
 }

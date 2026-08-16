@@ -31,10 +31,28 @@ que cambió desde esa fecha — no el catálogo entero.
 | `settings` | 10s–100s | Refetch completo cuando stale | Bundle chico — un delta por fila sería complejidad sin beneficio |
 
 `settings` agrupa outlet/register/tax/category/brand/tag/payment-method/
-printer_binding/user — todo lo que `/api/pos/bootstrap` trae que NO es
-items/customers. Ninguna de esas tablas tiene más que unas decenas de filas
-por tenant; recargar el bundle completo cuando cambió es más barato que
-construirle su propio delta+lápidas.
+printer_binding/user/**document_template** — todo lo que `/api/pos/bootstrap`
+trae que NO es items/customers. Ninguna de esas tablas tiene más que unas
+decenas de filas por tenant; recargar el bundle completo cuando cambió es
+más barato que construirle su propio delta+lápidas.
+
+**`document_template` se sumó al bundle 2026-08-16** (context/08 §53, hueco
+P0 de impresión offline): antes `printSale`/`printTicketInBrowser` pedían la
+plantilla al server EN EL MOMENTO de imprimir
+(`/api/v1/document-templates?id=...`, sin cache ni fallback) — offline, o en
+un device sin sesión de operador panel (el catch-all `/api/v1/*` solo
+reenvía `_jwt_panel`, nunca el Bearer del device), ese fetch fallaba y el
+ticket físico no salía aunque la venta ya se hubiera emitido bien. Cambios:
+`api/v1/document-templates.php` pasó a `apiAuthTenant(['panel','pos-app'])`
+(device GET-only, mismo patrón que items.php/item_addons.php);
+`PosBootstrap.printTemplates` (`lib/types/pos-bootstrap.ts`) se suma al fan-out
+de `/api/pos/bootstrap/route.ts`; `fetchTemplateConfig`/
+`fetchDefaultTemplateConfig` (`lib/hardware/printers/print-in-browser.ts`)
+pasaron de `fetch` a lookup síncrono contra `useCatalogStore.printTemplates`
+— resuelven SIEMPRE local, sin fallback a red (justificación completa en el
+docblock de ese archivo). `ENTITY_TO_QUERY_KEYS['document-template']` ahora
+incluye `["pos-bootstrap"]` para que un template editado en el panel llegue
+al device (antes solo invalidaba el listado del editor).
 
 ## Decisión 1 — Watermark de `items`/`customers`: DERIVADO, no una tabla aparte
 

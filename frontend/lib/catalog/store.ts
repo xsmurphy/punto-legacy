@@ -22,7 +22,7 @@
  */
 
 import { create } from "zustand"
-import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosTaxRate, PosCategory, PosBrand, PosUser, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosTaxRate, PosCategory, PosBrand, PosUser, PaymentMethodConfig, PosPrintTemplate } from "@/lib/types/pos-bootstrap"
 
 export type CatalogStatus = "idle" | "loading" | "ready" | "error"
 
@@ -65,6 +65,18 @@ interface CatalogState {
   categories: PosCategory[]
   brands: PosBrand[]
   /**
+   * Plantillas de impresión del tenant (context/08 §53, hueco P0 cerrado
+   * 2026-08-16). Antes `printSale`/`printTicketInBrowser` le pedían la
+   * plantilla al server EN EL MOMENTO de imprimir (`fetch('/api/v1/
+   * document-templates?id=...')`, sin cache ni fallback) — offline, ese
+   * fetch fallaba y el ticket físico no salía, aunque la venta ya se hubiera
+   * emitido y encolado bien. Ahora viajan acá, con el resto del bundle
+   * `settings` — el binding SIEMPRE resuelve contra esta copia local (nunca
+   * hace fetch en el camino de impresión), igual que el resto de datos
+   * básicos de operación (context/43-sync-incremental.md).
+   */
+  printTemplates: PosPrintTemplate[]
+  /**
    * `Date.now()` del último `patchItem(s)`/`removeItem(s)`/`patchCustomer(s)`/
    * `removeCustomer(s)` — sync realtime quirúrgico (context/15 §Modelo
    * quirúrgico). `useCatalogSeed` lo compara contra `dataUpdatedAt` del
@@ -101,6 +113,8 @@ interface CatalogState {
     /** Opcionales por el mismo motivo que `taxes` — bootstrap cacheado viejo. */
     categories?: PosCategory[]
     brands?: PosBrand[]
+    /** Opcional por el mismo motivo — bootstrap cacheado de antes del hueco P0 2026-08-16. */
+    printTemplates?: PosPrintTemplate[]
   }) => void
 
   /** Actualiza (o agrega, si no existía) un cliente en memoria tras un CREATE/UPDATE exitoso. */
@@ -159,6 +173,7 @@ const initialState = {
   outletTaxIncluded: true,
   categories: [] as PosCategory[],
   brands: [] as PosBrand[],
+  printTemplates: [] as PosPrintTemplate[],
   lastPatchedAt: 0,
 }
 
@@ -195,6 +210,7 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       outletTaxIncluded: data.outletTaxIncluded ?? true,
       categories: data.categories ?? [],
       brands: data.brands ?? [],
+      printTemplates: data.printTemplates ?? [],
     })
   },
 
