@@ -551,3 +551,18 @@ estaba armando. Una auditoría lo señaló como hueco y el owner respondió "est
 así". No agregar persistencia del carrito ni "recuperar venta en curso" sin pedido explícito: es
 comportamiento buscado, no deuda. Lo que SÍ se persiste es la venta ya CONFIRMADA (cola offline en
 IndexedDB) — que es lo que la regla de §53 exige, porque esa ya se emitió e imprimió.
+
+**Estación de impresión: depende de internet por diseño, no es bug (owner, 2026-08-16).** El
+transport `station` (`frontend/lib/hardware/printers/index.ts:39-54`) manda el payload ya renderizado
+a `/v1/print-jobs?action=enqueue` vía la API remota, y la estación lo retira de ahí. Sin internet no
+sale la comanda — aunque la venta sí se emita y encole. Una auditoría de preparación offline lo marcó
+como P0; el owner lo cerró: *"esto solo pasa si se usa el servidor de impresión; si la computadora
+está conectada localmente a la impresora no hay problemas... y si es así tienen que solucionar su
+conexión a internet o su red, no es un error nuestro"*.
+
+La línea, entonces:
+- Impresora conectada al dispositivo (`native` / `escpos`) → 100% local, tiene que funcionar sin
+  internet. Ahí sí cualquier dependencia de red es bug (la plantilla se resuelve del cache local).
+- Estación de impresión (`station`) → dependencia de internet aceptada por quien elige ese modo.
+
+NO "arreglar" el transport `station` para que funcione offline sin pedido explícito del owner.
