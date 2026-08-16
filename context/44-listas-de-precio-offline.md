@@ -8,6 +8,13 @@
 > servidor autorizado, pero la sonda de `docker ps`/`docker inspect` fue
 > bloqueada por el classifier de auto-mode a mitad de camino) — el plan
 > queda con esa verificación como paso 0, no asumida.
+>
+> **Revisión 2:** el mecanismo de sync de Decisión 1 (abajo) se generalizó
+> mid-sesión de "solo precios" a TODA tabla satélite de `item`/`contact` —
+> ver `context/45-satelites-item-contact-sync.md` para el diseño genérico
+> (trigger, inventario completo, cuidados). Este doc mantiene lo específico
+> de precios: la cabecera va en `settings`, el override viaja con el ítem,
+> y el motor espejo TS/PHP para resolver localmente.
 
 ## El problema (textual del owner)
 
@@ -83,30 +90,19 @@ update."*
 
 **Pieza que falta para que el enganche sea real:** un cambio en
 `price_list_item` (INSERT/UPDATE/DELETE) tiene que bumpear
-`item.updatedAt` del `itemId` afectado. **Trigger de DB, no call-site** —
-mismo criterio que ya forzó mig 138 (`fn_record_deletion()`): un helper
-que cada endpoint deba recordar llamar se olvida tarde o temprano. Mig
-nueva, candidato:
+`item.updatedAt` del `itemId` afectado, vía trigger de DB — GENERALIZADO
+mid-sesión a TODA tabla satélite de `item`/`contact`, no solo ésta. Diseño
+del trigger genérico, inventario completo de satélites, cuidados
+(DELETE/UPDATE que cambia de padre, recursión, reloj, amplificación de
+escritura) y qué falta para implementar: **ver
+`context/45-satelites-item-contact-sync.md`** — `price_list_item` es la
+fila de ese inventario que originó este doc, no se repite el diseño acá.
 
-```sql
-CREATE OR REPLACE FUNCTION fn_touch_item_on_price_override() RETURNS TRIGGER AS $$
-BEGIN
-  UPDATE item SET updatedAt = now()
-   WHERE itemId = COALESCE(NEW.itemId, OLD.itemId);
-  RETURN NULL; -- AFTER trigger, valor de retorno ignorado
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE TRIGGER trg_price_list_item_touch_item
-AFTER INSERT OR UPDATE OR DELETE ON price_list_item
-FOR EACH ROW EXECUTE FUNCTION fn_touch_item_on_price_override();
-```
-
-Con esto, `PriceListService::setItems()` (bulk-replace DELETE+INSERT) ya
-bumpea `item.updatedAt` de TODOS los ítems tocados sin cambiar una línea de
-PHP — el trigger corre por cada fila del DELETE y de cada INSERT. El
-`item.updatedAt` sigue siendo el ÚNICO watermark de la sección `items`
-(`context/43`) — ver ahí para el delta ya implementado.
+Con el trigger genérico andando, `PriceListService::setItems()`
+(bulk-replace DELETE+INSERT) ya bumpea `item.updatedAt` de TODOS los ítems
+tocados sin cambiar una línea de PHP — el trigger corre por cada fila del
+DELETE y de cada INSERT. El `item.updatedAt` sigue siendo el ÚNICO
+watermark de la sección `items` (`context/43`).
 
 **Ya NO hace falta** (quedaban en la v1 de este doc, descartados ahora):
 sección de sync propia `priceLists`, watermark por `price_list.updatedAt`
@@ -192,22 +188,27 @@ dependencia vía `lib/pos/offline-queue.ts`), debería cubrir catálogo +
 listas de precio en el mismo trabajo — hacerlo solo para precios dejaría
 items/clientes en peor estado relativo sin razón.
 
-## Plan de fases (propuesto, sin cerrar con el owner)
+## Plan de fases (propuesto, sin cerrar con el owner — revisado 2026-08-16)
 
 1. **D0 — Verificar volumen real** con datos de prod (`SELECT count(*)
-   FROM price_list_item`, distribución por `companyId`/`priceListId`) —
-   confirma o descarta la premisa de Decisión 1. Si el volumen es chico en
-   TODOS los tenants, simplifica: la sección `priceLists` puede bajar
-   siempre completa en el bootstrap sin necesitar delta.
-2. **D1 — Fix de escritura**: `setItems()` bumpea `price_list.updatedAt`.
-   Mig chica o solo código (columna ya existe).
-3. **D2 — Motor espejo** (Decisión 2): extracción PHP + espejo TS +
-   fixtures + verify scripts. Sin wiring al POS todavía — solo el motor,
-   verificado contra el real.
-4. **D3 — Sync `priceLists`** (Decisión 1): watermark, endpoint, wiring en
-   `delta-sync.ts`/`sync.php`.
-5. **D4 — Bootstrap + store**: `price_list`/`price_list_item` viajan en
-   `/api/pos/bootstrap`, se guardan en `useCatalogStore`.
+   FROM price_list_item`, distribución por `companyId`/lista, y cuántas
+   listas por tenant) — informa el caution de `context/45` sobre cuánto
+   crece el payload del ítem. No confirmado esta sesión (acceso a prod
+   bloqueado a mitad de camino, ver nota de estado arriba).
+2. **D1 — Trigger genérico de satélites** (`context/45`): función +
+   triggers, EMPEZANDO por `price_list_item` (el caso que originó todo) —
+   valida el patrón antes de extenderlo al resto del inventario de ese doc.
+3. **D2 — Motor espejo** (Decisión 2 de este doc): extracción PHP + espejo
+   TS + fixtures + verify scripts. Sin wiring al POS todavía — solo el
+   motor, verificado contra el real.
+4. **D3 — `ItemsQuery.php` suma precios por lista** al payload de `PosItem`
+   (shape: array de overrides, vacío/ausente si el ítem no tiene ninguno —
+   ver caution en Decisión 1) + sumar `'price-list'` a `$settingsEntities`
+   para que la CABECERA de lista viaje en `settings`. Un solo cambio cubre
+   bootstrap + bulk-get + delta (`context/45` §Payload).
+5. **D4 — Store del POS**: `useCatalogStore` guarda cabeceras de lista
+   (de `settings`/bootstrap) + usa los overrides que ya vienen en cada
+   `PosItem`.
 6. **D5 — Wiring en `usePriceContext`**: decidir con el owner (Decisión 3)
    si el motor local es fallback-only o default-con-reconciliación; cablear
    según lo que se decida.
@@ -220,12 +221,16 @@ items/clientes en peor estado relativo sin razón.
 - `context/15-realtime-sync-plan.md` §Fix listas de precios — el fix de
   invalidación EN CALIENTE, ya en `main`, complementario a este plan.
 - `context/43-sync-incremental.md` — modelo de delta de `item`/`contact`,
-  precedente y contraste (por qué NO aplica igual acá).
+  base sobre la que se engancha este plan (ya NO un contraste — ver
+  Decisión 1 revisada).
+- `context/45-satelites-item-contact-sync.md` — la regla general (trigger
+  genérico, inventario de satélites, cuidados) de la que Decisión 1 de este
+  doc es la instancia concreta para `price_list_item`.
 - `api/lib/Tax/` + `frontend/lib/tax/engine-core.mjs` — precedente de motor
   espejo con fixtures compartidos.
 - `api/lib/services/PriceListService.php` — lógica a extraer (D2).
+- `api/lib/Items/ItemsQuery.php` — único punto que arma el shape de
+  `PosItem` para bootstrap/bulk-get/delta (D3).
 - `api/database/migrations/postgres/32_price_lists.sql` — schema actual
-  (sin `updatedAt` en `price_list_item`).
-- `api/database/migrations/postgres/138_sync_incremental.sql` —
-  `fn_record_deletion()` genérico, candidato si D1 (verificación de
-  volumen) cambia la conclusión de Decisión 1 sobre lápidas.
+  (sin `updatedAt` en `price_list_item`, no lo necesita con el modelo
+  revisado — el watermark es el de `item`).
