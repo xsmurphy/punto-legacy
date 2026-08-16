@@ -170,6 +170,17 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_realtime.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.6. Sync incremental (context/43): delta trae solo lo modificado + los
+#    borrados aparecen en deletedIds (mig 138, tabla deleted_row). Corre
+#    DESPUÉS de verify_realtime.php a propósito — ver docblock de
+#    verify_sync.php (captura su propio watermark adentro, así los
+#    movimientos de stock del paso anterior no contaminan el conteo).
+echo ""
+echo "[run.sh] === sync incremental (delta + tombstones) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_sync.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="

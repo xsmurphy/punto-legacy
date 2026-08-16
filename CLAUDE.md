@@ -52,6 +52,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (plan cerrado 2026-08-14, D1-D4 decididas, sin implementar) |
 | **Add-ons y combos** | `41-addons-y-combos.md` (plan abierto, D1-D3 pendientes) |
 | **Remisión (traslado de mercadería)** | `42-remision.md` (implementada 2026-08-15, sin conexión SIFEN) |
+| **Sync incremental del POS (reconexión/arranque, lápidas de borrado)** | `43-sync-incremental.md` (implementado 2026-08-16, delta en frío pendiente) |
 | **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
 | Bitácora de sesiones | `_session-log.md` (índice histórico, append) |
 

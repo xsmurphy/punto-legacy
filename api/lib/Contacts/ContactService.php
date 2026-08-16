@@ -373,6 +373,21 @@ final class ContactService
         return $out;
     }
 
+    /**
+     * Delta incremental (context/43-sync-incremental.md, sync del POS) —
+     * mismo `presentRow()` que `getManyByIds()`, así el shape de fila nunca
+     * diverge entre "vengo de un fetch puntual por ids" y "vengo del delta
+     * por fecha". `$since = null` trae TODOS los contactos del tipo (full).
+     */
+    public function manyUpdatedSince(int $type, string $companyId, ?string $since): array
+    {
+        $out = [];
+        foreach ($this->repo->listUpdatedSince($type, $companyId, $since) as $row) {
+            $out[] = $this->presentRow($row, $companyId);
+        }
+        return $out;
+    }
+
     public function addresses(string $contactId, string $companyId): array
     {
         $out = [];

@@ -94,6 +94,16 @@ INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, it
     ('7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e60', 'Verify stock trackeable 2', 'VERIFY-STOCK-TRACK-2', 1500, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
 ON CONFLICT (itemid) DO UPDATE SET itemtrackinventory = EXCLUDED.itemtrackinventory;
 
+-- Items del sync incremental (context/43-sync-incremental.md, verify_sync.php):
+-- uno se UPDATEa en vivo (demuestra que el delta trae SOLO el modificado, no
+-- el catálogo entero) y el otro se archiva + hard-delete (demuestra que el
+-- id borrado aparece en `deletedIds` vía la lápida de mig 138). itemstatus=1
+-- de arranque — el script hace el archive/delete real.
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid) VALUES
+    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c6d', 'Verify sync modificable', 'VERIFY-SYNC-MODIFY', 2000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
+    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c6e', 'Verify sync borrable', 'VERIFY-SYNC-DELETE', 3000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+ON CONFLICT (itemid) DO UPDATE SET itemstatus = 1, itemprice = EXCLUDED.itemprice;
+
 -- ── Company B: Verify MX (decimals=2) ───────────────────────────────
 INSERT INTO company (companyId, status, plan, balance, isParent, config) VALUES (
     'fa8cf679-9003-417e-8726-5b772d3b6e88', 'active', 1, 0.00, FALSE,

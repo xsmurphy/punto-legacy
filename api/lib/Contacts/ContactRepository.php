@@ -110,11 +110,18 @@ final class ContactRepository
 
     /**
      * Soft-delete: contactStatus = 0. NO borra para preservar FKs de transacciones.
+     *
+     * `updated_at = TODAY` (reloj del server PHP), NO `NOW()` de Postgres —
+     * mismo motivo que `ItemRepository::archive()`: el sync incremental
+     * (context/43-sync-incremental.md) compara este campo contra un
+     * watermark generado con `TODAY`. Un desfase entre el reloj de PHP y el
+     * de la DB, aunque sea chico, podría dejar un archive() en el borde de
+     * una ventana de delta sin aparecer.
      */
     public function archive(string $id, string $companyId): bool
     {
-        $sql = "UPDATE contact SET contactStatus = 0, updated_at = NOW() WHERE contactId = ? AND companyId = ?";
-        return $this->db->Execute($sql, [$id, $companyId]) !== false;
+        $sql = "UPDATE contact SET contactStatus = 0, updated_at = ? WHERE contactId = ? AND companyId = ?";
+        return $this->db->Execute($sql, [TODAY, $id, $companyId]) !== false;
     }
 
     /**
@@ -164,6 +171,42 @@ final class ContactRepository
         $placeholders = implode(',', array_fill(0, count($ids), '?'));
         $sql = "SELECT * FROM contact WHERE companyId = ? AND type = ? AND contactId IN ({$placeholders})";
         $rs  = $this->db->Execute($sql, array_merge([$companyId, $type], $ids));
+        if ($rs === false) return [];
+        $out = [];
+        foreach ($rs->GetRows() as $row) {
+            $out[] = _flattenJsonb($row);
+        }
+        return $out;
+    }
+
+    /**
+     * Delta incremental (context/43-sync-incremental.md) — clientes tocados
+     * desde `$since` (exclusivo). `$since = null` trae TODOS los clientes del
+     * tipo (equivale a un full sync desde el epoch) — el caller (`/v1/sync`)
+     * decide cuándo pedir eso vs cortar antes por umbral de borde.
+     *
+     * `COALESCE(updated_at, contactDate)`: filas creadas antes de que algún
+     * caller futuro se olvide de setear `updated_at` (o de una migración de
+     * datos histórica) igual entran al delta comparando contra su fecha de
+     * creación — sin este fallback quedarían con `updated_at IS NULL` y NUNCA
+     * matchean `> $since` (NULL en SQL no es mayor que nada), serían
+     * fantasmas invisibles para siempre en vez de solo hasta su próxima
+     * edición real.
+     *
+     * SIN filtro de `contactStatus` — mismo criterio que `getManyByIds()`
+     * (ver docblock arriba): un contacto archivado SÍ viaja, el caller decide
+     * si lo patchea o lo trata como remoción según su UI.
+     */
+    public function listUpdatedSince(int $type, string $companyId, ?string $since): array
+    {
+        $where  = ['companyId = ?', 'type = ?'];
+        $params = [$companyId, $type];
+        if ($since !== null) {
+            $where[]  = 'COALESCE(updated_at, contactDate) > ?';
+            $params[] = $since;
+        }
+        $sql = 'SELECT * FROM contact WHERE ' . implode(' AND ', $where) . ' ORDER BY updated_at ASC NULLS FIRST';
+        $rs  = $this->db->Execute($sql, $params);
         if ($rs === false) return [];
         $out = [];
         foreach ($rs->GetRows() as $row) {
