@@ -25,6 +25,7 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { fixtureBootstrap, fixtureHotkeys } from "@/lib/catalog/fixtures"
 import { usePosBootstrap } from "@/hooks/use-pos-bootstrap"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
+import { primeWatermarks } from "@/lib/catalog/delta-sync"
 
 const USE_FIXTURES = process.env.NEXT_PUBLIC_USE_FIXTURES === "1"
 
@@ -86,6 +87,14 @@ export function useCatalogSeed() {
           taxes: bootstrap.taxes,
           outletTaxIncluded: bootstrap.outletTaxIncluded,
         })
+        // Sync incremental (context/43-sync-incremental.md): un bootstrap
+        // completo YA sincronizó las 3 secciones — primar la marca de agua
+        // acá (server time, no el reloj del dispositivo) deja el próximo
+        // RECONNECT del WS listo para pedir delta desde el arranque, en vez
+        // de necesitar un ciclo completo primero. Best-effort, no bloquea
+        // la hidratación si falla.
+        const companyId = bootstrap.config?.companyId
+        if (companyId) void primeWatermarks(String(companyId))
       }
     }
   }, [status, hydrate, bootstrap, dataUpdatedAt])

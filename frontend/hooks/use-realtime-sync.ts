@@ -4,6 +4,8 @@ import * as React from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { subscribeRealtime, subscribeReconnect, type InvalidateEvent } from "@/lib/realtime"
 import { queueCatalogSync } from "@/lib/catalog/realtime-catalog-sync"
+import { runDeltaSync } from "@/lib/catalog/delta-sync"
+import { useCatalogStore } from "@/lib/catalog/store"
 
 /**
  * Mapeo cerrado entity→queryKeys de TanStack Query. Cuando el server
@@ -200,9 +202,26 @@ export function useRealtimeSync(clientScope: "panel" | "pos" = "panel") {
 
     // Resync tras reconexión (ver lib/realtime.ts): no hay backlog en el
     // ws-server, así que no sabemos qué nos perdimos mientras el WS estuvo
-    // caído. Invalidar TODO el cache es la única forma honesta de no operar
-    // con datos viejos sin haber avisado (context/15, hallazgo E).
+    // caído. Antes (context/15, hallazgo E) esto invalidaba TODO el cache —
+    // con 5000+ items o 10000+ clientes, cada reconexión (wifi intermitente,
+    // proxy que cierra el socket) volvía a bajar el catálogo entero.
+    //
+    // Ahora (context/43-sync-incremental.md): en el POS, con `companyId` ya
+    // conocido (el store está caliente — sino no habría nada para
+    // reconectar), se corre el sync incremental — trae SOLO lo que cambió
+    // desde la última marca de agua + los borrados (tabla de lápidas). El
+    // panel sigue con el invalidate-todo viejo (no tiene el problema de
+    // volumen que motivó este cambio) y el POS cae al mismo invalidate-todo
+    // si por algún motivo no hay companyId todavía (fallback seguro, nunca
+    // deja de refrescar).
     const unsubReconnect = subscribeReconnect(() => {
+      if (clientScope === "pos") {
+        const companyId = useCatalogStore.getState().config?.companyId
+        if (companyId) {
+          void runDeltaSync(String(companyId), qc)
+          return
+        }
+      }
       qc.invalidateQueries()
     })
 
