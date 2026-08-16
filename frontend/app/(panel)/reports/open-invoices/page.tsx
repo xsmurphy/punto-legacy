@@ -8,7 +8,12 @@
  *
  * KPIs arriba: total adeudado, # cuentas, vencidas, por vencer. DataTable abajo
  * con cada contacto y su deuda agregada (totalSales / totalPaid / totalDebt).
- * El detalle de las facturas por contacto (expansión row) queda como follow-up.
+ *
+ * Detalle por contacto: clickear una fila abre un Dialog con
+ * `AccountStatementSection` (mismo componente que el tab "Financiero" de la
+ * ficha de contacto — no se duplica la tabla de facturas). Convención del
+ * proyecto: Dialog es el default para contenido denso, un panel lateral
+ * (Sheet/Drawer) está prohibido para esto — ver context/14-ui-conventions.md.
  */
 
 import * as React from "react"
@@ -21,6 +26,7 @@ import { formatPhone } from "@/lib/phone"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { DataTable } from "@/components/data-table/data-table"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
@@ -31,6 +37,7 @@ import {
 import { formatMoney } from "@/lib/format"
 import { EmptyState } from "@/components/empty-state"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import { AccountStatementSection } from "@/components/domain/contacts/account-statement-section"
 
 type State = "income" | "outcome"
 
@@ -126,6 +133,22 @@ function OpenInvoicesReportPageInner() {
         meta: { label: "Facturas", className: "tabular-nums text-right" },
       },
       {
+        id: "dueStatus",
+        header: "Estado",
+        // Semántica de color del design system (context/14): destructive =
+        // vencida (alcanza con UNA factura vencida para que el contacto
+        // cuente como tal), outline = todavía por vencer. Sin hex colors.
+        cell: ({ row }) => {
+          const hasExpired = row.original.invoices.some((i) => i.dueStatus === "expired")
+          return (
+            <Badge variant={hasExpired ? "destructive" : "outline"}>
+              {hasExpired ? "Vencida" : "Por vencer"}
+            </Badge>
+          )
+        },
+        meta: { label: "Estado" },
+      },
+      {
         accessorKey: "totalSales",
         header: "Total emitido",
         cell: ({ getValue }) => (
@@ -154,27 +177,18 @@ function OpenInvoicesReportPageInner() {
       {
         accessorKey: "totalDebt",
         header: "Saldo",
-        cell: ({ row }) => {
-          const v = row.original.totalDebt
-          const hasExpired = row.original.invoices.some(
-            (i) => i.dueStatus === "expired",
-          )
-          return (
-            <div className="flex items-center justify-end gap-1.5">
-              {hasExpired && (
-                <AlertTriangle className="size-3.5 text-destructive" />
-              )}
-              <span className="tabular-nums font-semibold">
-                {formatMoney(v, bootstrap)}
-              </span>
-            </div>
-          )
-        },
+        cell: ({ getValue }) => (
+          <span className="tabular-nums font-semibold">
+            {formatMoney(Number(getValue()) || 0, bootstrap)}
+          </span>
+        ),
         meta: { label: "Saldo", className: "tabular-nums text-right" },
       },
     ],
     [bootstrap, isOutcome, subjectSingular],
   )
+
+  const [selectedContact, setSelectedContact] = React.useState<{ id: string; name: string } | null>(null)
 
   return (
     <div className="flex flex-col gap-6">
@@ -239,6 +253,7 @@ function OpenInvoicesReportPageInner() {
         exportFileName={
           isOutcome ? "cuentas_por_pagar" : "cuentas_por_cobrar"
         }
+        onRowClick={(row) => setSelectedContact({ id: row.contactId, name: row.name || "(sin nombre)" })}
         emptyMessage={
           <EmptyState
             icon={Wallet}
@@ -248,9 +263,26 @@ function OpenInvoicesReportPageInner() {
         }
       />
 
-      <Badge variant="secondary" className="mx-auto text-[10px]">
-        Tip: el detalle de facturas por contacto y el cobro inline llegan en una próxima iteración.
-      </Badge>
+      {/* Detalle por contacto: Dialog (no panel lateral — prohibido para
+          contenido denso, context/14) reusando AccountStatementSection, el
+          mismo componente que el tab "Financiero" de la ficha de contacto. */}
+      <Dialog open={selectedContact !== null} onOpenChange={(o) => !o && setSelectedContact(null)}>
+        <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedContact?.name}</DialogTitle>
+            <DialogDescription>
+              {isOutcome ? "Facturas a crédito pendientes de pago." : "Facturas a crédito pendientes de cobro."}
+            </DialogDescription>
+          </DialogHeader>
+          {selectedContact && (
+            <AccountStatementSection
+              contactId={selectedContact.id}
+              contactType={isOutcome ? 2 : 1}
+              contactName={selectedContact.name}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

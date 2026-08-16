@@ -97,7 +97,6 @@ import {
   useContact,
   useContactAnalytics,
   useContactPacks,
-  useContactStatement,
   useUpdateContact,
   useCustomerAddresses,
   useAddAddress,
@@ -122,15 +121,14 @@ import type {
   ContactAnalytics,
   ContactFormValues,
   ContactFull,
-  ContactStatement,
   CustomerAddress,
   SoldPack,
 } from "@/lib/types/contact"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
-import type { ColumnDef } from "@tanstack/react-table"
-import { DataTable } from "@/components/data-table/data-table"
 import { OrdersList } from "@/components/domain/orders/orders-list"
 import { ScheduleList } from "@/components/domain/schedule/schedule-list"
+import { AccountStatementSection } from "@/components/domain/contacts/account-statement-section"
+import { KpiCard } from "@/components/domain/contacts/kpi-card"
 import { ContactOrdersCompact } from "@/components/domain/contacts/contact-orders-compact"
 import { ContactScheduleCompact } from "@/components/domain/contacts/contact-schedule-compact"
 import { ContactTransactionsTab } from "@/components/domain/contacts/contact-transactions-tab"
@@ -316,6 +314,7 @@ export function ContactDetailView({
       {tab === "financial" && (
         <FinancialTab
           customerId={customerId}
+          contactName={data?.name || "Cliente"}
           analytics={analytics.data}
           isLoading={analytics.isLoading}
           bootstrap={bootstrap}
@@ -1576,11 +1575,13 @@ function BehaviorTab({
 
 function FinancialTab({
   customerId,
+  contactName,
   analytics,
   isLoading,
   bootstrap,
 }: {
   customerId: string
+  contactName: string
   analytics: ContactAnalytics | undefined
   isLoading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
@@ -1609,244 +1610,16 @@ function FinancialTab({
           )}
         </CardContent>
       </Card>
-      <AccountStatementSection customerId={customerId} bootstrap={bootstrap} />
+      <AccountStatementSection contactId={customerId} contactType={1} contactName={contactName} />
     </div>
-  )
-}
-
-// ── AccountStatementSection ────────────────────────────────────────────────
-//
-// Estado de cuenta del cliente: facturas a crédito ABIERTAS (transactionComplete
-// = false) con su saldo, y qué recibos se le aplicaron a cada una (un recibo
-// puede repartirse entre varias facturas). Vive dentro del tab "Financiero"
-// (no un tab propio): es la ampliación natural del KPI "Cuentas por cobrar"
-// de arriba, y separarlo del tab "Transacciones" (que sí lista el historial
-// completo, todos los tipos de documento) evita que ambos compitan por el
-// mismo propósito.
-//
-// Fuente: `OpenInvoicesService::contactStatement()` — mismo cálculo de saldo
-// que `analytics.financial.openInvoices`, con el detalle documento por
-// documento que ese KPI no trae.
-
-function AccountStatementSection({
-  customerId,
-  bootstrap,
-}: {
-  customerId: string
-  bootstrap: ReturnType<typeof useBootstrap>["data"]
-}) {
-  const router = useRouter()
-  const { data, isLoading } = useContactStatement(customerId, 1)
-  const invoices = data?.invoices ?? []
-  const summary = data?.summary
-
-  const invoiceColumns = React.useMemo<ColumnDef<ContactStatement["invoices"][number]>[]>(
-    () => [
-      {
-        accessorKey: "date",
-        header: "Fecha",
-        cell: ({ getValue }) => {
-          const v = getValue() as string | null
-          return <span className="tabular-nums">{v ? formatDate(v) : "—"}</span>
-        },
-        meta: { label: "Fecha" },
-      },
-      {
-        accessorKey: "invoiceNo",
-        header: "Documento",
-        cell: ({ getValue }) => (
-          <span className="font-medium tabular-nums">{(getValue() as string) || "—"}</span>
-        ),
-        meta: { label: "Documento" },
-      },
-      {
-        accessorKey: "total",
-        header: "Total",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums">{formatMoney(Number(getValue()) || 0, bootstrap)}</span>
-        ),
-        meta: { label: "Total", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "paid",
-        header: "Cobrado",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums">{formatMoney(Number(getValue()) || 0, bootstrap)}</span>
-        ),
-        meta: { label: "Cobrado", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "balance",
-        header: "Saldo",
-        cell: ({ getValue }) => (
-          <span className="font-semibold tabular-nums">{formatMoney(Number(getValue()) || 0, bootstrap)}</span>
-        ),
-        meta: { label: "Saldo", className: "tabular-nums text-right" },
-      },
-      {
-        id: "dueStatus",
-        header: "Vencimiento",
-        cell: ({ row }) => {
-          const inv = row.original
-          const due = inv.dueDate ? formatDate(inv.dueDate) : "—"
-          if (inv.dueStatus === "paid") {
-            return <Badge variant="secondary">Saldada</Badge>
-          }
-          return (
-            <div className="flex flex-col gap-0.5">
-              <Badge variant={inv.dueStatus === "expired" ? "destructive" : "outline"}>
-                {inv.dueStatus === "expired" ? "Vencida" : "Por vencer"}
-              </Badge>
-              <span className="text-[10px] tabular-nums text-muted-foreground">{due}</span>
-            </div>
-          )
-        },
-        meta: { label: "Vencimiento" },
-      },
-    ],
-    [bootstrap],
-  )
-
-  const payments = React.useMemo(
-    () =>
-      invoices.flatMap((inv) =>
-        inv.payments.map((p) => ({
-          key: `${p.transactionId}-${inv.saleId}`,
-          transactionId: p.transactionId,
-          invoiceNo: p.invoiceNo,
-          date: p.date,
-          amount: p.amount,
-          appliedToInvoiceNo: inv.invoiceNo,
-        })),
-      ),
-    [invoices],
-  )
-
-  const paymentColumns = React.useMemo<ColumnDef<(typeof payments)[number]>[]>(
-    () => [
-      {
-        accessorKey: "date",
-        header: "Fecha",
-        cell: ({ getValue }) => {
-          const v = getValue() as string | null
-          return <span className="tabular-nums">{v ? formatDate(v) : "—"}</span>
-        },
-        meta: { label: "Fecha" },
-      },
-      {
-        accessorKey: "invoiceNo",
-        header: "Recibo",
-        cell: ({ getValue }) => (
-          <span className="font-medium tabular-nums">{(getValue() as string) || "—"}</span>
-        ),
-        meta: { label: "Recibo" },
-      },
-      {
-        accessorKey: "appliedToInvoiceNo",
-        header: "Aplicado a factura",
-        cell: ({ getValue }) => <span className="tabular-nums">{(getValue() as string) || "—"}</span>,
-        meta: { label: "Aplicado a factura" },
-      },
-      {
-        accessorKey: "amount",
-        header: "Monto",
-        cell: ({ getValue }) => (
-          <span className="font-semibold tabular-nums">{formatMoney(Number(getValue()) || 0, bootstrap)}</span>
-        ),
-        meta: { label: "Monto", className: "tabular-nums text-right" },
-      },
-    ],
-    [bootstrap],
-  )
-
-  if (!isLoading && invoices.length === 0) {
-    return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base font-semibold tracking-tight">Estado de cuenta</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <EmptyStateBlock
-            icon={Wallet}
-            title="Sin cuentas pendientes"
-            description="Este cliente no tiene facturas a crédito abiertas."
-          />
-        </CardContent>
-      </Card>
-    )
-  }
-
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold tracking-tight">Estado de cuenta</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <div className="grid grid-cols-3 gap-2">
-          <KpiCard label="Deuda total" value={isLoading ? null : formatMoney(summary?.totalDebt, bootstrap)} />
-          <KpiCard label="Facturado a crédito" value={isLoading ? null : formatMoney(summary?.totalCredited, bootstrap)} />
-          <KpiCard label="Cobrado" value={isLoading ? null : formatMoney(summary?.totalPaid, bootstrap)} />
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            Facturas a crédito
-          </p>
-          <DataTable
-            tableId="contact-statement-invoices"
-            data={invoices}
-            columns={invoiceColumns}
-            getRowId={(r) => r.saleId}
-            isLoading={isLoading}
-            searchPlaceholder="Buscar por documento…"
-            exportFileName="estado-de-cuenta"
-            onRowClick={(row) => router.push(`/transactions/${row.saleId}`)}
-            emptyMessage={
-              <EmptyStateBlock icon={Wallet} title="Sin facturas" description="Sin facturas a crédito abiertas." showMarquee={false} />
-            }
-          />
-        </div>
-
-        {payments.length > 0 && (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Cobros aplicados
-            </p>
-            <DataTable
-              tableId="contact-statement-payments"
-              data={payments}
-              columns={paymentColumns}
-              getRowId={(r) => r.key}
-              isLoading={isLoading}
-              searchPlaceholder="Buscar por recibo…"
-              exportFileName="cobros-aplicados"
-              onRowClick={(row) => router.push(`/transactions/${row.transactionId}`)}
-            />
-          </div>
-        )}
-      </CardContent>
-    </Card>
   )
 }
 
 // ── Helpers compartidos ───────────────────────────────────────────────────────
-
-function KpiCard({
-  label, value,
-}: {
-  label: string; value: React.ReactNode
-}) {
-  return (
-    <div className="flex flex-col gap-1 rounded-lg border bg-card px-3 py-2.5">
-      <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      {value === null ? <Skeleton className="h-5 w-20" /> : (
-        <span className="text-base font-semibold tabular-nums leading-tight">{value}</span>
-      )}
-    </div>
-  )
-}
+// `KpiCard` y `AccountStatementSection` viven en archivos propios
+// (components/domain/contacts/kpi-card.tsx, account-statement-section.tsx) —
+// se extrajeron para reusarlos tal cual desde el detalle por contacto del
+// reporte de cuentas por cobrar/pagar (`/reports/open-invoices`).
 
 function DetailRow({
   label, value,

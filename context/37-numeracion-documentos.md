@@ -67,7 +67,7 @@ Hay tres mecanismos distintos, ninguno compartido, y cubren 3 documentos de ~13.
 | Nota de crédito | — | **no existe el documento** |
 | Nota de débito | — | **no existe el documento** |
 | Nota de remisión | — | `SaleType 10` declarado, nada lo emite |
-| Recibo (pago de crédito) | `transaction` (type 5) | **sin numeración** |
+| Recibo (pago de crédito / pago a proveedor) | `transaction` (type 5) | **sin numeración** |
 | Comprobante interno | — | el flag `interno` ni se persiste (`SaleInput` no lo tiene) |
 | Producción | `production_order` | **sin numeración** |
 | Transferencia de stock | `stock_transfer` | **sin numeración** |

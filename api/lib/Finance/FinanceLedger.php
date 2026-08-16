@@ -118,6 +118,51 @@ final class FinanceLedger
         );
     }
 
+    /**
+     * Pago a proveedor de una compra a crédito (transactionType=5, mismo tipo
+     * que `credit_payment` — se distinguen por `supplierId` seteado en vez de
+     * `customerId`, igual que `CreditPaymentService::create()` los arma).
+     * Espejo de `recordCreditPayment()` con el signo opuesto: acá SALE plata
+     * de la caja (kind='expense'), no entra.
+     */
+    public function recordPurchasePayment(string $companyId, string $transactionId): void
+    {
+        $row = ncmExecute(
+            'SELECT * FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+            [$transactionId, $companyId]
+        );
+        if (!$row) {
+            return;
+        }
+        if ((string) ($row['transactionType'] ?? '') !== '5') {
+            return;
+        }
+
+        $categoryId = $this->categories->ensurePurchasesCategoryId($companyId);
+        $invoiceNo  = (string) ($row['invoiceNo'] ?? '');
+        $description = 'Pago a proveedor' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
+
+        // F1 cheques (context/30) — pago a proveedor con cheque = cheque
+        // EMITIDO por el comercio (espejo de recordPurchase()).
+        $this->createCheckFromLines(
+            $companyId,
+            $transactionId,
+            $this->decodePaymentLines($row),
+            'issued',
+            $this->nullableUuid($row['supplierId'] ?? null),
+        );
+
+        $this->recordPaymentLines(
+            companyId: $companyId,
+            source: 'purchase_payment',
+            sourceId: $transactionId,
+            row: $row,
+            kind: 'expense',
+            categoryId: $categoryId,
+            description: $description,
+        );
+    }
+
     /** Compra al contado (transactionType=1). */
     public function recordPurchase(string $companyId, string $transactionId): void
     {

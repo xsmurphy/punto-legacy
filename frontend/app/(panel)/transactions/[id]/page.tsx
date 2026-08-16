@@ -437,10 +437,10 @@ function TransactionDetailView({
         <MultiInvoicePaymentDialog
           open={payDialogOpen}
           onOpenChange={setPayDialogOpen}
-          customerId={tx.customerId}
+          contactId={tx.customerId}
           primaryTransactionId={tx.transactionId}
           primaryDebt={detail.creditPayments!.debt}
-          customerName={tx.customerName || "Cliente"}
+          contactName={tx.customerName || "Cliente"}
           paymentMethods={panelPaymentMethods}
           config={bootstrap ?? null}
           onSuccess={(result) => {

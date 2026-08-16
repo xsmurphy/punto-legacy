@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { posApi as api } from "@/lib/api/pos-client"
+import type { ContactType } from "@/hooks/use-contacts"
 
 /** Un renglón de imputación: cuánto de ESTE recibo va a cada factura. */
 export interface CreditPaymentAllocation {
@@ -15,6 +16,12 @@ interface CreateCreditPaymentVarsCommon {
   note?: string
   // Identificador del pago (nº de operación, voucher) para métodos que lo exigen
   identifier?: string
+  /**
+   * 1=cliente (default, kind='credit_payment') | 2=proveedor
+   * (kind='purchase_payment'). Omitido = cliente, compat con los call-sites
+   * existentes (POS, panel) que solo cobraban crédito de clientes.
+   */
+  contactType?: ContactType
 }
 
 /** Forma vieja — un recibo, una factura. La sigue usando el POS (no tocar ese call-site). */
@@ -59,6 +66,37 @@ interface CreateCreditPaymentResult {
   }>
 }
 
+/** Invalidaciones compartidas — cualquier pago (por factura o distribuido) mueve las mismas queries. */
+function invalidatePaymentQueries(qc: ReturnType<typeof useQueryClient>) {
+  // refetchType:"all" fuerza el refetch aunque la query esté inactiva: el
+  // diálogo de pago (modal) tapa el detalle, así que la query del detalle
+  // puede no estar "activa" al confirmar → sin esto se marca stale pero NO
+  // refetchea, y la deuda mostrada no baja hasta reabrir.
+  // Usamos el prefijo ["pos-transaction"] (sin id) para pegarle al detalle
+  // sea cual sea el formato de id.
+  qc.invalidateQueries({ queryKey: ["pos-transactions"], refetchType: "all" })
+  qc.invalidateQueries({ queryKey: ["pos-transaction"], refetchType: "all" })
+  qc.invalidateQueries({ queryKey: ["transactions"], refetchType: "all" })
+  qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
+  // Panel: /transactions/{id} lee vía useTransactionDetail
+  // (["transaction-detail", id]) — hook distinto al de POS, agregado sin
+  // invalidación acá hasta ahora → la deuda no bajaba en el dialog del panel
+  // sin recargar. Prefijo sin id para pegarle sea cual sea la tx abierta.
+  qc.invalidateQueries({ queryKey: ["transaction-detail"], refetchType: "all" })
+  // Panel: /purchase/{id} lee vía usePurchase (["purchases","detail",id]) —
+  // mismo motivo que arriba, para que un pago a proveedor baje la deuda sin
+  // recargar la página. Prefijo ["purchases"] pega también al listado.
+  qc.invalidateQueries({ queryKey: ["purchases"], refetchType: "all" })
+  qc.invalidateQueries({ queryKey: ["reports", "purchases"] })
+  // El saldo/deuda agregado del contacto (tab Financiero) vive en
+  // ["contacts", id, "analytics", type] — invalidamos el prefijo completo.
+  qc.invalidateQueries({ queryKey: ["contacts"] })
+  // Reporte de cuentas por cobrar/pagar (mismo endpoint que alimenta el
+  // diálogo de cobro multi-factura) — sin esto, reabrir el diálogo tras un
+  // pago repartido muestra facturas ya saldadas como pendientes.
+  qc.invalidateQueries({ queryKey: ["reports", "open_invoices"] })
+}
+
 export function useCreateCreditPayment() {
   const qc = useQueryClient()
   return useMutation({
@@ -67,29 +105,41 @@ export function useCreateCreditPayment() {
         action: "create",
         ...vars,
       }),
-    onSuccess: () => {
-      // refetchType:"all" fuerza el refetch aunque la query esté inactiva: el
-      // diálogo de pago (modal) tapa el detalle, así que la query del detalle
-      // puede no estar "activa" al confirmar → sin esto se marca stale pero NO
-      // refetchea, y la deuda mostrada no baja hasta reabrir.
-      // Usamos el prefijo ["pos-transaction"] (sin id) para pegarle al detalle
-      // sea cual sea el formato de id.
-      qc.invalidateQueries({ queryKey: ["pos-transactions"], refetchType: "all" })
-      qc.invalidateQueries({ queryKey: ["pos-transaction"], refetchType: "all" })
-      qc.invalidateQueries({ queryKey: ["transactions"], refetchType: "all" })
-      qc.invalidateQueries({ queryKey: ["reports", "transactions"] })
-      // Panel: /transactions/{id} lee vía useTransactionDetail
-      // (["transaction-detail", id]) — hook distinto al de POS, agregado sin
-      // invalidación acá hasta ahora → la deuda no bajaba en el dialog del panel
-      // sin recargar. Prefijo sin id para pegarle sea cual sea la tx abierta.
-      qc.invalidateQueries({ queryKey: ["transaction-detail"], refetchType: "all" })
-      // El saldo/deuda agregado del contacto (tab Financiero) vive en
-      // ["contacts", id, "analytics", type] — invalidamos el prefijo completo.
-      qc.invalidateQueries({ queryKey: ["contacts"] })
-      // Reporte de cuentas por cobrar (mismo endpoint que alimenta el diálogo
-      // de cobro multi-factura) — sin esto, reabrir el diálogo tras un pago
-      // repartido muestra facturas ya saldadas como pendientes.
-      qc.invalidateQueries({ queryKey: ["reports", "open_invoices"] })
-    },
+    onSuccess: () => invalidatePaymentQueries(qc),
+  })
+}
+
+interface CreateDistributedPaymentVars {
+  contactId: string
+  /** 1=cliente | 2=proveedor. */
+  contactType: ContactType
+  /** Monto total del recibo — el backend lo reparte entre las facturas
+   *  pendientes de la más vieja a la más nueva (FIFO por transactionDueDate),
+   *  saldando completas hasta donde alcance. Cálculo 100% server-side, dentro
+   *  de la misma transacción que el lock de las facturas (ver
+   *  CreditPaymentService::createDistributed) — nunca se manda un array de
+   *  allocations pre-calculado en el cliente para este modo. */
+  amount: number
+  paymentMethodKey: string
+  note?: string
+  identifier?: string
+}
+
+/**
+ * "Monto libre": el operador entrega un monto y el backend decide cómo se
+ * reparte entre las facturas abiertas del contacto (la más vieja primero).
+ * Mismo recibo único + N vínculos `transaction_link` que `useCreateCreditPayment`
+ * con `allocations` — la diferencia es que acá las allocations las calcula
+ * `CreditPaymentService::createDistributed()`, no el cliente.
+ */
+export function useCreateDistributedPayment() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (vars: CreateDistributedPaymentVars) =>
+      api.post<CreateCreditPaymentResult>("/v1/credit-payments", {
+        action: "createDistributed",
+        ...vars,
+      }),
+    onSuccess: () => invalidatePaymentQueries(qc),
   })
 }

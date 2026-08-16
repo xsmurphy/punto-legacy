@@ -14,7 +14,24 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 ---
 
-## Correcciones pendientes (reportadas por el owner)
+## Cuentas por cobrar/pagar — cobro/pago inline (2026-08-16)
+
+`/reports/open-invoices`: detalle por contacto (reusa `AccountStatementSection`
+del tab Financiero), colores de estado (Badge destructive/outline por
+`dueStatus`), y cobro/pago inline con 3 modos (una factura puntual, todas,
+monto libre repartido server-side FIFO oldest-first) — generalizado a
+clientes (`credit_payment`) Y proveedores (`purchase_payment`,
+`CreditPaymentService::createDistributed()`).
+
+**Pendiente, declarado a propósito (no armado esta vuelta):**
+- **Anulación de un pago/cobro registrado.** Hoy no existe — ni para
+  `credit_payment` (ya existía antes de esta vuelta) ni para el nuevo
+  `purchase_payment`. Si se carga un monto equivocado, no hay forma de
+  revertirlo desde la UI (habría que tocar `transaction`/`transaction_link`/
+  `fin_movement` a mano). Espejar `PurchaseCreditNoteService::void()`
+  (soft-void `transactionStatus=6` + `FinanceLedger::voidBySource` + destrabar
+  `transactionComplete` de las facturas que había saldado) sería el patrón a
+  seguir — falta decidir permisos y ventana de tiempo para anular.
 
 Lista corta de bugs concretos reportados durante el uso. Se vacía a medida que
 se arreglan — lo que crece acá es señal de deuda, no de backlog.
