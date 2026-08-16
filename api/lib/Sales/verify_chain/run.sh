@@ -181,6 +181,16 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_sync.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.7. Resolución offline (context/08 §53, hueco P0 cerrado 2026-08-16):
+#    add-ons embebidos en el ítem (mismo SELECT que bootstrap/bulk-get/delta)
+#    y plantilla de impresión resoluble por el device — ver docblock de
+#    verify_offline_resolution.php. No depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === resolución offline (plantillas + add-ons sin red) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_offline_resolution.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="
