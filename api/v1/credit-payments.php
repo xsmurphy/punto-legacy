@@ -4,9 +4,10 @@
  * (`contactType=1`, default) o pago a PROVEEDOR (`contactType=2`, generalizado
  * 2026-08 — antes este endpoint solo cobraba crédito de clientes).
  *
- *   POST { action: "create", parentTransactionId, amount, paymentMethodKey, contactType?, note? }
- *   POST { action: "create", allocations: [{parentTransactionId, amount}, ...], paymentMethodKey, contactType?, note? }
- *   POST { action: "createDistributed", contactId, contactType, amount, paymentMethodKey, note? }
+ *   POST   { action: "create", parentTransactionId, amount, paymentMethodKey, contactType?, note? }
+ *   POST   { action: "create", allocations: [{parentTransactionId, amount}, ...], paymentMethodKey, contactType?, note? }
+ *   POST   { action: "createDistributed", contactId, contactType, amount, paymentMethodKey, note? }
+ *   DELETE ?id=<uuid>                     → anula un recibo (soft-void, transactionStatus=6)
  *
  * La forma `allocations` (mig 123) permite UN recibo repartido en VARIAS
  * facturas del mismo contacto — antes cada factura necesitaba su propio
@@ -39,6 +40,15 @@
  * `finance.manage` para pago a proveedor — un pago a proveedor mueve caja
  * hacia AFUERA, mismo permiso que gatea `finance/movements.php`; no lo tiene
  * el rol cajero por default (solo manager/owner), a propósito.
+ *
+ * Anulación (DELETE): NO reusa `pos.sale.creditPayment` — anular plata movida
+ * es más sensible que cobrarla, y el cajero que cobra no tiene por qué poder
+ * revertirlo. Cliente → `pos.sale.void` ("Anular ventas", ya sembrado en
+ * manager/owner, NO en cashier — mismo criterio de riesgo que anular una
+ * venta). Proveedor → `finance.manage` (mismo que ya gatea crear el pago).
+ * Ninguna clave nueva: las dos ya existen en `PermissionCatalog` y ya están
+ * sembradas en `RoleService::SEED_PERMISSIONS` (owner 2026-08-16, ver
+ * `context/40-anulacion-y-nota-credito.md`).
  */
 require_once __DIR__ . '/../bootstrap.php';
 
@@ -51,6 +61,43 @@ $userId    = (string) ($ctx['userId'] ?? '');
 
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+if ($method === 'DELETE') {
+    $paymentId = trim((string) ($_GET['id'] ?? ''));
+    if (!preg_match($uuidRe, $paymentId)) {
+        apiError('id inválido', 422);
+    }
+
+    // El kind (y por lo tanto el permiso requerido) lo decide EL SERVIDOR
+    // leyendo la fila — nunca un parámetro del caller. Lectura liviana (sin
+    // lock) solo para elegir el permiso; CreditPaymentService::void() vuelve
+    // a leer con FOR UPDATE dentro de su propia TX antes de anular.
+    $row = ncmExecute(
+        'SELECT customerId, supplierId FROM transaction WHERE transactionId = ? AND companyId = ? AND transactionType = 5 LIMIT 1',
+        [$paymentId, $companyId]
+    );
+    if (!$row) {
+        apiError('Recibo no encontrado', 404);
+    }
+    $isCustomerPayment = !empty($row['customerId'] ?? null);
+    $voidPerm = $isCustomerPayment ? 'pos.sale.void' : 'finance.manage';
+    if (!hasPermission($voidPerm)) {
+        apiError("No tenés permiso para esta acción (requiere: $voidPerm)", 403);
+    }
+
+    require_once __DIR__ . '/../lib/services/CreditPaymentService.php';
+    $result = (new \Punto\Api\Services\CreditPaymentService())->void($paymentId, $companyId, $userId);
+
+    // Finanzas Fase 3: revierte el movimiento derivado de este recibo —
+    // mismo patrón que purchases.php con PurchasesService::void().
+    try {
+        (new \Punto\Api\Finance\FinanceLedger())->voidBySource($companyId, (string) $result['kind'], $paymentId);
+    } catch (\Throwable $e) {
+        error_log('[FinanceLedger] voidBySource(' . $result['kind'] . ') falló para id=' . $paymentId . ': ' . $e->getMessage());
+    }
+
+    apiOk($result);
+}
 
 if ($method !== 'POST') {
     apiError('Método no permitido', 405);

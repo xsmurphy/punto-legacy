@@ -272,13 +272,24 @@ final class TransactionLinkService
      * aplicó a qué factura — un recibo puede repartirse entre varias
      * facturas, así que esto es un detalle N:M, no un mapa 1:1.
      *
-     * Mismo criterio de exclusión de anulados y mismo
-     * `COALESCE(tl.amount, t.transactionTotal)` que sumDerivedAmounts() /
+     * Mismo `COALESCE(tl.amount, t.transactionTotal)` que sumDerivedAmounts() /
      * mapSumDerivedAmounts() — el monto mostrado acá nunca puede divergir del
-     * que ya se usa para calcular el saldo.
+     * que ya se usa para calcular el saldo, PARA LOS VIGENTES.
+     *
+     * A diferencia de sumDerivedAmounts()/mapSumDerivedAmounts(), esta NO
+     * excluye anulados (`transactionStatus=6`) — INCLUYE cada documento
+     * derivado con su `status`, para que el caller pueda mostrarlo marcado
+     * "anulado" en vez de hacerlo desaparecer. Decisión del owner (2026-08-16,
+     * ver `context/40-anulacion-y-nota-credito.md`, anulación de recibos de
+     * pago): un documento numerado anulado tiene que seguir siendo visible
+     * para auditoría — desaparecer de la pantalla es indistinguible de
+     * "se borró". El único consumidor hoy es `OpenInvoicesService::
+     * contactStatement()`, que ya excluye lo anulado del CÁLCULO de saldo por
+     * otra vía (`mapSumDerivedAmounts`, sin tocar acá) — este método es solo
+     * el detalle de display.
      *
      * @param list<string> $originIds
-     * @return array<string, list<array{derivedId:string,date:?string,invoiceNo:string,amount:float}>> originId → detalle
+     * @return array<string, list<array{derivedId:string,date:?string,invoiceNo:string,amount:float,status:int}>> originId → detalle
      */
     public function mapDerivedDetailsByOrigins(string $companyId, array $originIds, string $kind): array
     {
@@ -292,11 +303,11 @@ final class TransactionLinkService
                        COALESCE(tl.amount, t.transactionTotal) AS amount,
                        t.transactionDate AS date,
                        COALESCE(t.invoicePrefix, '') AS prefix,
-                       COALESCE(t.invoiceNo, '') AS invoiceno
+                       COALESCE(t.invoiceNo, '') AS invoiceno,
+                       COALESCE(t.transactionStatus, 1) AS status
                   FROM transaction_link tl
                   JOIN transaction t ON t.transactionId = tl.derivedid AND t.companyId = tl.companyid
                  WHERE tl.companyid = ? AND tl.originid IN ($placeholders) AND tl.kind = ?
-                   AND COALESCE(t.transactionStatus, 1) <> 6
                  ORDER BY t.transactionDate ASC";
         $params = array_merge([$companyId], $originIds, [$kind]);
         $rs = ncmExecute($sql, $params, false, true);
@@ -310,6 +321,7 @@ final class TransactionLinkService
                         'date'       => $f['date'] !== null ? (string) $f['date'] : null,
                         'invoiceNo'  => (string) ($f['prefix'] ?? '') . (string) ($f['invoiceno'] ?? ''),
                         'amount'     => (float) ($f['amount'] ?? 0),
+                        'status'     => (int) ($f['status'] ?? 1),
                     ];
                 }
                 $rs->MoveNext();

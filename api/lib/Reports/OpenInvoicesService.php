@@ -70,7 +70,7 @@ final class OpenInvoicesService
             ];
             $saleIds[] = (string) $f['saleId'];
         }
-        $payedMap = $this->payedByParent($saleIds, $companyId);
+        $payedMap = $this->payedByParent($saleIds, $companyId, !$isToPay);
 
         $today  = strtotime(date('Y-m-d 00:00:00'));
         $rows = [];
@@ -164,7 +164,7 @@ final class OpenInvoicesService
             $saleIds[]  = $saleId;
         }
 
-        $payedMap = $this->payedByParent($saleIds, $companyId);
+        $payedMap = $this->payedByParent($saleIds, $companyId, $isCustomer);
         $balance  = $this->contactBalance($invoices, $payedMap);
 
         return $balance['needsTopay'] ? $balance['totalDebt'] : 0.0;
@@ -224,11 +224,18 @@ final class OpenInvoicesService
             $saleIds[] = $saleId;
         }
 
-        $payedMap = $this->payedByParent($saleIds, $companyId);
+        $payedMap = $this->payedByParent($saleIds, $companyId, $isCustomer);
         $balance  = $this->contactBalance($invoices, $payedMap);
 
+        // FIX: hardcodeado a 'credit_payment' sin importar $isCustomer — para
+        // proveedores esto dejaba "Pagos aplicados" SIEMPRE vacío (los pagos a
+        // proveedor se linkean con kind='purchase_payment', mig 115/123).
+        // `payedByParent` (arriba) tenía el MISMO hardcodeo — fixeado junto con
+        // este, ver su docblock: para proveedores el saldo mostrado tampoco
+        // bajaba con pagos parciales, solo al saldar la factura del todo.
+        $paymentKind = $isCustomer ? 'credit_payment' : 'purchase_payment';
         $links = new \Punto\Api\Services\TransactionLinkService();
-        $paymentsByOrigin = $links->mapDerivedDetailsByOrigins($companyId, $saleIds, 'credit_payment');
+        $paymentsByOrigin = $links->mapDerivedDetailsByOrigins($companyId, $saleIds, $paymentKind);
 
         $today = strtotime(date('Y-m-d 00:00:00'));
         $out   = [];
@@ -250,6 +257,10 @@ final class OpenInvoicesService
                     'invoiceNo'     => $p['invoiceNo'],
                     'date'          => $p['date'],
                     'amount'        => $p['amount'],
+                    // 6 = anulado (transactionStatus) — el recibo sigue
+                    // visible para auditoría, ya no cuenta en `paid`/`balance`
+                    // de arriba (mapSumDerivedAmounts ya lo excluye).
+                    'voided'        => ((int) $p['status']) === 6,
                 ], $paymentsByOrigin[$inv['saleId']] ?? []),
             ];
         }
@@ -332,11 +343,21 @@ final class OpenInvoicesService
      * COALESCE, una fila legacy con status NULL daría NULL (no false) y
      * quedaría fuera del SUM — el saldo pendiente saltaría hacia arriba en
      * datos viejos.
-     * Usado tanto para `state='income'` (clientes, tipo 3) como `'outcome'`
-     * (proveedores, tipo 4) — el filtro real de qué aplica a cada uno lo da
-     * `transaction_link`, no un IN de transactionType.
+     *
+     * `$isCustomer`: FIX (encontrado tocando esta función para la anulación de
+     * recibos, 2026-08-16) — hardcodeaba `kind='credit_payment'` sin importar
+     * el estado, así que un pago a PROVEEDOR (`purchase_payment`, generalizado
+     * 2026-08) nunca reducía el saldo mostrado acá: `general(state='outcome')`
+     * y `contactStatement(isCustomer=false)` mostraban la factura con el saldo
+     * pendiente ORIGINAL hasta que un pago la saldaba del todo (recién ahí
+     * `transactionComplete` la sacaba de la lista, seteado por
+     * `CreditPaymentService::insertReceipt()` con el cálculo correcto — el bug
+     * era solo de DISPLAY del saldo parcial, no de si la factura quedaba
+     * abierta o cerrada). `return`/`purchase_credit_note` de abajo no tenían
+     * este problema — ya estaban separados por tipo de documento, no por
+     * `$isCustomer`.
      */
-    private function payedByParent(array $ids, $companyId)
+    private function payedByParent(array $ids, $companyId, bool $isCustomer = true)
     {
         $ids = array_values(array_unique(array_filter($ids)));
         if (!$ids) {
@@ -344,7 +365,7 @@ final class OpenInvoicesService
         }
         $links = new \Punto\Api\Services\TransactionLinkService();
 
-        $map = $links->mapSumDerivedAmounts($companyId, $ids, 'credit_payment');
+        $map = $links->mapSumDerivedAmounts($companyId, $ids, $isCustomer ? 'credit_payment' : 'purchase_payment');
 
         // return + purchase_credit_note: discount-aware, documento por
         // documento (amount de transaction_link no aplica — ver docblock).

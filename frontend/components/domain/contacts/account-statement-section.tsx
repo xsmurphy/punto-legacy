@@ -33,19 +33,31 @@
 import * as React from "react"
 import { useRouter } from "next/navigation"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Wallet } from "lucide-react"
+import { Ban, Wallet } from "lucide-react"
+import { toast } from "sonner"
 
-import { useContactStatement, type ContactType } from "@/hooks/use-contacts"
+import { useContactStatement, useVoidCreditPayment, type ContactType } from "@/hooks/use-contacts"
 import { usePermission } from "@/hooks/use-permissions"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import type { ContactStatement } from "@/lib/types/contact"
 import { formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/data-table/data-table"
+import { RowActions } from "@/components/data-table/row-actions"
 import { EmptyState } from "@/components/empty-state"
 import { KpiCard } from "@/components/domain/contacts/kpi-card"
 import { MultiInvoicePaymentDialog } from "@/components/domain/transactions/multi-invoice-payment-dialog"
@@ -69,8 +81,29 @@ export function AccountStatementSection({
 
   const [payOpen, setPayOpen] = React.useState(false)
   const canRegisterPayment = usePermission(isCustomer ? "pos.sale.creditPayment" : "finance.manage")
+  // Anular es más sensible que cobrar/pagar — permiso propio, ver
+  // credit-payments.php (DELETE) y CreditPaymentService::void().
+  const canVoidPayment = usePermission(isCustomer ? "pos.sale.void" : "finance.manage")
   const { data: pmData } = usePaymentMethods()
   const paymentMethods = pmData?.paymentMethods ?? []
+
+  const [voidTarget, setVoidTarget] = React.useState<{ transactionId: string; invoiceNo: string } | null>(
+    null,
+  )
+  const voidPayment = useVoidCreditPayment()
+
+  async function handleVoidConfirm() {
+    if (!voidTarget) return
+    try {
+      await voidPayment.mutateAsync(voidTarget.transactionId)
+      toast.success("Recibo anulado")
+      setVoidTarget(null)
+    } catch (err) {
+      toast.error("No se pudo anular el recibo", {
+        description: err instanceof Error ? err.message : undefined,
+      })
+    }
+  }
 
   // La factura ORIGEN (venta/compra a crédito) es un documento distinto según
   // el tipo de contacto; el recibo (type=5) es siempre `/transactions/{id}`.
@@ -153,6 +186,7 @@ export function AccountStatementSection({
           date: p.date,
           amount: p.amount,
           appliedToInvoiceNo: inv.invoiceNo,
+          voided: p.voided,
         })),
       ),
     [invoices],
@@ -172,8 +206,11 @@ export function AccountStatementSection({
       {
         accessorKey: "invoiceNo",
         header: "Recibo",
-        cell: ({ getValue }) => (
-          <span className="font-medium tabular-nums">{(getValue() as string) || "—"}</span>
+        cell: ({ row, getValue }) => (
+          <div className="flex items-center gap-2">
+            <span className="font-medium tabular-nums">{(getValue() as string) || "—"}</span>
+            {row.original.voided && <Badge variant="destructive">Anulado</Badge>}
+          </div>
         ),
         meta: { label: "Recibo" },
       },
@@ -186,13 +223,43 @@ export function AccountStatementSection({
       {
         accessorKey: "amount",
         header: "Monto",
-        cell: ({ getValue }) => (
-          <span className="font-semibold tabular-nums">{formatMoney(Number(getValue()) || 0, bootstrap)}</span>
+        cell: ({ row, getValue }) => (
+          <span
+            className={
+              "font-semibold tabular-nums" + (row.original.voided ? " text-muted-foreground line-through" : "")
+            }
+          >
+            {formatMoney(Number(getValue()) || 0, bootstrap)}
+          </span>
         ),
         meta: { label: "Monto", className: "tabular-nums text-right" },
       },
+      {
+        id: "actions",
+        header: "",
+        cell: ({ row }) => {
+          const p = row.original
+          return (
+            <div onClick={(e) => e.stopPropagation()}>
+              <RowActions
+                actions={[
+                  {
+                    label: isCustomer ? "Anular cobro" : "Anular pago",
+                    icon: Ban,
+                    variant: "destructive",
+                    hidden: !canVoidPayment,
+                    disabled: p.voided,
+                    onSelect: () => setVoidTarget({ transactionId: p.transactionId, invoiceNo: p.invoiceNo }),
+                  },
+                ]}
+              />
+            </div>
+          )
+        },
+        meta: { className: "w-12" },
+      },
     ],
-    [bootstrap],
+    [bootstrap, canVoidPayment, isCustomer],
   )
 
   const payLabel = isCustomer ? "Cobrar crédito" : "Pagar a proveedor"

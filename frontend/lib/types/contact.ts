@@ -175,13 +175,19 @@ export interface ContactStatement {
     balance: number
     /** "paid": saldo <= 0. "expired": vencida (dueDate <= hoy). "toExpire": vigente. */
     dueStatus: "paid" | "expired" | "toExpire"
-    /** Recibos aplicados a esta factura — un recibo puede repartirse entre varias. */
+    /**
+     * Recibos aplicados a esta factura — un recibo puede repartirse entre
+     * varias. Incluye los ANULADOS (marcados con `voided: true`, para
+     * auditoría — no desaparecen); su `amount` ya NO se cuenta en `paid`/
+     * `balance` de arriba.
+     */
     payments: Array<{
       /** transactionId del recibo — navega a /transactions/{transactionId}. */
       transactionId: string
       invoiceNo: string
       date: string | null
       amount: number
+      voided: boolean
     }>
   }>
 }

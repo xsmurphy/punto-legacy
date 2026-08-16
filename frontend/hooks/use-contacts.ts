@@ -89,6 +89,36 @@ export function useContactStatement(id: string | undefined, type: ContactType = 
 }
 
 /**
+ * Anula un recibo de pago (cobro a cliente o pago a proveedor, type=5) —
+ * soft-void (`transactionStatus=6`), NO se borra ni libera el correlativo
+ * (decisión del owner 2026-08-16, `context/40-anulacion-y-nota-credito.md`).
+ * Las facturas que el recibo pagó vuelven a su saldo real (recalculado en el
+ * backend, no solo "vuelve a impaga" — puede tener otros pagos vigentes) y el
+ * movimiento de caja se revierte (`FinanceLedger::voidBySource`).
+ *
+ * Invalida el mismo set de queries que un pago nuevo (espejo de
+ * `invalidatePaymentQueries` en `use-credit-payment.ts` — no se reusa
+ * directamente porque ese hook corre sobre `posApi`, y esta acción es
+ * panel-only) más `transaction-detail` (el recibo anulado se ve en
+ * `/transactions/{id}`).
+ */
+export function useVoidCreditPayment() {
+  const qc = useQueryClient()
+  return useMutation<{ id: string; status: number }, Error, string>({
+    mutationFn: (paymentId) =>
+      api.del<{ id: string; status: number }>(`/v1/credit-payments?id=${paymentId}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["contacts"] })
+      qc.invalidateQueries({ queryKey: ["reports", "open_invoices"] })
+      qc.invalidateQueries({ queryKey: ["transaction-detail"], refetchType: "all" })
+      qc.invalidateQueries({ queryKey: ["transactions"], refetchType: "all" })
+      qc.invalidateQueries({ queryKey: ["purchases"], refetchType: "all" })
+      qc.invalidateQueries({ queryKey: ["reports", "purchases"] })
+    },
+  })
+}
+
+/**
  * Crea un contacto. POST /v1/contacts (verbo REST estándar, no action=create
  * como outlets). Backend valida que name o fiscalName estén presentes; sin
  * uno de los dos → 422.

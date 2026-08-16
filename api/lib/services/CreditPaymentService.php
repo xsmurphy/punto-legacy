@@ -316,6 +316,156 @@ final class CreditPaymentService
     }
 
     /**
+     * Anula un recibo de pago (type=5, `credit_payment` o `purchase_payment`)
+     * — soft-void, MISMO criterio que `PurchasesService::void()` /
+     * `PurchaseCreditNoteService::void()`: `transactionStatus = 6`, la fila
+     * NUNCA se borra ni el correlativo (`invoiceNo`) se libera o reasigna.
+     * Decisión del owner (2026-08-16, textual: "Está bien anular y que el
+     * número no se pueda reusar, queda anulado para auditoría") — ver
+     * `context/40-anulacion-y-nota-credito.md`.
+     *
+     * Por qué NO `transactionType = 7` (patrón de `TransactionService::
+     * voidTransaction`, ventas): `TransactionLinkService::sumDerivedAmounts()`
+     * / `mapSumDerivedAmounts()` ya excluyen derivados con
+     * `COALESCE(transactionStatus, 1) <> 6` — ES el criterio de exclusión que
+     * ya usan `PurchasesService`/`PurchaseCreditNoteService`. Usar el mismo
+     * status acá hace que la deuda de las facturas afectadas se recalcule
+     * SOLA, sin tocar `TransactionLinkService` (superficie compartida con
+     * devoluciones y NC de compra — cambiar SU criterio de exclusión habría
+     * afectado esas pantallas también).
+     *
+     * Reversa completa, dentro de UNA transacción:
+     *   1. Lockea el recibo (`FOR UPDATE`) — si ya está `transactionStatus=6`,
+     *      rechaza (idempotencia: no se anula dos veces, ver guard más abajo).
+     *   2. Lockea TODAS las facturas que este recibo pagó (`transaction_link`
+     *      origin, kind derivado de `customerId`/`supplierId` de la fila —
+     *      nunca confiado del caller), mismo orden `transactionId ASC FOR
+     *      UPDATE` que `create()`/`createDistributed()` (línea ~113/237) —
+     *      evita deadlock con un cobro/pago concurrente sobre las mismas
+     *      facturas.
+     *   3. Marca el recibo `transactionStatus = 6`.
+     *   4. Por cada factura afectada: recalcula `paid` con
+     *      `sumDerivedAmounts()` (ya excluye el recibo recién anulado, misma
+     *      TX) y `transactionComplete` según el saldo REAL — respeta que la
+     *      factura pueda tener OTROS recibos vigentes (no asume "vuelve a
+     *      impaga").
+     *
+     * El caller (endpoint) es responsable de: chequear permisos ANTES de
+     * llamar (mismo criterio que gatea `create()`/`createDistributed()` mismo
+     * tipo de contacto, ver `credit-payments.php`) y de revertir el movimiento
+     * de caja post-commit (`FinanceLedger::voidBySource($companyId, $kind,
+     * $paymentId)`), igual que `purchases.php` hace con `PurchasesService::
+     * void()` — este método NO toca `fin_movement`.
+     *
+     * @return array{id:string,status:int,kind:string,affectedInvoices:list<array{transactionId:string,paid:float,debt:float,transactionComplete:bool}>}
+     */
+    public function void(string $paymentId, string $companyId, string $userId): array
+    {
+        global $db;
+
+        if (!preg_match(self::UUID_RE, $paymentId)) {
+            apiError('id de recibo inválido', 422);
+        }
+
+        $db->StartTrans();
+
+        $payment = ncmExecute(
+            'SELECT * FROM transaction WHERE transactionId = ? AND companyId = ? AND transactionType = 5 FOR UPDATE',
+            [$paymentId, $companyId]
+        );
+        if (!$payment) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            apiError('Recibo no encontrado', 404);
+        }
+        // Idempotencia: un recibo ya anulado no se re-anula (ni "de nuevo" ni
+        // se le puede imputar nada — create()/createDistributed() ya excluyen
+        // facturas completas, pero acá el guard es sobre EL RECIBO mismo).
+        if ((int) ($payment['transactionStatus'] ?? 1) === 6) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            apiError('El recibo ya fue anulado', 422);
+        }
+
+        $isCustomer = !empty($payment['customerId']);
+        $kind       = $isCustomer ? 'credit_payment' : 'purchase_payment';
+
+        // Facturas que este recibo pagó — el origen de los vínculos derivados
+        // A este recibo (derivedid = $paymentId).
+        $invoiceIds = $this->links->listOriginIds($companyId, $paymentId, $kind);
+
+        $rows = [];
+        if ($invoiceIds !== []) {
+            $ph = implode(',', array_fill(0, count($invoiceIds), '?'));
+            $rows = ncmExecute(
+                "SELECT * FROM transaction WHERE transactionId IN ($ph) AND companyId = ?
+                 ORDER BY transactionId ASC FOR UPDATE",
+                array_merge($invoiceIds, [$companyId]), false, false, true
+            );
+            $rows = is_array($rows) ? $rows : [];
+        }
+
+        // Anular el recibo PRIMERO — dentro de la misma TX, sumDerivedAmounts()
+        // ya lo excluye (COALESCE(transactionStatus,1)<>6) para el recalculo
+        // de abajo. NO se pisa `responsibleId`: ese campo es quién cobró/pagó
+        // ORIGINALMENTE (lo lee `TransactionDetailService` como
+        // `responsibleName` en el detalle del recibo) — pisarlo con
+        // `$userId` (quien anula) perdería esa atribución para siempre, igual
+        // que `PurchasesService::void()`/`PurchaseCreditNoteService::void()`
+        // tampoco lo tocan. "Quién anuló" no se registra hoy (no hay columna
+        // `voidedBy` en el schema, mismo criterio que sus dos hermanos) — si
+        // se necesita en el futuro es una columna nueva, no reusar esta.
+        $db->Execute(
+            'UPDATE transaction SET transactionStatus = 6 WHERE transactionId = ? AND companyId = ?',
+            [$paymentId, $companyId]
+        );
+
+        $affected = [];
+        foreach ($rows as $inv) {
+            $invId = (string) $inv['transactionId'];
+            $total = $isCustomer
+                ? ((float) ($inv['transactionTotal'] ?? 0) - (float) ($inv['transactionDiscount'] ?? 0))
+                : (float) ($inv['transactionTotal'] ?? 0);
+            $paid  = $this->links->sumDerivedAmounts($companyId, $invId, $kind);
+            $debt  = max(0.0, $total - $paid);
+            // Recalculado desde cero — NO se asume "vuelve a impaga": si la
+            // factura tenía otros recibos vigentes (ej. dos pagos parciales,
+            // se anula uno), el saldo real puede seguir en 0.
+            $complete = round($debt, 4) <= 0;
+            $db->Execute(
+                'UPDATE transaction SET transactionComplete = ' . ($complete ? 'TRUE' : 'FALSE') . '
+                 WHERE transactionId = ? AND companyId = ?',
+                [$invId, $companyId]
+            );
+            $affected[] = [
+                'transactionId'       => $invId,
+                'paid'                => $paid,
+                'debt'                => $debt,
+                'transactionComplete' => $complete,
+            ];
+        }
+
+        $failed = $db->HasFailedTrans();
+        $db->CompleteTrans();
+        if ($failed) {
+            apiError('No se pudo anular el recibo: la transacción abortó', 500);
+        }
+
+        try {
+            realtimePublish('transaction', 'update', null);
+        } catch (\Throwable $e) {
+            // Ignorar — no crítico.
+        }
+
+        return [
+            'id'               => $paymentId,
+            'status'           => 6,
+            'kind'             => $kind,
+            'affectedInvoices' => $affected,
+        ];
+    }
+
+    /**
      * Reparto FIFO puro, sin DB ni side-effects: dado un mapa YA ORDENADO
      * (más vieja primero) pid => deuda, y un monto a repartir, devuelve
      * pid => monto imputado — se corta apenas se agota el remanente, así que

@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useParams } from "next/navigation"
-import { ArrowLeft, Banknote, Loader2, Printer, Receipt } from "lucide-react"
+import { ArrowLeft, Ban, Banknote, Loader2, Printer, Receipt } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
@@ -35,6 +35,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useVoidCreditPayment } from "@/hooks/use-contacts"
 import { usePermission } from "@/hooks/use-permissions"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import {
@@ -107,7 +108,13 @@ function TransactionDetailView({
 }) {
   const tx = detail.transaction
   const typeStr = String(tx.transactionType)
-  const isVoid = !!tx.void
+  const isReceipt = tx.transactionType === 5
+  // `void` (transactionType===7) es el patrón de anulación de VENTA; el
+  // recibo de pago (type=5) usa el patrón soft-void de compras/NC
+  // (transactionStatus=6, correlativo conservado — ver
+  // context/40-anulacion-y-nota-credito.md). Un documento puede estar
+  // anulado por cualquiera de los dos caminos según su tipo.
+  const isVoid = !!tx.void || tx.transactionStatus === 6
   const isCredit = tx.transactionType === 3
   const isQuote = tx.transactionType === 9
   const canEdit = !isVoid && (tx.transactionType === 0 || tx.transactionType === 3 || isQuote)
@@ -117,6 +124,28 @@ function TransactionDetailView({
   // es el backend), evita mostrar un botón que va a 403.
   const canRegisterPayment = usePermission("pos.sale.creditPayment")
   const canPay = isCredit && (detail.creditPayments?.debt ?? 0) > 0 && canRegisterPayment
+
+  // Anular el recibo — heurística de UX (customerId presente = cobro a
+  // cliente, ausente = pago a proveedor); el backend decide el kind real
+  // leyendo la fila y gatea con el permiso correspondiente
+  // (`pos.sale.void` | `finance.manage`, ver credit-payments.php DELETE).
+  const isCustomerReceipt = !!tx.customerId
+  const canVoidReceiptPerm = usePermission(isCustomerReceipt ? "pos.sale.void" : "finance.manage")
+  const canVoidReceipt = isReceipt && !isVoid && canVoidReceiptPerm
+  const [voidReceiptOpen, setVoidReceiptOpen] = React.useState(false)
+  const voidPayment = useVoidCreditPayment()
+
+  async function handleVoidReceiptConfirm() {
+    try {
+      await voidPayment.mutateAsync(tx.transactionId)
+      toast.success("Recibo anulado")
+      setVoidReceiptOpen(false)
+    } catch (err) {
+      toast.error("No se pudo anular el recibo", {
+        description: err instanceof Error ? err.message : undefined,
+      })
+    }
+  }
 
   const { data: pmData } = usePaymentMethods()
   const panelPaymentMethods = pmData?.paymentMethods ?? []
@@ -193,6 +222,17 @@ function TransactionDetailView({
             <Button size="sm" onClick={() => setPayDialogOpen(true)} className="gap-1.5">
               <Banknote className="size-3.5" />
               Registrar pago
+            </Button>
+          )}
+          {canVoidReceipt && (
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => setVoidReceiptOpen(true)}
+              className="gap-1.5"
+            >
+              <Ban className="size-3.5" />
+              {isCustomerReceipt ? "Anular cobro" : "Anular pago"}
             </Button>
           )}
           {canEdit && (
@@ -479,6 +519,34 @@ function TransactionDetailView({
           onOpenChange={setEditDialogOpen}
         />
       )}
+
+      <AlertDialog open={voidReceiptOpen} onOpenChange={setVoidReceiptOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {isCustomerReceipt ? "¿Anular este cobro?" : "¿Anular este pago?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Las facturas que este recibo saldó vuelven a su saldo pendiente y se
+              revierte el movimiento de caja. El número de recibo queda anulado,
+              no se reutiliza. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={voidPayment.isPending}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => {
+                e.preventDefault()
+                handleVoidReceiptConfirm()
+              }}
+              disabled={voidPayment.isPending}
+            >
+              {voidPayment.isPending && <Loader2 className="mr-1.5 size-4 animate-spin" />}
+              {isCustomerReceipt ? "Anular cobro" : "Anular pago"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

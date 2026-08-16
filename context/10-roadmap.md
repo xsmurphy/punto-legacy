@@ -23,15 +23,15 @@ monto libre repartido server-side FIFO oldest-first) — generalizado a
 clientes (`credit_payment`) Y proveedores (`purchase_payment`,
 `CreditPaymentService::createDistributed()`).
 
-**Pendiente, declarado a propósito (no armado esta vuelta):**
-- **Anulación de un pago/cobro registrado.** Hoy no existe — ni para
-  `credit_payment` (ya existía antes de esta vuelta) ni para el nuevo
-  `purchase_payment`. Si se carga un monto equivocado, no hay forma de
-  revertirlo desde la UI (habría que tocar `transaction`/`transaction_link`/
-  `fin_movement` a mano). Espejar `PurchaseCreditNoteService::void()`
-  (soft-void `transactionStatus=6` + `FinanceLedger::voidBySource` + destrabar
-  `transactionComplete` de las facturas que había saldado) sería el patrón a
-  seguir — falta decidir permisos y ventana de tiempo para anular.
+**Resuelto (2026-08-16):**
+- **Anulación de un pago/cobro registrado.** Implementada:
+  `CreditPaymentService::void()` (soft-void `transactionStatus=6`, mismo
+  patrón que `PurchaseCreditNoteService::void()` como se había anotado acá),
+  `DELETE /v1/credit-payments?id=`, permiso `pos.sale.void` (cliente) /
+  `finance.manage` (proveedor), botón en `AccountStatementSection` y en
+  `/transactions/{id}`. Detalle completo y decisión del owner sobre el
+  correlativo en `context/40-anulacion-y-nota-credito.md` (sección "Anulación
+  de recibos de pago/cobro").
 
 Lista corta de bugs concretos reportados durante el uso. Se vacía a medida que
 se arreglan — lo que crece acá es señal de deuda, no de backlog.

@@ -1,9 +1,15 @@
 # 40 — Anulación y Nota de Crédito
 
-> Estado: **plan abierto** (2026-08-14). Pedido del owner desde `/pos` → detalle
-> de transacción: los botones "Anular" y "Devolución" están deshabilitados.
-> **Las cuatro decisiones están cerradas.** Todas las fases pueden ejecutarse.
-> Nada implementado todavía.
+> Estado: **plan abierto** (2026-08-14) para la anulación de VENTAS/facturas
+> (F1-F6 abajo). Pedido del owner desde `/pos` → detalle de transacción: los
+> botones "Anular" y "Devolución" están deshabilitados. **Las cuatro
+> decisiones están cerradas.** Todas las fases pueden ejecutarse. Nada
+> implementado todavía para venta.
+>
+> **Anulación de RECIBOS DE PAGO/COBRO (type=5) — implementada 2026-08-16.**
+> Ver sección al final de este doc. Es un feature DISTINTO del de arriba (no
+> anula una venta/factura, anula un recibo que pagó una) — comparte el
+> criterio de "correlativo conservado" pero no las fases F1-F6.
 
 ## Qué pidió el owner, textual
 
@@ -187,3 +193,90 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
   —anular a los dos minutos, antes de preparar— es justamente donde reponer
   insumos de una producción directa SÍ corresponde, y es la razón de que
   `settingReturnAllowIngredientReversal` exista en vez de prohibirlo siempre.
+
+---
+
+## Anulación de recibos de pago/cobro (type=5) — IMPLEMENTADA (2026-08-16)
+
+Feature distinto del de arriba: no anula una VENTA, anula un RECIBO (cobro a
+cliente `kind='credit_payment'` o pago a proveedor `kind='purchase_payment'`,
+`CreditPaymentService`, F5.1 de context/41) registrado desde
+`/reports/open-invoices` o el detalle de contacto. Pedido textual del owner:
+*"Se tiene que poder eliminar el pago. ¿Eso queda registrado como un recibo de
+dinero en compras a crédito? Sí o sí se tiene que poder eliminar un pago mal
+cargado."*
+
+**Decisión del owner, textual (2026-08-16):** *"Está bien anular y que el
+número no se pueda reusar, queda anulado para auditoría."* — confirma:
+- El recibo anulado **conserva su correlativo** (`invoiceNo`). No se borra la
+  fila, no se libera el número, no se reasigna a otro documento.
+- Queda **visible como anulado** en el detalle del contacto y en el listado
+  de transacciones — no desaparece. Desaparecer es indistinguible de "se
+  borró" y hace la auditoría imposible.
+- **No se puede anular dos veces**, ni operar sobre un recibo ya anulado.
+
+### Criterio de diseño: `transactionStatus=6`, NO `transactionType=7`
+
+A diferencia de la anulación de VENTA (F1-F6 arriba, que decidió NO tocar
+`transactionType` sino agregar un flag), la anulación de un RECIBO usa el
+patrón **soft-void que YA existía** para compras (`PurchasesService::void()`)
+y notas de crédito de compra (`PurchaseCreditNoteService::void()`):
+`UPDATE transaction SET transactionStatus = 6`. Por qué:
+
+- `TransactionLinkService::sumDerivedAmounts()` / `mapSumDerivedAmounts()` YA
+  excluyen derivados con `COALESCE(transactionStatus, 1) <> 6` — es el
+  criterio de exclusión que compras/NC ya usan. Marcar el recibo con ESE
+  mismo status hace que la deuda de las facturas que pagó se recalcule sola,
+  sin tocar `TransactionLinkService` (superficie compartida con devoluciones
+  y NC de compra).
+- `transactionType=7` es el vocabulario reservado para "esto ya no es una
+  factura, es una anulación" (ventas). Un recibo nunca fue una factura —
+  pisarle el tipo no aporta nada y hubiera exigido enseñarle ESE nuevo
+  criterio a `sumDerivedAmounts()`.
+
+Implementado en `CreditPaymentService::void()`
+(`api/lib/services/CreditPaymentService.php`): lockea el recibo + TODAS las
+facturas que pagó (mismo orden `transactionId ASC FOR UPDATE` que
+`create()`/`createDistributed()` — evita deadlock con un cobro concurrente),
+marca `transactionStatus=6`, y recalcula `transactionComplete` de cada
+factura desde CERO (no asume "vuelve a impaga" — puede tener OTROS recibos
+vigentes). El movimiento de caja se revierte con
+`FinanceLedger::voidBySource($companyId, $kind, $paymentId)` (mismo método
+que ya usa `purchases.php` para `PurchasesService::void()`).
+
+Endpoint: `DELETE /v1/credit-payments?id=<uuid>`
+(`api/v1/credit-payments.php`). Permiso: `pos.sale.void` (cobro a cliente) |
+`finance.manage` (pago a proveedor) — ninguna clave nueva, las dos ya existen
+en `PermissionCatalog` y ya están sembradas en manager/owner (no en cashier).
+
+UI: botón "Anular cobro"/"Anular pago" con `AlertDialog` de confirmación en
+`AccountStatementSection` (tabla "Cobros/Pagos aplicados", visible en
+`/reports/open-invoices` y el tab Financiero del contacto) y en
+`/transactions/{id}` (detalle del recibo — necesario porque
+`OpenInvoicesService::contactStatement()` solo lista facturas ABIERTAS: un
+recibo que saldó una factura del todo deja de aparecer ahí, así que la única
+forma de anularlo es desde su propio detalle).
+
+Bug latente encontrado auditando la exclusión de anulados (relevado ANTES de
+tocar `TransactionLinkService`, per protocolo): `DashboardService::
+payedByParent()` arma su propia query cruda (no pasa por
+`sumDerivedAmounts()`) y NO filtraba `transactionStatus<>6` — un recibo o
+devolución anulado seguía sumando "Cobrado" en el dashboard para siempre.
+Fixeado con el mismo criterio `COALESCE(transactionStatus, 1) <> 6`.
+
+Bug NO relacionado con anulación, encontrado en el camino (mismo método que
+se tocó para agregar visibilidad de recibos anulados):
+`OpenInvoicesService::payedByParent()`/`contactStatement()` hardcodeaban
+`kind='credit_payment'` sin importar `$isCustomer` — para PROVEEDORES
+(`purchase_payment`, generalizado 2026-08) el saldo mostrado en "Cuentas por
+pagar" no bajaba con pagos parciales (solo al saldar la factura del todo, vía
+`transactionComplete`). Fixeado pasando `$isCustomer`/kind correcto en los
+3 call-sites (`general()`, `forContact()`, `contactStatement()`).
+
+Test de integración (DB real, Postgres vía Docker): `api/tests/
+credit_payment_void_test.php` + wrapper `api/tests/
+run_credit_payment_void_test.sh` (mismo patrón que
+`api/lib/Sales/verify_chain/run.sh` — reusa su `seed.sql`). Cubre: recibo que
+pagó 3 facturas → al anular, las 3 vuelven al saldo original; factura con DOS
+pagos, se anula uno → queda con el saldo del otro; el documento anulado deja
+de sumar en `sumDerivedAmounts`; anular un recibo ya anulado se rechaza.

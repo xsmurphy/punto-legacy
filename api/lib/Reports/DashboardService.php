@@ -502,6 +502,15 @@ final class DashboardService
     /**
      * Port inline de getAllToPayTransactions del panel: SUM(ABS) por transactionParentId.
      * (El global lee `COMPANY_ID` interpolado + cache `$_SESSION` — incompatible con /api).
+     *
+     * FIX (encontrado 2026-08-16, auditoría del bug latente de anulación de
+     * recibos — ver `context/40-anulacion-y-nota-credito.md`): esta query
+     * propia (no pasa por `TransactionLinkService::sumDerivedAmounts()`/
+     * `mapSumDerivedAmounts()`, que SÍ excluyen `transactionStatus=6` desde su
+     * creación) no filtraba anulados — un recibo (type=5) o devolución (type=6)
+     * anulado seguía sumando acá para siempre, inflando "Cobrado" en el widget
+     * de dashboard. Mismo criterio `COALESCE(transactionStatus, 1) <> 6` que
+     * ya usa el resto del codebase para excluir anulados.
      */
     private function payedByParent(string $companyId): array
     {
@@ -521,7 +530,8 @@ final class DashboardService
         $ph  = implode(',', array_fill(0, count($allDerived), '?'));
         $res = ncmExecute(
             "SELECT transactionId, ABS(transactionTotal - COALESCE(transactionDiscount, 0)) as payed
-             FROM transaction WHERE transactionType IN (5,6) AND companyId = ? AND transactionId IN ($ph)",
+             FROM transaction WHERE transactionType IN (5,6) AND COALESCE(transactionStatus, 1) <> 6
+               AND companyId = ? AND transactionId IN ($ph)",
             array_merge([$companyId], $allDerived), false, false, true
         );
         $res = is_array($res) ? $res : [];
