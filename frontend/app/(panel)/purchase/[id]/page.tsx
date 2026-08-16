@@ -63,6 +63,7 @@ import {
   type PurchaseDetailItem,
   type PurchaseCreditNote,
   type CreditNoteRefundMode,
+  type PurchaseCondition,
 } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
 
@@ -135,6 +136,12 @@ export default function PurchaseDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* Modalidad (contado/crédito): el dato ya venía en el payload y se
+              usaba para habilitar el pago a crédito, pero no se mostraba en
+              ninguna parte — el listado sí la muestra y el detalle no, así que
+              una compra a crédito parecía contado (reporte del owner). El
+              vencimiento la insinuaba, pero solo si la compra tenía uno. */}
+          <ConditionBadge condition={purchase.condition} />
           <StatusBadge status={purchase.status} />
           {purchase.status === 1 && (
             <>
@@ -318,6 +325,17 @@ function BackButton() {
         Volver al historial
       </Link>
     </Button>
+  )
+}
+
+/**
+ * Modalidad de la compra. Es dato distinto del estado: una compra a crédito
+ * puede estar Completa (recibida) y seguir impaga. El listado ya la mostraba;
+ * el detalle no.
+ */
+function ConditionBadge({ condition }: { condition: PurchaseCondition }) {
+  return (
+    <Badge variant="outline">{condition === "credit" ? "Crédito" : "Contado"}</Badge>
   )
 }
 
