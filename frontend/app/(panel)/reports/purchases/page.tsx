@@ -158,8 +158,11 @@ export default function PurchasesReportPage() {
         header: "Estado",
         meta: { label: "Estado" },
         cell: ({ row }) => {
+          // Estado del DOCUMENTO, no de pago: decía "Completa" para status=1
+          // y se leía como "pagada" — una compra a crédito impaga se veía
+          // saldada. El estado de pago es `transactionComplete`, otro campo.
           const s = row.original.transactionStatus
-          if (s === "1") return <Badge variant="secondary">Completa</Badge>
+          if (s === "1") return <Badge variant="secondary">Vigente</Badge>
           if (s === "6") return <Badge variant="destructive">Anulada</Badge>
           return <Badge variant="outline">{s}</Badge>
         },

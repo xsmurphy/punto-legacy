@@ -142,6 +142,7 @@ export default function PurchaseDetailPage() {
               una compra a crédito parecía contado (reporte del owner). El
               vencimiento la insinuaba, pero solo si la compra tenía uno. */}
           <ConditionBadge condition={purchase.condition} />
+          {purchase.condition === "credit" && <PagoBadge complete={purchase.complete} />}
           <StatusBadge status={purchase.status} />
           {purchase.status === 1 && (
             <>
@@ -339,11 +340,30 @@ function ConditionBadge({ condition }: { condition: PurchaseCondition }) {
   )
 }
 
+/**
+ * Estado del DOCUMENTO (`transactionStatus`): 1 activa, 6 anulada. NO tiene
+ * nada que ver con si está pagada — eso es `complete` (`transactionComplete`,
+ * ver PagoBadge). Decía "Completa" para status=1, que cualquiera lee como
+ * "pagada": el owner y el tester leyeron una compra a crédito impaga como
+ * saldada, y ese malentendido cerró en falso un reporte de cuentas por pagar.
+ */
 function StatusBadge({ status }: { status: number }) {
-  if (status === 1) return <Badge variant="secondary">Completa</Badge>
+  if (status === 1) return <Badge variant="secondary">Vigente</Badge>
   if (status === 0) return <Badge variant="outline">Orden</Badge>
   if (status === 6) return <Badge variant="destructive">Anulada</Badge>
   return <Badge variant="outline">{status}</Badge>
+}
+
+/**
+ * Estado de PAGO (`transactionComplete`). Solo se muestra a crédito: al
+ * contado la compra nace pagada y el badge sería ruido.
+ */
+function PagoBadge({ complete }: { complete: boolean }) {
+  return complete ? (
+    <Badge variant="secondary">Pagada</Badge>
+  ) : (
+    <Badge variant="destructive">Impaga</Badge>
+  )
 }
 
 /**
