@@ -146,6 +146,33 @@ final class ContactRepository
     }
 
     /**
+     * Fetch puntual por una lista de ids — bulk-get quirúrgico del sync
+     * realtime (context/15-realtime-sync-plan.md). SIN filtrar por status:
+     * el caller necesita ver también un contacto archivado (contactStatus=0)
+     * para decidir sacarlo del store, no para que desaparezca en silencio.
+     * companyId SIEMPRE en el WHERE — un id ajeno al tenant no matchea.
+     *
+     * `type` SÍ filtra (mismo criterio que `listByType`/`find($id,$cid,$type)`):
+     * sin esto, un proveedor (type=2) editado en el panel dispara el mismo
+     * evento genérico `contact` y el POS lo mergea en su store de CLIENTES
+     * (`useCatalogStore.customers`) como si fuera uno — bug de fuga de datos
+     * encontrado en code review (2026-08-16), no teórico.
+     */
+    public function getManyByIds(array $ids, string $companyId, int $type): array
+    {
+        if (empty($ids)) return [];
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $sql = "SELECT * FROM contact WHERE companyId = ? AND type = ? AND contactId IN ({$placeholders})";
+        $rs  = $this->db->Execute($sql, array_merge([$companyId, $type], $ids));
+        if ($rs === false) return [];
+        $out = [];
+        foreach ($rs->GetRows() as $row) {
+            $out[] = _flattenJsonb($row);
+        }
+        return $out;
+    }
+
+    /**
      * Total de registros para la misma combinación de filtros (paginación).
      */
     public function countByType(int $type, string $companyId, array $opts = []): int

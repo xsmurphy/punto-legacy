@@ -55,6 +55,15 @@ interface CatalogState {
    * `PosItem.taxIncluded` (o `CartLine.taxIncluded`) es `null`.
    */
   outletTaxIncluded: boolean
+  /**
+   * `Date.now()` del último `patchItem(s)`/`removeItem(s)`/`patchCustomer(s)`/
+   * `removeCustomer(s)` — sync realtime quirúrgico (context/15 §Modelo
+   * quirúrgico). `useCatalogSeed` lo compara contra `dataUpdatedAt` del
+   * bootstrap para decidir si una re-hidratación es más nueva que el último
+   * patch (aplica) o más vieja (la descarta — pisaría un cambio que ya
+   * llegó por WS con datos más frescos que el fetch que la trajo).
+   */
+  lastPatchedAt: number
 
   // ── Acciones ──────────────────────────────────────────────────────────────
 
@@ -82,11 +91,35 @@ interface CatalogState {
     outletTaxIncluded?: boolean
   }) => void
 
-  /** Actualiza un cliente en memoria tras un CREATE/UPDATE exitoso. */
+  /** Actualiza (o agrega, si no existía) un cliente en memoria tras un CREATE/UPDATE exitoso. */
   patchCustomer: (customer: PosCustomer) => void
 
-  /** Actualiza un item en memoria si el precio/config cambia. */
+  /** Variante batch de `patchCustomer` — un solo `set()` para N clientes (sync realtime quirúrgico). */
+  patchCustomers: (customers: PosCustomer[]) => void
+
+  /** Saca un cliente del store (evento `delete`, o `id` que dejó de existir/pertenecer al tenant). */
+  removeCustomer: (id: string) => void
+
+  /** Variante batch de `removeCustomer`. */
+  removeCustomers: (ids: string[]) => void
+
+  /**
+   * Actualiza (o agrega, si no existía) un item en memoria. El caso "agrega"
+   * es necesario para el sync realtime quirúrgico: un evento `create` con id
+   * pide el item nuevo al BFF y lo mergea acá — antes de esto `patchItem`
+   * solo reemplazaba items YA presentes y un item creado en otra caja nunca
+   * aparecía hasta el próximo bootstrap completo.
+   */
   patchItem: (item: PosItem) => void
+
+  /** Variante batch de `patchItem` — un solo `set()` para N items (sync realtime quirúrgico). */
+  patchItems: (items: PosItem[]) => void
+
+  /** Saca un item del store (evento `delete`, o item que quedó inactivo/no-vendible). */
+  removeItem: (id: string) => void
+
+  /** Variante batch de `removeItem`. */
+  removeItems: (ids: string[]) => void
 
   /**
    * Resetea la caja activa a '' para forzar que el guard vuelva a mostrar
@@ -112,6 +145,16 @@ const initialState = {
   activeRegisterId: "",
   taxes: [] as PosTaxRate[],
   outletTaxIncluded: true,
+  lastPatchedAt: 0,
+}
+
+/** Reemplaza-o-agrega por id, preservando el orden de `prev` para los ya existentes. */
+function mergeById<T extends { id: string }>(prev: T[], incoming: T[]): T[] {
+  const byId = new Map(incoming.map((x) => [x.id, x]))
+  const merged = prev.map((x) => byId.get(x.id) ?? x)
+  const existingIds = new Set(prev.map((x) => x.id))
+  const brandNew = incoming.filter((x) => !existingIds.has(x.id))
+  return [...brandNew, ...merged]
 }
 
 export const useCatalogStore = create<CatalogState>()((set) => ({
@@ -141,15 +184,63 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
 
   patchCustomer: (customer) => {
     set((state) => ({
-      customers: state.customers.some((c) => c.id === customer.id)
-        ? state.customers.map((c) => (c.id === customer.id ? customer : c))
-        : [customer, ...state.customers],
+      customers: mergeById(state.customers, [customer]),
+      lastPatchedAt: Date.now(),
+    }))
+  },
+
+  patchCustomers: (customers) => {
+    if (customers.length === 0) return
+    set((state) => ({
+      customers: mergeById(state.customers, customers),
+      lastPatchedAt: Date.now(),
+    }))
+  },
+
+  removeCustomer: (id) => {
+    set((state) => ({
+      customers: state.customers.filter((c) => c.id !== id),
+      lastPatchedAt: Date.now(),
+    }))
+  },
+
+  removeCustomers: (ids) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    set((state) => ({
+      customers: state.customers.filter((c) => !idSet.has(c.id)),
+      lastPatchedAt: Date.now(),
     }))
   },
 
   patchItem: (item) => {
     set((state) => ({
-      items: state.items.map((i) => (i.id === item.id ? item : i)),
+      items: mergeById(state.items, [item]),
+      lastPatchedAt: Date.now(),
+    }))
+  },
+
+  patchItems: (items) => {
+    if (items.length === 0) return
+    set((state) => ({
+      items: mergeById(state.items, items),
+      lastPatchedAt: Date.now(),
+    }))
+  },
+
+  removeItem: (id) => {
+    set((state) => ({
+      items: state.items.filter((i) => i.id !== id),
+      lastPatchedAt: Date.now(),
+    }))
+  },
+
+  removeItems: (ids) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    set((state) => ({
+      items: state.items.filter((i) => !idSet.has(i.id)),
+      lastPatchedAt: Date.now(),
     }))
   },
 

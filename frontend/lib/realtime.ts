@@ -12,6 +12,15 @@ export type InvalidateEvent = {
   op: "create" | "update" | "delete"
   id: string | null
   scope: "all" | "dashboard"
+  /**
+   * Variante plural de `id` (context/15 §Modelo quirúrgico, 2026-08-16):
+   * varios recursos tocados por UNA sola operación (ej. una venta de N
+   * líneas mueve stock de N ítems distintos — un solo evento con los N
+   * ids). Campo ADICIONAL, retrocompatible — `id` sigue viajando (`null`
+   * cuando se usa `ids`). Ausente/undefined en cualquier evento viejo o de
+   * un entity que no batchea.
+   */
+  ids?: string[]
 }
 
 type Subscriber = (ev: InvalidateEvent) => void

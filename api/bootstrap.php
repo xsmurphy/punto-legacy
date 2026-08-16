@@ -358,6 +358,16 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         // el path derivaría 'space-sector' (string distinto) y el front no
         // lo reconocería (ver ENTITY_TO_QUERY_KEYS en use-realtime-sync.ts).
         '/v1/space-sectors'         => ['entity' => 'space'],
+        // bulk-get (sync realtime quirúrgico, context/15) es una LECTURA que
+        // usa POST solo por tamaño de body — sin este skip, cada fetch
+        // quirúrgico del POS dispararía él mismo un evento 'item'/'contact'
+        // fantasma (POST → op 'create' por default), invalidando de vuelta
+        // lo que el propio fetch acaba de traer. Sin `entity` explícito acá:
+        // el resto de las mutaciones de estos dos paths (create/update/
+        // delete real) sigue derivando 'item'/'contact' por default, sin
+        // cambios.
+        '/v1/items'                 => ['skipResources' => ['bulk-get']],
+        '/v1/contacts'              => ['skipResources' => ['bulk-get']],
     ];
 
     // Allowlist EXPLÍCITA y chica de endpoints que NO publican. Fuera de

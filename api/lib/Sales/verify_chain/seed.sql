@@ -84,12 +84,14 @@ INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, it
     ('5c835556-d25d-4258-861d-599ef3edae90', 'Verify 21% no admitido SIFEN', 'VERIFY-BAD21',         1000, 'product', 1, TRUE, FALSE, '90b39d98-ddfb-4909-b783-70277d5105f7', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
 ON CONFLICT (itemid) DO UPDATE SET itemname = EXCLUDED.itemname, itemprice = EXCLUDED.itemprice, taxid = EXCLUDED.taxid, data = EXCLUDED.data;
 
--- Item stockeable (itemtrackinventory=TRUE) — usado por verify_realtime.php
+-- Items stockeables (itemtrackinventory=TRUE) — usados por verify_realtime.php
 -- para ejercitar Inventory::manageStock() de verdad (los items de arriba son
--- todos itemtrackinventory=FALSE a propósito, no sirven para eso). Ver
--- context/15-realtime-sync-plan.md.
+-- todos itemtrackinventory=FALSE a propósito, no sirven para eso). Dos items
+-- (no uno) para poder probar el batching de ids con ítems DISTINTOS en el
+-- mismo request, no solo dedup del mismo id — ver context/15-realtime-sync-plan.md.
 INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid) VALUES
-    ('7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e5f', 'Verify stock trackeable', 'VERIFY-STOCK-TRACK', 1000, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+    ('7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e5f', 'Verify stock trackeable', 'VERIFY-STOCK-TRACK', 1000, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
+    ('7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e60', 'Verify stock trackeable 2', 'VERIFY-STOCK-TRACK-2', 1500, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
 ON CONFLICT (itemid) DO UPDATE SET itemtrackinventory = EXCLUDED.itemtrackinventory;
 
 -- ── Company B: Verify MX (decimals=2) ───────────────────────────────
