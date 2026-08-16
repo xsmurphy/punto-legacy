@@ -105,20 +105,29 @@ export interface UpstreamContactRow {
   tin: string | null
   storeCredit: number | string | null
   status: string | number | null
+  /**
+   * `presentRow()` ya devuelve `(bool) ((int) (row.contactCreditable ?? 0) >
+   * 0)` — un boolean real (no 't'/'f' de PDO: pasa por un cast PHP antes del
+   * json_encode). `false`/ausente si el contacto nunca lo configuró — mismo
+   * default que usa el panel al crear un contacto
+   * (`contact-detail-view.tsx`: `isCreditable: false`).
+   */
+  isCreditable?: boolean | null
 }
 
 export function reshapeCustomer(row: UpstreamContactRow): PosCustomer {
-  // TODO (A6+): el legacy decide isCreditable mirando `settingCreditEnabled`
-  // del tenant + `contactStatus=1`. Acá lo dejo true por default — el cobro
-  // a crédito ya valida cliente existente al confirmar la venta, así que el
-  // riesgo es que se OFREZCA la opción cuando el tenant no tiene crédito
-  // habilitado. Refinar cuando se porte la regla del legacy a /api.
   return {
     id: row.id,
     name: row.name,
     phone: row.phone ?? null,
     tin: row.tin ?? null,
     storeCredit: Number(row.storeCredit ?? 0),
-    isCreditable: true,
+    // Antes hardcodeado a `true` (bug: el POS ofrecía venta a crédito a
+    // TODO cliente, incluidos los que el comercio marcó sin crédito
+    // habilitado). El campo real ya viajaba desde el backend — solo faltaba
+    // leerlo acá. `=== true` (no `?? false`): cualquier valor que no sea el
+    // boolean `true` explícito (ausente, null, corrupto) cae a `false` —
+    // mismo criterio conservador que usa el panel al crear un contacto.
+    isCreditable: row.isCreditable === true,
   }
 }

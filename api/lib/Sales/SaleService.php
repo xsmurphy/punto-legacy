@@ -80,7 +80,7 @@ final class SaleService
         // El legacy no validaba (deuda original); acá lo cerramos.
         if ($input->clientId !== null) {
             $client = $this->db->Execute(
-                'SELECT contactId FROM contact WHERE contactId = ? AND companyId = ? AND type = 1 LIMIT 1',
+                'SELECT contactId, contactCreditable FROM contact WHERE contactId = ? AND companyId = ? AND type = 1 LIMIT 1',
                 [$input->clientId, $this->ctx->companyId]
             );
             if (!$client || $client->EOF) {
@@ -88,7 +88,28 @@ final class SaleService
                     "client {$input->clientId} no existe o no pertenece al tenant"
                 );
             }
+            // Venta a crédito: el cliente tiene que estar habilitado para
+            // crédito (`contact.contactCreditable`). Sin esta validación acá,
+            // el único gate era el front (POS y, antes de este fix, ni
+            // siquiera eso — reshapeCustomer mandaba `isCreditable: true`
+            // hardcodeado para TODO cliente) — un payload construido a mano
+            // saltaba el chequeo. La regla de negocio ("solo clientes
+            // habilitados compran a crédito") vive en el servidor, no en la UI.
+            if ($input->type === SaleType::Creditsale) {
+                $creditable = (int) ($client->fields['contactcreditable'] ?? 0) > 0;
+                if (!$creditable) {
+                    throw new InvalidSaleInputException(
+                        "client {$input->clientId} no tiene crédito habilitado"
+                    );
+                }
+            }
         }
+        // Nota: el gate de arriba vive DENTRO de `clientId !== null`. Hoy el
+        // front ya exige cliente para `type=3` (pay-dialog.tsx), así que una
+        // venta a crédito sin clientId no llega hasta acá — pero si ese
+        // requisito se relaja más adelante, agregar el chequeo explícito
+        // `if ($input->type === SaleType::Creditsale && $input->clientId ===
+        // null) { throw ... }` antes de este bloque.
 
         // ── B1: normalizar items del sale + computar totales ────────────────
         // saleArraySanitizer aplica markupt2HTML por campo y castea floats —

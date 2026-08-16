@@ -370,6 +370,14 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       if (credito && !customer) {
         throw new Error("Venta a crédito requiere un cliente seleccionado")
       }
+      // Gate real (no solo UI): antes `reshapeCustomer` mandaba
+      // `isCreditable: true` hardcodeado para TODO cliente, así que este
+      // chequeo nunca bloqueaba a nadie. El backend (SaleService::save) YA
+      // valida esto server-side — este throw evita el round-trip y le da al
+      // cajero el motivo sin esperar el 422.
+      if (credito && customer && !customer.isCreditable) {
+        throw new Error(`${customer.name} no tiene crédito habilitado`)
+      }
       if (effectivePayments.length === 0) {
         throw new Error("Debe agregar al menos un método de pago")
       }
@@ -886,7 +894,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
   // ── Validación (solo para crédito, que no tiene auto-confirm) ────────────
   const creditoWithoutCustomer = credito && !customer
-  const creditSaleReady = credito && !!customer && !submitting && !drawerClosed
+  // Cliente seleccionado pero SIN crédito habilitado (contact.contactCreditable
+  // = false). Distinto de "sin cliente" — el cajero ya eligió a alguien, el
+  // problema es que ese cliente puntual no puede comprar a crédito.
+  const creditoCustomerNotCreditable = credito && !!customer && !customer.isCreditable
+  const creditSaleReady =
+    credito && !!customer && customer.isCreditable && !submitting && !drawerClosed
 
   function handleCreditConfirm() {
     if (!creditSaleReady) return
@@ -1013,6 +1026,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               credito={credito}
               customer={customer}
               creditoWithoutCustomer={creditoWithoutCustomer}
+              creditoCustomerNotCreditable={creditoCustomerNotCreditable}
               drawerClosed={drawerClosed}
               applied={applied}
               display={display}
@@ -1125,6 +1139,7 @@ interface PayPhaseProps {
   credito: boolean
   customer: ReturnType<typeof useCartStore.getState>["customer"]
   creditoWithoutCustomer: boolean
+  creditoCustomerNotCreditable: boolean
   drawerClosed: boolean
   applied: AppliedPayment[]
   display: string
@@ -1152,6 +1167,7 @@ function PayPhase({
   credito,
   customer,
   creditoWithoutCustomer,
+  creditoCustomerNotCreditable,
   drawerClosed,
   applied,
   display,
@@ -1199,6 +1215,12 @@ function PayPhase({
         {creditoWithoutCustomer && (
           <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-center text-xs text-amber-600 dark:text-amber-400">
             Seleccioná un cliente para venta a crédito
+          </div>
+        )}
+
+        {creditoCustomerNotCreditable && (
+          <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-center text-xs text-amber-600 dark:text-amber-400">
+            {customer?.name} no tiene crédito habilitado — elegí otro cliente
           </div>
         )}
 
