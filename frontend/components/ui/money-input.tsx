@@ -22,6 +22,12 @@ import { cn } from "@/lib/utils"
  *   value: número o null (null = vacío)
  *   onChange: callback con el número parseado (o null)
  *   maxIntDigits: tope opcional del entero (default 12 = trillones)
+ *   decimals: override opcional de cantidad de decimales. Por default sale
+ *     de `bootstrap.decimal` (config del tenant, para su moneda LOCAL).
+ *     Necesario para montos en OTRA moneda — ej. precio en USD de un tenant
+ *     configurado en guaraníes (0 decimales): sin el override, un precio en
+ *     dólares se trunca a enteros. El separador de miles/decimal sigue
+ *     viniendo del tenant (es una preferencia de formato, no de moneda).
  */
 interface MoneyInputProps
   extends Omit<React.ComponentProps<typeof Input>, "value" | "onChange" | "type"> {
@@ -29,19 +35,22 @@ interface MoneyInputProps
   onChange: (next: number | null) => void
   /** Cantidad máxima de dígitos en la parte entera. Default 12. */
   maxIntDigits?: number
+  /** Override de decimales — ver comentario arriba. Default: el del tenant. */
+  decimals?: number
 }
 
 export function MoneyInput({
   value,
   onChange,
   maxIntDigits = 12,
+  decimals,
   className,
   onFocus,
   onBlur,
   ...rest
 }: MoneyInputProps) {
   const { data: bootstrap } = useBootstrap()
-  const fmt = getFormatConfig(bootstrap)
+  const fmt = getFormatConfig(bootstrap, decimals)
 
   // Internamente trabajamos con un string de SOLO dígitos (sin separadores).
   // Cuando llegamos a 'decimals' dígitos finales, esos son la fracción;
@@ -127,12 +136,13 @@ interface FmtConfig {
 
 function getFormatConfig(
   bootstrap: Pick<Bootstrap, "thousand" | "decimal"> | undefined,
+  decimalsOverride?: number,
 ): FmtConfig {
   // bootstrap.thousand es 'comma' o 'dot'. Si comma → 1,234.56 (anglo).
   // Si dot → 1.234,56 (es-PY/europeo).
   const thousand = bootstrap?.thousand === "comma" ? "," : "."
   const decimal = thousand === "," ? "." : ","
-  const decimals = bootstrap?.decimal === "yes" ? 2 : 0
+  const decimals = decimalsOverride ?? (bootstrap?.decimal === "yes" ? 2 : 0)
   return { decimals, thousand, decimal }
 }
 

@@ -16,7 +16,6 @@ import {
   ChefHat,
   Calendar,
   Check,
-  Coins,
   Images,
   Package2,
   Layers,
@@ -75,7 +74,6 @@ import {
   parseCurrencies,
   useArchiveItem,
   useCreateItem,
-  useCurrencies,
   useItem,
   useTaxonomiesByType,
   useUpdateItemCategories,
@@ -107,6 +105,7 @@ import { ItemGallery } from "@/components/items/item-gallery"
 import { ProductPhoto } from "@/components/items/product-photo"
 import { CompoundsEditor } from "@/components/items/compounds-editor"
 import { AddonsSection } from "@/components/items/addons-section"
+import { CurrencyPriceField } from "@/components/items/currency-price-field"
 import { LocationsEditor } from "@/components/items/locations-editor"
 import { ItemStockTab } from "@/components/items/stock-tab"
 import { PackComponentsEditor } from "@/components/items/pack-components-editor"
@@ -242,10 +241,9 @@ function ItemEditPageInner() {
   const { tabsWithErrors, onInvalid } = useFormTabErrors({
     form,
     fields: {
-      perfil: ["name", "sku", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor", "itemSessions"],
+      perfil: ["name", "sku", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor", "itemSessions", "currencies"],
       config: ["outletId", "uom", "taxId", "taxIncluded", "discount", "priceType", "pricePercent", "commission", "commissionType", "sort", "ecom", "featured"],
       disponibilidad: ["availability"],
-      cotizaciones: ["currencies"],
       produccion: ["procedure"],
     },
     onTabChange: setActiveTab,
@@ -253,7 +251,6 @@ function ItemEditPageInner() {
       perfil: "Perfil",
       config: "Configuración",
       disponibilidad: "Disponibilidad",
-      cotizaciones: "Cotizaciones",
       produccion: "Producción",
     },
   })
@@ -583,11 +580,6 @@ function ItemEditPageInner() {
                 Disponibilidad
                 {tabsWithErrors.has("disponibilidad") && <TabErrorDot />}
               </TabsTrigger>
-              <TabsTrigger value="cotizaciones" className="gap-1.5">
-                <Coins className="size-3.5" />
-                Cotizaciones
-                {tabsWithErrors.has("cotizaciones") && <TabErrorDot />}
-              </TabsTrigger>
               <TabsTrigger value="stock" className="gap-1.5" disabled={isNew}>
                 <Boxes className="size-3.5" />
                 Stock
@@ -659,9 +651,6 @@ function ItemEditPageInner() {
           </TabsContent>
           <TabsContent value="disponibilidad" className="mt-6">
             <DisponibilidadTab form={form} />
-          </TabsContent>
-          <TabsContent value="cotizaciones" className="mt-6">
-            <CotizacionesTab form={form} />
           </TabsContent>
           <TabsContent value="stock" className="mt-6">
             <StockTab id={id} isNew={isNew} form={form} />
@@ -1110,6 +1099,28 @@ function PerfilTab({
                   </div>
                 </div>
               </div>
+            )}
+
+            {/* Precio por moneda extranjera — complemento del precio local,
+                antes vivía en su propia pestaña "Cotizaciones" con el mismo
+                peso visual que Perfil/Configuración/Disponibilidad (movido
+                acá 2026-08-16 a pedido del owner). Solo tiene sentido si el
+                item se vende (showPrice). */}
+            {visibility.showPrice && (
+              <>
+                <Separator />
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Precio por moneda extranjera
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Si vendés a clientes que pagan en otra moneda, agregá acá el
+                    precio de este ítem en esa divisa. Quitar una moneda deja de
+                    ofrecer el ítem en ella.
+                  </p>
+                  <CurrencyPriceField form={form} />
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -1757,85 +1768,6 @@ function DaySchedule({
   )
 }
 
-// ── COTIZACIONES TAB ────────────────────────────────────────────────────────
-
-function CotizacionesTab({ form }: { form: UseFormReturn<ItemFormValues> }) {
-  const { data: currencies, isLoading } = useCurrencies()
-  const values = form.watch("currencies")
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base font-semibold tracking-tight">Precio por moneda extranjera</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        <p className="text-xs text-muted-foreground">
-          Si vendés a clientes que pagan en moneda extranjera, definí acá el precio
-          de venta de este ítem en cada divisa. Cero o vacío = no se ofrece en esa
-          moneda. Las tasas de conversión se configuran en Configuración → Monedas.
-        </p>
-
-        {isLoading && (
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-            <Skeleton className="h-10 w-full" />
-          </div>
-        )}
-
-        {!isLoading && (!currencies || currencies.length === 0) && (
-          <EmptyState
-            icon={Coins}
-            title="Sin monedas extranjeras configuradas"
-            description={
-              <>
-                Agregalas en <strong>Configuración → Monedas</strong> para que aparezcan acá.
-              </>
-            }
-            showMarquee={false}
-            className="border-dashed py-6"
-          />
-        )}
-
-        {!isLoading && currencies && currencies.length > 0 && (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {currencies.map((c, idx) => (
-              <div
-                key={`${c.ccode}-${c.code}-${idx}`}
-                className="flex items-center justify-between gap-3 rounded-md border p-3"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <CountryFlag code={c.ccode} />
-                  <div className="flex flex-col min-w-0">
-                    <div className="truncate text-sm font-semibold tracking-tight">
-                      {countryName(c.ccode)}
-                    </div>
-                    <div className="text-xs text-muted-foreground tabular-nums">
-                      {c.code}
-                    </div>
-                  </div>
-                </div>
-                <Input
-                  type="number"
-                  inputMode="decimal"
-                  step="0.01"
-                  placeholder="0"
-                  value={values?.[c.code] ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value
-                    form.setValue(`currencies.${c.code}` as never, (v === "" ? 0 : Number(v)) as never, { shouldDirty: true })
-                  }}
-                  className="tabular-nums w-28 text-right"
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
 // ── PRODUCCIÓN TAB ──────────────────────────────────────────────────────────
 
 function ProduccionTab({
@@ -2166,35 +2098,3 @@ function BackLink() {
   )
 }
 
-// ── Helpers de país/moneda ─────────────────────────────────────────────────
-//
-// Mismos helpers que viven inline en /settings (CountryFlag). Acá repetidos
-// porque el módulo de Items no debe depender del page de Settings — si en el
-// futuro aparece un tercer consumer, mover ambos a `lib/country.tsx`.
-
-function CountryFlag({ code }: { code: string }) {
-  const flag = code
-    ? code
-        .toUpperCase()
-        .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
-    : "🌐"
-  return <span className="text-2xl leading-none">{flag}</span>
-}
-
-/**
- * Nombre del país en español desde el ccode ISO 3166-1 alpha-2 — usando la
- * API nativa Intl.DisplayNames (sin dependencias). Fallback al ccode si el
- * runtime no lo soporta o el código es desconocido.
- *
- * Crítico para diferenciar las múltiples monedas con el mismo ISO 4217:
- * USD lo usan US/EC/PA/SV/etc. — sin nombre de país, son indistinguibles.
- */
-function countryName(ccode: string): string {
-  if (!ccode) return ""
-  try {
-    const dn = new Intl.DisplayNames(["es"], { type: "region" })
-    return dn.of(ccode.toUpperCase()) || ccode
-  } catch {
-    return ccode
-  }
-}
