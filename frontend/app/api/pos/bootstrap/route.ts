@@ -26,13 +26,20 @@ import { NextRequest, NextResponse } from "next/server"
 import type {
   PosBootstrap,
   PosConfig,
-  PosCustomer,
   PosItem,
+  PosCustomer,
   PosRegister,
   PosTaxRate,
   PosUser,
   PaymentMethodConfig,
 } from "@/lib/types/pos-bootstrap"
+import {
+  reshapeItem,
+  reshapeCustomer,
+  isSellableItemRow,
+  type UpstreamItemRow,
+  type UpstreamContactRow,
+} from "@/lib/pos-bff/reshape"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -163,49 +170,14 @@ interface UpstreamRegisterList {
   registers: UpstreamRegisterRow[]
 }
 
-// Shape real de /v1/items rows — viene de presentItem() + _flattenJsonb().
-// Los campos JSONB demoted (itemTaxIncluded, itemUOM, etc.) aparecen
-// flattened a top-level. Campos opcionales nullables = la BD puede no
-// tenerlos.
-interface UpstreamItemRow {
-  itemId: string
-  itemName: string
-  itemSKU?: string | null
-  itemPrice?: number | string | null
-  itemStatus?: number | boolean | string
-  itemCanSale?: boolean
-  itemTrackInventory?: boolean
-  itemIsParent?: boolean
-  itemParentId?: string | null
-  itemTaxIncluded?: boolean
-  itemUOM?: string | null
-  taxId?: string | null
-  categoryId?: string | null
-  categoryName?: string | null
-  brandId?: string | null
-  brandName?: string | null
-  coverImageUrl?: string | null
-  kind?: string
-  /** % de descuento de catálogo (JSONB flattened). Ver PosItem.discountPercent. */
-  itemDiscount?: number | string | null
-  /** F4 (context/41): el ítem tiene grupos de add-ons vigentes. Ver PosItem.hasAddons. */
-  hasAddons?: boolean | string | number | null
-}
-
+// Shape real de /v1/items rows y /v1/contacts rows — ver
+// `@/lib/pos-bff/reshape.ts` (única fuente de verdad, compartida con los
+// BFF de sync quirúrgico).
 interface UpstreamItemsList {
   items: UpstreamItemRow[]
   total: number
   limit: number
   offset: number
-}
-
-interface UpstreamContactRow {
-  id: string
-  name: string
-  phone: string | null
-  tin: string | null
-  storeCredit: number | string | null
-  status: string | number | null
 }
 
 interface UpstreamContactsList {
@@ -310,48 +282,6 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
   }
 }
 
-function reshapeItem(row: UpstreamItemRow): PosItem {
-  return {
-    id: row.itemId,
-    name: row.itemName,
-    sku: row.itemSKU ?? null,
-    price: Number(row.itemPrice ?? 0),
-    // `?? true` perdía la distinción "sin override" vs "explícitamente
-    // incluido" — el carrito necesita el `null` para caer al default de la
-    // sucursal (ver PosItem.taxIncluded, F2b context/38). NO defaultear acá.
-    taxIncluded: row.itemTaxIncluded ?? null,
-    taxId: row.taxId ?? null,
-    categoryId: row.categoryId ?? null,
-    categoryName: row.categoryName ?? null,
-    brandId: row.brandId ?? null,
-    brandName: row.brandName ?? null,
-    imageUrl: row.coverImageUrl ?? null,
-    uom: row.itemUOM ?? null,
-    kind: row.kind ?? "producto",
-    discountPercent: (() => {
-      if (row.itemDiscount === null || row.itemDiscount === undefined || row.itemDiscount === "") {
-        return null
-      }
-      const n = Number(row.itemDiscount)
-      // Backend corrupto/valor no numérico → null, nunca NaN (contaminaría
-      // saleDiscount y el total del carrito, ver lib/cart/store.ts::addItem).
-      return Number.isFinite(n) ? n : null
-    })(),
-    trackInventory: row.itemTrackInventory ?? false,
-    // TODO (A6+): pedir stock real al depósito del outlet activo. El LIST de
-    // /v1/items no incluye stock — habría que componer con /v1/items?resource=inventory
-    // por item o agregar un endpoint /v1/stock?outletId=X. Por ahora null = sin info.
-    stock: null,
-    isGroup: row.itemIsParent === true,
-    parentId: row.itemParentId ?? null,
-    // F4 (context/41): PG con PDO puede devolver el boolean del EXISTS como
-    // 't'/'f' string según driver — presentItem() ya lo normaliza a bool, pero
-    // el reshape no puede asumirlo (un 'f' string es truthy en JS). Solo el
-    // `true` real y sus representaciones explícitas cuentan.
-    hasAddons: row.hasAddons === true || row.hasAddons === "t" || row.hasAddons === "true" || row.hasAddons === 1,
-  }
-}
-
 // rate llega NUMERIC de PG → puede venir string vía PDO (mismo motivo que
 // toFiniteNumber arriba). kind fuera de la unión conocida (dato corrupto,
 // nunca debería pasar post-mig 120) → "exempt", el default fiscal seguro.
@@ -361,22 +291,6 @@ function reshapeTax(row: UpstreamTaxRow): PosTaxRate {
     id: row.id,
     rate: Number.isFinite(rate) ? rate : 0,
     kind: row.kind === "rate" ? "rate" : "exempt",
-  }
-}
-
-function reshapeCustomer(row: UpstreamContactRow): PosCustomer {
-  // TODO (A6+): el legacy decide isCreditable mirando `settingCreditEnabled`
-  // del tenant + `contactStatus=1`. Acá lo dejo true por default — el cobro
-  // a crédito ya valida cliente existente al confirmar la venta, así que el
-  // riesgo es que se OFREZCA la opción cuando el tenant no tiene crédito
-  // habilitado. Refinar cuando se porte la regla del legacy a /api.
-  return {
-    id: row.id,
-    name: row.name,
-    phone: row.phone ?? null,
-    tin: row.tin ?? null,
-    storeCredit: Number(row.storeCredit ?? 0),
-    isCreditable: true,
   }
 }
 
@@ -628,7 +542,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const itemsList = itemsRes.data
   const contactsList = customersRes.data
 
-  // Items vendibles: itemStatus=1 (activo) + itemCanSale=true.
+  // Items vendibles: itemStatus=1 (activo) + itemCanSale=true (`isSellableItemRow`,
+  // compartido con el sync quirúrgico — ver @/lib/pos-bff/reshape.ts).
   // itemIsParent=true tiene dos significados: agrupadores de catálogo (canSale=false,
   // no pasan) y combos/packs (canSale=true, sí deben aparecer en el POS). La condición
   // canSale ya descarta agrupadores no-vendibles.
@@ -636,12 +551,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Hijos de grupos (itemParentId != null, canSale=true) también pasan este filtro —
   // el grid del POS los oculta del top-level y los muestra en GroupItemsDialog.
   const items: PosItem[] = itemsList.items
-    .filter((i) => {
-      const status = i.itemStatus
-      const active = status === 1 || status === true || status === "1"
-      const canSale = i.itemCanSale === true
-      return active && canSale
-    })
+    .filter(isSellableItemRow)
     .map(reshapeItem)
 
   const customers: PosCustomer[] = contactsList.contacts.map(reshapeCustomer)
