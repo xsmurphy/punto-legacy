@@ -544,7 +544,17 @@ function verifyCreditNonCreditableClientPersists(SaleService $service, string $c
             'subtotal' => 11000,
             'tax'      => 0,
             'discount' => 0,
-            'payment'  => [],
+            // Shape REAL que manda pay-dialog.tsx para crédito 100% (sin pago
+            // inicial): el stub `{name:"Crédito", type:"credito", total:0}`
+            // (pay-dialog.tsx:364) — NO `[]`. `[]` nunca ocurre en producción:
+            // `buildApiPayload` (create-sale.ts:455) tira si `payment.length
+            // === 0`, así que un `payment: []` real ni siquiera llegaría acá.
+            // Con el stub se ejercita el mismo camino de persistencia
+            // (`transactionPaymentType`) que consumen TransactionDetailService/
+            // PaymentMethodResolver/build-ticket-data.ts/reportes.
+            'payment'  => [
+                ['name' => 'Crédito', 'type' => 'credito', 'total' => 0],
+            ],
             'date'      => date('Y-m-d H:i:s'),
             'timestamp' => time(),
         ],
