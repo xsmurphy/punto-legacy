@@ -34,6 +34,7 @@ import type {
   PosBrand,
   PosUser,
   PaymentMethodConfig,
+  PosPrintTemplate,
 } from "@/lib/types/pos-bootstrap"
 import {
   reshapeItem,
@@ -177,6 +178,15 @@ interface UpstreamBrandRow {
 
 interface UpstreamBrandsList {
   brands: UpstreamBrandRow[]
+}
+
+// Fila de /v1/document-templates — ver DocumentTemplateService::present().
+// Reusa DocumentTemplateRow (mismo shape que el editor del panel) en vez de
+// declarar upstream fields propios: el backend YA devuelve el shape final,
+// sin transformación (a diferencia de items/contacts, que sí necesitan
+// reshape por naming legacy).
+interface UpstreamPrintTemplatesList {
+  templates: PosPrintTemplate[]
 }
 
 interface UpstreamRegisterRow {
@@ -392,8 +402,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let taxesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamTaxesList>>>
   let categoriesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamCategoriesList>>>
   let brandsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamBrandsList>>>
+  let printTemplatesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamPrintTemplatesList>>>
   try {
-    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes, taxesRes, categoriesRes, brandsRes] = await Promise.all([
+    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes, taxesRes, categoriesRes, brandsRes, printTemplatesRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
@@ -453,6 +464,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }),
       fetchUpstream<UpstreamBrandsList>(base, "/v1/brands", headers).catch((err) => {
         console.warn("[bff /api/pos/bootstrap] brands fetch falló (degradando a [])", {
+          err: err instanceof Error ? err.message : String(err),
+        })
+        return { status: 0, data: null, rawText: "" }
+      }),
+      // Plantillas de impresión (context/08 §53, hueco P0 cerrado
+      // 2026-08-16) — mismo criterio que categories/brands/taxes: bundle
+      // `settings` chico, no debe poder tumbar el bootstrap entero. Un fallo
+      // acá degrada a [] — `printSale`/`printTicketInBrowser` ya saben tratar
+      // "sin plantilla resuelta" con el fallback genérico embebido
+      // (`renderFallbackTicketHtml`), así que degradar no deja el POS sin
+      // poder imprimir, solo sin el diseño custom del tenant hasta el
+      // próximo bootstrap.
+      fetchUpstream<UpstreamPrintTemplatesList>(base, "/v1/document-templates", headers).catch((err) => {
+        console.warn("[bff /api/pos/bootstrap] document-templates fetch falló (degradando a [])", {
           err: err instanceof Error ? err.message : String(err),
         })
         return { status: 0, data: null, rawText: "" }
@@ -665,6 +690,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // context/45 F1: lista propia, ya no copiada dentro de cada PosItem.
     categories: (categoriesRes.data?.categories ?? []).map(reshapeCategory),
     brands: (brandsRes.data?.brands ?? []).map(reshapeBrand),
+    // context/08 §53 (hueco P0 cerrado 2026-08-16): shape idéntico al
+    // upstream (DocumentTemplateRow), sin reshape — ver comentario de
+    // UpstreamPrintTemplatesList.
+    printTemplates: printTemplatesRes.data?.templates ?? [],
   }
 
   return NextResponse.json(bootstrap)

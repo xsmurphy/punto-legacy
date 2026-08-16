@@ -239,8 +239,19 @@ satélites de `item`/`contact`.
 3. Verificar consistencia de reloj (trigger vs `SyncService::watermarks()`)
    con un caso real, no por analogía.
 4. Sumar los campos correspondientes a `ItemsQuery.php` (precios por
-   lista, receta, add-ons, imágenes, categoría/marca/tag si no viajan ya) —
+   lista, receta, imágenes, categoría/marca/tag si no viajan ya) —
    confirmar shape idéntico en bootstrap/bulk-get/delta por construcción.
+   **Add-ons — HECHO 2026-08-16** (hueco P0 offline, context/08 §53):
+   `PosItem.addonGroups` ya viaja embebido vía `ItemsQuery.php` (LATERAL
+   `json_agg` sobre `addon_group`/`addon_group_option`), cubriendo
+   bootstrap/bulk-get/delta por construcción — es la instancia concreta de
+   este punto, adelantada porque bloqueaba vender offline, no porque el
+   resto del plan (trigger genérico) se haya implementado. **El trigger
+   sigue sin existir**: editar un `addon_group` NO bumpea `item.updatedAt`
+   todavía, así que el DELTA de reconexión (context/43) no lo levanta solo
+   — hoy se resuelve por el camino más caro (bootstrap completo vía
+   realtime, ver `context/41-addons-y-combos.md` §Offline) hasta que el
+   trigger de este documento se implemente de verdad.
 5. Confirmar o descartar una `ContactsQuery` única para `customerAddress`/
    `contactNote` con el mismo criterio.
 6. Arnés: editar una dirección de contacto → el contacto aparece en el

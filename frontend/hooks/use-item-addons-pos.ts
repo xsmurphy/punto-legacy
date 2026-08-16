@@ -3,76 +3,53 @@
 /**
  * Add-ons de un producto, para el POS (F4, context/41-addons-y-combos.md).
  *
- * Fuente: `GET /api/pos/item-addons?itemId=X` (BFF del POS, proyección
- * explícita — ver `app/api/pos/item-addons/route.ts`).
+ * Hueco P0 cerrado 2026-08-16 (context/08 §53): antes pedía `GET
+ * /api/pos/item-addons?itemId=X` al servidor CADA VEZ que se abría el modal
+ * — sin conexión, cualquier ítem con un grupo obligatorio (`minSelect > 0`)
+ * era invendible, y en gastronomía ese es el flujo NORMAL, no un borde.
  *
- * Cliente: `posFetch` (Bearer del device, realm `pos-app`). NUNCA `api-client`
- * — ese lleva la cookie del panel y en un device sin sesión de operador da 401
- * silencioso (regla del proyecto: un cliente HTTP por realm).
+ * Ahora lee `PosItem.addonGroups`, ya embebido en el ítem del bootstrap
+ * (`useCatalogStore` — mismo dato que items/customers/taxes, cero fetch en
+ * el camino de armado del carrito). Alineado con
+ * `context/45-satelites-item-contact-sync.md`: add-ons es satélite de
+ * `item`, así que viaja DENTRO del payload del ítem — no un mecanismo de
+ * cache paralelo.
+ *
+ * Se mantiene la forma de `useQuery` (data/isPending/isError/refetch) para
+ * no tocar `addon-picker-dialog.tsx`: con el ítem ya en el store, la
+ * "query" resuelve sync en el primer render — `isPending` prácticamente
+ * nunca es `true`, `isError` nunca dispara (no hay red que falle). `refetch`
+ * sigue siendo útil (relee el store), pero ya no hace ningún request — solo
+ * vuelve a evaluar `queryFn` contra el snapshot actual de `item.addonGroups`.
  *
  * NO confundir con `hooks/use-item-addons.ts`: ese es el del PANEL (cookie,
- * incluye las mutaciones replace/copy de la ficha del producto). El device solo
- * lee.
- *
- * `enabled: !!itemId` — con el modal cerrado no se pide nada. `staleTime` 30s:
- * el catálogo de add-ons cambia en el panel, no en la caja; 30s evita un fetch
- * por cada apertura del modal sin dejar la caja con datos de la semana pasada.
+ * incluye las mutaciones replace/copy de la ficha del producto, SIEMPRE
+ * red — el panel no tiene catálogo local). El device solo lee, y ahora lee
+ * local.
  */
 
 import { useQuery } from "@tanstack/react-query"
-import { posFetch } from "@/lib/api/pos-fetch"
+import { useCatalogStore } from "@/lib/catalog/store"
+import type { PosAddonGroup, PosAddonOption } from "@/lib/types/pos-bootstrap"
 
-/** Opción de un grupo. Espejo de la proyección del BFF (sin `itemPrice`). */
-export interface PosAddonOption {
-  id: string
-  itemId: string
-  itemName: string
-  /** Recargo de la opción. 0 = no suma al precio (D2). */
-  priceDelta: number
-  /** Preseleccionada al abrir el modal. */
-  isDefault: boolean
-  /** Fija: marcada y no se puede desmarcar (implica isDefault). */
-  isLocked: boolean
-  /** Cuántas veces se puede repetir la misma opción (≥ 1). */
-  maxQty: number
-  sort: number
-}
-
-export interface PosAddonGroup {
-  id: string
-  name: string
-  /** 0 = grupo opcional. > 0 = el POS no deja confirmar sin elegir. */
-  minSelect: number
-  /** null = sin tope. */
-  maxSelect: number | null
-  sort: number
-  options: PosAddonOption[]
-}
+export type { PosAddonGroup, PosAddonOption }
 
 export interface PosItemAddons {
   groups: PosAddonGroup[]
 }
 
 export function useItemAddonsPos(itemId: string | null) {
+  // Selector reactivo: si `patchItem`/`patchItems` actualiza este ítem
+  // (realtime, ver use-realtime-sync.ts entity 'item') mientras el modal
+  // está abierto, el modal ve los grupos nuevos sin tener que reabrirse.
+  const item = useCatalogStore((s) => (itemId ? s.items.find((i) => i.id === itemId) : undefined))
+
   return useQuery<PosItemAddons>({
-    queryKey: ["pos", "item-addons", itemId],
+    queryKey: ["pos", "item-addons", itemId, item?.addonGroups],
     enabled: !!itemId,
-    staleTime: 30 * 1000,
-    // El POS puede estar con red de caja inestable: un reintento y el modal
-    // pinta su estado de error con botón de reintentar, en vez de dejar al
-    // cajero mirando un spinner.
-    retry: 1,
-    queryFn: async () => {
-      const res = await posFetch(
-        `/api/pos/item-addons?itemId=${encodeURIComponent(itemId as string)}`,
-        { method: "GET" },
-      )
-      const json = await res.json().catch(() => null)
-      if (!res.ok || !json?.ok) {
-        throw new Error(json?.error?.message ?? `Error ${res.status}`)
-      }
-      const groups = Array.isArray(json.data?.groups) ? (json.data.groups as PosAddonGroup[]) : []
-      return { groups }
-    },
+    // Local — no hay staleTime que gestionar (no es una respuesta de red
+    // que pueda "envejecer" independiente del store).
+    staleTime: Infinity,
+    queryFn: () => ({ groups: item?.addonGroups ?? [] }),
   })
 }

@@ -85,7 +85,12 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // confiar en el nombre "obvio").
   inventory_count:   [["inventory-counts"]],
   stock_transfer:    [["stock-transfers"]],
-  "document-template": [["document-templates"]],
+  // pos-bootstrap: plantillas de impresión ahora viajan embebidas en el
+  // bootstrap del POS (context/08 §53, hueco P0 cerrado 2026-08-16) — sin
+  // esto, editar una plantilla en el panel no llegaba al dispositivo hasta
+  // el próximo bootstrap manual (mismo hallazgo que category/brand/tax/etc,
+  // audit 2026-08-16).
+  "document-template": [["document-templates"], ["pos-bootstrap"]],
   purchase:          [["purchases"]],
   // register: invalida pos-hotkeys (layout de teclas) y pos-bootstrap (config de caja).
   // El PUT ?resource=hotkeys dispara este evento → refetch de pos-hotkeys es benigno

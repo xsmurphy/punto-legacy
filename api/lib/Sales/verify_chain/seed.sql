@@ -117,6 +117,32 @@ INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, it
     ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c6e', 'Verify sync borrable', 'VERIFY-SYNC-DELETE', 3000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
 ON CONFLICT (itemid) DO UPDATE SET itemstatus = 1, itemprice = EXCLUDED.itemprice;
 
+-- Item con add-ons (context/08 §53, hueco P0 offline cerrado 2026-08-16,
+-- verify_offline_resolution.php): grupo OBLIGATORIO (minSelect=1) — el caso
+-- que el hueco dejaba invendible sin conexión, porque el modal no podía
+-- resolver el grupo. La opción reusa VERIFY-5-ADD como producto real
+-- (`addon_group_option.itemId` → item, no un texto suelto).
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid) VALUES
+    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7a', 'Verify item con add-ons', 'VERIFY-ADDON-PARENT', 15000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+ON CONFLICT (itemid) DO UPDATE SET itemname = EXCLUDED.itemname;
+
+INSERT INTO "addon_group" ("groupId", "companyId", "itemId", "name", "minSelect", "maxSelect", "sort", "status") VALUES
+    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7b', '0ea6c5d8-57e5-4226-8140-ec914deec024', '9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7a', 'Tamaño (obligatorio)', 1, 1, 0, TRUE)
+ON CONFLICT ("groupId") DO UPDATE SET "name" = EXCLUDED."name", "minSelect" = EXCLUDED."minSelect";
+
+INSERT INTO "addon_group_option" ("optionId", "groupId", "itemId", "priceDelta", "isDefault", "isLocked", "maxQty", "sort") VALUES
+    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7c', '9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7b', '61230b1e-90e8-4018-ac59-865ca957b293', 2000, TRUE, FALSE, 1, 0)
+ON CONFLICT ("optionId") DO UPDATE SET "priceDelta" = EXCLUDED."priceDelta";
+
+-- Plantilla de impresión (context/08 §53, verify_offline_resolution.php):
+-- prueba que el device (`pos-app`) puede leer `document_template` — antes
+-- `apiAuthTenant(['panel'])` la bloqueaba para cualquier token que no fuera
+-- de operador panel.
+INSERT INTO document_template (templateId, companyId, name, docType, pageSize, isDefault, config) VALUES (
+    '9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7d', '0ea6c5d8-57e5-4226-8140-ec914deec024', 'Verify ticket offline', 'receipt', '80mm', TRUE,
+    '{"page_size":"receipt80","page_size_name":"Roll 80mm","page_name":"Recibo","page_font_family":"monospace","page_font_size":"9pt","page_font_case":"none","receipt_left_margin":"0","mm":3.78,"data":[{"type":"company_name"}]}'::jsonb
+) ON CONFLICT (templateId) DO UPDATE SET config = EXCLUDED.config;
+
 -- ── Company B: Verify MX (decimals=2) ───────────────────────────────
 INSERT INTO company (companyId, status, plan, balance, isParent, config) VALUES (
     'fa8cf679-9003-417e-8726-5b772d3b6e88', 'active', 1, 0.00, FALSE,

@@ -11,15 +11,26 @@
  * Body POST/PUT (JSON):
  *   { name, docType, pageSize, isDefault?, config? }
  *
- * Auth: panel (los templates solo se manejan desde admin).
+ * Auth: MULTI-REALM — `apiAuthTenant(['panel', 'pos-app'])`. La administración
+ * (crear/editar/borrar) sigue siendo solo del panel; el realm `pos-app`
+ * (token del dispositivo) se agregó para que el POS pueda LEER las plantillas
+ * y bajarlas al bootstrap local (context/08 §53 — la impresión de un
+ * comprobante ya emitido tiene que resolver contra el cache del device, no
+ * pedirle la plantilla al server en el momento de imprimir — hueco P0
+ * cerrado 2026-08-16, ver `frontend/app/api/pos/bootstrap/route.ts`). Mismo
+ * patrón que items.php/item_addons.php: el device es GET-only.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx       = apiAuthTenant(['panel']);
+$ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $id        = $_GET['id'] ?? null;
+
+if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET') {
+    apiError('El dispositivo POS solo puede leer las plantillas', 403);
+}
 
 global $db;
 $svc = new \Punto\Api\Settings\DocumentTemplateService($db);

@@ -200,6 +200,55 @@ de copiar, cada producto edita lo suyo sin efecto dominó.
 - **F6** — Reportes: ventas por add-on (qué opciones salen más), respetando
   líneas padre/hijo en los rollups.
 
+## Offline — hueco P0 cerrado 2026-08-16
+
+Auditoría de `context/08 §53`: `useItemAddonsPos` pedía `GET
+/api/pos/item-addons?itemId=X` al server CADA VEZ que el cajero abría el
+modal — sin conexión, cualquier ítem con un grupo obligatorio (`minSelect >
+0`) era invendible. En gastronomía ese es el flujo NORMAL (tamaño/punto de
+cocción obligatorios), no un borde.
+
+**Resuelto alineado con `context/45-satelites-item-contact-sync.md`** (add-ons
+es satélite de `item`, aunque ese plan sigue sin implementar): `PosItem.
+addonGroups` viaja embebido dentro de CADA ítem del bootstrap
+(`ItemsQuery.php` — el mismo SELECT que ya comparten bootstrap/bulk-get/delta,
+context/43), y `useItemAddonsPos` pasó de fetch a leer
+`useCatalogStore.items[].addonGroups` — cero red en el camino de armado del
+carrito. `AddonService::listForItem` (usado por el panel) y el BFF
+`/api/pos/item-addons` (ahora sin consumidores, se borró) quedan sin cambio de
+comportamiento para el panel.
+
+**Tamaño del bootstrap — estimado, no medido contra datos reales de prod**
+(sin acceso a un tenant real con volumen de add-ons en esta sesión). Por
+ítem CON grupos: ~110 bytes de overhead por grupo + ~180-220 bytes por
+opción (dos UUIDs + nombre + numéricos) — un producto típico con 2 grupos ×
+3 opciones ronda 1.3-1.5 KB de JSON crudo. Items SIN grupos agregan solo
+`"addonGroups":[]` (~16 bytes, ya despreciable). Para un catálogo de 5.000
+ítems con una fracción gastronómica realista (ej. 20-30% con add-ons =
+1.000-1.500 ítems), eso son **~1.5-2 MB agregados al bootstrap SIN
+comprimir**; con gzip (JSON muy repetitivo en claves, comprime bien) baja a
+un orden de **200-400 KB**. No se consideró prohibitivo dado que el
+bootstrap ya carga 5.000 ítems + 10.000 clientes — pero es una estimación
+analítica, no una medición; si un tenant real resulta tener una fracción de
+add-ons mucho mayor a la asumida acá, vale remedir antes de asumir que el
+número sigue siendo chico.
+
+**Realtime — inconsistencia encontrada, no corregida esta sesión**:
+`item_addons.php` publica el evento `entity: 'item'` (alias en
+`bootstrap.php`), pero como el `itemId` viaja en el body JSON del POST (no en
+`$_GET['id']`), `$__auditTargetId` siempre resuelve `null` — el POS nunca
+puede resolver el sync quirúrgico por id (`queueCatalogSync`,
+context/15/43) y cae SIEMPRE al fallback genérico, que invalida
+`pos-bootstrap` ENTERO por cualquier edición de add-ons (correcto, pero
+recarga el catálogo completo en vez de un solo ítem). Es el mismo mecanismo
+que ya trae el template edit fresco (ver `context/43` sección de
+plantillas), así que la correctness no está en juego — la ineficiencia sí.
+Fix quedaría en pasar el `itemId` también por query string en
+`item_addons.php` (mismo patrón que `customer_address.php`) o publicar
+explícito desde `AddonService` tras `replace`/`copy` — no se tocó por no
+estar en el foco de esta sesión (prioridad: numeración > plantillas ≈
+add-ons, escalado por el owner 2026-08-16).
+
 ## Notas
 
 - **Hallazgo de F2 (2026-08-14), corrige el relevamiento inicial:** SÍ existía

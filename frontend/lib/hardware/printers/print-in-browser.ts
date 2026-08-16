@@ -11,10 +11,32 @@
  * `renderTemplateToHtml` que usa `printSale` para bindings `transport:
  * "native"` — un solo renderer, un solo transport (`triggerWindowPrint`,
  * iframe oculto).
+ *
+ * Resolución de plantilla — SIEMPRE local, nunca fetch (context/08 §53,
+ * hueco P0 cerrado 2026-08-16). Antes `fetchTemplateConfig` pedía
+ * `/api/v1/document-templates?id=...` al server EN EL MOMENTO de imprimir:
+ * sin cache ni fallback, así que offline el ticket físico no salía aunque la
+ * venta ya se hubiera emitido y encolado bien — y ni siquiera online era
+ * confiable en un device sin sesión de operador panel (el catch-all
+ * `/api/v1/*` solo reenvía la cookie `_jwt_panel`, no el Bearer del device).
+ * Las plantillas ahora viajan en el bootstrap del POS
+ * (`useCatalogStore.printTemplates`, `lib/types/pos-bootstrap.ts`) — misma
+ * copia local que categories/brands/taxes. Se eligió SIEMPRE local (no
+ * "local con fallback a fetch") porque:
+ *   1. Es la lectura consistente con la regla base: la emisión depende SOLO
+ *      del dispositivo, nunca de un round-trip en el camino crítico.
+ *   2. Un fallback a fetch reintroduciría la superficie de fallo que se
+ *      está cerrando (además del problema de auth de arriba).
+ *   3. Las plantillas son "datos básicos de operación" (context/43), igual
+ *      que items/customers/taxes — no hay ningún caso en que valga la pena
+ *      un dato "más fresco" a costa de depender de la red para imprimir.
+ * El único fallback que queda es el YA EXISTENTE `renderFallbackTicketHtml`
+ * (sin plantilla resuelta, local o no) — no se tocó su criterio de uso.
  */
 import type { PrinterDocType } from "./binding"
 import type { TicketData } from "./build-ticket-data"
 import type { DocumentTemplateRow, PrintTemplateConfig } from "@/lib/types/print-template"
+import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "./blocks"
 import { renderTemplateToHtml } from "./html-renderer"
 import { triggerWindowPrint } from "./transports/window-print"
@@ -44,37 +66,32 @@ const DOC_TYPE_LABEL: Record<PrinterDocType, string> = {
   return: "Nota de crédito",
 }
 
-/** Fetch de una plantilla puntual por id — única fuente para este fetch;
- *  reusado por `printSale` (bindings con templateId) y por este módulo. */
-export async function fetchTemplateConfig(templateId: string): Promise<PrintTemplateConfig | null> {
-  const res = await fetch(`/api/v1/document-templates?id=${templateId}`)
-  if (!res.ok) return null
-  const json = (await res.json()) as { data?: { config: PrintTemplateConfig } } | { config: PrintTemplateConfig }
-  const row = (json as { data?: { config: PrintTemplateConfig } }).data ?? (json as { config: PrintTemplateConfig })
-  return row?.config ?? null
+/** Busca una plantilla puntual por id en la copia local del bootstrap
+ *  (`useCatalogStore.printTemplates`) — reusado por `printSale` (bindings
+ *  con templateId) y por este módulo. Nunca hace fetch (ver docblock del
+ *  módulo). Sync porque ya no hay I/O — los callers mantienen `await` por
+ *  compatibilidad de firma, es un no-op. */
+export function fetchTemplateConfig(templateId: string): PrintTemplateConfig | null {
+  const row = useCatalogStore.getState().printTemplates.find((t) => t.templateId === templateId)
+  return (row?.config as PrintTemplateConfig | undefined) ?? null
 }
 
 /** Busca la plantilla default (o la primera disponible, ver TODO abajo) del
- *  tenant para el docType. `document_template.list()` ya ordena
- *  `docType, isDefault DESC, name` — la primera fila que matchee el docType
- *  es la default (o la primera alfabética si no hay ninguna marcada). */
-async function fetchDefaultTemplateConfig(docType: PrinterDocType): Promise<PrintTemplateConfig | null> {
+ *  tenant para el docType, en la copia local. El backend ya ordena la lista
+ *  `docType, isDefault DESC, name` (`DocumentTemplateService::list()`) y esa
+ *  misma lista es la que viaja al bootstrap sin reordenar — la primera fila
+ *  que matchee el docType sigue siendo la default (o la primera alfabética
+ *  si no hay ninguna marcada). */
+function fetchDefaultTemplateConfig(docType: PrinterDocType): PrintTemplateConfig | null {
   const backendDocType = DOC_TYPE_TO_BACKEND[docType]
   if (!backendDocType) return null // withdraw/closeReg/return: sin concepto de plantilla
 
-  const res = await fetch(`/api/v1/document-templates`)
-  if (!res.ok) return null
-  const json = (await res.json()) as { data?: { templates: DocumentTemplateRow[] } } | { templates: DocumentTemplateRow[] }
-  const templates = (json as { data?: { templates: DocumentTemplateRow[] } }).data?.templates
-    ?? (json as { templates: DocumentTemplateRow[] }).templates
-    ?? []
-
   // TODO(print-templates): si hay > 1 template para el docType y ninguno es
-  // isDefault, tomamos el primero (orden del backend = alfabético por name).
-  // No hay UI hoy para que el tenant marque cuál usar como fallback de
-  // navegador explícitamente — cuando exista, preferir ese campo acá.
-  const candidate = templates.find((t) => t.docType === backendDocType)
-  return candidate?.config ? (candidate.config as PrintTemplateConfig) : null
+  // isDefault, tomamos el primero (orden que ya trae el bootstrap = alfabético
+  // por name). No hay UI hoy para que el tenant marque cuál usar como
+  // fallback de navegador explícitamente — cuando exista, preferir ese campo.
+  const candidate = useCatalogStore.getState().printTemplates.find((t) => t.docType === backendDocType)
+  return (candidate?.config as PrintTemplateConfig | undefined) ?? null
 }
 
 function esc(s: string): string {

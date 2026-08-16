@@ -133,8 +133,14 @@ export async function printSale(opts: {
           errors.push(`${binding.name}: sin plantilla asignada`)
           continue
         }
-        const config = await fetchTemplateConfig(binding.templateId)
-        if (!config) throw new Error(`Template fetch failed`)
+        // Resolución SIEMPRE local (context/08 §53, hueco P0 cerrado
+        // 2026-08-16) — ver docblock de `fetchTemplateConfig` en
+        // print-in-browser.ts. `null` acá significa que la plantilla no está
+        // (o ya no está) en la copia local del bootstrap — no un fetch que
+        // falló, así que reintentar no cambiaría nada; el binding queda sin
+        // imprimir y el error lo dice explícito.
+        const config = fetchTemplateConfig(binding.templateId)
+        if (!config) throw new Error(`No se pudo resolver la plantilla asignada (revisá Ajustes → Impresoras)`)
         const html = renderTemplateToHtml(config, dataForPrinter, { paperWidthMm: binding.paperWidthMm })
         if (binding.transport === "station") {
           await enqueueStationJob(binding, { format: "html", payload: html, docType: opts.docType })
@@ -150,8 +156,8 @@ export async function printSale(opts: {
           errors.push(`${binding.name}: sin plantilla`)
           continue
         }
-        const config = await fetchTemplateConfig(binding.templateId)
-        if (!config) throw new Error(`Template fetch failed`)
+        const config = fetchTemplateConfig(binding.templateId)
+        if (!config) throw new Error(`No se pudo resolver la plantilla asignada (revisá Ajustes → Impresoras)`)
         const bytes = renderTemplateToEscPos({
           template: config as Parameters<typeof renderTemplateToEscPos>[0]["template"],
           data: dataForPrinter,
