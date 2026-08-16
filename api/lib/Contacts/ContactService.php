@@ -357,6 +357,22 @@ final class ContactService
         return $this->getByType($id, self::TYPE_CUSTOMER, $companyId);
     }
 
+    /**
+     * Fetch puntual por lista de ids (bulk-get quirúrgico, context/15). Ids
+     * que no existen, no son del tenant, o no son del `$type` pedido
+     * simplemente no vienen en el resultado — el caller lo interpreta como
+     * "borrado" (mismo criterio que `listByType`: type=1 cliente por
+     * default, el único caller hoy es el sync de clientes del POS).
+     */
+    public function getManyByIds(array $ids, string $companyId, int $type = self::TYPE_CUSTOMER): array
+    {
+        $out = [];
+        foreach ($this->repo->getManyByIds($ids, $companyId, $type) as $row) {
+            $out[] = $this->presentRow($row, $companyId);
+        }
+        return $out;
+    }
+
     public function addresses(string $contactId, string $companyId): array
     {
         $out = [];

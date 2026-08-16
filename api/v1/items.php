@@ -130,6 +130,80 @@ function presentItem(array|\CaseInsensitiveArray $row): array
 }
 
 /**
+ * SELECT compartido por el listado paginado (GET sin `id`) y el bulk-get
+ * quirúrgico (resource=bulk-get, sync realtime de context/15). Mismo shape
+ * de fila para los dos casos — así `presentItem()` y el reshape del BFF
+ * (`lib/pos-bff/upstream.ts::reshapeItem`) nunca divergen entre "vengo del
+ * listado" y "vengo de un fetch puntual por ids". Antes de esto el bulk-get
+ * hubiera tenido que copiar el SELECT a mano y arriesgarse a desincronizar
+ * un JOIN nuevo (ej. cuando se agregó `hasAddons`, F4 context/41).
+ *
+ * @param string $whereSql WHERE ya armado, con alias `i.` donde corresponda.
+ * @param string $tailSql  Cola opcional (ORDER BY/LIMIT/OFFSET).
+ */
+function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
+{
+    return "SELECT i.itemId, i.itemName, i.itemSKU, i.itemType, i.itemKind, i.itemStatus,
+                   i.itemPrice, i.itemCost, i.itemDate, i.updated_at,
+                   i.itemCanSale, i.itemTrackInventory, i.taxId,
+                   i.itemIsParent, i.itemParentId,
+                   i.variantParentId, i.hasVariants, i.variantAttributes,
+                   i.categoryId, i.brandId, i.outletId, i.data,
+                   i.itemMinStock, i.itemMaxStock,
+                   COALESCE(st.onhand, 0) AS stockOnHand,
+                   cat.taxonomyName AS categoryName,
+                   brand.taxonomyName AS brandName,
+                   o.outletName AS outletName,
+                   cov.url AS coverImageUrl,
+                   COALESCE(ch.cnt, 0) AS childCount,
+                   COALESCE(vc.vcnt, 0) AS variantCount,
+                   -- F4 (context/41): ¿el ítem tiene grupos de add-ons
+                   -- vigentes? El POS lo necesita POR ÍTEM para decidir si
+                   -- el tap abre el modal de selección o agrega directo —
+                   -- sin este flag serían N fetch (uno por tile). EXISTS
+                   -- correlacionado, no un JOIN que multiplique filas.
+                   -- Un grupo activo SIN opciones no cuenta: abriría un
+                   -- modal vacío.
+                   EXISTS (
+                        SELECT 1 FROM \"addon_group\" ag
+                         WHERE ag.\"itemId\" = i.itemId
+                           AND ag.\"companyId\" = i.companyId
+                           AND ag.\"status\" = TRUE
+                           AND EXISTS (
+                                SELECT 1 FROM \"addon_group_option\" ago
+                                 WHERE ago.\"groupId\" = ag.\"groupId\"
+                           )
+                   ) AS hasAddons
+              FROM item i
+         LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
+         LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId
+         LEFT JOIN outlet o       ON o.outletId       = i.outletId
+         LEFT JOIN LATERAL (
+              SELECT url FROM item_image
+               WHERE itemId = i.itemId
+               ORDER BY sort ASC, created_at ASC LIMIT 1
+         ) cov ON true
+         LEFT JOIN LATERAL (
+              SELECT COUNT(*) AS cnt FROM item c
+               WHERE c.itemParentId = i.itemId AND c.itemStatus = 1
+         ) ch ON true
+         LEFT JOIN LATERAL (
+              SELECT COUNT(*) AS vcnt FROM item v
+               WHERE v.variantParentId = i.itemId AND v.itemStatus = 1
+         ) vc ON true
+         -- Saldo real: SUMA de los movimientos, no el `stockOnHand` de la
+         -- última fila. El snapshot de la última fila se desincroniza con
+         -- cualquier movimiento cargado con fecha anterior (una compra
+         -- fechada ayer) — mismo criterio que `Inventory::onHand()`.
+         LEFT JOIN LATERAL (
+              SELECT SUM(s.stockCount) AS onhand FROM stock s
+               WHERE s.itemId = i.itemId AND s.companyId = i.companyId
+         ) st ON true
+             WHERE {$whereSql}
+             {$tailSql}";
+}
+
+/**
  * Devuelve el array de categorías (id + isPrimary) de un item
  * desde item_category. Usado solo en el GET detalle.
  */
@@ -239,13 +313,65 @@ $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 // catálogo. La administración del catálogo es del panel, así que una caja
 // comprometida no debe poder crear, editar ni archivar ítems del tenant.
 // Guard único acá arriba: cubre también los verbos PUT/DELETE del final.
-if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET') {
+// Excepción explícita `bulk-get`: es POST por tamaño de body (una lista de
+// ids no entra en query string), pero semánticamente es una LECTURA — el
+// POS necesita poder pedirla (sync realtime quirúrgico, context/15) igual
+// que ya puede hacer GET del catálogo completo.
+if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET' && ($_GET['resource'] ?? '') !== 'bulk-get') {
     apiError('El dispositivo POS solo puede leer el catálogo', 403);
 }
 
 $resource = (string) ($_GET['resource'] ?? '');
 
 global $db;
+
+// ── Bulk-get quirúrgico (sync realtime, context/15) ────────────────────────
+// POST /v1/items?resource=bulk-get  body: { ids: [uuid, ...] }
+//
+// Por qué POST: la lista de ids puede ser grande (bulk edit de miles de
+// productos desde el panel) — un GET con esa cantidad en query string pega
+// el límite de largo de URL. Efecto lateral buscado: un POST no lo cachea
+// el browser ni un proxy intermedio, así que el device siempre recibe el
+// dato fresco (justo el punto de un trigger "esto cambió recién").
+//
+// companyId SIEMPRE del JWT (aislamiento multi-tenant) — un id que no es
+// del tenant simplemente no aparece en el resultado, nunca se confía en
+// que los ids del body ya vienen filtrados por tenant.
+//
+// Devuelve TODOS los ítems de la lista sin filtrar por status/canSale — el
+// caller (BFF `/api/pos/items`) decide: un item inactivo/no-vendible se
+// saca del store del POS en vez de mostrarse fantasma. Ids que no existen
+// en absoluto (borrados) simplemente no vienen en la respuesta — el caller
+// interpreta la ausencia como "borrado, sacalo del store".
+if ($resource === 'bulk-get') {
+    if ($method !== 'POST') {
+        apiError('Method not allowed for /items resource=bulk-get (usar POST)', 405);
+    }
+    $body = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
+    $rawIds = is_array($body['ids'] ?? null) ? $body['ids'] : [];
+    $ids = array_values(array_unique(array_filter(
+        array_map(static fn($v) => trim((string) $v), $rawIds),
+        static fn($v) => $v !== ''
+    )));
+    if (empty($ids)) {
+        apiOk(['items' => []]);
+    }
+    // Techo por request — no es el mecanismo normal (el caller debe mandar
+    // tandas de tamaño razonable, ver `MAX_BULK_ITEMS` en el BFF), es una
+    // guarda de borde para no dejar un IN() de tamaño arbitrario pegarle a
+    // Postgres ante un caller con un bug o un replay raro.
+    $ids = array_slice($ids, 0, 2000);
+    $placeholders = implode(',', array_fill(0, count($ids), '?'));
+    $sql = buildItemsSelectSql("i.companyId = ? AND i.itemId IN ({$placeholders})");
+    $rs  = $db->Execute($sql, array_merge([$companyId], $ids));
+    $items = [];
+    if ($rs !== false) {
+        foreach ($rs->GetRows() as $row) {
+            $items[] = presentItem(_flattenJsonb($row));
+        }
+    }
+    apiOk(['items' => $items]);
+}
 
 // ── Rama POS info (slice 25): resource=core|inventory|info ────────────────
 // id viene cifrado (enc/dec) en estos recursos por compat con /app legacy.
@@ -769,69 +895,7 @@ switch ($method) {
             implode(' AND ', $where)
         );
 
-        // coverImage: subquery LATERAL para tomar la imagen sort=0 (o la primera
-        // por created_at). Evita N+1 contra item_image.
-        // childCount: count de items con itemParentId = i.itemId (solo cuenta para
-        // los grupos — los standalone tendrán 0).
-        $sql = "SELECT i.itemId, i.itemName, i.itemSKU, i.itemType, i.itemKind, i.itemStatus,
-                       i.itemPrice, i.itemCost, i.itemDate, i.updated_at,
-                       i.itemCanSale, i.itemTrackInventory, i.taxId,
-                       i.itemIsParent, i.itemParentId,
-                       i.variantParentId, i.hasVariants, i.variantAttributes,
-                       i.categoryId, i.brandId, i.outletId, i.data,
-                       i.itemMinStock, i.itemMaxStock,
-                       COALESCE(st.onhand, 0) AS stockOnHand,
-                       cat.taxonomyName AS categoryName,
-                       brand.taxonomyName AS brandName,
-                       o.outletName AS outletName,
-                       cov.url AS coverImageUrl,
-                       COALESCE(ch.cnt, 0) AS childCount,
-                       COALESCE(vc.vcnt, 0) AS variantCount,
-                       -- F4 (context/41): ¿el ítem tiene grupos de add-ons
-                       -- vigentes? El POS lo necesita POR ÍTEM para decidir si
-                       -- el tap abre el modal de selección o agrega directo —
-                       -- sin este flag serían N fetch (uno por tile). EXISTS
-                       -- correlacionado, no un JOIN que multiplique filas.
-                       -- Un grupo activo SIN opciones no cuenta: abriría un
-                       -- modal vacío.
-                       EXISTS (
-                            SELECT 1 FROM \"addon_group\" ag
-                             WHERE ag.\"itemId\" = i.itemId
-                               AND ag.\"companyId\" = i.companyId
-                               AND ag.\"status\" = TRUE
-                               AND EXISTS (
-                                    SELECT 1 FROM \"addon_group_option\" ago
-                                     WHERE ago.\"groupId\" = ag.\"groupId\"
-                               )
-                       ) AS hasAddons
-                  FROM item i
-             LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
-             LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId
-             LEFT JOIN outlet o       ON o.outletId       = i.outletId
-             LEFT JOIN LATERAL (
-                  SELECT url FROM item_image
-                   WHERE itemId = i.itemId
-                   ORDER BY sort ASC, created_at ASC LIMIT 1
-             ) cov ON true
-             LEFT JOIN LATERAL (
-                  SELECT COUNT(*) AS cnt FROM item c
-                   WHERE c.itemParentId = i.itemId AND c.itemStatus = 1
-             ) ch ON true
-             LEFT JOIN LATERAL (
-                  SELECT COUNT(*) AS vcnt FROM item v
-                   WHERE v.variantParentId = i.itemId AND v.itemStatus = 1
-             ) vc ON true
-             -- Saldo real: SUMA de los movimientos, no el `stockOnHand` de la
-             -- última fila. El snapshot de la última fila se desincroniza con
-             -- cualquier movimiento cargado con fecha anterior (una compra
-             -- fechada ayer) — mismo criterio que `Inventory::onHand()`.
-             LEFT JOIN LATERAL (
-                  SELECT SUM(s.stockCount) AS onhand FROM stock s
-                   WHERE s.itemId = i.itemId AND s.companyId = i.companyId
-             ) st ON true
-                 WHERE $whereSql
-                 ORDER BY i.itemDate DESC
-                 LIMIT $limit OFFSET $offset";
+        $sql = buildItemsSelectSql($whereSql, "ORDER BY i.itemDate DESC LIMIT $limit OFFSET $offset");
         $rs    = $db->Execute($sql, $params);
         $items = [];
         if ($rs !== false) {

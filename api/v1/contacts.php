@@ -38,6 +38,41 @@ $resource = $_GET['resource'] ?? null;
 
 $service = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
 
+// ── Bulk-get quirúrgico (sync realtime, context/15) ────────────────────────
+// POST /v1/contacts?resource=bulk-get  body: { ids: [uuid, ...], type? }
+// Mismo criterio que /v1/items?resource=bulk-get: POST porque la lista de
+// ids puede ser grande (bulk edit de miles de clientes) y para que ni el
+// browser ni un proxy intermedio lo cacheen. companyId SIEMPRE del JWT —
+// un id ajeno al tenant no aparece en el resultado. Sin filtrar por status:
+// un contacto archivado sí viaja (el caller decide sacarlo del store).
+//
+// `type` SÍ filtra (default TYPE_CUSTOMER, mismo default que el resto del
+// endpoint) — sin esto un proveedor editado en el panel dispara el mismo
+// evento genérico 'contact' y el sync de clientes del POS lo mergeaba en su
+// store de CLIENTES como si fuera uno (fuga de datos, hallazgo de code
+// review 2026-08-16, ver ContactRepository::getManyByIds).
+if ($resource === 'bulk-get') {
+    if ($method !== 'POST') {
+        apiError('Method not allowed for /contacts resource=bulk-get (usar POST)', 405);
+    }
+    $rawBody = json_decode(file_get_contents('php://input'), true);
+    $rawIds  = is_array($rawBody['ids'] ?? null) ? $rawBody['ids'] : [];
+    $ids = array_values(array_unique(array_filter(
+        array_map(static fn($v) => trim((string) $v), $rawIds),
+        static fn($v) => $v !== ''
+    )));
+    $bulkType = (int) ($rawBody['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+    if (!in_array($bulkType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
+        $bulkType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
+    }
+    if (empty($ids)) {
+        apiOk(['contacts' => []]);
+    }
+    // Techo de borde — ver mismo comentario en /v1/items?resource=bulk-get.
+    $ids = array_slice($ids, 0, 2000);
+    apiOk(['contacts' => $service->getManyByIds($ids, COMPANY_ID, $bulkType)]);
+}
+
 // ── Sub-recurso: direcciones ───────────────────────────────────────────────
 if ($id !== null && $resource === 'addresses') {
     if ($method === 'GET') {
