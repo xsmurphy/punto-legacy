@@ -544,3 +544,10 @@ Textual del owner: *"No podés rechazar una venta en el backend. Esa venta ya se
 - `OfflineBanner` (`frontend/components/pos/offline-banner.tsx`) se muestra en rojo/destructivo SIEMPRE que `failedCount > 0` — incluso online y sin sync en curso, para que no dependa de que el cajero mire el carrito. Clickeable, abre `SyncQueueDialog`.
 - El indicador del carrito (`frontend/components/register/cart-panel.tsx`) escala a estilo destructivo cuando hay fallidas (antes se veía igual que "sincronizando", ambar en ambos casos).
 - `SyncQueueDialog` (`frontend/components/pos/sync-queue-dialog.tsx`) ya existía — lista cada venta fallida con el motivo, reintentar (si el código de error no es permanente) o descartar. `useOfflineSyncStore.queueDialogOpen` es ahora la fuente de verdad del open-state, para que banner e indicador del carrito abran el mismo diálogo.
+
+**Carrito en curso: NO se persiste, decisión del owner (2026-08-16).** `frontend/lib/cart/store.ts`
+es Zustand en memoria sin `persist()`: cualquier reload —con o sin internet— borra la venta que se
+estaba armando. Una auditoría lo señaló como hueco y el owner respondió "esto está bien, dejémoslo
+así". No agregar persistencia del carrito ni "recuperar venta en curso" sin pedido explícito: es
+comportamiento buscado, no deuda. Lo que SÍ se persiste es la venta ya CONFIRMADA (cola offline en
+IndexedDB) — que es lo que la regla de §53 exige, porque esa ya se emitió e imprimió.
