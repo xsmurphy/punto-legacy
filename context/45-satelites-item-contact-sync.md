@@ -34,6 +34,37 @@ AUDITORÍA/ATRIBUCIÓN (quién hizo algo — `userId`, `supplierId`,
 "satélite": esas tablas no describen al contacto referenciado, lo
 mencionan de paso.
 
+## Decisión: el VÍNCULO es satélite, la ENTIDAD no (owner, 2026-08-16)
+
+Pregunta del owner: *"si cambio el nombre de una categoría no debería disparar
+un update a todos los items que tienen esa categoría, correcto?"*. Correcto, y
+marca la línea que separa las dos cosas:
+
+- **`item_category` / `item_brand` / `item_tag`** — el VÍNCULO: a qué categoría
+  pertenece este ítem. Cambiarlo ES un cambio del ítem → trigger, bumpea el
+  padre. Afecta a un ítem por vez.
+- **`category` / `brand` / `tag` / `tax`** — la ENTIDAD y su nombre. Son pocas
+  filas, viven en el bundle `settings` que se recarga entero. Renombrar una
+  categoría **NO** debe bumpear ningún ítem: sería descargar 5.000 ítems en
+  cada dispositivo por un cambio de texto.
+
+⚠ **Bloqueante para que esto funcione**: hoy `PosItem` lleva `categoryName` y
+`brandName` DESNORMALIZADOS (`frontend/lib/types/pos-bootstrap.ts:126,129`),
+no solo el id. Con el nombre copiado adentro del ítem, renombrar una categoría
+deja los ítems ya descargados mostrando el nombre viejo aunque el bundle se
+recargue — y la única forma de arreglarlo sería bumpear todos los ítems, que
+es justo lo que queremos evitar.
+
+**Antes de implementar los triggers**: sacar `categoryName`/`brandName` del
+payload del ítem y resolver el nombre contra la lista del bundle. El patrón ya
+existe en el mismo archivo para impuestos — el carrito busca por `PosItem.taxId`
+en la lista de impuestos en vez de guardar la tasa copiada
+(`pos-bootstrap.ts:171`). Mismo criterio, misma implementación.
+
+Regla general que sale de esto: **un dato que pertenece a otra entidad no se
+copia dentro del ítem; se referencia por id**. Cualquier campo desnormalizado
+nuevo en `PosItem` reabre este problema.
+
 ### Satélites de `item` (candidatas a trigger)
 
 | Tabla | Qué describe | Migración |
