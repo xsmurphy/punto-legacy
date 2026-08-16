@@ -57,6 +57,7 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         'itemmaxstock'        => 'itemMaxStock',
         'stockonhand'         => 'stockOnHand',
         'hasaddons'           => 'hasAddons',
+        'addongroups'         => 'addonGroups',
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -99,6 +100,22 @@ function presentItem(array|\CaseInsensitiveArray $row): array
     if (!isset($out['tags'])) {
         $rawTags = $out['tags'] ?? null;
         $out['tags'] = is_array($rawTags) ? $rawTags : [];
+    }
+    // addonGroups (F4/F5 context/41, embebido F6 context/45): `json_agg(...)`
+    // de Postgres llega como STRING (driver pdo_pgsql, mismo caso que `config`
+    // en DocumentTemplateService::present()) — decodificar. `NULL` (item sin
+    // grupos activos con opciones) → [], nunca null hacia el front: el POS
+    // no debe distinguir "sin campo" de "sin add-ons".
+    if (array_key_exists('addonGroups', $out)) {
+        $raw = $out['addonGroups'];
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            $out['addonGroups'] = is_array($decoded) ? $decoded : [];
+        } elseif (!is_array($raw)) {
+            $out['addonGroups'] = [];
+        }
+    } else {
+        $out['addonGroups'] = [];
     }
     return $out;
 }
@@ -150,8 +167,51 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
                                 SELECT 1 FROM \"addon_group_option\" ago
                                  WHERE ago.\"groupId\" = ag.\"groupId\"
                            )
-                   ) AS hasAddons
+                   ) AS hasAddons,
+                   -- Grupos de add-ons completos, embebidos en el ítem
+                   -- (context/45-satelites-item-contact-sync.md — add-ons es
+                   -- satélite de item; hasta que el trigger genérico de ese
+                   -- plan exista, este SELECT compartido — bootstrap,
+                   -- bulk-get, delta — es el único lugar que arma el shape,
+                   -- así que los tres caminos no pueden divergir). NULL
+                   -- (sin grupos) es intencional acá: `presentItem()` lo
+                   -- normaliza a `[]` para el front. `LEFT JOIN LATERAL`
+                   -- correlacionado por itemId (índice ix_addon_group_item)
+                   -- — barato para el >90% de ítems sin add-ons.
+                   addons.groups AS addonGroups
               FROM item i
+         LEFT JOIN LATERAL (
+              SELECT json_agg(
+                       json_build_object(
+                         'id', ag.\"groupId\",
+                         'name', ag.\"name\",
+                         'minSelect', ag.\"minSelect\",
+                         'maxSelect', ag.\"maxSelect\",
+                         'sort', ag.\"sort\",
+                         'options', COALESCE((
+                              SELECT json_agg(
+                                       json_build_object(
+                                         'id', ago.\"optionId\",
+                                         'itemId', ago.\"itemId\",
+                                         'itemName', oi.itemName,
+                                         'priceDelta', ago.\"priceDelta\",
+                                         'isDefault', ago.\"isDefault\",
+                                         'isLocked', ago.\"isLocked\",
+                                         'maxQty', ago.\"maxQty\",
+                                         'sort', ago.\"sort\"
+                                       ) ORDER BY ago.\"sort\" ASC, ago.\"optionId\" ASC
+                                     )
+                                FROM \"addon_group_option\" ago
+                                JOIN item oi ON oi.itemId = ago.\"itemId\"
+                               WHERE ago.\"groupId\" = ag.\"groupId\"
+                         ), '[]'::json)
+                       ) ORDER BY ag.\"sort\" ASC, ag.\"groupId\" ASC
+                     ) AS groups
+                FROM \"addon_group\" ag
+               WHERE ag.\"itemId\" = i.itemId
+                 AND ag.\"companyId\" = i.companyId
+                 AND ag.\"status\" = TRUE
+         ) addons ON true
          LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
          LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId
          LEFT JOIN outlet o       ON o.outletId       = i.outletId

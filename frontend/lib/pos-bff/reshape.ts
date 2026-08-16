@@ -11,7 +11,7 @@
  * array del store — bug silencioso, no un error que explote.
  */
 
-import type { PosItem, PosCustomer } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosAddonGroup } from "@/lib/types/pos-bootstrap"
 
 // ── Items ─────────────────────────────────────────────────────────────────
 
@@ -40,6 +40,15 @@ export interface UpstreamItemRow {
   itemDiscount?: number | string | null
   /** F4 (context/41): el ítem tiene grupos de add-ons vigentes. Ver PosItem.hasAddons. */
   hasAddons?: boolean | string | number | null
+  /**
+   * Grupos de add-ons completos, embebidos (hueco P0 cerrado 2026-08-16, ver
+   * PosItem.addonGroups). `presentItem()` (backend, ItemsQuery.php) ya
+   * decodifica el `json_agg` de Postgres a un array de objetos con este
+   * shape exacto — a diferencia de otros campos de esta fila (JSONB
+   * "demoted"/flattened a texto), acá el tipo llega correcto desde el JSON
+   * anidado (`json_build_object`), no requiere coerción de string.
+   */
+  addonGroups?: PosAddonGroup[] | null
 }
 
 export function reshapeItem(row: UpstreamItemRow): PosItem {
@@ -79,6 +88,10 @@ export function reshapeItem(row: UpstreamItemRow): PosItem {
     // el reshape no puede asumirlo (un 'f' string es truthy en JS). Solo el
     // `true` real y sus representaciones explícitas cuentan.
     hasAddons: row.hasAddons === true || row.hasAddons === "t" || row.hasAddons === "true" || row.hasAddons === 1,
+    // Defensivo: si el upstream es un bootstrap cacheado de ANTES del hueco
+    // P0 2026-08-16, `addonGroups` no viene — [] (nunca undefined/null hacia
+    // el store, mismo criterio que el resto de los arrays de este objeto).
+    addonGroups: Array.isArray(row.addonGroups) ? row.addonGroups : [],
   }
 }
 
