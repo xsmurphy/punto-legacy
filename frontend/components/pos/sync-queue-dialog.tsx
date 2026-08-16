@@ -5,7 +5,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
-import { peekAll, discard, markFailed, markSynced } from '@/lib/pos/offline-queue'
+import { peekAll, discard, markFailed, markSynced, getFailedCount } from '@/lib/pos/offline-queue'
 import type { OfflineSaleRow } from '@/lib/pos/offline-queue'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
 import { posApi as api } from '@/lib/api/pos-client'
@@ -24,12 +24,14 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   const [rows, setRows] = React.useState<OfflineSaleRow[]>([])
   const [syncing, setSyncing] = React.useState(false)
   const setPendingCount = useOfflineSyncStore((s) => s.setPendingCount)
+  const setFailedCount = useOfflineSyncStore((s) => s.setFailedCount)
   const config = useCatalogStore((s) => s.config)
 
   async function loadRows() {
     const all = await peekAll()
     setRows(all)
     setPendingCount(all.length)
+    setFailedCount(await getFailedCount())
   }
 
   React.useEffect(() => {

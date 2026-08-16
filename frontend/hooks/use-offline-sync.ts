@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { peekAll, markSynced, markFailed, markRetry, markSyncing, getCount, type OfflineSaleRow } from '@/lib/pos/offline-queue'
+import { peekAll, markSynced, markFailed, markRetry, markSyncing, getCount, getFailedCount, type OfflineSaleRow } from '@/lib/pos/offline-queue'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
 import { posApi as api } from '@/lib/api/pos-client'
 
@@ -40,10 +40,17 @@ async function applyError(clientTempId: string, attempts: number, error: { code:
 
 export function useOfflineSync() {
   const setPendingCount = useOfflineSyncStore((s) => s.setPendingCount)
+  const setFailedCount = useOfflineSyncStore((s) => s.setFailedCount)
   const setIsSyncing = useOfflineSyncStore((s) => s.setIsSyncing)
   const setLastSyncAt = useOfflineSyncStore((s) => s.setLastSyncAt)
 
   const syncRef = React.useRef(false)
+
+  const refreshCounts = React.useCallback(async () => {
+    const [count, failed] = await Promise.all([getCount(), getFailedCount()])
+    setPendingCount(count)
+    setFailedCount(failed)
+  }, [setPendingCount, setFailedCount])
 
   const runSync = React.useCallback(async () => {
     if (syncRef.current) return
@@ -54,8 +61,7 @@ export function useOfflineSync() {
     // (no se reintenta) → así LEASE_EXPIRED & co. no generan el bucle infinito.
     const toSync = pending.filter((r) => r.status === 'pending' && backoffElapsed(r))
     if (toSync.length === 0) {
-      const count = await getCount()
-      setPendingCount(count)
+      await refreshCounts()
       return
     }
 
@@ -93,10 +99,9 @@ export function useOfflineSync() {
     } finally {
       syncRef.current = false
       setIsSyncing(false)
-      const count = await getCount()
-      setPendingCount(count)
+      await refreshCounts()
     }
-  }, [setPendingCount, setIsSyncing, setLastSyncAt])
+  }, [refreshCounts, setIsSyncing, setLastSyncAt])
 
   // Boot-time cleanup (P1 code-review): si el proceso crasheó mid-flight
   // (tab cerrado, error JS durante el sync), los items quedan en 'syncing'.
@@ -114,11 +119,10 @@ export function useOfflineSync() {
           }),
         ),
       )
-      const count = await getCount()
-      setPendingCount(count)
+      await refreshCounts()
     }
     void bootCleanup()
-  }, [setPendingCount])
+  }, [refreshCounts])
 
   React.useEffect(() => {
     const interval = setInterval(() => { void runSync() }, 30_000)

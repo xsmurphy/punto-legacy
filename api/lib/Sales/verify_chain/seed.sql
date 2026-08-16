@@ -59,6 +59,19 @@ INSERT INTO contact (
     1, 0, 'admin', 1, '1a282724-6073-49c3-8bc3-0114a132e349', '0ea6c5d8-57e5-4226-8140-ec914deec024'
 ) ON CONFLICT (contactId) DO UPDATE SET contactName = EXCLUDED.contactName;
 
+-- Cliente (type=1) SIN crédito habilitado (contactCreditable ausente/NULL,
+-- falsy en `(int)($row.contactCreditable ?? 0) > 0`). Usado por
+-- run_sale_chain.php (`verifyCreditNonCreditableClientPersists`) para
+-- probar el invariante de context/08 §53: una venta a crédito de este
+-- cliente tiene que PERSISTIR, no ser rechazada por SaleService::save() —
+-- esa regla se valida al emitir en el POS (pay-dialog.tsx), no al recibir.
+INSERT INTO contact (
+    contactId, contactName, contactPhone, contactEmail, contactStatus, type, main, role, outletId, companyId
+) VALUES (
+    '2b9f6a71-3e2b-4b34-9b5a-7a6a6a6a6a6a', 'Verify PY Cliente sin credito', '+595991000002', 'verify-py-nocredit@local.test',
+    1, 1, '', 0, '1a282724-6073-49c3-8bc3-0114a132e349', '0ea6c5d8-57e5-4226-8140-ec914deec024'
+) ON CONFLICT (contactId) DO UPDATE SET contactName = EXCLUDED.contactName;
+
 -- Tasas: 10%, 5%, 0% real (kind=rate, distinto de exenta), exenta, y una
 -- tasa que SIFEN NO admite (21%) para el caso de rechazo de facturación.
 INSERT INTO tax (taxId, companyId, name, rate, kind) VALUES

@@ -478,7 +478,97 @@ function verifyRg90(array $case, string $companyId, int &$failures): void
     echo "  PASS  RG90: fila generada para esta venta, columnas verificadas contra el desglose congelado\n";
 }
 
+// ── 6. Invariante context/08 §53: el backend GUARDA una venta a crédito de
+//    un cliente sin crédito habilitado, no la rechaza (owner 2026-08-16 —
+//    "no podés rechazar una venta ya emitida"). Antes de este fix,
+//    SaleService::save() tiraba InvalidSaleInputException acá; una venta
+//    encolada offline se perdía sin forma de deshacer la entrega. Solo
+//    corre en el tenant PY, único con el cliente sin crédito seedeado. ────
+if ($companyId === '0ea6c5d8-57e5-4226-8140-ec914deec024') {
+    verifyCreditNonCreditableClientPersists($service, $companyId, $failures);
+}
+
 echo "\n";
 echo "companyId {$companyId}: " . ($failures === 0 ? 'TODOS los casos OK' : "{$failures} assertion(es) fallida(s)") . "\n";
 
 exit($failures > 0 ? 1 : 0);
+
+/**
+ * Vende a crédito (type=3) al cliente 'Verify PY Cliente sin credito'
+ * (seed.sql, contactCreditable ausente) y confirma que `SaleService::save()`
+ * no lanza y la venta persiste con `customerId` y `transactionType='3'`
+ * correctos. El gate de "¿este cliente puede comprar a crédito?" vive en
+ * `pay-dialog.tsx` contra el cache local del POS (context/08 §53) — el
+ * backend solo valida que el cliente exista y pertenezca al tenant
+ * (anti-IDOR, ya cubierto arriba por el caso normal type=0).
+ */
+function verifyCreditNonCreditableClientPersists(SaleService $service, string $companyId, int &$failures): void
+{
+    echo "\n=== credit-sale-non-creditable-client — venta a crédito de cliente sin crédito habilitado ===\n";
+
+    global $db;
+    $itemRow = $db->Execute(
+        "SELECT itemId FROM item WHERE itemSKU = 'VERIFY-10-INC' AND companyId = ? LIMIT 1",
+        [$companyId]
+    );
+    if (!$itemRow || $itemRow->EOF) {
+        echo "  FAIL  no se encontró item VERIFY-10-INC — revisar seed.sql\n";
+        $failures++;
+        return;
+    }
+    $itemId = (string) $itemRow->fields['itemid'];
+    $clientId = '2b9f6a71-3e2b-4b34-9b5a-7a6a6a6a6a6a'; // Verify PY Cliente sin credito
+
+    $payload = [
+        'transaction' => [
+            'uid'      => 'credit-sale-non-creditable-client-' . bin2hex(random_bytes(6)),
+            'type'     => 3, // Creditsale
+            'client'   => $clientId,
+            'sale'     => [[
+                'itemId'        => $itemId,
+                'count'         => 1,
+                'name'          => 'VERIFY-10-INC',
+                'uniPrice'      => 11000,
+                'price'         => 11000,
+                'total'         => 11000,
+                'tax'           => 0,
+                'discount'      => 0,
+                'totalDiscount' => 0,
+                'user'          => '',
+                'type'          => '',
+                'date'          => '',
+                'note'          => '',
+                'currency'      => '',
+                'uId'           => 0,
+            ]],
+            'subtotal' => 11000,
+            'tax'      => 0,
+            'discount' => 0,
+            'payment'  => [],
+            'date'      => date('Y-m-d H:i:s'),
+            'timestamp' => time(),
+        ],
+    ];
+
+    try {
+        $input  = SaleInput::fromPayload($payload);
+        $result = $service->save($input);
+    } catch (\Throwable $e) {
+        echo '  FAIL  SaleService::save() rechazó la venta a crédito (no debería — el backend guarda, no rechaza): ' . get_class($e) . ': ' . $e->getMessage() . "\n";
+        $failures++;
+        return;
+    }
+    echo "  PASS  SaleService::save() no lanzó — venta persistida: transactionId={$result->transactionId}\n";
+
+    $txRow = $db->Execute(
+        'SELECT customerId, transactionType FROM transaction WHERE transactionId = ?',
+        [$result->transactionId]
+    );
+    if (!$txRow || $txRow->EOF) {
+        echo "  FAIL  no se encontró la fila transaction persistida\n";
+        $failures++;
+        return;
+    }
+    assertEq('transaction.customerId', $clientId, (string) $txRow->fields['customerid'], $failures);
+    assertEq("transaction.transactionType == '3' (Creditsale)", '3', (string) $txRow->fields['transactiontype'], $failures);
+}

@@ -144,8 +144,21 @@ export async function discard(clientTempId: string): Promise<void> {
   await db.delete('pendingSales', clientTempId)
 }
 
-/** Devuelve el número de ventas en la cola. */
+/** Devuelve el número de ventas en la cola (cualquier status). */
 export async function getCount(): Promise<number> {
   const db = await getDB()
   return db.count('pendingSales')
+}
+
+/**
+ * Devuelve el número de ventas en status 'failed' — TERMINALES, no se
+ * reintentan solas (ver `markFailed`). Es la señal de "esto necesita que
+ * alguien lo mire": a diferencia de 'pending'/'syncing', que se resuelven
+ * solas al volver la conexión, una fallida se queda ahí para siempre si
+ * nadie abre `SyncQueueDialog` y decide reintentar o descartar.
+ */
+export async function getFailedCount(): Promise<number> {
+  const db = await getDB()
+  const all = await db.getAll('pendingSales')
+  return all.filter((r) => r.status === 'failed').length
 }

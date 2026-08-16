@@ -520,3 +520,27 @@ Los timestamps se guardan en la TZ del tenant (`America/Asuncion`) pero **sin in
 - **Consecuencia**: `ORDER BY createdAt` funciona correctamente (naive local es monotónico dentro del tenant). Comparar timestamps entre tenants de distintas TZ requiere normalización explícita.
 
 Bug que originó la decisión: `drawerOpenDate` se guardaba en hora local pero se comparaba contra timestamps UTC → las ventas de la sesión quedaban fuera del resumen de caja (commit `29439221`).
+
+---
+
+## §53 — El backend NUNCA rechaza una venta ya emitida; valida al emitir, no al recibir (regla base, owner 2026-08-16)
+
+Textual del owner: *"No podés rechazar una venta en el backend. Esa venta ya se emitió, se validó y se imprimió; el backend solo la guarda a ese punto. El POS tiene que tener el 100% de la data básica almacenada localmente y esa es la fuente única de verdad para el POS."*
+
+**La distinción que importa — emisión vs. estado compartido:**
+
+- **Emisión** (facturas, recibos, remisiones, órdenes, comandas) depende SOLO del dispositivo y la impresora → tiene que funcionar 100% offline, y su validación de reglas de negocio ocurre **al emitir, contra el cache local del POS** (bootstrap + deltas de `context/43-sync-incremental.md`). Ejemplo: `isCreditable` de un cliente viaja en el cache (`reshapeCustomer`, `frontend/lib/pos-bff/reshape.ts`) y el gate real vive en `pay-dialog.tsx` — bloquea el CTA antes del round-trip, funcione o no la conexión.
+- **Estado compartido** (mesas, órdenes entre cajas, numeración exclusiva) requiere sincronización con otras cajas/el server → ahí sí se puede bloquear sin internet, porque la verdad no vive solo en este dispositivo.
+
+**Consecuencia directa para el backend:** `SaleService::save()` (y cualquier endpoint POS que reciba una venta ya emitida — `sales.php`, `offline-sync.php`) **guarda, no rechaza** por reglas de negocio que el POS ya debió validar al emitir. Si el backend tira una excepción de negocio ahí, una venta encolada offline (mercadería ya entregada, comprobante ya impreso) se pierde al reconectar — el cliente se fue, no hay forma de deshacer la entrega. Eso es peor que el bug que se intentaba cerrar.
+
+- **Lo que SÍ valida el backend siempre:** integridad y seguridad — que el `clientId`/`itemId`/etc. exista y pertenezca al tenant (anti-IDOR), que la sesión/token sea válida, que no haya duplicado (`transactionUID`). Eso no es una regla de negocio sobre la venta, es que el payload no mienta sobre a quién pertenece.
+- **Lo que el backend NUNCA valida como motivo de rechazo:** reglas de negocio que dependen de configuración que el POS ya tiene cacheada (crédito habilitado, stock, límites, etc.) — esas se resuelven en el POS al emitir. Caso cerrado 2026-08-16: `SaleService::save()` validaba `contactCreditable` y tiraba `InvalidSaleInputException` en una venta type=3 — la sacamos. El comentario en el código (`api/lib/Sales/SaleService.php`, bloque anti-IDOR) explica por qué no vuelve.
+- **Pregunta abierta (el owner no la resolvió):** si la caja está offline y el cache local dice que el cliente NO es creditable, ¿el POS bloquea la venta a crédito o la permite y la marca para revisión? Hoy `pay-dialog.tsx` **bloquea** (default conservador) — la alternativa de "permitir y marcar" queda sin implementar hasta que el owner decida.
+
+**Cola offline — que un rechazo nunca muera en silencio:** esto aplica a CUALQUIER motivo de fallo al sincronizar (red, error del server, dato inválido), no solo al caso de crédito. `frontend/lib/pos/offline-queue.ts` (`markFailed`) deja la venta en IndexedDB con status `'failed'` — TERMINAL, no se reintenta sola. La superficie de visibilidad (2026-08-16):
+
+- `useOfflineSyncStore.failedCount` (`frontend/lib/pos/offline-sync-store.ts`) — separado de `pendingCount` (que mezcla `pending`/`syncing`/`failed`) porque solo `failed` requiere acción humana.
+- `OfflineBanner` (`frontend/components/pos/offline-banner.tsx`) se muestra en rojo/destructivo SIEMPRE que `failedCount > 0` — incluso online y sin sync en curso, para que no dependa de que el cajero mire el carrito. Clickeable, abre `SyncQueueDialog`.
+- El indicador del carrito (`frontend/components/register/cart-panel.tsx`) escala a estilo destructivo cuando hay fallidas (antes se veía igual que "sincronizando", ambar en ambos casos).
+- `SyncQueueDialog` (`frontend/components/pos/sync-queue-dialog.tsx`) ya existía — lista cada venta fallida con el motivo, reintentar (si el código de error no es permanente) o descartar. `useOfflineSyncStore.queueDialogOpen` es ahora la fuente de verdad del open-state, para que banner e indicador del carrito abran el mismo diálogo.

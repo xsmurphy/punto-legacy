@@ -222,7 +222,9 @@ export function CartPanel() {
   }, [customerOpen, pendingDeliveryFlow, customer])
 
   const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
-  const [syncQueueOpen, setSyncQueueOpen] = React.useState(false)
+  const failedCount = useOfflineSyncStore((s) => s.failedCount)
+  const syncQueueOpen = useOfflineSyncStore((s) => s.queueDialogOpen)
+  const setSyncQueueOpen = useOfflineSyncStore((s) => s.setQueueDialogOpen)
 
   // Barcode scanner keyboard-wedge. Pausado cuando: lock activo, PayDialog
   // abierto, SearchDialog abierto (el cajero está tipeando ahí).
@@ -539,14 +541,31 @@ export function CartPanel() {
       </AlertDialog>
 
       {pendingCount > 0 && (
+        // failedCount > 0: TERMINAL, no se resuelve solo (context/08 §53) —
+        // se escala a estilo destructivo para que no se confunda con el
+        // amber "está sincronizando, ya se resuelve" de abajo.
         <button
           onClick={() => setSyncQueueOpen(true)}
-          className="flex shrink-0 items-center justify-center gap-1.5 border-b border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+          className={cn(
+            "flex shrink-0 items-center justify-center gap-1.5 border-b px-3 py-1.5 text-xs font-medium transition-colors",
+            failedCount > 0
+              ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20"
+              : "border-border bg-muted/40 text-foreground hover:bg-muted",
+          )}
         >
-          <span className="flex size-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white tabular-nums">
+          <span
+            className={cn(
+              "flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-white tabular-nums",
+              failedCount > 0 ? "bg-destructive" : "bg-amber-500",
+            )}
+          >
             {pendingCount > 9 ? '9+' : pendingCount}
           </span>
-          <span>{pendingCount} venta{pendingCount !== 1 ? 's' : ''} pendiente{pendingCount !== 1 ? 's' : ''}</span>
+          <span>
+            {failedCount > 0
+              ? `${failedCount} venta${failedCount !== 1 ? 's' : ''} con error — revisar`
+              : `${pendingCount} venta${pendingCount !== 1 ? 's' : ''} pendiente${pendingCount !== 1 ? 's' : ''}`}
+          </span>
         </button>
       )}
 

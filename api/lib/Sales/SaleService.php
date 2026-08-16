@@ -80,7 +80,7 @@ final class SaleService
         // El legacy no validaba (deuda original); acá lo cerramos.
         if ($input->clientId !== null) {
             $client = $this->db->Execute(
-                'SELECT contactId, contactCreditable FROM contact WHERE contactId = ? AND companyId = ? AND type = 1 LIMIT 1',
+                'SELECT contactId FROM contact WHERE contactId = ? AND companyId = ? AND type = 1 LIMIT 1',
                 [$input->clientId, $this->ctx->companyId]
             );
             if (!$client || $client->EOF) {
@@ -88,28 +88,22 @@ final class SaleService
                     "client {$input->clientId} no existe o no pertenece al tenant"
                 );
             }
-            // Venta a crédito: el cliente tiene que estar habilitado para
-            // crédito (`contact.contactCreditable`). Sin esta validación acá,
-            // el único gate era el front (POS y, antes de este fix, ni
-            // siquiera eso — reshapeCustomer mandaba `isCreditable: true`
-            // hardcodeado para TODO cliente) — un payload construido a mano
-            // saltaba el chequeo. La regla de negocio ("solo clientes
-            // habilitados compran a crédito") vive en el servidor, no en la UI.
-            if ($input->type === SaleType::Creditsale) {
-                $creditable = (int) ($client->fields['contactcreditable'] ?? 0) > 0;
-                if (!$creditable) {
-                    throw new InvalidSaleInputException(
-                        "client {$input->clientId} no tiene crédito habilitado"
-                    );
-                }
-            }
+            // NO validar acá `contactCreditable` (regla base de arquitectura
+            // del POS, owner 2026-08-16, context/08 §53): la venta ya se
+            // EMITIÓ — se validó y se imprimió en el dispositivo, offline o
+            // no. El backend recibe una venta ya emitida y la GUARDA; no
+            // puede rechazarla, porque la mercadería ya salió y el cliente ya
+            // se fue. Si esto vuelve a fallar, el bug no es "falta el gate
+            // acá" — es que `isCreditable` no llegó bien al cache local del
+            // POS (`reshapeCustomer`, `frontend/lib/pos-bff/reshape.ts`) o el
+            // gate de `pay-dialog.tsx` no lo está leyendo. Ese es el único
+            // lugar correcto: valida contra el cache local, así que funciona
+            // también sin conexión.
+            //
+            // Este bloque SÍ se queda: es integridad/anti-IDOR (el cliente
+            // existe y pertenece al tenant), no una regla de negocio sobre
+            // una venta ya emitida.
         }
-        // Nota: el gate de arriba vive DENTRO de `clientId !== null`. Hoy el
-        // front ya exige cliente para `type=3` (pay-dialog.tsx), así que una
-        // venta a crédito sin clientId no llega hasta acá — pero si ese
-        // requisito se relaja más adelante, agregar el chequeo explícito
-        // `if ($input->type === SaleType::Creditsale && $input->clientId ===
-        // null) { throw ... }` antes de este bloque.
 
         // ── B1: normalizar items del sale + computar totales ────────────────
         // saleArraySanitizer aplica markupt2HTML por campo y castea floats —
