@@ -25,10 +25,59 @@ namespace Punto\App\Domain;
 final class Inventory
 {
     /**
-     * Dedup de `realtimePublish` dentro de `manageStock()` — ver comentario
-     * ahí. Un solo evento `item` por request aunque haya N movimientos.
+     * Acumulador de `realtimePublish` dentro de `manageStock()` — ver
+     * comentario en el bloque que lo llena, más abajo. Un solo evento `item`
+     * por request aunque haya N movimientos, con los N itemIds tocados (no
+     * solo dedup: batching real — context/15-realtime-sync-plan.md §Modelo
+     * quirúrgico, 2026-08-16). `static`: se resetea entre requests (SAPI
+     * clásica, shared-nothing — `php -S`/FPM, no hay proceso persistente
+     * tipo Swoole en este stack), así que no hay leak entre tenants.
      */
-    private static bool $stockEventPublished = false;
+    private static array $stockEventItemIds = [];
+    private static ?string $stockEventCompanyId = null;
+    private static bool $stockEventShutdownRegistered = false;
+
+    /**
+     * Publica el evento `item` acumulado por `manageStock()` en este
+     * request, con TODOS los itemIds tocados (venta de 30 líneas → 1 evento
+     * con 30 ids, no 30 eventos). Se registra como shutdown function para
+     * correr al final del request sin importar cuál caller hizo el último
+     * movimiento — la alternativa (que cada caller de alto nivel se acuerde
+     * de "cerrar" el batch) es exactamente el patrón que se eliminó al
+     * centralizar el publish acá (ver hardening 2026-08-15).
+     *
+     * Público, y drena+resetea el acumulador ANTES de publicar (no después):
+     * si `realtimePublish` tirara algo raro, el batch no queda "trabado"
+     * esperando un flush que en producción no va a volver a llamarse (la
+     * shutdown function corre una sola vez por request). El reset también
+     * es lo que permite al arnés de verificación invocarlo explícito varias
+     * veces en el mismo proceso para simular requests sucesivos sin
+     * esperar al shutdown real de PHP (ver `verify_realtime.php`) — sin
+     * ids nuevos acumulados, una segunda llamada no-opea sola (`empty($ids)`).
+     *
+     * Sin umbral de cantidad: el batch entero viaja en `ids` y el BFF del
+     * POS lo resuelve con UNA sola query `itemId IN (...)` (`/v1/items
+     * ?resource=bulk-get`), así que no hace falta degradar a "recargar todo
+     * el catálogo" ni siquiera con miles de ids (decisión del owner
+     * 2026-08-16 — reemplaza un umbral que se había planteado antes).
+     */
+    public static function flushRealtimeStockEvents(): void
+    {
+        $ids       = array_keys(self::$stockEventItemIds);
+        $companyId = self::$stockEventCompanyId;
+
+        self::$stockEventItemIds            = [];
+        self::$stockEventCompanyId          = null;
+        self::$stockEventShutdownRegistered = false;
+
+        if (empty($ids) || !$companyId) return;
+
+        try {
+            realtimePublish('item', 'update', null, 'all', $companyId, $ids);
+        } catch (\Throwable $e) {
+            // Ignorar — nunca interrumpir el movimiento de stock por esto.
+        }
+    }
 
     /**
      * Compuestos de un ítem (receta/ingredientes). Usa $getAssoc=true.
@@ -721,26 +770,19 @@ final class Inventory
         // es lo que hace estructuralmente imposible que un caller nuevo se
         // "olvide" de avisar (regla del owner, ver context/15).
         //
-        // Dedup por request: una venta con 30 líneas dispara 30 movimientos.
-        // El front NO usa el `id` del evento (invalida por entity, ver
-        // use-realtime-sync.ts) así que un solo evento sin id alcanza — evita
-        // 30 invalidaciones del bootstrap del POS por una sola venta. El flag
-        // es `static` de la clase: se resetea entre requests (SAPI clásica,
-        // shared-nothing — `php -S`/FPM, no hay proceso persistente tipo
-        // Swoole en este stack) así que no hay leak entre tenants ni entre
-        // requests distintos.
-        if (!self::$stockEventPublished) {
-            self::$stockEventPublished = true;
-            try {
-                // scope 'all': el POS necesita enterarse de cambios de stock en
-                // caliente (venta/anulación en otra caja afecta lo que puede
-                // vender esta). companyId explícito: $company ya resolvió
-                // ops['companyId'] ?? COMPANY_ID arriba — no asumir la constante
-                // global, que puede estar vacía en un job/CLI.
-                realtimePublish('item', 'update', null, 'all', $company);
-            } catch (\Throwable $e) {
-                // Ignorar — nunca interrumpir el movimiento de stock.
-            }
+        // Batching por request, no dedup ciego: una venta con 30 líneas
+        // dispara 30 movimientos, pero el POS necesita saber CUÁLES 30 ítems
+        // cambiaron para actualizarlos quirúrgicamente sin bajar el catálogo
+        // entero (5000+ productos en tenants grandes — invalidar el bootstrap
+        // en cada venta de cualquier caja sería peor que el polling que esto
+        // reemplazó). Se acumulan los itemIds tocados en este request y se
+        // publica UN evento con todos ellos al final (`flushRealtimeStockEvents`,
+        // shutdown function) — nunca uno por movimiento.
+        self::$stockEventItemIds[$itemId] = true; // set — dedup automático por key
+        self::$stockEventCompanyId ??= $company;   // primer caller del request gana
+        if (!self::$stockEventShutdownRegistered) {
+            self::$stockEventShutdownRegistered = true;
+            register_shutdown_function([self::class, 'flushRealtimeStockEvents']);
         }
 
         if ($location) {

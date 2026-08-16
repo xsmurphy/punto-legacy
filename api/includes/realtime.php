@@ -24,17 +24,31 @@ require_once __DIR__ . '/ws_publish.php';
  *                                un `companyId` en `$ops` para jobs/CLI sin request HTTP)
  *                                DEBEN pasarlo acá explícito — la constante global puede
  *                                estar vacía o ser la de otro tenant en ese contexto.
+ * @param array|null  $ids       Variante plural de `$id` (context/15 §Modelo quirúrgico,
+ *                                2026-08-16): varios recursos tocados por UNA sola operación
+ *                                (ej. una venta de N líneas mueve stock de N ítems — un solo
+ *                                evento con los N ids, no N eventos). RETROCOMPATIBLE por
+ *                                diseño: es un campo ADICIONAL al shape original
+ *                                `{entity,op,id,scope}` — `$id` sigue viajando (normalmente
+ *                                `null` cuando se usa `$ids`) así que un cliente viejo que
+ *                                solo entiende `id` no se rompe, solo no aprovecha el batch
+ *                                (sigue invalidando por `entity` como siempre). `null`/`[]` →
+ *                                el campo `ids` no viaja en el payload.
  */
-function realtimePublish(string $entity, string $op, ?string $id = null, string $scope = 'all', ?string $companyId = null): void
+function realtimePublish(string $entity, string $op, ?string $id = null, string $scope = 'all', ?string $companyId = null, ?array $ids = null): void
 {
     $companyId = $companyId ?: (defined('COMPANY_ID') ? COMPANY_ID : null);
     if (!$companyId) return;
 
     $channel = $companyId . ':invalidate';
-    wsPublish($channel, 'invalidate', [
+    $data = [
         'entity' => $entity,
         'op'     => $op,
         'id'     => $id,
         'scope'  => $scope,
-    ]);
+    ];
+    if (!empty($ids)) {
+        $data['ids'] = array_values($ids);
+    }
+    wsPublish($channel, 'invalidate', $data);
 }
