@@ -48,18 +48,25 @@ marca la línea que separa las dos cosas:
   categoría **NO** debe bumpear ningún ítem: sería descargar 5.000 ítems en
   cada dispositivo por un cambio de texto.
 
-⚠ **Bloqueante para que esto funcione**: hoy `PosItem` lleva `categoryName` y
-`brandName` DESNORMALIZADOS (`frontend/lib/types/pos-bootstrap.ts:126,129`),
-no solo el id. Con el nombre copiado adentro del ítem, renombrar una categoría
-deja los ítems ya descargados mostrando el nombre viejo aunque el bundle se
-recargue — y la única forma de arreglarlo sería bumpear todos los ítems, que
-es justo lo que queremos evitar.
+✅ **Resuelto (2026-08-16)**: `PosItem` ya NO lleva `categoryName`/`brandName`
+copiados — solo `categoryId`/`brandId`. El bootstrap del POS
+(`/api/pos/bootstrap`) suma dos listas propias al bundle `settings`:
+`PosBootstrap.categories: PosCategory[]` y `.brands: PosBrand[]`
+(`frontend/lib/types/pos-bootstrap.ts`), traídas de `/v1/categories` y
+`/v1/brands` (que ahora aceptan también el realm `pos-app` en GET, mismo
+patrón que `/v1/taxes`/`/v1/payment-methods`). El nombre se resuelve contra
+esas listas con `frontend/lib/catalog/resolve-names.ts`
+(`useCategoryBrandMaps()` + `resolveCategoryName()`/`resolveBrandName()`) —
+mismo criterio que ya usaba el carrito para `PosItem.taxId` contra la lista
+de impuestos (`pos-bootstrap.ts` comentario de `PosTaxRate`).
 
-**Antes de implementar los triggers**: sacar `categoryName`/`brandName` del
-payload del ítem y resolver el nombre contra la lista del bundle. El patrón ya
-existe en el mismo archivo para impuestos — el carrito busca por `PosItem.taxId`
-en la lista de impuestos en vez de guardar la tasa copiada
-(`pos-bootstrap.ts:171`). Mismo criterio, misma implementación.
+Efecto colateral conservado a propósito: una categoría sin productos ahora
+existe para la caja (antes se derivaba de los items presentes y una
+categoría vacía era invisible).
+
+El bloqueante para implementar los triggers de este documento queda
+levantado — renombrar una categoría/marca ya no requiere re-bajar los
+ítems que la usan.
 
 Regla general que sale de esto: **un dato que pertenece a otra entidad no se
 copia dentro del ítem; se referencia por id**. Cualquier campo desnormalizado

@@ -8,17 +8,19 @@
  *   PUT    /v1/categories?id=<uuid>    → actualiza (partial)
  *   DELETE /v1/categories?id=<uuid>    → elimina
  *
- * Auth: panel (admin del catálogo). POS (`/app`) sigue leyendo de `taxonomy`;
- * el trigger PG mantiene ambas tablas sincronizadas.
+ * Auth: panel (admin del catálogo) para escritura. GET también acepta el
+ * realm `pos-app` — el bootstrap del POS (`/api/pos/bootstrap`) lo consume
+ * para traer la lista propia de categorías (context/45, F1: el ítem ya no
+ * lleva `categoryName` copiado, solo `categoryId`).
  *
  * Slice 1 del refactor taxonomy. Tabla `category` (migration 21).
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx       = apiAuthTenant(['panel']);
-$companyId = $ctx['companyId'];
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$ctx       = apiAuthTenant($method === 'GET' ? ['panel', 'pos-app'] : ['panel']);
+$companyId = $ctx['companyId'];
 $id        = $_GET['id'] ?? null;
 
 global $db;

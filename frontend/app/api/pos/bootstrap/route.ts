@@ -30,6 +30,8 @@ import type {
   PosCustomer,
   PosRegister,
   PosTaxRate,
+  PosCategory,
+  PosBrand,
   PosUser,
   PaymentMethodConfig,
 } from "@/lib/types/pos-bootstrap"
@@ -154,6 +156,27 @@ interface UpstreamTaxRow {
 
 interface UpstreamTaxesList {
   taxes: UpstreamTaxRow[]
+}
+
+// Fila de /v1/categories y /v1/brands — ver CategoryService::present() /
+// BrandService::present() (Slices 1/2 del refactor taxonomy, tablas
+// `category`/`brand`, migrations 21/22).
+interface UpstreamCategoryRow {
+  id: string
+  name: string
+}
+
+interface UpstreamCategoriesList {
+  categories: UpstreamCategoryRow[]
+}
+
+interface UpstreamBrandRow {
+  id: string
+  name: string
+}
+
+interface UpstreamBrandsList {
+  brands: UpstreamBrandRow[]
 }
 
 interface UpstreamRegisterRow {
@@ -294,6 +317,14 @@ function reshapeTax(row: UpstreamTaxRow): PosTaxRate {
   }
 }
 
+function reshapeCategory(row: UpstreamCategoryRow): PosCategory {
+  return { id: row.id, name: row.name }
+}
+
+function reshapeBrand(row: UpstreamBrandRow): PosBrand {
+  return { id: row.id, name: row.name }
+}
+
 function reshapePaymentMethod(row: UpstreamPaymentMethodRow): PaymentMethodConfig {
   return {
     id: row.id,
@@ -359,8 +390,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let usersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamUsersList>>>
   let paymentMethodsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamPaymentMethodsList>>>
   let taxesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamTaxesList>>>
+  let categoriesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamCategoriesList>>>
+  let brandsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamBrandsList>>>
   try {
-    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes, taxesRes] = await Promise.all([
+    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes, taxesRes, categoriesRes, brandsRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
@@ -402,6 +435,24 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       // un `taxId` sin match como exento (fallback fiscal seguro, F2b).
       fetchUpstream<UpstreamTaxesList>(base, "/v1/taxes", headers).catch((err) => {
         console.warn("[bff /api/pos/bootstrap] taxes fetch falló (degradando a [])", {
+          err: err instanceof Error ? err.message : String(err),
+        })
+        return { status: 0, data: null, rawText: "" }
+      }),
+      // Mismo criterio que taxes: bundle `settings` chico, no debe poder
+      // tumbar el bootstrap entero (context/45 F1 — la lista propia de
+      // categorías/marcas reemplaza el `categoryName`/`brandName` copiado
+      // dentro de `PosItem`). Un fallo acá degrada a [] — los ítems sin
+      // match caen al fallback explícito del componente que resuelve el
+      // nombre, nunca a "undefined".
+      fetchUpstream<UpstreamCategoriesList>(base, "/v1/categories", headers).catch((err) => {
+        console.warn("[bff /api/pos/bootstrap] categories fetch falló (degradando a [])", {
+          err: err instanceof Error ? err.message : String(err),
+        })
+        return { status: 0, data: null, rawText: "" }
+      }),
+      fetchUpstream<UpstreamBrandsList>(base, "/v1/brands", headers).catch((err) => {
+        console.warn("[bff /api/pos/bootstrap] brands fetch falló (degradando a [])", {
           err: err instanceof Error ? err.message : String(err),
         })
         return { status: 0, data: null, rawText: "" }
@@ -611,6 +662,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // toda línea sin match de tasa como exenta, nunca inventa una.
     taxes: (taxesRes.data?.taxes ?? []).map(reshapeTax),
     outletTaxIncluded: bs.activeOutletTaxIncluded ?? true,
+    // context/45 F1: lista propia, ya no copiada dentro de cada PosItem.
+    categories: (categoriesRes.data?.categories ?? []).map(reshapeCategory),
+    brands: (brandsRes.data?.brands ?? []).map(reshapeBrand),
   }
 
   return NextResponse.json(bootstrap)

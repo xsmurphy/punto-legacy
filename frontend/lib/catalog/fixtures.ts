@@ -9,7 +9,7 @@
  * En producción, el store se hidrata desde `/api/pos/bootstrap`.
  */
 
-import type { PosItem, PosCustomer, PosConfig, PosRegister, PosTaxRate, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosRegister, PosTaxRate, PosCategory, PosBrand, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 
 // ── Config de tenant ──────────────────────────────────────────────────────────
 
@@ -38,15 +38,20 @@ export const fixtureRegisters: PosRegister[] = [
   },
 ]
 
-// ── Categorías (no son items — se derivan de los items) ───────────────────────
+// ── Categorías y marcas (context/45: lista propia, NO derivada de los items) ──
 
-export const fixtureCategories = [
-  { id: "cat-menu",   name: "Menú del día",        abbrev: "Me", color: "#6366f1" },
-  { id: "cat-minutas", name: "Minutas",             abbrev: "Mi", color: "#0ea5e9" },
-  { id: "cat-bebidas", name: "Bebidas con alcohol", abbrev: "Be", color: "#f59e0b" },
-  { id: "cat-promos", name: "Promos",               abbrev: "Pr", color: "#10b981" },
-  { id: "cat-pizzas", name: "Pizzas Gourmet",       abbrev: "Pi", color: "#ef4444" },
-] as const
+export const fixtureCategories: PosCategory[] = [
+  { id: "cat-menu", name: "Menú del día" },
+  { id: "cat-minutas", name: "Minutas" },
+  { id: "cat-bebidas", name: "Bebidas con alcohol" },
+  { id: "cat-promos", name: "Promos" },
+  { id: "cat-pizzas", name: "Pizzas Gourmet" },
+  // Sin productos asignados — ejercita el efecto colateral deseado (una
+  // categoría vacía ahora existe para la caja, ver PosCategory JSDoc).
+  { id: "cat-postres", name: "Postres" },
+]
+
+export const fixtureBrands: PosBrand[] = []
 
 // ── Items ─────────────────────────────────────────────────────────────────────
 
@@ -60,9 +65,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-menu",
-    categoryName: "Menú del día",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -81,9 +84,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-menu",
-    categoryName: "Menú del día",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -102,9 +103,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-menu",
-    categoryName: "Menú del día",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -125,9 +124,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-minutas",
-    categoryName: "Minutas",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -146,9 +143,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-minutas",
-    categoryName: "Minutas",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -167,9 +162,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-minutas",
-    categoryName: "Minutas",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -190,9 +183,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-bebidas",
-    categoryName: "Bebidas con alcohol",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -211,9 +202,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-bebidas",
-    categoryName: "Bebidas con alcohol",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -232,9 +221,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-bebidas",
-    categoryName: "Bebidas con alcohol",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -255,9 +242,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-promos",
-    categoryName: "Promos",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -276,9 +261,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-promos",
-    categoryName: "Promos",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -299,9 +282,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-pizzas",
-    categoryName: "Pizzas Gourmet",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -320,9 +301,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-pizzas",
-    categoryName: "Pizzas Gourmet",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -341,9 +320,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-pizzas",
-    categoryName: "Pizzas Gourmet",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -362,9 +339,7 @@ export const fixtureItems: PosItem[] = [
     taxIncluded: true,
     taxId: "tax-1",
     categoryId: "cat-pizzas",
-    categoryName: "Pizzas Gourmet",
     brandId: null,
-    brandName: null,
     imageUrl: null,
     uom: null,
     kind: "product",
@@ -474,4 +449,6 @@ export const fixtureBootstrap = {
   outlets: [{ id: "out-1", name: "Central" }],
   taxes: fixtureTaxes,
   outletTaxIncluded: fixtureOutletTaxIncluded,
+  categories: fixtureCategories,
+  brands: fixtureBrands,
 }

@@ -33,9 +33,7 @@ export interface UpstreamItemRow {
   itemUOM?: string | null
   taxId?: string | null
   categoryId?: string | null
-  categoryName?: string | null
   brandId?: string | null
-  brandName?: string | null
   coverImageUrl?: string | null
   kind?: string
   /** % de descuento de catálogo (JSONB flattened). Ver PosItem.discountPercent. */
@@ -56,9 +54,7 @@ export function reshapeItem(row: UpstreamItemRow): PosItem {
     taxIncluded: row.itemTaxIncluded ?? null,
     taxId: row.taxId ?? null,
     categoryId: row.categoryId ?? null,
-    categoryName: row.categoryName ?? null,
     brandId: row.brandId ?? null,
-    brandName: row.brandName ?? null,
     imageUrl: row.coverImageUrl ?? null,
     uom: row.itemUOM ?? null,
     kind: row.kind ?? "producto",

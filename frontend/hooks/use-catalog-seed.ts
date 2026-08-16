@@ -51,6 +51,8 @@ export function useCatalogSeed() {
         activeRegisterId: fixtureBootstrap.registers[0]?.id ?? "",
         taxes: fixtureBootstrap.taxes,
         outletTaxIncluded: fixtureBootstrap.outletTaxIncluded,
+        categories: fixtureBootstrap.categories,
+        brands: fixtureBootstrap.brands,
       })
       // Seed de hotkeys de ejemplo (solo si no hay config persistida).
       if (useHotkeysStore.getState().hotkeys.length === 0) {
@@ -86,6 +88,8 @@ export function useCatalogSeed() {
           activeRegisterId: bootstrap.activeRegisterId,
           taxes: bootstrap.taxes,
           outletTaxIncluded: bootstrap.outletTaxIncluded,
+          categories: bootstrap.categories ?? [],
+          brands: bootstrap.brands ?? [],
         })
         // Sync incremental (context/43-sync-incremental.md): un bootstrap
         // completo YA sincronizó las 3 secciones — primar la marca de agua

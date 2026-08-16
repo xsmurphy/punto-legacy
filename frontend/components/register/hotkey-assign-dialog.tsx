@@ -5,7 +5,7 @@
  *
  * Se abre al tocar el botón "+" de un EmptySlot en modo edición.
  * Dos tabs: "Artículo" (buscador sobre el catálogo) y "Categoría"
- * (lista de categorías derivadas de los items en memoria).
+ * (lista propia del tenant, `useCatalogStore.categories` — context/45).
  *
  * onSelect llama a addHotkey(position, id, isCategory) en el store.
  */
@@ -23,6 +23,7 @@ import { Input } from "@/components/ui/input"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { Button } from "@/components/ui/button"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useCategoryBrandMaps, resolveCategoryName } from "@/lib/catalog/resolve-names"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { searchItems } from "@/lib/catalog/search"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
@@ -58,16 +59,11 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
     [hotkeys],
   )
 
-  // Categorías únicas derivadas de los items.
-  const categories = React.useMemo(() => {
-    const seen = new Map<string, string>()
-    for (const i of items) {
-      if (i.categoryId && !seen.has(i.categoryId)) {
-        seen.set(i.categoryId, i.categoryName ?? "Categoría")
-      }
-    }
-    return Array.from(seen.entries()).map(([id, name]) => ({ id, name }))
-  }, [items])
+  // Categorías del tenant (context/45: lista propia, ya no derivada de los
+  // items — incluye categorías sin productos, deseado para el hotkey de
+  // categoría vacía todavía sin catálogo cargado).
+  const categories = useCatalogStore((s) => s.categories)
+  const { categoryMap } = useCategoryBrandMaps()
 
   // Reset query al abrir.
   React.useEffect(() => {
@@ -146,6 +142,7 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
                   <ItemRow
                     key={item.id}
                     item={item}
+                    categoryName={resolveCategoryName(item.categoryId, categoryMap)}
                     assigned={assignedItemIds.has(item.id)}
                     onSelect={() => handleSelectItem(item)}
                   />
@@ -202,10 +199,12 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
 
 function ItemRow({
   item,
+  categoryName,
   assigned,
   onSelect,
 }: {
   item: PosItem
+  categoryName: string | null
   assigned: boolean
   onSelect: () => void
 }) {
@@ -228,8 +227,8 @@ function ItemRow({
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">{item.name}</p>
-          {item.categoryName && (
-            <p className="truncate text-xs text-muted-foreground">› {item.categoryName}</p>
+          {categoryName && (
+            <p className="truncate text-xs text-muted-foreground">› {categoryName}</p>
           )}
         </div>
         {assigned && (

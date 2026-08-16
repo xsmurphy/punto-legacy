@@ -20,6 +20,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { resolveCategoryName } from "@/lib/catalog/resolve-names"
 import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { useHotkeysStore, hotkeyColorBg, type Hotkey } from "@/lib/hotkeys/store"
 import { ColorPicker } from "@/components/ui/color-picker"
@@ -100,22 +101,16 @@ export function ProductArea() {
     return m
   }, [items])
 
-  // Categorías derivadas de los items (id → nombre).
-  const categoryName = React.useMemo(() => {
-    const m = new Map<string, string>()
-    for (const i of items) {
-      if (i.categoryId && !m.has(i.categoryId)) {
-        m.set(i.categoryId, i.categoryName ?? "Categoría")
-      }
-    }
-    return m
-  }, [items])
-
-  // Lista para la barra flotante de categorías (preserva el orden de aparición).
-  const categoryList = React.useMemo(
-    () => Array.from(categoryName.entries()).map(([id, name]) => ({ id, name })),
-    [categoryName],
+  // Categorías del tenant (context/45: lista propia, ya no derivada de los
+  // items — una categoría sin productos ahora existe para la caja también).
+  const categories = useCatalogStore((s) => s.categories)
+  const categoryMap = React.useMemo(
+    () => new Map(categories.map((c) => [c.id, c.name])),
+    [categories],
   )
+
+  // Lista para la barra flotante de categorías (orden del bundle: alfabético).
+  const categoryList = categories
 
   const hotkeyAt = React.useMemo(() => {
     const m = new Map<number, Hotkey>()
@@ -244,7 +239,7 @@ export function ProductArea() {
                   item={h.isCategory ? null : itemById.get(h.itemId) ?? null}
                   label={
                     h.isCategory
-                      ? categoryName.get(h.itemId) ?? "Categoría"
+                      ? resolveCategoryName(h.itemId, categoryMap) ?? "Categoría"
                       : itemById.get(h.itemId)?.name ?? "—"
                   }
                   editing={editing}

@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useCategoryBrandMaps, resolveCategoryName, resolveBrandName } from "@/lib/catalog/resolve-names"
 import { addCatalogItem } from "@/lib/cart/add-catalog-item"
 import { usePosUIStore } from "@/lib/ui/store"
 import { searchItems } from "@/lib/catalog/search"
@@ -51,6 +52,7 @@ export function ProductSearchDialog({
 
   const items = useCatalogStore((s) => s.items)
   const config = useCatalogStore((s) => s.config)
+  const { categoryMap, brandMap } = useCategoryBrandMaps()
   // Query en el store para que persista al cerrar y reabrir el modal.
   const query = usePosUIStore((s) => s.itemSearchQuery)
   const setQuery = usePosUIStore((s) => s.setItemSearchQuery)
@@ -146,6 +148,8 @@ export function ProductSearchDialog({
                         key={item.id}
                         item={item}
                         config={config}
+                        categoryName={resolveCategoryName(item.categoryId, categoryMap)}
+                        brandName={resolveBrandName(item.brandId, brandMap)}
                         onSelect={() => handleSelect(item)}
                       />
                     ))}
@@ -166,6 +170,8 @@ export function ProductSearchDialog({
                     key={item.id}
                     item={item}
                     config={config}
+                    categoryName={resolveCategoryName(item.categoryId, categoryMap)}
+                    brandName={resolveBrandName(item.brandId, brandMap)}
                     onSelect={() => handleSelect(item)}
                   />
                 ))}
@@ -183,10 +189,14 @@ export function ProductSearchDialog({
 function ProductResultRow({
   item,
   config,
+  categoryName,
+  brandName,
   onSelect,
 }: {
   item: PosItem
   config: ReturnType<typeof useCatalogStore.getState>["config"]
+  categoryName: string | null
+  brandName: string | null
   onSelect: () => void
 }) {
   // Inicial para el fallback del avatar (primera letra del nombre).
@@ -239,11 +249,11 @@ function ProductResultRow({
               </span>
             )}
           </p>
-          {(item.categoryName || item.brandName) && (
+          {(categoryName || brandName) && (
             <p className="truncate text-xs text-muted-foreground">
-              {item.categoryName}
-              {item.categoryName && item.brandName && " · "}
-              {item.brandName}
+              {categoryName}
+              {categoryName && brandName && " · "}
+              {brandName}
             </p>
           )}
         </div>

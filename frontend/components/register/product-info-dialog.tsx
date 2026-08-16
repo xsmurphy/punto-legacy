@@ -35,6 +35,7 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/empty-state"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useCategoryBrandMaps, resolveCategoryName, resolveBrandName } from "@/lib/catalog/resolve-names"
 import { formatMoney } from "@/lib/format-money"
 import { formatQty } from "@/lib/format-qty"
 import {
@@ -76,18 +77,24 @@ interface Props {
 export function ProductInfoDialog({ item, onClose }: Props) {
   const config = useCatalogStore((s) => s.config)
   const activeOutlet = useCatalogStore((s) => s.outlet)
+  const { categoryMap, brandMap } = useCategoryBrandMaps()
 
   const { data, isPending, isError, refetch, isFetching } = usePosItemInfo(item?.id ?? null)
 
   // Datos del catálogo en memoria: es lo que se muestra mientras carga y lo
   // único que queda si el device está sin red (el bootstrap del POS vive
-  // cacheado, la ficha no).
+  // cacheado, la ficha no). La ficha en vivo (`data.detail`) sigue trayendo
+  // categoryName/brandName YA resueltos server-side (`use-pos-item-info.ts`
+  // — endpoint de detalle puntual, no el bootstrap masivo, así que no aplica
+  // la regla de context/45); el fallback offline/loading resuelve contra las
+  // listas del store, igual que el resto del POS.
   const name = data?.detail.itemName || item?.name || ""
   const sku = data?.detail.itemSKU ?? item?.sku ?? null
   const price = data?.detail.itemPrice ?? item?.price ?? 0
   const uom = data?.detail.itemUOM ?? item?.uom ?? null
-  const categoryName = data?.detail.categoryName ?? item?.categoryName ?? null
-  const brandName = data?.detail.brandName ?? item?.brandName ?? null
+  const categoryName =
+    data?.detail.categoryName ?? resolveCategoryName(item?.categoryId ?? null, categoryMap)
+  const brandName = data?.detail.brandName ?? resolveBrandName(item?.brandId ?? null, brandMap)
   const trackInventory = data?.detail.itemTrackInventory ?? item?.trackInventory ?? false
   const minStock = data?.detail.itemMinStock ?? null
   const maxStock = data?.detail.itemMaxStock ?? null

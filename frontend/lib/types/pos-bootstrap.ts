@@ -121,12 +121,21 @@ export interface PosItem {
    */
   taxIncluded: boolean | null
   taxId: string | null
-  /** Categoría principal (para la grilla de categorías del POS). */
+  /**
+   * Categoría principal (para la grilla de categorías del POS). Solo el id
+   * — el nombre se resuelve contra `PosBootstrap.categories` (ver
+   * `PosCategory`). NO agregar `categoryName` acá: un dato que pertenece a
+   * otra entidad no se copia dentro del ítem (context/45
+   * -satelites-item-contact-sync.md §Decisión: el VÍNCULO es satélite, la
+   * ENTIDAD no) — con el nombre copiado, renombrar una categoría obligaría a
+   * re-bajar todos los ítems que la usan.
+   */
   categoryId: string | null
-  categoryName: string | null
-  /** Marca principal del item. Null si no tiene. */
+  /**
+   * Marca principal del item. Null si no tiene. Solo el id — mismo criterio
+   * que `categoryId`, resolver contra `PosBootstrap.brands`.
+   */
   brandId: string | null
-  brandName: string | null
   /** URL de imagen de portada. Null si no tiene. */
   imageUrl: string | null
   /** Unidad de medida (ej. "kg", "lt"). Null si no aplica. */
@@ -162,6 +171,30 @@ export interface PosItem {
    * (`useItemAddonsPos`).
    */
   hasAddons: boolean
+}
+
+// ── Categorías y marcas del tenant (context/45) ──────────────────────────────
+
+/**
+ * Categoría de producto del tenant (tabla `category`, migration 21). Lista
+ * propia del bundle `settings` (context/43-sync-incremental.md) — chica
+ * (decenas de filas), se recarga entera cuando cambia. `PosItem.categoryId`
+ * la referencia; el nombre se resuelve acá, nunca copiado dentro del ítem
+ * (ver comentario en `PosItem.categoryId`).
+ *
+ * Efecto colateral deseado: una categoría sin productos ahora existe para
+ * la caja (antes, al derivarse de los items, una categoría vacía era
+ * invisible).
+ */
+export interface PosCategory {
+  id: string
+  name: string
+}
+
+/** Marca de producto del tenant (tabla `brand`, migration 22). Mismo criterio que `PosCategory`. */
+export interface PosBrand {
+  id: string
+  name: string
 }
 
 // ── Impuestos del tenant (F2b, context/38) ───────────────────────────────────
@@ -250,6 +283,10 @@ export interface PosBootstrap {
   activeRegisterId: string
   /** Tasas de impuesto del tenant (F0, tabla `tax`). Ver `PosTaxRate`. */
   taxes: PosTaxRate[]
+  /** Categorías del tenant. Ver `PosCategory`. */
+  categories: PosCategory[]
+  /** Marcas del tenant. Ver `PosBrand`. */
+  brands: PosBrand[]
   /**
    * Default incluido/añadido del IVA de la sucursal activa
    * (`outlet.itemsTaxIncluded`). Fallback cuando `PosItem.taxIncluded` es

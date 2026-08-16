@@ -22,7 +22,7 @@
  */
 
 import { create } from "zustand"
-import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosTaxRate, PosUser, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosConfig, PosOutlet, PosRegister, PosTaxRate, PosCategory, PosBrand, PosUser, PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 
 export type CatalogStatus = "idle" | "loading" | "ready" | "error"
 
@@ -55,6 +55,15 @@ interface CatalogState {
    * `PosItem.taxIncluded` (o `CartLine.taxIncluded`) es `null`.
    */
   outletTaxIncluded: boolean
+  /**
+   * Categorías y marcas del tenant (context/45-satelites-item-contact-sync.md
+   * §Decisión: el VÍNCULO es satélite, la ENTIDAD no). `PosItem.categoryId`/
+   * `brandId` las referencian por id — la UI resuelve el nombre contra estas
+   * listas (`lib/catalog/resolve-names.ts`), nunca contra un campo copiado
+   * dentro del ítem. Viajan con el snapshot offline igual que `taxes`.
+   */
+  categories: PosCategory[]
+  brands: PosBrand[]
   /**
    * `Date.now()` del último `patchItem(s)`/`removeItem(s)`/`patchCustomer(s)`/
    * `removeCustomer(s)` — sync realtime quirúrgico (context/15 §Modelo
@@ -89,6 +98,9 @@ interface CatalogState {
      */
     taxes?: PosTaxRate[]
     outletTaxIncluded?: boolean
+    /** Opcionales por el mismo motivo que `taxes` — bootstrap cacheado viejo. */
+    categories?: PosCategory[]
+    brands?: PosBrand[]
   }) => void
 
   /** Actualiza (o agrega, si no existía) un cliente en memoria tras un CREATE/UPDATE exitoso. */
@@ -145,6 +157,8 @@ const initialState = {
   activeRegisterId: "",
   taxes: [] as PosTaxRate[],
   outletTaxIncluded: true,
+  categories: [] as PosCategory[],
+  brands: [] as PosBrand[],
   lastPatchedAt: 0,
 }
 
@@ -179,6 +193,8 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       // el outlet nunca configuró itemsTaxIncluded.
       taxes: data.taxes ?? [],
       outletTaxIncluded: data.outletTaxIncluded ?? true,
+      categories: data.categories ?? [],
+      brands: data.brands ?? [],
     })
   },
 
