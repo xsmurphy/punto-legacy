@@ -105,6 +105,28 @@ export interface LineRowProps {
   bootstrap?: Pick<Bootstrap, "currency" | "decimal" | "thousand">
 }
 
+/**
+ * Rótulo compacto de campo dentro de una línea de compra. Va arriba del input
+ * y NO desaparece al tipear — a diferencia del placeholder, que era la única
+ * pista y se perdía apenas el campo tenía valor.
+ */
+function FieldLabel({
+  children,
+  htmlFor,
+}: {
+  children: React.ReactNode
+  htmlFor?: string
+}) {
+  return (
+    <Label
+      htmlFor={htmlFor}
+      className="mb-1 block text-[11px] font-normal text-muted-foreground"
+    >
+      {children}
+    </Label>
+  )
+}
+
 export function LineRow({
   line,
   isLast,
@@ -191,6 +213,7 @@ export function LineRow({
               : "col-span-12 sm:col-span-5"
           }
         >
+          <FieldLabel>{line.isProduct ? "Producto" : "Descripción"}</FieldLabel>
           {line.isProduct ? (
             <ProductPicker
               value={line.itemId ?? ""}
@@ -213,8 +236,16 @@ export function LineRow({
             />
           )}
         </div>
+        {/* Rótulos visibles en cada campo: antes la única pista era el
+            placeholder, que desaparece apenas hay valor — y `units`/`packSize`
+            arrancan en 1, así que nunca se veían. Dos campos numéricos
+            contiguos sin rótulo eran indistinguibles (reporte del owner). */}
         <div className="col-span-4 sm:col-span-2">
+          <FieldLabel htmlFor={`${line.rowId}-units`}>
+            {line.isProduct ? "Cantidad" : "Cant."}
+          </FieldLabel>
           <Input
+            id={`${line.rowId}-units`}
             type="number"
             min={0}
             step="0.001"
@@ -226,7 +257,9 @@ export function LineRow({
         </div>
         {line.isProduct && (
           <div className="col-span-4 sm:col-span-2">
+            <FieldLabel htmlFor={`${line.rowId}-packsize`}>Uni. x paq.</FieldLabel>
             <Input
+              id={`${line.rowId}-packsize`}
               type="number"
               min={1}
               step="1"
@@ -236,12 +269,18 @@ export function LineRow({
               }
               placeholder="U x paq."
               inputMode="numeric"
-              aria-label="Unidades por paquete/caja"
+              aria-label="Unidades por paquete o caja"
             />
           </div>
         )}
         <div className="col-span-4 sm:col-span-2">
+          {/* "Precio" es el del PAQUETE, no el de la unidad: el backend deriva
+              el costo unitario como precio / packSize (PurchasesService.php). */}
+          <FieldLabel htmlFor={`${line.rowId}-price`}>
+            {line.isProduct && (line.packSize ?? 1) > 1 ? "Precio x paq." : "Precio"}
+          </FieldLabel>
           <MoneyInput
+            id={`${line.rowId}-price`}
             value={line.price}
             onChange={(v) => onChange({ price: v })}
             placeholder="Precio"
@@ -253,6 +292,7 @@ export function LineRow({
           )}
         </div>
         <div className="col-span-4 sm:col-span-3">
+          <FieldLabel>Impuesto</FieldLabel>
           <Select
             value={line.taxId ?? ""}
             onValueChange={(v) => onChange({ taxId: v })}
