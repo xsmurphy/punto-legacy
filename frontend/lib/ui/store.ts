@@ -58,6 +58,21 @@ interface PosUIState {
    */
   quoteSaveNonce: number
   requestQuoteSave: () => void
+  /**
+   * Disparador de re-resolución de precios (bug de listas de precios,
+   * 2026-08-16 — ver context/15-realtime-sync-plan.md). `usePriceContext`
+   * (hooks/use-price-context.ts) re-corre `/v1/price_resolve` cuando cambia
+   * el cliente, la lista elegida o las líneas del carrito — pero NO cuando
+   * el admin edita la lista de precios activa mientras el carrito ya está
+   * armado, porque `/v1/price_resolve` es una mutación sin queryKey (nada
+   * la invalida). `useRealtimeSync` (clientScope pos) incrementa este nonce
+   * al recibir un evento `price-list`; `usePriceContext` lo suma a su
+   * dependencia de efecto y re-resuelve con el mismo contexto que ya tenía.
+   * Mismo patrón que `quoteSaveNonce`: el hook de UI NO sabe de realtime, el
+   * realtime solo mueve este estado.
+   */
+  priceResolveNonce: number
+  bumpPriceResolveNonce: () => void
 }
 
 export const usePosUIStore = create<PosUIState>()((set) => ({
@@ -87,4 +102,6 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   setSavingQuote: (v) => set({ savingQuote: v }),
   quoteSaveNonce: 0,
   requestQuoteSave: () => set((s) => ({ quoteSaveNonce: s.quoteSaveNonce + 1 })),
+  priceResolveNonce: 0,
+  bumpPriceResolveNonce: () => set((s) => ({ priceResolveNonce: s.priceResolveNonce + 1 })),
 }))

@@ -6,6 +6,7 @@ import { subscribeRealtime, subscribeReconnect, type InvalidateEvent } from "@/l
 import { queueCatalogSync } from "@/lib/catalog/realtime-catalog-sync"
 import { runDeltaSync } from "@/lib/catalog/delta-sync"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { usePosUIStore } from "@/lib/ui/store"
 
 /**
  * Mapeo cerrado entity→queryKeys de TanStack Query. Cuando el server
@@ -198,6 +199,20 @@ export function useRealtimeSync(clientScope: "panel" | "pos" = "panel") {
         return
       }
       keys.forEach((k) => qc.invalidateQueries({ queryKey: [...k], refetchType: "active" }))
+
+      // Bug de listas de precios (2026-08-16, ver context/15 §Qué quedó
+      // afuera): invalidar ["price-lists"]/["price-list-items"] arriba
+      // refresca el LISTADO de listas (settings del panel), pero
+      // `/v1/price_resolve` es una mutación sin queryKey — nada la
+      // invalida. Sin este bump, un carrito ya armado en el POS sigue
+      // cobrando los precios resueltos ANTES de que el admin edite la
+      // lista activa. `usePriceContext` (hooks/use-price-context.ts) suma
+      // este nonce a su efecto y re-resuelve con el mismo contexto
+      // (cliente/lista/líneas) que ya tenía — el realtime solo mueve el
+      // estado, no re-implementa la lógica de resolución acá.
+      if (clientScope === "pos" && ev.entity === "price-list") {
+        usePosUIStore.getState().bumpPriceResolveNonce()
+      }
     })
 
     // Resync tras reconexión (ver lib/realtime.ts): no hay backlog en el

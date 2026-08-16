@@ -5,6 +5,7 @@ import { useCartStore } from "@/lib/cart/store"
 import { useResolvePrices } from "@/hooks/use-price-lists"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { posApi } from "@/lib/api/pos-client"
+import { usePosUIStore } from "@/lib/ui/store"
 
 /**
  * Resuelve precios de las líneas del carrito contra el contexto de precio
@@ -19,10 +20,15 @@ import { posApi } from "@/lib/api/pos-client"
  * `useCatalogSeed`/`useHotkeys`) — el carrito vive ahí y se mantiene montado
  * entre rutas del workspace.
  *
- * Dispara un POST batch cuando cambia el cliente, la lista manual, o el set
- * de itemIds no-overridden del carrito (debounce corto para no pegarle un
- * POST a cada tecla/add rápido). Las líneas con `priceOverridden: true`
- * (precio editado a mano por el cajero) nunca se mandan ni se pisan.
+ * Dispara un POST batch cuando cambia el cliente, la lista manual, el set
+ * de itemIds no-overridden del carrito, o `priceResolveNonce` (debounce
+ * corto para no pegarle un POST a cada tecla/add rápido). El nonce lo
+ * incrementa `useRealtimeSync` al recibir un evento `price-list` — sin él,
+ * un carrito ya armado seguía cobrando precios resueltos ANTES de que el
+ * admin editara la lista activa (bug reportado 2026-08-16, `/v1/price_resolve`
+ * es mutación sin queryKey, nada la invalidaba). Las líneas con
+ * `priceOverridden: true` (precio editado a mano por el cajero) nunca se
+ * mandan ni se pisan, tampoco en el re-disparo por nonce.
  *
  * Sin contexto (sin cliente Y sin lista manual): restaura `unitPrice =
  * basePrice` en las líneas no-overridden. Si el POST falla (offline/error),
@@ -31,6 +37,11 @@ import { posApi } from "@/lib/api/pos-client"
 export function usePriceContext() {
   const customerId = useCartStore((s) => s.customer?.id)
   const priceListId = useCartStore((s) => s.priceListId)
+  // Bump de useRealtimeSync cuando llega un evento `price-list` (admin
+  // editó la lista activa mientras el carrito ya estaba armado — ver
+  // context/15-realtime-sync-plan.md). Este hook NO sabe de realtime, solo
+  // reacciona a que el número cambió — mismo patrón que `quoteSaveNonce`.
+  const priceResolveNonce = usePosUIStore((s) => s.priceResolveNonce)
   // Clave derivada: itemId+basePrice de las líneas no-overridden. Cambia solo
   // cuando hay algo nuevo que resolver — qty/nota/selección no la tocan, así
   // que no re-disparan el efecto.
@@ -88,5 +99,5 @@ export function usePriceContext() {
 
     return () => clearTimeout(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [customerId, priceListId, lineKey, outletId])
+  }, [customerId, priceListId, lineKey, outletId, priceResolveNonce])
 }

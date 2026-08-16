@@ -205,6 +205,33 @@ if (count($txEvents) !== 1) {
     echo "[verify_realtime] OK caso 2: anulación de transacción -> evento 'transaction' scope 'all'\n";
 }
 
+// ── Caso 3: price_list/price_list_item publican entity 'price-list' ────────
+// Bug 2026-08-16: bootstrap.php mapeaba estos dos endpoints a entity 'item'
+// — el front YA esperaba 'price-list' (ENTITY_TO_QUERY_KEYS en
+// use-realtime-sync.ts) así que nunca invalidaba nada al editar una lista.
+// `realtimeAfterMutation()` lee `$_GET['resource']`/método del request real;
+// acá se llama directo (mismo criterio que Caso 2) simulando el override de
+// bootstrap.php sin pasar por un endpoint HTTP completo.
+realtimeAfterMutation('PUT', '/v1/price_list', 'fake-price-list-id', $companyId);
+$priceListEvents = drainFakeRedis($server);
+if (count($priceListEvents) !== 1) {
+    $failures[] = 'Caso 3 (price_list): esperaba 1 evento, llegaron ' . count($priceListEvents);
+} elseif (($priceListEvents[0]['entity'] ?? null) !== 'price-list') {
+    $failures[] = "Caso 3 (price_list): esperaba entity 'price-list', llegó " . json_encode($priceListEvents[0]);
+} else {
+    echo "[verify_realtime] OK caso 3: PUT /v1/price_list -> evento entity='price-list' (no 'item')\n";
+}
+
+realtimeAfterMutation('PUT', '/v1/price_list_item', 'fake-price-list-id', $companyId);
+$priceListItemEvents = drainFakeRedis($server);
+if (count($priceListItemEvents) !== 1) {
+    $failures[] = 'Caso 3b (price_list_item): esperaba 1 evento, llegaron ' . count($priceListItemEvents);
+} elseif (($priceListItemEvents[0]['entity'] ?? null) !== 'price-list') {
+    $failures[] = "Caso 3b (price_list_item): esperaba entity 'price-list', llegó " . json_encode($priceListItemEvents[0]);
+} else {
+    echo "[verify_realtime] OK caso 3b: PUT /v1/price_list_item -> evento entity='price-list' (no 'item')\n";
+}
+
 fclose($server);
 
 if ($failures !== []) {

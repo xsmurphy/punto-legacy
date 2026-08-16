@@ -24,7 +24,21 @@ define('HASH_TIMES',65646);
             }
         }
 
-        $_ENV[$m[1]] = $value;
+        // No pisar una variable YA seteada en $_ENV — mismo criterio que
+        // cualquier librería dotenv estándar (phpdotenv, Symfony Dotenv):
+        // el entorno real (Coolify/docker-compose env, o un override
+        // explícito hecho por código ANTES de este require) tiene prioridad
+        // sobre el archivo .env. Sin este guard, `verify_realtime.php`
+        // (arnés de context/15) apuntaba REDIS_HOST/REDIS_PORT a un
+        // listener TCP fake ANTES de requerir bootstrap.php, y este loader
+        // los pisaba de vuelta con los valores reales de `.env` al
+        // cargarse más abajo en la misma cadena de requires — el arnés
+        // quedaba silenciosamente roto (0 eventos capturados, ver
+        // hallazgo 2026-08-16) apenas `.env` empezó a declarar
+        // REDIS_HOST/REDIS_PORT (son "Requeridas", context/06).
+        if (!array_key_exists($m[1], $_ENV)) {
+            $_ENV[$m[1]] = $value;
+        }
     }
 })();
 // Detección automática de entorno local

@@ -245,9 +245,19 @@ delta, no necesita un ciclo completo antes.
   recorte de esta sesión), ver Decisión 1 — el bundle es chico, un refetch
   completo es proporcional.
 - **`price_list`/`price_list_item`** no forman parte del bundle `settings`
-  ni tienen lápida propia — mismo gap ya documentado en
-  `context/15-realtime-sync-plan.md` §Qué quedó afuera (editar una lista de
-  precios no invalida su propia queryKey). No tocado acá.
+  ni tienen lápida propia — A PROPÓSITO, no un olvido (ver comentario en
+  `syncSectionAfterMutation()`, `api/bootstrap.php`). El gap de invalidación
+  EN CALIENTE (editar una lista no re-resolvía el carrito abierto en el POS)
+  se cerró 2026-08-16 — ver `context/15-realtime-sync-plan.md` §Fix listas
+  de precios. Lo que sigue sin resolver es la RECONEXIÓN/arranque offline:
+  `price_list_item` puede tener tantas filas como el catálogo (un override
+  por producto, por lista) y se reescribe ENTERO en cada guardado
+  (`PriceListService::setItems()`, DELETE+INSERT sin `updatedAt` por fila) —
+  no encaja ni en el modelo por-fila de `item`/`contact` (esta tabla no tiene
+  esa columna) ni en el bundle `settings` (volumen, ver arriba). Plan de
+  delta propio (watermark por LISTA, no por fila — granularidad real de
+  `setItems()`) + bajada al bootstrap para operar sin red: planificado, no
+  implementado, ver `context/44-listas-de-precio-offline.md`.
 
 ## Referencias
 

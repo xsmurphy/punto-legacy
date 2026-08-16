@@ -486,13 +486,10 @@ string que nunca iba a matchear (guion vs guion bajo, alias equivocado).
 
 ### Qué quedó fuera (a propósito)
 
-- **`price_list`/`price_list_item`**: publican entity `item` (override de
-  `bootstrap.php`, preexistente) pero editar una lista de precios no
-  invalida `["price-lists"]`/`["price-list-items"]` propio — un segundo
-  browser del panel viendo el listado de listas de precio no se entera hasta
-  refrescar. Gap real, encontrado en esta auditoría, no en el alcance
-  nombrado por el owner (no está en el payload de `/pos/bootstrap`) — queda
-  para una sesión futura.
+- **`price_list`/`price_list_item`** — CERRADO 2026-08-16, ver §Fix listas de
+  precios más abajo. Publicaban entity `item` (código muerto, el front ya
+  esperaba `price-list`); ahora publican `price-list` propio y el POS
+  re-resuelve el carrito en vivo.
 - **Firma JWT en el subscribe del WS** — sigue MVP (ver "Por qué no van datos
   en el evento WS" arriba). Precondición para poder meter payload en el
   evento, no implementado.
@@ -505,6 +502,67 @@ string que nunca iba a matchear (guion vs guion bajo, alias equivocado).
   pegue server-side (mismo patrón que `search.ts` hoy hace en memoria, pero
   con debounce + `/v1/contacts?q=`) — cambio de arquitectura más grande,
   necesita su propio plan.
+
+## Fix listas de precios 2026-08-16 — el hueco que quedó era plata
+
+Cadena completa: `api/bootstrap.php:343-344` mapeaba `/v1/price_list` y
+`/v1/price_list_item` a `entity: 'item'`. El front YA tenía el mapeo correcto
+(`ENTITY_TO_QUERY_KEYS['price-list']` en `use-realtime-sync.ts`, existía
+desde antes) pero como el backend nunca publicaba ese nombre, esa entrada
+era código muerto — ["price-lists"]/["price-list-items"] nunca se
+invalidaban al editar una lista.
+
+Segundo problema, más caro: aunque el listado de listas se invalidara, el
+POS resuelve precios vía `POST /v1/price_resolve` — una **mutación sin
+queryKey** (`useResolvePrices`, `hooks/use-price-lists.ts`). Invalidar
+queries no la re-dispara. Si el admin editaba la lista activa mientras el
+cajero ya tenía el carrito armado, el POS seguía cobrando los precios
+resueltos ANTES del cambio — silencioso, sin error (`use-price-context.ts`
+atrapa el fallo de `price_resolve` y sigue con precios base, así que ni
+siquiera un error de red se distingue de "no había nada que resolver").
+
+**Fix:**
+- `api/bootstrap.php`: `/v1/price_list`/`/v1/price_list_item` publican
+  `entity: 'price-list'` propio. Sin alias doble a `item` — ningún queryKey
+  de catálogo (`items`/`item`/`pos-bootstrap`) muestra datos derivados de
+  price_list (el POS resuelve precios server-side bajo demanda, nunca desde
+  el bootstrap), así que mantener `item` no protegía nada real.
+- `frontend/lib/ui/store.ts`: nuevo `priceResolveNonce`/`bumpPriceResolveNonce`
+  — mismo patrón que `quoteSaveNonce`.
+- `frontend/hooks/use-realtime-sync.ts`: en `clientScope==="pos"`, un evento
+  `price-list` incrementa el nonce (además de la invalidación normal de
+  `["price-lists"]`/`["price-list-items"]`).
+- `frontend/hooks/use-price-context.ts`: suma `priceResolveNonce` a la
+  dependencia de su efecto — re-resuelve el carrito con el MISMO contexto
+  (cliente/lista/líneas) que ya tenía. El hook no sabe de realtime, el
+  realtime solo mueve el estado (mismo principio que ya regía
+  `quoteSaveNonce`).
+- Líneas con `priceOverridden: true` o `voucher`: sin cambios, siguen
+  excluidas tanto del payload de `price_resolve` como de
+  `applyResolvedPrices` (`lib/cart/store.ts`) — verificado, no tocado.
+- Total/IVA del carrito: no necesitó cambios — `selectCartTotal`/
+  `selectCartIva` ya son derivados de `state.lines` en cada render (no hay
+  total cacheado que desincronizar), así que un `unitPrice` actualizado por
+  `applyResolvedPrices` se refleja solo.
+- Watermark del bundle `settings`: el doc decía (antes de este fix) que
+  `price_list`/`price_list_item` lo bumpeaban — **no era cierto en el
+  código**, y no conviene que lo sea (ver comentario en
+  `syncSectionAfterMutation()`, `api/bootstrap.php`): el único consumidor de
+  ese watermark recarga `pos-bootstrap` COMPLETO, y `price_list_item` puede
+  tener tantas filas como el catálogo — acoplarlo reintroduciría el costo
+  que este mismo documento (y context/43) eliminaron para item/contact.
+  Corregido el doc, no el código — el gap real es otro (ver
+  `context/44-listas-de-precio-offline.md`).
+- Arnés: `verify_realtime.php` caso 3/3b — `realtimeAfterMutation('PUT',
+  '/v1/price_list', ...)` y `.../price_list_item` deben publicar
+  `entity: 'price-list'`, no `'item'`.
+
+**Qué NO se tocó en este fix** (alcance ampliado por el owner mid-sesión,
+ver `context/44-listas-de-precio-offline.md`): el POS sigue sin poder
+resolver precios de lista SIN internet — `/v1/price_resolve` es el único
+camino, y si falla cae a precio base. Bajar las listas al bootstrap +
+resolver localmente (motor espejo TS/PHP, precedente `lib/tax/engine.ts`) es
+un módulo nuevo, no una corrección de este bug — planificado aparte.
 
 ## Riesgos y mitigaciones
 

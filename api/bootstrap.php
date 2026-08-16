@@ -340,8 +340,19 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         '/v1/drawer'                => ['entity' => 'drawer',      'scope' => 'dashboard'],
         '/v1/reports/drawers'       => ['entity' => 'drawer',      'scope' => 'dashboard'],
         '/v1/modules'               => ['entity' => 'setting'],
-        '/v1/price_list'            => ['entity' => 'item'],
-        '/v1/price_list_item'       => ['entity' => 'item'],
+        // Antes publicaban entity 'item' — bug: el front YA esperaba
+        // 'price-list' (ENTITY_TO_QUERY_KEYS en use-realtime-sync.ts, desde
+        // que existe ese mapeo), así que esa entrada era código muerto y
+        // ["price-lists"]/["price-list-items"] nunca se invalidaban al
+        // editar una lista — la caja seguía cobrando el precio viejo
+        // (hallazgo 2026-08-16). Publicar 'item' acá tampoco tenía
+        // consumidor real: ningún queryKey de catálogo (`items`, `item`,
+        // `pos-bootstrap`) muestra datos derivados de price_list — el POS
+        // resuelve precios server-side vía /v1/price_resolve bajo demanda,
+        // nunca desde el bootstrap del catálogo. Por eso el cambio es un
+        // swap completo, no un alias doble.
+        '/v1/price_list'            => ['entity' => 'price-list'],
+        '/v1/price_list_item'       => ['entity' => 'price-list'],
         '/v1/vpayments'             => ['entity' => 'payment-method'],
         // validate es POST de consulta pura — no muta; solo canjear/emitir dispara evento.
         '/v1/giftcards'             => ['entity' => 'giftcard', 'skipResources' => ['validate']],
@@ -454,6 +465,23 @@ function syncSectionAfterMutation(string $entity, ?string $companyId): void
         'outlet', 'register', 'tax', 'category', 'brand', 'tag',
         'payment-method', 'printer_binding', 'user', 'setting',
     ];
+    // 'price-list' A PROPÓSITO no está acá TODAVÍA (hallazgo 2026-08-16,
+    // verificando context/43 §Qué quedó afuera — el doc decía que
+    // price_list/price_list_item bumpeaban este watermark; NO era cierto en
+    // el código). Hoy `/v1/price_list` Y `/v1/price_list_item` comparten la
+    // misma entity `'price-list'` acá arriba (ver `$overrides`) — sumar esa
+    // entity a esta lista bumpearía "settings" tanto por editar la CABECERA
+    // de una lista (barato, cardinalidad baja, correcto) como por editar UN
+    // OVERRIDE de ítem (caro: el único consumidor de este watermark,
+    // `runDeltaSync`/delta-sync.ts, reacciona recargando `pos-bootstrap`
+    // COMPLETO — `price_list_item` puede tener tantas filas como el
+    // catálogo). Diseño acordado con el owner (`context/44
+    // -listas-de-precio-offline.md` §Decisión 1, revisada): la CABECERA sí
+    // va en `settings` — falta separar su entity de la de
+    // `price_list_item` para poder sumarla acá sin arrastrar los overrides.
+    // Los overrides NO pasan por este mecanismo — viajan con el ÍTEM
+    // (`item.updatedAt` bumpeado por trigger de DB sobre `price_list_item`,
+    // ver el mismo doc). Planificado, no implementado.
     if (!in_array($entity, $settingsEntities, true)) {
         return;
     }
