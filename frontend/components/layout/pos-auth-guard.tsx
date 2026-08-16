@@ -9,6 +9,8 @@ import { Button } from "@/components/ui/button"
 import { WifiOff } from "lucide-react"
 import type { PosBootstrap } from "@/lib/types/pos-bootstrap"
 import { getDeviceToken } from "@/lib/auth/device-token"
+import { RealtimeProvider } from "@/components/realtime-provider"
+import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 
 const REVOKED_FLAG_KEY = "punto.device.revoked.pos"
 
@@ -46,7 +48,7 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
     setHasLocalToken(getDeviceToken() !== null)
   }, [])
 
-  const { status, error, refetch } = useQuery<PosBootstrap>({
+  const { data, status, error, refetch } = useQuery<PosBootstrap>({
     queryKey: ["pos-bootstrap-auth"],
     queryFn: async () => {
       const headers: Record<string, string> = {}
@@ -117,10 +119,30 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
     )
   }
 
+  // Realtime (context/15): el POS TIENE que escuchar los cambios del tenant —
+  // es la regla base del owner ("si anulo una factura todos los dispositivos
+  // se actualizan a la vez"). Se monta acá y no vía `RealtimeWire`, que resuelve
+  // el companyId con `useBootstrap()` (endpoint del panel, cookie): el POS es
+  // realm device y va con Bearer, un cliente HTTP por realm. El companyId sale
+  // del bootstrap del POS que este guard ya trajo, sin request extra.
+  //
+  // Hasta 2026-08-09 el listener solo se montaba en PanelAuthGuard, que cubre
+  // (panel) y (admin) — el POS vive en (pos) con este guard, así que la caja
+  // NUNCA escuchaba: el backend publicaba y del otro lado no había nadie.
   return (
     <>
       <PosUnauthorizedSentinel />
-      {children}
+      <RealtimeProvider
+        companyId={data?.config?.companyId != null ? String(data.config.companyId) : null}
+      >
+        <PosRealtimeSync>{children}</PosRealtimeSync>
+      </RealtimeProvider>
     </>
   )
+}
+
+/** Suscribe las invalidaciones con scope "pos" (ver use-realtime-sync). */
+function PosRealtimeSync({ children }: { children: React.ReactNode }) {
+  useRealtimeSync("pos")
+  return <>{children}</>
 }
