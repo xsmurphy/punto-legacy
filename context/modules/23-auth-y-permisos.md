@@ -1,0 +1,89 @@
+# 23 — Auth y permisos
+
+> Estado del doc: borrador (verificado contra código leyendo fuente, sin correr nada)
+> Responsable de la última verificación: sesión 2026-08-17
+
+## 1. Qué resuelve
+
+Quién es quién en cada request (identidad + realm) y qué puede hacer una vez
+identificado (rol + permiso). Dos capas separadas: **autenticación**
+(`auth_session` + `authResolve()`, un solo resolver para los cuatro realms) y
+**autorización** (`RoleService`/`PermissionCatalog`, por tenant, solo aplica
+al realm panel). Sin esto cada endpoint reinventaría cómo leer una cookie o
+un Bearer, y el bug de "credenciales de un realm operando con el scope de
+otro" ya ocurrió tres veces (ver regla 5).
+
+## 2. Entidades y datos
+
+| Tabla/columna | Qué guarda | Invariantes / trampas |
+|---|---|---|
+| `auth_session` (mig 69, `api/database/migrations/postgres/69_auth_session.sql`) | Sesión opaca server-side. `tokenHash` = sha256 hex del token crudo (nunca se guarda el crudo); `realm` es **columna**, no claim firmado — revocar es `UPDATE status=0`, no hay forma de que un token viejo "siga siendo válido" tras revocar. | `realm varchar(16)`: valores en uso `panel`, `pos-app`, `admin`, `screen` (comentario `:6`). `companyId` nullable — `null` es el caso ADMIN (cross-tenant), no un bug. `expiresAt` nullable = nunca expira — usado por el device POS (pairing eterno). `deviceId` null en panel/admin. |
+| `auth_session.roleId` | rol del usuario en el momento de crear la sesión. | Puede ser int legacy como string (`'1'..'7'`) o UUID de un rol custom — `RoleService::hasPermission()`/`getPermissions()` resuelven el legacy vía `LEGACY_MAP` (`RoleService.php:29-36`) antes de comparar. |
+| `taxonomy` (`taxonomytype='role'` / `'roleData'`) | Roles del tenant y sus permisos. No hay tabla propia `role`/`permission` — reusa la tabla de taxonomías genérica del dominio. | `roleData.sourceid` = `role.taxonomyid`; los permisos viven en `taxonomyextra->>'permissions'` (array JSON), no en filas 1-a-1. El rol `owner` es especial: NUNCA se persiste su lista de permisos — se calcula en runtime como `PermissionCatalog::ids()` completo (`RoleService.php:126-129,145-149`), así que agregar un permiso nuevo al catálogo lo habilita para todos los owners sin re-seed. |
+| `PermissionCatalog::all()` (`api/lib/Auth/PermissionCatalog.php:14-68`) | Catálogo canónico de **45 claves** de permiso (`ai.agent.use`/`ai.agent.elevated` incluidas), agrupadas en 9 grupos (POS, Inventario, Contactos, Reportes, Configuración, Facturación, Finanzas, Producción, IA). | Es el ÚNICO source of truth (docblock `:2-8`): agregar un permiso requiere tocarlo acá + los seed defaults de `RoleService::SEED_PERMISSIONS` + el `hasPermission()` en el endpoint. El paso 3 es el que más se salta — ver regla 3. |
+
+## 3. Reglas de negocio
+
+1. **`authResolve()` es el resolver ÚNICO para los 4 realms** (`api/includes/auth_session.php:130-236`). Recorre TODOS los candidatos de la request (Bearer + cookies `_jwt_panel`/`_jwt_admin`/`_jwt` + POST), descarta los de realm no permitido o revocados SIN abortar en el primer match (seguir recorriendo es intencional: existe solo para loguear cuando llegan credenciales válidas de dos realms a la vez, `:154-171`), y define `AUTHED_*` + `AUTHED_REALM`/`AUTHED_SESSION_ID` con el primero que sobrevive. Prioridad **Bearer → cookies** (`:117-128`), invariante que depende de que ningún cliente mande credenciales de dos realms en una sola request (ver regla 5).
+2. **Revocación manda sobre "realm equivocado" en el mensaje de error** — decisión de diagnóstico, no de seguridad (`:203-222`). Antes de este fix, revocar un device dejaba `sawWrongRealm=true` por la cookie de panel coexistente en el browser del operador y el 401 salía como "Token de otro realm", un mensaje que no apunta a la causa real. Costó un diagnóstico en prod (`:206-212`, incidente 2026-07-28).
+3. **HALLAZGO — de 45 permisos del catálogo, 25 tienen enforcement real en el backend; el resto solo gatea la UI.** Relevado con `grep -rhoE "hasPermission\('[a-zA-Z.]+'\)" api --include="*.php"` + los 2 call-sites dinámicos (`credit-payments.php`, `ai/execute.php`). IDs con `hasPermission()` real:
+   `ai.agent.use`, `contacts.customer.create`, `contacts.customer.edit`, `contacts.user.manage`, `einvoice.manage`, `finance.manage`, `inventory.item.create`, `inventory.item.edit`, `inventory.stock.adjust`, `inventory.transfer`, `pos.sale.creditPayment`, `pos.sale.void`, `production.manage`, `reports.audit.view`, `reports.drawers.view`, `reports.expenses.view`, `reports.giftcards.view`, `reports.purchases.view`, `reports.recurring.view`, `reports.sales.view`, `reports.satisfaction.view`, `reports.schedule.view`, `settings.company.edit`, `settings.outlet.manage`, `settings.role.manage`.
+   **De esos 25, 5 SOLO se chequean dentro del agente IA** (`contacts.customer.create/edit`, `contacts.user.manage`, `inventory.item.create/edit`, vía el mapa `$actionPermission` de `api/v1/ai/execute.php:66-75` + el gate genérico `:310`) — el endpoint "nativo" del mismo recurso (`items.php`, `contacts.php`, `users.php`) tiene **cero** llamadas a `hasPermission()` (verificado: `grep -c hasPermission` = 0 en los tres). Consecuencia concreta: un usuario sin `inventory.item.edit` no puede pedirle al copiloto IA que cambie un precio, pero SÍ puede hacer el mismo cambio llamando `PATCH /v1/items.php` directo — el permiso protege la puerta trasera, no la principal.
+   Las 20 claves restantes (`pos.sale.create`, `pos.sale.refund`, `pos.drawer.open`, `pos.drawer.close`, `pos.discount.apply`, `inventory.item.view`, `inventory.item.delete`, `contacts.customer.view`, `contacts.customer.delete`, `contacts.supplier.view`, `contacts.supplier.manage`, `contacts.user.view`, `settings.tax.manage`, `settings.template.manage`, `settings.device.pair`, `settings.device.manage`, `billing.view`, `billing.manage`, `ai.agent.elevated`) no aparecen en NINGÚN `hasPermission()` de `api/` — solo gatean navegación/UI vía `usePermissions()` (`frontend/hooks/use-permissions.ts`, consumido en `panel-auth-guard.tsx:153` y `transactions/[id]/page.tsx`).
+4. **Endpoints de escritura del panel que mutan datos con SOLO sesión, sin ningún chequeo de permiso** — confirmado por ausencia total de `hasPermission()` en el archivo: `api/v1/items.php:149` (catálogo — alta/edición/baja de ítems), `api/v1/contacts.php:31` (clientes/proveedores), `api/v1/spaces.php:25` (mesas), `api/v1/orders-core.php:41` (órdenes), `api/v1/sales.php:33` (ventas — vía `apiAuthPosContext()`), `api/v1/devices.php:15` (pairing de dispositivos), `api/v1/users.php:20` (usuarios del comercio), `api/v1/drawer.php:18` (apertura/cierre de caja), `api/v1/giftcards.php:19`, `api/v1/purchases.php:21`, `api/v1/register.php:21`, `api/v1/customers.php:17`. Todos exigen únicamente `apiAuthTenant([...])` (sesión de panel y/o pos-app activa) — cualquier usuario logueado en el panel, sin importar su rol, puede ejecutar la mutación llamando el endpoint directo. Es la MISMA clase de bug que `f6d13c83` corrigió en `stock_transfer.php`/`remisiones.php` y que `4de46ba1` (2026-08-17, el mismo día de esta sesión) corrigió en `stock_adjustment.php`/`inventory_count.php` — el fix se aplicó call-site por call-site, nunca al patrón.
+5. **Invariante "un cliente HTTP = un realm"** (decisión 2026-07-19, reforzada 2026-08-17). `frontend/lib/api-client.ts` (docblock `:14-23`) es EXCLUSIVAMENTE panel: cookie `_jwt_panel`, `credentials:"include"`, prohibido agregar fallback a Bearer. `frontend/lib/api/pos-fetch.ts` (`:8-11,36-46`) es EXCLUSIVAMENTE device: adjunta el Bearer de `localStorage` explícitamente. La razón: `authResolve()` prioriza Bearer sobre cookie (regla 1) — si el cliente panel adjuntara el Bearer del device como fallback "por las dudas", una request de panel se autenticaría como device y el outlet scope quedaría equivocado (bug real de espacios, 2026-07-19, citado en `auth_session.php:126-128`). El bug se repitió 3 veces con causas distintas (Bearer faltante en `/api/pos/*`, outlet de espacios, módulos que desaparecían del sidebar 2026-08-17) — la tercera vez se decidió no confiar en "arreglar el call-site de nuevo" y se agregó enforcement automático (regla 6).
+6. **Enforcement del invariante 5 vía ESLint, no por convención.** `frontend/eslint.config.mjs` (agregado en `f0e7c423`, 2026-08-17) define una regla `no-restricted-imports` sobre las rutas del POS (`app/(pos)/**`, `app/(screen)/**`, `components/register/**`, `components/spaces/**`, `lib/cart/**`, `lib/kds/**`): importar `api` desde `@/lib/api-client` ahí es error de lint (mensaje indica usar `posFetch` + BFF de `/api/pos/`). `ApiError` sigue permitido — se restringe el binding, no el módulo entero. La auditoría que motivó la regla (mismo commit) recorrió el cierre transitivo de imports desde las 80 entradas del POS y confirmó cero caminos activos al cliente del panel antes de blindarlo con lint.
+7. **Modelo de doble sesión del POS**: el operador (login por PIN/teléfono) tiene la cookie `_jwt_panel`; el dispositivo (caja física pareada) tiene el Bearer `_jwt` en `localStorage`, sin expiración. Son independientes: el logout del sidebar del panel borra SOLO `_jwt_panel` (`frontend/components/layout/panel-auth-guard.tsx:200-208`, comentario explícito "borra SOLO `_jwt_panel` (la cookie del POS `_jwt`...)") — el device sigue emparejado y operable. La única forma de cerrar la sesión del POS es revocar el device desde Ajustes → dispositivos (`frontend/app/(panel)/settings/devices/page.tsx`, botón "Revocar" → `DELETE`/revoke que dispara `authSessionRevokeByDevice()`, `api/includes/auth_session.php:297-315`).
+8. **El bug histórico de `registerId=''` filtrándose al realm panel ya no puede ocurrir por diseño, no por guard defensivo.** El token panel dejó de llevar `registerId` (comentario `bootstrap.php:186-189`: "El registerId del POS ya NO vive en el token panel (rid eliminado)"): para realm panel `$registerId` se fija a `''` sin condición, y `PanelAuth::issuePanelSession()` (`api/lib/Auth/PanelAuth.php:87-94`) nunca pasa `registerId` a `authSessionCreate()` — el parámetro `$registerIdOverride` existe "reservado para firma" (`:64-66`) y no tiene efecto. El `registerId` real se resuelve SIEMPRE desde la fila `device` para realm pos-app (`bootstrap.php:168-183`). El guard de nivel más bajo sigue presente en `authSessionCreate()` (`auth_session.php:56`: `($f['registerId'] ?? '') ?: null` — convierte `''` a `null` antes del INSERT, evitando que una columna `uuid` reciba string vacío).
+9. **`ROLE_ID`/`COMPANY_ID` (constantes globales que consume `hasPermission()`) las define `data.php`, incluido desde `apiAuthTenant()`** (`api/bootstrap.php:202-203`, `api/data.php:7,11`). Para el realm pos-app puro (compras vía POS), `apiAuthPosContext()` las define también si no estaban ya definidas (`api/lib/Auth/apiAuthPosContext.php:40,44`). Consecuencia: `hasPermission()` es utilizable en cualquier endpoint que haya pasado por `apiAuthTenant()`/`apiAuthPosContext()` — la ausencia de chequeo en los endpoints de la regla 4 es una decisión (u omisión) por endpoint, no una limitación técnica del mecanismo.
+
+## 4. Flujos principales
+
+**Login panel** (`PanelAuth::issuePanelSession`, `api/lib/Auth/PanelAuth.php:68-99`) — recibe el `$user` ya autenticado (por teléfono/OTP, ver `SignupService`/`SignupOtp`), resuelve el outlet (override o primer outlet activo del tenant), crea la fila `auth_session` (`realm='panel'`, TTL 24h vía `PANEL_JWT_TTL`) y setea la cookie `_jwt_panel` (`Lax`, httpOnly). No toca `registerId` (regla 8).
+
+**Pairing de un device POS** — fuera del alcance relevado en esta sesión; el device queda con una fila en `device` (`outletid`, `registerid`, `userid`, `module`) y una `auth_session` de `realm='pos-app'` sin `expiresAt`. Cada request del POS manda el Bearer y `apiAuthTenant(['pos-app'])` resuelve `outletId`/`registerId` SIEMPRE desde esa fila `device` (`bootstrap.php:168-183`), nunca de claims del token — así un token viejo no puede traer un outlet desactualizado.
+
+**Autorización de una acción** — el endpoint llama `hasPermission('grupo.accion')` (`api/lib/Auth/hasPermission.php:14-18`), que exige `ROLE_ID`/`COMPANY_ID` definidos (regla 9) y delega en `RoleService::hasPermission()`: resuelve `roleId` legacy → UUID si hace falta (`RoleService.php:135-143`), corta a `true` incondicional si es el rol `owner` (`:147-149`, sin validar contra el catálogo — un permiso nuevo no exige re-seed), y si no, busca el array de permisos guardado en `taxonomy.roleData` (cacheado por request, `:320-338`). **Error de diseño intencional**: si el endpoint nunca llama `hasPermission()`, la acción se ejecuta igual — no hay un allowlist central que la fuerce (ver regla 4).
+
+**Logout / revocación** — logout de panel (`/v1/logout`) revoca solo la sesión activa vía `authSessionRevokeBySessionId`/`ByToken` y borra `_jwt_panel` (`panel-auth-guard.tsx:200-208`). Revocar un device desde Ajustes revoca TODAS sus sesiones (`authSessionRevokeByDevice`, `auth_session.php:297-315`) — el próximo request del POS con ese Bearer cae en `authResolve()` como `sawRevoked=true` y responde `401 {code:"session_revoked"}`, que `posFetch` (`pos-fetch.ts:22-30`) detecta puntualmente para limpiar el token local y mostrar la pantalla de reconexión.
+
+## 5. Interacciones con otros módulos
+
+| Módulo | Qué le pide / le da | Contrato (qué asume) |
+|---|---|---|
+| Todos los endpoints de escritura del panel | Deberían llamar `hasPermission()` antes de mutar. | Falso en la mayoría — 20 endpoints de escritura confirmados sin ningún chequeo (regla 4); el permiso protege la UI, no siempre el dato. |
+| Sucursales y scopes (`24-sucursales-y-scopes.md`) | `authResolve()`/`apiAuthTenant()` entrega `outletId`/`registerId` ya resueltos por realm. | Que ningún endpoint reconstruya el outlet desde un claim del token en vez de leer la fila `device` (pos-app) o el contexto ya resuelto (panel) — ver `24-*` regla de `outletScope`. |
+| POS (frontend) | Cliente propio (`pos-fetch.ts`) con Bearer explícito; nunca el cliente del panel. | Enforced por ESLint (regla 6), no solo por convención — un import nuevo de `@/lib/api-client` en rutas del POS falla el build. |
+| Agente IA (`ai/execute.php`) | Gate de permiso por acción vía `aiExecuteRequiredPermission()`. | Que ese mapa cubre las mismas acciones que el endpoint REST nativo protegería — hoy NO es así para 5 permisos (regla 3): el copiloto es más estricto que la API directa, al revés de lo esperable. |
+| Admin (`/admin`, realm `admin`) | Sesión propia, `companyId` NULL en `auth_session` (cross-tenant). | Fuera de alcance de este doc — no se relevó el authz interno del realm admin más allá de confirmar que existe como cuarto realm en `authResolve()`. |
+
+## 6. Offline
+
+El device POS SÍ opera sin red: el token `_jwt` no expira (`expiresAt IS NULL`
+en `auth_session` para pairing de device) y el resolver no depende de
+conectividad — es una lookup DB estándar, no hay validación criptográfica
+stateless que pudiera hacerse "offline" (a diferencia del JWT viejo). Esto
+significa que **la app POS en sí no valida el token localmente**: si el
+dispositivo está sin red, la request se encola (`22-sincronizacion.md`,
+no escrito aún) y la autenticación real ocurre recién cuando el servidor
+procesa la request encolada — no hay un modo "confiar en el token cacheado"
+en el cliente. `hasPermission()` tampoco tiene contraparte offline: es
+100% server-side, evaluado cuando la request llega. NO VERIFICADO: qué pasa
+si una venta encolada offline pertenece a un `roleId` cuyo permiso fue
+revocado ENTRE que se encoló y que se sincronizó — no se encontró lógica que
+re-valide permisos al momento del replay en `offline-sync.php`.
+
+## 7. Huecos conocidos y NO verificado
+
+- **20 de 45 permisos sin ningún enforcement backend** (regla 3) — confirmado por grep exhaustivo, no es una muestra.
+- **5 permisos enforced SOLO en el camino del agente IA**, no en el endpoint REST nativo del mismo recurso (regla 3) — la protección está invertida respecto a lo esperable.
+- **20 endpoints de escritura confirmados sin `hasPermission()`** (regla 4) — lista no exhaustiva: se relevaron los de mayor impacto (ventas, caja, catálogo, contactos, dispositivos, usuarios); un `grep -L "hasPermission("` sobre los 81 archivos de `api/v1/*.php` devuelve ~60 archivos sin ninguna coincidencia, no todos son de escritura ni todos mutan datos sensibles — se prioriza acá los que sí.
+- **NO VERIFICADO**: authz interno del realm `admin` (roles de soporte/staff, si existe algo análogo a `RoleService` para ese realm).
+- **NO VERIFICADO**: comportamiento de `hasPermission()` durante el replay de `offline-sync.php` si el rol cambió entre encolar y sincronizar.
+- **NO VERIFICADO**: si existe rate-limiting o lockout tras intentos fallidos de login (`SignupOtp`) — fuera del alcance de esta sesión.
+
+## 8. Planes y decisiones relacionados
+
+- `context/21-auth-rewrite.md` — plan cerrado del rewrite JWT → tokens opacos (`auth_session`), ya implementado; este doc describe el resultado.
+- `context/25-sucursales-y-scopes.md` — resolución de outlet/scope por realm, complementario a `24-sucursales-y-scopes.md`.
+- `context/modules/24-sucursales-y-scopes.md` — versión module-doc de lo anterior, con el estado actual del código.
