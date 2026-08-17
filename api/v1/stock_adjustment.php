@@ -26,6 +26,15 @@ if ($method !== 'POST') {
     apiError('Método no soportado', 405);
 }
 
+// Ajustar stock a mano cambia inventario y costo: es acción de inventario, no
+// algo que habilite el solo hecho de tener acceso al panel. La UI ya gateaba
+// con esta clave (panel-auth-guard.tsx), pero el endpoint no — llamando la API
+// directo cualquier usuario del comercio podía ajustar. Mismo gate que
+// /v1/stock_transfer y /v1/remisiones (f6d13c83).
+if (!hasPermission('inventory.stock.adjust')) {
+    apiError('No tenés permiso para esta acción (requiere: inventory.stock.adjust)', 403);
+}
+
 $body   = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
 $action = (string) ($body['action'] ?? '');
 

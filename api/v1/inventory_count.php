@@ -59,6 +59,15 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
+    // Cerrar un conteo ajusta stock contra lo contado: mismo criterio que
+    // /v1/stock_adjustment. La UI ya gateaba con esta clave
+    // (panel-auth-guard.tsx) pero el endpoint no — llamando la API directo
+    // cualquier usuario del comercio podía cerrar un conteo y mover inventario.
+    // El GET queda con la auth de panel (ver production.php/waste.php).
+    if (!hasPermission('inventory.stock.adjust')) {
+        apiError('No tenés permiso para esta acción (requiere: inventory.stock.adjust)', 403);
+    }
+
     $body   = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
     $action = (string) ($body['action'] ?? '');
 
