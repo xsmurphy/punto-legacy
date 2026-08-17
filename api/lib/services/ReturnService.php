@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Services;
 
 use Punto\App\Domain\Inventory;
+use Punto\Api\Documents\DocumentNumber;
 
 /**
  * Servicio de devoluciones (transactionType = 6).
@@ -13,6 +14,18 @@ use Punto\App\Domain\Inventory;
  * La validación de qty disponible se ejecuta DENTRO de la TX con FOR UPDATE
  * en la fila padre para evitar race conditions entre requests concurrentes.
  * Maneja stock (reposición) y crédito al cliente según refundMode.
+ *
+ * Correlativo (context/37, context/40): la devolución de venta es,
+ * conceptualmente, la nota de crédito de venta (F3/F4 de context/40, sin
+ * implementar como documento propio — acá solo se le da numeración a la
+ * transacción type=6 que YA se emite). docType 'nota_credito', scope OUTLET
+ * y NO register: a diferencia de la venta, este endpoint acepta llamadas
+ * desde 'panel' sin caja abierta (`returns.php`: "`$registerId` null cuando
+ * se llama desde panel sin caja abierta"), así que `registerId` no es
+ * confiable — mismo motivo por el que `remision` (context/42-remision.md)
+ * terminó en scope outlet en vez del `register` que D2 de context/37
+ * proponía por default. `outletId` sí es obligatorio en el endpoint (403 si
+ * falta), por eso es scope seguro acá.
  */
 final class ReturnService
 {
@@ -199,6 +212,19 @@ final class ReturnService
 
             $newTransactionId = $db->GetOne('SELECT gen_random_uuid()');
 
+            // Correlativo real (context/37 D1: SIEMPRE dentro de la TX del
+            // documento — si algo de abajo falla, el rollback devuelve el
+            // número y no queda hueco). Antes esta transacción se emitía sin
+            // invoiceno: la devolución de venta es un documento propio hacia
+            // el cliente y le corresponde numeración, igual que la factura
+            // que corrige.
+            $invoiceNo = DocumentNumber::allocate(
+                'nota_credito',
+                DocumentNumber::SCOPE_OUTLET,
+                $outletId,
+                $companyId,
+            );
+
             // Lo que efectivamente sale de la caja (o se acredita) es el NETO:
             // el bruto menos el descuento que el cliente ya no pago en su momento.
             $returnNet = round($returnTotal - $returnDiscount, 2);
@@ -219,16 +245,17 @@ final class ReturnService
                 'INSERT INTO transaction (
                     transactionid, transactiontype,
                     transactiontotal, transactiondiscount, transactionunitssold,
-                    transactionpaymenttype,
+                    transactionpaymenttype, invoiceno,
                     transactiondate, transactionnote, transactionstatus, transactioncomplete,
                     customerid, registerid, userid, outletid, companyid, meta
-                ) VALUES (?, 6, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')',
+                ) VALUES (?, 6, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')',
                 [
                     $newTransactionId,
                     -abs($returnTotal),
                     -abs($returnDiscount),
                     $totalUnits,
                     $paymentsJson,
+                    $invoiceNo,
                     $note,
                     $parent['customerid'] ?? null,
                     $registerId ?: null,
