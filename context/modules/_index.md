@@ -51,9 +51,9 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 - ⬜ `09-notas-credito-compra.md` — devolución a proveedor, modos de reembolso
 
 ### Ventas
-- ⬜ `10-pos-venta.md` — carrito, medios de pago, descuentos, offline
-- ⬜ `11-ordenes-y-comandas.md` — orden vs venta, cocina, estados
-- ⬜ `12-espacios.md` — mesas, sesiones, cobro parcial, estado compartido
+- ✅ `10-pos-venta.md` — carrito, medios de pago, descuentos, offline; venta ONLINE nunca asigna `invoiceNo` (hallazgo)
+- ✅ `11-ordenes-y-comandas.md` — orden vs venta, cocina, estados; add-ons en la orden YA resuelto (commit `46ac668f`), el gap sigue solo al cobrar
+- ✅ `12-espacios.md` — mesas, sesiones, cobro parcial (ledger), estado compartido online-only
 - ⬜ `13-cotizaciones.md`
 
 ### Dinero
@@ -87,7 +87,10 @@ Las flechas más peligrosas — donde una suposición equivocada rompe plata:
 | Cobranzas | `transaction_link` | Que el saldo sale de sumar vínculos, no de una columna |
 | POS | Sincronización | Que el cache local es fuente de verdad para operar |
 | Impresión | Plantillas | Que lo que se imprime lo decide la plantilla, no el renderer |
-| Órdenes/mesas | Add-ons | Que el `unitPrice` plano de la línea ya "cobra" el add-on — pero `CreateOrderItemInput`/`OrderItem` no tienen `selections`: una orden de mesa con add-ons pierde el desglose, el stock de la opción y el dato para la comanda (nunca corre `expandAddonSelections`) |
+| Órdenes/mesas | Add-ons | **Actualizado 2026-08-17**: el gap de creación YA se cerró (`46ac668f`, mismo día) — `CreateOrderItemInput` SÍ tiene `selections`, `OrderCoreService::create()` las valida y persiste como líneas hijas, y comanda/KDS las muestran indentadas. Lo que SIGUE roto es más angosto: al COBRAR esa orden, `loadFromOrder`/`loadFromSession` no re-mandan `selections` (para no duplicar el recargo, que ya está en `unitPrice`) — `expandAddonSelections` nunca corre para esa venta, así que el stock de la opción elegida no se descuenta y el `itemSold` pierde el desglose fiscal. Plata correcta, inventario/trazabilidad rotos. Ver `context/modules/11-ordenes-y-comandas.md` regla 3 |
+| Venta | Numeración (camino online) | Que una venta emitida CON conexión recibe `invoiceNo` igual que la offline — en realidad `SaleService::save()` nunca llama `DocumentNumber::allocate()` para venta (solo cotización) y el front nunca manda `invoiceno` en `/v1/sales`: **toda venta online persiste `invoiceNo = NULL`**. Solo el camino offline→`offline-sync.php` inyecta el número (desde el lease). Ver `context/modules/10-pos-venta.md` regla 4 |
+| Venta | Impresión (número de comprobante) | Que el ticket recién impreso muestra el `invoiceNo`/`leasedInvoiceNo` — en realidad `buildTicketData` (usado en AMBAS ramas, online y offline) nunca lee `result.invoiceNumber` hacia `documentNumber`; el bloque `document_number` renderiza vacío en las dos ramas. Ver `context/modules/10-pos-venta.md` regla 4 |
+| Espacios | Stock | Que un cobro parcial no puede descontar stock dos veces — depende ÍNTEGRAMENTE de que una sesión no mezcle familias `items`/`amount`/`share` (`SpaceSettlementService::validateAndComputeAmount`); si ese guard se rompiera, un ítem prorrateado por monto libre podría volver a cobrarse por ítems y descontar su stock dos veces sin que la plata lo delate. Ver `context/modules/12-espacios.md` regla 2 |
 | Add-ons | Stock | Que cada opción elegida (incluidas `isLocked`) descuenta con la misma `explodeRecipe` que cualquier ítem — sin excepción para las que el cajero no tocó |
 | Venta/Anulación | Producción | Que ambas resuelven "¿esta receta se explota?" con el MISMO predicado (`Inventory::saleExplodesRecipe`, contra BD) — no contra `$saleDetail[]['type']`, que el POS nunca manda. Divergencia real ya ocurrida (fix `822f8df3`): producción previa consumía insumos dos veces y anular reponía insumos jamás gastados |
 | Producción | Reportes | Contrato roto hoy: los tabs de "producción directa" filtran `item.itemType = 'direct_production'` y `stock.stockSource = 'production'`, pero ninguno de los dos valores llega a ocurrir nunca (el primero es una etiqueta sintética que no se persiste; el segundo depende del mismo campo de carrito que el POS no manda) — esos tabs quedan vacíos siempre, sin error visible |
