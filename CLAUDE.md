@@ -52,6 +52,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Detalle de transacción (resolver canónico)** | `39-detalle-transaccion.md` (F1 backend implementada 2026-08-08, F2-F4 abiertas) |
 | **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (plan cerrado 2026-08-14, D1-D4 decididas, sin implementar) |
 | **Add-ons y combos** | `41-addons-y-combos.md` (plan abierto, D1-D3 pendientes) |
+| **Multi-moneda (ventas, compras, arqueo)** | `42-multi-moneda.md` (feature request, sin planificar) |
 | **Remisión (traslado de mercadería)** | `42-remision.md` (implementada 2026-08-15, sin conexión SIFEN) |
 | **Sync incremental del POS (reconexión/arranque, lápidas de borrado)** | `43-sync-incremental.md` (implementado 2026-08-16, delta en frío pendiente) |
 | **Listas de precio offline (motor espejo + bajada al bootstrap)** | `44-listas-de-precio-offline.md` (plan sin implementar, D0-D6) |
