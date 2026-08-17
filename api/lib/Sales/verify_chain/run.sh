@@ -226,6 +226,21 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_return_numbering.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.11. Identificadores Postgres entrecomillados con case incorrecto
+#    ("itemSold", "itemLocation", a."adminId", "contactPhone"/"contactId"/
+#    "companyId"/"contactStatus"/"contactTIN") — mismo bug ya corregido en
+#    ReturnService::create() (arriba), auditado contra el catálogo real de
+#    Postgres en el resto de api/ y corregido en EInvoiceService (facturación
+#    electrónica), PurchaseCreditNoteService, LocationTaxonomyService,
+#    CompanyAdminService y ContactImporter — ver docblock de
+#    verify_pg_identifiers.php. Corre contra el mismo Postgres seedeado
+#    arriba; no depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === identificadores Postgres entrecomillados (itemSold/itemLocation/adminId/contact*) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_pg_identifiers.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="
