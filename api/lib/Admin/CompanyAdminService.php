@@ -1417,10 +1417,15 @@ class CompanyAdminService
 
         $rows = [];
         $r = $db->Execute(
+            // admin_user.adminId sin comillas a propósito: a diferencia de
+            // tenant_note (creada con columnas quoted camelCase), admin_user
+            // se creó SIN quotes → Postgres plegó adminId a minúsculas
+            // (adminid). Citarla como "adminId" exige match exacto de
+            // mayúsculas y Postgres tira "column does not exist".
             'SELECT n."noteId", n."companyId", n."authorId", n.body, n."createdAt",
                     a.name AS "authorName", a.email AS "authorEmail"
              FROM tenant_note n
-             LEFT JOIN admin_user a ON a."adminId" = n."authorId"
+             LEFT JOIN admin_user a ON a.adminId = n."authorId"
              WHERE n."companyId" = ?
              ORDER BY n."createdAt" DESC LIMIT ? OFFSET ?',
             [$companyId, $pageSize, $offset]

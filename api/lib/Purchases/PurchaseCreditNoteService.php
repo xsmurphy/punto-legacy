@@ -149,12 +149,17 @@ final class PurchaseCreditNoteService
                 // tuvieran impuestos distintos no hay un único "el" impuesto
                 // de la NC, y ese caso no lo produce el flujo de compras.
                 $origItem = $db->GetRow(
+                    // itemSold sin comillas a propósito: la tabla se creó SIN
+                    // quotes → Postgres la plegó a minúsculas (itemsold).
+                    // Citarla como "itemSold" exige match exacto de mayúsculas
+                    // y Postgres tira "relation does not exist" (mismo bug
+                    // documentado en detalle en ReturnService::create()).
                     'SELECT SUM(itemsoldunits)                 AS itemsoldunits,
                             SUM(itemsoldtotal)                 AS itemsoldtotal,
                             SUM(COALESCE(itemsolddiscount, 0)) AS itemsolddiscount,
                             SUM(COALESCE(itemsoldtax, 0))      AS itemsoldtax,
                             MIN(taxid::text)                   AS taxid
-                     FROM "itemSold"
+                     FROM itemSold
                      WHERE transactionid = ? AND itemid = ?
                      HAVING COUNT(*) > 0',
                     [$parentTransactionId, $itemId]
@@ -176,7 +181,7 @@ final class PurchaseCreditNoteService
                     $ph = implode(',', array_fill(0, count($ncIds), '?'));
                     $alreadyCredited = (float) $db->GetOne(
                         "SELECT COALESCE(SUM(ABS(is2.itemsoldunits)), 0)
-                         FROM \"itemSold\" is2
+                         FROM itemSold is2
                          JOIN transaction t2 ON t2.transactionid = is2.transactionid
                          WHERE is2.transactionid IN ($ph) AND is2.itemid = ? AND COALESCE(t2.transactionstatus, 1) <> 6",
                         [...$ncIds, $itemId]
@@ -268,7 +273,7 @@ final class PurchaseCreditNoteService
                 $itemSoldId = $db->GetOne('SELECT gen_random_uuid()');
 
                 $db->Execute(
-                    'INSERT INTO "itemSold" (
+                    'INSERT INTO itemSold (
                         itemsoldid, itemid, transactionid,
                         itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldtax, taxid,
                         itemsolddate
@@ -398,7 +403,7 @@ final class PurchaseCreditNoteService
         $stockReverted = 0;
         if ($movedItemIds !== []) {
             $lines = ncmExecute(
-                'SELECT itemid, itemsoldunits, itemsoldtotal FROM "itemSold" WHERE transactionid = ?',
+                'SELECT itemid, itemsoldunits, itemsoldtotal FROM itemSold WHERE transactionid = ?',
                 [$id],
                 false,
                 false,
@@ -504,7 +509,7 @@ final class PurchaseCreditNoteService
         $ph = implode(',', array_fill(0, count($ids), '?'));
         $rs = ncmExecute(
             "SELECT is2.itemid AS itemid, SUM(ABS(is2.itemsoldunits)) AS qty
-             FROM \"itemSold\" is2
+             FROM itemSold is2
              JOIN transaction t2 ON t2.transactionid = is2.transactionid
              WHERE is2.transactionid IN ($ph) AND t2.companyid = ? AND COALESCE(t2.transactionstatus, 1) <> 6
              GROUP BY is2.itemid",

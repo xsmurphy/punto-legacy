@@ -54,9 +54,14 @@ final class LocationTaxonomyService
      */
     public function delete(string $companyId, string $id): array
     {
-        // Guard FK: verificar que no haya items asignados a este depósito
+        // Guard FK: verificar que no haya items asignados a este depósito.
+        // itemLocation sin comillas a propósito: la tabla se creó SIN quotes
+        // → Postgres la plegó a minúsculas (itemlocation). Citarla como
+        // "itemLocation" exige match exacto de mayúsculas y Postgres tira
+        // "relation does not exist" (mismo bug documentado en detalle en
+        // ReturnService::create(), clase itemSold/itemsold).
         $rs = $this->db->Execute(
-            'SELECT COUNT(*) AS cnt FROM "itemLocation" WHERE locationid = ? AND companyid = ?',
+            'SELECT COUNT(*) AS cnt FROM itemLocation WHERE locationid = ? AND companyid = ?',
             [$id, $companyId]
         );
         if ($rs !== false) {

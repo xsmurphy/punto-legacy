@@ -1762,9 +1762,14 @@ final class EInvoiceService
         }
 
         $rs = ncmExecute(
+            // itemSold sin comillas a propósito: la tabla se creó SIN quotes
+            // (db-schema-postgres.sql) → Postgres la plegó a minúsculas
+            // (itemsold). Citarla como "itemSold" exige match exacto de
+            // mayúsculas y Postgres tira "relation does not exist" (mismo
+            // bug documentado en detalle en ReturnService::create()).
             'SELECT s.itemId AS itemId, s.itemSoldUnits AS units, s.itemSoldTotal AS lineTotal,
                     s.itemSoldDiscount AS lineDiscount, item.itemName AS itemName
-               FROM "itemSold" s
+               FROM itemSold s
                JOIN item ON item.itemId = s.itemId
               WHERE s.transactionId = ? AND item.companyId = ?',
             [$transactionId, $companyId],
