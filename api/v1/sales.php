@@ -98,6 +98,60 @@ try {
 /** @var DB $db */
 global $db; // proveído por bootstrap → head.php; pasamos por DI al servicio.
 
+$regId    = (string) $authCtx['registerId'];
+$compId   = (string) $authCtx['companyId'];
+$deviceId = (string) ($authCtx['deviceId'] ?? '');
+
+// Todo lo que llega hasta acá es venta contado/crédito (type∈{0,3} —
+// SaleInput::fromPayload ya cortó cualquier otro type más arriba en
+// assertSimplePathEligible), así que SIEMPRE necesita un invoiceNo real: el
+// POS lo manda desde `getNextInvoiceNo()` en TODA venta desde que se cerró
+// este P0 (frontend/components/register/pay-dialog.tsx, `leasedInvoiceNo`).
+// Un `invoiceNo` ausente acá es un cliente desactualizado (bundle viejo del
+// device, antes de este fix) o un bug — dejarlo pasar en silencio reabriría
+// el mismo P0 que este cambio cierra (persistir `invoiceNo = NULL`). No es
+// una regla de negocio que el POS ya validó al emitir (§53): es integridad
+// del payload, la misma categoría que "el clientId pertenece al tenant" —
+// eso el backend SIEMPRE lo valida.
+if ($input->invoiceNo === null) {
+    apiError('Falta el número de comprobante — actualizá el POS e intentá de nuevo', 422);
+}
+
+// F3 (context/29-numeracion-y-exclusividad-de-caja.md §5.4) aplicado al
+// camino ONLINE — antes solo `offline-sync.php` validaba esto. El número que
+// llega acá lo consumió el POS de su lease LOCAL (`getNextInvoiceNo()`,
+// nunca `DocumentNumber::allocate()` server-side — decisión del owner, ver
+// docblock de `RegisterLeaseService::validateInvoiceNoTenancy`); sin este
+// chequeo, un device con `localStorage` corrupto/perdido podría reenviar un
+// número que YA se consumió (o que nunca fue suyo), duplicando el
+// comprobante — exactamente el P0 fiscal que este plan cierra para offline,
+// reabierto acá si el camino online no lo revalida.
+//
+// §53 (context/08-convenciones-criticas.md): esto NO viola "el backend nunca
+// rechaza una venta ya emitida" — en este punto el ticket todavía NO se
+// imprimió (`runAutoPrint` en pay-dialog.tsx corre DESPUÉS de que este POST
+// responde 200), así que no hay venta ya emitida que se pierda. La
+// numeración exclusiva es ESTADO COMPARTIDO (distinción explícita de §53),
+// y ahí sí corresponde bloquear — mismo 409 informativo que `lease.php` ya
+// usa, para que el POS muestre quién tiene la caja tomada (F5, context/29
+// §5.6).
+if ($input->invoiceNo !== null) {
+    $conflict = \Punto\Api\Services\RegisterLeaseService::validateInvoiceNoTenancy(
+        $input->invoiceNo,
+        $regId,
+        $compId,
+        $deviceId,
+    );
+    if ($conflict !== null) {
+        apiConflict(
+            $conflict['holderDeviceId'] !== null
+                ? 'Esta caja está tomada por otro dispositivo'
+                : 'El número de comprobante venció o la caja no tiene tenencia activa — renová el arriendo de numeración e intentá de nuevo',
+            $conflict,
+        );
+    }
+}
+
 $service = new SaleService(
     ctx: TenantContext::fromAuth($authCtx),
     db:  $db,
@@ -110,6 +164,10 @@ try {
     $result = $service->save($input);
 } catch (DuplicateSaleException $e) {
     // 200 con duplicated=true — el front debe marcar el UID como sincronizado.
+    // NO se marca consumedAt acá: si esta es una venta que YA se guardó en
+    // un intento previo (el mismo uid), ese intento previo ya lo marcó —
+    // volver a marcarlo es un no-op sobre la misma fila (WHERE por
+    // invoiceNo+registerId+companyId), nunca un doble-consumo de OTRO número.
     apiOk([
         'success'    => true,
         'duplicated' => true,
@@ -121,6 +179,17 @@ try {
     apiError($e->getMessage(), 422);
 } catch (SaleAbortedException $e) {
     apiError($e->dbError ?? 'Sale transaction aborted', 500);
+}
+
+// Venta guardada — marcar el número como consumido. Mismo UPDATE que
+// offline-sync.php corre al sincronizar (F3): a partir de acá, si este
+// device pierde su lease local y vuelve a pedir un bloque, `lease.php` ya no
+// puede devolver este número (su WHERE exige "consumedAt IS NULL").
+if ($input->invoiceNo !== null) {
+    ncmExecute(
+        'UPDATE "numbering_lease" SET "consumedAt" = NOW() WHERE "invoiceNo" = ? AND "registerId" = ? AND "companyId" = ?',
+        [$input->invoiceNo, $regId, $compId]
+    );
 }
 
 apiOk($result->toApiPayload());

@@ -133,4 +133,88 @@ final class RegisterLeaseService
             [$voidReason, $registerLeaseId]
         );
     }
+
+    /**
+     * Valida que un `invoiceNo` arrendado siga con tenencia válida para
+     * `$deviceId` — mismo criterio que `api/v1/offline-sync.php` ya aplica
+     * por venta al sincronizar (F3, context/29 §5.4), factorizado acá porque
+     * `api/v1/sales.php` (camino ONLINE, F3 aplicado a ese camino) necesita
+     * el MISMO chequeo antes de guardar la venta, no solo al sincronizar: un
+     * número consumido online que nadie valida contra la tenencia real deja
+     * la misma ventana de duplicado que el P0 de este plan cerraba para
+     * offline. No se reimplementa inline en cada endpoint para no divergir
+     * de a poco — un cambio al criterio (ej. tolerancia de reloj) se hace acá
+     * una sola vez.
+     *
+     * Devuelve `null` si la tenencia es válida (el caller puede guardar la
+     * venta y marcar `consumedAt`). Si NO es válida, devuelve el detalle del
+     * tenedor REAL de la caja ahora mismo (mismo shape `{holderDeviceId,
+     * holderDeviceName, expiresAt}` que `lease.php` ya usa en su 409) para
+     * que el caller arme el mismo `apiConflict()` informativo — puede no
+     * haber tenedor (caja libre, nadie la retomó todavía).
+     *
+     * @return array{holderDeviceId:?string,holderDeviceName:?string,expiresAt:?string}|null
+     */
+    public static function validateInvoiceNoTenancy(
+        int $invoiceNo,
+        string $registerId,
+        string $companyId,
+        string $deviceId,
+    ): ?array {
+        // Mismo WHERE que offline-sync.php: el número existe, no venció por
+        // su propio TTL (24h del bloque), y no fue consumido todavía.
+        $leaseRow = ncmExecute(
+            'SELECT nl."registerLeaseId", nl."voidedAt",
+                    rl."status" AS "registerLeaseStatus", rl."deviceId" AS "registerLeaseDeviceId"
+               FROM "numbering_lease" nl
+               LEFT JOIN "register_lease" rl ON rl."registerLeaseId" = nl."registerLeaseId"
+              WHERE nl."invoiceNo" = ? AND nl."registerId" = ? AND nl."companyId" = ?
+                AND nl."consumedAt" IS NULL AND nl."expiresAt" > NOW()
+              LIMIT 1',
+            [$invoiceNo, $registerId, $companyId]
+        );
+
+        $tenancyValid = false;
+        if ($leaseRow !== false && $leaseRow !== 0) {
+            $registerLeaseId = $leaseRow['registerLeaseId'] ?? null;
+            $voidedAt        = $leaseRow['voidedAt'] ?? null;
+            // registerLeaseId NULL (fila legacy sin tenencia asignada) se
+            // trata igual que "sin tenencia válida" — mismo criterio
+            // fail-closed que offline-sync.php usa (no inventar un tenedor).
+            $tenancyValid = $registerLeaseId !== null && $registerLeaseId !== ''
+                && ($voidedAt === null || $voidedAt === '')
+                && (string) ($leaseRow['registerLeaseStatus'] ?? '') === 'active'
+                && (string) ($leaseRow['registerLeaseDeviceId'] ?? '') === $deviceId;
+        }
+
+        if ($tenancyValid) {
+            return null;
+        }
+
+        // No es válida — buscar quién tiene la caja tomada AHORA (puede ser
+        // otro dispositivo, puede ser nadie) para devolver el mismo detail
+        // informativo que `lease.php` ya arma en su propio 409.
+        $activeLease = ncmExecute(
+            'SELECT "deviceId", "expiresAt" FROM "register_lease"
+              WHERE "registerId" = ? AND "status" = \'active\' LIMIT 1',
+            [$registerId]
+        );
+
+        if ($activeLease === false || $activeLease === 0) {
+            return ['holderDeviceId' => null, 'holderDeviceName' => null, 'expiresAt' => null];
+        }
+
+        $holderDeviceId = (string) $activeLease['deviceId'];
+        $holderRow = ncmExecute(
+            'SELECT deviceName FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid LIMIT 1',
+            [$holderDeviceId, $companyId]
+        );
+        $holderHasRow = $holderRow !== false && $holderRow !== 0;
+
+        return [
+            'holderDeviceId'   => $holderDeviceId,
+            'holderDeviceName' => $holderHasRow ? (string) ($holderRow['deviceName'] ?? '') : '',
+            'expiresAt'        => (string) $activeLease['expiresAt'],
+        ];
+    }
 }
