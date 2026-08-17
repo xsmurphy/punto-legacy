@@ -42,9 +42,9 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 - ✅ `04-impuestos.md` — tasas, incluido/añadido, exento vs 0%, congelado por línea
 
 ### Inventario
-- ⬜ `05-stock.md` — movimientos, `manageStock` como choke point, ajustes, conteo
+- ✅ `05-stock.md` — movimientos, `manageStock` como choke point, ajustes, conteo
 - 🟡 `06-produccion.md` — recetas, producción directa vs previa, merma, costos
-- ⬜ `07-transferencias.md` — entre sucursales/depósitos, y su relación con remisión
+- ✅ `07-transferencias.md` — entre sucursales/depósitos, y su relación con remisión
 
 ### Compras
 - ⬜ `08-compras.md` — contado vs crédito, packSize, OCR de facturas, borradores
@@ -65,7 +65,7 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 - ⬜ `17-numeracion.md` — correlativos, arriendo offline, scope por caja/sucursal
 - ⬜ `18-impresion.md` — plantillas, bloques, bindings, transports
 - ⬜ `19-facturacion-electronica.md` — SIFEN/Factomate, qué se congela
-- ⬜ `20-remision.md`
+- ✅ `20-remision.md` — `document_remision` (motivos sin outlet propio) vs `stock_transfer` (traslado interno); ningún motivo mueve stock
 
 ### Transversales
 - ⬜ `21-contactos.md` — clientes, proveedores, direcciones, crédito habilitado
@@ -94,3 +94,7 @@ Las flechas más peligrosas — donde una suposición equivocada rompe plata:
 | Listas de precio | Impuestos | Que el precio YA ajustado por lista (descuento o recargo) es la base sobre la que se calcula el IVA — verificado: `line.unitPrice` post-resolución viaja como `price` al motor de impuestos sin ningún paso que revierta el ajuste antes de gravar |
 | POS | Listas de precio | Que `/v1/price_resolve` siempre resuelve el precio correcto — sin conexión, el front atrapa el error y cobra precio BASE en silencio: un cliente con lista de descuento paga precio lleno offline, sin aviso (plan `context/44` sin implementar) |
 | Impuestos | Facturación electrónica / RG90 | Que `kind=exempt` y `kind=rate,rate=0` son fiscalmente distintos — pero el layout fijo de RG90 (3 columnas) los junta en "exento" por falta de columna, no por error de dato |
+| Venta | Stock (`source`) | Que el `source` del movimiento de una receta explotada distingue producción directa de venta simple — en realidad `SaleService.php:1842` lee `$sD['type']` (que el POS nunca manda) para decidirlo, así que ese `source` es SIEMPRE `'sale'`, nunca `'production'`; mismo patrón de campo-que-nunca-llega que ya rompía `Producción → Reportes` |
+| Panel | Ajuste de stock / Conteo físico | Que `inventory.stock.adjust` (existe en `PermissionCatalog`, gatea la UI) también gatea el backend — `api/v1/stock_adjustment.php` e `inventory_count.php` NUNCA llaman `hasPermission()`, solo exigen sesión de panel. Mismo bug que `f6d13c83` corrigió en transferencia/remisión (`inventory.transfer`), sin tocar estos dos endpoints: cualquier usuario de panel puede ajustar stock o cerrar un conteo llamando la API directo |
+| Remisión | Stock | Que `document_remision` (venta/devolución a proveedor/consignación/exposición/compra) NUNCA mueve stock — cada motivo con movimiento real tiene su propio dueño (venta→factura, devolución→NC de compra, compra→compras); moverlo también acá duplicaría el descuento. Consignación/exposición no tienen dueño de stock hoy — decisión ABIERTA del owner, no un bug |
+| POS (catálogo) | Stock | Que `PosItem.stock` refleja el saldo real para alertar "stock bajo" — en realidad `frontend/lib/pos-bff/reshape.ts:83` fija `stock: null` a mano con un TODO desactualizado ("el LIST no incluye stock"); el backend (`ItemsQuery.php`) sí expone `stockOnHand` desde mig 133, pero el reshape del BFF nunca lo lee |
