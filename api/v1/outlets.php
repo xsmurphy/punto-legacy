@@ -7,7 +7,11 @@
  *   POST /v1/outlets (action=update&id=<uuid> + campos) → actualiza.
  *
  * Lectura sin formatear/HTML (el front formatea + arma). Escritura scopeada por COMPANY_ID del
- * JWT. Auth: realm `panel` (apiAuthTenant(['panel'])).
+ * JWT. Auth: MULTI-REALM — GET acepta `panel` y `pos-app`; las escrituras son
+ * solo `panel` (ver la línea de `apiAuthTenant` abajo, que es la fuente de
+ * verdad). Este docblock decía "realm panel" a secas y contradecía al código:
+ * en una auditoría de credenciales cruzadas hace perder tiempo o, peor, lleva
+ * a "arreglar" algo que ya estaba bien.
  *
  * Port FIEL de panel/API/v1/outlets.php (Fase 2 del desacople de /panel). Cambios respecto al
  * original: `apiMiddleware()` → `apiAuthTenant(['panel'])`; `PANEL_AUTHED_ROLE` → `$ctx['roleId']`;
