@@ -128,18 +128,41 @@ final class ReturnService
                 // todo lo que el cliente compró. `HAVING COUNT(*) > 0` evita que
                 // los agregados devuelvan una fila de nulls cuando el item no
                 // existe en la transacción (sin él, `!$origItem` nunca dispara).
-                // itemHasStock / itemLocationId salen del JOIN a `item`, que es
+                // itemTrackInventory / locationId salen del JOIN a `item`, que es
                 // una única fila por itemId: MIN() es solo para poder proyectarlas
                 // junto a los agregados, no una elección entre valores distintos.
+                // Bug encontrado al armar la cobertura de esta sesión (pre-existente,
+                // no relacionado con numeración): la query original leía
+                // `i.itemhasstock`/`i.itemlocationid`, columnas que NUNCA existieron
+                // en `item` (schema real: `itemTrackInventory` booleano — mismo
+                // idioma que ItemService::getInventory, StockTransferService,
+                // InventoryCountService — y `locationId`, mismo que
+                // SaleService.php:1847/1870 `SELECT locationId FROM item ...`).
+                // Postgres rechaza la query ANTES de mirar los datos ("column
+                // i.itemhasstock does not exist"): ReturnService::create() no podía
+                // ejecutarse con NINGÚN item, nunca — se corrige acá porque bloqueaba
+                // ejercitar el código que se está numerando en esta tarea.
+                //
+                // Segundo bug pre-existente encontrado en la misma corrida (también
+                // desbloqueante, también sin relación con numeración): la tabla se
+                // creó SIN comillas (`CREATE TABLE itemSold`, db-schema-postgres.sql),
+                // así que Postgres la guarda plegada a minúsculas (`itemsold`). Citarla
+                // entrecomillada como `"itemSold"` exige coincidencia EXACTA de mayúsculas
+                // y Postgres la rechaza con "relation itemSold does not exist" — se
+                // corrige quitando las comillas (mismo criterio que `SaleService::
+                // AutoExecute('itemSold', ...)`, que nunca cita el nombre). El mismo
+                // patrón de comillas sigue roto, sin tocar acá (fuera de alcance), en
+                // `PurchaseCreditNoteService.php` y `EInvoiceService.php:1767` —
+                // flageado en el reporte final, no en este archivo.
                 $origItem = $db->GetRow(
                     'SELECT SUM(is1.itemsoldunits)                 AS itemsoldunits,
                             SUM(is1.itemsoldtotal)                 AS itemsoldtotal,
                             SUM(COALESCE(is1.itemsolddiscount, 0)) AS itemsolddiscount,
                             SUM(COALESCE(is1.itemsoldcogs, 0) * ABS(is1.itemsoldunits))
                               / NULLIF(SUM(ABS(is1.itemsoldunits)), 0) AS itemsoldcogs,
-                            MIN(i.itemhasstock::int)               AS itemhasstock,
-                            MIN(i.itemlocationid::text)            AS itemlocationid
-                     FROM "itemSold" is1
+                            MIN(i.itemtrackinventory::int)         AS itemhasstock,
+                            MIN(i.locationid::text)                AS itemlocationid
+                     FROM itemSold is1
                      JOIN item i ON i.itemid = is1.itemid
                      WHERE is1.transactionid = ? AND is1.itemid = ?
                      HAVING COUNT(*) > 0',
@@ -176,7 +199,7 @@ final class ReturnService
                     $ph = implode(',', array_fill(0, count($returnIds), '?'));
                     $alreadyReturned = (float) $db->GetOne(
                         "SELECT COALESCE(SUM(ABS(is2.itemsoldunits)), 0)
-                         FROM \"itemSold\" is2
+                         FROM itemSold is2
                          WHERE is2.transactionid IN ($ph) AND is2.itemid = ?",
                         [...$returnIds, $itemId]
                     );
@@ -272,7 +295,7 @@ final class ReturnService
                 $itemSoldId = $db->GetOne('SELECT gen_random_uuid()');
 
                 $db->Execute(
-                    'INSERT INTO "itemSold" (
+                    'INSERT INTO itemSold (
                         itemsoldid, itemid, transactionid,
                         itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldcogs,
                         itemsolddate

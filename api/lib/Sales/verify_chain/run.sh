@@ -215,6 +215,17 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_receipt_numbering.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.10. Numeración de la devolución de venta (context/modules/17-numeracion.md
+#    §7, context/40-anulacion-y-nota-credito.md): antes de este fix
+#    ReturnService::create() (transactionType=6) insertaba la transacción SIN
+#    invoiceno — ver docblock de verify_return_numbering.php. Corre contra el
+#    mismo Postgres seedeado arriba; no depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === numeración de la devolución de venta (con caja y sin caja, invoiceNo distinto y correlativo) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_return_numbering.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="
