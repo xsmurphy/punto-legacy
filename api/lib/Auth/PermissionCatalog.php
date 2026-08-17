@@ -48,6 +48,11 @@ final class PermissionCatalog
 
             ['id' => 'settings.outlet.manage',   'label' => 'Gestionar sucursales',   'group' => 'Configuración'],
             ['id' => 'settings.register.manage', 'label' => 'Gestionar cajas',        'group' => 'Configuración'],
+            // Dedicado y separado de settings.register.manage (context/29 §4,
+            // F4): liberar la tenencia desconecta a un dispositivo que puede
+            // estar operando ahora mismo y anula sus números arrendados no
+            // consumidos — otro radio de impacto que el CRUD de la caja.
+            ['id' => 'settings.register.release', 'label' => 'Liberar tenencia de caja', 'group' => 'Configuración'],
             ['id' => 'settings.tax.manage',      'label' => 'Gestionar impuestos',    'group' => 'Configuración'],
             ['id' => 'settings.template.manage', 'label' => 'Gestionar plantillas',   'group' => 'Configuración'],
             ['id' => 'settings.device.pair',     'label' => 'Parear dispositivos POS','group' => 'Configuración'],

@@ -49,7 +49,7 @@ final class RoleService
             'reports.sales.view','reports.drawers.view','reports.audit.view','reports.expenses.view',
             'reports.satisfaction.view','reports.giftcards.view','reports.purchases.view',
             'reports.schedule.view','reports.recurring.view',
-            'settings.outlet.manage','settings.register.manage','settings.tax.manage',
+            'settings.outlet.manage','settings.register.manage','settings.register.release','settings.tax.manage',
             'settings.template.manage','settings.device.pair','settings.device.manage',
             'settings.company.edit',
             'ai.agent.use','ai.agent.elevated',
