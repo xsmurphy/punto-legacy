@@ -48,10 +48,10 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Vínculos entre transacciones/órdenes (`transaction_link`)** | `35-transaction-link.md` (mig 115, implementado) |
 | **Vouchers (vales por productos)** | `36-vouchers-plan.md` (plan cerrado, sin implementar) |
 | **Numeración correlativa de documentos** | `37-numeracion-documentos.md` (plan abierto, D2/D3/D5 pendientes) |
-| **Impuestos multi-tasa / multi-país** | `38-impuestos-multi-pais.md` (plan abierto, auditoría 2026-08-07, D1–D4 pendientes) |
-| **Detalle de transacción (resolver canónico)** | `39-detalle-transaccion.md` (F1 backend implementada 2026-08-08, F2-F4 abiertas) |
+| **Impuestos multi-tasa / multi-país** | `38-impuestos-multi-pais.md` (F0-F3, F5 implementadas — F3 factura+ticket lee IVA congelado, F5 RG90/Libro Ventas; F4 rollup pendiente) |
+| **Detalle de transacción (resolver canónico)** | `39-detalle-transaccion.md` (F1-F3 implementadas — resolver + página `/transactions/{id}` + cotizaciones/pagos recibidos; F4 migrar el POS, abierta) |
 | **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (plan cerrado 2026-08-14, D1-D4 decididas, sin implementar) |
-| **Add-ons y combos** | `41-addons-y-combos.md` (plan abierto, D1-D3 pendientes) |
+| **Add-ons y combos** | `41-addons-y-combos.md` (F1-F5 implementadas, D1-D3 cerradas; F6 reportes y 2 gaps de F5 pendientes) |
 | **Multi-moneda (ventas, compras, arqueo)** | `42-multi-moneda.md` (feature request, sin planificar) |
 | **Remisión (traslado de mercadería)** | `42-remision.md` (implementada 2026-08-15, sin conexión SIFEN) |
 | **Sync incremental del POS (reconexión/arranque, lápidas de borrado)** | `43-sync-incremental.md` (implementado 2026-08-16, delta en frío pendiente) |
