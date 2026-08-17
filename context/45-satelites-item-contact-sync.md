@@ -1,7 +1,10 @@
 # 45 — Ítem y contacto como raíces de sync: tablas satélite
 
-> Estado (2026-08-16): **plan, sin implementar.** Regla general que el owner
-> extrajo mid-sesión a partir del caso puntual de `context/44
+> Estado (2026-08-17): **implementado** (mig 139, `api/database/migrations/
+> postgres/139_satelite_touch_parent.sql`). Ver §Resultado al final del doc
+> para el detalle de lo que se corrigió del boceto, lo que quedó afuera y
+> lo que sigue pendiente de payload. Regla general que el owner extrajo
+> mid-sesión a partir del caso puntual de `context/44
 > -listas-de-precio-offline.md` (overrides de precio por lista). Reemplaza
 > ese caso puntual — ya NO es una excepción de precios, es el modelo
 > entero para toda tabla que cuelgue de `item`/`contact`.
@@ -230,32 +233,151 @@ detalle específico de precios (motor espejo TS/PHP, resolución local); este
 doc es la regla de sync que lo hace posible, generalizada al resto de
 satélites de `item`/`contact`.
 
-## Qué falta para implementar (ninguno hecho esta sesión)
+## Resultado (implementado 2026-08-17)
 
-1. Validar la sintaxis exacta del trigger genérico contra Postgres real
-   (el boceto de arriba no corrió).
-2. Migración: función + N triggers (uno por satélite de la tabla de
-   arriba, EXCLUYENDO `stock`).
-3. Verificar consistencia de reloj (trigger vs `SyncService::watermarks()`)
-   con un caso real, no por analogía.
-4. Sumar los campos correspondientes a `ItemsQuery.php` (precios por
-   lista, receta, imágenes, categoría/marca/tag si no viajan ya) —
-   confirmar shape idéntico en bootstrap/bulk-get/delta por construcción.
-   **Add-ons — HECHO 2026-08-16** (hueco P0 offline, context/08 §53):
-   `PosItem.addonGroups` ya viaja embebido vía `ItemsQuery.php` (LATERAL
-   `json_agg` sobre `addon_group`/`addon_group_option`), cubriendo
-   bootstrap/bulk-get/delta por construcción — es la instancia concreta de
-   este punto, adelantada porque bloqueaba vender offline, no porque el
-   resto del plan (trigger genérico) se haya implementado. **El trigger
-   sigue sin existir**: editar un `addon_group` NO bumpea `item.updatedAt`
-   todavía, así que el DELTA de reconexión (context/43) no lo levanta solo
-   — hoy se resuelve por el camino más caro (bootstrap completo vía
-   realtime, ver `context/41-addons-y-combos.md` §Offline) hasta que el
-   trigger de este documento se implemente de verdad.
-5. Confirmar o descartar una `ContactsQuery` única para `customerAddress`/
-   `contactNote` con el mismo criterio.
-6. Arnés: editar una dirección de contacto → el contacto aparece en el
-   delta; editar la receta de un ítem → el ítem aparece en el delta;
-   cambiar el `defaultAdjustment` de una lista → NINGÚN ítem aparece (solo
-   `settings`), pero el precio local resuelto cambia igual
-   (`context/44`).
+Migración `139_satelite_touch_parent.sql`. Un trigger genérico
+`fn_touch_parent()` (mismo patrón TG_ARGV que `fn_record_deletion()`, mig
+138), parametrizado con soporte para FK directa (la mayoría de las tablas)
+o indirecta vía un join opcional (`addon_group_option`, ver abajo).
+
+### Tablas con trigger
+
+**`item`**: `item_image`, `item_compound` (solo `parentItemId` — ver
+"Ambigüedades resueltas"), `item_category`, `item_brand`, `item_tag`,
+`itemLocation`, `addon_group`, `addon_group_option` (indirecta vía
+`groupId`), `price_list_item`, `pack_component` (solo `packItemId`).
+
+**`contact`**: `customerAddress`, `contactNote`.
+
+### Ambigüedades que el boceto no resolvía — corregidas contra Postgres real
+
+1. **`item_compound`/`pack_component` tienen DOS FKs a `item`** (padre e
+   insumo/componente). Solo la columna que describe al padre
+   (`parentItemId`/`packItemId`) dispara el bump — el insumo referenciado
+   (`childItemId`/`componentItemId`) es un producto con su propia ficha;
+   participar en la receta ajena no lo cambia. Sin esto, cambiar la receta
+   de un producto habría bumpeado también sus insumos sin motivo.
+2. **`addon_group_option.itemId` NO es el dueño del grupo** — es el
+   producto que se agrega como opción (un ítem ajeno). El dueño real se
+   resuelve vía `groupId → addon_group.itemId` (join en el trigger). Un
+   boceto ingenuo que leyera `itemId` directo de esta tabla habría
+   bumpeado el ítem EQUIVOCADO (la opción, no el producto que tiene el
+   grupo).
+3. **Reloj — el hallazgo central de esta sesión.** `item.updated_at`/
+   `contact.updated_at` son TIMESTAMPTZ, pero NINGÚN write del codebase los
+   escribe con `now()` de Postgres — usan `TODAY` (`api/data.php`) o
+   `TenantClock::now($companyId)` (`api/lib/Support/TenantClock.php`),
+   ambos "hora actual en la timezone CONFIGURADA DEL TENANT, como naive
+   string". `api/includes/db.php` fija la sesión de Postgres a
+   `SET TIME ZONE 'America/Asuncion'` SIEMPRE — el naive string se
+   reinterpreta vía esa sesión fija al guardarse, y el mismo mecanismo
+   aplica al leer (`SyncService::watermarks()->serverTime` = `TODAY`). Un
+   trigger con `now()` a secas (el boceto original) rompe esa igualdad
+   para cualquier tenant con timezone distinta — y existe un fixture real
+   así: `api/lib/Sales/verify_chain/seed.sql` tiene un tenant con
+   `settingTimeZone: "America/Mexico_City"`.
+
+   Verificado contra Postgres real (Docker, `postgres:16-alpine`, schema +
+   migraciones completas + fixtures de `verify_chain`):
+   - Con `fn_tenant_wall_clock(companyId)` (`now() AT TIME ZONE tz` del
+     tenant, mismo contrato que `TenantClock::now()`): un write directo al
+     ítem A (simulando `ItemService::update()`, TODAY del tenant MX) antes
+     de un watermark, y un cambio de satélite del ítem B (mi trigger)
+     después del mismo watermark → el delta trae SOLO B, nunca A. Correcto.
+   - Contraprueba con el boceto original (`now()` crudo) y un tenant
+     ADELANTADO a Asunción (`Europe/Madrid`, +5h en el momento de la
+     prueba): un write con `now()` crudo ocurrido DESPUÉS de capturado el
+     watermark tenant-aware **no aparece en el delta** — se pierde en
+     silencio. Reproducido, no teórico.
+   - `fn_tenant_wall_clock()` con `settingTimeZone` inválida/corrupta cae a
+     `America/Asuncion` sin abortar la transacción del caller (mismo guard
+     que `TenantClock::timezone()`).
+
+4. **No-op real**: `to_jsonb(OLD) IS NOT DISTINCT FROM to_jsonb(NEW)` en
+   UPDATE evita bump en upserts idempotentes (ej. `ON CONFLICT DO UPDATE`
+   con los mismos valores).
+5. **Mover un satélite entre padres bumpea LOS DOS.** Probado con
+   `price_list_item.itemId` reasignado de un ítem a otro: ambos quedan con
+   `updated_at` más nuevo que antes del move.
+
+### Excluidas — decisión explícita, no olvido
+
+- **`stock`**: `Inventory::manageStock()` ya bumpea `item.updatedAt` en su
+  choke point — un trigger acá duplicaría el UPDATE en cada línea de cada
+  venta. Confirmado con `pg_trigger`: la tabla `stock` no tiene ninguno de
+  los triggers de esta migración.
+- **`combo_group`/`combo_group_item`** (mig 20): deprecadas desde F5 (mig
+  136, `context/41`) — el panel ya no monta el editor, `SaleService` nunca
+  las consultó, y sus datos ya fueron copiados a `addon_group`/
+  `addon_group_option` (que sí llevan trigger). Bumpear el ítem por un
+  cambio acá sería costo sin beneficio — ningún consumidor lee esa tabla.
+- **`sold_pack`/`sold_pack_usage`, `voucher_item`,
+  `document_remision_item`, `production_order`, `waste_event`**:
+  transaccionales (evento sobre el ítem, no configuración), mismo criterio
+  que excluye `transaction`/`drawer`/`expense` del watermark de `settings`.
+- **`cRecordValue`** (resuelve el "juicio pendiente"): auditado
+  `api/lib`/`api/v1` completo — NO existe ningún INSERT/UPDATE a esta
+  tabla, el único write es el DELETE del wipe de tenant (que no necesita
+  bumpear un contacto que se está yendo con la company entera). Lectura
+  legacy panel-only, nunca viaja a ningún payload del POS. Sin write path
+  activo y sin consumidor, un trigger nunca dispararía en la práctica.
+
+### Payload — qué satélites viajan realmente al POS (verificado, no asumido)
+
+`ItemsQuery.php::buildItemsSelectSql()`/`presentItem()` siguen siendo la
+ÚNICA fuente para bootstrap (`/v1/items` vía `/api/pos/bootstrap`),
+bulk-get y delta (`SyncService`) — confirmado por código, no por
+suposición: los tres caminos importan las mismas dos funciones. Mismo
+shape por construcción, tal como preveía este doc.
+
+| Satélite | ¿Viaja al POS? | Detalle |
+|---|---|---|
+| `addon_group`/`addon_group_option` | Sí, completo | `PosItem.addonGroups`, embebido (F4-F6, ya resuelto antes de esta sesión) |
+| `item_image` | Parcial | Solo la portada (`sort=0`) como `PosItem.imageUrl`; la galería completa (hasta 5 imágenes) NO viaja — no hay UI de galería en el POS hoy |
+| `item_category`/`item_brand` | Parcial | `PosItem.categoryId`/`brandId` (FK legacy única) sí viajan; la m2m completa (multi-categoría/marca, `isPrimary`) no — es un dato de reporting (dashboard), no de venta |
+| `item_tag` | No | Exclusión YA documentada en `context/43` (audit 2026-08-16): `PosItem` no trae `tags`, nada los renderiza hoy |
+| `price_list_item` | No (a propósito) | Mecanismo separado y planificado en `context/44` (motor espejo, sin implementar) — bumpear el ítem hoy fuerza un re-sync completo por un cambio de precio-por-lista, hasta que ese plan tenga su propio delta |
+| `item_compound` (receta) | No, y no debería | Consumido SOLO server-side (`Inventory.php` al commitear la venta, `ProductionService.php`) — el POS nunca arma el carrito con la receta, la resuelve el server al vender. El bump es correcto (cumple la regla del owner) pero no "entrega" nada nuevo al cliente — no hay campo que llenar |
+| `itemLocation`, `pack_component` | No | Mismo criterio que `item_compound` — consumidos por `LocationService`/`ReturnService`/`PackService`, server-side |
+| `customerAddress` | No en bootstrap/delta, sí on-demand | `useCustomerAddressesPos()` (`/api/pos/customer-addresses`) las trae por-cliente con su propio cache + invalidación realtime YA cableada (`ENTITY_TO_QUERY_KEYS.contact` incluye `["pos","customerAddress"]`). El bump de `contact.updatedAt` cumple la regla igual (recarga el CONTACTO), la dirección en sí sigue su camino propio |
+| `contactNote` | No | Panel-only, ningún componente del POS la lee |
+
+Ningún caso de la tabla es "trigger inútil sin acción": o el dato viaja
+(addons, imageUrl, categoryId/brandId), o no necesita viajar (recetas/
+ubicaciones son server-only por diseño), o ya tiene su propio camino
+verificado (direcciones, con realtime + cache dedicado). Las únicas dos
+brechas de payload PRE-EXISTENTES (tags, price_list_item) ya estaban
+documentadas en `context/43`/`context/44` antes de esta sesión — no son
+descubrimientos nuevos, se listan acá para que quede completo el mapa
+satélite → payload.
+
+### Costo de escritura — medido, no estimado
+
+Docker `postgres:16-alpine`, 1000 filas de `price_list_item` sobre 1000
+ítems reales (simulando `PriceListService::setItems()`, DELETE+INSERT
+completo — el patrón que ya preocupaba a este doc):
+
+| Operación | Sin trigger | Con trigger | Overhead |
+|---|---|---|---|
+| DELETE 1000 filas | 5.3 ms | 228.8 ms | +223 ms |
+| INSERT 1000 filas | 65.1 ms | 510.9 ms | +446 ms |
+| **Total bulk edit (1000 ítems)** | **~70 ms** | **~740 ms** | **~670 ms** |
+
+~700ms extra en un bulk edit de 1000 ítems (operación de admin, rara, no
+un hot path) — proporcional y aceptable. Una venta de N líneas tiene
+overhead CERO: `SaleService`/`Inventory::manageStock()` solo escriben en
+`stock` (sin trigger nuevo) — confirmado por grep, ningún `INSERT`/
+`UPDATE`/`DELETE` a `item_compound`/`price_list_item`/`addon_group*` ocurre
+en el flujo de venta.
+
+### Verificación
+
+- Migración idempotente: aplicada dos veces en DB limpia (`migrate.php`
+  completo + re-aplicación directa del SQL) sin error.
+- `bash api/lib/Sales/verify_chain/run.sh`: verde (94/94 aserciones de
+  impresión + venta/impuestos/factura para los dos tenants PY/MX) con la
+  migración ya aplicada por el propio harness.
+- Casos de la regla (no de la implementación), todos contra Postgres real:
+  dirección de contacto → contacto en el delta; receta de ítem → ítem en
+  el delta; `defaultAdjustment` de lista → NINGÚN ítem se toca; mover un
+  override de lista entre ítems → ambos ítems bumpeados.

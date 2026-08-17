@@ -110,6 +110,17 @@ mismo reloj (PHP `TODAY`) escriba y el mismo reloj lea, la comparación
 riesgo real era la MEZCLA de dos relojes distintos, no la zona horaria en
 sí.
 
+**Extensión 2026-08-17 (`context/45-satelites-item-contact-sync.md`, mig
+139):** `MAX(updated_at)` ahora también refleja cambios en tablas
+satélite (direcciones/notas de contacto, receta/categoría/marca/tag/
+imágenes/add-ons/overrides de precio de ítem, etc.) — un trigger genérico
+por satélite bumpea `updated_at` del padre, así este watermark derivado
+los cubre sin cambiar de forma. Mismo cuidado de reloj que arriba: el
+trigger usa `now() AT TIME ZONE settingTimeZone` (no `now()` a secas) para
+no reintroducir la mezcla de relojes que este documento corrigió — el
+contrato del delta (shape de la respuesta, endpoint, `since`/`serverTime`)
+NO cambió, solo se amplió qué operaciones lo disparan.
+
 ## Decisión 2 — Borrados: tabla de lápidas + TRIGGER de DB (no un helper por call-site)
 
 `SELECT ... WHERE updated_at > $fecha` nunca devuelve una fila borrada. Se
@@ -285,6 +296,9 @@ delta, no necesita un ciclo completo antes.
   nunca dispara para `pos-bootstrap` en el POS, ver `use-realtime-sync.ts`
   §Modelo quirúrgico).
 - Migración: `api/database/migrations/postgres/138_sync_incremental.sql`.
+- `context/45-satelites-item-contact-sync.md` (mig 139) — trigger genérico
+  que bumpea `item`/`contact` desde sus tablas satélite, así este
+  watermark derivado también cubre esos cambios.
 - Backend: `api/v1/sync.php`, `api/lib/Sync/SyncService.php`,
   `api/lib/Items/ItemsQuery.php` (extraída), `ContactRepository::
   listUpdatedSince()`/`ContactService::manyUpdatedSince()`,
