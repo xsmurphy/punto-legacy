@@ -14,6 +14,43 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 ---
 
+## Bugs destapados al documentar los módulos (2026-08-17)
+
+Salieron de escribir `context/modules/` — cada uno con evidencia `path:line` en
+el doc del módulo. **Ninguno está arreglado**; el owner decidió anotarlos y
+seguir documentando. Los dos primeros son plata.
+
+1. **El costo de producción directa NUNCA se calcula.** `SaleService.php:1715`
+   compara `itemType === 'direct_production'`, pero un `produccion_directa`
+   persiste `itemType = 'product'` (`ItemKind.php:32`) — `'direct_production'`
+   es una etiqueta sintética de presentación que jamás se escribe a BD. El
+   branch `getProductionCOGS()` es código muerto: cae al `else`
+   (`getItemStock`), que no tiene filas para un ítem que no trackea stock
+   propio. **Margen y ganancia de producción directa están mal.** Detalle:
+   `context/modules/06-produccion.md`.
+2. **Los reportes de producción directa salen siempre vacíos**, sin error
+   visible — mismo string inexistente en el filtro
+   (`Reports/ProductionService.php:76,98,133-140`).
+3. **Una orden/mesa con add-ons pierde el desglose al cobrarse.**
+   `CreateOrderItemInput`/`OrderItem` no tienen `selections`
+   (`frontend/hooks/use-orders.ts:156-164,45-65`) y `OrderCoreService` no lo
+   persiste, así que `loadFromOrder` reconstruye el carrito sin selecciones y
+   `expandAddonSelections` nunca corre: **no se descuenta el stock del add-on
+   elegido**, no hay líneas hijas y la comanda no puede mostrarlo. La plata
+   sale bien (el `unitPrice` ya incluye el delta); el inventario no. Detalle:
+   `context/modules/02-combos-y-addons.md`.
+4. **`$sD['type']` sigue leído en un segundo call-site.**
+   `SaleService.php:1807` lo usa para decidir el `source` del movimiento de
+   stock al explotar receta — el MISMO campo que el fix `822f8df3` documentó
+   (tres líneas arriba) como "el POS nunca lo manda". Se arregló una instancia
+   y quedó la otra.
+
+**Además, dos divergencias plan↔código** (no son bugs, son deuda de estado):
+la mig 23 dejó escrito que iba a retirar `taxonomy` "cuando facturación/
+reportes/ítems migren" y nunca pasó — las dos tablas siguen vivas y
+sincronizadas por triggers; y el `TAX_RATE = 0.10` que F2b daba por muerto
+sigue vivo en `allocate-discounts.ts:29` para el neteo de "quitar IVA".
+
 ## Cuentas por cobrar/pagar — cobro/pago inline (2026-08-16)
 
 `/reports/open-invoices`: detalle por contacto (reusa `AccountStatementSection`
