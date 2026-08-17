@@ -1,7 +1,7 @@
 "use client"
 
 import { Badge } from "@/components/ui/badge"
-import type { Order, OrderItem } from "@/hooks/use-orders"
+import { isAddonChild, type Order, type OrderItem } from "@/hooks/use-orders"
 import { DisplayCard } from "./display-card"
 
 interface DisplayColumnProps {
@@ -31,7 +31,11 @@ export function DisplayColumn({ label, orders, interactive, busyIds, onDeliverAl
             <DisplayCard
               key={order.id}
               order={order}
-              items={order.items ?? []}
+              // Sin las hijas de add-ons (context/41): esta pantalla ENTREGA
+              // ítems, y una hija no se entrega sola — el backend rechaza esa
+              // transición, así que incluirlas haría fallar el "entregar todo"
+              // de la orden entera. Viajan con su padre.
+              items={(order.items ?? []).filter((i) => !isAddonChild(i))}
               interactive={interactive}
               busy={busyIds.has(order.id)}
               onDeliverAll={onDeliverAll}

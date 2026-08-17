@@ -72,6 +72,13 @@ final class SpaceBalanceService
               WHERE o.spacesessionid = ? AND o.companyid = ?
                 AND o.status NOT IN ('closed','cancelled')
                 AND oi.status != 'cancelled'
+                -- Las líneas hijas de add-ons (context/41, mig 139) NO son
+                -- unidades cobrables: no llevan plata propia (price = 0, su
+                -- recargo ya está en el precio del padre) y no se pagan por
+                -- separado — el queso extra se cobra con la hamburguesa. Sin
+                -- este filtro, el split por ítems listaría filas de $0
+                -- seleccionables que no mueven el saldo.
+                AND oi.parentorderitemid IS NULL
               ORDER BY oi.created_at ASC",
             [$sessionId, $companyId]
         );

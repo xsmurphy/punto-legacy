@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Punto\Api\Orders;
 
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\Items\AddonService;
+use Punto\Api\Items\Exceptions\InvalidAddonSelectionException;
 use Punto\Api\Services\TransactionLinkService;
 
 /**
@@ -89,14 +91,43 @@ final class OrderCoreService
         'cancelled'        => [],
     ];
 
+    /**
+     * Orden jerárquico de las líneas: cada add-on sale INMEDIATAMENTE debajo
+     * de su padre (context/41). Una única definición para los dos SELECT de
+     * ítems (detalle y batch) — que difieran sería que la comanda y el KDS
+     * ordenen distinto.
+     *
+     * El JOIN trae la fila padre para poder ordenar por SUS datos: así toda
+     * la familia queda contigua y en la posición que le corresponde al padre.
+     * `created_at` NO alcanza solo — todas las líneas de un mismo create()
+     * comparten el timestamp de la transacción, así que sin el desempate por
+     * id el orden dentro de una tanda era indefinido (ya lo era antes de los
+     * add-ons). El `(parentorderitemid IS NOT NULL)` pone al padre primero
+     * (FALSE ordena antes que TRUE en PG) y las hermanas quedan
+     * desempatadas por id, que es estable.
+     */
+    private const ITEMS_HIERARCHY_JOIN =
+        ' LEFT JOIN pos_order_item parent
+                 ON parent.orderitemid = oi.parentorderitemid
+                AND parent.companyid   = oi.companyid ';
+
+    private const ITEMS_HIERARCHY_ORDER =
+        ' ORDER BY COALESCE(parent.created_at,  oi.created_at)  ASC,
+                   COALESCE(parent.orderitemid, oi.orderitemid) ASC,
+                   (oi.parentorderitemid IS NOT NULL)           ASC,
+                   oi.created_at  ASC,
+                   oi.orderitemid ASC ';
+
     /** @var mixed */
     private $db;
     private TransactionLinkService $links;
+    private AddonService $addons;
 
     public function __construct($db)
     {
-        $this->db    = $db;
-        $this->links = new TransactionLinkService();
+        $this->db     = $db;
+        $this->links  = new TransactionLinkService();
+        $this->addons = new AddonService();
     }
 
     // ------------------------------------------------------------------
@@ -108,11 +139,20 @@ final class OrderCoreService
      * → order_station) y el correlativo ordernumber (por outlet+día local).
      * Atómico — TX propia.
      *
+     * Cada ítem puede traer `selections: [{optionId, qty}]` (MISMO shape que
+     * la venta, ver SaleService::expandAddonSelections): se revalidan contra
+     * la BD antes de abrir la TX y se persisten como LÍNEAS HIJAS de
+     * `pos_order_item` (`parentorderitemid`), que es lo que la comanda de
+     * cocina imprime debajo del producto. Las hijas no llevan plata
+     * (`price = 0`) — el recargo ya viene dentro del `price` del padre; ver el
+     * comentario del INSERT de hijas más abajo y la mig 139.
+     *
      * @param array{outletId:string, registerId?:string, source?:string,
      *              spaceSessionId?:string, fulfillment?:string,
      *              deliveryAddressId?:string,
      *              items:list<array{itemId?:string, qty:float, price?:float,
-     *              note?:string, course?:int}>, customerId?:string,
+     *              note?:string, course?:int,
+     *              selections?:list<array{optionId:string, qty:int}>}>, customerId?:string,
      *              userId?:string, note?:string, channelRef?:string,
      *              sendNow?:bool, transactionId?:string} $data
      * @return string orderId
@@ -230,6 +270,42 @@ final class OrderCoreService
 
         $stations = $this->listStationsRaw($companyId, $outletId);
 
+        // Add-ons (context/41): revalidación server-side de las selecciones,
+        // ANTES del StartTrans — mismo criterio que el resto de los checks de
+        // acá arriba (outlet, dirección, sesión) y que la venta
+        // (SaleService::expandAddonSelections, F3): un rechazo sale 422 sin
+        // haber abierto una transacción que después habría que rollbackear.
+        //
+        // El precio NUNCA viaja del cliente: el payload solo aporta
+        // `optionId` + `qty` y `validateSelections` resuelve nombre, ítem real
+        // y `priceDelta` contra la BD, aplica min/max por grupo y agrega los
+        // `isLocked` que el POS no haya mandado. Se indexa por posición de la
+        // línea para reusarlo en el loop de INSERT sin re-consultar.
+        $validatedByIndex = [];
+        foreach ($items as $idx => $item) {
+            $selections = $item['selections'] ?? null;
+            $selItemId  = !empty($item['itemId']) ? (string) $item['itemId'] : null;
+            if (!is_array($selections) || $selections === []) {
+                continue;
+            }
+            // Add-ons sobre una línea libre (sin itemId) se RECHAZAN, no se
+            // descartan en silencio: los grupos cuelgan de un producto del
+            // catálogo, así que no hay contra qué validar. Descartarlos
+            // devolvería 201 y la cocina no vería un "sin cebolla" que el
+            // cajero sí cargó — un 422 es preferible a una instrucción perdida.
+            if ($selItemId === null) {
+                throw new \InvalidArgumentException('Una línea sin itemId no puede llevar add-ons');
+            }
+            try {
+                $validatedByIndex[$idx] = $this->addons->validateSelections($selItemId, $companyId, $selections);
+            } catch (InvalidAddonSelectionException $e) {
+                // Se traduce al mecanismo de error que este service YA usa
+                // (orders-core.php mapea cualquier \Throwable de create() a
+                // 422 con el mensaje), en vez de introducir uno nuevo.
+                throw new \InvalidArgumentException($e->getMessage());
+            }
+        }
+
         $db->StartTrans();
 
         $lockedStatus = null;
@@ -322,7 +398,7 @@ final class OrderCoreService
         // sendNow crea la orden ya 'sent'.
         $this->recordEvent($companyId, $outletId, $orderId, null, null, 'order', null, $status);
 
-        foreach ($items as $item) {
+        foreach ($items as $idx => $item) {
             $itemId = !empty($item['itemId']) ? (string) $item['itemId'] : null;
             $qty    = (float) ($item['qty'] ?? 0);
             if ($qty <= 0) {
@@ -374,16 +450,78 @@ final class OrderCoreService
             }
             $itemTagsJson = $itemTags !== [] ? json_encode($itemTags) : null;
 
+            // El id se genera acá (generateUuidV7, convención del repo) en vez
+            // de `gen_random_uuid()` en el VALUES: las líneas hijas necesitan
+            // el id del PADRE para su `parentorderitemid`, y tenerlo antes del
+            // INSERT evita depender de un RETURNING (que este wrapper expone
+            // como recordset y obligaría a un caso especial en el único INSERT
+            // de la orden). El precio de fila lo paga solo el padre.
+            $orderItemId = generateUuidV7();
+
             $itemOk = $this->db->Execute(
                 'INSERT INTO pos_order_item
                     (orderitemid, orderid, companyid, itemid, name, qty, price, note, tags, stationid, course)
-                 VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [$orderId, $companyId, $itemId, $name, $qty, $price, $itemNote, $itemTagsJson, $stationId, $course]
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [$orderItemId, $orderId, $companyId, $itemId, $name, $qty, $price, $itemNote, $itemTagsJson, $stationId, $course]
             );
             if ($itemOk === false) {
                 $db->FailTrans();
                 $db->CompleteTrans();
                 throw new \RuntimeException('No se pudo agregar un ítem a la orden');
+            }
+
+            // ── Líneas hijas de add-ons (context/41, gap 1 de F5) ───────────
+            // Una fila por opción elegida, colgada del padre por
+            // `parentorderitemid`. Es lo que hace que la comanda de cocina
+            // pueda imprimir "Hamburguesa / + Queso extra / + Sin cebolla".
+            //
+            // PLATA: la hija va SIEMPRE con `price = 0` y su recargo en
+            // `pricedelta`, que NO se suma a ningún total. El recargo ya está
+            // adentro del `price` del PADRE — el POS manda
+            // `CartLine.unitPrice`, que se arma como `item.price +
+            // addonsDelta(selections)` (ver el docblock de CartLine.selections
+            // en frontend/lib/cart/store.ts). Cobrarlo también desde la hija
+            // sería cobrarlo dos veces, así que las agregaciones existentes
+            // (SUM(qty*price) en Reports/OrdersService, TransactionDetailService,
+            // SpaceBalanceService y SpaceSettlementService) quedan INTACTAS y
+            // siguen dando el total correcto. Ver la cabecera de la mig 139.
+            //
+            // ESTACIÓN: la hija hereda `stationid` y `course` del padre y NO
+            // resuelve estación por su propia categoría. El add-on se prepara
+            // FÍSICAMENTE junto con el producto que lo lleva — el queso de la
+            // hamburguesa va a la plancha con la hamburguesa, no a la barra
+            // porque el ítem "Queso" esté categorizado como lácteo. Mandarlo a
+            // otra estación imprimiría media comanda en un puesto que no
+            // prepara nada.
+            //
+            // CANTIDAD: qty de la opción × unidades del padre — 2 hamburguesas
+            // con queso extra son 2 quesos (mismo criterio que
+            // SaleService::expandAddonSelections).
+            foreach (($validatedByIndex[$idx]['lines'] ?? []) as $line) {
+                $optQty = (float) $line['qty'];
+                // `priceDelta` viene multiplicado por la qty de la opción;
+                // se baja a unitario para que `qty × pricedelta` sea el
+                // recargo de la línea, espejo de `qty × price`.
+                $unitDelta  = $optQty > 0 ? ((float) $line['priceDelta'] / $optQty) : 0.0;
+                $childQty   = $optQty * $qty;
+
+                $childOk = $this->db->Execute(
+                    'INSERT INTO pos_order_item
+                        (orderitemid, orderid, companyid, itemid, name, qty, price,
+                         stationid, course, parentorderitemid, addonoptionid, pricedelta)
+                     VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)',
+                    [
+                        generateUuidV7(), $orderId, $companyId,
+                        (string) $line['itemId'], (string) ($line['itemName'] ?? ''),
+                        $childQty, $stationId, $course,
+                        $orderItemId, (string) $line['optionId'], $unitDelta,
+                    ]
+                );
+                if ($childOk === false) {
+                    $db->FailTrans();
+                    $db->CompleteTrans();
+                    throw new \RuntimeException('No se pudo agregar un add-on a la orden');
+                }
             }
         }
 
@@ -767,6 +905,22 @@ final class OrderCoreService
             throw new \RuntimeException('Ítem de orden no encontrado'); // no revelar existencia cross-outlet
         }
 
+        // Una línea hija de add-on NO tiene ciclo propio: viaja con su padre
+        // (ver el UPDATE de abajo). El guard vive ACÁ, en el único método por
+        // el que un dispositivo puede mover el status de un ítem, y no en la
+        // UI del KDS: esconder la hija en la pantalla evita el tap accidental,
+        // pero no evita el request. Sin este rechazo, bumpear una hija suelta
+        // la adelantaría sola y `recomputeOrderStatus` agregaría un conjunto
+        // mixto — la orden avanzaría a 'ready' con el plato todavía en la
+        // plancha, o quedaría trabada para siempre.
+        if (!empty($item['parentorderitemid'])) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \InvalidArgumentException(
+                'Un add-on no cambia de estado por separado: se marca junto con el ítem que lo lleva'
+            );
+        }
+
         $current = (string) $item['status'];
         $allowed = self::ITEM_TRANSITIONS[$current] ?? [];
         if (!in_array($status, $allowed, true)) {
@@ -787,9 +941,18 @@ final class OrderCoreService
             'preparing', 'pending' => ', ready_at = NULL',
             default                => '',
         };
+        // El cambio de status ARRASTRA a las líneas hijas de add-ons
+        // (context/41): un add-on no se prepara ni se entrega por separado del
+        // producto que lo lleva — el queso extra sale listo cuando sale lista
+        // la hamburguesa. No es cosmético: `recomputeOrderStatus` agrega el
+        // estado de TODAS las líneas activas, así que una hija que se quedara
+        // en 'pending' dejaría la orden entera sin poder llegar a
+        // 'ready'/'delivered' y fuera del board del KDS para siempre. Por eso
+        // tampoco hay que bumpear hijas desde la UI: viajan con su padre.
         $ok = $this->db->Execute(
-            "UPDATE pos_order_item SET status = ?{$timeCol} WHERE orderitemid = ? AND companyid = ?",
-            [$status, $orderItemId, $companyId]
+            "UPDATE pos_order_item SET status = ?{$timeCol}
+              WHERE (orderitemid = ? OR parentorderitemid = ?) AND companyid = ?",
+            [$status, $orderItemId, $orderItemId, $companyId]
         );
         if ($ok === false) {
             $db->FailTrans();
@@ -1250,9 +1413,10 @@ final class OrderCoreService
             $rs = $this->db->Execute(
                 'SELECT oi.*, s.name AS stationname
                    FROM pos_order_item oi
-              LEFT JOIN order_station s ON s.stationid = oi.stationid AND s.companyid = oi.companyid
-                  WHERE oi.orderid = ? AND oi.companyid = ?
-                  ORDER BY oi.created_at ASC',
+              LEFT JOIN order_station s ON s.stationid = oi.stationid AND s.companyid = oi.companyid'
+                . self::ITEMS_HIERARCHY_JOIN .
+                 'WHERE oi.orderid = ? AND oi.companyid = ?'
+                . self::ITEMS_HIERARCHY_ORDER,
                 [$row['orderid'], $companyId]
             );
             $items = [];
@@ -1350,6 +1514,19 @@ final class OrderCoreService
             'createdAt'   => $item['created_at'] ?? null,
             'readyAt'     => $item['ready_at'] ?? null,
             'deliveredAt' => $item['delivered_at'] ?? null,
+            // Add-ons (context/41, mig 139). `parentOrderItemId` no-null = esta
+            // línea es un add-on de otra línea de ESTA misma orden; viene
+            // siempre inmediatamente después de su padre (ver
+            // ITEMS_HIERARCHY_ORDER). `priceDelta` es el recargo UNITARIO y NO
+            // se suma a los totales — el recargo ya está en el `price` del
+            // padre (ver mig 139); sirve para saber si el add-on cobra o es
+            // gratis, que es lo que separa la comanda de cocina (lista todo)
+            // del ticket fiscal (solo lo que cobra, D3).
+            'parentOrderItemId' => $item['parentorderitemid'] ?? null,
+            'addonOptionId'     => $item['addonoptionid'] ?? null,
+            'priceDelta'        => isset($item['pricedelta']) && $item['pricedelta'] !== null
+                ? (float) $item['pricedelta']
+                : null,
         ];
     }
 
@@ -1372,9 +1549,10 @@ final class OrderCoreService
         $rs = $this->db->Execute(
             "SELECT oi.*, s.name AS stationname
                FROM pos_order_item oi
-          LEFT JOIN order_station s ON s.stationid = oi.stationid AND s.companyid = oi.companyid
-              WHERE oi.orderid IN ($placeholders) AND oi.companyid = ?
-              ORDER BY oi.created_at ASC",
+          LEFT JOIN order_station s ON s.stationid = oi.stationid AND s.companyid = oi.companyid"
+            . self::ITEMS_HIERARCHY_JOIN .
+            "WHERE oi.orderid IN ($placeholders) AND oi.companyid = ?"
+            . self::ITEMS_HIERARCHY_ORDER,
             $params
         );
         if ($rs === false) return [];

@@ -28,7 +28,7 @@
  * qué está adentro y qué afuera, o la pantalla se contradice sola.
  */
 
-import type { Order, OrderItem, OrderStatus } from "@/hooks/use-orders"
+import { isAddonChild, type Order, type OrderItem, type OrderStatus } from "@/hooks/use-orders"
 import { parseNaive } from "@/lib/format-date"
 
 /**
@@ -60,9 +60,24 @@ export function isTerminal(status: OrderStatus): boolean {
  * quien opera vería una comanda salir del board con líneas sin marcar.
  */
 export function screenItems(order: Order, stationIds: string[]): OrderItem[] {
-  const items = order.items ?? []
+  // Las líneas hijas de add-ons (context/41) NUNCA son ítems del board: no se
+  // marcan por separado — el queso extra sale listo cuando sale lista la
+  // hamburguesa. Si aparecieran acá serían tarjetas tapeables sueltas, y
+  // bumpear una adelantaría su estado sin el de su padre, dejando a
+  // `recomputeOrderStatus` agregando un conjunto mixto. Se muestran igual,
+  // pero como detalle de su padre (ver `addonChildrenOf`), que es lo que la
+  // cocina necesita leer.
+  const items = (order.items ?? []).filter((i) => !isAddonChild(i))
   if (stationIds.length === 0) return items
   return items.filter((i) => i.stationId && stationIds.includes(i.stationId))
+}
+
+/**
+ * Los add-ons de una línea, para pintarlos debajo de ella (context/41).
+ * Read-only por definición: viajan con el padre, no se marcan solos.
+ */
+export function addonChildrenOf(order: Order, parentItemId: string): OrderItem[] {
+  return (order.items ?? []).filter((i) => i.parentOrderItemId === parentItemId)
 }
 
 /**

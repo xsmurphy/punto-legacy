@@ -21,7 +21,7 @@
 import { create } from "zustand"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
-import type { Order, Fulfillment } from "@/hooks/use-orders"
+import { isAddonChild, type Order, type Fulfillment } from "@/hooks/use-orders"
 import type { CustomerAddress } from "@/lib/types/contact"
 import { allocateLineDiscounts, lineGross, TAX_RATE as ALLOC_TAX_RATE } from "@/lib/cart/allocate-discounts"
 import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
@@ -1183,6 +1183,20 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
     const newLines: CartLine[] = (order.items ?? [])
       .filter((oi) => oi.status !== "cancelled")
+      // Las líneas hijas de add-ons (context/41, mig 139) NO vuelven al
+      // carrito: su plata ya está adentro del `price` del padre, así que
+      // cargarlas sería agregar líneas de $0 que el cajero tendría que borrar
+      // a mano. Cobrar una orden sigue moviendo exactamente la misma plata que
+      // antes de que la orden persistiera add-ons.
+      //
+      // Tampoco se re-hidratan como `selections` del padre: hoy la venta suma
+      // el recargo DOS veces en su detalle (el POS manda `unitPrice` con el
+      // delta incluido y `SaleService::expandAddonSelections` vuelve a
+      // agregarlo como línea hija). Mientras esa asimetría siga en pie,
+      // re-hidratar acá metería ese doble conteo en el cobro de mesas, que hoy
+      // no lo tiene. Ver el reporte del gap 1 y el docblock de
+      // `CartLine.selections`.
+      .filter((oi) => !isAddonChild(oi))
       .map((oi) => {
         // `OrderItem` no viaja con datos de impuesto: se re-resuelven del
         // catálogo por itemId al reconstruir la línea. Sin esto, el chip de
@@ -1265,6 +1279,9 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     for (const order of billable) {
       const orderLines: Omit<CartLine, "lineId">[] = (order.items ?? [])
         .filter((oi) => oi.status !== "cancelled")
+        // Mismo criterio que loadFromOrder: las hijas de add-ons no vuelven al
+        // carrito (su recargo ya está en el precio del padre).
+        .filter((oi) => !isAddonChild(oi))
         .map((oi) => {
           // Igual que loadFromOrder: OrderItem no trae impuesto — se
           // re-resuelve del catálogo para que el chip de IVA de la mesa no

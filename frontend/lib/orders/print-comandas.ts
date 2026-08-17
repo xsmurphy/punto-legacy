@@ -23,15 +23,45 @@ import type { PrinterBinding } from "@/lib/hardware/printers/binding"
 import type { TicketData, TicketItem } from "@/lib/hardware/printers/build-ticket-data"
 import { useCatalogStore } from "@/lib/catalog/store"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
-import type { Order } from "@/hooks/use-orders"
+import { isAddonChild, type Order } from "@/hooks/use-orders"
 import { orderDestinationText } from "@/lib/orders/order-display"
 
 export function buildOrderTicketData(order: Order, config: PosConfig | null): TicketData {
   const catalogItems = useCatalogStore.getState().items
   const orderItems = (order.items ?? []).filter((oi) => oi.status !== "cancelled")
 
+  // categoryId de cada línea PADRE, para que sus add-ons se impriman en la
+  // MISMA comanda que ella. Este builder delega la partición por impresora en
+  // `printSale`, que reparte por `categoryId` de la línea (ver la cabecera):
+  // si la hija declarara la categoría de su propio producto, el "+ Queso
+  // extra" podría salir en la impresora de la barra y la hamburguesa en la de
+  // la plancha — media instrucción en un puesto que no prepara nada. Es el
+  // mismo criterio con el que el backend le hereda `stationId` al add-on.
+  const parentCategoryById = new Map<string, string | null>()
+  for (const oi of orderItems) {
+    if (!isAddonChild(oi)) {
+      const catalogItem = oi.itemId ? catalogItems.find((c) => c.id === oi.itemId) : undefined
+      parentCategoryById.set(oi.id, catalogItem?.categoryId ?? null)
+    }
+  }
+
   const items: TicketItem[] = orderItems.map((oi) => {
     const catalogItem = oi.itemId ? catalogItems.find((c) => c.id === oi.itemId) : undefined
+    // Add-ons (context/41): la comanda lista TODOS, cobren o no — es de
+    // cocina, y "sin cebolla" (priceDelta 0) es justamente la instrucción que
+    // no puede faltar. La divergencia con el ticket fiscal, que solo lista los
+    // add-ons con precio (D3), NO se resuelve acá: el ticket de la VENTA la
+    // aplica con `includeFreeAddons` en buildTicketItemsFromTransaction, y
+    // este builder es exclusivo de docType="order".
+    //
+    // `isAddonChild` es la ÚNICA señal que necesita la impresión: los dos
+    // renderers (render-template.ts / html-renderer.ts) ya pasan cada línea
+    // por `ticketItemName()`, que le antepone el prefijo de indentación. No se
+    // arma ningún mecanismo paralelo de sangría.
+    const addonChild = isAddonChild(oi)
+    // El recargo del add-on ya está cobrado en el precio del padre, así que la
+    // hija va con importe 0 y la comanda no muestra plata duplicada. La
+    // cantidad SÍ es la suya (2 hamburguesas con queso = 2 quesos).
     const unitPrice = oi.price ?? 0
     return {
       name: oi.name,
@@ -40,7 +70,10 @@ export function buildOrderTicketData(order: Order, config: PosConfig | null): Ti
       discountAmount: 0,
       discountPercent: 0,
       total: unitPrice * oi.qty,
-      categoryId: catalogItem?.categoryId ?? null,
+      isAddonChild: addonChild,
+      categoryId: addonChild
+        ? (parentCategoryById.get(oi.parentOrderItemId ?? "") ?? null)
+        : (catalogItem?.categoryId ?? null),
       id: oi.itemId,
       uid: catalogItem?.sku ?? null,
       note: oi.note,
