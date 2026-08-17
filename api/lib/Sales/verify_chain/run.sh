@@ -191,6 +191,17 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_offline_resolution.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.8. Exclusividad de caja (context/29, P0 fiscal): dos dispositivos NO
+#    pueden compartir el bloque de números de una caja — ver docblock de
+#    verify_register_lease.php. Levanta su propio servidor PHP built-in
+#    (mismo bootstrap.php/lease.php reales) contra el Postgres seedeado
+#    arriba; no depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === exclusividad de caja (register_lease, 409 entre devices) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_register_lease.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="

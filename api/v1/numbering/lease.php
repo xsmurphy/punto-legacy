@@ -112,9 +112,10 @@ if ($activeLease !== false && $activeLease !== 0 && (string) $activeLease['devic
     $db->FailTrans();
     $db->CompleteTrans();
 
+    $holderHasRow = $holderRow !== false && $holderRow !== 0;
     apiConflict('Esta caja está tomada por otro dispositivo', [
         'holderDeviceId'   => (string) $activeLease['deviceId'],
-        'holderDeviceName' => is_array($holderRow) ? (string) ($holderRow['deviceName'] ?? '') : '',
+        'holderDeviceName' => $holderHasRow ? (string) ($holderRow['deviceName'] ?? '') : '',
         'expiresAt'        => (string) $activeLease['expiresAt'],
     ]);
 }
@@ -130,7 +131,7 @@ if ($activeLease === false || $activeLease === 0) {
          RETURNING "registerLeaseId"',
         [$compId, $outletId, $regId, $deviceId, $expiresAt]
     );
-    if (!is_array($newLease) || (string) ($newLease['registerLeaseId'] ?? '') === '') {
+    if ($newLease === false || $newLease === 0 || (string) ($newLease['registerLeaseId'] ?? '') === '') {
         // No debería pasar (INSERT ... RETURNING sobre una tabla sin
         // triggers), pero si el driver devuelve false por una falla
         // transitoria de DB, cortar acá — seguir de largo escribiría
