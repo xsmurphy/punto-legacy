@@ -5,85 +5,82 @@
 
 ## Objetivo
 
-Sesión larga (2026-08-15/17, entreverada con ≥3 sesiones paralelas — ver
-bitácora). Ejes propios: impuestos F3 (FE lee IVA congelado), resolver
-canónico de detalle de transacción, remisión, recuperar RG90/Libro Ventas,
-hacer real la regla "toda mutación se sincroniza sola" (el POS nunca
-escuchaba), auditar el offline del POS contra su propia regla, cuentas por
-pagar de cero, y arrancar `context/modules/`.
+Cerrar F2/F3 de numeración (`context/37`), resolver dos P0s de costeo
+detectados en producción (costo promedio en cero, explosión de receta de un
+solo nivel), atacar la raíz del wrapper de DB (`_getTableSchema()` a mano),
+cerrar F1-F5 de add-ons/combos (`context/41`) y arreglar un bug reportado de
+módulos que desaparecían del sidebar del POS.
 
 ## Estado al cerrar
 
-Todo commiteado y pusheado a `main` (`990f1956..1d4068d8`, 90 commits). Deploy
-no confirmado explícitamente esta sesión (ver "Pendiente de verificación").
-Detalle de cada feature en la bitácora y en `context/38/39/41/42-remision/43`.
-Lo que condiciona retomar: F4 de `context/39` (migrar el POS al resolver
-canónico) queda abierta a propósito; `context/modules/` tiene 13/25 docs;
-`frontend/public/sw.js` modificado sin commitear es artefacto de build, no
-requiere acción.
+Todo commiteado y pusheado a `main` (`721cf0f1..f0e7c423`, entreverado
+numéricamente con la sesión paralela de sync/detalle-transacción — ver
+bitácora, entry de arriba). **Migraciones sin correr en prod**: verificado
+por SSH que 127/128/129/130/133 sí corrieron; faltan al menos **131, 132,
+134, 136, 140** — confirmar con el comando de "Trampas" antes de dar nada
+por deployado.
 
 ## Archivos y cambios
 
-- `context/38-impuestos-multi-pais.md`, `39-detalle-transaccion.md`,
-  `41-addons-y-combos.md` — fases hechas documentadas adentro; actualicé sus
-  filas resumen en `CLAUDE.md` (estaban desactualizadas).
-- `api/lib/Sales/verify_chain/run.sh` — arnés E2E (Postgres descartable, 2
-  tenants, venta real + factura offline + impresión) + `verify_realtime.php`,
-  `verify_sync.php`, `verify_offline_resolution.php`.
-- `frontend/lib/commands/create-sale.ts`, `api/lib/Sales/SaleInput.php:48,157`,
-  `SaleService.php:663` — hueco del P0 de numeración (ver Próximo paso).
+- `api/lib/Numbering/DocumentNumber.php` — `allocate()`/`allocateBlock()`
+  reemplaza `MAX(ordernumber)+1` + advisory lock en `OrderCoreService`.
+- Migs `127` (re-seed `document_sequence`), `129` (documentos de stock),
+  `131` (rebuild de costo), `132` (rescate JSONB), `134/136/140` (add-ons).
+- `api/lib/Database/Schema.php` (nuevo) — reemplaza el mapa a mano de
+  `_getTableSchema()`; lee el catálogo de PG, cachea con huella del catálogo.
+- `api/lib/Inventory/InventoryService.php` — `explodeRecipe()` recursivo.
+- `frontend/hooks/use-pos-modules.ts`, `api/v1/modules.php`,
+  `frontend/app/api/pos/modules/route.ts` — fix del sidebar + regla ESLint
+  `no-restricted-imports` (impide reintroducir el cliente del panel en POS).
+- `context/37-numeracion-documentos.md`, `41-addons-y-combos.md` — F2/F3 y
+  F1-F5 documentadas adentro.
 
 ## Callejones sin salida
 
-1. **Agente murió tras ~8h sin commitear** (triggers de satélites,
-   `context/45`), se perdió todo, sin branch/worktree. Relanzado exigiendo
-   commits incrementales. **Exigirlo siempre en briefs largos.**
-2. **F3b duplicado**: agente "colgado" seguía vivo, dos escribieron
-   `blocks.ts` a la vez (`74252a02`/`5f77cefc`). Sin daño, pero confirmar que
-   un agente realmente murió antes de relanzarlo.
-3. **Commit de docs se llevó 6 archivos de otra tarea** (`5f7842cb`, índice
-   compartido entre sesiones). Usar `git commit -- <paths>` explícitos.
-4. **3 agentes colgados** esperando notificación de un `code-reviewer` que
-   ellos mismos lanzaron en background — debe correr en primer plano.
-5. **Diagnósticos propios que resultaron falsos** (verificar contra el flujo
-   real, no contra un conteo): T8 espacios no era el modal tablet (ya estaba
-   resuelto); `sumDerivedAmounts` sí filtraba anulados; "las ventas online
-   las numera el servidor" — **falso, es la raíz del P0 de abajo**; "no
-   existe compra a crédito" se cerró en falso, el owner mostró una real.
-6. **Sobre-diseñé dos veces**, el owner frenó ambas: gating de bloques de
-   plantilla por tipo de documento (el constructor ya alcanza) y marca de
-   "crédito no habilitado" (el flag ya vive en el cache local del POS).
+1. Dije que el costo histórico NO se podía reconstruir — falso, las 47 filas
+   de ingreso tenían `stockCOGS`; la mig 131 reconstruye replayeando.
+2. Mi relevamiento de add-ons dijo "no existe nada" — existía `combo_group`
+   + `ComboGroupService` + editor (panel-only, la venta nunca lo leía).
+3. El plan asumía `itemSold.itemsoldparent` como link padre-hija: tiene FK a
+   `item`, no a `itemSold`. Hubo que usar `itemSold.meta.addon` (F3); en
+   `pos_order_item` (mig 140) sí hay FK propia.
+4. Brief de F4 mandaba interceptar en `handleProductClick`; el agente lo
+   movió a `addCatalogItem` porque el scanner de código de barras no pasa
+   por el click — correcto, quedó documentado.
+5. Un agente borró `frontend/public/sw.js` y `swe-worker-*.js` dentro de un
+   diff de add-ons — atajado en review, no llegó a commit.
+6. Colisiones de número de migración con sesiones paralelas (139 pisada dos
+   veces → renumerada a 140; 118 original → 127). Verificar SIEMPRE con
+   `ls ... | sort -t_ -k1 -n | tail -3` justo antes de commitear.
 
 ## Próximo paso
 
-**P0 fiscal de numeración, dos problemas independientes** (`context/10-roadmap.md`, commit `1d4068d8`):
-
-1. **Toda venta ONLINE se persiste sin número de comprobante.** El front
-   nunca manda `invoiceno` (`create-sale.ts`), `SaleInput` lo deja null
-   (`SaleInput.php:48,157`), `SaleService::save()` persiste ese null (`:663`)
-   sin llamar a `DocumentNumber::allocate()`. El único camino que asigna
-   número es `api/v1/offline-sync.php:38,59`. El ticket tampoco muestra el
-   comprobante. Empezar cableando `allocate()` en el camino online de `save()`.
-2. **`context/29-numeracion-y-exclusividad-de-caja.md`**: 4 dispositivos POS
-   sobre la misma caja comparten arriendo → mismo número offline. Verificado
-   contra prod 2026-07-28. Plan F0-F6, **nada implementado**.
-
-Después: 12 módulos de `context/modules/` sin documentar; 4 bugs del roadmap
-(costo de producción directa no se calcula; sus reportes salen vacíos;
-add-ons de orden no descuentan stock al cobrarse; `$sD['type']` leído sin
-guard en un segundo call-site).
+Deployar y correr las migraciones pendientes (ver "Estado al cerrar"). Después
+resolver el punto de expedición duplicado (ver Trampas) y re-correr la 128.
 
 ## Trampas conocidas
 
-- **3 stashes sin revisar**: `sw.js pre-merge satelites` (propio,
-  descartable); `wip-other-agent-contacts` y `parallel-session-wip` (sesiones
-  paralelas viejas, nadie los revisó, pueden tener trabajo perdido).
-- **Archivos sin commitear de OTRAS sesiones**, no tocar sin coordinar:
-  `api/v1/modules.php`, `frontend/app/(screen)/display/display-card.tsx`,
-  `frontend/components/layout/pos-sidebar.tsx`.
-- Numeración anulada no se reusa — un salto en la secuencia no es bug.
-- Offline-first es la BASE del POS: lo que se EMITE funciona sin internet, el
-  backend nunca rechaza una venta ya emitida. Ítem/contacto son raíces de
-  sync — cualquier satélite recarga el padre entero.
-- Sin confirmar: T3/T9/T10 del tester; realtime en el deploy real (no solo el
-  arnés); si consignación/exposición mueven stock en la remisión.
+- Confirmar migraciones corridas: `ssh root@167.71.165.221 'docker exec
+  w6rtfxm2n6l45r4r9melj3hl psql -U postgres -d postgres -tAc "SELECT
+  filename FROM schema_migrations ORDER BY 1"'`.
+- **Mig 128 NO creó `uq_register_expedition_point`**: "Caja Mariano" y
+  "Nueva Caja" comparten punto de expedición `001-001`. Asignarle otro punto
+  a una y re-correr la 128. El guard del servicio ya bloquea casos nuevos.
+- **Caja Mariano tiene próxima factura = 1** con timbrado cargado — si
+  facturaba con otro sistema, cargar el número real antes de cobrar.
+- 5 cajas "Caja Principal" y 3 "New Register" activas sin timbrado.
+- `transactionTotal` sigue saliendo del subtotal que informa el cliente, no
+  se deriva del detalle (`SaleService::expandAddonSelections`) — cerrarlo es
+  cambio de contrato propio.
+- Gaps de add-ons: reimpresión desde el panel no indenta hijas
+  (`TxDetailFull` no expone `meta.addon`); F6 (reportes por add-on) sin
+  empezar; D4 (variantes de bloque de impresión) desbloqueada pero sin
+  implementar.
+- `frontend/public/sw.js` modificado sin commitear — artefacto de build, no
+  requiere acción (mismo estado que reportó la sesión paralela).
+- **Trabajo sin commitear de OTRA sesión, no tocar sin coordinar**:
+  `api/database/migrations/postgres/141_register_lease.sql` y
+  `142_register_lease_backfill.php` (untracked) — parecen ser F0 de
+  `context/29-numeracion-y-exclusividad-de-caja.md`, en progreso en paralelo.
+- Plan `context/40` (anulación y NC) sigue con D1-D4 cerradas y NADA
+  implementado; `context/42` (multi-moneda) es feature request sin planificar.
