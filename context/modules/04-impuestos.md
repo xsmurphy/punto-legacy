@@ -1,0 +1,70 @@
+# 04 — Impuestos
+
+> Estado del doc: verificado contra código 2026-08-16
+> Responsable de la última verificación: sesión 2026-08-16 (docs impuestos + listas de precio)
+
+## 1. Qué resuelve
+
+Calcula y congela el IVA (u otro impuesto por línea, tasa/kind configurable
+por tenant) de cada línea de venta, de forma reproducible byte a byte entre
+frontend y backend, y persiste ese cálculo de forma que una reimpresión o un
+export fiscal salga IGUAL al momento de la venta aunque el catálogo cambie
+después.
+
+## 2. Entidades y datos
+
+| Tabla | Qué guarda | Invariantes / trampas |
+|---|---|---|
+| `tax` | Catálogo de impuestos del tenant: `name` (legacy, texto tipo "10"), `rate` DECIMAL(5,2) y `kind` (`rate`\|`exempt`, mig 120). Fuente numérica/tipada. | `rate`/`kind` son exclusivos de `tax`, no tienen contraparte en `taxonomy`. |
+| `taxonomy` (`taxonomyType='tax'`) | Tabla vieja, pre-slice. Sigue viva y sincronizada bidireccionalmente con `tax` vía triggers (mig 23: `trg_taxonomy_to_tax` / `trg_tax_to_taxonomy`). | Ver §6 — el plan de retirarla nunca se ejecutó. |
+| `item.taxId` | FK (sin constraint explícito) al `taxId` de la línea. | Puede apuntar a un id sin fila en `tax` (legacy no migrado) — `enrichWithTaxes` cae al parseo de `name`, ver regla 1. |
+| `outlet.itemsTaxIncluded` (JSONB `data`) | Default de `taxIncluded` para ítems que no lo definen. | Llega como STRING desde `data->>` — `(bool)"false"` da `true` en PHP; hay que usar `toBoolOrNull()`, nunca cast directo (`SaleService.php:2174-2178`). |
+| `item.data->>'itemTaxIncluded'` | Override de `taxIncluded` por ítem. | Mismo problema de string-boolean que el default de outlet. |
+| `meta.transactionDetails[].taxId/taxRate/taxKind/taxIncluded/taxAmount/taxNet` | Snapshot congelado por línea al vender. | Es la fuente de verdad para reimpresión/reportes/EInvoice — nunca se recalcula del catálogo. |
+
+## 3. Reglas de negocio
+
+1. **Todo lo fiscal se congela por línea al vender, nunca se recalcula del catálogo después.** `SaleService::enrichWithTaxes()` (`api/lib/Sales/SaleService.php:2095-2241`) agrega `taxId`, `taxRate`, `taxKind`, `taxIncluded` (resueltos del catálogo, nunca del payload del cliente) y `taxAmount`/`taxNet` (salida de `TaxEngine::computeTaxes`) a cada línea, y eso es lo que persiste en `meta.transactionDetails`. Motivo textual del código: la factura paraguaya separa el detalle por columnas de tasa, y una reimpresión tiene que salir igual al original — si se resolviera la tasa contra el catálogo al reimprimir, un cambio de tasa posterior desalinearía la copia del original (`SaleService.php:2074-2078`). Decisión técnica, no del owner.
+2. **Incluido (`taxIncluded=true`)**: el bruto de línea se redondea primero, el impuesto sale de `gross * rate / (100 + rate)` sobre ese bruto ya normalizado, y el neto se DERIVA por resta (`gross - tax`) para que `net + tax = gross` cierre exacto (`TaxEngine.php:93-101`, espejo en `engine-core.mjs:96-105`). **Añadido (`taxIncluded=false`)**: análogo desde el neto, el bruto se deriva por suma (`TaxEngine.php:102-108`). El default sale de `outlet.itemsTaxIncluded` (default `true` si no hay fila) y el ítem lo pisa con `item.data->>'itemTaxIncluded'` si está definido (`SaleService.php:2162-2210`).
+3. **`kind='exempt'` ≠ tasa 0%.** Fiscalmente distintos (decisión D2 del owner, `context/38-impuestos-multi-pais.md`). En el motor, `exempt` ignora `taxRate` por completo — el impuesto es 0 "porque el kind es la dimensión, no la tasa" (`TaxEngine.php:86-92`). En SIFEN/RG90 ambos casos colapsan: `assertSifenRate()` devuelve 0 tanto para `kind='exempt'` como para `kind='rate', rate=0` (`EInvoiceService.php:1368-1384`), y el layout fijo de RG90 (3 columnas: 10%/5%/exento) mete ambos en "MONTO NO GRAVADO O EXENTO" por no tener una 4ª columna — limitación del formato, no del dato, que sigue distinguible en `toTaxObj`/Libro Ventas interno (`FiscalService.php:207-218`, decisión documentada en `context/38-impuestos-multi-pais.md` líneas ~66-75).
+4. **Redondeo por línea (D1 del owner), totales = suma de líneas.** Cada línea redondea half-up (away-from-zero) al decimal del tenant (`TaxEngine::roundHalfUp`, `currencyDecimals()` en `SaleService.php:2251-2259`: PY=0 decimales, resto LATAM=2). Los totales y los buckets `byRate` son la SUMA de líneas ya redondeadas, nunca se reaplica la fórmula sobre el agregado — la única corrección que se aplica es una limpieza de ruido binario (`cleanSum`), no un recálculo (`TaxEngine.php:132-158`, mismo criterio en `engine-core.mjs:131-147`). Importa que cierre porque el layout fiscal fijo (RG90) exige `gravado10+gravado5+exento == total del comprobante` exacto — verificado en el arnés `run_sale_chain.php:459-476`.
+5. **Motor espejo TS/PHP con fixtures compartidos.** `api/lib/Tax/TaxEngine.php` y `frontend/lib/tax/engine-core.mjs` son DOS implementaciones independientes de la MISMA lógica pura (cero I/O, cero catálogo/BD) — mismos nombres de campo, misma estrategia de redondeo (PHP: `round()` nativo con `PHP_ROUND_HALF_UP`; JS: shift decimal vía notación exponencial en string para evitar el ruido de floats binarios, ver comentarios en `engine-core.mjs:20-53`). Los casos de prueba viven UNA sola vez en `api/lib/Tax/fixtures.json` (746 líneas) y se corren contra cada lado con `php api/lib/Tax/verify_engine.php` (exit 0/1, tolerancia 0) y el equivalente `frontend/lib/tax/verify-engine.mjs`. **No se puede tocar un lado sin correr ambos runners** — si se cambia una fórmula en uno sin espejarla en el otro, el cobro en caja (TS, F2b) y lo que persiste el backend (PHP, F2a) divergen sin que nada lo note salvo estos fixtures.
+6. **`tax` y `taxonomy` son DOS tablas vivas hoy**, no una migración completada. La mig 23 (`23_tax.sql`) sacó `tax` de `taxonomy` reusando el mismo UUID, con triggers bidireccionales (`sync_taxonomy_to_tax`/`sync_tax_to_taxonomy`) para que ambas queden en sync mientras dure la transición. La propia mig 23 deja escrito el plan de corte (líneas 113-117: dropear ambos triggers y `DELETE FROM taxonomy WHERE taxonomyType='tax'` "cuando facturación electrónica + reports + items lean de `tax`"). **Verificado**: ese corte nunca se ejecutó — no hay ninguna migración posterior que dropee `trg_taxonomy_to_tax`/`trg_tax_to_taxonomy` (`grep` sobre todo `api/database/migrations/postgres/*.sql` solo encuentra esos DROP dentro de la propia 23, nunca ejecutados por otra mig). La mig 120 (F0 del plan multi-país) lo confirma explícitamente: "este mig NO toca los triggers... siguen vivos hasta que el último lector legacy de `taxonomy` migre" (`120_tax_rate_kind.sql:9-12`). Estado real: los triggers siguen activos, ambas tablas se siguen escribiendo en cada alta/baja/cambio de impuesto.
+7. **Trampa histórica, YA CORREGIDA para el cálculo real, pero con un resto vivo.** El carrito calculaba el subtotal/IVA mostrado con `TAX_RATE = 0.10` hardcodeado (modelo paraguayo, IVA incluido al 10% fijo) — el motor real (`lib/tax/engine.ts`, por ítem/tasa de catálogo) recién se cableó en F2b y el backend server-side en F2a (`SaleService::enrichWithTaxes`, ver regla 1). **`TAX_RATE` sigue existiendo hoy** en `frontend/lib/cart/allocate-discounts.ts:29`, pero F2b lo redujo a dos usos que afectan lo que se COBRA (no lo que se muestra): `lineGross()`/`lineSubtotal()` para el neteo del toggle "quitar IVA" (`ivaRemoved`) y el mismo cálculo en `create-sale.ts:327` al armar el payload. El comentario en `store.ts:221-234` es explícito: el chip informativo del carrito (`selectCartIva`) ya NO usa esta constante — pero el neteo de "quitar IVA" sigue asumiendo precio de lista con IVA incluido al 10% fijo, y muere recién cuando el modo "impuesto añadido"/multi-tasa llegue al PRECIO del carrito (F3+, no solo a su display). Mientras tanto, un tenant con IVA ≠10% o con ítems `taxIncluded=false` que use "quitar IVA" en el POS neteará con la fórmula equivocada.
+
+Todas técnicas, salvo la 3 (kind vs 0%) y la 4 (redondeo por línea) que son decisiones D1/D2 explícitas del owner (`context/38-impuestos-multi-pais.md`).
+
+## 4. Flujos principales
+
+- **Venta normal**: `SaleService::persistItemsAndStock`/flujo de creación llama `enrichWithTaxes()` ANTES de abrir la transacción (`SaleService.php:111-122`) — congela taxId/taxRate/taxKind/taxIncluded/taxAmount/taxNet por línea, y de ahí salen `transactionTax` (`sumLineTax`, suma de `taxAmount` con el mismo redondeo del motor) y el desglose `toTaxObj` (`groupTaxByRate`, agrupado por `(taxRate,taxKind)`, `SaleService.php:2309-2369`).
+- **`ivaRemoved` (toggle "quitar IVA" del POS, mig 101)**: el front ya divide el precio por línea ANTES de mandarlo (`create-sale.ts:327`); el backend, si aplicara una tasa encima, restaría IVA dos veces — por eso fuerza `taxRate=0`/`taxKind='exempt'` efectivos en TODAS las líneas para que el motor pase el precio ya-neto sin tocarlo (`SaleService.php:2191-2194`). `taxId` de catálogo se preserva como dato informativo.
+- **Canje de voucher**: la línea lleva el total bruto pero esa plata no está en `transactionTotal` (ya se cobró y devengó su IVA en la venta que emitió el vale) — se fuerza `exempt` para no duplicar el impuesto (`SaleService.php:2196-2205`), y tanto `groupTaxByRate` como `FiscalService::rg90()` excluyen esas líneas de la base fiscal (`SaleService.php:2347-2353`).
+- **Facturación electrónica (EInvoice)**: `resolveTaxRatesForItems()` lee primero lo CONGELADO por línea (`taxRate`/`taxKind` de F2a); solo consulta el catálogo para ventas anteriores al deploy de F2a que no tienen congelado (`EInvoiceService.php:1386-1398`). `assertSifenRate()` valida que la tasa (congelada o resuelta) sea una de las tres que SIFEN admite (10\|5\|0) — si no, lanza excepción explícita en vez de facturar con una tasa inventada (`EInvoiceService.php:1368-1384`).
+- **Error / borde**: si falla la query de resolución de tasas al facturar, NO se degrada a "sin impuesto" — se lanza excepción y no se emite el documento (`EInvoiceService.php:1444-1448`, comentario explícito: degradar sería "exactamente el bug que este método existe para evitar").
+
+## 5. Interacciones con otros módulos
+
+| Módulo | Qué le pide / le da | Contrato (qué asume) |
+|---|---|---|
+| Venta (`SaleService`) | Corre `TaxEngine::computeTaxes` server-side y congela el desglose por línea | Que `qty`/`price`/`discount` del payload son confiables, pero `taxRate`/`taxKind`/`taxIncluded` NUNCA vienen del payload — siempre se resuelven del catálogo server-side (`SaleService.php:2066` comentario) |
+| Listas de precio | El `price` que llega a `enrichWithTaxes` (`unitPrice` en `TaxEngine`) es el que el carrito trae en `line.unitPrice` | **Verificado**: el precio ya resuelto por lista (post `applyResolvedPrices`, `lib/cart/store.ts:1058-1090`) es lo que viaja como `price` en el payload (`create-sale.ts:327`) y lo que el motor de impuestos toma como base — el descuento/recargo de lista SÍ afecta la base imponible, no se aplica sobre un neto ya gravado |
+| Facturación electrónica (`EInvoiceService`) | Lee `taxRate`/`taxKind` congelados por línea; solo cae al catálogo para ventas pre-F2a | Que el congelado, cuando existe, es la fuente de verdad — nunca reconsulta el catálogo si ya hay snapshot |
+| Impresión (`blocks.ts`) | Bloques por tasa (`item_total_by_rate`/`subtotal_by_rate`/`iva_by_rate`/`iva_total`) agrupan por `taxId`/`(taxRate,taxKind)` y suman `taxNet`/`taxAmount` ya congelados, nunca recalculan (`blocks.ts:357-376`) | Gap heredado: la reimpresión desde el panel (`buildTicketDataFromTxDetail`) no tiene `taxId`/`taxRate`/`taxKind` por línea porque el endpoint de reportes no los expone — esos bloques imprimen en blanco ahí, aunque `tax_total` (que usa `transactionTax`) sigue correcto (`context/38-impuestos-multi-pais.md`, gap F3b) |
+| Reportes fiscales (RG90/Libro Ventas, `FiscalService`) | Lee el desglose por línea vía `TaxBreakdownResolver` (primario `toTaxObj`, fallback a `meta.transactionDetails`) | Ventas sin desglose congelado (pre-F2a, D3 del owner) se EXCLUYEN del export y se cuentan aparte — no se inventa un desglose retroactivo (`FiscalService.php:177-183`) |
+
+## 6. Offline (solo módulos del POS)
+
+El cálculo de impuestos corre 100% en el device vía `frontend/lib/tax/engine.ts` (motor espejo, sin red) para lo que se EMITE en el momento — es lo que permite que una venta simple offline calcule su IVA correctamente. El congelado definitivo (server-side, `enrichWithTaxes`) ocurre recién cuando la venta sincroniza; hasta entonces el device confía en su propio cálculo, que por construcción del motor espejo debe coincidir con lo que el server recalculará al persistir.
+
+## 7. Huecos conocidos y NO verificado
+
+- **`TAX_RATE = 0.10` hardcodeado sigue vivo** para el neteo de "quitar IVA" y no muere hasta F3+ del plan multi-país — ver regla 7. Confirmado en código, no es histórico.
+- Los triggers bidireccionales `tax`↔`taxonomy` (mig 23) siguen activos y el corte documentado en la propia migración nunca se ejecutó — confirmado por ausencia de `DROP TRIGGER` posterior en el resto de migraciones.
+- **NO VERIFICADO**: si existen hoy filas de `item.taxId` que apunten a un id sin fila en `tax` NI en `taxonomy` (huérfano total). El código tiene fallback (`deriveTaxRateKindFromName` sobre `taxonomy.taxonomyName`) pero no se auditó el dato real en producción en esta sesión.
+- **NO VERIFICADO**: volumen de tenants con `kind` custom (no 10/5/0) en producción — el plan multi-país lo anticipa mencionando "cualquier tasa custom de un tenant multi-país", pero esta sesión no consultó datos reales.
+- F4 (`rollup_tax`, agregado diario por tasa) sigue pendiente y desacoplado de F5 — RG90/Libro Ventas (F5, hecha 2026-08-15) no dependen de él porque leen directo del desglose congelado por comprobante.
+
+## 8. Planes y decisiones relacionados
+
+- `context/38-impuestos-multi-pais.md` — plan cerrado (D1-D4), en ejecución. F0-F3 y F5 hechas; F4 (rollup) pendiente.
+- `context/44-listas-de-precio-offline.md` — toma el motor espejo de impuestos como precedente explícito para el motor espejo de listas de precio (ver `03-listas-de-precio.md §8`).
