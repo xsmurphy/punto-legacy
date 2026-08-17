@@ -43,6 +43,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Auth rewrite (JWT → tokens opacos)** | `21-auth-rewrite.md` (plan cerrado 2026-06-29) |
 | **Sucursales, outlet scope, view-scope** | `25-sucursales-y-scopes.md` |
 | **Facturación electrónica (Factomate/SIFEN)** | `28-facturacion-electronica-plan.md` |
+| **P0 FISCAL — exclusividad de caja + numeración** | `29-numeracion-y-exclusividad-de-caja.md` (verificado contra prod: 4 dispositivos sobre la misma caja pueden duplicar números offline. Plan F0-F6 diseñado, **nada implementado**) |
 | **`/admin` SaaS (dashboard, salud, planes, billing)** | `34-admin-saas-plan.md` (F1-F6 implementadas) |
 | **Vínculos entre transacciones/órdenes (`transaction_link`)** | `35-transaction-link.md` (mig 115, implementado) |
 | **Vouchers (vales por productos)** | `36-vouchers-plan.md` (plan cerrado, sin implementar) |
