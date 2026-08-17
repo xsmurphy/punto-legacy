@@ -673,12 +673,18 @@ final class SaleService
             'outletId'               => $this->ctx->outletId,
             'companyId'              => $this->ctx->companyId,
 
-            // Sesión de caja: drawerId de la caja ABIERTA del register actual.
-            // null si no hay caja abierta (controlCaja off) → la venta NO falla;
-            // el resumen la recupera por el fallback de fecha (mig 70).
-            'drawerId'               => \Punto\Api\Services\DrawerService::resolveOpenDrawerId(
+            // Sesión de caja: drawerId del turno de ESTE register cuyo rango
+            // contiene la fecha de la venta ($input->date, la misma que va a
+            // transactionDate arriba) — NO "la caja abierta ahora", que para
+            // una venta offline sincronizada tarde puede ser un turno distinto
+            // al que la cobró (bug verificado 2026-08-17, context/modules/
+            // 14-caja.md regla 5). null si ningún turno contiene esa fecha
+            // (controlCaja off, o sync sin candidato) → la venta NO falla; el
+            // resumen la recupera por el fallback de fecha (mig 70).
+            'drawerId'               => \Punto\Api\Services\DrawerService::resolveDrawerIdForDate(
                 (string) $this->ctx->registerId,
                 (string) $this->ctx->companyId,
+                $input->date,
             ),
         ];
     }

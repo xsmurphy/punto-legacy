@@ -545,10 +545,15 @@ final class CreditPaymentService
         $firstParent      = $parents[$orderedParentIds[0]];
         $parentRegisterId = (string) ($firstParent['registerId'] ?? '');
 
-        // Sesión de caja: drawerId de la caja ABIERTA del register de la
-        // primera factura. null si no hay caja abierta → el pago se registra
-        // igual (recuperable por el fallback de fecha del resumen, mig 70).
-        $openDrawerId = DrawerService::resolveOpenDrawerId($parentRegisterId, $companyId);
+        // Sesión de caja: drawerId del turno del register de la primera
+        // factura cuyo rango contiene la fecha de la operación (TODAY, la
+        // misma que va a transactionDate abajo) — NO "la caja abierta ahora",
+        // que puede ser un turno distinto si esto se resuelve fuera del
+        // momento real del pago (bug verificado 2026-08-17, context/modules/
+        // 14-caja.md regla 5). null si ningún turno contiene esa fecha → el
+        // pago se registra igual (recuperable por el fallback de fecha del
+        // resumen, mig 70).
+        $openDrawerId = DrawerService::resolveDrawerIdForDate($parentRegisterId, $companyId, TODAY);
 
         $tPay = [
             'transactionDate'        => TODAY,

@@ -118,6 +118,34 @@ No hay tabla propia de "carrito" — es intencional (ver regla 3).
    lo calcula y congela con TaxEngine"*. El ticket impreso SÍ necesita un
    valor antes de esa respuesta — usa el MISMO motor client-side
    (`build-ticket-data.ts:270-280`) solo para mostrar, nunca para cobrar.
+10. **Las cinco dimensiones obligatorias de toda transacción son las de la
+    OPERACIÓN, nunca las del guardado — decisión del owner (2026-08-17).**
+    Textual: si `transactionDate` fuera la fecha del guardado, la fecha del
+    recibo/factura IMPRESA no coincidiría con la que muestra el sistema, y en
+    el POS offline la operación y la persistencia quedan separadas por horas.
+    Verificado: `transactionDate` sale de `$input->date` — el valor que el POS
+    arma al confirmar el cobro, nunca `NOW()` del server
+    (`api/lib/Sales/SaleService.php:657`, dentro de `buildTransactionRecord`).
+    `SaleInput::fromPayload()`/`fromLegacyArray()` lanzan
+    `InvalidSaleInputException('Falta date en el payload')` si `date` llega
+    vacío (`api/lib/Sales/SaleInput.php:127`, `:203`) — no hay default
+    silencioso a "ahora". Las otras cuatro dimensiones (`registerId`,
+    `userId`, `outletId`, `companyId`) salen del contexto autenticado
+    (`$this->ctx`, resuelto del JWT en el momento del request), no del
+    payload (`SaleService.php:670-674`). Para una venta offline, el "momento
+    del request" es el SYNC, no la operación — por eso `date` es la única de
+    las cinco que viaja explícita en el payload en vez de derivarse del
+    contexto: es la única que puede diferir entre operación y guardado, y por
+    eso hay que preservarla a mano en vez de confiar en el contexto del
+    request que persiste.
+
+    **Corolario (R6, `14-caja.md` regla 5):** el `drawerId` de la venta se
+    resuelve por esa MISMA `transactionDate` — no por qué turno esté abierto
+    al momento del `INSERT` — vía
+    `DrawerService::resolveDrawerIdForDate()` (`SaleService.php:684-688`). Es
+    consecuencia directa de esta regla: si las cinco dimensiones son las de
+    la operación, el turno de caja que corresponde también tiene que
+    resolverse contra la fecha de la operación, no contra la del guardado.
 
 ## 4. Flujos principales
 
