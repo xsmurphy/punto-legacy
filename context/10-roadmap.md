@@ -14,6 +14,32 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 ---
 
+## P0 FISCAL — numeración de comprobantes (2026-08-17)
+
+Dos problemas independientes, ambos destapados al documentar. **Prioridad
+máxima de la próxima sesión**: emitir facturas sin número o con números
+duplicados es ilegal en PY.
+
+1. **Toda venta ONLINE se persiste sin número.** Verificado: el front nunca
+   manda `invoiceno` (`frontend/lib/commands/create-sale.ts`), `SaleInput`
+   lo deja `null` (`SaleInput.php:48,157`) y `SaleService::save()` persiste ese
+   null (`SaleService.php:663`) — nunca llama a `DocumentNumber::allocate()`
+   para venta (sí para cotización, `:1973`). El ÚNICO camino que asigna número
+   real es `api/v1/offline-sync.php:38,59` al drenar la cola offline. Además
+   `buildTicketData` nunca lleva `result.invoiceNumber` a `documentNumber`, así
+   que el ticket impreso no muestra comprobante en ninguna rama.
+   Detalle: `context/modules/10-pos-venta.md`, `17-numeracion.md`.
+2. **Cuatro dispositivos POS sobre la misma caja comparten el arriendo** →
+   dos pueden emitir el MISMO número sin conexión. Verificado contra
+   producción el 2026-07-28. Plan F0-F6 diseñado en
+   `context/29-numeracion-y-exclusividad-de-caja.md`, **nada implementado**.
+   Ese doc estaba fuera de la tabla de `CLAUDE.md` (agregado en `8c4aafee`),
+   por eso ninguna sesión lo leía.
+
+Relacionado: el invariante "no dos cajas con el mismo punto de expedición"
+existe en los planes y en la memoria del proyecto, pero **no hay constraint ni
+validación en el código** — verificado por ausencia.
+
 ## Bugs destapados al documentar los módulos (2026-08-17)
 
 Salieron de escribir `context/modules/` — cada uno con evidencia `path:line` en
