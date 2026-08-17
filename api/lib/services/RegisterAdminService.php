@@ -235,6 +235,7 @@ final class RegisterAdminService
         // `data` viene aplanado por Query::flattenJsonb (la columna se hace
         // unset), así que el prefijo actual se lee como clave de la fila.
         $currentPrefix = (string) ($reg['registerInvoicePrefix'] ?? '');
+        $currentAuth   = (string) ($reg['registerInvoiceAuth'] ?? '');
         $currentStatus = (bool) ($reg['registerStatus'] ?? $reg['registerstatus'] ?? false);
 
         $setParts  = [];
@@ -293,14 +294,19 @@ final class RegisterAdminService
                     apiError('Establecimiento y punto de expedición van como EEE-PPP (ej. 001-001)', 422);
                 }
 
-                // ── Un punto de expedición, UNA caja ───────────────────────
-                // El EEE-PPP identifica el punto de expedición ante la SET y la
-                // numeración correlativa es POR punto de expedición. Dos cajas
-                // con el mismo EEE-PPP llevan dos secuencias independientes
-                // sobre el mismo talonario: en cuanto las dos emiten (y con el
-                // POS offline emiten sin verse) salen dos facturas distintas
-                // con el mismo número. Es un documento duplicado, no un choque
-                // de datos — de ahí el 409 duro y no un aviso.
+                // ── Un mismo par (timbrado, punto de expedición), UNA caja ──
+                // El EEE-PPP identifica el punto de expedición ante la SET,
+                // pero la numeración correlativa es POR TALONARIO, y un
+                // talonario es un timbrado. Dos cajas SÍ pueden compartir el
+                // mismo EEE-PPP si tienen timbrados distintos (dos talonarios
+                // independientes). Lo que no puede repetirse es el PAR
+                // completo: dos cajas con el MISMO timbrado y el MISMO
+                // EEE-PPP llevan la misma secuencia y, en cuanto las dos
+                // emiten offline sin verse, salen dos facturas con el mismo
+                // número. Es un documento duplicado, no un choque de datos —
+                // de ahí el 409 duro y no un aviso. El guard vive en
+                // assertExpeditionPointFree() más abajo, sobre el par
+                // efectivo (timbrado + prefix), no solo el prefix.
                 //
                 // El scope es la COMPANY (el RUC es de la empresa), no la
                 // sucursal: el establecimiento ya viaja en los primeros tres
@@ -426,27 +432,36 @@ final class RegisterAdminService
             }
         }
 
-        // ── Un punto de expedición, UNA caja ────────────────────────────────
+        // ── Un mismo par (timbrado, punto de expedición), UNA caja ──────────
         // Se valida sobre el estado RESULTANTE del update, no sobre el
-        // guardado, y solo cuando ese estado cambia. Chequear el prefijo
-        // guardado en cada save dejaba encerrada justamente a la caja con el
+        // guardado, y solo cuando ese estado cambia. Chequear el par guardado
+        // en cada save dejaba encerrada justamente a la caja con el
         // duplicado: el 409 bloqueaba la edición que venía a resolverlo.
         //
         // Un duplicado preexistente tampoco frena un cambio ajeno (renombrar,
-        // caja a ciegas): se exige que el punto esté libre al ASIGNARLO o al
-        // reactivar una caja que vuelve a emitir con el punto que tenía.
+        // caja a ciegas): se exige que el par esté libre al ASIGNARLO o al
+        // reactivar una caja que vuelve a emitir con el par que tenía.
+        //
+        // El timbrado entra en la comparación igual que el prefix: si el
+        // request cambia solo el timbrado (deja el mismo EEE-PPP), también
+        // puede crear una colisión con otra caja que ya tenga ese par — no
+        // alcanza con mirar $prefixChanged.
         $effectivePrefix = array_key_exists('registerInvoicePrefix', $fiscalPatch)
             ? (string) ($fiscalPatch['registerInvoicePrefix'] ?? '')
             : $currentPrefix;
+        $effectiveAuth = array_key_exists('registerInvoiceAuth', $fiscalPatch)
+            ? (string) ($fiscalPatch['registerInvoiceAuth'] ?? '')
+            : $currentAuth;
         $willBeActive = array_key_exists('status', $fields)
             ? (bool) $fields['status']
             : $currentStatus;
 
         $prefixChanged = $effectivePrefix !== $currentPrefix;
+        $authChanged   = $effectiveAuth !== $currentAuth;
         $reactivating  = $willBeActive && !$currentStatus;
 
-        if ($willBeActive && $effectivePrefix !== '' && ($prefixChanged || $reactivating)) {
-            $this->assertPrefixFree($id, $effectivePrefix);
+        if ($willBeActive && $effectivePrefix !== '' && ($prefixChanged || $authChanged || $reactivating)) {
+            $this->assertExpeditionPointFree($id, $effectiveAuth, $effectivePrefix);
         }
 
         if (empty($setParts) && empty($fiscalPatch) && $numbering === [] && !$rangeToTouched) {
@@ -507,36 +522,47 @@ final class RegisterAdminService
     }
 
     /**
-     * Corta si otra caja activa del tenant ya usa ese punto de expedición.
+     * Corta si otra caja activa del tenant ya usa el mismo PAR (timbrado,
+     * punto de expedición).
      *
-     * El EEE-PPP identifica el punto de expedición ante la SET y la numeración
-     * correlativa es POR punto de expedición. Dos cajas con el mismo EEE-PPP
-     * llevan dos secuencias independientes sobre el mismo talonario: en cuanto
-     * las dos emiten — y con el POS offline emiten sin verse — salen dos
-     * facturas distintas con el mismo número. Es un documento duplicado, no un
-     * choque de datos: de ahí el 409 duro y no un aviso.
+     * El EEE-PPP identifica el punto de expedición ante la SET, pero la
+     * numeración correlativa es POR TALONARIO, y un talonario es un timbrado.
+     * Dos cajas SÍ pueden compartir el mismo EEE-PPP si tienen timbrados
+     * distintos — son dos talonarios independientes, cada uno con su propia
+     * secuencia. Lo que no puede repetirse es el PAR completo: dos cajas con
+     * el MISMO timbrado y el MISMO EEE-PPP llevan la misma secuencia y, en
+     * cuanto las dos emiten — y con el POS offline emiten sin verse — salen
+     * dos facturas distintas con el mismo número. Es un documento duplicado,
+     * no un choque de datos: de ahí el 409 duro y no un aviso.
      *
      * Scope COMPANY, no sucursal: el RUC es de la empresa y el establecimiento
      * ya viaja en los primeros tres dígitos. Solo cuentan las cajas ACTIVAS —
      * una caja dada de baja conserva su historial pero no emite.
+     *
+     * Sin timbrado efectivo no hay par que validar: una caja sin timbrado no
+     * emite, así que no hay colisión fiscal posible.
      */
-    private function assertPrefixFree(string $registerId, string $prefix): void
+    private function assertExpeditionPointFree(string $registerId, string $auth, string $prefix): void
     {
+        if ($auth === '') {
+            return;
+        }
         $clash = ncmExecute(
             "SELECT registerName FROM register
               WHERE companyId = ? AND registerId != ? AND registerStatus = TRUE
+                AND data ->> 'registerInvoiceAuth' = ?
                 AND data ->> 'registerInvoicePrefix' = ?
               LIMIT 1",
-            [$this->companyId, $registerId, $prefix]
+            [$this->companyId, $registerId, $auth, $prefix]
         );
         if (!$clash) {
             return;
         }
         $other = (string) ($clash['registerName'] ?? $clash['registername'] ?? '');
         apiError(
-            'El punto de expedición ' . $prefix . ' ya lo usa la caja "' . $other .
-            '". Dos cajas con el mismo punto de expedición emitirían facturas con el ' .
-            'mismo número: asignale otro punto a esta caja.',
+            'El punto de expedición ' . $prefix . ' ya está en uso con el mismo timbrado por la caja "' .
+            $other . '". Dos cajas con el mismo timbrado y el mismo punto de expedición emitirían ' .
+            'facturas con el mismo número: usá otro punto de expedición o un timbrado distinto.',
             409
         );
     }
