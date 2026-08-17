@@ -1566,9 +1566,44 @@ final class SaleService
             // línea en el carrito: único y estable dentro de esta venta.
             $parentUid          = 'ln' . $idx;
             $sD['addonLineUid'] = $parentUid;
-            $expanded[]         = $sD;
-
             $parentUnits = (float) ($sD['count'] ?? 0);
+
+            // ── El recargo se DESCUENTA del padre antes de repartirlo ──────
+            // El cliente manda el precio de la línea CON los add-ons adentro
+            // (`CartLine.unitPrice = base + Σ deltas`, F4): tiene que ser así
+            // para que el subtotal y el cobro del POS ya incluyan el recargo.
+            // Si el padre conservaba ese precio Y además cada hija traía su
+            // delta, el recargo quedaba DOS VECES en el detalle — y como
+            // `enrichWithTaxes` corre sobre todas las líneas, el IVA se
+            // calculaba dos veces sobre esa plata (`transactionTax` y
+            // `toTaxObj` inflados, y el ticket sumando más que el total
+            // cobrado).
+            //
+            // Invariante que se preserva acá: padre + hijas = exactamente lo
+            // que el cliente cobró. Se le resta al padre la suma de los deltas
+            // unitarios, que es justo lo que se le reparte a las hijas.
+            $unitDeltaSum = 0.0;
+            foreach ($validated['lines'] as $line) {
+                $optQty = (float) ($line['qty'] ?? 0);
+                if ($optQty > 0) {
+                    $unitDeltaSum += (float) $line['priceDelta'] / $optQty;
+                }
+            }
+
+            if ($unitDeltaSum > 0) {
+                $parentUnitPrice = (float) ($sD['price'] ?? 0) - $unitDeltaSum;
+                // Guard: un precio base negativo significa que el cliente NO
+                // mandó el recargo adentro (integración vieja o payload a
+                // mano). Ahí no se toca el padre — mejor cobrar de menos en el
+                // detalle que emitir una línea en negativo.
+                if ($parentUnitPrice >= 0) {
+                    $sD['price']    = $parentUnitPrice;
+                    $sD['uniPrice'] = $parentUnitPrice;
+                    $sD['total']    = round($parentUnitPrice * $parentUnits, $decimals);
+                }
+            }
+
+            $expanded[]         = $sD;
 
             foreach ($validated['lines'] as $line) {
                 // `priceDelta` de la línea ya viene multiplicado por su qty
