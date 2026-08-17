@@ -62,9 +62,9 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 - ⬜ `16-giftcards-y-vales.md`
 
 ### Documentos
-- ⬜ `17-numeracion.md` — correlativos, arriendo offline, scope por caja/sucursal
-- ⬜ `18-impresion.md` — plantillas, bloques, bindings, transports
-- ⬜ `19-facturacion-electronica.md` — SIFEN/Factomate, qué se congela
+- ✅ `17-numeracion.md` — correlativos, arriendo offline, scope por caja/sucursal; venta sin número NO se emite (owner 2026-08-16)
+- ✅ `18-impresion.md` — plantillas, bloques, bindings, transports; native/escpos local, station depende de internet por diseño
+- ✅ `19-facturacion-electronica.md` — SIFEN/Factomate, lee IVA congelado por línea (F3a), no el catálogo
 - ✅ `20-remision.md` — `document_remision` (motivos sin outlet propio) vs `stock_transfer` (traslado interno); ningún motivo mueve stock
 
 ### Transversales
@@ -98,3 +98,7 @@ Las flechas más peligrosas — donde una suposición equivocada rompe plata:
 | Panel | Ajuste de stock / Conteo físico | Que `inventory.stock.adjust` (existe en `PermissionCatalog`, gatea la UI) también gatea el backend — `api/v1/stock_adjustment.php` e `inventory_count.php` NUNCA llaman `hasPermission()`, solo exigen sesión de panel. Mismo bug que `f6d13c83` corrigió en transferencia/remisión (`inventory.transfer`), sin tocar estos dos endpoints: cualquier usuario de panel puede ajustar stock o cerrar un conteo llamando la API directo |
 | Remisión | Stock | Que `document_remision` (venta/devolución a proveedor/consignación/exposición/compra) NUNCA mueve stock — cada motivo con movimiento real tiene su propio dueño (venta→factura, devolución→NC de compra, compra→compras); moverlo también acá duplicaría el descuento. Consignación/exposición no tienen dueño de stock hoy — decisión ABIERTA del owner, no un bug |
 | POS (catálogo) | Stock | Que `PosItem.stock` refleja el saldo real para alertar "stock bajo" — en realidad `frontend/lib/pos-bff/reshape.ts:83` fija `stock: null` a mano con un TODO desactualizado ("el LIST no incluye stock"); el backend (`ItemsQuery.php`) sí expone `stockOnHand` desde mig 133, pero el reshape del BFF nunca lo lee |
+| Numeración | Caja | Que no puede haber dos cajas con el mismo punto de expedición (invariante fiscal) — no se encontró en el código ninguna constraint de unicidad ni validación de aplicación que lo sostenga; hoy depende de disciplina operativa, no de un guard |
+| Numeración (arriendo offline) | POS multi-dispositivo | Que el lease de una caja tiene un solo tenedor — en realidad `lease.php` entrega el bloque activo a cualquier device que lo pida sin noción de tenencia; dos dispositivos parados a la misma caja pueden recibir el MISMO bloque y duplicar números al sincronizar offline. Riesgo P0 documentado (`context/29-numeracion-y-exclusividad-de-caja.md`), plan F0-F6 sin implementar |
+| Impresión | Add-ons (D4) | Que "lo que se imprime lo decide la plantilla" (D4, `context/41`) — en realidad `buildTicketItemsFromTransaction` filtra add-ons gratis en el BUILDER según `docType==="order"` (`build-ticket-data.ts:452-467`), no con variantes de bloque como D4 pidió; el resultado observable es correcto pero la arquitectura no es la decidida |
+| Facturación electrónica | Anulación / nota de crédito | Que la nota de crédito electrónica depende del plan de anulación de `context/40` — en realidad ya emite hoy, atada a `transaction_link kind='return'` (devoluciones), un mecanismo preexistente e independiente; `context/40` sigue "sin implementar" y no es su fuente |
