@@ -17,8 +17,14 @@ interface SyncQueueDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-// Errores permanentes que no se pueden reintentar
-const PERMANENT_ERROR_CODES = ['STOCK_OUT', 'NUMBER_TAKEN', 'INVALID_INPUT', 'LEASE_EXPIRED']
+// Errores permanentes que no se pueden reintentar. LEASE_REVOKED (F3,
+// api/v1/offline-sync.php — context/29-numeracion-y-exclusividad-de-caja.md
+// §5.4): el número quedó `voidedAt`-anulado cuando la tenencia de la caja
+// bajo la que se arrendó se cerró/tomó otro device mientras esta venta
+// esperaba conexión. Igual que LEASE_EXPIRED: no hay forma de reintentar CON
+// el mismo número — el mensaje real (`row.error.message`, ya se renderiza
+// abajo) le dice al cajero qué pasó.
+const PERMANENT_ERROR_CODES = ['STOCK_OUT', 'NUMBER_TAKEN', 'INVALID_INPUT', 'LEASE_EXPIRED', 'LEASE_REVOKED']
 
 export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   const [rows, setRows] = React.useState<OfflineSaleRow[]>([])
