@@ -17,10 +17,19 @@ if (($authCtx['registerId'] ?? '') === '') {
     apiError('Seleccioná una caja antes de operar', 403);
 }
 
-$body   = json_decode(file_get_contents('php://input'), true) ?? [];
-$count  = max(1, min(200, (int) ($body['count'] ?? 100)));
-$regId  = $authCtx['registerId'];
-$compId = $authCtx['companyId'];
+$body     = json_decode(file_get_contents('php://input'), true) ?? [];
+$count    = max(1, min(200, (int) ($body['count'] ?? 100)));
+$regId    = $authCtx['registerId'];
+$compId   = $authCtx['companyId'];
+$outletId = $authCtx['outletId'];
+$deviceId = (string) ($authCtx['deviceId'] ?? '');
+
+if ($deviceId === '') {
+    // No debería pasar nunca: apiAuthPosContext() resuelve deviceId desde el
+    // Bearer del realm device. Si llega vacío, algo está mal con el token —
+    // cortar acá en vez de crear una tenencia sin dueño.
+    apiError('Dispositivo no identificado', 401);
+}
 
 // Timbrado vencido → no se arriendan números (owner 2026-08-08). Este es EL
 // lugar donde se asigna la numeración fiscal de una venta, así que cortar acá
@@ -28,6 +37,7 @@ $compId = $authCtx['companyId'];
 // arrendados no puede emitir. Un documento con timbrado vencido es inválido
 // ante la SET; el corte es duro a propósito, no un aviso salteable.
 require_once __DIR__ . '/../../lib/services/RegisterService.php';
+require_once __DIR__ . '/../../lib/services/RegisterLeaseService.php';
 $authError = (new \Punto\Api\Services\RegisterService(
     \Punto\Api\Context\TenantContext::fromAuth($authCtx)
 ))->invoiceAuthError($regId, $compId);
@@ -35,10 +45,118 @@ if ($authError !== null) {
     apiError($authError, 422);
 }
 
-// Check for existing active leases
+// F2 (context/29 §5.3) — exclusividad de caja atada al dispositivo.
+//
+// TODO camino de acá para abajo (servir un bloque ya arrendado o crear uno
+// nuevo) pasa por el advisory lock + el chequeo de tenencia de
+// `register_lease`. Antes de F2, la rama "hay lease activo sin consumir" de
+// más abajo servía el bloque a CUALQUIER dispositivo que preguntara — ese
+// era exactamente el P0 fiscal del plan (§2: dos dispositivos de la misma
+// caja reciben el mismo bloque). El fix no es solo "agregar un chequeo": hay
+// que MOVER esa rama adentro del lock, porque "leer tenencia → decidir
+// servir/crear/rechazar" tiene que ser atómico frente a un segundo request
+// concurrente del otro dispositivo — igual que ya lo era la creación del
+// bloque de números.
+//
+// hashtext() produce un int4 estable desde un string arbitrario — lo usamos
+// para derivar el lock key desde el UUID de la caja sin truncarlo a int.
+global $db;
+$db->StartTrans();
+
+// Lock exclusivo de sesión por caja. Dos requests para la misma caja esperan
+// acá (sea del mismo dispositivo o de dos distintos); distintas cajas no
+// bloquean entre sí (el lock key es por registerId).
+ncmExecute(
+    "SELECT pg_advisory_xact_lock(hashtext(?))",
+    [$regId]
+);
+
+// Tenencia activa de esta caja, si hay alguna. FOR UPDATE: nadie más puede
+// leer/tocar esta fila hasta que cerremos la transacción — el advisory lock
+// ya serializa por registerId, este FOR UPDATE es defensa en profundidad
+// (mismo registerId nunca tiene 2 filas active por el constraint de mig 141,
+// pero el lock de fila es gratis acá adentro y no cuesta nada tenerlo).
+$activeLease = ncmExecute(
+    'SELECT "registerLeaseId", "deviceId", "expiresAt"
+       FROM "register_lease"
+      WHERE "registerId" = ? AND "status" = \'active\'
+      FOR UPDATE',
+    [$regId]
+);
+
+if ($activeLease !== false && $activeLease !== 0) {
+    $isExpired = strtotime((string) $activeLease['expiresAt']) <= time();
+    if ($isExpired) {
+        // VENCIMIENTO (§4 del plan): cambió la fecha del outlet sin
+        // liberación explícita. Cerrar la tenencia vieja y anular sus
+        // números no consumidos ANTES de decidir si el request actual puede
+        // tomar la caja — mismo lock, misma transacción.
+        \Punto\Api\Services\RegisterLeaseService::close(
+            (string) $activeLease['registerLeaseId'],
+            'expired',
+            'expiry',
+            'expired',
+        );
+        $activeLease = false;
+    }
+}
+
+if ($activeLease !== false && $activeLease !== 0 && (string) $activeLease['deviceId'] !== $deviceId) {
+    // Otro dispositivo tiene la caja tomada y su tenencia sigue vigente — el
+    // que llega segundo recibe un rechazo explícito, no la caja (§3 del
+    // plan). No se emite ningún número.
+    $holderRow = ncmExecute(
+        'SELECT deviceName FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid LIMIT 1',
+        [(string) $activeLease['deviceId'], $compId]
+    );
+    $db->FailTrans();
+    $db->CompleteTrans();
+
+    apiConflict('Esta caja está tomada por otro dispositivo', [
+        'holderDeviceId'   => (string) $activeLease['deviceId'],
+        'holderDeviceName' => is_array($holderRow) ? (string) ($holderRow['deviceName'] ?? '') : '',
+        'expiresAt'        => (string) $activeLease['expiresAt'],
+    ]);
+}
+
+if ($activeLease === false || $activeLease === 0) {
+    // Nadie tiene la caja tomada (o la tenencia vieja se acaba de vencer y
+    // cerrar arriba) — este dispositivo la toma ahora.
+    $expiresAt = \Punto\Api\Services\RegisterLeaseService::expiresAt($compId, $regId);
+    $newLease  = ncmExecute(
+        'INSERT INTO "register_lease"
+            ("companyId", "outletId", "registerId", "deviceId", "status", "expiresAt")
+         VALUES (?, ?, ?, ?, \'active\', ?)
+         RETURNING "registerLeaseId"',
+        [$compId, $outletId, $regId, $deviceId, $expiresAt]
+    );
+    if (!is_array($newLease) || (string) ($newLease['registerLeaseId'] ?? '') === '') {
+        // No debería pasar (INSERT ... RETURNING sobre una tabla sin
+        // triggers), pero si el driver devuelve false por una falla
+        // transitoria de DB, cortar acá — seguir de largo escribiría
+        // `numbering_lease."registerLeaseId" = ''` (viola la FK) o, peor,
+        // dejaría un bloque de números sin tenencia real detrás.
+        $db->FailTrans();
+        $db->CompleteTrans();
+        apiError('No se pudo tomar la caja, intentá de nuevo', 500);
+    }
+    $registerLeaseId = (string) $newLease['registerLeaseId'];
+} else {
+    // Fila activa, mismo deviceId — comportamiento actual, sin cambios.
+    $registerLeaseId = (string) $activeLease['registerLeaseId'];
+}
+
+// Bloque de números YA arrendado bajo ESTA tenencia — servirlo sin crear uno
+// nuevo. Antes de F2 este chequeo no filtraba por tenedor (`registerLeaseId`)
+// y por eso podía devolver el bloque de otro dispositivo; ahora solo puede
+// devolver el propio, porque arriba ya garantizamos `$registerLeaseId`
+// pertenece al `deviceId` que está pidiendo.
 $rsActive = ncmExecute(
-    'SELECT "invoiceNo", "leaseId", "expiresAt" FROM "numbering_lease" WHERE "registerId" = ? AND "companyId" = ? AND "consumedAt" IS NULL AND "expiresAt" > NOW() ORDER BY "invoiceNo" ASC',
-    [$regId, $compId],
+    'SELECT "invoiceNo", "leaseId", "expiresAt" FROM "numbering_lease"
+     WHERE "registerId" = ? AND "companyId" = ? AND "registerLeaseId" = ?
+       AND "consumedAt" IS NULL AND "voidedAt" IS NULL AND "expiresAt" > NOW()
+     ORDER BY "invoiceNo" ASC',
+    [$regId, $compId, $registerLeaseId],
     false,
     true // forceObj — returns recordset
 );
@@ -59,68 +177,12 @@ if ($rsActive !== false && $rsActive !== 0) {
     }
 
     if (count($invoiceNos) > 0) {
+        $db->CompleteTrans();
         apiOk([
             'from'      => $invoiceNos[0],
             'to'        => $invoiceNos[count($invoiceNos) - 1],
             'leaseId'   => $firstLeaseId,
             'expiresAt' => $firstExpiresAt,
-        ]);
-    }
-}
-
-// No active lease — emitir un bloque nuevo de números.
-//
-// El advisory lock sigue acá pero por un motivo distinto al original: la
-// asignación en sí ya es atómica (DocumentNumber::allocateBlock hace
-// `UPDATE ... RETURNING`, que toma el row lock de PG). Lo que serializa el
-// lock es el par "chequear lease activo → arrendar": sin él, dos requests
-// concurrentes de la misma caja no verían el lease del otro y arrendarían dos
-// bloques, quemando 100 números de timbrado por nada.
-//
-// hashtext() produce un int4 estable desde un string arbitrario — lo usamos
-// para derivar el lock key desde el UUID de la caja sin truncarlo a int.
-global $db;
-$db->StartTrans();
-
-// Dentro de la transacción: adquirir lock exclusivo de sesión por caja.
-// Dos requests para la misma caja esperan acá; distintas cajas no bloquean
-// entre sí (el lock key es por registerId).
-ncmExecute(
-    "SELECT pg_advisory_xact_lock(hashtext(?))",
-    [$regId]
-);
-
-// Re-chequear lease activo DENTRO del lock — puede que el primer request
-// lo haya emitido mientras esperábamos. Si ya existe, retornar ese.
-$rsRecheck = ncmExecute(
-    'SELECT "invoiceNo", "leaseId", "expiresAt" FROM "numbering_lease"
-     WHERE "registerId" = ? AND "companyId" = ? AND "consumedAt" IS NULL AND "expiresAt" > NOW()
-     ORDER BY "invoiceNo" ASC',
-    [$regId, $compId],
-    false,
-    true
-);
-
-if ($rsRecheck !== false && $rsRecheck !== 0) {
-    $recheckNos     = [];
-    $recheckLeaseId = null;
-    $recheckExpires = null;
-    while (!$rsRecheck->EOF) {
-        $row = $rsRecheck->fields;
-        if ($recheckLeaseId === null) {
-            $recheckLeaseId = $row['leaseId'];
-            $recheckExpires = $row['expiresAt'];
-        }
-        $recheckNos[] = (int) $row['invoiceNo'];
-        $rsRecheck->MoveNext();
-    }
-    if (count($recheckNos) > 0) {
-        $db->CompleteTrans();
-        apiOk([
-            'from'      => $recheckNos[0],
-            'to'        => $recheckNos[count($recheckNos) - 1],
-            'leaseId'   => $recheckLeaseId,
-            'expiresAt' => $recheckExpires,
         ]);
     }
 }
@@ -192,8 +254,8 @@ for ($i = $next; $i < $next + $count; $i++) {
     }
 
     ncmExecute(
-        'INSERT INTO "numbering_lease" ("leaseId","companyId","outletId","registerId","invoiceNo","expiresAt") VALUES (?,?,?,?,?,?)',
-        [$lid, $compId, $authCtx['outletId'], $regId, $i, $expiresAtDb]
+        'INSERT INTO "numbering_lease" ("leaseId","companyId","outletId","registerId","invoiceNo","expiresAt","registerLeaseId") VALUES (?,?,?,?,?,?,?)',
+        [$lid, $compId, $authCtx['outletId'], $regId, $i, $expiresAtDb, $registerLeaseId]
     );
 }
 
