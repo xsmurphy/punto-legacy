@@ -38,12 +38,12 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 ### Catálogo y precios
 - ⬜ `01-catalogo-items.md` — tipos de artículo (`kind`), campos, variantes
 - ✅ `02-combos-y-addons.md` — combo fijo, combo dinámico, grupos de add-ons
-- ⬜ `03-listas-de-precio.md` — prioridad de listas, ajustes, overrides por ítem
-- ⬜ `04-impuestos.md` — tasas, incluido/añadido, exento vs 0%, congelado por línea
+- ✅ `03-listas-de-precio.md` — prioridad de listas, ajustes, overrides por ítem
+- ✅ `04-impuestos.md` — tasas, incluido/añadido, exento vs 0%, congelado por línea
 
 ### Inventario
 - ⬜ `05-stock.md` — movimientos, `manageStock` como choke point, ajustes, conteo
-- ⬜ `06-produccion.md` — recetas, producción directa vs previa, merma, costos
+- 🟡 `06-produccion.md` — recetas, producción directa vs previa, merma, costos
 - ⬜ `07-transferencias.md` — entre sucursales/depósitos, y su relación con remisión
 
 ### Compras
@@ -89,3 +89,8 @@ Las flechas más peligrosas — donde una suposición equivocada rompe plata:
 | Impresión | Plantillas | Que lo que se imprime lo decide la plantilla, no el renderer |
 | Órdenes/mesas | Add-ons | Que el `unitPrice` plano de la línea ya "cobra" el add-on — pero `CreateOrderItemInput`/`OrderItem` no tienen `selections`: una orden de mesa con add-ons pierde el desglose, el stock de la opción y el dato para la comanda (nunca corre `expandAddonSelections`) |
 | Add-ons | Stock | Que cada opción elegida (incluidas `isLocked`) descuenta con la misma `explodeRecipe` que cualquier ítem — sin excepción para las que el cajero no tocó |
+| Venta/Anulación | Producción | Que ambas resuelven "¿esta receta se explota?" con el MISMO predicado (`Inventory::saleExplodesRecipe`, contra BD) — no contra `$saleDetail[]['type']`, que el POS nunca manda. Divergencia real ya ocurrida (fix `822f8df3`): producción previa consumía insumos dos veces y anular reponía insumos jamás gastados |
+| Producción | Reportes | Contrato roto hoy: los tabs de "producción directa" filtran `item.itemType = 'direct_production'` y `stock.stockSource = 'production'`, pero ninguno de los dos valores llega a ocurrir nunca (el primero es una etiqueta sintética que no se persiste; el segundo depende del mismo campo de carrito que el POS no manda) — esos tabs quedan vacíos siempre, sin error visible |
+| Listas de precio | Impuestos | Que el precio YA ajustado por lista (descuento o recargo) es la base sobre la que se calcula el IVA — verificado: `line.unitPrice` post-resolución viaja como `price` al motor de impuestos sin ningún paso que revierta el ajuste antes de gravar |
+| POS | Listas de precio | Que `/v1/price_resolve` siempre resuelve el precio correcto — sin conexión, el front atrapa el error y cobra precio BASE en silencio: un cliente con lista de descuento paga precio lleno offline, sin aviso (plan `context/44` sin implementar) |
+| Impuestos | Facturación electrónica / RG90 | Que `kind=exempt` y `kind=rate,rate=0` son fiscalmente distintos — pero el layout fijo de RG90 (3 columnas) los junta en "exento" por falta de columna, no por error de dato |
