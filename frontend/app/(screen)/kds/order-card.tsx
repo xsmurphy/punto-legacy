@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { useElapsed } from "@/hooks/use-elapsed"
 import type { Order, OrderItem } from "@/hooks/use-orders"
-import { screenItems } from "@/lib/kds/board"
+import { addonChildrenOf, screenItems } from "@/lib/kds/board"
 import type { KdsConfig } from "@/lib/kds/config"
 import {
   KDS_ITEM_VISUALS,
@@ -329,6 +329,25 @@ export function OrderCard({
                       quien opera tiene que cocinar. */}
                   <span className="min-w-0 flex-1">
                     <span className={done ? "opacity-70" : "font-semibold"}>{item.name}</span>
+                    {/* Add-ons de la línea (context/41): van DENTRO del botón
+                        del padre, no como líneas propias — así se leen como
+                        parte del plato y el tap sigue siendo uno solo, el del
+                        padre (una hija no se marca por separado; el backend
+                        además lo rechaza). "Sin cebolla" es justo lo que la
+                        cocina no puede perderse, así que se listan todos,
+                        cobren o no. */}
+                    {addonChildrenOf(order, item.id).map((addon) => (
+                      <span
+                        key={addon.id}
+                        className="block text-muted-foreground"
+                        style={{ fontSize: "0.8em" }}
+                      >
+                        {/* La cantidad solo se muestra cuando difiere de la del
+                            padre (opción elegida más de una vez por unidad):
+                            "2× Hamburguesa / + Queso extra" se lee solo. */}
+                        {addon.qty !== item.qty ? `+ ${addon.qty}× ${addon.name}` : `+ ${addon.name}`}
+                      </span>
+                    ))}
                     {item.note && (
                       <span className="block text-muted-foreground" style={{ fontSize: "0.8em" }}>
                         {item.note}

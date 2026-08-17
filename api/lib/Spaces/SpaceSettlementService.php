@@ -383,7 +383,14 @@ final class SpaceSettlementService
                     AND oi.companyid = ?
                     AND o.spacesessionid = ?
                     AND o.status NOT IN ('closed','cancelled')
-                    AND oi.status != 'cancelled'",
+                    AND oi.status != 'cancelled'
+                    -- Una hija de add-on no es una unidad cobrable (context/41,
+                    -- mig 139): no lleva plata propia y se paga con su padre.
+                    -- Misma definición de cobrable que usa
+                    -- SpaceBalanceService::compute para armar la lista que el
+                    -- cajero elige — si divergieran, el split aceptaría ids que
+                    -- la pantalla nunca ofrece.
+                    AND oi.parentorderitemid IS NULL",
                 array_merge($orderItemIds, [$companyId, $sessionId])
             );
             $candidates = $candidatesRs !== false ? $candidatesRs->GetRows() : [];

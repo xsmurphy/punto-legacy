@@ -62,6 +62,41 @@ export interface OrderItem {
   createdAt: string | null
   readyAt: string | null
   deliveredAt: string | null
+  /**
+   * Add-on de otra línea de ESTA orden (context/41, mig 139). `null` = línea
+   * normal, que es el 100% del tráfico de un comercio que no usa la feature.
+   *
+   * Las hijas llegan SIEMPRE inmediatamente después de su padre y agrupadas
+   * con él (el backend lo garantiza en el ORDER BY, no el cliente), así que
+   * recorrer `items` en orden ya alcanza para renderizarlas indentadas.
+   */
+  parentOrderItemId: string | null
+  /** `addon_group_option.optionId` elegida — trazabilidad para reportes (F6). */
+  addonOptionId: string | null
+  /**
+   * Recargo UNITARIO de la hija. `0` = la opción no suma (D2). `null` en las
+   * líneas normales.
+   *
+   * NO es plata a sumar: el recargo ya está dentro del `price` de la línea
+   * PADRE (el POS manda `CartLine.unitPrice`, que ya lo incluye). Sirve para
+   * distinguir el add-on que cobra del que es gratis — que es lo único que
+   * separa la comanda de cocina (lista todo) del ticket fiscal (D3).
+   */
+  priceDelta: number | null
+}
+
+/**
+ * ¿Esta línea es un add-on de otra? (context/41)
+ *
+ * Definición ÚNICA de "línea hija" para todo el front — KDS, display, comanda
+ * y carrito la comparten. Importa que sea una sola: una hija no se marca, no
+ * se entrega, no se cobra y no vuelve al carrito por separado (el backend
+ * rechaza el intento en `OrderCoreService::updateItemStatus`), así que si una
+ * pantalla se olvidara del filtro pediría una transición que el server
+ * rechaza y rompería la acción entera.
+ */
+export function isAddonChild(item: OrderItem): boolean {
+  return item.parentOrderItemId !== null
 }
 
 /**
@@ -161,6 +196,15 @@ export interface CreateOrderItemInput {
   /** Etiquetas de línea — espejo de `CartLine.tags` (lib/cart/store.ts). */
   tags?: string[]
   course?: number
+  /**
+   * Add-ons elegidos en la línea (context/41). MISMO shape que la venta (ver
+   * `create-sale.ts`): SOLO `optionId` + `qty`. El nombre y el recargo los
+   * resuelve el server contra la BD (`AddonService::validateSelections`) —
+   * mandar la copia local sería mandar datos que el server descarta.
+   *
+   * Una línea SIN add-ons NO lleva la key.
+   */
+  selections?: { optionId: string; qty: number }[]
 }
 
 export interface CreateOrderInput {

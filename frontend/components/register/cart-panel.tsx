@@ -329,9 +329,23 @@ export function CartPanel() {
         items: lines.map((l) => ({
           itemId: l.itemId,
           qty: l.qty,
+          // `unitPrice` ya incluye el recargo de los add-ons (ver
+          // `CartLine.selections`) — sigue siendo el precio de la línea y la
+          // ÚNICA plata de la orden. Las hijas que persiste el backend van con
+          // precio 0: son el desglose para la cocina, no un segundo cobro.
           price: l.unitPrice,
           note: l.note,
           tags: l.tags,
+          // Add-ons elegidos (context/41): solo optionId + qty, igual que la
+          // venta (create-sale.ts). Sin add-ons, la línea NO lleva la key.
+          ...(l.selections && l.selections.length > 0
+            ? {
+                selections: l.selections.map((s) => ({
+                  optionId: s.optionId,
+                  qty: s.qty,
+                })),
+              }
+            : {}),
         })),
         customerId: customer?.id,
         note: note ?? undefined,
