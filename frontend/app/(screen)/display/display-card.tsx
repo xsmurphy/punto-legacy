@@ -4,6 +4,7 @@ import { Check, Clock } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { useElapsed } from "@/hooks/use-elapsed"
 import type { Order, OrderItem } from "@/hooks/use-orders"
+import { addonChildrenOf } from "@/lib/kds/board"
 import { orderDestination } from "@/lib/orders/order-display"
 
 interface DisplayCardProps {
@@ -81,12 +82,27 @@ export function DisplayCard({ order, items, interactive, busy, onDeliverAll, onD
             key={item.id}
             role={clickable ? "button" : undefined}
             onClick={clickable ? (e) => { e.stopPropagation(); onDeliverItem(item) } : undefined}
-            className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 ${
+            className={`flex items-start justify-between gap-2 rounded-md px-2 py-1 ${
               done ? "bg-emerald-500/10" : "bg-muted/50"
             }`}
             style={{ fontSize: "clamp(0.8rem, calc(var(--board-col, 320px) * 0.02 + 0.2vw), 1rem)" }}
           >
-            <span><span className="font-semibold tabular-nums">{item.qty}×</span> {item.name}</span>
+            <span>
+              <span className="font-semibold tabular-nums">{item.qty}×</span> {item.name}
+              {/* Add-ons del ítem, en solo lectura bajo su padre (pedido del
+                  owner, 2026-08-17). La lista de arriba los EXCLUYE a propósito
+                  —una hija no se entrega sola— pero el cliente tiene que ver
+                  qué lleva su pedido: "sin cebolla" o "con queso extra" es
+                  justamente lo que viene a confirmar mirando la pantalla.
+                  Se listan TODOS, cobren o no: acá no aplica el corte fiscal de
+                  D3, que es del ticket. Mismo criterio de render que la tarjeta
+                  del KDS. */}
+              {addonChildrenOf(order, item.id).map((addon) => (
+                <span key={addon.id} className="block text-muted-foreground" style={{ fontSize: "0.8em" }}>
+                  {addon.qty !== item.qty ? `+ ${addon.qty}× ${addon.name}` : `+ ${addon.name}`}
+                </span>
+              ))}
+            </span>
             {/* Check y no cubiertos: la misma pantalla la usa un depósito. */}
             {done && <Check className="size-4 shrink-0 text-emerald-500" />}
           </li>

@@ -17,9 +17,29 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx    = apiAuthTenant(['panel']);
-$svc    = new \Punto\Api\Modules\ModulesService();
+// MULTI-REALM. El POS necesita LEER qué módulos están activos para decidir si
+// muestra Mesas y Órdenes en su sidebar. Antes esto era `['panel']` a secas y
+// el POS igual lo consultaba con el cliente del PANEL (cookie `_jwt_panel`, que
+// vence a las 24 h) desde una pantalla que corre con la sesión del DISPOSITIVO
+// (`_jwt`, sin vencimiento). Resultado: al caducar la cookie del operador,
+// `/v1/modules` respondía 401, el hook se quedaba sin datos y los módulos
+// DESAPARECÍAN del sidebar en silencio — el panel los mostraba habilitados y el
+// POS no, sin ningún error a la vista. Un módulo que se esfuma solo es
+// exactamente el bug que reportó el owner ("hasta esta mañana sí aparecían").
+//
+// Es el mismo cruce de credenciales que ya documenta la convención "un cliente
+// HTTP = un realm": el POS habla con su Bearer, no con la cookie del panel.
+$ctx    = apiAuthTenant(['panel', 'pos-app']);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+// El device SOLO lee: habilitar o configurar un módulo es administración y se
+// hace desde el panel. Guard arriba de todo, antes de cualquier dispatch —
+// mismo patrón que `/v1/items.php` y `/v1/item_addons.php`.
+if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET') {
+    apiError('El dispositivo POS solo puede leer los módulos', 403);
+}
+
+$svc    = new \Punto\Api\Modules\ModulesService();
 
 if ($method === 'POST') {
     $action = (string) (validateHttp('action', 'post') ?: '');

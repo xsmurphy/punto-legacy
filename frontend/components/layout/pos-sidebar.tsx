@@ -31,7 +31,7 @@ import { useLockStore } from "@/lib/pos/lock-store"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useIsMobile } from "@/hooks/use-mobile"
-import { useModules } from "@/hooks/use-modules"
+import { usePosModules } from "@/hooks/use-pos-modules"
 import type { ModulesMap } from "@/lib/types/module"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
@@ -42,8 +42,24 @@ import { MODE_VISUALS } from "@/lib/pos/mode-visuals"
 // DEUDA: este sidebar y `posNav` en panel-auth-guard.tsx son DOS fuentes de
 // verdad para la nav del POS (panel-auth-guard nunca se renderiza en /pos,
 // pos-sidebar.tsx es el real) — deberían unificarse en un solo lugar.
-function moduleEnabled(m: ModulesMap | undefined, isLoading: boolean, key: string): boolean {
-  return !isLoading && m?.[key]?.enabled === true
+/**
+ * ¿El módulo está activo? Solo responde `false` cuando el backend DIJO que está
+ * apagado; mientras no haya respuesta buena, devuelve `undefined`.
+ *
+ * La versión anterior era `!isLoading && m?.[key]?.enabled === true`, que
+ * colapsaba tres estados distintos —cargando, error y apagado— en un mismo
+ * `false`. Con eso, un fallo de red o un 401 escondía Mesas y Órdenes sin
+ * decir nada: el cajero veía el sidebar vacío y el panel seguía mostrando los
+ * módulos habilitados. Un módulo no puede desaparecer por un error de lectura.
+ */
+function moduleEnabled(
+  m: ModulesMap | undefined,
+  isLoading: boolean,
+  isError: boolean,
+  key: string,
+): boolean | undefined {
+  if (isLoading || isError || m === undefined) return undefined
+  return m?.[key]?.enabled === true
 }
 
 /**
@@ -57,9 +73,16 @@ export function PosSidebar() {
   const pathname = usePathname()
   const { data: parkedSales } = useParkedSales()
   const { data: activeOrders } = useActiveOrders()
-  const { data: modules, isLoading: modulesLoading } = useModules()
-  const ordersEnabled = moduleEnabled(modules, modulesLoading, "ordersPanel")
-  const tablesEnabled = moduleEnabled(modules, modulesLoading, "tables")
+  // `usePosModules` (Bearer del device) y NO `useModules` (cookie del panel):
+  // ver el docblock del hook — el cruce de realms hacía desaparecer los
+  // módulos del sidebar cuando vencía la sesión de panel del operador.
+  const { data: modules, isLoading: modulesLoading, isError: modulesError } = usePosModules()
+
+  // `undefined` = todavía no sabemos. Se muestra el módulo: es preferible una
+  // entrada que puede no corresponder —y que al tocarla informe— a un sidebar
+  // que se vacía solo. La respuesta real llega en el mismo segundo.
+  const ordersEnabled = moduleEnabled(modules, modulesLoading, modulesError, "ordersPanel") !== false
+  const tablesEnabled = moduleEnabled(modules, modulesLoading, modulesError, "tables") !== false
   const lock = useLockStore((s) => s.lock)
   const parkedCount = parkedSales?.length ?? 0
   const activeOrdersCount = activeOrders?.orders.length ?? 0
