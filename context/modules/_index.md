@@ -36,7 +36,7 @@
 Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 
 ### Catálogo y precios
-- ⬜ `01-catalogo-items.md` — tipos de artículo (`kind`), campos, variantes
+- ✅ `01-catalogo-items.md` — tipos de artículo (`kind`), campos, variantes; **`kind=pack` se ofrece en el panel pero el backend lo rechaza con 422** (no está en `VALID_KINDS`)
 - ✅ `02-combos-y-addons.md` — combo fijo, combo dinámico, grupos de add-ons
 - ✅ `03-listas-de-precio.md` — prioridad de listas, ajustes, overrides por ítem
 - ✅ `04-impuestos.md` — tasas, incluido/añadido, exento vs 0%, congelado por línea
@@ -47,19 +47,19 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 - ✅ `07-transferencias.md` — entre sucursales/depósitos, y su relación con remisión
 
 ### Compras
-- ⬜ `08-compras.md` — contado vs crédito, packSize, OCR de facturas, borradores
-- ⬜ `09-notas-credito-compra.md` — devolución a proveedor, modos de reembolso
+- ✅ `08-compras.md` — contado vs crédito, packSize, OCR, borradores; `transactionStatus` (documento) no es `transactionComplete` (pago)
+- ✅ `09-notas-credito-compra.md` — devolución a proveedor; es la ÚNICA dueña del stock de devolución (confirma que remisión hace bien en no moverlo)
 
 ### Ventas
 - ✅ `10-pos-venta.md` — carrito, medios de pago, descuentos, offline; venta ONLINE nunca asigna `invoiceNo` (hallazgo)
 - ✅ `11-ordenes-y-comandas.md` — orden vs venta, cocina, estados; add-ons en la orden YA resuelto (commit `46ac668f`), el gap sigue solo al cobrar
 - ✅ `12-espacios.md` — mesas, sesiones, cobro parcial (ledger), estado compartido online-only
-- ⬜ `13-cotizaciones.md`
+- ✅ `13-cotizaciones.md` — **el vínculo cotización→venta no existe**: `kind='quote_to_sale'` se lee pero nada lo escribe
 
 ### Dinero
-- ⬜ `14-caja.md` — apertura, cierre, arqueo, movimientos
-- ⬜ `15-credito-y-cobranzas.md` — cuentas por cobrar/pagar, distribución FIFO, anulación
-- ⬜ `16-giftcards-y-vales.md`
+- ✅ `14-caja.md` — apertura, cierre, arqueo; **una venta offline puede caer en el arqueo del turno equivocado** (el `drawerid` se resuelve al sincronizar)
+- ✅ `15-credito-y-cobranzas.md` — cuentas por cobrar/pagar, FIFO; el gate de crédito habilitado es SOLO el cache local del POS
+- ✅ `16-giftcards-y-vales.md` — **canje de gift card es fire-and-forget** (la venta queda cobrada aunque el saldo no se debite); los vales sí son atómicos
 
 ### Documentos
 - ✅ `17-numeracion.md` — correlativos, arriendo offline, scope por caja/sucursal; venta sin número NO se emite (owner 2026-08-16)
@@ -68,11 +68,11 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 - ✅ `20-remision.md` — `document_remision` (motivos sin outlet propio) vs `stock_transfer` (traslado interno); ningún motivo mueve stock
 
 ### Transversales
-- ⬜ `21-contactos.md` — clientes, proveedores, direcciones, crédito habilitado
-- ⬜ `22-sincronizacion.md` — realtime, delta, offline-first, lápidas
-- ⬜ `23-auth-y-permisos.md` — realms, roles, claves de permiso
-- ⬜ `24-sucursales-y-scopes.md`
-- ⬜ `25-reportes.md` — incluidos los fiscales (RG90, Libro Ventas)
+- ✅ `21-contactos.md` — clientes, proveedores, direcciones; **el importador CSV duplica en cada reimportación** (compara teléfono con `+` contra columna sin `+`)
+- ✅ `22-sincronizacion.md` — realtime, delta, lápidas; `parked-sales.php` y `numbering/lease.php` mutan sin emitir evento
+- ✅ `23-auth-y-permisos.md` — realms, tokens opacos; **solo 25 de 45 claves de permiso tienen chequeo en el backend**
+- ✅ `24-sucursales-y-scopes.md` — view-scope; `Roc::build()` cae a "todas las sucursales" con `outletId` vacío, `TenantContext` falla cerrado (garantía no uniforme)
+- ✅ `25-reportes.md` — incluidos los fiscales; **el rollup existe pero `rollup_reconcile()` no tiene caller** y `pg_cron` no está instalado en prod
 
 ## Mapa de interacciones (se completa a medida que se escriben los docs)
 
@@ -98,10 +98,20 @@ Las flechas más peligrosas — donde una suposición equivocada rompe plata:
 | POS | Listas de precio | Que `/v1/price_resolve` siempre resuelve el precio correcto — sin conexión, el front atrapa el error y cobra precio BASE en silencio: un cliente con lista de descuento paga precio lleno offline, sin aviso (plan `context/44` sin implementar) |
 | Impuestos | Facturación electrónica / RG90 | Que `kind=exempt` y `kind=rate,rate=0` son fiscalmente distintos — pero el layout fijo de RG90 (3 columnas) los junta en "exento" por falta de columna, no por error de dato |
 | Venta | Stock (`source`) | Que el `source` del movimiento de una receta explotada distingue producción directa de venta simple — en realidad `SaleService.php:1842` lee `$sD['type']` (que el POS nunca manda) para decidirlo, así que ese `source` es SIEMPRE `'sale'`, nunca `'production'`; mismo patrón de campo-que-nunca-llega que ya rompía `Producción → Reportes` |
-| Panel | Ajuste de stock / Conteo físico | Que `inventory.stock.adjust` (existe en `PermissionCatalog`, gatea la UI) también gatea el backend — `api/v1/stock_adjustment.php` e `inventory_count.php` NUNCA llaman `hasPermission()`, solo exigen sesión de panel. Mismo bug que `f6d13c83` corrigió en transferencia/remisión (`inventory.transfer`), sin tocar estos dos endpoints: cualquier usuario de panel puede ajustar stock o cerrar un conteo llamando la API directo |
+| Panel | Ajuste de stock / Conteo físico | **Corregido 2026-08-17** (`4de46ba1`): `inventory.stock.adjust` existía en `PermissionCatalog` y gateaba la UI, pero `api/v1/stock_adjustment.php` e `inventory_count.php` nunca llamaban `hasPermission()`, solo exigían sesión de panel — mismo bug que `f6d13c83` ya había corregido en transferencia/remisión (`inventory.transfer`), sin tocar estos dos. Ambos endpoints ahora exigen el permiso; el GET sigue con la auth de panel, mismo criterio que `production.php`/`waste.php` |
 | Remisión | Stock | Que `document_remision` (venta/devolución a proveedor/consignación/exposición/compra) NUNCA mueve stock — cada motivo con movimiento real tiene su propio dueño (venta→factura, devolución→NC de compra, compra→compras); moverlo también acá duplicaría el descuento. Consignación/exposición no tienen dueño de stock hoy — decisión ABIERTA del owner, no un bug |
 | POS (catálogo) | Stock | Que `PosItem.stock` refleja el saldo real para alertar "stock bajo" — en realidad `frontend/lib/pos-bff/reshape.ts:83` fija `stock: null` a mano con un TODO desactualizado ("el LIST no incluye stock"); el backend (`ItemsQuery.php`) sí expone `stockOnHand` desde mig 133, pero el reshape del BFF nunca lo lee |
 | Numeración | Caja | **Corregido 2026-08-17**: el invariante fiscal NO es "un punto de expedición, una caja" — es "un par (timbrado, punto de expedición), una caja activa". Dos cajas SÍ pueden compartir EEE-PPP con timbrados distintos (talonarios independientes). Guard en `RegisterAdminService::assertExpeditionPointFree` (`api/lib/services/RegisterAdminService.php:523`) + índice único parcial desde `143_register_expedition_point_unique_by_auth.sql` sobre `(companyid, data->>'registerInvoiceAuth', data->>'registerInvoicePrefix')`. La mig 128 (índice sobre el prefix solo, sin timbrado) quedó superseded por clave incorrecta — nunca llegó a crearse en prod por duplicados preexistentes con esa clave |
 | Numeración (arriendo offline) | POS multi-dispositivo | Que el lease de una caja tiene un solo tenedor — en realidad `lease.php` entrega el bloque activo a cualquier device que lo pida sin noción de tenencia; dos dispositivos parados a la misma caja pueden recibir el MISMO bloque y duplicar números al sincronizar offline. Riesgo P0 documentado (`context/29-numeracion-y-exclusividad-de-caja.md`), plan F0-F6 sin implementar |
 | Impresión | Add-ons (D4) | Que "lo que se imprime lo decide la plantilla" (D4, `context/41`) — en realidad `buildTicketItemsFromTransaction` filtra add-ons gratis en el BUILDER según `docType==="order"` (`build-ticket-data.ts:452-467`), no con variantes de bloque como D4 pidió; el resultado observable es correcto pero la arquitectura no es la decidida |
 | Facturación electrónica | Anulación / nota de crédito | Que la nota de crédito electrónica depende del plan de anulación de `context/40` — en realidad ya emite hoy, atada a `transaction_link kind='return'` (devoluciones), un mecanismo preexistente e independiente; `context/40` sigue "sin implementar" y no es su fuente |
+| Venta offline | Caja (arqueo) | Se asume que la venta cae en la sesión de caja en la que se hizo. En realidad `transaction.drawerid` se resuelve en el INSERT (`SaleService.php:679`, `CreditPaymentService.php:551`), que para una venta offline es el momento del SYNC. Si la caja rotó de sesión en el medio, la plata aterriza en el turno que estuviera abierto al sincronizar. Sin error ni aviso |
+| Caja | Numeración (arriendo) | Cerrar la caja NO libera la tenencia de `register_lease` — dos ciclos de vida sobre el mismo `register` sin cablear entre sí |
+| POS (UI) | Caja (control a ciegas) | Se asume que `registerBlindControl` oculta los totales al cajero. `/v1/drawer.php` nunca lo lee: devuelve siempre los datos completos y el ocultamiento pasa solo en `pos-main-menu.tsx` |
+| Venta | Gift card (canje) | El canje se dispara DESPUÉS de confirmar la venta (fire-and-forget): si falla, la venta queda cobrada y el saldo nunca se debita. Offline es peor — el bloque vive después del `return` de la rama offline, así que nunca consume ni al sincronizar. Contraste: el canje de VALE corre dentro de la transacción y aborta todo si falla |
+| Cotización | Venta | Se asume que convertir una cotización deja rastro. `pos-transactions-dialog.tsx:551` afirma que el back vincula, pero `SaleService` nunca lee `parentTransactionId` (`SaleService.php:652`: "columna dropeada"). `kind='quote_to_sale'` se lee en el resolver pero NADA lo escribe |
+| Panel (cualquier módulo) | Permisos | Se asume que una clave en `PermissionCatalog` gatea el backend. Solo 25 de 45 lo hacen, y 5 de esas se chequean ÚNICAMENTE dentro del agente IA (`api/v1/ai/execute.php:66-75`), nunca en el endpoint REST del mismo recurso. 12 endpoints de escritura sin ningún chequeo: `items.php`, `contacts.php`, `spaces.php`, `orders-core.php`, `sales.php`, `devices.php`, `users.php`, `drawer.php`, `giftcards.php`, `purchases.php`, `register.php`, `customers.php` |
+| Reportes | Rollup | Se asume que activar `REPORTS_ROLLUP_ENABLED` acelera los reportes. Hoy serviría datos CONGELADOS: `rollup_reconcile()` no tiene ningún caller, `pg_cron` no está instalado en prod (verificado 2026-08-17) y `rollup_dirty` acumula 121 períodos que nadie drena |
+| Contactos | Importador CSV | El modo "actualizar" compara el teléfono en E.164 con `+`, pero `contactPhone` se persiste SIN `+` por convención del proyecto: nunca matchea, así que cada reimportación crea duplicados en vez de actualizar (`ContactImporter.php:109,128-131`) |
+| Catálogo | Alta de ítem (`kind=pack`) | El frontend ofrece "Pack / Combo de servicios" con formulario propio, `packDurationDays` y endpoint `/v1/pack_component`, pero `'pack'` no está en `VALID_KINDS` (`api/v1/items.php:141`): toda alta de pack falla con 422. Feature construida de los dos lados menos en la lista que valida |
+| Cuentas por pagar | Saldo de crédito | Dos fórmulas distintas calculan el mismo saldo (`Reports/PurchasesService::payedByParent` vs `Finance/OpenInvoicesService::payedByParent`): una resta `transactionDiscount`, la otra no. Coinciden hoy solo porque las compras a crédito con NC rara vez llevan descuento |

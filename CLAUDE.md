@@ -46,7 +46,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **P0 FISCAL — exclusividad de caja + numeración** | `29-numeracion-y-exclusividad-de-caja.md` (verificado contra prod: 4 dispositivos sobre la misma caja pueden duplicar números offline. Plan F0-F6 diseñado, **nada implementado**) |
 | **`/admin` SaaS (dashboard, salud, planes, billing)** | `34-admin-saas-plan.md` (F1-F6 implementadas) |
 | **Vínculos entre transacciones/órdenes (`transaction_link`)** | `35-transaction-link.md` (mig 115, implementado) |
-| **Vouchers (vales por productos)** | `36-vouchers-plan.md` (plan cerrado, sin implementar) |
+| **Vouchers (vales por productos)** | `36-vouchers-plan.md` (F1/F2 implementadas 2026-08-07 — canje atómico dentro de la venta; F3 emisión desde caja pendiente) |
 | **Numeración correlativa de documentos** | `37-numeracion-documentos.md` (plan abierto, D2/D3/D5 pendientes) |
 | **Impuestos multi-tasa / multi-país** | `38-impuestos-multi-pais.md` (F0-F3, F5 implementadas — F3 factura+ticket lee IVA congelado, F5 RG90/Libro Ventas; F4 rollup pendiente) |
 | **Detalle de transacción (resolver canónico)** | `39-detalle-transaccion.md` (F1-F3 implementadas — resolver + página `/transactions/{id}` + cotizaciones/pagos recibidos; F4 migrar el POS, abierta) |

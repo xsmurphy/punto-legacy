@@ -1,0 +1,110 @@
+# 14 — Caja
+
+> Estado del doc: borrador (verificado contra código leyendo fuente, sin correr nada)
+> Responsable de la última verificación: sesión 2026-08-17
+
+## 1. Qué resuelve
+
+El ciclo de vida de una sesión de caja (drawer): abrir con un monto inicial,
+registrar extracciones/ingresos de efectivo durante el turno, y cerrar con un
+arqueo (monto contado vs. lo esperado). Es el módulo que le dice al comercio
+"cuánta plata debería haber en esta caja ahora" y "cuánta plata hubo realmente
+en este turno". No confundir con **numeración** (qué número de factura le
+toca a la próxima venta — `17-numeracion.md`) ni con **exclusividad de caja**
+(qué dispositivo tiene derecho a emitir con esta caja ahora mismo —
+`29-numeracion-y-exclusividad-de-caja.md`): las tres viven en la misma
+entidad `register`, pero son ciclos de vida independientes hoy, no uno solo
+(ver regla 8).
+
+## 2. Entidades y datos
+
+| Tabla/columna | Qué guarda | Invariantes / trampas |
+|---|---|---|
+| `drawer` | Una fila por SESIÓN de caja (apertura→cierre). `drawerCloseDate IS NULL` = sesión abierta. | Índice único parcial `uidx_drawer_register_open ON drawer(registerid) WHERE drawerclosedate IS NULL` (`34_drawer_unique_open.sql`) — es la garantía real de "una caja, una sesión abierta a la vez", a nivel de BD. OJO: la app considera "abierta" también una fila con `drawerCloseDate < '2000-01-01'` (sentinel legacy de MySQL `0000-00-00`, ver `DrawerService::findOpenRow`, `api/lib/services/DrawerService.php:697-710`), pero el índice único **solo** excluye `IS NULL` — si alguna vez existiera una fila con ese sentinel, el índice no la vería como "abierta" y permitiría una segunda fila `NULL` en paralelo. El comentario de la mig 34 dice que la migración inicial ya convirtió esos sentinels a `NULL`, así que en teoría no hay filas vivas con ese valor hoy — no verificado contra un dump real. |
+| `drawer.drawerUserOpen` / `drawerUserClose` | Quién abrió/cerró. FK a `contact`. | `drawerUserClose` es NULLABLE ("NULL while open", `db-schema-postgres.sql:869`). `DrawerService::close()` degrada a `NULL` si el `userId` del JWT ya no existe como `contact` de la company (`api/lib/services/DrawerService.php:504-519`) — evita un 500 por FK rota, pero como consecuencia el cierre puede quedar **sin usuario registrado**, sin que nada en la UI lo señale más allá de un `error_log`. |
+| `transaction.drawerid` (mig 70/71) | A qué sesión de caja pertenece cada venta/pago/devolución. | Columna lowercase sin comillas — la mig 70 la creó `"drawerId"` (case-sensitive) y rompió `POST /v1/sales`/`credit-payments`; la mig 71 la renombró a `drawerid` (`71_transaction_drawerid_lowercase.sql`). **Nullable, sin FK** a propósito (`70_transaction_drawer_id.sql:11-13`): filas viejas (pre-migración) y ventas sin caja abierta (control de caja off) quedan en `NULL`, recuperadas por fallback de fecha. Se resuelve en el momento del `INSERT` vía `DrawerService::resolveOpenDrawerId()` (`api/lib/services/DrawerService.php:672-691`) — **no en el momento de la venta real**, ver regla 5 para por qué esto importa en offline. |
+| `expenses` | Movimientos manuales de caja: extracción (`type IS NULL`) e ingreso (`type = 1`). Misma tabla que "gastos" del panel — el `registerId`+`type` es lo que los distingue como movimiento de caja. | **NO tiene columna `drawerId`** (`db-schema-postgres.sql`, tabla `expenses`) — a diferencia de `transaction`, nunca recibió el mismo tratamiento de mig 70. Ver regla 6. |
+| `register.data` (JSONB, mig 26) | Timbrado (`registerInvoiceAuth`, `registerInvoicePrefix`, `registerInvoiceAuthStart/Expiration`) y `registerBlindControl` (boolean). | El timbrado/punto-de-expedición está documentado en `17-numeracion.md` — acá solo lo que la CAJA garantiza sobre él: el par `(registerInvoiceAuth, registerInvoicePrefix)` es único entre cajas ACTIVAS de la company (`RegisterAdminService::assertExpeditionPointFree`, `api/lib/services/RegisterAdminService.php:545-568`; índice `uq_register_expedition_point_by_auth`, `143_register_expedition_point_unique_by_auth.sql`). `registerBlindControl` — ver regla 7. |
+| `register_lease` (mig 141, **en desarrollo — F0-F3 committeadas hoy, F4-F6 no**) | Tenencia de caja por dispositivo — qué `deviceId` tiene derecho a arrendar números de esta caja ahora. | Documentado en detalle en `29-numeracion-y-exclusividad-de-caja.md` — acá solo la relación con Caja: **es un ciclo de vida separado del `drawer`**, ver regla 8. No duplicar ese doc acá. |
+
+## 3. Reglas de negocio
+
+1. **Una sola sesión de caja abierta por `registerId`, garantizada en BD.** Índice único parcial `uidx_drawer_register_open` (`34_drawer_unique_open.sql`) — `DrawerService::open()` primero chequea con `findOpenRow()` y, si dos requests concurrentes pasan ambos ese chequeo, el segundo `INSERT` falla contra el índice y se traduce a `'Already Open'` (`api/lib/services/DrawerService.php:467-476`), no a un 500.
+2. **El resumen de caja se scopea por SESIÓN exacta cuando hay `drawerId`, con fallback por fecha para filas viejas/sin sesión.** `getPaymentBreakdown`, `getSoldProducts`, `getSaleStats`, `getHourlyStats` filtran `(t.drawerid = ? OR (t.drawerid IS NULL AND t.transactionDate > ?))` (ej. `api/lib/services/DrawerService.php:154-159`) — decisión del owner vía commit `eab75c8c` (2026-06-29): "nunca perder una transacción por un borde de fecha".
+3. **`getExpenses`/`getIncome` (extracciones/ingresos) NUNCA recibieron ese mismo tratamiento — filtran solo por fecha, sin `drawerId`.** `api/lib/services/DrawerService.php:82-89` y `:92-114` — la firma ni siquiera tiene parámetro `drawerId`. Confirmado que sigue así hoy: la tabla `expenses` no tiene la columna. Es la deuda marcada como "latente" en la bitácora del 2026-06-29 (`context/_session-log.md:109`, "Pendiente: drawer getIncome/getPaymentBreakdown (latente)") — la mitad de esa pareja (`getPaymentBreakdown`) se corrigió en el mismo commit `eab75c8c` que introdujo el gap; `getIncome`/`getExpenses` quedaron afuera y **nunca se cerró el ítem**. Ver regla 6 para el impacto.
+4. **Cierre de caja: guard FK + propagación de error real (fix, no parche).** `DrawerService::close()` (`api/lib/services/DrawerService.php:491-548`) valida: (a) hay sesión abierta (si no, `'Already Closed'`); (b) `drawerOpenDate <= closeDate` (si no, `'Invalid Close Date'`); (c) el `userId` del JWT existe como `contact` de la company — si no, degrada `drawerUserClose` a `NULL` en vez de tirar la FK (`:504-519`); (d) cualquier excepción de la DB se relanza como `RuntimeException` con el mensaje real (`:526-529`), reemplazando un 500 opaco anterior (commit `90fb0e73`). `Affected_Rows() === 0` (otro request ya cerró la misma caja en el medio) se trata como éxito idempotente (`'Already Closed'`), no como error (`:543-545`).
+5. **`drawerId` de una venta se resuelve en el momento del INSERT, no en el momento real de la venta.** `SaleService.php:679-682` y `CreditPaymentService.php:551` llaman `DrawerService::resolveOpenDrawerId($registerId, $companyId)` — que lee la caja **abierta ahora mismo**. Para una venta online esto coincide con la realidad. Para una venta encolada offline y sincronizada más tarde (`api/v1/offline-sync.php:127`, instancia el mismo `SaleService`), el `INSERT` real ocurre recién al sincronizar — si entre la venta física y el sync la caja se cerró y volvió a abrir (otro turno, otro cajero), la transacción queda etiquetada con el `drawerId` de la sesión **que estaba abierta al sincronizar**, no la que estaba abierta cuando se cobró. Ver hueco en §7 (primer ítem).
+6. **Consecuencia de la regla 3 — un movimiento manual mal fechado no tiene ninguna red que lo re-ate a la sesión correcta.** `getIncome`/`getExpenses` filtran `expensesDate > $since` (open-ended, sin cota superior) contra el `registerId`, sin `companyId` en el `WHERE` (`api/lib/services/DrawerService.php:85`, `:95`) — a diferencia de las mismas sumas en el reporte histórico (`DrawersService::componentsFor`, `api/lib/Reports/DrawersService.php:223-235`, que sí filtra `companyId` y acota `expensesDate < closeBound`). El `date` de un ingreso/extracción lo puede mandar el cliente en el body (`api/v1/drawer.php:116`, default `TenantClock::now()` si viene vacío) — no hay validación de que caiga dentro de la sesión activa.
+7. **Control de caja a ciegas — solo lo esconde el FRONTEND, el backend siempre devuelve los números reales.** `registerBlindControl` se lee en `GET /v1/register.php?resource=config` como `blindControl` (`api/v1/register.php:214-225`, comentario explícito: "READ-ONLY para el device... solo se administra desde el panel"). Pero `GET /v1/drawer.php` (el resumen con montos, `api/v1/drawer.php:87-93`) **no consulta `registerBlindControl` en ningún punto** — devuelve `getSummary()` completo sin importar el flag. El ocultamiento de montos/resumen/impresión de cierre vive enteramente en `frontend/components/register/pos-main-menu.tsx:1082-1254,1285-1287` (renderizado condicional `!blind`). Un cliente que llame `GET /v1/drawer.php` directo (devtools, requests manuales) ve los montos reales aunque el modo ciego esté activo.
+8. **Cerrar la caja (drawer) y liberar la tenencia de numeración (`register_lease`) son dos ciclos de vida DISTINTOS, hoy sin conectar.** `DrawerService::close()` no llama a `RegisterLeaseService::close()` en ningún punto (`grep RegisterLeaseService` solo devuelve `api/v1/numbering/lease.php` y el harness de verificación, `api/lib/Sales/verify_chain/verify_register_lease.php`) — confirmado también por el propio docblock de `RegisterLeaseService` (`api/lib/services/RegisterLeaseService.php:32-40`): *"close('released', ...) y close('forced', ...) quedan implementados y sin caller todavía"*. Consecuencia: un cajero que cierra la caja al final del turno **no libera** la tenencia de numeración de su dispositivo — otro dispositivo que intente tomar esa caja para el turno siguiente sigue recibiendo 409 hasta que la tenencia venza sola (fin de la fecha del outlet) o un admin la fuerce desde el panel (F4, **no implementado** — ver `29-numeracion-y-exclusividad-de-caja.md` §8).
+9. **`addExpense`/`addIncome` son idempotentes por `(amount, date, registerId)` exacto, no por un ID de cliente.** `api/lib/services/DrawerService.php:558-566`, `:612-620` — un duplicado exacto (mismo monto, misma fecha string, mismo register) se detecta y devuelve `'Expense Already Exists'`/`'Income Already Exists'` en vez de insertar de nuevo. Es una idempotencia frágil: dos extracciones DISTINTAS del mismo monto en el mismo segundo (fecha con precisión de segundo) colisionarían — caso extremo, no verificado si ocurre en producción.
+10. **Historial de cajas cerradas (`DrawersService`, `/v1/reports/drawers.php`) recalcula desde `transaction`/`expenses` con rango `[open, closeBound]`, no lee `composeSummary`.** `api/lib/Reports/DrawersService.php:214-245` — es una implementación PARALELA e independiente del resumen en vivo (`DrawerService::composeSummary`), con su propia lógica de scope (fecha acotada por ambos lados, sin depender de `drawerId`). Mismo dato, dos caminos de cálculo — si uno cambia sin tocar el otro, el vivo y el histórico de la misma sesión pueden divergir.
+11. **Editar/cerrar/borrar un cierre desde el panel exige `reports.drawers.view`, incluida la eliminación.** `api/v1/reports/drawers.php:20-23` gatea las tres mutaciones (`close`, `correct`, `delete`) con el MISMO permiso que el de solo-lectura (`reports.drawers.view`) — no hay un permiso de escritura separado para corregir/borrar un cierre de caja histórico.
+
+## 4. Flujos principales
+
+**Abrir caja** — `POST /v1/drawer.php {action:"open", amount, date}` → `DrawerService::open()`. Falla (idempotente) si ya hay una sesión abierta para ese `registerId`. Además del `INSERT`, el front dispara en paralelo un refresh best-effort del arriendo de numeración (`refreshLease()`, `frontend/hooks/use-drawer.ts:226-235`) — "abrir caja" es el punto natural para asegurarse números antes de la primera venta del turno, pero es un side-effect del FRONT, no algo que `DrawerService::open()` orqueste.
+
+**Registrar extracción/ingreso** — `POST /v1/drawer.php {action:"expense"|"income", amount, note, date}`. Idempotente por `(amount, date, registerId)` (regla 9). En éxito, dispara un hook best-effort a `FinanceLedger::recordDrawerExpense`/`recordDrawerIncome` (`api/lib/services/DrawerService.php:596-600`, `:649-653`) — dentro de un `try/catch` que solo loguea, **no revierte el movimiento de caja si el ledger falla**. El movimiento de caja y el asiento en Finanzas NO son atómicos: uno puede existir sin el otro.
+
+**Ver resumen del turno** — `GET /v1/drawer.php` (composite legacy) o recursos granulares `?resource=open|expenses|income|salesByPayment|hourlyStats` que el BFF del front compone en paralelo (`app/bff/drawer.php`, patrón documentado en el docblock de `DrawerService`, `api/lib/services/DrawerService.php:43-53`). El rollup (`composeSummary`, `:749-801`) es puro (sin DB) — usado tanto por el endpoint legacy como por el BFF, para no bifurcar la fórmula.
+
+**Cerrar caja** — `POST /v1/drawer.php {action:"close", amount, date}` → `DrawerService::close()` (regla 4). El front toma un snapshot del `summary` ANTES de confirmar (porque la query se invalida al cerrar) para poder imprimir el ticket de cierre después — salvo en modo ciego, donde ni se imprime ni se muestra (regla 7). Un fallo de impresora en el auto-print NO revierte el cierre, solo avisa por toast (`frontend/components/register/pos-main-menu.tsx:1109-1118`).
+
+**Camino de error — cierre a mitad de camino.** Si el `UPDATE` de `close()` tira una excepción de DB (no la FK degradada, que ya se maneja), se relanza como `RuntimeException` con el mensaje real y el endpoint responde 500 (`api/v1/drawer.php:147-149`) — la caja queda tal cual estaba (abierta), no hay estado intermedio persistido porque es un único `UPDATE`. Si la excepción ocurre DESPUÉS del `UPDATE` (ej. en el hook de FinanceLedger si alguna vez se agregara al camino de cierre — hoy no existe ese hook para close), no hay tal caso hoy: `close()` no dispara ningún side-effect post-UPDATE.
+
+**Corrección/cierre/borrado administrativo (panel)** — `POST /v1/reports/drawers.php` (regla 11), opera sobre `drawer` directo vía `DrawersService`, sin pasar por `DrawerService`. `correct()` reescribe fecha/monto de apertura Y cierre sin ninguna validación de coherencia (no repite el chequeo `openDate <= closeDate` que sí tiene `DrawerService::close()`) — `api/lib/Reports/DrawersService.php:194-204`.
+
+## 5. Interacciones con otros módulos
+
+| Módulo | Qué le pide / le da | Contrato (qué asume) |
+|---|---|---|
+| Venta / Créditos (`SaleService`, `CreditPaymentService`) | Sella `transaction.drawerid` con la caja abierta AL MOMENTO DEL INSERT. | Que el INSERT ocurre cerca en el tiempo de la venta real — falso para ventas offline sincronizadas tarde (regla 5). |
+| Numeración (`17-numeracion.md`) | La caja guarda el timbrado (`registerInvoiceAuth`/`Prefix`) que la numeración lee para saber qué correlativo usar. | Que el par (timbrado, EEE-PPP) es único entre cajas activas — lo garantiza `assertExpeditionPointFree` + índice `uq_register_expedition_point_by_auth`, no la Caja en sí. |
+| Exclusividad de caja (`29-numeracion-y-exclusividad-de-caja.md`, `register_lease`) | Comparten la misma entidad `register`, pero **ciclos de vida separados** (regla 8) — cerrar el drawer no libera la tenencia del device. | Falso hoy: que cerrar caja "libera" la caja para otro dispositivo. Solo libera el DRAWER (sesión de arqueo); la tenencia de numeración sigue viva hasta que expira o un admin la fuerza (F4, sin implementar). |
+| Finanzas (`FinanceLedger`, mig 73) | Cada extracción/ingreso dispara un asiento best-effort. | Que un fallo del ledger no bloquea el movimiento de caja — cierto, pero también significa que el ledger puede quedar corto sin que nadie se entere fuera del `error_log` (regla, flujo "Registrar extracción/ingreso"). |
+| Reportes (`DrawersService`, panel) | Recalcula ventas/extracciones/ingresos de una caja CERRADA desde cero, con su propio SQL. | Que ese cálculo coincide siempre con `composeSummary()` del resumen en vivo — no hay test/reconciliación que lo garantice (regla 10). |
+| Permisos (panel) | `reports.drawers.view` gatea listar Y mutar cierres históricos. | Que "ver" y "corregir/borrar un cierre fiscal" ameritan el mismo nivel de acceso — decisión implícita, no declarada como tal en el código. |
+| POS (`pos-main-menu.tsx`) | Lee `blindControl` de `/v1/register.php?resource=config` para decidir qué renderizar. | Que el backend nunca expone los montos reales en modo ciego — falso: `/v1/drawer.php` no gatea nada (regla 7). |
+
+## 6. Offline
+
+Abrir caja, cerrar caja y registrar extracción/ingreso **NO funcionan sin
+conexión** — no hay cola offline para estas mutaciones. `postDrawerAction()`
+(`frontend/hooks/use-drawer.ts:145-156`) hace un `posFetch` directo contra
+`/v1/drawer.php`; a diferencia de la venta (`frontend/lib/pos/offline-queue.ts`,
+IndexedDB + reintentos), no hay ningún mecanismo que encole estas acciones
+si el dispositivo está desconectado — el `fetch` falla y el hook propaga el
+error al usuario (`toast.error`, `pos-main-menu.tsx:1121-1123`).
+
+Esto es consistente con la regla base (`08-convenciones-criticas.md §53`):
+lo que se EMITE (factura, recibo, remisión) depende solo del dispositivo y
+tiene que andar offline; lo que requiere **estado compartido** entre cajas
+puede bloquear. Abrir/cerrar caja cae del lado de estado compartido —
+el índice único `uidx_drawer_register_open` (regla 1) es precisamente la
+garantía de "una sola sesión abierta", y esa garantía solo la puede dar el
+servidor: dos dispositivos de la misma caja, cada uno con su copia local del
+estado "caja cerrada", podrían abrir dos sesiones en paralelo sin conexión
+para coordinarse. §53 mismo cita "numeración exclusiva" como ejemplo de lo
+que puede bloquear offline — el drawer es el mismo tipo de invariante.
+
+La VENTA, en cambio, sí se emite offline con normalidad; lo que queda
+afectado es solo la ATRIBUCIÓN a una sesión de caja concreta al sincronizar
+tarde (regla 5) — la venta en sí nunca se pierde ni se bloquea.
+
+## 7. Huecos conocidos y NO verificado
+
+- **Venta offline sincronizada tarde puede quedar atribuida al turno equivocado.** `resolveOpenDrawerId()` corre en el momento del `INSERT` (regla 5) — si la caja rotó de sesión entre la venta real y el sync, la transacción se etiqueta con la sesión que estaba abierta AL SINCRONIZAR, no la que estaba abierta cuando se cobró. Como el filtro de sesión de `getPaymentBreakdown`/`getSaleStats`/etc. usa `drawerid` EXACTO cuando no es `NULL` (regla 2), esa venta entra al arqueo del turno siguiente (o de otro cajero), no al que efectivamente la cobró, y nada lo señala — el arqueo del turno que la recibió simplemente da un total distinto al esperado. **Hallazgo de esta sesión, no verificado con un caso real en producción** — se infiere del código, no se reprodujo.
+- **`getIncome`/`getExpenses` sin `drawerId` — deuda flagueada desde 2026-06-29, nunca cerrada.** Confirmado que sigue así hoy (regla 3, regla 6). La tabla `expenses` no tiene la columna; cerrar el gap requeriría la misma migración que `transaction` recibió en mig 70 (agregar `drawerid` a `expenses` + backfill), no solo un cambio de query.
+- **Control de caja a ciegas es enforcement de UI, no de API.** Regla 7 — cualquier cliente que llame `/v1/drawer.php` directo ve los montos reales. No se investigó si esto es una decisión consciente (el dueño confía en que solo el POS oficial llama ese endpoint) o un gap de diseño.
+- **Cierre de drawer no libera `register_lease`.** Regla 8 — es zona gris entre dos features que se desarrollaron en paralelo (Caja es vieja; exclusividad de caja es F0-F3 de esta misma semana). Cuando se implemente F4 (panel "liberar caja"), sería natural que el cierre normal de caja TAMBIÉN dispare `RegisterLeaseService::close('released', ...)` — pero eso es una decisión de diseño pendiente, no algo que este doc pueda declarar resuelto.
+- **NO VERIFICADO**: si existe alguna fila de `drawer` con el sentinel legacy `drawerCloseDate < '2000-01-01'` en producción hoy — la mig 34 asume que no, pero no se corrió ninguna query contra un dump real para confirmarlo.
+- **NO VERIFICADO**: si `GET /v1/reports/drawers.php` (listar/detalle de cierres históricos) debería exigir `reports.drawers.view` también en el `GET` — hoy solo exige realm `panel` (`api/v1/reports/drawers.php:14`), sin `hasPermission()`. Puede ser intencional (el gate real está en la navegación del panel, mismo patrón visto en otros módulos) — no se confirmó cuál es la convención esperada acá.
+- **NO VERIFICADO**: impacto práctico de la idempotencia frágil de `addExpense`/`addIncome` (regla 9, colisión por monto+fecha exacta) — no se encontró un caso reportado, es un análisis de código.
+- **F0-F3 de exclusividad de caja (`register_lease`) están committeados hoy** (`09c43882`, `20e3f237`, `bb3575ae`, `b7444577`) pero es trabajo de esta misma semana, de otra sesión activa en paralelo al momento de escribir este doc. F4 (panel: liberar caja), F5 (POS: mensaje de caja tomada) y F6 (decisión "online sin tenencia") siguen sin implementar — ver `29-numeracion-y-exclusividad-de-caja.md` §8 para el estado autoritativo, que puede haber avanzado desde que se escribió este párrafo.
+
+## 8. Planes y decisiones relacionados
+
+- `context/29-numeracion-y-exclusividad-de-caja.md` — tenencia de caja por dispositivo (`register_lease`), P0 fiscal, máquina de estados, fases F0-F6. La Caja (este doc) y la exclusividad de caja comparten la entidad `register` pero son dos features distintas — ver regla 8.
+- `context/modules/17-numeracion.md` — correlativos de documentos, de dónde sale el próximo `invoiceNo`. Este doc solo cubre qué guarda la CAJA sobre el timbrado (regla del par único), no cómo se asigna un número.
+- `context/09-costos-y-creditos.md` — no revisado en esta sesión; podría tocar cómo los movimientos de caja alimentan costos, si aplica.
