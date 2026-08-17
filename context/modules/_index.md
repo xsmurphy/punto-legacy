@@ -37,7 +37,7 @@ Estado: ⬜ sin escribir · 🟡 borrador · ✅ verificado contra código
 
 ### Catálogo y precios
 - ⬜ `01-catalogo-items.md` — tipos de artículo (`kind`), campos, variantes
-- ⬜ `02-combos-y-addons.md` — combo fijo, combo dinámico, grupos de add-ons
+- ✅ `02-combos-y-addons.md` — combo fijo, combo dinámico, grupos de add-ons
 - ⬜ `03-listas-de-precio.md` — prioridad de listas, ajustes, overrides por ítem
 - ⬜ `04-impuestos.md` — tasas, incluido/añadido, exento vs 0%, congelado por línea
 
@@ -87,3 +87,5 @@ Las flechas más peligrosas — donde una suposición equivocada rompe plata:
 | Cobranzas | `transaction_link` | Que el saldo sale de sumar vínculos, no de una columna |
 | POS | Sincronización | Que el cache local es fuente de verdad para operar |
 | Impresión | Plantillas | Que lo que se imprime lo decide la plantilla, no el renderer |
+| Órdenes/mesas | Add-ons | Que el `unitPrice` plano de la línea ya "cobra" el add-on — pero `CreateOrderItemInput`/`OrderItem` no tienen `selections`: una orden de mesa con add-ons pierde el desglose, el stock de la opción y el dato para la comanda (nunca corre `expandAddonSelections`) |
+| Add-ons | Stock | Que cada opción elegida (incluidas `isLocked`) descuenta con la misma `explodeRecipe` que cualquier ítem — sin excepción para las que el cajero no tocó |
