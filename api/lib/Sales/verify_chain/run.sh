@@ -194,10 +194,13 @@ fi
 # ── 3.8. Exclusividad de caja (context/29, P0 fiscal): dos dispositivos NO
 #    pueden compartir el bloque de números de una caja — ver docblock de
 #    verify_register_lease.php. Levanta su propio servidor PHP built-in
-#    (mismo bootstrap.php/lease.php reales) contra el Postgres seedeado
-#    arriba; no depende de los pasos anteriores.
+#    (mismo bootstrap.php/lease.php/sales.php reales) contra el Postgres
+#    seedeado arriba; no depende de los pasos anteriores. Incluye (casos
+#    6-8) el caso CENTRAL de que la venta ONLINE ya no persiste
+#    invoiceNo=NULL: POST real a sales.php, verificado contra transaction.
+#    invoiceNo y numbering_lease.consumedAt en BD.
 echo ""
-echo "[run.sh] === exclusividad de caja (register_lease, 409 entre devices) ==="
+echo "[run.sh] === exclusividad de caja (register_lease, 409 entre devices, venta online consume el lease) ==="
 if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_register_lease.php"; then
   OVERALL_STATUS=1
 fi
