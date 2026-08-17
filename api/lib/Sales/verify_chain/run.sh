@@ -205,6 +205,16 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_register_lease.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.9. Numeración del recibo (context/modules/17-numeracion.md §regla 7):
+#    antes de este fix TODO recibo (transactionType=5) salía con invoiceNo=0
+#    — ver docblock de verify_receipt_numbering.php. Corre contra el mismo
+#    Postgres seedeado arriba; no depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === numeración del recibo (dos recibos consecutivos, invoiceNo distinto y correlativo) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_receipt_numbering.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="
