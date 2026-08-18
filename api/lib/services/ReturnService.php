@@ -151,9 +151,10 @@ final class ReturnService
                 // y Postgres la rechaza con "relation itemSold does not exist" — se
                 // corrige quitando las comillas (mismo criterio que `SaleService::
                 // AutoExecute('itemSold', ...)`, que nunca cita el nombre). El mismo
-                // patrón de comillas sigue roto, sin tocar acá (fuera de alcance), en
-                // `PurchaseCreditNoteService.php` y `EInvoiceService.php:1767` —
-                // flageado en el reporte final, no en este archivo.
+                // patrón de comillas quedaba roto en `PurchaseCreditNoteService.php`
+                // (corregido 2026-08-17 al tocar ese archivo para context/29 §5 —
+                // ver `verify_supplier_document.php`, caso 3, que lo destapó); sigue
+                // roto, sin tocar, en `EInvoiceService.php:1767` (fuera de alcance).
                 $origItem = $db->GetRow(
                     'SELECT SUM(is1.itemsoldunits)                 AS itemsoldunits,
                             SUM(is1.itemsoldtotal)                 AS itemsoldtotal,

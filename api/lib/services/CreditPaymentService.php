@@ -602,7 +602,16 @@ final class CreditPaymentService
                 : getNextDocNumber(0, 5, $companyId, $parentRegisterId),
             'timestamp'              => time(),
             $contactCol              => $contactId,
-            'registerId'             => $parentRegisterId,
+            // registerId es columna uuid: '' (el valor real que produce el
+            // pago a proveedor, ver comentario arriba) no es un uuid válido
+            // y el INSERT entero fallaba con "invalid input syntax for type
+            // uuid" — el pago a proveedor NUNCA completaba para una compra
+            // sin registerId, que es el caso normal (PurchasesService nunca
+            // lo setea). null es el valor correcto para "no hay caja" — no
+            // inventa un dato, y es justo lo que ya asumía el resto del
+            // código (`$openDrawerId` arriba, `resolveOpenDrawerId`/
+            // `getNextDocNumber` ya cortan en '' con el mismo criterio).
+            'registerId'             => $parentRegisterId !== '' ? $parentRegisterId : null,
             'userId'                 => $userId,
             'responsibleId'          => $firstParent['responsibleId'],
             'outletId'               => $firstParent['outletId'],

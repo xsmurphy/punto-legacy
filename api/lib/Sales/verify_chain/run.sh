@@ -226,6 +226,17 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_return_numbering.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.11. Número de comprobante + timbrado del PROVEEDOR (context/29 §5,
+#    mig 144): compra, NC de compra y pago a proveedor persisten y leen de
+#    vuelta el documento AJENO (sin correlativo interno) — ver docblock de
+#    verify_supplier_document.php. Corre contra el mismo Postgres seedeado
+#    arriba; no depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === comprobante + timbrado del proveedor (compra, NC de compra, pago a proveedor) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_supplier_document.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="

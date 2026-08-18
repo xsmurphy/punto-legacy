@@ -160,15 +160,27 @@ final class PurchaseCreditNoteService
                 // toma con MIN por determinismo — si dos líneas del mismo item
                 // tuvieran impuestos distintos no hay un único "el" impuesto
                 // de la NC, y ese caso no lo produce el flujo de compras.
+                // Tercer bug pre-existente encontrado al ejercitar este método
+                // (desbloqueante, sin relación con context/29 §5, ver
+                // verify_supplier_document.php caso 3): `itemSold` NO tiene
+                // columna real `taxid` (db-schema-postgres.sql) — PurchasesService
+                // ::create() manda `taxId` a `ncmInsert`, que lo enruta al JSONB
+                // `meta` (Schema::split(), campo desconocido) con la clave
+                // camelCase TAL CUAL vino: `meta->>'taxId'`, no `meta->>'taxid'`.
+                // `MIN(taxid::text)` como columna real rechazaba con "column
+                // taxid does not exist" y create() SIEMPRE fallaba con "Item no
+                // encontrado" para cualquier línea con impuesto — o sea,
+                // prácticamente cualquier compra real. Se corrige leyendo del
+                // JSONB.
                 $origItem = $db->GetRow(
-                    'SELECT SUM(itemsoldunits)                 AS itemsoldunits,
+                    "SELECT SUM(itemsoldunits)                 AS itemsoldunits,
                             SUM(itemsoldtotal)                 AS itemsoldtotal,
                             SUM(COALESCE(itemsolddiscount, 0)) AS itemsolddiscount,
                             SUM(COALESCE(itemsoldtax, 0))      AS itemsoldtax,
-                            MIN(taxid::text)                   AS taxid
-                     FROM "itemSold"
+                            MIN(meta->>'taxId')                AS taxid
+                     FROM itemSold
                      WHERE transactionid = ? AND itemid = ?
-                     HAVING COUNT(*) > 0',
+                     HAVING COUNT(*) > 0",
                     [$parentTransactionId, $itemId]
                 );
                 if (!$origItem) {
@@ -296,12 +308,18 @@ final class PurchaseCreditNoteService
             foreach ($processedItems as $pi) {
                 $itemSoldId = $db->GetOne('SELECT gen_random_uuid()');
 
+                // itemSold no tiene columna real `taxid` (mismo bug del
+                // SELECT de arriba) — el taxId va al JSONB `meta`, misma
+                // clave camelCase que usa PurchasesService::create() vía
+                // ncmInsert/Schema::split() (`meta->>'taxId'`), para que la
+                // línea de la NC sea legible con el mismo criterio que
+                // cualquier otra línea de itemSold.
                 $db->Execute(
-                    'INSERT INTO "itemSold" (
+                    'INSERT INTO itemSold (
                         itemsoldid, itemid, transactionid,
-                        itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldtax, taxid,
-                        itemsolddate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+                        itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldtax,
+                        itemsolddate, meta
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)',
                     [
                         $itemSoldId,
                         $pi['itemId'],
@@ -312,7 +330,7 @@ final class PurchaseCreditNoteService
                         $pi['lineTotal'],
                         $pi['lineDiscount'],
                         $pi['lineTax'],
-                        $pi['taxId'],
+                        json_encode($pi['taxId'] !== null && $pi['taxId'] !== '' ? ['taxId' => $pi['taxId']] : []),
                     ]
                 );
 
@@ -427,7 +445,7 @@ final class PurchaseCreditNoteService
         $stockReverted = 0;
         if ($movedItemIds !== []) {
             $lines = ncmExecute(
-                'SELECT itemid, itemsoldunits, itemsoldtotal FROM "itemSold" WHERE transactionid = ?',
+                'SELECT itemid, itemsoldunits, itemsoldtotal FROM itemSold WHERE transactionid = ?',
                 [$id],
                 false,
                 false,

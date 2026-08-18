@@ -671,6 +671,20 @@ final class DrawerService
      */
     public static function resolveOpenDrawerId(string $registerId, string $companyId): ?string
     {
+        // registerId='' es un valor REAL que produce el pago a proveedor
+        // (PurchasesService nunca setea registerId — ver CreditPaymentService::
+        // insertReceipt) — mandarlo tal cual como parámetro `?` contra una
+        // columna uuid tira "invalid input syntax for type uuid" y ese error
+        // ENVENENA la transacción Postgres que lo envuelve (StartTrans() de
+        // CreditPaymentService::create/createDistributed): el catch de abajo
+        // atrapa la excepción y devuelve null sin problema, pero cualquier
+        // statement posterior DENTRO de la misma transacción (el INSERT real
+        // del recibo) sale con "25P02 current transaction is aborted" — el
+        // pago a proveedor fallaba con 500 SIEMPRE, no solo este helper.
+        // Cortar acá antes de tocar la DB es la raíz, no un catch más.
+        if ($registerId === '') {
+            return null;
+        }
         try {
             $row = ncmExecute(
                 'SELECT drawerId AS "drawerId" FROM drawer
