@@ -26,6 +26,7 @@ import { fixtureBootstrap, fixtureHotkeys } from "@/lib/catalog/fixtures"
 import { usePosBootstrap } from "@/hooks/use-pos-bootstrap"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { primeWatermarks } from "@/lib/catalog/delta-sync"
+import { primeInvoiceNumbering } from "@/lib/pos/invoice-numbering"
 
 const USE_FIXTURES = process.env.NEXT_PUBLIC_USE_FIXTURES === "1"
 
@@ -59,6 +60,11 @@ export function useCatalogSeed() {
       if (useHotkeysStore.getState().hotkeys.length === 0) {
         useHotkeysStore.getState().hydrate(fixtureHotkeys)
       }
+      // Numeración de fixtures: arranca en 1 si el device nunca vendió en
+      // esta caja fixture — sin esto, vender bajo NEXT_PUBLIC_USE_FIXTURES=1
+      // explota con NO_INVOICE_NUMBER (ver lib/pos/invoice-numbering.ts).
+      const fixtureRegisterId = fixtureBootstrap.registers[0]?.id ?? ""
+      if (fixtureRegisterId) primeInvoiceNumbering(fixtureRegisterId, 1)
       return
     }
 
@@ -101,6 +107,14 @@ export function useCatalogSeed() {
         // la hidratación si falla.
         const companyId = bootstrap.config?.companyId
         if (companyId) void primeWatermarks(String(companyId))
+        // Numeración del POS (context/29): siembra/corrige el contador local
+        // de "último correlativo + 1" de la caja activa con lo que el
+        // servidor reporta — ver docblock de primeInvoiceNumbering(). Se
+        // llama en CADA hidratación (no solo la primera), no solo al montar,
+        // para que un cambio de caja o una corrección server-side se reflejen.
+        if (bootstrap.activeRegisterId) {
+          primeInvoiceNumbering(bootstrap.activeRegisterId, bootstrap.nextInvoiceNo)
+        }
       }
     }
   }, [status, hydrate, bootstrap, dataUpdatedAt])

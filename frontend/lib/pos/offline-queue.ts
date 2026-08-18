@@ -23,7 +23,7 @@ export type OfflineSaleStatus = 'pending' | 'syncing' | 'failed'
 
 export interface OfflineSaleRow {
   clientTempId: string
-  leasedInvoiceNo: number
+  invoiceNo: number
   sale: CreateSalePayload
   status: OfflineSaleStatus
   error?: OfflineError
@@ -87,8 +87,8 @@ export async function markSynced(clientTempId: string): Promise<void> {
 
 /**
  * Marca una venta como fallida TERMINAL: NO se reintenta automáticamente.
- * Para errores de negocio no recuperables (ej. LEASE_EXPIRED — el número de
- * comprobante venció/ya se usó) o cuando se agotaron los reintentos transitorios.
+ * Para errores de negocio no recuperables (ej. REGISTER_NOT_HELD — la caja
+ * ya no es de este device) o cuando se agotaron los reintentos transitorios.
  * Queda en la cola para que el operador la revise/descarte manualmente; el loop
  * de sync la ignora (solo reintenta 'pending'). Evita el bucle de reintento
  * infinito que generaba cientos de POSTs por cliente (auto-DDoS).

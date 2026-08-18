@@ -88,30 +88,9 @@ import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import { useOfflineSync } from "@/hooks/use-offline-sync"
 import { OfflineBanner } from "@/components/pos/offline-banner"
-import { primeLeaseStatus, refreshLease } from "@/lib/pos/numbering-lease"
 
 function OfflineSyncRunner() {
   useOfflineSync()
-  return null
-}
-
-/**
- * Renovación proactiva del arriendo de numeración (context/08 §53, escalado
- * por el owner 2026-08-16). Antes el ÚNICO trigger era `getNextInvoiceNo`
- * dentro de una venta — un dispositivo que arranca offline, o que estuvo 24h
- * sin vender, nunca tenía chance de renovar hasta que una venta real lo
- * disparaba, demasiado tarde. Acá corre una vez por montaje del workspace:
- * `primeLeaseStatus` hidrata el store reactivo (`OfflineBanner` lo lee) con
- * lo que YA hay en localStorage, y `refreshLease` intenta renovar si hay
- * conexión (best-effort, no-op silencioso si no la hay — el aviso visible lo
- * da el banner, no esto). El segundo disparador proactivo (abrir caja) vive
- * en `useOpenDrawer` (hooks/use-drawer.ts).
- */
-function NumberingLeaseRunner() {
-  React.useEffect(() => {
-    primeLeaseStatus()
-    void refreshLease()
-  }, [])
   return null
 }
 
@@ -230,7 +209,6 @@ function PosWorkspaceLayoutInner({
       <BeforeUnloadGuard />
       <HotkeysEditScope />
       <OfflineSyncRunner />
-      <NumberingLeaseRunner />
       {/* Diálogo de split + reconciliación de cobro de espacios (context/15
           §F3, bug T8) — persistente acá (no en /pos/espacios) para que
           sobreviva la navegación a /pos tras cargar el carrito. Ver docblock

@@ -367,4 +367,19 @@ export interface PosBootstrap {
    * `null` — mismo criterio que el backend (`SaleService::enrichWithTaxes`).
    */
   outletTaxIncluded: boolean
+  /**
+   * Próximo correlativo de factura de `activeRegisterId`, según
+   * `document_sequence` (`GET /v1/register` → `RegisterService::
+   * docNumbers()`, misma fuente que "próxima factura" en Ajustes). `null` si
+   * el upstream falló — el bootstrap nunca bloquea por esto.
+   *
+   * Es el seed inicial de `lib/pos/invoice-numbering.ts` (`primeInvoiceNumbering`,
+   * llamado desde `use-catalog-seed.ts`): el device offline decide su propio
+   * "último correlativo + 1" localmente, pero necesita conocer el punto de
+   * partida la primera vez (o corregirse hacia adelante si otro proceso
+   * movió la secuencia). Reemplaza al arriendo de bloques de numeración
+   * (`numbering-lease.ts`, RECHAZADO 2026-08-17 — ver
+   * context/29-numeracion-y-exclusividad-de-caja.md §6).
+   */
+  nextInvoiceNo: number | null
 }

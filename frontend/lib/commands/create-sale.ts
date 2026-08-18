@@ -218,23 +218,22 @@ export interface CreateSalePayload {
    */
   dueDate?: string | null
   /**
-   * Número de comprobante — arrendado LOCALMENTE por el POS (lib/pos/
-   * numbering-lease.ts, `getNextInvoiceNo()`), la MISMA fuente para venta
-   * online y offline (decisión del owner, context/29-numeracion-y-
-   * exclusividad-de-caja.md: nunca `DocumentNumber::allocate()` server-side
-   * en el camino online, porque devolvería números por encima de un bloque
-   * offline vivo del mismo device y violaría "orden de números = orden de
-   * fechas"). Maps a `SaleInput::$invoiceNo` (`SaleInput.php:157`, key
-   * `invoiceno` — así lo lee el backend, que lo persiste tal cual
-   * (`SaleService.php:663`) sin volver a asignarlo.
+   * Número de comprobante — decidido LOCALMENTE por el POS (lib/pos/
+   * invoice-numbering.ts, `getNextInvoiceNo()`: "último correlativo de mi
+   * caja + 1"), la MISMA fuente para venta online y offline (decisión del
+   * owner, context/29-numeracion-y-exclusividad-de-caja.md: nunca
+   * `DocumentNumber::allocate()` server-side en el camino online, porque
+   * devolvería números por encima de lo que el device ya emitió offline y
+   * violaría "orden de números = orden de fechas"). Maps a
+   * `SaleInput::$invoiceNo` (`SaleInput.php:157`, key `invoiceno` — así lo
+   * lee el backend, que lo persiste tal cual (`SaleService.php:663`) sin
+   * volver a asignarlo.
    *
-   * Antes este campo NO EXISTÍA y la venta online nunca lo mandaba —
-   * persistía `invoiceNo = NULL` en TODA venta emitida con conexión (P0
-   * fiscal, hallazgo `context/modules/10-pos-venta.md` §3 regla 4). El
-   * backend (`api/v1/sales.php`) valida la tenencia de este número contra
-   * `register_lease` antes de guardar y lo marca `consumedAt` al confirmar
-   * — mismo criterio que `api/v1/offline-sync.php` ya aplicaba solo para la
-   * rama offline.
+   * El backend (`api/v1/sales.php`) valida que este device siga siendo el
+   * tenedor de `register_lease` antes de guardar — mismo criterio que
+   * `api/v1/offline-sync.php` ya aplica para la rama offline. Ninguno de los
+   * dos vuelve a asignar ni a arrendar el número: solo confirman tenencia y
+   * avanzan `document_sequence` (`DocumentNumber::advanceTo()`).
    */
   invoiceno: number
 }

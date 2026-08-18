@@ -203,6 +203,15 @@ interface UpstreamRegisterList {
   registers: UpstreamRegisterRow[]
 }
 
+// Shape real de GET /v1/register (sin `resource`) — RegisterService::docNumbers().
+// El POS solo necesita `invoiceNo`: el próximo correlativo de FACTURA de la
+// caja activa (JWT), fuente de `PosBootstrap.nextInvoiceNo` (ver
+// lib/pos/invoice-numbering.ts). Reemplaza al arriendo de bloques
+// (`/v1/numbering/lease`, RECHAZADO 2026-08-17).
+interface UpstreamDocNumbers {
+  invoiceNo: number
+}
+
 // Shape real de /v1/items rows y /v1/contacts rows — ver
 // `@/lib/pos-bff/reshape.ts` (única fuente de verdad, compartida con los
 // BFF de sync quirúrgico).
@@ -403,8 +412,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let categoriesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamCategoriesList>>>
   let brandsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamBrandsList>>>
   let printTemplatesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamPrintTemplatesList>>>
+  let docNumbersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamDocNumbers>>>
   try {
-    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes, taxesRes, categoriesRes, brandsRes, printTemplatesRes] = await Promise.all([
+    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes, taxesRes, categoriesRes, brandsRes, printTemplatesRes, docNumbersRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
@@ -478,6 +488,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       // próximo bootstrap.
       fetchUpstream<UpstreamPrintTemplatesList>(base, "/v1/document-templates", headers).catch((err) => {
         console.warn("[bff /api/pos/bootstrap] document-templates fetch falló (degradando a [])", {
+          err: err instanceof Error ? err.message : String(err),
+        })
+        return { status: 0, data: null, rawText: "" }
+      }),
+      // Próximo correlativo de la caja activa (context/29 — reemplaza al
+      // arriendo de bloques). Mismo criterio que taxes/categories/brands: un
+      // fallo acá NUNCA debe tumbar el bootstrap entero — degrada a `null`,
+      // y `primeInvoiceNumbering()` en el front simplemente no corrige el
+      // contador local esta vez (sigue con lo que ya tenía persistido).
+      fetchUpstream<UpstreamDocNumbers>(base, "/v1/register", headers).catch((err) => {
+        console.warn("[bff /api/pos/bootstrap] register (docNumbers) fetch falló (degradando a null)", {
           err: err instanceof Error ? err.message : String(err),
         })
         return { status: 0, data: null, rawText: "" }
@@ -694,6 +715,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // upstream (DocumentTemplateRow), sin reshape — ver comentario de
     // UpstreamPrintTemplatesList.
     printTemplates: printTemplatesRes.data?.templates ?? [],
+    // context/29: próximo correlativo de FACTURA de la caja activa — seed de
+    // `lib/pos/invoice-numbering.ts`. `null` si el fetch degradó arriba.
+    nextInvoiceNo:
+      typeof docNumbersRes.data?.invoiceNo === "number" ? docNumbersRes.data.invoiceNo : null,
   }
 
   return NextResponse.json(bootstrap)
