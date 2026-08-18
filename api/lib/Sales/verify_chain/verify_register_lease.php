@@ -434,7 +434,7 @@ try {
         if ($statusAfterForce !== 200 || ($resultAfterForce['ok'] ?? true) !== false || $errorCode !== 'REGISTER_NOT_HELD') {
             $failures[] = 'Caso 9: sync offline de A tras la liberación forzada esperaba ok=false con error.code=REGISTER_NOT_HELD, llegó status=' . $statusAfterForce . ' ' . json_encode($bodyAfterForce);
         } else {
-            $txRow = ncmExecute('SELECT 1 FROM transaction WHERE uid = ?', [$saleUidAfterForce]);
+            $txRow = ncmExecute('SELECT 1 FROM transaction WHERE transactionUID = ?', [$saleUidAfterForce]);
             $wasSaved = $txRow !== false && $txRow !== 0;
             if ($wasSaved) {
                 $failures[] = 'Caso 9: la venta rechazada por REGISTER_NOT_HELD no debía guardarse, pero existe en transaction';
