@@ -24,7 +24,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 interface Props {
   block: PrintBlock
   index: number
+  /** true si el bloque está en la selección actual (uno o varios). Controla
+   *  el resaltado visual — NO implica que la toolbar flotante se muestre,
+   *  ver `showToolbar`. */
   selected: boolean
+  /** true solo cuando este es el ÚNICO bloque seleccionado — la toolbar
+   *  flotante (delete/tamaño/familia/negrita/align/clonar/wrap) edita UN
+   *  bloque a la vez; con selección múltiple se oculta a favor del panel de
+   *  edición en conjunto del inspector (block-inspector.tsx). */
+  showToolbar: boolean
   paperSize: PaperSize
   /** ratio mm → px (calculado por el canvas con un div de 1mm). */
   mm: number
@@ -36,10 +44,21 @@ interface Props {
    *  (subtotal_by_rate/iva_by_rate/item_total_by_rate) en el tooltip, ver
    *  `getBlockTitle`. */
   taxes?: Tax[]
-  onSelect: () => void
+  /** Mousedown sobre el bloque — el editor decide qué hacer con el evento
+   *  (click simple, Shift/Cmd para sumar/restar de la selección, o dejar
+   *  pendiente el colapso a un solo bloque si ya es parte de un grupo
+   *  seleccionado, ver `handleBlockMouseDown` en template-editor.tsx).
+   *  `MouseEvent` nativo (no `React.MouseEvent`): así lo tipa react-rnd en
+   *  su propio `onMouseDown`, que es de donde sale este evento. */
+  onSelect: (e: MouseEvent) => void
   onChange: (patch: Partial<PrintBlock>) => void
   onDelete: () => void
   onClone: () => void
+  /** Drag stop del bloque: delta en px respecto a su posición previa. El
+   *  editor decide si mueve solo este bloque o todo el grupo seleccionado
+   *  (`moveBlocksBy` en template-editor.tsx) — acá no se sabe cuántos
+   *  bloques hay seleccionados. */
+  onMoveBy: (dx: number, dy: number) => void
   /** Cuando se está arrastrando: notifica al editor para que muestre guides. */
   onDragGuides?: (info: { top: number; left: number; width: number; height: number } | null) => void
 }
@@ -52,6 +71,7 @@ interface Props {
 export function CanvasBlock({
   block,
   selected,
+  showToolbar,
   paperSize,
   mm,
   data,
@@ -60,6 +80,7 @@ export function CanvasBlock({
   onChange,
   onDelete,
   onClone,
+  onMoveBy,
   onDragGuides,
 }: Props) {
   const ticket = isReceipt(paperSize)
@@ -99,8 +120,14 @@ export function CanvasBlock({
       }
       onDragStop={(_, d) => {
         setIsDragging(false)
-        onChange({ left: Math.round(d.x), top: Math.round(d.y) })
         onDragGuides?.(null)
+        // Delta, no posición absoluta — el editor lo aplica a TODO el grupo
+        // seleccionado si este bloque es parte de una selección múltiple
+        // (moveBlocksBy en template-editor.tsx), o solo a este bloque si no.
+        // CanvasBlock no sabe cuántos bloques hay seleccionados.
+        const dx = Math.round(d.x) - block.left
+        const dy = Math.round(d.y) - block.top
+        if (dx !== 0 || dy !== 0) onMoveBy(dx, dy)
       }}
       onResizeStart={() => setIsResizing(true)}
       onResize={(_e, _dir, ref, _delta, pos) =>
@@ -123,7 +150,7 @@ export function CanvasBlock({
       }}
       onMouseDown={(e) => {
         e.stopPropagation()
-        onSelect()
+        onSelect(e)
       }}
       className={cn(
         // El bloque vive sobre el papel blanco — uso colores neutrales fijos
@@ -189,7 +216,7 @@ export function CanvasBlock({
         </Tooltip>
       )}
 
-      {selected && !moving && (
+      {showToolbar && !moving && (
         <BlockToolbar
           block={block}
           title={title}
