@@ -132,17 +132,29 @@ final class SaleService
         $userId        = $input->userId ?? $this->ctx->userId;
         $responsibleId = ($userId !== $this->ctx->userId) ? $this->ctx->userId : null;
 
+        // ── B1: congelar el timbrado de la caja (mig 145) ────────────────────
+        // Mismo criterio que enrichWithTaxes: se resuelve ANTES de StartTrans
+        // (es una lectura pura, no necesita estar dentro de la tx) y se
+        // persiste el valor resuelto en el record — nunca se vuelve a leer
+        // `register.data->>'registerInvoiceAuth'` para esta venta. Si el
+        // timbrado de la caja cambia mañana, este documento sigue mostrando
+        // (y siendo comparado contra) el timbrado con el que se emitió.
+        [$invoiceAuth, $invoiceAuthStart, $invoiceAuthExpiration] = $this->resolveFrozenInvoiceAuth();
+
         // ── B1: abrir transacción ──────────────────────────────────────────
         $this->db->StartTrans();
 
         // ── B3: construir record de `transaction` ──────────────────────────
         $record = $this->buildTransactionRecord(
-            input:         $input,
-            saleDetail:    $saleDetail,
-            totalUnits:    $totalUnits,
-            userId:        $userId,
-            responsibleId: $responsibleId,
-            decimals:      $decimals,
+            input:                  $input,
+            saleDetail:             $saleDetail,
+            totalUnits:             $totalUnits,
+            userId:                 $userId,
+            responsibleId:          $responsibleId,
+            decimals:               $decimals,
+            invoiceAuth:            $invoiceAuth,
+            invoiceAuthStart:       $invoiceAuthStart,
+            invoiceAuthExpiration:  $invoiceAuthExpiration,
         );
 
         // ── B3: INSERT principal de la venta ────────────────────────────────
@@ -584,6 +596,44 @@ final class SaleService
     }
 
     /**
+     * Resuelve el timbrado VIGENTE de la caja (número/inicio/vencimiento) en
+     * el momento de emitir — mig 145. `registerInvoiceAuth*` vive en
+     * `register.data` (JSONB, mig 26), config mutable de la caja; esta
+     * llamada es la ÚNICA lectura de esa config para efectos de la venta —
+     * el valor devuelto se congela en `transaction` (ver buildTransactionRecord)
+     * y nunca se vuelve a resolver desde `register` para ESTA venta.
+     *
+     * `ncmExecute('SELECT data ...')` aplana el JSONB (Query::flattenJsonb):
+     * las claves de `data` llegan directo en la fila, `$row['data']` no
+     * existe. Con count=1 el resultado es un CaseInsensitiveArray, NO un
+     * array plano — is_array() sobre eso da false (bug ya pisado antes en
+     * este repo, ver lease.php); el chequeo real es is_array() || ArrayAccess
+     * (mismo criterio que moduleEnabled() arriba y enrichWithTaxes()).
+     *
+     * @return array{0: ?string, 1: ?string, 2: ?string} [invoiceAuth, invoiceAuthStart, invoiceAuthExpiration]
+     */
+    private function resolveFrozenInvoiceAuth(): array
+    {
+        $row = ncmExecute(
+            'SELECT data FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
+            [$this->ctx->registerId, $this->ctx->companyId]
+        );
+        if (!(is_array($row) || $row instanceof \ArrayAccess)) {
+            return [null, null, null];
+        }
+
+        $auth  = trim((string) ($row['registerInvoiceAuth']           ?? ''));
+        $start = trim((string) ($row['registerInvoiceAuthStart']      ?? ''));
+        $exp   = trim((string) ($row['registerInvoiceAuthExpiration'] ?? ''));
+
+        return [
+            $auth  === '' ? null : $auth,
+            $start === '' ? null : $start,
+            $exp   === '' ? null : $exp,
+        ];
+    }
+
+    /**
      * Arma el array de campos para INSERT en `transaction` (B3 del legacy).
      *
      * Notas críticas portadas del legacy (action.php:1989-2034):
@@ -612,6 +662,9 @@ final class SaleService
         string $userId,
         ?string $responsibleId,
         int $decimals,
+        ?string $invoiceAuth = null,
+        ?string $invoiceAuthStart = null,
+        ?string $invoiceAuthExpiration = null,
     ): array {
         $typeStr = (string) $input->type->value;
         $isIncomplete = in_array($input->type, [
@@ -661,6 +714,14 @@ final class SaleService
             'transactionName'        => $input->ident !== null ? strip_tags($input->ident) : null,
             'transactionNote'        => $input->note  !== null ? strip_tags($input->note)  : null,
             'invoiceNo'              => $input->invoiceNo,
+            // mig 145 — timbrado CONGELADO al emitir (resuelto en save(), ANTES
+            // de este builder — ver resolveFrozenInvoiceAuth()). null para
+            // saveQuote() (no pasa estos parámetros): una cotización no es un
+            // documento bajo timbrado, no participa de uq_transaction_
+            // expedition_invoiceno (WHERE transactiontype IN (0,3)).
+            'invoiceAuth'            => $invoiceAuth,
+            'invoiceAuthStart'       => $invoiceAuthStart,
+            'invoiceAuthExpiration'  => $invoiceAuthExpiration,
             'timestamp'              => $input->timestamp,
             'transactionUID'         => $input->uid,
             'transactionCurrency'    => $input->currency,
