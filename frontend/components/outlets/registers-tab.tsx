@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import type { ColumnDef } from "@tanstack/react-table"
-import { Pencil, Plus, Trash2 } from "lucide-react"
+import { Pencil, Plus, Trash2, Unlock } from "lucide-react"
 import { toast } from "sonner"
 
 import { DataTable } from "@/components/data-table/data-table"
@@ -40,6 +40,22 @@ import {
   type RegisterListItem,
   type RegisterNumbering,
 } from "@/hooks/use-registers-admin"
+import {
+  useRegisterLeases,
+  useReleaseRegisterLease,
+  type RegisterLeaseHolder,
+} from "@/hooks/use-register-leases"
+
+/** Tenencia (register_lease) usa timestamptz genuino, no el naive-local de
+ *  venta/caja — mismo caso que `pairedAt`/`lastSeenAt` de `device` en
+ *  settings/devices/page.tsx, que formatea con `new Date(iso)` directo en vez
+ *  de `parseNaive` (ese asume offset stripeado, acá el offset es real). */
+function niceLeaseDate(iso: string): string {
+  return new Intl.DateTimeFormat("es", {
+    day: "numeric", month: "short",
+    hour: "2-digit", minute: "2-digit",
+  }).format(new Date(iso))
+}
 
 /** Hoy en formato YYYY-MM-DD según el reloj local, para comparar contra las
  *  fechas del timbrado (que son fechas puras, sin hora ni zona). */
@@ -86,6 +102,23 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   const createRegister = useCreateRegister()
   const updateRegister = useUpdateRegister()
   const deleteRegister = useDeleteRegister()
+
+  // Tenencia de caja (context/29 F4) — endpoint propio, aparte del CRUD de
+  // caja. Se pide scopeada a esta sucursal, igual que `registers` de abajo.
+  const { data: leasesData, isLoading: leasesLoading } = useRegisterLeases(outletId)
+  const releaseLease = useReleaseRegisterLease()
+  const leaseByRegisterId = React.useMemo(() => {
+    const map = new Map<string, RegisterLeaseHolder | null>()
+    for (const item of leasesData?.leases ?? []) {
+      map.set(item.registerId, item.lease)
+    }
+    return map
+  }, [leasesData])
+
+  const [releaseTarget, setReleaseTarget] = React.useState<{
+    registerName: string
+    lease: RegisterLeaseHolder
+  } | null>(null)
 
   const [showCreate, setShowCreate] = React.useState(false)
   const [newName, setNewName] = React.useState("")
@@ -204,23 +237,59 @@ export function RegistersTab({ outletId }: { outletId: string }) {
       },
     },
     {
+      id: "tenencia",
+      header: "Tenencia",
+      // context/29 F4 — quién tiene la caja tomada ahora mismo (register_lease)
+      // y desde cuándo. Sin esto una caja trabada (tablet rota, sin tenedor
+      // visible) no tiene ninguna salida: la tenencia ya no vence sola.
+      cell: ({ row }) => {
+        // Mientras carga, NO afirmar "Libre" — sería un falso "sin tenedor"
+        // por 1-2s en cada apertura del tab. Neutral hasta tener el dato real.
+        if (leasesLoading) {
+          return <span className="text-sm text-muted-foreground">—</span>
+        }
+        const lease = leaseByRegisterId.get(row.original.id)
+        if (!lease) {
+          return <Badge variant="outline">Libre</Badge>
+        }
+        return (
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">{lease.deviceName || "Dispositivo sin nombre"}</span>
+            <span className="text-xs text-muted-foreground">desde {niceLeaseDate(lease.takenAt)}</span>
+          </div>
+        )
+      },
+    },
+    {
       id: "actions",
       header: "",
-      cell: ({ row }) => (
-        <RowActions
-          actions={[
-            { label: "Editar", icon: Pencil, onSelect: () => openEdit(row.original) },
-            {
-              label: "Eliminar",
-              icon: Trash2,
-              variant: "destructive",
-              onSelect: () => setDeleteTarget(row.original),
-            },
-          ]}
-        />
-      ),
+      cell: ({ row }) => {
+        const lease = leaseByRegisterId.get(row.original.id)
+        return (
+          <RowActions
+            actions={[
+              { label: "Editar", icon: Pencil, onSelect: () => openEdit(row.original) },
+              {
+                label: "Liberar caja",
+                icon: Unlock,
+                variant: "destructive",
+                hidden: !lease,
+                onSelect: () => {
+                  if (lease) setReleaseTarget({ registerName: row.original.name, lease })
+                },
+              },
+              {
+                label: "Eliminar",
+                icon: Trash2,
+                variant: "destructive",
+                onSelect: () => setDeleteTarget(row.original),
+              },
+            ]}
+          />
+        )
+      },
     },
-  ], [])
+  ], [leaseByRegisterId, leasesLoading])
 
   return (
     <>
@@ -408,6 +477,54 @@ export function RegistersTab({ outletId }: { outletId: string }) {
               }}
             >
               Eliminar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* context/29 F4 — liberar tenencia es irreversible sobre numeración
+          fiscal: corta al dispositivo que la tiene (anula sus números
+          arrendados no consumidos) para que otro pueda tomar la caja. El
+          nombre del dispositivo va explícito en el texto para que el admin
+          sepa a quién está desconectando antes de confirmar. */}
+      <AlertDialog open={releaseTarget !== null} onOpenChange={(o) => { if (!o) setReleaseTarget(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Liberar {releaseTarget ? `"${releaseTarget.registerName}"` : "caja"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {releaseTarget && (
+                <>
+                  <strong>{releaseTarget.lease.deviceName || "El dispositivo sin nombre"}</strong> tiene esta caja
+                  tomada desde el {niceLeaseDate(releaseTarget.lease.takenAt)} y va a dejar de poder facturar con
+                  ella inmediatamente. Cualquier número que haya arrendado y no haya usado todavía queda anulado.
+                  Esta acción no se puede deshacer.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={releaseLease.isPending}
+              onClick={() => {
+                if (!releaseTarget) return
+                releaseLease.mutate(
+                  { registerLeaseId: releaseTarget.lease.registerLeaseId },
+                  {
+                    onSuccess: (res) => {
+                      toast.success(res.alreadyReleased ? "La caja ya estaba libre" : "Caja liberada")
+                      setReleaseTarget(null)
+                    },
+                    onError: (err) => {
+                      toast.error(err.message)
+                      setReleaseTarget(null)
+                    },
+                  },
+                )
+              }}
+            >
+              Liberar caja
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
