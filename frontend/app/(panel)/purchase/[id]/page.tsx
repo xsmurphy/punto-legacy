@@ -66,6 +66,10 @@ import {
   type PurchaseCondition,
 } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
+import {
+  SupplierDocumentFields,
+  type SupplierDocumentValue,
+} from "@/components/domain/purchases/supplier-document-fields"
 
 /**
  * Detalle de una compra — solo lectura.
@@ -276,6 +280,7 @@ export default function PurchaseDetailPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Fecha</TableHead>
+                  <TableHead>Comprobante del proveedor</TableHead>
                   <TableHead>Modo</TableHead>
                   <TableHead>Estado</TableHead>
                   <TableHead className="text-right w-32">Total</TableHead>
@@ -286,6 +291,14 @@ export default function PurchaseDetailPage() {
                   <TableRow key={cn.id}>
                     <TableCell className="tabular-nums text-sm">
                       {formatDate(cn.date)}
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {cn.docPrefix || cn.docNo
+                        ? `${cn.docPrefix ?? ""} ${cn.docNo ?? ""}`.trim()
+                        : "—"}
+                      {cn.authNo && (
+                        <span className="block text-xs">Timbrado {cn.authNo}</span>
+                      )}
                     </TableCell>
                     <TableCell>
                       {cn.refundMode === "cash" ? "Devolución de dinero" : "A cuenta del saldo"}
@@ -440,6 +453,13 @@ function CreditNoteDialog({ purchase }: { purchase: PurchaseDetail }) {
   const [refundMode, setRefundMode] = React.useState<CreditNoteRefundMode>("cash")
   const [affectsStock, setAffectsStock] = React.useState(true)
   const [note, setNote] = React.useState("")
+  const [supplierDoc, setSupplierDoc] = React.useState<SupplierDocumentValue>({
+    prefix: "",
+    no: "",
+    authNo: "",
+    authNoDueDate: "",
+    docDate: "",
+  })
 
   const canUseCredit = purchase.condition === "credit" && !purchase.complete
 
@@ -462,6 +482,7 @@ function CreditNoteDialog({ purchase }: { purchase: PurchaseDetail }) {
     setRefundMode("cash")
     setAffectsStock(true)
     setNote("")
+    setSupplierDoc({ prefix: "", no: "", authNo: "", authNoDueDate: "", docDate: "" })
   }
 
   function handleOpenChange(next: boolean) {
@@ -492,6 +513,13 @@ function CreditNoteDialog({ purchase }: { purchase: PurchaseDetail }) {
         refundMode,
         affectsStock,
         note: note.trim() || undefined,
+        supplierDoc: {
+          docPrefix: supplierDoc.prefix || null,
+          docNo: supplierDoc.no || null,
+          docDate: supplierDoc.docDate || null,
+          authNo: supplierDoc.authNo || null,
+          authNoDueDate: supplierDoc.authNo.trim() !== "" ? supplierDoc.authNoDueDate || null : null,
+        },
       })
       toast.success("Nota de crédito emitida")
       handleOpenChange(false)
@@ -588,6 +616,13 @@ function CreditNoteDialog({ purchase }: { purchase: PurchaseDetail }) {
               </div>
             </div>
           </div>
+
+          <SupplierDocumentFields
+            title="Datos de la nota de crédito del proveedor"
+            showDocDate
+            value={supplierDoc}
+            onChange={(patch) => setSupplierDoc((prev) => ({ ...prev, ...patch }))}
+          />
 
           <div className="flex flex-col gap-1.5">
             <Label>Nota (opcional)</Label>

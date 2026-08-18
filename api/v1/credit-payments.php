@@ -146,10 +146,13 @@ if ($action === 'createDistributed') {
     }
     $note       = isset($body['note']) ? trim((string) $body['note']) : null;
     $identifier = isset($body['identifier']) ? trim((string) $body['identifier']) : null;
+    // Comprobante+timbrado del proveedor (mig 144) — solo aplica si !$isCustomer,
+    // CreditPaymentService::insertReceipt lo ignora en cobro a cliente.
+    $supplierDoc = is_array($body['supplierDoc'] ?? null) ? $body['supplierDoc'] : null;
 
     $result = $svc->createDistributed(
         $companyId, $userId, $contactId, $isCustomer,
-        (float) $body['amount'], $pmKey, $note ?: null, $identifier ?: null
+        (float) $body['amount'], $pmKey, $note ?: null, $identifier ?: null, $supplierDoc
     );
 } elseif ($action === 'create') {
     // Forma nueva: allocations[]. Forma vieja: parentTransactionId + amount
@@ -192,8 +195,9 @@ if ($action === 'createDistributed') {
 
     $note       = isset($body['note']) ? trim((string) $body['note']) : null;
     $identifier = isset($body['identifier']) ? trim((string) $body['identifier']) : null;
+    $supplierDoc = is_array($body['supplierDoc'] ?? null) ? $body['supplierDoc'] : null;
 
-    $result = $svc->create($companyId, $userId, $allocations, $pmKey, $note ?: null, $identifier ?: null, $isCustomer);
+    $result = $svc->create($companyId, $userId, $allocations, $pmKey, $note ?: null, $identifier ?: null, $isCustomer, $supplierDoc);
 } else {
     apiError('Acción no soportada', 422);
 }

@@ -25,6 +25,21 @@ final class Document
      */
     public static function getNextDocNumber(mixed $number, mixed $in, mixed $company, mixed $register): mixed
     {
+        // registerId='' (valor real que produce el pago a proveedor —
+        // PurchasesService nunca setea registerId, ver CreditPaymentService::
+        // insertReceipt) rompía "invalid input syntax for type uuid" contra
+        // la columna registerId. ncmExecute atrapa esa excepción y devuelve
+        // false — $lastUsed cae a 0 y esta función YA devolvía $number sin
+        // crashear (comportamiento sin cambios) — pero el error de Postgres
+        // ENVENENA cualquier transacción que lo envuelva (StartTrans() de
+        // CreditPaymentService), y el INSERT real que viene después en esa
+        // misma transacción fallaba con "25P02 current transaction is
+        // aborted". Cortar acá antes de tocar la DB evita el efecto
+        // colateral sin tocar la semántica: mismo resultado ($number),
+        // ahora sin el side-effect.
+        if ($register === '') {
+            return $number;
+        }
         // $company/$register son UUIDs: van como parámetros `?`. En PostgreSQL
         // interpolarlos crudos en el WHERE (`companyId = 019ead57-...`) tira
         // "trailing junk after numeric literal" — PG no acepta un UUID sin

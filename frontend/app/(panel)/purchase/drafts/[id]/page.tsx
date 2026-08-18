@@ -58,6 +58,7 @@ import {
   makeRowId,
   type FormLine,
 } from "@/components/domain/purchases/purchase-form-fields"
+import { SupplierDocumentFields } from "@/components/domain/purchases/supplier-document-fields"
 
 /**
  * Pantalla de revisión de un borrador OCR/IA — context/32-ocr-facturas-compra.md.
@@ -94,6 +95,7 @@ export default function PurchaseDraftReviewPage() {
   // entra en Cuentas por pagar y Previsiones, sin movimiento de caja.
   const [condition, setCondition] = React.useState<PurchaseCondition>("cash")
   const [authNo, setAuthNo] = React.useState("")
+  const [authNoDueDate, setAuthNoDueDate] = React.useState("")
   const [invoicePrefix, setInvoicePrefix] = React.useState("")
   const [invoiceNo, setInvoiceNo] = React.useState("")
   const [paymentMethodId, setPaymentMethodId] = React.useState("")
@@ -121,6 +123,7 @@ export default function PurchaseDraftReviewPage() {
       setDueDate(e.dueDate ? e.dueDate.slice(0, 10) : today())
       setCondition(e.condition ?? (draft.extracted?.invoice?.condition === "credito" ? "credit" : "cash"))
       setAuthNo(e.authNo ?? "")
+      setAuthNoDueDate(e.authNoDueDate ?? "")
       setInvoicePrefix(e.invoicePrefix ?? "")
       setInvoiceNo(e.invoiceNo !== undefined && e.invoiceNo !== null ? String(e.invoiceNo) : "")
       setPaymentMethodId(e.paymentMethodId ?? "")
@@ -147,6 +150,9 @@ export default function PurchaseDraftReviewPage() {
     // confirma o la corrige antes de aprobar.
     setCondition(extracted?.invoice?.condition === "credito" ? "credit" : "cash")
     setAuthNo(extracted?.invoice?.timbrado ?? "")
+    // timbradoEnd = fin de vigencia del timbrado (el OCR ya lo extrae — antes
+    // se descartaba, nunca se leía en ningún lado, ver auditoría mig 144).
+    setAuthNoDueDate(extracted?.invoice?.timbradoEnd ?? "")
     const split = splitInvoiceNumber(extracted?.invoice?.number ?? null)
     setInvoicePrefix(split.prefix)
     setInvoiceNo(split.no)
@@ -249,6 +255,7 @@ export default function PurchaseDraftReviewPage() {
       invoiceNo: invoiceNo || null,
       invoicePrefix,
       authNo,
+      authNoDueDate: authNo.trim() !== "" ? authNoDueDate || undefined : undefined,
       // A crédito el pago se registra después (pago a proveedor, type 5).
       paymentMethodId: isCredit ? undefined : paymentMethodId || undefined,
       ...(isCheckMethod
@@ -567,35 +574,15 @@ export default function PurchaseDraftReviewPage() {
             </div>
 
             <div className="flex flex-col gap-5 rounded-lg border bg-card p-4">
-              <div className="flex flex-col gap-3 rounded-md border bg-background/40 p-3">
-                <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  Datos de factura
-                </div>
-                <Field label="Timbrado / Auth" id="authNo">
-                  <Input id="authNo" value={authNo} onChange={(e) => setAuthNo(e.target.value)} placeholder="Opcional" />
-                </Field>
-                <div className="grid grid-cols-2 gap-2">
-                  <Field label="Prefijo" id="invoicePrefix">
-                    <Input
-                      id="invoicePrefix"
-                      value={invoicePrefix}
-                      onChange={(e) => setInvoicePrefix(e.target.value)}
-                      placeholder="001-001"
-                    />
-                  </Field>
-                  <Field label="Número" id="invoiceNo">
-                    <Input
-                      id="invoiceNo"
-                      type="number"
-                      min={0}
-                      step={1}
-                      value={invoiceNo}
-                      onChange={(e) => setInvoiceNo(e.target.value)}
-                      placeholder="0000001"
-                    />
-                  </Field>
-                </div>
-              </div>
+              <SupplierDocumentFields
+                value={{ prefix: invoicePrefix, no: invoiceNo, authNo, authNoDueDate }}
+                onChange={(patch) => {
+                  if (patch.prefix !== undefined) setInvoicePrefix(patch.prefix)
+                  if (patch.no !== undefined) setInvoiceNo(patch.no)
+                  if (patch.authNo !== undefined) setAuthNo(patch.authNo)
+                  if (patch.authNoDueDate !== undefined) setAuthNoDueDate(patch.authNoDueDate)
+                }}
+              />
 
               {/* Método de pago solo al contado: a crédito no hay pago al crear. */}
               {!isCredit && (

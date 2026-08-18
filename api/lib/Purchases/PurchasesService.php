@@ -37,6 +37,25 @@ final class PurchasesService
     private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
     /**
+     * Resuelve el timbrado del proveedor para lectura: prioriza la columna
+     * dedicada (`supplierAuthNo`, mig 144); si es NULL, la fila es anterior a
+     * la migración y el timbrado puede seguir viviendo concatenado dentro de
+     * `invoicePrefix` como "authNo;prefix" (hack legacy que `create()` ya no
+     * escribe pero que existía en producción — sin backfill, ver mig 144).
+     */
+    private function resolveAuthNo(?string $supplierAuthNo, ?string $invoicePrefix): ?string
+    {
+        if ($supplierAuthNo !== null && $supplierAuthNo !== '') {
+            return $supplierAuthNo;
+        }
+        if ($invoicePrefix !== null && strpos($invoicePrefix, ';') !== false) {
+            $legacyAuthNo = explode(';', $invoicePrefix, 2)[0];
+            return $legacyAuthNo !== '' ? $legacyAuthNo : null;
+        }
+        return null;
+    }
+
+    /**
      * Lista compras con paginación + filtros básicos. Devuelve array con
      * `rows` (resumen por fila) + `total` (count total para paginación).
      *
@@ -79,7 +98,8 @@ final class PurchasesService
         $sql = "SELECT t.transactionId, t.transactionDate, t.transactionTotal, t.transactionTax,
                        t.transactionDiscount, t.transactionStatus, t.transactionDueDate,
                        t.transactionType, t.transactionComplete,
-                       t.invoiceNo, t.invoicePrefix, t.supplierId, t.outletId,
+                       t.invoiceNo, t.invoicePrefix, t.supplierAuthNo, t.supplierAuthNoDueDate,
+                       t.supplierId, t.outletId,
                        c.contactName AS supplierName, o.outletName
                   FROM transaction t
                   LEFT JOIN contact c ON c.contactId = t.supplierId
@@ -106,6 +126,11 @@ final class PurchasesService
                     'complete'     => (bool) $f['transactioncomplete'],
                     'invoiceNo'    => $f['invoiceno'] !== null ? (int) $f['invoiceno'] : null,
                     'invoicePrefix' => $f['invoiceprefix'] !== null ? (string) $f['invoiceprefix'] : null,
+                    'authNo'       => $this->resolveAuthNo(
+                        $f['supplierauthno'] !== null ? (string) $f['supplierauthno'] : null,
+                        $f['invoiceprefix'] !== null ? (string) $f['invoiceprefix'] : null
+                    ),
+                    'authNoDueDate' => $f['supplierauthnoduedate'] !== null ? (string) $f['supplierauthnoduedate'] : null,
                     'supplierId'   => $f['supplierid'] !== null ? (string) $f['supplierid'] : null,
                     'supplierName' => $f['suppliername'] !== null ? (string) $f['suppliername'] : null,
                     'outletId'     => (string) $f['outletid'],
@@ -221,6 +246,11 @@ final class PurchasesService
             'complete'      => (bool) $row['transactioncomplete'],
             'invoiceNo'     => $row['invoiceno'] !== null ? (int) $row['invoiceno'] : null,
             'invoicePrefix' => $row['invoiceprefix'] !== null ? (string) $row['invoiceprefix'] : null,
+            'authNo'        => $this->resolveAuthNo(
+                $row['supplierauthno'] !== null ? (string) $row['supplierauthno'] : null,
+                $row['invoiceprefix'] !== null ? (string) $row['invoiceprefix'] : null
+            ),
+            'authNoDueDate' => $row['supplierauthnoduedate'] !== null ? (string) $row['supplierauthnoduedate'] : null,
             'note'          => $row['transactionnote'] ?? null,
             'supplierId'    => $row['supplierid'] !== null ? (string) $row['supplierid'] : null,
             'supplierName'  => $row['suppliername'] !== null ? (string) $row['suppliername'] : null,
@@ -251,6 +281,7 @@ final class PurchasesService
      *   invoiceNo?:int|string|null,
      *   invoicePrefix?:string,
      *   authNo?:string,
+     *   authNoDueDate?:string,
      *   discount?:float|string,
      *   paymentMethod?:string,
      *   note?:string,
@@ -307,6 +338,7 @@ final class PurchasesService
         $discount    = (float) ($data['discount'] ?? 0);
         $note        = (string) ($data['note'] ?? '');
         $authNo      = (string) ($data['authNo'] ?? '');
+        $authNoDueDate = $this->normalizeDate($data['authNoDueDate'] ?? null, false);
         $prefix      = (string) ($data['invoicePrefix'] ?? '');
         $invoiceNo   = isset($data['invoiceNo']) && $data['invoiceNo'] !== '' ? (int) $data['invoiceNo'] : null;
         // paymentMethodId: taxonomyId real del medio de pago (igual que ventas —
@@ -448,9 +480,11 @@ final class PurchasesService
             $paymentTypeJson = json_encode([$line]);
         }
 
-        // Prefix del legacy: "authNo;prefix" — preservado para compat de
-        // facturación electrónica que puede parsear ese shape.
-        $combinedPrefix = ($authNo !== '' || $prefix !== '') ? ($authNo . ';' . $prefix) : null;
+        // El timbrado del proveedor (authNo) tiene columna propia
+        // (`supplierAuthNo`, mig 144) — invoicePrefix guarda SOLO el prefijo
+        // "001-001", ya no el concat "authNo;prefix" del hack legacy (rows
+        // viejas con ese shape se siguen leyendo vía split en find()/list()).
+        $cleanPrefix = $prefix !== '' ? $prefix : null;
 
         $meta = [
             'details' => $details,
@@ -474,7 +508,9 @@ final class PurchasesService
                 'transactionUnitsSold'  => $totalUnits,
                 'transactionPaymentType' => $paymentTypeJson,
                 'invoiceNo'             => $invoiceNo,
-                'invoicePrefix'         => $combinedPrefix,
+                'invoicePrefix'         => $cleanPrefix,
+                'supplierAuthNo'        => $authNo !== '' ? $authNo : null,
+                'supplierAuthNoDueDate' => $authNoDueDate,
                 'userId'                => $userId,
                 'supplierId'            => $supplierId,
                 'outletId'              => $outletId,

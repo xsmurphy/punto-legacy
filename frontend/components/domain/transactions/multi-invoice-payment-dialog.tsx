@@ -42,6 +42,10 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Loader2 } from "lucide-react"
 import { PaymentIdentifierDialog } from "@/components/register/payment-identifier-dialog"
+import {
+  SupplierDocumentFields,
+  type SupplierDocumentValue,
+} from "@/components/domain/purchases/supplier-document-fields"
 
 interface PaymentResult {
   id: string
@@ -117,6 +121,15 @@ export function MultiInvoicePaymentDialog({
   const [pmKey, setPmKey] = React.useState<string>(defaultMethod?.id ?? "")
   const [note, setNote] = React.useState("")
   const [identifierOpen, setIdentifierOpen] = React.useState(false)
+  // Comprobante+timbrado del PROVEEDOR (mig 144) — solo aplica al pagar
+  // (isCustomer=false); documento ajeno, sin correlativo interno (context/29 §5).
+  const [supplierDoc, setSupplierDoc] = React.useState<SupplierDocumentValue>({
+    prefix: "",
+    no: "",
+    authNo: "",
+    authNoDueDate: "",
+    docDate: "",
+  })
   // Monto a imputar por factura (pestaña "Por factura"), keyed por saleId.
   const [amounts, setAmounts] = React.useState<Record<string, number>>({})
   const [freeAmount, setFreeAmount] = React.useState<number>(0)
@@ -136,6 +149,7 @@ export function MultiInvoicePaymentDialog({
     setPmKey(defaultMethod?.id ?? "")
     setNote("")
     setFreeAmount(0)
+    setSupplierDoc({ prefix: "", no: "", authNo: "", authNoDueDate: "", docDate: "" })
     // Precarga: la factura de origen (si vino) con su deuda completa, el resto en 0.
     setAmounts((prev) => {
       const next: Record<string, number> = primaryTransactionId
@@ -202,13 +216,32 @@ export function MultiInvoicePaymentDialog({
   }, [invoices, freeAmount])
 
   // ── Submit ────────────────────────────────────────────────────────────────
+  // Solo pago a proveedor (isCustomer=false) manda supplierDoc — el backend
+  // lo ignora en cobro a cliente, pero no tiene sentido armarlo ahí.
+  const supplierDocPayload = !isCustomer
+    ? {
+        docPrefix: supplierDoc.prefix || null,
+        docNo: supplierDoc.no || null,
+        docDate: supplierDoc.docDate || null,
+        authNo: supplierDoc.authNo || null,
+        authNoDueDate: supplierDoc.authNo.trim() !== "" ? supplierDoc.authNoDueDate || null : null,
+      }
+    : undefined
+
   function runPayment(identifier?: string) {
     if (!selectedMethod) return
     if (tab === "byInvoice") {
       const allocations = buildAllocations()
       if (!byInvoiceValid || allocations.length === 0) return
       byInvoiceMutation.mutate(
-        { allocations, paymentMethodKey: selectedMethod.id, note: note.trim() || undefined, identifier, contactType },
+        {
+          allocations,
+          paymentMethodKey: selectedMethod.id,
+          note: note.trim() || undefined,
+          identifier,
+          contactType,
+          supplierDoc: supplierDocPayload,
+        },
         {
           onSuccess: (result) => {
             const list = result.allocations ?? []
@@ -232,7 +265,15 @@ export function MultiInvoicePaymentDialog({
     } else {
       if (!freeAmountValid) return
       distributedMutation.mutate(
-        { contactId, contactType, amount: freeAmount, paymentMethodKey: selectedMethod.id, note: note.trim() || undefined, identifier },
+        {
+          contactId,
+          contactType,
+          amount: freeAmount,
+          paymentMethodKey: selectedMethod.id,
+          note: note.trim() || undefined,
+          identifier,
+          supplierDoc: supplierDocPayload,
+        },
         {
           onSuccess: (result) => {
             const list = result.allocations ?? []
@@ -416,6 +457,15 @@ export function MultiInvoicePaymentDialog({
                 </SelectContent>
               </Select>
             </div>
+          )}
+
+          {!isCustomer && (
+            <SupplierDocumentFields
+              title="Recibo del proveedor"
+              showDocDate
+              value={supplierDoc}
+              onChange={(patch) => setSupplierDoc((prev) => ({ ...prev, ...patch }))}
+            />
           )}
 
           <div className="flex flex-col gap-1.5">

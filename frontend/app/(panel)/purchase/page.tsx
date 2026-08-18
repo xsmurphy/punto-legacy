@@ -46,6 +46,7 @@ import {
   emptyLine,
   type FormLine,
 } from "@/components/domain/purchases/purchase-form-fields"
+import { SupplierDocumentFields } from "@/components/domain/purchases/supplier-document-fields"
 
 /**
  * `/purchase` — registro de compra/gasto. Full-page (NO drawer/sheet).
@@ -87,6 +88,7 @@ export default function NewPurchasePage() {
   // entra en Cuentas por pagar y Previsiones, y no mueve plata al crearse.
   const [condition, setCondition] = React.useState<"cash" | "credit">("cash")
   const [authNo, setAuthNo] = React.useState("")
+  const [authNoDueDate, setAuthNoDueDate] = React.useState("")
   const [invoicePrefix, setInvoicePrefix] = React.useState("")
   const [invoiceNo, setInvoiceNo] = React.useState("")
   const [paymentMethodId, setPaymentMethodId] = React.useState("")
@@ -198,6 +200,7 @@ export default function NewPurchasePage() {
     setInvoiceDate(today())
     setDueDate(today())
     setAuthNo("")
+    setAuthNoDueDate("")
     setInvoicePrefix("")
     setInvoiceNo("")
     setCheckNumber("")
@@ -263,6 +266,7 @@ export default function NewPurchasePage() {
         invoiceNo: invoiceNo || null,
         invoicePrefix,
         authNo,
+        authNoDueDate: authNo.trim() !== "" ? authNoDueDate || undefined : undefined,
         // A crédito no se manda método: el pago nace después (pago a proveedor).
         paymentMethodId: isCredit ? undefined : paymentMethodId || undefined,
         ...(isCheckMethod
@@ -477,40 +481,15 @@ export default function NewPurchasePage() {
             )}
           </div>
 
-          <div className="flex flex-col gap-3 rounded-md border bg-background/40 p-3">
-            <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Datos de factura
-            </div>
-            <Field label="Timbrado / Auth" id="authNo">
-              <Input
-                id="authNo"
-                value={authNo}
-                onChange={(e) => setAuthNo(e.target.value)}
-                placeholder="Opcional"
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-2">
-              <Field label="Prefijo" id="invoicePrefix">
-                <Input
-                  id="invoicePrefix"
-                  value={invoicePrefix}
-                  onChange={(e) => setInvoicePrefix(e.target.value)}
-                  placeholder="001-001"
-                />
-              </Field>
-              <Field label="Número" id="invoiceNo">
-                <Input
-                  id="invoiceNo"
-                  type="number"
-                  min={0}
-                  step={1}
-                  value={invoiceNo}
-                  onChange={(e) => setInvoiceNo(e.target.value)}
-                  placeholder="0000001"
-                />
-              </Field>
-            </div>
-          </div>
+          <SupplierDocumentFields
+            value={{ prefix: invoicePrefix, no: invoiceNo, authNo, authNoDueDate }}
+            onChange={(patch) => {
+              if (patch.prefix !== undefined) setInvoicePrefix(patch.prefix)
+              if (patch.no !== undefined) setInvoiceNo(patch.no)
+              if (patch.authNo !== undefined) setAuthNo(patch.authNo)
+              if (patch.authNoDueDate !== undefined) setAuthNoDueDate(patch.authNoDueDate)
+            }}
+          />
 
           {/* Cheque emitido: banco/nro/vencimiento — nace el fin_check (F1, context/30). */}
           {isCheckMethod && (

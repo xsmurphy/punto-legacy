@@ -52,9 +52,20 @@ final class PurchaseCreditNoteService
         return $this->linkSvc ??= new TransactionLinkService();
     }
 
+    /** 'YYYY-MM-DD' válido → tal cual; cualquier otra cosa (vacío, mal formada) → null. Nunca inventa un default. */
+    private static function normalizeSimpleDate(?string $val): ?string
+    {
+        $val = $val !== null ? trim($val) : '';
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $val) ? $val : null;
+    }
+
     /**
      * @param array<int,array{itemId:string,qty:float}> $items
      * @param string $refundMode 'cash' | 'credit'
+     * @param array{docPrefix?:?string,docNo?:?string,docDate?:?string,authNo?:?string,authNoDueDate?:?string}|null $supplierDoc
+     *        Número de comprobante + timbrado IMPRESOS en la nota de crédito
+     *        del PROVEEDOR (context/29 §5, mig 144) — documento ajeno, NO
+     *        generamos correlativo interno. Todo opcional/nullable.
      */
     public function create(
         string  $companyId,
@@ -64,7 +75,8 @@ final class PurchaseCreditNoteService
         array   $items,
         string  $refundMode,
         bool    $affectsStock,
-        ?string $note
+        ?string $note,
+        ?array  $supplierDoc = null
     ): array {
         global $db;
 
@@ -148,15 +160,27 @@ final class PurchaseCreditNoteService
                 // toma con MIN por determinismo — si dos líneas del mismo item
                 // tuvieran impuestos distintos no hay un único "el" impuesto
                 // de la NC, y ese caso no lo produce el flujo de compras.
+                // Tercer bug pre-existente encontrado al ejercitar este método
+                // (desbloqueante, sin relación con context/29 §5, ver
+                // verify_supplier_document.php caso 3): `itemSold` NO tiene
+                // columna real `taxid` (db-schema-postgres.sql) — PurchasesService
+                // ::create() manda `taxId` a `ncmInsert`, que lo enruta al JSONB
+                // `meta` (Schema::split(), campo desconocido) con la clave
+                // camelCase TAL CUAL vino: `meta->>'taxId'`, no `meta->>'taxid'`.
+                // `MIN(taxid::text)` como columna real rechazaba con "column
+                // taxid does not exist" y create() SIEMPRE fallaba con "Item no
+                // encontrado" para cualquier línea con impuesto — o sea,
+                // prácticamente cualquier compra real. Se corrige leyendo del
+                // JSONB.
                 $origItem = $db->GetRow(
-                    'SELECT SUM(itemsoldunits)                 AS itemsoldunits,
+                    "SELECT SUM(itemsoldunits)                 AS itemsoldunits,
                             SUM(itemsoldtotal)                 AS itemsoldtotal,
                             SUM(COALESCE(itemsolddiscount, 0)) AS itemsolddiscount,
                             SUM(COALESCE(itemsoldtax, 0))      AS itemsoldtax,
-                            MIN(taxid::text)                   AS taxid
-                     FROM "itemSold"
+                            MIN(meta->>'taxId')                AS taxid
+                     FROM itemSold
                      WHERE transactionid = ? AND itemid = ?
-                     HAVING COUNT(*) > 0',
+                     HAVING COUNT(*) > 0",
                     [$parentTransactionId, $itemId]
                 );
                 if (!$origItem) {
@@ -238,14 +262,26 @@ final class PurchaseCreditNoteService
 
             $totalUnits = -array_sum(array_column($processedItems, 'qty'));
 
+            // Comprobante+timbrado del PROVEEDOR (mig 144) — documento ajeno,
+            // sin correlativo propio (owner 2026-08-17). Todo NULL si el
+            // caller no lo manda (compat con integraciones viejas).
+            $docPrefix     = (isset($supplierDoc['docPrefix']) && $supplierDoc['docPrefix'] !== '') ? (string) $supplierDoc['docPrefix'] : null;
+            $docNo         = isset($supplierDoc['docNo']) && $supplierDoc['docNo'] !== '' ? (int) $supplierDoc['docNo'] : null;
+            $docDate       = self::normalizeSimpleDate($supplierDoc['docDate'] ?? null);
+            $authNo        = (isset($supplierDoc['authNo']) && $supplierDoc['authNo'] !== '') ? (string) $supplierDoc['authNo'] : null;
+            $authNoDueDate = self::normalizeSimpleDate($supplierDoc['authNoDueDate'] ?? null);
+
             $db->Execute(
                 'INSERT INTO transaction (
                     transactionid, transactiontype,
                     transactiontotal, transactiondiscount, transactiontax, transactionunitssold,
                     transactionpaymenttype,
                     transactiondate, transactionnote, transactionstatus, transactioncomplete,
-                    supplierid, userid, outletid, companyid, meta
-                ) VALUES (?, 14, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, \'{}\')',
+                    supplierid, userid, outletid, companyid, meta,
+                    supplierdocprefix, supplierdocno, supplierdocdate,
+                    supplierauthno, supplierauthnoduedate
+                ) VALUES (?, 14, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, \'{}\',
+                    ?, ?, ?, ?, ?)',
                 [
                     $newTransactionId,
                     $creditNet,
@@ -258,6 +294,11 @@ final class PurchaseCreditNoteService
                     $userId,
                     $outletId,
                     $companyId,
+                    $docPrefix,
+                    $docNo,
+                    $docDate,
+                    $authNo,
+                    $authNoDueDate,
                 ]
             );
             // Vínculo NC → compra original (mig 122, kind='purchase_credit_note').
@@ -267,12 +308,18 @@ final class PurchaseCreditNoteService
             foreach ($processedItems as $pi) {
                 $itemSoldId = $db->GetOne('SELECT gen_random_uuid()');
 
+                // itemSold no tiene columna real `taxid` (mismo bug del
+                // SELECT de arriba) — el taxId va al JSONB `meta`, misma
+                // clave camelCase que usa PurchasesService::create() vía
+                // ncmInsert/Schema::split() (`meta->>'taxId'`), para que la
+                // línea de la NC sea legible con el mismo criterio que
+                // cualquier otra línea de itemSold.
                 $db->Execute(
-                    'INSERT INTO "itemSold" (
+                    'INSERT INTO itemSold (
                         itemsoldid, itemid, transactionid,
-                        itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldtax, taxid,
-                        itemsolddate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())',
+                        itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldtax,
+                        itemsolddate, meta
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)',
                     [
                         $itemSoldId,
                         $pi['itemId'],
@@ -283,7 +330,7 @@ final class PurchaseCreditNoteService
                         $pi['lineTotal'],
                         $pi['lineDiscount'],
                         $pi['lineTax'],
-                        $pi['taxId'],
+                        json_encode($pi['taxId'] !== null && $pi['taxId'] !== '' ? ['taxId' => $pi['taxId']] : []),
                     ]
                 );
 
@@ -398,7 +445,7 @@ final class PurchaseCreditNoteService
         $stockReverted = 0;
         if ($movedItemIds !== []) {
             $lines = ncmExecute(
-                'SELECT itemid, itemsoldunits, itemsoldtotal FROM "itemSold" WHERE transactionid = ?',
+                'SELECT itemid, itemsoldunits, itemsoldtotal FROM itemSold WHERE transactionid = ?',
                 [$id],
                 false,
                 false,
@@ -458,7 +505,9 @@ final class PurchaseCreditNoteService
         $ph = implode(',', array_fill(0, count($ids), '?'));
         $rs = ncmExecute(
             "SELECT transactionid, transactiontotal, transactiondate, transactionnote,
-                    transactionstatus, transactionpaymenttype
+                    transactionstatus, transactionpaymenttype,
+                    supplierdocprefix, supplierdocno, supplierdocdate,
+                    supplierauthno, supplierauthnoduedate
              FROM transaction
              WHERE transactionid IN ($ph) AND companyid = ? AND transactiontype = 14
              ORDER BY transactiondate DESC",
@@ -473,13 +522,18 @@ final class PurchaseCreditNoteService
                 $f = $rs->fields;
                 $paymentLines = json_decode((string) ($f['transactionpaymenttype'] ?? ''), true);
                 $rows[] = [
-                    'id'         => (string) $f['transactionid'],
-                    'total'      => (float) $f['transactiontotal'],
-                    'date'       => (string) $f['transactiondate'],
-                    'note'       => $f['transactionnote'] ?? null,
-                    'status'     => (int) $f['transactionstatus'],
+                    'id'            => (string) $f['transactionid'],
+                    'total'         => (float) $f['transactiontotal'],
+                    'date'          => (string) $f['transactiondate'],
+                    'note'          => $f['transactionnote'] ?? null,
+                    'status'        => (int) $f['transactionstatus'],
                     // Sin línea de pago = modo 'credit' (ver create(): 'credit' nunca escribe transactionPaymentType).
-                    'refundMode' => (is_array($paymentLines) && $paymentLines !== []) ? 'cash' : 'credit',
+                    'refundMode'    => (is_array($paymentLines) && $paymentLines !== []) ? 'cash' : 'credit',
+                    'docPrefix'     => $f['supplierdocprefix'] !== null ? (string) $f['supplierdocprefix'] : null,
+                    'docNo'         => $f['supplierdocno'] !== null ? (int) $f['supplierdocno'] : null,
+                    'docDate'       => $f['supplierdocdate'] !== null ? (string) $f['supplierdocdate'] : null,
+                    'authNo'        => $f['supplierauthno'] !== null ? (string) $f['supplierauthno'] : null,
+                    'authNoDueDate' => $f['supplierauthnoduedate'] !== null ? (string) $f['supplierauthnoduedate'] : null,
                 ];
                 $rs->MoveNext();
             }

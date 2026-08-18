@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { posApi as api } from "@/lib/api/pos-client"
 import type { ContactType } from "@/hooks/use-contacts"
+import type { SupplierDocumentInput } from "@/hooks/use-purchases"
 
 /** Un renglón de imputación: cuánto de ESTE recibo va a cada factura. */
 export interface CreditPaymentAllocation {
@@ -22,6 +23,12 @@ interface CreateCreditPaymentVarsCommon {
    * existentes (POS, panel) que solo cobraban crédito de clientes.
    */
   contactType?: ContactType
+  /**
+   * Número de comprobante + timbrado IMPRESOS en el recibo del PROVEEDOR
+   * (context/29 §5, mig 144) — solo aplica cuando `contactType=2`
+   * (pago a proveedor); el backend lo ignora en cobro a cliente.
+   */
+  supplierDoc?: SupplierDocumentInput
 }
 
 /** Forma vieja — un recibo, una factura. La sigue usando el POS (no tocar ese call-site). */
@@ -123,6 +130,8 @@ interface CreateDistributedPaymentVars {
   paymentMethodKey: string
   note?: string
   identifier?: string
+  /** Ver `CreateCreditPaymentVarsCommon.supplierDoc`. */
+  supplierDoc?: SupplierDocumentInput
 }
 
 /**

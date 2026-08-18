@@ -38,7 +38,8 @@ final class PurchasesService
         $cols = "transactionId, transactionType, transactionStatus, transactionComplete,
                  transactionDate, transactionDueDate, invoicePrefix, invoiceNo, transactionNote,
                  transactionPaymentType, categoryTransId, transactionTax, transactionDiscount,
-                 transactionTotal, supplierId, userId, outletId";
+                 transactionTotal, supplierId, userId, outletId,
+                 supplierAuthNo, supplierAuthNoDueDate";
 
         if ($filters['singleRow']) {
             $sql = "SELECT $cols FROM transaction
@@ -86,7 +87,12 @@ final class PurchasesService
 
         $rows = [];
         foreach ($tx as $f) {
-            [$authNo, $prefix] = $this->splitAuthPrefix((string) ($f['invoicePrefix'] ?? ''));
+            [$legacyAuthNo, $prefix] = $this->splitAuthPrefix((string) ($f['invoicePrefix'] ?? ''));
+            // mig 144: el timbrado tiene columna propia — prioriza esa, cae al
+            // split legacy "authNo;prefix" solo para filas anteriores a la
+            // migración (PurchasesService::create ya no escribe ese shape).
+            $newAuthNo = (string) ($f['supplierAuthNo'] ?? '');
+            $authNo    = $newAuthNo !== '' ? $newAuthNo : $legacyAuthNo;
 
             $complete = $this->isComplete($f['transactionComplete'] ?? null);
             $debt = 0.0;
@@ -103,6 +109,7 @@ final class PurchasesService
             $rows[] = [
                 'transactionId'      => (string) $f['transactionId'],
                 'authNo'             => $authNo,
+                'authNoDueDate'      => (string) ($f['supplierAuthNoDueDate'] ?? ''),
                 'prefix'             => $prefix,
                 'invoiceNo'          => (string) ($f['invoiceNo'] ?? ''),
                 'date'               => (string) $f['transactionDate'],
