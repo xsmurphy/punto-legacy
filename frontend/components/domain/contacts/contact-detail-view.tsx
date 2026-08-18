@@ -318,6 +318,7 @@ export function ContactDetailView({
           analytics={analytics.data}
           isLoading={analytics.isLoading}
           bootstrap={bootstrap}
+          variant={variant}
         />
       )}
       {tab === "transactions" && <ContactTransactionsTab customerId={customerId} />}
@@ -570,7 +571,8 @@ function ContactFormBody({
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-      {/* Identificación */}
+      {/* Columna izquierda — quién es el contacto (identidad/fiscal) */}
+      <div className="flex flex-col gap-6">
       <Section title="Identificación">
         <FormField
           control={form.control}
@@ -736,62 +738,11 @@ function ContactFormBody({
             </FormItem>
           )}
         />
-
-        <FormField
-          control={form.control}
-          name="status"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-              <div>
-                <FormLabel className="text-sm">Activo</FormLabel>
-                <FormDescription className="text-xs">
-                  Apagado = archivado, no aparece en búsquedas de la caja.
-                </FormDescription>
-              </div>
-              <FormControl>
-                <Switch checked={field.value} onCheckedChange={field.onChange} />
-              </FormControl>
-            </FormItem>
-          )}
-        />
-
-        <FormField
-          control={form.control}
-          name="priceListId"
-          render={({ field }) => (
-            <FormItem>
-              <FormLabel>Lista de precios</FormLabel>
-              <Select
-                value={field.value ?? "__none__"}
-                onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
-              >
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Precio base (sin lista)" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="__none__">Precio base (sin lista)</SelectItem>
-                  {(priceLists ?? [])
-                    .filter((pl) => pl.status)
-                    .map((pl) => (
-                      <SelectItem key={pl.priceListId} value={pl.priceListId}>
-                        {pl.priceListName}
-                        {pl.defaultAdjustment !== 0 && (
-                          <span className="ml-1 text-xs text-muted-foreground">
-                            ({pl.defaultAdjustment > 0 ? "+" : "−"}{Math.abs(pl.defaultAdjustment)}%)
-                          </span>
-                        )}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-              <FormMessage />
-            </FormItem>
-          )}
-        />
       </Section>
+      </div>
 
+      {/* Columna derecha — cómo contactarlo + configuración comercial */}
+      <div className="flex flex-col gap-6">
       {/* Contacto */}
       <Section title="Contacto">
         <FormField
@@ -848,8 +799,67 @@ function ContactFormBody({
         />
       </Section>
 
-      {/* Crédito */}
-      <Section title="Crédito">
+      {/* Comercial — estado de la cuenta, lista de precios y crédito.
+          Antes "Activo" y "Lista de precios" vivían en Identificación y
+          "Crédito" era una sección aparte, todo apilado en una sola
+          columna (el motivo del scroll largo reportado por el owner).
+          Agrupados acá por afinidad: configuración comercial del
+          contacto, no datos de quién es ni cómo contactarlo. */}
+      <Section title="Comercial">
+        <FormField
+          control={form.control}
+          name="status"
+          render={({ field }) => (
+            <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
+              <div>
+                <FormLabel className="text-sm">Activo</FormLabel>
+                <FormDescription className="text-xs">
+                  Apagado = archivado, no aparece en búsquedas de la caja.
+                </FormDescription>
+              </div>
+              <FormControl>
+                <Switch checked={field.value} onCheckedChange={field.onChange} />
+              </FormControl>
+            </FormItem>
+          )}
+        />
+
+        <FormField
+          control={form.control}
+          name="priceListId"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Lista de precios</FormLabel>
+              <Select
+                value={field.value ?? "__none__"}
+                onValueChange={(v) => field.onChange(v === "__none__" ? null : v)}
+              >
+                <FormControl>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Precio base (sin lista)" />
+                  </SelectTrigger>
+                </FormControl>
+                <SelectContent>
+                  <SelectItem value="__none__">Precio base (sin lista)</SelectItem>
+                  {(priceLists ?? [])
+                    .filter((pl) => pl.status)
+                    .map((pl) => (
+                      <SelectItem key={pl.priceListId} value={pl.priceListId}>
+                        {pl.priceListName}
+                        {pl.defaultAdjustment !== 0 && (
+                          <span className="ml-1 text-xs text-muted-foreground">
+                            ({pl.defaultAdjustment > 0 ? "+" : "−"}{Math.abs(pl.defaultAdjustment)}%)
+                          </span>
+                        )}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+
         <FormField
           control={form.control}
           name="isCreditable"
@@ -889,6 +899,7 @@ function ContactFormBody({
           )}
         />
       </Section>
+      </div>
     </div>
   )
 }
@@ -1579,12 +1590,16 @@ function FinancialTab({
   analytics,
   isLoading,
   bootstrap,
+  variant,
 }: {
   customerId: string
   contactName: string
   analytics: ContactAnalytics | undefined
   isLoading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
+  /** "panel" | "pos" — pasado tal cual a `AccountStatementSection` para que
+   *  el click de fila no navegue fuera del POS. Ver docblock del archivo. */
+  variant: "panel" | "pos"
 }) {
   const f = analytics?.financial
   return (
@@ -1610,7 +1625,12 @@ function FinancialTab({
           )}
         </CardContent>
       </Card>
-      <AccountStatementSection contactId={customerId} contactType={1} contactName={contactName} />
+      <AccountStatementSection
+        contactId={customerId}
+        contactType={1}
+        contactName={contactName}
+        variant={variant}
+      />
     </div>
   )
 }

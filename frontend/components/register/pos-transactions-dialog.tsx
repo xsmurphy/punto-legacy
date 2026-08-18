@@ -467,14 +467,24 @@ function getPrimaryAction(typeNum: number, debt: number): {
   return { label: "Duplicar", action: "duplicate", disabled: false }
 }
 
-function TransactionDetail({
+/**
+ * Exportado — reusado standalone por `PosTransactionDetailDialog`
+ * (pos-transaction-detail-dialog.tsx) para abrir el detalle de UNA
+ * transacción sin el listado al lado (ej. desde el tab Financiero de
+ * Cliente, F4 de context/39-detalle-transaccion.md). `bordered=false` saca
+ * el `md:border-l` pensado para el split lista+detalle de
+ * `PosTransactionsDialog`.
+ */
+export function TransactionDetail({
   encId,
   onClose,
   onBack,
+  bordered = true,
 }: {
   encId: string | null
   onClose: () => void
   onBack?: () => void
+  bordered?: boolean
 }) {
   const { data: detail, isLoading } = usePosTransactionDetail(encId)
   const config = useCatalogStore((s) => s.config)
@@ -496,7 +506,7 @@ function TransactionDetail({
 
   if (!encId) {
     return (
-      <div className="flex items-center justify-center h-full md:border-l">
+      <div className={cn("flex items-center justify-center h-full", bordered && "md:border-l")}>
         <EmptyState
           icon={Receipt}
           title="Seleccioná una transacción"
@@ -508,7 +518,7 @@ function TransactionDetail({
 
   if (isLoading || !detail) {
     return (
-      <div className="flex flex-col gap-4 p-6 md:border-l overflow-y-auto">
+      <div className={cn("flex flex-col gap-4 p-6 overflow-y-auto", bordered && "md:border-l")}>
         <Skeleton className="h-6 w-1/3" />
         <Skeleton className="h-4 w-1/2" />
         <Skeleton className="h-32 w-full" />
@@ -625,7 +635,7 @@ function TransactionDetail({
 
   return (
     <TooltipProvider>
-      <div className="flex flex-col h-full min-h-0 md:border-l overflow-hidden">
+      <div className={cn("flex flex-col h-full min-h-0 overflow-hidden", bordered && "md:border-l")}>
         {onBack && (
           <div className="md:hidden flex items-center gap-2 px-3 py-2 border-b">
             <Button variant="ghost" size="sm" onClick={onBack} className="gap-1.5">

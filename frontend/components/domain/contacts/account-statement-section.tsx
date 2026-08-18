@@ -15,11 +15,22 @@
 // (`OpenInvoicesService::contactStatement()`), en los dos lugares que
 // necesitan "las facturas abiertas de ESTE contacto".
 //
-// Navegación por fila: la factura ORIGEN (venta o compra a crédito) navega a
-// `/transactions/{id}` si es cliente, `/purchase/{id}` si es proveedor — son
-// documentos de naturaleza distinta. El recibo de pago (type=5, tanto
-// `credit_payment` como `purchase_payment`) es siempre una `transaction`
-// genérica y navega a `/transactions/{id}` en los dos casos.
+// Navegación por fila (variant="panel", default): la factura ORIGEN (venta o
+// compra a crédito) navega a `/transactions/{id}` si es cliente,
+// `/purchase/{id}` si es proveedor — son documentos de naturaleza distinta.
+// El recibo de pago (type=5, tanto `credit_payment` como `purchase_payment`)
+// es siempre una `transaction` genérica y navega a `/transactions/{id}` en
+// los dos casos.
+//
+// variant="pos" (usado por `ContactDetailView` desde `customer-dialog.tsx`
+// del POS): `/transactions/{id}` y `/purchase/{id}` son rutas del PANEL
+// (realm cookie `_jwt_panel`), y el POS opera con Bearer de device — dos
+// realms que no se cruzan (invariante en `lib/api-client.ts`). Navegar ahí
+// sacaba al cajero del POS (bug reportado por el owner, 2026-08-18: "todo lo
+// que pasa en POS se queda en POS"). En su lugar, el click de fila abre
+// `PosTransactionDetailDialog` (mismo resolver que ya usa el listado de
+// transacciones del POS) sin abandonar el POS. Solo aplica al caso cliente —
+// el POS no tiene flujo de proveedores.
 //
 // Acción de pago: el botón "Cobrar crédito" / "Pagar a proveedor" abre
 // `MultiInvoicePaymentDialog` sin factura pre-seleccionada (el operador elige
@@ -61,23 +72,33 @@ import { RowActions } from "@/components/data-table/row-actions"
 import { EmptyState } from "@/components/empty-state"
 import { KpiCard } from "@/components/domain/contacts/kpi-card"
 import { MultiInvoicePaymentDialog } from "@/components/domain/transactions/multi-invoice-payment-dialog"
+import { PosTransactionDetailDialog } from "@/components/register/pos-transaction-detail-dialog"
 
 export function AccountStatementSection({
   contactId,
   contactType,
   contactName,
+  variant = "panel",
 }: {
   contactId: string
   contactType: ContactType
   /** Necesario para el título del diálogo de pago. */
   contactName: string
+  /** "pos": el click de fila abre el detalle DENTRO del POS en vez de
+   *  navegar a `/transactions/{id}` (ruta panel-only). Ver comentario de
+   *  archivo. Default "panel" — cero cambio de comportamiento fuera del POS. */
+  variant?: "panel" | "pos"
 }) {
   const router = useRouter()
+  const isPos = variant === "pos"
   const { data: bootstrap } = useBootstrap()
   const isCustomer = contactType === 1
   const { data, isLoading } = useContactStatement(contactId, contactType)
   const invoices = data?.invoices ?? []
   const summary = data?.summary
+  // Solo variant="pos": id de la transacción a mostrar en
+  // `PosTransactionDetailDialog`. `null` = cerrado.
+  const [posDetailId, setPosDetailId] = React.useState<string | null>(null)
 
   const [payOpen, setPayOpen] = React.useState(false)
   const canRegisterPayment = usePermission(isCustomer ? "pos.sale.creditPayment" : "finance.manage")
@@ -108,6 +129,26 @@ export function AccountStatementSection({
   // La factura ORIGEN (venta/compra a crédito) es un documento distinto según
   // el tipo de contacto; el recibo (type=5) es siempre `/transactions/{id}`.
   const docBase = isCustomer ? "/transactions" : "/purchase"
+
+  // variant="pos": abre el detalle DENTRO del POS (dialog), nunca navega.
+  // El POS solo tiene flujo de clientes, así que no hace falta resolver
+  // `/purchase/{id}` acá — el dialog toma el id crudo en los dos casos
+  // (factura o recibo).
+  function openInvoiceRow(transactionId: string) {
+    if (isPos) {
+      setPosDetailId(transactionId)
+    } else {
+      router.push(`${docBase}/${transactionId}`)
+    }
+  }
+
+  function openPaymentRow(transactionId: string) {
+    if (isPos) {
+      setPosDetailId(transactionId)
+    } else {
+      router.push(`/transactions/${transactionId}`)
+    }
+  }
 
   const invoiceColumns = React.useMemo<ColumnDef<ContactStatement["invoices"][number]>[]>(
     () => [
@@ -318,7 +359,7 @@ export function AccountStatementSection({
             isLoading={isLoading}
             searchPlaceholder="Buscar por documento…"
             exportFileName="estado-de-cuenta"
-            onRowClick={(row) => router.push(`${docBase}/${row.saleId}`)}
+            onRowClick={(row) => openInvoiceRow(row.saleId)}
             emptyMessage={
               <EmptyState icon={Wallet} title="Sin facturas" description="Sin facturas a crédito abiertas." />
             }
@@ -338,7 +379,7 @@ export function AccountStatementSection({
               isLoading={isLoading}
               searchPlaceholder="Buscar por recibo…"
               exportFileName={isCustomer ? "cobros-aplicados" : "pagos-aplicados"}
-              onRowClick={(row) => router.push(`/transactions/${row.transactionId}`)}
+              onRowClick={(row) => openPaymentRow(row.transactionId)}
             />
           </div>
         )}
@@ -354,6 +395,14 @@ export function AccountStatementSection({
           paymentMethods={paymentMethods}
           config={bootstrap ?? null}
           onSuccess={() => setPayOpen(false)}
+        />
+      )}
+
+      {isPos && (
+        <PosTransactionDetailDialog
+          transactionId={posDetailId}
+          open={posDetailId !== null}
+          onOpenChange={(v) => !v && setPosDetailId(null)}
         />
       )}
     </Card>
