@@ -44,7 +44,7 @@ de la tabla).
 | Anulado | El header de `db-schema-postgres.sql` documenta "6=other" para `transactionStatus`, desactualizado — el código real usa `transactionStatus=6` como "Cancelado"/anulado consistentemente (`api/lib/Purchases/PurchasesService.php:560,566,611`, `PurchaseCreditNoteService.php:340,393`) |
 | Condición contado/crédito | Se deriva de `transactionType` (0/1=contado, 3/4=crédito), no de `transactionPaymentType` (JSON de medios de pago) — `SaleService.php:605` |
 | **¿Una venta tiene numeración fiscal (timbrado+número)?** | **Se determina hoy en `registerInfo()`, no en la transacción.** `TransactionsService.php:114-129`: `invoiceAuth`/`invoicePrefix` salen de `register.data` JSONB de LA CAJA (no de la transacción); si están vacíos, la venta no tiene timbrado. Hay además un tag especial (`166227`) que fuerza a una transacción puntual a NO tener numeración aunque su caja sí tenga timbrado configurado (`TransactionsService.php:126-129`: `if (in_array('166227', $tagsArr)) { $invoicePrefix=''; $invoiceAuth=''; ... }`). Mismo criterio reusado en `TransactionDetailService.php:78-92`. **Esta es la señal que el generador debe usar para filtrar "solo documentos con timbrado"** (decisión cerrada del owner, §6) |
-| N° de comprobante estructurado (EEE-PPP-NNNNNNN) | **No persiste por transacción.** `transaction.invoicePrefix` queda VACÍO para ventas normales — `SaleService::buildTransactionRecord()` no lo incluye en el INSERT. El EEE-PPP se reconstruye en el momento de leer desde `register.data` (ver fila anterior). Consecuencia: si el timbrado de una caja cambió después de una venta vieja, el reporte de esa venta muestra el timbrado ACTUAL, no el vigente al vender — mismo patrón de riesgo que "tasa vigente vs congelada" en EInvoice (`context/28`). Ver Decisión abierta #2 |
+| N° de comprobante estructurado (EEE-PPP-NNNNNNN) | **No persiste por transacción.** `transaction.invoicePrefix` queda VACÍO para ventas normales — `SaleService::buildTransactionRecord()` no lo incluye en el INSERT. El EEE-PPP se reconstruye en el momento de leer desde `register.data` (ver fila anterior). Consecuencia: si el timbrado de una caja cambió después de una venta vieja, el reporte de esa venta muestra el timbrado ACTUAL, no el vigente al vender — mismo patrón de riesgo que "tasa vigente vs congelada" en EInvoice (`context/28`). Ver Decisión abierta #2 — **desactualizado desde 2026-08-18**: la mig 145 congela el timbrado en la transacción (`invoiceauth`/`invoiceauthstart`/`invoiceauthexpiration`); el reconstruido desde `register.data` queda solo como fallback para filas previas a esa migración |
 | IVA por línea, congelado — **VENTAS** | **Existe desde F2a** — `groupTaxByRate()` agrupa por tasa sobre las líneas ya congeladas y persiste `[{taxId,rate,kind,base,amount}]` en la tabla `toTaxObj` (`SaleService.php:1995-2044`, INSERT en `SaleService.php:671-675`) |
 | IVA por línea, congelado — **COMPRAS** | **No existe agregado por tasa.** Grep de `toTaxObj` en `api/lib/Purchases/` (incluye `PurchaseCreditNoteService.php`) es vacío. Solo hay `itemSold.taxId`/`itemSoldTax` por línea, sin agregación |
 | `toTaxObjText` — límite de tamaño | **Bug conocido, bloqueante para F5**: `VARCHAR(255)` (`db-schema-postgres.sql:532`, en la raíz del repo). Con ~6+ tasas el JSON excede 255 chars → Postgres aborta por truncación (22001) y la venta entera falla (`SaleAbortedException`, comentado en `SaleService.php:664-670`) |
@@ -358,6 +358,21 @@ sobre datos ya congelados.
 >    requisito NUEVO, que excede este plan: el timbrado tiene fecha de
 >    vencimiento y **no se debe poder facturar con el timbrado vencido**. Es
 >    una validación en la emisión, no en el reporte — implementada aparte.
+>
+>    ⚠ **ACTUALIZACIÓN 2026-08-18 — el riesgo de esta decisión ya no existe.**
+>    El timbrado ahora SÍ se congela por transacción: la mig 145 agregó
+>    `transaction.invoiceauth` / `invoiceauthstart` / `invoiceauthexpiration`,
+>    que `SaleService::save()` puebla al emitir (`resolveFrozenInvoiceAuth()`,
+>    mismo patrón con el que ya se congela el impuesto por línea). Regenerar un
+>    período viejo después de un cambio de timbrado **ya no declara el número
+>    equivocado**: el reporte debe leer el timbrado CONGELADO en la
+>    transacción, no reconstruirlo desde `register.data`. Las filas anteriores
+>    a la migración quedan con esas columnas en NULL (no hubo backfill, por
+>    decisión del owner de no tocar datos retroactivamente), así que el
+>    generador necesita un fallback al comportamiento viejo para el histórico.
+>    Ese mismo timbrado congelado participa del índice único
+>    `uq_transaction_expedition_invoiceno` (mig 145), que hace cumplir en la
+>    base que `punto de expedición + timbrado + correlativo` no se repita.
 > 3. **Documentos en `sifen_status='Pendiente'`** → **no los validamos**,
 >    problema del contador. El generador no intenta adivinar el estado final.
 > 4. **Filtro por sucursal** → sí, se puede filtrar por sucursal. Ojo: el
