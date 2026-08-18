@@ -216,6 +216,16 @@ export function CanvasBlock({
         </Tooltip>
       )}
 
+      {/* Título visible sin hover al seleccionar UN bloque — pedido owner:
+          "al seleccionar su título tiene que ser visible sin necesidad de
+          hover". Vive DENTRO de la toolbar (mismo `-top-9` flotante que ya
+          usa BlockToolbar) en vez de un segundo elemento flotante: dos
+          bloques flotantes en la misma franja se solaparían, y la toolbar ya
+          es "lo que aparece arriba del bloque cuando está seleccionado".
+          Con selección MÚLTIPLE (`selected && !showToolbar`) no hay toolbar
+          (se cede el paso al inspector, ver comentario de `showToolbar` en
+          los Props) y TAMPOCO se agrega un título acá — ver justificación en
+          BlockToolbar. */}
       {showToolbar && !moving && (
         <BlockToolbar
           block={block}
@@ -280,7 +290,9 @@ function BlockToolbar({
   block: PrintBlock
   /** Título legible del placeholder (getBlockTitle) — se antepone al label
    *  de cada ícono en su tooltip, así con varios bloques en pantalla se sabe
-   *  a cuál corresponde cada botón antes de hacer click (pedido owner). */
+   *  a cuál corresponde cada botón antes de hacer click (pedido owner).
+   *  También se pinta como texto plano al inicio de la toolbar (ver abajo):
+   *  con un solo bloque seleccionado el título tiene que verse SIN hover. */
   title: string
   onChange: (patch: Partial<PrintBlock>) => void
   onDelete: () => void
@@ -303,6 +315,15 @@ function BlockToolbar({
       )}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {/* Título del bloque, siempre visible mientras la toolbar está abierta
+          (un único bloque seleccionado) — pedido owner: "al seleccionar su
+          título tiene que ser visible sin necesidad de hover". Con selección
+          múltiple esta toolbar no se monta (ver `showToolbar` en
+          CanvasBlock), así que acá no hay ambigüedad de "cuál de los varios
+          títulos mostrar". `max-w-32 truncate`: algunos títulos por-tasa
+          (ej. "Subtotal IVA 10%") son largos — se corta antes de que la
+          toolbar empuje fuera del canvas angosto (roll 57mm). */}
+      <span className="max-w-32 truncate px-1 text-xs font-medium text-muted-foreground">{title}</span>
       <ToolbarBtn blockTitle={title} action="Eliminar" onClick={onDelete} danger>
         <Trash2 className="size-3.5" />
       </ToolbarBtn>
