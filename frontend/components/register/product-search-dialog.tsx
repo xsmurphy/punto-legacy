@@ -8,7 +8,13 @@
  *   - Lista de resultados: avatar circular (imagen o inicial) + badge de stock
  *     (rojo si negativo, verde si positivo/cero) + nombre + categoría + precio.
  *   - Búsqueda instantánea local vía searchItems() — cero round-trips.
- *   - Click en resultado → addItem al carrito + cierra modal.
+ *   - Click en la fila → addItem al carrito (no cierra el modal).
+ *   - Click en el avatar → abre la ficha del producto (`ProductInfoDialog`,
+ *     2026-08-18). Mismo patrón que el ícono de info de los tiles de Hotkeys
+ *     (`product-area.tsx`, `TileInfoButton`): el avatar sale del `<button>`
+ *     de la fila —anidar botones es HTML inválido— y se convierte en su
+ *     propio control con `stopPropagation`, para que abrir la ficha nunca
+ *     agregue el ítem al carrito por error.
  *
  * Ver context/16-app-next-rewrite.md §6.1 y §7 Slice A2.
  */
@@ -33,7 +39,8 @@ import { formatMoney } from "@/lib/format-money"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
 import { EmptyState } from "@/components/empty-state"
-import { SearchX } from "lucide-react"
+import { SearchX, Info } from "lucide-react"
+import { ProductInfoDialog } from "@/components/register/product-info-dialog"
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 
@@ -59,6 +66,8 @@ export function ProductSearchDialog({
 
   // Estado de vista de hijos de un grupo (null = vista de resultados normal).
   const [viewingGroup, setViewingGroup] = React.useState<PosItem | null>(null)
+  // Ficha de producto abierta desde el avatar de una fila. `null` = cerrada.
+  const [infoItem, setInfoItem] = React.useState<PosItem | null>(null)
 
   // Solo autofocus al abrir — no limpiamos el query para preservar la búsqueda.
   React.useEffect(() => {
@@ -94,6 +103,7 @@ export function ProductSearchDialog({
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) setViewingGroup(null); onOpenChange(v) }}>
       <DialogContent
         className="top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-lg"
@@ -151,6 +161,7 @@ export function ProductSearchDialog({
                         categoryName={resolveCategoryName(item.categoryId, categoryMap)}
                         brandName={resolveBrandName(item.brandId, brandMap)}
                         onSelect={() => handleSelect(item)}
+                        onInfo={() => setInfoItem(item)}
                       />
                     ))}
                   </ul>
@@ -173,6 +184,7 @@ export function ProductSearchDialog({
                     categoryName={resolveCategoryName(item.categoryId, categoryMap)}
                     brandName={resolveBrandName(item.brandId, brandMap)}
                     onSelect={() => handleSelect(item)}
+                    onInfo={() => setInfoItem(item)}
                   />
                 ))}
               </ul>
@@ -181,6 +193,10 @@ export function ProductSearchDialog({
         )}
       </DialogContent>
     </Dialog>
+
+    {/* Ficha del producto, abierta desde el avatar de la fila. */}
+    <ProductInfoDialog item={infoItem} onClose={() => setInfoItem(null)} />
+    </>
   )
 }
 
@@ -192,12 +208,15 @@ function ProductResultRow({
   categoryName,
   brandName,
   onSelect,
+  onInfo,
 }: {
   item: PosItem
   config: ReturnType<typeof useCatalogStore.getState>["config"]
   categoryName: string | null
   brandName: string | null
   onSelect: () => void
+  /** Abre la ficha del producto. */
+  onInfo: () => void
 }) {
   // Inicial para el fallback del avatar (primera letra del nombre).
   const initial = item.name.trim()[0]?.toUpperCase() ?? "?"
@@ -207,7 +226,10 @@ function ProductResultRow({
   const stockNegative = item.stock !== null && item.stock < 0
 
   return (
-    <li role="option" aria-selected={false}>
+    // `relative`: el botón de la ficha se posiciona absolute sobre el hueco
+    // del avatar (ver más abajo) — mismo recurso que `TileInfoButton` en
+    // `product-area.tsx`, sin ocupar lugar propio en el flujo de la fila.
+    <li role="option" aria-selected={false} className="relative">
       <button
         onClick={onSelect}
         className={cn(
@@ -216,15 +238,10 @@ function ProductResultRow({
           "focus-visible:outline-none focus-visible:bg-muted/50",
         )}
       >
-        {/* Avatar circular con imagen o inicial */}
-        <Avatar size="default" className="shrink-0">
-          {item.imageUrl && (
-            <AvatarImage src={item.imageUrl} alt={item.name} />
-          )}
-          <AvatarFallback className="text-sm font-semibold">
-            {initial}
-          </AvatarFallback>
-        </Avatar>
+        {/* Hueco del avatar: el avatar real es un botón aparte (ver abajo) —
+            anidar botones es HTML inválido. Mismo tamaño para que el resto
+            de la fila no se mueva un pixel. */}
+        <span className="size-8 shrink-0" aria-hidden />
 
         {/* Badge de stock */}
         {showStock && (
@@ -261,6 +278,29 @@ function ProductResultRow({
         {/* Precio a la derecha */}
         <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
           {formatMoney(item.price, config)}
+        </span>
+      </button>
+
+      {/* Avatar circular con imagen o inicial — control propio: click abre
+          la ficha del producto, con `stopPropagation` para que nunca agregue
+          el ítem al carrito. Badge de info en la esquina como affordance
+          (el avatar solo no sugiere "tocar acá para ver más"). */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onInfo() }}
+        aria-label={`Ver ficha de ${item.name}`}
+        className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Avatar size="default" className="shrink-0">
+          {item.imageUrl && (
+            <AvatarImage src={item.imageUrl} alt={item.name} />
+          )}
+          <AvatarFallback className="text-sm font-semibold">
+            {initial}
+          </AvatarFallback>
+        </Avatar>
+        <span className="absolute -bottom-0.5 -right-0.5 flex size-4 items-center justify-center rounded-full border border-background bg-muted text-muted-foreground">
+          <Info className="size-2.5" />
         </span>
       </button>
     </li>
