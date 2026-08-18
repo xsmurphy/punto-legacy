@@ -667,8 +667,14 @@ final class TransactionService
         }
 
         if ($q !== '') {
-            $where[]  = '(t.invoiceNo::text ILIKE ? OR t.transactionId::text ILIKE ? OR c.contactName ILIKE ?)';
+            // RUC/CI sumados a la búsqueda (2026-08-18, brief owner): mismo criterio
+            // que Reports\TransactionsService::detail() (contactTIN ILIKE) + contactCI
+            // desde `data` JSONB — el cajero busca una venta por el documento del
+            // cliente tanto como por nombre.
+            $where[]  = "(t.invoiceNo::text ILIKE ? OR t.transactionId::text ILIKE ? OR c.contactName ILIKE ? OR c.contactTIN ILIKE ? OR c.data->>'contactCI' ILIKE ?)";
             $like     = '%' . str_replace(['%', '_', '\\'], ['\\%', '\\_', '\\\\'], $q) . '%';
+            $params[] = $like;
+            $params[] = $like;
             $params[] = $like;
             $params[] = $like;
             $params[] = $like;
@@ -798,18 +804,30 @@ final class TransactionService
                 ? '<span class="text-info">' . $txName . '</span>'
                 : '';
 
-            // --- customer name (per-row lookup; N+1 preserved for fidelity) ---
-            $customerId = (string) ($f['customerId'] ?? '');
-            $customerD  = '';
+            // --- customer name + RUC/CI (per-row lookup; N+1 preserved for fidelity) ---
+            // RUC/CI sumados 2026-08-18 (listado de transacciones POS, brief owner):
+            // RUC vive en contactTIN (columna real); CI comparte contactCI (JSONB
+            // `data`, mig 25) con los otros 6 tipos de documento secundario desde
+            // mig 125 — mismo criterio de "RUC primero, si no CI" que
+            // EInvoiceService::resolveClient()/FiscalService, sin necesidad de leer
+            // contactIdType acá (el listado no distingue el tipo, solo el número).
+            $customerId  = (string) ($f['customerId'] ?? '');
+            $customerD   = '';
+            $customerDoc = '';
             if ($customerId !== '') {
                 $cusRow = ncmExecute(
-                    "SELECT contactName, data->>'contactSecondName' AS contactSecondName FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1",
+                    "SELECT contactName, data->>'contactSecondName' AS contactSecondName,
+                            contactTIN, data->>'contactCI' AS contactCI
+                       FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1",
                     [$customerId, $companyId]
                 );
                 if ($cusRow) {
                     $customerD = $cusRow['contactName']
                         ? toUTF8($cusRow['contactName'])
                         : toUTF8($cusRow['contactSecondName'] ?? '');
+                    $tin = trim((string) ($cusRow['contactTIN'] ?? ''));
+                    $ci  = trim((string) ($cusRow['contactCI'] ?? ''));
+                    $customerDoc = $tin !== '' ? $tin : $ci;
                 }
             }
 
@@ -820,6 +838,7 @@ final class TransactionService
                 'id'              => enc($trsId),
                 'title'           => $name . ' ' . $customerD,
                 'customerName'    => $customerD,
+                'customerDoc'     => $customerDoc,
                 'date'            => $dateStr,
                 'rawDate'         => (string) ($f['transactionDate'] ?? ''),
                 'docNumber'       => ' #' . $f['invoicePrefix'] . $f['invoiceNo'],
