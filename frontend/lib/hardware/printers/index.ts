@@ -16,6 +16,7 @@ import { fetchTemplateConfig } from "./print-in-browser"
 import { buildTicketDataForTest } from "./build-ticket-data"
 import type { TicketData } from "./build-ticket-data"
 import { posApi } from "@/lib/api/pos-client"
+import { isReceipt, type PaperSize, type PrintTemplateConfig } from "@/lib/types/print-template"
 
 /** base64 sin `Buffer` (browser) — btoa sobre chunks para no pegarle a los
  *  límites de `String.fromCharCode.apply` en tickets largos. */
@@ -225,4 +226,44 @@ export async function printTest(binding: PrinterBinding): Promise<void> {
     copies: binding.copies,
   })
   await dispatchBytes(binding, bytes, "receipt")
+}
+
+/**
+ * Rollo nominal de la plantilla (57/76/80mm, `PAPER_DIMENSIONS`) → ancho
+ * FÍSICO más cercano que soporta el pipeline de impresión real (58/80mm,
+ * `RenderTemplateToHtmlOptions.paperWidthMm`/`PrinterBinding.paperWidthMm`
+ * en binding.ts/render-template.ts — no hay impresora de 76mm en el catálogo
+ * de bindings de la app). El editor no tiene una impresora física atada
+ * (`PrinterBinding`) de la que leer el ancho calibrado, así que aproximamos
+ * al más angosto (receipt57→58mm) o al más ancho (receipt76/80→80mm).
+ */
+function nearestReceiptPaperWidthMm(pageSize: PaperSize): 58 | 80 {
+  return pageSize === "receipt57" ? 58 : 80
+}
+
+/**
+ * "Simular impresión" — `/settings/print-templates` (TemplateEditor). Mismo
+ * camino que `printTest`/`printSale` en transport `native`: renderiza la
+ * plantilla con `renderTemplateToHtml()` (el renderer REAL — hoja posicional
+ * en mm, rollo en flujo lineal según `isReceipt(template.page_size)`) y
+ * dispara el diálogo de impresión nativo del browser vía `triggerWindowPrint`
+ * (iframe oculto → `window.print()`), para que el owner pueda mandarlo a
+ * papel o a "Guardar como PDF" y ver el resultado físico exacto.
+ *
+ * A diferencia de `printTest`, acá no hay `PrinterBinding` — el editor no
+ * está ligado a una impresora física, solo quiere ver CÓMO saldría. Por eso
+ * recibe `template`/`data` directo en vez de resolver por `templateId`, y
+ * para rollo usa `nearestReceiptPaperWidthMm` en vez del `paperWidthMm`
+ * calibrado de una impresora real, que acá no existe.
+ *
+ * `template` es el `PrintTemplateConfig` TAL CUAL está en el editor en ese
+ * momento — incluye cambios sin guardar, porque es el mismo objeto de estado
+ * de React (`config` en `TemplateEditor`), no una relectura desde el backend.
+ */
+export function simulateTemplatePrint(template: PrintTemplateConfig, data: TicketData): void {
+  const paperWidthMm = isReceipt(template.page_size)
+    ? nearestReceiptPaperWidthMm(template.page_size)
+    : undefined
+  const html = renderTemplateToHtml(template, data, { paperWidthMm })
+  triggerWindowPrint(html)
 }

@@ -3,7 +3,7 @@
 import * as React from "react"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
-import { Loader2, Save, ChevronLeft, ChevronDown, Eye, Trash2 } from "lucide-react"
+import { Loader2, Save, ChevronLeft, ChevronDown, Eye, Printer, Trash2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -41,7 +41,8 @@ import {
   useUpdateDocumentTemplate,
 } from "@/hooks/use-document-templates"
 import { useTaxes } from "@/hooks/use-taxes"
-import { buildDemoTicketData } from "@/lib/hardware/printers/build-ticket-data"
+import { buildDemoTicketData, buildTemplateTestData } from "@/lib/hardware/printers/build-ticket-data"
+import { simulateTemplatePrint } from "@/lib/hardware/printers"
 import type { PaletteItem } from "@/lib/print-template-palette"
 import {
   PAPER_DIMENSIONS,
@@ -424,6 +425,21 @@ export function TemplateEditor({ existing }: Props) {
     }
   }
 
+  // "Simular impresión" — dispara el diálogo de impresión REAL del browser
+  // (mismo camino que el botón "Probar" de Ajustes → Impresoras en transport
+  // native), no la aproximación en pantalla de PreviewDialog. Usa `config`
+  // TAL CUAL está en el editor en este momento — incluye cambios sin guardar,
+  // porque es el mismo state de React, no una relectura del backend. Los
+  // datos son la MISMA venta de demo que ya alimenta el canvas/PreviewDialog
+  // (`buildDemoTicketData`, memoizada en `demoData`), pasada por
+  // `buildTemplateTestData` para enmascarar cliente + forzar el correlativo
+  // de ejemplo — mismo tratamiento que `buildTicketDataForTest` le da al
+  // ticket de prueba del POS (build-ticket-data.ts).
+  const handleSimulatePrint = () => {
+    const testData = buildTemplateTestData(taxesQuery.data?.taxes ?? [])
+    simulateTemplatePrint(config, testData)
+  }
+
   const saving = create.isPending || update.isPending
 
   return (
@@ -524,6 +540,10 @@ export function TemplateEditor({ existing }: Props) {
                 <DropdownMenuItem onSelect={() => setPreviewOpen(true)}>
                   <Eye className="size-4" />
                   Vista previa
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={handleSimulatePrint}>
+                  <Printer className="size-4" />
+                  Simular impresión
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
