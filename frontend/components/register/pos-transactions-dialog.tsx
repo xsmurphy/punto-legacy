@@ -98,6 +98,28 @@ function niceDateTime(iso: string): string {
   return formatDateTime(iso)
 }
 
+/**
+ * Número de comprobante para la fila de lista — "#0001-0000123" (mismo
+ * formato con guion que `docLabel` del panel de detalle, aprobado por el
+ * owner). Ventas emitidas antes del fix del P0 de numeración (invoiceNo
+ * NULL, ver context/29) o cotizaciones sin invoiceNo muestran "—", nunca
+ * "#null"/"#undefined" — mismo criterio que la columna "Documento" del
+ * panel (`transactions-list.tsx`: `docNo || "—"`).
+ */
+function invoiceLabel(item: PosTransactionListItem): string {
+  if (!item.invoiceNo) return "—"
+  return item.invoicePrefix ? `#${item.invoicePrefix}-${item.invoiceNo}` : `#${item.invoiceNo}`
+}
+
+/**
+ * RUC (si tiene) o CI del cliente — `customerDoc` ya resuelve esa prioridad
+ * server-side (getMainList). "—" cuando el cliente no tiene ninguno cargado
+ * (consumidor final o contacto sin documento).
+ */
+function customerDocLabel(item: PosTransactionListItem): string {
+  return item.customerDoc || "—"
+}
+
 
 function useDebounce(value: string, delay: number): string {
   const [debounced, setDebounced] = React.useState(value)
@@ -251,7 +273,7 @@ function TransactionList({
       <div className="shrink-0 bg-background border-b px-4 pt-3 pb-3 flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
-            placeholder="Buscar por cliente, comprobante o ID"
+            placeholder="Buscar por cliente, RUC/CI, comprobante o ID"
             value={searchInput}
             onChange={(e) => onSearchChange(e.target.value)}
             className="flex-1"
@@ -385,38 +407,43 @@ function TransactionRow({
   onSelect: (id: string) => void
 }) {
   const config = useCatalogStore((s) => s.config)
+  const hasName = Boolean(item.customerName)
 
   return (
+    // Touch target ≥44px (§7 POS específico): 3 líneas de texto + py-2.5 dan
+    // ~68px de alto — más denso que antes (py-3, 2 líneas) pero con 2 datos
+    // más por fila (RUC/CI + nro de comprobante), sin bajar del mínimo táctil.
     <button
       type="button"
       className={cn(
-        "w-full text-left px-4 py-3 border-b transition-colors hover:bg-accent",
+        "w-full text-left px-4 py-2.5 border-b transition-colors hover:bg-accent",
         selected && "bg-accent",
       )}
       onClick={() => onSelect(item.id)}
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className={cn("font-semibold truncate", !item.customerName && "text-muted-foreground")}>
-          {item.customerName || "Sin nombre"}
+      {/* Primario: cliente/razón social + monto */}
+      <div className="flex items-baseline justify-between gap-2">
+        <span className={cn("text-sm font-medium truncate", !hasName && "text-muted-foreground")}>
+          {item.customerName || "Consumidor final"}
         </span>
-        <span className="tabular-nums shrink-0 text-muted-foreground">
+        <span className="text-sm font-semibold tabular-nums shrink-0">
           {formatMoney(item.rawTotal, config)}
         </span>
       </div>
-      <div className="flex items-center justify-between gap-1.5 mt-0.5">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="text-xs text-muted-foreground shrink-0">
-            {niceDateTime(item.rawDate || item.date)}
-          </span>
-          {item.invoiceNo && (
-            <span className="text-xs text-muted-foreground truncate">
-              #{item.invoicePrefix}{item.invoiceNo}
-            </span>
-          )}
-        </div>
-        <span className={cn("text-[10px] px-1.5 py-0.5 rounded-md font-medium shrink-0", chipStyle(item))}>
-          {txLabel(item.type)}
+      {/* Secundario: RUC/CI + tipo */}
+      <div className="flex items-center justify-between gap-2 mt-1">
+        <span className="text-xs text-muted-foreground tabular-nums truncate">
+          {customerDocLabel(item)}
         </span>
+        <Badge variant="secondary" className={cn("shrink-0", chipStyle(item))}>
+          {txLabel(item.type)}
+        </Badge>
+      </div>
+      {/* Terciario: fecha + nro de comprobante */}
+      <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
+        <span className="tabular-nums shrink-0">{niceDateTime(item.rawDate || item.date)}</span>
+        <span className="text-muted-foreground/50" aria-hidden>·</span>
+        <span className="tabular-nums truncate">{invoiceLabel(item)}</span>
       </div>
     </button>
   )
