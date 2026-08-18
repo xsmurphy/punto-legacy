@@ -34,6 +34,12 @@ export interface UpstreamItemRow {
   taxId?: string | null
   categoryId?: string | null
   brandId?: string | null
+  /**
+   * Sucursal asignada al item (`item.outletId`, legado 1:1). Ya viaja en el
+   * SELECT compartido (`buildItemsSelectSql()`, `i.outletId`) — solo faltaba
+   * declararlo acá y mapearlo abajo. Ver `PosItem.outletId`.
+   */
+  outletId?: string | null
   coverImageUrl?: string | null
   kind?: string
   /** % de descuento de catálogo (JSONB flattened). Ver PosItem.discountPercent. */
@@ -64,6 +70,7 @@ export function reshapeItem(row: UpstreamItemRow): PosItem {
     taxId: row.taxId ?? null,
     categoryId: row.categoryId ?? null,
     brandId: row.brandId ?? null,
+    outletId: row.outletId ?? null,
     imageUrl: row.coverImageUrl ?? null,
     uom: row.itemUOM ?? null,
     kind: row.kind ?? "producto",

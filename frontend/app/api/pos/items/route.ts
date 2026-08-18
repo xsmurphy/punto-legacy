@@ -28,6 +28,14 @@
  * campo, y el primer olvido es una fuga silenciosa (el review encontró
  * exactamente eso con `deltaCogs`). Con la proyección, un campo nuevo no llega
  * hasta que alguien lo agregue acá a propósito.
+ *
+ * GALERÍA: el upstream (`presentItem()` + `ItemImageService::listForItem()`)
+ * ya trae `images[]` (hasta 5, ordenadas por `sort`) en el GET de detalle —
+ * hasta ahora se descartaba a propósito acá (comentario viejo: "se queda del
+ * lado del panel"). La ficha del POS (2026-08-18) sí la necesita para que el
+ * cajero pueda ver fotos del producto. Se proyecta solo `id`/`url`/`sort` —
+ * ni `objectKey` (ruta interna de S3) ni `mime`/`sizeBytes` tienen uso en el
+ * device.
  */
 
 import { NextRequest, NextResponse } from "next/server"
@@ -40,8 +48,10 @@ export const dynamic = "force-dynamic"
 const ALLOWED_RESOURCES = new Set(["", "inventory-movements"])
 
 /**
- * Campos del detalle que viajan al device. Todo lo demás (costo, flags de
- * catálogo, galería de imágenes, JSONB del kind) se queda del lado del panel.
+ * Campos escalares del detalle que viajan al device. Todo lo demás (costo,
+ * flags de catálogo, JSONB del kind) se queda del lado del panel. La galería
+ * de imágenes NO es escalar — viaja aparte, proyectada por `projectDetail()`
+ * más abajo (`out.images`), con su propia whitelist de subcampos.
  */
 const DETAIL_FIELDS = [
   "itemName",
@@ -74,6 +84,19 @@ function projectDetail(raw: unknown): Record<string, unknown> {
     const tag = asRecord(t)
     return { id: tag.id ?? "", name: tag.name ?? "" }
   })
+  // Galería: proyección mínima, ordenada por `sort` (el upstream ya la trae
+  // ordenada, pero no vale la pena confiar en eso acá).
+  out.images = asArray(src.images)
+    .map((img) => {
+      const image = asRecord(img)
+      return {
+        id: image.imageId ?? "",
+        url: image.url ?? "",
+        sort: typeof image.sort === "number" ? image.sort : 0,
+      }
+    })
+    .filter((img) => img.url !== "")
+    .sort((a, b) => a.sort - b.sort)
   return out
 }
 
