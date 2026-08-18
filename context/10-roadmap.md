@@ -40,6 +40,33 @@ Relacionado: el invariante "no dos cajas con el mismo punto de expedición"
 existe en los planes y en la memoria del proyecto, pero **no hay constraint ni
 validación en el código** — verificado por ausencia.
 
+## POS — bugs y mejoras reportados por el owner (2026-08-18)
+
+Reportados tras la tanda de numeración. El P1 es el único que rompe un
+invariante del producto; el resto son mejoras de UI del POS.
+
+1. **P1 — abrir una factura vencida desde el POS lleva al Panel.** En
+   Cliente › Info financiera, el click sobre una factura vencida navega al
+   panel administrativo. Viola la regla de realms: **todo lo que pasa en el
+   POS se queda en el POS**, los cajeros NO tienen acceso al panel. El detalle
+   tiene que abrirse dentro del POS (existe el resolver canónico de detalle de
+   transacción, `context/39-detalle-transaccion.md`, cuya F4 —migrar el POS—
+   está justamente abierta).
+2. **Modal de info de producto incompleto.** El icono de info de los hotkeys
+   abre una ventana con datos básicos y stock, pero sin galería de imágenes.
+   Faltan además datos que el vendedor necesita: categoría, marca, IVA, sucursal
+   asignada, tipo de ítem y SKU.
+3. **No hay forma de ver info de producto desde el buscador.** El listado de
+   productos del buscador del POS no expone el modal del punto 2 — la vía
+   natural es hacer click en la imagen del ítem.
+4. **Gráfico "POR MÉTODO DE PAGO" en el menú del POS**: debe ser solo la dona,
+   sin la lista de ítems de abajo.
+5. **Cliente › Datos usa una sola columna.** Casi toda la información cae en la
+   columna izquierda y obliga a scrollear de más; hay que repartirla en las dos.
+6. **El icono de hotkeys del sidebar abre el modo de edición de hotkeys.** Ese
+   modo pertenece al menú del POS; desde el sidebar debe llevar a la vista por
+   defecto del POS.
+
 ## Bugs destapados al documentar los módulos (2026-08-17)
 
 Salieron de escribir `context/modules/` — cada uno con evidencia `path:line` en
