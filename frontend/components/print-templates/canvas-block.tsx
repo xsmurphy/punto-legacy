@@ -14,10 +14,10 @@ import {
   WrapText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { FONT_FAMILIES, FONT_SIZES, getBlockTitle } from "@/lib/print-template-palette"
+import { FONT_FAMILIES, FONT_SIZES, getBlockPlaceholder, getBlockTitle } from "@/lib/print-template-palette"
 import { resolveSingleBlockPreview } from "@/lib/hardware/printers/blocks"
 import type { TicketData } from "@/lib/hardware/printers/build-ticket-data"
-import { isReceipt, type PaperSize, type PrintBlock } from "@/lib/types/print-template"
+import { clampBlockToPaper, isReceipt, PAPER_DIMENSIONS, type PaperSize, type PrintBlock } from "@/lib/types/print-template"
 import type { Tax } from "@/lib/types/tax"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -92,11 +92,41 @@ export function CanvasBlock({
     ? { bottom: true, top: false, left: false, right: false, topRight: false, bottomRight: false, bottomLeft: false, topLeft: false }
     : { bottomRight: true, bottom: true, right: true, top: false, left: false, topRight: false, bottomLeft: false, topLeft: false }
 
+  // Ancho/alto imprimible del papel en px — MISMA cuenta que moveBlocksBy en
+  // template-editor.tsx (PAPER_DIMENSIONS[size].xMm * mm). Fuente única para
+  // "esto entra en el papel", ver clampBlockToPaper (lib/types/print-template.ts).
+  const paperDim = PAPER_DIMENSIONS[paperSize]
+  const widthPx = paperDim.widthMm * mm
+  const heightPx = paperDim.heightMm * mm
+
   // Título legible del placeholder ("IVA 10%", "Razón social del cliente")
   // para el tooltip del bloque y el de cada ícono de la toolbar — ver
   // getBlockTitle (print-template-palette.ts), reusa el catálogo de la
   // paleta lateral en vez de duplicar nombres.
   const title = React.useMemo(() => getBlockTitle(block, taxes ?? []), [block, taxes])
+
+  // Ningún bloque puede quedar fuera del área imprimible (pedido owner,
+  // screenshot con bloques cruzando el borde del papel). react-rnd YA
+  // clampea el drag/resize EN VIVO (`bounds="parent"`, ver onDragStart/
+  // onResizeStart de la librería) y `moveBlocksBy` YA clampea top/left en
+  // cada move — lo que ninguno de los dos cubre es un bloque que YA estaba
+  // fuera de rango sin que nadie lo esté tocando: la plantilla se diseñó
+  // para OTRO tamaño de papel (ej. Carta) y después alguien cambió
+  // `page_size` a un rollo angosto (57mm) — ni la creación del bloque ni
+  // moveBlocksBy se disparan solo porque cambió el papel, así que ese
+  // bloque queda con `left`/`width` inválidos hasta que el operador lo
+  // vuelve a tocar. Este efecto corrige eso apenas cambian el tamaño del
+  // bloque o el del papel — CLAMP, no rescale (nunca reduce proporcionalmente
+  // ni reacomoda el diseño, ver clampBlockToPaper): decisión del owner de no
+  // arriesgar destruir un layout armado a mano con un reescalado automático.
+  // Se suprime mientras se arrastra/redimensiona (`moving`) para no pelear
+  // con el propio clamp en vivo de react-rnd.
+  React.useEffect(() => {
+    if (moving) return
+    const fix = clampBlockToPaper(block, widthPx, heightPx)
+    if (fix) onChange(fix)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block.left, block.top, block.width, block.height, widthPx, heightPx, moving])
 
   return (
     <Rnd
@@ -196,7 +226,7 @@ export function CanvasBlock({
             textOverflow: block.textwrap === "cut" ? "clip" : undefined,
           }}
         >
-          <BlockContent block={block} data={data} />
+          <BlockContent block={block} data={data} taxes={taxes} />
         </div>
       ) : (
         <Tooltip>
@@ -209,13 +239,23 @@ export function CanvasBlock({
                 textOverflow: block.textwrap === "cut" ? "clip" : undefined,
               }}
             >
-              <BlockContent block={block} data={data} />
+              <BlockContent block={block} data={data} taxes={taxes} />
             </div>
           </TooltipTrigger>
           <TooltipContent side="top">{title}</TooltipContent>
         </Tooltip>
       )}
 
+      {/* Título visible sin hover al seleccionar UN bloque — pedido owner:
+          "al seleccionar su título tiene que ser visible sin necesidad de
+          hover". Vive DENTRO de la toolbar (mismo `-top-9` flotante que ya
+          usa BlockToolbar) en vez de un segundo elemento flotante: dos
+          bloques flotantes en la misma franja se solaparían, y la toolbar ya
+          es "lo que aparece arriba del bloque cuando está seleccionado".
+          Con selección MÚLTIPLE (`selected && !showToolbar`) no hay toolbar
+          (se cede el paso al inspector, ver comentario de `showToolbar` en
+          los Props) y TAMPOCO se agrega un título acá — ver justificación en
+          BlockToolbar. */}
       {showToolbar && !moving && (
         <BlockToolbar
           block={block}
@@ -229,7 +269,18 @@ export function CanvasBlock({
   )
 }
 
-function BlockContent({ block, data }: { block: PrintBlock; data: TicketData }) {
+function BlockContent({
+  block,
+  data,
+  taxes,
+}: {
+  block: PrintBlock
+  data: TicketData
+  /** Tasas del tenant — solo para el fallback de `getBlockPlaceholder` en
+   *  los bloques por-tasa (subtotal_by_rate/iva_by_rate/item_total_by_rate),
+   *  mismo uso que en `getBlockTitle` (ver Props de CanvasBlock). */
+  taxes?: Tax[]
+}) {
   if (block.type === "hor_line") {
     // Línea sobre papel blanco — color fijo zinc para que se vea en ambos modos.
     return <div className="h-px w-full bg-zinc-800" />
@@ -259,13 +310,16 @@ function BlockContent({ block, data }: { block: PrintBlock; data: TicketData }) 
   // de tipos acá. El texto en el editor se muestra en zinc-500 (atenuado)
   // para señalar que es preview, no real.
   const preview = resolveSingleBlockPreview(block, data)
+  // Nunca vacío ni identificador interno (pedido owner): cuando la venta de
+  // ejemplo no puebla este campo (transfer_reason fuera de remisión,
+  // nums_to_words sin implementar, una tasa "Exento" sin línea de ejemplo
+  // que la matchee), en vez de un "…" genérico se muestra el MOLDE del dato
+  // que va a ir ahí (getBlockPlaceholder — reusa el mismo `defaultText` de
+  // PALETTE que ya usa el editor al insertar el bloque, nunca una segunda
+  // lista de textos de ejemplo).
   return (
     <div className="h-full w-full px-1 leading-tight text-zinc-900">
-      {preview ? (
-        preview
-      ) : (
-        <span className="text-zinc-400">…</span>
-      )}
+      {preview ? preview : <span className="text-zinc-400">{getBlockPlaceholder(block, taxes ?? [])}</span>}
     </div>
   )
 }
@@ -280,7 +334,9 @@ function BlockToolbar({
   block: PrintBlock
   /** Título legible del placeholder (getBlockTitle) — se antepone al label
    *  de cada ícono en su tooltip, así con varios bloques en pantalla se sabe
-   *  a cuál corresponde cada botón antes de hacer click (pedido owner). */
+   *  a cuál corresponde cada botón antes de hacer click (pedido owner).
+   *  También se pinta como texto plano al inicio de la toolbar (ver abajo):
+   *  con un solo bloque seleccionado el título tiene que verse SIN hover. */
   title: string
   onChange: (patch: Partial<PrintBlock>) => void
   onDelete: () => void
@@ -303,6 +359,15 @@ function BlockToolbar({
       )}
       onMouseDown={(e) => e.stopPropagation()}
     >
+      {/* Título del bloque, siempre visible mientras la toolbar está abierta
+          (un único bloque seleccionado) — pedido owner: "al seleccionar su
+          título tiene que ser visible sin necesidad de hover". Con selección
+          múltiple esta toolbar no se monta (ver `showToolbar` en
+          CanvasBlock), así que acá no hay ambigüedad de "cuál de los varios
+          títulos mostrar". `max-w-32 truncate`: algunos títulos por-tasa
+          (ej. "Subtotal IVA 10%") son largos — se corta antes de que la
+          toolbar empuje fuera del canvas angosto (roll 57mm). */}
+      <span className="max-w-32 truncate px-1 text-xs font-medium text-muted-foreground">{title}</span>
       <ToolbarBtn blockTitle={title} action="Eliminar" onClick={onDelete} danger>
         <Trash2 className="size-3.5" />
       </ToolbarBtn>

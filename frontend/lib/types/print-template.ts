@@ -199,6 +199,49 @@ export function defaultBlock(type: BlockType, defaultText = ""): PrintBlock {
   }
 }
 
+/**
+ * Ningún bloque puede quedar con una parte fuera del área imprimible del
+ * papel — pedido owner (2026-08-18, screenshot con bloques cruzando el borde
+ * derecho de la hoja): "los bloques tienen que adaptarse al ancho del canvas
+ * (papel)". `widthPx`/`heightPx` tienen que salir de la MISMA cuenta que ya
+ * usa `moveBlocksBy` en template-editor.tsx (`PAPER_DIMENSIONS[size].xMm *
+ * mm`, el mismo `mm` que el renderer usa para el `@page` físico real — commit
+ * `4f7090cf`) — nunca un número inventado, para que "cabe en el canvas" y
+ * "cabe en el papel impreso" sean la MISMA cuenta.
+ *
+ * Es un CLAMP, no un RESCALE: nunca reduce proporcionalmente ni reacomoda el
+ * diseño para que "quepa lindo" — eso podría destruir un layout armado a
+ * mano y es una decisión de producto que no toca este helper (ver
+ * `canvas-block.tsx`, que es el único caller hoy: corrige un bloque que ya
+ * quedó fuera de rango porque LA PLANTILLA SE DISEÑÓ PARA OTRO TAMAÑO DE
+ * PAPEL y después alguien cambió `page_size`, caso que ni la creación de
+ * bloques ni `moveBlocksBy` cubren — ninguno de los dos se dispara solo
+ * porque cambió el papel). Devuelve `null` cuando el bloque YA cabe (para
+ * que el caller no dispare un `onChange` de más).
+ */
+export function clampBlockToPaper(
+  block: Pick<PrintBlock, "left" | "top" | "width" | "height">,
+  widthPx: number,
+  heightPx: number,
+): { left: number; top: number; width: number; height: number } | null {
+  // SIN Math.round acá — `moveBlocksBy` (template-editor.tsx) clampea left/top
+  // contra `widthPx`/`heightPx` en crudo (`Math.max(0, widthPx - b.width)`);
+  // si este helper redondeara y el otro no, un bloque arrastrado justo al
+  // borde por moveBlocksBy podía disparar una segunda corrección de este
+  // efecto por medio píxel de diferencia entre los dos criterios. Mismo
+  // número, mismas cuentas, en los dos lugares.
+  const maxW = Math.max(1, widthPx)
+  const maxH = Math.max(1, heightPx)
+  const width = Math.min(block.width, maxW)
+  const height = Math.min(block.height, maxH)
+  const left = Math.min(Math.max(0, block.left), Math.max(0, maxW - width))
+  const top = Math.min(Math.max(0, block.top), Math.max(0, maxH - height))
+  if (left === block.left && top === block.top && width === block.width && height === block.height) {
+    return null
+  }
+  return { left, top, width, height }
+}
+
 // ── Backend row shape (lo que devuelve /v1/document-templates) ──────────────
 
 export interface DocumentTemplateRow {

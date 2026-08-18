@@ -268,6 +268,67 @@ export function getBlockTitle(
   return substituteLabels(label, opts)
 }
 
+/**
+ * Mapa type → `defaultText` del catálogo estático — el "molde" del dato
+ * (`"######"`, `"Mesa: ###"`, `"__TIN__"`) que ya vive en PALETTE para
+ * pre-llenar `block.text` al insertar el bloque (`handleAddBlock`,
+ * template-editor.tsx). Mismo criterio de "primera entrada gana" que
+ * `BLOCK_TYPE_LABELS` — reusa el catálogo en vez de mantener una segunda
+ * lista, ver `getBlockPlaceholder` abajo.
+ */
+const BLOCK_TYPE_DEFAULT_TEXT: Partial<Record<BlockType, string>> = (() => {
+  const map: Partial<Record<BlockType, string>> = {}
+  for (const section of PALETTE) {
+    for (const item of section.items) {
+      // Primera entrada gana, SIN mirar si trae texto — igual que
+      // BLOCK_TYPE_LABELS arriba. Si la primera entrada tiene
+      // `defaultText: ""` (ej. company_name, que nunca necesitó molde:
+      // siempre resuelve real), `getBlockPlaceholder` ya cae a
+      // `getBlockTitle` cuando el valor da falsy — no hace falta que este
+      // mapa "busque" una segunda entrada con texto.
+      if (!(item.type in map)) map[item.type] = item.defaultText
+    }
+  }
+  return map
+})()
+
+/**
+ * Texto a mostrar en el canvas cuando `resolveSingleBlockPreview` (blocks.ts)
+ * NO devuelve nada para este bloque contra `buildDemoTicketData()` — un
+ * campo que la venta de ejemplo no puebla (`transfer_reason` fuera de
+ * remisión, `table_number` fuera de comanda), un cálculo no implementado
+ * (`nums_to_words`) o una tasa del tenant sin línea de ejemplo que la
+ * matchee (`subtotal_by_rate`/`iva_by_rate`/`item_total_by_rate` para un
+ * impuesto "Exento" — `buildDemoTicketData` solo arma ítems con las dos
+ * tasas "rate" más altas, ver su comentario).
+ *
+ * Pedido del owner: "nunca vacío, nunca un identificador interno" — así que
+ * ACÁ NO se repite el bug que ya se corrigió en canvas-block.tsx (pintar
+ * `block.text` crudo, que en los bloques por-tasa es el `taxId`, un UUID).
+ * Para esos tres tipos `defaultText` en PALETTE **es** ese mismo UUID (es
+ * metadato para `handleAddBlock`, no una etiqueta — ver `buildTaxRateSection`
+ * arriba), así que ahí se cae a `getBlockTitle` (ej. "Subtotal IVA 10%"),
+ * igual que en el resto del catálogo cuando no hay `defaultText` legible
+ * (ej. `company_name`, que en PALETTE tiene `defaultText: ""` porque nunca
+ * necesitó un molde — siempre resuelve real, así que este fallback no llega
+ * a usarse ahí en la práctica).
+ */
+export function getBlockPlaceholder(
+  block: PrintBlock,
+  taxes: Tax[] = [],
+  opts: { tin?: string; tax?: string } = {},
+): string {
+  if (
+    block.type === "subtotal_by_rate" ||
+    block.type === "iva_by_rate" ||
+    block.type === "item_total_by_rate"
+  ) {
+    return getBlockTitle(block, taxes, opts)
+  }
+  const text = BLOCK_TYPE_DEFAULT_TEXT[block.type]
+  return substituteLabels(text || getBlockTitle(block, taxes, opts), opts)
+}
+
 /** Catálogo de fuentes disponibles en el menú per-bloque (orden del legacy). */
 export const FONT_FAMILIES = [
   "inherit",
