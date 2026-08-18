@@ -179,14 +179,20 @@ function BlockContent({ block, data }: { block: PrintBlock; data: TicketData }) 
     )
   }
   // El editor visual es para ver tamaño/grosor/familia — sin texto realista,
-  // un bloque vacío esconde la tipografía. Si el bloque trae texto custom
-  // (block.text), lo respetamos (el bloque `custom` es lo único que el
-  // usuario tipea a mano). Sino, sustituimos por el valor real que resolvería
-  // la venta de demo contra este bloque (mismo catálogo que la Vista Previa —
-  // ver resolveSingleBlockPreview, blocks.ts). El texto en el editor se
-  // muestra en zinc-500 (un poquito atenuado) para señalar que es preview, no
-  // real.
-  const preview = block.text || resolveSingleBlockPreview(block, data)
+  // un bloque vacío esconde la tipografía, así que siempre resolvemos contra
+  // la venta de demo con el mismo catálogo que la Vista Previa
+  // (resolveSingleBlockPreview, blocks.ts) — NUNCA `block.text` como fallback
+  // directo acá: en `subtotal_by_rate`/`iva_by_rate`/`item_total_by_rate`/
+  // `tax_single`, `block.text` no es contenido a mostrar, es METADATO
+  // (taxId o tasa tipeada — ver print-template-palette.ts `defaultText: tax.id`
+  // y blocks.ts `tax_single`), y mostrarlo tal cual pintaba el taxId crudo en
+  // el casillero de IVA (bug 2026-08-18). El bloque `custom` sigue mostrando
+  // lo que el usuario tipeó: su resolver (`BLOCK_VALUE_RESOLVERS.custom` en
+  // blocks.ts) ya interpola `block.text` — el catálogo compartido es la única
+  // fuente de qué tipo trata `text` como contenido vs. metadato, no un `if`
+  // de tipos acá. El texto en el editor se muestra en zinc-500 (atenuado)
+  // para señalar que es preview, no real.
+  const preview = resolveSingleBlockPreview(block, data)
   return (
     <div className="h-full w-full px-1 leading-tight text-zinc-900">
       {preview ? (
