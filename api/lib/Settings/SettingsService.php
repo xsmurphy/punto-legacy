@@ -93,12 +93,12 @@ final class SettingsService
             'phone'           => (string) ($r['settingPhone'] ?? ''),
             'city'            => (string) ($r['settingCity'] ?? ''),
             'country'         => (string) ($r['settingCountry'] ?? ''),
-            'language'        => (string) ($r['settingLanguage'] ?? 'es'),
+            'language'        => $this->withDefault($r['settingLanguage'] ?? null, 'es'),
             'timeZone'        => (string) ($r['settingTimeZone'] ?? ''),
             // Parámetros (app)
             'currency'        => (string) ($r['settingCurrency'] ?? ''),
-            'thousandSeparator' => (string) ($r['settingThousandSeparator'] ?? 'dot'),
-            'taxName'         => (string) ($r['settingTaxName'] ?? 'IVA'),
+            'thousandSeparator' => $this->withDefault($r['settingThousandSeparator'] ?? null, 'dot'),
+            'taxName'         => $this->withDefault($r['settingTaxName'] ?? null, 'IVA'),
             'tin'             => (string) ($r['settingTIN'] ?? ''),
             'itemsSaleLimit'  => (string) ($r['settingItemsSaleLimit'] ?? ''),
             // Toggles (settingX)
@@ -134,76 +134,156 @@ final class SettingsService
 
     /**
      * Guarda los ajustes en company.config. SCOPEADO por companyId.
-     * @param array $f campos validados (booleans ya como bool, strings limpios). @return bool
+     *
+     * MERGE PARCIAL: `$f` trae solo las keys que el caller efectivamente quiere
+     * tocar (el form manda solo los campos de la sección activa — ver
+     * serialize() en frontend/hooks/use-settings.ts). Una key ausente de `$f`
+     * NO se escribe; una key presente con '' SÍ se escribe (el usuario puede
+     * limpiar un campo a propósito). `array_key_exists` es la única forma
+     * correcta de distinguir esos dos casos — `??`/`isset` los colapsan.
+     *
+     * Antes esta función reescribía las ~30 columnas SIEMPRE, con '' para
+     * cualquier campo que el caller no mandara. Eso rompió settingThousandSeparator
+     * en prod (2026-08-18): guardar una sección que no la toca la dejó en ''.
+     *
+     * @param array $f campos presentes (booleans ya como bool, strings limpios). @return bool
      * @throws \RuntimeException  slug pedido ya en uso por otra company (mensaje legible para el front).
      */
     public function updateGeneral($companyId, array $f)
     {
         // Slug primero, ANTES de tocar nada — si está en uso abortamos sin
         // side effects (fail fast, no llegamos a leer/reescribir settingObj).
-        $slug = Slug::normalize((string) ($f['slug'] ?? ''));
-        if ($slug !== null) {
-            $this->assertSlugAvailable($companyId, $slug);
+        $slug = null;
+        if (array_key_exists('slug', $f)) {
+            $slug = Slug::normalize((string) $f['slug']);
+            if ($slug !== null) {
+                $this->assertSlugAvailable($companyId, $slug);
+            }
         }
 
-        // settingObj: leer el blob anidado actual y MERGEAR (preserva currencies + claves desconocidas).
-        // Si la lectura FALLA (null, no [] vacío legítimo), abortar: escribir un settingObj con solo
-        // los 7 flags borraría currencies. [] vacío (company nueva) sí procede.
-        $obj = $this->readSettingObj($companyId);
-        if ($obj === null) {
-            return false;
-        }
-        foreach (['ignoreInternal', 'stockCountBlind', 'blockUsedDocNo', 'autoSendDocs', 'taxPy', 'weightBarcodes', 'deletedItemsHistory'] as $k) {
-            $obj[$k] = !empty($f[$k]) ? 1 : 0;
-        }
+        $record = [];
 
-        $record = [
-            'settingName'              => $f['name'] ?? '',
-            'settingAddress'           => $f['address'],
-            'settingWebSite'           => $f['website'],
-            'settingEmail'             => $f['email'],
-            'settingRUC'               => $f['ruc'],
-            'settingPhone'             => $f['phone'],
-            'settingCity'              => $f['city'],
-            'settingCountry'           => $f['country'],
-            'settingLanguage'          => $f['language'] !== '' ? $f['language'] : 'es',
-            'settingTimeZone'          => $f['timeZone'],
-            'settingCurrency'          => $f['currency'],
-            'settingTaxName'           => $f['taxName'],
-            'settingBillingName'       => $f['billingName'],
-            'settingTIN'               => $f['tin'],
-            'settingBillDetail'        => $f['billDetail'],
-            'settingCompanyCategoryId' => $f['category'],
+        // Columnas 1:1 con el nombre del campo del form → settingX. Solo se
+        // tocan las que vinieron presentes en $f.
+        $simpleMap = [
+            'address'     => 'settingAddress',
+            'website'     => 'settingWebSite',
+            'email'       => 'settingEmail',
+            'ruc'         => 'settingRUC',
+            'phone'       => 'settingPhone',
+            'city'        => 'settingCity',
+            'country'     => 'settingCountry',
+            'timeZone'    => 'settingTimeZone',
+            'currency'    => 'settingCurrency',
+            'taxName'     => 'settingTaxName',
+            'billingName' => 'settingBillingName',
+            'tin'         => 'settingTIN',
+            'billDetail'  => 'settingBillDetail',
+            'category'    => 'settingCompanyCategoryId',
+            'thousandSeparator' => 'settingThousandSeparator',
+            'itemsSaleLimit'    => 'settingItemsSaleLimit',
+        ];
+        foreach ($simpleMap as $fKey => $col) {
+            if (array_key_exists($fKey, $f)) {
+                $record[$col] = $f[$fKey];
+            }
+        }
+        if (array_key_exists('name', $f)) {
+            $record['settingName'] = $f['name'] ?? '';
+        }
+        if (array_key_exists('language', $f)) {
+            $record['settingLanguage'] = $f['language'] !== '' ? $f['language'] : 'es';
+        }
+        if (array_key_exists('slug', $f)) {
             // NULL (no '') cuando el usuario borra el campo — el índice UNIQUE
             // parcial de la mig 113 solo cubre valores no vacíos, pero NULL es
             // la forma canónica de "sin slug" (evita filas con '' acumulándose).
-            'slug'                     => $slug,
-            'settingThousandSeparator' => $f['thousandSeparator'],
-            'settingItemsSaleLimit'    => $f['itemsSaleLimit'],
-            'settingDecimal'           => !empty($f['decimal']) ? 'yes' : 'no',
-            'settingSellSoldOut'       => !empty($f['sellsoldout']) ? 'yes' : 'no',
-            'settingItemSerialized'    => !empty($f['itemSerialized']) ? 1 : 0,
-            'settingDrawerEmail'       => !empty($f['drawerEmail']) ? 1 : 0,
-            'settingDrawerBlind'       => !empty($f['drawerBlind']) ? 1 : 0,
-            'settingRemoveTaxes'       => !empty($f['settingRemoveTaxes']) ? 1 : 0,
-            'settingPaymentMethodId'   => !empty($f['paymentId']) ? 1 : 0,
-            'settingForceCreditLine'   => !empty($f['creditLine']) ? 1 : 0,
-            'settingStoreCredit'       => !empty($f['storeCredit']) ? 1 : 0,
-            'settingSocialMedia'       => json_encode([
-                'facebook'  => $f['social']['facebook'] ?? '',
-                'instagram' => $f['social']['instagram'] ?? '',
-                'youtube'   => $f['social']['youtube'] ?? '',
-                'twitter'   => $f['social']['twitter'] ?? '',
-            ]),
-            'settingObj'               => json_encode($obj),
-            // Asistente IA — ver comentario en general(). Ya vienen sanitizados
-            // desde api/v1/settings.php (name truncado a 40, personality clamped
-            // al enum); acá solo defensa adicional para no persistir basura.
-            'agentName'                => mb_substr((string) ($f['agentName'] ?? ''), 0, 40),
-            'agentPersonality'         => in_array($f['agentPersonality'] ?? null, self::AGENT_PERSONALITIES, true)
-                ? (string) $f['agentPersonality']
-                : 'professional',
+            $record['slug'] = $slug;
+        }
+        if (array_key_exists('decimal', $f)) {
+            $record['settingDecimal'] = !empty($f['decimal']) ? 'yes' : 'no';
+        }
+        if (array_key_exists('sellsoldout', $f)) {
+            $record['settingSellSoldOut'] = !empty($f['sellsoldout']) ? 'yes' : 'no';
+        }
+        $tinyBoolMap = [
+            'itemSerialized'     => 'settingItemSerialized',
+            'drawerEmail'        => 'settingDrawerEmail',
+            'drawerBlind'        => 'settingDrawerBlind',
+            'settingRemoveTaxes' => 'settingRemoveTaxes',
+            'paymentId'          => 'settingPaymentMethodId',
+            'creditLine'         => 'settingForceCreditLine',
+            'storeCredit'        => 'settingStoreCredit',
         ];
+        foreach ($tinyBoolMap as $fKey => $col) {
+            if (array_key_exists($fKey, $f)) {
+                $record[$col] = !empty($f[$fKey]) ? 1 : 0;
+            }
+        }
+
+        // Redes sociales: viven como un blob JSON anidado (settingSocialMedia),
+        // igual que settingObj. Mergeamos contra lo existente para no perder
+        // las 3 subkeys no tocadas si algún caller manda solo una.
+        if (array_key_exists('social', $f) && is_array($f['social'])) {
+            $sm = $this->readSocialMedia($companyId);
+            if ($sm === null) {
+                return false;
+            }
+            foreach (['facebook', 'instagram', 'youtube', 'twitter'] as $sk) {
+                if (array_key_exists($sk, $f['social'])) {
+                    $sm[$sk] = $f['social'][$sk];
+                }
+            }
+            $record['settingSocialMedia'] = json_encode($sm);
+        }
+
+        // settingObj: mismo criterio de merge parcial para los 7 flags que
+        // vive ahí — un flag ausente de $f NO debe colapsar a 0 (antes lo
+        // hacía siempre, porque esta función asumía que $f traía los 40
+        // campos completos). Solo leemos/reescribimos settingObj si al menos
+        // uno de los 7 flags vino presente — evita un round-trip de lectura
+        // innecesario cuando la sección guardada no los toca (ej. Apariencia).
+        $flagMap = [
+            'ignoreInternal'      => 'ignoreInternal',
+            'stockCountBlind'     => 'stockCountBlind',
+            'blockUsedDocNo'      => 'blockUsedDocNo',
+            'autoSendDocs'        => 'autoSendDocs',
+            'taxPy'               => 'taxPy',
+            'weightBarcodes'      => 'weightBarcodes',
+            'deletedItemsHistory' => 'deletedItemsHistory',
+        ];
+        $presentFlags = array_intersect_key($flagMap, $f);
+        if ($presentFlags) {
+            // Igual guard que antes: si la lectura FALLA (null, no [] vacío
+            // legítimo) abortamos — escribir un settingObj a medias borraría
+            // currencies y los flags no tocados.
+            $obj = $this->readSettingObj($companyId);
+            if ($obj === null) {
+                return false;
+            }
+            foreach ($presentFlags as $fKey => $objKey) {
+                $obj[$objKey] = !empty($f[$fKey]) ? 1 : 0;
+            }
+            $record['settingObj'] = json_encode($obj);
+        }
+
+        // Asistente IA — ver comentario en general(). Ya vienen sanitizados
+        // desde api/v1/settings.php (name truncado a 40, personality clamped
+        // al enum); acá solo defensa adicional para no persistir basura.
+        if (array_key_exists('agentName', $f)) {
+            $record['agentName'] = mb_substr((string) $f['agentName'], 0, 40);
+        }
+        if (array_key_exists('agentPersonality', $f)) {
+            $record['agentPersonality'] = in_array($f['agentPersonality'], self::AGENT_PERSONALITIES, true)
+                ? (string) $f['agentPersonality']
+                : 'professional';
+        }
+
+        if (!$record) {
+            // Nada presente para guardar (ej. sección Apariencia, que hoy no
+            // tiene campos propios en el form) — no-op válido, no un error.
+            return true;
+        }
 
         $res = ncmUpdate([
             'records'     => $record,
@@ -265,6 +345,33 @@ final class SettingsService
             return [];     // company sin settingObj todavía (nueva) → [] legítimo
         }
         $obj = json_decode((string) $so, true);
+        return is_array($obj) ? $obj : [];
+    }
+
+    /**
+     * Lee el blob settingSocialMedia (JSON anidado dentro de config) crudo.
+     * Mismo criterio y mismo motivo que readSettingObj() (->> directo, no la
+     * columna `config` entera vía el wrapper) — ver el comentario de arriba.
+     * @return array|null  array con el contenido (o [] si la fila no lo tiene);
+     *                     NULL si la lectura falló → el caller debe abortar el write.
+     */
+    private function readSocialMedia($companyId)
+    {
+        $r = ncmExecute(
+            "SELECT config->>'settingSocialMedia' AS sm FROM company WHERE companyId = ? LIMIT 1",
+            [$companyId],
+            false,
+            true
+        );
+        if (!$r || !is_object($r) || $r->EOF) {
+            return null;
+        }
+        $sm = $r->fields['sm'] ?? null;
+        $r->Close();
+        if ($sm === null || $sm === '') {
+            return [];
+        }
+        $obj = json_decode((string) $sm, true);
         return is_array($obj) ? $obj : [];
     }
 
@@ -513,6 +620,26 @@ final class SettingsService
         if (is_bool($v)) { return $v; }
         $s = strtolower((string) $v);
         return in_array($s, ['1', 't', 'true', 'yes', 'on'], true) || (is_numeric($s) && (float) $s > 0);
+    }
+
+    /**
+     * NULL o '' caen al default; cualquier otro valor pasa tal cual.
+     *
+     * Solo se usa para los 3 campos que ya tenían un default hardcodeado acá
+     * mismo (`?? 'dot'`/`?? 'es'`/`?? 'IVA'`) y que el usuario nunca puede
+     * dejar en '' desde la UI (son Select, no texto libre) — no es un intento
+     * de esconder bugs de escritura: el merge parcial de updateGeneral() ya
+     * no puede producir '' accidental. Es una red de lectura para filas ya
+     * corruptas por el bug viejo (ej. settingThousandSeparator = '' en la
+     * company del owner, 2026-08-18) sin tocar la BD directamente. NO se
+     * aplica a `currency`: es un input de texto libre sin un default único
+     * válido para todos los países — inventar uno acá escondería el caso
+     * real en vez de arreglarlo.
+     */
+    private function withDefault($raw, string $default): string
+    {
+        $v = (string) ($raw ?? '');
+        return $v !== '' ? $v : $default;
     }
 
     // ── Logo de la empresa ─────────────────────────────────────────────────

@@ -215,6 +215,34 @@ const SECTIONS: {
 // Documentos y Catálogo no escriben configuración (son listados / navegación).
 const FORM_SECTIONS: SettingsSection[] = ["empresa", "pos", "apariencia"]
 
+// Qué keys del form manda cada sección al guardar — el merge parcial del
+// backend (SettingsService::updateGeneral) solo toca las keys presentes en
+// el payload, así que esto ES el contrato de "qué puede tocar esta sección".
+// Debe reflejar exactamente los <FormField name="..."> que cada tab renderiza
+// (EmpresaTab + LocaleTab para "empresa", PosTab para "pos") — si se agrega
+// un campo a un tab, agregarlo acá también. "apariencia" no tiene campos
+// propios hoy (el ThemePicker es 100% cliente, ver AparienciaTab): guardar
+// ahí manda un payload vacío, no-op válido en el backend.
+//
+// Reemplaza el patrón anterior (un solo useForm para las 3 secciones, submit
+// mandaba SIEMPRE los ~40 campos): eso hacía que guardar Apariencia pisara
+// RUC/rubro/etc. con lo que hubiera en el form en ese momento — ver
+// diagnóstico 2026-08-18 en context/29 y el fix en hooks/use-settings.ts.
+const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)[]>> = {
+  empresa: [
+    "name", "slug", "category", "website",
+    "language", "timeZone", "country", "currency", "decimal",
+    "thousandSeparator", "taxName", "tin", "taxPy",
+  ],
+  pos: [
+    "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
+    "drawerEmail", "drawerBlind", "blockUsedDocNo", "autoSendDocs",
+    "stockCountBlind", "itemSerialized", "deletedItemsHistory",
+    "creditLine", "storeCredit", "paymentId", "ignoreInternal",
+  ],
+  apariencia: [],
+}
+
 export default function SettingsPage() {
   const router = useRouter()
   const { data, isLoading, error } = useSettings()
@@ -318,8 +346,26 @@ export default function SettingsPage() {
   }, [data, form])
 
   const onSubmit = async (values: SettingsFormValues) => {
+    // Guard defensivo: sin `data` no hay nada legítimo que guardar (el form
+    // está en emptyValues() — ver el useEffect de arriba). El botón ya queda
+    // disabled sin `data`, pero un Enter en un input dispara el submit del
+    // <form> igual, sin pasar por el botón. El segundo guard cubre un Enter
+    // presionado en una sección sin botón "Guardar" (ej. Documentos) — el
+    // <form> envuelve todo el modal, no solo la sección activa.
+    if (!data || !FORM_SECTIONS.includes(section)) return
+
+    // "apariencia" no tiene campos propios (ver SECTION_FIELDS) — el payload
+    // queda vacío a propósito, no-op válido en el backend. El botón sigue
+    // funcionando (toast de éxito) sin tocar nada del lado servidor.
+    const fields = SECTION_FIELDS[section] ?? []
+
+    const partial: Partial<SettingsFormValues> = {}
+    for (const key of fields) {
+      ;(partial as Record<string, unknown>)[key] = values[key]
+    }
+
     try {
-      await update.mutateAsync(values)
+      await update.mutateAsync(partial)
       toast.success("Ajustes guardados")
     } catch (e) {
       toast.error("No se pudieron guardar los ajustes", {
@@ -435,7 +481,7 @@ export default function SettingsPage() {
                     <span className="text-foreground">{activeLabel}</span>
                   </div>
                   {showSave && (
-                    <Button type="submit" size="sm" disabled={update.isPending || isLoading}>
+                    <Button type="submit" size="sm" disabled={update.isPending || isLoading || !data}>
                       {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
                       Guardar
                     </Button>
@@ -462,7 +508,7 @@ export default function SettingsPage() {
                     sin pelearse con el botón X del header del DialogContent. */}
                 {showSave && (
                   <div className="border-t bg-background p-3 sm:hidden">
-                    <Button type="submit" className="w-full" disabled={update.isPending || isLoading}>
+                    <Button type="submit" className="w-full" disabled={update.isPending || isLoading || !data}>
                       {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
                       Guardar {activeLabel}
                     </Button>
