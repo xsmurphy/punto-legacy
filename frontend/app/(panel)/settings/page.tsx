@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useForm, type UseFormReturn } from "react-hook-form"
+import { useForm, type Resolver, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid, Search } from "lucide-react"
@@ -149,8 +149,9 @@ const settingsSchema = z.object({
   weightBarcodes: z.boolean(),
   deletedItemsHistory: z.boolean(),
   // Asistente IA — editable desde AgentSettingsDialog (chat), no desde este
-  // modal. Igual tiene que viajar en el form para no perderse cuando el
-  // usuario guarda otra sección (el POST manda el objeto completo).
+  // modal. Viven en el schema porque el form los hidrata desde el GET, pero
+  // ninguna seccion de este modal los manda: el merge parcial del backend los
+  // deja intactos al guardar Empresa o POS (ver SECTION_FIELDS).
   agentName: z.string(),
   agentPersonality: z.enum(["professional", "friendly", "direct", "teacher"]),
 })
@@ -213,7 +214,13 @@ const SECTIONS: {
 // Sections que escriben al form de settings — solo en esas mostramos el botón
 // "Guardar" del header. Monedas tiene su propia mutation con botón propio;
 // Documentos y Catálogo no escriben configuración (son listados / navegación).
-const FORM_SECTIONS: SettingsSection[] = ["empresa", "pos", "apariencia"]
+//
+// "Apariencia" NO está acá aunque edite preferencias visibles: su único control
+// es el ThemePicker, que persiste en el cliente vía next-themes y nunca tocó
+// este form (ver SECTION_FIELDS, su lista es vacía). Mientras estuvo en la
+// lista, la sección mostraba un "Guardar" que mandaba un payload vacío y
+// devolvía un toast de éxito sin haber guardado nada — un botón que miente.
+const FORM_SECTIONS: SettingsSection[] = ["empresa", "pos"]
 
 // Qué keys del form manda cada sección al guardar — el merge parcial del
 // backend (SettingsService::updateGeneral) solo toca las keys presentes en
@@ -291,8 +298,38 @@ export default function SettingsPage() {
     [router],
   )
 
+  // Resolver acotado a la seccion activa. `settingsSchema` cubre los ~40
+  // campos del form, pero cada tab edita solo los suyos (SECTION_FIELDS) y
+  // varios campos del schema ya NO tienen UI en este modal — `email`, por
+  // ejemplo, se administra a nivel sucursal desde la mig de outlets.
+  //
+  // Validar el schema COMPLETO en cada submit hacía que un valor legacy
+  // invalido en un campo invisible bloqueara el guardado de cualquier
+  // seccion: `handleSubmit` se traga el fallo del resolver, `onSubmit` nunca
+  // corre, y no hay toast ni campo donde corregirlo — el usuario ve que
+  // "Guardar no hace nada". Es exactamente el fallo silencioso que este
+  // modal viene a eliminar, así que solo validamos lo que la seccion manda.
+  const sectionRef = React.useRef<SettingsSection>("empresa")
+  sectionRef.current = section
+
+  const resolver = React.useMemo(
+    () =>
+      ((values, context, options) => {
+        const fields = SECTION_FIELDS[sectionRef.current] ?? []
+        const schema = fields.length > 0
+          ? settingsSchema.pick(
+              Object.fromEntries(fields.map((f) => [f, true])) as Parameters<
+                typeof settingsSchema.pick
+              >[0],
+            )
+          : settingsSchema.pick({} as Parameters<typeof settingsSchema.pick>[0])
+        return zodResolver(schema)(values, context, options)
+      }) as Resolver<SettingsFormValues>,
+    [],
+  )
+
   const form = useForm<SettingsFormValues>({
-    resolver: zodResolver(settingsSchema),
+    resolver,
     defaultValues: emptyValues(),
   })
 
@@ -354,10 +391,10 @@ export default function SettingsPage() {
     // <form> envuelve todo el modal, no solo la sección activa.
     if (!data || !FORM_SECTIONS.includes(section)) return
 
-    // "apariencia" no tiene campos propios (ver SECTION_FIELDS) — el payload
-    // queda vacío a propósito, no-op válido en el backend. El botón sigue
-    // funcionando (toast de éxito) sin tocar nada del lado servidor.
     const fields = SECTION_FIELDS[section] ?? []
+    // Sin campos que mandar no hay nada que guardar: cortar antes de disparar
+    // la mutation evita un POST vacío y un toast de éxito engañoso.
+    if (fields.length === 0) return
 
     const partial: Partial<SettingsFormValues> = {}
     for (const key of fields) {
