@@ -6,7 +6,6 @@ export { printTicketInBrowser } from "./print-in-browser"
 
 import type { PrinterBinding, PrinterDocType } from "./binding"
 import { getBindingsForSale } from "./binding"
-import { buildTestTicket } from "./encoder"
 import { getAuthorizedPrinters, sendBytes as sendBytesUsb } from "./transports/usb"
 import { sendBytesViaBluetooth } from "./transports/bluetooth"
 import { sendBytesViaNetwork } from "./transports/network"
@@ -14,6 +13,7 @@ import { triggerWindowPrint } from "./transports/window-print"
 import { renderTemplateToEscPos } from "./render-template"
 import { renderTemplateToHtml } from "./html-renderer"
 import { fetchTemplateConfig } from "./print-in-browser"
+import { buildTicketDataForTest } from "./build-ticket-data"
 import type { TicketData } from "./build-ticket-data"
 import { posApi } from "@/lib/api/pos-client"
 
@@ -183,9 +183,32 @@ export async function printSale(opts: {
   return { printed, failed: errors.length, errors }
 }
 
+/**
+ * Prueba de impresión — mismo camino que `printSale` (regla del owner: la
+ * prueba tiene que mostrar el FORMATO REAL de la plantilla, no un texto fijo
+ * "Prueba de impresión" que no dice nada de cómo va a salir el documento).
+ *
+ * Requiere `binding.templateId`, igual que `printSale`: si el binding no
+ * tiene plantilla asignada, una venta real tampoco imprimiría nada ahí (ver
+ * el error "sin plantilla asignada" arriba) — la prueba surfacea el mismo
+ * bloqueo en vez de disimularlo con un ticket fijo que nunca reflejó la
+ * realidad.
+ *
+ * Los datos vienen de `buildTicketDataForTest()` (build-ticket-data.ts): el
+ * carrito en curso si hay líneas, si no una venta de demo — nunca toca
+ * numeración/stock/cola offline (ver docblock de esa función).
+ */
 export async function printTest(binding: PrinterBinding): Promise<void> {
+  if (!binding.templateId) {
+    throw new Error(`${binding.name}: sin plantilla asignada (asigná una en Ajustes → Impresoras)`)
+  }
+  const config = fetchTemplateConfig(binding.templateId)
+  if (!config) throw new Error(`No se pudo resolver la plantilla asignada (revisá Ajustes → Impresoras)`)
+
+  const data = buildTicketDataForTest()
+
   if (binding.transport === "native" || (binding.transport === "station" && binding.mode === "native")) {
-    const html = "<html><body><p>Prueba de impresión</p></body></html>"
+    const html = renderTemplateToHtml(config, data, { paperWidthMm: binding.paperWidthMm })
     if (binding.transport === "station") {
       await enqueueStationJob(binding, { format: "html", payload: html, docType: "receipt" })
     } else {
@@ -194,6 +217,12 @@ export async function printTest(binding: PrinterBinding): Promise<void> {
     return
   }
 
-  const bytes = buildTestTicket({ paperWidthMm: binding.paperWidthMm })
+  const bytes = renderTemplateToEscPos({
+    template: config as Parameters<typeof renderTemplateToEscPos>[0]["template"],
+    data,
+    paperWidthMm: binding.paperWidthMm,
+    openDrawer: binding.openDrawer,
+    copies: binding.copies,
+  })
   await dispatchBytes(binding, bytes, "receipt")
 }

@@ -1,6 +1,8 @@
 import type { CreateSalePayload, CreateSaleResult } from "@/lib/commands/create-sale"
+import { buildSalePayload } from "@/lib/commands/create-sale"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useCartStore } from "@/lib/cart/store"
 import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
 import type { Tax } from "@/lib/types/tax"
 
@@ -829,7 +831,18 @@ export function buildTicketDataFromRemision(
 // que los ítems de demo tienen que llevar ESE MISMO taxId — un taxId
 // inventado dejaría esos bloques en blanco en el preview (mismo resultado
 // que ve el comercio si el bloque no matchea ningún impuesto suyo).
-export function buildDemoTicketData(taxes: Tax[]): TicketData {
+/**
+ * Shape mínimo de impuesto que `buildDemoTicketData` necesita (id/rate/kind
+ * nomás). Angostado a propósito: el caller original (`TemplateEditor`,
+ * `useTaxes()`) trae `Tax[]` completo (con `name`/`extra`/`sortOrder`/etc,
+ * `lib/types/tax.ts`), pero `buildTicketDataForTest` (más abajo) solo tiene
+ * `PosTaxRate[]` a mano (`useCatalogStore.taxes`, el subset que viaja en el
+ * bootstrap del POS, `lib/types/pos-bootstrap.ts`) — ambos shapes satisfacen
+ * este contrato sin casts ni conversiones.
+ */
+type DemoTaxSource = Pick<Tax, "id" | "rate" | "kind">
+
+export function buildDemoTicketData(taxes: DemoTaxSource[]): TicketData {
   // Las dos tasas "rate" (no exentas) más altas del tenant — típicamente IVA
   // 10%/5% en Paraguay (TaxService siembra estas por defecto en el signup,
   // context/38 §A). Con una sola tasa cargada, ambos ítems de demo caen en
@@ -849,7 +862,7 @@ export function buildDemoTicketData(taxes: Tax[]): TicketData {
    * `gross * rate / (100 + rate)` — 10% → gross/11, 5% → gross/21. NUNCA
    * `gross * rate/100` (eso sería IVA agregado, no incluido).
    */
-  function taxedLine(name: string, uid: string, qty: number, grossUnitPrice: number, tax: Tax | null): TicketItem {
+  function taxedLine(name: string, uid: string, qty: number, grossUnitPrice: number, tax: DemoTaxSource | null): TicketItem {
     const gross = qty * grossUnitPrice
     const rate = tax?.rate ?? 0
     const taxAmount = tax ? Math.round((gross * rate) / (100 + rate)) : 0
@@ -939,4 +952,93 @@ export function buildDemoTicketData(taxes: Tax[]): TicketData {
     note: "Gracias por su compra",
     orderDestination: "Mesa 3",
   }
+}
+
+// ── Ticket de PRUEBA (botón "Probar" de impresoras, Ajustes → Impresoras) ──
+// El owner pidió ver el FORMATO REAL de la plantilla en vez del texto fijo
+// "Prueba de impresión" que imprimía antes (`printTest` en
+// `lib/hardware/printers/index.ts`). Esta función es la única fuente de
+// datos para esa prueba — usa el carrito EN CURSO por el MISMO camino
+// aritmético que una venta real (`buildSalePayload` → `buildTicketData`), así
+// columnas por tasa, liquidación de IVA y totales salen calculados de
+// verdad, no hardcodeados.
+//
+// Carrito vacío (o la prueba se dispara desde un contexto sin carrito, ej. la
+// pantalla de Estación de Impresión) → `buildDemoTicketData()`, la MISMA
+// fuente que ya usa el preview del editor de plantillas — así "Probar"
+// siempre imprime algo con formato real, incluso sin venta en curso.
+//
+// NUNCA toca numeración/stock/cola offline: `buildSalePayload` es una
+// función PURA (solo arma el shape del payload en memoria, sin I/O) y acá no
+// se llama `executeSale`/ningún POST — no se persiste transacción ni se
+// consume la numeración real de la caja. El número de comprobante es SIEMPRE
+// el correlativo de EJEMPLO "001-001-0000000" (pedido owner) — jamás
+// `getNextInvoiceNo()`/`DocumentNumber::allocate()`/`advanceTo()`.
+//
+// Cliente enmascarado (pedido owner 2026-08-18): si hay un cliente real
+// seleccionado en el carrito, imprimir su nombre/RUC en un ticket de PRUEBA
+// expondría datos de un cliente real sin necesidad — se sustituyen por un
+// valor de relleno. El resto de los datos de la venta (líneas, cantidades,
+// precios, descuentos, impuestos, totales) siguen siendo los reales del
+// carrito; el owner acotó el enmascarado a esos dos campos nomás.
+export function buildTicketDataForTest(): TicketData {
+  const cart = useCartStore.getState()
+  const { config, taxes } = useCatalogStore.getState()
+
+  const base: TicketData =
+    cart.lines.length === 0 ? buildDemoTicketData(taxes) : buildTicketDataFromCartForTest(cart, config)
+
+  return {
+    ...base,
+    customerName: "Prueba de impresión",
+    customerTin: "XXXXXX-X",
+    documentNumber: "001-001-0000000",
+    documentPrefix: "001-001-",
+    documentSufix: "0000000",
+  }
+}
+
+function buildTicketDataFromCartForTest(
+  cart: ReturnType<typeof useCartStore.getState>,
+  config: PosConfig | null,
+): TicketData {
+  const payload = buildSalePayload({
+    lines: cart.lines,
+    payments: [],
+    credito: cart.credito,
+    interno: cart.interno,
+    customer: cart.customer,
+    userId: null,
+    tags: cart.tags,
+    quoteParentId: cart.quoteParentId,
+    saleDiscount: cart.saleDiscount,
+    timezone: config?.timezone ?? null,
+    dueDate: null,
+    ivaRemoved: cart.ivaRemoved,
+    // `invoiceno` es OBLIGATORIO en el shape de BuildSaleInput (context/29,
+    // numeración/exclusividad de caja) pero acá es un placeholder puro: este
+    // `payload` NUNCA se manda al backend (no hay `executeSale`/POST en esta
+    // función), solo se usa en memoria para recalcular subtotal/descuento/
+    // impuestos por línea igual que una venta real. Un ticket de PRUEBA jamás
+    // puede tocar `getNextInvoiceNo()`/consumir el lease — el número que
+    // termina impreso es SIEMPRE el correlativo de ejemplo que se pisa más
+    // abajo en `buildTicketDataForTest` ("001-001-0000000"), nunca este 0.
+    invoiceno: 0,
+  })
+  const total = Math.max(0, payload.subtotal - payload.discount)
+  // Pago de relleno: la prueba puede dispararse antes de que el cajero elija
+  // un método de pago real (solo quiere ver el formato) — un "Efectivo" por
+  // el total cierra el bloque de pagos si la plantilla lo trae, sin registrar
+  // ningún cobro real.
+  payload.payment = [{ name: "Efectivo", total }]
+
+  const result: CreateSaleResult = {
+    transactionId: "PRUEBA",
+    transactionUID: payload.uid,
+    invoiceNumber: null,
+    total,
+    duplicated: false,
+    einvoicePortalUrl: null,
+  }
+  return buildTicketData({ payload, result, config })
 }
