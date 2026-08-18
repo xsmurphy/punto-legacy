@@ -14,7 +14,7 @@ import {
   WrapText,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { FONT_FAMILIES, FONT_SIZES, getBlockTitle } from "@/lib/print-template-palette"
+import { FONT_FAMILIES, FONT_SIZES, getBlockPlaceholder, getBlockTitle } from "@/lib/print-template-palette"
 import { resolveSingleBlockPreview } from "@/lib/hardware/printers/blocks"
 import type { TicketData } from "@/lib/hardware/printers/build-ticket-data"
 import { isReceipt, type PaperSize, type PrintBlock } from "@/lib/types/print-template"
@@ -196,7 +196,7 @@ export function CanvasBlock({
             textOverflow: block.textwrap === "cut" ? "clip" : undefined,
           }}
         >
-          <BlockContent block={block} data={data} />
+          <BlockContent block={block} data={data} taxes={taxes} />
         </div>
       ) : (
         <Tooltip>
@@ -209,7 +209,7 @@ export function CanvasBlock({
                 textOverflow: block.textwrap === "cut" ? "clip" : undefined,
               }}
             >
-              <BlockContent block={block} data={data} />
+              <BlockContent block={block} data={data} taxes={taxes} />
             </div>
           </TooltipTrigger>
           <TooltipContent side="top">{title}</TooltipContent>
@@ -239,7 +239,18 @@ export function CanvasBlock({
   )
 }
 
-function BlockContent({ block, data }: { block: PrintBlock; data: TicketData }) {
+function BlockContent({
+  block,
+  data,
+  taxes,
+}: {
+  block: PrintBlock
+  data: TicketData
+  /** Tasas del tenant — solo para el fallback de `getBlockPlaceholder` en
+   *  los bloques por-tasa (subtotal_by_rate/iva_by_rate/item_total_by_rate),
+   *  mismo uso que en `getBlockTitle` (ver Props de CanvasBlock). */
+  taxes?: Tax[]
+}) {
   if (block.type === "hor_line") {
     // Línea sobre papel blanco — color fijo zinc para que se vea en ambos modos.
     return <div className="h-px w-full bg-zinc-800" />
@@ -269,13 +280,16 @@ function BlockContent({ block, data }: { block: PrintBlock; data: TicketData }) 
   // de tipos acá. El texto en el editor se muestra en zinc-500 (atenuado)
   // para señalar que es preview, no real.
   const preview = resolveSingleBlockPreview(block, data)
+  // Nunca vacío ni identificador interno (pedido owner): cuando la venta de
+  // ejemplo no puebla este campo (transfer_reason fuera de remisión,
+  // nums_to_words sin implementar, una tasa "Exento" sin línea de ejemplo
+  // que la matchee), en vez de un "…" genérico se muestra el MOLDE del dato
+  // que va a ir ahí (getBlockPlaceholder — reusa el mismo `defaultText` de
+  // PALETTE que ya usa el editor al insertar el bloque, nunca una segunda
+  // lista de textos de ejemplo).
   return (
     <div className="h-full w-full px-1 leading-tight text-zinc-900">
-      {preview ? (
-        preview
-      ) : (
-        <span className="text-zinc-400">…</span>
-      )}
+      {preview ? preview : <span className="text-zinc-400">{getBlockPlaceholder(block, taxes ?? [])}</span>}
     </div>
   )
 }
