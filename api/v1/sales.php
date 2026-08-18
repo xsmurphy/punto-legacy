@@ -105,51 +105,43 @@ $deviceId = (string) ($authCtx['deviceId'] ?? '');
 // Todo lo que llega hasta acá es venta contado/crédito (type∈{0,3} —
 // SaleInput::fromPayload ya cortó cualquier otro type más arriba en
 // assertSimplePathEligible), así que SIEMPRE necesita un invoiceNo real: el
-// POS lo manda desde `getNextInvoiceNo()` en TODA venta desde que se cerró
-// este P0 (frontend/components/register/pay-dialog.tsx, `leasedInvoiceNo`).
-// Un `invoiceNo` ausente acá es un cliente desactualizado (bundle viejo del
-// device, antes de este fix) o un bug — dejarlo pasar en silencio reabriría
-// el mismo P0 que este cambio cierra (persistir `invoiceNo = NULL`). No es
-// una regla de negocio que el POS ya validó al emitir (§53): es integridad
-// del payload, la misma categoría que "el clientId pertenece al tenant" —
-// eso el backend SIEMPRE lo valida.
+// POS lo manda desde `getNextInvoiceNo()` en TODA venta (frontend/lib/pos/
+// invoice-numbering.ts — "último correlativo de mi caja + 1", ver
+// context/29-numeracion-y-exclusividad-de-caja.md). Un `invoiceNo` ausente
+// acá es un cliente desactualizado (bundle viejo del device) o un bug —
+// dejarlo pasar en silencio reabriría el P0 fiscal (persistir
+// `invoiceNo = NULL`). No es una regla de negocio que el POS ya validó al
+// emitir (§53): es integridad del payload, la misma categoría que "el
+// clientId pertenece al tenant" — eso el backend SIEMPRE lo valida.
 if ($input->invoiceNo === null) {
     apiError('Falta el número de comprobante — actualizá el POS e intentá de nuevo', 422);
 }
 
-// F3 (context/29-numeracion-y-exclusividad-de-caja.md §5.4) aplicado al
-// camino ONLINE — antes solo `offline-sync.php` validaba esto. El número que
-// llega acá lo consumió el POS de su lease LOCAL (`getNextInvoiceNo()`,
-// nunca `DocumentNumber::allocate()` server-side — decisión del owner, ver
-// docblock de `RegisterLeaseService::validateInvoiceNoTenancy`); sin este
-// chequeo, un device con `localStorage` corrupto/perdido podría reenviar un
-// número que YA se consumió (o que nunca fue suyo), duplicando el
-// comprobante — exactamente el P0 fiscal que este plan cierra para offline,
-// reabierto acá si el camino online no lo revalida.
+// Exclusividad de caja (context/29 §4) aplicada al camino ONLINE — antes
+// solo `offline-sync.php` validaba esto. El número que llega acá lo decidió
+// el device LOCALMENTE (`getNextInvoiceNo()`, nunca `DocumentNumber::
+// allocate()` server-side — el arriendo de números que antes reservaba
+// bloques fue RECHAZADO por el owner 2026-08-17, ver docblock de
+// `RegisterLeaseService`); lo único que puede duplicar un comprobante ahora
+// es que DOS dispositivos operen la misma caja a la vez, y eso es
+// exactamente lo que `holderConflict()` chequea contra `register_lease` —
+// sin depender de ningún bookkeeping de números.
 //
 // §53 (context/08-convenciones-criticas.md): esto NO viola "el backend nunca
 // rechaza una venta ya emitida" — en este punto el ticket todavía NO se
 // imprimió (`runAutoPrint` en pay-dialog.tsx corre DESPUÉS de que este POST
 // responde 200), así que no hay venta ya emitida que se pierda. La
-// numeración exclusiva es ESTADO COMPARTIDO (distinción explícita de §53),
-// y ahí sí corresponde bloquear — mismo 409 informativo que `lease.php` ya
-// usa, para que el POS muestre quién tiene la caja tomada (F5, context/29
-// §5.6).
-if ($input->invoiceNo !== null) {
-    $conflict = \Punto\Api\Services\RegisterLeaseService::validateInvoiceNoTenancy(
-        $input->invoiceNo,
-        $regId,
-        $compId,
-        $deviceId,
+// exclusividad de caja es ESTADO COMPARTIDO (distinción explícita de §53), y
+// ahí sí corresponde bloquear — mismo 409 informativo que `claim.php` ya
+// usa, para que el POS muestre quién tiene la caja tomada.
+$conflict = \Punto\Api\Services\RegisterLeaseService::holderConflict($regId, $compId, $deviceId);
+if ($conflict !== null) {
+    apiConflict(
+        $conflict['holderDeviceId'] !== null
+            ? 'Esta caja está tomada por otro dispositivo'
+            : 'Esta caja no tiene tenencia activa — abrí sesión en el POS e intentá de nuevo',
+        $conflict,
     );
-    if ($conflict !== null) {
-        apiConflict(
-            $conflict['holderDeviceId'] !== null
-                ? 'Esta caja está tomada por otro dispositivo'
-                : 'El número de comprobante venció o la caja no tiene tenencia activa — renová el arriendo de numeración e intentá de nuevo',
-            $conflict,
-        );
-    }
 }
 
 $service = new SaleService(
@@ -181,14 +173,18 @@ try {
     apiError($e->dbError ?? 'Sale transaction aborted', 500);
 }
 
-// Venta guardada — marcar el número como consumido. Mismo UPDATE que
-// offline-sync.php corre al sincronizar (F3): a partir de acá, si este
-// device pierde su lease local y vuelve a pedir un bloque, `lease.php` ya no
-// puede devolver este número (su WHERE exige "consumedAt IS NULL").
+// Venta guardada — mantener document_sequence consistente con el número que
+// el device ya decidió y emitió. NUNCA decide el número acá (eso reabriría
+// el caso rechazado por el owner: un `allocate()` server-side entregaría
+// números por encima de lo que el device ya emitió offline) — solo se
+// asegura de que la secuencia no quede atrás para el próximo peek()/panel.
 if ($input->invoiceNo !== null) {
-    ncmExecute(
-        'UPDATE "numbering_lease" SET "consumedAt" = NOW() WHERE "invoiceNo" = ? AND "registerId" = ? AND "companyId" = ?',
-        [$input->invoiceNo, $regId, $compId]
+    \Punto\Api\Documents\DocumentNumber::advanceTo(
+        'factura',
+        \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER,
+        $regId,
+        $compId,
+        $input->invoiceNo,
     );
 }
 

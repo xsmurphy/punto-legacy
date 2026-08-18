@@ -191,16 +191,18 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_offline_resolution.php"; then
   OVERALL_STATUS=1
 fi
 
-# ── 3.8. Exclusividad de caja (context/29, P0 fiscal): dos dispositivos NO
-#    pueden compartir el bloque de números de una caja — ver docblock de
+# ── 3.8. Exclusividad de caja + numeración sin arriendo (context/29,
+#    revisado 2026-08-17): dos dispositivos NO pueden compartir la misma
+#    caja (register_lease), y el correlativo de factura lo decide el device
+#    ("último + 1"), sin bloques reservados — ver docblock de
 #    verify_register_lease.php. Levanta su propio servidor PHP built-in
-#    (mismo bootstrap.php/lease.php/sales.php reales) contra el Postgres
-#    seedeado arriba; no depende de los pasos anteriores. Incluye (casos
-#    6-8) el caso CENTRAL de que la venta ONLINE ya no persiste
-#    invoiceNo=NULL: POST real a sales.php, verificado contra transaction.
-#    invoiceNo y numbering_lease.consumedAt en BD.
+#    (mismo bootstrap.php/claim.php/sales.php/offline-sync.php/register.php
+#    reales) contra el Postgres seedeado arriba; no depende de los pasos
+#    anteriores. Incluye el caso CENTRAL (6): dos ventas online consecutivas
+#    de la misma caja con invoiceNo distinto y consecutivo, y document_
+#    sequence avanzando solo (sin allocate() server-side).
 echo ""
-echo "[run.sh] === exclusividad de caja (register_lease, 409 entre devices, venta online consume el lease) ==="
+echo "[run.sh] === exclusividad de caja + numeración sin arriendo (register_lease, 409 entre devices, correlativo decidido por el device) ==="
 if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_register_lease.php"; then
   OVERALL_STATUS=1
 fi

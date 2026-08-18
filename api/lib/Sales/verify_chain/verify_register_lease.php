@@ -4,64 +4,54 @@ declare(strict_types=1);
 
 /**
  * verify_register_lease.php — arnés chico que demuestra, sin mockear nada,
- * que el P0 fiscal de context/29-numeracion-y-exclusividad-de-caja.md está
- * cerrado: dos dispositivos NO pueden compartir el mismo bloque de números
- * de una caja.
- *
- * Antes de F2/F3, `api/v1/numbering/lease.php` servía el lease activo de
- * `numbering_lease` a CUALQUIER dispositivo que preguntara — dos devices
- * pareados a la misma caja recibían el MISMO bloque y duplicaban números de
- * factura en cuanto ambos sincronizaban offline (multa por cada factura en
- * Paraguay). El fix es `register_lease` (mig 141): una tenencia de caja por
- * dispositivo, exclusiva, con `UNIQUE (registerId) WHERE status='active'` a
- * nivel de BD.
+ * el modelo VIGENTE de context/29-numeracion-y-exclusividad-de-caja.md
+ * (revisado 2026-08-17: el arriendo de bloques de números fue RECHAZADO por
+ * el owner — §6 del doc — y reemplazado por "último correlativo de mi caja
+ * + 1", decidido por el DEVICE, sin reserva previa). Lo único que sigue
+ * viviendo en el servidor es la TENENCIA de la caja (`register_lease`,
+ * `api/v1/register/claim.php`): una caja, un dispositivo a la vez.
  *
  * Este arnés NO simula HTTP con un mock — levanta un servidor PHP real
- * (`php -S`, built-in dev server) sirviendo `api/`, y pega contra el
- * endpoint real `POST /v1/numbering/lease.php` con dos Bearer tokens de
- * `pos-app` reales (`authSessionCreate()`, mismo código que produce un
- * pareo real de device), contra el MISMO Postgres que sembró seed.sql.
+ * (`php -S`, built-in dev server) sirviendo `api/`, y pega contra los
+ * endpoints reales (`claim.php`, `sales.php`, `offline-sync.php`,
+ * `register.php`) con dos Bearer tokens de `pos-app` reales
+ * (`authSessionCreate()`, mismo código que produce un pareo real de
+ * device), contra el MISMO Postgres que sembró seed.sql.
  *
  * Casos:
- *   1. Device A pide la caja libre → 200, recibe un bloque.
+ *   1. Device A toma la caja libre (`claim.php`) → 200.
  *   2. Device B pide la MISMA caja mientras A la tiene tomada → 409, con
- *      `holderDeviceId`/`holderDeviceName`/`expiresAt` de A (no un mensaje
- *      genérico — el POS de B necesita esos datos para el mensaje al
- *      cajero, §5.3/§5.6 del plan).
- *   3. Device A vuelve a pedir → 200, MISMO leaseId que el paso 1 (sigue
- *      operando con su propia tenencia, sin verse afectado por el rechazo
- *      de B — "device A sigue funcionando" es el corazón del P0).
+ *      `holderDeviceId`/`holderDeviceName` de A (el POS de B necesita esos
+ *      datos para el mensaje al cajero).
+ *   3. Device A vuelve a pedir → 200, MISMO `registerLeaseId` que el caso 1
+ *      (confirma tenencia existente, no crea una nueva; el rechazo de B no
+ *      lo afectó).
  *   4. Invariante de BD: exactamente una fila `register_lease` activa para
  *      esa caja, y es la de A.
- *   5. `expiresAt` cae en la fecha calendario de HOY en la timezone del
- *      tenant (America/Asuncion para Verify PY) — NO "+24h corridas" desde
- *      el momento de la toma (§4.1 del plan, la corrección explícita del
- *      owner sobre la primera versión del diseño).
- *   6. Caso CENTRAL del P0 online (context/29, F3 aplicado a `sales.php`):
- *      A vende de verdad — POST real a `/v1/sales.php` con el primer número
- *      de su propio bloque (`leasedInvoiceNo`) — y el resultado persiste con
- *      `transaction.invoiceNo` NO NULO igual a ese número, y
- *      `numbering_lease.consumedAt` queda marcado para esa fila. Antes de
- *      este fix, TODA venta online persistía `invoiceNo = NULL` — este caso
- *      es la demostración end-to-end de que ya no.
- *   7. A reintenta vender usando el MISMO `leasedInvoiceNo` que el caso 6
- *      acaba de consumir (uid distinto) → 409: el número ya no está
- *      "unconsumed", `sales.php` lo rechaza antes de guardar — previene la
- *      duplicación del comprobante fiscal aunque sea el MISMO dispositivo
- *      reintentando.
- *   8. B (que nunca tuvo tenencia propia — su pedido de caja fue rechazado
- *      en el caso 2) intenta vender usando el SEGUNDO número del bloque de
- *      A (todavía sin consumir) → 409 con `holderDeviceId`/
- *      `holderDeviceName`/`expiresAt` de A: `sales.php` rechaza un número
- *      que no es de la tenencia del device que lo manda, no solo un número
- *      ya usado.
- *   9. F3 (renumerado, antes caso 6): si la tenencia de A se cierra
- *      (liberación forzada, simulando §4 "FORZADA" — mismo
- *      `RegisterLeaseService::close()` que usaría un futuro botón de panel,
- *      F4, no implementado todavía), el número que A tenía reservado y sin
- *      consumir queda `voidedAt`-marcado, y la misma consulta que hace
- *      `offline-sync.php` para validar tenencia antes de marcar
- *      `consumedAt` lo detecta como inválido.
+ *   5. `register_lease.expiresAt` es NULL — la tenencia YA NO vence por
+ *      fecha/TTL (context/29 §4, corrección 2026-08-17; antes vencía a fin
+ *      de la fecha del outlet, motivo que desapareció junto con los
+ *      bloques de números).
+ *   6. CENTRAL — dos ventas ONLINE consecutivas de la MISMA caja: A pide su
+ *      próximo correlativo (`GET /v1/register` → docNumbers, la misma
+ *      fuente que alimenta `PosBootstrap.nextInvoiceNo`), vende con ese
+ *      número, pide el siguiente (debe ser +1, `document_sequence` ya
+ *      avanzó), vende de nuevo. Ambas ventas persisten con `invoiceNo` NO
+ *      NULO, distinto y consecutivo — sin ningún arriendo de por medio.
+ *   7. B (sin tenencia propia — su claim fue rechazado en el caso 2) intenta
+ *      vender adivinando el próximo número de la caja de A → 409 con
+ *      `holderDeviceId` de A: `sales.php` bloquea por TENENCIA DE CAJA, no
+ *      por un número reservado (ya no existe tal cosa).
+ *   8. Venta OFFLINE: A "emite" localmente su próximo número (simula
+ *      `getNextInvoiceNo()` del front — último conocido + 1) y sincroniza
+ *      vía `POST /v1/offline-sync.php` → 200, persiste con ese `invoiceNo`,
+ *      SIN pedirle permiso a ningún lease de números (no existe
+ *      `numbering_lease` en el camino nuevo).
+ *   9. Liberación forzada de la tenencia de A (simulando el botón "Liberar
+ *      caja" del panel, F4, no implementado todavía — mismo
+ *      `RegisterLeaseService::close()`): una venta que A intenta
+ *      sincronizar DESPUÉS queda rechazada con `REGISTER_NOT_HELD` — A ya
+ *      no es el tenedor real, así que su cola offline no puede colarse.
  *
  * Uso: ver run.sh, que lo invoca como paso propio con las mismas env vars
  * POSTGRES_*. Exit code 0 si todos los casos pasan, 1 si alguno falla.
@@ -75,7 +65,7 @@ $PY_OUTLET   = '1a282724-6073-49c3-8bc3-0114a132e349';
 $PY_REGISTER = '81c541da-640e-4891-a1a0-b32841e64c75';
 $PY_USER     = '3e52da17-74a2-49c3-9d07-8d4806671fd5';
 // Item fixture de seed.sql (Verify 10% incluido) — cualquier ítem simple
-// alcanza para el caso 6/7/8, que solo necesitan una venta contado real.
+// alcanza para vender de verdad.
 $PY_ITEM = '10223f3b-2e3d-4339-8496-9f288d8be65b';
 
 global $db;
@@ -86,13 +76,10 @@ $failures = [];
 //    el modelo actual es token opaco, ver includes/auth_session.php). ──────
 
 // Reset idempotente: solo lo que este arnés puede haber dejado de una
-// corrida anterior contra un Postgres reusado (POSTGRES_HOST externo). Los
-// números de numbering_lease que quedaron atados a una tenencia de test
-// vieja se borran ANTES que la tenencia (FK), nunca al revés.
-ncmExecute(
-    'DELETE FROM "numbering_lease" WHERE "registerId" = ? AND "registerLeaseId" IS NOT NULL',
-    [$PY_REGISTER]
-);
+// corrida anterior contra un Postgres reusado (POSTGRES_HOST externo).
+// `document_sequence` NO se resetea — este arnés siempre pide "el próximo"
+// vía el endpoint real y avanza desde ahí, así que es idempotente por
+// construcción sin tocar la secuencia de otros tests.
 ncmExecute('DELETE FROM "register_lease" WHERE "registerId" = ?', [$PY_REGISTER]);
 ncmExecute("DELETE FROM device WHERE registerid = ?::uuid AND devicename LIKE 'Verify Device %'", [$PY_REGISTER]);
 
@@ -129,8 +116,9 @@ $tokenB = authSessionCreate('pos-app', [
 
 // ── Servidor PHP real (built-in dev server), sirviendo api/ tal cual lo
 //    sirve el runtime de producción — mismo bootstrap.php, mismo
-//    apiAuthPosContext(), mismo lease.php. Puerto libre asignado por el OS
-//    (mismo truco que verify_realtime.php usa para el fake Redis). ────────
+//    apiAuthPosContext(), mismo claim.php/sales.php/offline-sync.php.
+//    Puerto libre asignado por el OS (mismo truco que verify_realtime.php
+//    usa para el fake Redis). ─────────────────────────────────────────────
 $probe = @stream_socket_server('tcp://127.0.0.1:0', $errno, $errstr);
 if ($probe === false) {
     fwrite(STDERR, "[verify_register_lease] no se pudo reservar un puerto: {$errstr} ({$errno})\n");
@@ -158,19 +146,23 @@ fclose($pipes[0]);
 stream_set_blocking($pipes[1], false);
 stream_set_blocking($pipes[2], false);
 
-/** POST contra el endpoint real. Devuelve [statusCode, decoded-body-array]. */
-function verifyPostLease(int $port, string $bearer, array $body = ['count' => 5]): array
+/** GET/POST genérico contra el servidor built-in. Devuelve [statusCode, decoded-body-array]. */
+function verifyHttp(int $port, string $method, string $path, string $bearer, ?string $body = null, string $contentType = 'application/json'): array
 {
+    $header = "Authorization: Bearer {$bearer}\r\n";
+    if ($body !== null) {
+        $header .= "Content-Type: {$contentType}\r\n";
+    }
     $ctx = stream_context_create([
         'http' => [
-            'method'        => 'POST',
-            'header'        => "Authorization: Bearer {$bearer}\r\nContent-Type: application/json\r\n",
-            'content'       => json_encode($body),
+            'method'        => $method,
+            'header'        => $header,
+            'content'       => $body ?? '',
             'ignore_errors' => true, // no lanzar en 4xx/5xx — queremos leer el body igual
             'timeout'       => 5,
         ],
     ]);
-    $raw = @file_get_contents("http://127.0.0.1:{$port}/v1/numbering/lease.php", false, $ctx);
+    $raw = @file_get_contents("http://127.0.0.1:{$port}{$path}", false, $ctx);
     $status = 0;
     foreach ($http_response_header ?? [] as $header) {
         if (preg_match('#^HTTP/\S+\s+(\d+)#', $header, $m)) {
@@ -181,16 +173,22 @@ function verifyPostLease(int $port, string $bearer, array $body = ['count' => 5]
     return [$status, is_array($decoded) ? $decoded : []];
 }
 
-/**
- * POST real contra `/v1/sales.php` (venta contado, type=0) — mismo endpoint
- * que `pay-dialog.tsx` usa en el camino online (`posApi.postLegacy`), con el
- * mismo shape de payload (`{uid, transaction: {...}}`, form-encoded
- * `data[]=<json>` porque `sales.php` lee `$_POST['data']`, no un body JSON).
- * Devuelve [statusCode, decoded-body-array].
- */
-function verifyPostSale(int $port, string $bearer, string $itemId, int $invoiceNo, string $uid): array
+/** POST real contra `/v1/register/claim.php` (tomar/confirmar tenencia de caja). */
+function verifyPostClaim(int $port, string $bearer): array
 {
-    $transaction = [
+    return verifyHttp($port, 'POST', '/v1/register/claim.php', $bearer, '{}');
+}
+
+/** GET real contra `/v1/register.php` (sin resource) — RegisterService::docNumbers(). */
+function verifyGetDocNumbers(int $port, string $bearer): array
+{
+    return verifyHttp($port, 'GET', '/v1/register.php', $bearer, null);
+}
+
+/** Arma el payload de venta contado (type=0) que sales.php/offline-sync.php esperan. */
+function verifyBuildSaleTransaction(string $itemId, int $invoiceNo, string $uid): array
+{
+    return [
         'uid'      => $uid,
         'type'     => 0,
         'sale'     => [[
@@ -218,26 +216,39 @@ function verifyPostSale(int $port, string $bearer, string $itemId, int $invoiceN
         'tags'      => [],
         'invoiceno' => $invoiceNo,
     ];
-    $body = 'data[]=' . rawurlencode(json_encode(['uid' => $uid, 'transaction' => $transaction]));
+}
 
-    $ctx = stream_context_create([
-        'http' => [
-            'method'        => 'POST',
-            'header'        => "Authorization: Bearer {$bearer}\r\nContent-Type: application/x-www-form-urlencoded\r\n",
-            'content'       => $body,
-            'ignore_errors' => true,
-            'timeout'       => 5,
-        ],
+/**
+ * POST real contra `/v1/sales.php` (venta contado ONLINE, type=0) — mismo
+ * endpoint que `pay-dialog.tsx` usa (`posApi.postLegacy`), mismo shape de
+ * payload (`data[]=<json>` form-encoded porque `sales.php` lee
+ * `$_POST['data']`, no un body JSON). Devuelve [statusCode, decoded-body-array].
+ */
+function verifyPostSale(int $port, string $bearer, string $itemId, int $invoiceNo, string $uid): array
+{
+    $transaction = verifyBuildSaleTransaction($itemId, $invoiceNo, $uid);
+    $body = 'data[]=' . rawurlencode(json_encode(['uid' => $uid, 'transaction' => $transaction]));
+    return verifyHttp($port, 'POST', '/v1/sales.php', $bearer, $body, 'application/x-www-form-urlencoded');
+}
+
+/**
+ * POST real contra `/v1/offline-sync.php` — mismo shape que
+ * `use-offline-sync.ts` manda (`{sales: [{clientTempId, invoiceNo, sale}]}`,
+ * body JSON crudo). `invoiceNo` es el número que el device YA "emitió"
+ * localmente (simula `getNextInvoiceNo()` del front) — el endpoint no lo
+ * vuelve a asignar, solo valida tenencia de caja y guarda.
+ */
+function verifyPostOfflineSync(int $port, string $bearer, string $itemId, int $invoiceNo, string $uid): array
+{
+    $transaction = verifyBuildSaleTransaction($itemId, $invoiceNo, $uid);
+    $body = json_encode([
+        'sales' => [[
+            'clientTempId' => $uid,
+            'invoiceNo'    => $invoiceNo,
+            'sale'         => ['uid' => $uid, 'transaction' => $transaction],
+        ]],
     ]);
-    $raw = @file_get_contents("http://127.0.0.1:{$port}/v1/sales.php", false, $ctx);
-    $status = 0;
-    foreach ($http_response_header ?? [] as $header) {
-        if (preg_match('#^HTTP/\S+\s+(\d+)#', $header, $m)) {
-            $status = (int) $m[1];
-        }
-    }
-    $decoded = $raw !== false ? json_decode($raw, true) : null;
-    return [$status, is_array($decoded) ? $decoded : []];
+    return verifyHttp($port, 'POST', '/v1/offline-sync.php', $bearer, $body, 'application/json');
 }
 
 try {
@@ -261,16 +272,16 @@ try {
     }
 
     // ── Caso 1: A toma la caja libre ────────────────────────────────────
-    [$statusA1, $bodyA1] = verifyPostLease($port, $tokenA);
+    [$statusA1, $bodyA1] = verifyPostClaim($port, $tokenA);
     if ($statusA1 !== 200 || !($bodyA1['ok'] ?? false)) {
         $failures[] = 'Caso 1: A esperaba 200 tomando la caja libre, llegó ' . $statusA1 . ' ' . json_encode($bodyA1);
     } else {
-        echo "[verify_register_lease] OK caso 1: device A toma la caja libre (200, bloque {$bodyA1['data']['from']}-{$bodyA1['data']['to']})\n";
+        echo "[verify_register_lease] OK caso 1: device A toma la caja libre (200, registerLeaseId {$bodyA1['data']['registerLeaseId']})\n";
     }
-    $leaseIdA1 = $bodyA1['data']['leaseId'] ?? null;
+    $registerLeaseIdA1 = $bodyA1['data']['registerLeaseId'] ?? null;
 
     // ── Caso 2: B pide la MISMA caja, A la tiene tomada → 409 con holder info ──
-    [$statusB, $bodyB] = verifyPostLease($port, $tokenB);
+    [$statusB, $bodyB] = verifyPostClaim($port, $tokenB);
     if ($statusB !== 409) {
         $failures[] = 'Caso 2: B esperaba 409 (caja tomada por A), llegó ' . $statusB . ' ' . json_encode($bodyB);
     } else {
@@ -279,21 +290,19 @@ try {
             $failures[] = 'Caso 2: holderDeviceId esperado ' . $deviceIdA . ', llegó ' . json_encode($details['holderDeviceId'] ?? null);
         } elseif (($details['holderDeviceName'] ?? null) !== 'Verify Device A') {
             $failures[] = 'Caso 2: holderDeviceName esperado "Verify Device A", llegó ' . json_encode($details['holderDeviceName'] ?? null);
-        } elseif (empty($details['expiresAt'] ?? null)) {
-            $failures[] = 'Caso 2: expiresAt del holder ausente en el 409 — el POS de B lo necesita para el mensaje al cajero';
         } else {
-            echo "[verify_register_lease] OK caso 2: device B recibe 409 con holderDeviceId/holderDeviceName/expiresAt de A, sin emitir ningún número\n";
+            echo "[verify_register_lease] OK caso 2: device B recibe 409 con holderDeviceId/holderDeviceName de A, sin tomar la caja\n";
         }
     }
 
-    // ── Caso 3: A sigue funcionando — mismo leaseId, no lo afectó el rechazo de B ──
-    [$statusA2, $bodyA2] = verifyPostLease($port, $tokenA);
+    // ── Caso 3: A sigue funcionando — mismo registerLeaseId, no lo afectó el rechazo de B ──
+    [$statusA2, $bodyA2] = verifyPostClaim($port, $tokenA);
     if ($statusA2 !== 200 || !($bodyA2['ok'] ?? false)) {
         $failures[] = 'Caso 3: A esperaba 200 (sigue operando su propia tenencia), llegó ' . $statusA2 . ' ' . json_encode($bodyA2);
-    } elseif (($bodyA2['data']['leaseId'] ?? null) !== $leaseIdA1) {
-        $failures[] = 'Caso 3: A esperaba el MISMO leaseId del caso 1 (' . json_encode($leaseIdA1) . '), llegó ' . json_encode($bodyA2['data']['leaseId'] ?? null) . ' — el rechazo de B no debería haberle creado un bloque nuevo a A';
+    } elseif (($bodyA2['data']['registerLeaseId'] ?? null) !== $registerLeaseIdA1) {
+        $failures[] = 'Caso 3: A esperaba el MISMO registerLeaseId del caso 1 (' . json_encode($registerLeaseIdA1) . '), llegó ' . json_encode($bodyA2['data']['registerLeaseId'] ?? null) . ' — el rechazo de B no debería haberle creado una tenencia nueva a A';
     } else {
-        echo "[verify_register_lease] OK caso 3: device A sigue operando con la MISMA tenencia (leaseId sin cambios) — el 409 de B no lo afectó\n";
+        echo "[verify_register_lease] OK caso 3: device A sigue operando con la MISMA tenencia (registerLeaseId sin cambios) — el 409 de B no lo afectó\n";
     }
 
     // ── Caso 4: invariante de BD — una sola tenencia activa, y es la de A ──
@@ -315,136 +324,122 @@ try {
     }
     $registerLeaseIdA = $hasActiveRow ? (string) ($activeRow['registerLeaseId'] ?? '') : '';
 
-    // ── Caso 5: expiresAt DE LA TENENCIA DE CAJA (register_lease, no el TTL
-    //    propio del bloque de numbering_lease que sigue siendo +24h a
-    //    propósito, ver docblock de lease.php) = fin de la fecha del tenant,
-    //    NO "+24h corridas" desde el momento de la toma. ────────────────────
-    $tz = new \DateTimeZone(\Punto\Api\Support\TenantClock::timezone($PY_COMPANY));
-    $todayLocal = (new \DateTimeImmutable('now', $tz))->format('Y-m-d');
+    // ── Caso 5: la tenencia YA NO vence por fecha (context/29 §4, mig 144)
+    //    — expiresAt tiene que ser NULL, no "fin de la fecha del tenant". ──
     $registerLeaseExpiresAt = $hasActiveRow ? ($activeRow['expiresAt'] ?? null) : null;
-    $expiresAtLocalDate = $registerLeaseExpiresAt !== null
-        ? (new \DateTimeImmutable((string) $registerLeaseExpiresAt))->setTimezone($tz)->format('Y-m-d')
-        : null;
-    if ($expiresAtLocalDate !== $todayLocal) {
-        $failures[] = "Caso 5: register_lease.expiresAt esperaba caer en la fecha local de hoy ({$todayLocal}, {$tz->getName()}), llegó " . json_encode($registerLeaseExpiresAt) . " (fecha local {$expiresAtLocalDate}) — si esto falla revisando +24h corridas, RegisterLeaseService::expiresAt() dejó de anclar a la fecha del tenant";
+    if ($registerLeaseExpiresAt !== null) {
+        $failures[] = 'Caso 5: register_lease.expiresAt esperaba NULL (la tenencia ya no vence por fecha, context/29 §4), llegó ' . json_encode($registerLeaseExpiresAt);
     } else {
-        echo "[verify_register_lease] OK caso 5: register_lease.expiresAt cae en la fecha calendario de HOY en {$tz->getName()} (§4.1) — no '+24h corridas' desde el momento de la toma (eso sigue siendo el TTL, sin cambios, del bloque de numbering_lease, campo distinto)\n";
+        echo "[verify_register_lease] OK caso 5: register_lease.expiresAt es NULL — la tenencia no vence por fecha/TTL, se libera solo al cerrar caja o por revocación de admin\n";
     }
 
-    // ── Caso 6 (CENTRAL, F3 online): A vende de verdad con el primer número
-    //    de su propio bloque (sin consumir todavía) → sales.php debe guardar
-    //    con invoiceNo NO NULO y marcar numbering_lease.consumedAt. ────────
-    $blockFrom = (int) ($bodyA2['data']['from'] ?? 0);
-    $blockTo   = (int) ($bodyA2['data']['to'] ?? 0);
-    if ($blockFrom < 1 || $blockTo < $blockFrom) {
-        $failures[] = 'Caso 6: setup — no se pudo resolver el bloque de A (revisar caso 1/3)';
+    // ── Caso 6 (CENTRAL): dos ventas ONLINE consecutivas de la MISMA caja
+    //    llevan correlativos distintos y consecutivos, sin ningún arriendo
+    //    de por medio — el device pide "próximo" (docNumbers), vende,
+    //    vuelve a pedir "próximo" (debe ser +1), vende de nuevo. ─────────
+    [$statusDoc1, $bodyDoc1] = verifyGetDocNumbers($port, $tokenA);
+    $firstNo = (int) ($bodyDoc1['data']['invoiceNo'] ?? 0);
+    if ($statusDoc1 !== 200 || $firstNo < 1) {
+        $failures[] = 'Caso 6: setup — GET /v1/register (docNumbers) esperaba 200 con invoiceNo >= 1, llegó ' . $statusDoc1 . ' ' . json_encode($bodyDoc1);
     } else {
-        $saleUidA = 'verify-sale-a-' . bin2hex(random_bytes(6));
-        [$statusSaleA, $bodySaleA] = verifyPostSale($port, $tokenA, $PY_ITEM, $blockFrom, $saleUidA);
-        if ($statusSaleA !== 200 || !($bodySaleA['ok'] ?? false)) {
-            $failures[] = "Caso 6: A esperaba 200 vendiendo online con invoiceno={$blockFrom}, llegó {$statusSaleA} " . json_encode($bodySaleA);
+        $saleUidA1 = 'verify-sale-a1-' . bin2hex(random_bytes(6));
+        [$statusSaleA1, $bodySaleA1] = verifyPostSale($port, $tokenA, $PY_ITEM, $firstNo, $saleUidA1);
+
+        $persistedFirst = null;
+        if ($statusSaleA1 === 200 && ($bodySaleA1['ok'] ?? false)) {
+            $txRow = ncmExecute('SELECT invoiceNo FROM transaction WHERE transactionId = ?', [(string) ($bodySaleA1['data']['transactionId'] ?? '')]);
+            $persistedFirst = ($txRow !== false && $txRow !== 0) ? (int) $txRow['invoiceno'] : null;
+        }
+
+        if ($statusSaleA1 !== 200 || $persistedFirst !== $firstNo) {
+            $failures[] = "Caso 6: primera venta esperaba 200 con invoiceNo={$firstNo} persistido, llegó status={$statusSaleA1} persisted=" . json_encode($persistedFirst) . ' body=' . json_encode($bodySaleA1);
         } else {
-            $transactionId = (string) ($bodySaleA['data']['transactionId'] ?? '');
-            $txRow = ncmExecute(
-                'SELECT invoiceNo FROM transaction WHERE transactionId = ?',
-                [$transactionId]
-            );
-            $hasTxRow = $txRow !== false && $txRow !== 0;
-            $persistedInvoiceNo = $hasTxRow ? $txRow['invoiceno'] : null;
-
-            $consumedRow = ncmExecute(
-                'SELECT "consumedAt" FROM "numbering_lease" WHERE "invoiceNo" = ? AND "registerId" = ? AND "companyId" = ?',
-                [$blockFrom, $PY_REGISTER, $PY_COMPANY]
-            );
-            $hasConsumedRow = $consumedRow !== false && $consumedRow !== 0;
-            $consumedAt = $hasConsumedRow ? ($consumedRow['consumedAt'] ?? null) : null;
-
-            if (!$hasTxRow || $persistedInvoiceNo === null || (int) $persistedInvoiceNo !== $blockFrom) {
-                $failures[] = "Caso 6: la venta online debía persistir transaction.invoiceNo={$blockFrom}, quedó " . json_encode($persistedInvoiceNo) . ' — este es el P0 fiscal que este fix cierra (invoiceNo=NULL en toda venta online)';
-            } elseif ($consumedAt === null || $consumedAt === '') {
-                $failures[] = "Caso 6: numbering_lease.consumedAt debía quedar marcado para invoiceNo={$blockFrom} tras la venta online, quedó sin marcar";
+            // Próximo correlativo DEBE ser firstNo+1 — document_sequence avanzó
+            // (DocumentNumber::advanceTo()) sin que nadie lo haya arrendado.
+            [$statusDoc2, $bodyDoc2] = verifyGetDocNumbers($port, $tokenA);
+            $secondNo = (int) ($bodyDoc2['data']['invoiceNo'] ?? 0);
+            if ($statusDoc2 !== 200 || $secondNo !== $firstNo + 1) {
+                $failures[] = "Caso 6: después de la primera venta, docNumbers esperaba invoiceNo=" . ($firstNo + 1) . ", llegó " . json_encode($bodyDoc2) . ' — document_sequence no avanzó junto con la venta';
             } else {
-                echo "[verify_register_lease] OK caso 6 (CENTRAL): venta ONLINE persiste invoiceNo={$blockFrom} (no nulo) y marca numbering_lease.consumedAt — el P0 fiscal (toda venta online salía con invoiceNo=NULL) está cerrado\n";
+                $saleUidA2 = 'verify-sale-a2-' . bin2hex(random_bytes(6));
+                [$statusSaleA2, $bodySaleA2] = verifyPostSale($port, $tokenA, $PY_ITEM, $secondNo, $saleUidA2);
+                $persistedSecond = null;
+                if ($statusSaleA2 === 200 && ($bodySaleA2['ok'] ?? false)) {
+                    $txRow2 = ncmExecute('SELECT invoiceNo FROM transaction WHERE transactionId = ?', [(string) ($bodySaleA2['data']['transactionId'] ?? '')]);
+                    $persistedSecond = ($txRow2 !== false && $txRow2 !== 0) ? (int) $txRow2['invoiceno'] : null;
+                }
+                if ($statusSaleA2 !== 200 || $persistedSecond !== $secondNo) {
+                    $failures[] = "Caso 6: segunda venta esperaba 200 con invoiceNo={$secondNo} persistido, llegó status={$statusSaleA2} persisted=" . json_encode($persistedSecond) . ' body=' . json_encode($bodySaleA2);
+                } else {
+                    echo "[verify_register_lease] OK caso 6 (CENTRAL): dos ventas ONLINE consecutivas de la misma caja persisten invoiceNo={$firstNo} y invoiceNo={$secondNo} (distinto y consecutivo), sin arriendo de números de por medio\n";
+                }
             }
         }
 
-        // ── Caso 7: A reintenta vender con el MISMO número ya consumido
-        //    (uid distinto) → 409, sales.php no deja duplicar el comprobante
-        //    ni siquiera para el MISMO device que lo consumió. ────────────
-        $saleUidA2 = 'verify-sale-a-retry-' . bin2hex(random_bytes(6));
-        [$statusRetry, $bodyRetry] = verifyPostSale($port, $tokenA, $PY_ITEM, $blockFrom, $saleUidA2);
-        if ($statusRetry !== 409) {
-            $failures[] = "Caso 7: A reusando invoiceno={$blockFrom} ya consumido esperaba 409, llegó {$statusRetry} " . json_encode($bodyRetry);
+        // ── Caso 7: B (sin tenencia propia) intenta vender adivinando el
+        //    próximo número de la caja de A → 409 con holder info de A —
+        //    sales.php bloquea por TENENCIA, no por un número reservado. ──
+        $guessNo = $firstNo + 2;
+        $saleUidB = 'verify-sale-b-' . bin2hex(random_bytes(6));
+        [$statusSaleB, $bodySaleB] = verifyPostSale($port, $tokenB, $PY_ITEM, $guessNo, $saleUidB);
+        if ($statusSaleB !== 409) {
+            $failures[] = "Caso 7: B vendiendo con invoiceno={$guessNo} (sin tenencia) esperaba 409, llegó {$statusSaleB} " . json_encode($bodySaleB);
         } else {
-            echo "[verify_register_lease] OK caso 7: sales.php rechaza reusar invoiceNo={$blockFrom} ya consumido — sin esto, un reintento (o un localStorage viejo) duplicaría el comprobante fiscal\n";
+            $details = $bodySaleB['error']['details'] ?? [];
+            if (($details['holderDeviceId'] ?? null) !== $deviceIdA) {
+                $failures[] = 'Caso 7: holderDeviceId esperado ' . $deviceIdA . ', llegó ' . json_encode($details['holderDeviceId'] ?? null);
+            } else {
+                echo "[verify_register_lease] OK caso 7: sales.php rechaza a B (409 con holderDeviceId de A) por TENENCIA DE CAJA, sin que exista ningún número reservado que chequear\n";
+            }
         }
 
-        // ── Caso 8: B (sin tenencia propia — su lease.php fue rechazado en
-        //    el caso 2) intenta vender con el SEGUNDO número del bloque de A,
-        //    todavía sin consumir → 409 con holder info de A. ─────────────
-        $secondNo = $blockFrom + 1;
-        if ($secondNo > $blockTo) {
-            $failures[] = 'Caso 8: el bloque de A no tiene un segundo número para probar (revisar count del caso 1)';
+        // ── Caso 8: venta OFFLINE — A "emite" localmente su próximo número
+        //    (simula getNextInvoiceNo() del front) y sincroniza sin pedirle
+        //    permiso a ningún lease de números. ──────────────────────────
+        [$statusDoc3, $bodyDoc3] = verifyGetDocNumbers($port, $tokenA);
+        $offlineNo = (int) ($bodyDoc3['data']['invoiceNo'] ?? 0);
+        if ($statusDoc3 !== 200 || $offlineNo < 1) {
+            $failures[] = 'Caso 8: setup — docNumbers esperaba 200 con invoiceNo >= 1, llegó ' . $statusDoc3 . ' ' . json_encode($bodyDoc3);
         } else {
-            $saleUidB = 'verify-sale-b-' . bin2hex(random_bytes(6));
-            [$statusSaleB, $bodySaleB] = verifyPostSale($port, $tokenB, $PY_ITEM, $secondNo, $saleUidB);
-            if ($statusSaleB !== 409) {
-                $failures[] = "Caso 8: B vendiendo con invoiceno={$secondNo} (tenencia de A) esperaba 409, llegó {$statusSaleB} " . json_encode($bodySaleB);
+            $saleUidOffline = 'verify-sale-offline-' . bin2hex(random_bytes(6));
+            [$statusOffline, $bodyOffline] = verifyPostOfflineSync($port, $tokenA, $PY_ITEM, $offlineNo, $saleUidOffline);
+            $result = $bodyOffline['data']['results'][0] ?? null;
+            if ($statusOffline !== 200 || !($result['ok'] ?? false)) {
+                $failures[] = "Caso 8: sync offline de A con invoiceNo={$offlineNo} esperaba ok=true, llegó status={$statusOffline} " . json_encode($bodyOffline);
             } else {
-                $details = $bodySaleB['error']['details'] ?? [];
-                if (($details['holderDeviceId'] ?? null) !== $deviceIdA) {
-                    $failures[] = 'Caso 8: holderDeviceId esperado ' . $deviceIdA . ', llegó ' . json_encode($details['holderDeviceId'] ?? null);
+                $txRow = ncmExecute('SELECT invoiceNo FROM transaction WHERE transactionId = ?', [(string) ($result['transactionId'] ?? '')]);
+                $persisted = ($txRow !== false && $txRow !== 0) ? (int) $txRow['invoiceno'] : null;
+                if ($persisted !== $offlineNo) {
+                    $failures[] = "Caso 8: la venta offline debía persistir invoiceNo={$offlineNo}, quedó " . json_encode($persisted);
                 } else {
-                    echo "[verify_register_lease] OK caso 8: sales.php rechaza a B vendiendo con un número de la tenencia de A (409 con holderDeviceId de A), sin guardar la venta\n";
+                    echo "[verify_register_lease] OK caso 8: venta OFFLINE sincroniza con invoiceNo={$offlineNo} ('último+1' local) sin pedirle permiso a ningún lease de números — persiste igual que el camino online\n";
                 }
             }
         }
     }
 
-    // ── Caso 9 (F3): liberación forzada anula el número no consumido, y la
-    //    consulta de tenencia que offline-sync.php usa lo detecta. ─────────
+    // ── Caso 9: liberación forzada de la tenencia de A (simula "Liberar
+    //    caja" del panel, F4) — una venta que A intenta sincronizar
+    //    DESPUÉS queda rechazada: A ya no es el tenedor real. ─────────────
     if ($registerLeaseIdA === '') {
         $failures[] = 'Caso 9: no se pudo resolver registerLeaseId de A para simular la liberación forzada';
     } else {
-        $unconsumedRow = ncmExecute(
-            'SELECT "invoiceNo" FROM "numbering_lease"
-              WHERE "registerLeaseId" = ? AND "consumedAt" IS NULL AND "voidedAt" IS NULL LIMIT 1',
-            [$registerLeaseIdA]
-        );
-        $hasUnconsumedRow = $unconsumedRow !== false && $unconsumedRow !== 0;
-        $invoiceNo = $hasUnconsumedRow ? (int) ($unconsumedRow['invoiceNo'] ?? 0) : 0;
-        if ($invoiceNo < 1) {
-            $failures[] = 'Caso 9: setup — A no tiene ningún número sin consumir bajo su tenencia (revisar caso 1/3/6/8)';
+        \Punto\Api\Services\RegisterLeaseService::close($registerLeaseIdA, 'forced', 'admin:verify-harness', 'forced');
+
+        $saleUidAfterForce = 'verify-sale-after-force-' . bin2hex(random_bytes(6));
+        [$statusAfterForce, $bodyAfterForce] = verifyPostOfflineSync($port, $tokenA, $PY_ITEM, 999_999, $saleUidAfterForce);
+        $resultAfterForce = $bodyAfterForce['data']['results'][0] ?? null;
+        $errorCode = $resultAfterForce['error']['code'] ?? null;
+
+        if ($statusAfterForce !== 200 || ($resultAfterForce['ok'] ?? true) !== false || $errorCode !== 'REGISTER_NOT_HELD') {
+            $failures[] = 'Caso 9: sync offline de A tras la liberación forzada esperaba ok=false con error.code=REGISTER_NOT_HELD, llegó status=' . $statusAfterForce . ' ' . json_encode($bodyAfterForce);
         } else {
-            \Punto\Api\Services\RegisterLeaseService::close($registerLeaseIdA, 'forced', 'admin:verify-harness', 'forced');
-
-            // Misma consulta que offline-sync.php corre para decidir si puede
-            // marcar consumedAt (ver api/v1/offline-sync.php) — no se
-            // reimplementa acá, se reproduce literal para no divergir del
-            // código real si alguien la cambia sin actualizar el arnés.
-            $leaseRow = ncmExecute(
-                'SELECT nl."registerLeaseId", nl."voidedAt",
-                        rl."status" AS "registerLeaseStatus", rl."deviceId" AS "registerLeaseDeviceId"
-                   FROM "numbering_lease" nl
-                   LEFT JOIN "register_lease" rl ON rl."registerLeaseId" = nl."registerLeaseId"
-                  WHERE nl."invoiceNo" = ? AND nl."registerId" = ? AND nl."companyId" = ?
-                    AND nl."consumedAt" IS NULL AND nl."expiresAt" > NOW()
-                  LIMIT 1',
-                [$invoiceNo, $PY_REGISTER, $PY_COMPANY]
-            );
-            $hasLeaseRow = $leaseRow !== false && $leaseRow !== 0;
-            $voidedAt = $hasLeaseRow ? ($leaseRow['voidedAt'] ?? null) : null;
-            $tenancyStillValid = $hasLeaseRow
-                && ($voidedAt === null || $voidedAt === '')
-                && (string) ($leaseRow['registerLeaseStatus'] ?? '') === 'active'
-                && (string) ($leaseRow['registerLeaseDeviceId'] ?? '') === $deviceIdA;
-
-            if ($voidedAt === null || $voidedAt === '') {
-                $failures[] = "Caso 9: RegisterLeaseService::close('forced', ...) debía anular (voidedAt) el número {$invoiceNo} no consumido — quedó sin anular";
-            } elseif ($tenancyStillValid) {
-                $failures[] = "Caso 9: la misma consulta de tenencia que usa offline-sync.php debía marcar el número {$invoiceNo} como inválido tras la liberación forzada, y lo dejó pasar";
+            $txRow = ncmExecute('SELECT 1 FROM transaction WHERE uid = ?', [$saleUidAfterForce]);
+            $wasSaved = $txRow !== false && $txRow !== 0;
+            if ($wasSaved) {
+                $failures[] = 'Caso 9: la venta rechazada por REGISTER_NOT_HELD no debía guardarse, pero existe en transaction';
             } else {
-                echo "[verify_register_lease] OK caso 9 (F3): liberación forzada anula el número {$invoiceNo} no consumido, y offline-sync.php lo hubiera rechazado con LEASE_REVOKED en vez de dejarlo sincronizar bajo una tenencia ya cerrada\n";
+                echo "[verify_register_lease] OK caso 9: tras la liberación forzada de la tenencia de A, offline-sync.php rechaza su venta encolada con REGISTER_NOT_HELD (sin guardar) — 'una caja no tiene con quién chocar' sigue valiendo cuando la tenencia cambia de dueño\n";
             }
         }
     }

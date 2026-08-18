@@ -4,11 +4,13 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/bootstrap.php';
 
 use Punto\Api\Context\TenantContext;
+use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
 use Punto\Api\Sales\SaleInput;
 use Punto\Api\Sales\SaleService;
+use Punto\Api\Services\RegisterLeaseService;
 
 require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
 
@@ -35,66 +37,47 @@ if (!is_array($sales) || count($sales) === 0) {
 $results = [];
 
 foreach ($sales as $item) {
-    $tempId      = $item['clientTempId']     ?? '';
-    $no          = (int) ($item['leasedInvoiceNo'] ?? 0);
-    $salePayload = $item['sale']             ?? [];
+    $tempId      = $item['clientTempId'] ?? '';
+    $no          = (int) ($item['invoiceNo'] ?? 0);
+    $salePayload = $item['sale']          ?? [];
 
-    // Validate lease is active and unconsumed — mismo chequeo de siempre
-    // (TTL propio del bloque de 24h, D1 de context/37).
-    $leaseRow = ncmExecute(
-        'SELECT nl."leaseId", nl."registerLeaseId", nl."voidedAt",
-                rl."status" AS "registerLeaseStatus", rl."deviceId" AS "registerLeaseDeviceId"
-           FROM "numbering_lease" nl
-           LEFT JOIN "register_lease" rl ON rl."registerLeaseId" = nl."registerLeaseId"
-          WHERE nl."invoiceNo" = ? AND nl."registerId" = ? AND nl."companyId" = ?
-            AND nl."consumedAt" IS NULL AND nl."expiresAt" > NOW()
-          LIMIT 1',
-        [$no, $regId, $compId]
-    );
-
-    if ($leaseRow === false || $leaseRow === 0) {
+    if ($no < 1) {
+        // Cliente desactualizado (bundle viejo, antes de este cambio) o
+        // payload corrupto — sin invoiceNo no hay documento fiscal válido
+        // que guardar (mismo gate que sales.php, ver context/29 §5).
         $results[] = [
             'clientTempId' => $tempId,
             'ok'           => false,
             'error'        => [
-                'code'    => 'LEASE_EXPIRED',
-                'message' => 'Número de comprobante vencido o ya usado',
+                'code'    => 'INVALID_INPUT',
+                'message' => 'Falta el número de comprobante',
             ],
         ];
         continue;
     }
 
-    // F3 (context/29 §5.4) — exclusividad de caja atada al dispositivo. El
-    // número existe y no venció por su propio TTL, pero la TENENCIA de caja
-    // bajo la que se arrendó tiene que seguir activa y ser del MISMO
-    // dispositivo que está sincronizando. Si la caja se liberó/venció/forzó
-    // mientras este device estaba offline, `RegisterLeaseService::close()`
-    // (F2) ya anuló este número en la transición (`voidedAt`/`voidReason`) —
-    // el device no tenía forma de enterarse hasta este momento porque no
-    // tenía red. §53: el backend no rechaza una venta ya EMITIDA por reglas
-    // de negocio del POS, pero numeración exclusiva es ESTADO COMPARTIDO
-    // (§53, distinción explícita) — acá sí corresponde bloquear, por venta,
-    // sin tumbar el resto del lote.
-    //
-    // registerLeaseId NULL (fila legacy sin tenencia asignada — de antes de
-    // F2, o del breve gap entre el deploy de F0/F1 y el de F2) se trata igual
-    // que "sin tenencia válida": no hay forma de confirmar de quién es ese
-    // número, mismo criterio fail-closed que F1 usó para no inventar un
-    // tenedor (context/29 §6 punto 2).
-    $registerLeaseId = $leaseRow['registerLeaseId'] ?? null;
-    $voidedAt        = $leaseRow['voidedAt'] ?? null;
-    $tenancyValid = $registerLeaseId !== null && $registerLeaseId !== ''
-        && ($voidedAt === null || $voidedAt === '')
-        && (string) ($leaseRow['registerLeaseStatus'] ?? '') === 'active'
-        && (string) ($leaseRow['registerLeaseDeviceId'] ?? '') === $deviceId;
-
-    if (!$tenancyValid) {
+    // Exclusividad de caja (context/29 §4) — el device tiene que SEGUIR
+    // siendo el tenedor de la caja para que el número que emitió offline sea
+    // legítimo. Si la caja se liberó, la tomó otro dispositivo, o se forzó
+    // mientras este estaba offline, sincronizar esta venta arriesgaría
+    // duplicar un correlativo que el tenedor real ya haya emitido — mismo
+    // chequeo que el camino online (`sales.php`) ya aplica antes de guardar,
+    // ahora contra `register_lease` DIRECTO (ya no contra `numbering_lease`
+    // — el arriendo de números que ataba cada bloque a una tenencia fue
+    // RECHAZADO por el owner 2026-08-17, ver docblock de
+    // `RegisterLeaseService`). §53: el backend no rechaza una venta ya
+    // EMITIDA por reglas de negocio del POS, pero la exclusividad de caja es
+    // ESTADO COMPARTIDO (distinción explícita de §53) — acá sí corresponde
+    // bloquear, por venta, sin tumbar el resto del lote.
+    $conflict = RegisterLeaseService::holderConflict($regId, $compId, $deviceId);
+    if ($conflict !== null) {
         $results[] = [
             'clientTempId' => $tempId,
             'ok'           => false,
             'error'        => [
-                'code'    => 'LEASE_REVOKED',
-                'message' => 'La caja fue liberada, tomada por otro dispositivo, o venció mientras esta venta esperaba conexión. El número de comprobante quedó anulado.',
+                'code'    => 'REGISTER_NOT_HELD',
+                'message' => 'La caja fue liberada, tomada por otro dispositivo, o cerrada mientras esta venta esperaba conexión.',
+                'details' => $conflict,
             ],
         ];
         continue;
@@ -160,10 +143,15 @@ foreach ($sales as $item) {
         continue;
     }
 
-    // Mark lease as consumed
-    ncmExecute(
-        'UPDATE "numbering_lease" SET "consumedAt" = NOW() WHERE "invoiceNo" = ? AND "registerId" = ? AND "companyId" = ?',
-        [$no, $regId, $compId]
+    // Mantener document_sequence consistente con el número que el device ya
+    // emitió offline — mismo criterio que sales.php en el camino online (ver
+    // docblock de DocumentNumber::advanceTo()).
+    DocumentNumber::advanceTo(
+        'factura',
+        DocumentNumber::SCOPE_REGISTER,
+        $regId,
+        $compId,
+        $no,
     );
 
     $results[] = [

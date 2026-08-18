@@ -3,104 +3,63 @@ declare(strict_types=1);
 
 namespace Punto\Api\Services;
 
-use Punto\Api\Support\TenantClock;
-
 /**
- * Tenencia de caja (context/29-numeracion-y-exclusividad-de-caja.md, F2/F3).
+ * Tenencia de caja (context/29-numeracion-y-exclusividad-de-caja.md §4).
  *
- * `register_lease` (mig 141) es la unidad de TENENCIA — separada de
- * `numbering_lease`, que sigue siendo "un número, una fila". El constraint
- * `UNIQUE ("registerId") WHERE status = 'active'` es la garantía real de
- * "una caja, un tenedor a la vez" (a nivel de BD, no de aplicación); este
- * servicio concentra las dos operaciones que la máquina de estados del plan
- * (§4) necesita alrededor de ese constraint:
+ * `register_lease` (mig 141) es la unidad de TENENCIA: garantiza "una caja,
+ * un dispositivo a la vez" con `UNIQUE ("registerId") WHERE status =
+ * 'active'` a nivel de BD, no de aplicación. Es INDEPENDIENTE de la
+ * numeración fiscal — el arriendo de bloques de números (`numbering_lease`)
+ * que antes vivía pegado a esta tenencia fue RECHAZADO por el owner
+ * 2026-08-17 (§6 del doc: la unicidad del punto de expedición ya resuelve
+ * solo el problema que el arriendo intentaba resolver). Este servicio ya NO
+ * sabe nada de números — solo de quién tiene la caja tomada.
  *
- *   - expiresAt(): cuándo vence una tenencia NUEVA que se está por crear.
- *   - close():     la transición TOMADA → {expired|released|forced} → LIBRE,
- *                  que además anula (§6.1) los números no consumidos
- *                  emitidos bajo esa tenencia.
+ * Este servicio concentra las operaciones que la máquina de estados del §4
+ * necesita alrededor del constraint:
  *
- * Todo método asume que el caller ya está DENTRO de la transacción +
- * `pg_advisory_xact_lock(hashtext(registerId))` que serializa el acceso a
- * una caja (mismo lock que `api/v1/numbering/lease.php` ya usaba antes de
- * F2, ahora ampliado para cubrir también la lectura/escritura de
- * `register_lease`). Este servicio NO abre transacciones ni toma locks —
- * eso es responsabilidad del caller, porque "chequear tenencia → decidir"
- * tiene que ser atómico con lo que el caller haga a continuación (servir un
- * bloque, crear uno nuevo, rechazar con 409).
+ *   - holderConflict(): quién tiene la caja tomada AHORA, si no es
+ *     `$deviceId` — usado tanto para decidir si un claim nuevo entra, como
+ *     para que `sales.php`/`offline-sync.php` rechacen una venta de un
+ *     device que ya no es el tenedor real.
+ *   - close():          la transición TOMADA → {released|forced} → LIBRE.
  *
- * close() hoy tiene UN caller real: `lease.php`, que la usa para detectar
- * (lazily, al pedir la caja) que la tenencia activa ya venció (status
- * transition VENCIMIENTO del §4) y liberarla antes de dejar entrar a un
- * nuevo tenedor. Los otros dos motivos de cierre del §4 — liberación normal
- * del propio dispositivo y liberación forzada desde el panel (F4, "liberar
- * caja") — reusan la MISMA función con otro `$status`/`$releasedBy`/
- * `$voidReason` en cuanto exista un endpoint que la llame; F4 no es alcance
- * de esta tarea, así que `close('released', ...)` y `close('forced', ...)`
- * quedan implementados y sin caller todavía.
+ * `close()` sigue anulando (§6.1) los números `numbering_lease` no
+ * consumidos que hayan quedado atados a esa tenencia — relevante solo para
+ * filas HISTÓRICAS (de antes de este cambio, `registerLeaseId` seteado);
+ * ya no hay escritores nuevos de `numbering_lease`, así que en tenencias
+ * creadas después de este cambio ese UPDATE es un no-op esperado.
+ *
+ * Todo método que toca `register_lease` asume que el caller ya está DENTRO
+ * de la transacción + `pg_advisory_xact_lock(hashtext(registerId))` que
+ * serializa el acceso a una caja (`api/v1/register/claim.php`). Este
+ * servicio NO abre transacciones ni toma locks — eso es responsabilidad del
+ * caller, porque "chequear tenencia → decidir" tiene que ser atómico con lo
+ * que el caller haga a continuación (tomar la caja, rechazar con 409).
+ *
+ * La tenencia YA NO vence por fecha/TTL (context/29 §4, corrección del
+ * 2026-08-17 — antes vencía a fin de la fecha del outlet para que un bloque
+ * de números no sobreviviera a un cambio de día; sin bloques, no aplica).
+ * Se libera SOLO al cerrar la caja o por revocación explícita de admin
+ * (panel, "Liberar caja", F4 — no implementado todavía, `close('forced',
+ * ...)` queda listo y sin caller hasta que exista ese endpoint).
  */
 final class RegisterLeaseService
 {
     /**
-     * `expiresAt` de una tenencia NUEVA de caja: fin de la fecha del outlet
-     * en su timezone (context/29 §4.1), acotado por el vencimiento del
-     * timbrado si hay uno cargado (§4.2 regla 1: `min(fin de fecha,
-     * vencimiento del timbrado)`).
+     * Cierra una tenencia activa: TOMADA → {released|forced} → LIBRE (§4 del
+     * plan), y anula (§6.1) los números `numbering_lease` HISTÓRICOS que
+     * hayan quedado atados a ella sin consumir (ver docblock de clase — ya
+     * no hay escritores nuevos de esa tabla, así que en tenencias creadas
+     * después de este cambio ese segundo UPDATE afecta 0 filas). Es un
+     * no-op silencioso si `$registerLeaseId` ya no está `active` (dos
+     * callers concurrentes cerrando la misma tenencia no chocan, el segundo
+     * UPDATE simplemente afecta 0 filas).
      *
-     * Punto no modela timezone POR OUTLET — la única fuente real es
-     * `company.config->>'settingTimeZone'` (`TenantClock`, un valor por
-     * tenant). El plan habla de "fecha del outlet"; en el código de hoy eso
-     * es la fecha del TENANT, porque no existe una columna de timezone por
-     * sucursal. Un comercio con sucursales en husos horarios distintos no
-     * está modelado — usar la TZ del tenant es la mejor aproximación
-     * disponible sin inventar una columna nueva fuera de este alcance.
-     *
-     * ⚠ El chequeo de timbrado vencido (`RegisterService::invoiceAuthError()`)
-     * ya cortó ANTES de llegar acá si el timbrado está vencido — este método
-     * no repite ese corte, solo topea `expiresAt` si hay una fecha de
-     * vencimiento FUTURA cargada. Verificado 2026-07-28: ningún register de
-     * producción tiene timbrado cargado hoy (`registerInvoiceAuth`/
-     * `registerInvoiceAuthExpiration` vacíos), así que en la práctica esto
-     * hoy siempre devuelve el fin de fecha del tenant sin recorte.
-     */
-    public static function expiresAt(string $companyId, string $registerId): string
-    {
-        $tz        = new \DateTimeZone(TenantClock::timezone($companyId));
-        $now       = new \DateTimeImmutable('now', $tz);
-        $endOfDate = $now->setTime(23, 59, 59);
-
-        // `data` es JSONB (mig 26) — Query::flattenJsonb la aplana y expone
-        // sus claves a nivel de fila (mismo patrón que RegisterService::invoiceAuthError()).
-        $row = ncmExecute(
-            'SELECT data FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
-            [$registerId, $companyId]
-        );
-        $authExpiration = trim((string) ($row['registerInvoiceAuthExpiration'] ?? ''));
-
-        if ($authExpiration !== '') {
-            try {
-                $authEndOfDate = new \DateTimeImmutable($authExpiration . ' 23:59:59', $tz);
-                if ($authEndOfDate < $endOfDate) {
-                    $endOfDate = $authEndOfDate;
-                }
-            } catch (\Throwable) {
-                // Fecha de timbrado no parseable — no bloquear la toma de caja por un
-                // dato corrupto, usar el fin de fecha normal.
-            }
-        }
-
-        // ISO-8601 con offset explícito: la columna es TIMESTAMPTZ, y un string
-        // naive dependería de la timezone de la SESIÓN de PG (no necesariamente
-        // la del tenant) para interpretarse correctamente.
-        return $endOfDate->format(\DateTimeInterface::ATOM);
-    }
-
-    /**
-     * Cierra una tenencia activa: TOMADA → {expired|released|forced} → LIBRE
-     * (§4 del plan), y anula (§6.1) los números arrendados bajo ella que
-     * todavía no se consumieron. Es un no-op silencioso si `$registerLeaseId`
-     * ya no está `active` (dos callers concurrentes cerrando la misma
-     * tenencia no chocan, el segundo UPDATE simplemente afecta 0 filas).
+     * `status`/`voidReason` siguen aceptando `'expired'` porque el CHECK de
+     * `register_lease`/`numbering_lease` (mig 141) todavía lo permite —
+     * valor histórico, ya no lo produce ningún caller desde que la tenencia
+     * dejó de vencer por fecha (context/29 §4, 2026-08-17).
      *
      * Números YA anulados (`voidedAt IS NOT NULL`, ej. por un cierre previo
      * que corrió a medias) no se re-anulan — `voidedAt`/`voidReason` quedan
@@ -135,70 +94,48 @@ final class RegisterLeaseService
     }
 
     /**
-     * Valida que un `invoiceNo` arrendado siga con tenencia válida para
-     * `$deviceId` — mismo criterio que `api/v1/offline-sync.php` ya aplica
-     * por venta al sincronizar (F3, context/29 §5.4), factorizado acá porque
-     * `api/v1/sales.php` (camino ONLINE, F3 aplicado a ese camino) necesita
-     * el MISMO chequeo antes de guardar la venta, no solo al sincronizar: un
-     * número consumido online que nadie valida contra la tenencia real deja
-     * la misma ventana de duplicado que el P0 de este plan cerraba para
-     * offline. No se reimplementa inline en cada endpoint para no divergir
-     * de a poco — un cambio al criterio (ej. tolerancia de reloj) se hace acá
-     * una sola vez.
+     * Chequea si `$deviceId` es el tenedor ACTUAL de `$registerId` — el
+     * único chequeo de tenencia que sobrevive a la eliminación del arriendo
+     * de números (context/29 §6, RECHAZADO 2026-08-17). Reemplaza a la
+     * antigua `validateInvoiceNoTenancy()`, que validaba un `invoiceNo`
+     * contra `numbering_lease`; ahora que el número lo decide el device
+     * (`último correlativo de mi caja + 1`, sin reserva previa), lo único
+     * que puede duplicar un comprobante es que DOS dispositivos operen la
+     * misma caja a la vez — y eso ya lo previene `register_lease` solo.
      *
-     * Devuelve `null` si la tenencia es válida (el caller puede guardar la
-     * venta y marcar `consumedAt`). Si NO es válida, devuelve el detalle del
-     * tenedor REAL de la caja ahora mismo (mismo shape `{holderDeviceId,
-     * holderDeviceName, expiresAt}` que `lease.php` ya usa en su 409) para
-     * que el caller arme el mismo `apiConflict()` informativo — puede no
-     * haber tenedor (caja libre, nadie la retomó todavía).
+     * Tres callers:
+     *   - `api/v1/register/claim.php`: ¿puede este device tomar la caja?
+     *   - `api/v1/sales.php` (camino online): ¿sigue siendo el tenedor antes
+     *     de guardar la venta?
+     *   - `api/v1/offline-sync.php` (por venta encolada): ¿seguía siendo el
+     *     tenedor real, o la caja se liberó/la tomó otro device mientras
+     *     este estaba offline? Si no, la venta encolada se rechaza —
+     *     aceptarla arriesgaría un correlativo que el tenedor real ya haya
+     *     emitido con otro número.
+     *
+     * Devuelve `null` si `$deviceId` es el tenedor válido. Si NO, devuelve
+     * el detalle del tenedor REAL ahora mismo (`{holderDeviceId,
+     * holderDeviceName, expiresAt}` — `expiresAt` siempre `null` desde que
+     * la tenencia dejó de vencer por fecha, se mantiene en el shape por
+     * compatibilidad con el 409 que el POS ya sabe leer) — puede no haber
+     * tenedor (`holderDeviceId: null`, caja libre).
      *
      * @return array{holderDeviceId:?string,holderDeviceName:?string,expiresAt:?string}|null
      */
-    public static function validateInvoiceNoTenancy(
-        int $invoiceNo,
+    public static function holderConflict(
         string $registerId,
         string $companyId,
         string $deviceId,
     ): ?array {
-        // Mismo WHERE que offline-sync.php: el número existe, no venció por
-        // su propio TTL (24h del bloque), y no fue consumido todavía.
-        $leaseRow = ncmExecute(
-            'SELECT nl."registerLeaseId", nl."voidedAt",
-                    rl."status" AS "registerLeaseStatus", rl."deviceId" AS "registerLeaseDeviceId"
-               FROM "numbering_lease" nl
-               LEFT JOIN "register_lease" rl ON rl."registerLeaseId" = nl."registerLeaseId"
-              WHERE nl."invoiceNo" = ? AND nl."registerId" = ? AND nl."companyId" = ?
-                AND nl."consumedAt" IS NULL AND nl."expiresAt" > NOW()
-              LIMIT 1',
-            [$invoiceNo, $registerId, $companyId]
-        );
-
-        $tenancyValid = false;
-        if ($leaseRow !== false && $leaseRow !== 0) {
-            $registerLeaseId = $leaseRow['registerLeaseId'] ?? null;
-            $voidedAt        = $leaseRow['voidedAt'] ?? null;
-            // registerLeaseId NULL (fila legacy sin tenencia asignada) se
-            // trata igual que "sin tenencia válida" — mismo criterio
-            // fail-closed que offline-sync.php usa (no inventar un tenedor).
-            $tenancyValid = $registerLeaseId !== null && $registerLeaseId !== ''
-                && ($voidedAt === null || $voidedAt === '')
-                && (string) ($leaseRow['registerLeaseStatus'] ?? '') === 'active'
-                && (string) ($leaseRow['registerLeaseDeviceId'] ?? '') === $deviceId;
-        }
-
-        if ($tenancyValid) {
-            return null;
-        }
-
-        // No es válida — buscar quién tiene la caja tomada AHORA (puede ser
-        // otro dispositivo, puede ser nadie) para devolver el mismo detail
-        // informativo que `lease.php` ya arma en su propio 409.
         $activeLease = ncmExecute(
-            'SELECT "deviceId", "expiresAt" FROM "register_lease"
+            'SELECT "deviceId" FROM "register_lease"
               WHERE "registerId" = ? AND "status" = \'active\' LIMIT 1',
             [$registerId]
         );
+
+        if ($activeLease !== false && $activeLease !== 0 && (string) $activeLease['deviceId'] === $deviceId) {
+            return null;
+        }
 
         if ($activeLease === false || $activeLease === 0) {
             return ['holderDeviceId' => null, 'holderDeviceName' => null, 'expiresAt' => null];
@@ -214,7 +151,7 @@ final class RegisterLeaseService
         return [
             'holderDeviceId'   => $holderDeviceId,
             'holderDeviceName' => $holderHasRow ? (string) ($holderRow['deviceName'] ?? '') : '',
-            'expiresAt'        => (string) $activeLease['expiresAt'],
+            'expiresAt'        => null,
         ];
     }
 }
