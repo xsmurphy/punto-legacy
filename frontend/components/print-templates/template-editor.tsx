@@ -113,8 +113,18 @@ export function TemplateEditor({ existing }: Props) {
     existing?.docType ?? "invoice",
   )
   const [config, setConfig] = React.useState<PrintTemplateConfig>(initialConfig)
-  const [selectedIdx, setSelectedIdx] = React.useState<number | null>(null)
+  // Selección múltiple (marquee, Shift/Cmd+click) — reemplaza el índice único
+  // que tenía el editor antes. Un solo bloque seleccionado sigue siendo el
+  // caso común (array de largo 1); ver `selectedSet`/`selectedBlocks` abajo
+  // y `handleBlockMouseDown`/`handlePaperMouseDown` para cómo se puebla.
+  const [selectedIndices, setSelectedIndices] = React.useState<number[]>([])
   const [previewOpen, setPreviewOpen] = React.useState(false)
+
+  const selectedSet = React.useMemo(() => new Set(selectedIndices), [selectedIndices])
+  const selectedBlocks = React.useMemo(
+    () => selectedIndices.map((i) => config.data[i]).filter((b): b is PrintBlock => b !== undefined),
+    [selectedIndices, config.data],
+  )
 
   // Guides al arrastrar/redimensionar — top/mid/bottom + left/midX/right del bloque
   // siendo movido, atravesando todo el canvas para alinearlo visualmente con otros.
@@ -124,6 +134,32 @@ export function TemplateEditor({ existing }: Props) {
     width: number
     height: number
   } | null>(null)
+
+  // Rectángulo de selección por arrastre (marquee) — coordenadas en px
+  // LOCALES al papel (no a la pantalla), ver `handlePaperMouseDown`.
+  const [marquee, setMarquee] = React.useState<{
+    x0: number
+    y0: number
+    x1: number
+    y1: number
+  } | null>(null)
+  const paperRef = React.useRef<HTMLDivElement>(null)
+
+  // El marquee y el "click vs. drag de grupo" (handleBlockMouseDown más
+  // abajo) enganchan listeners de `window` de forma imperativa en el
+  // mousedown, fuera del ciclo de vida normal de React — si el componente
+  // se desmonta a mitad de un drag (navegación, remount por cambio de
+  // `existing`) esos listeners quedan colgados referenciando closures de un
+  // componente muerto. Este registro + el useEffect de abajo garantizan que
+  // se limpien igual al desmontar.
+  const activeListenersRef = React.useRef<Set<() => void>>(new Set())
+  React.useEffect(() => {
+    const active = activeListenersRef.current
+    return () => {
+      active.forEach((cleanup) => cleanup())
+      active.clear()
+    }
+  }, [])
 
   // Sentinel para medir 1mm → px en el browser actual.
   const mmRef = React.useRef<HTMLDivElement>(null)
@@ -157,7 +193,7 @@ export function TemplateEditor({ existing }: Props) {
       block.width = Math.round(widthPx)
     }
     setBlocks((prev) => [...prev, block])
-    setSelectedIdx(config.data.length) // index del nuevo
+    setSelectedIndices([config.data.length]) // index del nuevo
   }
 
   const updateBlock = (idx: number, patch: Partial<PrintBlock>) => {
@@ -166,28 +202,161 @@ export function TemplateEditor({ existing }: Props) {
 
   const deleteBlock = (idx: number) => {
     setBlocks((prev) => prev.filter((_, i) => i !== idx))
-    setSelectedIdx(null)
+    setSelectedIndices([])
   }
 
-  // Supr / Backspace borra el bloque seleccionado. La toolbar flotante sigue
-  // siendo el camino visible, pero el teclado es el reflejo de cualquier editor
-  // de layout y no depende de que ese chrome se vea (que es justo lo que falló:
-  // el `overflow: hidden` del bloque lo recortaba, ver canvas-block.tsx).
+  const deleteSelected = () => {
+    if (selectedIndices.length === 0) return
+    const toDelete = new Set(selectedIndices)
+    setBlocks((prev) => prev.filter((_, i) => !toDelete.has(i)))
+    setSelectedIndices([])
+  }
+
+  // Delta (no posición absoluta) aplicado a TODOS los bloques del grupo
+  // seleccionado — mantiene las posiciones relativas entre ellos. `anchorIdx`
+  // es el bloque que el usuario efectivamente arrastró con el mouse (el
+  // único que react-rnd mueve de verdad, ver canvas-block.tsx); si no forma
+  // parte de una selección múltiple, el "grupo" es él solo — mismo
+  // comportamiento que un drag suelto de siempre. Clampea cada bloque a los
+  // bordes del papel individualmente (igual que react-rnd hace con
+  // `bounds="parent"` para un bloque solo) — si el grupo se arrastra hasta
+  // el borde, el bloque que llega primero se frena ahí mientras el resto
+  // sigue el delta pedido; no es la física de un rectángulo rígido, pero
+  // evita que un bloque del grupo termine con coordenadas negativas o fuera
+  // de la hoja.
+  const moveBlocksBy = (anchorIdx: number, dx: number, dy: number) => {
+    const group =
+      selectedIndices.includes(anchorIdx) && selectedIndices.length > 1 ? selectedIndices : [anchorIdx]
+    const groupSet = new Set(group)
+    setBlocks((prev) =>
+      prev.map((b, i) => {
+        if (!groupSet.has(i)) return b
+        const maxLeft = Math.max(0, widthPx - b.width)
+        const maxTop = Math.max(0, heightPx - b.height)
+        return {
+          ...b,
+          left: Math.min(Math.max(0, b.left + dx), maxLeft),
+          top: Math.min(Math.max(0, b.top + dy), maxTop),
+        }
+      }),
+    )
+  }
+
+  // Mousedown sobre un bloque — decide qué hace la selección ANTES de que
+  // react-rnd arranque su propio drag (mismo onMouseDown que ya dispara la
+  // selección de siempre, extendido acá en vez de en paralelo):
+  //  - Shift/Cmd: suma o resta este bloque de la selección, al toque.
+  //  - Click simple sobre un bloque que YA es parte de un grupo (>1): no
+  //    colapsa la selección todavía — si lo que sigue es un drag, tiene que
+  //    mover TODO el grupo (comportamiento Finder/Explorer: arrastrar un
+  //    ítem de una selección múltiple mueve la selección entera). Si en vez
+  //    de arrastrar el mouse sube sin moverse (un click de verdad), recién
+  //    ahí colapsa a este bloque solo.
+  //  - Cualquier otro caso: selección directa de este bloque nomás.
+  const handleBlockMouseDown = (idx: number, e: MouseEvent) => {
+    const toggle = e.shiftKey || e.metaKey || e.ctrlKey
+    if (toggle) {
+      setSelectedIndices((prev) =>
+        prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx],
+      )
+      return
+    }
+    const alreadyInGroup = selectedIndices.length > 1 && selectedIndices.includes(idx)
+    if (alreadyInGroup) {
+      const startX = e.clientX
+      const startY = e.clientY
+      const onUp = (ev: MouseEvent) => {
+        cleanup()
+        const moved = Math.hypot(ev.clientX - startX, ev.clientY - startY) > 3
+        if (!moved) setSelectedIndices([idx])
+      }
+      const cleanup = () => {
+        window.removeEventListener("mouseup", onUp)
+        activeListenersRef.current.delete(cleanup)
+      }
+      window.addEventListener("mouseup", onUp)
+      activeListenersRef.current.add(cleanup)
+      return
+    }
+    setSelectedIndices([idx])
+  }
+
+  // Mousedown sobre el área vacía del papel — solo llega acá cuando el
+  // origen del drag NO fue un bloque (CanvasBlock hace stopPropagation en su
+  // propio onMouseDown, ver canvas-block.tsx), así que esto es justo
+  // "arrastre desde vacío = marquee, arrastre desde un bloque = mover ese
+  // bloque". Un click sin arrastre (mousedown+mouseup sin moverse) limpia la
+  // selección, igual que antes.
+  const handlePaperMouseDown = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (e.button !== 0) return
+    const rect = paperRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const startX = e.clientX - rect.left
+    const startY = e.clientY - rect.top
+    const additive = e.shiftKey || e.metaKey || e.ctrlKey
+    const baseline = additive ? selectedIndices : []
+    let moved = false
+    if (!additive) setSelectedIndices([])
+    setGuides(null)
+
+    const onMove = (ev: MouseEvent) => {
+      const r = paperRef.current?.getBoundingClientRect()
+      if (!r) return
+      const x = ev.clientX - r.left
+      const y = ev.clientY - r.top
+      if (!moved && Math.hypot(x - startX, y - startY) < 4) return
+      moved = true
+      const x0 = Math.min(startX, x)
+      const x1 = Math.max(startX, x)
+      const y0 = Math.min(startY, y)
+      const y1 = Math.max(startY, y)
+      setMarquee({ x0, y0, x1, y1 })
+      const hits: number[] = []
+      config.data.forEach((b, i) => {
+        const intersects = b.left < x1 && b.left + b.width > x0 && b.top < y1 && b.top + b.height > y0
+        if (intersects) hits.push(i)
+      })
+      setSelectedIndices(additive ? Array.from(new Set([...baseline, ...hits])) : hits)
+    }
+    const onUp = () => {
+      cleanup()
+      setMarquee(null)
+    }
+    const cleanup = () => {
+      window.removeEventListener("mousemove", onMove)
+      window.removeEventListener("mouseup", onUp)
+      activeListenersRef.current.delete(cleanup)
+    }
+    window.addEventListener("mousemove", onMove)
+    window.addEventListener("mouseup", onUp)
+    activeListenersRef.current.add(cleanup)
+  }
+
+  // Supr/Backspace borra la selección (uno o varios). Escape la limpia. La
+  // toolbar flotante y el click en vacío siguen siendo el camino visible,
+  // pero el teclado es el reflejo de cualquier editor de layout y no
+  // depende de que ese chrome se vea (ver bug 2026-07-30 documentado en
+  // canvas-block.tsx: el overflow:hidden lo recortaba).
   React.useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== "Delete" && e.key !== "Backspace") return
-      if (selectedIdx === null) return
       // No robar la tecla mientras se escribe en el inspector.
       const el = e.target as HTMLElement | null
       const tag = el?.tagName
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el?.isContentEditable) return
+      if (e.key === "Escape") {
+        setSelectedIndices([])
+        return
+      }
+      if (e.key !== "Delete" && e.key !== "Backspace") return
+      if (selectedIndices.length === 0) return
       e.preventDefault()
-      deleteBlock(selectedIdx)
+      deleteSelected()
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIdx])
+  }, [selectedIndices])
 
   const cloneBlock = (idx: number) => {
     setBlocks((prev) => {
@@ -204,7 +373,7 @@ export function TemplateEditor({ existing }: Props) {
       page_size: next,
       page_size_name: `Formato: ${PAPER_DIMENSIONS[next].label}`,
     }))
-    setSelectedIdx(null)
+    setSelectedIndices([])
   }
 
   // ── Save ───────────────────────────────────────────────────────────────────
@@ -256,7 +425,6 @@ export function TemplateEditor({ existing }: Props) {
   }
 
   const saving = create.isPending || update.isPending
-  const selected = selectedIdx !== null ? config.data[selectedIdx] ?? null : null
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
@@ -388,11 +556,12 @@ export function TemplateEditor({ existing }: Props) {
         <main
           className="relative flex-1 overflow-auto bg-muted/40 p-8 dark:bg-zinc-900"
           onMouseDown={() => {
-            setSelectedIdx(null)
+            setSelectedIndices([])
             setGuides(null)
           }}
         >
           <div
+            ref={paperRef}
             // Borde del papel: dashed zinc (visible en cualquier modo sobre
             // fondo blanco del papel). Antes era border-primary/50 que en
             // dark mode con primary brand verde se mezclaba.
@@ -404,38 +573,39 @@ export function TemplateEditor({ existing }: Props) {
               fontSize: config.page_font_size,
               textTransform: config.page_font_case,
             }}
-            onMouseDown={(e) => {
-              e.stopPropagation()
-              setSelectedIdx(null)
-              setGuides(null)
-            }}
+            onMouseDown={handlePaperMouseDown}
           >
             {config.data.map((b, i) => (
               <CanvasBlock
                 key={i}
                 index={i}
                 block={b}
-                selected={selectedIdx === i}
+                selected={selectedSet.has(i)}
+                showToolbar={selectedIndices.length === 1 && selectedIndices[0] === i}
                 paperSize={config.page_size}
                 mm={mm}
                 data={demoData}
-                onSelect={() => setSelectedIdx(i)}
+                taxes={taxesQuery.data?.taxes}
+                onSelect={(e) => handleBlockMouseDown(i, e)}
                 onChange={(patch) => updateBlock(i, patch)}
+                onMoveBy={(dx, dy) => moveBlocksBy(i, dx, dy)}
                 onDelete={() => deleteBlock(i)}
                 onClone={() => cloneBlock(i)}
                 onDragGuides={setGuides}
               />
             ))}
             {guides && <DragGuides guides={guides} />}
+            {marquee && <MarqueeBox marquee={marquee} />}
           </div>
         </main>
 
         {/* Inspector */}
         <aside className="w-[260px] shrink-0 border-l bg-background">
           <BlockInspector
-            block={selected}
+            blocks={selectedBlocks}
             onChange={(patch) => {
-              if (selectedIdx !== null) updateBlock(selectedIdx, patch)
+              if (selectedIndices.length === 0) return
+              setBlocks((prev) => prev.map((b, i) => (selectedSet.has(i) ? { ...b, ...patch } : b)))
             }}
           />
         </aside>
@@ -466,6 +636,28 @@ function DragGuides({ guides }: { guides: { top: number; left: number; width: nu
       <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-zinc-500" style={{ left: `${left + width / 2}px` }} />
       <div className="pointer-events-none absolute top-0 bottom-0 border-l border-dashed border-zinc-700" style={{ left: `${left + width}px` }} />
     </>
+  )
+}
+
+/**
+ * Rectángulo de selección por arrastre (marquee) — se dibuja mientras el
+ * usuario arrastra desde un punto vacío del canvas (handlePaperMouseDown).
+ * `pointer-events-none` porque la selección se calcula por intersección de
+ * coordenadas en el `mousemove` del listener en window, no por hit-testing
+ * del propio rectángulo.
+ */
+function MarqueeBox({ marquee }: { marquee: { x0: number; y0: number; x1: number; y1: number } }) {
+  const { x0, y0, x1, y1 } = marquee
+  return (
+    <div
+      className="pointer-events-none absolute z-40 border border-primary bg-primary/10"
+      style={{
+        left: `${x0}px`,
+        top: `${y0}px`,
+        width: `${x1 - x0}px`,
+        height: `${y1 - y0}px`,
+      }}
+    />
   )
 }
 

@@ -15,16 +15,25 @@ import { FONT_FAMILIES, FONT_SIZES } from "@/lib/print-template-palette"
 import type { PrintBlock } from "@/lib/types/print-template"
 
 interface Props {
-  block: PrintBlock | null
+  /** Bloques seleccionados en el canvas — 0 (sin selección), 1 (edición
+   *  completa de un bloque) o varios (edición en conjunto de las
+   *  propiedades de formato compartidas, ver MultiBlockInspector). */
+  blocks: PrintBlock[]
+  /** Con 1 bloque seleccionado, el patch se aplica a ESE bloque. Con varios,
+   *  el mismo patch se aplica a TODOS por igual (template-editor.tsx decide
+   *  el fan-out según la selección — acá no importa cuántos hay). */
   onChange: (patch: Partial<PrintBlock>) => void
 }
 
 /**
- * Panel derecho — inspector del bloque seleccionado. Sus inputs reflejan y
- * editan posición, tamaño y formato. Mientras no haya selección, muestra hint.
+ * Panel derecho — inspector del/los bloque(s) seleccionado(s). Con selección
+ * múltiple delega en `MultiBlockInspector` (edición en conjunto de
+ * alineación/tamaño/tipografía/negrita/wrap — no de posición/tamaño en px,
+ * que se edita moviendo el grupo en el canvas). Mientras no haya selección,
+ * muestra hint.
  */
-export function BlockInspector({ block, onChange }: Props) {
-  if (!block) {
+export function BlockInspector({ blocks, onChange }: Props) {
+  if (blocks.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center px-4 text-center text-xs text-muted-foreground">
         <p>Elegí un bloque del canvas para editarlo.</p>
@@ -33,6 +42,11 @@ export function BlockInspector({ block, onChange }: Props) {
     )
   }
 
+  if (blocks.length > 1) {
+    return <MultiBlockInspector blocks={blocks} onChange={onChange} />
+  }
+
+  const block = blocks[0]
   const editable = block.type === "custom"
 
   return (
@@ -147,6 +161,146 @@ export function BlockInspector({ block, onChange }: Props) {
         >
           <SelectTrigger>
             <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="cut">Cortar (1 línea)</SelectItem>
+            <SelectItem value="wrap">Envolver (multilínea)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Valor común a TODOS los bloques para un campo dado, o `undefined` si
+ * difieren — mismo patrón que cualquier editor de diseño con selección
+ * múltiple (Figma, Illustrator): un campo mixto se muestra vacío en vez de
+ * asumir el valor del primero.
+ */
+function commonValue<K extends keyof PrintBlock>(blocks: PrintBlock[], key: K): PrintBlock[K] | undefined {
+  const first = blocks[0][key]
+  return blocks.every((b) => b[key] === first) ? first : undefined
+}
+
+/**
+ * Edición en conjunto para 2+ bloques seleccionados. Solo expone las
+ * propiedades de FORMATO que tienen sentido aplicadas por igual a varios
+ * bloques a la vez (tamaño/tipografía/alineación/negrita/wrap — el mismo
+ * set que ya existía en la toolbar flotante de un bloque suelto,
+ * canvas-block.tsx). Deliberadamente NO incluye:
+ *  - Posición/tamaño en px: mover el grupo ya se hace arrastrándolo en el
+ *    canvas (mantiene posiciones relativas, ver moveBlocksBy en
+ *    template-editor.tsx); un campo numérico que fije la MISMA posición
+ *    absoluta a todos los seleccionados los apilaría uno sobre el otro.
+ *  - Texto: es específico de cada bloque (metadato para bloques por-tasa,
+ *    contenido libre solo en `custom`) — no hay una operación "en conjunto"
+ *    predecible ahí.
+ * Un campo con valores distintos entre los bloques seleccionados se muestra
+ * vacío ("Mixto"); elegir un valor lo aplica a TODOS por igual — la
+ * resolución predecible que pide el brief para "una propiedad que no aplica
+ * a todos".
+ */
+function MultiBlockInspector({
+  blocks,
+  onChange,
+}: {
+  blocks: PrintBlock[]
+  onChange: (patch: Partial<PrintBlock>) => void
+}) {
+  const size = commonValue(blocks, "size")
+  const family = commonValue(blocks, "family")
+  const align = commonValue(blocks, "align")
+  const bold = commonValue(blocks, "bold")
+  const textwrap = commonValue(blocks, "textwrap")
+
+  return (
+    <div className="space-y-4 overflow-y-auto px-4 py-4 text-sm">
+      <div>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          {blocks.length} bloques seleccionados
+        </h3>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Los cambios de formato se aplican a todos. &ldquo;Mixto&rdquo; indica que
+          difieren entre sí.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Tamaño</Label>
+          <Select value={size ?? ""} onValueChange={(v) => onChange({ size: v })}>
+            <SelectTrigger>
+              <SelectValue placeholder="Mixto" />
+            </SelectTrigger>
+            <SelectContent>
+              {FONT_SIZES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {s === "inherit" ? "Heredado" : s}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Tipografía</Label>
+          <Select value={family ?? ""} onValueChange={(v) => onChange({ family: v })}>
+            <SelectTrigger>
+              <SelectValue placeholder="Mixto" />
+            </SelectTrigger>
+            <SelectContent>
+              {FONT_FAMILIES.map((f) => (
+                <SelectItem key={f} value={f}>
+                  {f === "inherit" ? "Heredada" : f}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div className="space-y-1.5">
+          <Label>Alineación</Label>
+          <Select
+            value={align ?? ""}
+            onValueChange={(v) => onChange({ align: v as PrintBlock["align"] })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Mixto" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="left">Izquierda</SelectItem>
+              <SelectItem value="center">Centro</SelectItem>
+              <SelectItem value="right">Derecha</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Peso</Label>
+          <Select
+            value={bold ?? ""}
+            onValueChange={(v) => onChange({ bold: v as PrintBlock["bold"] })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Mixto" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="normal">Normal</SelectItem>
+              <SelectItem value="bold">Negrita</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label>Wrap del texto</Label>
+        <Select
+          value={textwrap ?? ""}
+          onValueChange={(v) => onChange({ textwrap: v as PrintBlock["textwrap"] })}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder="Mixto" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="cut">Cortar (1 línea)</SelectItem>

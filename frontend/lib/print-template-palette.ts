@@ -7,7 +7,7 @@
  * que hace lookup por `type` para sustituir el texto por el dato real.
  */
 
-import type { BlockType, PaperSize } from "@/lib/types/print-template"
+import type { BlockType, PaperSize, PrintBlock } from "@/lib/types/print-template"
 import { isReceipt } from "@/lib/types/print-template"
 import type { Tax } from "@/lib/types/tax"
 
@@ -166,7 +166,7 @@ export const PALETTE: PaletteSection[] = [
 export function buildTaxRateSection(taxes: Tax[]): PaletteSection {
   const items: PaletteItem[] = []
   for (const tax of taxes) {
-    const rateLabel = tax.kind === "exempt" ? "Exento" : `${tax.rate ?? tax.name}%`
+    const rateLabel = taxRateLabel(tax)
     items.push(
       { type: "subtotal_by_rate", label: `Subtotal __TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
       { type: "iva_by_rate", label: `__TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
@@ -175,6 +175,14 @@ export function buildTaxRateSection(taxes: Tax[]): PaletteSection {
   }
   items.push({ type: "iva_total", label: "Total __TAX__ (todas las tasas)", defaultText: "__TAX__" })
   return { id: "taxes", label: "Impuestos", items }
+}
+
+/** "Exento" o "N%" para una tasa del tenant — mismo criterio en los dos
+ *  lugares que arman un label con la tasa real: la sección "Impuestos" de
+ *  la paleta (`buildTaxRateSection`) y el título de tooltip de un bloque
+ *  por-tasa ya colocado (`getBlockTitle`). Un solo lugar evita que diverjan. */
+function taxRateLabel(tax: Pick<Tax, "kind" | "rate" | "name">): string {
+  return tax.kind === "exempt" ? "Exento" : `${tax.rate ?? tax.name}%`
 }
 
 /** Filtra la paleta según paper size (oculta receiptOnly/receiptHidden donde
@@ -197,6 +205,67 @@ export function substituteLabels(label: string, opts: { tin?: string; tax?: stri
   return label
     .replace(/__TIN__/g, opts.tin ?? "RUC")
     .replace(/__TAX__/g, opts.tax ?? "IVA")
+}
+
+/**
+ * Mapa type → label del catálogo estático (PALETTE) — ÚNICA fuente de "cómo
+ * se llama este bloque", reusada por los tooltips del canvas (canvas-block.tsx)
+ * en vez de mantener una segunda lista de nombres que divergiría con el
+ * tiempo (mismo criterio que `normalizeBlockType` en blocks.ts). Cuando un
+ * `type` tiene más de una entrada en PALETTE (ej. `company_logo`: "Logo" y
+ * "Logo (B&W)" comparten `type` — el bloque colocado no guarda cuál de los
+ * dos eligió el operador, ver `PrintBlock` en print-template.ts), se queda
+ * con la PRIMERA etiqueta: ambigüedad preexistente del modelo, no algo que
+ * este mapa pueda resolver.
+ */
+const BLOCK_TYPE_LABELS: Partial<Record<BlockType, string>> = (() => {
+  const map: Partial<Record<BlockType, string>> = {}
+  for (const section of PALETTE) {
+    for (const item of section.items) {
+      if (!(item.type in map)) map[item.type] = item.label
+    }
+  }
+  return map
+})()
+
+/**
+ * Título legible de un bloque colocado en el canvas — para tooltips
+ * (canvas-block.tsx): el problema concreto del owner es "con varios bloques
+ * ya no sé cuál es cuál", así que el tooltip necesita el nombre del
+ * placeholder, no solo su valor de ejemplo.
+ *
+ * Reusa `BLOCK_TYPE_LABELS` de arriba. Los bloques por-tasa
+ * (`subtotal_by_rate`/`iva_by_rate`/`item_total_by_rate`) no tienen una
+ * entrada fija en PALETTE — dependen de qué tasa tenga el tenant, ver
+ * `buildTaxRateSection` — así que se arma el mismo formato de label ahí,
+ * buscando la tasa real por `block.text` (el `taxId` que el bloque guarda,
+ * ver `PrintBlock`/`BlockType` en print-template.ts). Bloques legacy que ya
+ * no viven en la paleta (ej. `tax_single`, agregado hoy solo desde
+ * plantillas viejas) caen al `type` crudo — no vale la pena mantener una
+ * entrada de catálogo para un tipo que ya no se puede agregar desde la UI.
+ */
+export function getBlockTitle(
+  block: PrintBlock,
+  taxes: Tax[] = [],
+  opts: { tin?: string; tax?: string } = {},
+): string {
+  if (
+    block.type === "subtotal_by_rate" ||
+    block.type === "iva_by_rate" ||
+    block.type === "item_total_by_rate"
+  ) {
+    const tax = taxes.find((t) => t.id === block.text)
+    const rateLabel = tax ? taxRateLabel(tax) : "?"
+    const prefix =
+      block.type === "subtotal_by_rate"
+        ? "Subtotal __TAX__"
+        : block.type === "iva_by_rate"
+          ? "__TAX__"
+          : "Total __TAX__"
+    return substituteLabels(`${prefix} ${rateLabel}`, opts)
+  }
+  const label = BLOCK_TYPE_LABELS[block.type] ?? block.type
+  return substituteLabels(label, opts)
 }
 
 /** Catálogo de fuentes disponibles en el menú per-bloque (orden del legacy). */
