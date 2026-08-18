@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 
+use Punto\Api\Documents\DocumentNumber;
+
 /**
  * CreditPaymentService — registra cobros/pagos parciales o totales de crédito
  * (type=5): cobro de venta a crédito a un CLIENTE (`kind='credit_payment'`,
@@ -566,13 +568,22 @@ final class CreditPaymentService
             )]),
             'transactionUID'         => $this->generateUID(),
             // UN solo invoiceNo para todo el recibo, sin importar cuántas
-            // facturas cancela. Sin numeración correlativa propia — mismo
-            // criterio ya documentado para `credit_payment` (context/37-
-            // numeracion-documentos.md, tabla D2: "Recibo (pago de crédito) |
-            // transaction type 5 | sin numeración") — un pago a proveedor es
-            // el mismo tipo de documento (recibo interno, no factura fiscal
-            // del SET), así que hereda la misma decisión, no una nueva.
-            'invoiceNo'              => getNextDocNumber(0, 5, $companyId, $parentRegisterId),
+            // facturas cancela. Correlativo propio (docType 'recibo', scope
+            // register — D2 de context/37) SOLO para cobro a cliente: la
+            // factura de venta (type=3) siempre tiene registerId, nace en una
+            // caja. El pago a proveedor (kind='purchase_payment') salda una
+            // COMPRA (type=4) y `PurchasesService` NUNCA setea registerId —
+            // solo outletId, porque las compras se cargan desde panel/
+            // backoffice sin caja de por medio (`$parentRegisterId` quedaría
+            // '' acá). Asignarle scope=register sería inventar un dato que no
+            // existe; scope=outlet es candidato pero es decisión del owner
+            // (impacta si el pago a proveedor es "documento fiscal" o
+            // interno). Reportado, no resuelto en esta sesión — hasta esa
+            // decisión, el pago a proveedor sigue con el helper legacy
+            // (mismo comportamiento previo: invoiceNo siempre 0).
+            'invoiceNo'              => $kind === 'credit_payment'
+                ? DocumentNumber::allocate('recibo', DocumentNumber::SCOPE_REGISTER, $parentRegisterId, $companyId)
+                : getNextDocNumber(0, 5, $companyId, $parentRegisterId),
             'timestamp'              => time(),
             $contactCol              => $contactId,
             'registerId'             => $parentRegisterId,

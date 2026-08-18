@@ -191,6 +191,48 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_offline_resolution.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.8. Exclusividad de caja + numeración sin arriendo (context/29,
+#    revisado 2026-08-17): dos dispositivos NO pueden compartir la misma
+#    caja (register_lease), y el correlativo de factura lo decide el device
+#    ("último + 1"), sin bloques reservados — ver docblock de
+#    verify_register_lease.php. Levanta su propio servidor PHP built-in
+#    (mismo bootstrap.php/claim.php/sales.php/offline-sync.php/register.php
+#    reales) contra el Postgres seedeado arriba; no depende de los pasos
+#    anteriores. Incluye el caso CENTRAL (6): dos ventas online consecutivas
+#    de la misma caja con invoiceNo distinto y consecutivo, y document_
+#    sequence avanzando solo (sin allocate() server-side). Casos 10-12 (mig
+#    145): el agujero que quedó al sacar el arriendo — dos uid distintos con
+#    el MISMO invoiceNo en la MISMA caja se rechazan en la BASE (con
+#    timbrado NULL, el caso trampa), el mismo invoiceNo en OTRA caja
+#    convive, y el timbrado congelado sobrevive un cambio posterior del
+#    timbrado del register.
+echo ""
+echo "[run.sh] === exclusividad de caja + numeración sin arriendo + unicidad de invoiceno (register_lease, 409 entre devices, mig 145) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_register_lease.php"; then
+  OVERALL_STATUS=1
+fi
+
+# ── 3.9. Numeración del recibo (context/modules/17-numeracion.md §regla 7):
+#    antes de este fix TODO recibo (transactionType=5) salía con invoiceNo=0
+#    — ver docblock de verify_receipt_numbering.php. Corre contra el mismo
+#    Postgres seedeado arriba; no depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === numeración del recibo (dos recibos consecutivos, invoiceNo distinto y correlativo) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_receipt_numbering.php"; then
+  OVERALL_STATUS=1
+fi
+
+# ── 3.10. Numeración de la devolución de venta (context/modules/17-numeracion.md
+#    §7, context/40-anulacion-y-nota-credito.md): antes de este fix
+#    ReturnService::create() (transactionType=6) insertaba la transacción SIN
+#    invoiceno — ver docblock de verify_return_numbering.php. Corre contra el
+#    mismo Postgres seedeado arriba; no depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === numeración de la devolución de venta (con caja y sin caja, invoiceNo distinto y correlativo) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_return_numbering.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="

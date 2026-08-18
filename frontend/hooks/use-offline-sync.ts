@@ -14,9 +14,10 @@ interface SyncResult {
 }
 
 // Solo estos errores son TRANSITORIOS (se reintentan). Cualquier otro —en
-// particular LEASE_EXPIRED y validaciones de negocio— es TERMINAL: reintentarlo
-// nunca va a funcionar y generaba un bucle infinito de POSTs (auto-DDoS con N
-// cajas). Los terminales quedan en 'failed' para revisión manual del operador.
+// particular REGISTER_NOT_HELD y validaciones de negocio— es TERMINAL:
+// reintentarlo nunca va a funcionar y generaba un bucle infinito de POSTs
+// (auto-DDoS con N cajas). Los terminales quedan en 'failed' para revisión
+// manual del operador.
 const RETRYABLE_CODES = new Set(['NETWORK_ERROR', 'INTERRUPTED'])
 const MAX_ATTEMPTS = 6
 const BASE_BACKOFF_MS = 30_000
@@ -58,7 +59,7 @@ export function useOfflineSync() {
 
     const pending = await peekAll()
     // Solo reintentamos 'pending' cuyo backoff ya venció. 'failed' es TERMINAL
-    // (no se reintenta) → así LEASE_EXPIRED & co. no generan el bucle infinito.
+    // (no se reintenta) → así REGISTER_NOT_HELD & co. no generan el bucle infinito.
     const toSync = pending.filter((r) => r.status === 'pending' && backoffElapsed(r))
     if (toSync.length === 0) {
       await refreshCounts()
@@ -73,7 +74,7 @@ export function useOfflineSync() {
       const body = {
         sales: toSync.map((r) => ({
           clientTempId: r.clientTempId,
-          leasedInvoiceNo: r.leasedInvoiceNo,
+          invoiceNo: r.invoiceNo,
           sale: r.sale,
         })),
       }

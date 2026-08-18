@@ -2,6 +2,7 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 use Punto\Api\Context\TenantContext;
+use Punto\Api\Documents\DocumentNumber;
 // DB not needed (uses ncmExecute helpers)
 
 /**
@@ -240,6 +241,23 @@ final class VPaymentService
         // transaction_link (mig 115, kind='credit_payment') tras el INSERT.
         $payTransactionId = (string) $db->GetOne('SELECT gen_random_uuid()');
 
+        // Recibo con correlativo propio (docType 'recibo', scope register —
+        // D2 de context/37): la factura que se salda acá es SIEMPRE una venta
+        // a crédito (type=3), que nace en una caja, así que registerId es
+        // confiable (a diferencia del pago a proveedor — ver
+        // CreditPaymentService::insertReceipt). `allocate()` DEBE correr
+        // dentro de la transacción del documento (D1, context/37): si el
+        // INSERT/UPDATE/link de abajo falla, el rollback devuelve el número.
+        // Antes este método no abría transacción propia — se agrega acá.
+        $db->StartTrans();
+
+        $invoiceNo = DocumentNumber::allocate(
+            'recibo',
+            DocumentNumber::SCOPE_REGISTER,
+            (string) $invoice['registerId'],
+            $companyId,
+        );
+
         $tPay = [
             'transactionId'          => $payTransactionId,
             'transactionDate'        => TODAY,
@@ -249,9 +267,7 @@ final class VPaymentService
             'transactionStatus'      => 1,
             'transactionPaymentType' => json_encode([['type' => 'epos', 'name' => 'ePOS', 'total' => $saleAmount]]),
             'transactionUID'         => $this->generateUID(),
-            // getNextDocNumber en /app es 4-arg ($number,$in,$company,$register) — distinto
-            // del panel (3-arg) que usaba el canónico. El bootstrap de /api carga el de /app.
-            'invoiceNo'              => getNextDocNumber(0, 5, $companyId, $invoice['registerId']),
+            'invoiceNo'              => $invoiceNo,
             'timestamp'              => time(),
             'customerId'             => $invoice['customerId'],
             'registerId'             => $invoice['registerId'],
@@ -273,7 +289,11 @@ final class VPaymentService
                 $payTransactionId,
                 'credit_payment'
             );
+        } else {
+            $db->FailTrans();
         }
+
+        $db->CompleteTrans();
     }
 
     // =========================================================================

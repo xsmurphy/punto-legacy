@@ -17,8 +17,13 @@ interface SyncQueueDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
-// Errores permanentes que no se pueden reintentar
-const PERMANENT_ERROR_CODES = ['STOCK_OUT', 'NUMBER_TAKEN', 'INVALID_INPUT', 'LEASE_EXPIRED']
+// Errores permanentes que no se pueden reintentar. REGISTER_NOT_HELD
+// (api/v1/offline-sync.php — context/29-numeracion-y-exclusividad-de-caja.md
+// §4): la caja se liberó, la tomó otro dispositivo, o se cerró mientras esta
+// venta esperaba conexión — no hay forma de reintentar CON el mismo número
+// sin arriesgar un duplicado. El mensaje real (`row.error.message`, ya se
+// renderiza abajo) le dice al cajero qué pasó.
+const PERMANENT_ERROR_CODES = ['STOCK_OUT', 'NUMBER_TAKEN', 'INVALID_INPUT', 'REGISTER_NOT_HELD']
 
 export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   const [rows, setRows] = React.useState<OfflineSaleRow[]>([])
@@ -58,7 +63,7 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
         sales: [
           {
             clientTempId: row.clientTempId,
-            leasedInvoiceNo: row.leasedInvoiceNo,
+            invoiceNo: row.invoiceNo,
             sale: row.sale,
           },
         ],
@@ -90,7 +95,7 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
       }>('/v1/offline-sync', {
         sales: failed.map((r) => ({
           clientTempId: r.clientTempId,
-          leasedInvoiceNo: r.leasedInvoiceNo,
+          invoiceNo: r.invoiceNo,
           sale: r.sale,
         })),
       })
@@ -172,7 +177,7 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
                       {formatDate(row.createdAt)}
                     </td>
                     <td className="px-4 py-2 tabular-nums text-xs">
-                      {row.leasedInvoiceNo ?? '—'}
+                      {row.invoiceNo ?? '—'}
                     </td>
                     <td className="px-4 py-2 tabular-nums font-medium">
                       {formatMoney(getTotal(row), config)}

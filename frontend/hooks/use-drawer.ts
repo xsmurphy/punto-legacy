@@ -17,7 +17,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { tenantNow } from "@/lib/format-date"
-import { refreshLease } from "@/lib/pos/numbering-lease"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -220,18 +219,9 @@ function useDrawerMutation(action: string, onMutated?: () => void) {
   })
 }
 
-/**
- * Abre la caja con el monto inicial.
- *
- * También renueva el arriendo de numeración (context/08 §53, escalado por
- * el owner 2026-08-16) — segundo disparador proactivo junto al montaje del
- * POS (`NumberingLeaseRunner`, app/(pos)/pos/layout.tsx). "Abrir caja" es el
- * momento en que el cajero recién empieza a vender, así que es el punto
- * natural para asegurarse de tener números antes de la primera factura del
- * turno — best-effort, no bloquea la apertura si falla.
- */
+/** Abre la caja con el monto inicial. */
 export function useOpenDrawer() {
-  return useDrawerMutation("open", () => void refreshLease())
+  return useDrawerMutation("open")
 }
 
 /** Cierra la caja con el monto contado. */

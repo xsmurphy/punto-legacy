@@ -217,6 +217,25 @@ export interface CreateSalePayload {
    * Maps to SaleInput::$dueDate → columna `transactionDueDate`.
    */
   dueDate?: string | null
+  /**
+   * Número de comprobante — decidido LOCALMENTE por el POS (lib/pos/
+   * invoice-numbering.ts, `getNextInvoiceNo()`: "último correlativo de mi
+   * caja + 1"), la MISMA fuente para venta online y offline (decisión del
+   * owner, context/29-numeracion-y-exclusividad-de-caja.md: nunca
+   * `DocumentNumber::allocate()` server-side en el camino online, porque
+   * devolvería números por encima de lo que el device ya emitió offline y
+   * violaría "orden de números = orden de fechas"). Maps a
+   * `SaleInput::$invoiceNo` (`SaleInput.php:157`, key `invoiceno` — así lo
+   * lee el backend, que lo persiste tal cual (`SaleService.php:663`) sin
+   * volver a asignarlo.
+   *
+   * El backend (`api/v1/sales.php`) valida que este device siga siendo el
+   * tenedor de `register_lease` antes de guardar — mismo criterio que
+   * `api/v1/offline-sync.php` ya aplica para la rama offline. Ninguno de los
+   * dos vuelve a asignar ni a arrendar el número: solo confirman tenencia y
+   * avanzan `document_sequence` (`DocumentNumber::advanceTo()`).
+   */
+  invoiceno: number
 }
 
 export interface CreateSaleResult {
@@ -300,6 +319,13 @@ export interface BuildSaleInput {
    * genera uno (callers one-shot).
    */
   uid?: string | null
+  /**
+   * Número de comprobante ya consumido del lease local — ver
+   * `CreateSalePayload.invoiceno`. Requerido: toda venta real (type 0/3)
+   * necesita un número fiscal válido antes de armar el payload, no hay
+   * default seguro acá (el caller es quien sabe si vino de `getNextInvoiceNo()`).
+   */
+  invoiceno: number
 }
 
 // ── Builders ──────────────────────────────────────────────────────────────────
@@ -309,7 +335,7 @@ export interface BuildSaleInput {
  * Separado de executeSale para facilitar el testing y la auditoría del payload.
  */
 export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
-  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate, uid, ivaRemoved = false } = input
+  const { lines, payments, credito, interno, customer, userId, tags, quoteParentId, saleDiscount, timezone, dueDate, uid, invoiceno, ivaRemoved = false } = input
 
   // Los descuentos se reparten por ÍTEM (ver lib/cart/allocate-discounts.ts):
   // el descuento de venta se prorratea entre las líneas y se suma al descuento
@@ -413,6 +439,7 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
     // Solo se manda en venta a crédito — en contado el backend la ignoraría
     // igual (SaleInput no valida por type) pero no tiene sentido persistirla.
     dueDate: credito ? (dueDate || null) : null,
+    invoiceno,
   }
 }
 

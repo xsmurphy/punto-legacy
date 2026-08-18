@@ -328,6 +328,12 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     customerPhone: customer?.phone ?? undefined,
     customerTin: customer?.tin ?? undefined,
     docType: payload.type === 3 ? "credit" : "receipt",
+    // Número de comprobante ya consumido del lease (online y offline, misma
+    // fuente — ver CreateSalePayload.invoiceno). Antes esta key faltaba en
+    // el return: el bloque `document_number` de la plantilla (blocks.ts)
+    // renderizaba `data.documentNumber ?? null` → nunca imprimía nada, ni
+    // siquiera en la venta offline donde SÍ había un número arrendado.
+    documentNumber: result.invoiceNumber ?? undefined,
     transactionId: result.transactionId,
     einvoiceUrl: result.einvoicePortalUrl ?? null,
     dueDate: payload.dueDate ?? null,

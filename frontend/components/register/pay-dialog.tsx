@@ -15,7 +15,7 @@
  */
 
 import * as React from "react"
-import { X } from "lucide-react"
+import { X, Lock } from "lucide-react"
 import { useQueryClient } from "@tanstack/react-query"
 import {
   Dialog,
@@ -33,10 +33,11 @@ import { useCartStore, selectCartTotal } from "@/lib/cart/store"
 import { allocateLineDiscounts } from "@/lib/cart/allocate-discounts"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney, formatCurrencyAmount } from "@/lib/format-money"
+import { formatDateTime } from "@/lib/format-date"
 import { buildSalePayload, buildApiPayload } from "@/lib/commands/create-sale"
 import type { SalePaymentMethod, CreateSaleResult } from "@/lib/commands/create-sale"
 import { ApiError } from "@/lib/api-client"
-import { getNextInvoiceNo } from "@/lib/pos/numbering-lease"
+import { getNextInvoiceNo } from "@/lib/pos/invoice-numbering"
 import { enqueue, getCount } from "@/lib/pos/offline-queue"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { useDrawerStatus } from "@/hooks/use-drawer"
@@ -154,7 +155,42 @@ interface PayDialogProps {
 
 // ── Estados del diálogo ───────────────────────────────────────────────────────
 
-type DialogPhase = "pay" | "success"
+// "register-taken" — F5 (context/29-numeracion-y-exclusividad-de-caja.md):
+// el backend rechazó la venta con 409 porque la tenencia de esta caja
+// (`register_lease`) no es de este dispositivo — otro device la tiene
+// tomada, o la propia tenencia venció/se anuló. Bloquea igual que "pay" con
+// error, pero con la info real del tenedor + un CTA de reintentar explícito,
+// en vez de dejar al cajero con el error genérico y sin poder reintentar
+// (los botones de pago quedan disabled con remaining=0 una vez cubierto el
+// total — ver disabled={!credito && remaining<=0} en PayPhase).
+type DialogPhase = "pay" | "success" | "register-taken"
+
+/** Detalle del 409 de tenencia de caja (mismo shape que `api/v1/register/
+ *  claim.php` y `api/v1/sales.php` arman vía `RegisterLeaseService::
+ *  holderConflict()` + `apiConflict()`). `expiresAt` siempre llega `null`
+ *  desde que la tenencia dejó de vencer por fecha (context/29 §4,
+ *  2026-08-17) — se mantiene en el shape por compatibilidad, el render de
+ *  abajo ya lo trata como opcional. */
+interface RegisterConflictInfo {
+  holderDeviceName: string | null
+  expiresAt: string | null
+}
+
+/** Lee `err.payload.error.details` del envelope `{ok:false, error:{...}}`
+ *  que arma `apiConflict()` en un 409 — mismo shape en `claim.php` y en
+ *  `api/v1/sales.php` (context/29 §4 aplicado al camino online). Defensivo:
+ *  si el shape no calza (mensaje sin details), cae a "otro dispositivo" sin
+ *  expiresAt en vez de romper. */
+function extractRegisterConflictInfo(err: ApiError): RegisterConflictInfo {
+  const payload = err.payload as
+    | { error?: { details?: { holderDeviceName?: string | null; expiresAt?: string | null } } }
+    | null
+  const details = payload?.error?.details
+  return {
+    holderDeviceName: details?.holderDeviceName || null,
+    expiresAt: details?.expiresAt || null,
+  }
+}
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
@@ -236,6 +272,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
+  // F5 — 409 de tenencia de caja (register_lease). Ver DialogPhase arriba.
+  const [registerTakenInfo, setRegisterTakenInfo] = React.useState<RegisterConflictInfo | null>(null)
   // Snapshot para el botón manual "Ordenar" del modal de éxito (ordenEnVenta).
   // Capturado ANTES del clearCart (que solo corre en handleClose) — lines/
   // customer siguen siendo los de la venta recién facturada mientras el
@@ -267,6 +305,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setPhase("pay")
       setSaleResult(null)
       setErrorMsg(null)
+      setRegisterTakenInfo(null)
       saleUidRef.current = crypto.randomUUID()
       // autofocus al visor
       setTimeout(() => displayRef.current?.focus(), 50)
@@ -424,6 +463,42 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         }
       }
 
+      // Número de comprobante — se consume UNA SOLA VEZ acá, ANTES de
+      // intentar el POST, y sirve a las DOS ramas (online y offline) que
+      // siguen. El número sale SIEMPRE del contador local del POS ("último
+      // correlativo de mi caja + 1", `lib/pos/invoice-numbering.ts` —
+      // context/29-numeracion-y-exclusividad-de-caja.md) — nunca de un
+      // `DocumentNumber::allocate()` server-side en el camino online: un
+      // allocate() ahí devolvería números por encima de lo que el device ya
+      // emitió offline, y el device emitiría después, offline, un número
+      // MENOR con fecha posterior — viola "orden de números = orden de
+      // fechas". El backend (`api/v1/sales.php`) valida que este device siga
+      // siendo el tenedor de `register_lease` antes de guardar y la rechaza
+      // con 409 si no lo es — ver el catch de abajo (`registerTakenInfo`).
+      //
+      // Regla del owner ("no puede salir una venta sin número de factura",
+      // context/08 §53) — sin número no hay documento válido para entregar,
+      // en NINGUNA rama (online u offline). `interno` incluido — el doctype
+      // 'comprobante' sin valor fiscal todavía no existe. Cotización queda
+      // afuera — no pasa por acá (create-quote.ts es un comando aparte,
+      // nunca llega a invoice-numbering).
+      //
+      // Trade-off aceptado: un intento que falla DESPUÉS de este punto (4xx
+      // de negocio, o el cobro online-only de sesión/orden/settlement que no
+      // encola) quema este número sin usarlo — mismo criterio que un hueco
+      // de numeración, aceptado por diseño en modo offline. La alternativa
+      // (pedir el número recién si el POST fuera a tener éxito) no es
+      // posible: hace falta MANDARLO en el payload para que el backend
+      // valide tenencia.
+      let invoiceNo: number
+      try {
+        invoiceNo = getNextInvoiceNo(activeRegisterId)
+      } catch {
+        throw new Error(
+          'No se pudo determinar el próximo número de comprobante de esta caja — conectate a internet e intentá de nuevo.',
+        )
+      }
+
       // Construir payload para tenerlo disponible tanto para el POST como para el enqueue
       const payload = buildSalePayload({
         lines,
@@ -439,6 +514,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         timezone: config?.timezone,
         dueDate: credito ? (dueDate || null) : null,
         uid: saleUidRef.current,
+        invoiceno: invoiceNo,
       })
 
       let result: CreateSaleResult
@@ -472,7 +548,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         result = {
           transactionId: raw.transactionId,
           transactionUID: raw.uid,
-          invoiceNumber: null,
+          // Mismo número consumido arriba, ANTES del POST — el backend lo
+          // persistió tal cual (SaleInput.php:157 → SaleService.php:663).
+          // Antes esto era siempre `null`: la venta online nunca mandaba
+          // invoiceno y el ticket nunca mostraba comprobante (P0 fiscal).
+          invoiceNumber: String(invoiceNo),
           total: payload.subtotal,
           duplicated: raw.duplicated === true,
           einvoicePortalUrl: raw.einvoicePortalUrl ?? null,
@@ -512,44 +592,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           )
         }
 
-        // Número de comprobante — recién ACÁ, porque es lo único que este
-        // camino (offline, encolado) necesita: la venta online consigue su
-        // número del lado del servidor (`DocumentNumber::allocate`, ver
-        // context/37-numeracion-documentos.md), así que consumir el lease
-        // local en TODA venta (como hacía antes, arriba de este try) drenaba
-        // el arriendo 100x más rápido de lo necesario — el caso común
-        // (online) nunca lo usaba.
-        //
-        // Regla escalada por el owner 2026-08-16 ("no puede salir una venta
-        // sin número de factura", context/08 §53) — sin número no hay
-        // documento válido para entregar. Antes esto se atrapaba en silencio
-        // y la venta salía igual con `invoiceNumber: null`; ahora BLOQUEA acá
-        // (throw sube al catch de handleConfirm: no encola, no imprime, no
-        // limpia el carrito, el cajero ve el motivo).
-        //
-        // SIEMPRE requiere número acá, `interno` incluido — verificado contra
-        // context/37-numeracion-documentos.md §Fases F5: el doctype
-        // 'comprobante' (sin valor fiscal) todavía NO EXISTE — hoy una venta
-        // interna sigue siendo `SaleInput` type 0/3 como cualquier otra y el
-        // backend le asigna un invoiceNo fiscal real (`DocumentNumber::
-        // allocate`, "la venta interna quema numeración fiscal" — nota
-        // textual de ese doc). Tratarla como exenta acá habría sido asumir
-        // un estado futuro que el backend todavía no tiene: si mañana existe
-        // el doctype propio, este gate se vuelve `!interno`, no antes.
-        // Cotización SÍ queda afuera de este bloqueo — no pasa por acá, es
-        // un comando aparte (create-quote.ts) que nunca llega a
-        // numbering-lease.
-        let leasedInvoiceNo = 0
-        try {
-          leasedInvoiceNo = getNextInvoiceNo()
-        } catch {
-          throw new Error(
-            'No hay números de comprobante disponibles — conectate a internet para renovar antes de seguir vendiendo.',
-          )
-        }
+        // El número ya se consumió UNA sola vez arriba, antes del try/POST
+        // — acá solo se usa para el enqueue, no se vuelve a pedir (ver
+        // comentario grande más arriba, antes de `buildSalePayload`).
 
         // Encolar en IndexedDB
-        await enqueue({ clientTempId: payload.uid, leasedInvoiceNo, sale: payload })
+        await enqueue({ clientTempId: payload.uid, invoiceNo, sale: payload })
 
         // Stock optimistic
         const catalogItems = useCatalogStore.getState().items
@@ -575,9 +623,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         const offlineResult: CreateSaleResult = {
           transactionId: "",
           transactionUID: payload.uid,
-          // El número leasado es el que va impreso: es el mismo que el server
-          // va a confirmar al sincronizar (lease de numeración offline).
-          invoiceNumber: leasedInvoiceNo > 0 ? String(leasedInvoiceNo) : null,
+          // El número que emitió el device es el que va impreso: es el mismo
+          // que el server va a confirmar al sincronizar (offline-sync.php).
+          invoiceNumber: String(invoiceNo),
           total: payload.subtotal,
           duplicated: false,
           // Venta offline: el documento electrónico todavía no existe (se
@@ -730,9 +778,20 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       void qc.invalidateQueries({ queryKey: ["drawer", "status"] })
       void qc.invalidateQueries({ queryKey: ["drawer", "summary"] })
     } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : "Error al confirmar la venta",
-      )
+      // F5 (context/29 §5.6) — 409 de tenencia de caja: el backend
+      // (`api/v1/sales.php`, F3 online) rechazó ESTE número porque la
+      // tenencia de `register_lease` no es de este dispositivo. Distinto de
+      // un error de negocio genérico: el cajero necesita saber QUIÉN tiene
+      // la caja y CUÁNDO se libera, con un CTA de reintentar — no solo el
+      // texto plano de `errorMsg`.
+      if (err instanceof ApiError && err.status === 409) {
+        setRegisterTakenInfo(extractRegisterConflictInfo(err))
+        setPhase("register-taken")
+      } else {
+        setErrorMsg(
+          err instanceof Error ? err.message : "Error al confirmar la venta",
+        )
+      }
     } finally {
       setSubmitting(false)
     }
@@ -970,6 +1029,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       tags: [] as string[],
       date: new Date().toISOString(),
       timestamp: Math.floor(Date.now() / 1000),
+      // Reimpresión: el número real ya está en `saleResult.invoiceNumber`
+      // (buildTicketData lo lee de `result`, no de `payload` — ver piece 4).
+      // Este campo solo existe para satisfacer el tipo del payload de venta.
+      invoiceno: saleResult.invoiceNumber ? Number(saleResult.invoiceNumber) : 0,
     } satisfies import("@/lib/commands/create-sale").CreateSalePayload
     const ticketData = buildTicketData({ payload: reprPayload, result: saleResult, config })
     // Venta al contado/crédito SIEMPRE emite Factura — el recibo es el
@@ -1080,6 +1143,16 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
                 setApplied((prev) => prev.filter((r) => r.rowId !== rowId))
               }
               onCreditConfirm={handleCreditConfirm}
+              onCancel={handleClose}
+            />
+          ) : phase === "register-taken" ? (
+            <RegisterTakenPhase
+              info={registerTakenInfo}
+              onRetry={() => {
+                setPhase("pay")
+                setRegisterTakenInfo(null)
+                void handleConfirm(applied, change)
+              }}
               onCancel={handleClose}
             />
           ) : (
@@ -1445,6 +1518,52 @@ function PayPhase({
         )}
       </div>
     </>
+  )
+}
+
+// ── Fase "caja tomada" ────────────────────────────────────────────────────────
+// F5 (context/29-numeracion-y-exclusividad-de-caja.md §5.6): pantalla
+// bloqueante cuando el backend rechaza el número con 409 porque la tenencia
+// de `register_lease` no es de este dispositivo. Reemplaza el contenido del
+// Dialog entero (mismo patrón que la fase "success") en vez de un aviso
+// chico: "nunca permitir vender sin numeración válida" pide algo más difícil
+// de ignorar que el bloque de `errorMsg`, con el motivo real y un CTA de
+// reintentar explícito (los botones de pago quedan disabled con remaining=0
+// una vez cubierto el total, así que sin este CTA el cajero no tiene forma
+// de reintentar sin cerrar el dialog entero).
+
+interface RegisterTakenPhaseProps {
+  info: RegisterConflictInfo | null
+  onRetry: () => void
+  onCancel: () => void
+}
+
+function RegisterTakenPhase({ info, onRetry, onCancel }: RegisterTakenPhaseProps) {
+  const holderLabel = info?.holderDeviceName || "otro dispositivo"
+  const expiresLabel = info?.expiresAt ? formatDateTime(info.expiresAt) : null
+
+  return (
+    <div className="flex flex-col items-center gap-5 px-6 py-8 text-center">
+      <DialogTitle className="sr-only">Caja tomada por otro dispositivo</DialogTitle>
+      <Lock className="size-16 text-destructive" strokeWidth={1.5} />
+      <div className="flex flex-col items-center gap-2">
+        <h2 className="text-xl font-bold text-foreground">Caja tomada</h2>
+        <p className="text-sm text-muted-foreground">
+          Esta caja la está usando{" "}
+          <span className="font-medium text-foreground">{holderLabel}</span>
+          {expiresLabel ? <> — se libera {expiresLabel}</> : null}. No se puede
+          vender sin numeración válida.
+        </p>
+      </div>
+      <div className="flex w-full gap-3">
+        <Button variant="outline" className="flex-1" onClick={onCancel}>
+          Cancelar
+        </Button>
+        <Button className="flex-1 font-bold" onClick={onRetry}>
+          Reintentar
+        </Button>
+      </div>
+    </div>
   )
 }
 

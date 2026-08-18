@@ -562,7 +562,19 @@ function getSaleType($type){
 }
 
 /**
- * @deprecated Slice 11 (PSR-4). Usar `\Punto\App\Domain\Document::getNextDocNumber()`. ~12 callers.
+ * @deprecated Slice 11 (PSR-4). Usar `DocumentNumber::allocate()` (context/37) —
+ * asignación atómica con scope, NO `max(number, último invoiceNo)` como este
+ * helper (ver docblock de `\Punto\App\Domain\Document::getNextDocNumber()`).
+ *
+ * Verificado 2026-08-17 (context/modules/17-numeracion.md §regla 7): de los
+ * ~12 callers históricos queda UN solo call-site vivo —
+ * `CreditPaymentService::insertReceipt()`, SOLO para el pago a proveedor
+ * (`kind='purchase_payment'`). No migró junto con el resto del recibo porque
+ * la compra (transactionType=4) no tiene `registerId` (`PurchasesService`
+ * solo setea `outletId`) — migrar exige que el owner decida el scope
+ * (`outlet` vs agregar `registerId` a compra), no resuelto todavía. El otro
+ * caller (`VPaymentService::settleCreditInvoice`) y el resto del recibo
+ * (`credit_payment`) ya usan `DocumentNumber::allocate('recibo', ...)`.
  */
 function getNextDocNumber($number,$in,$company,$register){
     return \Punto\App\Domain\Document::getNextDocNumber($number, $in, $company, $register);

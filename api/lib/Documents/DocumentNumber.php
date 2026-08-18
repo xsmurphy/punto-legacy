@@ -28,9 +28,16 @@ namespace Punto\Api\Documents;
  * misma secuencia se serializan mientras la transacción está abierta — para
  * una caja, que es de un cajero, la contención es teórica.
  *
- * EXCEPCIÓN offline: el POS arrienda números por adelantado
- * (`numbering_lease`) para facturar sin red. Un arriendo nunca consumido ES un
- * hueco, y eso es inherente al modo offline, no de este asignador.
+ * OFFLINE (factura, context/29-numeracion-y-exclusividad-de-caja.md): el POS
+ * NO llama a `allocate()` para facturar sin red — el arriendo de bloques por
+ * adelantado (`numbering_lease`) que existía para eso fue RECHAZADO por el
+ * owner 2026-08-17 (§6: la unicidad del punto de expedición ya resuelve sola
+ * el problema — cada caja tiene su propia rama de numeración, no hay con
+ * quién chocar). El device decide su propio número offline ("último
+ * correlativo de mi caja + 1", `frontend/lib/pos/invoice-numbering.ts`) y lo
+ * manda en el payload, tanto online como offline. `advanceTo()` es el
+ * complemento: mantiene esta secuencia consistente con lo que el device ya
+ * emitió, sin ser quien decide el número.
  */
 final class DocumentNumber
 {
@@ -110,70 +117,53 @@ final class DocumentNumber
     }
 
     /**
-     * Reserva un BLOQUE contiguo de $count números y devuelve el primero.
+     * Avanza la secuencia para que quede consistente con un número que el
+     * DEVICE ya decidió y emitió (online o offline) — nunca reserva ni
+     * decide el número, solo se asegura de que `document_sequence` no quede
+     * atrás. Reemplaza a `allocateBlock()` (arriendo de bloques, RECHAZADO
+     * 2026-08-17 — ver docblock de clase): el device manda `invoiceNo` en
+     * cada venta (`api/v1/sales.php`, `api/v1/offline-sync.php`), y esta
+     * llamada es el único lugar donde el server toca la secuencia en
+     * respuesta a eso.
      *
-     * Existe para el POS offline: `numbering_lease` arrienda ~100 números por
-     * adelantado para poder facturar sin red. Hacer N llamadas a allocate()
-     * daría N round-trips y, peor, no garantiza contigüidad si otra caja de la
-     * misma secuencia asigna en el medio.
+     * `nextnumber` queda en `GREATEST(nextnumber, $invoiceNo + 1)` — nunca
+     * retrocede. Necesario porque el device puede haber emitido offline por
+     * delante de lo que el server conoce, y porque dos syncs (o una venta
+     * online + un sync offline atrasado) pueden llegar fuera de orden.
      *
-     * @return int el PRIMER número del bloque; el último es $first + $count - 1.
-     *
-     * @throws RangeExhaustedException si el bloque se pasa del rango autorizado.
+     * NO se llama dentro de la transacción del documento a propósito (a
+     * diferencia de `allocate()`): si esto fallara y revirtiera junto con la
+     * venta, se perdería una venta YA EMITIDA por el device por un problema
+     * de contabilidad interna del servidor — viola §53 (el backend nunca
+     * rechaza/revierte una venta ya emitida). Un fallo acá deja la secuencia
+     * momentáneamente atrás; el próximo `advanceTo()` con un número mayor la
+     * corrige sola.
      */
-    public static function allocateBlock(
+    public static function advanceTo(
         string $docType,
         string $scopeType,
         string $scopeId,
         string $companyId,
-        int $count,
-    ): int {
+        int $invoiceNo,
+    ): void {
         global $db;
 
-        if ($count < 1) {
-            throw new \InvalidArgumentException('count debe ser >= 1');
-        }
         if (!in_array($scopeType, [self::SCOPE_REGISTER, self::SCOPE_OUTLET, self::SCOPE_COMPANY], true)) {
             throw new \InvalidArgumentException('scopeType inválido: ' . $scopeType);
         }
+        if ($invoiceNo < 1) {
+            return;
+        }
 
-        $rs = $db->Execute(
+        $db->Execute(
             'INSERT INTO document_sequence
                  (companyid, doctype, scopetype, scopeid, nextnumber)
-             VALUES (?, ?, ?, ?, 1 + ?::bigint)
+             VALUES (?, ?, ?, ?, ?::bigint + 1)
              ON CONFLICT (companyid, doctype, scopetype, scopeid)
-             DO UPDATE SET nextnumber = document_sequence.nextnumber + ?::bigint,
-                           updated_at = now()
-             RETURNING nextnumber - ?::bigint AS allocated, rangeto',
-            [$companyId, $docType, $scopeType, $scopeId, $count, $count, $count]
+             DO UPDATE SET nextnumber = GREATEST(document_sequence.nextnumber, ?::bigint + 1),
+                           updated_at = now()',
+            [$companyId, $docType, $scopeType, $scopeId, $invoiceNo, $invoiceNo]
         );
-
-        if ($rs === false || $rs->EOF) {
-            throw new \RuntimeException(
-                'No se pudo asignar el bloque de números para el documento ' . $docType
-            );
-        }
-
-        $first   = (int) ($rs->fields['allocated'] ?? 0);
-        $rangeTo = $rs->fields['rangeto'] ?? null;
-
-        if ($first < 1) {
-            throw new \RuntimeException(
-                'Bloque asignado inválido para el documento ' . $docType
-            );
-        }
-
-        // Se valida el ÚLTIMO del bloque: arrendar números por encima del rango
-        // autorizado dejaría al POS offline emitiendo fuera de timbrado sin red
-        // para enterarse.
-        if ($rangeTo !== null && ($first + $count - 1) > (int) $rangeTo) {
-            throw new RangeExhaustedException(
-                docType: $docType,
-                rangeTo: (int) $rangeTo,
-            );
-        }
-
-        return $first;
     }
 
     /**
@@ -200,34 +190,4 @@ final class DocumentNumber
         return $row ? (int) ($row['nextnumber'] ?? 1) : 1;
     }
 
-    /**
-     * Cuántos números quedan hasta el fin del rango autorizado, o null si la
-     * secuencia no declara techo.
-     *
-     * Lo usa el arriendo offline para PEDIR un bloque que entre en el rango en
-     * vez de pedir 100 y que le rebote: con 10 números autorizados sin usar, un
-     * bloque de 100 falla entero y la caja se queda sin poder facturar esos 10
-     * que sí eran válidos.
-     *
-     * Es una lectura sin reserva — solo sirve para dimensionar el pedido; el
-     * corte real lo hace allocateBlock() sobre el valor ya reservado.
-     */
-    public static function remaining(
-        string $docType,
-        string $scopeType,
-        string $scopeId,
-        string $companyId,
-    ): ?int {
-        $row = ncmExecute(
-            'SELECT nextnumber, rangeto FROM document_sequence
-              WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?
-              LIMIT 1',
-            [$companyId, $docType, $scopeType, $scopeId]
-        );
-
-        if (!$row || ($row['rangeto'] ?? null) === null) {
-            return null;
-        }
-        return max(0, (int) $row['rangeto'] - (int) ($row['nextnumber'] ?? 1) + 1);
-    }
 }

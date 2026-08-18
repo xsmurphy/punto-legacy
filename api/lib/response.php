@@ -50,3 +50,23 @@ function apiUnprocessable(string $message, array $details = []): never
     echo json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+/**
+ * 409 con `error.details` estructurado — mismo patrón que apiUnprocessable(),
+ * para conflictos de ESTADO donde el cliente necesita más que un mensaje para
+ * decidir qué hacer (ej. quién tiene la caja tomada y hasta cuándo, en vez de
+ * solo "está ocupada"). apiError() no acepta `details`; agregar el campo ahí
+ * cambiaría el contrato de TODOS sus callers, así que este helper vive aparte,
+ * igual que apiUnprocessable().
+ */
+function apiConflict(string $message, array $details = []): never
+{
+    http_response_code(409);
+    header('Content-Type: application/json');
+    $error = ['message' => $message, 'code' => 409];
+    if ($details !== []) {
+        $error['details'] = $details;
+    }
+    echo json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_UNICODE);
+    exit;
+}
