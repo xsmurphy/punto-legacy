@@ -2,8 +2,9 @@
 
 /**
  * Ficha de producto del POS — todo lo que el cajero necesita saber del ítem
- * sin salir de la caja: descripción, etiquetas, precio de venta y dónde hay
- * stock.
+ * sin salir de la caja: fotos, datos del catálogo (categoría, marca, IVA,
+ * sucursal asignada, tipo, SKU), descripción, etiquetas, precio de venta y
+ * dónde hay stock.
  *
  * El caso de uso que la motivó (owner, 2026-08-14) es el quiebre: cuando en
  * esta sucursal no hay, el cajero tiene que poder decirle al cliente en cuál
@@ -14,8 +15,16 @@
  * El filtro real está en el BFF (`app/api/pos/items/route.ts`): esos campos ni
  * siquiera llegan al device.
  *
- * Se abre desde el ícono de info del tile (ver `product-area.tsx`); el tap
- * principal del tile sigue agregando al carrito.
+ * Se abre desde el ícono de info del tile de Hotkeys (`product-area.tsx`) y
+ * desde el avatar de cada fila del buscador (`product-search-dialog.tsx`); en
+ * ambos casos el tap/click principal sigue agregando el ítem al carrito.
+ *
+ * OFFLINE: nombre/SKU/precio/categoría/marca/IVA/sucursal/tipo salen del
+ * catálogo cacheado (`useCatalogStore`) — disponibles sin red. La galería
+ * completa, la descripción, las etiquetas y el stock por sucursal SÍ
+ * requieren red (mismo criterio que el stock, que ya lo requería): degradan
+ * mostrando la portada cacheada (`item.imageUrl`) y el estado de error con
+ * reintento, nunca rompen ni bloquean la ficha.
  */
 
 import * as React from "react"
@@ -45,8 +54,9 @@ import {
   type StockStatus,
 } from "@/lib/stock-status"
 import { cn } from "@/lib/utils"
-import { usePosItemInfo, type PosItemStockOutlet } from "@/hooks/use-pos-item-info"
-import type { PosConfig, PosItem } from "@/lib/types/pos-bootstrap"
+import { usePosItemInfo, type PosItemImage, type PosItemStockOutlet } from "@/hooks/use-pos-item-info"
+import type { PosConfig, PosItem, PosTaxRate } from "@/lib/types/pos-bootstrap"
+import { KIND_META, type ItemKind } from "@/lib/types/item"
 
 /**
  * Relleno de la barra de salud. Espeja los colores de `STOCK_STATUS_CLASS`
@@ -68,6 +78,19 @@ const STOCK_BADGE_VARIANT: Record<StockStatus, "destructive" | "secondary" | "ou
   ok: "outline",
 }
 
+/**
+ * `taxId === null` → el ítem no tiene impuesto asignado en catálogo (no es lo
+ * mismo que "exento": exento SÍ tiene una tasa configurada, con `kind`
+ * "exempt"). `taxId` sin match en `taxes` → tasa borrada/fuera de este
+ * snapshot, mismo criterio de fallback que `resolveCategoryName`.
+ */
+function resolveTaxLabel(taxId: string | null, taxes: PosTaxRate[]): string {
+  if (taxId === null) return "Sin impuesto asignado"
+  const tax = taxes.find((t) => t.id === taxId)
+  if (!tax) return "Impuesto"
+  return tax.kind === "exempt" ? "Exento" : `${tax.rate}%`
+}
+
 interface Props {
   /** Ítem cuya ficha se muestra. `null` = diálogo cerrado. */
   item: PosItem | null
@@ -77,6 +100,11 @@ interface Props {
 export function ProductInfoDialog({ item, onClose }: Props) {
   const config = useCatalogStore((s) => s.config)
   const activeOutlet = useCatalogStore((s) => s.outlet)
+  // Todas las sucursales del tenant (para resolver `item.outletId` → nombre).
+  // Distinto de `outlets` más abajo, que es el desglose de STOCK por sucursal
+  // de este ítem puntual — no renombrar sin revisar los dos usos.
+  const allOutlets = useCatalogStore((s) => s.outlets)
+  const taxes = useCatalogStore((s) => s.taxes)
   const { categoryMap, brandMap } = useCategoryBrandMaps()
 
   const { data, isPending, isError, refetch, isFetching } = usePosItemInfo(item?.id ?? null)
@@ -98,6 +126,37 @@ export function ProductInfoDialog({ item, onClose }: Props) {
   const trackInventory = data?.detail.itemTrackInventory ?? item?.trackInventory ?? false
   const minStock = data?.detail.itemMinStock ?? null
   const maxStock = data?.detail.itemMaxStock ?? null
+
+  // Tipo de ítem: viaja cacheado (`item.kind`), nunca depende de la ficha en
+  // vivo. `KIND_META` es la misma tabla de labels que usa el panel
+  // (`lib/types/item.ts`) — un solo lugar donde "servicio" se traduce a
+  // "Servicio", no una copia local que se puede desalinear.
+  const kindLabel = item
+    ? (KIND_META[item.kind as ItemKind]?.label ?? item.kind)
+    : null
+
+  // Sucursal asignada (`item.outletId`, legado 1:1): resuelve contra
+  // `useCatalogStore.outlets` (todas las sucursales del tenant, ya cacheado
+  // — mismo criterio que categoría/marca, ver `resolve-names.ts`). `null` no
+  // es "sin dato" sino "vendible en cualquier sucursal".
+  const assignedOutletName =
+    item?.outletId === null || item?.outletId === undefined
+      ? "Todas las sucursales"
+      : (allOutlets.find((o) => o.id === item.outletId)?.name ?? "Sucursal")
+
+  // IVA: la tasa vive en `item.taxId` (cacheada) contra `useCatalogStore.taxes`
+  // — mismo patrón que el carrito (`lib/cart/store.ts`), no requiere red.
+  const taxLabel = resolveTaxLabel(item?.taxId ?? null, taxes)
+
+  // Galería: la ficha en vivo trae hasta 5 fotos ordenadas. Mientras carga o
+  // sin red, cae a la portada cacheada del catálogo (si el ítem tiene) — así
+  // la ficha nunca queda sin imagen solo porque el fetch de detalle no llegó.
+  const galleryImages: PosItemImage[] =
+    data?.detail.images && data.detail.images.length > 0
+      ? data.detail.images
+      : item?.imageUrl
+        ? [{ id: "cover", url: item.imageUrl, sort: 0 }]
+        : []
 
   // Sucursal de la caja primero: es la respuesta a "¿tengo para vender ahora?".
   const outlets = React.useMemo(() => {
@@ -142,6 +201,11 @@ export function ProductInfoDialog({ item, onClose }: Props) {
         </DialogHeader>
 
         <div className="flex flex-col gap-4">
+          {/* ── Galería ─────────────────────────────────────────────────── */}
+          {galleryImages.length > 0 && (
+            <ProductGallery images={galleryImages} name={name} />
+          )}
+
           {/* ── Precio de venta ─────────────────────────────────────────── */}
           <div>
             <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -155,6 +219,22 @@ export function ProductInfoDialog({ item, onClose }: Props) {
                 </span>
               )}
             </p>
+          </div>
+
+          {/* ── Datos del producto ────────────────────────────────────────
+              Todo cacheado (item.*), disponible sin red. */}
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Datos del producto
+            </p>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+              <InfoField label="Tipo de ítem" value={kindLabel} />
+              <InfoField label="SKU" value={sku} />
+              <InfoField label="Categoría" value={categoryName} />
+              <InfoField label="Marca" value={brandName} />
+              <InfoField label="IVA" value={taxLabel} />
+              <InfoField label="Sucursal asignada" value={assignedOutletName} />
+            </dl>
           </div>
 
           {/* ── Descripción y etiquetas ─────────────────────────────────── */}
@@ -363,6 +443,68 @@ function OutletStockRow({
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  )
+}
+
+// ── Fila de dato del producto ─────────────────────────────────────────────────
+
+/** Par label/valor de la grilla "Datos del producto". `null` → "—" (dato sin configurar). */
+function InfoField({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="truncate text-sm font-medium">{value ?? "—"}</dd>
+    </div>
+  )
+}
+
+// ── Galería de imágenes ────────────────────────────────────────────────────────
+
+/**
+ * Foto grande (portada o la seleccionada) + tira de miniaturas si hay más de
+ * una. Sin librería de carrusel (no hay `Carousel` instalado en el proyecto,
+ * ver context/20): con el tope de 5 imágenes por ítem (`ItemImageService`),
+ * una tira de botones alcanza y mantiene el mismo patrón táctil que el resto
+ * del POS — cada miniatura es un botón de 56px (mínimo táctil), navegable
+ * por teclado (Tab + Enter/Espacio) sin JS adicional.
+ */
+function ProductGallery({ images, name }: { images: PosItemImage[]; name: string }) {
+  const [active, setActive] = React.useState(0)
+  // Si la galería cambia (otro ítem, o llegaron más fotos de la ficha en
+  // vivo) y el índice activo quedó afuera de rango, volver a la portada.
+  const safeActive = active < images.length ? active : 0
+  const current = images[safeActive]
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="relative mx-auto aspect-square w-full max-w-64 overflow-hidden rounded-lg border border-border bg-muted">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={current.url} alt={name} className="h-full w-full object-cover" />
+      </div>
+
+      {images.length > 1 && (
+        <div className="flex justify-center gap-2 overflow-x-auto">
+          {images.map((img, i) => (
+            <button
+              key={img.id}
+              type="button"
+              onClick={() => setActive(i)}
+              aria-label={`Ver foto ${i + 1} de ${images.length}`}
+              aria-current={i === safeActive}
+              className={cn(
+                "size-14 shrink-0 overflow-hidden rounded-md border-2 transition-colors",
+                i === safeActive
+                  ? "border-primary"
+                  : "border-transparent opacity-70 hover:opacity-100",
+              )}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={img.url} alt="" className="h-full w-full object-cover" />
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )

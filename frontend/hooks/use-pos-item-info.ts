@@ -43,6 +43,13 @@ export interface PosItemStockBreakdown {
   outlets: PosItemStockOutlet[]
 }
 
+/** Imagen de la galería del ítem (proyección mínima, ver BFF). */
+export interface PosItemImage {
+  id: string
+  url: string
+  sort: number
+}
+
 /** Subset del detalle de `/v1/items?id=` que la ficha necesita. */
 export interface PosItemDetail {
   itemName: string
@@ -57,6 +64,8 @@ export interface PosItemDetail {
   itemMaxStock: number | null
   itemTrackInventory: boolean
   tags: { id: string; name: string }[]
+  /** Galería completa (0..5), ordenada. Requiere red — no viaja en el bootstrap offline. */
+  images: PosItemImage[]
 }
 
 export interface PosItemInfo {
@@ -94,6 +103,20 @@ function toBoolean(value: unknown): boolean {
   return false
 }
 
+function normalizeImages(raw: unknown): PosItemImage[] {
+  const arr = Array.isArray(raw) ? raw : []
+  return arr
+    .map((i) => {
+      const img = i as { id?: unknown; url?: unknown; sort?: unknown }
+      return {
+        id: String(img?.id ?? ""),
+        url: typeof img?.url === "string" ? img.url : "",
+        sort: toNumber(img?.sort, 0),
+      }
+    })
+    .filter((img) => img.url !== "")
+}
+
 function normalizeDetail(raw: Record<string, unknown>): PosItemDetail {
   const tags = Array.isArray(raw.tags) ? raw.tags : []
   return {
@@ -119,6 +142,7 @@ function normalizeDetail(raw: Record<string, unknown>): PosItemDetail {
         }
       })
       .filter((t) => t.name !== ""),
+    images: normalizeImages(raw.images),
   }
 }
 

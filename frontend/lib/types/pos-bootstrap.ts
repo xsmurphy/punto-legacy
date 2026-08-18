@@ -138,6 +138,16 @@ export interface PosItem {
    * que `categoryId`, resolver contra `PosBootstrap.brands`.
    */
   brandId: string | null
+  /**
+   * Sucursal a la que está asignado el item (`item.outletId`, legado 1:1).
+   * `null` = sin restricción, vendible en cualquier sucursal. Solo el id —
+   * mismo criterio que `categoryId`/`brandId`, resolver contra
+   * `useCatalogStore.outlets` (ya viaja con el bootstrap para el selector de
+   * caja, ver `lib/catalog/store.ts`). Este campo YA venía en el SELECT
+   * compartido de `/v1/items` (`buildItemsSelectSql()`) — solo faltaba
+   * mapearlo en `reshapeItem()`, sin costo extra de query.
+   */
+  outletId: string | null
   /** URL de imagen de portada. Null si no tiene. */
   imageUrl: string | null
   /** Unidad de medida (ej. "kg", "lt"). Null si no aplica. */
