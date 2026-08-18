@@ -41,12 +41,11 @@ const PERSONALITIES: { value: AgentPersonality; label: string; desc: string }[] 
  * ClearChatButton: componente único, mismo trigger visual en ambos lados).
  *
  * Guarda vía el mismo flujo que el resto de Settings (useUpdateSettings,
- * POST /v1/settings action=update&type=setting) — ese endpoint espera el
- * objeto COMPLETO de settings (ver serialize() en hooks/use-settings.ts),
- * así que acá partimos de los datos ya cargados (useSettings, misma query
- * key que el modal de Settings — cache compartida) y solo pisamos los 2
- * campos del asistente. Mandar un payload parcial pisaría el resto de los
- * ajustes de la empresa con strings vacíos.
+ * POST /v1/settings action=update&type=setting). El endpoint hace merge
+ * parcial (SettingsService::updateGeneral) — mandamos SOLO los 2 campos del
+ * asistente, nada más se toca. `data` (useSettings, misma query key que el
+ * modal de Settings — cache compartida) solo se usa para hidratar el form
+ * local al abrir, no viaja en el payload.
  */
 export function AgentSettingsDialog() {
   const [open, setOpen] = React.useState(false)
@@ -66,12 +65,8 @@ export function AgentSettingsDialog() {
 
   async function handleSave() {
     if (!data) return
-    const { logo, hasLogo, ...rest } = data
-    void logo
-    void hasLogo
     try {
       await update.mutateAsync({
-        ...rest,
         agentName: name.trim().slice(0, 40),
         agentPersonality: personality,
       })

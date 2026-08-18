@@ -44,9 +44,17 @@ export function useSettings() {
   })
 }
 
+/**
+ * Guarda ajustes generales. Acepta un objeto PARCIAL: solo las keys presentes
+ * viajan al backend y solo esas se tocan (merge parcial en
+ * SettingsService::updateGeneral — ver api/v1/settings.php). Mandar `{}` es
+ * un no-op válido. El caller decide el alcance: el modal de Settings manda
+ * las keys de la sección activa (ver SECTION_FIELDS en
+ * app/(panel)/settings/page.tsx), AgentSettingsDialog manda solo sus 2 campos.
+ */
 export function useUpdateSettings() {
   const qc = useQueryClient()
-  return useMutation<unknown, Error, SettingsFormValues>({
+  return useMutation<unknown, Error, Partial<SettingsFormValues>>({
     mutationFn: (values) =>
       api.post("/v1/settings", { action: "update", type: "setting", ...serialize(values) }),
     onSuccess: () => {
@@ -91,52 +99,45 @@ export function useDeleteCompanyLogo() {
   })
 }
 
+const SERIALIZE_STRING_FIELDS: (keyof SettingsFormValues)[] = [
+  "name", "address", "website", "email", "ruc", "phone", "city", "country",
+  "language", "timeZone", "currency", "taxName", "billingName", "tin",
+  "billDetail", "category", "slug", "thousandSeparator", "itemsSaleLimit",
+  "agentName", "agentPersonality",
+]
+
+const SERIALIZE_BOOL_FIELDS: (keyof SettingsFormValues)[] = [
+  "decimal", "sellsoldout", "itemSerialized", "drawerEmail", "drawerBlind",
+  "settingRemoveTaxes", "paymentId", "creditLine", "storeCredit",
+  "ignoreInternal", "stockCountBlind", "blockUsedDocNo", "autoSendDocs",
+  "taxPy", "weightBarcodes", "deletedItemsHistory",
+]
+
 /**
  * Aplana los nested keys (social) + serializa booleans como 1/0 que el
- * backend espera vía validateHttp. Strings van as-is.
+ * backend espera vía validateHttp. Solo emite las keys PRESENTES en
+ * `values` — es la mitad frontend del merge parcial: una key ausente acá
+ * nunca llega al POST, así que el backend (array_key_exists en $_POST) no la
+ * toca. Mandar el objeto completo sigue funcionando (todo presente = mismo
+ * comportamiento de antes), pero el caller ahora puede mandar un subconjunto
+ * a propósito.
  */
-function serialize(values: SettingsFormValues): Record<string, unknown> {
-  return {
-    name: values.name,
-    address: values.address,
-    website: values.website,
-    email: values.email,
-    ruc: values.ruc,
-    phone: values.phone,
-    city: values.city,
-    country: values.country,
-    language: values.language,
-    timeZone: values.timeZone,
-    currency: values.currency,
-    taxName: values.taxName,
-    billingName: values.billingName,
-    tin: values.tin,
-    billDetail: values.billDetail,
-    category: values.category,
-    slug: values.slug,
-    thousandSeparator: values.thousandSeparator,
-    itemsSaleLimit: values.itemsSaleLimit,
-    agentName: values.agentName,
-    agentPersonality: values.agentPersonality,
-    facebook: values.social.facebook,
-    instagram: values.social.instagram,
-    youtube: values.social.youtube,
-    twitter: values.social.twitter,
-    decimal: values.decimal ? 1 : 0,
-    sellsoldout: values.sellsoldout ? 1 : 0,
-    itemSerialized: values.itemSerialized ? 1 : 0,
-    drawerEmail: values.drawerEmail ? 1 : 0,
-    drawerBlind: values.drawerBlind ? 1 : 0,
-    settingRemoveTaxes: values.settingRemoveTaxes ? 1 : 0,
-    paymentId: values.paymentId ? 1 : 0,
-    creditLine: values.creditLine ? 1 : 0,
-    storeCredit: values.storeCredit ? 1 : 0,
-    ignoreInternal: values.ignoreInternal ? 1 : 0,
-    stockCountBlind: values.stockCountBlind ? 1 : 0,
-    blockUsedDocNo: values.blockUsedDocNo ? 1 : 0,
-    autoSendDocs: values.autoSendDocs ? 1 : 0,
-    taxPy: values.taxPy ? 1 : 0,
-    weightBarcodes: values.weightBarcodes ? 1 : 0,
-    deletedItemsHistory: values.deletedItemsHistory ? 1 : 0,
+function serialize(values: Partial<SettingsFormValues>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+
+  for (const key of SERIALIZE_STRING_FIELDS) {
+    if (values[key] !== undefined) out[key] = values[key]
   }
+  for (const key of SERIALIZE_BOOL_FIELDS) {
+    if (values[key] !== undefined) out[key] = values[key] ? 1 : 0
+  }
+  if (values.social) {
+    const { facebook, instagram, youtube, twitter } = values.social
+    if (facebook !== undefined) out.facebook = facebook
+    if (instagram !== undefined) out.instagram = instagram
+    if (youtube !== undefined) out.youtube = youtube
+    if (twitter !== undefined) out.twitter = twitter
+  }
+
+  return out
 }
