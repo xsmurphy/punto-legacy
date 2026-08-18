@@ -41,6 +41,7 @@ import {
   useUpdateDocumentTemplate,
 } from "@/hooks/use-document-templates"
 import { useTaxes } from "@/hooks/use-taxes"
+import { buildDemoTicketData } from "@/lib/hardware/printers/build-ticket-data"
 import type { PaletteItem } from "@/lib/print-template-palette"
 import {
   PAPER_DIMENSIONS,
@@ -91,6 +92,17 @@ export function TemplateEditor({ existing }: Props) {
   // F3c (context/38 §D): tasas del tenant para la sección "Impuestos" de la
   // paleta (una entrada por tasa) — ver PaletteSidebar/print-template-palette.ts.
   const taxesQuery = useTaxes()
+
+  // Venta de demo — ÚNICA fuente para "qué muestra un bloque" en el editor:
+  // el thumbnail de cada bloque en el canvas (CanvasBlock) y la Vista Previa
+  // completa (PreviewDialog) resuelven contra los mismos datos, con el mismo
+  // catálogo de bloques que usan los renderers reales (blocks.ts). Antes cada
+  // superficie tenía su propio diccionario de texto hardcodeado — ver
+  // buildDemoTicketData (build-ticket-data.ts) para el porqué.
+  const demoData = React.useMemo(
+    () => buildDemoTicketData(taxesQuery.data?.taxes ?? []),
+    [taxesQuery.data],
+  )
 
   const initialConfig: PrintTemplateConfig = React.useMemo(() => {
     return parseStoredConfig(existing?.config)
@@ -355,6 +367,7 @@ export function TemplateEditor({ existing }: Props) {
         open={previewOpen}
         config={config}
         mm={mm}
+        data={demoData}
         onClose={() => setPreviewOpen(false)}
       />
 
@@ -405,6 +418,7 @@ export function TemplateEditor({ existing }: Props) {
                 selected={selectedIdx === i}
                 paperSize={config.page_size}
                 mm={mm}
+                data={demoData}
                 onSelect={() => setSelectedIdx(i)}
                 onChange={(patch) => updateBlock(i, patch)}
                 onDelete={() => deleteBlock(i)}

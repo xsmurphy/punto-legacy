@@ -504,3 +504,45 @@ export function sortBlocksForRender<T extends { type: string; top: number; left:
   const normalized = blocks.map((b) => ({ ...b, type: normalizeBlockType(b.type) })) as T[]
   return normalized.sort((a, b) => a.top - b.top || a.left - b.left)
 }
+
+/**
+ * Valor de un bloque para superficies que NO repiten por ítem — el
+ * thumbnail de un bloque individual en el canvas del editor
+ * (canvas-block.tsx), que muestra UN bloque a la vez, no la plantilla
+ * completa. A diferencia de los renderers reales (que repiten un bloque de
+ * `ITEM_LINE_TYPES` una vez por producto vendido, ver `sortBlocksForRender`
+ * + el loop de agrupado en cada renderer), acá se resuelve contra el
+ * PRIMER ítem de `data.items` nada más. Los bloques de tabla
+ * (`item_receipt*`) devuelven una fila representativa, no el listado
+ * completo — el canvas es una miniatura de una sola fila, no una hoja.
+ *
+ * Reusa exactamente los mismos resolvers/helpers que la Vista Previa
+ * completa (`preview-dialog.tsx`) y los renderers reales — NUNCA un
+ * segundo diccionario de texto de ejemplo (esa fue la causa raíz del bug
+ * de IVA 5%/10% mostrando el mismo número: dos fuentes de verdad para "qué
+ * muestra un bloque").
+ */
+export function resolveSingleBlockPreview(block: PrintBlock, data: TicketData): string {
+  if (block.type === "payment_methods") {
+    const p = data.payments[0]
+    return p ? `${p.method}: ${formatMoney(p.amount, data)}` : ""
+  }
+  if (ITEM_TABLE_TYPES.has(block.type)) {
+    const item = data.items[0]
+    if (!item) return ""
+    const cols = itemTableColumns(block.type)
+    const parts = [ticketItemName(item)]
+    if (cols.qty) parts.push(String(item.qty))
+    if (cols.unitPrice) parts.push(formatMoney(item.unitPrice, data))
+    if (cols.total) parts.push(formatMoney(item.total, data))
+    return parts.join("  ")
+  }
+  if (ITEM_LINE_TYPES.has(block.type)) {
+    const item = data.items[0]
+    if (!item) return ""
+    const resolver = ITEM_FIELD_RESOLVERS[block.type]
+    return resolver ? resolver(item, data) ?? "" : ""
+  }
+  const resolver = BLOCK_VALUE_RESOLVERS[block.type]
+  return resolver ? resolver(data, block) ?? "" : ""
+}

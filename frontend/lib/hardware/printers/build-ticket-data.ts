@@ -1,7 +1,10 @@
 import type { CreateSalePayload, CreateSaleResult } from "@/lib/commands/create-sale"
+import { buildSalePayload } from "@/lib/commands/create-sale"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useCartStore } from "@/lib/cart/store"
 import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
+import type { Tax } from "@/lib/types/tax"
 
 export interface TicketData {
   // empresa / tenant
@@ -806,4 +809,291 @@ export function buildTicketDataFromRemision(
     payments: [],
     note: remision.note || undefined,
   }
+}
+
+// ── Datos de demostración para el editor de plantillas (Vista Previa) ──────
+// Antes la Vista Previa (preview-dialog.tsx) resolvía cada bloque contra un
+// diccionario de strings hardcodeadas (`lib/print-template-mock.ts`, ya
+// eliminado) que nunca pasaba por BLOCK_VALUE_RESOLVERS/ITEM_FIELD_RESOLVERS
+// — dos fuentes de verdad para "qué muestra un bloque", y la del preview
+// divergió: mostraba el MISMO número ("110.909") para IVA 5% y 10% porque
+// indexaba solo por BlockType, ignorando `block.text` (donde vive el taxId
+// del bloque por-tasa). Esta función es la ÚNICA fuente de datos de demo:
+// arma un TicketData con una venta ficticia pero ARITMÉTICAMENTE REAL, que
+// el preview (y el thumbnail del canvas, canvas-block.tsx) resuelven con el
+// MISMO catálogo de bloques que usan render-template.ts/html-renderer.ts —
+// no puede volver a divergir de la impresión real de una venta.
+//
+// `taxes` son las tasas REALES del tenant (useTaxes(), ya cargadas por
+// TemplateEditor para la paleta de bloques). El `defaultText` que la paleta
+// escribe en un bloque `subtotal_by_rate`/`iva_by_rate`/`item_total_by_rate`
+// es el `taxId` real (print-template-palette.ts `buildTaxRateSection`), así
+// que los ítems de demo tienen que llevar ESE MISMO taxId — un taxId
+// inventado dejaría esos bloques en blanco en el preview (mismo resultado
+// que ve el comercio si el bloque no matchea ningún impuesto suyo).
+/**
+ * Shape mínimo de impuesto que `buildDemoTicketData` necesita (id/rate/kind
+ * nomás). Angostado a propósito: el caller original (`TemplateEditor`,
+ * `useTaxes()`) trae `Tax[]` completo (con `name`/`extra`/`sortOrder`/etc,
+ * `lib/types/tax.ts`), pero `buildTicketDataForTest` (más abajo) solo tiene
+ * `PosTaxRate[]` a mano (`useCatalogStore.taxes`, el subset que viaja en el
+ * bootstrap del POS, `lib/types/pos-bootstrap.ts`) — ambos shapes satisfacen
+ * este contrato sin casts ni conversiones.
+ */
+type DemoTaxSource = Pick<Tax, "id" | "rate" | "kind">
+
+export function buildDemoTicketData(taxes: DemoTaxSource[]): TicketData {
+  // Las dos tasas "rate" (no exentas) más altas del tenant — típicamente IVA
+  // 10%/5% en Paraguay (TaxService siembra estas por defecto en el signup,
+  // context/38 §A). Con una sola tasa cargada, ambos ítems de demo caen en
+  // el mismo bucket (mismo resultado que vería ese comercio real); con cero,
+  // quedan sin taxId — no hay bloques por-tasa en la paleta en ese caso
+  // (buildTaxRateSection solo agrega la sección "Impuestos" con
+  // `taxes.length > 0`, print-template-palette.ts).
+  const rateTaxes = taxes
+    .filter((t) => t.kind === "rate" && t.rate !== null)
+    .sort((a, b) => (b.rate ?? 0) - (a.rate ?? 0))
+  const taxA = rateTaxes[0] ?? null
+  const taxB = rateTaxes[1] ?? rateTaxes[0] ?? null
+
+  /**
+   * IVA incluido en el precio (Paraguay, ver trampa documentada en el brief
+   * de la tarea): el monto de impuesto de un precio con IVA YA incluido es
+   * `gross * rate / (100 + rate)` — 10% → gross/11, 5% → gross/21. NUNCA
+   * `gross * rate/100` (eso sería IVA agregado, no incluido).
+   */
+  function taxedLine(name: string, uid: string, qty: number, grossUnitPrice: number, tax: DemoTaxSource | null): TicketItem {
+    const gross = qty * grossUnitPrice
+    const rate = tax?.rate ?? 0
+    const taxAmount = tax ? Math.round((gross * rate) / (100 + rate)) : 0
+    const taxNet = gross - taxAmount
+    return {
+      name,
+      qty,
+      unitPrice: grossUnitPrice,
+      discountAmount: 0,
+      discountPercent: 0,
+      total: gross,
+      categoryId: null,
+      id: null,
+      uid,
+      note: null,
+      tags: null,
+      taxId: tax?.id ?? null,
+      taxRate: tax ? rate : null,
+      taxKind: tax ? tax.kind : "exempt",
+      taxIncluded: true,
+      taxAmount: tax ? taxAmount : null,
+      taxNet: tax ? taxNet : null,
+    }
+  }
+
+  const items: TicketItem[] = [
+    taxedLine("Producto A", "SKU-001", 2, 50_000, taxA),
+    taxedLine("Producto B", "SKU-002", 1, 100_000, taxB),
+  ]
+
+  const subtotal = items.reduce((s, i) => s + (i.taxNet ?? i.total), 0)
+  const taxTotal = items.reduce((s, i) => s + (i.taxAmount ?? 0), 0)
+  const total = items.reduce((s, i) => s + i.total, 0)
+
+  return {
+    companyName: "Mi Empresa S.A.",
+    companyBillingName: "Mi Empresa Sociedad Anónima",
+    companyTin: "80012345-6",
+    companyAddress: "Av. España 1234, Asunción",
+    companyEmail: "info@miempresa.com",
+    companyPhone: "021 111-222",
+    companyWebsite: "www.miempresa.com",
+    outletName: "Casa Central",
+    outletAddress: "Av. España 1234, Asunción",
+    outletBillingName: "Mi Empresa S.A. – Casa Central",
+    outletTin: "80012345-6",
+    outletPhone: "021 111-222",
+    customerName: "Comercial Ejemplo S.R.L.",
+    customerAddress: "Mariscal López 567",
+    customerAddress2: "Edificio Torre, Piso 4",
+    customerLocation: "Trinidad",
+    customerCity: "Asunción",
+    customerCountry: "Paraguay",
+    customerPhone: "0981 234-567",
+    customerPhone2: "0971 765-432",
+    customerTin: "80098765-4",
+    customerEmail: "cliente@email.com",
+    customerNote: "Nota del cliente",
+    customerLoyalty: "1.250",
+    customerBirthday: "1985-03-15",
+    docType: "invoice",
+    documentNumber: "001-001-0000123",
+    documentPrefix: "001-001-",
+    documentSufix: "0000123",
+    ticketNo: "123",
+    transactionId: "TX-789456",
+    dueDate: "2026-07-12",
+    tags: ["etiqueta1", "etiqueta2"],
+    associatedDocument: "001-001-0000099",
+    einvoiceUrl: "https://ekuatia.set.gov.py/consultas/qr?demo",
+    userName: "Juan Pérez",
+    registerName: "Caja Principal",
+    printerName: "Impresora 1",
+    authNumber: "12345678",
+    authStartDate: "2025-01-01",
+    authExpiration: "2026-12-31",
+    date: "2026-06-12 14:35",
+    items,
+    subtotal,
+    discount: 0,
+    taxTotal,
+    total,
+    currency: "Gs",
+    thousand: "dot",
+    decimal: "no",
+    payments: [{ method: "Efectivo", amount: total }],
+    note: "Gracias por su compra",
+    orderDestination: "Mesa 3",
+  }
+}
+
+// ── Ticket de PRUEBA (botón "Probar" de impresoras, Ajustes → Impresoras) ──
+// El owner pidió ver el FORMATO REAL de la plantilla en vez del texto fijo
+// "Prueba de impresión" que imprimía antes (`printTest` en
+// `lib/hardware/printers/index.ts`). Esta función es la única fuente de
+// datos para esa prueba — usa el carrito EN CURSO por el MISMO camino
+// aritmético que una venta real (`buildSalePayload` → `buildTicketData`), así
+// columnas por tasa, liquidación de IVA y totales salen calculados de
+// verdad, no hardcodeados.
+//
+// Carrito vacío (o la prueba se dispara desde un contexto sin carrito, ej. la
+// pantalla de Estación de Impresión) → `buildDemoTicketData()`, la MISMA
+// fuente que ya usa el preview del editor de plantillas — así "Probar"
+// siempre imprime algo con formato real, incluso sin venta en curso.
+//
+// NUNCA toca numeración/stock/cola offline: `buildSalePayload` es una
+// función PURA (solo arma el shape del payload en memoria, sin I/O) y acá no
+// se llama `executeSale`/ningún POST — no se persiste transacción ni se
+// consume la numeración real de la caja. El número de comprobante es SIEMPRE
+// el correlativo de EJEMPLO "001-001-0000000" (pedido owner) — jamás
+// `getNextInvoiceNo()`/`DocumentNumber::allocate()`/`advanceTo()`.
+//
+// Cliente enmascarado (pedido owner 2026-08-18, ampliado el mismo día tras
+// review): imprimir CUALQUIER dato de un cliente real en un ticket de PRUEBA
+// lo expondría sin necesidad — TODOS los campos `customerXxx` de TicketData
+// salen con un placeholder ficticio, nunca el dato real. Los datos de la
+// venta (líneas, cantidades, precios, descuentos, impuestos, totales) y los
+// del COMERCIO (companyName/companyTin/outletName/etc, logo, timbrado) siguen
+// reales — ver `maskCustomerFields` abajo para el detalle y el porqué de
+// enmascarar en un solo punto en vez de campo por campo en cada bloque.
+export function buildTicketDataForTest(): TicketData {
+  const cart = useCartStore.getState()
+  const { config, taxes } = useCatalogStore.getState()
+
+  const base: TicketData =
+    cart.lines.length === 0 ? buildDemoTicketData(taxes) : buildTicketDataFromCartForTest(cart, config)
+
+  return {
+    ...maskCustomerFields(base),
+    documentNumber: "001-001-0000000",
+    documentPrefix: "001-001-",
+    documentSufix: "0000000",
+  }
+}
+
+/**
+ * Placeholders de cliente para el ticket de PRUEBA — un valor ficticio por
+ * campo, en el mismo estilo que pidió el owner para nombre/RUC ("Prueba de
+ * impresión" / "XXXXXX-X"): evidentemente falso, NUNCA vacío, para que el
+ * owner vea el bloque ocupado y bien posicionado (mismo criterio que el
+ * correlativo de ejemplo "001-001-0000000").
+ */
+const TEST_CUSTOMER_PLACEHOLDERS: Partial<Record<keyof TicketData, string>> = {
+  customerName: "Prueba de impresión",
+  customerTin: "XXXXXX-X",
+  customerAddress: "Dirección de prueba 123",
+  customerAddress2: "Dirección de prueba 123",
+  customerPhone: "0000 000-000",
+  customerPhone2: "0000 000-000",
+  customerLocation: "Ciudad de prueba",
+  customerCity: "Ciudad de prueba",
+  customerCountry: "País de prueba",
+  customerEmail: "prueba@ejemplo.com",
+  customerNote: "Nota de prueba",
+  customerLoyalty: "0",
+  customerBirthday: "2000-01-01",
+}
+
+/**
+ * Enmascara TODO dato de CLIENTE de un TicketData de prueba — un solo punto
+ * (pedido owner: "atacar el wrapper compartido, no los call-sites"), no
+ * campo por campo en cada bloque de `blocks.ts`. Recorre las keys del propio
+ * `TicketData` en vez de listar bloques a mano: cualquier campo que empiece
+ * con "customer" y tenga un valor se pisa con un placeholder. El catálogo de
+ * bloques (`blocks.ts`: `customer_name`/`customer_full_name`/`customer_tin`/
+ * `customer_ci`/`customer_address`/`customer_phone`/`customer_address_2`/
+ * `customer_location`/`customer_city`/`customer_country`/`customer_phone_2`/
+ * `customer_note`/`customer_loyalty`/`customer_birthday`/`customer_email`)
+ * resuelve TODOS estos campos directo contra `TicketData` — enmascarar acá,
+ * el objeto que alimenta a esos resolvers, cubre el catálogo completo de una
+ * sola vez. Un bloque de cliente NUEVO que se agregue mañana queda cubierto
+ * automáticamente mientras su campo en `TicketData` empiece con "customer" —
+ * no hace falta acordarse de venir a sumarlo acá.
+ *
+ * SOLO datos de cliente: los datos del COMERCIO (`companyName`/`companyTin`/
+ * `companyAddress`/`companyEmail`/`companyWebsite`, `outletName`/`outletTin`/
+ * `outletAddress`/`outletPhone`, logo, timbrado) no empiezan con "customer" —
+ * quedan afuera del loop, reales tanto en venta como en prueba (el owner
+ * necesita verificar cómo salen esos en el papel).
+ */
+function maskCustomerFields(data: TicketData): TicketData {
+  const masked: Record<string, unknown> = { ...data }
+  for (const key of Object.keys(masked)) {
+    if (!key.startsWith("customer")) continue
+    if (masked[key] == null) continue // sin dato real (ni siquiera en la demo) — nada que enmascarar
+    masked[key] = TEST_CUSTOMER_PLACEHOLDERS[key as keyof TicketData] ?? "Dato de prueba"
+  }
+  return masked as unknown as TicketData
+}
+
+function buildTicketDataFromCartForTest(
+  cart: ReturnType<typeof useCartStore.getState>,
+  config: PosConfig | null,
+): TicketData {
+  const payload = buildSalePayload({
+    lines: cart.lines,
+    payments: [],
+    credito: cart.credito,
+    interno: cart.interno,
+    customer: cart.customer,
+    userId: null,
+    tags: cart.tags,
+    quoteParentId: cart.quoteParentId,
+    saleDiscount: cart.saleDiscount,
+    timezone: config?.timezone ?? null,
+    dueDate: null,
+    ivaRemoved: cart.ivaRemoved,
+    // `invoiceno` es OBLIGATORIO en el shape de BuildSaleInput (context/29,
+    // numeración/exclusividad de caja) pero acá es un placeholder puro: este
+    // `payload` NUNCA se manda al backend (no hay `executeSale`/POST en esta
+    // función), solo se usa en memoria para recalcular subtotal/descuento/
+    // impuestos por línea igual que una venta real. Un ticket de PRUEBA jamás
+    // puede tocar `getNextInvoiceNo()`/consumir el lease — el número que
+    // termina impreso es SIEMPRE el correlativo de ejemplo que se pisa más
+    // abajo en `buildTicketDataForTest` ("001-001-0000000"), nunca este 0.
+    invoiceno: 0,
+  })
+  const total = Math.max(0, payload.subtotal - payload.discount)
+  // Pago de relleno: la prueba puede dispararse antes de que el cajero elija
+  // un método de pago real (solo quiere ver el formato) — un "Efectivo" por
+  // el total cierra el bloque de pagos si la plantilla lo trae, sin registrar
+  // ningún cobro real.
+  payload.payment = [{ name: "Efectivo", total }]
+
+  const result: CreateSaleResult = {
+    transactionId: "PRUEBA",
+    transactionUID: payload.uid,
+    invoiceNumber: null,
+    total,
+    duplicated: false,
+    einvoicePortalUrl: null,
+  }
+  return buildTicketData({ payload, result, config })
 }
