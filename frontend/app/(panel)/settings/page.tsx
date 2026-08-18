@@ -3,10 +3,10 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { useForm, type UseFormReturn } from "react-hook-form"
+import { useForm, type Resolver, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid } from "lucide-react"
+import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid, Search } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -149,8 +149,9 @@ const settingsSchema = z.object({
   weightBarcodes: z.boolean(),
   deletedItemsHistory: z.boolean(),
   // Asistente IA — editable desde AgentSettingsDialog (chat), no desde este
-  // modal. Igual tiene que viajar en el form para no perderse cuando el
-  // usuario guarda otra sección (el POST manda el objeto completo).
+  // modal. Viven en el schema porque el form los hidrata desde el GET, pero
+  // ninguna seccion de este modal los manda: el merge parcial del backend los
+  // deja intactos al guardar Empresa o POS (ver SECTION_FIELDS).
   agentName: z.string(),
   agentPersonality: z.enum(["professional", "friendly", "direct", "teacher"]),
 })
@@ -164,6 +165,17 @@ type SettingsSection =
   | "apariencia"
   | "modules"
   | "plan"
+
+// Normaliza acentos para que "impresion" matchee "Impresoras", "modulos"
+// matchee "Módulos", etc. Mismo patrón que components/modules/modules-panel.tsx
+// y lib/catalog/search.ts — no hay helper compartido en lib/ hoy, así que se
+// repite localmente en vez de crear una dependencia nueva por 3 líneas.
+function normalize(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+}
 
 // `href` opcional: si está definido, el item del sidebar navega directo a esa
 // URL (cerrando el modal) en lugar de switchear la sección interna. Útil para
@@ -202,7 +214,41 @@ const SECTIONS: {
 // Sections que escriben al form de settings — solo en esas mostramos el botón
 // "Guardar" del header. Monedas tiene su propia mutation con botón propio;
 // Documentos y Catálogo no escriben configuración (son listados / navegación).
-const FORM_SECTIONS: SettingsSection[] = ["empresa", "pos", "apariencia"]
+//
+// "Apariencia" NO está acá aunque edite preferencias visibles: su único control
+// es el ThemePicker, que persiste en el cliente vía next-themes y nunca tocó
+// este form (ver SECTION_FIELDS, su lista es vacía). Mientras estuvo en la
+// lista, la sección mostraba un "Guardar" que mandaba un payload vacío y
+// devolvía un toast de éxito sin haber guardado nada — un botón que miente.
+const FORM_SECTIONS: SettingsSection[] = ["empresa", "pos"]
+
+// Qué keys del form manda cada sección al guardar — el merge parcial del
+// backend (SettingsService::updateGeneral) solo toca las keys presentes en
+// el payload, así que esto ES el contrato de "qué puede tocar esta sección".
+// Debe reflejar exactamente los <FormField name="..."> que cada tab renderiza
+// (EmpresaTab + LocaleTab para "empresa", PosTab para "pos") — si se agrega
+// un campo a un tab, agregarlo acá también. "apariencia" no tiene campos
+// propios hoy (el ThemePicker es 100% cliente, ver AparienciaTab): guardar
+// ahí manda un payload vacío, no-op válido en el backend.
+//
+// Reemplaza el patrón anterior (un solo useForm para las 3 secciones, submit
+// mandaba SIEMPRE los ~40 campos): eso hacía que guardar Apariencia pisara
+// RUC/rubro/etc. con lo que hubiera en el form en ese momento — ver
+// diagnóstico 2026-08-18 en context/29 y el fix en hooks/use-settings.ts.
+const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)[]>> = {
+  empresa: [
+    "name", "slug", "category", "website",
+    "language", "timeZone", "country", "currency", "decimal",
+    "thousandSeparator", "taxName", "tin", "taxPy",
+  ],
+  pos: [
+    "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
+    "drawerEmail", "drawerBlind", "blockUsedDocNo", "autoSendDocs",
+    "stockCountBlind", "itemSerialized", "deletedItemsHistory",
+    "creditLine", "storeCredit", "paymentId", "ignoreInternal",
+  ],
+  apariencia: [],
+}
 
 export default function SettingsPage() {
   const router = useRouter()
@@ -210,6 +256,17 @@ export default function SettingsPage() {
   const update = useUpdateSettings()
   const [open, setOpen] = React.useState(true)
   const [section, setSection] = React.useState<SettingsSection>("empresa")
+  // Filtro del buscador de secciones. Se deja vivir aunque el usuario cambie
+  // de sección (no se limpia en setSection): si filtró por "docu" para llegar
+  // a Documentos, lo más probable es que quiera seguir mirando esa misma
+  // vecindad (ej. después ir a Catálogo) sin retipear.
+  const [sectionQuery, setSectionQuery] = React.useState("")
+
+  const filteredSections = React.useMemo(() => {
+    const q = normalize(sectionQuery.trim())
+    if (!q) return SECTIONS
+    return SECTIONS.filter((s) => normalize(s.label).includes(q))
+  }, [sectionQuery])
 
   // Cuando el modal se cierra, salimos de la ruta /settings. router.back() si
   // hay history (caso común: vino del sidebar dropdown); fallback a "/" para
@@ -241,8 +298,38 @@ export default function SettingsPage() {
     [router],
   )
 
+  // Resolver acotado a la seccion activa. `settingsSchema` cubre los ~40
+  // campos del form, pero cada tab edita solo los suyos (SECTION_FIELDS) y
+  // varios campos del schema ya NO tienen UI en este modal — `email`, por
+  // ejemplo, se administra a nivel sucursal desde la mig de outlets.
+  //
+  // Validar el schema COMPLETO en cada submit hacía que un valor legacy
+  // invalido en un campo invisible bloqueara el guardado de cualquier
+  // seccion: `handleSubmit` se traga el fallo del resolver, `onSubmit` nunca
+  // corre, y no hay toast ni campo donde corregirlo — el usuario ve que
+  // "Guardar no hace nada". Es exactamente el fallo silencioso que este
+  // modal viene a eliminar, así que solo validamos lo que la seccion manda.
+  const sectionRef = React.useRef<SettingsSection>("empresa")
+  sectionRef.current = section
+
+  const resolver = React.useMemo(
+    () =>
+      ((values, context, options) => {
+        const fields = SECTION_FIELDS[sectionRef.current] ?? []
+        const schema = fields.length > 0
+          ? settingsSchema.pick(
+              Object.fromEntries(fields.map((f) => [f, true])) as Parameters<
+                typeof settingsSchema.pick
+              >[0],
+            )
+          : settingsSchema.pick({} as Parameters<typeof settingsSchema.pick>[0])
+        return zodResolver(schema)(values, context, options)
+      }) as Resolver<SettingsFormValues>,
+    [],
+  )
+
   const form = useForm<SettingsFormValues>({
-    resolver: zodResolver(settingsSchema),
+    resolver,
     defaultValues: emptyValues(),
   })
 
@@ -296,8 +383,26 @@ export default function SettingsPage() {
   }, [data, form])
 
   const onSubmit = async (values: SettingsFormValues) => {
+    // Guard defensivo: sin `data` no hay nada legítimo que guardar (el form
+    // está en emptyValues() — ver el useEffect de arriba). El botón ya queda
+    // disabled sin `data`, pero un Enter en un input dispara el submit del
+    // <form> igual, sin pasar por el botón. El segundo guard cubre un Enter
+    // presionado en una sección sin botón "Guardar" (ej. Documentos) — el
+    // <form> envuelve todo el modal, no solo la sección activa.
+    if (!data || !FORM_SECTIONS.includes(section)) return
+
+    const fields = SECTION_FIELDS[section] ?? []
+    // Sin campos que mandar no hay nada que guardar: cortar antes de disparar
+    // la mutation evita un POST vacío y un toast de éxito engañoso.
+    if (fields.length === 0) return
+
+    const partial: Partial<SettingsFormValues> = {}
+    for (const key of fields) {
+      ;(partial as Record<string, unknown>)[key] = values[key]
+    }
+
     try {
-      await update.mutateAsync(values)
+      await update.mutateAsync(partial)
       toast.success("Ajustes guardados")
     } catch (e) {
       toast.error("No se pudieron guardar los ajustes", {
@@ -343,31 +448,63 @@ export default function SettingsPage() {
             >
               {/* Sidebar interno. Vertical en desktop, horizontal scrolleable
                   en mobile. pr-12 mobile deja lugar al botón X absolute. */}
-              <nav
-                aria-label="Secciones de configuración"
-                className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:border-r sm:p-3 sm:pr-3"
-              >
-                {SECTIONS.map(({ id, label, icon: Icon, href }) => {
-                  const active = section === id
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => (href ? navigateAndClose(href) : setSection(id))}
-                      className={cn(
-                        "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
-                        active
-                          ? "bg-accent font-medium text-accent-foreground"
-                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                      )}
-                      aria-current={active ? "page" : undefined}
-                    >
-                      <Icon className="size-4 shrink-0" />
-                      <span>{label}</span>
-                    </button>
-                  )
-                })}
-              </nav>
+              <div className="flex shrink-0 flex-col border-b bg-card sm:border-b-0 sm:border-r">
+                {/* Buscador de secciones — solo desktop. En mobile el nav es
+                    una fila horizontal scrolleable de 14 chips: meter un input
+                    de ancho completo arriba le come una fila entera a un modal
+                    que ya recorta alto (max-sm:!h-dvh), a cambio de un
+                    beneficio chico — scrollear 14 chips con el dedo ya es
+                    rápido. En desktop sí vale la pena: es la columna vertical
+                    de 14 labels la que se beneficia de filtrar por texto
+                    (mismo patrón que el buscador de Claude). */}
+                <div className="hidden p-3 pb-0 sm:block">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      type="search"
+                      value={sectionQuery}
+                      onChange={(e) => setSectionQuery(e.target.value)}
+                      placeholder="Buscar…"
+                      aria-label="Buscar sección de configuración"
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+                <nav
+                  aria-label="Secciones de configuración"
+                  className="flex shrink-0 gap-0.5 overflow-x-auto p-2 pr-12 sm:flex-col sm:p-3 sm:pr-3"
+                >
+                  {filteredSections.length === 0 ? (
+                    // Vacío discreto: es un sidebar de 220px, no la página —
+                    // <EmptyState> (icono grande + título + descripción) no
+                    // entra ahí. Un texto chico alcanza.
+                    <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">
+                      Sin resultados
+                    </p>
+                  ) : (
+                    filteredSections.map(({ id, label, icon: Icon, href }) => {
+                      const active = section === id
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => (href ? navigateAndClose(href) : setSection(id))}
+                          className={cn(
+                            "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
+                            active
+                              ? "bg-accent font-medium text-accent-foreground"
+                              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                          )}
+                          aria-current={active ? "page" : undefined}
+                        >
+                          <Icon className="size-4 shrink-0" />
+                          <span>{label}</span>
+                        </button>
+                      )
+                    })
+                  )}
+                </nav>
+              </div>
 
               {/* Content area: header breadcrumb (+Guardar) + scroll vertical.
                   pr-14 deja espacio para el botón X del DialogContent (absolute
@@ -381,7 +518,7 @@ export default function SettingsPage() {
                     <span className="text-foreground">{activeLabel}</span>
                   </div>
                   {showSave && (
-                    <Button type="submit" size="sm" disabled={update.isPending || isLoading}>
+                    <Button type="submit" size="sm" disabled={update.isPending || isLoading || !data}>
                       {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
                       Guardar
                     </Button>
@@ -408,7 +545,7 @@ export default function SettingsPage() {
                     sin pelearse con el botón X del header del DialogContent. */}
                 {showSave && (
                   <div className="border-t bg-background p-3 sm:hidden">
-                    <Button type="submit" className="w-full" disabled={update.isPending || isLoading}>
+                    <Button type="submit" className="w-full" disabled={update.isPending || isLoading || !data}>
                       {update.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
                       Guardar {activeLabel}
                     </Button>

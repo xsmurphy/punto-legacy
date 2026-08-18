@@ -28,8 +28,8 @@
  * factura y el catálogo) — CreditPaymentService nunca lee registerId/drawerId
  * del ctx, así que es realm-agnostic: el pago desde panel (sin caja/drawer
  * activos) resuelve registerId de la primera factura y drawerId queda null
- * si no hay caja abierta (igual que el backfill manual — ver
- * DrawerService::resolveOpenDrawerId).
+ * si ningún turno de esa caja contiene la fecha del pago (ver
+ * DrawerService::resolveDrawerIdForDate).
  *
  * El guard de module==='pos' solo aplica al realm pos-app (bloquea devices
  * 'screen'/'kds' de cobrar crédito) — no aplica a panel, donde apiAuthTenant

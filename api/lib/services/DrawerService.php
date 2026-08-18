@@ -661,9 +661,14 @@ final class DrawerService
 
     /**
      * drawerId de la caja ABIERTA de un register (scopeado por company), o null.
-     * Helper compartido para sellar `transaction.drawerId` en el momento de la
-     * venta/pago (mig 70). Best-effort: cualquier fallo devuelve null → la venta
-     * se registra sin drawerId (recuperable por el fallback de fecha del resumen).
+     * Responde "¿hay caja abierta AHORA MISMO?" — legítimo para guards de
+     * abrir/cerrar caja, pero NUNCA para sellar `transaction.drawerId` en el
+     * money-path (ver `resolveDrawerIdForDate`, el reemplazo correcto ahí):
+     * una venta offline sincronizada tarde puede encontrar abierto un turno
+     * distinto al que realmente la cobró (bug verificado 2026-08-17,
+     * `context/modules/14-caja.md` regla 5).
+     *
+     * Best-effort: cualquier fallo devuelve null.
      *
      * Por register+company (sin outlet): el register ya determina el outlet, y
      * el money-path no siempre lo tiene a mano (el credit payment toma el
@@ -700,6 +705,59 @@ final class DrawerService
             return ($id !== null && $id !== '') ? (string) $id : null;
         } catch (\Throwable $e) {
             error_log('[DrawerService] resolveOpenDrawerId: ' . $e->getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * drawerId de la caja de `$registerId` (scopeada por company) cuyo rango
+     * `[drawerOpenDate, drawerCloseDate]` CONTIENE `$operationDate` — resuelve
+     * el turno por la fecha de la OPERACIÓN, no por "qué caja está abierta
+     * ahora". Reemplazo de `resolveOpenDrawerId` para el money-path: una venta
+     * offline se INSERTA recién al sincronizar, minutos u horas después de
+     * cobrada; preguntar "¿hay caja abierta?" en ese momento cuelga la venta
+     * del turno que esté abierto AL SINCRONIZAR, no del que la cobró (bug
+     * verificado 2026-08-17).
+     *
+     * Determinista y sin ambigüedad: `uidx_drawer_register_open` garantiza que
+     * nunca hay dos turnos abiertos a la vez en la misma caja, así que los
+     * rangos de una misma caja no se solapan — a lo sumo un candidato.
+     *
+     * Deliberadamente conservador — "fallar es más seguro que acertar mal":
+     * si `$operationDate` es null/vacío/no parseable, o si NINGÚN turno de la
+     * caja contiene esa fecha, devuelve null y NUNCA cae al turno abierto
+     * actual (eso es exactamente el bug que este método reemplaza). Un null
+     * es recuperable por el fallback de fecha del resumen (mig 70,
+     * `getPaymentBreakdown` et al.); un drawerId incorrecto no lo es, porque
+     * hace match exacto y gana sobre ese mismo fallback.
+     *
+     * Mismo centinela legacy que `resolveOpenDrawerId`/`findOpenRow`:
+     * `drawerCloseDate < '2000-01-01 00:00:00'` cuenta como "sigue abierto".
+     */
+    public static function resolveDrawerIdForDate(string $registerId, string $companyId, ?string $operationDate): ?string
+    {
+        if ($operationDate === null || $operationDate === '' || strtotime($operationDate) === false) {
+            return null;
+        }
+
+        try {
+            $row = ncmExecute(
+                'SELECT drawerId AS "drawerId" FROM drawer
+                 WHERE registerId = ? AND companyId = ?
+                 AND drawerOpenDate <= ?
+                 AND (drawerCloseDate IS NULL
+                      OR drawerCloseDate < \'2000-01-01 00:00:00\'
+                      OR drawerCloseDate >= ?)
+                 ORDER BY drawerOpenDate DESC LIMIT 1',
+                [$registerId, $companyId, $operationDate, $operationDate]
+            );
+            if (!$row) {
+                return null;
+            }
+            $id = $row['drawerId'] ?? null;
+            return ($id !== null && $id !== '') ? (string) $id : null;
+        } catch (\Throwable $e) {
+            error_log('[DrawerService] resolveDrawerIdForDate: ' . $e->getMessage());
             return null;
         }
     }

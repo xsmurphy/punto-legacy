@@ -106,61 +106,68 @@ if ($method === 'POST') {
     // que daba isValid; db_prepare() hoy es no-op, así que no se pierde
     // sanitización.
     $s = fn($k) => is_scalar($_POST[$k] ?? null) ? trim((string) $_POST[$k]) : '';
+    // Presencia real en el payload, NO el valor. `isset($_POST[$k])` colapsa
+    // null (PHP lo trata igual que "no existe"), y `?? ''` ya escondía la
+    // distinción antes de llegar acá. `array_key_exists` es la única forma
+    // correcta de saber si el cliente mandó la key: el form ahora manda solo
+    // los campos de la sección que se está guardando (ver serialize() en
+    // frontend/hooks/use-settings.ts), así que una key ausente significa "no
+    // tocar", no "vaciar". Fix del bug donde guardar Apariencia pisaba RUC/
+    // rubro con '' porque el POST mandaba SIEMPRE los ~40 campos del form
+    // (reporte owner 2026-08-18: settingThousandSeparator quedó '' tras un
+    // guardado que no la tocaba).
+    $present = fn($k) => array_key_exists($k, $_POST);
 
-    $fields = [
-        'name'           => $s('name'),
-        'address'        => $s('address'),
-        'website'        => $s('website'),
-        'email'          => $s('email'),
-        'ruc'            => $s('ruc'),
-        'phone'          => $s('phone'),
-        'city'           => $s('city'),
-        'country'        => $s('country'),
-        'language'       => $s('language'),
-        'timeZone'       => $s('timeZone'),
-        'currency'       => $s('currency'),
-        'taxName'        => $s('taxName'),
-        'billingName'    => $s('billingName'),
-        'tin'            => $s('tin'),
-        'billDetail'     => $s('billDetail'),
-        'category'       => $s('category'),
+    $fields = [];
+
+    $stringMap = [
+        'name', 'address', 'website', 'email', 'ruc', 'phone', 'city',
+        'country', 'language', 'timeZone', 'currency', 'taxName',
+        'billingName', 'tin', 'billDetail', 'category',
         // Identificador único de la empresa (URLs públicas). Normalizado y
         // validado server-side en SettingsService::updateGeneral() — acá solo
         // pasa el crudo trimeado, nunca confiamos en el charset del cliente.
-        'slug'           => $s('slug'),
-        'thousandSeparator' => $s('thousandSeparator'),
-        'itemsSaleLimit' => $s('itemsSaleLimit'),
-        // Asistente IA — nombre y personalidad por empresa (context/22 no aplica;
-        // ver SettingsService::AGENT_PERSONALITIES para el enum). Nombre truncado
-        // acá (mb_substr, respeta multibyte) y personalidad clampeada al enum
-        // cerrado — nunca texto libre del cliente llega al system prompt.
-        'agentName'      => mb_substr(trim($s('agentName')), 0, 40),
-        'agentPersonality' => in_array($s('agentPersonality'), \Punto\Api\Settings\SettingsService::AGENT_PERSONALITIES, true)
-            ? $s('agentPersonality')
-            : 'professional',
-        'social'         => [
-            'facebook'  => $s('facebook'),
-            'instagram' => $s('instagram'),
-            'youtube'   => $s('youtube'),
-            'twitter'   => $s('twitter'),
-        ],
-        'decimal'             => $b('decimal'),
-        'sellsoldout'         => $b('sellsoldout'),
-        'itemSerialized'      => $b('itemSerialized'),
-        'drawerEmail'         => $b('drawerEmail'),
-        'drawerBlind'         => $b('drawerBlind'),
-        'settingRemoveTaxes'  => $b('settingRemoveTaxes'),
-        'paymentId'           => $b('paymentId'),
-        'creditLine'          => $b('creditLine'),
-        'storeCredit'         => $b('storeCredit'),
-        'ignoreInternal'      => $b('ignoreInternal'),
-        'stockCountBlind'     => $b('stockCountBlind'),
-        'blockUsedDocNo'      => $b('blockUsedDocNo'),
-        'autoSendDocs'        => $b('autoSendDocs'),
-        'taxPy'               => $b('taxPy'),
-        'weightBarcodes'      => $b('weightBarcodes'),
-        'deletedItemsHistory' => $b('deletedItemsHistory'),
+        'slug', 'thousandSeparator', 'itemsSaleLimit',
     ];
+    foreach ($stringMap as $k) {
+        if ($present($k)) { $fields[$k] = $s($k); }
+    }
+
+    // Asistente IA — nombre y personalidad por empresa (context/22 no aplica;
+    // ver SettingsService::AGENT_PERSONALITIES para el enum). Nombre truncado
+    // acá (mb_substr, respeta multibyte) y personalidad clampeada al enum
+    // cerrado — nunca texto libre del cliente llega al system prompt.
+    if ($present('agentName')) {
+        $fields['agentName'] = mb_substr(trim($s('agentName')), 0, 40);
+    }
+    if ($present('agentPersonality')) {
+        $fields['agentPersonality'] = in_array($s('agentPersonality'), \Punto\Api\Settings\SettingsService::AGENT_PERSONALITIES, true)
+            ? $s('agentPersonality')
+            : 'professional';
+    }
+
+    // Redes sociales: viaja como 4 keys flat (facebook/instagram/youtube/
+    // twitter), no anidado — el nesting a 'social' es solo interno para
+    // SettingsService::updateGeneral(), que mergea contra lo existente
+    // (mismo criterio que settingObj) si alguna subkey vino en el payload.
+    $socialKeys = ['facebook', 'instagram', 'youtube', 'twitter'];
+    $socialPresent = array_filter($socialKeys, $present);
+    if ($socialPresent) {
+        $fields['social'] = [];
+        foreach ($socialKeys as $k) {
+            if ($present($k)) { $fields['social'][$k] = $s($k); }
+        }
+    }
+
+    $boolMap = [
+        'decimal', 'sellsoldout', 'itemSerialized', 'drawerEmail', 'drawerBlind',
+        'settingRemoveTaxes', 'paymentId', 'creditLine', 'storeCredit',
+        'ignoreInternal', 'stockCountBlind', 'blockUsedDocNo', 'autoSendDocs',
+        'taxPy', 'weightBarcodes', 'deletedItemsHistory',
+    ];
+    foreach ($boolMap as $k) {
+        if ($present($k)) { $fields[$k] = $b($k); }
+    }
 
     try {
         if (!$svc->updateGeneral(COMPANY_ID, $fields)) {
