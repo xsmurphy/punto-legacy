@@ -1,4 +1,4 @@
--- 144_transaction_drawerid_backfill_by_date.sql
+-- 147_transaction_drawerid_backfill_by_date.sql
 -- Recorrige transaction.drawerid mal atribuido por resolveOpenDrawerId().
 --
 -- Hasta hoy, transaction.drawerid (mig 70/71) se resolvía preguntando "¿qué
