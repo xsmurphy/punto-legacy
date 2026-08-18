@@ -975,12 +975,14 @@ export function buildDemoTicketData(taxes: DemoTaxSource[]): TicketData {
 // el correlativo de EJEMPLO "001-001-0000000" (pedido owner) — jamás
 // `getNextInvoiceNo()`/`DocumentNumber::allocate()`/`advanceTo()`.
 //
-// Cliente enmascarado (pedido owner 2026-08-18): si hay un cliente real
-// seleccionado en el carrito, imprimir su nombre/RUC en un ticket de PRUEBA
-// expondría datos de un cliente real sin necesidad — se sustituyen por un
-// valor de relleno. El resto de los datos de la venta (líneas, cantidades,
-// precios, descuentos, impuestos, totales) siguen siendo los reales del
-// carrito; el owner acotó el enmascarado a esos dos campos nomás.
+// Cliente enmascarado (pedido owner 2026-08-18, ampliado el mismo día tras
+// review): imprimir CUALQUIER dato de un cliente real en un ticket de PRUEBA
+// lo expondría sin necesidad — TODOS los campos `customerXxx` de TicketData
+// salen con un placeholder ficticio, nunca el dato real. Los datos de la
+// venta (líneas, cantidades, precios, descuentos, impuestos, totales) y los
+// del COMERCIO (companyName/companyTin/outletName/etc, logo, timbrado) siguen
+// reales — ver `maskCustomerFields` abajo para el detalle y el porqué de
+// enmascarar en un solo punto en vez de campo por campo en cada bloque.
 export function buildTicketDataForTest(): TicketData {
   const cart = useCartStore.getState()
   const { config, taxes } = useCatalogStore.getState()
@@ -989,13 +991,66 @@ export function buildTicketDataForTest(): TicketData {
     cart.lines.length === 0 ? buildDemoTicketData(taxes) : buildTicketDataFromCartForTest(cart, config)
 
   return {
-    ...base,
-    customerName: "Prueba de impresión",
-    customerTin: "XXXXXX-X",
+    ...maskCustomerFields(base),
     documentNumber: "001-001-0000000",
     documentPrefix: "001-001-",
     documentSufix: "0000000",
   }
+}
+
+/**
+ * Placeholders de cliente para el ticket de PRUEBA — un valor ficticio por
+ * campo, en el mismo estilo que pidió el owner para nombre/RUC ("Prueba de
+ * impresión" / "XXXXXX-X"): evidentemente falso, NUNCA vacío, para que el
+ * owner vea el bloque ocupado y bien posicionado (mismo criterio que el
+ * correlativo de ejemplo "001-001-0000000").
+ */
+const TEST_CUSTOMER_PLACEHOLDERS: Partial<Record<keyof TicketData, string>> = {
+  customerName: "Prueba de impresión",
+  customerTin: "XXXXXX-X",
+  customerAddress: "Dirección de prueba 123",
+  customerAddress2: "Dirección de prueba 123",
+  customerPhone: "0000 000-000",
+  customerPhone2: "0000 000-000",
+  customerLocation: "Ciudad de prueba",
+  customerCity: "Ciudad de prueba",
+  customerCountry: "País de prueba",
+  customerEmail: "prueba@ejemplo.com",
+  customerNote: "Nota de prueba",
+  customerLoyalty: "0",
+  customerBirthday: "2000-01-01",
+}
+
+/**
+ * Enmascara TODO dato de CLIENTE de un TicketData de prueba — un solo punto
+ * (pedido owner: "atacar el wrapper compartido, no los call-sites"), no
+ * campo por campo en cada bloque de `blocks.ts`. Recorre las keys del propio
+ * `TicketData` en vez de listar bloques a mano: cualquier campo que empiece
+ * con "customer" y tenga un valor se pisa con un placeholder. El catálogo de
+ * bloques (`blocks.ts`: `customer_name`/`customer_full_name`/`customer_tin`/
+ * `customer_ci`/`customer_address`/`customer_phone`/`customer_address_2`/
+ * `customer_location`/`customer_city`/`customer_country`/`customer_phone_2`/
+ * `customer_note`/`customer_loyalty`/`customer_birthday`/`customer_email`)
+ * resuelve TODOS estos campos directo contra `TicketData` — enmascarar acá,
+ * el objeto que alimenta a esos resolvers, cubre el catálogo completo de una
+ * sola vez. Un bloque de cliente NUEVO que se agregue mañana queda cubierto
+ * automáticamente mientras su campo en `TicketData` empiece con "customer" —
+ * no hace falta acordarse de venir a sumarlo acá.
+ *
+ * SOLO datos de cliente: los datos del COMERCIO (`companyName`/`companyTin`/
+ * `companyAddress`/`companyEmail`/`companyWebsite`, `outletName`/`outletTin`/
+ * `outletAddress`/`outletPhone`, logo, timbrado) no empiezan con "customer" —
+ * quedan afuera del loop, reales tanto en venta como en prueba (el owner
+ * necesita verificar cómo salen esos en el papel).
+ */
+function maskCustomerFields(data: TicketData): TicketData {
+  const masked: Record<string, unknown> = { ...data }
+  for (const key of Object.keys(masked)) {
+    if (!key.startsWith("customer")) continue
+    if (masked[key] == null) continue // sin dato real (ni siquiera en la demo) — nada que enmascarar
+    masked[key] = TEST_CUSTOMER_PLACEHOLDERS[key as keyof TicketData] ?? "Dato de prueba"
+  }
+  return masked as unknown as TicketData
 }
 
 function buildTicketDataFromCartForTest(
