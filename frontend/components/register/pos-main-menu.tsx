@@ -914,6 +914,15 @@ function AccountOverview({
                     </CardTitle>
                   </CardHeader>
                   <CardContent className="flex min-h-0 flex-1 flex-col gap-2">
+                    {/* Solo la dona (pedido del owner 2026-08-18): se sacó la
+                        lista de métodos con montos que vivía debajo. Lo que esa
+                        lista aportaba —mapeo color→método y monto exacto— no se
+                        pierde: la leyenda va DENTRO del propio chart (mismo
+                        patrón `ChartLegend`/`ChartLegendContent` que "Ventas por
+                        hora" arriba) y el monto exacto sigue en el tooltip al
+                        tocar/pasar sobre una porción. Nada de esto agrega una
+                        fila nueva fuera del chart: el legend entra en el alto
+                        que ya ocupaba la lista, sin desplazar controles. */}
                     <ChartContainer
                       config={paymentChartConfig}
                       className="mx-auto aspect-square min-h-0 flex-1"
@@ -954,26 +963,9 @@ function AccountOverview({
                             <Cell key={slice.name} fill={slice.fill} />
                           ))}
                         </Pie>
+                        <ChartLegend content={<ChartLegendContent nameKey="name" />} />
                       </PieChart>
                     </ChartContainer>
-                    {/* Leyenda: única lista con scroll propio si el tenant tiene
-                        muchos métodos — el card no crece ni empuja el layout. */}
-                    <ul className="flex shrink-0 flex-col gap-1 overflow-y-auto">
-                      {paymentSlices.map((slice) => (
-                        <li key={slice.name} className="flex items-center gap-2 text-xs">
-                          <span
-                            className="size-2 shrink-0 rounded-[2px]"
-                            style={{ backgroundColor: slice.fill }}
-                          />
-                          <span className="flex-1 truncate text-muted-foreground">
-                            {slice.name}
-                          </span>
-                          <span className="font-medium tabular-nums">
-                            {formatMoney(slice.amount, config)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
                   </CardContent>
                 </Card>
               )}
