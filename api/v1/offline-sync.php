@@ -5,6 +5,7 @@ require_once dirname(__DIR__) . '/bootstrap.php';
 
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\Sales\Exceptions\DuplicateInvoiceNumberException;
 use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
@@ -111,6 +112,33 @@ foreach ($sales as $item) {
 
     try {
         $result = $service->save($input);
+    } catch (DuplicateInvoiceNumberException $e) {
+        // mig 145 — choque REAL contra uq_transaction_expedition_invoiceno,
+        // NO un reintento del mismo uid (eso es DuplicateSaleException, más
+        // abajo, y sigue devolviendo ok=true). §53 (context/08 §53): esto es
+        // "estado compartido" (numeración exclusiva), la misma excepción que
+        // ya justifica bloquear REGISTER_NOT_HELD aunque la venta ya se haya
+        // emitido/impreso en el device — no evapora la venta: queda con
+        // ok=false por-item, sin tumbar el resto del lote, y el front la deja
+        // en la cola local (IndexedDB) con status 'failed' para revisión
+        // manual del operador.
+        //
+        // code 'NUMBER_TAKEN': slot YA RESERVADO en
+        // frontend/components/pos/sync-queue-dialog.tsx (PERMANENT_ERROR_CODES),
+        // sin otro caller en el repo — este es exactamente el caso para el
+        // que existía. Reusarlo (no inventar DUPLICATE_INVOICE_NUMBER) hace
+        // que el diálogo lo trate como error PERMANENTE (sin botón
+        // "Reintentar" — reintentar el mismo payload vuelve a chocar
+        // siempre) sin tocar el front.
+        $results[] = [
+            'clientTempId' => $tempId,
+            'ok'           => false,
+            'error'        => [
+                'code'    => 'NUMBER_TAKEN',
+                'message' => $e->getMessage(),
+            ],
+        ];
+        continue;
     } catch (DuplicateSaleException $e) {
         $results[] = [
             'clientTempId' => $tempId,

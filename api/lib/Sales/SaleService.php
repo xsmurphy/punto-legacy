@@ -8,6 +8,7 @@ use Punto\Api\Context\TenantContext;
 use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Items\AddonService;
 use Punto\Api\Items\Exceptions\InvalidAddonSelectionException;
+use Punto\Api\Sales\Exceptions\DuplicateInvoiceNumberException;
 use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
@@ -238,6 +239,18 @@ final class SaleService
         }
 
         if ($failed || $insertOk === false || empty($transId) || !$persisted) {
+            // mig 145 — choque REAL de numeración: (companyId, registerId,
+            // timbrado, invoiceNo) ya existe bajo OTRO transactionUID. Chequear
+            // ANTES del 23505 genérico de abajo: ambos violan una UNIQUE y
+            // devuelven el mismo SQLSTATE, pero significan cosas opuestas — este
+            // es un comprobante duplicado real (nunca "éxito silencioso"), no un
+            // reintento del mismo evento.
+            if ($dbError !== '' && str_contains($dbError, 'uq_transaction_expedition_invoiceno')) {
+                throw new DuplicateInvoiceNumberException(
+                    registerId: (string) $this->ctx->registerId,
+                    invoiceNo:  $input->invoiceNo,
+                );
+            }
             // Safety-net contra race condition: si dos requests concurrentes pasan
             // el dupli check (UNIQUE en `transactionUID` previene el doble INSERT),
             // el segundo cae acá con SQLSTATE 23505. Lo convertimos a duplicate

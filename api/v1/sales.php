@@ -17,6 +17,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__) . '/bootstrap.php';
 
 use Punto\Api\Context\TenantContext;
+use Punto\Api\Sales\Exceptions\DuplicateInvoiceNumberException;
 use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
@@ -154,6 +155,15 @@ try {
     // SaleService::save() (best-effort ahí también) — cubre esta ruta y
     // api/v1/offline-sync.php sin duplicar la llamada.
     $result = $service->save($input);
+} catch (DuplicateInvoiceNumberException $e) {
+    // mig 145 — choque REAL contra uq_transaction_expedition_invoiceno: el
+    // número que el device calculó ("último correlativo de mi caja + 1") ya
+    // estaba tomado por OTRO transactionUID. A diferencia de
+    // DuplicateSaleException (reintento del MISMO evento, 200), esto es un
+    // comprobante duplicado — apiConflict (409, mismo helper que ya usa
+    // holderConflict arriba para "estado compartido") para que el POS lo
+    // muestre como bloqueante en vez de tratarlo como una venta sincronizada.
+    apiConflict($e->getMessage());
 } catch (DuplicateSaleException $e) {
     // 200 con duplicated=true — el front debe marcar el UID como sincronizado.
     // NO se marca consumedAt acá: si esta es una venta que YA se guardó en
