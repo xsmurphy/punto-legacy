@@ -347,33 +347,44 @@ sobre datos ya congelados.
 
 ## 7. Decisiones abiertas para el owner
 
-1. **Compras posiblemente ya declaradas por el proveedor vía su propia
-   factura electrónica**: Punto no captura el CDC de facturas de terceros al
-   registrar una compra, así que no hay forma de saber si el archivo de
-   Compras duplicaría algo que el proveedor ya declaró. Confirmar con el
-   contador si la deduplicación es responsabilidad del receptor (¿agregar un
-   campo de CDC opcional al registrar una compra?) o si Marangatu deduplica
-   de otro modo (por RUC+número).
-2. **Timbrado no congelado por transacción** (§1/§3.2): hoy se reconstruye
-   desde el timbrado VIGENTE de la caja, no desde el que regía al momento de
-   la venta. Para el archivo de un mes recién cerrado no debería importar,
-   pero regenerar un período viejo tras un cambio de timbrado puede declarar
-   el número equivocado. Propuesta: aceptar el riesgo en v1 (mismo criterio
-   ya aceptado en `context/28` para la tasa de impuesto vigente en EInvoice),
-   reabrir si un tenant lo reporta.
-3. **Documentos en `sifen_status='Pendiente'`** al generar el archivo
-   mensual: ¿se incluyen (riesgo de declarar dos veces si luego se aprueba)
-   o se excluyen (riesgo de omitir si luego se rechaza)? Propuesta: excluir
-   junto con `'Aprobado'`, y prever la corrección del mes si el estado
-   cambia después — a confirmar la ventana de corrección que admite la SET.
-4. **Filtro de sucursal en la preview**: el archivo final siempre consolida
-   por RUC del contribuyente completo. Propuesta: permitir filtrar SOLO la
-   vista previa por outlet, nunca partir el archivo final por sucursal.
-5. **Compras — falta modelar el tipo de comprobante** (Factura/Autofactura/
-   Boleta/Despacho de Importación): `PurchasesService` no distingue esto hoy,
-   solo tiene `transactionType` interno 1/4. Si el owner quiere generar
-   Compras con precisión (no asumir siempre `109` Factura), hace falta un
-   campo nuevo al registrar la compra. Confirmar alcance antes de F5.3.
+> Cerradas por el owner 2026-08-08 (las 1-4 originales). Se dejan acá con su
+> respuesta en vez de borrarlas: el razonamiento de por qué NO se validan
+> ciertas cosas es tan parte del diseño como lo que sí se hace.
+>
+> 1. **Compras ya declaradas por el proveedor** → **no las validamos**. La
+>    deduplicación es responsabilidad del contador. NO se agrega campo de CDC
+>    al registrar compras ni lógica de dedup.
+> 2. **Timbrado** → sigue configurándose por caja, como hoy. Pero se agrega un
+>    requisito NUEVO, que excede este plan: el timbrado tiene fecha de
+>    vencimiento y **no se debe poder facturar con el timbrado vencido**. Es
+>    una validación en la emisión, no en el reporte — implementada aparte.
+> 3. **Documentos en `sifen_status='Pendiente'`** → **no los validamos**,
+>    problema del contador. El generador no intenta adivinar el estado final.
+> 4. **Filtro por sucursal** → sí, se puede filtrar por sucursal. Ojo: el
+>    archivo final igual consolida por RUC del contribuyente (el RG90 es por
+>    contribuyente, no por establecimiento); el filtro aplica a la vista
+>    previa. Si se quisiera partir el archivo por sucursal habría que
+>    revisarlo con el contador, porque sería una declaración incompleta.
+
+> 5. **Tipo de comprobante en compras** → el comercio solo opera con
+>    facturas. Se asume `109` (FACTURA) fijo, sin campo nuevo al registrar la
+>    compra. Límite conocido y aceptado: si alguna vez se registra una
+>    autofactura (`101`), una boleta (`103`/`104`) o un despacho de
+>    importación (`107`), el archivo la declararía como factura. Reabrir solo
+>    si aparece ese caso.
+
+> 6. **Identificaciones no paraguayas** → **sí se implementan**, pero como
+>    feature propia, no como parte de este reporte: el cajero tiene que poder
+>    cargar un cliente extranjero (pasaporte, cédula extranjera, diplomático,
+>    identificación tributaria — códigos 13/14/16/17 de la Tabla 3), y el tipo
+>    de identificación tiene que estar hilado con facturación electrónica, no
+>    solo con el RG90. Es configuración EXCLUSIVA de Paraguay: se carga y se
+>    habilita solo si el país del tenant es PY. Este plan la consume como dato
+>    ya existente.
+
+Ninguna decisión sigue abierta. El alcance quedó cerrado.
+
+Notas de implementación derivadas de las respuestas:
 6. **Identificaciones fuera de RUC/Cédula paraguaya** (Pasaporte, Cédula
    Extranjero, Diplomático — códigos 13/14/16 de la Tabla 3): `contact` no
    distingue estos tipos hoy. Propuesta: fuera de alcance de v1 (se asume
