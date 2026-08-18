@@ -11,9 +11,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { getBlockMockText } from "@/lib/print-template-mock"
+import {
+  BLOCK_VALUE_RESOLVERS,
+  ITEM_FIELD_RESOLVERS,
+  ITEM_LINE_TYPES,
+  ITEM_TABLE_TYPES,
+  formatMoney,
+  itemTableColumns,
+  sortBlocksForRender,
+  ticketItemName,
+} from "@/lib/hardware/printers/blocks"
+import type { TicketData } from "@/lib/hardware/printers/build-ticket-data"
 import {
   PAPER_DIMENSIONS,
+  type PrintBlock,
   type PrintTemplateConfig,
 } from "@/lib/types/print-template"
 
@@ -21,22 +32,39 @@ interface Props {
   open: boolean
   config: PrintTemplateConfig
   mm: number
+  /** Venta de demo — construida UNA sola vez por `TemplateEditor` con
+   *  `buildDemoTicketData()` (build-ticket-data.ts) y compartida con el
+   *  thumbnail de bloque del canvas (canvas-block.tsx), para que ambas
+   *  superficies muestren siempre el mismo dato. */
+  data: TicketData
   onClose: () => void
 }
 
 /**
- * Vista previa de la plantilla con mock data — el usuario ve cómo queda
- * impresa antes de guardar. Los bloques con `type` tipado se rellenan con
- * texto de demo (ver lib/print-template-mock.ts). `custom` mantiene el
- * texto del usuario; `hor_line`/`ver_line` y `company_logo` se renderizan
- * visualmente.
+ * Vista previa de la plantilla — el usuario ve cómo queda impresa antes de
+ * guardar. Cada bloque se resuelve contra `data` (una venta de demo) con el
+ * MISMO catálogo de bloques (`BLOCK_VALUE_RESOLVERS`/`ITEM_FIELD_RESOLVERS`/
+ * `ITEM_LINE_TYPES`/`ITEM_TABLE_TYPES` de lib/hardware/printers/blocks.ts)
+ * que usan los renderers reales (`render-template.ts` ESC/POS,
+ * `html-renderer.ts` HTML) — nunca un diccionario de texto aparte. Antes
+ * (`lib/print-template-mock.ts`, eliminado) indexaba solo por `BlockType` e
+ * ignoraba `block.text` (donde vive el `taxId` de los bloques por-tasa), así
+ * que IVA 5% e IVA 10% mostraban el mismo número hardcodeado sin cerrar
+ * contra subtotal/total.
+ *
+ * A diferencia de los renderers reales (que emiten un documento en FLUJO,
+ * bloque tras bloque), el editor es un CANVAS con posición absoluta — así
+ * que los bloques de `ITEM_LINE_TYPES` (una "fila plantilla" que el motor
+ * real repite una vez por producto) se apilan verticalmente debajo de su
+ * posición original, una copia por ítem de `data.items`, en vez de fluir
+ * como en el HTML/ESC/POS real.
  *
  * El papel se auto-escala con CSS transform para entrar completo en el
  * viewport del modal (fit-to-screen), respetando aspect ratio.
  *
  * No reemplaza al motor de impresión real del POS — es solo para diseño.
  */
-export function PreviewDialog({ open, config, mm, onClose }: Props) {
+export function PreviewDialog({ open, config, mm, data, onClose }: Props) {
   const dim = PAPER_DIMENSIONS[config.page_size]
   const widthPx = dim.widthMm * mm
   const heightPx = dim.heightMm * mm
@@ -55,7 +83,7 @@ export function PreviewDialog({ open, config, mm, onClose }: Props) {
           <div>
             <DialogTitle>Vista previa</DialogTitle>
             <DialogDescription>
-              Bloques rellenados con datos de demostración. Solo para revisar el diseño.
+              Bloques rellenados con una venta de demostración. Solo para revisar el diseño.
             </DialogDescription>
           </div>
           <Button variant="outline" size="sm" onClick={handlePrint}>
@@ -64,7 +92,7 @@ export function PreviewDialog({ open, config, mm, onClose }: Props) {
           </Button>
         </DialogHeader>
 
-        <ScaledPaper widthPx={widthPx} heightPx={heightPx} config={config} />
+        <ScaledPaper widthPx={widthPx} heightPx={heightPx} config={config} data={data} />
       </DialogContent>
       {/*
         Reglas @media print scoped al body. Ocultar todo el viewport
@@ -119,10 +147,12 @@ function ScaledPaper({
   widthPx,
   heightPx,
   config,
+  data,
 }: {
   widthPx: number
   heightPx: number
   config: PrintTemplateConfig
+  data: TicketData
 }) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [scale, setScale] = React.useState(1)
@@ -145,6 +175,8 @@ function ScaledPaper({
     obs.observe(el)
     return () => obs.disconnect()
   }, [widthPx, heightPx])
+
+  const entries = React.useMemo(() => layoutPreviewEntries(config.data ?? [], data), [config.data, data])
 
   // Wrapper con dimensiones VISUALES (escaladas) para que el flex padre
   // centre/scrollee según el tamaño aparente del papel — `transform: scale`
@@ -174,8 +206,8 @@ function ScaledPaper({
             textTransform: config.page_font_case,
           }}
         >
-          {config.data.map((b, i) => (
-            <PreviewBlock key={i} block={b} />
+          {entries.map((entry) => (
+            <PreviewBlock key={entry.key} entry={entry} data={data} />
           ))}
         </div>
       </div>
@@ -183,12 +215,88 @@ function ScaledPaper({
   )
 }
 
-function PreviewBlock({ block }: { block: import("@/lib/types/print-template").PrintBlock }) {
-  const mockText = getBlockMockText(block.type, block.text)
+interface PreviewEntry {
+  key: string
+  block: PrintBlock
+  /** Posición vertical efectiva — igual a `block.top` salvo para copias de
+   *  `ITEM_LINE_TYPES` repetidas por ítem (ver `layoutPreviewEntries`). */
+  top: number
+  kind: "text" | "table" | "hor_line" | "ver_line" | "company_logo" | "payment_methods"
+  text?: string
+}
 
+/**
+ * Resuelve `template.data` contra `data` (la venta de demo) y decide DÓNDE
+ * pintar cada copia. Camina los bloques en el MISMO orden que usan los
+ * renderers reales (`sortBlocksForRender`, que también normaliza aliases
+ * legacy de `BlockType`) y agrupa corridas consecutivas de
+ * `ITEM_LINE_TYPES` exactamente como `html-renderer.ts` — la única
+ * diferencia es que acá cada copia necesita una posición `top` propia
+ * (canvas absoluto) en vez de simplemente aparecer a continuación (flujo
+ * HTML/ESC-POS).
+ */
+function layoutPreviewEntries(rawBlocks: PrintBlock[], data: TicketData): PreviewEntry[] {
+  const blocks = sortBlocksForRender(rawBlocks)
+  const entries: PreviewEntry[] = []
+  let i = 0
+  while (i < blocks.length) {
+    const block = blocks[i]
+
+    if (ITEM_LINE_TYPES.has(block.type)) {
+      const start = i
+      while (i < blocks.length && ITEM_LINE_TYPES.has(blocks[i].type)) i++
+      const rowBlocks = blocks.slice(start, i)
+      data.items.forEach((item, itemIdx) => {
+        for (const rb of rowBlocks) {
+          const resolver = ITEM_FIELD_RESOLVERS[rb.type]
+          entries.push({
+            key: `${start}-${itemIdx}-${rb.type}-${rb.left}`,
+            block: rb,
+            top: rb.top + itemIdx * rb.height,
+            kind: "text",
+            text: resolver ? resolver(item, data) ?? "" : "",
+          })
+        }
+      })
+      continue
+    }
+
+    if (ITEM_TABLE_TYPES.has(block.type)) {
+      entries.push({ key: `${i}-table`, block, top: block.top, kind: "table" })
+      i++
+      continue
+    }
+
+    if (block.type === "hor_line" || block.type === "ver_line" || block.type === "company_logo") {
+      entries.push({ key: `${i}-${block.type}`, block, top: block.top, kind: block.type })
+      i++
+      continue
+    }
+
+    if (block.type === "payment_methods") {
+      entries.push({ key: `${i}-payments`, block, top: block.top, kind: "payment_methods" })
+      i++
+      continue
+    }
+
+    const resolver = BLOCK_VALUE_RESOLVERS[block.type]
+    entries.push({
+      key: `${i}-${block.type}`,
+      block,
+      top: block.top,
+      kind: "text",
+      text: resolver ? resolver(data, block) ?? "" : "",
+    })
+    i++
+  }
+  return entries
+}
+
+function PreviewBlock({ entry, data }: { entry: PreviewEntry; data: TicketData }) {
+  const { block, top } = entry
   const style: React.CSSProperties = {
     position: "absolute",
-    top: `${block.top}px`,
+    top: `${top}px`,
     left: `${block.left}px`,
     width: `${block.width}px`,
     height: `${block.height}px`,
@@ -202,21 +310,21 @@ function PreviewBlock({ block }: { block: import("@/lib/types/print-template").P
     color: "#000",
   }
 
-  if (block.type === "hor_line") {
+  if (entry.kind === "hor_line") {
     return (
       <div style={style}>
         <div className="h-px w-full bg-black" style={{ marginTop: block.height / 2 }} />
       </div>
     )
   }
-  if (block.type === "ver_line") {
+  if (entry.kind === "ver_line") {
     return (
       <div style={style}>
         <div className="h-full w-px bg-black mx-auto" />
       </div>
     )
   }
-  if (block.type === "company_logo") {
+  if (entry.kind === "company_logo") {
     return (
       <div
         style={style}
@@ -226,5 +334,49 @@ function PreviewBlock({ block }: { block: import("@/lib/types/print-template").P
       </div>
     )
   }
-  return <div style={style}>{mockText}</div>
+  if (entry.kind === "payment_methods") {
+    const text = data.payments.map((p) => `${p.method}: ${formatMoney(p.amount, data)}`).join("\n")
+    return (
+      <div style={{ ...style, whiteSpace: "pre-wrap" }}>{text}</div>
+    )
+  }
+  if (entry.kind === "table") {
+    return (
+      <div style={{ ...style, overflow: "visible", whiteSpace: "normal" }}>
+        <PreviewItemTable block={block} data={data} />
+      </div>
+    )
+  }
+  return <div style={style}>{entry.text}</div>
+}
+
+/** Listado completo de ítems para `item_receipt*` — mismas columnas que
+ *  `renderItemTable` de html-renderer.ts (`itemTableColumns`/`formatMoney`/
+ *  `ticketItemName`, todos de blocks.ts), pintadas como tabla HTML real en
+ *  vez de texto plano monoespaciado (el canvas no está limitado a un rollo
+ *  térmico). */
+function PreviewItemTable({ block, data }: { block: PrintBlock; data: TicketData }) {
+  const cols = itemTableColumns(block.type)
+  return (
+    <table className="w-full border-collapse" style={{ fontSize: "inherit" }}>
+      <thead>
+        <tr>
+          <th className="text-left">Ítem</th>
+          {cols.qty && <th className="text-right">Cant.</th>}
+          {cols.unitPrice && <th className="text-right">P.Unit</th>}
+          {cols.total && <th className="text-right">Total</th>}
+        </tr>
+      </thead>
+      <tbody>
+        {data.items.map((item, idx) => (
+          <tr key={idx}>
+            <td className="whitespace-pre-wrap">{ticketItemName(item)}</td>
+            {cols.qty && <td className="text-right">{item.qty}</td>}
+            {cols.unitPrice && <td className="text-right">{formatMoney(item.unitPrice, data)}</td>}
+            {cols.total && <td className="text-right">{formatMoney(item.total, data)}</td>}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
 }

@@ -15,7 +15,8 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FONT_FAMILIES, FONT_SIZES } from "@/lib/print-template-palette"
-import { getBlockMockText } from "@/lib/print-template-mock"
+import { resolveSingleBlockPreview } from "@/lib/hardware/printers/blocks"
+import type { TicketData } from "@/lib/hardware/printers/build-ticket-data"
 import { isReceipt, type PaperSize, type PrintBlock } from "@/lib/types/print-template"
 
 interface Props {
@@ -25,6 +26,10 @@ interface Props {
   paperSize: PaperSize
   /** ratio mm → px (calculado por el canvas con un div de 1mm). */
   mm: number
+  /** Venta de demo compartida con la Vista Previa (`TemplateEditor` la arma
+   *  una sola vez con `buildDemoTicketData()`) — el thumbnail del bloque
+   *  resuelve contra los mismos datos, ver `resolveSingleBlockPreview`. */
+  data: TicketData
   onSelect: () => void
   onChange: (patch: Partial<PrintBlock>) => void
   onDelete: () => void
@@ -43,6 +48,7 @@ export function CanvasBlock({
   selected,
   paperSize,
   mm,
+  data,
   onSelect,
   onChange,
   onDelete,
@@ -142,7 +148,7 @@ export function CanvasBlock({
           textOverflow: block.textwrap === "cut" ? "clip" : undefined,
         }}
       >
-        <BlockContent block={block} />
+        <BlockContent block={block} data={data} />
       </div>
 
       {selected && !moving && (
@@ -157,7 +163,7 @@ export function CanvasBlock({
   )
 }
 
-function BlockContent({ block }: { block: PrintBlock }) {
+function BlockContent({ block, data }: { block: PrintBlock; data: TicketData }) {
   if (block.type === "hor_line") {
     // Línea sobre papel blanco — color fijo zinc para que se vea en ambos modos.
     return <div className="h-px w-full bg-zinc-800" />
@@ -174,10 +180,13 @@ function BlockContent({ block }: { block: PrintBlock }) {
   }
   // El editor visual es para ver tamaño/grosor/familia — sin texto realista,
   // un bloque vacío esconde la tipografía. Si el bloque trae texto custom
-  // (block.text), lo respetamos. Sino, sustituimos por el mock data del tipo
-  // (mismo que se usa en la Vista Previa). El texto en el editor se muestra
-  // en zinc-500 (un poquito atenuado) para señalar que es preview, no real.
-  const preview = block.text || getBlockMockText(block.type, "")
+  // (block.text), lo respetamos (el bloque `custom` es lo único que el
+  // usuario tipea a mano). Sino, sustituimos por el valor real que resolvería
+  // la venta de demo contra este bloque (mismo catálogo que la Vista Previa —
+  // ver resolveSingleBlockPreview, blocks.ts). El texto en el editor se
+  // muestra en zinc-500 (un poquito atenuado) para señalar que es preview, no
+  // real.
+  const preview = block.text || resolveSingleBlockPreview(block, data)
   return (
     <div className="h-full w-full px-1 leading-tight text-zinc-900">
       {preview ? (
