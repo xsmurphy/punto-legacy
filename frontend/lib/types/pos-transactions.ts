@@ -2,7 +2,8 @@
  * Tipos para el modal de transacciones del POS (T1).
  *
  * PosTransactionListItem — shape real devuelto por getMainList (con los campos
- * nuevos rawDate, rawTotal, customerName, invoiceNo, invoicePrefix, hasMore).
+ * nuevos rawDate, rawTotal, customerName, customerDoc, invoiceNo,
+ * invoicePrefix, hasMore).
  *
  * PosTransactionDetail — re-exporta TransactionDetail del hook existente para
  * que el dialog use un único tipo.
@@ -12,6 +13,8 @@ export interface PosTransactionListItem {
   id: string
   title: string
   customerName: string
+  /** RUC (contactTIN) si existe, si no CI (contactCI) — string vacío si el cliente no tiene ninguno. */
+  customerDoc: string
   date: string
   rawDate: string
   docNumber: string
