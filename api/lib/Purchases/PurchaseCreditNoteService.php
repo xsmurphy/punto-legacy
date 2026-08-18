@@ -52,9 +52,20 @@ final class PurchaseCreditNoteService
         return $this->linkSvc ??= new TransactionLinkService();
     }
 
+    /** 'YYYY-MM-DD' válido → tal cual; cualquier otra cosa (vacío, mal formada) → null. Nunca inventa un default. */
+    private static function normalizeSimpleDate(?string $val): ?string
+    {
+        $val = $val !== null ? trim($val) : '';
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $val) ? $val : null;
+    }
+
     /**
      * @param array<int,array{itemId:string,qty:float}> $items
      * @param string $refundMode 'cash' | 'credit'
+     * @param array{docPrefix?:?string,docNo?:?string,docDate?:?string,authNo?:?string,authNoDueDate?:?string}|null $supplierDoc
+     *        Número de comprobante + timbrado IMPRESOS en la nota de crédito
+     *        del PROVEEDOR (context/29 §5, mig 144) — documento ajeno, NO
+     *        generamos correlativo interno. Todo opcional/nullable.
      */
     public function create(
         string  $companyId,
@@ -64,7 +75,8 @@ final class PurchaseCreditNoteService
         array   $items,
         string  $refundMode,
         bool    $affectsStock,
-        ?string $note
+        ?string $note,
+        ?array  $supplierDoc = null
     ): array {
         global $db;
 
@@ -238,14 +250,26 @@ final class PurchaseCreditNoteService
 
             $totalUnits = -array_sum(array_column($processedItems, 'qty'));
 
+            // Comprobante+timbrado del PROVEEDOR (mig 144) — documento ajeno,
+            // sin correlativo propio (owner 2026-08-17). Todo NULL si el
+            // caller no lo manda (compat con integraciones viejas).
+            $docPrefix     = (isset($supplierDoc['docPrefix']) && $supplierDoc['docPrefix'] !== '') ? (string) $supplierDoc['docPrefix'] : null;
+            $docNo         = isset($supplierDoc['docNo']) && $supplierDoc['docNo'] !== '' ? (int) $supplierDoc['docNo'] : null;
+            $docDate       = self::normalizeSimpleDate($supplierDoc['docDate'] ?? null);
+            $authNo        = (isset($supplierDoc['authNo']) && $supplierDoc['authNo'] !== '') ? (string) $supplierDoc['authNo'] : null;
+            $authNoDueDate = self::normalizeSimpleDate($supplierDoc['authNoDueDate'] ?? null);
+
             $db->Execute(
                 'INSERT INTO transaction (
                     transactionid, transactiontype,
                     transactiontotal, transactiondiscount, transactiontax, transactionunitssold,
                     transactionpaymenttype,
                     transactiondate, transactionnote, transactionstatus, transactioncomplete,
-                    supplierid, userid, outletid, companyid, meta
-                ) VALUES (?, 14, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, \'{}\')',
+                    supplierid, userid, outletid, companyid, meta,
+                    supplierdocprefix, supplierdocno, supplierdocdate,
+                    supplierauthno, supplierauthnoduedate
+                ) VALUES (?, 14, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, \'{}\',
+                    ?, ?, ?, ?, ?)',
                 [
                     $newTransactionId,
                     $creditNet,
@@ -258,6 +282,11 @@ final class PurchaseCreditNoteService
                     $userId,
                     $outletId,
                     $companyId,
+                    $docPrefix,
+                    $docNo,
+                    $docDate,
+                    $authNo,
+                    $authNoDueDate,
                 ]
             );
             // Vínculo NC → compra original (mig 122, kind='purchase_credit_note').
@@ -458,7 +487,9 @@ final class PurchaseCreditNoteService
         $ph = implode(',', array_fill(0, count($ids), '?'));
         $rs = ncmExecute(
             "SELECT transactionid, transactiontotal, transactiondate, transactionnote,
-                    transactionstatus, transactionpaymenttype
+                    transactionstatus, transactionpaymenttype,
+                    supplierdocprefix, supplierdocno, supplierdocdate,
+                    supplierauthno, supplierauthnoduedate
              FROM transaction
              WHERE transactionid IN ($ph) AND companyid = ? AND transactiontype = 14
              ORDER BY transactiondate DESC",
@@ -473,13 +504,18 @@ final class PurchaseCreditNoteService
                 $f = $rs->fields;
                 $paymentLines = json_decode((string) ($f['transactionpaymenttype'] ?? ''), true);
                 $rows[] = [
-                    'id'         => (string) $f['transactionid'],
-                    'total'      => (float) $f['transactiontotal'],
-                    'date'       => (string) $f['transactiondate'],
-                    'note'       => $f['transactionnote'] ?? null,
-                    'status'     => (int) $f['transactionstatus'],
+                    'id'            => (string) $f['transactionid'],
+                    'total'         => (float) $f['transactiontotal'],
+                    'date'          => (string) $f['transactiondate'],
+                    'note'          => $f['transactionnote'] ?? null,
+                    'status'        => (int) $f['transactionstatus'],
                     // Sin línea de pago = modo 'credit' (ver create(): 'credit' nunca escribe transactionPaymentType).
-                    'refundMode' => (is_array($paymentLines) && $paymentLines !== []) ? 'cash' : 'credit',
+                    'refundMode'    => (is_array($paymentLines) && $paymentLines !== []) ? 'cash' : 'credit',
+                    'docPrefix'     => $f['supplierdocprefix'] !== null ? (string) $f['supplierdocprefix'] : null,
+                    'docNo'         => $f['supplierdocno'] !== null ? (int) $f['supplierdocno'] : null,
+                    'docDate'       => $f['supplierdocdate'] !== null ? (string) $f['supplierdocdate'] : null,
+                    'authNo'        => $f['supplierauthno'] !== null ? (string) $f['supplierauthno'] : null,
+                    'authNoDueDate' => $f['supplierauthnoduedate'] !== null ? (string) $f['supplierauthnoduedate'] : null,
                 ];
                 $rs->MoveNext();
             }

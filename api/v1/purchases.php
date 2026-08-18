@@ -72,6 +72,8 @@ if ($method === 'POST' && $resource === 'creditNote') {
     $refundMode           = trim((string) ($body['refundMode'] ?? ''));
     $affectsStock         = (bool) ($body['affectsStock'] ?? true);
     $note                 = isset($body['note']) && trim((string) $body['note']) !== '' ? trim((string) $body['note']) : null;
+    // Comprobante+timbrado del proveedor (mig 144) — opcional, pasa tal cual al service.
+    $supplierDoc          = is_array($body['supplierDoc'] ?? null) ? $body['supplierDoc'] : null;
 
     if ($parentTransactionId === '') {
         apiError('parentTransactionId requerido', 422);
@@ -91,6 +93,7 @@ if ($method === 'POST' && $resource === 'creditNote') {
             $refundMode,
             $affectsStock,
             $note,
+            $supplierDoc,
         );
     } catch (\InvalidArgumentException $e) {
         apiError($e->getMessage(), 422);

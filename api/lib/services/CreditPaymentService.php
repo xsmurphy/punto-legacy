@@ -42,6 +42,13 @@ final class CreditPaymentService
         return (string) (number_format(microtime(true) * 1000, 0, '.', ''));
     }
 
+    /** 'YYYY-MM-DD' válido → tal cual; cualquier otra cosa (vacío, mal formada) → null. Nunca inventa un default. */
+    private static function normalizeDate(?string $val): ?string
+    {
+        $val = $val !== null ? trim($val) : '';
+        return preg_match('/^\d{4}-\d{2}-\d{2}$/', $val) ? $val : null;
+    }
+
     /**
      * Registra UN recibo de pago, repartido en N facturas ELEGIDAS POR EL
      * OPERADOR (una puntual, o varias con montos manuales) del MISMO
@@ -67,7 +74,8 @@ final class CreditPaymentService
         string  $paymentMethodKey,
         ?string $note = null,
         ?string $identifier = null,
-        bool    $isCustomer = true
+        bool    $isCustomer = true,
+        ?array  $supplierDoc = null
     ): array {
         global $db;
 
@@ -179,7 +187,7 @@ final class CreditPaymentService
         return $this->insertReceipt(
             $companyId, $userId, $kind, $contactCol, $contactId,
             $orderedParentIds, $parents, $debts, $merged,
-            $paymentMethodKey, $note, $identifier
+            $paymentMethodKey, $note, $identifier, $supplierDoc
         );
     }
 
@@ -209,7 +217,8 @@ final class CreditPaymentService
         float   $amount,
         string  $paymentMethodKey,
         ?string $note = null,
-        ?string $identifier = null
+        ?string $identifier = null,
+        ?array  $supplierDoc = null
     ): array {
         global $db;
 
@@ -313,7 +322,7 @@ final class CreditPaymentService
         return $this->insertReceipt(
             $companyId, $userId, $kind, $contactCol, $contactId,
             $orderedParentIds, $parents, $debts, $merged,
-            $paymentMethodKey, $note, $identifier
+            $paymentMethodKey, $note, $identifier, $supplierDoc
         );
     }
 
@@ -519,6 +528,12 @@ final class CreditPaymentService
      * @param array<string,\CaseInsensitiveArray|array> $parents  pid => fila completa (para registerId/outletId/responsibleId del PRIMERO).
      * @param array<string,array{total:float,paid:float,debt:float}> $debts pid => deuda ANTES de este pago.
      * @param array<string,float> $merged pid => monto a imputar (ya validado <= debt).
+     * @param array{docPrefix?:?string,docNo?:?string,docDate?:?string,authNo?:?string,authNoDueDate?:?string}|null $supplierDoc
+     *        Número de comprobante + timbrado IMPRESOS en el recibo del PROVEEDOR
+     *        (context/29 §5) — solo tiene sentido cuando `$kind ===
+     *        'purchase_payment'` (pagamos NOSOTROS, el papel lo emitió el
+     *        proveedor). Para 'credit_payment' el recibo lo emitimos nosotros
+     *        (invoiceNo propio, ver abajo) — `$supplierDoc` se ignora.
      */
     private function insertReceipt(
         string $companyId,
@@ -532,7 +547,8 @@ final class CreditPaymentService
         array  $merged,
         string $paymentMethodKey,
         ?string $note,
-        ?string $identifier
+        ?string $identifier,
+        ?array $supplierDoc = null
     ): array {
         global $db;
 
@@ -595,6 +611,18 @@ final class CreditPaymentService
         ];
         if ($note !== null && $note !== '') {
             $tPay['transactionNote'] = $note;
+        }
+
+        // Comprobante+timbrado del PROVEEDOR — solo pago a proveedor (ver
+        // docblock de insertReceipt). NULLABLE, sin correlativo propio (owner
+        // 2026-08-17: "capturar el número del proveedor", no generamos uno).
+        if ($kind === 'purchase_payment' && $supplierDoc !== null) {
+            $docNo = isset($supplierDoc['docNo']) && $supplierDoc['docNo'] !== '' ? (int) $supplierDoc['docNo'] : null;
+            $tPay['supplierDocPrefix']     = (isset($supplierDoc['docPrefix']) && $supplierDoc['docPrefix'] !== '') ? (string) $supplierDoc['docPrefix'] : null;
+            $tPay['supplierDocNo']         = $docNo;
+            $tPay['supplierDocDate']       = self::normalizeDate($supplierDoc['docDate'] ?? null);
+            $tPay['supplierAuthNo']        = (isset($supplierDoc['authNo']) && $supplierDoc['authNo'] !== '') ? (string) $supplierDoc['authNo'] : null;
+            $tPay['supplierAuthNoDueDate'] = self::normalizeDate($supplierDoc['authNoDueDate'] ?? null);
         }
 
         $ok = $db->AutoExecute('transaction', $tPay, 'INSERT');
