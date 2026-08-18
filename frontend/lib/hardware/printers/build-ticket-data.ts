@@ -990,12 +990,36 @@ export function buildTicketDataForTest(): TicketData {
   const base: TicketData =
     cart.lines.length === 0 ? buildDemoTicketData(taxes) : buildTicketDataFromCartForTest(cart, config)
 
+  return withTestMasking(base)
+}
+
+/**
+ * Correlativo de EJEMPLO para CUALQUIER ticket que no sea una venta real —
+ * "Probar" de impresoras y "Simular impresión" del editor de plantillas
+ * comparten este mismo valor. Jamás `getNextInvoiceNo()`/
+ * `DocumentNumber::allocate()`/`advanceTo()` — ver docblock de
+ * `buildTicketDataForTest` arriba para el porqué.
+ */
+function withTestMasking(base: TicketData): TicketData {
   return {
     ...maskCustomerFields(base),
     documentNumber: "001-001-0000000",
     documentPrefix: "001-001-",
     documentSufix: "0000000",
   }
+}
+
+/**
+ * Ticket de PRUEBA para "Simular impresión" en `/settings/print-templates`
+ * (TemplateEditor) — mismo enmascarado de cliente + correlativo de ejemplo
+ * que `buildTicketDataForTest` (botón "Probar" de Ajustes → Impresoras), pero
+ * sin `useCartStore`/`useCatalogStore`: el editor vive en el realm panel, esos
+ * stores del POS (bootstrap del device) no están poblados ahí. Recibe las
+ * tasas reales del tenant — las mismas que `TemplateEditor` ya trae con
+ * `useTaxes()` para la sección "Impuestos" de la paleta y para `demoData`.
+ */
+export function buildTemplateTestData(taxes: DemoTaxSource[]): TicketData {
+  return withTestMasking(buildDemoTicketData(taxes))
 }
 
 /**
