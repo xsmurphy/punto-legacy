@@ -21,6 +21,9 @@ export interface PurchaseListRow {
   complete: boolean
   invoiceNo: number | null
   invoicePrefix: string | null
+  /** Timbrado del proveedor (número de comprobante = invoicePrefix + invoiceNo). */
+  authNo: string | null
+  authNoDueDate: string | null
   supplierId: string | null
   supplierName: string | null
   outletId: string
@@ -56,6 +59,9 @@ export interface PurchaseDetail {
   complete: boolean
   invoiceNo: number | null
   invoicePrefix: string | null
+  /** Timbrado del proveedor (número de comprobante = invoicePrefix + invoiceNo). */
+  authNo: string | null
+  authNoDueDate: string | null
   note: string | null
   supplierId: string | null
   supplierName: string | null
@@ -83,6 +89,20 @@ export interface PurchaseDetail {
 /** Modo de una nota de crédito de compra: 'cash' = el proveedor devuelve plata, 'credit' = reduce el saldo pendiente. */
 export type CreditNoteRefundMode = "cash" | "credit"
 
+/**
+ * Número de comprobante + timbrado IMPRESOS en el documento del PROVEEDOR
+ * (context/29 §5) — documento ajeno, sin correlativo interno propio (owner
+ * 2026-08-17). Compartido por NC de compra y pago a proveedor; la compra
+ * usa los campos planos ya existentes (invoicePrefix/invoiceNo/authNo).
+ */
+export interface SupplierDocumentInput {
+  docPrefix?: string | null
+  docNo?: string | number | null
+  docDate?: string | null
+  authNo?: string | null
+  authNoDueDate?: string | null
+}
+
 export interface PurchaseCreditNote {
   id: string
   total: number
@@ -91,6 +111,11 @@ export interface PurchaseCreditNote {
   /** 1 = activa, 6 = anulada (mismo criterio que `PurchaseDetail.status`). */
   status: number
   refundMode: CreditNoteRefundMode
+  docPrefix: string | null
+  docNo: number | null
+  docDate: string | null
+  authNo: string | null
+  authNoDueDate: string | null
 }
 
 export interface PurchaseCreditNoteItemInput {
@@ -105,6 +130,7 @@ export interface CreatePurchaseCreditNotePayload {
   /** true = el proveedor se lleva la mercadería (resta stock). false = bonificación, no toca stock. */
   affectsStock: boolean
   note?: string
+  supplierDoc?: SupplierDocumentInput
 }
 
 export interface PurchaseCreditNoteResult {
@@ -139,6 +165,8 @@ export interface PurchaseCreatePayload {
   invoiceNo?: number | string | null
   invoicePrefix?: string
   authNo?: string
+  /** Vencimiento del timbrado (authNo) — mig 144. */
+  authNoDueDate?: string
   /** taxonomyId real del medio de pago (@see usePaymentMethods) — resuelve cuenta vía finAccountMap. */
   paymentMethodId?: string
   /** Solo si el método tiene systemKey='check' — F1, context/30. */
