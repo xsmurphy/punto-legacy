@@ -242,6 +242,57 @@ export function clampBlockToPaper(
   return { left, top, width, height }
 }
 
+/**
+ * Ancho/alto mínimo utilizable de un bloque — por debajo de esto es
+ * imposible agarrarlo con el mouse en el canvas (pedido owner 2026-08-18,
+ * sobre el ancho por-contenido en modo papel: "pero sí debe tener un
+ * mínimo, por ejemplo 20px"). Fuente única para el `minWidth`/`minHeight`
+ * de react-rnd (canvas-block.tsx) y el ancho por-contenido al crear un
+ * bloque nuevo en papel (`handleAddBlock`, template-editor.tsx) — mismo
+ * número en los dos lugares, mismo criterio que ya documenta
+ * `clampBlockToPaper` sobre no inventar cuentas paralelas. El alto mínimo
+ * no lo pidió el owner explícitamente, pero aplica el mismo motivo (un
+ * bloque de 2px de alto es igual de inagarrable) y el alto SIEMPRE es
+ * resizeable, en ticket y en papel.
+ */
+export const MIN_BLOCK_SIZE = 20
+
+/**
+ * Ticket: el bloque SIEMPRE ocupa el 100% del ancho del papel — regla owner
+ * 2026-08-18 ("cada bloque en modo ticket debe tener siempre el 100% del
+ * ancho del ticket y no se puede resize el ancho, solo la altura"). A
+ * diferencia de `clampBlockToPaper`, que solo CORRIGE cuando algo se pasa de
+ * los bordes, acá el ancho/left se FUERZAN siempre al mismo valor: en modo
+ * ticket el resize horizontal está deshabilitado (`enableResizing` en
+ * canvas-block.tsx), así que un bloque angosto — heredado de una plantilla
+ * diseñada para otro papel, o de un cambio de `page_size` — no tiene
+ * NINGUNA forma de corregirse a mano. Si este helper solo clampeara (como
+ * `clampBlockToPaper`), ese bloque quedaría angosto para siempre. El
+ * alto/top SÍ solo se clampean, no se fuerzan: ese eje sigue editable con
+ * el resize vertical, igual criterio que `clampBlockToPaper`.
+ *
+ * Aplica en memoria al renderizar (mismo patrón que `clampBlockToPaper`) —
+ * no hay autoguardado, así que una plantilla de ticket ya diseñada con
+ * bloques angostos se ve corregida en el canvas pero el owner decide si
+ * guarda ese resultado.
+ */
+export function applyReceiptWidthRule(
+  block: Pick<PrintBlock, "left" | "top" | "width" | "height">,
+  widthPx: number,
+  heightPx: number,
+): { left: number; top: number; width: number; height: number } | null {
+  const maxW = Math.max(1, widthPx)
+  const maxH = Math.max(1, heightPx)
+  const width = maxW
+  const left = 0
+  const height = Math.min(block.height, maxH)
+  const top = Math.min(Math.max(0, block.top), Math.max(0, maxH - height))
+  if (left === block.left && top === block.top && width === block.width && height === block.height) {
+    return null
+  }
+  return { left, top, width, height }
+}
+
 // ── Backend row shape (lo que devuelve /v1/document-templates) ──────────────
 
 export interface DocumentTemplateRow {

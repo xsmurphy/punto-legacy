@@ -17,7 +17,15 @@ import { cn } from "@/lib/utils"
 import { FONT_FAMILIES, FONT_SIZES, getBlockPlaceholder, getBlockTitle } from "@/lib/print-template-palette"
 import { resolveSingleBlockPreview } from "@/lib/hardware/printers/blocks"
 import type { TicketData } from "@/lib/hardware/printers/build-ticket-data"
-import { clampBlockToPaper, isReceipt, PAPER_DIMENSIONS, type PaperSize, type PrintBlock } from "@/lib/types/print-template"
+import {
+  applyReceiptWidthRule,
+  clampBlockToPaper,
+  isReceipt,
+  MIN_BLOCK_SIZE,
+  PAPER_DIMENSIONS,
+  type PaperSize,
+  type PrintBlock,
+} from "@/lib/types/print-template"
 import type { Tax } from "@/lib/types/tax"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
@@ -116,26 +124,50 @@ export function CanvasBlock({
   // moveBlocksBy se disparan solo porque cambió el papel, así que ese
   // bloque queda con `left`/`width` inválidos hasta que el operador lo
   // vuelve a tocar. Este efecto corrige eso apenas cambian el tamaño del
-  // bloque o el del papel — CLAMP, no rescale (nunca reduce proporcionalmente
-  // ni reacomoda el diseño, ver clampBlockToPaper): decisión del owner de no
-  // arriesgar destruir un layout armado a mano con un reescalado automático.
-  // Se suprime mientras se arrastra/redimensiona (`moving`) para no pelear
-  // con el propio clamp en vivo de react-rnd.
+  // bloque o el del papel.
+  //
+  // En ticket usa `applyReceiptWidthRule` en vez de `clampBlockToPaper`:
+  // ahí el ancho no se CLAMPEA (corrige solo si excede), se FUERZA siempre
+  // a 100% del papel (regla owner 2026-08-18) — necesario porque el resize
+  // horizontal está deshabilitado en ticket, así que un bloque angosto
+  // (plantilla vieja, o recién cambiado de papel a ticket) no tiene otra
+  // forma de corregirse. En papel sigue siendo CLAMP puro, nunca RESCALE
+  // (nunca reduce proporcionalmente ni reacomoda el diseño para que "quepa
+  // lindo" — decisión del owner de no arriesgar destruir un layout armado a
+  // mano con un reescalado automático). Se suprime mientras se
+  // arrastra/redimensiona (`moving`) para no pelear con el propio clamp en
+  // vivo de react-rnd.
   React.useEffect(() => {
     if (moving) return
-    const fix = clampBlockToPaper(block, widthPx, heightPx)
+    const fix = ticket
+      ? applyReceiptWidthRule(block, widthPx, heightPx)
+      : clampBlockToPaper(block, widthPx, heightPx)
     if (fix) onChange(fix)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [block.left, block.top, block.width, block.height, widthPx, heightPx, moving])
+  }, [block.left, block.top, block.width, block.height, widthPx, heightPx, moving, ticket])
 
   return (
     <Rnd
       size={{ width: block.width, height: block.height }}
       position={{ x: block.left, y: block.top }}
       bounds="parent"
+      // Ticket: el ancho es siempre 100% del papel y no se mueve en
+      // horizontal — no tiene sentido arrastrarlo de lado si ya ocupa todo
+      // el ancho (regla owner 2026-08-18). El arrastre vertical (reordenar
+      // filas del ticket) sigue intacto; `dx` en `onDragStop` da 0 solo
+      // porque react-rnd nunca mueve `x`, no por un chequeo manual acá.
+      dragAxis={ticket ? "y" : "both"}
       dragGrid={[grid, grid]}
       resizeGrid={[grid, grid]}
       enableResizing={enableResize}
+      // Mínimo agarrable con el mouse (pedido owner 2026-08-18): en papel el
+      // ancho nace del tamaño del contenido y el resize está habilitado, así
+      // que sin piso el usuario podría achicarlo hasta 1-2px e inutilizarlo.
+      // En ticket el ancho está forzado a 100% (nunca baja de acá), así que
+      // `minWidth` no aplica — solo `minHeight`, que SÍ es resizeable en los
+      // dos modos.
+      minWidth={ticket ? undefined : MIN_BLOCK_SIZE}
+      minHeight={MIN_BLOCK_SIZE}
       // Excluye la toolbar flotante del área draggable — sin esto, el delete y
       // demás botones nunca disparan click porque react-rnd captura el mousedown.
       cancel=".block-toolbar"
