@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid } from "lucide-react"
+import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid, Search } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -165,6 +165,17 @@ type SettingsSection =
   | "modules"
   | "plan"
 
+// Normaliza acentos para que "impresion" matchee "Impresoras", "modulos"
+// matchee "Módulos", etc. Mismo patrón que components/modules/modules-panel.tsx
+// y lib/catalog/search.ts — no hay helper compartido en lib/ hoy, así que se
+// repite localmente en vez de crear una dependencia nueva por 3 líneas.
+function normalize(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+}
+
 // `href` opcional: si está definido, el item del sidebar navega directo a esa
 // URL (cerrando el modal) en lugar de switchear la sección interna. Útil para
 // secciones que ya tienen una página dedicada con más contenido del que cabría
@@ -210,6 +221,17 @@ export default function SettingsPage() {
   const update = useUpdateSettings()
   const [open, setOpen] = React.useState(true)
   const [section, setSection] = React.useState<SettingsSection>("empresa")
+  // Filtro del buscador de secciones. Se deja vivir aunque el usuario cambie
+  // de sección (no se limpia en setSection): si filtró por "docu" para llegar
+  // a Documentos, lo más probable es que quiera seguir mirando esa misma
+  // vecindad (ej. después ir a Catálogo) sin retipear.
+  const [sectionQuery, setSectionQuery] = React.useState("")
+
+  const filteredSections = React.useMemo(() => {
+    const q = normalize(sectionQuery.trim())
+    if (!q) return SECTIONS
+    return SECTIONS.filter((s) => normalize(s.label).includes(q))
+  }, [sectionQuery])
 
   // Cuando el modal se cierra, salimos de la ruta /settings. router.back() si
   // hay history (caso común: vino del sidebar dropdown); fallback a "/" para
@@ -343,31 +365,63 @@ export default function SettingsPage() {
             >
               {/* Sidebar interno. Vertical en desktop, horizontal scrolleable
                   en mobile. pr-12 mobile deja lugar al botón X absolute. */}
-              <nav
-                aria-label="Secciones de configuración"
-                className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pr-12 sm:flex-col sm:border-b-0 sm:border-r sm:p-3 sm:pr-3"
-              >
-                {SECTIONS.map(({ id, label, icon: Icon, href }) => {
-                  const active = section === id
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => (href ? navigateAndClose(href) : setSection(id))}
-                      className={cn(
-                        "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
-                        active
-                          ? "bg-accent font-medium text-accent-foreground"
-                          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                      )}
-                      aria-current={active ? "page" : undefined}
-                    >
-                      <Icon className="size-4 shrink-0" />
-                      <span>{label}</span>
-                    </button>
-                  )
-                })}
-              </nav>
+              <div className="flex shrink-0 flex-col border-b bg-card sm:border-b-0 sm:border-r">
+                {/* Buscador de secciones — solo desktop. En mobile el nav es
+                    una fila horizontal scrolleable de 14 chips: meter un input
+                    de ancho completo arriba le come una fila entera a un modal
+                    que ya recorta alto (max-sm:!h-dvh), a cambio de un
+                    beneficio chico — scrollear 14 chips con el dedo ya es
+                    rápido. En desktop sí vale la pena: es la columna vertical
+                    de 14 labels la que se beneficia de filtrar por texto
+                    (mismo patrón que el buscador de Claude). */}
+                <div className="hidden p-3 pb-0 sm:block">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      type="search"
+                      value={sectionQuery}
+                      onChange={(e) => setSectionQuery(e.target.value)}
+                      placeholder="Buscar…"
+                      aria-label="Buscar sección de configuración"
+                      className="pl-9"
+                    />
+                  </div>
+                </div>
+                <nav
+                  aria-label="Secciones de configuración"
+                  className="flex shrink-0 gap-0.5 overflow-x-auto p-2 pr-12 sm:flex-col sm:p-3 sm:pr-3"
+                >
+                  {filteredSections.length === 0 ? (
+                    // Vacío discreto: es un sidebar de 220px, no la página —
+                    // <EmptyState> (icono grande + título + descripción) no
+                    // entra ahí. Un texto chico alcanza.
+                    <p className="px-2.5 py-4 text-center text-xs text-muted-foreground">
+                      Sin resultados
+                    </p>
+                  ) : (
+                    filteredSections.map(({ id, label, icon: Icon, href }) => {
+                      const active = section === id
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => (href ? navigateAndClose(href) : setSection(id))}
+                          className={cn(
+                            "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
+                            active
+                              ? "bg-accent font-medium text-accent-foreground"
+                              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                          )}
+                          aria-current={active ? "page" : undefined}
+                        >
+                          <Icon className="size-4 shrink-0" />
+                          <span>{label}</span>
+                        </button>
+                      )
+                    })
+                  )}
+                </nav>
+              </div>
 
               {/* Content area: header breadcrumb (+Guardar) + scroll vertical.
                   pr-14 deja espacio para el botón X del DialogContent (absolute
