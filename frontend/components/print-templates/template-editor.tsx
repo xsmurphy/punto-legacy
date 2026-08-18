@@ -419,6 +419,7 @@ export function TemplateEditor({ existing }: Props) {
                 paperSize={config.page_size}
                 mm={mm}
                 data={demoData}
+                taxes={taxesQuery.data?.taxes}
                 onSelect={() => setSelectedIdx(i)}
                 onChange={(patch) => updateBlock(i, patch)}
                 onDelete={() => deleteBlock(i)}
