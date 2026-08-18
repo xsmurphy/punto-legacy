@@ -43,8 +43,9 @@ import {
 import { useTaxes } from "@/hooks/use-taxes"
 import { buildDemoTicketData, buildTemplateTestData } from "@/lib/hardware/printers/build-ticket-data"
 import { simulateTemplatePrint } from "@/lib/hardware/printers"
-import type { PaletteItem } from "@/lib/print-template-palette"
+import { getBlockPlaceholder, type PaletteItem } from "@/lib/print-template-palette"
 import {
+  MIN_BLOCK_SIZE,
   PAPER_DIMENSIONS,
   defaultBlock,
   defaultTemplateConfig,
@@ -190,8 +191,28 @@ export function TemplateEditor({ existing }: Props) {
     const block = defaultBlock(item.type, item.defaultText)
     if (ticket) {
       // En tickets, los bloques ocupan toda la fila — left=0, width = canvas
+      // (regla owner 2026-08-18: 100% del ancho siempre, sin excepción). El
+      // efecto de `applyReceiptWidthRule` en canvas-block.tsx re-aplica esto
+      // en cada render, así que fijarlo acá también es solo evitar el
+      // parpadeo de un bloque angosto en el primer frame.
       block.left = 0
       block.width = Math.round(widthPx)
+    } else if (block.type !== "company_logo" && block.type !== "hor_line" && block.type !== "ver_line") {
+      // En papel, el bloque nace ajustado al tamaño de su contenido en vez
+      // del ancho fijo de 100px de siempre (cabo pendiente de una tanda
+      // anterior, ver comentario en `clampBlockToPaper` sobre no inventar
+      // cuentas paralelas). Aproximación con Canvas 2D sobre el placeholder
+      // del catálogo (`getBlockPlaceholder`, mismo texto que se ve en el
+      // bloque antes de resolver contra la venta de demo) con la tipografía
+      // de la página — el dato real varía por venta, así que esto es un
+      // punto de partida razonable, no una medida exacta: el resize está
+      // habilitado en papel, el usuario ajusta después. `company_logo` no
+      // tiene texto (mantiene el ancho por defecto) y las líneas
+      // hor_line/ver_line no tienen "contenido" que medir — su ancho por
+      // defecto ya es intencional (línea decorativa), no un cabo pendiente.
+      const placeholder = getBlockPlaceholder(block, taxesQuery.data?.taxes ?? [])
+      const estimated = estimateContentWidth(placeholder, config.page_font_family, config.page_font_size)
+      block.width = Math.max(MIN_BLOCK_SIZE, Math.min(estimated, Math.round(widthPx)))
     }
     setBlocks((prev) => [...prev, block])
     setSelectedIndices([config.data.length]) // index del nuevo
@@ -679,6 +700,34 @@ function MarqueeBox({ marquee }: { marquee: { x0: number; y0: number; x1: number
       }}
     />
   )
+}
+
+/** Canvas 2D reusado entre llamadas — medir texto no toca el DOM visible,
+ *  así que un único contexto offscreen alcanza para todas las estimaciones
+ *  de la sesión del editor (ver `estimateContentWidth`). */
+let measureCanvasCtx: CanvasRenderingContext2D | null | undefined
+
+/**
+ * Ancho aproximado (px) del `text` con la tipografía de página dada — usa
+ * Canvas 2D `measureText`, la única forma de medir texto sin montarlo (ver
+ * `handleAddBlock`: el bloque nuevo en modo papel nace ajustado a esto en
+ * vez del ancho fijo de 100px de siempre). Es una APROXIMACIÓN a propósito,
+ * no una medida exacta — el texto real de la venta varía; el resize queda
+ * habilitado en papel para que el usuario la ajuste. `fontSizePt` viene en
+ * el formato del config (`"8pt"`, `"inherit"`) — pt→px a 96dpi, mismo ratio
+ * que usa el sentinel de 1mm del propio editor.
+ */
+function estimateContentWidth(text: string, fontFamily: string, fontSizePt: string): number {
+  if (measureCanvasCtx === undefined) {
+    measureCanvasCtx = typeof document !== "undefined" ? document.createElement("canvas").getContext("2d") : null
+  }
+  if (!measureCanvasCtx || !text) return 100
+  const sizePt = parseFloat(fontSizePt) || 8
+  const sizePx = Math.round(sizePt * (96 / 72))
+  measureCanvasCtx.font = `${sizePx}px ${fontFamily === "inherit" ? "Arial" : fontFamily}`
+  // + padding horizontal del contenido (`px-1` = 4px por lado en
+  // canvas-block.tsx) + un margen chico para no dejarlo al ras del texto.
+  return Math.round(measureCanvasCtx.measureText(text).width) + 16
 }
 
 /**
