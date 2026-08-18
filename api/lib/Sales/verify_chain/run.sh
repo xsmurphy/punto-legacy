@@ -18,7 +18,9 @@
 # de llamar — el script detecta que ya están seteados y NO toca Docker
 # (solo corre el seed de fixtures, que es idempotente, y los runners).
 #
-# Requiere: docker, php (>=8.1), node (>=22.6, soporte nativo de TS).
+# Requiere: docker, php (>=8.4 — lo exige vendor/composer/platform_check.php;
+#           con 8.3 los pasos PHP fallan en un 500 generico), node (>=22.6,
+#           soporte nativo de TS).
 # No agrega dependencias — usa el `typescript` que frontend/package.json
 # ya declara y el runtime de TS nativo de Node para lib/hardware/printers/
 # *.ts (blocks.ts, build-ticket-data.ts) tal cual están, sin transpilar.
