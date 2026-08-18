@@ -318,6 +318,7 @@ export function ContactDetailView({
           analytics={analytics.data}
           isLoading={analytics.isLoading}
           bootstrap={bootstrap}
+          variant={variant}
         />
       )}
       {tab === "transactions" && <ContactTransactionsTab customerId={customerId} />}
@@ -1579,12 +1580,16 @@ function FinancialTab({
   analytics,
   isLoading,
   bootstrap,
+  variant,
 }: {
   customerId: string
   contactName: string
   analytics: ContactAnalytics | undefined
   isLoading: boolean
   bootstrap: ReturnType<typeof useBootstrap>["data"]
+  /** "panel" | "pos" — pasado tal cual a `AccountStatementSection` para que
+   *  el click de fila no navegue fuera del POS. Ver docblock del archivo. */
+  variant: "panel" | "pos"
 }) {
   const f = analytics?.financial
   return (
@@ -1610,7 +1615,12 @@ function FinancialTab({
           )}
         </CardContent>
       </Card>
-      <AccountStatementSection contactId={customerId} contactType={1} contactName={contactName} />
+      <AccountStatementSection
+        contactId={customerId}
+        contactType={1}
+        contactName={contactName}
+        variant={variant}
+      />
     </div>
   )
 }
