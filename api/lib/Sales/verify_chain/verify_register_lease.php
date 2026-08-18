@@ -53,6 +53,24 @@ declare(strict_types=1);
  *      sincronizar DESPUÉS queda rechazada con `REGISTER_NOT_HELD` — A ya
  *      no es el tenedor real, así que su cola offline no puede colarse.
  *
+ * mig 145 (índice único `uq_transaction_expedition_invoiceno` + timbrado
+ * congelado — el agujero que quedó al sacar el arriendo: `register_lease`
+ * protege contra DOS DISPOSITIVOS, no contra el MISMO device reemitiendo un
+ * correlativo viejo bajo un uid nuevo):
+ *   10. TRAMPA — A re-toma la caja (case 9 la liberó) y vende dos veces con
+ *       el MISMO invoiceNo bajo dos `uid` DISTINTOS (no es un reintento del
+ *       mismo evento — `transactionUID` no lo atrapa). La caja fixture NO
+ *       tiene timbrado cargado (`registerInvoiceAuth` NULL) — el caso real
+ *       de producción, y el que rompe si el índice no usa COALESCE (NULL !=
+ *       NULL). La segunda venta debe rechazarse con 409 — no con un 500
+ *       crudo de Postgres.
+ *   11. El mismo invoiceNo del caso 10, en una caja DISTINTA (misma
+ *       company) → PERMITIDO — 001-001-N y 001-002-N conviven (context/29
+ *       §2), el índice está scopeado por registerId.
+ *   12. El timbrado se congela en la transacción al vender y NO se actualiza
+ *       si el timbrado de la caja cambia después — un documento ya emitido
+ *       nunca reporta la config nueva.
+ *
  * Uso: ver run.sh, que lo invoca como paso propio con las mismas env vars
  * POSTGRES_*. Exit code 0 si todos los casos pasan, 1 si alguno falla.
  */
@@ -440,6 +458,143 @@ try {
                 $failures[] = 'Caso 9: la venta rechazada por REGISTER_NOT_HELD no debía guardarse, pero existe en transaction';
             } else {
                 echo "[verify_register_lease] OK caso 9: tras la liberación forzada de la tenencia de A, offline-sync.php rechaza su venta encolada con REGISTER_NOT_HELD (sin guardar) — 'una caja no tiene con quién chocar' sigue valiendo cuando la tenencia cambia de dueño\n";
+            }
+        }
+    }
+
+    // ── Caso 10 (TRAMPA, mig 145) — dos ventas con el MISMO invoiceNo en la
+    //    MISMA caja, bajo dos uid DISTINTOS (no es un reintento del mismo
+    //    evento) → la segunda tiene que ser rechazada por la BASE, CON el
+    //    timbrado vacío/NULL en la caja fixture (si el índice no tuviera
+    //    COALESCE, NULL != NULL y esto pasaría de largo). A re-toma la caja
+    //    — case 9 la liberó a la fuerza. ─────────────────────────────────
+    [$statusReclaim, $bodyReclaim] = verifyPostClaim($port, $tokenA);
+    if ($statusReclaim !== 200) {
+        $failures[] = 'Caso 10: setup — A no pudo re-tomar la caja tras la liberación forzada, llegó ' . $statusReclaim . ' ' . json_encode($bodyReclaim);
+    } else {
+        $authRow = ncmExecute("SELECT data->>'registerInvoiceAuth' AS auth FROM register WHERE registerid = ?", [$PY_REGISTER]);
+        $authValue = ($authRow !== false && $authRow !== 0) ? ($authRow['auth'] ?? null) : null;
+        if ($authValue !== null) {
+            $failures[] = 'Caso 10: setup — se esperaba la caja fixture SIN timbrado cargado (el caso trampa real de producción), tiene registerInvoiceAuth=' . json_encode($authValue);
+        }
+
+        [$statusDoc10, $bodyDoc10] = verifyGetDocNumbers($port, $tokenA);
+        $dupNo = (int) ($bodyDoc10['data']['invoiceNo'] ?? 0);
+        if ($statusDoc10 !== 200 || $dupNo < 1) {
+            $failures[] = 'Caso 10: setup — docNumbers esperaba 200 con invoiceNo >= 1, llegó ' . $statusDoc10 . ' ' . json_encode($bodyDoc10);
+        } else {
+            $uidFirst = 'verify-dup-first-' . bin2hex(random_bytes(6));
+            [$statusFirst, $bodyFirst] = verifyPostSale($port, $tokenA, $PY_ITEM, $dupNo, $uidFirst);
+            if ($statusFirst !== 200 || !($bodyFirst['ok'] ?? false)) {
+                $failures[] = "Caso 10: setup — primera venta con invoiceNo={$dupNo} esperaba 200, llegó {$statusFirst} " . json_encode($bodyFirst);
+            } else {
+                // MISMO invoiceNo, uid DISTINTO — simula un device con un bug de
+                // cálculo local, o un correlativo viejo reemitido. transactionUID
+                // no lo atrapa (es un uid nuevo); solo el índice de la mig 145 puede.
+                $uidDup = 'verify-dup-second-' . bin2hex(random_bytes(6));
+                [$statusDup, $bodyDup] = verifyPostSale($port, $tokenA, $PY_ITEM, $dupNo, $uidDup);
+                if ($statusDup !== 409) {
+                    $failures[] = "Caso 10 (TRAMPA): segunda venta con invoiceNo={$dupNo} bajo OTRO uid esperaba 409 (uq_transaction_expedition_invoiceno), llegó {$statusDup} " . json_encode($bodyDup);
+                } else {
+                    $dupRow = ncmExecute('SELECT 1 FROM transaction WHERE transactionUID = ?', [$uidDup]);
+                    $dupSaved = $dupRow !== false && $dupRow !== 0;
+                    if ($dupSaved) {
+                        $failures[] = 'Caso 10: el duplicado rechazado NO debía guardarse, pero existe en transaction';
+                    } else {
+                        echo "[verify_register_lease] OK caso 10 (TRAMPA mig 145): dos ventas con invoiceNo={$dupNo} en la MISMA caja, timbrado vacío/NULL en ambas filas → la segunda es rechazada por la BASE (409), no un 500 crudo de Postgres\n";
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Casos 11 y 12 (mig 145) — necesitan una SEGUNDA caja de la misma
+    //    company (001-002, punto de expedición distinto). Se crea acá,
+    //    idempotente, en vez de tocar seed.sql (evita side-effects sobre
+    //    otros arneses que reusan ese fixture). ─────────────────────────
+    $PY_REGISTER_2 = 'e9d9a230-04ba-4c30-8e9f-6a2ecf301524';
+    ncmExecute(
+        'INSERT INTO register (
+             registerid, registername, registerstatus,
+             registerinvoicenumber, registerticketnumber, registerreturnnumber,
+             registerschedulenumber, registerpedidonumber, registerquotenumber,
+             outletid, companyid
+         ) VALUES (?::uuid, ?, TRUE, 1, 1, 1, 1, 1, 1, ?::uuid, ?::uuid)
+         ON CONFLICT (registerid) DO UPDATE SET registername = EXCLUDED.registername',
+        [$PY_REGISTER_2, 'Verify PY - Caja 2', $PY_OUTLET, $PY_COMPANY]
+    );
+    // Timbrado limpio al arrancar — case 12 lo va a setear explícitamente.
+    ncmExecute("UPDATE register SET data = data - 'registerInvoiceAuth' WHERE registerid = ?", [$PY_REGISTER_2]);
+    ncmExecute('DELETE FROM "register_lease" WHERE "registerId" = ?', [$PY_REGISTER_2]);
+    ncmExecute("DELETE FROM device WHERE registerid = ?::uuid AND devicename LIKE 'Verify Device %'", [$PY_REGISTER_2]);
+
+    $deviceIdC    = verifyMakeDeviceReal($PY_COMPANY, $PY_OUTLET, $PY_REGISTER_2, $PY_USER, 'Verify Device C');
+    $statusClaimC = 0;
+    $tokenC       = '';
+    if ($deviceIdC === '') {
+        $failures[] = 'Caso 11: setup — no se pudo crear el device de la caja 2';
+    } else {
+        $tokenC = authSessionCreate('pos-app', [
+            'companyId' => $PY_COMPANY, 'userId' => $PY_USER, 'deviceId' => $deviceIdC,
+            'outletId' => $PY_OUTLET, 'registerId' => $PY_REGISTER_2, 'roleId' => '1',
+            'module' => 'pos', 'expiresAt' => null,
+        ]);
+        [$statusClaimC, $bodyClaimC] = verifyPostClaim($port, $tokenC);
+        if ($statusClaimC !== 200) {
+            $failures[] = 'Caso 11: setup — device C no pudo tomar la caja 2, llegó ' . $statusClaimC . ' ' . json_encode($bodyClaimC);
+        }
+    }
+
+    // ── Caso 11 — el MISMO invoiceNo del caso 10, en la caja 2 → PERMITIDO.
+    //    001-001-N y 001-002-N conviven (context/29 §2): el índice está
+    //    scopeado por registerId, no por company sola. ────────────────────
+    if ($statusClaimC === 200 && isset($dupNo)) {
+        $uidSameNo = 'verify-samenum-otherregister-' . bin2hex(random_bytes(6));
+        [$statusSameNo, $bodySameNo] = verifyPostSale($port, $tokenC, $PY_ITEM, $dupNo, $uidSameNo);
+        if ($statusSameNo !== 200 || !($bodySameNo['ok'] ?? false)) {
+            $failures[] = "Caso 11: venta con invoiceNo={$dupNo} en la caja 2 (distinta de la del caso 10) esperaba 200, llegó {$statusSameNo} " . json_encode($bodySameNo);
+        } else {
+            echo "[verify_register_lease] OK caso 11: invoiceNo={$dupNo} convive en DOS cajas distintas de la misma company (001-001 y 001-002) — el índice de la mig 145 está scopeado por registerId, no choca\n";
+        }
+    } elseif ($statusClaimC === 200) {
+        $failures[] = 'Caso 11: no se pudo determinar el invoiceNo del caso 10 para reusarlo (setup previo falló)';
+    }
+
+    // ── Caso 12 — el timbrado se congela en la transacción al vender y NO
+    //    se actualiza si el timbrado de la caja cambia DESPUÉS. Usa la caja
+    //    2 con un invoiceNo propio (no compite con los casos 10/11). ──────
+    if ($statusClaimC !== 200) {
+        $failures[] = 'Caso 12: setup — depende del device C de la caja 2, que no quedó disponible';
+    } else {
+        ncmExecute(
+            "UPDATE register SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{registerInvoiceAuth}', to_jsonb(12345678)) WHERE registerid = ?",
+            [$PY_REGISTER_2]
+        );
+        $frozenNo = (isset($dupNo) ? $dupNo : 0) + 1000;
+        $uidFrozen = 'verify-frozen-auth-' . bin2hex(random_bytes(6));
+        [$statusFrozen, $bodyFrozen] = verifyPostSale($port, $tokenC, $PY_ITEM, $frozenNo, $uidFrozen);
+        $txIdFrozen = (string) ($bodyFrozen['data']['transactionId'] ?? '');
+        if ($statusFrozen !== 200 || $txIdFrozen === '') {
+            $failures[] = "Caso 12: setup — venta con timbrado=12345678 cargado esperaba 200, llegó {$statusFrozen} " . json_encode($bodyFrozen);
+        } else {
+            $authRow1 = ncmExecute('SELECT invoiceauth FROM transaction WHERE transactionId = ?', [$txIdFrozen]);
+            $authBefore = ($authRow1 !== false && $authRow1 !== 0) ? ($authRow1['invoiceauth'] ?? null) : null;
+            if ($authBefore !== '12345678') {
+                $failures[] = 'Caso 12: la transacción debía congelar invoiceauth=\'12345678\' al emitir, quedó ' . json_encode($authBefore);
+            } else {
+                // Cambiar el timbrado de la caja DESPUÉS de emitir — el documento
+                // ya persistido NO debe reflejar el cambio.
+                ncmExecute(
+                    "UPDATE register SET data = jsonb_set(COALESCE(data, '{}'::jsonb), '{registerInvoiceAuth}', to_jsonb(99999999)) WHERE registerid = ?",
+                    [$PY_REGISTER_2]
+                );
+                $authRow2 = ncmExecute('SELECT invoiceauth FROM transaction WHERE transactionId = ?', [$txIdFrozen]);
+                $authAfter = ($authRow2 !== false && $authRow2 !== 0) ? ($authRow2['invoiceauth'] ?? null) : null;
+                if ($authAfter !== '12345678') {
+                    $failures[] = 'Caso 12: tras cambiar el timbrado de la caja a 99999999, la transacción YA EMITIDA debía seguir mostrando invoiceauth=\'12345678\' (congelado), quedó ' . json_encode($authAfter);
+                } else {
+                    echo "[verify_register_lease] OK caso 12: el timbrado congelado en la transacción (invoiceauth=12345678) sobrevive a un cambio posterior del timbrado de la caja (ahora 99999999) — no se re-lee `register` para un documento ya emitido\n";
+                }
             }
         }
     }

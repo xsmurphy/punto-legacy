@@ -200,9 +200,14 @@ fi
 #    reales) contra el Postgres seedeado arriba; no depende de los pasos
 #    anteriores. Incluye el caso CENTRAL (6): dos ventas online consecutivas
 #    de la misma caja con invoiceNo distinto y consecutivo, y document_
-#    sequence avanzando solo (sin allocate() server-side).
+#    sequence avanzando solo (sin allocate() server-side). Casos 10-12 (mig
+#    145): el agujero que quedó al sacar el arriendo — dos uid distintos con
+#    el MISMO invoiceNo en la MISMA caja se rechazan en la BASE (con
+#    timbrado NULL, el caso trampa), el mismo invoiceNo en OTRA caja
+#    convive, y el timbrado congelado sobrevive un cambio posterior del
+#    timbrado del register.
 echo ""
-echo "[run.sh] === exclusividad de caja + numeración sin arriendo (register_lease, 409 entre devices, correlativo decidido por el device) ==="
+echo "[run.sh] === exclusividad de caja + numeración sin arriendo + unicidad de invoiceno (register_lease, 409 entre devices, mig 145) ==="
 if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_register_lease.php"; then
   OVERALL_STATUS=1
 fi
