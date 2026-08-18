@@ -36,6 +36,7 @@ import type { ModulesMap } from "@/lib/types/module"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
 import { MODE_VISUALS } from "@/lib/pos/mode-visuals"
+import { useHotkeysStore } from "@/lib/hotkeys/store"
 
 // Mismo criterio conservador que `panel-auth-guard.tsx` (posNav): mientras
 // isLoading o error, el item condicional NO se muestra — evita parpadeo.
@@ -96,6 +97,17 @@ export function PosSidebar() {
   const isMobile = useIsMobile()
   const hotkeysHref = isMobile ? "/pos?view=hotkeys" : "/pos"
 
+  // El botón de HotKeys del sidebar promete la VISTA POR DEFECTO (grilla de
+  // venta), nunca el editor — ese modo se entra solo desde Menú POS → HotKeys
+  // (pos-main-menu.tsx, key "edit-hotkeys"). `editing` vive en un store global
+  // (lib/hotkeys/store.ts) que no depende de la ruta, y `HotkeysEditScope`
+  // (app/(pos)/pos/layout.tsx) solo lo apaga cuando CAMBIA el pathname. Como
+  // este link apunta a la misma URL en la que ya se está parado al editar
+  // (`/pos`, con o sin `?view=hotkeys`), Next no dispara esa transición y
+  // `editing` quedaba pegado en `true` — el owner reportó que el ícono
+  // "llevaba al editor". El fix es apagar el flag acá, explícito, al click.
+  const setHotkeysEditing = useHotkeysStore((s) => s.setEditing)
+
   // Gate del link "Guardadas" según Ajustes → permitirGuardarVentas (default
   // true). La página sigue accesible por URL directa si algún operador la
   // tiene abierta — solo se oculta el link.
@@ -153,7 +165,7 @@ export function PosSidebar() {
                 >
                   {/* `isActive` compara contra `pathname`, que NO incluye la
                       query — se marca igual con o sin `?view=hotkeys`. */}
-                  <Link href={hotkeysHref}>
+                  <Link href={hotkeysHref} onClick={() => setHotkeysEditing(false)}>
                     <Blocks />
                     <span>HotKeys</span>
                   </Link>
