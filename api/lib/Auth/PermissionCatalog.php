@@ -2,13 +2,34 @@
 /**
  * Catálogo canónico de permisos del sistema.
  * ÚNICO source of truth — agregar un permiso nuevo requiere:
- *   1. Editar este array.
- *   2. Ajustar los seed defaults en RoleService::seedCompanyRoles().
- *   3. Enforcar el permiso en el endpoint correspondiente vía hasPermission().
+ *   1. Editar este array, agregando la entrada con `since` = CURRENT_VERSION + 1.
+ *   2. Bumpear CURRENT_VERSION.
+ *   3. Ajustar los seed defaults en RoleService::SEED_PERMISSIONS (owner los
+ *      recibe siempre, sin editar nada — ver RoleService::getPermissions()).
+ *   4. Enforcar el permiso en el endpoint correspondiente vía hasPermission().
+ *
+ * Backfill a roles existentes: NO es manual. RoleService reconcilia de forma
+ * lazy — en la primera lectura de un rol seed (manager/cashier) después del
+ * deploy, si el seed default incluye un permiso con `since` posterior a la
+ * versión con la que ese rol fue guardado por última vez, se lo agrega y
+ * persiste. Un permiso ausente con `since` <= la versión guardada del rol se
+ * asume revocado a propósito y NUNCA se revive. Ver
+ * RoleService::_reconcileSeedGaps().
  */
 final class PermissionCatalog
 {
-    /** @return list<array{id: string, label: string, group: string}> */
+    /**
+     * Versión asumida para todo permiso sin `since` explícito: el catálogo tal
+     * como existía antes de introducir este mecanismo de versionado. Roles
+     * guardados antes del backfill (sin `catalogVersion` en su roleData) se
+     * asumen sincronizados hasta acá — nunca antes, nunca después.
+     */
+    public const BASELINE_VERSION = 1;
+
+    /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
+    public const CURRENT_VERSION = 2;
+
+    /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
     {
         return [
@@ -52,7 +73,7 @@ final class PermissionCatalog
             // F4): liberar la tenencia desconecta a un dispositivo que puede
             // estar operando ahora mismo y anula sus números arrendados no
             // consumidos — otro radio de impacto que el CRUD de la caja.
-            ['id' => 'settings.register.release', 'label' => 'Liberar tenencia de caja', 'group' => 'Configuración'],
+            ['id' => 'settings.register.release', 'label' => 'Liberar tenencia de caja', 'group' => 'Configuración', 'since' => 2],
             ['id' => 'settings.tax.manage',      'label' => 'Gestionar impuestos',    'group' => 'Configuración'],
             ['id' => 'settings.template.manage', 'label' => 'Gestionar plantillas',   'group' => 'Configuración'],
             ['id' => 'settings.device.pair',     'label' => 'Parear dispositivos POS','group' => 'Configuración'],
@@ -91,5 +112,18 @@ final class PermissionCatalog
             $ids = array_column(self::all(), 'id');
         }
         return $ids;
+    }
+
+    /** Versión del catálogo en la que se introdujo `$id`. BASELINE_VERSION si no declara `since`. */
+    public static function since(string $id): int
+    {
+        static $map = null;
+        if ($map === null) {
+            $map = [];
+            foreach (self::all() as $p) {
+                $map[$p['id']] = $p['since'] ?? self::BASELINE_VERSION;
+            }
+        }
+        return $map[$id] ?? self::BASELINE_VERSION;
     }
 }
