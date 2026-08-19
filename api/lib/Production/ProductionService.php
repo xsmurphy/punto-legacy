@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Punto\Api\Production;
 
+use Punto\Api\Documents\DocumentNumber;
 use Punto\App\Domain\Inventory;
 
 /**
