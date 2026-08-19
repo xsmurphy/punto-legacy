@@ -190,7 +190,9 @@ export function ProductInfoDialog({ item, onClose }: Props) {
 
   return (
     <Dialog open={item !== null} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="sm:max-w-2xl" mobileFullscreen>
+      {/* Bucket l (sm:max-w-4xl) — la ficha pasó a 2 columnas y necesita más
+          ancho que el bucket m default (§14 Regla #2.1). */}
+      <DialogContent className="sm:max-w-4xl" mobileFullscreen>
         <DialogHeader>
           <DialogTitle>{name}</DialogTitle>
           <DialogDescription>
@@ -200,162 +202,179 @@ export function ProductInfoDialog({ item, onClose }: Props) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex flex-col gap-4">
+        {/*
+          Corte en `md` (768px) — NO un breakpoint nuevo. El POS ya modela
+          "horizontal" vs "vertical/phone view" con `useIsMobile()`
+          (frontend/hooks/use-mobile.ts, MOBILE_BREAKPOINT = 768) y
+          `pos/layout.tsx` usa exactamente `md:` como su equivalente Tailwind
+          para esa misma frontera. Reusamos esa: NO hay un tercer modo
+          "tablet vertical" a acomodar — o el POS corre horizontal (tablet u
+          computadora, ahí van las 2 columnas) o cae en phone view (apilado,
+          1 columna). Forzar la orientación es un tema de la app/PWA, ajeno a
+          este diálogo.
+        */}
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:gap-6">
           {/* ── Galería ─────────────────────────────────────────────────── */}
           {galleryImages.length > 0 && (
-            <ProductGallery images={galleryImages} name={name} />
+            <div className="md:w-72 md:shrink-0">
+              <ProductGallery images={galleryImages} name={name} />
+            </div>
           )}
 
-          {/* ── Precio de venta ─────────────────────────────────────────── */}
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Precio de venta
-            </p>
-            <p className="text-2xl font-semibold tabular-nums">
-              {formatMoney(price, config)}
-              {uom && (
-                <span className="ml-1.5 text-sm font-normal text-muted-foreground">
-                  por {uom}
-                </span>
-              )}
-            </p>
-          </div>
+          <div className="flex min-w-0 flex-1 flex-col gap-4">
+            {/* ── Precio de venta ───────────────────────────────────────── */}
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Precio de venta
+              </p>
+              <p className="text-2xl font-semibold tabular-nums">
+                {formatMoney(price, config)}
+                {uom && (
+                  <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                    por {uom}
+                  </span>
+                )}
+              </p>
+            </div>
 
-          {/* ── Datos del producto ────────────────────────────────────────
-              Todo cacheado (item.*), disponible sin red. */}
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Datos del producto
-            </p>
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-              <InfoField label="Tipo de ítem" value={kindLabel} />
-              <InfoField label="SKU" value={sku} />
-              <InfoField label="Categoría" value={categoryName} />
-              <InfoField label="Marca" value={brandName} />
-              <InfoField label="IVA" value={taxLabel} />
-              <InfoField label="Sucursal asignada" value={assignedOutletName} />
-            </dl>
-          </div>
-
-          {/* ── Descripción y etiquetas ─────────────────────────────────── */}
-          {isPending ? (
+            {/* ── Datos del producto ──────────────────────────────────────
+                Todo cacheado (item.*), disponible sin red. 3 columnas desde
+                `md`: la columna de contenido ya tiene ancho de sobra al lado
+                de la galería, y 2 filas en vez de 3 es menos scroll. */}
             <div className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-2/3" />
-            </div>
-          ) : (
-            <>
-              {data?.detail.itemDescription && (
-                <p className="text-sm text-muted-foreground">{data.detail.itemDescription}</p>
-              )}
-              {(data?.detail.tags.length ?? 0) > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {data?.detail.tags.map((tag) => (
-                    <Badge key={tag.id} variant="secondary">
-                      {tag.name}
-                    </Badge>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-
-          <Separator />
-
-          {/* ── Stock ───────────────────────────────────────────────────── */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between gap-3">
               <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Stock por sucursal
+                Datos del producto
               </p>
-              {totalStatus !== null && !isPending && !isError && (
-                <Badge variant={STOCK_BADGE_VARIANT[totalStatus]}>
-                  {STOCK_STATUS_LABEL[totalStatus]}
-                </Badge>
-              )}
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 md:grid-cols-3">
+                <InfoField label="Tipo de ítem" value={kindLabel} />
+                <InfoField label="SKU" value={sku} />
+                <InfoField label="Categoría" value={categoryName} />
+                <InfoField label="Marca" value={brandName} />
+                <InfoField label="IVA" value={taxLabel} />
+                <InfoField label="Sucursal asignada" value={assignedOutletName} />
+              </dl>
             </div>
 
-            {!trackInventory ? (
-              <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
-                Este ítem no lleva control de stock, así que no tiene saldo ni alertas.
-                Se puede vender siempre.
-              </p>
-            ) : isError ? (
-              <div className="flex flex-col items-start gap-3 rounded-lg border border-border p-4">
-                <div className="flex items-start gap-2.5">
-                  {offline ? (
-                    <WifiOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  ) : (
-                    <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                  )}
-                  <p className="text-sm text-muted-foreground">
-                    {offline
-                      ? "Sin conexión — el stock no está disponible. El precio y los datos que ves salen del catálogo guardado en la caja."
-                      : "No se pudo consultar el stock. Probá de nuevo en unos segundos."}
-                  </p>
-                </div>
-                <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
-                  <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
-                  Reintentar
-                </Button>
+            {/* ── Descripción y etiquetas ─────────────────────────────────── */}
+            {isPending ? (
+              <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-2/3" />
               </div>
-            ) : isPending ? (
-              <div className="flex flex-col gap-3">
-                {[0, 1].map((i) => (
-                  <div key={i} className="flex flex-col gap-2">
-                    <Skeleton className="h-4 w-1/2" />
-                    <Skeleton className="h-2 w-full" />
-                  </div>
-                ))}
-              </div>
-            ) : outlets.length === 0 ? (
-              <EmptyState
-                icon={PackageSearch}
-                title="Sin movimientos de stock"
-                description="Este ítem todavía no tiene entradas ni salidas cargadas en ninguna sucursal."
-                ghost={false}
-              />
             ) : (
               <>
-                <div className="flex flex-col gap-3">
-                  {outlets.map((outlet) => (
-                    <OutletStockRow
-                      key={outlet.outletId}
-                      outlet={outlet}
-                      isActive={outlet.outletId === activeOutlet?.id}
-                      min={minStock}
-                      max={maxStock}
-                      scale={scale}
-                      config={config}
-                    />
-                  ))}
-                </div>
-
-                <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
-                  <span className="text-sm font-medium">Total</span>
-                  <span
-                    className={cn(
-                      "text-sm tabular-nums",
-                      totalStatus ? STOCK_STATUS_CLASS[totalStatus] : undefined,
-                    )}
-                  >
-                    {formatQty(total, config)}
-                    {uom ? ` ${uom}` : ""}
-                  </span>
-                </div>
-
-                {(minStock !== null || maxStock !== null) && (
-                  <p className="text-sm text-muted-foreground">
-                    {[
-                      minStock !== null ? `Mínimo ${formatQty(minStock, config)}` : null,
-                      maxStock !== null ? `máximo ${formatQty(maxStock, config)}` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </p>
+                {data?.detail.itemDescription && (
+                  <p className="text-sm text-muted-foreground">{data.detail.itemDescription}</p>
+                )}
+                {(data?.detail.tags.length ?? 0) > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {data?.detail.tags.map((tag) => (
+                      <Badge key={tag.id} variant="secondary">
+                        {tag.name}
+                      </Badge>
+                    ))}
+                  </div>
                 )}
               </>
             )}
+
+            <Separator />
+
+            {/* ── Stock ───────────────────────────────────────────────────── */}
+            <div className="flex flex-col gap-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Stock por sucursal
+                </p>
+                {totalStatus !== null && !isPending && !isError && (
+                  <Badge variant={STOCK_BADGE_VARIANT[totalStatus]}>
+                    {STOCK_STATUS_LABEL[totalStatus]}
+                  </Badge>
+                )}
+              </div>
+
+              {!trackInventory ? (
+                <p className="rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                  Este ítem no lleva control de stock, así que no tiene saldo ni alertas.
+                  Se puede vender siempre.
+                </p>
+              ) : isError ? (
+                <div className="flex flex-col items-start gap-3 rounded-lg border border-border p-4">
+                  <div className="flex items-start gap-2.5">
+                    {offline ? (
+                      <WifiOff className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <AlertTriangle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    )}
+                    <p className="text-sm text-muted-foreground">
+                      {offline
+                        ? "Sin conexión — el stock no está disponible. El precio y los datos que ves salen del catálogo guardado en la caja."
+                        : "No se pudo consultar el stock. Probá de nuevo en unos segundos."}
+                    </p>
+                  </div>
+                  <Button variant="outline" onClick={() => refetch()} disabled={isFetching}>
+                    <RefreshCw className={cn("size-4", isFetching && "animate-spin")} />
+                    Reintentar
+                  </Button>
+                </div>
+              ) : isPending ? (
+                <div className="flex flex-col gap-3">
+                  {[0, 1].map((i) => (
+                    <div key={i} className="flex flex-col gap-2">
+                      <Skeleton className="h-4 w-1/2" />
+                      <Skeleton className="h-2 w-full" />
+                    </div>
+                  ))}
+                </div>
+              ) : outlets.length === 0 ? (
+                <EmptyState
+                  icon={PackageSearch}
+                  title="Sin movimientos de stock"
+                  description="Este ítem todavía no tiene entradas ni salidas cargadas en ninguna sucursal."
+                  ghost={false}
+                />
+              ) : (
+                <>
+                  <div className="flex flex-col gap-3">
+                    {outlets.map((outlet) => (
+                      <OutletStockRow
+                        key={outlet.outletId}
+                        outlet={outlet}
+                        isActive={outlet.outletId === activeOutlet?.id}
+                        min={minStock}
+                        max={maxStock}
+                        scale={scale}
+                        config={config}
+                      />
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
+                    <span className="text-sm font-medium">Total</span>
+                    <span
+                      className={cn(
+                        "text-sm tabular-nums",
+                        totalStatus ? STOCK_STATUS_CLASS[totalStatus] : undefined,
+                      )}
+                    >
+                      {formatQty(total, config)}
+                      {uom ? ` ${uom}` : ""}
+                    </span>
+                  </div>
+
+                  {(minStock !== null || maxStock !== null) && (
+                    <p className="text-sm text-muted-foreground">
+                      {[
+                        minStock !== null ? `Mínimo ${formatQty(minStock, config)}` : null,
+                        maxStock !== null ? `máximo ${formatQty(maxStock, config)}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         </div>
 
