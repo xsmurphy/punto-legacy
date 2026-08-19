@@ -63,6 +63,18 @@
 --     `itemid` — degrada en SILENCIO (deja de tocar `updated_at` del item
 --     padre cuando cambia un addon). Se recrean más abajo con los argumentos
 --     en lowercase.
+--   - `fn_record_deletion()` (mig 138_sync_incremental.sql, triggers
+--     trg_item_tombstone/trg_contact_tombstone en item/contact): CASO PEOR
+--     que fn_touch_parent — acá las comillas camelCase NO llegan por
+--     TG_ARGV, están HARDCODEADAS como texto SQL en el cuerpo de la función
+--     (`INSERT INTO deleted_row ("companyId", entity, "rowId", ...)`). Si no
+--     se corrige, NO degrada en silencio: revienta con excepción dura
+--     ("column \"companyId\" of relation \"deleted_row\" does not exist")
+--     en CUALQUIER DELETE sobre item o contact — bloquea todo borrado, no
+--     solo el tombstone de sync. Verificado contra pg_proc.prosrc en
+--     producción: es la ÚNICA función de toda la BD con una referencia
+--     hardcodeada a alguna de las 143 columnas. Se recrea más abajo con
+--     `companyid`/`rowid` lowercase.
 --
 -- auth_session (tabla de sesiones — si se rompe, nadie entra al sistema):
 -- mismo mecanismo que el resto (RENAME COLUMN de metadata, sin tocar datos),
@@ -546,6 +558,38 @@ BEGIN
   CREATE TRIGGER trg_addon_group_option_touch_item
     AFTER INSERT OR DELETE OR UPDATE ON addon_group_option
     FOR EACH ROW EXECUTE FUNCTION fn_touch_parent('item', 'itemid', 'itemid', 'addon_group', 'groupid', 'groupid');
+
+  -- ── fn_record_deletion() (mig 138_sync_incremental.sql): trigger de
+  -- tombstones de sync incremental (trg_item_tombstone en item,
+  -- trg_contact_tombstone en contact) que escribe en deleted_row — una de
+  -- las 18 tablas de esta migración. A diferencia de fn_touch_parent(), acá
+  -- las comillas camelCase NO llegan por TG_ARGV — están HARDCODEADAS como
+  -- texto SQL en el INSERT/ON CONFLICT del cuerpo de la función
+  -- (`INSERT INTO deleted_row ("companyId", entity, "rowId", ...)`).
+  -- RENAME COLUMN nunca reescribe cuerpos de función — si esto no se
+  -- corrige acá, CUALQUIER DELETE sobre item o contact revienta con
+  -- "column \"companyId\" of relation \"deleted_row\" does not exist" en
+  -- cuanto el RENAME de arriba corre, bloqueando TODO borrado de ítems y
+  -- contactos (no solo el tombstone de sync). Verificado contra el catálogo
+  -- real de producción (pg_proc.prosrc): es la ÚNICA función de toda la BD
+  -- con una referencia hardcodeada a alguna de las 143 columnas — todas las
+  -- demás pasan nombres de columna dinámicamente (fn_touch_parent) o no
+  -- tocan estas tablas.
+  CREATE OR REPLACE FUNCTION fn_record_deletion() RETURNS trigger AS $fn$
+  DECLARE
+    v_row_id  UUID;
+    v_company UUID;
+  BEGIN
+    v_row_id  := (to_jsonb(OLD) ->> TG_ARGV[1])::uuid;
+    v_company := (to_jsonb(OLD) ->> 'companyid')::uuid;
+    IF v_company IS NOT NULL AND v_row_id IS NOT NULL THEN
+      INSERT INTO deleted_row (companyid, entity, rowid, deleted_at)
+      VALUES (v_company, TG_ARGV[0], v_row_id, now())
+      ON CONFLICT (companyid, entity, rowid) DO UPDATE SET deleted_at = EXCLUDED.deleted_at;
+    END IF;
+    RETURN OLD;
+  END;
+  $fn$ LANGUAGE plpgsql;
 
   -- ── Chequeo final: cero columnas camelCase-quoted deben sobrevivir en las
   -- 18 tablas de esta migración. Si algo quedó afuera (nombre no anticipado
