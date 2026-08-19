@@ -23,33 +23,38 @@ declare(strict_types=1);
  *   llama al método fijado y verifica que arme el array de la nota de
  *   crédito sin el error "relation itemsold does not exist".
  *
- * Caso 2 — PurchaseCreditNoteService::create() (líneas ~157/179/271): NO se
- *   puede cerrar en verde end-to-end. Descubrimos en el camino un SEGUNDO
- *   bug, independiente del de comillas y FUERA de alcance de esta tarea
- *   (no es de citado, es una columna que no existe): la query de la línea
- *   ~161 hace `MIN(taxid::text) AS taxid` contra `itemSold`, pero esa tabla
- *   NO tiene columna `taxid` (sí `itemsoldtax`) — Postgres tira "column
- *   taxid does not exist" ANTES de llegar a las líneas 179/271. Ver el
- *   reporte final de la tarea (punto C) para el detalle — no se corrige acá
- *   (regla del proyecto: la solución a UN bug no absorbe otro no
- *   relacionado sin decisión explícita). Lo que SÍ demuestra este caso: el
- *   fallo cambió de "relation itemsold does not exist" (el bug de comillas,
- *   ya no ocurre) a "column taxid does not exist" (el bug de columna,
- *   pendiente) — evidencia directa y objetiva de que Postgres ahora
- *   RESUELVE la relación itemSold correctamente y solo se queja de una
- *   columna puntual dentro de ella.
+ * Caso 2 — PurchaseCreditNoteService::create() (líneas ~157/179/271): CIERRA
+ *   EN VERDE end-to-end. Al escribir este arnés (2026-08-17 14:08, commit
+ *   049beaf8) create() reventaba con un SEGUNDO bug independiente del de
+ *   comillas: `MIN(taxid::text) AS taxid` contra `itemSold`, columna que no
+ *   existe ahí (sí `itemsoldtax`) — "column taxid does not exist". Ese
+ *   segundo bug quedó anotado "fuera de alcance" a propósito (regla del
+ *   proyecto: la solución a UN bug no absorbe otro no relacionado sin
+ *   decisión explícita). Se corrigió esa misma tarde, más tarde y en otra
+ *   rama (commit 5a6726a8, 2026-08-17 21:56, "fix(compras): 3 bugs
+ *   pre-existentes que bloqueaban pago/NC a proveedor") — leyendo el taxId
+ *   desde el JSONB `meta->>'taxId'` en vez de la columna inexistente. Este
+ *   arnés nunca se actualizó para reflejarlo: seguía esperando que create()
+ *   TIRARA la excepción de taxid como "resultado válido". Ahora afirma el
+ *   caso COMPLETO: create() succeeds, persiste la NC (transactionType=14)
+ *   con su itemSold en negativo y el transaction_link
+ *   kind='purchase_credit_note' hacia la compra original.
  *
  * Caso 3 — PurchaseCreditNoteService::void() (línea ~401) y
  *   creditedQtyByItem() (línea ~507, la que estaba en comillas ESCAPADAS
  *   `\"itemSold\"` dentro de un string PHP con comillas dobles — un grep
- *   ingenuo no la encontraba): como create() no se puede correr de punta a
- *   punta (caso 2), se arma la fixture de una nota de crédito de compra ya
- *   emitida con INSERTs directos (transaction type=14 + itemSold negativo +
- *   transaction_link kind='purchase_credit_note' + stock
- *   stocksource='purchase_credit_note', el mismo shape que create()
- *   generaría si no estuviera bloqueada) y se llaman void()/
- *   creditedQtyByItem() DIRECTAMENTE — código real, no una copia — contra
- *   esa fixture.
+ *   ingenuo no la encontraba): usa su PROPIA compra fixture
+ *   (`VERIFY-PGID-PURCHASE-NC3`, no la del caso 2) a propósito — ahora que
+ *   el caso 2 crea una NC REAL vinculada a `$purchaseId` vía
+ *   `transaction_link`, reusar esa misma compra acoplaría el total que
+ *   `creditedQtyByItem()` suma (1 del caso 2 + 1 del fixture de este caso =
+ *   2, no 1) al ORDEN de ejecución de los casos — frágil y no es lo que
+ *   este caso quiere demostrar. Con su propia compra aislada, arma la
+ *   fixture de una nota de crédito de compra ya emitida con INSERTs
+ *   directos (transaction type=14 + itemSold negativo + transaction_link
+ *   kind='purchase_credit_note' + stock stocksource='purchase_credit_note',
+ *   el mismo shape que create() genera) y llama void()/creditedQtyByItem()
+ *   DIRECTAMENTE — código real, no una copia — contra esa fixture.
  *
  * Caso 4 — LocationTaxonomyService::delete() (línea ~59): guard FK bloqueaba
  *   CUALQUIER borrado de depósito (tiraba excepción antes de siquiera mirar
@@ -205,9 +210,9 @@ try {
 
     // ═══════════════════════════════════════════════════════════════════
     // Caso 2 — PurchaseCreditNoteService::create() (líneas ~157/179/271):
-    // NO cierra en verde — bug de columna `taxid` inexistente en itemSold,
-    // independiente del de comillas y fuera de alcance (ver docblock).
-    // Lo que se demuestra: el error cambia de clase.
+    // cierra en verde end-to-end (ver docblock: el bug de columna `taxid`
+    // que este caso toleraba como "fuera de alcance" ya se corrigió en
+    // commit 5a6726a8, el mismo día — este arnés estaba desactualizado).
     // ═══════════════════════════════════════════════════════════════════
     $purchaseRow = ncmExecute(
         'INSERT INTO transaction
@@ -226,29 +231,56 @@ try {
 
     $pcnSvc = new PurchaseCreditNoteService();
     try {
-        $pcnSvc->create($PY_COMPANY, $PY_USER, $PY_OUTLET, $purchaseId, [['itemId' => $PY_ITEM, 'qty' => 1]], 'cash', false, 'VERIFY-PGID-NC');
-        $failures[] = 'Caso 2: PurchaseCreditNoteService::create() no tiró excepción — si esto pasa, alguien corrigió el bug de taxid reportado en el punto C; actualizar este arnés para afirmar el caso completo (hoy no cierra a propósito)';
-    } catch (\Throwable $e) {
-        // create() envuelve el error real de Postgres en un mensaje genérico
-        // ("Item ... no encontrado en la compra original", porque GetRow()
-        // devuelve false ante CUALQUIER error de Execute(), no solo "0 filas")
-        // — el texto real de Postgres sobrevive en $db->ErrorMsg() (firstError
-        // de la transacción actual), no en $e->getMessage().
-        $dbErr = $db->ErrorMsg();
-        if (stripos($dbErr, 'itemsold') !== false && stripos($dbErr, 'does not exist') !== false && stripos($dbErr, 'taxid') === false) {
-            $failures[] = "Caso 2: PurchaseCreditNoteService::create() sigue fallando por itemSold/relation (el bug de comillas NO está resuelto) — {$dbErr}";
-        } elseif (stripos($dbErr, 'taxid') !== false) {
-            echo "[verify_pg_identifiers] OK caso 2: PurchaseCreditNoteService::create() ya NO falla por \"relation itemsold does not exist\" (bug de comillas corregido — Postgres ahora RESUELVE la relación itemSold) — falla por el bug DISTINTO y fuera de alcance de la columna taxid inexistente en itemSold (reportado en el punto C del reporte final, no corregido acá): {$dbErr}\n";
+        $pcnResult = $pcnSvc->create($PY_COMPANY, $PY_USER, $PY_OUTLET, $purchaseId, [['itemId' => $PY_ITEM, 'qty' => 1]], 'cash', false, 'VERIFY-PGID-NC');
+        $ncFromCase2 = (string) ($pcnResult['id'] ?? '');
+        if ($ncFromCase2 === '') {
+            $failures[] = 'Caso 2: create() no devolvió id de la NC creada';
         } else {
-            $failures[] = "Caso 2: PurchaseCreditNoteService::create() falló con un error inesperado (ni itemSold/relation ni taxid) — mensaje: {$e->getMessage()} / db: {$dbErr}";
+            $ncRow = ncmExecute(
+                'SELECT transactiontype, transactioncomplete FROM transaction WHERE transactionid = ?',
+                [$ncFromCase2]
+            );
+            $itemSoldRow = ncmExecute(
+                'SELECT itemsoldunits FROM itemSold WHERE transactionid = ? AND itemid = ?',
+                [$ncFromCase2, $PY_ITEM]
+            );
+            $linkedIds = (new TransactionLinkService())->listDerivedIds($PY_COMPANY, $purchaseId, 'purchase_credit_note');
+            if ((int) ($ncRow['transactiontype'] ?? -1) !== 14) {
+                $failures[] = 'Caso 2: la NC creada no quedó con transactionType=14, llegó ' . var_export($ncRow['transactiontype'] ?? null, true);
+            } elseif ((float) ($itemSoldRow['itemsoldunits'] ?? 0) !== -1.0) {
+                $failures[] = 'Caso 2: itemSold de la NC esperaba itemsoldunits=-1, llegó ' . var_export($itemSoldRow['itemsoldunits'] ?? null, true);
+            } elseif (!in_array($ncFromCase2, $linkedIds, true)) {
+                $failures[] = 'Caso 2: no se encontró transaction_link kind=purchase_credit_note de la compra original hacia la NC creada';
+            } else {
+                echo "[verify_pg_identifiers] OK caso 2: PurchaseCreditNoteService::create() lee itemSold sin \"relation itemsold does not exist\" NI \"column taxid does not exist\" (bug de comillas y bug de columna, ambos corregidos) — persiste la NC, su itemSold en negativo y el transaction_link a la compra original\n";
+            }
         }
+    } catch (\Throwable $e) {
+        $failures[] = 'Caso 2: PurchaseCreditNoteService::create() tiró excepción — ' . $e->getMessage() . ' / db: ' . $db->ErrorMsg();
     }
 
     // ═══════════════════════════════════════════════════════════════════
     // Caso 3 — PurchaseCreditNoteService::void() (línea ~401) y
     // creditedQtyByItem() (línea ~507, comillas escapadas). Fixture armada
-    // con INSERTs directos porque create() no puede generarla (caso 2).
+    // con INSERTs directos sobre su PROPIA compra (no `$purchaseId` del
+    // caso 2 — ver docblock: reusarla sumaría también la NC real que crea
+    // el caso 2 y acoplaría el resultado al orden de ejecución).
     // ═══════════════════════════════════════════════════════════════════
+    $purchase3Row = ncmExecute(
+        'INSERT INTO transaction
+            (transactiondate, transactiontotal, transactiontype, transactioncomplete,
+             transactionstatus, transactionuid, userid, outletid, companyid)
+         VALUES (now(), ?, 1, TRUE, 1, ?, ?, ?, ?)
+         RETURNING transactionid',
+        [11000, 'VERIFY-PGID-PURCHASE-NC3', $PY_USER, $PY_OUTLET, $PY_COMPANY]
+    );
+    $purchaseId3 = (string) ($purchase3Row['transactionid'] ?? '');
+    ncmExecute(
+        'INSERT INTO itemSold (itemid, transactionid, itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldtax, itemsolddate)
+         VALUES (?, ?, ?, ?, 0, 0, now())',
+        [$PY_ITEM, $purchaseId3, 1, 11000]
+    );
+
     $ncRow = ncmExecute(
         'INSERT INTO transaction
             (transactiondate, transactiontotal, transactiontype, transactioncomplete,
@@ -268,10 +300,10 @@ try {
          VALUES (?, ?, ?, ?, 'purchase_credit_note', -1)",
         [$PY_ITEM, $ncId, $PY_OUTLET, $PY_COMPANY]
     );
-    (new TransactionLinkService())->link($PY_COMPANY, $purchaseId, $ncId, 'purchase_credit_note');
+    (new TransactionLinkService())->link($PY_COMPANY, $purchaseId3, $ncId, 'purchase_credit_note');
 
     try {
-        $qtyByItem = $pcnSvc->creditedQtyByItem($purchaseId, $PY_COMPANY);
+        $qtyByItem = $pcnSvc->creditedQtyByItem($purchaseId3, $PY_COMPANY);
         if ((float) ($qtyByItem[$PY_ITEM] ?? 0) !== 1.0) {
             $failures[] = 'Caso 3a: creditedQtyByItem() esperaba qty=1 para ' . $PY_ITEM . ', llegó ' . var_export($qtyByItem[$PY_ITEM] ?? null, true);
         } else {
