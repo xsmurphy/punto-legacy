@@ -119,9 +119,21 @@ final class SaleService
         // las líneas hijas. Va acá, ANTES de StartTrans, para que un rechazo
         // (422) no deje una transacción abierta a medias (mismo criterio que
         // el dupli check y la validación del cliente, arriba).
+        //
+        // F6 (context/41 → reportes, 2026-08-19): expandCompoundSelections
+        // corre DESPUÉS — mismo motivo y mismo lugar en la cadena — para que
+        // la receta de un combo FIJO (`item_compound`) también deje líneas
+        // hijas en `itemSold` con su propio impuesto congelado. Antes de esto
+        // el combo se persistía como UNA sola línea y ProductsService no
+        // tenía de dónde sacar el desglose ("Componentes de combos", reporte
+        // del tester). Ver el método para el porqué de precio=0 y por qué NO
+        // duplica el descuento de stock del combo.
         $decimals   = $this->currencyDecimals();
         $saleDetail = $this->enrichWithTaxes(
-            $this->expandAddonSelections(saleArraySanitizer($input->sale), $decimals),
+            $this->expandCompoundSelections(
+                $this->expandAddonSelections(saleArraySanitizer($input->sale), $decimals),
+                $decimals
+            ),
             $input->ivaRemoved,
             $decimals
         );
@@ -1534,11 +1546,17 @@ final class SaleService
      * comentario del schema reserva `itemSold.meta` justamente para esto
      * ("future per-line metadata (modifiers, prep notes…)").
      *
+     * F6 (context/41 → reportes): mismo mecanismo para `meta.compound` —
+     * componentes de un combo FIJO (`expandCompoundSelections`). Una línea es
+     * hija de add-on XOR de compound, nunca las dos, así que un solo
+     * parámetro `$parentItemSoldId` alcanza para ambos casos.
+     *
      * @param array<string,mixed> $sD
-     * @param ?string $addonParentItemSoldId itemSoldId de la línea padre, ya
-     *   insertada (null en cotizaciones y en líneas que no son add-on).
+     * @param ?string $parentItemSoldId itemSoldId de la línea padre, ya
+     *   insertada (null en cotizaciones y en líneas que no son hija de
+     *   add-on ni de compound).
      */
-    private function resolveItemSoldMeta(array $sD, ?string $addonParentItemSoldId = null): ?string
+    private function resolveItemSoldMeta(array $sD, ?string $parentItemSoldId = null): ?string
     {
         $meta = [];
 
@@ -1559,7 +1577,13 @@ final class SaleService
         if (!empty($sD['addonOptionId'])) {
             $meta['addon'] = [
                 'optionId'         => (string) $sD['addonOptionId'],
-                'parentItemSoldId' => $addonParentItemSoldId,
+                'parentItemSoldId' => $parentItemSoldId,
+            ];
+        }
+
+        if (!empty($sD['compoundChildItemId'])) {
+            $meta['compound'] = [
+                'parentItemSoldId' => $parentItemSoldId,
             ];
         }
 
@@ -1734,6 +1758,145 @@ final class SaleService
         return $expanded;
     }
 
+    /**
+     * F6 (context/41 → reportes, hallazgo 2026-08-19) — expande la receta de
+     * un combo FIJO (`item_compound`) en LÍNEAS HIJAS de `$saleDetail`, mismo
+     * mecanismo y mismo lugar de la cadena que `expandAddonSelections` (corre
+     * DESPUÉS de esa, ANTES de `enrichWithTaxes`): así cada hija recibe su
+     * propio IVA congelado con el `taxId` del componente, entra al ticket/
+     * comanda vía `meta.transactionDetails` como cualquier línea, y genera su
+     * propio `itemSold` con `itemSoldParent` + `meta.compound`.
+     *
+     * Por qué hacía falta: hasta ahora un combo fijo se persistía como UNA
+     * sola fila en `itemSold` (la del combo) — `item_compound` solo se leía
+     * para explotar stock (`persistItemsAndStock`, más abajo), nunca para
+     * dejar rastro de qué lo componía. `ProductsService` (reportes) agrega
+     * sobre `itemSold`, así que sin estas líneas hijas el reporte no puede
+     * desglosar "Combo Sandy" en sus componentes — no es que el reporte
+     * filtre mal, es que el dato nunca existió (reporte del tester,
+     * "Componentes de combos"). Esto es SOLO hacia adelante: las ventas de
+     * combos ya persistidas antes de este cambio NO tienen estas líneas y no
+     * se retroactúan.
+     *
+     * Discriminante `itemType` (DB) ∈ {combo, precombo} — el MISMO criterio
+     * que ya usa el cálculo de COGS unas líneas más abajo en
+     * `persistItemsAndStock` para reconocer "esto es un combo". No alcanza
+     * con "tiene filas en item_compound": esa tabla es compartida con
+     * recetas de producción directa (ej. una hamburguesa con ingredientes
+     * propios) — generarle líneas hijas a CADA producto con receta inflaría
+     * los reportes de venta con cada insumo de cocina, que nunca fue lo que
+     * pidió el tester. Un ítem con receta que NO es combo sigue vendiéndose
+     * como una sola línea, igual que siempre.
+     *
+     * Precio SIEMPRE 0 (mismo criterio que un add-on gratis, D2): la plata
+     * del combo vive entera en la línea padre — `item_compound` no tiene
+     * columna de precio propia (a diferencia de `addon_group_option.
+     * priceDelta`), así que no hay nada que restarle al padre. Cantidad =
+     * qty del componente (`toCompoundQty`) × unidades del padre.
+     *
+     * Stock — esto es SOLO trazabilidad, no toca inventario: estas líneas
+     * llevan `type: 'compound'`, y `persistItemsAndStock` usa ese marcador
+     * para SALTAR tanto la explosión de receta (`explodeRecipe`) como el
+     * descuento de stock del ítem propio en esas líneas puntuales — el combo
+     * sigue descontando exactamente como antes, con la MISMA `explodeRecipe`
+     * recursiva corriendo sobre la línea PADRE. Si estas hijas también
+     * decrementaran, el insumo se restaría dos veces.
+     *
+     * Línea sin `itemId`, de descuento, o cuyo `itemType` no es combo/
+     * precombo, o sin filas en `item_compound` → se devuelve intacta, sin
+     * queries de más que las estrictamente necesarias para descartar el caso.
+     *
+     * NO corre en `saveQuote()` — mismo criterio que `expandAddonSelections`:
+     * F3 dejó las cotizaciones sin expandir add-ons a propósito (no cobran,
+     * no mueven stock), y este método sigue esa misma línea.
+     *
+     * @param array<int,array<string,mixed>> $saleDetail Ya pasado por expandAddonSelections.
+     * @return array<int,array<string,mixed>> Lista reindexada.
+     */
+    private function expandCompoundSelections(array $saleDetail, int $decimals): array
+    {
+        $expanded  = [];
+        $companyId = $this->ctx->companyId;
+
+        foreach ($saleDetail as $idx => $sD) {
+            $itemId = (string) ($sD['itemId'] ?? '');
+            if ($itemId === '' || ($sD['type'] ?? '') === 'discount') {
+                $expanded[] = $sD;
+                continue;
+            }
+
+            $itmRow = $this->db->Execute(
+                'SELECT itemType FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                [$itemId, $companyId]
+            );
+            $itemType = ($itmRow && !$itmRow->EOF) ? (string) ($itmRow->fields['itemtype'] ?? '') : '';
+
+            if (!in_array($itemType, ['combo', 'precombo'], true)) {
+                $expanded[] = $sD;
+                continue;
+            }
+
+            $compound = getCompoundsArray($itemId);
+            if (!is_array($compound) || $compound === []) {
+                $expanded[] = $sD;
+                continue;
+            }
+
+            // Ancla para que las hijas referencien el `itemSoldId` del padre
+            // en su `meta` — mismo patrón que `addonLineUid` en
+            // expandAddonSelections, namespace distinto (`cp` vs `ln`) para
+            // que nunca colisionen si algún día conviven en la misma venta.
+            $parentUid              = 'cp' . $idx;
+            $sD['compoundLineUid']  = $parentUid;
+            $parentUnits            = (float) ($sD['count'] ?? 0);
+
+            $expanded[] = $sD;
+
+            foreach ($compound as $comp) {
+                $childId = $comp['compoundId'] ?? null;
+                if (!$childId) {
+                    continue;
+                }
+                $childUnits = (float) ($comp['toCompoundQty'] ?? 0) * $parentUnits;
+                if ($childUnits <= 0) {
+                    continue;
+                }
+
+                $expanded[] = [
+                    'itemId'              => (string) $childId,
+                    'count'               => $childUnits,
+                    'oQty'                => $childUnits,
+                    'name'                => '',
+                    'uniPrice'            => 0.0,
+                    'price'               => 0.0,
+                    'total'               => 0.0,
+                    'tax'                 => 0.0, // lo congela enrichWithTaxes con el taxId del componente
+                    'discount'            => 0.0,
+                    'totalDiscount'       => 0.0,
+                    'tags'                => [],
+                    // Hereda el vendedor del padre, igual que un add-on.
+                    'user'                => $sD['user'] ?? '',
+                    'type'                => 'compound',
+                    'date'                => $sD['date'] ?? '',
+                    'note'                => '',
+                    'currency'            => $sD['currency'] ?? '',
+                    'uId'                 => 0,
+                    // `parent` alimenta `itemSold.itemSoldParent` (FK a
+                    // item(itemId), no a itemSoldId) — mismo criterio que
+                    // addon children, ver expandAddonSelections.
+                    'parent'              => $itemId,
+                    'isParent'            => null,
+                    'giftcard'            => null,
+                    'voucher'             => null,
+                    'compoundChildItemId' => (string) $childId,
+                    'compoundParentUid'   => $parentUid,
+                ];
+            }
+        }
+
+        return $expanded;
+    }
+
     private function persistItemsAndStock(SaleInput $input, string $transId, array $saleDetail): void
     {
         // El loop hardcodea source='sale'/type='-' (descuento de inventario). Las
@@ -1751,11 +1914,14 @@ final class SaleService
         $companyId   = $this->ctx->companyId;
         $hadSessions = false; // flag para updateLastTimeEdit una sola vez al final
 
-        // F3 add-ons (context/41): addonLineUid del padre → su itemSoldId ya
-        // insertado. `expandAddonSelections` deja cada hija INMEDIATAMENTE
-        // después de su padre, así que para cuando se procesa una hija el
-        // padre ya está en el mapa.
-        $addonParents = [];
+        // F3 add-ons (context/41) + F6 compound (reportes, 2026-08-19):
+        // addonLineUid/compoundLineUid del padre → su itemSoldId ya
+        // insertado. `expandAddonSelections`/`expandCompoundSelections` dejan
+        // cada hija INMEDIATAMENTE después de su padre, así que para cuando
+        // se procesa una hija el padre ya está en el mapa. Un solo mapa
+        // alcanza para las dos mecánicas: una línea es hija de UNA sola
+        // (nunca las dos a la vez).
+        $lineParents = [];
 
         foreach ($saleDetail as $sD) {
             if (($sD['type'] ?? '') === 'discount') {
@@ -1799,47 +1965,63 @@ final class SaleService
                 $this->issueGiftCard($sD, $itemId, $transId, $companyId);
             }
 
-            // ── comisión del usuario asignado a la línea (si tiene fija > 0) ──
-            // contactFixedComission está DEMOTED a `data` JSONB → ncmExecute (flatten),
-            // NO $this->db->Execute crudo (la key no existiría → comisión fija nunca
-            // se aplicaría = divergencia financiera vs legacy). §22.8.
-            $userComission = false;
-            if (!empty($sD['user'])) {
-                $contactRow = ncmExecute(
-                    'SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
-                    [(string) $sD['user'], $companyId]
-                );
-                if (is_array($contactRow) || $contactRow instanceof \ArrayAccess) {
-                    $fixed = (float) ($contactRow['contactFixedComission'] ?? 0);
-                    if ($fixed > 0) {
-                        $userComission = $fixed;
+            // F6 compound (reportes, 2026-08-19): estas líneas son PURA
+            // trazabilidad — cero comisión, cero COGS propio. El costo de
+            // estos componentes YA está en el COGS del PADRE (`getComboCOGS`,
+            // más abajo, bundlea toda la receta) — si esta hija sumara TAMBIÉN
+            // su propio COGS (`getItemStock`), el costo del combo se contaría
+            // DOS VECES en cualquier reporte que sume COGS por producto (una
+            // vez en la fila del combo, otra en la fila de este componente).
+            // Comisión fija (`contactFixedComission`, no depende del importe
+            // de la línea) tiene el mismo riesgo — cero acá, cero excepciones.
+            $isCompoundChild = ($sD['type'] ?? '') === 'compound';
+
+            $comission = 0.0;
+            $cogsVal   = null;
+
+            if (!$isCompoundChild) {
+                // ── comisión del usuario asignado a la línea (si tiene fija > 0) ──
+                // contactFixedComission está DEMOTED a `data` JSONB → ncmExecute (flatten),
+                // NO $this->db->Execute crudo (la key no existiría → comisión fija nunca
+                // se aplicaría = divergencia financiera vs legacy). §22.8.
+                $userComission = false;
+                if (!empty($sD['user'])) {
+                    $contactRow = ncmExecute(
+                        'SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+                        [(string) $sD['user'], $companyId]
+                    );
+                    if (is_array($contactRow) || $contactRow instanceof \ArrayAccess) {
+                        $fixed = (float) ($contactRow['contactFixedComission'] ?? 0);
+                        if ($fixed > 0) {
+                            $userComission = $fixed;
+                        }
                     }
                 }
+
+                $comissionTotal = ($sD['type'] ?? '') === 'inCombo'
+                    ? $itemPrice * (float) $sD['count']
+                    : (float) $sD['total'];
+
+                $comission = $userComission !== false
+                    ? getUserComissionTotal($comissionTotal, $userComission)
+                    : getItemComsissionTotal($itemId, $sD['count'], $comissionTotal);
+
+                // ── COGS según tipo de item ─────────────────────────────────
+                $itemSoldCOGS = [];
+                if ($itemType === 'direct_production') {
+                    $itemSoldCOGS['stockOnHandCOGS'] = getProductionCOGS($itemId);
+                } elseif (in_array($itemType, ['precombo', 'combo'], true)) {
+                    $itemSoldCOGS['stockOnHandCOGS'] = getComboCOGS($itemId);
+                } else {
+                    // Con la sucursal de la VENTA: sin ella cae en OUTLET_ID (la de la
+                    // sesión) y el costo del item vendido sale del stock de otra
+                    // sucursal.
+                    $itemSoldCOGS = getItemStock($itemId, $this->ctx->outletId);
+                }
+                $cogsVal = (is_array($itemSoldCOGS) || $itemSoldCOGS instanceof \ArrayAccess)
+                    ? ($itemSoldCOGS['stockOnHandCOGS'] ?? null)
+                    : null;
             }
-
-            $comissionTotal = ($sD['type'] ?? '') === 'inCombo'
-                ? $itemPrice * (float) $sD['count']
-                : (float) $sD['total'];
-
-            $comission = $userComission !== false
-                ? getUserComissionTotal($comissionTotal, $userComission)
-                : getItemComsissionTotal($itemId, $sD['count'], $comissionTotal);
-
-            // ── COGS según tipo de item ─────────────────────────────────────
-            $itemSoldCOGS = [];
-            if ($itemType === 'direct_production') {
-                $itemSoldCOGS['stockOnHandCOGS'] = getProductionCOGS($itemId);
-            } elseif (in_array($itemType, ['precombo', 'combo'], true)) {
-                $itemSoldCOGS['stockOnHandCOGS'] = getComboCOGS($itemId);
-            } else {
-                // Con la sucursal de la VENTA: sin ella cae en OUTLET_ID (la de la
-                // sesión) y el costo del item vendido sale del stock de otra
-                // sucursal.
-                $itemSoldCOGS = getItemStock($itemId, $this->ctx->outletId);
-            }
-            $cogsVal = (is_array($itemSoldCOGS) || $itemSoldCOGS instanceof \ArrayAccess)
-                ? ($itemSoldCOGS['stockOnHandCOGS'] ?? null)
-                : null;
 
             // ── INSERT itemSold ─────────────────────────────────────────────
             $records = [
@@ -1863,24 +2045,37 @@ final class SaleService
             if ($itemSoldDescription !== null) {
                 $records['itemSoldDescription'] = $itemSoldDescription;
             }
-            // F3 add-ons: si esta línea es una hija, su `meta` guarda el
-            // itemSoldId de la línea padre (ya insertada en una vuelta previa).
-            $addonParentItemSoldId = !empty($sD['addonParentUid'])
-                ? ($addonParents[(string) $sD['addonParentUid']] ?? null)
-                : null;
-            $itemSoldMeta = $this->resolveItemSoldMeta($sD, $addonParentItemSoldId);
+            // F3 add-ons + F6 compound: si esta línea es una hija (de add-on O
+            // de compound, nunca las dos), su `meta` guarda el itemSoldId de
+            // la línea padre (ya insertada en una vuelta previa).
+            $parentLineUid    = $sD['addonParentUid'] ?? $sD['compoundParentUid'] ?? null;
+            $parentItemSoldId = !empty($parentLineUid) ? ($lineParents[(string) $parentLineUid] ?? null) : null;
+            $itemSoldMeta     = $this->resolveItemSoldMeta($sD, $parentItemSoldId);
             if ($itemSoldMeta !== null) {
                 $records['meta'] = $itemSoldMeta;
             }
             $this->db->AutoExecute('itemSold', $records, 'INSERT');
             $itemSoldId = (string) $this->db->Insert_ID();
 
-            // F3 add-ons: el padre publica su itemSoldId para las hijas que
-            // vienen atrás. Best-effort a propósito: si el mapa no tuviera la
-            // entrada, la hija se guarda igual con parentItemSoldId=null — un
-            // add-on nunca debe hacer fallar la venta por un dato de trazabilidad.
-            if (!empty($sD['addonLineUid'])) {
-                $addonParents[(string) $sD['addonLineUid']] = $itemSoldId;
+            // F3 add-ons + F6 compound: el padre publica su itemSoldId para
+            // las hijas que vienen atrás. Best-effort a propósito: si el mapa
+            // no tuviera la entrada, la hija se guarda igual con
+            // parentItemSoldId=null — nunca debe hacer fallar la venta por un
+            // dato de trazabilidad.
+            //
+            // Publica bajo LAS DOS keys si están presentes (no `??`): un
+            // combo fijo puede tener SUS PROPIOS add-ons además de su receta
+            // (AddonService no restringe por itemType), así que la MISMA
+            // línea padre puede ser ancla de hijas de add-on Y de hijas de
+            // compound a la vez. Con `??` solo se publicaba una de las dos —
+            // las hijas del otro mecanismo quedaban con parentItemSoldId=null
+            // pese a que el padre SÍ estaba insertado. El lado hijo (arriba,
+            // `$parentLineUid`) sigue siendo XOR de verdad: una hija es de
+            // add-on O de compound, nunca las dos.
+            foreach (['addonLineUid', 'compoundLineUid'] as $uidKey) {
+                if (!empty($sD[$uidKey])) {
+                    $lineParents[(string) $sD[$uidKey]] = $itemSoldId;
+                }
             }
 
             // ── B8 (35d): sesiones agendadas ────────────────────────────────
@@ -1896,6 +2091,17 @@ final class SaleService
             }
 
             $units = (float) $sD['count'];
+
+            // F6 compound (reportes, 2026-08-19): estas líneas son PURA
+            // trazabilidad (expandCompoundSelections) — el combo padre ya
+            // descontó estos mismos insumos, recursivamente, con la
+            // explosión de más abajo. Si esta línea también moviera stock, el
+            // insumo se restaría dos veces. `continue` acá: nada de lo que
+            // sigue en esta vuelta del loop (compound propio, descuento del
+            // item, sesiones ya corrieron arriba) aplica a una hija de reporte.
+            if (($sD['type'] ?? '') === 'compound') {
+                continue;
+            }
 
             // ── compounds: descuenta el stock de los ingredientes ───────────
             // El guard de "producción previa" se resuelve contra la BD

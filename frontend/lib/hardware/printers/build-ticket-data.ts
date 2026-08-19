@@ -425,7 +425,10 @@ export interface TicketableTransactionItem {
    * `meta.transactionDetails` (`TransactionService::getSingle` hace un
    * `json_decode` directo, sin whitelist de campos, así que TODA clave que la
    * venta escribió llega hasta acá). `"addon"` = línea hija de add-on
-   * (`SaleService::expandAddonSelections`, F3). Las hijas quedan SIEMPRE
+   * (`SaleService::expandAddonSelections`, F3). `"compound"` = línea hija de
+   * la receta de un combo FIJO (`SaleService::expandCompoundSelections`, F6
+   * context/41 -> reportes, 2026-08-19) - mismo tratamiento visual, importe
+   * SIEMPRE 0 (la plata vive en el padre). Las hijas quedan SIEMPRE
    * inmediatamente después de su padre en el detalle.
    */
   type?: string
@@ -451,12 +454,20 @@ export interface TicketablePaymentMethod {
  * factura sin aportar plata. Los que sí cobran se listan indentados bajo su
  * padre, porque el importe tiene que poder atribuirse a algo.
  *
+ * Compound (F6 context/41 → reportes, 2026-08-19): las hijas de la receta de
+ * un combo FIJO (`type: "compound"`, `SaleService::expandCompoundSelections`)
+ * siguen EXACTAMENTE el mismo criterio que un add-on gratis — su importe es
+ * SIEMPRE 0 (la plata vive en el padre), así que se comportan como una hija
+ * gratuita: la comanda las lista (útil para cocina — "1 combo Sandy" =
+ * armar sandwich + papas + gaseosa), el ticket fiscal no.
+ *
  * La cocina imprime TODO, y por eso este filtro es un parámetro y no una
  * constante: es la única diferencia entre las dos impresiones.
  *
- * @param opts.includeFreeAddons `true` = comanda (lista add-ons de importe 0).
- *   Default `false` = ticket fiscal. Lo decide `buildTicketDataFromTransaction`
- *   por `docType`; un caller directo tiene que elegirlo a mano.
+ * @param opts.includeFreeAddons `true` = comanda (lista add-ons/compound de
+ *   importe 0). Default `false` = ticket fiscal. Lo decide
+ *   `buildTicketDataFromTransaction` por `docType`; un caller directo tiene
+ *   que elegirlo a mano.
  */
 export function buildTicketItemsFromTransaction(
   items: TicketableTransactionItem[] | null | undefined,
@@ -467,10 +478,11 @@ export function buildTicketItemsFromTransaction(
   return (items ?? [])
     .filter((i) => i.status !== 0)
     .filter((i) => {
-      // Solo se descartan HIJAS gratuitas. Una línea top-level de importe 0
-      // (promo, cortesía, canje) se sigue imprimiendo: es una entrega real al
-      // cliente y su ausencia del ticket sería un faltante, no una limpieza.
-      if (i.type !== "addon") return true
+      // Solo se descartan HIJAS gratuitas (add-on o compound). Una línea
+      // top-level de importe 0 (promo, cortesía, canje) se sigue imprimiendo:
+      // es una entrega real al cliente y su ausencia del ticket sería un
+      // faltante, no una limpieza.
+      if (i.type !== "addon" && i.type !== "compound") return true
       if (includeFreeAddons) return true
       return (i.total ?? 0) !== 0
     })
@@ -491,7 +503,7 @@ export function buildTicketItemsFromTransaction(
         uid: i.sku ?? null,
         note: i.note ?? null,
         tags: i.tags ?? null,
-        isAddonChild: i.type === "addon",
+        isAddonChild: i.type === "addon" || i.type === "compound",
         // Congelado real (F2a) tal cual, sin recalcular — ver comentario en
         // TicketableTransactionItem. `?? null`/`?? undefined` acá cubre tanto
         // el caller que no tipa estos campos como la venta pre-F2 sin ellos.
