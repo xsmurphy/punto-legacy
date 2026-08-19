@@ -247,7 +247,11 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         realtimeAfterMutation($__auditMethod, $__auditEndpoint, $__auditTargetId, $companyId);
     }
 
-    return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm', 'module');
+    // deviceId: solo no-vacío para realm pos-app (ver arriba). Agregado para que
+    // callers que necesitan saber "qué device es este" (ej. DrawerService::close(),
+    // liberar su propia tenencia de register_lease al cerrar caja — context/29 §4.4)
+    // no tengan que resolver AUTHED_DEVICE_ID por su cuenta ni redefinir apiAuthTenant().
+    return compact('companyId', 'outletId', 'userId', 'registerId', 'roleId', 'realm', 'module', 'deviceId');
 }
 
 /**

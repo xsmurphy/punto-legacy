@@ -38,6 +38,11 @@ import { buildSalePayload, buildApiPayload } from "@/lib/commands/create-sale"
 import type { SalePaymentMethod, CreateSaleResult } from "@/lib/commands/create-sale"
 import { ApiError } from "@/lib/api-client"
 import { getNextInvoiceNo } from "@/lib/pos/invoice-numbering"
+import {
+  extractRegisterConflictInfo,
+  registerConflictMessage,
+  type RegisterConflictInfo,
+} from "@/lib/pos/register-conflict"
 import { enqueue, getCount } from "@/lib/pos/offline-queue"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { useDrawerStatus } from "@/hooks/use-drawer"
@@ -165,32 +170,12 @@ interface PayDialogProps {
 // total — ver disabled={!credito && remaining<=0} en PayPhase).
 type DialogPhase = "pay" | "success" | "register-taken"
 
-/** Detalle del 409 de tenencia de caja (mismo shape que `api/v1/register/
- *  claim.php` y `api/v1/sales.php` arman vía `RegisterLeaseService::
- *  holderConflict()` + `apiConflict()`). `expiresAt` siempre llega `null`
- *  desde que la tenencia dejó de vencer por fecha (context/29 §4,
- *  2026-08-17) — se mantiene en el shape por compatibilidad, el render de
- *  abajo ya lo trata como opcional. */
-interface RegisterConflictInfo {
-  holderDeviceName: string | null
-  expiresAt: string | null
-}
-
-/** Lee `err.payload.error.details` del envelope `{ok:false, error:{...}}`
- *  que arma `apiConflict()` en un 409 — mismo shape en `claim.php` y en
- *  `api/v1/sales.php` (context/29 §4 aplicado al camino online). Defensivo:
- *  si el shape no calza (mensaje sin details), cae a "otro dispositivo" sin
- *  expiresAt en vez de romper. */
-function extractRegisterConflictInfo(err: ApiError): RegisterConflictInfo {
-  const payload = err.payload as
-    | { error?: { details?: { holderDeviceName?: string | null; expiresAt?: string | null } } }
-    | null
-  const details = payload?.error?.details
-  return {
-    holderDeviceName: details?.holderDeviceName || null,
-    expiresAt: details?.expiresAt || null,
-  }
-}
+// `RegisterConflictInfo` + `extractRegisterConflictInfo()` — ver
+// `lib/pos/register-conflict.ts`, compartido con `useRegisterClaim`
+// (bootstrap del POS). `expiresAt` siempre llega `null` desde que la
+// tenencia dejó de vencer por fecha (context/29 §4, 2026-08-17) — se
+// mantiene en el shape por compatibilidad, el render de abajo ya lo trata
+// como opcional.
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
@@ -1539,21 +1524,20 @@ interface RegisterTakenPhaseProps {
 }
 
 function RegisterTakenPhase({ info, onRetry, onCancel }: RegisterTakenPhaseProps) {
-  const holderLabel = info?.holderDeviceName || "otro dispositivo"
   const expiresLabel = info?.expiresAt ? formatDateTime(info.expiresAt) : null
+  // holderDeviceId es la señal real de "hay alguien" — holderDeviceName puede
+  // venir vacío (device sin nombre) sin que eso signifique "libre", y cuando
+  // NO hay tenedor (holderDeviceId null) el mensaje tiene que decir eso, no
+  // inventar "otro dispositivo" (ver lib/pos/register-conflict.ts).
+  const { title, body } = registerConflictMessage(info, expiresLabel)
 
   return (
     <div className="flex flex-col items-center gap-5 px-6 py-8 text-center">
-      <DialogTitle className="sr-only">Caja tomada por otro dispositivo</DialogTitle>
+      <DialogTitle className="sr-only">{title}</DialogTitle>
       <Lock className="size-16 text-destructive" strokeWidth={1.5} />
       <div className="flex flex-col items-center gap-2">
-        <h2 className="text-xl font-bold text-foreground">Caja tomada</h2>
-        <p className="text-sm text-muted-foreground">
-          Esta caja la está usando{" "}
-          <span className="font-medium text-foreground">{holderLabel}</span>
-          {expiresLabel ? <> — se libera {expiresLabel}</> : null}. No se puede
-          vender sin numeración válida.
-        </p>
+        <h2 className="text-xl font-bold text-foreground">{title}</h2>
+        <p className="text-sm text-muted-foreground">{body}</p>
       </div>
       <div className="flex w-full gap-3">
         <Button variant="outline" className="flex-1" onClick={onCancel}>

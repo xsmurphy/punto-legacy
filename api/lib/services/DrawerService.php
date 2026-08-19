@@ -3,6 +3,7 @@ declare(strict_types=1);
 namespace Punto\Api\Services;
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Support\TenantClock;
+use Punto\Api\Services\RegisterLeaseService;
 // DB not needed (uses ncmExecute helpers)
 
 /**
@@ -542,6 +543,23 @@ final class DrawerService
         // no como 500.
         if ($ok === 0) {
             return 'Already Closed';
+        }
+
+        // Cerrar caja libera la tenencia de este MISMO device (context/29 §4.4:
+        // "se libera al cerrar caja, o por revocación de admin" — la primera mitad
+        // de esa promesa nunca estaba implementada, bug real 2026-08-19). Solo
+        // cuando el que cierra es un device (pos-app): un cierre hecho desde el
+        // panel (realm panel, deviceId vacío) no tiene un device propio que
+        // liberar — ese camino ya tiene su salida explícita en "Liberar caja".
+        // Self-release únicamente: jamás la tenencia de OTRO device, eso sería
+        // el pisado automático que el owner rechazó (context/29 §6).
+        if ($this->ctx->deviceId !== '') {
+            RegisterLeaseService::releaseByDevice(
+                $this->ctx->deviceId,
+                $this->ctx->companyId,
+                'device:' . $this->ctx->deviceId,
+                'released',
+            );
         }
 
         return true;
