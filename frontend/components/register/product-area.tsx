@@ -10,6 +10,19 @@
  *
  * Modo edición (chunk 2): +/✕/color/drag&drop. Por ahora solo vista.
  *
+ * Hotkeys huérfanos: un hotkey persistido puede apuntar a un itemId/categoryId
+ * que esta caja ya no puede ver (item de otra sucursal tras el fix de
+ * `outletVisibilityClause`, o borrado/renombrado). El slot se renderiza como
+ * `EditableEmptySlot` — igual que cualquier posición libre de la grilla — en
+ * vez de un `HotkeyTile` sin nombre/imagen que no responde al tap. La
+ * posición (`pos`) NUNCA se recalcula ni se compacta: el resto de la grilla
+ * no se corre un pixel (§14 regla #10, memoria muscular del cajero). Tocar
+ * "+" en un slot huérfano descarta esa entrada rota (client-side, recién se
+ * persiste con "Listo") y abre el asignador para poner un artículo real.
+ * Incidente 2026-08-18: una caja con 8/13 hotkeys apuntando a ítems de otra
+ * sucursal dejaba la grilla inutilizable — el click en el tile mudo no hacía
+ * nada.
+ *
  * Ver concepto: Square POS-style quick keys. Legacy: ncmHotKeys (app.js:23583).
  */
 
@@ -118,6 +131,14 @@ export function ProductArea() {
     return m
   }, [hotkeys])
 
+  // Hotkey huérfano: apunta a un itemId/categoryId que esta caja no puede ver
+  // (item de otra sucursal, o item/categoría borrada). Se trata como slot
+  // vacío reusable — ver docstring del archivo.
+  const isOrphanHotkey = React.useCallback(
+    (h: Hotkey) => (h.isCategory ? !categoryMap.has(h.itemId) : !itemById.has(h.itemId)),
+    [categoryMap, itemById],
+  )
+
   const categoryItems = React.useMemo(
     () =>
       categoryId
@@ -217,12 +238,19 @@ export function ProductArea() {
           >
             {Array.from({ length: SLOTS }).map((_, pos) => {
               const h = hotkeyAt.get(pos)
-              if (!h) {
+              if (!h || isOrphanHotkey(h)) {
                 return (
                   <EditableEmptySlot
                     key={pos}
                     editing={editing}
-                    onAdd={() => setAssigningSlot(pos)}
+                    onAdd={() => {
+                      // Slot huérfano: descartamos la entrada rota antes de
+                      // abrir el asignador — el "+" lo reemplaza por un
+                      // artículo real, no lo apila. Client-side nomás: recién
+                      // se persiste si el cajero llega a "Listo".
+                      if (h) removeHotkey(pos)
+                      setAssigningSlot(pos)
+                    }}
                     onDragOver={(e) => { if (editing) e.preventDefault() }}
                     onDrop={() => {
                       if (!editing || dragFrom.current === null) return
