@@ -108,10 +108,29 @@ declare(strict_types=1);
  * da el chequeo (A) de arriba, que mira el catálogo real después de que la
  * migración corrió — no hace falta escanear el SQL de la migración en sí.
  *
- * `api/database/seeds/postgres/*.sql` SÍ se escanea (no son migraciones,
- * son fixtures de dev editables), igual que `api/lib/Sales/verify_chain/
- * seed.sql` y `db-schema-postgres.sql` (schema base de un install fresco,
- * código vivo, se edita cuando hace falta).
+ * `db-schema-postgres.sql` — MISMA categoría que las migraciones, por la
+ * MISMA razón, aunque no viva en `migrations/postgres/`: es el punto de
+ * partida de un install fresco, que corre ANTES de las migraciones 01+
+ * (ver `run.sh` y el docblock de `migrate.php`). Dos de sus tablas
+ * (`admin_audit`, `tenant_audit`) se crean ahí CON comillas camelCase A
+ * PROPÓSITO — la migración 29/35 (inmutables, YA corrieron en prod) hacen
+ * `CREATE INDEX ... ON admin_audit("createdAt")` esperando ESE nombre
+ * exacto; si `db-schema-postgres.sql` las creara ya en lowercase, esas
+ * migraciones (que no se pueden tocar) revientan con "column does not
+ * exist" en cualquier bootstrap fresco — pasó de verdad, se intentó
+ * normalizar este archivo directamente en un commit anterior de esta misma
+ * rama y rompió `run.sh` en modo Postgres descartable; revertido. El único
+ * camino correcto es: schema base crea camelCase → migraciones 29/35/36
+ * corren igual que en prod → mig 150 normaliza — un solo camino, una sola
+ * fuente de verdad para el estado FINAL, que es lo que el chequeo (A) de
+ * arriba valida contra el catálogo vivo (no lo que diga este archivo).
+ * Por eso NO se escanea acá: escanearlo generaría el mismo tipo de "cientos
+ * de discrepancias sobre SQL pre-normalización" que las migraciones.
+ *
+ * `api/database/seeds/postgres/*.sql` SÍ se escanea (no son bootstrap de
+ * schema, son fixtures de dev que se insertan DESPUÉS de que corrieron
+ * todas las migraciones — deben estar 100% en el estado final), igual que
+ * `api/lib/Sales/verify_chain/seed.sql`.
  *
  * Uso: ver run.sh, que lo corre como paso propio con las mismas env vars
  * POSTGRES_* que el resto del arnés. No requiere bootstrap.php ni ningún
@@ -427,12 +446,17 @@ foreach (walkFiles($apiDir, 'php') as $path) {
     }
 }
 
-// .sql en TODO el repo, EXCLUYENDO api/database/migrations/postgres.
+// .sql en TODO el repo, EXCLUYENDO api/database/migrations/postgres Y
+// db-schema-postgres.sql (bootstrap PRE-migraciones, misma categoría que
+// las migraciones inmutables — ver "Qué NO escanea" arriba: admin_audit/
+// tenant_audit se crean ahí con camelCase A PROPÓSITO para que las
+// migraciones 29/35 ya aplicadas encuentren las columnas que esperan).
 // Gate + scan a nivel ARCHIVO ENTERO (no por línea, ver docblock de
 // scanSqlFileForBadIdentifiers) — cubre CREATE TABLE multi-línea donde la
 // keyword y las columnas citadas están en líneas distintas.
+$dbSchemaFile = $repoRoot . '/db-schema-postgres.sql';
 foreach (walkFiles($repoRoot, 'sql') as $path) {
-    if (str_starts_with($path, $migrationsDir)) {
+    if (str_starts_with($path, $migrationsDir) || $path === $dbSchemaFile) {
         continue;
     }
     $code = file_get_contents($path);

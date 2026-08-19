@@ -1304,46 +1304,41 @@ CREATE INDEX idx_pat_tokenable ON personal_access_tokens(tokenable_type, tokenab
 -- ADMIN_AUDIT  (auditoría de acciones del super-admin realm)
 -- ============================================================
 -- adminEmail desnormalizado para preservar historial si admin_user se borra.
--- Columnas en lowercase sin comillas (normalizado por mig 150 — ver ese
--- archivo para el porqué: dos convenciones de identificador convivían en el
--- schema y el error solo explotaba en runtime). Un install fresco que carga
--- este archivo ya nace en el estado final; no depende de que mig 150 corra
--- después para corregirse.
 CREATE TABLE IF NOT EXISTS admin_audit (
-  id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-  adminid     UUID,
-  adminemail  VARCHAR(180),
-  action      VARCHAR(40)  NOT NULL,
-  targettype  VARCHAR(20),
-  targetid    VARCHAR(64),
-  targetname  VARCHAR(200),
-  meta        JSONB        NOT NULL DEFAULT '{}',
-  ip          VARCHAR(64),
-  createdat   TIMESTAMPTZ  NOT NULL DEFAULT now()
+  id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  "adminId"    UUID,
+  "adminEmail" VARCHAR(180),
+  action       VARCHAR(40)  NOT NULL,
+  "targetType" VARCHAR(20),
+  "targetId"   VARCHAR(64),
+  "targetName" VARCHAR(200),
+  meta         JSONB        NOT NULL DEFAULT '{}',
+  ip           VARCHAR(64),
+  "createdAt"  TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit(createdat);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created_at ON admin_audit("createdAt");
 CREATE INDEX IF NOT EXISTS idx_admin_audit_action     ON admin_audit(action);
 
 -- Auditoría de acciones (mutaciones) de usuarios TENANT. Ver migración 35.
 -- Escrita best-effort desde apiAuthTenant() para POST/PUT/PATCH/DELETE.
 -- Retención: 2 meses vía pg_cron (migración 36, requiere extensión en el server).
 CREATE TABLE IF NOT EXISTS tenant_audit (
-  id         UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
-  companyid  UUID         NOT NULL,
-  userid     UUID,
-  outletid   UUID,
-  realm      VARCHAR(20),
-  method     VARCHAR(10),
-  endpoint   VARCHAR(160),
-  targetid   VARCHAR(64),
-  meta       JSONB        DEFAULT '{}',
-  ip         VARCHAR(64),
-  createdat  TIMESTAMPTZ  NOT NULL DEFAULT now()
+  id          UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+  "companyId" UUID         NOT NULL,
+  "userId"    UUID,
+  "outletId"  UUID,
+  realm       VARCHAR(20),
+  method      VARCHAR(10),
+  endpoint    VARCHAR(160),
+  "targetId"  VARCHAR(64),
+  meta        JSONB        DEFAULT '{}',
+  ip          VARCHAR(64),
+  "createdAt" TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_tenant_audit_company_created ON tenant_audit(companyid, createdat DESC);
-CREATE INDEX IF NOT EXISTS idx_tenant_audit_created_at      ON tenant_audit(createdat);
+CREATE INDEX IF NOT EXISTS idx_tenant_audit_company_created ON tenant_audit("companyId", "createdAt" DESC);
+CREATE INDEX IF NOT EXISTS idx_tenant_audit_created_at      ON tenant_audit("createdAt");
 
 
 -- ============================================================
