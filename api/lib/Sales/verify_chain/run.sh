@@ -264,6 +264,18 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_role_permission_backfill.php"; th
   OVERALL_STATUS=1
 fi
 
+# ── 3.13. Catálogo por sucursal (bug reportado por tester: el POS ofrecía
+#    para vender artículos de OTRAS sucursales — `item.outletId` no se
+#    filtraba en `/v1/items`, el bulk-get, el delta de sync ni la ficha de
+#    producto). Ver docblock de verify_outlet_visibility.php. Crea su propia
+#    sucursal B + 3 items inline (no toca seed.sql); no depende de los pasos
+#    anteriores.
+echo ""
+echo "[run.sh] === catálogo por sucursal (item.outletId filtrado en listado/bulk-get/delta/ficha) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_outlet_visibility.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="
