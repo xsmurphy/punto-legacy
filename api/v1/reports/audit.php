@@ -39,24 +39,24 @@ if (!preg_match($dateRe, $from) || !preg_match($dateRe, $to)) {
 $rs = ncmExecute(
     'SELECT
         ta.id,
-        ta."companyId",
-        ta."userId",
-        ta."outletId",
+        ta.companyid,
+        ta.userid,
+        ta.outletid,
         ta.realm,
         ta.method,
         ta.endpoint,
-        ta."targetId",
+        ta.targetid,
         ta.meta,
         ta.ip,
-        ta."createdAt",
+        ta.createdat,
         c.contactName  AS "userName",
         o.outletName   AS "outletName"
      FROM tenant_audit ta
-     LEFT JOIN contact c ON c.contactId = ta."userId"   AND c.companyId = ta."companyId"
-     LEFT JOIN outlet  o ON o.outletId  = ta."outletId" AND o.companyId = ta."companyId"
-     WHERE ta."companyId" = ?
-       AND ta."createdAt" BETWEEN ? AND ?
-     ORDER BY ta."createdAt" DESC
+     LEFT JOIN contact c ON c.contactId = ta.userid   AND c.companyId = ta.companyid
+     LEFT JOIN outlet  o ON o.outletId  = ta.outletid AND o.companyId = ta.companyid
+     WHERE ta.companyid = ?
+       AND ta.createdat BETWEEN ? AND ?
+     ORDER BY ta.createdat DESC
      LIMIT 1000',
     [(string) COMPANY_ID, $from, $to],
     false,
