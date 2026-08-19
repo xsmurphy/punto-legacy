@@ -140,8 +140,12 @@
 }
 
 /* LIGHT — fondo casi blanco, primary neutro oscuro. Brand verde Punto solo
-   en acentos (no en surfaces grandes). */
-:root {
+   en acentos (no en surfaces grandes).
+   `.light` re-aplica los mismos tokens a un subtree: lo usa el sitio de
+   marketing (app/(site)) para quedar SIEMPRE en light aunque el tema del
+   usuario sea dark. Ojo: no neutraliza utilities `dark:` — el subtree
+   forzado no debe usarlas. */
+:root, .light {
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.262 0.010 245.3);
     --popover: oklch(1 0 0);

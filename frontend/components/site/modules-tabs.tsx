@@ -40,7 +40,9 @@ export function ModulesTabs() {
           const reversed = index % 2 === 1
           return (
             <TabsContent key={tab.key} value={tab.key} className="mt-8">
-              <div className="grid overflow-hidden rounded-3xl border bg-muted/40 md:grid-cols-2">
+              {/* Escena oscura fija sobre el body claro (acento, como el
+                  hero) — no depende del tema del visitante. */}
+              <div className="grid overflow-hidden rounded-3xl bg-neutral-950 text-white md:grid-cols-2">
                 <div
                   className={cn(
                     "flex flex-col justify-center gap-4 p-8 md:p-14",
@@ -50,16 +52,14 @@ export function ModulesTabs() {
                   <h3 className="text-balance text-2xl font-semibold tracking-tight md:text-3xl">
                     {tab.title}
                   </h3>
-                  <p className="text-base text-muted-foreground">
-                    {tab.description}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-base text-white/65">{tab.description}</p>
+                  <p className="text-sm text-white/50">
                     Ideal para: {tab.idealFor}
                   </p>
                 </div>
                 <div
                   className={cn(
-                    "flex items-center justify-center bg-gradient-to-br from-chart-1/15 via-transparent to-transparent p-8 md:p-14",
+                    "flex items-center justify-center bg-[radial-gradient(100%_100%_at_80%_20%,rgba(1,215,161,0.16)_0%,transparent_60%)] p-8 md:p-14",
                     reversed && "md:order-1",
                   )}
                 >

@@ -16,7 +16,13 @@ export default function SiteLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <div className="flex min-h-svh flex-col bg-background text-foreground">
+    // El sitio de marketing es SIEMPRE light (clase .light re-aplica los
+    // tokens claros — ver globals.css); los bloques oscuros (hero, tabs de
+    // módulos) son escenas fijas, no dependen del tema del visitante.
+    <div
+      className="light flex min-h-svh flex-col bg-background text-foreground"
+      style={{ colorScheme: "light" }}
+    >
       <SiteHeader />
       <main className="flex-1">{children}</main>
       <SiteFooter />

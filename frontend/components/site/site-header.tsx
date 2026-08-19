@@ -5,6 +5,7 @@ import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { ChevronDown } from "lucide-react"
 
+import { PuntoLogo } from "@/components/layout/punto-logo"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -93,14 +94,8 @@ export function SiteHeader() {
     >
       <div className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 md:px-6">
         <div className="flex items-center gap-6">
-          <Link
-            href="/home"
-            className={cn(
-              "text-lg font-semibold tracking-tight",
-              overlay ? "text-white" : "text-foreground",
-            )}
-          >
-            Punto
+          <Link href="/home" aria-label="Punto">
+            <PuntoLogo scheme={overlay ? "on-dark" : "on-light"} className="h-6 w-[88px]" />
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
             <NavDropdown label="Producto" items={PRODUCTO_LINKS} overlay={overlay} />

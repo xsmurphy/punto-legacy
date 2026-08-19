@@ -1,5 +1,6 @@
 import Link from "next/link"
 
+import { PuntoLogo } from "@/components/layout/punto-logo"
 import { FEATURE_CARDS, HOME_RUBROS } from "@/lib/site/modules"
 
 const RECURSOS = [
@@ -47,7 +48,7 @@ export function SiteFooter() {
       <div className="mx-auto w-full max-w-6xl px-4 py-14 md:px-6">
         <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
           <div className="col-span-2 flex flex-col gap-4 md:col-span-1">
-            <p className="text-lg font-semibold tracking-tight">Punto</p>
+            <PuntoLogo scheme="on-light" className="h-6 w-[88px]" />
             <p className="text-sm text-muted-foreground">
               El sistema de tu negocio: ventas, caja, facturación y stock en un
               solo lugar.

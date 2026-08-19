@@ -18,58 +18,54 @@ import { cn } from "@/lib/utils"
  */
 export function PuntoLogo({
   variant = "wordmark",
+  scheme = "auto",
   className,
 }: {
   variant?: "mark" | "wordmark"
+  /**
+   * "auto" (default): par light/dark según el tema.
+   * "on-dark" / "on-light": fuerza una sola versión sin importar el tema —
+   * para superficies fijas (ej. sitio de marketing: header sobre el hero de
+   * video usa "on-dark"; el resto del sitio, siempre claro, usa "on-light"
+   * porque las utilities `dark:` no se neutralizan dentro de `.light`).
+   */
+  scheme?: "auto" | "on-dark" | "on-light"
   className?: string
 }) {
-  if (variant === "mark") {
-    // Icon ratio ~1:1 (557 × 558 originales).
-    return (
-      <span className={cn("relative inline-block size-8", className)} aria-label="Punto">
-        <Image
-          src="/logos/icon_bg_light.png"
-          alt="Punto"
-          fill
-          sizes="32px"
-          priority
-          className="dark:hidden object-contain"
-        />
-        <Image
-          src="/logos/icon_bg_dark.png"
-          alt="Punto"
-          fill
-          sizes="32px"
-          priority
-          className="hidden dark:block object-contain"
-        />
-      </span>
-    )
-  }
+  const auto = scheme === "auto"
+  const lightSrc = variant === "mark" ? "/logos/icon_bg_light.png" : "/logos/logo_bg_light.png"
+  const darkSrc = variant === "mark" ? "/logos/icon_bg_dark.png" : "/logos/logo_bg_dark.png"
+  const box =
+    variant === "mark"
+      ? // Icon ratio ~1:1 (557 × 558 originales).
+        "relative inline-block size-8"
+      : // Wordmark ratio ~3:1 (2000 × 684). Box fijo para evitar layout shift.
+        "relative inline-block h-7 w-[100px]"
+  const fit = cn("object-contain", variant === "wordmark" && "object-left")
+  const sizes = variant === "mark" ? "32px" : "100px"
 
-  // Wordmark ratio ~3:1 (2000 × 684 displayed). Width default = 100px,
-  // alto se ajusta solo. Mantenemos box ratio fijo para evitar layout shift.
   return (
-    <span
-      className={cn("relative inline-block h-7 w-[100px]", className)}
-      aria-label="Punto"
-    >
-      <Image
-        src="/logos/logo_bg_light.png"
-        alt="Punto"
-        fill
-        sizes="100px"
-        priority
-        className="dark:hidden object-contain object-left"
-      />
-      <Image
-        src="/logos/logo_bg_dark.png"
-        alt="Punto"
-        fill
-        sizes="100px"
-        priority
-        className="hidden dark:block object-contain object-left"
-      />
+    <span className={cn(box, className)} aria-label="Punto">
+      {(auto || scheme === "on-light") && (
+        <Image
+          src={lightSrc}
+          alt="Punto"
+          fill
+          sizes={sizes}
+          priority
+          className={cn(fit, auto && "dark:hidden")}
+        />
+      )}
+      {(auto || scheme === "on-dark") && (
+        <Image
+          src={darkSrc}
+          alt="Punto"
+          fill
+          sizes={sizes}
+          priority
+          className={cn(fit, auto && "hidden dark:block")}
+        />
+      )}
     </span>
   )
 }
