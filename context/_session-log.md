@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-17/18 — fix de unicidad del punto de expedición + 12 docs de módulo + drawerId por fecha + 6 reglas del owner + buscador de /settings
+
+Commits `be12977a..f2e48b70` (11; F0/F1 de numeración vinieron de sesión paralela). Highlights: unicidad de punto de expedición corregida a (timbrado+prefijo), no solo prefijo (mig 143, `assertExpeditionPointFree`); `context/modules/` completo 24/25 (12 docs nuevos, hallazgos sin arreglar: 12 endpoints sin chequeo de permiso, canje de gift card no atómico, `kind=pack` rompe con 422, importador CSV duplica contactos, `quote_to_sale` nunca se persiste, rollup sin cron); `drawerId` de venta/pago se resuelve por fecha de operación, no por "caja abierta ahora" (mig 144, `DrawerService::resolveDrawerIdForDate`); 6 reglas de negocio del owner asentadas en los docs (R3 turno offline sigue bloqueado en frontend pese a que el backend ya lo soporta); `/settings` con buscador de secciones + fix del guardado que borraba config no cargada en el form.
+
 ## 2026-08-16/17 — Numeración F2/F3 + cajas con timbrado en un paso + P0s de costeo + DB wrapper lee schema real + add-ons F1-F5 + fix realms POS
 
 Commits `721cf0f1..f0e7c423` — mismo rango numérico que la entry de abajo (sesión paralela, otro eje de trabajo). Highlights: numeración (`DocumentNumber::allocate` reemplaza MAX+lock, migs 127/129/131/132, `allocateBlock` para el arriendo offline); alta de caja con timbrado+numeración en un paso + mig 128 (su índice único NO se creó, ver hand-off); P0 de costeo (`Math::divide` con operandos ≤0 rompía el promedio, ledger reconstruido con mig 131) + explosión de receta recursiva (`Inventory::explodeRecipe`, antes solo 1 nivel); `Punto\App\Database\Schema` reemplaza el mapa a mano de 22/137 tablas (-400 LOC, mig 132 rescata lo varado en JSONB); add-ons y combos F1-F5 (context/41) con P0 de recargo duplicado (`883abed8`); fix de raíz `useModules` (sidebar desaparecía al vencer la cookie del panel) + regla ESLint que lo bloquea (`f0e7c423`).
