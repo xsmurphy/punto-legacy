@@ -389,6 +389,16 @@ function ItemEditPageInner() {
   }, [data, form, isNew])
 
   const kind: ItemKind = form.watch("kind") ?? "producto"
+  // Kind PERSISTIDO en el servidor (no el valor en vivo del form). El backend
+  // solo resincroniza itemTrackInventory/itemProduction cuando el PUT se
+  // dispara — hasta ese momento la BD sigue con el kind viejo. El botón
+  // "Producir" (header) tiene que gatearse contra esto, no contra `kind`:
+  // si gatea contra el form en vivo, el usuario ve "Producir" apenas toca el
+  // Select, antes de guardar, y ProductionService::create() lo rechaza con
+  // "itemTrackInventory" porque la BD todavía no cambió — callejón sin salida
+  // reportado por el tester (roll Chicken, 2026-08-18).
+  const persistedKind: ItemKind | undefined = data?.kind
+  const productionKindUnsaved = kind === "produccion_previa" && persistedKind !== "produccion_previa"
   const baseVisibility = (KIND_META[kind] ?? KIND_META["producto"]).fields
   const visibility: KindFieldVisibility = hasVariants
     ? { ...baseVisibility, showPrice: false, showCost: false, showInventoryInfo: false }
@@ -511,13 +521,31 @@ function ItemEditPageInner() {
             </h1>
           </div>
           <div className="flex items-center gap-2">
-            {!isNew && kind === "produccion_previa" && (
+            {!isNew && persistedKind === "produccion_previa" && (
               <Button variant="outline" size="sm" asChild>
                 <Link href={`/produccion?newItemId=${id}`}>
                   <ChefHat className="size-4" />
                   Producir
                 </Link>
               </Button>
+            )}
+            {!isNew && productionKindUnsaved && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span>
+                      <Button variant="outline" size="sm" disabled>
+                        <ChefHat className="size-4" />
+                        Producir
+                      </Button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-60">
+                    Guardá los cambios primero — el tipo &quot;Producción previa&quot;
+                    todavía no se aplicó en el artículo.
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             )}
             {!isNew && (
               <AlertDialog>
