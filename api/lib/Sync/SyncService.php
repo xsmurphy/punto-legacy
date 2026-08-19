@@ -5,6 +5,7 @@ namespace Punto\Api\Sync;
 
 use function Punto\Api\Items\buildItemsSelectSql;
 use function Punto\Api\Items\presentItem;
+use function Punto\Api\Items\outletVisibilityClause;
 
 /**
  * SyncService — sync incremental del POS (context/43-sync-incremental.md).
@@ -117,18 +118,30 @@ final class SyncService
      * Delta de items: filas cambiadas desde `$since` + ids borrados desde
      * `$since` (tabla de lápidas). `full=true` (sin query de datos) cuando
      * `$since` es null o excede la retención de lápidas.
+     *
+     * `$outletId`: mismo criterio que `outletVisibilityClause()` en
+     * `ItemsQuery.php` — pasar el outlet del device (pos-app) para que el
+     * delta NUNCA reintroduzca en el cache local un ítem de otra sucursal
+     * que el bootstrap ya había excluido (ej. si ese ítem se edita después
+     * en otra caja, el `updated_at` lo haría entrar por delta si no se
+     * filtrara acá también). `null` para panel: sin restricción.
      */
-    public function itemsDelta(string $companyId, ?string $since): array
+    public function itemsDelta(string $companyId, ?string $since, ?string $outletId = null): array
     {
         if ($this->isTooStale($since)) {
             return ['items' => [], 'deletedIds' => [], 'full' => true, 'serverTime' => \TODAY];
         }
 
-        $sql = buildItemsSelectSql(
-            'i.companyId = ? AND COALESCE(i.updated_at, i.itemDate) > ?',
-            'ORDER BY i.updated_at ASC NULLS FIRST'
-        );
-        $rs = $this->db->Execute($sql, [$companyId, $since]);
+        $whereSql = 'i.companyId = ? AND COALESCE(i.updated_at, i.itemDate) > ?';
+        $params   = [$companyId, $since];
+        [$outletClause, $outletParams] = outletVisibilityClause($outletId);
+        if ($outletClause !== '') {
+            $whereSql .= " AND {$outletClause}";
+            $params    = array_merge($params, $outletParams);
+        }
+
+        $sql = buildItemsSelectSql($whereSql, 'ORDER BY i.updated_at ASC NULLS FIRST');
+        $rs = $this->db->Execute($sql, $params);
         $items = [];
         if ($rs !== false) {
             foreach ($rs->GetRows() as $row) {

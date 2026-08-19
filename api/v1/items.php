@@ -36,6 +36,7 @@ require_once __DIR__ . '/../lib/Items/ItemsQuery.php';
 use Punto\Api\Context\TenantContext;
 use function Punto\Api\Items\buildItemsSelectSql;
 use function Punto\Api\Items\presentItem;
+use function Punto\Api\Items\outletVisibilityClause;
 
 // `buildItemsSelectSql()` y `presentItem()` viven en
 // `api/lib/Items/ItemsQuery.php` (extraídas 2026-08-16,
@@ -149,6 +150,11 @@ const VALID_KINDS = [
 $ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
 
+// Visibilidad por sucursal: solo pos-app queda restringido a su outlet
+// (device.outletId, resuelto por apiAuthTenant — nunca de query/body). El
+// panel ve el catálogo completo del tenant (ver outletVisibilityClause()).
+$deviceOutletId = (($ctx['realm'] ?? '') === 'pos-app') ? (string) ($ctx['outletId'] ?? '') : null;
+
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 // El realm `pos-app` es el token del DISPOSITIVO (una caja), no el de un
@@ -205,8 +211,19 @@ if ($resource === 'bulk-get') {
     // Postgres ante un caller con un bug o un replay raro.
     $ids = array_slice($ids, 0, 2000);
     $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $sql = buildItemsSelectSql("i.companyId = ? AND i.itemId IN ({$placeholders})");
-    $rs  = $db->Execute($sql, array_merge([$companyId], $ids));
+    $whereSql = "i.companyId = ? AND i.itemId IN ({$placeholders})";
+    $whereParams = array_merge([$companyId], $ids);
+    // Un device (pos-app) no puede usar bulk-get para pedir la ficha de un
+    // ítem de otra sucursal aunque conozca el id (ej. eco de un evento
+    // realtime disparado por otra caja del tenant) — mismo criterio que el
+    // listado paginado de abajo.
+    [$outletClause, $outletParams] = outletVisibilityClause($deviceOutletId);
+    if ($outletClause !== '') {
+        $whereSql .= " AND {$outletClause}";
+        $whereParams = array_merge($whereParams, $outletParams);
+    }
+    $sql = buildItemsSelectSql($whereSql);
+    $rs  = $db->Execute($sql, $whereParams);
     $items = [];
     if ($rs !== false) {
         foreach ($rs->GetRows() as $row) {
@@ -662,6 +679,20 @@ switch ($method) {
         if ($id !== null) {
             $item = $itemService->find($id, $companyId);
             if ($item === null) apiError('Item no encontrado', 404);
+            // Esta rama es la ficha COMPLETA del panel CRUD (ver docblock del
+            // archivo). Un device (pos-app) también puede llegar acá — el BFF
+            // de la ficha del POS (`frontend/app/api/pos/items/route.ts`) la
+            // usa sin `resource=` — así que aplica el mismo criterio de
+            // visibilidad que `resource=core|inventory|info`
+            // (`ItemService::isForeignOutletItem`) y que el listado/bulk-get
+            // de más abajo: un ítem de otra sucursal se trata como "no
+            // encontrado", nunca se confirma su existencia a la caja.
+            if ($deviceOutletId !== null && $deviceOutletId !== '') {
+                $itemOutletId = (string) ($item['outletId'] ?? '');
+                if ($itemOutletId !== '' && $itemOutletId !== $deviceOutletId) {
+                    apiError('Item no encontrado', 404);
+                }
+            }
             $presented = presentItem(ncmRow($item));
             $presented['categories'] = fetchItemCategories($id);
             $presented['brands']     = fetchItemBrands($id);
@@ -737,6 +768,17 @@ switch ($method) {
             'i.$1',
             implode(' AND ', $where)
         );
+
+        // Catálogo ofrecido a la venta: una caja (pos-app) solo ve lo de su
+        // sucursal (+ ítems globales, outletId NULL). Es el filtro central
+        // del bug "el POS ofrece artículos de otras sucursales" — antes no
+        // existía acá, así que el bootstrap bajaba el catálogo del tenant
+        // entero. El panel no se restringe (administra todas las sucursales).
+        [$outletClause, $outletParams] = outletVisibilityClause($deviceOutletId);
+        if ($outletClause !== '') {
+            $whereSql .= " AND {$outletClause}";
+            $params = array_merge($params, $outletParams);
+        }
 
         $sql = buildItemsSelectSql($whereSql, "ORDER BY i.itemDate DESC LIMIT $limit OFFSET $offset");
         $rs    = $db->Execute($sql, $params);

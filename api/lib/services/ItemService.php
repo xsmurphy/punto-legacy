@@ -50,7 +50,7 @@ final class ItemService
             'SELECT * FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
             [$itemId, $companyId]
         );
-        if (!$item) {
+        if (!$item || $this->isForeignOutletItem($item)) {
             return null;
         }
 
@@ -92,10 +92,10 @@ final class ItemService
     public function getInventory(string $itemId, string $companyId): array
     {
         $item = ncmExecute(
-            'SELECT itemId, itemTrackInventory FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+            'SELECT itemId, itemTrackInventory, outletId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
             [$itemId, $companyId]
         );
-        if (!$item || !$item['itemTrackInventory']) {
+        if (!$item || !$item['itemTrackInventory'] || $this->isForeignOutletItem($item)) {
             return [];
         }
 
@@ -178,5 +178,26 @@ final class ItemService
         }
         $core['inventory'] = $this->getInventory($itemId, $companyId);
         return $core;
+    }
+
+    /**
+     * `true` si el request viene de una CAJA (pos-app, `ctx->deviceId` no
+     * vacío — ver `TenantContext`) y el ítem pertenece a OTRA sucursal
+     * (`outletId` seteado y distinto al del device). Un ítem sin `outletId`
+     * (NULL, "disponible en todas") nunca es foráneo.
+     *
+     * Mismo criterio de invisibilidad que `outletVisibilityClause()`
+     * (`api/lib/Items/ItemsQuery.php`) para el listado/bulk-get/delta: la
+     * caja trata un ítem de otra sucursal como si no existiera (404), nunca
+     * como un 403 que confirme su existencia. El panel (`ctx->deviceId ===
+     * ''`) nunca está restringido acá — administra el catálogo del tenant.
+     */
+    private function isForeignOutletItem(array|\CaseInsensitiveArray $item): bool
+    {
+        if ($this->ctx->deviceId === '') {
+            return false;
+        }
+        $itemOutletId = (string) ($item['outletId'] ?? '');
+        return $itemOutletId !== '' && $itemOutletId !== $this->ctx->outletId;
     }
 }

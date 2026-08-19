@@ -83,7 +83,10 @@ if ($section === 'items') {
     $body  = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
     $since = isset($body['since']) && $body['since'] !== '' ? (string) $body['since'] : null;
     $sync  = new IncrementalSyncService($db);
-    apiOk($sync->itemsDelta($companyId, $since));
+    // Mismo criterio que /v1/items: pos-app queda restringido a su outlet
+    // (device.outletId de apiAuthTenant), panel ve el delta del tenant entero.
+    $deviceOutletId = (($ctx['realm'] ?? '') === 'pos-app') ? (string) ($ctx['outletId'] ?? '') : null;
+    apiOk($sync->itemsDelta($companyId, $since, $deviceOutletId));
 }
 
 if ($section === 'customers') {
