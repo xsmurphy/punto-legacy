@@ -4,7 +4,6 @@ import { CtaFinal, QuickLinks } from "@/components/site/cta-final"
 import { FeaturesGrid } from "@/components/site/features-grid"
 import { SiteHero } from "@/components/site/hero"
 import { ModulesTabs } from "@/components/site/modules-tabs"
-import { RubrosSection } from "@/components/site/rubros-section"
 import { ShowcaseCarousel } from "@/components/site/showcase-carousel"
 
 export const metadata: Metadata = {
@@ -27,7 +26,6 @@ export default function HomePage() {
       <ShowcaseCarousel />
       <ModulesTabs />
       <FeaturesGrid />
-      <RubrosSection />
       <QuickLinks />
       <CtaFinal />
     </>

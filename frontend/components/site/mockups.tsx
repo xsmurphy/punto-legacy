@@ -1,7 +1,6 @@
 import { BadgeCheck } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 /*
@@ -198,28 +197,3 @@ export function DataMockup({
   )
 }
 
-/* ------------------------------------------------------------------ */
-/* Mockup de comanda para la sección de rubros del home                */
-/* ------------------------------------------------------------------ */
-
-export function MockupComanda() {
-  return (
-    <MockFrame
-      label="La venta, como baja del sistema"
-      title="#42 · Ticket"
-      className="bg-background/95 backdrop-blur"
-    >
-      <MockRow
-        left="1× Hamburguesa doble"
-        sub={["Sin pepinillos · Mayonesa aparte"]}
-      />
-      <MockRow left="2× Limonada de menta" right="Gs. 30.000" />
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-muted-foreground">hace 2 min</span>
-        <Button size="sm" variant="secondary" className="pointer-events-none">
-          Cobrar
-        </Button>
-      </div>
-    </MockFrame>
-  )
-}
