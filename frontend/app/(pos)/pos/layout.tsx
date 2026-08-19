@@ -75,12 +75,16 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { CartPanel } from "@/components/register/cart-panel"
 import { LockScreen } from "@/components/register/lock-screen"
 import { PosLoadingScreen } from "@/components/register/pos-loading-screen"
+import { RegisterTakenScreen } from "@/components/register/register-taken-screen"
 import { SpaceSettlementProvider } from "@/components/spaces/space-settlement-provider"
 import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
 import { usePriceContext } from "@/hooks/use-price-context"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useRegisterClaim } from "@/hooks/use-register-claim"
+import { extractRegisterConflictInfo } from "@/lib/pos/register-conflict"
+import { ApiError } from "@/lib/api-client"
 import { posApi } from "@/lib/api/pos-client"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
@@ -195,8 +199,27 @@ function PosWorkspaceLayoutInner({
     }
   }
 
+  // Toma la tenencia de esta caja (context/29 §4, F2) apenas entra al
+  // workspace — antes de este hook, NADA en el POS llamaba a claim.php, así
+  // que `register_lease` nunca tenía fila y CADA venta rechazaba con 409 sin
+  // que hubiera manera de arreglarlo (bug real 2026-08-19). Solo bloqueamos
+  // el workspace ante un 409 REAL del servidor (alguien más la tiene, o
+  // recién se liberó) — cualquier otro error (sin red, timeout) se ignora acá
+  // a propósito: el POS es offline-first, y el chequeo real e ineludible
+  // sigue estando en `PayDialog` al cobrar. No convertir esto en un gate
+  // duro que tranque el workspace entero por falta de conectividad.
+  const claimQuery = useRegisterClaim()
+  const claimConflict =
+    claimQuery.error instanceof ApiError && claimQuery.error.status === 409
+      ? extractRegisterConflictInfo(claimQuery.error)
+      : null
+
   if (!bootstrap) {
     return <PosLoadingScreen />
+  }
+
+  if (claimConflict) {
+    return <RegisterTakenScreen info={claimConflict} onRetry={() => claimQuery.refetch()} />
   }
 
   return (
