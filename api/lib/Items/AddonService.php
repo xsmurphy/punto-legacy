@@ -45,26 +45,26 @@ final class AddonService
     {
         $rs = ncmExecute(
             'SELECT
-                 ag."groupId"      AS "gId",
+                 ag.groupid      AS "gId",
                  ag."name"         AS "gName",
-                 ag."minSelect"    AS "gMinSelect",
-                 ag."maxSelect"    AS "gMaxSelect",
+                 ag.minselect    AS "gMinSelect",
+                 ag.maxselect    AS "gMaxSelect",
                  ag."sort"         AS "gSort",
                  ag."status"       AS "gStatus",
-                 ago."optionId"    AS "oId",
-                 ago."itemId"      AS "oItemId",
+                 ago.optionid    AS "oId",
+                 ago.itemid      AS "oItemId",
                  i.itemName        AS "oItemName",
                  i.itemPrice       AS "oItemPrice",
-                 ago."priceDelta"  AS "oPriceDelta",
-                 ago."isDefault"   AS "oIsDefault",
-                 ago."isLocked"    AS "oIsLocked",
-                 ago."maxQty"      AS "oMaxQty",
+                 ago.pricedelta  AS "oPriceDelta",
+                 ago.isdefault   AS "oIsDefault",
+                 ago.islocked    AS "oIsLocked",
+                 ago.maxqty      AS "oMaxQty",
                  ago."sort"        AS "oSort"
              FROM "addon_group" ag
-             LEFT JOIN "addon_group_option" ago ON ago."groupId" = ag."groupId"
-             LEFT JOIN item i ON i.itemId = ago."itemId"
-             WHERE ag."companyId" = ? AND ag."itemId" = ?
-             ORDER BY ag."sort" ASC, ag."groupId" ASC, ago."sort" ASC, ago."optionId" ASC',
+             LEFT JOIN "addon_group_option" ago ON ago.groupid = ag.groupid
+             LEFT JOIN item i ON i.itemId = ago.itemid
+             WHERE ag.companyid = ? AND ag.itemid = ?
+             ORDER BY ag."sort" ASC, ag.groupid ASC, ago."sort" ASC, ago.optionid ASC',
             [$companyId, $itemId],
             false,
             true // forceObj → recordset (§41 convención)
@@ -132,14 +132,14 @@ final class AddonService
         $db->StartTrans();
 
         $db->Execute(
-            'DELETE FROM "addon_group" WHERE "itemId" = ? AND "companyId" = ?',
+            'DELETE FROM "addon_group" WHERE itemid = ? AND companyid = ?',
             [$itemId, $companyId]
         );
 
         foreach ($normalized as $group) {
             $db->Execute(
                 'INSERT INTO "addon_group"
-                     ("groupId","companyId","itemId","name","minSelect","maxSelect","sort","status")
+                     (groupid,companyid,itemid,"name",minselect,maxselect,"sort","status")
                  VALUES (?,?,?,?,?,?,?,?)',
                 [
                     $group['groupId'], $companyId, $itemId, $group['name'],
@@ -150,7 +150,7 @@ final class AddonService
             foreach ($group['options'] as $opt) {
                 $db->Execute(
                     'INSERT INTO "addon_group_option"
-                         ("optionId","groupId","itemId","priceDelta","isDefault","isLocked","maxQty","sort")
+                         (optionid,groupid,itemid,pricedelta,isdefault,islocked,maxqty,"sort")
                      VALUES (?,?,?,?,?,?,?,?)',
                     [
                         $opt['optionId'], $group['groupId'], $opt['itemId'], $opt['priceDelta'],
