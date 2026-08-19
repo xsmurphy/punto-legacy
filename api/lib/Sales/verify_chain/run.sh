@@ -246,6 +246,24 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_supplier_document.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.12. Backfill de permisos nuevos a roles existentes (agregar un permiso
+#    al catálogo antes solo se sembraba en companies nuevas — RoleService::
+#    seedCompanyRoles solo corre al crear el rol). Ver docblock de
+#    verify_role_permission_backfill.php: un rol legacy (sin catalogVersion
+#    guardado) recibe el permiso nuevo en la próxima lectura y queda
+#    persistido de forma idempotente; un rol al que se le revocó el permiso
+#    a propósito (catalogVersion ya al día, sin el permiso) NUNCA lo
+#    recupera solo — revivir una revocación deliberada es el incidente de
+#    seguridad que este mecanismo existe para evitar. Corre contra el mismo
+#    Postgres seedeado arriba, con roles de prueba propios (no toca los
+#    roles seed reales de la company fixture); no depende de los pasos
+#    anteriores.
+echo ""
+echo "[run.sh] === backfill de permisos nuevos a roles existentes (legacy recibe, revocado nunca recupera) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_role_permission_backfill.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="
