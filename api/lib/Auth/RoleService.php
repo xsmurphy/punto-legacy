@@ -13,6 +13,28 @@ require_once __DIR__ . '/PermissionCatalog.php';
  *   - UUID → ya es un role custom o seed migrado
  *
  * hasPermission() es O(1) post-primer-llamado (cache por request).
+ *
+ * Backfill de permisos nuevos a roles existentes (context: agregar un
+ * permiso al catálogo NO lo propagaba a roles ya creados — solo se
+ * sembraba al crear el rol). Mecanismo:
+ *   - roleData guarda, junto a `permissions`, el `slug` del rol y el
+ *     `catalogVersion` (PermissionCatalog::CURRENT_VERSION) vigente al
+ *     momento del último guardado — sea por seed o por updateRole().
+ *   - En cada lectura (_loadPermissions), para roles seed (manager/cashier;
+ *     owner se resuelve aparte, ver abajo) se compara el seed default
+ *     (SEED_PERMISSIONS) contra lo guardado: un permiso default ausente se
+ *     agrega SOLO si su `since` es posterior al `catalogVersion` guardado
+ *     del rol. Un permiso con `since` <= catalogVersion guardado que no
+ *     está en la lista se asume revocado a propósito por el admin — nunca
+ *     se revive. Roles sin `catalogVersion` (guardados antes de este
+ *     mecanismo) se asumen sincronizados hasta PermissionCatalog::BASELINE_VERSION.
+ *   - Roles custom (isSeed=false, slug=null) NUNCA se reconcilian — su
+ *     lista de permisos es enteramente decisión del admin, sin default
+ *     asociado.
+ *   - Owner sigue resuelto en runtime como TODO el catálogo (sin tocar
+ *     storage) — ya era auto-sync antes de este cambio.
+ *   - Reconciliación es lazy (on-read) e idempotente: si no hay gap, no
+ *     escribe nada; si lo hay, persiste el merge una sola vez.
  */
 final class RoleService
 {
@@ -180,7 +202,8 @@ final class RoleService
             'companyid'     => $companyId,
         ], 'table' => 'taxonomy']);
 
-        self::_savePermissions((string)$roleId, $permissions, $companyId);
+        // slug=null: role custom, sin default de catálogo asociado — nunca se reconcilia.
+        self::_savePermissions((string)$roleId, $permissions, $companyId, null);
         return (string)$roleId;
     }
 
@@ -228,7 +251,11 @@ final class RoleService
         }
 
         if ($permissions !== null) {
-            self::_savePermissions($roleId, $permissions, $companyId);
+            // El admin eligió esta lista explícitamente, validada contra el
+            // catálogo VIGENTE — se guarda como "sincronizado hasta CURRENT_VERSION"
+            // (ver _savePermissions). Cualquier permiso default que el admin haya
+            // dejado afuera queda respetado como revocación intencional.
+            self::_savePermissions($roleId, $permissions, $companyId, $slug);
         }
 
         // Invalidar cache
@@ -311,7 +338,7 @@ final class RoleService
                 'companyid'     => $companyId,
             ], 'table' => 'taxonomy']);
 
-            self::_savePermissions((string)$roleId, $perms, $companyId);
+            self::_savePermissions((string)$roleId, $perms, $companyId, $slug);
         }
     }
 
@@ -323,21 +350,64 @@ final class RoleService
             return self::$cache[$companyId][$roleId];
         }
 
+        // JOIN contra el role padre: necesitamos su slug para saber si hay
+        // default de seed contra el cual reconciliar. Ambos lados filtrados
+        // por companyid — nunca cruza tenants aunque sourceid/taxonomyid
+        // colisionaran entre compañías.
         $row = ncmExecute(
-            "SELECT taxonomyextra FROM taxonomy WHERE taxonomytype='roleData' AND sourceid=?::uuid AND companyid=?",
+            "SELECT rd.taxonomyextra AS roledataextra, r.taxonomyextra AS roleextra
+             FROM taxonomy r
+             JOIN taxonomy rd ON rd.sourceid = r.taxonomyid AND rd.taxonomytype = 'roleData' AND rd.companyid = r.companyid
+             WHERE r.taxonomyid = ?::uuid AND r.taxonomytype = 'role' AND r.companyid = ?",
             [$roleId, $companyId]
         );
+
         $perms = [];
         if ($row) {
-            $extra = json_decode((string)($row['taxonomyextra'] ?? '{}'), true) ?? [];
-            $perms = $extra['permissions'] ?? [];
+            $roleDataExtra = json_decode((string)($row['roledataextra'] ?? '{}'), true) ?? [];
+            $roleExtra     = json_decode((string)($row['roleextra'] ?? '{}'), true) ?? [];
+            $perms         = $roleDataExtra['permissions'] ?? [];
+            $slug          = $roleDataExtra['slug'] ?? ($roleExtra['slug'] ?? null);
+            $storedVersion = (int)($roleDataExtra['catalogVersion'] ?? PermissionCatalog::BASELINE_VERSION);
+
+            $perms = self::_reconcileSeedGaps($roleId, $companyId, $slug, $perms, $storedVersion);
         }
 
         self::$cache[$companyId][$roleId] = $perms;
         return $perms;
     }
 
-    private static function _savePermissions(string $roleId, array $permissions, string $companyId): void
+    /**
+     * Backfill lazy: agrega a $perms los permisos del seed default de $slug
+     * que sean posteriores a $storedVersion y todavía no estén presentes.
+     * NUNCA agrega un permiso con since <= $storedVersion — eso se asume
+     * revocado a propósito por el admin (ver comentario de clase). Roles
+     * custom (slug null) o sin default (owner) se devuelven sin tocar.
+     */
+    private static function _reconcileSeedGaps(string $roleId, string $companyId, ?string $slug, array $perms, int $storedVersion): array
+    {
+        if ($slug === null || !isset(self::SEED_PERMISSIONS[$slug]) || self::SEED_PERMISSIONS[$slug] === null) {
+            return $perms; // role custom, o slug sin default fijo (owner se resuelve aparte)
+        }
+
+        $missing = [];
+        foreach (self::SEED_PERMISSIONS[$slug] as $permId) {
+            if (in_array($permId, $perms, true)) continue;
+            if (PermissionCatalog::since($permId) > $storedVersion) {
+                $missing[] = $permId;
+            }
+        }
+
+        if (empty($missing)) {
+            return $perms;
+        }
+
+        $merged = array_values(array_unique(array_merge($perms, $missing)));
+        self::_savePermissions($roleId, $merged, $companyId, $slug);
+        return $merged;
+    }
+
+    private static function _savePermissions(string $roleId, array $permissions, string $companyId, ?string $slug): void
     {
         // Upsert: borrar + reinsert
         ncmExecute(
@@ -347,7 +417,11 @@ final class RoleService
         ncmInsert(['records' => [
             'taxonomytype'  => 'roleData',
             'sourceid'      => $roleId,
-            'taxonomyextra' => json_encode(['permissions' => array_values($permissions)]),
+            'taxonomyextra' => json_encode([
+                'permissions'    => array_values($permissions),
+                'slug'           => $slug,
+                'catalogVersion' => PermissionCatalog::CURRENT_VERSION,
+            ]),
             'companyid'     => $companyId,
         ], 'table' => 'taxonomy']);
 

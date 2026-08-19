@@ -56,6 +56,13 @@ seteados y no toca Docker.
   (dedup en `Inventory::manageStock()`), y anular una transacción publica
   `transaction` con `scope: 'all'`. Sin Redis real — intercepta con un
   listener TCP fake, mismo código de producción sin mocks.
+- Backfill de permisos nuevos a roles existentes
+  (`verify_role_permission_backfill.php`): un rol seed sin `catalogVersion`
+  guardado (creado antes del mecanismo) recibe un permiso nuevo del
+  catálogo en la próxima lectura, de forma idempotente; un rol al que se le
+  revocó ese mismo permiso a propósito (`catalogVersion` ya al día) NUNCA
+  lo recupera solo, ni en lecturas repetidas; un rol custom (sin slug de
+  seed) nunca se auto-completa.
 
 ## Fallas conocidas (no se ocultan — ver reporte de la tarea)
 
