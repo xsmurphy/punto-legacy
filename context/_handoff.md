@@ -1,86 +1,135 @@
-# Hand-off — 2026-08-17
+# Hand-off — 2026-08-18
 
 > Este archivo se **reescribe entero** en cada `/end-session`. Describe el estado de la
 > última sesión, no un historial. El historial está en [_session-log.md](_session-log.md).
 
 ## Objetivo
 
-Cerrar F2/F3 de numeración (`context/37`), resolver dos P0s de costeo
-detectados en producción (costo promedio en cero, explosión de receta de un
-solo nivel), atacar la raíz del wrapper de DB (`_getTableSchema()` a mano),
-cerrar F1-F5 de add-ons/combos (`context/41`) y arreglar un bug reportado de
-módulos que desaparecían del sidebar del POS.
+Corregir un invariante fiscal mal implementado (unicidad del punto de
+expedición), completar la documentación de `context/modules/` (quedaban 12
+de 25), arreglar un bug de plata donde el `drawerId` de una venta offline
+caía en el turno de caja equivocado, asentar por escrito 6 reglas de negocio
+que el owner confirmó verbalmente, y resolver un bug de `/settings` que
+borraba configuración no cargada en el form al guardar.
 
 ## Estado al cerrar
 
-Todo commiteado y pusheado a `main` (`721cf0f1..f0e7c423`, entreverado
-numéricamente con la sesión paralela de sync/detalle-transacción — ver
-bitácora, entry de arriba). **Migraciones sin correr en prod**: verificado
-por SSH que 127/128/129/130/133 sí corrieron; faltan al menos **131, 132,
-134, 136, 140** — confirmar con el comando de "Trampas" antes de dar nada
-por deployado.
+Todo commiteado en `main` (`be12977a..f2e48b70`, 11 commits) y **ya
+pusheado a `origin/main`** — verificado con `git merge-base --is-ancestor
+HEAD origin/main` (YES). `origin/main` sigue 93 commits por delante por
+sesiones paralelas.
+
+Migraciones verificadas corridas en prod por SSH (ver "Trampas" para el
+comando): **143** (`uq_register_expedition_point_by_auth` existe) y la
+migración de backfill de `drawerId` — en el repo local es `144_transaction_
+drawerid_backfill_by_date.sql`, pero en prod corrió renumerada a
+**`147_transaction_drawerid_backfill_by_date.sql`** (colisión con sesiones
+paralelas, mismo patrón que ya pasó antes — ver Trampas).
 
 ## Archivos y cambios
 
-- `api/lib/Numbering/DocumentNumber.php` — `allocate()`/`allocateBlock()`
-  reemplaza `MAX(ordernumber)+1` + advisory lock en `OrderCoreService`.
-- Migs `127` (re-seed `document_sequence`), `129` (documentos de stock),
-  `131` (rebuild de costo), `132` (rescate JSONB), `134/136/140` (add-ons).
-- `api/lib/Database/Schema.php` (nuevo) — reemplaza el mapa a mano de
-  `_getTableSchema()`; lee el catálogo de PG, cachea con huella del catálogo.
-- `api/lib/Inventory/InventoryService.php` — `explodeRecipe()` recursivo.
-- `frontend/hooks/use-pos-modules.ts`, `api/v1/modules.php`,
-  `frontend/app/api/pos/modules/route.ts` — fix del sidebar + regla ESLint
-  `no-restricted-imports` (impide reintroducir el cliente del panel en POS).
-- `context/37-numeracion-documentos.md`, `41-addons-y-combos.md` — F2/F3 y
-  F1-F5 documentadas adentro.
+- `api/database/migrations/postgres/143_register_expedition_point_unique_by_auth.sql`
+  — dropea el índice mal formado de la mig 128, crea
+  `uq_register_expedition_point_by_auth` sobre `(companyId,
+  registerInvoiceAuth, registerInvoicePrefix)`.
+- `api/lib/services/RegisterAdminService.php` — `assertPrefixFree` →
+  `assertExpeditionPointFree` (compara timbrado+prefijo efectivos).
+- `context/modules/*` — 12 docs nuevos (`01-catalogo-items`, `08-compras`,
+  `09-notas-credito-compra`, `13-cotizaciones`, `14-caja`,
+  `15-credito-y-cobranzas`, `16-giftcards-y-vales`, `21-contactos`,
+  `22-sincronizacion`, `23-auth-y-permisos`, `24-sucursales-y-scopes`,
+  `25-reportes`) + `_index.md` con 10 filas nuevas de interacciones.
+  24/25 escritos, falta solo `06-produccion.md` (🟡).
+- `api/lib/services/DrawerService.php` — `resolveDrawerIdForDate($registerId,
+  $companyId, $operationDate)`, resuelve por contención de fecha en vez de
+  "¿qué caja está abierta ahora?". Cableado en `api/lib/Sales/SaleService.php`
+  y `api/lib/services/CreditPaymentService.php`. `resolveOpenDrawerId` queda
+  solo para guards de caja abierta (abrir/cerrar turno).
+- `context/modules/10-pos-venta.md`, `14-caja.md`, `17-numeracion.md`,
+  `22-sincronizacion.md` — 6 reglas de negocio del owner (R1-R6, ver commit
+  `4cc543db`); R3 (turno offline) documentada como NO cumplida.
+- `frontend/app/(panel)/settings/page.tsx` — buscador de secciones en el
+  sidebar del modal (desktop only) + guard `!data` en los botones Guardar +
+  resolver de zod acotado a `SECTION_FIELDS` de la sección activa (antes
+  validaba el schema entero y un campo legacy invisible bloqueaba
+  cualquier guardado) + sale "Apariencia" de `FORM_SECTIONS` (submit sin
+  campos, guardaba nada con toast de éxito falso).
+- `api/lib/Settings/SettingsService.php`, `api/v1/settings.php`,
+  `frontend/hooks/use-settings.ts` — merge parcial vía `array_key_exists`
+  (distingue "campo ausente" de "campo presente vacío"), en vez de
+  sobreescribir las ~30 columnas de `company.config` con `''` en cada
+  guardado parcial.
+- `CLAUDE.md` — corregida la fila de `29-numeracion-y-exclusividad-de-caja.md`:
+  ya no dice "nada implementado" (F0/F1 están en `main`, F2/F3 existen en
+  la branch `api/numeracion-exclusividad` sin mergear).
 
 ## Callejones sin salida
 
-1. Dije que el costo histórico NO se podía reconstruir — falso, las 47 filas
-   de ingreso tenían `stockCOGS`; la mig 131 reconstruye replayeando.
-2. Mi relevamiento de add-ons dijo "no existe nada" — existía `combo_group`
-   + `ComboGroupService` + editor (panel-only, la venta nunca lo leía).
-3. El plan asumía `itemSold.itemsoldparent` como link padre-hija: tiene FK a
-   `item`, no a `itemSold`. Hubo que usar `itemSold.meta.addon` (F3); en
-   `pos_order_item` (mig 140) sí hay FK propia.
-4. Brief de F4 mandaba interceptar en `handleProductClick`; el agente lo
-   movió a `addCatalogItem` porque el scanner de código de barras no pasa
-   por el click — correcto, quedó documentado.
-5. Un agente borró `frontend/public/sw.js` y `swe-worker-*.js` dentro de un
-   diff de add-ons — atajado en review, no llegó a commit.
-6. Colisiones de número de migración con sesiones paralelas (139 pisada dos
-   veces → renumerada a 140; 118 original → 127). Verificar SIEMPRE con
-   `ls ... | sort -t_ -k1 -n | tail -3` justo antes de commitear.
+1. El hand-off anterior decía que faltaban correr las migraciones
+   131/132/134/136/140. Era falso — todas habían corrido. El error vino de
+   ordenar `schema_migrations` lexicográficamente (`ORDER BY filename`,
+   donde "99" > "142") en vez de por
+   `(split_part(filename,'_',1))::int`. Usar siempre esa expresión para
+   verificar contra prod.
+2. Se afirmó que la exclusividad de caja ya estaba en prod mirando el
+   índice único `uq_register_lease_active`. Falso: el schema está
+   deployado pero el código que ESCRIBE la tabla (F2/F3) vive en la branch
+   `api/numeracion-exclusividad`, no en `main`. Un índice único no protege
+   nada sobre una tabla que nadie escribe todavía en el camino live.
+3. Bug del Rubro en `/settings` — 4 hipótesis descartadas antes de dar con
+   la causa real (payload parcial del dialog, values duplicados en
+   `COMPANY_CATEGORIES`, zod stripping `category`, `settings.php` pasando
+   por `validateHttp`). La causa real: comparar el JSONB `config`
+   antes/después de un guardado real mostró que el form mandaba
+   `settingThousandSeparator: ""` — el backend guardaba bien todo el
+   tiempo, el bug era de hidratación en el front.
+4. Un sub-agente commiteó por error en la branch de la sesión paralela
+   (asumió `main` porque el brief lo decía) y se recuperó con `git reset
+   --hard` sobre el checkout COMPARTIDO. No se perdió nada, pero es el
+   antipatrón que ya causó un P0 en este repo — reforzado en memoria
+   (`feedback_parallel_agents_need_worktrees.md`): agentes que commitean
+   van en worktree propio, nunca sobre el árbol que otra sesión puede
+   estar usando.
 
 ## Próximo paso
 
-Deployar y correr las migraciones pendientes (ver "Estado al cerrar"). Después
-resolver el punto de expedición duplicado (ver Trampas) y re-correr la 128.
+Nada quedó abierto de esta sesión en particular — el trabajo de acá está
+cerrado y pusheado. El próximo hilo natural es retomar `context/29`: mergear
+`api/numeracion-exclusividad` (F2/F3) a `main` para que `register_lease`
+empiece a recibir escrituras reales, coordinado con la sesión que la tiene
+en curso.
 
 ## Trampas conocidas
 
-- Confirmar migraciones corridas: `ssh root@167.71.165.221 'docker exec
-  w6rtfxm2n6l45r4r9melj3hl psql -U postgres -d postgres -tAc "SELECT
-  filename FROM schema_migrations ORDER BY 1"'`.
-- **Mig 128 NO creó `uq_register_expedition_point`**: "Caja Mariano" y
-  "Nueva Caja" comparten punto de expedición `001-001`. Asignarle otro punto
-  a una y re-correr la 128. El guard del servicio ya bloquea casos nuevos.
-- **Caja Mariano tiene próxima factura = 1** con timbrado cargado — si
-  facturaba con otro sistema, cargar el número real antes de cobrar.
-- 5 cajas "Caja Principal" y 3 "New Register" activas sin timbrado.
-- `transactionTotal` sigue saliendo del subtotal que informa el cliente, no
-  se deriva del detalle (`SaleService::expandAddonSelections`) — cerrarlo es
-  cambio de contrato propio.
-- Gaps de add-ons: reimpresión desde el panel no indenta hijas
-  (`TxDetailFull` no expone `meta.addon`); F6 (reportes por add-on) sin
-  empezar; D4 (variantes de bloque de impresión) desbloqueada pero sin
-  implementar.
-- `frontend/public/sw.js` modificado sin commitear — artefacto de build, no
-  requiere acción (mismo estado que reportó la sesión paralela).
-- **Trabajo sin commitear de OTRA sesión, no tocar sin coordinar**:
-  `api/database/migrations/postgres/141_register_lease.sql` y
-  `142_register_lease_backfill.php` (untracked) — parecen ser F0 de
-  `context/29-numeracion-y-exclusividad-de-caja.md`, en progreso en paralelo.
-- Plan `context/40` (anulación y NC) sigue con D1-D4 cerradas y NADA
-  implementado; `context/42` (multi-moneda) es feature request sin planificar.
+- Comando para verificar migraciones corridas en prod (ordenado
+  correctamente, NO por filename lexicográfico):
+  `ssh root@167.71.165.221 "docker exec w6rtfxm2n6l45r4r9melj3hl psql -U
+  postgres -d postgres -tAc \"SELECT filename FROM schema_migrations ORDER
+  BY (split_part(filename,'_',1))::int DESC LIMIT 10\""`.
+- **La numeración de migraciones en prod NO coincide 1:1 con la de este
+  checkout** en las últimas filas: `origin/main` va 93 commits por delante
+  y renumeró para evitar colisiones (ej. la mig local `144_transaction_
+  drawerid_backfill_by_date.sql` corrió en prod como `147_...`). Verificar
+  siempre por contenido/nombre de archivo sin el prefijo numérico, no por
+  el número.
+- **`register_lease` ya tiene 1 fila en prod** (no 0 como decía el hand-off
+  anterior) — pero es el backfill de F1 (mig 142, cajas con lease vivo al
+  momento del backfill), no escritura en vivo de F2/F3 (esas siguen sin
+  mergear). No confundir "hay una fila" con "el flujo F2/F3 está activo".
+- `frontend/public/sw.js` sigue modificado sin commitear en el checkout
+  compartido — artefacto de build, no requiere acción (arrastrado de
+  sesiones anteriores).
+- Hallazgos de los 12 docs de módulo nuevos, ninguno arreglado todavía —
+  quedan documentados con `path:line` en sus respectivos `context/modules/*`:
+  12 endpoints de escritura sin chequeo de permiso backend; canje de gift
+  card fire-and-forget (venta puede cobrar sin debitar saldo si falla
+  después); `kind=pack` rompe siempre con 422 (`api/v1/items.php:141`);
+  importador CSV de contactos duplica en cada reimportación
+  (`ContactImporter.php:109,128-131`); `kind='quote_to_sale'` nunca se
+  persiste (`SaleService.php:652`); `rollup_reconcile()` sin caller y
+  `pg_cron` no instalado en prod; `parked-sales.php` y `numbering/lease.php`
+  mutan sin emitir evento realtime; control de caja a ciegas es solo UI.
+- R3 (turno de caja offline) NO se cumple: el backend soporta `date` en el
+  body de `/v1/drawer.php:116`, pero el POS bloquea con `openDrawer:
+  offlineEligible: false` en `frontend/lib/commands/registry.ts` — revertir
+  esa decisión de producto de `context/16 §5` para cerrar R3.
