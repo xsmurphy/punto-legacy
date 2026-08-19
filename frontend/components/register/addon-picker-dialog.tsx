@@ -298,7 +298,13 @@ export function AddonPickerDialog() {
         <DialogHeader>
           <DialogTitle>{pendingItem?.name ?? "Add-ons"}</DialogTitle>
           <DialogDescription>
-            {editingLineId ? "Cambiá los add-ons de esta línea" : "Elegí los add-ons del producto"}
+            {editingLineId
+              ? pendingItem?.kind === "combo_dinamico"
+                ? "Cambiá la composición de este combo"
+                : "Cambiá los add-ons de esta línea"
+              : pendingItem?.kind === "combo_dinamico"
+                ? "Armá el combo — elegí de cada grupo"
+                : "Elegí los add-ons del producto"}
           </DialogDescription>
         </DialogHeader>
 
