@@ -75,6 +75,16 @@
 --     producción: es la ÚNICA función de toda la BD con una referencia
 --     hardcodeada a alguna de las 143 columnas. Se recrea más abajo con
 --     `companyid`/`rowid` lowercase.
+--   - Job de `pg_cron` `purge-tenant-audit` (mig 36_tenant_audit_pgcron.sql):
+--     MISMA trampa que fn_record_deletion pero sobre un job programado en
+--     vez de una función — el comando (`DELETE FROM tenant_audit WHERE
+--     "createdAt" < now() - interval '2 months'`) queda guardado como TEXTO
+--     PLANO en `cron.job.command`, RENAME COLUMN no lo toca. Sin fix, la
+--     purga nocturna (03:00) empieza a fallar SILENCIOSAMENTE — pg_cron
+--     loguea el error en `cron.job_run_details`, no aborta nada ni avisa al
+--     deploy. Se reprograma más abajo (unschedule + schedule) con
+--     `createdat` lowercase, tolerante a que pg_cron no esté disponible
+--     (mismo criterio que la mig 36 original).
 --
 -- auth_session (tabla de sesiones — si se rompe, nadie entra al sistema):
 -- mismo mecanismo que el resto (RENAME COLUMN de metadata, sin tocar datos),
@@ -590,6 +600,31 @@ BEGIN
     RETURN OLD;
   END;
   $fn$ LANGUAGE plpgsql;
+
+  -- ── pg_cron: reprogramar 'purge-tenant-audit' (mig 36_tenant_audit_pgcron.sql)
+  -- con el nombre de columna ya renombrado. El comando del job queda guardado
+  -- como TEXTO PLANO en cron.job.command — RENAME COLUMN no lo toca, mismo
+  -- patrón de trampa que fn_record_deletion pero sobre un job programado en
+  -- vez de una función. Sin este fix, la purga nocturna de tenant_audit
+  -- (todos los días 03:00) empieza a fallar en cuanto termine esta migración
+  -- con "column \"createdAt\" does not exist" — silenciosamente, porque
+  -- pg_cron loguea el error en cron.job_run_details sin tirar nada al
+  -- deploy. Tolerante a que pg_cron no esté disponible (mismo criterio que
+  -- la mig 36 original: RAISE NOTICE, nunca aborta la migración estructural).
+  BEGIN
+    BEGIN
+      PERFORM cron.unschedule('purge-tenant-audit');
+    EXCEPTION WHEN OTHERS THEN
+      NULL; -- no existía o pg_cron no disponible, seguimos.
+    END;
+    PERFORM cron.schedule(
+      'purge-tenant-audit',
+      '0 3 * * *',
+      $job$DELETE FROM tenant_audit WHERE createdat < now() - interval '2 months'$job$
+    );
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'mig 150: pg_cron no disponible — no se pudo reprogramar purge-tenant-audit con la columna renombrada. Si pg_cron se habilita más adelante, este bloque no vuelve a correr (mig ya marcada como aplicada) — reprogramar el job a mano o vía una migración nueva.';
+  END;
 
   -- ── Chequeo final: cero columnas camelCase-quoted deben sobrevivir en las
   -- 18 tablas de esta migración. Si algo quedó afuera (nombre no anticipado
