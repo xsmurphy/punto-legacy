@@ -173,6 +173,13 @@ final class PurchaseCreditNoteService
                 // prácticamente cualquier compra real. Se corrige leyendo del
                 // JSONB.
                 $origItem = $db->GetRow(
+                    // itemSold sin comillas a propósito: la tabla se creó SIN
+                    // quotes → Postgres la plegó a minúsculas (itemsold).
+                    // Citarla como "itemSold" exige match exacto de mayúsculas
+                    // y Postgres tira "relation does not exist".
+                    // `taxid` NO existe como columna: el dato vive en el JSONB
+                    // `meta->>'taxId'` (verificado 2026-08-19 al arreglar la NC
+                    // de compra, que fallaba justamente por leer esa columna).
                     "SELECT SUM(itemsoldunits)                 AS itemsoldunits,
                             SUM(itemsoldtotal)                 AS itemsoldtotal,
                             SUM(COALESCE(itemsolddiscount, 0)) AS itemsolddiscount,
@@ -200,7 +207,7 @@ final class PurchaseCreditNoteService
                     $ph = implode(',', array_fill(0, count($ncIds), '?'));
                     $alreadyCredited = (float) $db->GetOne(
                         "SELECT COALESCE(SUM(ABS(is2.itemsoldunits)), 0)
-                         FROM \"itemSold\" is2
+                         FROM itemSold is2
                          JOIN transaction t2 ON t2.transactionid = is2.transactionid
                          WHERE is2.transactionid IN ($ph) AND is2.itemid = ? AND COALESCE(t2.transactionstatus, 1) <> 6",
                         [...$ncIds, $itemId]
@@ -558,7 +565,7 @@ final class PurchaseCreditNoteService
         $ph = implode(',', array_fill(0, count($ids), '?'));
         $rs = ncmExecute(
             "SELECT is2.itemid AS itemid, SUM(ABS(is2.itemsoldunits)) AS qty
-             FROM \"itemSold\" is2
+             FROM itemSold is2
              JOIN transaction t2 ON t2.transactionid = is2.transactionid
              WHERE is2.transactionid IN ($ph) AND t2.companyid = ? AND COALESCE(t2.transactionstatus, 1) <> 6
              GROUP BY is2.itemid",

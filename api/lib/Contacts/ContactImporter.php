@@ -125,15 +125,20 @@ final class ContactImporter
 
         if ($mode === 'update') {
             $existing = null;
+            // contact se creó SIN quotes → Postgres plegó todas sus columnas
+            // a minúsculas (contactid, companyid, contactphone, etc). Citarlas
+            // en camelCase ("contactId", "companyId"...) exige match exacto
+            // de mayúsculas y Postgres tira "column does not exist" — mismo
+            // bug documentado en detalle en ReturnService::create().
             if ($phoneE164 !== null) {
                 $existing = ncmExecute(
-                    'SELECT "contactId" FROM contact WHERE "companyId" = ? AND "contactPhone" = ? AND "contactStatus" = 1 LIMIT 1',
+                    'SELECT contactId FROM contact WHERE companyId = ? AND contactPhone = ? AND contactStatus = 1 LIMIT 1',
                     [$companyId, $phoneE164]
                 );
             }
             if (!$existing && $rucCi !== '') {
                 $existing = ncmExecute(
-                    'SELECT "contactId" FROM contact WHERE "companyId" = ? AND "contactTIN" = ? AND "contactStatus" = 1 LIMIT 1',
+                    'SELECT contactId FROM contact WHERE companyId = ? AND contactTIN = ? AND contactStatus = 1 LIMIT 1',
                     [$companyId, $rucCi]
                 );
             }
