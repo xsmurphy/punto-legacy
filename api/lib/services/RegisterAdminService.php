@@ -72,9 +72,71 @@ final class RegisterAdminService
         return $out;
     }
 
+    /**
+     * Cuenta, por caja, cuántos hotkeys de artículo (`register.data.hotkeys`,
+     * `isCategory=false`) apuntan a un itemId que esa caja NO puede ver hoy —
+     * no existe, no está scopeado a su sucursal (mismo criterio que
+     * `outletVisibilityClause()` en ItemsQuery.php: visible si
+     * `item.outletId = register.outletId OR item.outletId IS NULL`), o está
+     * archivado (`itemStatus = 0`) — el catálogo activo del POS (`/v1/items`
+     * default `itemStatus = 1`) tampoco lo ofrece, así que sería el mismo
+     * slot-huérfano aunque exista la fila.
+     *
+     * Diagnóstico para el panel (pestaña Cajas) del incidente 2026-08-18: el
+     * fix de outlet-visibility en `/v1/items` dejó huérfanos los hotkeys
+     * configurados ANTES, cuando la caja veía el catálogo entero de la
+     * empresa. El front ya degrada el slot huérfano a vacío-reusable
+     * (product-area.tsx); esto es solo para que el admin vea CUÁLES cajas
+     * tienen configuración para revisar, sin tener que abrir cada una.
+     *
+     * `jsonb_exists(r.data, 'hotkeys')` en vez del operador `?` — colisiona
+     * con el placeholder de PDO y tira el boot entero (ver
+     * context/08-convenciones-criticas.md).
+     *
+     * Solo cuenta hotkeys de ARTÍCULO. Los de categoría no se auditan acá: no
+     * son el caso reportado y `categoryId` no vive en `item`.
+     *
+     * @return array<string,int> registerId → cantidad de hotkeys huérfanos
+     */
+    private function orphanHotkeyCounts(): array
+    {
+        $rs = ncmExecute(
+            "SELECT r.registerId AS registerid, COUNT(*) AS orphancount
+               FROM register r
+               CROSS JOIN LATERAL jsonb_array_elements(r.data->'hotkeys') AS elems(hotkey)
+               LEFT JOIN item it
+                 ON it.itemId::text = (elems.hotkey->>'itemId')
+                AND it.companyId = r.companyId
+                AND (it.outletId = r.outletId OR it.outletId IS NULL)
+                AND it.itemStatus = 1
+              WHERE r.companyId = ?
+                AND jsonb_exists(r.data, 'hotkeys')
+                AND COALESCE((elems.hotkey->>'isCategory')::boolean, false) = false
+                AND it.itemId IS NULL
+              GROUP BY r.registerId",
+            [$this->companyId],
+            false,
+            true  // forceObj → recordset
+        );
+        $out = [];
+        if ($rs && is_object($rs)) {
+            while (!$rs->EOF) {
+                $f  = $rs->fields;
+                $id = (string) ($f['registerId'] ?? $f['registerid'] ?? '');
+                if ($id !== '') {
+                    $out[$id] = (int) ($f['orphancount'] ?? $f['orphanCount'] ?? 0);
+                }
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        return $out;
+    }
+
     public function listAll(): array
     {
-        $seq = $this->numberingByRegister();
+        $seq    = $this->numberingByRegister();
+        $orphan = $this->orphanHotkeyCounts();
 
         $rs = ncmExecute(
             'SELECT r.registerId, r.registerName, r.outletId, o.outletName, r.registerStatus, r.data
@@ -134,6 +196,11 @@ final class RegisterAdminService
                     'range' => [
                         'facturaTo' => $seq[$regId]['factura']['rangeTo'] ?? null,
                     ],
+                    // Hotkeys de artículo que esta caja tiene configurados pero
+                    // no puede ver hoy (otra sucursal / borrado). El POS ya los
+                    // degrada a slot vacío solo; esto es la señal para el admin
+                    // de qué caja conviene reconfigurar. Ver orphanHotkeyCounts().
+                    'orphanHotkeys' => (int) ($orphan[$regId] ?? 0),
                 ];
                 $rs->MoveNext();
             }

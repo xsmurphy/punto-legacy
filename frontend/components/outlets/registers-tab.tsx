@@ -261,6 +261,24 @@ export function RegistersTab({ outletId }: { outletId: string }) {
       },
     },
     {
+      id: "hotkeys",
+      header: "Hotkeys",
+      // Diagnóstico del incidente 2026-08-18 (context/29): un hotkey
+      // configurado antes de que existiera el filtro de sucursal puede
+      // apuntar a un ítem que la caja ya no ve. El POS lo degrada solo a slot
+      // vacío (no rompe la grilla), pero acá el admin ve CUÁL caja conviene
+      // reabrir y reconfigurar sin tener que entrar a cada una a mirar.
+      cell: ({ row }) => {
+        const n = row.original.orphanHotkeys
+        if (n === 0) return <span className="text-sm text-muted-foreground">—</span>
+        return (
+          <Badge variant="secondary" className="text-amber-700 dark:text-amber-400">
+            {n} sin catálogo
+          </Badge>
+        )
+      },
+    },
+    {
       id: "actions",
       header: "",
       cell: ({ row }) => {
