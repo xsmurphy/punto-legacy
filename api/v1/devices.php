@@ -9,10 +9,12 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
+require_once __DIR__ . '/../lib/services/RegisterLeaseService.php';
 
 use Punto\Api\Auth\DeviceAuth;
+use Punto\Api\Services\RegisterLeaseService;
 
-apiAuthTenant(['panel']);
+$__ctx = apiAuthTenant(['panel']);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -47,6 +49,13 @@ if ($method === 'DELETE') {
         exit;
     }
     DeviceAuth::revoke($deviceId, COMPANY_ID);
+    // Revocar el device sin liberar su tenencia de caja (context/29 §4) dejaba
+    // `register_lease` tomada para siempre — el device revocado nunca más puede
+    // llamar a claim.php para liberarse solo, y no había otra vía automática
+    // (bug real 2026-08-19: caja bloqueada sin salida tras revocar el device
+    // que la tenía). 'forced': es el admin actuando sobre un device de otro,
+    // no el propio device liberándose — mismo motivo que register-lease.php.
+    RegisterLeaseService::releaseByDevice($deviceId, COMPANY_ID, 'admin:' . (string) $__ctx['userId'], 'forced');
     require_once API_APP_DIR . '/includes/auth_session.php';
     authSessionRevokeByDevice($deviceId, COMPANY_ID, defined('AUTHED_USER_ID') ? AUTHED_USER_ID : null);
     apiOk(['ok' => true, 'deleted' => 'soft']);

@@ -23,6 +23,10 @@ final class TenantContext
         public readonly string $userId,
         public readonly string $registerId,
         public readonly string $roleId,
+        /** Vacío salvo realm pos-app (ver apiAuthTenant()) — "qué device es
+         *  este request", ej. para que DrawerService::close() libere su
+         *  propia tenencia de register_lease al cerrar caja (context/29 §4.4). */
+        public readonly string $deviceId = '',
     ) {
         if ($companyId === '' || $outletId === '' || $userId === '') {
             throw new \InvalidArgumentException('TenantContext: companyId/outletId/userId no pueden ser vacíos');
@@ -38,6 +42,7 @@ final class TenantContext
             userId:     (string) ($ctx['userId']     ?? ''),
             registerId: (string) ($ctx['registerId'] ?? ''),
             roleId:     (string) ($ctx['roleId']     ?? ''),
+            deviceId:   (string) ($ctx['deviceId']   ?? ''),
         );
     }
 }

@@ -94,6 +94,64 @@ final class RegisterLeaseService
     }
 
     /**
+     * Libera la tenencia activa de `$deviceId`, si tiene alguna — self-contained:
+     * abre su propia transacción + advisory lock (a diferencia de `close()`, los
+     * callers de este método NO están ya dentro de un lock por registerId, porque
+     * no lo conocen de antemano: lo resuelven acá mismo a partir del device).
+     *
+     * Tres callers, los tres son "este device deja de operar, de una forma que
+     * no depende de que el propio device siga vivo para liberar su caja"
+     * (context/29 §4 — huecos que dejaban una tenencia huérfana para siempre,
+     * detectados 2026-08-19):
+     *   - `api/v1/devices.php` (DELETE, admin revoca desde el panel)
+     *   - `api/v1/auth/unpair-pos-device.php` (el device se despareja a sí mismo,
+     *     "Eliminar dispositivo del comercio" en Ajustes del POS)
+     *   - `RegisterLeaseService` en general — un device revocado o despareado no
+     *     puede volver a `claim.php` para liberarse solo: si nadie más libera su
+     *     tenencia, queda tomada para siempre (la tenencia ya no vence por fecha).
+     *
+     * No-op silencioso si `$deviceId` no tiene tenencia activa — la inmensa
+     * mayoría de los revokes/unpairs son de devices que nunca tomaron una caja,
+     * o que ya la habían liberado (cerrar caja normal antes de desconectarse).
+     */
+    public static function releaseByDevice(
+        string $deviceId,
+        string $companyId,
+        string $releasedBy,
+        string $status = 'forced',
+    ): void {
+        $lease = ncmExecute(
+            'SELECT "registerLeaseId", "registerId" FROM "register_lease"
+              WHERE "deviceId" = ? AND "companyId" = ? AND "status" = \'active\' LIMIT 1',
+            [$deviceId, $companyId]
+        );
+        if ($lease === false || $lease === 0) {
+            return;
+        }
+        $registerLeaseId = (string) $lease['registerLeaseId'];
+        $registerId      = (string) $lease['registerId'];
+
+        global $db;
+        $db->StartTrans();
+
+        // Mismo lock exclusivo por caja que claim.php/register-lease.php — evita
+        // pisar una toma concurrente de la MISMA caja mientras esta se libera.
+        ncmExecute('SELECT pg_advisory_xact_lock(hashtext(?))', [$registerId]);
+
+        // Releer bajo lock: puede haberse liberado (o hasta retomado por otro
+        // device, si esta llamada llega tarde) entre el SELECT de arriba y acá.
+        $current = ncmExecute(
+            'SELECT "status" FROM "register_lease" WHERE "registerLeaseId" = ?::uuid FOR UPDATE',
+            [$registerLeaseId]
+        );
+        if ($current !== false && $current !== 0 && (string) $current['status'] === 'active') {
+            self::close($registerLeaseId, $status, $releasedBy, $status);
+        }
+
+        $db->CompleteTrans();
+    }
+
+    /**
      * Chequea si `$deviceId` es el tenedor ACTUAL de `$registerId` — el
      * único chequeo de tenencia que sobrevive a la eliminación del arriendo
      * de números (context/29 §6, RECHAZADO 2026-08-17). Reemplaza a la
