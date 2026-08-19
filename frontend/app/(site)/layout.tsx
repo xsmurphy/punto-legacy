@@ -9,7 +9,7 @@ export const metadata: Metadata = {
     template: "%s | Punto",
   },
   description:
-    "Ventas, caja, facturación electrónica y stock en un solo lugar. El sistema para minimarkets, restaurantes, farmacias y más, hecho para Paraguay.",
+    "Ventas, caja, facturación electrónica y stock en un mismo sistema. Hecho para minimarkets, restaurantes, farmacias y más comercios de Paraguay.",
 }
 
 export default function SiteLayout({

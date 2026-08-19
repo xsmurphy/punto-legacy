@@ -35,11 +35,11 @@ function HeroCtas() {
           <Link href="#">Empezar</Link>
         </Button>
         <Button asChild size="lg" variant="outline" className="rounded-full px-7">
-          <Link href="#">Hablar con nosotros</Link>
+          <Link href="#">Escribinos</Link>
         </Button>
       </div>
       <p className="text-sm text-muted-foreground">
-        Gratis para empezar. Sin tarjeta.
+        Probalo gratis, sin tarjeta ni permanencia.
       </p>
     </div>
   )
@@ -80,7 +80,7 @@ export default async function RubroPage({
         <section className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6 md:pb-24">
           <div className="rounded-3xl border bg-muted/40 p-8 md:p-12">
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-              {rubro.label} en 30 segundos
+              Lo esencial de {rubro.posesivo}
             </p>
             <ul className="mt-6 grid gap-x-10 gap-y-5 md:grid-cols-2">
               {rubro.thirtySeconds.map((item) => (
@@ -143,7 +143,7 @@ export default async function RubroPage({
       {/* Otros rubros */}
       <section className="mx-auto w-full max-w-6xl px-4 py-16 md:px-6 md:py-24">
         <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          ¿Otro tipo de negocio?
+          ¿Buscás otro rubro?
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           {others.map((r) => (

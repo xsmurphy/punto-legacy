@@ -40,7 +40,7 @@ export function CtaFinal() {
         Tu primer ticket, hoy mismo
       </h2>
       <p className="mt-4 text-base text-muted-foreground md:text-lg">
-        La prueba es gratis, sin tarjeta, y se cancela cuando quieras.
+        Probalo gratis, sin tarjeta ni permanencia.
       </p>
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <Button asChild size="lg" className="rounded-full px-7">

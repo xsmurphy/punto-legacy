@@ -51,7 +51,7 @@ export const RUBROS: Rubro[] = [
     eyebrow: "Para restaurantes",
     heroTitle: "El salón, la cocina y la caja, en sintonía",
     heroDescription:
-      "La comanda entra sola a cocina, cada mesa muestra su cuenta abierta y la factura sale al cerrar, con mitades y agregados escritos como los pidió el cliente. Sin cuaderno y sin gritos al pasaplatos.",
+      "El pedido llega directo a cocina, cada mesa muestra su cuenta abierta y la factura sale al cerrar, con mitades y agregados escritos tal como los pidió el cliente. Sin cuaderno y sin gritos al pasaplatos.",
     thirtySeconds: [
       "El pedido de cada mesa entra a la cocina en el momento, con agregados y aclaraciones literales.",
       "La cuenta se divide en partes iguales o por lo que consumió cada uno, desde la misma pantalla.",
@@ -61,9 +61,9 @@ export const RUBROS: Rubro[] = [
     sections: [
       {
         kicker: "Sin gritos al pasaplatos",
-        title: "La comanda entra sola, escrita como se pidió",
+        title: "El pedido llega a cocina tal como se pidió",
         paragraphs: [
-          "El viernes a la noche el salón no tiene tiempo para traducciones: el mozo carga el pedido en la mesa y la comanda aparece en cocina con su hora de entrada, sus agregados y sus aclaraciones, sin pasar por un papel que se pierde entre la barra y la plancha.",
+          "En hora pico el salón no tiene tiempo que perder: el mozo carga el pedido en la mesa y la comanda aparece en cocina con su hora de entrada, sus agregados y sus aclaraciones, sin pasar por un papel que se pierde entre la barra y la plancha.",
           "La cocina arma las tandas por orden de llegada, no por quién reclamó más fuerte. Y cuando el plato cambia — sin cebolla, punto jugoso, para llevar — eso baja literal, no interpretado.",
         ],
         linkLabel: "Ver cómo trabaja la cocina",
@@ -75,12 +75,12 @@ export const RUBROS: Rubro[] = [
             {
               left: "Mesa 12 · hace 4 min",
               right: "2 platos",
-              sub: ["1× Lomito completo · sin cebolla", "1× Milanesa napolitana"],
+              sub: ["1× Lomito completo · sin cebolla", "1× Costilla al horno"],
             },
             {
               left: "Mesa 3 · hace 1 min",
               right: "1 plato",
-              sub: ["1× Pizza muzzarella · mitad fugazzeta"],
+              sub: ["1× Pizza cuatro quesos · sin aceitunas"],
             },
           ],
         },
@@ -97,11 +97,11 @@ export const RUBROS: Rubro[] = [
           label: "Mesa 12 · 3 personas",
           title: "Dividir la cuenta",
           rows: [
-            { left: "Lucía", right: "Gs. 68.000" },
-            { left: "Marcos", right: "Gs. 72.000" },
-            { left: "Sofía", right: "Gs. 53.000" },
+            { left: "Gladys", right: "Gs. 75.000" },
+            { left: "Osvaldo", right: "Gs. 80.000" },
+            { left: "Rocío", right: "Gs. 60.000" },
           ],
-          footer: { left: "Total", right: "Gs. 193.000" },
+          footer: { left: "Total", right: "Gs. 215.000" },
         },
       },
       {

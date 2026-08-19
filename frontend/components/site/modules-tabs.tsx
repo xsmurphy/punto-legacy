@@ -55,7 +55,7 @@ export function ModulesTabs() {
                   </h3>
                   <p className="text-base text-white/65">{tab.description}</p>
                   <p className="text-sm text-white/50">
-                    Ideal para: {tab.idealFor}
+                    Pensado para: {tab.idealFor}
                   </p>
                 </div>
                 <div
