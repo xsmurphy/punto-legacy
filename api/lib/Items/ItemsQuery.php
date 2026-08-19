@@ -239,3 +239,32 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
              WHERE {$whereSql}
              {$tailSql}";
 }
+
+/**
+ * Fragmento de visibilidad por sucursal para `pos-app` (una caja).
+ *
+ * `item.outletId` es 1:1 nullable (`db-schema-postgres.sql`): NULL = ítem
+ * disponible en TODAS las sucursales, UUID = exclusivo de esa sucursal. Una
+ * caja solo debe poder vender/consultar lo que le corresponde — antes de
+ * esto, `/v1/items`, el bulk-get y el delta de sync no aplicaban ningún
+ * filtro de outlet y el POS ofrecía para vender ítems de otras sucursales
+ * (context/29 lo documenta como riesgo fiscal de otro tipo; esto es el
+ * mismo principio aplicado al catálogo).
+ *
+ * `$outletId` viene SIEMPRE de la fila `device` resuelta en
+ * `apiAuthTenant()` (`$ctx['outletId']` cuando `$ctx['realm'] === 'pos-app'`)
+ * — nunca de query/body, mismo criterio que `outletScope` en
+ * `spaces.php`/`orders-core.php` (ver `context/25-sucursales-y-scopes.md`
+ * §2). El panel NO pasa `$outletId` acá: administra el catálogo completo
+ * del tenant (Scope=Tenant, ver §3 del mismo doc), así que el listado/ficha
+ * consolidados no deben restringirse.
+ *
+ * @return array{0: string, 1: list<string>} [fragmento SQL (o '' si no aplica), params]
+ */
+function outletVisibilityClause(?string $outletId): array
+{
+    if ($outletId === null || $outletId === '') {
+        return ['', []];
+    }
+    return ['(i.outletId = ? OR i.outletId IS NULL)', [$outletId]];
+}
