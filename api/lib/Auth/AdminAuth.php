@@ -111,7 +111,7 @@ function adminAudit(
 
         $db->Execute(
             'INSERT INTO admin_audit
-               ("adminId", "adminEmail", action, "targetType", "targetId", "targetName", meta, ip)
+               (adminid, adminemail, action, targettype, targetid, targetname, meta, ip)
              VALUES (?, ?, ?, ?, ?, ?, ?::jsonb, ?)',
             [
                 $adminId,

@@ -42,7 +42,7 @@ if ($action !== '') {
 
 // Validar UUID antes de usar como filtro (evita info disclosure + asegura tipo correcto).
 if ($adminId !== '' && preg_match($uuidRe, $adminId)) {
-    $where[]  = '"adminId" = ?';
+    $where[]  = 'adminid = ?';
     $binds[]  = $adminId;
 }
 
@@ -63,11 +63,11 @@ $offset = ($page - 1) * $pageSize;
 $bindsPaged = array_merge($binds, [$pageSize, $offset]);
 
 $r = $db->Execute(
-    "SELECT id, \"adminId\", \"adminEmail\", action, \"targetType\", \"targetId\",
-            \"targetName\", meta, ip, \"createdAt\"
+    "SELECT id, adminid, adminemail, action, targettype, targetid,
+            targetname, meta, ip, createdat
      FROM admin_audit
      $whereClause
-     ORDER BY \"createdAt\" DESC
+     ORDER BY createdat DESC
      LIMIT ? OFFSET ?",
     $bindsPaged
 );
