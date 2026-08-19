@@ -24,7 +24,7 @@ export function FeaturesGrid() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 md:flex-row md:items-end md:justify-between md:px-6">
         <div className="max-w-xl">
           {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-          <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-5xl">
+          <h2 className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
             Cada módulo viene incluido
           </h2>
           <p className="mt-4 text-base text-muted-foreground md:text-lg">

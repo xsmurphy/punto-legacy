@@ -36,7 +36,7 @@ export function CtaFinal() {
   return (
     <section className="mx-auto w-full max-w-6xl px-4 py-24 text-center md:px-6 md:py-32">
       {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-      <h2 className="mx-auto max-w-2xl text-balance text-3xl font-semibold tracking-tight md:text-5xl">
+      <h2 className="mx-auto max-w-2xl text-balance text-4xl font-semibold tracking-tight md:text-6xl">
         Tu primer ticket, hoy mismo
       </h2>
       <p className="mt-4 text-base text-muted-foreground md:text-lg">

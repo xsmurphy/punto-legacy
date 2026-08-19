@@ -14,7 +14,7 @@ export function ModulesTabs() {
     <section className="mx-auto w-full max-w-6xl px-4 py-24 md:px-6 md:py-32">
       <div className="mx-auto max-w-2xl text-center">
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-5xl">
+        <h2 className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
           Más que una caja registradora
         </h2>
         <p className="mt-4 text-base text-muted-foreground md:text-lg">
@@ -50,7 +50,7 @@ export function ModulesTabs() {
                     reversed && "md:order-2",
                   )}
                 >
-                  <h3 className="text-balance text-2xl font-semibold tracking-tight md:text-3xl">
+                  <h3 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
                     {tab.title}
                   </h3>
                   <p className="text-base text-white/65">{tab.description}</p>

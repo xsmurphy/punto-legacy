@@ -64,7 +64,7 @@ export default async function RubroPage({
           {rubro.eyebrow}
         </p>
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h1 className="mt-4 max-w-3xl text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+        <h1 className="mt-4 max-w-3xl text-balance text-5xl font-semibold tracking-tight md:text-7xl">
           {rubro.heroTitle}
         </h1>
         <p className="mt-6 max-w-2xl text-base text-muted-foreground md:text-lg">
@@ -111,7 +111,7 @@ export default async function RubroPage({
                   {section.kicker}
                 </p>
                 {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-                <h2 className="text-balance text-2xl font-semibold tracking-tight md:text-4xl">
+                <h2 className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
                   {section.title}
                 </h2>
                 {section.paragraphs.map((p) => (
