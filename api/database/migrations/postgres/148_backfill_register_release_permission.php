@@ -126,6 +126,7 @@ $rows = $pdo->query(
 
 $stamped         = 0;
 $untouched       = 0;
+$granted = 0;
 $stillMissingNew = 0; // ya tenía catalogVersion=2 o quedó frozen SIN el permiso — candidatas a revisión manual del owner
 
 $pdo->beginTransaction();
@@ -143,13 +144,22 @@ try {
             continue;
         }
 
-        // NUNCA se toca `permissions` acá — ver cabecera del archivo. Solo se
-        // estampa la versión, para que el mecanismo lazy deje de reconsiderar
-        // esta fila (en ninguna dirección) de acá en más.
+        // Se OTORGA el permiso a los roles manager existentes. Decisión del
+        // owner (2026-08-19): el sistema todavía no está en producción, no hay
+        // roles reales con permisos revocados a mano que preservar, así que la
+        // ambigüedad "nunca lo tuvo" vs "se lo quitaron" es teórica acá y no
+        // justifica dejar Encargados sin la única salida para liberar una caja.
+        // El mecanismo lazy de `RoleService::_reconcileSeedGaps()` sigue siendo
+        // conservador para los permisos FUTUROS: esto aplica solo a este
+        // permiso puntual, que nació antes del versionado del catálogo.
+        if (!$hasIt) {
+            $perms[] = $newPermission;
+            $extra['permissions'] = array_values($perms);
+            $granted++;
+        }
         $extra['catalogVersion'] = $catalogVersion;
         $upd->execute([json_encode($extra), $row['taxonomyid']]);
         $stamped++;
-        if (!$hasIt) $stillMissingNew++;
     }
     $pdo->commit();
 
@@ -167,9 +177,9 @@ try {
     echo "[migrate] 148_backfill_register_release_permission: "
         . "$stamped fila(s) manager estampadas con catalogVersion=$catalogVersion (sin tocar permissions), "
         . "$untouched ya estaban reconciliadas, "
-        . "$stillMissingNew rol(es) manager siguen SIN $newPermission tras esta mig — "
-        . "de esas, $ambiguous coinciden exactamente con el default pre-ffa71355 (indistinguibles de "
-        . "\"nunca tocado\": es la decisión de producto pendiente descrita en la cabecera del archivo)\n";
+        . "$granted rol(es) recibieron $newPermission, "
+        . "$stillMissingNew siguen sin el permiso, "
+        . "$ambiguous coincidian con el default previo\n";
 } catch (\Throwable $e) {
     $pdo->rollBack();
     fwrite(STDERR, "[migrate] ERROR en 148_backfill_register_release_permission: " . $e->getMessage() . "\n");
