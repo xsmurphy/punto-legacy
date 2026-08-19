@@ -66,14 +66,30 @@ final class ProductionService
             }
         }
 
-        // (2) Producción "directa": ventas de ítems itemType='direct_production'.
+        // (2) Producción "directa": ventas de ítems de producción directa.
+        // `itemType = 'direct_production'` NUNCA es un valor persistido — es
+        // una etiqueta sintética de `getItemTypeName()` (solo UI/reportes
+        // legacy), así que este filtro nunca matcheaba (hallazgo
+        // context/modules/06-produccion.md §7). El discriminante real son los
+        // flags (mismo predicado que `Inventory::saleExplodesRecipe()`),
+        // excluyendo combos (que comparten esos mismos flags pero se costean
+        // distinto, ver `combo_fijo`/`combo_dinamico` en ItemKind.php). Los
+        // flags SOLOS no alcanzan: servicio/servicio_sesiones/insumo_sin_stock/
+        // descuento comparten la MISMA combinación (itemProduction=0,
+        // itemTrackInventory=0, ver ItemKind.php:26-38) y este tab es
+        // específicamente "producción directa" — se suma `EXISTS item_compound`
+        // (tiene receta), mismo criterio que ya usa el legacy
+        // `getItemTypeName()` (api/includes/functions.php:833) para clasificar
+        // 'direct_production' en la UI.
         $rocB = $this->rocAlias($roc, 'b');
         $sql = "SELECT a.itemId as id, SUM(a.itemSoldUnits) as usold, SUM(a.itemSoldCOGS) as cogs,
                        MAX(a.userId) as usr, MAX(a.itemSoldDate) as sdate, MAX(b.outletId) as outlet
                 FROM itemSold a, transaction b, item c
                 WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
                 AND a.transactionId = b.transactionId AND a.itemId = c.itemId
-                AND c.itemType = 'direct_production'
+                AND c.itemProduction IS NOT TRUE AND c.itemTrackInventory IS NOT TRUE
+                AND c.itemType NOT IN ('combo', 'precombo')
+                AND EXISTS (SELECT 1 FROM item_compound ic WHERE ic.parentItemId = c.itemId)
                 GROUP BY a.itemId ORDER BY usold DESC";
         $res = ncmExecute($sql, [$from, $to], false, false, true);
         foreach (is_array($res) ? $res : [] as $f) {
@@ -86,16 +102,21 @@ final class ProductionService
         return $this->buildRows($items, false, $companyId);
     }
 
-    /** Ventas de ítems direct_production, línea por línea (tab "Detallado"). */
+    /** Ventas de ítems de producción directa, línea por línea (tab "Detallado"). */
     public function detail($from, $to, string $roc, string $companyId): array
     {
+        // Mismo fix que general() arriba: flags reales + EXISTS item_compound
+        // (no el string sintético, y no solo los flags — ver comentario ahí).
         $rocB = $this->rocAlias($roc, 'b');
         $sql = "SELECT a.itemId as id, a.itemSoldUnits as usold, a.itemSoldCOGS as cogs,
                        a.userId as usr, a.itemSoldDate as sdate, b.outletId as outlet
                 FROM itemSold a, transaction b, item c
                 WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
                 AND a.transactionId = b.transactionId AND a.itemId = c.itemId
-                AND c.itemType = 'direct_production' ORDER BY usold DESC";
+                AND c.itemProduction IS NOT TRUE AND c.itemTrackInventory IS NOT TRUE
+                AND c.itemType NOT IN ('combo', 'precombo')
+                AND EXISTS (SELECT 1 FROM item_compound ic WHERE ic.parentItemId = c.itemId)
+                ORDER BY usold DESC";
         $res = ncmExecute($sql, [$from, $to], false, false, true);
 
         $lines = [];

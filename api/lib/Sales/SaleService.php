@@ -1787,6 +1787,21 @@ final class SaleService
             $itemType  = ($itmData && !$itmData->EOF) ? (string) ($itmData->fields['itemtype'] ?? '') : '';
             $itemPrice = ($itmData && !$itmData->EOF) ? (float) ($itmData->fields['itemprice'] ?? 0) : 0.0;
 
+            // Discriminante real de "explota receta al vender" — mismo predicado
+            // que usa la explosión de compuestos más abajo (`saleExplodesRecipe`,
+            // evaluado en SQL sobre itemProduction/itemTrackInventory para evitar
+            // el bug de boolean-coercion de PDO pgsql, ver Inventory.php:234-239).
+            // Se calcula UNA vez y se reusa para COGS, explosión y `source` del
+            // movimiento de stock — antes cada uso comparaba contra strings que
+            // nunca están persistidos (`itemType === 'direct_production'`,
+            // `$sD['type'] === 'direct_production'`), dejando esas ramas muertas
+            // (hallazgo context/modules/06-produccion.md §7 y context/modules/05-stock.md
+            // regla 4: itemSoldCOGS de producción directa quedaba null y el
+            // stockSource de esos movimientos nunca era 'production').
+            $isCombo            = in_array($itemType, ['precombo', 'combo'], true);
+            $explodesRecipe     = \Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId);
+            $isDirectProduction = $explodesRecipe && !$isCombo;
+
             // ── EMISIÓN de gift card (item de catálogo kind=giftcard) ───────
             // Distinta de sellGiftCard() (rama legacy `sD['type']==='giftcard'`,
             // sin itemId, @deprecated) — acá el item SÍ es un item de catálogo
@@ -1827,9 +1842,9 @@ final class SaleService
 
             // ── COGS según tipo de item ─────────────────────────────────────
             $itemSoldCOGS = [];
-            if ($itemType === 'direct_production') {
+            if ($isDirectProduction) {
                 $itemSoldCOGS['stockOnHandCOGS'] = getProductionCOGS($itemId);
-            } elseif (in_array($itemType, ['precombo', 'combo'], true)) {
+            } elseif ($isCombo) {
                 $itemSoldCOGS['stockOnHandCOGS'] = getComboCOGS($itemId);
             } else {
                 // Con la sucursal de la VENTA: sin ella cae en OUTLET_ID (la de la
@@ -1908,10 +1923,10 @@ final class SaleService
             // así que no cortaban nada — pero si algún cliente empezaba a
             // mandarlo, `type = 'combo'` habría apagado la explosión justo en el
             // caso que hay que explotar. El predicado real es
-            // `saleExplodesRecipe()`, que se resuelve contra la BD.
+            // `saleExplodesRecipe()` (ya calculado arriba en `$explodesRecipe`),
+            // que se resuelve contra la BD.
             $compound = getCompoundsArray($itemId);
-            if (is_array($compound) && $compound !== []
-                && \Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId)) {
+            if (is_array($compound) && $compound !== [] && $explodesRecipe) {
                 // Explosión RECURSIVA: la receta puede tener varios niveles y
                 // recorrer solo el primero deja sin descontar todo lo que
                 // cuelga de un hijo sin stock propio. En "Combo 30 Piezas"
@@ -1919,7 +1934,18 @@ final class SaleService
                 // que trackea inventario; los insumos de los otros dos no se
                 // tocaban nunca. `explodeRecipe` baja hasta lo que realmente
                 // mueve stock y acumula la merma de cada nivel.
-                $source = (($sD['type'] ?? '') === 'direct_production') ? 'production' : 'sale';
+                //
+                // `source`: 'production' SOLO si el item VENDIDO es en sí un
+                // producción directa (no un combo que a su vez contiene un
+                // producción directa) — mismo criterio que `$isDirectProduction`
+                // de arriba. Antes comparaba contra `$sD['type']`, un campo que
+                // el POS nunca manda (mismo bug que el COGS, ver comentario
+                // arriba) — el `stockSource` de la explosión de receta en venta
+                // quedaba siempre 'sale', nunca 'production', y el tab
+                // "Compuestos" de Reportes\Producción (filtra stockSource=
+                // 'production') salía vacío para toda venta de producción
+                // directa.
+                $source = $isDirectProduction ? 'production' : 'sale';
                 $leaves = \Punto\App\Domain\Inventory::explodeRecipe($itemId, $companyId, (float) $units);
 
                 foreach ($leaves as $comid => $comunits) {
