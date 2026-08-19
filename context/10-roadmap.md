@@ -67,6 +67,68 @@ invariante del producto; el resto son mejoras de UI del POS.
    modo pertenece al menú del POS; desde el sidebar debe llevar a la vista por
    defecto del POS.
 
+## Reporte del tester — "Mejoras Punto" (recibido 2026-08-19)
+
+Documento del tester con marcas de color propias: **verde = él lo dio por
+resuelto**, rojo = error nuevo. Lo que sigue es el estado tras contrastarlo
+contra el código.
+
+### Ya resuelto (confirmado por el tester)
+
+- Compras a crédito no aparecían en el reporte de facturas de gastos.
+- Ver stock actual en columnas.
+- Pagos a facturas a crédito hechos desde la caja no se veían en "pagos recibidos".
+- Ventas a crédito de caja no se detectaban en Finanzas › Cuentas por cobrar —
+  **parcial**, ver pendientes.
+
+### Resuelto en esta sesión, el tester todavía no lo vio
+
+- **Error de IVA en la plantilla de impresión** (duplicaba el subtotal en 5% y
+  10%, y la liquidación daba 110.909 sumando subtotal + impuesto). Era el mock
+  estático del preview; se eliminó y el editor pasó a resolver con el motor
+  real.
+- **`Class "Punto\Api\Production\DocumentNumber" not found`** al producir
+  desde artículos: `ProductionService` llamaba a `DocumentNumber` por su nombre
+  corto sin importarlo (6 call-sites, roto desde `fdc95a99`). Arreglado en
+  `cbf6f974`.
+
+### P0 abierto
+
+- **Caja bloqueada sin recuperación**: usar la misma caja en varios
+  dispositivos la deja inutilizable, y "reconectar" desde el panel no la
+  libera. Consecuencia de la exclusividad de caja (hoy la tenencia ya no vence
+  sola). Existe "Liberar caja" en la pestaña Cajas de la sucursal, pero el
+  tester no llegó a ella.
+
+### Pendientes nuevos (17-08 en adelante)
+
+1. **Multimoneda**: cobrar en dólares y guaraníes en Caja (plan en `context/42-multi-moneda.md`).
+2. **Pago a compra a crédito**: solo se puede pagar desde el panel; falla desde otro punto.
+3. **Cuentas por cobrar**: el saldo en Caja no coincide con el del panel del cliente.
+4. **Contactos**: consolidar/unificar clientes duplicados desde panel y contactos.
+5. **Impresión**: formatos A4 y Oficio, elegibles en Caja antes de imprimir.
+6. **Cuentas por cobrar (resto del punto verde)**: aplicar el pago por el total
+   de la deuda, y asociar la deuda del panel con lo que muestra Finanzas del cliente.
+7. **Producción previa**: `El item a producir no trackea inventario
+   (itemTrackInventory)` al producir manualmente. Determinar si es validación
+   correcta o bug.
+8. **Inventario**: elegir categorías al hacer el conteo y poder habilitar costos.
+
+### Pendientes que ya venían del reporte anterior
+
+- Botón de anular / devolución / nota de crédito en Caja › Transacciones.
+- Al seleccionar un combo en caja no se despliegan sus artículos e insumos.
+- Tickets de comanda y factura se imprimen incompletos.
+- Exportación RG90 y Libro Ventas desde Ventas › Transacciones (plan en `context/46`).
+- Reporte detallado en Reportes › Productos y servicios; historial por artículo;
+  acceso directo al historial desde la ficha del producto; filtro por categorías.
+- Costo de producción no se calcula en el reporte de productos y servicios.
+- Los reportes de salida no desglosan los componentes de un combo.
+- Auditoría con más detalle de los movimientos por usuario.
+- **Separar productos por sucursal**: se configuran por sucursal pero aparecen
+  todos juntos en Artículos, y la pantalla principal ofrece artículos de otras
+  sucursales para vender.
+
 ## POS — modelo de viewports y orientación forzada (2026-08-19, sin implementar)
 
 **Regla del owner**: el POS tiene **solo dos modos**, no un espectro de anchos.
