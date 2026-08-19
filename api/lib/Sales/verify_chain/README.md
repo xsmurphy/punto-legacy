@@ -63,6 +63,16 @@ seteados y no toca Docker.
   revocó ese mismo permiso a propósito (`catalogVersion` ya al día) NUNCA
   lo recupera solo, ni en lecturas repetidas; un rol custom (sin slug de
   seed) nunca se auto-completa.
+- Costo de producción directa (`verify_production_cogs.php`, fix
+  2026-08-19): vende un ítem `produccion_directa` (VERIFY-PROD-DIRECT, con
+  receta de VERIFY-PROD-INSUMO) vía `SaleService::save()` real y confirma
+  que `itemSold.itemSoldCOGS` se calcula del costo real del insumo (antes
+  quedaba null — `SaleService` comparaba `itemType === 'direct_production'`,
+  un string que nunca se persiste), que el movimiento de stock del insumo
+  consumido lleva `stockSource='production'` (antes siempre `'sale'`), y que
+  `Reports\ProductionService::general()`/`detail()` (tabs "General"/
+  "Detallado") ahora traen esa venta (antes 0 filas siempre, mismo bug del
+  string sintético en el filtro SQL).
 
 ## Fallas conocidas (no se ocultan — ver reporte de la tarea)
 

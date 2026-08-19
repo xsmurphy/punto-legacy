@@ -134,6 +134,24 @@ INSERT INTO "addon_group_option" ("optionId", "groupId", "itemId", "priceDelta",
     ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7c', '9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7b', '61230b1e-90e8-4018-ac59-865ca957b293', 2000, TRUE, FALSE, 1, 0)
 ON CONFLICT ("optionId") DO UPDATE SET "priceDelta" = EXCLUDED."priceDelta";
 
+-- Producción directa (verify_production_cogs.php, fix 2026-08-19): un
+-- insumo trackeable (su costo real lo pone el script vía manageStock(), acá
+-- solo se seedea el item) y un ítem de producción directa (itemtrackinventory
+-- =FALSE, itemproduction=FALSE, itemtype='product' — igual que ItemKind.php
+-- 'produccion_directa') con una receta de 2 unidades del insumo por unidad
+-- vendida. Verifica que itemSold.itemSoldCOGS se calcule (antes quedaba null:
+-- SaleService comparaba itemType==='direct_production', string que nunca se
+-- persiste) y que el movimiento de stock del insumo consumido lleve
+-- stockSource='production' (antes siempre 'sale').
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemcost, itemtype, itemstatus, itemcansale, itemtrackinventory, itemproduction, data, companyid) VALUES
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6a', 'Verify insumo producción', 'VERIFY-PROD-INSUMO', 0, 0, 'product', 1, FALSE, TRUE, FALSE, '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6b', 'Verify producción directa', 'VERIFY-PROD-DIRECT', 9000, 0, 'product', 1, TRUE, FALSE, FALSE, '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+ON CONFLICT (itemid) DO UPDATE SET itemtrackinventory = EXCLUDED.itemtrackinventory, itemproduction = EXCLUDED.itemproduction;
+
+INSERT INTO item_compound (parentItemId, childItemId, quantity, sort, companyId) VALUES
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6b', 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6a', 2, 0, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+ON CONFLICT (parentItemId, childItemId) DO UPDATE SET quantity = EXCLUDED.quantity;
+
 -- Plantilla de impresión (context/08 §53, verify_offline_resolution.php):
 -- prueba que el device (`pos-app`) puede leer `document_template` — antes
 -- `apiAuthTenant(['panel'])` la bloqueaba para cualquier token que no fuera

@@ -276,6 +276,20 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_outlet_visibility.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.14. Costo de producción directa (fix 2026-08-19, context/modules/
+#    06-produccion.md §7 y context/modules/05-stock.md regla 4):
+#    itemSoldCOGS de una venta de VERIFY-PROD-DIRECT se calcula del costo
+#    real de sus insumos (antes quedaba null — SaleService comparaba contra
+#    un string que nunca se persiste) y el movimiento de stock del insumo
+#    consumido lleva stockSource='production' (antes siempre 'sale'). Ver
+#    docblock de verify_production_cogs.php. Corre contra el mismo Postgres
+#    seedeado arriba (tenant PY); no depende de los pasos anteriores.
+echo ""
+echo "[run.sh] === costo de producción directa (itemSoldCOGS + stockSource de la explosión de receta) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_production_cogs.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="

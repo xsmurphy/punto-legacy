@@ -254,7 +254,10 @@ final class ProductionService
             throw new \InvalidArgumentException('itemId inválido para este tenant');
         }
         if (empty($item['itemtrackinventory'])) {
-            throw new \InvalidArgumentException('El item a producir no trackea inventario (itemTrackInventory)');
+            throw new \InvalidArgumentException(
+                'Este artículo no trackea inventario propio, así que no se puede producir manualmente. '
+                . 'Para producirlo, primero cambiá su tipo a "Producción previa" en la ficha del artículo y guardá los cambios.'
+            );
         }
 
         $recipe = Inventory::getCompoundsArray($itemId);
