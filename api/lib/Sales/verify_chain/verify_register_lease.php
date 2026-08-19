@@ -98,7 +98,7 @@ $failures = [];
 // `document_sequence` NO se resetea — este arnés siempre pide "el próximo"
 // vía el endpoint real y avanza desde ahí, así que es idempotente por
 // construcción sin tocar la secuencia de otros tests.
-ncmExecute('DELETE FROM "register_lease" WHERE "registerId" = ?', [$PY_REGISTER]);
+ncmExecute('DELETE FROM "register_lease" WHERE registerid = ?', [$PY_REGISTER]);
 ncmExecute("DELETE FROM device WHERE registerid = ?::uuid AND devicename LIKE 'Verify Device %'", [$PY_REGISTER]);
 
 /** Crea un device real pareado a la caja (userid = "admin que activó", NOT NULL en mig 11). */
@@ -325,11 +325,11 @@ try {
 
     // ── Caso 4: invariante de BD — una sola tenencia activa, y es la de A ──
     $activeCount = ncmExecute(
-        'SELECT COUNT(*) AS n FROM "register_lease" WHERE "registerId" = ? AND "status" = \'active\'',
+        'SELECT COUNT(*) AS n FROM "register_lease" WHERE registerid = ? AND "status" = \'active\'',
         [$PY_REGISTER]
     );
     $activeRow = ncmExecute(
-        'SELECT "registerLeaseId", "deviceId", "expiresAt" FROM "register_lease" WHERE "registerId" = ? AND "status" = \'active\' LIMIT 1',
+        'SELECT registerleaseid, deviceid, expiresat FROM "register_lease" WHERE registerid = ? AND "status" = \'active\' LIMIT 1',
         [$PY_REGISTER]
     );
     $hasActiveRow = $activeRow !== false && $activeRow !== 0;
@@ -525,7 +525,7 @@ try {
     );
     // Timbrado limpio al arrancar — case 12 lo va a setear explícitamente.
     ncmExecute("UPDATE register SET data = data - 'registerInvoiceAuth' WHERE registerid = ?", [$PY_REGISTER_2]);
-    ncmExecute('DELETE FROM "register_lease" WHERE "registerId" = ?', [$PY_REGISTER_2]);
+    ncmExecute('DELETE FROM "register_lease" WHERE registerid = ?', [$PY_REGISTER_2]);
     ncmExecute("DELETE FROM device WHERE registerid = ?::uuid AND devicename LIKE 'Verify Device %'", [$PY_REGISTER_2]);
 
     $deviceIdC    = verifyMakeDeviceReal($PY_COMPANY, $PY_OUTLET, $PY_REGISTER_2, $PY_USER, 'Verify Device C');

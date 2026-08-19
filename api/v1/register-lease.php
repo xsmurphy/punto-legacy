@@ -68,12 +68,12 @@ if ($method === 'GET') {
     // admin necesita ver las libres tanto como las tomadas.
     $rs = ncmExecute(
         'SELECT r.registerid AS "registerId", r.registername AS "registerName",
-                rl."registerLeaseId", rl."deviceId", rl."takenAt",
+                rl.registerleaseid, rl.deviceid, rl.takenat,
                 d.devicename AS "deviceName"
            FROM register r
            LEFT JOIN "register_lease" rl
-                  ON rl."registerId" = r.registerid AND rl."status" = \'active\'
-           LEFT JOIN device d ON d.deviceid = rl."deviceId"
+                  ON rl.registerid = r.registerid AND rl."status" = \'active\'
+           LEFT JOIN device d ON d.deviceid = rl.deviceid
           WHERE r.companyid = ?::uuid' . $outletFilter . '
           ORDER BY r.registername ASC',
         $params,
@@ -133,7 +133,7 @@ if (!preg_match($uuidRe, $registerLeaseId)) {
 // con FOR UPDATE. 404 uniforme si no existe O no es de este tenant: no
 // revelar cuál de las dos cosas pasó.
 $pre = ncmExecute(
-    'SELECT "registerId" FROM "register_lease" WHERE "registerLeaseId" = ?::uuid AND "companyId" = ?::uuid',
+    'SELECT registerid FROM "register_lease" WHERE registerleaseid = ?::uuid AND companyid = ?::uuid',
     [$registerLeaseId, COMPANY_ID]
 );
 if (!$pre) {
@@ -156,8 +156,8 @@ ncmExecute('SELECT pg_advisory_xact_lock(hashtext(?))', [$regId]);
 // de un error confuso: el estado final que el admin quería (caja libre) ya
 // es el real.
 $current = ncmExecute(
-    'SELECT "status", "deviceId" FROM "register_lease"
-      WHERE "registerLeaseId" = ?::uuid AND "companyId" = ?::uuid
+    'SELECT "status", deviceid FROM "register_lease"
+      WHERE registerleaseid = ?::uuid AND companyid = ?::uuid
       FOR UPDATE',
     [$registerLeaseId, COMPANY_ID]
 );

@@ -89,9 +89,9 @@ ncmExecute(
 // (mismo registerId nunca tiene 2 filas active por el constraint de mig 141,
 // pero el lock de fila es gratis acá adentro y no cuesta nada tenerlo).
 $activeLease = ncmExecute(
-    'SELECT "registerLeaseId", "deviceId"
+    'SELECT registerleaseid, deviceid
        FROM "register_lease"
-      WHERE "registerId" = ? AND "status" = \'active\'
+      WHERE registerid = ? AND "status" = \'active\'
       FOR UPDATE',
     [$regId]
 );
@@ -119,9 +119,9 @@ if ($activeLease === false || $activeLease === 0) {
     // `expiresAt` queda NULL (mig 144): la tenencia ya no vence por fecha.
     $newLease = ncmExecute(
         'INSERT INTO "register_lease"
-            ("companyId", "outletId", "registerId", "deviceId", "status")
+            (companyid, outletid, registerid, deviceid, "status")
          VALUES (?, ?, ?, ?, \'active\')
-         RETURNING "registerLeaseId"',
+         RETURNING registerleaseid',
         [$compId, $outletId, $regId, $deviceId]
     );
     if ($newLease === false || $newLease === 0 || (string) ($newLease['registerLeaseId'] ?? '') === '') {

@@ -7,7 +7,7 @@ namespace Punto\Api\Services;
  * Tenencia de caja (context/29-numeracion-y-exclusividad-de-caja.md §4).
  *
  * `register_lease` (mig 141) es la unidad de TENENCIA: garantiza "una caja,
- * un dispositivo a la vez" con `UNIQUE ("registerId") WHERE status =
+ * un dispositivo a la vez" con `UNIQUE (registerid) WHERE status =
  * 'active'` a nivel de BD, no de aplicación. Es INDEPENDIENTE de la
  * numeración fiscal — el arriendo de bloques de números (`numbering_lease`)
  * que antes vivía pegado a esta tenencia fue RECHAZADO por el owner
@@ -63,7 +63,7 @@ final class RegisterLeaseService
      *
      * Números YA anulados (`voidedAt IS NOT NULL`, ej. por un cierre previo
      * que corrió a medias) no se re-anulan — `voidedAt`/`voidReason` quedan
-     * con su valor original, ver `WHERE ... "voidedAt" IS NULL` abajo.
+     * con su valor original, ver `WHERE ... voidedat IS NULL` abajo.
      */
     public static function close(
         string $registerLeaseId,
@@ -80,15 +80,15 @@ final class RegisterLeaseService
 
         ncmExecute(
             'UPDATE "register_lease"
-                SET "status" = ?, "releasedAt" = NOW(), "releasedBy" = ?
-              WHERE "registerLeaseId" = ? AND "status" = \'active\'',
+                SET "status" = ?, releasedat = NOW(), releasedby = ?
+              WHERE registerleaseid = ? AND "status" = \'active\'',
             [$status, $releasedBy, $registerLeaseId]
         );
 
         ncmExecute(
             'UPDATE "numbering_lease"
-                SET "voidedAt" = NOW(), "voidReason" = ?
-              WHERE "registerLeaseId" = ? AND "consumedAt" IS NULL AND "voidedAt" IS NULL',
+                SET voidedat = NOW(), voidreason = ?
+              WHERE registerleaseid = ? AND consumedat IS NULL AND voidedat IS NULL',
             [$voidReason, $registerLeaseId]
         );
     }
@@ -121,8 +121,8 @@ final class RegisterLeaseService
         string $status = 'forced',
     ): void {
         $lease = ncmExecute(
-            'SELECT "registerLeaseId", "registerId" FROM "register_lease"
-              WHERE "deviceId" = ? AND "companyId" = ? AND "status" = \'active\' LIMIT 1',
+            'SELECT registerleaseid, registerid FROM "register_lease"
+              WHERE deviceid = ? AND companyid = ? AND "status" = \'active\' LIMIT 1',
             [$deviceId, $companyId]
         );
         if ($lease === false || $lease === 0) {
@@ -141,7 +141,7 @@ final class RegisterLeaseService
         // Releer bajo lock: puede haberse liberado (o hasta retomado por otro
         // device, si esta llamada llega tarde) entre el SELECT de arriba y acá.
         $current = ncmExecute(
-            'SELECT "status" FROM "register_lease" WHERE "registerLeaseId" = ?::uuid FOR UPDATE',
+            'SELECT "status" FROM "register_lease" WHERE registerleaseid = ?::uuid FOR UPDATE',
             [$registerLeaseId]
         );
         if ($current !== false && $current !== 0 && (string) $current['status'] === 'active') {
@@ -186,8 +186,8 @@ final class RegisterLeaseService
         string $deviceId,
     ): ?array {
         $activeLease = ncmExecute(
-            'SELECT "deviceId" FROM "register_lease"
-              WHERE "registerId" = ? AND "status" = \'active\' LIMIT 1',
+            'SELECT deviceid FROM "register_lease"
+              WHERE registerid = ? AND "status" = \'active\' LIMIT 1',
             [$registerId]
         );
 
