@@ -77,6 +77,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-002",
@@ -98,6 +99,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-003",
@@ -119,6 +121,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
 
   // Minutas
@@ -142,6 +145,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-005",
@@ -163,6 +167,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-006",
@@ -184,6 +189,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
 
   // Bebidas con alcohol
@@ -207,6 +213,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-008",
@@ -228,6 +235,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-009",
@@ -249,6 +257,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
 
   // Promos
@@ -272,6 +281,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-011",
@@ -293,6 +303,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
 
   // Pizzas Gourmet
@@ -316,6 +327,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-013",
@@ -337,6 +349,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-014",
@@ -358,6 +371,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
   {
     id: "item-015",
@@ -379,6 +393,7 @@ export const fixtureItems: PosItem[] = [
     parentId: null,
     hasAddons: false,
     addonGroups: [],
+    compoundItems: [],
   },
 ]
 

@@ -255,6 +255,73 @@ export function ProductInfoDialog({ item, onClose }: Props) {
               </dl>
             </div>
 
+            {/* ── Composición del combo fijo ("Despliegue de Combos", tester
+                2026-08-19) ─────────────────────────────────────────────────
+                Receta cerrada (`item_compound`), sin elección del cliente —
+                cacheada offline igual que el resto de esta ficha. */}
+            {(item?.compoundItems?.length ?? 0) > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Composición del combo
+                </p>
+                <ul className="flex flex-col gap-1.5 rounded-lg border border-border p-3">
+                  {item!.compoundItems.map((c) => (
+                    <li key={c.itemId} className="flex items-center justify-between gap-3 text-sm">
+                      <span className="truncate">{c.itemName}</span>
+                      <span className="shrink-0 tabular-nums text-muted-foreground">
+                        {formatQty(c.quantity, config)}
+                        {c.uom ? ` ${c.uom}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* ── Grupos de opciones (combo dinámico / add-ons) ────────────
+                Mismos datos que abre `AddonPickerDialog` al agregar al
+                carrito — acá es solo consulta, sin selección. Para combo
+                dinámico ES la composición completa; para un producto con
+                add-ons sueltos es "qué se le puede agregar". */}
+            {(item?.addonGroups?.length ?? 0) > 0 && (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  {item?.kind === "combo_dinamico" ? "Este combo incluye" : "Opciones / add-ons"}
+                </p>
+                <div className="flex flex-col gap-3 rounded-lg border border-border p-3">
+                  {item!.addonGroups.map((g) => (
+                    <div key={g.id} className="flex flex-col gap-1">
+                      <p className="text-sm font-medium">
+                        {g.name}
+                        <span className="ml-1.5 font-normal text-muted-foreground">
+                          {g.minSelect > 0
+                            ? g.minSelect === g.maxSelect
+                              ? `· elegí ${g.minSelect}`
+                              : `· elegí entre ${g.minSelect} y ${g.maxSelect ?? "sin tope"}`
+                            : "· opcional"}
+                        </span>
+                      </p>
+                      <ul className="flex flex-col gap-0.5 pl-3">
+                        {g.options.map((o) => (
+                          <li
+                            key={o.id}
+                            className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
+                          >
+                            <span className="truncate">{o.itemName}</span>
+                            {o.priceDelta > 0 && (
+                              <span className="shrink-0 tabular-nums">
+                                +{formatMoney(o.priceDelta, config)}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* ── Descripción y etiquetas ─────────────────────────────────── */}
             {isPending ? (
               <div className="flex flex-col gap-2">

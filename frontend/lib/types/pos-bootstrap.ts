@@ -205,6 +205,24 @@ export interface PosItem {
    * acá, ese hook pasa a leer del store en vez de hacer red.
    */
   addonGroups: PosAddonGroup[]
+  /**
+   * Receta del combo FIJO (`item_compound`), embebida DIRECTO en el ítem —
+   * mismo patrón que `addonGroups` arriba, mismo motivo: offline-first. Hasta
+   * 2026-08-19 esto NO viajaba al POS — el combo fijo se agregaba al carrito
+   * como un ítem plano, sin ninguna vista de qué lo compone (tester,
+   * "Despliegue de Combos"). Array vacío = sin receta (nunca `null`,
+   * `presentItem()` en el backend lo normaliza) — el 99% del catálogo cae acá.
+   */
+  compoundItems: PosCompoundItem[]
+}
+
+/** Componente de la receta de un combo fijo. Ver `PosItem.compoundItems`. */
+export interface PosCompoundItem {
+  itemId: string
+  itemName: string
+  quantity: number
+  uom: string | null
+  sort: number
 }
 
 /** Opción de un grupo de add-ons. Espejo de `AddonService::listForItem` (sin `itemPrice` — D2, context/41). */

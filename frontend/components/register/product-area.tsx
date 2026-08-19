@@ -521,13 +521,20 @@ function ProductTile({
             {item.name}
           </span>
         </div>
-        {item.isGroup && (
+        {item.isGroup ? (
           // A la izquierda: la esquina derecha es del ícono de la ficha, que
           // está en el mismo lugar en toda la grilla.
           <span className="absolute top-1 left-1 bg-black/60 text-white text-[10px] uppercase px-1.5 py-0.5 rounded font-medium leading-none">
             Grupo
           </span>
-        )}
+        ) : (item.kind === "combo_fijo" || item.kind === "combo_dinamico") ? (
+          // Mismo slot que "Grupo" (mutuamente excluyentes) — pista de que el
+          // ítem tiene composición para consultar en la ficha (ícono de info)
+          // antes de agregarlo. "Despliegue de Combos", tester 2026-08-19.
+          <span className="absolute top-1 left-1 bg-black/60 text-white text-[10px] uppercase px-1.5 py-0.5 rounded font-medium leading-none">
+            Combo
+          </span>
+        ) : null}
         <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
       </button>
 

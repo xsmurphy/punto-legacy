@@ -58,6 +58,7 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         'stockonhand'         => 'stockOnHand',
         'hasaddons'           => 'hasAddons',
         'addongroups'         => 'addonGroups',
+        'compounditems'       => 'compoundItems',
     ];
     $out = [];
     foreach ($row as $k => $v) {
@@ -116,6 +117,23 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         }
     } else {
         $out['addonGroups'] = [];
+    }
+    // compoundItems (receta del combo FIJO, `item_compound`): mismo trato que
+    // addonGroups arriba — `json_agg(...)` llega como STRING, decodificar;
+    // NULL (ítem sin receta, o sea el 99% del catálogo) → [], nunca null. El
+    // POS lo necesita embebido y offline por el mismo motivo que addonGroups
+    // (context/41): mostrar de qué se compone un combo fijo sin depender de
+    // un fetch que falle sin red.
+    if (array_key_exists('compoundItems', $out)) {
+        $raw = $out['compoundItems'];
+        if (is_string($raw) && $raw !== '') {
+            $decoded = json_decode($raw, true);
+            $out['compoundItems'] = is_array($decoded) ? $decoded : [];
+        } elseif (!is_array($raw)) {
+            $out['compoundItems'] = [];
+        }
+    } else {
+        $out['compoundItems'] = [];
     }
     return $out;
 }
@@ -178,7 +196,17 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
                    -- normaliza a `[]` para el front. `LEFT JOIN LATERAL`
                    -- correlacionado por itemId (índice ix_addon_group_item)
                    -- — barato para el >90% de ítems sin add-ons.
-                   addons.groups AS addonGroups
+                   addons.groups AS addonGroups,
+                   -- Receta del combo FIJO (`item_compound`, mig 19),
+                   -- embebida igual que addonGroups arriba: el POS la
+                   -- necesita offline para mostrar de qué se compone un
+                   -- combo fijo al seleccionarlo (context/41-addons-y-combos,
+                   -- hallazgo 2026-08-19 — hoy NO viajaba, el combo fijo se
+                   -- agregaba al carrito sin ninguna vista previa). Tabla
+                   -- vieja (2026-06-23, previa a la convención de quoted
+                   -- camelCase): columnas SIN comillas a propósito, quotearlas
+                   -- rompería en runtime (no matchean las lowercase reales).
+                   compound.items AS compoundItems
               FROM item i
          LEFT JOIN LATERAL (
               SELECT json_agg(
@@ -212,6 +240,21 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
                  AND ag.\"companyId\" = i.companyId
                  AND ag.\"status\" = TRUE
          ) addons ON true
+         LEFT JOIN LATERAL (
+              SELECT json_agg(
+                       json_build_object(
+                         'itemId', ic.childItemId,
+                         'itemName', ci.itemName,
+                         'quantity', ic.quantity,
+                         'uom', ci.itemUOM,
+                         'sort', ic.sort
+                       ) ORDER BY ic.sort ASC, ic.compoundId ASC
+                     ) AS items
+                FROM item_compound ic
+                JOIN item ci ON ci.itemId = ic.childItemId AND ci.companyId = i.companyId
+               WHERE ic.parentItemId = i.itemId
+                 AND ic.companyId = i.companyId
+         ) compound ON true
          LEFT JOIN taxonomy cat   ON cat.taxonomyId   = i.categoryId
          LEFT JOIN taxonomy brand ON brand.taxonomyId = i.brandId
          LEFT JOIN outlet o       ON o.outletId       = i.outletId

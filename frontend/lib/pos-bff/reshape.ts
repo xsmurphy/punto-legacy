@@ -11,7 +11,7 @@
  * array del store — bug silencioso, no un error que explote.
  */
 
-import type { PosItem, PosCustomer, PosAddonGroup } from "@/lib/types/pos-bootstrap"
+import type { PosItem, PosCustomer, PosAddonGroup, PosCompoundItem } from "@/lib/types/pos-bootstrap"
 
 // ── Items ─────────────────────────────────────────────────────────────────
 
@@ -55,6 +55,12 @@ export interface UpstreamItemRow {
    * anidado (`json_build_object`), no requiere coerción de string.
    */
   addonGroups?: PosAddonGroup[] | null
+  /**
+   * Receta del combo FIJO (`item_compound`), embebida — mismo trato que
+   * `addonGroups` arriba (context/41, cierre 2026-08-19). `presentItem()`
+   * decodifica el `json_agg` a este shape exacto.
+   */
+  compoundItems?: PosCompoundItem[] | null
 }
 
 export function reshapeItem(row: UpstreamItemRow): PosItem {
@@ -99,6 +105,9 @@ export function reshapeItem(row: UpstreamItemRow): PosItem {
     // P0 2026-08-16, `addonGroups` no viene — [] (nunca undefined/null hacia
     // el store, mismo criterio que el resto de los arrays de este objeto).
     addonGroups: Array.isArray(row.addonGroups) ? row.addonGroups : [],
+    // Mismo criterio defensivo que addonGroups: bootstrap cacheado de antes
+    // del cierre de este hueco → [] en vez de undefined/null.
+    compoundItems: Array.isArray(row.compoundItems) ? row.compoundItems : [],
   }
 }
 
