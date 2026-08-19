@@ -305,6 +305,21 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_pg_identifiers.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.16. Identificadores Postgres entrecomillados — COBERTURA TOTAL,
+#    catálogo-driven (mig 150_normalizar_identificadores_camelcase.sql).
+#    A diferencia del paso 3.15 (arnés de comportamiento sobre 6 incidentes
+#    puntuales ya corregidos), este paso es un LINT que escanea TODO el SQL
+#    del repo (menos migraciones ya aplicadas, historia inmutable) y lo
+#    compara contra el catálogo REAL de Postgres — si alguien reintroduce
+#    una columna/tabla camelCase-quoted mañana (schema o código), truena
+#    ACÁ listando cada discrepancia, no espera al sexto incidente en
+#    runtime. Ver docblock de verify_pg_identifier_catalog.php.
+echo ""
+echo "[run.sh] === identificadores Postgres — cobertura total contra el catálogo real ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_pg_identifier_catalog.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 4. Impresión (Node, sobre los dumps que acaba de escribir el paso 3) ──
 echo ""
 echo "[run.sh] === impresión (Node, resolvers reales de blocks.ts) ==="
