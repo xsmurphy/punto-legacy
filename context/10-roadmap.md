@@ -67,6 +67,31 @@ invariante del producto; el resto son mejoras de UI del POS.
    modo pertenece al menú del POS; desde el sidebar debe llevar a la vista por
    defecto del POS.
 
+## POS — modelo de viewports y orientación forzada (2026-08-19, sin implementar)
+
+**Regla del owner**: el POS tiene **solo dos modos**, no un espectro de anchos.
+
+- **Horizontal** — tablets y computadoras. Es el modo normal de una caja.
+- **Vertical / phone view** — smartphones y tablets verticales chicas.
+
+El corte entre ambos ya existe en código: `useIsMobile()` /
+`MOBILE_BREAKPOINT = 768` (`frontend/hooks/use-mobile.ts`), usado por
+`frontend/app/(pos)/pos/layout.tsx`. Cualquier componente nuevo del POS debe
+reusar ese criterio, nunca inventar un breakpoint al lado.
+
+**Pendiente**: *"en una tablet debemos forzar a que siempre se use
+horizontal"*. No implementado. Lo que hay que saber antes de encararlo:
+
+- Se declara en el manifest de la PWA (`"orientation": "landscape"`) y se
+  refuerza con `screen.orientation.lock()`.
+- ⚠ **iOS/Safari ignora las dos cosas** — en iPad no se puede bloquear la
+  orientación desde la web. Ahí las únicas salidas son detectar el vertical y
+  mostrar un aviso bloqueante ("girá el dispositivo"), o dejar que caiga en
+  phone view.
+- Decisión del owner pendiente: manifest + lock asumiendo que en iPad no
+  aplica; lo mismo más un aviso bloqueante en iPad; o no hacer nada y que la
+  tablet vertical caiga en phone view.
+
 ## Bugs destapados al documentar los módulos (2026-08-17)
 
 Salieron de escribir `context/modules/` — cada uno con evidencia `path:line` en
