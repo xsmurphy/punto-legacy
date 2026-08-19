@@ -73,8 +73,8 @@ $rs = ncmExecute(
             d.createdat AS pairedat, d.lastseenat,
             d.status, d.revokedat, d.module, d.iplast::text AS iplast,
             (SELECT count(*) FROM auth_session s
-              WHERE s.\"deviceId\" = d.deviceid
-                AND s.\"companyId\" = d.companyid
+              WHERE s.deviceid = d.deviceid
+                AND s.companyid = d.companyid
                 AND s.status = 1) AS activesessions
      FROM device d
      LEFT JOIN outlet   o ON o.outletid   = d.outletid   AND o.companyid = d.companyid

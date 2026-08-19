@@ -39,7 +39,7 @@ class PrinterBindingService {
      *  MISMA sucursal que la caja del binding. */
     private function stationPrinterBelongsToOutlet(string $stationPrinterId, string $outletId): bool {
         $rs = ncmExecute(
-            'SELECT 1 FROM "station_printer" WHERE "id" = ? AND "companyId" = ? AND "outletId" = ? LIMIT 1',
+            'SELECT 1 FROM "station_printer" WHERE "id" = ? AND companyid = ? AND outletid = ? LIMIT 1',
             [$stationPrinterId, $this->companyId, $outletId],
             false, true
         );
@@ -49,7 +49,7 @@ class PrinterBindingService {
     public function list(string $registerId): array {
         if (!$this->registerBelongsToTenant($registerId)) return [];
         $rs = ncmExecute(
-            'SELECT * FROM "printer_binding" WHERE "registerId" = ? AND "companyId" = ? ORDER BY "createdAt" ASC',
+            'SELECT * FROM "printer_binding" WHERE registerid = ? AND companyid = ? ORDER BY createdat ASC',
             [$registerId, $this->companyId],
             false, true
         );
@@ -71,10 +71,10 @@ class PrinterBindingService {
         $validated = $this->validate($data, true, $registerId);
         $rs = ncmExecute(
             'INSERT INTO "printer_binding"
-               ("id","companyId","outletId","registerId","name","color","transport",
-                "vendorId","productId","deviceLabel","mode","templateId","paperWidthMm",
-                "copies","openDrawer","autoPrint","printDelay","categoryIds","docTypes",
-                bluetoothdeviceid,networkhost,networkport,"stationPrinterId")
+               ("id",companyid,outletid,registerid,"name","color","transport",
+                vendorid,productid,devicelabel,"mode",templateid,paperwidthmm,
+                "copies",opendrawer,autoprint,printdelay,categoryids,doctypes,
+                bluetoothdeviceid,networkhost,networkport,stationprinterid)
              VALUES
                (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?,?,?,?)
              RETURNING *',
@@ -116,7 +116,7 @@ class PrinterBindingService {
         // registerId (solo id + los campos que cambian).
         $registerId = null;
         $rowRs = ncmExecute(
-            'SELECT "registerId" FROM "printer_binding" WHERE "id" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT registerid FROM "printer_binding" WHERE "id" = ? AND companyid = ? LIMIT 1',
             [$id, $this->companyId],
             false, true
         );
@@ -130,15 +130,15 @@ class PrinterBindingService {
         $params = [];
         $fieldMap = [
             'name' => '"name"', 'color' => '"color"', 'transport' => '"transport"',
-            'vendorId' => '"vendorId"', 'productId' => '"productId"',
-            'deviceLabel' => '"deviceLabel"', 'mode' => '"mode"',
-            'templateId' => '"templateId"', 'paperWidthMm' => '"paperWidthMm"',
-            'copies' => '"copies"', 'openDrawer' => '"openDrawer"',
-            'autoPrint' => '"autoPrint"', 'printDelay' => '"printDelay"',
+            'vendorId' => 'vendorid', 'productId' => 'productid',
+            'deviceLabel' => 'devicelabel', 'mode' => '"mode"',
+            'templateId' => 'templateid', 'paperWidthMm' => 'paperwidthmm',
+            'copies' => '"copies"', 'openDrawer' => 'opendrawer',
+            'autoPrint' => 'autoprint', 'printDelay' => 'printdelay',
             'bluetoothDeviceId' => 'bluetoothdeviceid',
             'networkHost'       => 'networkhost',
             'networkPort'       => 'networkport',
-            'stationPrinterId'  => '"stationPrinterId"',
+            'stationPrinterId'  => 'stationprinterid',
         ];
         foreach ($fieldMap as $key => $col) {
             if (array_key_exists($key, $validated)) {
@@ -149,20 +149,20 @@ class PrinterBindingService {
             }
         }
         if (isset($validated['categoryIds'])) {
-            $sets[] = '"categoryIds" = ?::jsonb';
+            $sets[] = 'categoryids = ?::jsonb';
             $params[] = json_encode($validated['categoryIds']);
         }
         if (isset($validated['docTypes'])) {
-            $sets[] = '"docTypes" = ?::jsonb';
+            $sets[] = 'doctypes = ?::jsonb';
             $params[] = json_encode($validated['docTypes']);
         }
         if (empty($sets)) throw new \RuntimeException('Nada que actualizar', 422);
-        $sets[] = '"updatedAt" = now()';
+        $sets[] = 'updatedat = now()';
         $params[] = $id;
         $params[] = $this->companyId;
         $rs = ncmExecute(
             'UPDATE "printer_binding" SET ' . implode(', ', $sets) .
-            ' WHERE "id" = ? AND "companyId" = ? RETURNING *',
+            ' WHERE "id" = ? AND companyid = ? RETURNING *',
             $params,
             false, true
         );
@@ -174,7 +174,7 @@ class PrinterBindingService {
 
     public function delete(string $id): void {
         ncmExecute(
-            'DELETE FROM "printer_binding" WHERE "id" = ? AND "companyId" = ?',
+            'DELETE FROM "printer_binding" WHERE "id" = ? AND companyid = ?',
             [$id, $this->companyId],
             false, false
         );

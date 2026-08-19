@@ -279,7 +279,7 @@ function tenantAudit(array $ctx, string $method, string $endpoint, ?string $targ
 
         $db->Execute(
             'INSERT INTO tenant_audit
-               ("companyId", "userId", "outletId", realm, method, endpoint, "targetId", meta, ip)
+               (companyid, userid, outletid, realm, method, endpoint, targetid, meta, ip)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)',
             [
                 $ctx['companyId'] ?: null,

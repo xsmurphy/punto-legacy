@@ -145,8 +145,8 @@ final class StockTransferService
         );
 
         $headerRow = ncmExecute(
-            'INSERT INTO stock_transfer ("companyId", "fromOutletId", "fromLocationId", "toOutletId", "toLocationId", "note", "createdBy", "docNumber")
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING "stockTransferId"',
+            'INSERT INTO stock_transfer (companyid, fromoutletid, fromlocationid, tooutletid, tolocationid, "note", createdby, docnumber)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING stocktransferid',
             [
                 $companyId,
                 $from['outletId'],
@@ -173,7 +173,7 @@ final class StockTransferService
             $unitCost = $cogsMap[$itemId] ?? 0.0;
 
             ncmExecute(
-                'INSERT INTO stock_transfer_item ("stockTransferId", "itemId", "qty", "unitCost") VALUES (?, ?, ?, ?)',
+                'INSERT INTO stock_transfer_item (stocktransferid, itemid, "qty", unitcost) VALUES (?, ?, ?, ?)',
                 [$transferId, $itemId, $qty, $unitCost]
             );
 
@@ -236,15 +236,15 @@ final class StockTransferService
 
     public function list(string $companyId, array $filters = []): array
     {
-        $where  = ['st."companyId" = ?'];
+        $where  = ['st.companyid = ?'];
         $params = [$companyId];
 
         if (!empty($filters['fromOutletId'])) {
-            $where[]  = 'st."fromOutletId" = ?';
+            $where[]  = 'st.fromoutletid = ?';
             $params[] = $filters['fromOutletId'];
         }
         if (!empty($filters['toOutletId'])) {
-            $where[]  = 'st."toOutletId" = ?';
+            $where[]  = 'st.tooutletid = ?';
             $params[] = $filters['toOutletId'];
         }
         if (isset($filters['status']) && $filters['status'] !== null) {
@@ -252,11 +252,11 @@ final class StockTransferService
             $params[] = (int) $filters['status'];
         }
         if (!empty($filters['dateFrom'])) {
-            $where[]  = 'st."createdAt" >= ?';
+            $where[]  = 'st.createdat >= ?';
             $params[] = $filters['dateFrom'];
         }
         if (!empty($filters['dateTo'])) {
-            $where[]  = 'st."createdAt" <= ?';
+            $where[]  = 'st.createdat <= ?';
             $params[] = $filters['dateTo'];
         }
 
@@ -273,21 +273,21 @@ final class StockTransferService
 
         $listParams = array_merge($params, [$limit, $offset]);
         $rowsRs = ncmExecute(
-            'SELECT st."stockTransferId", st."docNumber", st."status", st."createdAt", st."note",
-                    st."fromOutletId", st."fromLocationId",
-                    st."toOutletId",   st."toLocationId",
+            'SELECT st.stocktransferid, st.docnumber, st."status", st.createdat, st."note",
+                    st.fromoutletid, st.fromlocationid,
+                    st.tooutletid,   st.tolocationid,
                     fo.outletname as "fromOutletName",
                     to_.outletname as "toOutletName",
                     tfl.taxonomyname as "fromLocationName",
                     ttl.taxonomyname as "toLocationName",
-                    (SELECT COUNT(*) FROM stock_transfer_item sti WHERE sti."stockTransferId" = st."stockTransferId") as "itemsCount"
+                    (SELECT COUNT(*) FROM stock_transfer_item sti WHERE sti.stocktransferid = st.stocktransferid) as "itemsCount"
              FROM stock_transfer st
-             JOIN outlet fo  ON fo.outletid  = st."fromOutletId"
-             JOIN outlet to_ ON to_.outletid = st."toOutletId"
-             LEFT JOIN taxonomy tfl ON tfl.taxonomyid = st."fromLocationId"
-             LEFT JOIN taxonomy ttl ON ttl.taxonomyid = st."toLocationId"
+             JOIN outlet fo  ON fo.outletid  = st.fromoutletid
+             JOIN outlet to_ ON to_.outletid = st.tooutletid
+             LEFT JOIN taxonomy tfl ON tfl.taxonomyid = st.fromlocationid
+             LEFT JOIN taxonomy ttl ON ttl.taxonomyid = st.tolocationid
              WHERE ' . $whereStr . '
-             ORDER BY st."createdAt" DESC
+             ORDER BY st.createdat DESC
              LIMIT ? OFFSET ?',
             $listParams,
             false,
@@ -333,12 +333,12 @@ final class StockTransferService
                     ttl.taxonomyname as "toLocationName",
                     u.contactname as "createdByName"
              FROM stock_transfer st
-             JOIN outlet fo  ON fo.outletid  = st."fromOutletId"
-             JOIN outlet to_ ON to_.outletid = st."toOutletId"
-             LEFT JOIN taxonomy tfl ON tfl.taxonomyid = st."fromLocationId"
-             LEFT JOIN taxonomy ttl ON ttl.taxonomyid = st."toLocationId"
-             LEFT JOIN contact u ON u.contactid = st."createdBy"
-             WHERE st."stockTransferId" = ? AND st."companyId" = ?
+             JOIN outlet fo  ON fo.outletid  = st.fromoutletid
+             JOIN outlet to_ ON to_.outletid = st.tooutletid
+             LEFT JOIN taxonomy tfl ON tfl.taxonomyid = st.fromlocationid
+             LEFT JOIN taxonomy ttl ON ttl.taxonomyid = st.tolocationid
+             LEFT JOIN contact u ON u.contactid = st.createdby
+             WHERE st.stocktransferid = ? AND st.companyid = ?
              LIMIT 1',
             [$id, $companyId]
         );
@@ -348,12 +348,12 @@ final class StockTransferService
         }
 
         $itemsRs = ncmExecute(
-            'SELECT sti."stockTransferItemId", sti."itemId", sti."qty", sti."unitCost",
+            'SELECT sti.stocktransferitemid, sti.itemid, sti."qty", sti.unitcost,
                     i.itemname as name, i.itemsku as sku
              FROM stock_transfer_item sti
-             JOIN item i ON i.itemid = sti."itemId"
-             JOIN stock_transfer st ON st."stockTransferId" = sti."stockTransferId" AND st."companyId" = ?
-             WHERE sti."stockTransferId" = ?
+             JOIN item i ON i.itemid = sti.itemid
+             JOIN stock_transfer st ON st.stocktransferid = sti.stocktransferid AND st.companyid = ?
+             WHERE sti.stocktransferid = ?
              ORDER BY i.itemname ASC',
             [$companyId, $id],
             false,
@@ -406,7 +406,7 @@ final class StockTransferService
         $db->StartTrans();
 
         $header = ncmExecute(
-            'SELECT * FROM stock_transfer WHERE "stockTransferId" = ? AND "companyId" = ? FOR UPDATE',
+            'SELECT * FROM stock_transfer WHERE stocktransferid = ? AND companyid = ? FOR UPDATE',
             [$id, $companyId]
         );
 
@@ -423,7 +423,7 @@ final class StockTransferService
         }
 
         $itemsRs = ncmExecute(
-            'SELECT "itemId", "qty", "unitCost" FROM stock_transfer_item WHERE "stockTransferId" = ?',
+            'SELECT itemid, "qty", unitcost FROM stock_transfer_item WHERE stocktransferid = ?',
             [$id],
             false,
             true
@@ -481,7 +481,7 @@ final class StockTransferService
         }
 
         ncmExecute(
-            'UPDATE stock_transfer SET "status" = 0 WHERE "stockTransferId" = ? AND "companyId" = ?',
+            'UPDATE stock_transfer SET "status" = 0 WHERE stocktransferid = ? AND companyid = ?',
             [$id, $companyId]
         );
 

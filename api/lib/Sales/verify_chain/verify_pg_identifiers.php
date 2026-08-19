@@ -5,8 +5,8 @@ declare(strict_types=1);
 /**
  * verify_pg_identifiers.php — arnés chico que ejercita, sin mockear nada,
  * los caminos rotos por identificadores Postgres entrecomillados con
- * case incorrecto (`"itemSold"`, `"itemLocation"`, `a."adminId"`,
- * `"contactPhone"`/`"contactId"`/`"companyId"`/`"contactStatus"`/
+ * case incorrecto (`"itemSold"`, `"itemLocation"`, `a.adminid`,
+ * `"contactPhone"`/`"contactId"`/`companyid`/`"contactStatus"`/
  * `"contactTIN"`) — el mismo bug ya corregido en `ReturnService::create()`
  * (base de esta branch, ver su docblock para la explicación completa del
  * mecanismo: identificador creado SIN comillas → Postgres lo pliega a
@@ -56,7 +56,7 @@ declare(strict_types=1);
  *   si había ítems asignados). Crea un depósito, asigna un ítem, verifica
  *   que bloquee; libera el ítem, verifica que borre.
  *
- * Caso 5 — CompanyAdminService::listNotes() (línea ~1423, `a."adminId"`):
+ * Caso 5 — CompanyAdminService::listNotes() (línea ~1423, `a.adminid`):
  *   join a admin_user (columnas lowercase-nativas, a diferencia de
  *   tenant_note que sí se creó con columnas quoted camelCase) rompía CUALQUIER
  *   listado de notas internas del admin panel que tuviera al menos una nota.
@@ -134,7 +134,7 @@ ncmExecute("DELETE FROM einvoice_document WHERE companyid = ? AND transactionid 
 ncmExecute("DELETE FROM transaction WHERE transactionUID LIKE 'VERIFY-PGID-%' AND companyId = ?", [$PY_COMPANY]);
 ncmExecute("DELETE FROM itemLocation WHERE companyid = ? AND itemid = ?", [$PY_COMPANY, $PY_ITEM]);
 ncmExecute("DELETE FROM taxonomy WHERE companyid = ? AND taxonomytype = 'location' AND taxonomyname = 'VERIFY-PGID-LOCATION'", [$PY_COMPANY]);
-ncmExecute('DELETE FROM tenant_note WHERE "companyId" = ? AND body = \'VERIFY-PGID-NOTE\'', [$PY_COMPANY]);
+ncmExecute('DELETE FROM tenant_note WHERE companyid = ? AND body = \'VERIFY-PGID-NOTE\'', [$PY_COMPANY]);
 ncmExecute("DELETE FROM admin_user WHERE email = 'verify-pgid-admin@punto.la'", []);
 // contacttin (no contactname) porque el caso 6 RENOMBRA el contacto al
 // actualizarlo — un cleanup por nombre exacto dejaría de matchear la fila
@@ -327,7 +327,7 @@ try {
     }
 
     // ═══════════════════════════════════════════════════════════════════
-    // Caso 5 — CompanyAdminService::listNotes() (línea ~1423, a."adminId")
+    // Caso 5 — CompanyAdminService::listNotes() (línea ~1423, a.adminid)
     // ═══════════════════════════════════════════════════════════════════
     $adminRow = ncmExecute(
         "INSERT INTO admin_user (email, passwordhash, name) VALUES ('verify-pgid-admin@punto.la', 'x', 'Verify PGID Admin') RETURNING adminid",
@@ -357,7 +357,7 @@ try {
                 echo "[verify_pg_identifiers] OK caso 5: CompanyAdminService::listNotes() joinea admin_user (columnas lowercase-nativas, a.adminId sin comillas) y resuelve authorName correctamente\n";
             }
         } catch (\Throwable $e) {
-            $failures[] = 'Caso 5: listNotes() tiró excepción — ' . $e->getMessage() . ' (antes de este fix, a."adminId" rompía CUALQUIER listado de notas del admin panel que tuviera al menos 1 nota)';
+            $failures[] = 'Caso 5: listNotes() tiró excepción — ' . $e->getMessage() . ' (antes de este fix, a.adminid rompía CUALQUIER listado de notas del admin panel que tuviera al menos 1 nota)';
         }
     }
 

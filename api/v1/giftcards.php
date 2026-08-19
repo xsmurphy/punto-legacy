@@ -35,9 +35,9 @@ if ($method === 'POST') {
         // Match case-insensitivo: la emisión guarda el code en MAYÚSCULAS
         // (giftcard-issue-dialog.tsx), pero el cajero puede tipearlo en minúscula.
         $row = ncmExecute(
-            'SELECT id, code, "currentBalance", "expiresAt", "usedAt"
+            'SELECT id, code, currentbalance, expiresat, usedat
                FROM giftcard
-              WHERE "companyId" = ? AND UPPER(code) = UPPER(?)
+              WHERE companyid = ? AND UPPER(code) = UPPER(?)
               LIMIT 1',
             [$companyId, $code]
         );
@@ -102,9 +102,9 @@ if ($method === 'POST') {
         // Idempotencia: si ya fue consumida por esta misma transacción, ok.
         // Match case-insensitivo: mismo motivo que en validate() arriba.
         $row = ncmExecute(
-            'SELECT id, code, "usedAt", "usedByTransactionId", "expiresAt"
+            'SELECT id, code, usedat, usedbytransactionid, expiresat
                FROM giftcard
-              WHERE "companyId" = ? AND UPPER(code) = UPPER(?)
+              WHERE companyid = ? AND UPPER(code) = UPPER(?)
               LIMIT 1',
             [$companyId, $code]
         );
@@ -131,15 +131,15 @@ if ($method === 'POST') {
             apiError('La giftcard está vencida', 410);
         }
 
-        // Lock optimista: WHERE "usedAt" IS NULL garantiza que solo un proceso
+        // Lock optimista: WHERE usedat IS NULL garantiza que solo un proceso
         // la consume (si 0 filas afectadas → conflict). Usa el code real de la
         // fila encontrada arriba (no el tipeado) para que el UPDATE matchee.
         $db->Execute(
             'UPDATE giftcard
-                SET "usedAt" = NOW(),
-                    "usedByTransactionId" = ?,
-                    "currentBalance" = 0
-              WHERE "companyId" = ? AND code = ? AND "usedAt" IS NULL',
+                SET usedat = NOW(),
+                    usedbytransactionid = ?,
+                    currentbalance = 0
+              WHERE companyid = ? AND code = ? AND usedat IS NULL',
             [$transactionId, $companyId, $row['code']]
         );
 

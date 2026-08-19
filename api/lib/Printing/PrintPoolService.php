@@ -73,8 +73,8 @@ final class PrintPoolService
 
         $existing = ncmExecute(
             'SELECT "id" FROM "station_printer"
-              WHERE "companyId" = ? AND "outletId" = ? AND "deviceId" = ?
-                AND "transport" = ? AND "transportConfig" = ?::jsonb
+              WHERE companyid = ? AND outletid = ? AND deviceid = ?
+                AND "transport" = ? AND transportconfig = ?::jsonb
               LIMIT 1',
             [$companyId, $outletId, $deviceId, $validated['transport'], json_encode($validated['transportConfig'])]
         );
@@ -83,8 +83,8 @@ final class PrintPoolService
             $id = (string) $existing['id'];
             $ok = $this->db->Execute(
                 'UPDATE "station_printer"
-                    SET "name" = ?, "kind" = ?, "status" = 1, "updatedAt" = now()
-                  WHERE "id" = ? AND "companyId" = ?',
+                    SET "name" = ?, "kind" = ?, "status" = 1, updatedat = now()
+                  WHERE "id" = ? AND companyid = ?',
                 [$validated['name'], $validated['kind'], $id, $companyId]
             );
             if ($ok === false) {
@@ -95,7 +95,7 @@ final class PrintPoolService
         } else {
             $rs = $this->db->Execute(
                 'INSERT INTO "station_printer"
-                    ("id","companyId","outletId","deviceId","name","kind","transport","transportConfig")
+                    ("id",companyid,outletid,deviceid,"name","kind","transport",transportconfig)
                  VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?::jsonb)
                  RETURNING "id"',
                 [$companyId, $outletId, $deviceId, $validated['name'], $validated['kind'],
@@ -161,12 +161,12 @@ final class PrintPoolService
         if ($sets === []) {
             throw new \InvalidArgumentException('Nada que actualizar');
         }
-        $sets[] = '"updatedAt" = now()';
+        $sets[] = 'updatedat = now()';
 
         $params[] = $id;
         $params[] = $companyId;
         $affected = ncmExecute(
-            'UPDATE "station_printer" SET ' . implode(', ', $sets) . ' WHERE "id" = ? AND "companyId" = ?',
+            'UPDATE "station_printer" SET ' . implode(', ', $sets) . ' WHERE "id" = ? AND companyid = ?',
             $params
         );
         if (!is_int($affected) || $affected < 1) {
@@ -184,7 +184,7 @@ final class PrintPoolService
     public function deletePrinter(string $companyId, string $id): void
     {
         $affected = ncmExecute(
-            'UPDATE "station_printer" SET "status" = 0, "updatedAt" = now() WHERE "id" = ? AND "companyId" = ?',
+            'UPDATE "station_printer" SET "status" = 0, updatedat = now() WHERE "id" = ? AND companyid = ?',
             [$id, $companyId]
         );
         if (!is_int($affected) || $affected < 1) {
@@ -195,10 +195,10 @@ final class PrintPoolService
     /** @return list<array<string,mixed>> */
     public function listPrinters(string $companyId, ?string $outletId = null): array
     {
-        $where  = ['"companyId" = ?'];
+        $where  = ['companyid = ?'];
         $params = [$companyId];
         if ($outletId !== null && $outletId !== '') {
-            $where[]  = '"outletId" = ?';
+            $where[]  = 'outletid = ?';
             $params[] = $outletId;
         }
         $rs = $this->db->Execute(
@@ -217,7 +217,7 @@ final class PrintPoolService
     public function findPrinter(string $companyId, string $id): ?array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM "station_printer" WHERE "id" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT * FROM "station_printer" WHERE "id" = ? AND companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;
@@ -264,7 +264,7 @@ final class PrintPoolService
         // stationPrinterId debe pertenecer al tenant y estar activa — el
         // outletId del job SIEMPRE sale de acá (nunca del body del caller).
         $printer = ncmExecute(
-            'SELECT "outletId" FROM "station_printer" WHERE "id" = ? AND "companyId" = ? AND "status" = 1 LIMIT 1',
+            'SELECT outletid FROM "station_printer" WHERE "id" = ? AND companyid = ? AND "status" = 1 LIMIT 1',
             [$stationPrinterId, $companyId]
         );
         if (!$printer) {
@@ -282,8 +282,8 @@ final class PrintPoolService
 
         $rs = $this->db->Execute(
             'INSERT INTO "print_job"
-                ("id","companyId","outletId","stationPrinterId","docType","format","payload",
-                 "copies","openDrawer","sourceKind","sourceId","createdByDeviceId")
+                ("id",companyid,outletid,stationprinterid,doctype,"format","payload",
+                 "copies",opendrawer,sourcekind,sourceid,createdbydeviceid)
              VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
              RETURNING "id"',
             [$companyId, $outletId, $stationPrinterId, $docType, $format, $payload,
@@ -308,9 +308,9 @@ final class PrintPoolService
     {
         $rs = $this->db->Execute(
             'SELECT j.* FROM "print_job" j
-               JOIN "station_printer" p ON p."id" = j."stationPrinterId"
-              WHERE j."companyId" = ? AND p."deviceId" = ? AND j."status" = \'queued\'
-              ORDER BY j."createdAt" ASC',
+               JOIN "station_printer" p ON p."id" = j.stationprinterid
+              WHERE j.companyid = ? AND p.deviceid = ? AND j."status" = \'queued\'
+              ORDER BY j.createdat ASC',
             [$companyId, $stationDeviceId]
         );
         if ($rs === false) return [];
@@ -328,9 +328,9 @@ final class PrintPoolService
     public function claim(string $companyId, string $jobId, string $stationDeviceId): array
     {
         $affected = ncmExecute(
-            'UPDATE "print_job" SET "status" = \'printing\', "attempts" = "attempts" + 1, "updatedAt" = now()
-              WHERE "id" = ? AND "companyId" = ? AND "status" = \'queued\'
-                AND "stationPrinterId" IN (SELECT "id" FROM "station_printer" WHERE "companyId" = ? AND "deviceId" = ?)',
+            'UPDATE "print_job" SET "status" = \'printing\', "attempts" = "attempts" + 1, updatedat = now()
+              WHERE "id" = ? AND companyid = ? AND "status" = \'queued\'
+                AND stationprinterid IN (SELECT "id" FROM "station_printer" WHERE companyid = ? AND deviceid = ?)',
             [$jobId, $companyId, $companyId, $stationDeviceId]
         );
         if (!is_int($affected) || $affected < 1) {
@@ -348,9 +348,9 @@ final class PrintPoolService
     public function markDone(string $companyId, string $jobId, string $stationDeviceId): array
     {
         $affected = ncmExecute(
-            'UPDATE "print_job" SET "status" = \'done\', "updatedAt" = now()
-              WHERE "id" = ? AND "companyId" = ? AND "status" = \'printing\'
-                AND "stationPrinterId" IN (SELECT "id" FROM "station_printer" WHERE "companyId" = ? AND "deviceId" = ?)',
+            'UPDATE "print_job" SET "status" = \'done\', updatedat = now()
+              WHERE "id" = ? AND companyid = ? AND "status" = \'printing\'
+                AND stationprinterid IN (SELECT "id" FROM "station_printer" WHERE companyid = ? AND deviceid = ?)',
             [$jobId, $companyId, $companyId, $stationDeviceId]
         );
         if (!is_int($affected) || $affected < 1) {
@@ -374,9 +374,9 @@ final class PrintPoolService
         $row = ncmExecute(
             'UPDATE "print_job"
                 SET "status" = CASE WHEN "attempts" < ? THEN \'queued\' ELSE \'failed\' END,
-                    "lastError" = ?, "updatedAt" = now()
-              WHERE "id" = ? AND "companyId" = ? AND "status" = \'printing\'
-                AND "stationPrinterId" IN (SELECT "id" FROM "station_printer" WHERE "companyId" = ? AND "deviceId" = ?)
+                    lasterror = ?, updatedat = now()
+              WHERE "id" = ? AND companyid = ? AND "status" = \'printing\'
+                AND stationprinterid IN (SELECT "id" FROM "station_printer" WHERE companyid = ? AND deviceid = ?)
               RETURNING "id"',
             [self::MAX_ATTEMPTS, $error, $jobId, $companyId, $companyId, $stationDeviceId]
         );
@@ -395,8 +395,8 @@ final class PrintPoolService
     public function cancel(string $companyId, string $jobId): array
     {
         $affected = ncmExecute(
-            'UPDATE "print_job" SET "status" = \'cancelled\', "updatedAt" = now()
-              WHERE "id" = ? AND "companyId" = ? AND "status" = \'queued\'',
+            'UPDATE "print_job" SET "status" = \'cancelled\', updatedat = now()
+              WHERE "id" = ? AND companyid = ? AND "status" = \'queued\'',
             [$jobId, $companyId]
         );
         if (!is_int($affected) || $affected < 1) {
@@ -413,15 +413,15 @@ final class PrintPoolService
     /** @return list<array<string,mixed>> auditoría/reimpresión (panel). */
     public function listJobs(string $companyId, array $filters = []): array
     {
-        $where  = ['"companyId" = ?'];
+        $where  = ['companyid = ?'];
         $params = [$companyId];
 
         if (!empty($filters['outletId'])) {
-            $where[]  = '"outletId" = ?';
+            $where[]  = 'outletid = ?';
             $params[] = (string) $filters['outletId'];
         }
         if (!empty($filters['stationPrinterId'])) {
-            $where[]  = '"stationPrinterId" = ?';
+            $where[]  = 'stationprinterid = ?';
             $params[] = (string) $filters['stationPrinterId'];
         }
         if (!empty($filters['status'])) {
@@ -431,17 +431,17 @@ final class PrintPoolService
             foreach ($statuses as $s) $params[] = (string) $s;
         }
         if (!empty($filters['from'])) {
-            $where[]  = '"createdAt" >= ?';
+            $where[]  = 'createdat >= ?';
             $params[] = (string) $filters['from'];
         }
         if (!empty($filters['to'])) {
-            $where[]  = '"createdAt" <= ?';
+            $where[]  = 'createdat <= ?';
             $params[] = (string) $filters['to'];
         }
 
         $rs = $this->db->Execute(
             'SELECT * FROM "print_job" WHERE ' . implode(' AND ', $where) . '
-             ORDER BY "createdAt" DESC LIMIT 500',
+             ORDER BY createdat DESC LIMIT 500',
             $params
         );
         if ($rs === false) return [];
@@ -455,7 +455,7 @@ final class PrintPoolService
     public function findJob(string $companyId, string $id): ?array
     {
         $rs = $this->db->Execute(
-            'SELECT * FROM "print_job" WHERE "id" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT * FROM "print_job" WHERE "id" = ? AND companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         if ($rs === false || $rs->EOF) return null;

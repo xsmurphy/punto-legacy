@@ -43,8 +43,8 @@ function authSessionCreate(string $realm, array $f): string
 
     $db->Execute(
         'INSERT INTO auth_session
-           ("tokenHash", realm, "companyId", "userId", "deviceId", "outletId", "registerId",
-            "roleId", module, status, meta, "expiresAt", "userAgent", "ipFirst", "ipLast", "lastSeenAt")
+           (tokenhash, realm, companyid, userid, deviceid, outletid, registerid,
+            roleid, module, status, meta, expiresat, useragent, ipfirst, iplast, lastseenat)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?::jsonb, ?, ?, ?, ?, now())',
         [
             $hash,
@@ -88,9 +88,9 @@ function authSessionLookup(string $raw)
 
     try {
         $r = $db->Execute(
-            'SELECT "sessionId", realm, "companyId", "userId", "deviceId", "outletId",
-                    "registerId", "roleId", module, status, "expiresAt"
-               FROM auth_session WHERE "tokenHash" = ? LIMIT 1',
+            'SELECT sessionid, realm, companyid, userid, deviceid, outletid,
+                    registerid, roleid, module, status, expiresat
+               FROM auth_session WHERE tokenhash = ? LIMIT 1',
             [$hash]
         );
     } catch (\Throwable $e) {
@@ -249,9 +249,9 @@ function authSessionTouch(string $sessionId): void
     $ip = ($ip && filter_var($ip, FILTER_VALIDATE_IP) !== false) ? $ip : null;
     try {
         $db->Execute(
-            'UPDATE auth_session SET "lastSeenAt" = now(), "ipLast" = ?
-               WHERE "sessionId" = ?
-                 AND ("lastSeenAt" IS NULL OR "lastSeenAt" < now() - interval \'60 seconds\')',
+            'UPDATE auth_session SET lastseenat = now(), iplast = ?
+               WHERE sessionid = ?
+                 AND (lastseenat IS NULL OR lastseenat < now() - interval \'60 seconds\')',
             [$ip, $sessionId]
         );
     } catch (\Throwable $e) {
@@ -266,8 +266,8 @@ function authSessionRevokeBySessionId(string $sessionId, ?string $revokedBy = nu
     if ($sessionId === '') { return; }
     try {
         $r = $db->Execute(
-            'UPDATE auth_session SET status = 0, "revokedAt" = now(), "revokedBy" = ?
-               WHERE "sessionId" = ? RETURNING "tokenHash"',
+            'UPDATE auth_session SET status = 0, revokedat = now(), revokedby = ?
+               WHERE sessionid = ? RETURNING tokenhash',
             [$revokedBy ?: null, $sessionId]
         );
         if ($r && !$r->EOF) { _authCacheDel((string)($r->fields['tokenHash'] ?? '')); }
@@ -284,7 +284,7 @@ function authSessionRevokeByToken(string $raw): void
     $hash = authHashToken($raw);
     try {
         $db->Execute(
-            'UPDATE auth_session SET status = 0, "revokedAt" = now() WHERE "tokenHash" = ?',
+            'UPDATE auth_session SET status = 0, revokedat = now() WHERE tokenhash = ?',
             [$hash]
         );
         _authCacheDel($hash);
@@ -300,9 +300,9 @@ function authSessionRevokeByDevice(string $deviceId, string $companyId, ?string 
     if ($deviceId === '' || $companyId === '') { return; }
     try {
         $r = $db->Execute(
-            'UPDATE auth_session SET status = 0, "revokedAt" = now(), "revokedBy" = ?
-               WHERE "deviceId" = ? AND "companyId" = ? AND status = 1
-             RETURNING "tokenHash"',
+            'UPDATE auth_session SET status = 0, revokedat = now(), revokedby = ?
+               WHERE deviceid = ? AND companyid = ? AND status = 1
+             RETURNING tokenhash',
             [$revokedBy ?: null, $deviceId, $companyId]
         );
         while ($r && !$r->EOF) {

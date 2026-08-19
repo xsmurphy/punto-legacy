@@ -126,13 +126,13 @@ INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, it
     ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7a', 'Verify item con add-ons', 'VERIFY-ADDON-PARENT', 15000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
 ON CONFLICT (itemid) DO UPDATE SET itemname = EXCLUDED.itemname;
 
-INSERT INTO "addon_group" ("groupId", "companyId", "itemId", "name", "minSelect", "maxSelect", "sort", "status") VALUES
+INSERT INTO "addon_group" (groupid, companyid, itemid, "name", minselect, maxselect, "sort", "status") VALUES
     ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7b', '0ea6c5d8-57e5-4226-8140-ec914deec024', '9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7a', 'Tamaño (obligatorio)', 1, 1, 0, TRUE)
-ON CONFLICT ("groupId") DO UPDATE SET "name" = EXCLUDED."name", "minSelect" = EXCLUDED."minSelect";
+ON CONFLICT (groupid) DO UPDATE SET "name" = EXCLUDED."name", minselect = EXCLUDED.minselect;
 
-INSERT INTO "addon_group_option" ("optionId", "groupId", "itemId", "priceDelta", "isDefault", "isLocked", "maxQty", "sort") VALUES
+INSERT INTO "addon_group_option" (optionid, groupid, itemid, pricedelta, isdefault, islocked, maxqty, "sort") VALUES
     ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7c', '9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7b', '61230b1e-90e8-4018-ac59-865ca957b293', 2000, TRUE, FALSE, 1, 0)
-ON CONFLICT ("optionId") DO UPDATE SET "priceDelta" = EXCLUDED."priceDelta";
+ON CONFLICT (optionid) DO UPDATE SET pricedelta = EXCLUDED.pricedelta;
 
 -- Producción directa (verify_production_cogs.php, fix 2026-08-19): un
 -- insumo trackeable (su costo real lo pone el script vía manageStock(), acá

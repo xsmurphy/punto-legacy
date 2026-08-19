@@ -187,7 +187,7 @@ final class SyncService
     private function deletedIdsSince(string $entity, string $companyId, string $since): array
     {
         $rs = $this->db->Execute(
-            'SELECT "rowId" FROM deleted_row WHERE "companyId" = ? AND entity = ? AND deleted_at > ?',
+            'SELECT rowid FROM deleted_row WHERE companyid = ? AND entity = ? AND deleted_at > ?',
             [$companyId, $entity, $since]
         );
         if ($rs === false) return [];
