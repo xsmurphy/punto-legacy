@@ -85,6 +85,7 @@ function ItemsPageInner() {
   const searchParams = useSearchParams()
   const parentId = searchParams.get("parent")
   const [kindFilter, setKindFilter] = React.useState<"all" | ItemKind>("all")
+  const [outletFilter, setOutletFilter] = React.useState<"all" | string>("all")
   const [showArchived, setShowArchived] = React.useState(false)
   const [showVariants, setShowVariants] = React.useState(false)
   const { data, isLoading, error } = useItems({
@@ -109,10 +110,18 @@ function ItemsPageInner() {
   const isViewingGroup = !!parentId
 
   const filteredRows = React.useMemo(() => {
-    const rows = data?.items ?? []
-    if (kindFilter === "all") return rows
-    return rows.filter((r) => r.kind === kindFilter)
-  }, [data, kindFilter])
+    let rows = data?.items ?? []
+    if (kindFilter !== "all") rows = rows.filter((r) => r.kind === kindFilter)
+    if (outletFilter !== "all") {
+      // Mismo criterio que la caja (`outletVisibilityClause()` en el
+      // backend): un ítem sin sucursal asignada (`outletId === null`) está
+      // disponible en TODAS, así que aparece filtrando por cualquier
+      // sucursal puntual — la vista "por sucursal" del panel muestra
+      // exactamente lo que esa caja ofrecería para vender.
+      rows = rows.filter((r) => r.outletId === null || r.outletId === outletFilter)
+    }
+    return rows
+  }, [data, kindFilter, outletFilter])
 
   useAgentPageSnapshot(
     {
@@ -711,6 +720,24 @@ function ItemsPageInner() {
                     ))}
                   </SelectContent>
                 </Select>
+                {(bootstrap?.outlets?.length ?? 0) > 1 && (
+                  <Select
+                    value={outletFilter}
+                    onValueChange={(v) => setOutletFilter(v)}
+                  >
+                    <SelectTrigger className="h-9 w-[170px]">
+                      <SelectValue placeholder="Sucursal" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las sucursales</SelectItem>
+                      {bootstrap?.outlets?.map((o) => (
+                        <SelectItem key={o.id} value={o.id}>
+                          {o.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 <Select
                   value={showArchived ? "archived" : "active"}
                   onValueChange={(v) => setShowArchived(v === "archived")}
