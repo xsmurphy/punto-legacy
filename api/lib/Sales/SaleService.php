@@ -1157,7 +1157,7 @@ final class SaleService
      * corre, es una venta nueva: no hace falta dedup propio acá.
      *
      * Código único: pre-check + el INSERT vuelve a chocar con la UNIQUE
-     * ("companyId", code) de la mig 78 si hay carrera entre dos devices — en
+     * (companyid, code) de la mig 78 si hay carrera entre dos devices — en
      * ambos casos se lanza InvalidSaleInputException (422, mensaje claro para
      * que el cajero regenere el código), NUNCA un 500 silencioso.
      *
@@ -1201,7 +1201,7 @@ final class SaleService
         // ante carrera concurrente entre dos devices — este SELECT es solo
         // UX (mensaje legible en vez del 23505 crudo de más abajo).
         $dup = $this->db->Execute(
-            'SELECT id FROM giftcard WHERE "companyId" = ? AND UPPER(code) = UPPER(?) LIMIT 1',
+            'SELECT id FROM giftcard WHERE companyid = ? AND UPPER(code) = UPPER(?) LIMIT 1',
             [$companyId, $code]
         );
         if ($dup && !$dup->EOF) {
@@ -1243,9 +1243,9 @@ final class SaleService
         // Mismo patrón quoted que api/v1/giftcards.php (validate/consume).
         $ok = $this->db->Execute(
             'INSERT INTO giftcard
-                (id, "companyId", code, "initialBalance", "currentBalance", "expiresAt",
-                 "beneficiaryContactId", "beneficiaryName", note, "issuedByTransactionId",
-                 "outletId", status)
+                (id, companyid, code, initialbalance, currentbalance, expiresat,
+                 beneficiarycontactid, beneficiaryname, note, issuedbytransactionid,
+                 outletid, status)
              VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 $companyId,
@@ -1262,7 +1262,7 @@ final class SaleService
             ]
         );
         if ($ok === false) {
-            // Carrera concurrente contra la UNIQUE ("companyId", code): PG
+            // Carrera concurrente contra la UNIQUE (companyid, code): PG
             // devuelve SQLSTATE 23505 (unique_violation) en el ErrorMsg.
             $err = $this->db->ErrorMsg();
             if (stripos($err, '23505') !== false
