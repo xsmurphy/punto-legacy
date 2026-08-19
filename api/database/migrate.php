@@ -42,59 +42,12 @@
 
 declare(strict_types=1);
 
-// Cargar .env del repo si está (Coolify suele inyectar via env directos,
-// pero en local docker run podemos tener .env).
+require_once __DIR__ . '/pg_pdo_connect.php';
+
 $repoRoot = dirname(__DIR__);
-$envFile  = $repoRoot . '/.env';
-if (is_file($envFile)) {
-    $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-    foreach ($lines as $line) {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#') {
-            continue;
-        }
-        if (!preg_match('/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/', $line, $m)) {
-            continue;
-        }
-        $value = trim($m[2]);
-        $len   = strlen($value);
-        if ($len >= 2) {
-            $first = $value[0];
-            $last  = $value[$len - 1];
-            if (($first === '"' && $last === '"') || ($first === "'" && $last === "'")) {
-                $value = substr($value, 1, -1);
-            }
-        }
-        if (!isset($_ENV[$m[1]])) {
-            $_ENV[$m[1]] = $value;
-        }
-    }
-}
-
-// Soporte DATABASE_URL (estilo Coolify managed).
-if (!empty($_ENV['DATABASE_URL'])) {
-    $u = parse_url((string) $_ENV['DATABASE_URL']);
-    $_ENV['POSTGRES_HOST']     = $u['host'] ?? 'localhost';
-    $_ENV['POSTGRES_USER']     = isset($u['user']) ? urldecode($u['user']) : 'punto';
-    $_ENV['POSTGRES_PASSWORD'] = isset($u['pass']) ? urldecode($u['pass']) : '';
-    $_ENV['POSTGRES_DB']       = isset($u['path']) ? ltrim($u['path'], '/') : 'puntoDB';
-    $_ENV['POSTGRES_PORT']     = $u['port'] ?? 5432;
-}
-
-$host = $_ENV['POSTGRES_HOST']     ?? 'localhost';
-$user = $_ENV['POSTGRES_USER']     ?? 'punto';
-$pass = $_ENV['POSTGRES_PASSWORD'] ?? '';
-$dbnm = $_ENV['POSTGRES_DB']       ?? 'puntoDB';
-$port = (int) ($_ENV['POSTGRES_PORT'] ?? 5432);
-
-$dsn = sprintf('pgsql:host=%s;port=%d;dbname=%s', $host, $port, $dbnm);
 
 try {
-    $pdo = new PDO($dsn, $user, $pass, [
-        PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_EMULATE_PREPARES   => false,
-        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-    ]);
+    $pdo = pgConnectFromEnv($repoRoot);
 } catch (PDOException $e) {
     fwrite(STDERR, "[migrate] PDO connection failed: " . $e->getMessage() . "\n");
     fwrite(STDERR, "[migrate] verificá POSTGRES_HOST/USER/PASSWORD/DB env vars\n");

@@ -25,7 +25,7 @@ use Punto\Api\Contacts\ContactDisplayName;
  *  - `note` es texto plano (la tabla vieja lo guardaba base64; la nueva no).
  *
  * Tenant: companyId + outletId (VIEW_OUTLET_ID override) por parámetro,
- * bindeados con columnas QUOTED (`"companyId"`, `"outletId"`) — la tabla
+ * bindeados con columnas QUOTED (`companyid`, `outletid`) — la tabla
  * `giftcard` usa identificadores mixed-case, a diferencia de `contact`/
  * `transaction`/`outlet` (legacy, lowercase-folded, sin comillas).
  */
@@ -35,16 +35,16 @@ final class GiftcardsService
     public function detail(array $filters, string $companyId, string $outletId = ''): array
     {
         $params = [$companyId];
-        $sql    = 'SELECT * FROM giftcard WHERE "companyId" = ?';
+        $sql    = 'SELECT * FROM giftcard WHERE companyid = ?';
         if ($outletId !== '') {
-            $sql .= ' AND "outletId" = ?';
+            $sql .= ' AND outletid = ?';
             $params[] = $outletId;
         }
         if (!empty($filters['singleRow'])) {
             $sql .= ' AND id = ?';
             $params[] = $filters['singleRow'];
         }
-        $sql .= ' ORDER BY "createdAt" DESC LIMIT 5000';
+        $sql .= ' ORDER BY createdat DESC LIMIT 5000';
 
         $res = ncmExecute($sql, $params, false, false, true);
         $res = is_array($res) ? $res : [];
@@ -92,7 +92,7 @@ final class GiftcardsService
     {
         global $db;
         $r = $db->Execute(
-            'DELETE FROM giftcard WHERE id = ? AND "companyId" = ?',
+            'DELETE FROM giftcard WHERE id = ? AND companyid = ?',
             [$id, $companyId]
         );
         return $r !== false;
@@ -128,7 +128,7 @@ final class GiftcardsService
         if ($code !== '') {
             $dup = $db->Execute(
                 'SELECT id FROM giftcard
-                  WHERE "companyId" = ? AND UPPER(code) = UPPER(?) AND id != ?
+                  WHERE companyid = ? AND UPPER(code) = UPPER(?) AND id != ?
                   LIMIT 1',
                 [$companyId, $code, $id]
             );
@@ -160,9 +160,9 @@ final class GiftcardsService
 
         $r = $db->Execute(
             'UPDATE giftcard
-                SET code = ?, "currentBalance" = ?, "expiresAt" = ?, note = ?,
-                    "beneficiaryContactId" = ?, "beneficiaryName" = ?
-              WHERE id = ? AND "companyId" = ?',
+                SET code = ?, currentbalance = ?, expiresat = ?, note = ?,
+                    beneficiarycontactid = ?, beneficiaryname = ?
+              WHERE id = ? AND companyid = ?',
             [
                 $code,
                 (float) ($data['value'] ?? 0),

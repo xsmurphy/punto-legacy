@@ -39,8 +39,8 @@ final class InventoryCountService
         );
 
         $sessionRow = ncmExecute(
-            'INSERT INTO inventory_count ("companyId", "outletId", "locationId", "startedBy", "note", "docNumber")
-             VALUES (?, ?, ?, ?, ?, ?) RETURNING "inventoryCountId"',
+            'INSERT INTO inventory_count (companyid, outletid, locationid, startedby, "note", docnumber)
+             VALUES (?, ?, ?, ?, ?, ?) RETURNING inventorycountid',
             [$companyId, $outletId, $locationId ?: null, $startedBy, $note ?: null, $docNumber]
         );
 
@@ -81,7 +81,7 @@ final class InventoryCountService
                 }
 
                 ncmExecute(
-                    'INSERT INTO inventory_count_item ("inventoryCountId", "itemId", "expectedQty", "unitCost")
+                    'INSERT INTO inventory_count_item (inventorycountid, itemid, expectedqty, unitcost)
                      VALUES (?, ?, ?, ?)',
                     [$countId, $itemId, $onHand, $cogs]
                 );
@@ -101,9 +101,9 @@ final class InventoryCountService
         $session = ncmExecute(
             'SELECT ic.*, u1.contactname as "startedByName", u2.contactname as "finishedByName"
              FROM inventory_count ic
-             LEFT JOIN contact u1 ON u1.contactid = ic."startedBy"
-             LEFT JOIN contact u2 ON u2.contactid = ic."finishedBy"
-             WHERE ic."inventoryCountId" = ? AND ic."companyId" = ?
+             LEFT JOIN contact u1 ON u1.contactid = ic.startedby
+             LEFT JOIN contact u2 ON u2.contactid = ic.finishedby
+             WHERE ic.inventorycountid = ? AND ic.companyid = ?
              LIMIT 1',
             [$id, $companyId]
         );
@@ -113,12 +113,12 @@ final class InventoryCountService
         }
 
         $itemsRs = ncmExecute(
-            'SELECT ici."inventoryCountItemId", ici."itemId", i.itemname as name, i.itemsku as sku,
-                    ici."expectedQty", ici."countedQty", ici."difference", ici."unitCost",
-                    ici."countedAt", ici."countedBy"
+            'SELECT ici.inventorycountitemid, ici.itemid, i.itemname as name, i.itemsku as sku,
+                    ici.expectedqty, ici.countedqty, ici."difference", ici.unitcost,
+                    ici.countedat, ici.countedby
              FROM inventory_count_item ici
-             JOIN item i ON i.itemid = ici."itemId"
-             WHERE ici."inventoryCountId" = ?
+             JOIN item i ON i.itemid = ici.itemid
+             WHERE ici.inventorycountid = ?
              ORDER BY i.itemname ASC',
             [$id],
             false,
@@ -170,7 +170,7 @@ final class InventoryCountService
         global $db;
 
         $session = ncmExecute(
-            'SELECT "inventoryCountId" FROM inventory_count WHERE "inventoryCountId" = ? AND "companyId" = ? AND "status" = 1 LIMIT 1',
+            'SELECT inventorycountid FROM inventory_count WHERE inventorycountid = ? AND companyid = ? AND "status" = 1 LIMIT 1',
             [$countId, $companyId]
         );
         if (!$session) {
@@ -178,8 +178,8 @@ final class InventoryCountService
         }
 
         $db->Execute(
-            'UPDATE inventory_count_item SET "countedQty" = ?, "countedAt" = NOW(), "countedBy" = ?
-             WHERE "inventoryCountId" = ? AND "itemId" = ?',
+            'UPDATE inventory_count_item SET countedqty = ?, countedat = NOW(), countedby = ?
+             WHERE inventorycountid = ? AND itemid = ?',
             [$qty, $userId, $countId, $itemId]
         );
 
@@ -189,7 +189,7 @@ final class InventoryCountService
     public function bulkSetCountedQty(string $countId, array $rows, string $userId, string $companyId): int
     {
         $session = ncmExecute(
-            'SELECT "inventoryCountId" FROM inventory_count WHERE "inventoryCountId" = ? AND "companyId" = ? AND "status" = 1 LIMIT 1',
+            'SELECT inventorycountid FROM inventory_count WHERE inventorycountid = ? AND companyid = ? AND "status" = 1 LIMIT 1',
             [$countId, $companyId]
         );
         if (!$session) {
@@ -200,8 +200,8 @@ final class InventoryCountService
         $count = 0;
         foreach ($rows as $row) {
             $db->Execute(
-                'UPDATE inventory_count_item SET "countedQty" = ?, "countedAt" = NOW(), "countedBy" = ?
-                 WHERE "inventoryCountId" = ? AND "itemId" = ?',
+                'UPDATE inventory_count_item SET countedqty = ?, countedat = NOW(), countedby = ?
+                 WHERE inventorycountid = ? AND itemid = ?',
                 [$row['qty'], $userId, $countId, $row['itemId']]
             );
             $count += (int) $db->Affected_Rows();
@@ -216,7 +216,7 @@ final class InventoryCountService
         $db->StartTrans();
 
         $session = ncmExecute(
-            'SELECT * FROM inventory_count WHERE "inventoryCountId" = ? AND "companyId" = ? FOR UPDATE',
+            'SELECT * FROM inventory_count WHERE inventorycountid = ? AND companyid = ? FOR UPDATE',
             [$id, $companyId]
         );
 
@@ -235,9 +235,9 @@ final class InventoryCountService
         }
 
         $linesRs = ncmExecute(
-            'SELECT "itemId", "expectedQty", "countedQty", "difference", "unitCost"
+            'SELECT itemid, expectedqty, countedqty, "difference", unitcost
              FROM inventory_count_item
-             WHERE "inventoryCountId" = ? AND "countedQty" IS NOT NULL AND "difference" != 0',
+             WHERE inventorycountid = ? AND countedqty IS NOT NULL AND "difference" != 0',
             [$id],
             false,
             true
@@ -278,7 +278,7 @@ final class InventoryCountService
         }
 
         $db->Execute(
-            'UPDATE inventory_count SET "status" = 2, "finishedAt" = NOW(), "finishedBy" = ? WHERE "inventoryCountId" = ?',
+            'UPDATE inventory_count SET "status" = 2, finishedat = NOW(), finishedby = ? WHERE inventorycountid = ?',
             [$finishedBy, $id]
         );
 
@@ -297,7 +297,7 @@ final class InventoryCountService
     public function cancel(string $id, string $companyId): bool
     {
         $session = ncmExecute(
-            'SELECT "status" FROM inventory_count WHERE "inventoryCountId" = ? AND "companyId" = ? LIMIT 1',
+            'SELECT "status" FROM inventory_count WHERE inventorycountid = ? AND companyid = ? LIMIT 1',
             [$id, $companyId]
         );
 
@@ -311,7 +311,7 @@ final class InventoryCountService
 
         global $db;
         $db->Execute(
-            'UPDATE inventory_count SET "status" = 0 WHERE "inventoryCountId" = ? AND "companyId" = ? AND "status" = 1',
+            'UPDATE inventory_count SET "status" = 0 WHERE inventorycountid = ? AND companyid = ? AND "status" = 1',
             [$id, $companyId]
         );
 
@@ -320,11 +320,11 @@ final class InventoryCountService
 
     public function list(string $companyId, ?string $outletId, ?int $status, int $limit, int $offset): array
     {
-        $where  = ['"companyId" = ?'];
+        $where  = ['companyid = ?'];
         $params = [$companyId];
 
         if ($outletId !== null) {
-            $where[]  = '"outletId" = ?';
+            $where[]  = 'outletid = ?';
             $params[] = $outletId;
         }
 
@@ -343,18 +343,18 @@ final class InventoryCountService
 
         $countParams = array_merge($params, [$limit, $offset]);
         $rowsRs = ncmExecute(
-            "SELECT ic.\"inventoryCountId\", ic.\"docNumber\", ic.\"outletId\", ic.\"locationId\", ic.\"status\",
-                    ic.\"startedAt\", ic.\"finishedAt\", ic.\"note\",
+            "SELECT ic.inventorycountid, ic.docnumber, ic.outletid, ic.locationid, ic.\"status\",
+                    ic.startedat, ic.finishedat, ic.\"note\",
                     o.outletname,
                     t.taxonomyname as \"locationName\",
-                    (SELECT COUNT(*) FROM inventory_count_item ici WHERE ici.\"inventoryCountId\" = ic.\"inventoryCountId\") as \"totalItems\",
-                    (SELECT COUNT(*) FROM inventory_count_item ici WHERE ici.\"inventoryCountId\" = ic.\"inventoryCountId\" AND ici.\"countedQty\" IS NOT NULL) as \"countedItems\",
-                    (SELECT COALESCE(SUM(ici.\"difference\" * ici.\"unitCost\"), 0) FROM inventory_count_item ici WHERE ici.\"inventoryCountId\" = ic.\"inventoryCountId\" AND ici.\"countedQty\" IS NOT NULL AND ici.\"difference\" IS NOT NULL) as \"totalCostDelta\"
+                    (SELECT COUNT(*) FROM inventory_count_item ici WHERE ici.inventorycountid = ic.inventorycountid) as \"totalItems\",
+                    (SELECT COUNT(*) FROM inventory_count_item ici WHERE ici.inventorycountid = ic.inventorycountid AND ici.countedqty IS NOT NULL) as \"countedItems\",
+                    (SELECT COALESCE(SUM(ici.\"difference\" * ici.unitcost), 0) FROM inventory_count_item ici WHERE ici.inventorycountid = ic.inventorycountid AND ici.countedqty IS NOT NULL AND ici.\"difference\" IS NOT NULL) as \"totalCostDelta\"
              FROM inventory_count ic
-             JOIN outlet o ON o.outletid = ic.\"outletId\"
-             LEFT JOIN taxonomy t ON t.taxonomyid = ic.\"locationId\"
+             JOIN outlet o ON o.outletid = ic.outletid
+             LEFT JOIN taxonomy t ON t.taxonomyid = ic.locationid
              WHERE {$whereStr}
-             ORDER BY ic.\"startedAt\" DESC
+             ORDER BY ic.startedat DESC
              LIMIT ? OFFSET ?",
             $countParams,
             false,

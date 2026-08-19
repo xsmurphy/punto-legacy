@@ -178,12 +178,12 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
                    -- modal vacío.
                    EXISTS (
                         SELECT 1 FROM \"addon_group\" ag
-                         WHERE ag.\"itemId\" = i.itemId
-                           AND ag.\"companyId\" = i.companyId
+                         WHERE ag.itemid = i.itemId
+                           AND ag.companyid = i.companyId
                            AND ag.\"status\" = TRUE
                            AND EXISTS (
                                 SELECT 1 FROM \"addon_group_option\" ago
-                                 WHERE ago.\"groupId\" = ag.\"groupId\"
+                                 WHERE ago.groupid = ag.groupid
                            )
                    ) AS hasAddons,
                    -- Grupos de add-ons completos, embebidos en el ítem
@@ -211,33 +211,33 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
          LEFT JOIN LATERAL (
               SELECT json_agg(
                        json_build_object(
-                         'id', ag.\"groupId\",
+                         'id', ag.groupid,
                          'name', ag.\"name\",
-                         'minSelect', ag.\"minSelect\",
-                         'maxSelect', ag.\"maxSelect\",
+                         'minSelect', ag.minselect,
+                         'maxSelect', ag.maxselect,
                          'sort', ag.\"sort\",
                          'options', COALESCE((
                               SELECT json_agg(
                                        json_build_object(
-                                         'id', ago.\"optionId\",
-                                         'itemId', ago.\"itemId\",
+                                         'id', ago.optionid,
+                                         'itemId', ago.itemid,
                                          'itemName', oi.itemName,
-                                         'priceDelta', ago.\"priceDelta\",
-                                         'isDefault', ago.\"isDefault\",
-                                         'isLocked', ago.\"isLocked\",
-                                         'maxQty', ago.\"maxQty\",
+                                         'priceDelta', ago.pricedelta,
+                                         'isDefault', ago.isdefault,
+                                         'isLocked', ago.islocked,
+                                         'maxQty', ago.maxqty,
                                          'sort', ago.\"sort\"
-                                       ) ORDER BY ago.\"sort\" ASC, ago.\"optionId\" ASC
+                                       ) ORDER BY ago.\"sort\" ASC, ago.optionid ASC
                                      )
                                 FROM \"addon_group_option\" ago
-                                JOIN item oi ON oi.itemId = ago.\"itemId\"
-                               WHERE ago.\"groupId\" = ag.\"groupId\"
+                                JOIN item oi ON oi.itemId = ago.itemid
+                               WHERE ago.groupid = ag.groupid
                          ), '[]'::json)
-                       ) ORDER BY ag.\"sort\" ASC, ag.\"groupId\" ASC
+                       ) ORDER BY ag.\"sort\" ASC, ag.groupid ASC
                      ) AS groups
                 FROM \"addon_group\" ag
-               WHERE ag.\"itemId\" = i.itemId
-                 AND ag.\"companyId\" = i.companyId
+               WHERE ag.itemid = i.itemId
+                 AND ag.companyid = i.companyId
                  AND ag.\"status\" = TRUE
          ) addons ON true
          LEFT JOIN LATERAL (

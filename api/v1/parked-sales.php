@@ -38,10 +38,10 @@ if ($method === 'GET') {
     // las da PG (lowercase) y sin CIA de por medio, así que se nombran acá para
     // no depender del casing.
     $rows = $db->Execute(
-        'SELECT id::text AS id, data::text AS payload, "createdAt"::text AS createdat'
+        'SELECT id::text AS id, data::text AS payload, createdat::text AS createdat'
         . ' FROM parked_sale'
-        . ' WHERE "companyId"=? AND "outletId"=? AND "userId"=?'
-        . ' ORDER BY "createdAt" DESC',
+        . ' WHERE companyid=? AND outletid=? AND userid=?'
+        . ' ORDER BY createdat DESC',
         [$companyId, $outletId, $userId]
     );
     $result = [];
@@ -67,8 +67,8 @@ if ($method === 'POST') {
     }
     $dataJson = json_encode($body['data']);
     $id = ncmExecute(
-        'INSERT INTO parked_sale ("companyId", "outletId", "userId", data)'
-        . ' VALUES (?, ?, ?, ?::jsonb) RETURNING id, "createdAt"',
+        'INSERT INTO parked_sale (companyid, outletid, userid, data)'
+        . ' VALUES (?, ?, ?, ?::jsonb) RETURNING id, createdat',
         [$companyId, $outletId, $userId, $dataJson],
         false,
         true
@@ -90,7 +90,7 @@ if ($method === 'DELETE') {
         apiError('Falta id', 422);
     }
     ncmExecute(
-        'DELETE FROM parked_sale WHERE id=? AND "companyId"=?',
+        'DELETE FROM parked_sale WHERE id=? AND companyid=?',
         [$saleId, $companyId]
     );
     if ($db->Affected_Rows() === 0) {

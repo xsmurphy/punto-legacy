@@ -463,7 +463,7 @@ final class RegisterAdminService
                     // emitir y con un error de constraint. Mejor acá.
                     $leased = ncmExecute(
                         'SELECT 1 FROM "numbering_lease"
-                          WHERE "registerId" = ? AND "companyId" = ? AND "invoiceNo" = ? LIMIT 1',
+                          WHERE registerid = ? AND companyid = ? AND invoiceno = ? LIMIT 1',
                         [$id, $this->companyId, $n]
                     );
                     if ($leased) {

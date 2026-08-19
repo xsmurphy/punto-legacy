@@ -32,7 +32,7 @@
  * outlet, item, taxonomy, ai_credit_ledger, document_template) también
  * fueron creadas sin comillas → companyId se pliega a "companyid" y ambas
  * grafías funcionan. auth_session y printer_binding SÍ fueron creadas con
- * columnas quoted mixed-case ("companyId") — esas queries van con comillas
+ * columnas quoted mixed-case (companyid) — esas queries van con comillas
  * dobles exactas, si no Postgres no encuentra la columna.
  *
  * "commercial" (plan/pagos): se deriva de company.status/blocked/suspended/
@@ -518,9 +518,9 @@ class TenantHealthService
                 WHERE companyId IN ($place) AND taxonomyType = 'paymentMethod' AND taxonomyName NOT ILIKE 'efectivo'
                 GROUP BY companyId", $ids, 'paymentmethodsnoncash');
 
-        $set('SELECT "companyId" AS companyid, COUNT(*) AS n FROM "printer_binding"
-                WHERE "companyId" IN (' . $place . ')
-                GROUP BY "companyId"', $ids, 'printerbinding');
+        $set('SELECT companyid AS companyid, COUNT(*) AS n FROM "printer_binding"
+                WHERE companyid IN (' . $place . ')
+                GROUP BY companyid', $ids, 'printerbinding');
 
         $set("SELECT companyId AS companyid, COUNT(*) AS n FROM document_template
                 WHERE companyId IN ($place)
@@ -559,10 +559,10 @@ class TenantHealthService
                 WHERE companyId IN ($place) AND type = 0
                 GROUP BY companyId", $ids, 'totalusers');
 
-        $set('SELECT "companyId" AS companyid, COUNT(DISTINCT "userId") AS n FROM auth_session
-                WHERE "companyId" IN (' . $place . ") AND realm = 'panel' AND status = 1
-                  AND \"lastSeenAt\" >= now() - interval '14 days'
-                GROUP BY \"companyId\"", $ids, 'activeusers14d');
+        $set('SELECT companyid AS companyid, COUNT(DISTINCT userid) AS n FROM auth_session
+                WHERE companyid IN (' . $place . ") AND realm = 'panel' AND status = 1
+                  AND lastseenat >= now() - interval '14 days'
+                GROUP BY companyid", $ids, 'activeusers14d');
 
         $set("SELECT companyid, COUNT(*) AS n FROM device
                 WHERE companyid IN ($place) AND status = 1

@@ -1412,7 +1412,7 @@ class CompanyAdminService
         $pageSize = max(10, min(100, $pageSize));
         $offset   = ($page - 1) * $pageSize;
 
-        $totalRow = $db->Execute('SELECT COUNT(*) AS n FROM tenant_note WHERE "companyId" = ?', [$companyId]);
+        $totalRow = $db->Execute('SELECT COUNT(*) AS n FROM tenant_note WHERE companyid = ?', [$companyId]);
         $total    = ($totalRow && !$totalRow->EOF) ? (int) ($totalRow->fields['n'] ?? 0) : 0;
 
         $rows = [];
@@ -1420,14 +1420,14 @@ class CompanyAdminService
             // admin_user.adminId sin comillas a propósito: a diferencia de
             // tenant_note (creada con columnas quoted camelCase), admin_user
             // se creó SIN quotes → Postgres plegó adminId a minúsculas
-            // (adminid). Citarla como "adminId" exige match exacto de
+            // (adminid). Citarla como adminid exige match exacto de
             // mayúsculas y Postgres tira "column does not exist".
-            'SELECT n."noteId", n."companyId", n."authorId", n.body, n."createdAt",
+            'SELECT n.noteid, n.companyid, n.authorid, n.body, n.createdat,
                     a.name AS "authorName", a.email AS "authorEmail"
              FROM tenant_note n
-             LEFT JOIN admin_user a ON a.adminId = n."authorId"
-             WHERE n."companyId" = ?
-             ORDER BY n."createdAt" DESC LIMIT ? OFFSET ?',
+             LEFT JOIN admin_user a ON a.adminId = n.authorid
+             WHERE n.companyid = ?
+             ORDER BY n.createdat DESC LIMIT ? OFFSET ?',
             [$companyId, $pageSize, $offset]
         );
         if ($r) {
@@ -1466,8 +1466,8 @@ class CompanyAdminService
         }
 
         $r = $db->Execute(
-            'INSERT INTO tenant_note ("companyId", "authorId", body)
-             VALUES (?, ?, ?) RETURNING "noteId", "createdAt"',
+            'INSERT INTO tenant_note (companyid, authorid, body)
+             VALUES (?, ?, ?) RETURNING noteid, createdat',
             [$companyId, $authorId, $body]
         );
         if ($r === false || $r->EOF) {
@@ -1491,7 +1491,7 @@ class CompanyAdminService
     {
         global $db;
 
-        $row = $db->Execute('SELECT "authorId" FROM tenant_note WHERE "noteId" = ? LIMIT 1', [$noteId]);
+        $row = $db->Execute('SELECT authorid FROM tenant_note WHERE noteid = ? LIMIT 1', [$noteId]);
         if (!$row || $row->EOF) {
             return ['ok' => false, 'error' => 'Nota no encontrada', 'code' => 404];
         }
@@ -1500,7 +1500,7 @@ class CompanyAdminService
             return ['ok' => false, 'error' => 'Solo el autor puede borrar su nota', 'code' => 403];
         }
 
-        $r = $db->Execute('DELETE FROM tenant_note WHERE "noteId" = ?', [$noteId]);
+        $r = $db->Execute('DELETE FROM tenant_note WHERE noteid = ?', [$noteId]);
         if ($r === false) {
             return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
         }
