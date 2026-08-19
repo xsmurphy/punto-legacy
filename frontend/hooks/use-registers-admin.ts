@@ -63,6 +63,12 @@ export interface RegisterListItem {
   fiscal: RegisterFiscal
   numbering: RegisterNumbering
   range: RegisterRange
+  /** Hotkeys de artículo configurados en esta caja que hoy no resuelven
+   *  contra su catálogo visible (otra sucursal, o ítem borrado) — el POS ya
+   *  degrada esos slots a vacío-reusable (no rompe la grilla), esto es solo
+   *  la señal para que el admin sepa qué caja conviene reconfigurar.
+   *  Ver RegisterAdminService::orphanHotkeyCounts(). */
+  orphanHotkeys: number
 }
 
 export function useRegistersAdmin() {
