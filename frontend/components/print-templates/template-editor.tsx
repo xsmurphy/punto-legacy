@@ -448,14 +448,15 @@ export function TemplateEditor({ existing }: Props) {
 
   // "Simular impresión" — dispara el diálogo de impresión REAL del browser
   // (mismo camino que el botón "Probar" de Ajustes → Impresoras en transport
-  // native), no la aproximación en pantalla de PreviewDialog. Usa `config`
-  // TAL CUAL está en el editor en este momento — incluye cambios sin guardar,
-  // porque es el mismo state de React, no una relectura del backend. Los
-  // datos son la MISMA venta de demo que ya alimenta el canvas/PreviewDialog
-  // (`buildDemoTicketData`, memoizada en `demoData`), pasada por
-  // `buildTemplateTestData` para enmascarar cliente + forzar el correlativo
-  // de ejemplo — mismo tratamiento que `buildTicketDataForTest` le da al
-  // ticket de prueba del POS (build-ticket-data.ts).
+  // native, y que el botón "Imprimir" de PreviewDialog — los tres llaman
+  // `simulateTemplatePrint`/`renderTemplateToHtml`, un solo motor). Usa
+  // `config` TAL CUAL está en el editor en este momento — incluye cambios
+  // sin guardar, porque es el mismo state de React, no una relectura del
+  // backend. Los datos son la MISMA venta de demo que ya alimenta el
+  // canvas/PreviewDialog (`buildDemoTicketData`, memoizada en `demoData`),
+  // pasada por `buildTemplateTestData` para enmascarar cliente + forzar el
+  // correlativo de ejemplo — mismo tratamiento que `buildTicketDataForTest`
+  // le da al ticket de prueba del POS (build-ticket-data.ts).
   const handleSimulatePrint = () => {
     const testData = buildTemplateTestData(taxesQuery.data?.taxes ?? [])
     simulateTemplatePrint(config, testData)

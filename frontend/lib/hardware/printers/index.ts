@@ -242,28 +242,39 @@ function nearestReceiptPaperWidthMm(pageSize: PaperSize): 58 | 80 {
 }
 
 /**
- * "Simular impresión" — `/settings/print-templates` (TemplateEditor). Mismo
- * camino que `printTest`/`printSale` en transport `native`: renderiza la
- * plantilla con `renderTemplateToHtml()` (el renderer REAL — hoja posicional
- * en mm, rollo en flujo lineal según `isReceipt(template.page_size)`) y
- * dispara el diálogo de impresión nativo del browser vía `triggerWindowPrint`
- * (iframe oculto → `window.print()`), para que el owner pueda mandarlo a
- * papel o a "Guardar como PDF" y ver el resultado físico exacto.
+ * HTML final de una plantilla en modo editor (`/settings/print-templates`) —
+ * ÚNICO punto que decide `paperWidthMm` cuando no hay `PrinterBinding` de por
+ * medio (el editor no está ligado a una impresora física). Usa
+ * `nearestReceiptPaperWidthMm` para rollo, nada para hoja (hoja resuelve su
+ * ancho físico solo, vía `PAPER_DIMENSIONS`/`template.mm` dentro de
+ * `renderTemplateToHtml`).
  *
- * A diferencia de `printTest`, acá no hay `PrinterBinding` — el editor no
- * está ligado a una impresora física, solo quiere ver CÓMO saldría. Por eso
- * recibe `template`/`data` directo en vez de resolver por `templateId`, y
- * para rollo usa `nearestReceiptPaperWidthMm` en vez del `paperWidthMm`
- * calibrado de una impresora real, que acá no existe.
+ * Consumida por DOS superficies que antes divergían — `PreviewDialog`
+ * (vista previa en pantalla, ahora un `<iframe>` que renderiza este mismo
+ * HTML en vez de reimplementar el layout en CSS) y `simulateTemplatePrint`
+ * (botón "Simular impresión") — así que lo que el owner ve en pantalla y lo
+ * que sale por window.print() son BYTE A BYTE el mismo documento, generado
+ * una sola vez por el mismo motor que usan `printSale`/`printTest`.
  *
- * `template` es el `PrintTemplateConfig` TAL CUAL está en el editor en ese
- * momento — incluye cambios sin guardar, porque es el mismo objeto de estado
- * de React (`config` en `TemplateEditor`), no una relectura desde el backend.
+ * `template`/`data` van TAL CUAL — `template` es el `PrintTemplateConfig` en
+ * el estado de React del editor (incluye cambios sin guardar), `data` la
+ * venta de demo (o de prueba, enmascarada) que ya alimenta el canvas.
  */
-export function simulateTemplatePrint(template: PrintTemplateConfig, data: TicketData): void {
+export function buildTemplatePreviewHtml(template: PrintTemplateConfig, data: TicketData): string {
   const paperWidthMm = isReceipt(template.page_size)
     ? nearestReceiptPaperWidthMm(template.page_size)
     : undefined
-  const html = renderTemplateToHtml(template, data, { paperWidthMm })
-  triggerWindowPrint(html)
+  return renderTemplateToHtml(template, data, { paperWidthMm })
+}
+
+/**
+ * "Simular impresión" — `/settings/print-templates` (TemplateEditor) y el
+ * botón "Imprimir" de `PreviewDialog`: MISMO código, mismo HTML
+ * (`buildTemplatePreviewHtml`), mismo transporte que `printTest`/`printSale`
+ * en transport `native` — `triggerWindowPrint` (iframe oculto →
+ * `window.print()`) — para que el owner pueda mandarlo a papel o a "Guardar
+ * como PDF" y ver el resultado físico exacto.
+ */
+export function simulateTemplatePrint(template: PrintTemplateConfig, data: TicketData): void {
+  triggerWindowPrint(buildTemplatePreviewHtml(template, data))
 }

@@ -183,16 +183,19 @@ function renderTicketBody(blocks: PrintBlock[], data: TicketData): string {
  *
  * Las filas de ítems (`ITEM_LINE_TYPES`) son la única sección que CRECE:
  * comparten un `top` (una "fila plantilla" que el motor repite una vez por
- * producto). El paso por ítem de CADA bloque usa SU PROPIO `height` (no el
- * máximo del grupo) — mismo criterio que ya usa `PreviewDialog`
- * (preview-dialog.tsx, `rb.top + itemIdx * rb.height`), así que una columna
- * con alto distinto a sus vecinas crece igual acá que en la Vista Previa que
- * el owner ya validó. Lo que SÍ es nuevo acá (`PreviewDialog` no lo hace: es
- * una limitación conocida y aceptada de esa vista, no algo que este fix deba
- * resolver) es empujar hacia abajo lo que viene DESPUÉS del grupo — ahí se
- * usa el `Math.max` de alturas del grupo (no el alto de un bloque puntual)
- * para no subestimar cuánto espacio ocupó la fila más alta y solapar
- * subtotales/liquidación de impuestos que vienen debajo en el canvas.
+ * producto). El paso por ítem de TODO el grupo usa `rowHeight`, el alto
+ * MÁXIMO entre los bloques de la fila — nunca el alto propio de un bloque
+ * puntual. Bug corregido acá (antes usaba `itemIdx * rb.height`, el alto
+ * de CADA bloque por separado): si "Producto" tenía más alto que "Precio"
+ * (fila pensada para nombres largos, columnas de importe angostas de una
+ * sola línea), cada columna avanzaba a un ritmo distinto — la fila se
+ * desarmaba por ítem, con columnas altas empujando su contenido lejos de
+ * sus vecinas y generando el vacío gigante entre ítems que reportó el
+ * owner. `rowHeight` uniforme mantiene TODOS los campos de una misma fila
+ * pegados entre sí, ítem tras ítem — así se ve una fila, no una fila que se
+ * desarma. La vista previa en pantalla ya no tiene su propia copia de este
+ * cálculo (ver `PreviewDialog`, que ahora renderiza este mismo HTML en un
+ * iframe) — un solo lugar donde este bug puede existir o corregirse.
  *
  * `item_receipt*` (ITEM_TABLE_TYPES) es un único bloque que arma el listado
  * COMPLETO — su alto real depende de cuántos ítems tenga la venta, así que
@@ -237,9 +240,10 @@ function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number
         for (const rb of rowBlocks) {
           parts.push(
             positioned(
-              // Paso por SU PROPIO alto (no el máximo del grupo) — ver
-              // docblock de la función, mismo criterio que PreviewDialog.
-              rb.top + pushDown + itemIdx * rb.height,
+              // Paso por `rowHeight` (alto MÁXIMO del grupo) — ver docblock
+              // de la función. Todos los campos de la fila avanzan lo mismo
+              // por ítem, así que la fila se mueve como una unidad.
+              rb.top + pushDown + itemIdx * rowHeight,
               rb.left,
               rb.width,
               rb.height,
