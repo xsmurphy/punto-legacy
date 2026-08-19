@@ -65,7 +65,7 @@ un reporte (ver sección 5).
 - **F6 de add-ons (reportes por add-on) sin empezar**, y con un gap de datos previo que lo bloquea aunque se implemente (regla 6).
 - **Producción→Reportes con contrato roto desde siempre** (regla 7) — mismo hallazgo que `05-stock.md`/`06-produccion.md`, documentado acá también por completitud del módulo de Reportes.
 - **Libro de compras**: fuera de alcance, no planificado (regla 5) — no confundir con "pendiente", es una decisión de scope de F5.
-- **Trabajo paralelo sin mergear**: la branch `docs/reportes-fiscales` tiene un solo commit (`4eba5c28`, 2026-08-08) con una versión temprana de `context/40-reportes-fiscales-plan.md` que trataba RG90/Libro Ventas como "generador de archivo de importación" con un scope más amplio (ventas Y compras) y dependencias distintas a como terminó implementándose en `main` (F5, solo ventas, commits `863790e7`/`468b82fb`). Ese plan quedó superseded por la implementación real — no representa el estado actual, se menciona para que no se confunda con vigente.
+- **Trabajo paralelo sin mergear**: la branch `docs/reportes-fiscales` tiene un solo commit (`4eba5c28`, 2026-08-08) con una versión temprana de `context/46-reportes-fiscales-plan.md` que trataba RG90/Libro Ventas como "generador de archivo de importación" con un scope más amplio (ventas Y compras) y dependencias distintas a como terminó implementándose en `main` (F5, solo ventas, commits `863790e7`/`468b82fb`). Ese plan quedó superseded por la implementación real — no representa el estado actual, se menciona para que no se confunda con vigente.
 
 ## 8. Planes y decisiones relacionados
 

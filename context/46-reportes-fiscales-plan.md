@@ -1,4 +1,4 @@
-# 40 — Reportes fiscales Paraguay (RG90 — Registro de Comprobantes Marangatu)
+# 46 — Reportes fiscales Paraguay (RG90 — Registro de Comprobantes Marangatu)
 
 > Estado: **PLAN, sin implementar** (2026-08-08). Es la fase **F5** de
 > `context/38-impuestos-multi-pais.md`.
