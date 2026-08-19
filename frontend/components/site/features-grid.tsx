@@ -25,11 +25,11 @@ export function FeaturesGrid() {
         <div className="max-w-xl">
           {/* razón: escala display de marketing, no aplica escala panel (§14) */}
           <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-5xl">
-            Todo en un solo lugar
+            Cada módulo viene incluido
           </h2>
           <p className="mt-4 text-base text-muted-foreground md:text-lg">
-            El día a día del negocio — ventas, caja, stock, clientes — a la
-            vista y en orden, con el mismo plan.
+            Del primer ticket al reporte fiscal: nada se vende por separado ni
+            se desbloquea después.
           </p>
         </div>
         <div className="hidden gap-2 md:flex">

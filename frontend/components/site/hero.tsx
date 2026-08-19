@@ -37,9 +37,9 @@ export function SiteHero() {
       <div className="relative mx-auto flex w-full max-w-6xl flex-col items-center px-4 pb-40 pt-32 text-center md:px-6">
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
         <h1 className="max-w-3xl text-balance text-5xl font-semibold tracking-tight text-white md:text-7xl">
-          Tu negocio,
+          Todo tu negocio
           <br />
-          en un solo punto.
+          pasa por un punto.
         </h1>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Button
@@ -55,11 +55,11 @@ export function SiteHero() {
             variant="outline"
             className="rounded-full border-white/25 bg-white/10 px-7 text-white backdrop-blur hover:bg-white/20 hover:text-white"
           >
-            <Link href="#">Hablar con nosotros</Link>
+            <Link href="#">Escribinos</Link>
           </Button>
         </div>
         <p className="mt-4 text-sm text-white/60">
-          Gratis para empezar. Sin tarjeta.
+          Probalo gratis — sin tarjeta ni permanencia.
         </p>
       </div>
     </section>

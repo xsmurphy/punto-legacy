@@ -15,10 +15,11 @@ export function ModulesTabs() {
       <div className="mx-auto max-w-2xl text-center">
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
         <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-5xl">
-          Tu negocio puede ser mucho más
+          Más que una caja registradora
         </h2>
         <p className="mt-4 text-base text-muted-foreground md:text-lg">
-          Ventas, caja, facturación y stock, desde el mismo sistema.
+          Ventas, caja, facturación y stock trabajando juntos, sin planillas al
+          costado.
         </p>
       </div>
 

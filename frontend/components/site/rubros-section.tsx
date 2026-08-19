@@ -33,11 +33,11 @@ export function RubrosSection() {
         <div className="max-w-xl">
           {/* razón: escala display de marketing, no aplica escala panel (§14) */}
           <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-5xl">
-            Hecho para tu tipo de negocio
+            Cada rubro trabaja distinto
           </h2>
           <p className="mt-4 text-base text-muted-foreground md:text-lg">
-            Un minimarket no trabaja como un restaurante. Cada rubro tiene su
-            página, con sus problemas y cómo los resuelve.
+            Un minimarket no cierra caja como un restaurante. Punto se acomoda
+            al tuyo — mirá el recorrido de tu rubro.
           </p>
         </div>
       </div>
@@ -66,7 +66,7 @@ export function RubrosSection() {
             href="#"
             className="mt-2 text-2xl font-semibold tracking-tight text-muted-foreground/40 transition-colors hover:text-muted-foreground md:text-4xl"
           >
-            ¿Otro negocio?
+            ¿El tuyo no está?
           </Link>
         </nav>
 
@@ -85,7 +85,7 @@ export function RubrosSection() {
           </div>
           <Button asChild variant="outline" className="w-fit rounded-full">
             <Link href={`/para/${rubro.slug}`}>
-              Cómo funciona para {rubro.label.toLowerCase()}
+              Ver Punto en {rubro.label.toLowerCase()}
               <ArrowRight className="size-4" />
             </Link>
           </Button>

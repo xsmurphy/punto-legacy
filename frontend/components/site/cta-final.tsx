@@ -4,10 +4,10 @@ import { ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const QUICK_LINKS = [
-  { label: "Antes de empezar", href: "#" },
-  { label: "Cómo empezar", href: "#" },
+  { label: "Precios y planes", href: "#" },
   { label: "Preguntas frecuentes", href: "#" },
-  { label: "Soporte", href: "#" },
+  { label: "Centro de ayuda", href: "#" },
+  { label: "Hablar con el equipo", href: "#" },
 ]
 
 /** Filas de links previas al CTA final (estilo índice). */
@@ -37,17 +37,17 @@ export function CtaFinal() {
     <section className="mx-auto w-full max-w-6xl px-4 py-24 text-center md:px-6 md:py-32">
       {/* razón: escala display de marketing, no aplica escala panel (§14) */}
       <h2 className="mx-auto max-w-2xl text-balance text-3xl font-semibold tracking-tight md:text-5xl">
-        Empezar la prueba gratis, hoy
+        Tu primer ticket, hoy mismo
       </h2>
       <p className="mt-4 text-base text-muted-foreground md:text-lg">
-        Sin tarjeta. Se cancela en cualquier momento.
+        La prueba es gratis, sin tarjeta, y se cancela cuando quieras.
       </p>
       <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
         <Button asChild size="lg" className="rounded-full px-7">
           <Link href="#">Empezar</Link>
         </Button>
         <Button asChild size="lg" variant="outline" className="rounded-full px-7">
-          <Link href="#">Hablar con nosotros</Link>
+          <Link href="#">Escribinos</Link>
         </Button>
       </div>
     </section>

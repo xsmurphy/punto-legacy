@@ -16,18 +16,12 @@ import {
 import { HOME_RUBROS } from "@/lib/site/modules"
 import { cn } from "@/lib/utils"
 
-const PRODUCTO_LINKS = [
+const MODULOS_LINKS = [
   { label: "Ventas y caja", href: "#" },
   { label: "Facturación electrónica", href: "#" },
   { label: "Stock y compras", href: "#" },
   { label: "Clientes y crédito", href: "#" },
   { label: "Reportes", href: "#" },
-]
-
-const RECURSOS_LINKS = [
-  { label: "Precios", href: "#" },
-  { label: "Ayuda", href: "#" },
-  { label: "Guías", href: "#" },
 ]
 
 function NavDropdown({
@@ -98,16 +92,26 @@ export function SiteHeader() {
             <PuntoLogo scheme={overlay ? "on-dark" : "on-light"} className="h-6 w-[88px]" />
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
-            <NavDropdown label="Producto" items={PRODUCTO_LINKS} overlay={overlay} />
+            <NavDropdown label="Módulos" items={MODULOS_LINKS} overlay={overlay} />
             <NavDropdown
-              label="Soluciones"
+              label="Rubros"
               items={HOME_RUBROS.map((r) => ({
                 label: r.label,
                 href: `/para/${r.slug}`,
               }))}
               overlay={overlay}
             />
-            <NavDropdown label="Recursos" items={RECURSOS_LINKS} overlay={overlay} />
+            <Link
+              href="#"
+              className={cn(
+                "rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                overlay
+                  ? "text-white/80 hover:text-white"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Precios
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-2">

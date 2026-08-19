@@ -40,7 +40,7 @@ export const MODULE_TABS: ModuleTab[] = [
     label: "Ventas",
     title: "Cobrar rápido, sin errores de tipeo",
     description:
-      "La venta se arma tocando el catálogo y el total se hace solo. Contado, crédito o mixto, en la misma pantalla y sin calculadora aparte.",
+      "La venta se arma tocando el catálogo o escaneando, y el total sale solo. Contado, crédito o mixto, en la misma pantalla.",
     idealFor: "minimarkets · restaurantes · tiendas",
     mockup: "ticket",
   },
@@ -74,7 +74,7 @@ export const MODULE_TABS: ModuleTab[] = [
   {
     key: "clientes",
     label: "Clientes",
-    title: "Conocer a quién vuelve",
+    title: "Saber quién te compra",
     description:
       "Quién compró, qué compró y cuánto debe. Crédito con límite, cobranzas al día y la historia completa de cada cliente.",
     idealFor: "almacenes · farmacias · locales de barrio",
@@ -116,7 +116,7 @@ export const FEATURE_CARDS: FeatureCard[] = [
     key: "ordenes",
     icon: CalendarClock,
     title: "Órdenes y mesas",
-    description: "La comanda entra sola y cada espacio muestra su cuenta abierta.",
+    description: "El pedido viaja a cocina sin papeles y cada mesa muestra su cuenta abierta.",
   },
   {
     key: "cotizaciones",

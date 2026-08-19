@@ -87,9 +87,9 @@ function MockTotal({ left, right }: { left: string; right: string }) {
 export function MockupTicket() {
   return (
     <MockFrame label="Caja 1" title="Venta en curso">
-      <MockRow left="2× Milanesa napolitana" right="Gs. 145.000" sub={["Con papas · Sin ají"]} />
-      <MockRow left="1× Papas rústicas" right="Gs. 48.000" />
-      <MockTotal left="Cobrar" right="Gs. 193.000" />
+      <MockRow left="1× Lomito árabe" right="Gs. 35.000" sub={["Sin cebolla · Extra queso"]} />
+      <MockRow left="2× Jugo de mburucuyá" right="Gs. 24.000" />
+      <MockTotal left="Cobrar" right="Gs. 59.000" />
     </MockFrame>
   )
 }
@@ -133,8 +133,8 @@ export function MockupStock() {
 export function MockupClientes() {
   return (
     <MockFrame label="Clientes" title="Los que vuelven">
-      <MockRow left="Lucía Benítez" right="Gs. 1.240.000" sub={["8 compras · última hace 3 días"]} />
-      <MockRow left="Marcos Ayala" right="Gs. 780.000" sub={["5 compras · debe Gs. 120.000"]} />
+      <MockRow left="Carmen Ríos" right="Gs. 1.180.000" sub={["9 compras · última hace 2 días"]} />
+      <MockRow left="Diego Vera" right="Gs. 640.000" sub={["4 compras · debe Gs. 95.000"]} />
       <MockRow left="Elvira Ruiz" right="Gs. 460.000" sub={["3 compras"]} />
     </MockFrame>
   )
@@ -210,10 +210,10 @@ export function MockupComanda() {
       className="bg-background/95 backdrop-blur"
     >
       <MockRow
-        left="1× Pizza grande"
-        sub={["½ Fugazzeta · ½ Napolitana", "Sin aceitunas"]}
+        left="1× Hamburguesa doble"
+        sub={["Sin pepinillos · Mayonesa aparte"]}
       />
-      <MockRow left="2× Limonada" right="Gs. 44.000" />
+      <MockRow left="2× Limonada de menta" right="Gs. 30.000" />
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">hace 2 min</span>
         <Button size="sm" variant="secondary" className="pointer-events-none">

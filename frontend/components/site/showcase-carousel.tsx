@@ -9,28 +9,28 @@ import { cn } from "@/lib/utils"
 const SHOWCASES = [
   {
     name: "La Estancia",
-    description: "Parrilla de barrio en Lambaré. A las brasas desde 2011.",
+    description: "Parrilla en Lambaré. 60 cubiertos por noche, dos turnos de caja.",
     status: "Abierto · cierra 01:00",
     open: true,
     tint: "from-chart-2/40 via-chart-1/10",
   },
   {
     name: "Mercadito San Blas",
-    description: "Minimarket familiar, abierto todos los días del año.",
+    description: "Autoservicio familiar. Tres cajas y reposición diaria.",
     status: "Abierto · 24 horas",
     open: true,
     tint: "from-chart-1/40 via-chart-2/10",
   },
   {
     name: "Farmacia Del Sol",
-    description: "Tres sucursales en Asunción. Delivery propio.",
+    description: "Tres sucursales en Asunción con stock compartido a la vista.",
     status: "Abierto · cierra 22:00",
     open: true,
     tint: "from-chart-3/40 via-chart-1/10",
   },
   {
     name: "Lo de Ña Tere",
-    description: "Cocina casera en San Lorenzo. La misma olla desde 1988.",
+    description: "Cocina casera en San Lorenzo. Tres generaciones detrás del mostrador.",
     status: "Cerrado · abre hoy 11:00",
     open: false,
     tint: "from-chart-4/40 via-chart-3/10",
@@ -73,19 +73,6 @@ export function ShowcaseCarousel() {
             </article>
           ))}
         </div>
-      </div>
-      <p className="mx-auto mt-6 max-w-6xl px-4 text-center text-sm text-muted-foreground md:px-6">
-        Lo que hay detrás de tu negocio en Punto.
-      </p>
-      <div className="mx-auto mt-4 flex max-w-6xl flex-wrap items-center justify-center gap-x-10 gap-y-3 px-4 md:px-6">
-        {["SIFEN", "WhatsApp", "Mercado Pago", "Google Maps"].map((brand) => (
-          <span
-            key={brand}
-            className="text-lg font-semibold tracking-tight text-muted-foreground/60"
-          >
-            {brand}
-          </span>
-        ))}
       </div>
     </section>
   )
