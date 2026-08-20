@@ -13,6 +13,7 @@ import {
   MonitorSmartphone,
   Printer,
   ReceiptText,
+  Sparkles,
   Store,
   Tags,
   Truck,
@@ -39,7 +40,7 @@ export const MODULE_TABS: ModuleTab[] = [
   {
     key: "ventas",
     label: "Ventas",
-    title: "Cobrar rápido, sin errores de tipeo",
+    title: "La venta, en segundos",
     description:
       "La venta se arma tocando el catálogo o escaneando, y el total sale solo. Contado, crédito o mixto, en la misma pantalla.",
     idealFor: "minimarkets · restaurantes · tiendas",
@@ -47,7 +48,7 @@ export const MODULE_TABS: ModuleTab[] = [
   },
   {
     key: "caja",
-    label: "Caja",
+    label: "Caja y turnos",
     title: "El turno cierra con números, no con memoria",
     description:
       "Apertura, movimientos y arqueo por turno y por caja. Lo esperado contra lo contado, y cada diferencia con nombre y hora.",
@@ -68,8 +69,8 @@ export const MODULE_TABS: ModuleTab[] = [
     label: "Facturación",
     title: "Factura electrónica sin trámite aparte",
     description:
-      "La factura sale de la misma venta y viaja a SIFEN sola. Numeración por timbrado y punto de expedición, siempre en regla.",
-    idealFor: "todo negocio que factura en Paraguay",
+      "La factura sale de la misma venta y se envía sola al organismo fiscal. Numeración y series controladas por el sistema, siempre en regla.",
+    idealFor: "todo negocio que emite comprobantes",
     mockup: "factura",
   },
   {
@@ -111,10 +112,16 @@ export type FeatureCard = {
 
 export const FEATURE_CARDS: FeatureCard[] = [
   {
-    key: "sifen",
+    key: "ai",
+    icon: Sparkles,
+    title: "Punto AI",
+    description: "Preguntale por tus números y responde con los datos del negocio.",
+  },
+  {
+    key: "efactura",
     icon: FileCheck,
     title: "Factura electrónica",
-    description: "La venta viaja a SIFEN sola, con su CDC y su estado a la vista.",
+    description: "El comprobante se emite y se envía solo, con su estado siempre a la vista.",
   },
   {
     key: "sucursales",
@@ -192,7 +199,7 @@ export const FEATURE_CARDS: FeatureCard[] = [
     key: "fiscales",
     icon: ReceiptText,
     title: "Reportes fiscales",
-    description: "El RG90 y el libro de ventas salen del sistema, no del contador apurado.",
+    description: "Los libros de venta y de compra salen del sistema, no del contador apurado.",
   },
   {
     key: "impresion",
@@ -204,7 +211,7 @@ export const FEATURE_CARDS: FeatureCard[] = [
     key: "dispositivos",
     icon: MonitorSmartphone,
     title: "Dispositivos y cajas",
-    description: "Cada caja con su sesión, sus permisos y su punto de expedición.",
+    description: "Cada caja con su sesión, sus permisos y su numeración propia.",
   },
 ]
 

@@ -55,7 +55,7 @@ export const RUBROS: Rubro[] = [
     thirtySeconds: [
       "El pedido de cada mesa entra a la cocina en el momento, con agregados y aclaraciones literales.",
       "La cuenta se divide en partes iguales o por lo que consumió cada uno, desde la misma pantalla.",
-      "La factura electrónica sale al cerrar la mesa y viaja a SIFEN sola.",
+      "La factura electrónica sale al cerrar la mesa y se envía sola.",
       "Si se corta internet, la caja sigue emitiendo: al volver la conexión todo se sincroniza.",
     ],
     sections: [
@@ -202,12 +202,12 @@ export const RUBROS: Rubro[] = [
     eyebrow: "Para farmacias",
     heroTitle: "Vender con receta, vencimiento y crédito bajo control",
     heroDescription:
-      "El mostrador cobra rápido, el stock vigila vencimientos y cada cliente con cuenta corriente tiene su límite y su historia. La factura electrónica sale en el mismo paso, como exige SIFEN.",
+      "El mostrador cobra rápido, el stock vigila vencimientos y cada cliente con cuenta corriente tiene su límite y su historia. La factura electrónica sale en el mismo paso, ya lista para el organismo fiscal.",
     thirtySeconds: [
       "Búsqueda por nombre, droga o código de barras, con el precio de cada lista.",
       "El lote y el vencimiento se controlan al vender, no al descubrir la caja vencida.",
       "La cuenta corriente del cliente lleva límite, saldo y recibos de cada pago.",
-      "La factura electrónica con RUC sale del mismo ticket, sin trámite aparte.",
+      "La factura electrónica del cliente sale del mismo ticket, sin trámite aparte.",
     ],
     sections: [
       {

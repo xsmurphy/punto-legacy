@@ -15,6 +15,7 @@ import {
   Pill,
   ReceiptText,
   Shirt,
+  Sparkles,
   ShoppingBasket,
   Store,
   Users,
@@ -42,14 +43,14 @@ type MenuEntry = {
 const MODULOS: MenuEntry[] = [
   {
     icon: Store,
-    label: "Ventas y caja",
-    description: "Cobrar rápido y cerrar el turno con arqueo",
+    label: "Punto de Venta",
+    description: "Vender en segundos y cerrar el turno con arqueo",
     href: "#",
   },
   {
     icon: ReceiptText,
     label: "Facturación electrónica",
-    description: "La factura viaja a SIFEN sola, en regla",
+    description: "El comprobante se emite y se envía solo",
     href: "#",
   },
   {
@@ -68,6 +69,12 @@ const MODULOS: MenuEntry[] = [
     icon: BarChart3,
     label: "Reportes",
     description: "El negocio en números, sin planillas",
+    href: "#",
+  },
+  {
+    icon: Sparkles,
+    label: "Punto AI",
+    description: "El asistente que analiza tus datos y responde",
     href: "#",
   },
 ]
@@ -271,15 +278,15 @@ export function SiteHeader() {
           <NavMenu label="Módulos" overlay={overlay}>
             <MenuList title="Módulos" entries={MODULOS} />
             <FeaturedCard
-              title="El POS en acción"
-              description="La pantalla de venta, tal como la usa el cajero."
-              cta="Ver el sistema"
+              title="Punto AI"
+              description="Preguntale por tus ventas y responde con tus datos."
+              cta="Ver el asistente"
               href="/home"
               image={{
-                src: "/site/pos-screenshot.png",
-                alt: "Pantalla de venta del POS de Punto",
-                width: 2880,
-                height: 1400,
+                src: "/site/ai-screenshot.png",
+                alt: "Punto AI analizando las ventas del negocio",
+                width: 2868,
+                height: 1388,
               }}
             />
           </NavMenu>

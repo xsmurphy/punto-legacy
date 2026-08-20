@@ -9,11 +9,11 @@ import { ProductSpotlight } from "@/components/site/product-spotlight"
 export const metadata: Metadata = {
   title: "Punto — Tu negocio, en un solo punto",
   description:
-    "Ventas, caja, facturación electrónica SIFEN, stock y clientes en un solo sistema. Para minimarkets, restaurantes, farmacias y más.",
+    "Punto de Venta, panel de administración y un asistente con IA que analiza tus datos. Facturación electrónica, stock y clientes en un mismo sistema.",
   openGraph: {
     title: "Punto — Tu negocio, en un solo punto",
     description:
-      "Ventas, caja, facturación electrónica SIFEN, stock y clientes en un solo sistema.",
+      "Punto de Venta, panel de administración e IA integrada, en un mismo sistema.",
     locale: "es_PY",
     type: "website",
   },
