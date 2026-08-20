@@ -115,6 +115,23 @@ if ($activeLease !== false && $activeLease !== 0 && (string) $activeLease['devic
 }
 
 if ($activeLease === false || $activeLease === 0) {
+    // Defensa en profundidad (context/29 §4, "dispositivo cambia de caja" +
+    // bug real 2026-08-20: tenencia colgada en la caja anterior de un device
+    // reasignado). El camino correcto para liberar la caja VIEJA es
+    // `active-register.php` (o cualquier otro que cambie `device.registerid`)
+    // al momento del cambio — pero si algún camino se olvida, este device NO
+    // puede terminar con tenencia activa en DOS cajas a la vez. Autocorrección:
+    // antes de tomar ESTA caja (confirmado arriba que nadie la tiene), cerrar
+    // cualquier OTRA tenencia activa de este MISMO deviceId. Nunca toca la
+    // tenencia de OTRO device — eso sigue prohibido (§6, "último que llega
+    // pisa al anterior" fue RECHAZADO por el owner).
+    \Punto\Api\Services\RegisterLeaseService::releaseByDevice(
+        $deviceId,
+        $compId,
+        'device:claim-self-correct',
+        'released'
+    );
+
     // Nadie tiene la caja tomada — este dispositivo la toma ahora.
     // `expiresAt` queda NULL (mig 144): la tenencia ya no vence por fecha.
     $newLease = ncmExecute(

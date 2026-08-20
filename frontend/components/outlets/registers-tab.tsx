@@ -253,9 +253,14 @@ export function RegistersTab({ outletId }: { outletId: string }) {
           return <Badge variant="outline">Libre</Badge>
         }
         return (
-          <div className="flex flex-col">
+          <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium">{lease.deviceName || "Dispositivo sin nombre"}</span>
             <span className="text-xs text-muted-foreground">desde {niceLeaseDate(lease.takenAt)}</span>
+            {lease.orphaned && (
+              <Badge variant="destructive" className="w-fit">
+                Ya no está en esta caja
+              </Badge>
+            )}
           </div>
         )
       },
