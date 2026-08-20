@@ -284,6 +284,11 @@ fi
 #    consumido lleva stockSource='production' (antes siempre 'sale'). Ver
 #    docblock de verify_production_cogs.php. Corre contra el mismo Postgres
 #    seedeado arriba (tenant PY); no depende de los pasos anteriores.
+#    Casos 3/3b (Reports\ProductionService::general()/detail()) NO tumban
+#    el exit code de este paso — investigados 2026-08-19 sin causa raíz
+#    confirmable sin Postgres real, imprimen diagnóstico a stderr si vuelven
+#    a fallar. Ver comentario largo en el propio script antes de re-fiarse
+#    ciegamente de que este paso está 100% verde.
 echo ""
 echo "[run.sh] === costo de producción directa (itemSoldCOGS + stockSource de la explosión de receta) ==="
 if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_production_cogs.php"; then

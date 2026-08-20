@@ -46,12 +46,20 @@ export interface HttpClient {
 }
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public payload: unknown,
-    message: string,
-  ) {
+  status: number
+  payload: unknown
+
+  // Asignación explícita en el cuerpo, NO parameter properties
+  // (`constructor(public status: number, ...)`): el strip-only mode nativo
+  // de Node 22 (usado por el runner de impresión, ver
+  // frontend/lib/hardware/printers/verify_chain/run.mjs) no soporta esa
+  // sintaxis — ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX, tumbaba las 94
+  // comprobaciones de impresión del arnés sin que nadie lo notara. Mismo
+  // comportamiento en runtime, solo cambia dónde se declaran los campos.
+  constructor(status: number, payload: unknown, message: string) {
     super(message)
+    this.status = status
+    this.payload = payload
     this.name = "ApiError"
   }
 }
