@@ -19,6 +19,14 @@ export interface RegisterLeaseHolder {
   deviceName: string
   /** Timestamptz genuino (no naive-local de negocio) — cuándo tomó la caja. */
   takenAt: string
+  /**
+   * true = la tenencia sigue 'active' sobre esta caja pero el dispositivo ya
+   * fue reasignado a otra (bug real 2026-08-20, fix en
+   * api/v1/active-register.php + api/v1/register/claim.php — ver
+   * context/29-numeracion-y-exclusividad-de-caja.md §4). No debería verse en
+   * uso normal; si aparece, "Liberar" es la acción correcta igual.
+   */
+  orphaned: boolean
 }
 
 export interface RegisterLeaseItem {
