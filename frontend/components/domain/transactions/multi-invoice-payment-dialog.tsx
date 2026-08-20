@@ -7,6 +7,14 @@ import {
   useCreateDistributedPayment,
   type CreditPaymentAllocation,
 } from "@/hooks/use-credit-payment"
+// Este diálogo solo se renderiza en rutas de panel (contacto, cuentas por
+// pagar/cobrar) — nunca desde el POS. `client: api` fuerza la request por
+// la cookie de sesión del panel en vez del Bearer del device (default de
+// los hooks, pensado para el mostrador). Sin esto, un operador con caja
+// pareada en el mismo browser pagaba a un proveedor con credenciales de
+// device y el backend lo rechazaba con "El pago a proveedor solo está
+// disponible desde el panel" — aun estando parado en el panel.
+import { api } from "@/lib/api-client"
 import { useReport, type OpenInvoicesReportResponse } from "@/hooks/use-reports"
 import type { ContactType } from "@/hooks/use-contacts"
 import { formatAmount, formatMoney } from "@/lib/format-money"
@@ -112,8 +120,8 @@ export function MultiInvoicePaymentDialog({
   onSuccess,
 }: MultiInvoicePaymentDialogProps) {
   const isCustomer = contactType === 1
-  const byInvoiceMutation = useCreateCreditPayment()
-  const distributedMutation = useCreateDistributedPayment()
+  const byInvoiceMutation = useCreateCreditPayment({ client: api })
+  const distributedMutation = useCreateDistributedPayment({ client: api })
   const isPending = byInvoiceMutation.isPending || distributedMutation.isPending
 
   const [tab, setTab] = React.useState<"byInvoice" | "free">("byInvoice")
