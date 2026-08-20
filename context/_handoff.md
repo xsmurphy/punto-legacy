@@ -35,11 +35,12 @@ owner verificó que puede entrar al POS y ver productos tras el incidente.
   (ver bitácora `f2e48b70..737c0bb2` para el detalle commit por commit).
 - **Pendiente sin cerrar**: hay un agente que quedó corriendo implementando
   el split de gasto por categoría en compras, branch
-  `api/categoria-obligatoria-finanzas` (`28cdc216` y `55466064` ya
-  mergeados a esa branch). Falta que una compra con líneas de categorías
-  distintas divida el gasto en varios movimientos, prorrateando descuento
-  e impuestos sin perder centavos por redondeo. **Mergear esa branch es lo
-  primero al retomar.**
+  `api/categoria-obligatoria-finanzas` — **cerrado y mergeado a `main`**
+  (`fde5fbb3`): el gasto de una compra se divide por categoría (precedencia
+  línea > cabecera > ítem), el descuento de cabecera se reparte proporcional
+  y el centavo del redondeo se lo lleva entero la categoría de mayor monto.
+  Mig 153 extiende el UNIQUE de `fin_movement` para admitir varias filas por
+  origen, una por categoría.
 - Branches sin mergear además de esa: `claude/silly-ramanujan-b7433c`
   (obsoleta, su fix ya está resuelto por otro camino — se puede borrar) y
   8 `stash-backup/*` (trabajo viejo sin revisar, varias del POS en Alpine.js
@@ -97,9 +98,15 @@ owner verificó que puede entrar al POS y ver productos tras el incidente.
 
 ## Próximo paso
 
-Mergear `api/categoria-obligatoria-finanzas` a `main` (split de gasto por
-categoría en compras multi-línea) — es el único trabajo en curso sin cerrar.
-Revisar el estado del agente que quedó corriendo antes de retomar manualmente.
+No queda trabajo en curso: todo lo abierto se cerró y `main` está en
+`fde5fbb3`. Al retomar, elegir del reporte del tester en
+`context/10-roadmap.md` — lo de mayor impacto pendiente es **anulación /
+devolución / nota de crédito desde Caja › Transacciones** (plan ya cerrado en
+`context/40-anulacion-y-nota-credito.md`, sin implementar).
+
+Antes de codear, **verificar que el deploy de `fde5fbb3` aplicó las
+migraciones 150-153** — son las más invasivas de la semana (normalización de
+143 columnas, índice único de correlativo, split de movimientos).
 
 ## Trampas conocidas
 
