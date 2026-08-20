@@ -96,34 +96,23 @@ final class TransactionService
             $payedData = $this->getTypePayments($transactionId, $companyId);
 
             $creditPaymentIds = $linkSvc->listDerivedIds($companyId, $transactionId, 'credit_payment');
-            $returnIds        = $linkSvc->listDerivedIds($companyId, $transactionId, 'return');
 
-            // credit_payment vía sumDerivedAmounts (mig 123): respeta el
-            // `amount` del vínculo cuando un recibo se repartió entre varias
-            // facturas — `COALESCE(tl.amount, transactionTotal)`, sin restar
-            // discount porque un recibo nunca lo tiene (por eso da lo mismo
-            // que la fórmula vieja `ABS(total-discount)` para type=5).
-            $cpPaid = $linkSvc->sumDerivedAmounts($companyId, $transactionId, 'credit_payment');
-
-            // return SÍ tiene discount real seteado al crearse (ver
-            // ReturnService) y nunca se le asigna `amount` de vínculo —
-            // se preserva el cálculo documento por documento.
-            $returnPaid = 0.0;
-            if ($returnIds !== []) {
-                $rPh = implode(',', array_fill(0, count($returnIds), '?'));
-                $returnRow = ncmExecute(
-                    "SELECT SUM(ABS(transactionTotal - COALESCE(transactionDiscount, 0))) as payed FROM transaction WHERE transactionType = 6 AND transactionId IN ($rPh) AND companyId = ?",
-                    array_merge($returnIds, [$companyId])
-                );
-                $returnPaid = (float) ($returnRow['payed'] ?? 0);
-            }
-            $payed = $cpPaid + $returnPaid;
+            // Superficie única para "cuánto se saldó de esta factura a
+            // crédito" (credit_payment + return/nota de crédito) —
+            // `TransactionLinkService::paidForCreditOrigin()`. Antes esta
+            // query se duplicaba acá a mano, y el `debt` de abajo NO restaba
+            // `returnPaid` (aunque `$payed` sí lo hacía) — la Caja mostraba
+            // una deuda mayor a la real cuando había una nota de crédito
+            // aplicada, divergiendo del panel (`OpenInvoicesService`, que sí
+            // la restaba). Ver hallazgo "saldos de cuentas por cobrar no
+            // coinciden entre Caja y panel".
+            $payed = $linkSvc->paidForCreditOrigin($companyId, $transactionId, true);
 
             $cpTotal = (float)($fields['transactionTotal'] ?? 0) - (float)($fields['transactionDiscount'] ?? 0);
             $creditPayments = [
                 'total' => $cpTotal,
-                'paid'  => $cpPaid,
-                'debt'  => max(0.0, $cpTotal - $cpPaid),
+                'paid'  => $payed,
+                'debt'  => max(0.0, $cpTotal - $payed),
             ];
 
             if ($creditPaymentIds !== []) {
