@@ -246,7 +246,11 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
                          'itemId', ic.childItemId,
                          'itemName', ci.itemName,
                          'quantity', ic.quantity,
-                         'uom', ci.itemUOM,
+                         -- `itemUOM` NO es columna de `item`: vive en el JSONB
+                         -- `data`. Referenciarla como columna hacia fallar el SELECT
+                         -- ENTERO del catalogo (incidente 2026-08-19: el POS no
+                         -- cargaba ningun producto).
+                         'uom', ci.data->>'itemUOM',
                          'sort', ic.sort
                        ) ORDER BY ic.sort ASC, ic.compoundId ASC
                      ) AS items
