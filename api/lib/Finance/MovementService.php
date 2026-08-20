@@ -35,9 +35,17 @@ final class MovementService
             $where   .= ' AND m.accountid = ?';
             $params[] = $filters['accountId'];
         }
-        if (!empty($filters['categoryId']) && preg_match(self::UUID_RE, $filters['categoryId'])) {
-            $where   .= ' AND m.categoryid = ?';
-            $params[] = $filters['categoryId'];
+        if (!empty($filters['categoryId'])) {
+            // 'none' es un filtro explícito, no un UUID: expone los
+            // movimientos sin clasificar (excluye 'transfer', que legítima-
+            // mente no lleva categoría — mover plata entre cuentas propias no
+            // es ni gasto ni ingreso real, ver `transfer()`).
+            if ($filters['categoryId'] === 'none') {
+                $where .= " AND m.categoryid IS NULL AND m.source != 'transfer'";
+            } elseif (preg_match(self::UUID_RE, $filters['categoryId'])) {
+                $where   .= ' AND m.categoryid = ?';
+                $params[] = $filters['categoryId'];
+            }
         }
         if (!empty($filters['kind']) && in_array($filters['kind'], self::KINDS, true)) {
             $where   .= ' AND m.kind = ?';
@@ -241,8 +249,14 @@ final class MovementService
         if ($amount <= 0) {
             throw new \RuntimeException('El monto debe ser mayor a cero');
         }
+        // Categoría opcional (decisión del owner 2026-08-20): no bloquea la
+        // carga. Si viene, valida que exista; si no, el movimiento queda sin
+        // clasificar y aparece en el filtro "Sin categoría" del listado.
         $categoryId = (string) ($data['categoryId'] ?? '');
         $categoryId = ($categoryId !== '' && preg_match(self::UUID_RE, $categoryId)) ? $categoryId : null;
+        if ($categoryId !== null && !(new CategoryService())->find($categoryId, $companyId)) {
+            throw new \RuntimeException('Categoría no encontrada');
+        }
 
         $account = (new AccountService())->find($accountId, $companyId);
         if (!$account) {
@@ -479,6 +493,10 @@ final class MovementService
         if ($amount <= 0) {
             return ['inserted' => false, 'movementId' => null];
         }
+        // Categoría opcional (decisión del owner 2026-08-20): los callers
+        // (FinanceLedger, LoanService) resuelven la mejor categoría que
+        // puedan (default del ítem/categoría semilla) pero nunca es
+        // bloqueante — si no hay ninguna, el movimiento queda sin clasificar.
         $categoryId = (string) ($fields['categoryId'] ?? '');
         $categoryId = ($categoryId !== '' && preg_match(self::UUID_RE, $categoryId)) ? $categoryId : null;
 

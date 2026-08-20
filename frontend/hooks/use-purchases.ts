@@ -42,6 +42,8 @@ export interface PurchaseDetailItem {
   price: number
   tax: number
   taxId: string
+  /** Categoría de GASTO (Finanzas) elegida para esta línea al cargar la compra. */
+  expenseCategoryId?: string | null
 }
 
 export interface PurchaseDetail {
@@ -150,6 +152,12 @@ export interface PurchaseFormItem {
   taxValue?: number
   /** Unidades por paquete/caja (ej. 1 caja = 24 unidades). Default 1 — solo aplica a productos. */
   packSize?: number
+  /**
+   * Categoría de GASTO (Finanzas) de esta línea puntual — precargada desde
+   * `item.expenseCategoryId` al elegir el producto, editable sin alterar esa
+   * configuración (owner 2026-08-20). Opcional, no bloquea la carga.
+   */
+  expenseCategoryId?: string | null
 }
 
 export interface PurchaseCreatePayload {

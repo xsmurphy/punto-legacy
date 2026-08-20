@@ -165,6 +165,12 @@ final class CheckService
      * `identifier` como nro de cheque, y opcionalmente `bankName`/`dueDate`
      * si el origen los captura (compras — POS/ventas solo mandan identifier).
      *
+     * $categoryId (F0 categoría obligatoria, 2026-08-18): la categoría que
+     * llevaría el movimiento derivado de la venta/compra si la línea no
+     * fuera cheque (Ventas/Proveedores) — se persiste en el cheque para que
+     * `ensureMovement()` no genere un `fin_movement` sin clasificar al
+     * efectivizarse. El usuario puede recategorizarlo después vía `update()`.
+     *
      * @param array{identifier?:string,bankName?:string,dueDate?:string,price?:float,total?:float} $line
      */
     public function createFromPayment(
@@ -173,7 +179,8 @@ final class CheckService
         array $line,
         string $direction,
         ?string $contactId = null,
-        ?string $partyName = null
+        ?string $partyName = null,
+        ?string $categoryId = null
     ): ?array {
         if (!preg_match(self::UUID_RE, $transactionId) || !in_array($direction, self::DIRECTIONS, true)) {
             return null;
@@ -196,6 +203,7 @@ final class CheckService
         $bankName    = trim((string) ($line['bankName'] ?? '')) ?: null;
         $dueDateRaw  = trim((string) ($line['dueDate'] ?? ''));
         $contactId   = $this->nullableUuid($contactId);
+        $categoryId  = $this->nullableUuid($categoryId);
 
         $id = ncmInsert([
             'records' => [
@@ -209,7 +217,7 @@ final class CheckService
                 'duedate'       => $dueDateRaw !== '' ? $this->normalizeDate($dueDateRaw, $companyId) : null,
                 'contactid'     => $contactId,
                 'partyname'     => $partyName !== null && $partyName !== '' ? $partyName : null,
-                'categoryid'    => null,
+                'categoryid'    => $categoryId,
                 'status'        => 'pending',
                 'description'   => null,
                 'transactionid' => $transactionId,
@@ -329,6 +337,10 @@ final class CheckService
             if (empty($check['accountId'])) {
                 throw new \RuntimeException('El cheque necesita una cuenta asignada para poder efectivizarse');
             }
+            // Categoría opcional (decisión del owner 2026-08-20) — no bloquea
+            // la efectivización. Los cheques nacidos de una venta/compra ya
+            // vienen con categoría vía FinanceLedger; los creados a mano
+            // pueden quedar sin clasificar, igual que un movimiento manual.
             $this->ensureMovement($id, $companyId, $check, $userId, $outletId);
             ncmExecute(
                 'UPDATE fin_check SET status = ?, cleareddate = ? WHERE checkid = ? AND companyid = ?',

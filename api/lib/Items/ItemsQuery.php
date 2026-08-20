@@ -59,6 +59,14 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         'hasaddons'           => 'hasAddons',
         'addongroups'         => 'addonGroups',
         'compounditems'       => 'compoundItems',
+        // Categoría de GASTO del ítem (Finanzas) — NO es `categoryId` (esa es
+        // la comercial, la que agrupa en el POS). Vive en `data.expenseCategoryId`
+        // (JSONB, mismo patrón que itemUOM — ver `buildItemsSelectSql()`: no
+        // hace falta tocar el SELECT, `_flattenJsonb`/`ncmRow` ya aplana TODA
+        // la columna `data`, solo hace falta re-castear la key acá). Se usa
+        // para precargar la categoría de cada línea al agregar el ítem a una
+        // compra (owner 2026-08-20: "no obligatorio, pero fácil de heredar").
+        'expensecategoryid'   => 'expenseCategoryId',
     ];
     $out = [];
     foreach ($row as $k => $v) {

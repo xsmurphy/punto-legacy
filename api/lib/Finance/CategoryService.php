@@ -337,6 +337,79 @@ final class CategoryService
         return $row ? (string) $row['categoryid'] : '';
     }
 
+    /**
+     * Devuelve el categoryid de la categoría default "Préstamos" del tenant —
+     * cuota de crédito pagada (`LoanService::payInstallment`, source=
+     * 'loan_installment'). On-demand igual que `ensureReturnsCategoryId`: los
+     * tenants que ya venían de antes de F2 créditos no la reciben vía
+     * `ensureSeed` (que solo corre en tenants sin NINGUNA categoría).
+     */
+    public function ensureLoanInstallmentCategoryId(string $companyId): string
+    {
+        $this->ensureSeed($companyId);
+
+        $find = static fn() => ncmExecute(
+            "SELECT categoryid FROM fin_category WHERE companyid = ? AND kind = 'expense' AND name = 'Préstamos' LIMIT 1",
+            [$companyId]
+        );
+
+        $row = $find();
+        if (!$row) {
+            ncmInsert([
+                'records' => [
+                    'companyid' => $companyId,
+                    'name'      => 'Préstamos',
+                    'kind'      => 'expense',
+                    'sortorder' => 7,
+                    'issystem'  => true,
+                    'status'    => 1,
+                ],
+                'table' => 'fin_category',
+            ]);
+            $row = $find();
+        }
+
+        return $row ? (string) $row['categoryid'] : '';
+    }
+
+    /**
+     * Devuelve el categoryid de la categoría default "Ajustes" del tenant
+     * (income o expense según el signo de la diferencia) — usada por
+     * `ReconciliationService::close()` cuando se crea un movimiento de ajuste
+     * de conciliación sin que el usuario haya elegido una categoría propia.
+     * On-demand igual que `ensureReturnsCategoryId`.
+     */
+    public function ensureAdjustmentCategoryId(string $companyId, string $kind): string
+    {
+        if (!in_array($kind, self::KINDS, true)) {
+            throw new \RuntimeException('kind debe ser income o expense');
+        }
+        $this->ensureSeed($companyId);
+
+        $find = static fn() => ncmExecute(
+            'SELECT categoryid FROM fin_category WHERE companyid = ? AND kind = ? AND name = ? LIMIT 1',
+            [$companyId, $kind, 'Ajustes']
+        );
+
+        $row = $find();
+        if (!$row) {
+            ncmInsert([
+                'records' => [
+                    'companyid' => $companyId,
+                    'name'      => 'Ajustes',
+                    'kind'      => $kind,
+                    'sortorder' => 8,
+                    'issystem'  => true,
+                    'status'    => 1,
+                ],
+                'table' => 'fin_category',
+            ]);
+            $row = $find();
+        }
+
+        return $row ? (string) $row['categoryid'] : '';
+    }
+
     private function shape($f): array
     {
         return [

@@ -542,6 +542,10 @@ function serialize(
     taxId: values.taxId || null,
     categoryId: values.categoryId || null,
     brandId: values.brandId || null,
+    // Categoría de GASTO (Finanzas) — distinta de categoryId (la comercial).
+    // Rutea al JSONB `data` automáticamente (no es columna de `item`), mismo
+    // mecanismo que itemUOM arriba.
+    expenseCategoryId: values.expenseCategoryId || null,
     // Flags derivados del kind — NO los toca el usuario directamente.
     itemType: flags.itemType,
     itemCanSale: flags.itemCanSale,

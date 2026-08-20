@@ -82,6 +82,7 @@ import {
   useUpdateItem,
 } from "@/hooks/use-items"
 import { useOutlets } from "@/hooks/use-outlets"
+import { useFinanceCategories } from "@/hooks/use-finance-categories"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useTaxes } from "@/hooks/use-taxes"
 import { formatMoney } from "@/lib/format"
@@ -150,6 +151,13 @@ const itemSchema = z.object({
   taxIncluded: z.boolean(),
   uom: z.string(),
   categoryId: z.string(),
+  /**
+   * Categoría de GASTO (Finanzas) — distinta de `categoryId` (la comercial,
+   * la que agrupa en el POS). Owner 2026-08-20: configurarla acá permite que
+   * el form de compras la precargue por línea sin volver a elegirla cada
+   * vez. Opcional — no bloquea nada si queda sin definir.
+   */
+  expenseCategoryId: z.string(),
   brandId: z.string(),
   status: z.boolean(),
   outletId: z.string(),
@@ -342,6 +350,7 @@ function ItemEditPageInner() {
       taxIncluded: !!data.itemTaxIncluded,
       uom: toStr(data.itemUOM),
       categoryId: toStr(data.categoryId),
+      expenseCategoryId: toStr(data.expenseCategoryId),
       brandId: toStr(data.brandId),
       status: (toNum(data.itemStatus) ?? 1) === 1,
       outletId: toStr(data.outletId),
@@ -1212,6 +1221,13 @@ function ConfigTab({
   const { data: outlets } = useOutlets()
   const { data: tagsData } = useTags()
   const tags = tagsData?.tags ?? []
+  // Categoría de GASTO (Finanzas) — precarga la línea al comprar este ítem
+  // (owner 2026-08-20). Solo categorías 'expense'; el backend auto-crea las
+  // default (Proveedores, Alquiler, etc.) al primer acceso al módulo.
+  const { data: financeCategories } = useFinanceCategories()
+  const expenseCategories = (financeCategories ?? []).filter(
+    (c) => c.kind === "expense" && c.status === 1,
+  )
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -1252,6 +1268,34 @@ function ConfigTab({
               />
               <FormMessage />
             </FormItem>
+            <FormField
+              control={form.control}
+              name="expenseCategoryId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Categoría de gasto</FormLabel>
+                  <Select value={field.value || "none"} onValueChange={(v) => field.onChange(v === "none" ? "" : v)}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sin categoría de gasto" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="none">Sin categoría de gasto</SelectItem>
+                      {expenseCategories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Precarga esta categoría al agregar el ítem a una compra — se puede cambiar por línea sin afectar esta configuración.
+                  </p>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
             <FormField
               control={form.control}
               name="outletId"
@@ -2106,6 +2150,7 @@ function emptyValues(): ItemFormValues {
     taxIncluded: true,
     uom: "",
     categoryId: "",
+    expenseCategoryId: "",
     brandId: "",
     status: true,
     outletId: "",
