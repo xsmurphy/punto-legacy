@@ -4,6 +4,7 @@ import { CtaFinal, QuickLinks } from "@/components/site/cta-final"
 import { FeaturesGrid } from "@/components/site/features-grid"
 import { SiteHero } from "@/components/site/hero"
 import { ModulesTabs } from "@/components/site/modules-tabs"
+import { PosShowcase } from "@/components/site/pos-showcase"
 
 export const metadata: Metadata = {
   title: "Punto — Tu negocio, en un solo punto",
@@ -22,6 +23,7 @@ export default function HomePage() {
   return (
     <>
       <SiteHero />
+      <PosShowcase />
       <ModulesTabs />
       <FeaturesGrid />
       <QuickLinks />
