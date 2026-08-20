@@ -3,19 +3,24 @@
 declare(strict_types=1);
 
 /**
- * verify_pg_identifier_catalog.php — verificador de COBERTURA TOTAL para la
- * clase de bug de identificadores Postgres entrecomillados con case
- * incorrecto (ver mig 150_normalizar_identificadores_camelcase.sql para el
- * porqué completo del mecanismo). A diferencia de verify_pg_identifiers.php
- * (arnés de comportamiento que ejercita 6 incidentes puntuales YA
- * corregidos, sin mockear nada), este script NO ejecuta código de la app:
- * es un LINT que escanea el SQL del repo en busca de identificadores
- * entrecomillados con al menos una mayúscula y los compara contra el
- * catálogo REAL de la Postgres viva (information_schema), fallando y
- * listando cada discrepancia — para que la próxima columna camelCase-quoted
- * que alguien introduzca por accidente truene ACÁ, en run.sh, antes de
- * llegar a producción, en vez de esperar al sexto incidente en runtime
- * (ya van cinco documentados, ver mig 150 para el detalle de cada uno).
+ * verify_pg_identifier_catalog.php — verificador de COBERTURA TOTAL para dos
+ * clases de bug de identificadores Postgres que no existen en el catálogo
+ * real: (1) identificadores ENTRECOMILLADOS con case incorrecto (ver mig
+ * 150_normalizar_identificadores_camelcase.sql para el porqué completo del
+ * mecanismo) y (2) columnas CALIFICADAS (`alias.columna`, con o sin
+ * comillas) que no existen en la tabla real del alias — la clase de bug del
+ * incidente 2026-08-19 (`ci.itemUOM` SIN comillas en
+ * `api/lib/Items/ItemsQuery.php`: Postgres abortó el SELECT ENTERO de
+ * `/v1/items`, el POS se quedó sin catálogo/hotkeys en todos los
+ * dispositivos; el chequeo B de abajo, que ya existía, no lo atrapó porque
+ * solo mira identificadores ENTRECOMILLADOS). A diferencia de
+ * verify_pg_identifiers.php (arnés de comportamiento que ejercita
+ * incidentes puntuales YA corregidos, sin mockear nada), este script NO
+ * ejecuta código de la app: es un LINT que escanea el SQL del repo y lo
+ * compara contra el catálogo REAL de la Postgres viva (information_schema),
+ * fallando y listando cada discrepancia archivo:línea — para que la
+ * próxima columna que no existe truene ACÁ, en run.sh, antes de llegar a
+ * producción, en vez de esperar al próximo incidente en runtime.
  *
  * ═══ Qué chequea ═══
  *
@@ -29,23 +34,30 @@ declare(strict_types=1);
  *    migración nueva).
  *
  * B) Code-side (regresión del código): escanea todo el PHP bajo `api/`
- *    (vía token_get_all — solo strings reales, T_CONSTANT_ENCAPSED_STRING,
- *    no falsos positivos de comentarios ni de código no-string; no hay
- *    heredoc/nowdoc en este repo hoy, ver "Límites conocidos" abajo) y todo
- *    `.sql` del repo, buscando identificadores citados entre comillas
- *    dobles (`"Foo"` o, dentro de un string PHP con comillas dobles,
- *    `\"Foo\"`) que:
+ *    (vía token_get_all — strings reales: T_CONSTANT_ENCAPSED_STRING
+ *    [strings SIN interpolación] Y T_ENCAPSED_AND_WHITESPACE [los tramos de
+ *    texto fijo de un string CON interpolación, `"...{$var}..."`, o de un
+ *    heredoc/nowdoc — PHP nunca tokeniza ninguno de esos dos como
+ *    T_CONSTANT_ENCAPSED_STRING; agregado 2026-08-20, ver "Límites
+ *    conocidos" abajo para el incidente real que expuso el gap] — no
+ *    falsos positivos de comentarios ni de código no-string) y todo `.sql`
+ *    del repo, buscando identificadores citados entre comillas dobles
+ *    (`"Foo"` o, dentro de un string PHP con comillas dobles, `\"Foo\"`)
+ *    que:
  *      1. Aparecen en un fragmento que "parece SQL": o bien contiene una
- *         palabra clave SQL (SELECT/INSERT/UPDATE/DELETE/FROM/JOIN/WHERE/
- *         SET/VALUES/RETURNING/CREATE/ALTER/TRIGGER/INDEX/CONSTRAINT), o
- *         bien tiene la FORMA de un fragmento de WHERE/SET armado a mano
+ *         palabra clave SQL EN MAYÚSCULA (SELECT/INSERT/UPDATE/DELETE/FROM/
+ *         JOIN/WHERE/SET/VALUES/RETURNING/CREATE/ALTER/TRIGGER/INDEX/
+ *         CONSTRAINT — case-SENSITIVE a propósito, ver docblock de
+ *         SQL_KEYWORDS_RE en verify_pg_identifier_catalog_lib.php), o bien
+ *         tiene la FORMA de un fragmento de WHERE/SET armado a mano
  *         (`"col" = ?`, `"col" IS NULL`, etc. — patrón real de este repo:
  *         PrintPoolService/StockTransferService/InventoryCountService arman
  *         arrays `$where[]`/`$sets[]` de fragmentos SIN keyword propia,
  *         unidos después con implode()). Para `.php` este gate se evalúa
- *         POR STRING LITERAL (cada string PHP es su propia unidad — evita
- *         escanear mensajes de UI/error de OTROS strings del mismo archivo
- *         que casualmente tengan una palabra con mayúscula entre comillas).
+ *         POR STRING/TRAMO (cada string o tramo interpolado es su propia
+ *         unidad — evita escanear mensajes de UI/error de OTROS
+ *         strings/tramos del mismo archivo que casualmente tengan una
+ *         palabra con mayúscula entre comillas).
  *         Para `.sql` se evalúa por ARCHIVO ENTERO (ver Límites conocidos).
  *      2. Tienen al menos una mayúscula en el nombre citado.
  *      3. NO están inmediatamente precedidos por `AS ` (case-insensitive,
@@ -70,12 +82,47 @@ declare(strict_types=1);
  *    schema, no solo las 18 de la mig 150): si NO matchea ningún nombre
  *    EXACTO (case-sensitive) → discrepancia, se reporta archivo:línea.
  *
+ * C) Code-side (columnas calificadas, CON o SIN comillas): sobre las MISMAS
+ *    unidades de texto que B (string PHP individual / archivo .sql entero),
+ *    arma un mapa alias→tabla real leyendo los FROM/JOIN/UPDATE del propio
+ *    bloque (validando cada nombre de tabla contra information_schema.tables
+ *    ANTES de confiar en el match — así "LATERAL", una subconsulta o
+ *    cualquier palabra reservada nunca generan un mapeo falso) y valida
+ *    cada referencia `alias.columna` contra $columnsByTable[tabla]
+ *    (case-insensitive). Si el alias no resuelve a una tabla real (LATERAL,
+ *    subconsulta, CTE, SQL partido entre fragmentos PHP distintos, alias
+ *    ambiguo) la referencia se OMITE explícitamente — nunca se adivina ni
+ *    se reporta. Detalle completo (por qué es seguro, qué se omite y por
+ *    qué) en el docblock de findBadQualifiedRefs() más abajo. Cero overlap
+ *    de falsos positivos con B: B solo mira DENTRO de comillas, C mira
+ *    `alias.columna` esté o no citado, pero solo cuando el alias resolvió a
+ *    una tabla real — B puede marcar un identificador citado que no existe
+ *    en NINGUNA tabla, C marca uno (citado o no) que no existe en LA tabla
+ *    específica del alias; ambos pueden coincidir en el mismo bug real sin
+ *    que eso sea un problema (dos reportes de la misma discrepancia, no una
+ *    discrepancia inventada).
+ *
  * ═══ Límites conocidos (documentados, no bloqueantes) ═══
  *
- * - Heredoc/nowdoc (`<<<SQL ... SQL`) no se detecta — token_get_all() no
- *   los tokeniza como T_CONSTANT_ENCAPSED_STRING. Verificado (grep) que
- *   NINGÚN .php de este repo usa heredoc/nowdoc hoy; si se adopta ese
- *   estilo en el futuro, este verificador necesita extenderse.
+ * - (RESUELTO 2026-08-20, dejado documentado por el incidente real que lo
+ *   expuso) Strings PHP CON interpolación (`"SELECT ... {$whereSql}"`) y
+ *   heredoc/nowdoc NO se tokenizan como T_CONSTANT_ENCAPSED_STRING — PHP los
+ *   parte en T_ENCAPSED_AND_WHITESPACE (los tramos de texto fijo) +
+ *   T_VARIABLE/etc (las partes interpoladas). La versión original de este
+ *   verificador (chequeo B, entrecomillados) SOLO miraba
+ *   T_CONSTANT_ENCAPSED_STRING, así que CUALQUIER SQL armado con
+ *   interpolación quedaba invisible para los dos chequeos — encontrado
+ *   reintroduciendo a mano el bug real del incidente 2026-08-19
+ *   (`ci.itemUOM` sin comillas) en `ItemsQuery.php::buildItemsSelectSql()`
+ *   como prueba de aceptación de esta extensión: el SELECT completo de esa
+ *   función es UN SOLO string PHP con `{$whereSql}`/`{$tailSql}`
+ *   interpolados al final (líneas ~158-286), así que ES el archivo exacto
+ *   del incidente real, y el verificador pasaba en limpio antes de este
+ *   fix. Grep confirmó 71 archivos del repo con SQL dentro de un string
+ *   interpolado de esta forma — ninguno de esos 71 era escaneado por
+ *   ningún chequeo hasta este fix. `extractPhpSqlStrings()` en
+ *   verify_pg_identifier_catalog_lib.php ahora captura AMBOS tipos de
+ *   token (ver su docblock).
  * - Concatenación de fragmentos entre keyword SQL e identificador en
  *   strings PHP DISTINTOS (ej. `'SELECT ' . '"badCol" FROM foo'`) no se
  *   detecta si el fragmento con la keyword y el fragmento con la comilla
@@ -197,230 +244,28 @@ foreach ($pdo->query("SELECT table_name FROM information_schema.tables WHERE tab
     $validTables[$row['table_name']] = true;
 }
 
+// Catálogo agrupado POR TABLA (columnsByTable[tabla][columna] = true), para
+// el chequeo C de abajo: a diferencia de $validColumns (plano, "¿existe esta
+// columna EN ALGÚN LADO del schema?"), acá necesitamos "¿existe esta columna
+// EN LA TABLA que resolvimos para este alias?" — más estricto, y es lo único
+// que hubiera atrapado `ci.itemUOM` (ninguna tabla tiene `itemuom`, pero
+// además aunque alguna OTRA tabla la tuviera, `item` no la tiene, que es lo
+// que importa). Todas las claves ya vienen lowercase (catálogo 100%
+// normalizado post mig 150), por eso el lookup de abajo compara
+// case-insensitive con strtolower() en vez de duplicar la normalización acá.
+$columnsByTable = [];
+foreach ($pdo->query("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema = 'public'") as $row) {
+    $columnsByTable[$row['table_name']][$row['column_name']] = true;
+}
+
 // ═══════════════════════════════════════════════════════════════════════
 // B) Code-side: escanear el repo.
 // ═══════════════════════════════════════════════════════════════════════
-const SQL_KEYWORDS_RE = '/\b(SELECT|INSERT|UPDATE|DELETE|FROM|JOIN|WHERE|SET|VALUES|RETURNING|INTO|GROUP\s+BY|ORDER\s+BY|CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+INDEX|CREATE\s+TRIGGER|ON\s+CONFLICT|CONSTRAINT)\b/i';
+require_once __DIR__ . '/verify_pg_identifier_catalog_lib.php';
 
-// Fragmentos de WHERE/SET armados a mano en arrays ($where[] = '"col" = ?';
-// más abajo un implode(' AND ', $where)) NO contienen ninguna palabra clave
-// SQL propia — son un patrón real de este codebase (PrintPoolService,
-// StockTransferService, InventoryCountService antes del fix de la mig 150).
-// Sin este gate, un fragmento reintroducido con comillas camelCase (ej.
-// `$where[] = '"badCol" = ?';`) nunca tendría SELECT/WHERE/etc en el MISMO
-// string literal y se colaría sin marcar. Matchea un string que EMPIEZA
-// (tras trim) con un identificador citado seguido de un operador de
-// comparación típico.
-const SQL_FRAGMENT_RE = '/^\s*\\\\?"[A-Za-z_]\w*\\\\?"\s*(=|<>|!=|>=|<=|>|<|\bIS\b|\bIN\b|\bLIKE\b)/i';
-
-// `"Ident"` o `\"Ident\"` — identificador Postgres válido, con al menos una
-// mayúscula en algún punto (si no tiene mayúscula, citarlo es válido/no-op
-// y fuera del alcance de este bug).
-const QUOTED_IDENT_RE = '/(\\\\?)"([A-Za-z_][A-Za-z0-9_]{0,62})(\\\\?)"/';
-
-const AS_BEFORE_RE = '/\bAS\s*$/i';
-
-// Posición válida para que una comilla ABRA un identificador SQL real:
-// arranque del string, o inmediatamente después de espacio/newline, `(`,
-// `,` o `.` (alias de tabla). Chequeo barato adicional, defensa en
-// profundidad — el filtro REAL contra el falso positivo de datos
-// entrecomillados es maskSqlStringLiterals() de abajo.
-const VALID_IDENT_START_RE = '/(^|[\s(,.])$/';
-
-/**
- * Enmascara el CONTENIDO de literales '...' de un solo quote (deja los
- * caracteres `'` delimitadores y los saltos de línea intactos, para no
- * mover offsets ni romper el conteo de línea; todo lo demás adentro pasa a
- * espacio). Respeta el escape SQL estándar de comilla simple duplicada
- * (`''` dentro de un literal = una comilla literal, NO cierra el string).
- *
- * Por qué hace falta: un JSON embebido como valor de un literal SQL (ej.
- * `'{"settingName":"Demo Company",...}'` en los seeds de dev, o
- * `'%\"systemKey\":\"cash\"%'` en un LIKE de PaymentMethodService.php) usa
- * EXACTAMENTE la misma forma sintáctica local que una lista real de
- * identificadores citados (comillas dobles separadas por coma/espacio/
- * llave) — ninguna heurística posicional barata distingue ambos casos de
- * forma confiable. Enmascarar el contenido de los literales '...' ANTES de
- * buscar `"identificador"` es la única forma correcta de garantizar que
- * QUOTED_IDENT_RE solo pueda matchear comillas que están en sintaxis SQL
- * real (fuera de cualquier literal de datos), sin falsos positivos.
- *
- * Encontrado en la práctica: un dry-run de este verificador contra el
- * repo real (con catálogo vacío para maximizar falsos positivos) tiraba
- * ~68 candidatos, TODOS claves JSON dentro de literales '...' en los
- * seeds de dev (api/database/seeds/postgres/*.sql, verify_chain/seed.sql)
- * antes de agregar este enmascarado — cero después.
- */
-function maskSqlStringLiterals(string $sql): string
-{
-    $out      = '';
-    $len      = strlen($sql);
-    $inString = false;
-    for ($i = 0; $i < $len; $i++) {
-        $ch = $sql[$i];
-        if ($ch === "\n") {
-            $out .= "\n"; // nunca enmascarar saltos de línea: rompería el conteo de línea.
-            continue;
-        }
-        if ($inString) {
-            if ($ch === "'") {
-                if ($i + 1 < $len && $sql[$i + 1] === "'") {
-                    $out .= '  '; // comilla escapada (''), sigue dentro del literal.
-                    $i++;
-                    continue;
-                }
-                $inString = false;
-                $out     .= $ch; // comilla de cierre real, sin enmascarar.
-                continue;
-            }
-            $out .= ' ';
-            continue;
-        }
-        if ($ch === "'") {
-            $inString = true;
-        }
-        $out .= $ch;
-    }
-    return $out;
-}
-
-/**
- * @return array<int, array{0:string,1:int}> lista de [texto_string, línea_inicio]
- *
- * El texto devuelto es el CONTENIDO del string PHP, sin las comillas de
- * delimitación de PHP (primer/último carácter del token, siempre el mismo
- * — simple o doble — para T_CONSTANT_ENCAPSED_STRING). Es necesario
- * pelarlas ACÁ: si se dejan, maskSqlStringLiterals() ve la comilla simple
- * de apertura de un string PHP `'SELECT "companyId" ...'` como si fuera el
- * inicio de un literal SQL '...' y enmascara TODO el contenido de adentro
- * como si fuera data — silenciando cualquier identificador real que
- * hubiera SQL adentro (bug real, encontrado corriendo este mismo
- * verificador contra un snippet de prueba antes de wirearlo a run.sh: con
- * el token completo sin pelar, CERO de los identificadores camelCase
- * inyectados a mano en un string PHP single-quoted se detectaban).
- */
-function extractPhpSqlStrings(string $code): array
-{
-    $out    = [];
-    $tokens = token_get_all($code);
-    foreach ($tokens as $tok) {
-        if (is_array($tok)) {
-            [$id, $text, $tokLine] = $tok;
-            if ($id === T_CONSTANT_ENCAPSED_STRING && strlen($text) >= 2) {
-                $out[] = [substr($text, 1, -1), $tokLine];
-            }
-        }
-    }
-    return $out;
-}
-
-/**
- * Núcleo compartido: dado un bloque de texto "que parece SQL", devuelve
- * los [identificador, offset_en_$text] en discrepancia. Opera sobre una
- * copia con los literales '...' enmascarados (maskSqlStringLiterals) para
- * que QUOTED_IDENT_RE solo pueda matchear comillas en sintaxis SQL real,
- * nunca datos (JSON embebido, patrones LIKE, etc.) — el offset devuelto es
- * válido tanto contra el texto enmascarado como contra el original porque
- * el enmascarado preserva longitud y saltos de línea exactos.
- *
- * @return list<array{0:string,1:int}> lista de [identificador, offset]
- */
-function findBadIdentifiers(string $text, array $validColumns, array $validTables): array
-{
-    if (!preg_match(SQL_KEYWORDS_RE, $text) && !preg_match(SQL_FRAGMENT_RE, $text)) {
-        return [];
-    }
-    $masked = maskSqlStringLiterals($text);
-    $bad    = [];
-    if (!preg_match_all(QUOTED_IDENT_RE, $masked, $matches, PREG_OFFSET_CAPTURE)) {
-        return [];
-    }
-    foreach ($matches[2] as $i => $m) {
-        [$name] = $m;
-        if (!preg_match('/[A-Z]/', $name)) {
-            continue; // sin mayúscula: no es el bug de esta clase.
-        }
-        // OJO: el offset de "AS antes de esto" tiene que medirse desde el
-        // arranque del match COMPLETO (la comilla/backslash de apertura,
-        // $matches[0]), no desde el arranque del grupo 2 (el nombre) — si
-        // se mide desde el grupo 2, el texto previo termina en `AS "` (con
-        // la comilla incluida) y el regex `\bAS\s*$` nunca matchea porque
-        // hay un carácter `"` entre "AS" y el final del string, así que el
-        // filtro de alias de salida quedaría siempre inerte (bug real,
-        // encontrado corriendo este mismo verificador contra el repo real
-        // antes de wirearlo a run.sh — con catálogo vacío de prueba TODOS
-        // los alias `AS "algo"` aparecían como falso positivo).
-        $matchOffset = $matches[0][$i][1];
-        $pre         = substr($masked, 0, $matchOffset);
-        if (preg_match(AS_BEFORE_RE, $pre)) {
-            continue; // alias de salida deliberado.
-        }
-        if (!preg_match(VALID_IDENT_START_RE, $pre)) {
-            continue; // defensa en profundidad — no debería dispararse nunca gracias al enmascarado.
-        }
-        if (isset($validColumns[$name]) || isset($validTables[$name])) {
-            continue; // matchea un objeto real del catálogo — legítimo.
-        }
-        $bad[] = [$name, $matchOffset];
-    }
-    return $bad;
-}
-
-/** @return list<string> nombres en discrepancia (para .php, línea = la del token completo). */
-function scanForBadQuotedIdentifiers(string $text, array $validColumns, array $validTables): array
-{
-    $out = [];
-    foreach (findBadIdentifiers($text, $validColumns, $validTables) as [$name]) {
-        $out[] = $name;
-    }
-    return $out;
-}
-
-/**
- * Variante para archivos .sql completos: a diferencia de
- * scanForBadQuotedIdentifiers() (que opera por STRING PHP para los .php,
- * cada string es su propia unidad de gate), acá el gate de "parece SQL" se
- * evalúa contra el ARCHIVO ENTERO — un CREATE TABLE de varias líneas
- * típico de db-schema-postgres.sql/seed.sql tiene la keyword `CREATE
- * TABLE` en la primera línea y las columnas citadas en líneas siguientes
- * SIN ninguna keyword propia; gatear por línea dejaría pasar esas columnas
- * sin marcar. Es seguro ampliar el gate a nivel archivo acá (y NO en PHP)
- * porque un `.sql` es SQL de punta a punta — no hay riesgo de strings de
- * UI/mensajes de error mezclados como en un .php.
- *
- * @return list<array{0:string,1:int}> lista de [identificador, línea]
- */
-function scanSqlFileForBadIdentifiers(string $text, array $validColumns, array $validTables): array
-{
-    $out = [];
-    foreach (findBadIdentifiers($text, $validColumns, $validTables) as [$name, $offset]) {
-        $out[] = [$name, substr_count(substr($text, 0, $offset), "\n") + 1];
-    }
-    return $out;
-}
-
-/** @return \RecursiveIteratorIterator<\RecursiveDirectoryIterator> */
-function walkFiles(string $dir, string $ext): iterable
-{
-    if (!is_dir($dir)) {
-        return;
-    }
-    $it = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS)
-    );
-    foreach ($it as $file) {
-        /** @var \SplFileInfo $file */
-        $path = $file->getPathname();
-        if (str_contains($path, '/vendor/') || str_contains($path, '/node_modules/')) {
-            continue;
-        }
-        if (str_ends_with($path, '.' . $ext)) {
-            yield $path;
-        }
-    }
-}
-
-$scanned = 0;
+$scanned     = 0;
+$qualChecked = 0; // referencias alias.columna resueltas contra una tabla real (OK o falla).
+$qualOmitted = 0; // referencias alias.columna cuyo alias no resolvió — nunca reportadas.
 
 // .php bajo api/, EXCLUYENDO api/database/migrations/postgres (historia
 // inmutable, ver docblock de arriba).
@@ -434,13 +279,36 @@ foreach (walkFiles($apiDir, 'php') as $path) {
         continue;
     }
     $scanned++;
+    $relPath = substr($path, strlen($repoRoot) + 1);
     foreach (extractPhpSqlStrings($code) as [$text, $line]) {
         foreach (scanForBadQuotedIdentifiers($text, $validColumns, $validTables) as $bad) {
             $failures[] = sprintf(
                 '[code] %s:%d — "%s" citado entre comillas con mayúscula, no matchea ningún objeto real del catálogo Postgres',
-                substr($path, strlen($repoRoot) + 1),
+                $relPath,
                 $line,
                 $bad
+            );
+        }
+        // Chequeo C: columnas calificadas (alias.columna, con o sin
+        // comillas) resueltas contra la tabla real del alias — ver
+        // docblock de findBadQualifiedRefs. $line es la línea de INICIO
+        // del string PHP; se suma el número de saltos de línea hasta el
+        // offset del match para apuntar a la línea EXACTA (más preciso
+        // que el chequeo B de arriba, que reporta solo la línea de
+        // inicio del string).
+        $qr           = findBadQualifiedRefs($text, $columnsByTable, $validTables);
+        $qualChecked += $qr['checked'];
+        $qualOmitted += $qr['omitted'];
+        foreach ($qr['failures'] as [$alias, $table, $col, $offset]) {
+            $exactLine = $line + substr_count(substr($text, 0, $offset), "\n");
+            $failures[] = sprintf(
+                '[code-qualified] %s:%d — "%s.%s" no matchea ninguna columna real de "%s" (alias "%s" resuelto vía FROM/JOIN en el mismo bloque SQL)',
+                $relPath,
+                $exactLine,
+                $alias,
+                $col,
+                $table,
+                $alias
             );
         }
     }
@@ -464,18 +332,37 @@ foreach (walkFiles($repoRoot, 'sql') as $path) {
         continue;
     }
     $scanned++;
+    $relPath = substr($path, strlen($repoRoot) + 1);
     foreach (scanSqlFileForBadIdentifiers($code, $validColumns, $validTables) as [$bad, $lineNo]) {
         $failures[] = sprintf(
             '[code] %s:%d — "%s" citado entre comillas con mayúscula, no matchea ningún objeto real del catálogo Postgres',
-            substr($path, strlen($repoRoot) + 1),
+            $relPath,
             $lineNo,
             $bad
+        );
+    }
+    // Chequeo C sobre el archivo .sql entero — misma granularidad que el
+    // chequeo B para .sql (ver docblock de scanSqlFileForBadIdentifiers).
+    $qr           = findBadQualifiedRefs($code, $columnsByTable, $validTables);
+    $qualChecked += $qr['checked'];
+    $qualOmitted += $qr['omitted'];
+    foreach ($qr['failures'] as [$alias, $table, $col, $offset]) {
+        $lineNo     = substr_count(substr($code, 0, $offset), "\n") + 1;
+        $failures[] = sprintf(
+            '[code-qualified] %s:%d — "%s.%s" no matchea ninguna columna real de "%s" (alias "%s" resuelto vía FROM/JOIN en el mismo bloque SQL)',
+            $relPath,
+            $lineNo,
+            $alias,
+            $col,
+            $table,
+            $alias
         );
     }
 }
 
 echo "[verify_pg_identifier_catalog] catálogo: " . count($validColumns) . " nombres de columna únicos, " . count($validTables) . " tablas, en $dbnm@$host\n";
 echo "[verify_pg_identifier_catalog] escaneados $scanned archivo(s) (.php + .sql bajo api/ y raíz, excluyendo api/database/migrations/postgres)\n";
+echo "[verify_pg_identifier_catalog] columnas calificadas (alias.columna): $qualChecked resueltas y validadas contra su tabla real, $qualOmitted omitidas (alias sin FROM/JOIN resoluble en el mismo bloque — LATERAL, subconsulta, SQL partido entre fragmentos)\n";
 
 if ($failures !== []) {
     fwrite(STDERR, "[verify_pg_identifier_catalog] FALLÓ — " . count($failures) . " discrepancia(s):\n");

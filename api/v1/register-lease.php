@@ -69,7 +69,7 @@ if ($method === 'GET') {
     $rs = ncmExecute(
         'SELECT r.registerid AS "registerId", r.registername AS "registerName",
                 rl.registerleaseid, rl.deviceid, rl.takenat,
-                d.devicename AS "deviceName"
+                d.devicename AS "deviceName", d.registerid AS "deviceRegisterId"
            FROM register r
            LEFT JOIN "register_lease" rl
                   ON rl.registerid = r.registerid AND rl."status" = \'active\'
@@ -86,6 +86,15 @@ if ($method === 'GET') {
         while (!$rs->EOF) {
             $row      = $rs->fields;
             $leaseId  = $row['registerLeaseId'] ?? null;
+            // `orphaned`: la tenencia sigue 'active' sobre ESTA caja pero la
+            // fila `device` ya apunta a otra — señal de la clase de bug que
+            // 151_release_orphaned_register_leases.sql limpió (device
+            // reasignado sin liberar su tenencia vieja). Con el fix de
+            // active-register.php/claim.php de esta sesión no debería volver
+            // a pasar, pero si algún camino nuevo lo reintroduce, el admin lo
+            // ve acá sin tener que ir a mirar la BD.
+            $orphaned = $leaseId !== null && $leaseId !== ''
+                && (string) ($row['deviceRegisterId'] ?? '') !== (string) $row['registerId'];
             $leases[] = [
                 'registerId'   => (string) $row['registerId'],
                 'registerName' => (string) $row['registerName'],
@@ -94,6 +103,7 @@ if ($method === 'GET') {
                     'deviceId'        => (string) $row['deviceId'],
                     'deviceName'      => (string) ($row['deviceName'] ?? ''),
                     'takenAt'         => (string) $row['takenAt'],
+                    'orphaned'        => $orphaned,
                 ],
             ];
             $rs->MoveNext();

@@ -23,14 +23,19 @@ import { posApi } from "@/lib/api/pos-client"
  * no recién cuando falla el cobro. Idempotente: si este device ya es el
  * tenedor, el backend devuelve 200 sin tocar nada (confirmación, no
  * re-toma). Si otro device la tiene tomada de verdad, devuelve 409 con
- * `{holderDeviceId, holderDeviceName}` — el layout muestra la pantalla
- * bloqueante en vez de dejar entrar al workspace.
+ * `{holderDeviceId, holderDeviceName}`.
+ *
+ * Corrección de producto del owner (2026-08-20): un 409 acá YA NO bloquea el
+ * workspace — la tenencia solo importa para emitir un documento con
+ * numeración fiscal (factura). El layout (`app/(pos)/pos/layout.tsx`) llama
+ * este hook best-effort y no lee su resultado; el gate real vive en
+ * `PayDialog` (`RegisterTakenPhase`) al momento de cobrar, acotado al
+ * diálogo de pago.
  *
  * `retry:false` — un 409 es una respuesta real (alguien la tiene, o recién
- * se liberó y hay que reintentar a mano), no un error transitorio de red
- * para reintentar solo. `refetchOnWindowFocus:false` — recuperar el foco de
- * la pestaña no debe re-disparar una toma de caja; el retry es explícito
- * (botón "Reintentar" de la pantalla bloqueante, ver `RegisterTakenScreen`).
+ * se liberó), no un error transitorio de red para reintentar solo.
+ * `refetchOnWindowFocus:false` — recuperar el foco de la pestaña no debe
+ * re-disparar una toma de caja.
  */
 export function useRegisterClaim() {
   return useQuery<{ registerLeaseId: string }>({
