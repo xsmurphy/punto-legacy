@@ -295,6 +295,12 @@ final class ProductsService
             $uid = (string) ($l['itemUser'] ?: $l['trsUser']);
             $rows[] = [
                 'transactionId' => (string) $l['transactionId'],
+                'itemSoldId'    => (string) $l['itemSoldId'],
+                // itemId crudo (no resuelto) — el front lo necesita para linkear
+                // cada línea al historial del artículo (ficha de item, tab Stock).
+                // Antes no se exponía porque detail() solo se consumía como export
+                // plano, sin drill-down por fila.
+                'itemId'        => $iid,
                 'outletName'    => $outlets[(string) $l['outletId']] ?? '',
                 'registerName'  => $regs[(string) $l['registerId']] ?? '',
                 'invoiceNo'     => (string) $l['invoicePrefix'] . (string) $l['invoiceNo'],

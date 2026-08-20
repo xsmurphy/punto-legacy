@@ -160,6 +160,41 @@ export interface ProductsReportResponse {
 }
 
 /**
+ * Fila del endpoint /v1/reports/products?view=detail. Una fila por línea de
+ * venta (no agregada) — ítem, comprobante, cliente, usuario, sucursal/caja.
+ * `itemId` viaja crudo (puede ser "" en líneas manuales sin ítem asociado)
+ * para poder linkear cada fila al historial del artículo.
+ */
+export interface ProductDetailRow {
+  transactionId: string
+  itemSoldId: string
+  itemId: string
+  outletName: string
+  registerName: string
+  invoiceNo: string
+  userName: string
+  customerName: string
+  date: string
+  name: string
+  deleted: boolean
+  sku: string
+  brand: string
+  category: string
+  usold: number
+  comission: number
+  cogs: number
+  tax: number
+  taxName: string
+  discount: number
+  utility: number
+  total: number
+}
+
+export interface ProductsDetailReportResponse {
+  rows: ProductDetailRow[]
+}
+
+/**
  * Endpoint /v1/reports/open_invoices.
  * `state=income` (default) = cuentas por cobrar; `state=outcome` = cuentas por pagar.
  */
