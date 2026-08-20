@@ -323,90 +323,23 @@ final class OpenInvoicesService
     }
 
     /**
-     * Lo que reduce la deuda por documento origen, scopeado por companyId,
-     * separado en dos familias porque tienen semántica de monto distinta:
+     * Lo que reduce la deuda por documento origen, scopeado por companyId.
      *
-     *   - kind='credit_payment' (tipo 5, cobro a cliente): usa
-     *     `TransactionLinkService::mapSumDerivedAmounts()` — mig 123, respeta
-     *     el `amount` del vínculo cuando un recibo se repartió entre varias
-     *     facturas (`COALESCE(tl.amount, transactionTotal)`, sin restar
-     *     discount porque un recibo nunca lo tiene).
-     *   - kind='return' (tipo 6, devolución de venta) y
-     *     'purchase_credit_note' (tipo 14, mig 122): NUNCA se les asigna
-     *     `amount` en `transaction_link` (nadie las reparte entre varios
-     *     orígenes) y SÍ tienen `transactionDiscount` real seteado al crearse
-     *     (ver `ReturnService`/`PurchaseCreditNoteService`) — se preserva el
-     *     cálculo `ABS(transactionTotal - discount)` documento por documento,
-     *     igual que antes de este mig.
+     * Delega en `TransactionLinkService::paidForCreditOrigins()` — LA
+     * superficie única para este cálculo (antes vivía acá duplicada, y por
+     * separado, ad-hoc y divergente, en `Services\TransactionService::
+     * getSingle()` (POS) y `Transactions\TransactionDetailService::find()`
+     * (panel `/transactions/{id}`); ninguna de esas dos restaba
+     * `return`/`purchase_credit_note`, así que Caja y panel podían mostrar
+     * saldos distintos para la misma factura con una nota de crédito
+     * aplicada. Las tres migraron a este único método).
      *
-     * El `COALESCE(transactionStatus, 1) <> 6` excluye SOLO lo anulado: sin el
-     * COALESCE, una fila legacy con status NULL daría NULL (no false) y
-     * quedaría fuera del SUM — el saldo pendiente saltaría hacia arriba en
-     * datos viejos.
-     *
-     * `$isCustomer`: FIX (encontrado tocando esta función para la anulación de
-     * recibos, 2026-08-16) — hardcodeaba `kind='credit_payment'` sin importar
-     * el estado, así que un pago a PROVEEDOR (`purchase_payment`, generalizado
-     * 2026-08) nunca reducía el saldo mostrado acá: `general(state='outcome')`
-     * y `contactStatement(isCustomer=false)` mostraban la factura con el saldo
-     * pendiente ORIGINAL hasta que un pago la saldaba del todo (recién ahí
-     * `transactionComplete` la sacaba de la lista, seteado por
-     * `CreditPaymentService::insertReceipt()` con el cálculo correcto — el bug
-     * era solo de DISPLAY del saldo parcial, no de si la factura quedaba
-     * abierta o cerrada). `return`/`purchase_credit_note` de abajo no tenían
-     * este problema — ya estaban separados por tipo de documento, no por
-     * `$isCustomer`.
+     * `$isCustomer`: FIX (2026-08-16) — antes hardcodeaba `kind='credit_payment'`
+     * sin importar el estado, así que un pago a PROVEEDOR (`purchase_payment`)
+     * nunca reducía el saldo mostrado acá.
      */
     private function payedByParent(array $ids, $companyId, bool $isCustomer = true)
     {
-        $ids = array_values(array_unique(array_filter($ids)));
-        if (!$ids) {
-            return [];
-        }
-        $links = new \Punto\Api\Services\TransactionLinkService();
-
-        $map = $links->mapSumDerivedAmounts($companyId, $ids, $isCustomer ? 'credit_payment' : 'purchase_payment');
-
-        // return + purchase_credit_note: discount-aware, documento por
-        // documento (amount de transaction_link no aplica — ver docblock).
-        // array_merge_recursive (no array_merge): un mismo originId con
-        // vínculos de ambos kinds concatena las dos listas de derivedIds en
-        // vez de que la segunda pise a la primera (no debería pasar en la
-        // práctica — 'return' cuelga de ventas tipo 3 y 'purchase_credit_note'
-        // de compras tipo 4 — pero el merge queda correcto igual si algún día
-        // coexisten).
-        $derivedByOrigin = array_merge_recursive(
-            $links->mapDerivedIdsByOrigins($companyId, $ids, 'return'),
-            $links->mapDerivedIdsByOrigins($companyId, $ids, 'purchase_credit_note')
-        );
-        $allDerived = [];
-        foreach ($derivedByOrigin as $derivedIds) {
-            foreach ($derivedIds as $d) {
-                $allDerived[] = $d;
-            }
-        }
-        if ($allDerived) {
-            $ph  = implode(',', array_fill(0, count($allDerived), '?'));
-            $res = ncmExecute(
-                "SELECT transactionId,
-                        ABS(transactionTotal - COALESCE(transactionDiscount, 0)) as payed
-                 FROM transaction WHERE transactionType IN (6,14) AND COALESCE(transactionStatus, 1) <> 6 AND companyId = ? AND transactionId IN ($ph)",
-                array_merge([$companyId], $allDerived), false, false, true
-            );
-            $res = is_array($res) ? $res : [];
-            $payedByDerived = [];
-            foreach ($res as $r) {
-                $payedByDerived[(string) $r['transactionId']] = (float) $r['payed'];
-            }
-            foreach ($derivedByOrigin as $originId => $derivedIds) {
-                $sum = 0.0;
-                foreach ($derivedIds as $d) {
-                    $sum += $payedByDerived[$d] ?? 0.0;
-                }
-                $map[$originId] = ($map[$originId] ?? 0.0) + abs($sum);
-            }
-        }
-
-        return $map;
+        return (new \Punto\Api\Services\TransactionLinkService())->paidForCreditOrigins($companyId, $ids, $isCustomer);
     }
 }

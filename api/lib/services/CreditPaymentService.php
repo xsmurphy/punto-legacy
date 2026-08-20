@@ -163,8 +163,17 @@ final class CreditPaymentService
         }
 
         // ── 4. Deuda de cada factura DENTRO de la TX (después del lock, con
-        //    sumDerivedAmounts — mig 123, respeta `amount` de vínculos
-        //    previos si esa factura ya recibió pagos parciales repartidos). ──
+        //    paidForCreditOrigin() — credit_payment/purchase_payment +
+        //    return/purchase_credit_note, mismo cálculo que
+        //    OpenInvoicesService::payedByParent(). Antes usaba
+        //    sumDerivedAmounts($kind) SOLO — ignoraba una nota de crédito ya
+        //    aplicada a la factura, así que este chequeo podía ACEPTAR un
+        //    pago que superaba la deuda REAL (la inflada por no restar la
+        //    NC), no solo la nominal). ──────────────────────────────────────
+        // Batch (una sola tanda de queries para TODAS las facturas del
+        // recibo) en vez de N+1 — `paidForCreditOrigin()` de a una dispararía
+        // hasta 4 queries por factura.
+        $paidMap = $this->links->paidForCreditOrigins($companyId, $orderedParentIds, $isCustomer);
         $debts = [];
         foreach ($orderedParentIds as $pid) {
             $p     = $parents[$pid];
@@ -173,7 +182,7 @@ final class CreditPaymentService
             $total = $isCustomer
                 ? ((float) ($p['transactionTotal'] ?? 0) - (float) ($p['transactionDiscount'] ?? 0))
                 : (float) ($p['transactionTotal'] ?? 0);
-            $paid  = $this->links->sumDerivedAmounts($companyId, $pid, $kind);
+            $paid  = $paidMap[$pid] ?? 0.0;
             $debt  = max(0.0, $total - $paid);
             $amt   = $merged[$pid];
             if (round($amt, 4) > round($debt, 4) + 0.001) {
@@ -274,6 +283,10 @@ final class CreditPaymentService
         $parents = [];
         $debts   = [];
         $totalDebt = 0.0;
+        // Batch — una sola tanda de queries para TODAS las facturas abiertas
+        // del contacto, no N+1 (mismo criterio que create()).
+        $rowIds  = array_map(static fn ($r) => (string) $r['transactionId'], $rows);
+        $paidMap = $this->links->paidForCreditOrigins($companyId, $rowIds, $isCustomer);
         // Orden de iteración de $rows ya es FIFO (usort de arriba) — se
         // preserva armando $merged en ese mismo orden más abajo.
         foreach ($rows as $r) {
@@ -281,7 +294,10 @@ final class CreditPaymentService
             $total = $isCustomer
                 ? ((float) ($r['transactionTotal'] ?? 0) - (float) ($r['transactionDiscount'] ?? 0))
                 : (float) ($r['transactionTotal'] ?? 0);
-            $paid  = $this->links->sumDerivedAmounts($companyId, $pid, $kind);
+            // paidForCreditOrigin() — mismo motivo que en create() (ver
+            // comentario ahí): incluye return/purchase_credit_note, no solo
+            // los pagos.
+            $paid  = $paidMap[$pid] ?? 0.0;
             $debt  = max(0.0, $total - $paid);
             if ($debt <= 0.0001) {
                 // Ya saldada (el snapshot del reporte que originó el diálogo
@@ -431,13 +447,20 @@ final class CreditPaymentService
             [$paymentId, $companyId]
         );
 
+        // Batch — una sola tanda de queries para TODAS las facturas afectadas
+        // por este recibo, no N+1 (mismo criterio que create()/createDistributed()).
+        $invIds  = array_map(static fn ($inv) => (string) $inv['transactionId'], $rows);
+        $paidMap = $this->links->paidForCreditOrigins($companyId, $invIds, $isCustomer);
+
         $affected = [];
         foreach ($rows as $inv) {
             $invId = (string) $inv['transactionId'];
             $total = $isCustomer
                 ? ((float) ($inv['transactionTotal'] ?? 0) - (float) ($inv['transactionDiscount'] ?? 0))
                 : (float) ($inv['transactionTotal'] ?? 0);
-            $paid  = $this->links->sumDerivedAmounts($companyId, $invId, $kind);
+            // paidForCreditOrigin() — mismo motivo que en create()/
+            // createDistributed(): incluye return/purchase_credit_note.
+            $paid  = $paidMap[$invId] ?? 0.0;
             $debt  = max(0.0, $total - $paid);
             // Recalculado desde cero — NO se asume "vuelve a impaga": si la
             // factura tenía otros recibos vigentes (ej. dos pagos parciales,

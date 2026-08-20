@@ -108,5 +108,11 @@ export POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
 php -d variables_order=EGPCS -d 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_WARNING' \
   "$SCRIPT_DIR/credit_payment_void_test.php"
 
+# ── 4. Test de saldo unificado (factura con descuento + nota de crédito) ───
+echo ""
+echo "[run_credit_payment_void_test.sh] === saldo de cuentas por cobrar (descuento + NC, integración) ==="
+php -d variables_order=EGPCS -d 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_WARNING' \
+  "$SCRIPT_DIR/credit_debt_with_credit_note_test.php"
+
 echo ""
 echo "[run_credit_payment_void_test.sh] TODO OK."

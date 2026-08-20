@@ -330,6 +330,96 @@ final class TransactionLinkService
         return $map;
     }
 
+    /**
+     * Cuánto se saldó de $originId (factura a crédito, tipo 3/4) — LA
+     * superficie única para "deuda pendiente de una venta/compra a crédito"
+     * (hallazgo: Caja y panel mostraban saldos distintos para la misma
+     * factura cuando existía una nota de crédito aplicada).
+     *
+     * Combina DOS familias de vínculo sobre el mismo originId — mismo
+     * criterio que `Reports\OpenInvoicesService::payedByParent()` (de donde
+     * se extrajo esta lógica, antes duplicada ad-hoc en
+     * `Services\TransactionService::getSingle()` (POS) y en
+     * `Transactions\TransactionDetailService::find()` (panel
+     * `/transactions/{id}`) — cada una con su propio subconjunto, ninguna
+     * restaba `return`/`purchase_credit_note`, esa es la divergencia real
+     * que este método cierra):
+     *
+     *   - `credit_payment`/`purchase_payment` (recibo de pago/cobro, tipo 5)
+     *     vía `mapSumDerivedAmounts()`: respeta el `amount` del vínculo (mig
+     *     123, recibo repartido entre varias facturas), sin restar discount
+     *     (un recibo nunca lo tiene).
+     *   - `return`/`purchase_credit_note` (nota de crédito, tipo 6/14):
+     *     NUNCA llevan `amount` en el vínculo — se calculan documento por
+     *     documento, `ABS(transactionTotal - transactionDiscount)`, que SÍ
+     *     tienen seteado al crearse (`ReturnService`/`PurchaseCreditNoteService`).
+     *
+     * `COALESCE(transactionStatus, 1) <> 6` excluye anulados en las dos
+     * familias — mismo criterio que `sumDerivedAmounts()`.
+     *
+     * @param list<string> $originIds
+     * @return array<string, float> originId → monto saldado (0.0 si no tiene vínculos)
+     */
+    public function paidForCreditOrigins(string $companyId, array $originIds, bool $isCustomer = true): array
+    {
+        $originIds = array_values(array_unique(array_filter($originIds, static fn ($v) => $v !== '' && $v !== null)));
+        if ($originIds === []) {
+            return [];
+        }
+
+        $map = $this->mapSumDerivedAmounts($companyId, $originIds, $isCustomer ? 'credit_payment' : 'purchase_payment');
+
+        // return + purchase_credit_note: discount-aware, documento por
+        // documento (amount de transaction_link no aplica acá). array_merge_
+        // recursive (no array_merge): un mismo originId con vínculos de
+        // ambos kinds concatena las dos listas de derivedIds en vez de que
+        // la segunda pise a la primera.
+        $derivedByOrigin = array_merge_recursive(
+            $this->mapDerivedIdsByOrigins($companyId, $originIds, 'return'),
+            $this->mapDerivedIdsByOrigins($companyId, $originIds, 'purchase_credit_note')
+        );
+        $allDerived = [];
+        foreach ($derivedByOrigin as $derivedIds) {
+            foreach ($derivedIds as $d) {
+                $allDerived[] = $d;
+            }
+        }
+        if ($allDerived !== []) {
+            $ph  = implode(',', array_fill(0, count($allDerived), '?'));
+            $res = ncmExecute(
+                "SELECT transactionId,
+                        ABS(transactionTotal - COALESCE(transactionDiscount, 0)) as payed
+                 FROM transaction WHERE transactionType IN (6,14) AND COALESCE(transactionStatus, 1) <> 6 AND companyId = ? AND transactionId IN ($ph)",
+                array_merge([$companyId], $allDerived), false, false, true
+            );
+            $res = is_array($res) ? $res : [];
+            $payedByDerived = [];
+            foreach ($res as $r) {
+                $payedByDerived[(string) $r['transactionId']] = (float) $r['payed'];
+            }
+            foreach ($derivedByOrigin as $originId => $derivedIds) {
+                $sum = 0.0;
+                foreach ($derivedIds as $d) {
+                    $sum += $payedByDerived[$d] ?? 0.0;
+                }
+                $map[$originId] = ($map[$originId] ?? 0.0) + abs($sum);
+            }
+        }
+
+        return $map;
+    }
+
+    /**
+     * Versión de un solo origen de `paidForCreditOrigins()` — para los
+     * consumidores que resuelven el detalle de UNA transacción (POS, panel
+     * `/transactions/{id}`), donde antes cada uno recalculaba a mano.
+     */
+    public function paidForCreditOrigin(string $companyId, string $originId, bool $isCustomer = true): float
+    {
+        $map = $this->paidForCreditOrigins($companyId, [$originId], $isCustomer);
+        return $map[$originId] ?? 0.0;
+    }
+
     // ------------------------------------------------------------------
     // order_transaction_link
     // ------------------------------------------------------------------
