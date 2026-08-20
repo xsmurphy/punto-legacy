@@ -25,10 +25,12 @@ final class LoanService
     private const SOURCE = 'loan_installment';
 
     private MovementService $movements;
+    private CategoryService $categories;
 
     public function __construct()
     {
-        $this->movements = new MovementService();
+        $this->movements  = new MovementService();
+        $this->categories = new CategoryService();
     }
 
     /**
@@ -257,6 +259,12 @@ final class LoanService
 
         $result = $this->movements->recordDerivedMovement($companyId, self::SOURCE, $installmentId, [
             'accountId'   => $accountId,
+            // La categoría del movimiento sigue siendo opcional en general
+            // (decisión del owner), pero acá SIEMPRE resolvemos un default:
+            // "Préstamos" para cuotas de crédito — el tenant puede
+            // recategorizar editando fin_category, pero ningún pago de
+            // cuota queda sin clasificar por descuido nuestro.
+            'categoryId'  => $this->categories->ensureLoanInstallmentCategoryId($companyId),
             'kind'        => 'expense',
             'amount'      => (float) $installment['amount'],
             'date'        => TenantClock::now($companyId),

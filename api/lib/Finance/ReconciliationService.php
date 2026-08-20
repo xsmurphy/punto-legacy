@@ -248,7 +248,16 @@ final class ReconciliationService
 
             $kind = $difference > 0 ? 'income' : 'expense';
             $amount = abs($difference);
+            // La categoría sigue siendo opcional en general, pero acá
+            // SIEMPRE resolvemos un default: el ajuste es plata real (de más
+            // o de menos) que entra/sale de la cuenta, no una transferencia
+            // — el frontend hoy no ofrece elegir categoría en este flujo, así
+            // que cae a la categoría default "Ajustes" (income/expense según
+            // el signo) en vez de dejar el movimiento sin clasificar.
             $categoryId = $adjustmentCategoryId ? $this->nullableUuid($adjustmentCategoryId) : null;
+            if ($categoryId === null) {
+                $categoryId = (new CategoryService())->ensureAdjustmentCategoryId($companyId, $kind);
+            }
 
             $movementId = ncmInsert([
                 'records' => [

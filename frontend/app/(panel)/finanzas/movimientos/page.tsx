@@ -84,6 +84,12 @@ function FinanzasMovimientosPageInner() {
   const accountIdParam = searchParams.get("accountId") ?? ""
   const [accountId, setAccountId] = React.useState(accountIdParam)
   const [kind, setKind] = React.useState<"income" | "expense" | "all">("all")
+  // "none" = filtro "Sin categoría" — para que nada quede suelto sea fácil
+  // de encontrar, no solo de prevenir. Casi siempre vacío en la práctica:
+  // hoy solo lo dejan sin categoría las transferencias entre cuentas propias
+  // (excluidas explícitamente por el backend, ver MovementService::list) y,
+  // más raro, un movimiento importado desde afuera.
+  const [categoryId, setCategoryId] = React.useState<string>("all")
   const { range, setRange } = useDateRange()
 
   // Sincroniza el filtro con la URL cuando cambia externamente (ej. click desde /finanzas/cuentas).
@@ -95,13 +101,15 @@ function FinanzasMovimientosPageInner() {
   const filters = React.useMemo(
     () => ({
       accountId: accountId || undefined,
+      categoryId: categoryId === "all" ? undefined : categoryId,
       kind: kind === "all" ? undefined : kind,
       ...rangeOpts,
     }),
-    [accountId, kind, rangeOpts],
+    [accountId, categoryId, kind, rangeOpts],
   )
 
   const { data, isLoading } = useFinanceMovements(filters)
+  const { data: categories } = useFinanceCategories()
   const [movementDialogOpen, setMovementDialogOpen] = React.useState(false)
   const [transferDialogOpen, setTransferDialogOpen] = React.useState(false)
   const [voidTarget, setVoidTarget] = React.useState<FinanceMovement | null>(null)
@@ -295,6 +303,23 @@ function FinanzasMovimientosPageInner() {
           </SelectContent>
         </Select>
 
+        <Select value={categoryId} onValueChange={setCategoryId}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Todas las categorías" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todas las categorías</SelectItem>
+            <SelectItem value="none">Sin categoría</SelectItem>
+            {(categories ?? [])
+              .filter((c) => c.status === 1)
+              .map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+          </SelectContent>
+        </Select>
+
         <DateRangePicker value={range} onChange={setRange} />
       </div>
 
@@ -347,7 +372,9 @@ function FinanzasMovimientosPageInner() {
 
 const movementFormSchema = z.object({
   accountId: z.string().min(1, "Seleccioná una cuenta"),
-  categoryId: z.string().min(1, "Seleccioná una categoría"),
+  // Opcional (decisión del owner 2026-08-20): categorizar ayuda a los
+  // reportes pero no traba la carga.
+  categoryId: z.string().optional(),
   kind: z.enum(["income", "expense"]),
   amount: z
     .number({ error: "Ingresá un monto" })
@@ -418,7 +445,7 @@ function MovementDialog({
     try {
       await createMovement.mutateAsync({
         accountId: values.accountId,
-        categoryId: values.categoryId,
+        categoryId: values.categoryId || undefined,
         kind: values.kind,
         amount: values.amount,
         date: values.date,
