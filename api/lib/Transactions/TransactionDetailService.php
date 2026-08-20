@@ -290,12 +290,16 @@ final class TransactionDetailService
             $totalNet = (float) ($tx['transactionTotal'] ?? 0) - (float) ($tx['transactionDiscount'] ?? 0);
 
             $creditPaymentIds = $linkSvc->listDerivedIds($companyId, $id, 'credit_payment');
-            // sumDerivedAmounts (mig 123): respeta el `amount` del vínculo
-            // cuando un recibo se repartió entre varias facturas —
-            // reemplaza el SUM(transactionTotal) directo, que le contaba a
-            // ESTA factura el total completo de un recibo compartido con
-            // otras.
-            $paid = $linkSvc->sumDerivedAmounts($companyId, $id, 'credit_payment');
+            // paidForCreditOrigin() — superficie única para "cuánto se saldó
+            // de esta factura a crédito" (credit_payment + return/nota de
+            // crédito, mismo cálculo que `OpenInvoicesService::payedByParent()`).
+            // Antes acá se usaba `sumDerivedAmounts('credit_payment')` solo
+            // (respeta el `amount` del vínculo cuando un recibo se repartió
+            // entre varias facturas) SIN restar una nota de crédito aplicada
+            // — divergía del panel "Cuentas por Cobrar"/ficha de contacto
+            // (que sí la resta) y de la Caja (POS, mismo bug, fix hermano en
+            // `Services\TransactionService::getSingle()`).
+            $paid = $linkSvc->paidForCreditOrigin($companyId, $id, true);
             $creditPayments = [
                 'total' => $totalNet,
                 'paid'  => $paid,
