@@ -1,7 +1,8 @@
 "use client"
 
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { posApi as api } from "@/lib/api/pos-client"
+import { posApi } from "@/lib/api/pos-client"
+import type { HttpClient } from "@/lib/api-client"
 import type { ContactType } from "@/hooks/use-contacts"
 import type { SupplierDocumentInput } from "@/hooks/use-purchases"
 
@@ -104,11 +105,25 @@ function invalidatePaymentQueries(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["reports", "open_invoices"] })
 }
 
-export function useCreateCreditPayment() {
+/**
+ * Cobro a cliente (POS, mostrador) o pago a proveedor (panel, ficha de
+ * contacto / cuentas por pagar) — mismo endpoint, dos realms. El backend
+ * (`api/v1/credit-payments.php`) rechaza contactType=2 (proveedor) cuando
+ * la request se autentica como device (realm pos-app): el pago a proveedor
+ * solo tiene sentido desde panel. Por eso el cliente HTTP importa acá — no
+ * es cosmético: `client` decide con qué credencial sale la request (cookie
+ * panel vs Bearer device), y eso decide si el backend la deja pasar.
+ * Default `posApi` preserva el único call-site POS existente
+ * (`components/register/credit-payment-dialog.tsx`, siempre contactType=1).
+ * Call-sites panel (`multi-invoice-payment-dialog.tsx`) deben pasar
+ * `client: api` explícitamente. Ver invariante de realm en `lib/api-client.ts`.
+ */
+export function useCreateCreditPayment(opts: { client?: HttpClient } = {}) {
+  const client = opts.client ?? posApi
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (vars: CreateCreditPaymentVars) =>
-      api.post<CreateCreditPaymentResult>("/v1/credit-payments", {
+      client.post<CreateCreditPaymentResult>("/v1/credit-payments", {
         action: "create",
         ...vars,
       }),
@@ -141,11 +156,12 @@ interface CreateDistributedPaymentVars {
  * con `allocations` — la diferencia es que acá las allocations las calcula
  * `CreditPaymentService::createDistributed()`, no el cliente.
  */
-export function useCreateDistributedPayment() {
+export function useCreateDistributedPayment(opts: { client?: HttpClient } = {}) {
+  const client = opts.client ?? posApi
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (vars: CreateDistributedPaymentVars) =>
-      api.post<CreateCreditPaymentResult>("/v1/credit-payments", {
+      client.post<CreateCreditPaymentResult>("/v1/credit-payments", {
         action: "createDistributed",
         ...vars,
       }),
