@@ -52,6 +52,17 @@ export interface FormLine extends Omit<PurchaseFormItem, "price"> {
   itemName?: string
   /** null mientras el usuario aún no tipea — MoneyInput lo maneja como vacío. */
   price: number | null
+  /**
+   * true SOLO si el usuario tocó el selector de categoría de ESTA línea a
+   * mano (precedencia línea > cabecera > ítem, owner 2026-08-20). El
+   * prefill automático al elegir un producto (ver ProductPicker) NO cuenta
+   * como "tocado" — es una sugerencia, no una elección; si el comercio puso
+   * una categoría de cabecera, esa debe ganarle a una sugerencia que el
+   * usuario nunca confirmó. Al enviar la compra, `expenseCategoryId` solo
+   * viaja para líneas `expenseCategoryTouched === true` — el resto omite la
+   * key para que el backend resuelva cabecera → ítem → sin categoría.
+   */
+  expenseCategoryTouched?: boolean
 }
 
 export function makeRowId(): string {
@@ -68,6 +79,7 @@ export function emptyLine(isProduct = true, taxId = ""): FormLine {
     taxValue: 0,
     packSize: 1,
     expenseCategoryId: "",
+    expenseCategoryTouched: false,
   }
 }
 
@@ -231,7 +243,12 @@ export function LineRow({
                   itemId: id,
                   itemName: name,
                   price: defaultCost ?? line.price,
-                  expenseCategoryId: expenseCategoryId ?? line.expenseCategoryId,
+                  // Solo sugiere (prefill) si el usuario no eligió una
+                  // categoría a mano en ESTA línea todavía — una elección
+                  // explícita no se pisa al recambiar de producto.
+                  ...(line.expenseCategoryTouched
+                    ? {}
+                    : { expenseCategoryId: expenseCategoryId ?? "" }),
                 })
               }
               triggerRef={registerFirstField}
@@ -322,11 +339,18 @@ export function LineRow({
         <div className="col-span-12 sm:col-span-4">
           {/* Opcional (owner 2026-08-20): categoriza el gasto de esta línea
               para los reportes de Finanzas — precargada desde la ficha del
-              ítem si tiene una configurada, no traba la carga. */}
+              ítem si tiene una configurada, no traba la carga. Tocar este
+              selector marca la línea como "explícita": gana por sobre la
+              categoría de cabecera aunque el usuario elija "Sin categoría". */}
           <FieldLabel>Categoría de gasto</FieldLabel>
           <Select
             value={line.expenseCategoryId || "none"}
-            onValueChange={(v) => onChange({ expenseCategoryId: v === "none" ? "" : v })}
+            onValueChange={(v) =>
+              onChange({
+                expenseCategoryId: v === "none" ? "" : v,
+                expenseCategoryTouched: true,
+              })
+            }
           >
             <SelectTrigger>
               <SelectValue placeholder="Sin categoría" />

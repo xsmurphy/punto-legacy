@@ -183,6 +183,12 @@ export interface PurchaseCreatePayload {
   checkDueDate?: string
   discount?: number
   note?: string
+  /**
+   * Categoría de gasto de CABECERA — atajo para toda la compra, hereda cada
+   * línea que no eligió la suya propia (precedencia línea > cabecera > ítem,
+   * resuelta server-side). Opcional.
+   */
+  expenseCategoryId?: string | null
   items: PurchaseFormItem[]
 }
 
