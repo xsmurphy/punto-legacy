@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button"
  * cruzan con un fade lento (ver HeroBackdrop). El bloque es siempre oscuro
  * — texto sobre foto más overlay —, por eso usa blanco directo y no tokens
  * de tema.
+ *
+ * Video de fondo (pendiente): cuando exista el clip, va como una capa más
+ * entre <HeroBackdrop> y el overlay — `<video autoPlay muted loop playsInline
+ * className="absolute inset-0 size-full object-cover">` con el poster
+ * apuntando a la primera foto. Las fotos quedan de fallback mientras carga
+ * y para `prefers-reduced-motion`.
  */
 const HERO_IMAGES = [
   { src: "/site/hero.jpg" },
