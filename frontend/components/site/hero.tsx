@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button"
 const HERO_IMAGES = [
   { src: "/site/hero.jpg" },
   { src: "/site/rubro-restaurantes.jpg" },
+  { src: "/site/rubro-salud-y-belleza.jpg" },
 ]
 
 export function SiteHero() {
