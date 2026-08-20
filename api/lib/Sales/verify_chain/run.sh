@@ -214,6 +214,22 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_register_lease.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.8b. Liberación de tenencia al cambiar de caja (context/29 §4, bug real
+#    2026-08-20): un device reasignado a otra caja dejaba la tenencia VIEJA
+#    colgada 'active' para siempre — bloqueaba esa caja para cualquier otro
+#    device. Ver docblock de verify_register_release_on_change.php. Ejercita
+#    las DOS capas del fix: active-register.php liberando en el camino feliz,
+#    y la defensa en profundidad de claim.php autocorrigiendo una tenencia
+#    colgada que un camino futuro se olvide de liberar — sin tocar nunca la
+#    tenencia de OTRO device. Usa cajas/devices propios ("Verify Release
+#    ..."), no depende de verify_register_lease.php ni de los pasos
+#    anteriores.
+echo ""
+echo "[run.sh] === liberación de tenencia al cambiar de caja (active-register.php + autocorrección en claim.php) ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_register_release_on_change.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 3.9. Numeración del recibo (context/modules/17-numeracion.md §regla 7):
 #    antes de este fix TODO recibo (transactionType=5) salía con invoiceNo=0
 #    — ver docblock de verify_receipt_numbering.php. Corre contra el mismo
