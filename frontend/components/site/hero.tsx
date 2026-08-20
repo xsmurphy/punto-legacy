@@ -1,27 +1,31 @@
+import Image from "next/image"
 import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 
 /**
- * Hero full-bleed con video de fondo. Los assets (/site/hero.mp4 y
- * /site/hero-poster.jpg) todavía no existen: mientras falten, el gradiente
- * oscuro de atrás sostiene la escena y el <video> simplemente no pinta nada.
- * El bloque es siempre oscuro (va debajo del video), por eso usa blanco
- * directo y no tokens de tema.
+ * Hero full-bleed. Base: foto (public/site/hero.jpg). Si algún día se suma
+ * /site/hero.mp4, el <video> pinta encima de la foto; mientras no exista,
+ * no renderiza nada y queda la imagen. El bloque es siempre oscuro (texto
+ * sobre foto + overlay), por eso usa blanco directo y no tokens de tema.
  */
 export function SiteHero() {
   return (
     <section className="relative isolate flex min-h-[92svh] flex-col justify-center overflow-hidden bg-neutral-950">
-      {/* Fallback: gradiente oscuro mientras no cargue (o no exista) el video */}
-      <div
+      <Image
         aria-hidden
-        className="absolute inset-0 bg-[radial-gradient(120%_90%_at_50%_0%,#1c2732_0%,#0a0f14_55%,#05070a_100%)]"
+        src="/site/hero.jpg"
+        alt=""
+        fill
+        priority
+        sizes="100vw"
+        className="object-cover"
       />
       <video
         aria-hidden
-        className="absolute inset-0 size-full object-cover opacity-70"
+        className="absolute inset-0 size-full object-cover"
         src="/site/hero.mp4"
-        poster="/site/hero-poster.jpg"
+        poster="/site/hero.jpg"
         autoPlay
         muted
         loop
