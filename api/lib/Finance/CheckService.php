@@ -393,9 +393,14 @@ final class CheckService
 
         // Idempotencia ATÓMICA: INSERT ... ON CONFLICT DO NOTHING RETURNING —
         // mismo patrón que MovementService::recordDerivedMovement. El UNIQUE
-        // (companyid, source, sourceid, accountid) de fin_movement (mig 73) es
-        // el árbitro: si otro request ya efectivizó este cheque, el ON CONFLICT
-        // no crea fila y el RETURNING viene vacío → NO ajustamos saldo.
+        // (companyid, source, sourceid, accountid, COALESCE(categoryid,
+        // <sentinel>)) de fin_movement (mig 153, extiende mig 73) es el
+        // árbitro: si otro request ya efectivizó este cheque, el ON CONFLICT
+        // no crea fila y el RETURNING viene vacío → NO ajustamos saldo. Un
+        // cheque siempre tiene UNA sola categoría (no se divide, ver
+        // FinanceLedger::recordPurchase()), así que el COALESCE acá no
+        // cambia el comportamiento — solo hace falta que el target del ON
+        // CONFLICT matchee EXACTO la definición del índice.
         // Reemplaza el patrón SELECT-luego-INSERT anterior, que dejaba una
         // ventana TOCTOU: dos requests marcando 'cleared' a la vez chocaban
         // contra el UNIQUE como error duro en vez de resolver como no-op.
@@ -404,7 +409,7 @@ final class CheckService
                 (companyid, accountid, categoryid, kind, amount, date, description,
                  source, sourceid, checkid, userid, outletid, status)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
-             ON CONFLICT (companyid, source, sourceid, accountid)
+             ON CONFLICT (companyid, source, sourceid, accountid, COALESCE(categoryid, \'00000000-0000-0000-0000-000000000000\'::uuid))
                  WHERE sourceid IS NOT NULL
              DO NOTHING
              RETURNING movementid',

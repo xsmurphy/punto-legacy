@@ -128,6 +128,13 @@ final class FinanceLedger
      * `customerId`, igual que `CreditPaymentService::create()` los arma).
      * Espejo de `recordCreditPayment()` con el signo opuesto: acá SALE plata
      * de la caja (kind='expense'), no entra.
+     *
+     * NO divide por categoría (F0 gasto dividido, owner 2026-08-20, alcance
+     * = compras al CONTADO). La fila type=5 que se paga acá es el PAGO, no
+     * la compra original — no trae items propios en `meta.details`, así que
+     * no hay de dónde leer categoría por línea sin ir a buscar la compra
+     * origen vía `transaction_link`. Queda con el default genérico
+     * "Proveedores" de siempre, a propósito — corte de scope, no olvido.
      */
     public function recordPurchasePayment(string $companyId, string $transactionId): void
     {
@@ -188,19 +195,27 @@ final class FinanceLedger
             return;
         }
 
-        // F0 categoría por línea (owner 2026-08-20): si TODAS las líneas que
-        // eligieron una categoría de gasto coinciden en la MISMA, el
-        // movimiento nace ya clasificado con esa categoría en vez del default
-        // genérico "Proveedores" — mejora sin dividir el movimiento (decisión
-        // de "un movimiento por cuenta, splitting NO implementado" pendiente
-        // de definición del owner, ver comentario en `resolveLineItemsCategoryId()`).
-        // Compras con líneas de categorías DISTINTAS caen al default: no hay
-        // forma honesta de asignar UNA categoría al movimiento completo sin
-        // partir el importe, y eso es justo la decisión que está pendiente.
-        $categoryId = $this->resolveLineItemsCategoryId($row)
-            ?? $this->categories->ensurePurchasesCategoryId($companyId);
         $invoiceNo  = (string) ($row['invoiceNo'] ?? '');
         $description = 'Compra' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
+
+        // F0 gasto dividido por categoría (owner 2026-08-20): cada línea de
+        // la compra ya trae su categoría RESUELTA (PurchasesService::create()
+        // aplicó la precedencia línea > cabecera > ítem antes de persistir en
+        // meta.details) — acá solo agrupamos por categoría y prorrateamos el
+        // descuento de cabecera en porciones EXACTAS (no estimadas). null
+        // cuando NINGUNA línea/cabecera/ítem trajo categoría — ese caso sigue
+        // funcionando como antes de este cambio (1 movimiento, categoría
+        // default "Proveedores").
+        $categorySplit = $this->resolveCategorySplit($row);
+        $defaultCategoryId = $this->categories->ensurePurchasesCategoryId($companyId);
+        // Un cheque es UN documento por el importe TOTAL — no se puede
+        // repartir por categoría (compras no soportan pago dividido, ver
+        // PurchasesService::create(): siempre 1 sola línea de pago). Usa la
+        // categoría de cabecera si el comercio la puso; si el split resolvió
+        // a una sola categoría real, esa; si no, el default de siempre.
+        $checkCategoryId = $this->resolveHeaderCategoryId($row)
+            ?? (is_array($categorySplit) && count($categorySplit) === 1 ? $categorySplit[0][0] : null)
+            ?? $defaultCategoryId;
 
         $lines = $this->decodePaymentLines($row);
         if (empty($lines)) {
@@ -223,7 +238,7 @@ final class FinanceLedger
             $lines,
             'issued',
             $this->nullableUuid($row['supplierId'] ?? null),
-            $categoryId,
+            $checkCategoryId,
         );
 
         $this->recordPaymentLines(
@@ -232,8 +247,9 @@ final class FinanceLedger
             sourceId: $transactionId,
             row: $row,
             kind: 'expense',
-            categoryId: $categoryId,
+            categoryId: $defaultCategoryId,
             description: $description,
+            categorySplit: $categorySplit,
         );
     }
 
@@ -407,6 +423,23 @@ final class FinanceLedger
      * crea 1 movimiento por (origen, cuenta) con el monto sumado. Núcleo del
      * soporte de pago dividido.
      */
+    /**
+     * $categorySplit (F0 gasto dividido, owner 2026-08-20): opcional, lista
+     * de `[categoryId|null, amount]` que suma EXACTO el total de las líneas
+     * de pago — cuando viene, reemplaza el movimiento único por N movimientos
+     * (uno por porción de categoría) en vez de uno solo con `$categoryId`.
+     * Solo lo usa `recordPurchase()` hoy: es la única fuente con categoría
+     * por LÍNEA DE ÍTEM (ninguna venta/pago/devolución la tiene todavía).
+     *
+     * Asume 1 sola cuenta de pago — cierto siempre para compras
+     * (`PurchasesService::create()` nunca arma más de una línea de pago). Si
+     * algún día una compra soporta pago dividido, aplicar el MISMO split de
+     * categoría a cada cuenta multiplicaría el total — por eso el guard de
+     * abajo cae a `$categoryId` sin partir en vez de arriesgar un saldo
+     * incorrecto.
+     *
+     * @param list<array{0:?string,1:float}>|null $categorySplit
+     */
     private function recordPaymentLines(
         string $companyId,
         string $source,
@@ -414,7 +447,8 @@ final class FinanceLedger
         array|\CaseInsensitiveArray $row,
         string $kind,
         ?string $categoryId,
-        string $description
+        string $description,
+        ?array $categorySplit = null
     ): void {
         $lines = $this->decodePaymentLines($row);
         if (empty($lines)) {
@@ -444,10 +478,39 @@ final class FinanceLedger
             $byAccount[$accountId]['amount'] += $amount;
         }
 
+        if ($categorySplit !== null && count($byAccount) > 1) {
+            // Ver docblock: dividir por categoría asume 1 sola cuenta. Nunca
+            // debería pasar hoy — si pasa, no arriesgamos duplicar/perder
+            // saldo: logueamos y caemos al movimiento único de siempre.
+            error_log("[FinanceLedger] recordPaymentLines: categorySplit con " . count($byAccount) . " cuentas ({$source}/{$sourceId}) — ignorando split, no soportado");
+            $categorySplit = null;
+        }
+
         foreach ($byAccount as $accountId => $agg) {
             if ($agg['amount'] <= 0) {
                 continue;
             }
+
+            if ($categorySplit !== null) {
+                foreach ($categorySplit as [$sliceCategoryId, $sliceAmount]) {
+                    if ($sliceAmount <= 0) {
+                        continue;
+                    }
+                    $this->movements->recordDerivedMovement($companyId, $source, $sourceId, [
+                        'accountId'     => $accountId,
+                        'categoryId'    => $sliceCategoryId,
+                        'kind'          => $kind,
+                        'amount'        => $sliceAmount,
+                        'date'          => $date,
+                        'description'   => $description,
+                        'paymentMethod' => $agg['methodKey'] ?: null,
+                        'userId'        => $userId,
+                        'outletId'      => $outletId,
+                    ]);
+                }
+                continue;
+            }
+
             $this->movements->recordDerivedMovement($companyId, $source, $sourceId, [
                 'accountId'     => $accountId,
                 'categoryId'    => $categoryId,
@@ -583,59 +646,160 @@ final class FinanceLedger
     }
 
     /**
-     * Resuelve la categoría de gasto compartida por TODAS las líneas de una
-     * compra que eligieron una (`transaction.meta.details[].expenseCategoryId`,
-     * ver `PurchasesService::create()`), o null si hay 0 o 2+ categorías
-     * distintas entre las líneas clasificadas.
+     * `meta` JSONB de la fila decodificado a array, o `[]` si no hay nada
+     * (fila legacy, o `$row` sin el side-channel de `rawJsonb()`).
      *
-     * DISEÑO PENDIENTE (owner, 2026-08-20): esto es la mejora SEGURA — cuando
-     * hay una sola categoría no hace falta partir nada. El caso mixto (2+
-     * categorías en una misma compra) queda sin resolver a propósito: hoy
-     * `fin_movement` es UN registro por (source, sourceId, cuenta) — partirlo
-     * por categoría implicaría prorratear el importe pagado (que se agrupa
-     * por CUENTA, ver `recordPaymentLines()`) entre categorías que vienen de
-     * los ÍTEMS, dos ejes que hoy no tienen correspondencia 1:1. Opciones
-     * evaluadas y AÚN NO decididas: (a) un movimiento por cada combinación
-     * cuenta×categoría, prorrateando el monto de cada cuenta por el peso
-     * ($) de cada categoría en la compra; (b) dejar el movimiento con
-     * categoría null/"Mixta" y que el reporte por categoría lea directo de
-     * `meta.details` en vez de `fin_movement.categoryId`; (c) quedarse con el
-     * default actual ("Proveedores") y que el detalle por categoría viva
-     * solo en la ficha de la compra. Necesita decisión del owner antes de
-     * implementarse — no adivinar acá.
+     * rawJsonb() exige un objeto (side-channel WeakMap por identidad de
+     * fila) — un $row llegado como array plano (nunca pasa hoy: el único
+     * caller lo obtiene de un SELECT de una fila, que Query::execute()
+     * siempre devuelve como CaseInsensitiveArray) no tiene ese side-channel.
+     * Degradar a `[]` en vez de un TypeError si algún día cambia el caller.
      */
-    private function resolveLineItemsCategoryId(array|\CaseInsensitiveArray $row): ?string
+    private function decodeMeta(array|\CaseInsensitiveArray $row): array
     {
-        // rawJsonb() exige un objeto (side-channel WeakMap por identidad de
-        // fila) — un $row llegado como array plano (nunca pasa hoy: el único
-        // caller lo obtiene de un SELECT de una fila, que Query::execute()
-        // siempre devuelve como CaseInsensitiveArray) no tiene ese
-        // side-channel. Degradar a "sin categoría compartida" en vez de un
-        // TypeError si algún día cambia el caller.
         if (!is_object($row)) {
-            return null;
+            return [];
         }
         $raw = \Punto\App\Database\Query::rawJsonb($row, 'meta');
         if (!is_string($raw) || $raw === '') {
-            return null;
+            return [];
         }
-        $meta = json_decode($raw, true);
+        $decoded = json_decode($raw, true);
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    /**
+     * Divide el neto pagado de una compra en porciones EXACTAS por categoría
+     * de gasto (owner 2026-08-20, "el gasto se DIVIDE por categoría, no es
+     * prorrateo estimado"). Cada línea de `meta.details` ya trae su
+     * `expenseCategoryId` RESUELTO por `PurchasesService::create()`
+     * (precedencia línea > cabecera > ítem) — acá solo se agrupa por
+     * categoría y se le suma a cada una su parte proporcional del ÚNICO
+     * importe que no pertenece a ninguna línea en este sistema: el descuento
+     * de cabecera (`transactionDiscount`). No hay impuesto ni recargo de
+     * cabecera que prorratear — el IVA ya se calcula y persiste POR LÍNEA
+     * (`TaxEngine::computeTaxes`, ver `PurchasesService::create()`), y
+     * `price` de cada línea ya lo incluye (tax-inclusive por default), así
+     * que sumar `price` por categoría ya arrastra el IVA de esas líneas sin
+     * ningún reparto adicional.
+     *
+     * Redondeo: cada porción se redondea al `$decimals` del tenant: la suma
+     * de las porciones redondeadas puede diferir del neto pagado por
+     * fracciones de centavo acumuladas independientemente. La diferencia
+     * (nunca más de 1 unidad mínima) se ajusta ENTERA en la categoría de
+     * mayor monto de líneas — así la suma da EXACTO el neto pagado, sin
+     * inventar ni perder nada; nunca se reparte el resto entre varias.
+     *
+     * Devuelve `null` cuando NINGUNA línea/cabecera/ítem trajo categoría —
+     * ese caso sigue funcionando como antes de este cambio (el caller usa el
+     * default genérico "Proveedores", "una compra sin ninguna categoría
+     * sigue funcionando igual que hoy" — owner).
+     *
+     * @return list<array{0:?string,1:float}>|null
+     */
+    private function resolveCategorySplit(array|\CaseInsensitiveArray $row): ?array
+    {
+        $meta    = $this->decodeMeta($row);
         $details = is_array($meta['details'] ?? null) ? $meta['details'] : [];
         if (empty($details)) {
             return null;
         }
 
-        $distinct = [];
+        $discount = (float) ($row['transactionDiscount'] ?? 0);
+
+        // Agrupar por categoría — clave '' = sin categoría (línea sin línea/
+        // cabecera/ítem que la clasifique).
+        $buckets = [];
+        $total   = 0.0;
         foreach ($details as $line) {
             if (!is_array($line)) {
                 continue;
             }
+            $lineTotal = (float) ($line['price'] ?? 0);
+            if ($lineTotal <= 0) {
+                continue;
+            }
+            $total += $lineTotal;
             $catId = (string) ($line['expenseCategoryId'] ?? '');
-            if ($catId !== '' && preg_match(self::UUID_RE, $catId)) {
-                $distinct[$catId] = true;
+            $key   = ($catId !== '' && preg_match(self::UUID_RE, $catId)) ? $catId : '';
+            $buckets[$key] = ($buckets[$key] ?? 0.0) + $lineTotal;
+        }
+        if ($total <= 0) {
+            return null;
+        }
+
+        $keys = array_keys($buckets);
+        if (count($keys) === 1 && $keys[0] === '') {
+            return null; // nada categorizado en ninguna línea de esta compra
+        }
+
+        $decimals = $this->currencyDecimals((string) ($row['companyId'] ?? ''));
+        $netTotal = round($total - $discount, $decimals);
+
+        $slices     = [];
+        $sumRounded = 0.0;
+        $maxKey     = null;
+        $maxLineSum = -INF;
+        foreach ($buckets as $key => $lineSum) {
+            $share = ($discount != 0.0 && $total > 0) ? ($lineSum / $total) * $discount : 0.0;
+            $net   = round($lineSum - $share, $decimals);
+            $slices[$key] = $net;
+            $sumRounded  += $net;
+            if ($lineSum > $maxLineSum) {
+                $maxLineSum = $lineSum;
+                $maxKey     = $key;
             }
         }
-        return count($distinct) === 1 ? array_key_first($distinct) : null;
+        // Centavo de redondeo: entero a la categoría de mayor monto de
+        // líneas — nunca repartido, nunca perdido. Se aplica sin comparar
+        // contra 0.0 (comparación de floats frágil): si no hay diferencia
+        // real, sumar un `$diff` casi nulo y volver a redondear da el mismo
+        // valor de antes — inofensivo.
+        $diff = round($netTotal - $sumRounded, $decimals);
+        if ($maxKey !== null) {
+            $slices[$maxKey] = round($slices[$maxKey] + $diff, $decimals);
+        }
+
+        $result = [];
+        foreach ($slices as $key => $amount) {
+            if ($amount <= 0) {
+                continue; // porción que redondeó a 0 — sin movimiento vacío
+            }
+            $result[] = [$key === '' ? null : $key, $amount];
+        }
+        return empty($result) ? null : $result;
+    }
+
+    /**
+     * Categoría de CABECERA elegida para toda la compra (`meta.expenseCategoryId`,
+     * ver `PurchasesService::create()`), o null si el comercio no la puso.
+     * Es la que atajo por default hereda cada línea que no eligió la suya
+     * propia — ver precedencia en `resolveCategorySplit()`/`PurchasesService`.
+     */
+    private function resolveHeaderCategoryId(array|\CaseInsensitiveArray $row): ?string
+    {
+        $meta  = $this->decodeMeta($row);
+        $catId = (string) ($meta['expenseCategoryId'] ?? '');
+        return ($catId !== '' && preg_match(self::UUID_RE, $catId)) ? $catId : null;
+    }
+
+    /**
+     * Decimales de moneda del tenant — mismo criterio que
+     * `PurchasesService::currencyDecimals()` (duplicado a propósito: 6
+     * líneas, un solo SELECT, evita acoplar Finanzas a Compras por un
+     * helper de 2 líneas).
+     */
+    private function currencyDecimals(string $companyId): int
+    {
+        if ($companyId === '') {
+            return 0;
+        }
+        $row  = ncmExecute(
+            "SELECT config->>'settingDecimal' AS decimalflag FROM company WHERE companyId = ? LIMIT 1",
+            [$companyId]
+        );
+        $flag = $row ? (string) ($row['decimalflag'] ?? '') : '';
+        return $flag === 'yes' ? 2 : 0;
     }
 
     /** @return array<int,array<string,mixed>> */

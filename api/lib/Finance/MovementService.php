@@ -510,17 +510,27 @@ final class MovementService
         $db->StartTrans();
 
         // Idempotencia ATÓMICA: INSERT ... ON CONFLICT DO NOTHING RETURNING.
-        // El UNIQUE (companyid,source,sourceid,accountid) de mig 73 es el árbitro.
-        // Si otra request/backfill ya insertó esta (venta, cuenta), el ON CONFLICT
-        // no crea fila y el RETURNING viene vacío → NO aplicamos delta de saldo.
-        // Elimina la ventana TOCTOU del patrón SELECT-luego-INSERT: el chequeo de
-        // existencia y la inserción son una sola sentencia atómica.
+        // El UNIQUE (companyid,source,sourceid,accountid,COALESCE(categoryid,
+        // <sentinel>)) de mig 153 es el árbitro — extiende el de mig 73 con
+        // `categoryid` para permitir VARIAS filas por (origen, cuenta) cuando
+        // una compra se divide por categoría (F0, owner 2026-08-20): antes
+        // había 1 sola fila posible por (origen, cuenta), ahora puede haber
+        // una por cada porción de categoría. El COALESCE trata "sin
+        // categoría" (categoryid NULL) como un valor más a los fines de
+        // unicidad — sin él, dos porciones "sin categoría" del mismo
+        // reintento no colisionarían (NULL ≠ NULL en un UNIQUE normal) y
+        // duplicarían saldo.
+        // Si otra request/backfill ya insertó esta porción exacta (origen,
+        // cuenta, categoría), el ON CONFLICT no crea fila y el RETURNING
+        // viene vacío → NO aplicamos delta de saldo. Elimina la ventana
+        // TOCTOU del patrón SELECT-luego-INSERT: el chequeo de existencia y
+        // la inserción son una sola sentencia atómica.
         $inserted = ncmExecute(
             'INSERT INTO fin_movement
                 (movementid, companyid, accountid, categoryid, kind, amount, date,
                  description, paymentmethod, source, sourceid, userid, outletid, status)
              VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, 1)
-             ON CONFLICT (companyid, source, sourceid, accountid)
+             ON CONFLICT (companyid, source, sourceid, accountid, COALESCE(categoryid, \'00000000-0000-0000-0000-000000000000\'::uuid))
                  WHERE sourceid IS NOT NULL
              DO NOTHING
              RETURNING movementid',
@@ -545,10 +555,15 @@ final class MovementService
             return ['inserted' => true, 'movementId' => (string) $inserted['movementid']];
         }
 
-        // Conflicto: ya existía. Devolvemos el id de la fila ganadora (sin tocar saldo).
+        // Conflicto: ya existía ESTA porción exacta (origen, cuenta,
+        // categoría) — IS NOT DISTINCT FROM trata NULL=NULL como true, igual
+        // que el COALESCE del índice, para no traer una porción de OTRA
+        // categoría del mismo (origen, cuenta) por error.
         $winner = ncmExecute(
-            'SELECT movementid FROM fin_movement WHERE companyid = ? AND source = ? AND sourceid = ? AND accountid = ? LIMIT 1',
-            [$companyId, $source, $sourceId, $accountId]
+            'SELECT movementid FROM fin_movement
+              WHERE companyid = ? AND source = ? AND sourceid = ? AND accountid = ?
+                AND categoryid IS NOT DISTINCT FROM ? LIMIT 1',
+            [$companyId, $source, $sourceId, $accountId, $categoryId]
         );
         return ['inserted' => false, 'movementId' => $winner ? (string) $winner['movementid'] : null];
     }
