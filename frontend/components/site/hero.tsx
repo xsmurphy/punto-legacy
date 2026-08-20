@@ -38,7 +38,7 @@ export function SiteHero() {
         className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-b from-transparent to-black/70"
       />
 
-      <div className="relative mx-auto flex w-full max-w-6xl flex-col items-center px-4 pb-40 pt-32 text-center md:px-6">
+      <div className="relative mx-auto flex w-full max-w-6xl flex-col items-center px-4 py-32 text-center md:px-6">
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
         <h1 className="max-w-3xl text-balance text-5xl font-semibold tracking-tight text-white md:text-7xl">
           Todo tu negocio
