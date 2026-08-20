@@ -1,5 +1,7 @@
 "use client"
 
+import Image from "next/image"
+
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MODULE_MOCKUPS } from "@/components/site/mockups"
 import { MODULE_TABS } from "@/lib/site/modules"
@@ -23,7 +25,21 @@ export function ModulesTabs() {
         </p>
       </div>
 
-      <Tabs defaultValue={MODULE_TABS[0].key} className="mt-10">
+      {/* Screenshot real del POS — el contexto visual de la sección */}
+      <div className="mx-auto mt-12 max-w-5xl">
+        <div className="overflow-hidden rounded-2xl border bg-background p-1.5 md:p-2">
+          <Image
+            src="/site/pos-screenshot.png"
+            alt="Pantalla de venta del POS de Punto: catálogo con fotos, carrito y total"
+            width={2880}
+            height={1400}
+            sizes="(max-width: 1024px) 100vw, 1024px"
+            className="w-full rounded-xl border"
+          />
+        </div>
+      </div>
+
+      <Tabs defaultValue={MODULE_TABS[0].key} className="mt-12">
         <TabsList className="mx-auto flex h-auto w-fit max-w-full flex-wrap justify-center gap-1 rounded-full p-1">
           {MODULE_TABS.map((tab) => (
             <TabsTrigger
