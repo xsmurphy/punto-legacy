@@ -187,6 +187,20 @@ const itemSchema = z.object({
   itemSessions: z.number().int().nonnegative().nullable(),
 })
 
+/** Tabs válidos para deep-link (`?tab=`) — usado desde el reporte de
+ *  Productos para abrir la ficha directo en el historial de movimientos
+ *  (`?tab=stock`) en vez de forzar un clic extra. Module-level: no tiene
+ *  sentido recrear el array en cada render. */
+const VALID_TABS = [
+  "perfil",
+  "imagenes",
+  "config",
+  "disponibilidad",
+  "stock",
+  "variantes",
+  "produccion",
+] as const
+
 type KindGroup = "Items de venta" | "Insumos" | "Producción" | "Otros"
 const KIND_GROUPS: Array<{ label: KindGroup; kinds: ItemKind[] }> = [
   { label: "Items de venta", kinds: ["producto", "servicio", "servicio_sesiones"] },
@@ -234,7 +248,11 @@ function ItemEditPageInner() {
     defaultValues: { ...emptyValues(), kind: initialKind },
   })
 
-  const [activeTab, setActiveTab] = React.useState("perfil")
+  const initialTab = React.useMemo(() => {
+    const t = searchParams.get("tab")
+    return t && (VALID_TABS as readonly string[]).includes(t) ? t : "perfil"
+  }, [searchParams])
+  const [activeTab, setActiveTab] = React.useState(initialTab)
   // "imagenes", "stock" y "variantes" quedan afuera: no tienen campos del
   // form de react-hook-form (galería/stock son sus propios editores, y
   // variantes se renderiza condicional sobre hasVariants).

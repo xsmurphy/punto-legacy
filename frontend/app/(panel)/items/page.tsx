@@ -54,6 +54,7 @@ import {
   useItem,
   useItems,
   useRenameItem,
+  useTaxonomiesByType,
   useUngroupItems,
 } from "@/hooks/use-items"
 import { BulkEditDialog } from "@/components/items/bulk-edit-dialog"
@@ -86,6 +87,8 @@ function ItemsPageInner() {
   const parentId = searchParams.get("parent")
   const [kindFilter, setKindFilter] = React.useState<"all" | ItemKind>("all")
   const [outletFilter, setOutletFilter] = React.useState<"all" | string>("all")
+  const [categoryFilter, setCategoryFilter] = React.useState<"all" | string>("all")
+  const { data: categories } = useTaxonomiesByType("category")
   const [showArchived, setShowArchived] = React.useState(false)
   const [showVariants, setShowVariants] = React.useState(false)
   const { data, isLoading, error } = useItems({
@@ -120,8 +123,18 @@ function ItemsPageInner() {
       // exactamente lo que esa caja ofrecería para vender.
       rows = rows.filter((r) => r.outletId === null || r.outletId === outletFilter)
     }
+    if (categoryFilter !== "all") {
+      // `categoryId` es la categoría PRINCIPAL (legacy 1:1) — es el mismo
+      // campo que ya se muestra en la columna "Categoría" de la tabla, así
+      // que el filtro queda consistente con lo que el usuario ve. Un ítem
+      // con esta categoría como SECUNDARIA (m2m, `item_category`) no matchea
+      // acá — la tabla tampoco lo muestra hoy, así que no es una regresión,
+      // pero si se agrega soporte multi-categoría a la columna, este filtro
+      // debe extenderse a la vez.
+      rows = rows.filter((r) => r.categoryId === categoryFilter)
+    }
     return rows
-  }, [data, kindFilter, outletFilter])
+  }, [data, kindFilter, outletFilter, categoryFilter])
 
   useAgentPageSnapshot(
     {
@@ -733,6 +746,24 @@ function ItemsPageInner() {
                       {bootstrap?.outlets?.map((o) => (
                         <SelectItem key={o.id} value={o.id}>
                           {o.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                {(categories?.length ?? 0) > 0 && (
+                  <Select
+                    value={categoryFilter}
+                    onValueChange={(v) => setCategoryFilter(v)}
+                  >
+                    <SelectTrigger className="h-9 w-[170px]">
+                      <SelectValue placeholder="Categoría" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Todas las categorías</SelectItem>
+                      {categories?.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
