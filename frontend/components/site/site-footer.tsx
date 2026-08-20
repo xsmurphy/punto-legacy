@@ -23,7 +23,7 @@ function FooterColumn({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="text-xs font-semibold uppercase tracking-wider text-white/45">
         {title}
       </p>
       <ul className="flex flex-col gap-2">
@@ -31,7 +31,7 @@ function FooterColumn({
           <li key={link.label}>
             <Link
               href={link.href}
-              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+              className="text-sm text-white/65 transition-colors hover:text-white"
             >
               {link.label}
             </Link>
@@ -44,25 +44,26 @@ function FooterColumn({
 
 export function SiteFooter() {
   return (
-    <footer className="border-t">
+    // Cierre oscuro del sitio: arranca en <CtaFinal> y termina acá.
+    <footer className="bg-neutral-950 text-white">
       <div className="mx-auto w-full max-w-6xl px-4 py-14 md:px-6">
         <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
           <div className="col-span-2 flex flex-col gap-4 md:col-span-1">
-            <PuntoLogo scheme="on-light" className="h-6 w-[88px]" />
-            <p className="text-sm text-muted-foreground">
-              El sistema de tu negocio: ventas, caja, facturación y stock en un
-              solo lugar.
+            <PuntoLogo scheme="on-dark" className="h-6 w-[88px]" />
+            <p className="text-sm text-white/65">
+              El sistema de tu negocio: Punto de Venta, panel, facturación
+              electrónica y stock, en un mismo lugar.
             </p>
             <div className="flex items-center gap-4">
               <Link
                 href="#"
-                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                className="text-sm text-white/65 transition-colors hover:text-white"
               >
                 Instagram
               </Link>
               <Link
                 href="#"
-                className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+                className="text-sm text-white/65 transition-colors hover:text-white"
               >
                 WhatsApp
               </Link>
@@ -94,11 +95,11 @@ export function SiteFooter() {
             <FooterColumn title="Legal" links={LEGAL} />
           </div>
         </div>
-        <div className="mt-12 flex flex-col gap-2 border-t pt-6 md:flex-row md:items-center md:justify-between">
-          <p className="text-xs text-muted-foreground">
+        <div className="mt-12 flex flex-col gap-2 border-t border-white/10 pt-6 md:flex-row md:items-center md:justify-between">
+          <p className="text-xs text-white/45">
             © {new Date().getFullYear()} Punto
           </p>
-          <p className="text-xs text-muted-foreground">Hecho en Paraguay</p>
+          <p className="text-xs text-white/45">Hecho en Paraguay</p>
         </div>
       </div>
     </footer>

@@ -1,6 +1,6 @@
 import type { Metadata } from "next"
 
-import { CtaFinal, QuickLinks } from "@/components/site/cta-final"
+import { CtaFinal } from "@/components/site/cta-final"
 import { FeaturesGrid } from "@/components/site/features-grid"
 import { SiteHero } from "@/components/site/hero"
 import { ModulesTabs } from "@/components/site/modules-tabs"
@@ -26,7 +26,6 @@ export default function HomePage() {
       <ProductSpotlight />
       <ModulesTabs />
       <FeaturesGrid />
-      <QuickLinks />
       <CtaFinal />
     </>
   )
