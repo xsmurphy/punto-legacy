@@ -61,12 +61,15 @@ final class FinanceLedger
         // usa el método con systemKey='check', crea el fin_check (pending)
         // ANTES de recordPaymentLines. Independiente de esa función: el
         // cheque nace siempre, tenga o no la línea una cuenta mapeada.
+        // Categoría: la misma "Ventas" que llevaría el movimiento si no fuera
+        // cheque — evita que el cheque quede sin clasificar al efectivizarse.
         $this->createCheckFromLines(
             $companyId,
             $transactionId,
             $this->decodePaymentLines($row),
             'received',
             $this->nullableUuid($row['customerId'] ?? null),
+            $categoryId,
         );
 
         $this->recordPaymentLines(
@@ -105,6 +108,7 @@ final class FinanceLedger
             $this->decodePaymentLines($row),
             'received',
             $this->nullableUuid($row['customerId'] ?? null),
+            $categoryId,
         );
 
         $this->recordPaymentLines(
@@ -150,6 +154,7 @@ final class FinanceLedger
             $this->decodePaymentLines($row),
             'issued',
             $this->nullableUuid($row['supplierId'] ?? null),
+            $categoryId,
         );
 
         $this->recordPaymentLines(
@@ -183,7 +188,17 @@ final class FinanceLedger
             return;
         }
 
-        $categoryId = $this->categories->ensurePurchasesCategoryId($companyId);
+        // F0 categoría por línea (owner 2026-08-20): si TODAS las líneas que
+        // eligieron una categoría de gasto coinciden en la MISMA, el
+        // movimiento nace ya clasificado con esa categoría en vez del default
+        // genérico "Proveedores" — mejora sin dividir el movimiento (decisión
+        // de "un movimiento por cuenta, splitting NO implementado" pendiente
+        // de definición del owner, ver comentario en `resolveLineItemsCategoryId()`).
+        // Compras con líneas de categorías DISTINTAS caen al default: no hay
+        // forma honesta de asignar UNA categoría al movimiento completo sin
+        // partir el importe, y eso es justo la decisión que está pendiente.
+        $categoryId = $this->resolveLineItemsCategoryId($row)
+            ?? $this->categories->ensurePurchasesCategoryId($companyId);
         $invoiceNo  = (string) ($row['invoiceNo'] ?? '');
         $description = 'Compra' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
 
@@ -208,6 +223,7 @@ final class FinanceLedger
             $lines,
             'issued',
             $this->nullableUuid($row['supplierId'] ?? null),
+            $categoryId,
         );
 
         $this->recordPaymentLines(
@@ -506,6 +522,11 @@ final class FinanceLedger
      * Best-effort por línea: un fallo acá NUNCA bloquea el resto del ledger
      * (movimiento derivado de la venta/compra sigue su curso normal).
      *
+     * $categoryId: la misma categoría que llevaría el movimiento derivado si
+     * la línea no fuera cheque (Ventas/Proveedores) — así el movimiento que
+     * `CheckService::ensureMovement()` genera al efectivizarse no queda sin
+     * clasificar (antes se creaba con `categoryid = null` siempre).
+     *
      * @param array<int,array<string,mixed>> $lines
      */
     private function createCheckFromLines(
@@ -513,7 +534,8 @@ final class FinanceLedger
         string $transactionId,
         array $lines,
         string $direction,
-        ?string $contactId
+        ?string $contactId,
+        ?string $categoryId = null
     ): void {
         foreach ($lines as $line) {
             $methodKey = (string) ($line['type'] ?? $line['name'] ?? '');
@@ -527,6 +549,7 @@ final class FinanceLedger
                     line: $line,
                     direction: $direction,
                     contactId: $contactId,
+                    categoryId: $categoryId,
                 );
             } catch (\Throwable $e) {
                 error_log("[FinanceLedger] createCheckFromLines falló para transactionId={$transactionId}: " . $e->getMessage());
@@ -557,6 +580,62 @@ final class FinanceLedger
             }
         }
         return false;
+    }
+
+    /**
+     * Resuelve la categoría de gasto compartida por TODAS las líneas de una
+     * compra que eligieron una (`transaction.meta.details[].expenseCategoryId`,
+     * ver `PurchasesService::create()`), o null si hay 0 o 2+ categorías
+     * distintas entre las líneas clasificadas.
+     *
+     * DISEÑO PENDIENTE (owner, 2026-08-20): esto es la mejora SEGURA — cuando
+     * hay una sola categoría no hace falta partir nada. El caso mixto (2+
+     * categorías en una misma compra) queda sin resolver a propósito: hoy
+     * `fin_movement` es UN registro por (source, sourceId, cuenta) — partirlo
+     * por categoría implicaría prorratear el importe pagado (que se agrupa
+     * por CUENTA, ver `recordPaymentLines()`) entre categorías que vienen de
+     * los ÍTEMS, dos ejes que hoy no tienen correspondencia 1:1. Opciones
+     * evaluadas y AÚN NO decididas: (a) un movimiento por cada combinación
+     * cuenta×categoría, prorrateando el monto de cada cuenta por el peso
+     * ($) de cada categoría en la compra; (b) dejar el movimiento con
+     * categoría null/"Mixta" y que el reporte por categoría lea directo de
+     * `meta.details` en vez de `fin_movement.categoryId`; (c) quedarse con el
+     * default actual ("Proveedores") y que el detalle por categoría viva
+     * solo en la ficha de la compra. Necesita decisión del owner antes de
+     * implementarse — no adivinar acá.
+     */
+    private function resolveLineItemsCategoryId(array|\CaseInsensitiveArray $row): ?string
+    {
+        // rawJsonb() exige un objeto (side-channel WeakMap por identidad de
+        // fila) — un $row llegado como array plano (nunca pasa hoy: el único
+        // caller lo obtiene de un SELECT de una fila, que Query::execute()
+        // siempre devuelve como CaseInsensitiveArray) no tiene ese
+        // side-channel. Degradar a "sin categoría compartida" en vez de un
+        // TypeError si algún día cambia el caller.
+        if (!is_object($row)) {
+            return null;
+        }
+        $raw = \Punto\App\Database\Query::rawJsonb($row, 'meta');
+        if (!is_string($raw) || $raw === '') {
+            return null;
+        }
+        $meta = json_decode($raw, true);
+        $details = is_array($meta['details'] ?? null) ? $meta['details'] : [];
+        if (empty($details)) {
+            return null;
+        }
+
+        $distinct = [];
+        foreach ($details as $line) {
+            if (!is_array($line)) {
+                continue;
+            }
+            $catId = (string) ($line['expenseCategoryId'] ?? '');
+            if ($catId !== '' && preg_match(self::UUID_RE, $catId)) {
+                $distinct[$catId] = true;
+            }
+        }
+        return count($distinct) === 1 ? array_key_first($distinct) : null;
     }
 
     /** @return array<int,array<string,mixed>> */

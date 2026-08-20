@@ -31,6 +31,7 @@ import { Switch } from "@/components/ui/switch"
 import { useContacts, useCreateContact } from "@/hooks/use-contacts"
 import { useItems } from "@/hooks/use-items"
 import { useTaxes } from "@/hooks/use-taxes"
+import { useFinanceCategories } from "@/hooks/use-finance-categories"
 import { api } from "@/lib/api-client"
 import { MoneyInput } from "@/components/ui/money-input"
 import { formatMoney } from "@/lib/format"
@@ -66,6 +67,7 @@ export function emptyLine(isProduct = true, taxId = ""): FormLine {
     taxId,
     taxValue: 0,
     packSize: 1,
+    expenseCategoryId: "",
   }
 }
 
@@ -138,6 +140,12 @@ export function LineRow({
 }: LineRowProps) {
   const { data: taxes } = useTaxes()
   const taxOptions = taxes?.taxes ?? []
+  // Categoría de GASTO por línea (owner 2026-08-20): precargada desde el
+  // ítem al elegirlo (ver ProductPicker), editable acá sin tocar la ficha.
+  const { data: financeCategories } = useFinanceCategories()
+  const expenseCategoryOptions = (financeCategories ?? []).filter(
+    (c) => c.kind === "expense" && c.status === 1,
+  )
 
   // Línea sin impuesto elegido → default al PRIMER impuesto del tenant.
   // La lista viene ordenada por sortOrder (drag&drop en Settings → Catálogo →
@@ -218,11 +226,12 @@ export function LineRow({
             <ProductPicker
               value={line.itemId ?? ""}
               displayName={line.itemName ?? ""}
-              onChange={(id, name, defaultCost) =>
+              onChange={(id, name, defaultCost, expenseCategoryId) =>
                 onChange({
                   itemId: id,
                   itemName: name,
                   price: defaultCost ?? line.price,
+                  expenseCategoryId: expenseCategoryId ?? line.expenseCategoryId,
                 })
               }
               triggerRef={registerFirstField}
@@ -305,6 +314,28 @@ export function LineRow({
               {taxOptions.map((t) => (
                 <SelectItem key={t.id} value={t.id}>
                   IVA {t.name}%
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="col-span-12 sm:col-span-4">
+          {/* Opcional (owner 2026-08-20): categoriza el gasto de esta línea
+              para los reportes de Finanzas — precargada desde la ficha del
+              ítem si tiene una configurada, no traba la carga. */}
+          <FieldLabel>Categoría de gasto</FieldLabel>
+          <Select
+            value={line.expenseCategoryId || "none"}
+            onValueChange={(v) => onChange({ expenseCategoryId: v === "none" ? "" : v })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Sin categoría" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Sin categoría</SelectItem>
+              {expenseCategoryOptions.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -450,7 +481,7 @@ export function ProductPicker({
 }: {
   value: string
   displayName: string
-  onChange: (id: string, name: string, defaultCost?: number) => void
+  onChange: (id: string, name: string, defaultCost?: number, expenseCategoryId?: string | null) => void
   triggerRef?: (el: HTMLElement | null) => void
 }) {
   const [open, setOpen] = React.useState(false)
@@ -500,12 +531,15 @@ export function ProductPicker({
                     setQ("")
                     // Setear nombre primero con precio 0; el último precio de
                     // compra real llega en el segundo update tras el fetch.
-                    onChange(r.itemId, r.itemName, 0)
+                    // La categoría de gasto configurada en la ficha del ítem
+                    // (si tiene) precarga la línea — el usuario la puede
+                    // cambiar sin que eso afecte la configuración del ítem.
+                    onChange(r.itemId, r.itemName, 0, r.expenseCategoryId)
                     try {
                       const { price } = await api.get<{ price: number }>(
                         `/v1/items?id=${r.itemId}&resource=last-purchase-price`,
                       )
-                      onChange(r.itemId, r.itemName, price || 0)
+                      onChange(r.itemId, r.itemName, price || 0, r.expenseCategoryId)
                     } catch {
                       // Si falla el lookup, queda en 0 (estado seteado arriba).
                     }

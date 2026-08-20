@@ -245,6 +245,7 @@ export default function PurchaseDraftReviewPage() {
         taxId: l.taxId || undefined,
         taxValue: Number(l.taxValue) || 0,
         packSize: l.isProduct ? Math.max(1, Math.round(Number(l.packSize) || 1)) : undefined,
+        expenseCategoryId: l.expenseCategoryId || undefined,
       }))
     return {
       supplierId: supplierId || null,

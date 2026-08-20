@@ -378,6 +378,17 @@ final class PurchasesService
             $taxId    = (string) ($it['taxId'] ?? '');
             $title    = (string) ($it['title'] ?? '');
             $itemId   = (string) ($it['itemId'] ?? '');
+            // Categoría de GASTO (Finanzas) elegida para ESTA línea — owner
+            // 2026-08-20: precargada desde `item.expenseCategoryId` en el
+            // form, editable por línea sin alterar la ficha del ítem. Vive en
+            // `transaction.meta.details[].expenseCategoryId` (mismo patrón
+            // que taxId acá al lado) — NO afecta la categoría del
+            // `fin_movement` que genera FinanceLedger todavía (fuera de
+            // alcance de este cambio: ver context/22 + discusión pendiente
+            // sobre cómo una compra con líneas de categorías distintas debe
+            // reflejarse en un ledger de un solo movimiento por cuenta).
+            $expenseCategoryIdRaw = trim((string) ($it['expenseCategoryId'] ?? ''));
+            $expenseCategoryId = preg_match(self::UUID_RE, $expenseCategoryIdRaw) ? $expenseCategoryIdRaw : null;
             // packSize: unidades por paquete/caja. `units` es la cantidad de
             // paquetes cargada por el cajero; el stock/itemSold se registra en
             // unidades reales (units * packSize) — ver context/_feature-requests.md.
@@ -428,13 +439,14 @@ final class PurchasesService
                 'taxIncluded' => $taxIncluded,
             ];
             $details[]   = [
-                'itemId'   => $itemId,
-                'title'    => $title,
-                'qty'      => $effectiveUnits,
-                'price'    => $lineTotal,
-                'tax'      => 0.0, // completado abajo con el resultado del motor
-                'taxId'    => $taxId,
-                'packSize' => $packSize,
+                'itemId'            => $itemId,
+                'title'             => $title,
+                'qty'               => $effectiveUnits,
+                'price'             => $lineTotal,
+                'tax'               => 0.0, // completado abajo con el resultado del motor
+                'taxId'             => $taxId,
+                'packSize'          => $packSize,
+                'expenseCategoryId' => $expenseCategoryId,
             ];
         }
         if (count($details) === 0) {

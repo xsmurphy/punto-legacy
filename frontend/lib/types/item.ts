@@ -136,6 +136,8 @@ export interface ItemListItem {
   itemUOM?: string | null
   itemDiscount?: number | string | null
   itemEcom?: number | boolean | null
+  /** Categoría de GASTO (Finanzas) — precarga la línea al comprar este ítem. */
+  expenseCategoryId?: string | null
   tags: string[]
 }
 
@@ -164,6 +166,8 @@ export interface ItemFull extends ItemListItem {
   taxId: string | null
   brandId: string | null
   categoryId: string | null
+  /** Categoría de GASTO (Finanzas) — distinta de `categoryId` (comercial, POS). */
+  expenseCategoryId: string | null
   supplierId: string | null
   locationId: string | null
   outletId: string | null
@@ -205,6 +209,8 @@ export interface ItemFormValues {
   uom: string
   /** Categoría principal — legacy single-category compat. Slice D moverá a m2m editor. */
   categoryId: string
+  /** Categoría de GASTO (Finanzas) — precarga la categoría de línea al comprar. Opcional. */
+  expenseCategoryId: string
   brandId: string
   status: boolean
 
