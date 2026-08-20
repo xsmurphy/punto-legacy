@@ -48,14 +48,23 @@ export async function posFetch(
   if (res.status === 401) {
     try {
       const payload = (await res.clone().json()) as { code?: string } | null
-      if (payload?.code === "session_revoked") {
+      const code = payload?.code
+      // `session_revoked`: el device ya no existe o fue revocado explícitamente
+      // (api/includes/auth_session.php, api/bootstrap.php, apiAuthPosContext.php).
+      // `device_incomplete`: el device EXISTE pero le falta una dimensión
+      // obligatoria (outlet/register) — pareo a medias o caja liberada después
+      // del pareo (DeviceAuth::requireCompleteContext(), mismo guard en ambos
+      // resolvers pos-app). Ambos casos son "esta sesión no puede operar", pero
+      // el cajero necesita un mensaje distinto ("te desconectaron" no es lo
+      // mismo que "este dispositivo nunca terminó de configurarse") — por eso
+      // el flag guarda el code crudo en vez de un booleano.
+      if (code === "session_revoked" || code === "device_incomplete") {
         // Flag efímero para que `PosAuthGuard` sepa POR QUÉ no hay token —
-        // sin esto, no hay forma de distinguir "revocado recién" de "nunca
-        // se parea" una vez que el token ya se limpió, y el guard mostraría
-        // el copy equivocado ("pedí un link de conexión" en vez de "fuiste
-        // desconectado por un admin").
+        // sin esto, no hay forma de distinguir el motivo una vez que el token
+        // ya se limpió, y el guard mostraría el copy equivocado ("pedí un
+        // link de conexión" en vez del motivo real).
         if (typeof window !== "undefined") {
-          window.sessionStorage.setItem(`punto.device.revoked.${module}`, "1")
+          window.sessionStorage.setItem(`punto.device.revoked.${module}`, code)
         }
         const qc = getSharedQueryClient()
         if (module === "pos" && qc) {

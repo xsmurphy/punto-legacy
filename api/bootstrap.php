@@ -170,9 +170,24 @@ function apiAuthTenant(array $realms = ['pos-app']): array
             'SELECT outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
             [$deviceId, $companyId]
         );
+        // Fail-closed: la fila `device` es la fuente de verdad de vigencia del
+        // pareo Y de sus dimensiones obligatorias (context/29). Si no existe,
+        // está revocada (status=0), o existe pero sin outlet/register asignado
+        // (pareo a medias), el código de abajo NO debe caer al fallback de
+        // "primer outlet activo" (pensado para outletId vacío por otras
+        // razones) — eso disfrazaba un device fantasma/incompleto con un
+        // contexto a medias (outlet genérico del tenant, registerId vacío) en
+        // vez de rechazar. Guard único compartido con apiAuthPosContext()
+        // (agujero real 2026-08-19: un device eliminado desde el panel seguía
+        // operando /pos con el token viejo en localStorage).
+        $devModule = $dev ? (string) ($dev['module'] ?? 'pos') : 'pos';
+        \Punto\Api\Auth\DeviceAuth::requireCompleteContext($dev ? [
+            'outletId'   => (string) ($dev['outletid']   ?? ''),
+            'registerId' => (string) ($dev['registerid'] ?? ''),
+        ] : null, $devModule);
         $outletId   = (string) ($dev['outletid'] ?? '');
         $registerId = (string) ($dev['registerid'] ?? '');
-        $module     = (string) ($dev['module'] ?? 'pos');
+        $module     = $devModule;
         // userId del realm pos-app: el token device NO tiene claim `sub`, así que
         // AUTHED_USER_ID queda vacío. La identidad operativa es el contacto que
         // pareó el device (device.userid) — misma fuente que DeviceAuth::resolveDeviceToken.
@@ -190,7 +205,19 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         $module     = '';   // no aplica para realm panel
     }
 
-    // Fallback: primer outlet activo (aplica a ambos realms cuando outlet queda vacío).
+    // Fallback: primer outlet activo. YA NO alcanza a devices module=pos — el
+    // guard de arriba (DeviceAuth::requireCompleteContext) corta antes con 401
+    // si el outlet de un device pos viene vacío. Sigue alcanzando a: (1) realm
+    // panel (oid ausente en el token — lo opera un humano que puede corregir
+    // la sucursal desde el dropdown, no un device headless) y (2) devices
+    // module=screen/kds/display/print que lleguen a un endpoint pos-app
+    // genérico (ej. items.php) sin outlet asignado — caso de borde no cerrado
+    // en este fix porque esos módulos son legítimamente outlet-less por
+    // diseño (ver DeviceAuth::requireCompleteContext(), que por eso solo
+    // aplica el check a module=pos) y hoy no hay endpoints pos-app genéricos
+    // que un device screen use en la práctica. Mismo patrón de "adivinar la
+    // dimensión" en PanelAuth.php:79 y CompanyAdminService.php:1550 — tampoco
+    // tocado acá, reportado sin arreglar.
     if ($outletId === '') {
         $row = ncmExecute(
             'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',

@@ -14,14 +14,20 @@ import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 
 const REVOKED_FLAG_KEY = "punto.device.revoked.pos"
 
+/** Motivo del rechazo cuando hay/había token pero el server lo tumbó —
+ * distinto de "unpaired" (nunca hubo token). Ver DeviceNotConnectedReason. */
+type RejectReason = "revoked" | "incomplete" | null
+
 /** Lee y consume (una sola vez) el flag que `posFetch` deja cuando detecta
- * `code: "session_revoked"` en una respuesta 401 — así el guard sabe si el
- * token ausente es por revocación explícita o por "nunca se parea". */
-function consumeRevokedFlag(): boolean {
-  if (typeof window === "undefined") return false
-  const revoked = window.sessionStorage.getItem(REVOKED_FLAG_KEY) === "1"
-  if (revoked) window.sessionStorage.removeItem(REVOKED_FLAG_KEY)
-  return revoked
+ * `code: "session_revoked"` o `"device_incomplete"` en una respuesta 401 —
+ * así el guard sabe POR QUÉ el token ausente/rechazado (revocación explícita,
+ * dimensión faltante, o "nunca se parea") y muestra el copy correcto. */
+function consumeRejectReason(): RejectReason {
+  if (typeof window === "undefined") return null
+  const code = window.sessionStorage.getItem(REVOKED_FLAG_KEY)
+  if (code === null) return null
+  window.sessionStorage.removeItem(REVOKED_FLAG_KEY)
+  return code === "device_incomplete" ? "incomplete" : "revoked"
 }
 
 /**
@@ -42,9 +48,10 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   // Check sincrónico: si no hay token en localStorage → DeviceNotConnected sin round-trip.
   // null = aún hidratando (SSR), continuar optimistamente al useQuery.
   const [hasLocalToken, setHasLocalToken] = React.useState<boolean | null>(null)
-  const [revoked, setRevoked] = React.useState(false)
+  const [rejectReason, setRejectReason] = React.useState<RejectReason>(null)
   React.useEffect(() => {
-    if (consumeRevokedFlag()) setRevoked(true)
+    const consumed = consumeRejectReason()
+    if (consumed) setRejectReason(consumed)
     setHasLocalToken(getDeviceToken() !== null)
   }, [])
 
@@ -63,13 +70,16 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
       })
       if (res.status === 401) {
         // El body trae `code: "session_revoked"` cuando el admin desconectó
-        // el device explícitamente (ver api/includes/auth_session.php) — lo
-        // distinguimos de "nunca se parea" para mostrar el copy correcto.
+        // el device explícitamente, o `code: "device_incomplete"` cuando el
+        // device existe pero le falta outlet/register (pareo a medias — ver
+        // DeviceAuth::requireCompleteContext() en api/lib/Auth/DeviceAuth.php).
+        // Los distinguimos de "nunca se parea" para mostrar el copy correcto.
         const payload = await res
           .clone()
           .json()
           .catch(() => null) as { code?: string } | null
-        if (payload?.code === "session_revoked") setRevoked(true)
+        if (payload?.code === "session_revoked") setRejectReason("revoked")
+        else if (payload?.code === "device_incomplete") setRejectReason("incomplete")
         throw Object.assign(new Error("DEVICE_UNAUTHORIZED"), { status: 401 })
       }
       if (!res.ok) {
@@ -86,7 +96,7 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   })
 
   // Sin token en localStorage → DeviceNotConnected inmediato, sin round-trip.
-  if (hasLocalToken === false) return <DeviceNotConnected reason={revoked ? "revoked" : "unpaired"} />
+  if (hasLocalToken === false) return <DeviceNotConnected reason={rejectReason ?? "unpaired"} />
 
   // Loading: render children optimistically — el POS tiene su propio LoadingScreen.
   if (status === "pending") return <>{children}</>
@@ -94,7 +104,7 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   if (status === "error") {
     const err = error as { status?: number }
     if (err?.status === 401) {
-      return <DeviceNotConnected reason={revoked ? "revoked" : "unpaired"} />
+      return <DeviceNotConnected reason={rejectReason ?? "unpaired"} />
     }
     // Error transitorio (500, red) → UI de retry para no bloquear la caja.
     return (

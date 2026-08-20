@@ -351,4 +351,62 @@ final class DeviceAuth
             [$deviceId, $companyId]
         );
     }
+
+    /**
+     * Guard único de las dimensiones obligatorias de una sesión de device
+     * POS: companyId/outletId/registerId nunca se infieren con "¿qué está
+     * activo ahora?" (mismo principio que rige las dimensiones de una
+     * transacción, context/29). Un device `module=pos` sin caja/sucursal
+     * asignada —pareo a medias, o caja liberada/borrada después del pareo—
+     * NO opera.
+     *
+     * Único punto de rechazo para AMBOS resolvers de contexto pos-app
+     * (`apiAuthTenant()` en bootstrap.php y `apiAuthPosContext()`), así el
+     * front recibe SIEMPRE el mismo envelope sin importar qué endpoint lo
+     * haya disparado — `pos-fetch.ts` reacciona a `code` para el
+     * self-healing (limpia el token, manda a reconexión):
+     *   - `session_revoked`   → el device ya no existe o fue revocado.
+     *   - `device_incomplete` → el device existe pero el pareo quedó a
+     *     medias (outlet/register vacío) — mensaje distinto porque la causa
+     *     y la acción correctiva no son las mismas que una revocación.
+     *
+     * El check de outlet/register SOLO aplica a `module==='pos'`: las
+     * pantallas (`screen`/`kds`/`display`/`print`) son legítimamente
+     * outlet/register-less por diseño — `api/v1/screens.php` ya trata
+     * `registerId`/`outletId` vacíos como estado válido para esos módulos
+     * (líneas ~71-84, `$ctx['registerId'] !== '' ? ... : null`). Aplicar
+     * este guard sin distinguir módulo habría roto esos devices.
+     *
+     * Termina la request con `die()` si $ctx no pasa el guard — solo
+     * retorna cuando $ctx es válido.
+     *
+     * @param array{outletId?:string,registerId?:string}|null $ctx null si el
+     *   resolver de más abajo no encontró device (row ausente/revocada).
+     * @param string $module 'pos'|'screen'|'kds'|'display'|'print' — del
+     *   device resuelto (o 'pos' por default si $ctx es null, da igual: esa
+     *   rama rechaza antes de mirar el módulo).
+     * @return array{outletId?:string,registerId?:string} el mismo $ctx, si pasa.
+     */
+    public static function requireCompleteContext(?array $ctx, string $module = 'pos'): array
+    {
+        if ($ctx === null) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            die(json_encode(['error' => 'Sesión revocada por el administrador', 'code' => 'session_revoked']));
+        }
+        if ($module !== 'pos') {
+            return $ctx;
+        }
+        $outletId   = (string) ($ctx['outletId']   ?? '');
+        $registerId = (string) ($ctx['registerId'] ?? '');
+        if ($outletId === '' || $registerId === '') {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            die(json_encode([
+                'error' => 'Este dispositivo no tiene caja o sucursal asignada. Generá un nuevo link de conexión desde el panel.',
+                'code'  => 'device_incomplete',
+            ]));
+        }
+        return $ctx;
+    }
 }
