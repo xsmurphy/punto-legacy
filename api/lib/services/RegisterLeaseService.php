@@ -95,24 +95,43 @@ final class RegisterLeaseService
 
     /**
      * Libera la tenencia activa de `$deviceId`, si tiene alguna — self-contained:
-     * abre su propia transacción + advisory lock (a diferencia de `close()`, los
-     * callers de este método NO están ya dentro de un lock por registerId, porque
-     * no lo conocen de antemano: lo resuelven acá mismo a partir del device).
+     * abre su propia transacción + advisory lock por la caja que va a liberar (a
+     * diferencia de `close()`, el caller no conoce ese `registerId` de antemano,
+     * lo resuelve acá mismo a partir del device). `StartTrans()`/`CompleteTrans()`
+     * soportan anidamiento (`api/includes/lib/DB.php`) — un caller que YA está
+     * dentro de su propia transacción (ej. `claim.php`, con su advisory lock
+     * tomado sobre OTRO registerId) puede llamar este método sin problema: el
+     * lock que abre acá es sobre una caja DISTINTA, así que no hay auto-deadlock,
+     * y el commit/rollback real lo decide siempre el nivel más externo.
      *
-     * Tres callers, los tres son "este device deja de operar, de una forma que
-     * no depende de que el propio device siga vivo para liberar su caja"
-     * (context/29 §4 — huecos que dejaban una tenencia huérfana para siempre,
-     * detectados 2026-08-19):
-     *   - `api/v1/devices.php` (DELETE, admin revoca desde el panel)
+     * Cuatro callers, todos son "esta tenencia tiene que cerrarse aunque el
+     * propio device que la tomó no coopere, o ni siquiera sepa que la perdió"
+     * (context/29 §4 — huecos que dejaban una tenencia huérfana para siempre):
+     *   - `api/v1/devices.php` (DELETE, admin revoca desde el panel,
+     *     detectado 2026-08-19)
      *   - `api/v1/auth/unpair-pos-device.php` (el device se despareja a sí mismo,
-     *     "Eliminar dispositivo del comercio" en Ajustes del POS)
+     *     "Eliminar dispositivo del comercio" en Ajustes del POS,
+     *     detectado 2026-08-19)
+     *   - `api/v1/active-register.php` (el device cambia de caja — sea porque el
+     *     operador lo mueve desde "Ajustes del POS" o porque el admin lo
+     *     reasigna; la caja VIEJA se libera antes del `UPDATE device`, mismo
+     *     criterio que "liberación normal" del §4. Caso real verificado en prod
+     *     2026-08-20: "Christian Mac" quedó con tenencia colgada en "Caja
+     *     Mariano" tras moverse a "Nueva Caja")
+     *   - `api/v1/register/claim.php` (defensa en profundidad: antes de crear
+     *     una tenencia NUEVA para este device, cierra cualquier OTRA que ya
+     *     tuviera — así, aunque algún camino futuro se olvide de liberar al
+     *     cambiar `device.registerid`, el sistema se autocorrige en el próximo
+     *     `claim()`. Nunca toca la tenencia de OTRO device — eso sigue
+     *     prohibido, §6)
      *   - `RegisterLeaseService` en general — un device revocado o despareado no
      *     puede volver a `claim.php` para liberarse solo: si nadie más libera su
      *     tenencia, queda tomada para siempre (la tenencia ya no vence por fecha).
      *
      * No-op silencioso si `$deviceId` no tiene tenencia activa — la inmensa
-     * mayoría de los revokes/unpairs son de devices que nunca tomaron una caja,
-     * o que ya la habían liberado (cerrar caja normal antes de desconectarse).
+     * mayoría de los revokes/unpairs/cambios de caja son de devices que nunca
+     * tomaron una caja, o que ya la habían liberado (cerrar caja normal antes
+     * de desconectarse/moverse).
      */
     public static function releaseByDevice(
         string $deviceId,

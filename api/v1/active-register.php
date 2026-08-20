@@ -80,6 +80,29 @@ if (!$row) {
     apiError('Caja no encontrada o inactiva en esta sucursal', 404);
 }
 
+// Liberar la tenencia (`register_lease`) que este device tenga en la caja
+// VIEJA, si tiene alguna, ANTES de reasignarlo a la nueva — bug real
+// verificado en prod 2026-08-20: un device tomaba "Caja Mariano", el owner
+// lo reasignaba a "Nueva Caja" desde acá, y la tenencia anterior nunca se
+// liberaba — "Caja Mariano" quedaba bloqueada para siempre por un device que
+// ya no opera ahí (context/29-numeracion-y-exclusividad-de-caja.md §4,
+// "dispositivo cambia de caja": "la caja anterior se libera igual que
+// liberación normal"). Este es el ÚNICO lugar del código que hoy cambia
+// `device.registerid` de un device EXISTENTE (ver RegisterLeaseService::
+// releaseByDevice() docblock) — mismo wrapper que usan devices.php (revoke)
+// y unpair-pos-device.php, self-contenido en su propia transacción/advisory
+// lock por la caja VIEJA, así que se puede llamar acá sin abrir una TX
+// propia. No-op silencioso si el device no tenía tenencia activa (el caso
+// normal: la mayoría de los cambios de caja son de un device que nunca
+// facturó, o que ya cerró caja antes de moverse).
+require_once __DIR__ . '/../lib/services/RegisterLeaseService.php';
+\Punto\Api\Services\RegisterLeaseService::releaseByDevice(
+    $deviceId,
+    COMPANY_ID,
+    'device:register-change',
+    'released'
+);
+
 // Actualizar la fila device con la caja (y sucursal si cambió).
 $updated = ncmExecute(
     'UPDATE device SET registerid = ?::uuid, outletid = ?::uuid WHERE deviceid = ?::uuid AND companyid = ?::uuid',
