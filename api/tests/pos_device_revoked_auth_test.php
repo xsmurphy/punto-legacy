@@ -24,9 +24,19 @@ declare(strict_types=1);
  *       DELETE /v1/devices?id=X) → 401 con code "session_revoked", NUNCA 200.
  *   (c) device hard-eliminado (fila ya no existe en absoluto) → mismo 401.
  *       Cubre explícitamente la hipótesis "no encontré fila → no bloqueo".
+ *   (d) device module=pos ACTIVO pero con outlet/register vacío (pareo a
+ *       medias) → 401 con code "device_incomplete" (distinto de
+ *       session_revoked: la causa y la corrección no son las mismas).
+ *       Cubre el pedido explícito del owner: companyId/outletId/registerId
+ *       son 100% obligatorios en el /pos, sin importar POR QUÉ falten.
+ *       Ver `DeviceAuth::requireCompleteContext()` en
+ *       `api/lib/Auth/DeviceAuth.php` — guard único compartido con
+ *       `apiAuthPosContext()` (ver `pos_device_screen_module_scope_test.php`
+ *       para el regression guard de que este check NO alcanza a devices
+ *       `screen`/`kds`/`display`, que son legítimamente outlet/register-less).
  *
- * `apiAuthTenant()` termina con `die()` en el path de error, así que (b) y
- * (c) corren en subproceso vía `_pos_auth_once_cli.php` (mismo patrón que
+ * `apiAuthTenant()` termina con `die()` en el path de error, así que (b), (c)
+ * y (d) corren en subproceso vía `_pos_auth_once_cli.php` (mismo patrón que
  * `_void_once_cli.php` usa para `CreditPaymentService::void()`).
  *
  * Uso (necesita Postgres migrado + seed.sql cargado — Docker, ver
@@ -129,6 +139,32 @@ try {
         '(c) device hard-eliminado (fila inexistente) → 401 session_revoked, no 200 (hipótesis "no encontré fila -> no bloqueo")',
         str_contains($outputC, 'HTTP_STATUS:401') && str_contains($outputC, 'session_revoked') && !str_contains($outputC, 'CTX:'),
         "salida del subproceso: $outputC",
+        $failures
+    );
+
+    // ── (d) device activo (status=1) pero pareo a medias: module=pos SIN
+    // outlet/register asignado (issueDeviceToken con '' cae a NULL en la fila,
+    // ver DeviceAuth::issueDeviceToken). Caso pedido por el owner: "la
+    // sucursal, caja y companyId son 100% obligatorios en el /pos" — un
+    // device existente y NO revocado, pero con el pareo incompleto, tampoco
+    // debe operar. Código DISTINTO de session_revoked porque la causa y la
+    // corrección no son las mismas (no lo desconectó un admin, nunca terminó
+    // de configurarse).
+    $issuedD = DeviceAuth::issueDeviceToken(
+        $companyId,
+        '', // outletId vacío a propósito
+        '', // registerId vacío a propósito
+        $userId,
+        'Test device — pareo a medias',
+        'phpunit-like/pos_device_revoked_auth_test',
+        'test-incomplete-' . bin2hex(random_bytes(6)),
+    );
+    $deviceIdsToClean[] = $issuedD['deviceId'];
+    $outputD = runAuthSubprocess($issuedD['token']);
+    check(
+        '(d) device module=pos con outlet/register vacío (pareo a medias) → 401 device_incomplete, no 200',
+        str_contains($outputD, 'HTTP_STATUS:401') && str_contains($outputD, 'device_incomplete') && !str_contains($outputD, 'CTX:'),
+        "salida del subproceso: $outputD",
         $failures
     );
 } finally {

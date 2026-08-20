@@ -24,6 +24,20 @@ class DeviceInvitationService
         if (!in_array($module, self::VALID_MODULES, true)) {
             throw new \RuntimeException('module inválido', 422);
         }
+        // companyId/outletId/registerId son obligatorios para un device module=pos
+        // (context/29 — nunca se infieren con "¿qué está activo ahora?"). El panel
+        // ya lo exige client-side (device-invite-create-dialog.tsx), pero sin este
+        // guard server-side una invitación creada por API directa (o un bug futuro
+        // en el diálogo) podía parear un device pos-app sin caja/sucursal — el
+        // mismo agujero que `DeviceAuth::requireCompleteContext()` cierra en el
+        // OTRO extremo (resolución del token), acá se cierra en el de origen
+        // (creación del pareo) para que el dispositivo nunca llegue a existir a
+        // medias. screen/kds/display/print quedan afuera: son legítimamente
+        // outlet/register-less (ver doc de requireCompleteContext() en
+        // DeviceAuth.php).
+        if ($module === 'pos' && (($outletId === null || $outletId === '') || ($registerId === null || $registerId === ''))) {
+            throw new \RuntimeException('Un dispositivo POS necesita sucursal y caja asignadas', 422);
+        }
         if ($outletId !== null && $outletId !== '') {
             $exists = ncmExecute(
                 'SELECT 1 FROM outlet WHERE outletId = ?::uuid AND companyId = ?::uuid',

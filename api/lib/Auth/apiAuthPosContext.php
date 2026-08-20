@@ -31,6 +31,20 @@ function apiAuthPosContext(): array
     }
     if ($bearerToken !== '') {
         $ctx = DeviceAuth::resolveDeviceToken($bearerToken);
+        // Guard único de dimensiones obligatorias (companyId/outletId/registerId),
+        // MISMO que apiAuthTenant() usa en bootstrap.php — un device module=pos
+        // sin caja asignada (pareo a medias) o ya revocado no opera acá tampoco.
+        // Antes este path solo distinguia "ctx null -> 401 generico" y dejaba
+        // pasar cualquier ctx no-null aunque outletId/registerId vinieran vacios
+        // (mismo agujero que bootstrap.php, en el path de ventas/transacciones
+        // en vez del de solo-lectura del catalogo). El check de outlet/register
+        // solo aplica a module=pos -- las pantallas (screen/kds/display/print)
+        // son legitimamente outlet/register-less (ver doc de
+        // requireCompleteContext() en DeviceAuth.php). requireCompleteContext()
+        // termina la request con el envelope que pos-fetch.ts sabe interpretar
+        // para el self-healing (limpia el token, manda a reconexion) si $ctx
+        // no pasa el guard -- nunca retorna en ese caso.
+        DeviceAuth::requireCompleteContext($ctx, $ctx !== null ? (string) ($ctx['module'] ?? 'pos') : 'pos');
         if ($ctx !== null) {
             // Verificar que la empresa no esta bloqueada (igual que apiAuthTenant hace via bootstrap.php:89)
             if (!checkCompanyStatus($ctx['companyId'])) {

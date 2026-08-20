@@ -47,7 +47,7 @@ const COPY: Record<DeviceKind, { title: string; subtitle: string }> = {
   },
 }
 
-export type DeviceNotConnectedReason = "unpaired" | "revoked"
+export type DeviceNotConnectedReason = "unpaired" | "revoked" | "incomplete"
 
 export function DeviceNotConnected({
   kind = "pos",
@@ -62,6 +62,12 @@ export function DeviceNotConnected({
           title: "Dispositivo desconectado por un administrador",
           subtitle:
             "Para volver a usarlo, pedile al administrador que genere un nuevo link de conexión desde Configuración › Dispositivos del panel.",
+        }
+      : reason === "incomplete"
+      ? {
+          title: "Este dispositivo no tiene caja asignada",
+          subtitle:
+            "El pareo quedó incompleto — falta la sucursal o la caja. Pedile al administrador que genere un nuevo link de conexión desde Configuración › Dispositivos del panel.",
         }
       : COPY[kind]
   return (
