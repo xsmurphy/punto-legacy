@@ -170,6 +170,21 @@ function apiAuthTenant(array $realms = ['pos-app']): array
             'SELECT outletid, registerid, userid, module FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid AND status = 1',
             [$deviceId, $companyId]
         );
+        // Fail-closed: la fila `device` es la fuente de verdad de vigencia del
+        // pareo (context/29). Si no existe o está revocada (status=0), el
+        // código de abajo NO debe caer al fallback de "primer outlet activo"
+        // (pensado para outletId vacío por otras razones) — eso disfrazaba un
+        // device fantasma con un contexto a medias (outlet genérico del tenant,
+        // registerId vacío) en vez de rechazar. Mismo envelope que el
+        // "session_revoked" de authResolve() (auth_session.php) para que
+        // pos-fetch.ts limpie el token igual que ante una revocación explícita
+        // (agujero real 2026-08-19: un device eliminado desde el panel seguía
+        // operando /pos con el token viejo en localStorage).
+        if (!$dev) {
+            http_response_code(401);
+            header('Content-Type: application/json');
+            die(json_encode(['error' => 'Sesión revocada por el administrador', 'code' => 'session_revoked']));
+        }
         $outletId   = (string) ($dev['outletid'] ?? '');
         $registerId = (string) ($dev['registerid'] ?? '');
         $module     = (string) ($dev['module'] ?? 'pos');
