@@ -1,7 +1,8 @@
 # 14 — Caja
 
-> Estado del doc: borrador (verificado contra código leyendo fuente, sin correr nada)
-> Responsable de la última verificación: sesión 2026-08-17 (regla 5 reverificada tras el fix de `resolveDrawerIdForDate`, misma fecha)
+> ⚠ **Desactualizado (2026-08-20) en dos puntos — ver `context/29-numeracion-y-exclusividad-de-caja.md` como fuente canónica:**
+> 1. El "arriendo de numeración" que menciona `open()`/`refreshLease()` (regla de abrir caja) fue **RECHAZADO Y ELIMINADO** — ya no hay bloques que refrescar, cada caja numera localmente.
+> 2. **F2/F3 de exclusividad de caja YA ESTÁN EN `main`** (commits `bb3575ae`, `b7444577`) y además se corrigió: la tenencia de caja **solo bloquea facturar, no el acceso al POS** (se puede cotizar/tomar órdenes sin tenerla), y mover un dispositivo de caja ahora libera la tenencia anterior (regla 8 de abajo, sobre "cerrar caja no libera la tenencia", describe el comportamiento viejo — mig 151 lo corrigió parcialmente vía cambio de caja, aunque el cierre de drawer en sí sigue sin conectar con `RegisterLeaseService::close()`, verificar antes de asumir).
 
 ## 1. Qué resuelve
 

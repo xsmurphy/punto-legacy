@@ -1,5 +1,7 @@
 # 10 — POS / venta
 
+> ⚠ **Desactualizado (2026-08-20): el arriendo de bloques offline (`numbering_lease`, `leasedInvoiceNo`, `LEASE_EXPIRED`) fue RECHAZADO Y ELIMINADO** — ver `context/29-numeracion-y-exclusividad-de-caja.md` §6. Cada caja numera localmente con último correlativo + 1 (sin arriendo, sin TTL); las referencias a `numbering_lease`/`leasedInvoiceNo` más abajo (regla 4, tabla de entidades) describen el mecanismo viejo.
+>
 > Estado del doc: verificado contra código 2026-08-17
 > Responsable de la última verificación: sesión 2026-08-17 (este doc)
 

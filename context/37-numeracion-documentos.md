@@ -1,5 +1,17 @@
 # 37 — Numeración correlativa de documentos
 
+> ⚠ **Desactualizado en el mecanismo de Factura offline (2026-08-20).**
+> `v1/numbering/lease.php` / `allocateBlock` / `numbering_lease` (fila
+> "Factura" abajo y las secciones "Huecos y contención"/F2/F4 que lo
+> mencionan) fueron **RECHAZADOS Y ELIMINADOS** — ver
+> `context/29-numeracion-y-exclusividad-de-caja.md` §6. El modelo vigente:
+> cada caja tiene su propia rama de numeración (punto de expedición único
+> por timbrado), offline alcanza con último correlativo local + 1, sin
+> arriendo ni TTL. El resto de este doc (cotización, orden, producción,
+> merma, transferencia, conteo — todos vía `document_sequence`/
+> `DocumentNumber::allocate`) sigue vigente sin cambios. Antes de tocar
+> numeración de facturas, leer `context/29` como fuente canónica.
+>
 > Estado (2026-08-09): **F1, F2 y F3 implementadas**. D1/D2/D4 cerradas.
 > D3/D5/D6 siguen pendientes del owner y bloquean F3b, F4 y F5.
 >
@@ -7,7 +19,7 @@
 >
 > | Documento | Scope | Asignador | Desde |
 > |---|---|---|---|
-> | Factura | register | `allocateBlock` vía `numbering_lease` | F2 |
+> | Factura | register | correlativo local (MAX+1), sin arriendo — ver `context/29` | F2, corregido 2026-08-20 |
 > | Cotización | register | `allocate` en la TX de la cotización | F2 |
 > | Orden (pedido) | outlet | `allocate` en la TX del create | F2 |
 > | Producción · Merma · Transferencia · Conteo | outlet | `allocate` | F3 |

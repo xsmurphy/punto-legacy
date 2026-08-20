@@ -1,5 +1,9 @@
 # 17 — Numeración
 
+> ⚠ **Desactualizado (2026-08-20) en dos puntos — ver `context/29-numeracion-y-exclusividad-de-caja.md` como fuente canónica antes de tocar este módulo:**
+> 1. El **arriendo de bloques offline** (`numbering_lease`, `lease.php` vía `allocateBlock`, todo lo descrito en la regla 3 y en "Huecos y contención") fue **RECHAZADO Y ELIMINADO** — cada caja tiene su propia rama de numeración (punto de expedición único por timbrado) y offline alcanza con último correlativo local + 1, sin TTL ni bloques.
+> 2. **F2/F3 de exclusividad de caja (`register_lease`) YA ESTÁN EN `main`** (commits `bb3575ae`, `b7444577`, `514a0098`) — este doc en varios lugares (regla 9, §6, §7) los describe como "solo en la branch `api/numeracion-exclusividad`, sin mergear". Eso cambió: el riesgo P0 que describen esas secciones como "activo en main" está resuelto.
+>
 > Estado del doc: verificado contra código 2026-08-17
 > Responsable de la última verificación: sesión 2026-08-17 (docs numeración/impresión/facturación electrónica)
 
