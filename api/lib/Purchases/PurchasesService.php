@@ -232,6 +232,14 @@ final class PurchasesService
             unset($d);
         }
 
+        // Categoría de gasto de CABECERA (atajo para toda la compra) — cada
+        // línea ya trae su categoría EFECTIVA resuelta en
+        // `details[].expenseCategoryId` (precedencia línea > cabecera > ítem).
+        $headerCategoryIdOut = (string) ($meta['expenseCategoryId'] ?? '');
+        $headerCategoryIdOut = ($headerCategoryIdOut !== '' && preg_match(self::UUID_RE, $headerCategoryIdOut))
+            ? $headerCategoryIdOut
+            : null;
+
         return [
             'id'            => (string) $row['transactionid'],
             'date'          => (string) $row['transactiondate'],
@@ -260,6 +268,7 @@ final class PurchasesService
             'userName'      => $row['username'] !== null ? (string) $row['username'] : null,
             'paymentType'   => $paymentType,
             'details'       => $details,
+            'expenseCategoryId' => $headerCategoryIdOut,
         ];
     }
 
@@ -366,6 +375,55 @@ final class PurchasesService
         $taxMeta  = $rawTaxIds !== [] ? $this->resolveTaxMeta($companyId, array_keys($rawTaxIds)) : [];
         $decimals = $this->currencyDecimals($companyId);
 
+        // F0 gasto dividido por categoría (owner 2026-08-20): la categoría
+        // EFECTIVA de cada línea se resuelve UNA VEZ acá, con precedencia
+        // línea > cabecera > ítem, y se persiste ya resuelta en
+        // meta.details[].expenseCategoryId — FinanceLedger no vuelve a
+        // decidir nada, solo agrupa lo que ya quedó decidido.
+        //   - línea: el payload trae la key `expenseCategoryId` para ESE
+        //     ítem (el usuario tocó el selector de esa línea explícitamente
+        //     — puede ser un UUID real o '' para "sin categoría, aunque
+        //     cabecera/ítem tengan una" — un `array_key_exists` distingue
+        //     "no tocado" de "tocado y vaciado").
+        //   - cabecera: `data.expenseCategoryId` — un atajo que heredan
+        //     todas las líneas que NO tocaron la suya propia.
+        //   - ítem: `item.data.expenseCategoryId` configurado en la ficha —
+        //     último fallback, resuelto acá en un solo SELECT batched (mismo
+        //     patrón que la resolución de nombres de producto arriba).
+        $headerCategoryIdRaw = trim((string) ($data['expenseCategoryId'] ?? ''));
+        $headerCategoryId = preg_match(self::UUID_RE, $headerCategoryIdRaw) ? $headerCategoryIdRaw : null;
+
+        $itemDefaultCategoryIds = [];
+        $needsItemDefault = [];
+        foreach ($items as $it) {
+            $itemId = (string) ($it['itemId'] ?? '');
+            if ($itemId !== '' && !array_key_exists('expenseCategoryId', $it)) {
+                $needsItemDefault[$itemId] = true;
+            }
+        }
+        if (!empty($needsItemDefault)) {
+            $ids = array_keys($needsItemDefault);
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $rs = ncmExecute(
+                "SELECT itemId, data->>'expenseCategoryId' AS expensecategoryid
+                   FROM item WHERE companyId = ? AND itemId IN ({$placeholders})",
+                array_merge([$companyId], $ids),
+                false,
+                true
+            );
+            if ($rs && is_object($rs)) {
+                while (!$rs->EOF) {
+                    $iid = (string) $rs->fields['itemid'];
+                    $cid = (string) ($rs->fields['expensecategoryid'] ?? '');
+                    if ($cid !== '' && preg_match(self::UUID_RE, $cid)) {
+                        $itemDefaultCategoryIds[$iid] = $cid;
+                    }
+                    $rs->MoveNext();
+                }
+                $rs->Close();
+            }
+        }
+
         // Procesar items: calcular totales + separar productos vs gastos libres.
         $totalUnits  = 0.0;
         $total       = 0.0;
@@ -378,17 +436,17 @@ final class PurchasesService
             $taxId    = (string) ($it['taxId'] ?? '');
             $title    = (string) ($it['title'] ?? '');
             $itemId   = (string) ($it['itemId'] ?? '');
-            // Categoría de GASTO (Finanzas) elegida para ESTA línea — owner
-            // 2026-08-20: precargada desde `item.expenseCategoryId` en el
-            // form, editable por línea sin alterar la ficha del ítem. Vive en
-            // `transaction.meta.details[].expenseCategoryId` (mismo patrón
-            // que taxId acá al lado) — NO afecta la categoría del
-            // `fin_movement` que genera FinanceLedger todavía (fuera de
-            // alcance de este cambio: ver context/22 + discusión pendiente
-            // sobre cómo una compra con líneas de categorías distintas debe
-            // reflejarse en un ledger de un solo movimiento por cuenta).
-            $expenseCategoryIdRaw = trim((string) ($it['expenseCategoryId'] ?? ''));
-            $expenseCategoryId = preg_match(self::UUID_RE, $expenseCategoryIdRaw) ? $expenseCategoryIdRaw : null;
+            // Categoría de GASTO (Finanzas) EFECTIVA de esta línea — precedencia
+            // línea > cabecera > ítem (ver bloque de resolución más arriba).
+            // `array_key_exists` distingue "el usuario tocó el selector de
+            // esta línea" (gana, sea un UUID o '' = explícitamente sin
+            // categoría) de "no lo tocó" (hereda cabecera → ítem → null).
+            if (array_key_exists('expenseCategoryId', $it)) {
+                $lineCategoryIdRaw = trim((string) ($it['expenseCategoryId'] ?? ''));
+                $expenseCategoryId = preg_match(self::UUID_RE, $lineCategoryIdRaw) ? $lineCategoryIdRaw : null;
+            } else {
+                $expenseCategoryId = $headerCategoryId ?? ($itemDefaultCategoryIds[$itemId] ?? null);
+            }
             // packSize: unidades por paquete/caja. `units` es la cantidad de
             // paquetes cargada por el cajero; el stock/itemSold se registra en
             // unidades reales (units * packSize) — ver context/_feature-requests.md.
@@ -452,6 +510,14 @@ final class PurchasesService
         if (count($details) === 0) {
             throw new \RuntimeException('Ningún ítem válido (units > 0 + producto o descripción)');
         }
+        // Un descuento mayor al total de los ítems no tiene sentido de
+        // negocio (pre-existente al split por categoría, pero recién ahora
+        // hay código que asume el signo de esta resta — ver
+        // FinanceLedger::resolveCategorySplit()): sin este guard, un typo en
+        // el descuento generaría una compra con total NEGATIVO sin aviso.
+        if ($discount > $total) {
+            throw new \RuntimeException('El descuento no puede ser mayor al total de los ítems');
+        }
 
         // Un solo llamado al motor para todas las líneas válidas — $details y
         // $engineLines se pushearon juntos arriba, así que los índices calzan.
@@ -461,7 +527,12 @@ final class PurchasesService
             $totalTax          += $engineResult['lines'][$i]['tax'];
         }
 
-        $netTotal = $total - $discount;
+        // Redondeado al decimal del tenant ACÁ — es la fuente de verdad real
+        // (transactionTotal, línea de pago). FinanceLedger::resolveCategorySplit()
+        // recalcula el mismo round($total - $discount, $decimals) para las
+        // porciones por categoría — redondear los dos desde la MISMA fórmula
+        // evita que difieran por ruido de precisión de punto flotante.
+        $netTotal = round($total - $discount, $decimals);
 
         // Payment type — mismo shape que ventas ({type,name,total,identifier?}),
         // para que FinanceLedger::recordPaymentLines/createCheckFromLines lo lean
@@ -500,6 +571,11 @@ final class PurchasesService
 
         $meta = [
             'details' => $details,
+            // Categoría de cabecera elegida (si el comercio la puso) — la
+            // usan `FinanceLedger::recordPurchase()` para categorizar el
+            // cheque (que no se puede partir por categoría, es 1 documento
+            // por el total) y la ficha de la compra si algún día la muestra.
+            'expenseCategoryId' => $headerCategoryId,
         ];
 
         $db->StartTrans();

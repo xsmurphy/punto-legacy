@@ -23,6 +23,7 @@ import {
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useCreatePurchase, type PurchaseFormItem } from "@/hooks/use-purchases"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
+import { useFinanceCategories } from "@/hooks/use-finance-categories"
 import { useUploadInvoice, usePendingDraftsCount } from "@/hooks/use-purchase-drafts"
 import {
   AlertDialog,
@@ -96,6 +97,10 @@ export default function NewPurchasePage() {
   const [checkBank, setCheckBank] = React.useState("")
   const [checkDueDate, setCheckDueDate] = React.useState<string>("")
   const [discount, setDiscount] = React.useState<number | null>(null)
+  // Categoría de gasto de CABECERA (owner 2026-08-20): atajo para toda la
+  // compra — la hereda cada línea que NO tocó su propio selector. Precedencia
+  // línea > cabecera > ítem, resuelta server-side (PurchasesService::create()).
+  const [expenseCategoryId, setExpenseCategoryId] = React.useState("")
   const [note, setNote] = React.useState("")
   const [lines, setLines] = React.useState<FormLine[]>([emptyLine()])
 
@@ -107,6 +112,12 @@ export default function NewPurchasePage() {
   }, [bootstrap?.activeOutletId, outletId])
 
   const outlets = bootstrap?.outlets ?? []
+
+  // Categorías de gasto (Finanzas, kind=expense) para el selector de cabecera.
+  const { data: financeCategories } = useFinanceCategories()
+  const expenseCategoryOptions = (financeCategories ?? []).filter(
+    (c) => c.kind === "expense" && c.status === 1,
+  )
 
   // Medios de pago reales del tenant (taxonomy paymentMethod) — mismo catálogo
   // que ventas/POS, resuelve cuenta vía finAccountMap (Parte 2, context/30).
@@ -234,7 +245,10 @@ export default function NewPurchasePage() {
         taxId: l.taxId || undefined,
         taxValue: Number(l.taxValue) || 0,
         packSize: l.isProduct ? Math.max(1, Math.round(Number(l.packSize) || 1)) : undefined,
-        expenseCategoryId: l.expenseCategoryId || undefined,
+        // Solo viaja si el usuario tocó el selector de ESTA línea a mano —
+        // omitir la key deja que el backend resuelva cabecera → ítem → sin
+        // categoría (precedencia línea > cabecera > ítem, owner 2026-08-20).
+        ...(l.expenseCategoryTouched ? { expenseCategoryId: l.expenseCategoryId || null } : {}),
       }))
 
     if (isCheckMethod && checkNumber.trim() === "") {
@@ -278,6 +292,7 @@ export default function NewPurchasePage() {
             }
           : {}),
         discount: discount ?? 0,
+        expenseCategoryId: expenseCategoryId || undefined,
         note,
         items,
     })
@@ -533,6 +548,25 @@ export default function NewPurchasePage() {
               value={discount}
               onChange={setDiscount}
             />
+          </Field>
+
+          <Field label="Categoría de gasto (toda la compra)" id="expenseCategoryId">
+            <Select value={expenseCategoryId || "none"} onValueChange={(v) => setExpenseCategoryId(v === "none" ? "" : v)}>
+              <SelectTrigger id="expenseCategoryId">
+                <SelectValue placeholder="Sin categoría" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sin categoría</SelectItem>
+                {expenseCategoryOptions.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Atajo: la usa cada línea que no eligió su propia categoría. Podés categorizar líneas puntuales distinto abajo.
+            </p>
           </Field>
 
           <Field label="Nota / observaciones" id="note">

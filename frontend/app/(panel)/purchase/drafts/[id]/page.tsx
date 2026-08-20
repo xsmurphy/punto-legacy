@@ -34,6 +34,7 @@ import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { useTaxes } from "@/hooks/use-taxes"
+import { useFinanceCategories } from "@/hooks/use-finance-categories"
 import {
   usePurchaseDraft,
   useApprovePurchaseDraft,
@@ -103,9 +104,16 @@ export default function PurchaseDraftReviewPage() {
   const [checkBank, setCheckBank] = React.useState("")
   const [checkDueDate, setCheckDueDate] = React.useState("")
   const [discount, setDiscount] = React.useState<number | null>(null)
+  // Categoría de gasto de CABECERA (owner 2026-08-20) — mismo campo que
+  // /purchase/page.tsx, ver docblock ahí.
+  const [expenseCategoryId, setExpenseCategoryId] = React.useState("")
   const [note, setNote] = React.useState("")
   const [lines, setLines] = React.useState<FormLine[]>([])
   const [rejectOpen, setRejectOpen] = React.useState(false)
+  const { data: financeCategories } = useFinanceCategories()
+  const expenseCategoryOptions = (financeCategories ?? []).filter(
+    (c) => c.kind === "expense" && c.status === 1,
+  )
 
   // Hidrata el form UNA sola vez cuando llega el draft — de `edited` si ya
   // se guardó antes, si no de `extracted` (mapeo IA → shape del form).
@@ -245,7 +253,9 @@ export default function PurchaseDraftReviewPage() {
         taxId: l.taxId || undefined,
         taxValue: Number(l.taxValue) || 0,
         packSize: l.isProduct ? Math.max(1, Math.round(Number(l.packSize) || 1)) : undefined,
-        expenseCategoryId: l.expenseCategoryId || undefined,
+        // Solo viaja si el usuario tocó el selector de ESTA línea — mismo
+        // criterio que /purchase/page.tsx, ver docblock de FormLine.
+        ...(l.expenseCategoryTouched ? { expenseCategoryId: l.expenseCategoryId || null } : {}),
       }))
     return {
       supplierId: supplierId || null,
@@ -267,6 +277,7 @@ export default function PurchaseDraftReviewPage() {
           }
         : {}),
       discount: discount ?? 0,
+      expenseCategoryId: expenseCategoryId || undefined,
       note,
       items,
     }
@@ -629,6 +640,25 @@ export default function PurchaseDraftReviewPage() {
 
               <Field label="Descuento global" id="discount">
                 <MoneyInput id="discount" value={discount} onChange={setDiscount} />
+              </Field>
+
+              <Field label="Categoría de gasto (toda la compra)" id="expenseCategoryId">
+                <Select value={expenseCategoryId || "none"} onValueChange={(v) => setExpenseCategoryId(v === "none" ? "" : v)}>
+                  <SelectTrigger id="expenseCategoryId">
+                    <SelectValue placeholder="Sin categoría" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Sin categoría</SelectItem>
+                    {expenseCategoryOptions.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Atajo: la usa cada línea que no eligió su propia categoría.
+                </p>
               </Field>
 
               <Field label="Nota / observaciones" id="note">
