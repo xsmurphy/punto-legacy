@@ -1,7 +1,5 @@
 "use client"
 
-import Image from "next/image"
-
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { MODULE_MOCKUPS } from "@/components/site/mockups"
 import { MODULE_TABS } from "@/lib/site/modules"
@@ -23,20 +21,6 @@ export function ModulesTabs() {
           Ventas, caja, facturación y stock trabajando juntos, sin planillas al
           costado.
         </p>
-      </div>
-
-      {/* Screenshot real del POS — el contexto visual de la sección */}
-      <div className="mx-auto mt-12 max-w-5xl">
-        <div className="overflow-hidden rounded-2xl border bg-background p-1.5 md:p-2">
-          <Image
-            src="/site/pos-screenshot.png"
-            alt="Pantalla de venta del POS de Punto: catálogo con fotos, carrito y total"
-            width={2880}
-            height={1400}
-            sizes="(max-width: 1024px) 100vw, 1024px"
-            className="w-full rounded-xl border"
-          />
-        </div>
       </div>
 
       <Tabs defaultValue={MODULE_TABS[0].key} className="mt-12">

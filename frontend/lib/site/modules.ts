@@ -32,6 +32,7 @@ export type ModuleTab = {
     | "stock"
     | "clientes"
     | "reporte"
+    | "mesas"
 }
 
 export const MODULE_TABS: ModuleTab[] = [
@@ -52,6 +53,15 @@ export const MODULE_TABS: ModuleTab[] = [
       "Apertura, movimientos y arqueo por turno y por caja. Lo esperado contra lo contado, y cada diferencia con nombre y hora.",
     idealFor: "locales con turnos · más de un cajero",
     mockup: "arqueo",
+  },
+  {
+    key: "mesas",
+    label: "Mesas",
+    title: "El salón, mesa por mesa",
+    description:
+      "Cada mesa con su cuenta abierta y su pedido en cocina. Se agrega, se une, se divide o se cobra desde cualquier caja del local.",
+    idealFor: "restaurantes · bares · patios de comida",
+    mockup: "mesas",
   },
   {
     key: "facturacion",
