@@ -274,11 +274,15 @@ export function SiteHeader() {
           <PuntoLogo scheme={overlay ? "on-dark" : "on-light"} className="h-6 w-[88px]" />
         </Link>
 
-        {/* Pills centradas en el header (grupo translúcido sobre el hero) */}
+        {/* Pills centradas. Sobre el hero son una cápsula translúcida; con el
+            header ya sólido la cápsula desaparece (si no, se encima un fondo
+            claro sobre otro) y quedan los links sueltos. */}
         <nav
           className={cn(
-            "absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full border p-1 backdrop-blur md:flex",
-            overlay ? "border-white/15 bg-white/10" : "border-border bg-background/60",
+            "absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full border p-1 transition-colors md:flex",
+            overlay
+              ? "border-white/15 bg-white/10 backdrop-blur"
+              : "border-transparent bg-transparent",
           )}
         >
           <NavMenu label="Módulos" overlay={overlay}>
