@@ -1,37 +1,24 @@
-import Image from "next/image"
 import Link from "next/link"
 
+import { HeroBackdrop } from "@/components/site/hero-backdrop"
 import { Button } from "@/components/ui/button"
 
 /**
- * Hero full-bleed. Base: foto (public/site/hero.jpg). Si algún día se suma
- * /site/hero.mp4, el <video> pinta encima de la foto; mientras no exista,
- * no renderiza nada y queda la imagen. El bloque es siempre oscuro (texto
- * sobre foto + overlay), por eso usa blanco directo y no tokens de tema.
+ * Hero full-bleed del home. El fondo son fotos de comercios reales que se
+ * cruzan con un fade lento (ver HeroBackdrop). El bloque es siempre oscuro
+ * — texto sobre foto más overlay —, por eso usa blanco directo y no tokens
+ * de tema.
  */
+const HERO_IMAGES = [
+  { src: "/site/hero.jpg" },
+  { src: "/site/rubro-restaurantes.jpg" },
+]
+
 export function SiteHero() {
   return (
     <section className="relative isolate flex min-h-[92svh] flex-col justify-center overflow-hidden bg-neutral-950">
-      <Image
-        aria-hidden
-        src="/site/hero.jpg"
-        alt=""
-        fill
-        priority
-        sizes="100vw"
-        className="object-cover"
-      />
-      <video
-        aria-hidden
-        className="absolute inset-0 size-full object-cover"
-        src="/site/hero.mp4"
-        poster="/site/hero.jpg"
-        autoPlay
-        muted
-        loop
-        playsInline
-      />
-      {/* Oscurecedor para legibilidad del texto sobre el video */}
+      <HeroBackdrop images={HERO_IMAGES} />
+      {/* Oscurecedor para legibilidad del texto sobre la foto */}
       <div aria-hidden className="absolute inset-0 bg-black/55" />
       <div
         aria-hidden
@@ -63,7 +50,7 @@ export function SiteHero() {
           </Button>
         </div>
         <p className="mt-4 text-sm text-white/60">
-          Probalo gratis — sin tarjeta ni permanencia.
+          Probalo gratis, sin tarjeta ni permanencia.
         </p>
       </div>
     </section>

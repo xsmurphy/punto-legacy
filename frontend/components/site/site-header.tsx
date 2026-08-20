@@ -31,6 +31,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { getRubro } from "@/lib/site/rubros"
 import { cn } from "@/lib/utils"
 
 type MenuEntry = {
@@ -241,8 +242,13 @@ function NavMenu({
  */
 export function SiteHeader() {
   const pathname = usePathname()
-  // El hero oscuro solo existe en el home ("/home", o "/" reescrito).
-  const overHero = pathname === "/home" || pathname === "/"
+  // Hay hero oscuro en el home ("/home", o "/" reescrito) y en los rubros
+  // que traen foto de fondo — ahí el header arranca en modo overlay.
+  const rubroSlug = pathname.startsWith("/para/") ? pathname.split("/")[2] : undefined
+  const overHero =
+    pathname === "/home" ||
+    pathname === "/" ||
+    Boolean(rubroSlug && getRubro(rubroSlug)?.heroImage)
   const [scrolled, setScrolled] = React.useState(false)
 
   React.useEffect(() => {

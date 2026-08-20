@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import Image from "next/image"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowRight } from "lucide-react"
@@ -6,7 +7,7 @@ import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
-import { RUBROS, getRubro } from "@/lib/site/rubros"
+import { RUBROS, getRubro, type Rubro } from "@/lib/site/rubros"
 import { cn } from "@/lib/utils"
 
 export function generateStaticParams() {
@@ -27,21 +28,94 @@ export async function generateMetadata({
   }
 }
 
-function HeroCtas() {
+function HeroCtas({ onPhoto = false }: { onPhoto?: boolean }) {
   return (
     <div className="flex flex-col items-start gap-4">
       <div className="flex flex-wrap items-center gap-3">
-        <Button asChild size="lg" className="rounded-full px-7">
+        <Button
+          asChild
+          size="lg"
+          className={cn(
+            "rounded-full px-7",
+            onPhoto && "bg-white text-neutral-900 hover:bg-white/90",
+          )}
+        >
           <Link href="#">Empezar</Link>
         </Button>
-        <Button asChild size="lg" variant="outline" className="rounded-full px-7">
+        <Button
+          asChild
+          size="lg"
+          variant="outline"
+          className={cn(
+            "rounded-full px-7",
+            onPhoto &&
+              "border-white/25 bg-white/10 text-white backdrop-blur hover:bg-white/20 hover:text-white",
+          )}
+        >
           <Link href="#">Escribinos</Link>
         </Button>
       </div>
-      <p className="text-sm text-muted-foreground">
+      <p className={cn("text-sm", onPhoto ? "text-white/60" : "text-muted-foreground")}>
         Probalo gratis, sin tarjeta ni permanencia.
       </p>
     </div>
+  )
+}
+
+/** Hero del rubro: escena con foto si el rubro trae una, o claro si no. */
+function RubroHero({ rubro }: { rubro: Rubro }) {
+  if (!rubro.heroImage) {
+    return (
+      <section className="mx-auto w-full max-w-6xl px-4 pb-16 pt-16 md:px-6 md:pb-24 md:pt-24">
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          {rubro.eyebrow}
+        </p>
+        {/* razón: escala display de marketing, no aplica escala panel (§14) */}
+        <h1 className="mt-4 max-w-3xl text-balance text-5xl font-semibold tracking-tight md:text-7xl">
+          {rubro.heroTitle}
+        </h1>
+        <p className="mt-6 max-w-2xl text-base text-muted-foreground md:text-lg">
+          {rubro.heroDescription}
+        </p>
+        <div className="mt-8">
+          <HeroCtas />
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="relative isolate -mt-16 flex min-h-[78svh] items-end overflow-hidden bg-neutral-950">
+      <Image
+        aria-hidden
+        src={rubro.heroImage}
+        alt=""
+        fill
+        priority
+        sizes="100vw"
+        className="object-cover"
+      />
+      <div aria-hidden className="absolute inset-0 bg-black/55" />
+      <div
+        aria-hidden
+        className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-b from-transparent to-black/75"
+      />
+      <div className="relative mx-auto w-full max-w-6xl px-4 pb-16 pt-32 md:px-6 md:pb-24 md:pt-40">
+        <p className="text-xs font-semibold uppercase tracking-widest text-white/60">
+          {rubro.eyebrow}
+        </p>
+        {/* razón: escala display de marketing, no aplica escala panel (§14) */}
+        <h1 className="mt-4 max-w-3xl text-balance text-5xl font-semibold tracking-tight text-white md:text-7xl">
+          {rubro.heroTitle}
+        </h1>
+        <p className="mt-6 max-w-2xl text-base text-white/70 md:text-lg">
+          {rubro.heroDescription}
+        </p>
+        <div className="mt-8">
+          <HeroCtas onPhoto />
+        </div>
+      </div>
+    </section>
   )
 }
 
@@ -58,22 +132,7 @@ export default async function RubroPage({
 
   return (
     <div className="pt-16">
-      {/* Hero */}
-      <section className="mx-auto w-full max-w-6xl px-4 pb-16 pt-16 md:px-6 md:pb-24 md:pt-24">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-          {rubro.eyebrow}
-        </p>
-        {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h1 className="mt-4 max-w-3xl text-balance text-5xl font-semibold tracking-tight md:text-7xl">
-          {rubro.heroTitle}
-        </h1>
-        <p className="mt-6 max-w-2xl text-base text-muted-foreground md:text-lg">
-          {rubro.heroDescription}
-        </p>
-        <div className="mt-8">
-          <HeroCtas />
-        </div>
-      </section>
+      <RubroHero rubro={rubro} />
 
       {/* En 30 segundos */}
       {rubro.thirtySeconds ? (

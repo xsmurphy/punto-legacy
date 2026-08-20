@@ -39,6 +39,8 @@ export type Rubro = {
   eyebrow: string
   heroTitle: string
   heroDescription: string
+  /** Foto de fondo del hero (public/site/...). Sin ella, el hero va claro. */
+  heroImage?: string
   thirtySeconds?: string[]
   sections?: RubroSection[]
 }
@@ -49,6 +51,7 @@ export const RUBROS: Rubro[] = [
     label: "Restaurantes",
     posesivo: "tu restaurante",
     eyebrow: "Para restaurantes",
+    heroImage: "/site/rubro-restaurantes.jpg",
     heroTitle: "El salón, la cocina y la caja, en sintonía",
     heroDescription:
       "El pedido llega directo a cocina, cada mesa muestra su cuenta abierta y la factura sale al cerrar, con mitades y agregados escritos tal como los pidió el cliente. Sin cuaderno y sin gritos al pasaplatos.",
