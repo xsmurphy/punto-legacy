@@ -1,7 +1,10 @@
-import Image from "next/image"
 import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 
+import {
+  ScreenshotCrossfade,
+  type Screenshot,
+} from "@/components/site/screenshot-crossfade"
 import { cn } from "@/lib/utils"
 
 /*
@@ -21,7 +24,8 @@ type Spotlight = {
   description: string
   primary: { label: string; href: string }
   secondary: { label: string; href: string }
-  image: { src: string; alt: string }
+  /** Una o varias capturas; con más de una se cruzan con fade. */
+  images: Screenshot[]
 }
 
 const SPOTLIGHTS: Spotlight[] = [
@@ -34,10 +38,12 @@ const SPOTLIGHTS: Spotlight[] = [
       "Buscador instantáneo, artículos con foto a la vista y cobro en dos toques. Contado, crédito o varios medios de pago en la misma venta — con el comprobante saliendo al cerrar. Y si se corta internet o la luz, seguís vendiendo: al volver la conexión, todo se sincroniza solo.",
     primary: { label: "Conocer el Punto de Venta", href: "#" },
     secondary: { label: "Empezar gratis", href: "#" },
-    image: {
-      src: "/site/pos-screenshot.png",
-      alt: "Punto de Venta: catálogo con fotos, carrito y total de la venta",
-    },
+    images: [
+      {
+        src: "/site/pos-screenshot.png",
+        alt: "Punto de Venta: catálogo con fotos, carrito y total de la venta",
+      },
+    ],
   },
   {
     key: "panel",
@@ -48,10 +54,16 @@ const SPOTLIGHTS: Spotlight[] = [
       "Ventas de todas las sucursales, stock, cuentas por cobrar y el resultado del día en la misma pantalla. Cargá artículos, mirá el arqueo de cada turno y llevá el control desde la computadora del local o desde el teléfono, estés donde estés.",
     primary: { label: "Conocer el panel", href: "#" },
     secondary: { label: "Ver los reportes", href: "#" },
-    image: {
-      src: "/site/panel-screenshot.png",
-      alt: "Panel de administración de Punto: resumen de ventas del negocio",
-    },
+    images: [
+      {
+        src: "/site/panel-screenshot.png",
+        alt: "Panel de administración de Punto: resumen de ventas del negocio",
+      },
+      {
+        src: "/site/panel-screenshot-dark.png",
+        alt: "Panel de administración de Punto en modo oscuro",
+      },
+    ],
   },
   {
     key: "ai",
@@ -62,10 +74,12 @@ const SPOTLIGHTS: Spotlight[] = [
       "Preguntale en tu idioma y responde con los datos reales de tu negocio: cómo viene el mes contra el anterior, qué producto dejó más margen, qué clientes no volvieron, qué hay que reponer esta semana. Arma el reporte, lo grafica y explica qué está pasando — sin que tengas que exportar una planilla ni saber por dónde empezar.",
     primary: { label: "Conocer Punto AI", href: "#" },
     secondary: { label: "Ver un ejemplo", href: "#" },
-    image: {
-      src: "/site/ai-screenshot.png",
-      alt: "Punto AI: gráfico de ventas diarias con el análisis escrito del asistente",
-    },
+    images: [
+      {
+        src: "/site/ai-screenshot.png",
+        alt: "Punto AI: gráfico de ventas diarias con el análisis escrito del asistente",
+      },
+    ],
   },
 ]
 
@@ -125,13 +139,9 @@ function SpotlightBlock({ data }: { data: Spotlight }) {
               dark ? "border border-white/10 bg-white/5" : "border bg-background",
             )}
           >
-            <Image
-              src={data.image.src}
-              alt={data.image.alt}
-              width={2880}
-              height={1400}
-              sizes="(max-width: 1024px) 100vw, 1024px"
-              className={cn("w-full rounded-xl", !dark && "border")}
+            <ScreenshotCrossfade
+              images={data.images}
+              className={cn("overflow-hidden rounded-xl", !dark && "border")}
             />
           </div>
         </div>
