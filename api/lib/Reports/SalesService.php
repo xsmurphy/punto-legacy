@@ -36,6 +36,7 @@ final class SalesService
                     COALESCE(SUM(transactionTotal), 0)     AS total
                 FROM transaction
                 WHERE transactionType IN (0, 3)
+                AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc;
 
@@ -71,6 +72,7 @@ final class SalesService
                     COALESCE(SUM(transactionTotal), 0)    AS total
                 FROM transaction
                 WHERE transactionType = ?
+                AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc;
 
@@ -152,6 +154,7 @@ final class SalesService
                         COALESCE(SUM(transactionTotal), 0)     AS total
                      FROM transaction
                      WHERE transactionType IN (0, 3, 6)
+                     AND ' . SaleFilters::notVoidedSql() . '
                      AND transactionDate >= ?
                      AND transactionDate <= ?' . $roc . '
                      GROUP BY bucket
@@ -192,6 +195,7 @@ final class SalesService
                     COALESCE(SUM(transactionTotal), 0)     AS total
                 FROM transaction
                 WHERE transactionType IN (0, 3)
+                AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc . '
                 GROUP BY bucket
@@ -211,6 +215,7 @@ final class SalesService
                     COALESCE(SUM(transactionTotal), 0)     AS total
                 FROM transaction
                 WHERE transactionType IN (0, 3, 6)
+                AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc . '
                 GROUP BY transactionDate::date

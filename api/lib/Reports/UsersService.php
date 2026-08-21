@@ -32,6 +32,7 @@ final class UsersService
                 WHERE t.transactionDate >= ? AND t.transactionDate <= ?
                   AND t.companyId = ?
                   AND t.transactionType IN (0, 3, 6)
+                  AND ' . SaleFilters::notVoidedSql('t') . '
                   AND c.contactStatus = 1
                   AND c.type = 0
                 GROUP BY i.userId, c.contactName';

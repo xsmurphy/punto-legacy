@@ -50,7 +50,9 @@ final class CashflowService
     {
         $row = ncmExecute(
             "SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount
-             FROM transaction WHERE transactionType IN (0,6) AND transactionDate BETWEEN ? AND ?" . $roc,
+             FROM transaction WHERE transactionType IN (0,6)
+             AND " . SaleFilters::notVoidedSql() . "
+             AND transactionDate BETWEEN ? AND ?" . $roc,
             [$from, $to]
         );
         $cash = $row ? ((float) ($row['total'] ?? 0) - (float) ($row['discount'] ?? 0)) : 0.0;

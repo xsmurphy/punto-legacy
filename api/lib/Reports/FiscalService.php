@@ -31,14 +31,16 @@ use Punto\Api\Tax\TaxEngine;
  * no la necesita.
  *
  * Alcance: SOLO ventas (contado=0, crédito=3). Excluye a propósito:
- *   - Notas de crédito / devoluciones (transactionType=6) y anuladas (7): NO
- *     implementadas todavía (context/40-anulacion-y-nota-credito.md — "Nada
- *     implementado todavía", plan cerrado sin ejecutar). El legacy declaraba
- *     código 110 y columnas de "comprobante asociado" para NC, pero su propio
- *     WHERE nunca las traía (`transactionType IN(0,3)` — el código de NC era
- *     muerto). Cuando context/40 F1/F4 aterricen, este Service necesita:
- *     excluir `voidedAt IS NOT NULL` del total vendido, e incluir las NC como
- *     filas propias (transType=110, comprobante asociado = factura original).
+ *   - Ventas anuladas (`voidedAt`, mig 154): `loadSales()` filtra con
+ *     `SaleFilters::notVoidedSql()` (F1/F4, context/40-anulacion-y-nota-credito.md)
+ *     — una factura anulada no suma al RG90/Libro Ventas.
+ *   - Notas de crédito / devoluciones (transactionType=6): NO implementadas
+ *     todavía (F3-F6 de context/40, plan abierto). El legacy declaraba código
+ *     110 y columnas de "comprobante asociado" para NC, pero su propio WHERE
+ *     nunca las traía (`transactionType IN(0,3)` — el código de NC era
+ *     muerto). Cuando context/40 F3-F5 aterricen, este Service necesita
+ *     incluir las NC como filas propias (transType=110, comprobante asociado
+ *     = factura original).
  *   - Libro de compras: fuera de alcance (brief F5) — otra fuente de datos
  *     (`purchase`), documento separado. Pendiente, no planificado acá.
  */
@@ -135,6 +137,7 @@ final class FiscalService
         // pisar el cap).
         $sql = "SELECT $cols FROM transaction
                 WHERE transactionType IN (" . self::TX_TYPES . ")
+                AND " . SaleFilters::notVoidedSql() . "
                 AND transactionDate BETWEEN ? AND ?" . $roc . "
                 ORDER BY invoiceNo DESC LIMIT 5000";
         $res = ncmExecute($sql, [$from, $to], false, false, true);

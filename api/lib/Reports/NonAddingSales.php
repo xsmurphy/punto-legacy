@@ -92,7 +92,8 @@ final class NonAddingSales
 
         $sql = "SELECT transactionId, transactionPaymentType, transactionType, meta->>'tags' AS tags
                 FROM transaction
-                WHERE " . $where . " AND transactionType IN (0,5)" . $roc;
+                WHERE " . $where . " AND transactionType IN (0,5)
+                AND " . SaleFilters::notVoidedSql() . $roc;
 
         $result = ncmExecute($sql, $args, $cache, true);
         if (!$result) {
@@ -170,7 +171,8 @@ final class NonAddingSales
         $result = ncmExecute(
             "SELECT transactionTotal, meta->>'tags' AS tags, transactionDiscount, transactionUnitsSold, transactionTax
              FROM transaction
-             WHERE transactionDate BETWEEN ? AND ? AND transactionType IN (" . $ph . ")" . $roc . " LIMIT 5000",
+             WHERE transactionDate BETWEEN ? AND ? AND transactionType IN (" . $ph . ")
+             AND " . SaleFilters::notVoidedSql() . $roc . " LIMIT 5000",
             array_merge([$from, $to], $types), 1200, true
         );
 

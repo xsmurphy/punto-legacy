@@ -86,6 +86,7 @@ final class ProductionService
                        MAX(a.userId) as usr, MAX(a.itemSoldDate) as sdate, MAX(b.outletId) as outlet
                 FROM itemSold a, transaction b, item c
                 WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
+                AND " . SaleFilters::notVoidedSql('b') . "
                 AND a.transactionId = b.transactionId AND a.itemId = c.itemId
                 AND c.itemProduction IS NOT TRUE AND c.itemTrackInventory IS NOT TRUE
                 AND c.itemType NOT IN ('combo', 'precombo')
@@ -112,6 +113,7 @@ final class ProductionService
                        a.userId as usr, a.itemSoldDate as sdate, b.outletId as outlet
                 FROM itemSold a, transaction b, item c
                 WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
+                AND " . SaleFilters::notVoidedSql('b') . "
                 AND a.transactionId = b.transactionId AND a.itemId = c.itemId
                 AND c.itemProduction IS NOT TRUE AND c.itemTrackInventory IS NOT TRUE
                 AND c.itemType NOT IN ('combo', 'precombo')

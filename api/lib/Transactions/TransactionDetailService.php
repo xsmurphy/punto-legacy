@@ -55,15 +55,17 @@ final class TransactionDetailService
                     c.contactName AS customerName, c.contactTIN AS customerTIN,
                     u.contactName AS userName,
                     r.contactName AS responsibleName,
+                    v.contactName AS voidedByName,
                     o.outletName
                FROM transaction t
                LEFT JOIN contact c ON c.contactId = t.customerId    AND c.companyId = ?
                LEFT JOIN contact u ON u.contactId = t.userId        AND u.companyId = ?
                LEFT JOIN contact r ON r.contactId = t.responsibleId AND r.companyId = ?
+               LEFT JOIN contact v ON v.contactId = t.voidedBy      AND v.companyId = ?
                LEFT JOIN outlet  o ON o.outletId  = t.outletId      AND o.companyId = ?
               WHERE t.transactionId = ? AND t.companyId = ?
               LIMIT 1",
-            [$companyId, $companyId, $companyId, $companyId, $id, $companyId]
+            [$companyId, $companyId, $companyId, $companyId, $companyId, $id, $companyId]
         );
         if (!$tx) {
             return null;
@@ -371,7 +373,15 @@ final class TransactionDetailService
 
             // ── Nuevos en F1 (context/39) ──────────────────────────────────
             'condition'     => $type === 3 ? 'credit' : 'cash',
-            'void'          => $type === 7,
+            // `type === 7` cubre el camino legacy (voidTransaction(), tipos
+            // que NO son venta contado/crédito). Para venta (0/3) F1 de
+            // context/40-anulacion-y-nota-credito.md NO pisa transactionType
+            // — el flag real es `voidedAt` (mig 154).
+            'void'          => $type === 7 || $tx['voidedAt'] !== null,
+            'voidedAt'      => $tx['voidedAt']     !== null ? (string) $tx['voidedAt']     : null,
+            'voidReason'    => $tx['voidReason']   !== null ? (string) $tx['voidReason']   : null,
+            'voidedBy'      => $tx['voidedBy']     !== null ? (string) $tx['voidedBy']     : null,
+            'voidedByName'  => $tx['voidedByName'] !== null ? (string) $tx['voidedByName'] : null,
             'currency'      => $tx['transactionCurrency'] !== null ? (string) $tx['transactionCurrency'] : null,
             'ivaRemoved'    => $ivaRemoved,
             'registerId'    => $registerId,

@@ -5,7 +5,10 @@
  *   DELETE ?id=<txId>                      → elimina la transacción
  *   DELETE ?id=<txId>&resource=printjob    → elimina de la cola de impresión
  *   PUT    ?id=<txId>&resource=reject { motive } → rechaza orden (status 6) + WS
- *   PUT    ?id=<txId>&resource=void { motive }   → anula transacción (type→7) + auditoría
+ *   PUT    ?id=<txId>&resource=void { motive }   → anula transacción; venta contado/crédito
+ *          (type 0/3) delega a SaleVoidService (F1+F2, context/40) — YA NO pisa
+ *          transactionType a 7 para esos dos tipos, ver bloque abajo. El resto de
+ *          los tipos sigue el camino legacy (type→7) + auditoría.
  *   POST   ?resource=itemDeletion { itemId, motive } → inserta en itemDeleted
  *
  * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
@@ -261,7 +264,7 @@ if ($method === 'PUT' && $resource === 'note') {
     apiOk(['updated' => true]);
 }
 
-// --- PUT ?resource=void: anular transacción (type→7) ----------------------
+// --- PUT ?resource=void: anular transacción --------------------------------
 if ($method === 'PUT' && $resource === 'void') {
     $transactionId = trim((string) ($_GET['id'] ?? ''));
     if ($transactionId === '') {
@@ -269,6 +272,44 @@ if ($method === 'PUT' && $resource === 'void') {
     }
     $motive = (string) ($_POST['motive'] ?? '');
 
+    // Gap encontrado auditando este endpoint (context/40): pos.sale.void
+    // existe en el catálogo desde antes y ya gatea el mismo botón en
+    // credit-payments.php, pero acá nunca se chequeaba — cualquier device
+    // autenticado podía anular. Se cierra acá, para las dos ramas de abajo.
+    if (!hasPermission('pos.sale.void')) {
+        apiError('No tenés permiso para esta acción (requiere: pos.sale.void)', 403);
+    }
+
+    // Ventas contado/crédito (type 0/3): delega a SaleVoidService (F1+F2,
+    // context/40-anulacion-y-nota-credito.md) — NO pisa transactionType a 7,
+    // agrega voidedAt/voidReason/voidedBy, reversa de stock línea por línea
+    // (con waste_event para lo que no vuelve), reverso de caja "dentro del
+    // flujo" y cancelación FE síncrona con rollback si SIFEN rechaza. Con
+    // `lines=[]` aplica los defaults de `voidOptions()` por línea — este
+    // endpoint (panel, sin selector de líneas todavía, F6 pendiente) no
+    // ofrece ese detalle; `/pos` (`sales-void.php`) sí puede mandarlas.
+    $typeRow = ncmExecute(
+        'SELECT transactiontype FROM transaction WHERE transactionid = ? AND companyid = ? LIMIT 1',
+        [$transactionId, $companyId]
+    );
+    $txType = $typeRow ? (int) ($typeRow['transactiontype'] ?? -1) : -1;
+
+    if (in_array($txType, [0, 3], true)) {
+        require_once dirname(__DIR__) . '/lib/services/SaleVoidService.php';
+        $result = (new \Punto\Api\Services\SaleVoidService())->void(
+            $companyId,
+            $transactionId,
+            $userId,
+            $motive,
+            [],
+            $registerId,
+            $outletId
+        );
+        apiOk(['voided' => true] + $result);
+    }
+
+    // Resto de los tipos (cotizaciones, etc.): camino legacy sin cambios,
+    // type→7, borra sub-transacciones vinculadas.
     if (!$svc->voidTransaction($transactionId, $companyId, $outletId, $userId, $motive)) {
         apiError('No se pudo anular la transacción', 500);
     }

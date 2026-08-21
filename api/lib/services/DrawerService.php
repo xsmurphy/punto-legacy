@@ -16,6 +16,12 @@ use Punto\Api\Services\RegisterLeaseService;
  * getSalesByPayment() y helpers relacionados (isParentInternalSale, isInternalSale,
  * groupByPaymentMethod) están disponibles vía api/bootstrap.php → head.php → functions.php.
  * REGISTER_ID, OUTLET_ID, COMPANY_ID son constantes definidas tras apiAuthTenant().
+ *
+ * Anulación de ventas (`voidedAt`, mig 154, context/40-anulacion-y-nota-credito.md):
+ * este servicio NO usa `SaleFilters::notVoidedSql()` a propósito. Es reconciliación
+ * de turno/caja, no un reporte de ventas — "¿una venta anulada A MITAD de turno sigue
+ * apareciendo en el cierre de ESE turno?" es una pregunta de producto sin cerrar (ver
+ * docblock de `Reports\SaleFilters`), no una omisión.
  */
 
 final class DrawerService
