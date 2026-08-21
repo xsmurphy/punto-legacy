@@ -2,11 +2,21 @@
 
 > Estado: **F1+F2 implementadas (2026-08-21)** para la anulación de VENTAS
 > (contado/crédito, type 0/3) — ver sección "Implementación (F1+F2)" al
-> final. **F3-F6 (numeración de NC, nota de crédito como documento propio, NC
-> electrónica, UI en `/pos`) siguen sin implementar**, plan abierto tal como
-> quedó cerrado el 2026-08-14. Pedido del owner desde `/pos` → detalle de
-> transacción: los botones "Anular" y "Devolución" siguen deshabilitados en
-> la UI hasta F6.
+> final. **D2+D3 implementadas en la DEVOLUCIÓN (2026-08-21)** — ver sección
+> "Implementación de D2/D3 en la devolución" al final: `ReturnService`
+> reparte stock según la misma política que la anulación (`StockReversalPolicy`,
+> wrapper compartido) y respeta `settingReturnRefund`. **F3/F4/F6 (numeración
+> de NC como doctype propio con timbrado independiente del correlativo
+> INTERNO, nota de crédito como documento propio distinto de `transactionType=6`,
+> UI en `/pos`) siguen sin implementar** — la devolución YA es, en los
+> hechos, la "nota de crédito interna" que F4 describía (documento con su
+> propio correlativo `nota_credito`/scope outlet desde antes de esta sesión,
+> D1 parcial-por-ítem ya soportado), así que lo que falta de F3/F4 es más
+> acotado de lo que el plan original sugería — ver el detalle en esa sección.
+> **F5 (NC electrónica) — VERIFICADA end-to-end esta sesión, funciona**: ver
+> esa sección. Pedido del owner desde `/pos` → detalle de transacción: los
+> botones "Anular" y "Devolución" siguen deshabilitados en la UI hasta que el
+> agente de frontend cablee el contrato de esta sesión.
 >
 > **Anulación de RECIBOS DE PAGO/COBRO (type=5) — implementada 2026-08-16.**
 > Ver sección al final de este doc. Es un feature DISTINTO del de arriba (no
@@ -472,3 +482,200 @@ run_credit_payment_void_test.sh` (mismo patrón que
 pagó 3 facturas → al anular, las 3 vuelven al saldo original; factura con DOS
 pagos, se anula uno → queda con el saldo del otro; el documento anulado deja
 de sumar en `sumDerivedAmounts`; anular un recibo ya anulado se rechaza.
+
+---
+
+## Implementación de D2/D3 en la devolución (2026-08-21)
+
+`ReturnService::create()` (`api/lib/services/ReturnService.php`) reponía
+stock SIEMPRE que el ítem tuviera `itemTrackInventory`, sin preguntar al
+cajero y sin generar merma — violaba D2 (una hamburguesa preparada volvía al
+stock igual) y no exponía D3 (`refundMode` era libre, sin política de
+tenant). Las dos se cerraron en esta sesión, reusando el trabajo de F1+F2.
+
+**`StockReversalPolicy`** (`api/lib/services/StockReversalPolicy.php`,
+namespace `Punto\Api\Services`) — wrapper COMPARTIDO extraído de
+`SaleVoidService`, regla del proyecto de atacar el wrapper en vez de
+duplicar el call-site. API pública:
+
+- `settingAllowIngredientReversal(companyId): bool`
+- `classifyLine(fila, companyId, allowIngredientReversal): array{itemSoldId,itemId,name,qty,unitPrice,unitCogs,kind,canRestock,defaultRestock,hadStockImpact}`
+  — tabla D2 completa (`ownStock`/`ingredientReversal`/`service`).
+- `resolveLineDecisions(options, requestedLines): array` — decisión del
+  cajero por línea, clamp a `canRestock`, guard de ambigüedad
+  (`itemId` repetido sin `itemSoldId` → `AmbiguousStockLineException`, 422).
+- `restockLine(d, companyId, outletId, transactionId, userId, source): void`
+  — `source` distingue el ledger de stock (`'void'` | `'return'`).
+- `recordWaste(d, companyId, outletId, wasteReasonId, userId, note): void`
+  — `note` completo lo arma cada caller ("Anulación de venta: …" |
+  "Devolución de cliente: …").
+- `getOrCreateReturnWasteReasonId(companyId, db): string`.
+
+`SaleVoidService` quedó SIN copias de estos métodos (delegó a
+`$this->stockPolicy()`) — `sale_void_test.php` corrió sin cambios de
+expectativas y pasó los 18 casos, incluida la excepción de ambigüedad
+(renombrada `AmbiguousStockLineException`, movida a su propio archivo — el
+test solo verifica texto/status, no el nombre de la clase).
+
+**`ReturnService::create()` — request nuevo por línea**: `items: [{itemId,
+qty, restock?: bool, itemSoldId?: string}]`. `restock` ausente = default de
+`classifyLine()` para ese itemId; presente y `canRestock=false` → se
+CLAMPEA en silencio (se ignora, no 422 — mismo criterio que
+`SaleVoidService`, decisión de esta sesión: pedir algo que el sistema marcó
+imposible no es un error de input, es una preferencia que no aplica).
+`itemSoldId` no participa del cupo (ver abajo) — viaja solo por simetría de
+contrato con `resolveLineDecisions()`.
+
+Cambio de modelo importante: a diferencia de `SaleVoidService::voidOptions()`
+(una fila por `itemSold` FÍSICO), `ReturnService` agrega las líneas de la
+venta original POR itemId (`aggregatedParentLines()`) — porque el cupo
+disponible (`alreadyReturned`) siempre fue itemId-level (una venta puede
+tener el mismo ítem en 2+ filas de `itemSold` sin `mergeRepeated`, y el
+`alreadyReturned` histórico se calculaba agregado). Clasificar por itemId
+elimina de raíz la ambigüedad que sí existe en `SaleVoidService` — nunca hay
+2 opciones con el mismo itemId en `ReturnService`, así que
+`AmbiguousStockLineException` nunca dispara desde acá (invocado igual, por
+consistencia de contrato).
+
+**Bug latente pre-existente, corregido de paso**: si el mismo `itemId`
+aparecía 2+ veces en el mismo request de devolución, cada línea validaba su
+cupo contra `alreadyReturned` de devoluciones PREVIAS únicamente — dos
+líneas del mismo itemId en un solo request podían pasar el guard cada una
+por separado y devolver más de lo vendido en conjunto. Ahora
+`create()` descuenta también lo ya comprometido por OTRA línea de ese mismo
+request antes de validar cada una.
+
+**`returnOptions(companyId, parentTransactionId): array`** — método público
+nuevo, reemplaza el listado de ítems que el front armaba por su cuenta.
+Shape EXACTO por línea (una por itemId de la venta original):
+
+```
+{itemSoldId, itemId, name, soldQty, alreadyReturned, availableQty,
+ unitPrice, canRestock, defaultRestock, kind}
+```
+
+Expuesto en `GET /v1/returns.php?action=returnOptions&parentId=<uuid>` →
+`{ ok, data: { lines: [...] } }`. El endpoint también acepta `restock`/
+`itemSoldId` opcionales por ítem en el POST de `create` (validados: `restock`
+booleano, `itemSoldId` UUID si viene).
+
+**D3 — `settingReturnRefund`** (`cash` | `credit` | `ask`, default `ask`,
+`company.config` JSONB, sin DDL — mismo patrón que
+`settingReturnAllowIngredientReversal`). `ReturnService::create()` rechaza
+(422, `InvalidArgumentException` con el nombre del setting en el mensaje) un
+`refundMode` que no matchea una política fijada en `'cash'`/`'credit'`.
+Regla ya vigente preservada: `credit` exige cliente en la venta original —
+si la política FUERZA `'credit'` y la venta no tiene cliente, cae a `'cash'`
+en vez de fallar (no hay a quién acreditarle, pero el comercio igual quiere
+poder devolver la plata); si el cajero elige `'credit'` LIBREMENTE (política
+`'ask'`) sin que la venta tenga cliente, sigue siendo un error de input
+(sin cambios — la decisión de owner de D3 habla del caso "la política
+fuerza", no del caso "el cajero elige mal").
+
+**Expuesto al POS y al panel** (mismo camino que `settingSellSoldOut`
+resultó NO llegar al bootstrap del POS — se comprobó que ese setting hoy
+solo se lee/escribe en el módulo Settings del panel, sin ningún consumidor
+en `/pos`; para que el POS pueda ofrecer/ocultar el toggle de `refundMode`
+según la política, se agregó DIRECTO a `api/v1/bootstrap.php`, que sí es el
+camino real que consume el POS — mismo patrón que `bancardQr`/`bancardPos`):
+
+- `api/v1/bootstrap.php` — `settingReturnRefund` (`'cash'|'credit'|'ask'`) y
+  `settingReturnAllowIngredientReversal` (bool) en el payload de `apiOk()`.
+- `api/lib/Settings/SettingsService.php` (`general()`/`updateGeneral()`) y
+  `api/v1/settings.php` (whitelist de campos) — editable desde el panel.
+  Labels que le corresponde poner al front (no tocado en esta sesión, "no
+  tocar frontend/"): "Devoluciones: forma de reintegro" con opciones
+  "Preguntar siempre" / "Solo efectivo" / "Solo saldo a favor", y "Permitir
+  reponer insumos de producción directa".
+
+**Test**: `api/tests/return_d2_d3_test.php` + `run_return_d2_d3_test.sh`
+(mismo patrón que `run_sale_void_test.sh`, reusa el fixture "Verify PY").
+`ReturnService::create()` nunca llama `apiError()` (tira excepciones
+catcheables) — no necesitó el patrón de subproceso que usa
+`sale_void_test.php`. Cubre: (a) devolución de 2 líneas, una repuesta (stock
+propio) y otra a merma (producción directa, default); (b) `restock=true`
+pedido sobre una línea `canRestock=false` se ignora en silencio (decisión de
+esta sesión: clamp, no 422 — documentada arriba); (c)
+`settingReturnRefund='cash'` + request `'credit'` → rechazo; (d) política
+`'credit'` forzada + venta sin cliente → cae a `'cash'`; (e)
+`returnOptions()` refleja `alreadyReturned`/`availableQty` antes y después
+de una devolución parcial; (f) invariante financiero — una devolución TOTAL
+de una línea devuelve EXACTAMENTE lo que esa línea vendió, sin arrastre de
+redondeo (se preservó a propósito el cálculo de `unitPrice`/`unitCogs` con
+precisión completa para la plata, separado de la versión redondeada a 2/4
+decimales que usa `classifyLine()` solo para mostrar en `returnOptions()`).
+
+**Verificación en el servidor de Punto (167.71.165.221)** — Docker no
+levanta en esta máquina, se corrió remoto con el patrón ya usado hoy para
+F1+F2 (Postgres descartable + imagen `punto-php-test` ya existente en el
+server). 153 migraciones aplicadas limpio, seed cargado. Resultado:
+
+- `return_d2_d3_test.php` — 10/10 casos OK.
+- `sale_void_test.php` — 18/18 casos OK, SIN cambios de expectativas (confirma
+  que la extracción de `StockReversalPolicy` no rompió nada).
+- `api/lib/Sales/verify_chain/run_sale_chain.php` (tenant PY) — TODOS los
+  casos OK (venta multi-tasa, RG90, EInvoice con IVA congelado, aislamiento
+  cross-tenant, venta a crédito de cliente sin crédito).
+- `verify_return_numbering.php` — TODO OK, incluida la rama `alreadyReturned`
+  (`$returnIds !== []`, devolución parcial sobre devolución parcial) y el
+  rechazo de una tercera devolución que superaría lo vendido.
+- `verify_pg_identifiers.php` — TODO OK, incluido el caso 1
+  (`EInvoiceService::buildCreditNoteArrayForMapper()` arma la NC con
+  `associatedCdc` correcto) — confirma F5 (ver abajo) sin tocar código de FE.
+
+Limpieza post-test: `docker rm -f prt_pg` + `rm -rf /tmp/punto-ret-test` —
+confirmado, sin containers de Punto huérfanos.
+
+**Fix de code review sobre esta implementación (mismo día, antes de mergear
+a `main`)**: un `code-reviewer` externo encontró un P1 en
+`StockReversalPolicy::resolveLineDecisions()` — cuando el request de
+`ReturnService::create()` manda un `itemSoldId` que NO coincide con el
+`itemSoldId` representativo que arma `aggregatedParentLines()` (un
+`MIN(itemsoldid)` arbitrario cuando la venta original tiene 2+ filas del
+mismo itemId), la decisión de `restock` del cajero se perdía en silencio y
+caía a `defaultRestock` — sin error, sin log, comportamiento sorpresivo.
+Fix: `resolveLineDecisions()` ahora también registra el fallback por
+`itemId` cuando ese itemId es único entre las opciones (siempre el caso en
+`ReturnService`, que arma una sola opción por itemId) — la ambigüedad real
+de `SaleVoidService` (2+ opciones del mismo itemId) sigue exigiendo
+`itemSoldId` exacto, sin cambios ahí. Re-verificado en el mismo server:
+`return_d2_d3_test.php` 10/10 y `sale_void_test.php` 18/18 (incluido el caso
+(g) de ambigüedad) tras el fix, misma limpieza post-test.
+
+## F5 (NC electrónica) — verificada end-to-end, sin gaps de alcance
+
+Tarea C pedía verificar el camino completo, no solo su existencia. Se leyó
+`EInvoiceService.php` (`enqueueForSale`, `parentInvoiceIsIssued`,
+`buildCreditNoteArrayForMapper`, `stampForDocument`) y se corrió
+`verify_pg_identifiers.php` caso 1 contra datos reales:
+
+- **`parentInvoiceIsIssued($companyId, $transactionId)`** (`transactionId`
+  = la DEVOLUCIÓN) resuelve el origen vía
+  `TransactionLinkService::listOriginIds(..., 'return')` y exige un
+  `einvoice_document` `status='issued'` con `cdc IS NOT NULL` de la venta
+  padre — correcto, confirmado.
+- **Factura padre NO emitida electrónicamente → la NC no se encola, y no
+  rompe la devolución**: `enqueueForSale()` hace `return;` temprano si
+  `parentInvoiceIsIssued()` es false; el caller (`ReturnService::create()`)
+  ya envuelve la llamada en `try/catch` — confirmado por lectura, no hay
+  código que pueda tirar la devolución por esto.
+- **El CDC llega al payload**: `buildCreditNoteArrayForMapper()` resuelve
+  `$parentCdc` con la MISMA query de `parentInvoiceIsIssued` (issued + cdc no
+  nulo) y lo pone en `associatedCdc` del payload (`documentType=5`) —
+  confirmado por `verify_pg_identifiers.php` caso 1 corriendo contra BD real.
+- **Timbrado propio de la NC — NO es un gap, ya está resuelto**: el brief de
+  esta tarea asumía (citando "D3 de context/37") que la NC necesitaba
+  timbrado separado sin resolver — pero `context/37` no menciona timbrado de
+  NC (su D3 es sobre "documentos recibidos" de compras, otro tema). Lo que
+  SÍ existe y resuelve el punto real: `EInvoiceService::stampForDocument()`
+  lee `provisioning.stampMap[$registerId]['nc']` (separado de `['fc']` para
+  factura) y solo cae al `stamp` cacheado global si ese mapa no tiene entrada
+  para la caja — el timbrado de la NC YA puede ser distinto del de la
+  factura, por caja, cuando el comercio lo configura así en Factomate. No se
+  tocó código acá — se verificó que el mecanismo existe y es correcto.
+
+**Gap real, no de esta tarea**: `EInvoiceService::cancel()` (cancelación
+manual de un DE) no dispara ninguna cancelación automática cuando
+`SaleVoidService::void()` anula una venta que ya tenía una NC electrónica en
+su contra — no hay código que combine los dos flujos (documentado ya en
+`context/modules/19-facturacion-electronica.md` §6, sin cambios).

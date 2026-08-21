@@ -3,11 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Services;
 
-use Punto\App\Domain\Inventory;
-use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\EInvoice\EInvoiceService;
 use Punto\Api\Finance\FinanceLedger;
-use Punto\Api\Waste\WasteReasonService;
 
 /**
  * SaleVoidService — anulación de ventas (F1 + F2 de
@@ -42,14 +39,24 @@ final class SaleVoidService
     /** D4, context/40 — aplica a TODOS los tenants, tengan o no FE. */
     public const VOID_WINDOW_HOURS = 48;
 
-    /** Motivo lazy get-or-create en `taxonomy` (taxonomyType='wasteReason'). */
-    private const WASTE_REASON_NAME = 'Devolución de cliente';
-
-    private ?TransactionLinkService $linkSvc = null;
+    private ?TransactionLinkService  $linkSvc = null;
+    private ?StockReversalPolicy     $stockPolicy = null;
 
     private function links(): TransactionLinkService
     {
         return $this->linkSvc ??= new TransactionLinkService();
+    }
+
+    /**
+     * D2 (context/40): clasificación de línea, decisión-del-cajero,
+     * reposición y registro de merma — wrapper COMPARTIDO con
+     * `ReturnService::create()` (extraído de acá al implementar D2 en la
+     * devolución, regla del proyecto de atacar el wrapper y no duplicar el
+     * call-site). Ver `StockReversalPolicy` para el detalle.
+     */
+    private function stockPolicy(): StockReversalPolicy
+    {
+        return $this->stockPolicy ??= new StockReversalPolicy();
     }
 
     // ------------------------------------------------------------------
@@ -143,7 +150,7 @@ final class SaleVoidService
             return [];
         }
 
-        $allowIngredientReversal = $this->settingAllowIngredientReversal($companyId);
+        $allowIngredientReversal = $this->stockPolicy()->settingAllowIngredientReversal($companyId);
 
         $rs = ncmExecute(
             'SELECT is1.itemsoldid, is1.itemid, is1.itemsoldunits, is1.itemsoldtotal, is1.itemsoldcogs, i.itemname
@@ -158,7 +165,7 @@ final class SaleVoidService
         $out = [];
         if ($rs) {
             while (!$rs->EOF) {
-                $out[] = $this->classifyLine($rs->fields, $companyId, $allowIngredientReversal);
+                $out[] = $this->stockPolicy()->classifyLine($rs->fields, $companyId, $allowIngredientReversal);
                 $rs->MoveNext();
             }
             $rs->Close();
@@ -270,7 +277,8 @@ final class SaleVoidService
             );
 
             // 2. Reverso de stock línea por línea, según lo que decidió el cajero.
-            $allowIngredientReversal = $this->settingAllowIngredientReversal($companyId);
+            $policy = $this->stockPolicy();
+            $allowIngredientReversal = $policy->settingAllowIngredientReversal($companyId);
             $itemRows = ncmExecute(
                 'SELECT is1.itemsoldid, is1.itemid, is1.itemsoldunits, is1.itemsoldtotal, is1.itemsoldcogs, i.itemname
                    FROM itemsold is1
@@ -283,21 +291,21 @@ final class SaleVoidService
             $decisions = [];
             if ($itemRows) {
                 while (!$itemRows->EOF) {
-                    $decisions[] = $this->classifyLine($itemRows->fields, $companyId, $allowIngredientReversal);
+                    $decisions[] = $policy->classifyLine($itemRows->fields, $companyId, $allowIngredientReversal);
                     $itemRows->MoveNext();
                 }
                 $itemRows->Close();
             }
-            $decisions = $this->resolveLineDecisions($decisions, $lines);
+            $decisions = $policy->resolveLineDecisions($decisions, $lines);
 
             $wasteReasonId = null;
             foreach ($decisions as $d) {
                 if ($d['restock']) {
-                    $this->restockLine($d, $companyId, $resolvedOutletId, $transactionId, $userId);
+                    $policy->restockLine($d, $companyId, $resolvedOutletId, $transactionId, $userId, 'void');
                     $restocked++;
                 } elseif ($d['hadStockImpact']) {
-                    $wasteReasonId ??= $this->getOrCreateReturnWasteReasonId($companyId, $db);
-                    $this->recordWaste($d, $companyId, $resolvedOutletId, $wasteReasonId, $userId, $reason);
+                    $wasteReasonId ??= $policy->getOrCreateReturnWasteReasonId($companyId, $db);
+                    $policy->recordWaste($d, $companyId, $resolvedOutletId, $wasteReasonId, $userId, 'Anulación de venta: ' . $reason);
                     $wasted++;
                 }
             }
@@ -343,7 +351,7 @@ final class SaleVoidService
             if ($failed) {
                 apiError('No se pudo anular la venta: la transacción abortó', 500);
             }
-        } catch (AmbiguousVoidLineException $e) {
+        } catch (AmbiguousStockLineException $e) {
             // 422, no 409: es un error de INPUT del request (líneas ambiguas),
             // no un conflicto de estado de la venta — mismo rollback limpio
             // que el resto de los catches de este método.
@@ -424,241 +432,6 @@ final class SaleVoidService
             array_merge($ids, [$companyId])
         );
         return (bool) $row;
-    }
-
-    private function settingAllowIngredientReversal(string $companyId): bool
-    {
-        $row = ncmExecute(
-            "SELECT config->>'settingReturnAllowIngredientReversal' AS val FROM company WHERE companyid = ? LIMIT 1",
-            [$companyId]
-        );
-        return $row !== false && $row !== null && (string) ($row['val'] ?? '') === 'yes';
-    }
-
-    /**
-     * Clasifica una fila de itemSold contra la tabla D2 de context/40. Usa
-     * `Inventory::explodeRecipe()` (multi-nivel real) para decidir si hay
-     * insumos que reponer — NO el nivel único de
-     * `TransactionService::voidTransaction()` legacy, que un combo de varios
-     * niveles subestima (ver context/modules/05-stock.md regla 10).
-     */
-    private function classifyLine(array|\ArrayAccess $f, string $companyId, bool $allowIngredientReversal): array
-    {
-        $itemId = (string) ($f['itemid'] ?? '');
-        $units  = abs((float) ($f['itemsoldunits'] ?? 0));
-        $total  = abs((float) ($f['itemsoldtotal'] ?? 0));
-        $unitCogs = abs((float) ($f['itemsoldcogs'] ?? 0));
-
-        $explodes = Inventory::saleExplodesRecipe($itemId, $companyId);
-        $leaves   = $explodes ? Inventory::explodeRecipe($itemId, $companyId, $units) : [];
-
-        if (!$explodes) {
-            $kind = 'ownStock';
-            $canRestock = true;
-            $default    = true;
-            $hadStockImpact = true;
-        } elseif (is_array($leaves) && $leaves !== []) {
-            $kind = 'ingredientReversal';
-            $canRestock = $allowIngredientReversal;
-            $default    = false; // D2: default visual = "a pérdida" para producción directa/combo.
-            $hadStockImpact = true;
-        } else {
-            $kind = 'service';
-            $canRestock = false;
-            $default    = false;
-            $hadStockImpact = false;
-        }
-
-        return [
-            'itemSoldId'     => (string) ($f['itemsoldid'] ?? ''),
-            'itemId'         => $itemId,
-            'name'           => (string) ($f['itemname'] ?? ''),
-            'qty'            => $units,
-            'unitPrice'      => $units > 0 ? round($total / $units, 2) : 0.0,
-            'unitCogs'       => round($unitCogs, 4),
-            'kind'           => $kind,
-            'canRestock'     => $canRestock,
-            'defaultRestock' => $default,
-            'hadStockImpact' => $hadStockImpact,
-        ];
-    }
-
-    /**
-     * Aplica la decisión del cajero (`$requestedLines`) sobre las opciones
-     * calculadas, clampeando a lo que `canRestock` habilita — un cajero no
-     * puede pedir reponer lo que el sistema marcó imposible. `$requestedLines`
-     * vacío = defaults de cada línea (D2, "si $lines viene vacío, aplicar
-     * defaults").
-     *
-     * P2 (code review F1+F2): el fallback por `itemId` (cuando el request no
-     * manda `itemSoldId`) contagiaba la MISMA decisión a todas las líneas de
-     * la venta con ese itemId — si el cliente compró el mismo ítem en dos
-     * líneas separadas y el cajero solo quería reponer una, ambas terminaban
-     * con el mismo `restock`. Se resuelve SIEMPRE por `itemSoldId` primero
-     * (único por fila, sin ambigüedad); el fallback por `itemId` solo se
-     * acepta cuando ese itemId es único entre las líneas de ESTA venta — si
-     * hay 2+ líneas del mismo ítem y el request no distingue por
-     * `itemSoldId`, se rechaza con 422 en vez de aplicar una decisión que no
-     * se puede atribuir a una línea sin ambigüedad.
-     */
-    private function resolveLineDecisions(array $options, array $requestedLines): array
-    {
-        $itemIdCounts = [];
-        foreach ($options as $opt) {
-            $itemIdCounts[$opt['itemId']] = ($itemIdCounts[$opt['itemId']] ?? 0) + 1;
-        }
-
-        $reqBySoldId = [];
-        $reqByItemId = [];
-        foreach ($requestedLines as $l) {
-            $soldId  = (string) ($l['itemSoldId'] ?? '');
-            $itemId  = (string) ($l['itemId'] ?? '');
-            $restock = (bool) ($l['restock'] ?? false);
-
-            if ($soldId !== '') {
-                $reqBySoldId[$soldId] = $restock;
-                continue;
-            }
-            if ($itemId === '') {
-                continue;
-            }
-            if (($itemIdCounts[$itemId] ?? 0) > 1) {
-                // NO apiError() acá — este método corre DENTRO de la transacción
-                // de BD de void() (después del UPDATE que marca voidedAt), así
-                // que un `exit` directo saltearía FailTrans()/CompleteTrans().
-                // Se tira una excepción catcheable; el caller decide cómo
-                // responder (ver AmbiguousVoidLineException en void()).
-                throw new AmbiguousVoidLineException(
-                    "La venta tiene más de una línea del ítem {$itemId}: mandá itemSoldId por línea, itemId solo no alcanza para decidir cuál."
-                );
-            }
-            $reqByItemId[$itemId] = $restock;
-        }
-
-        $decisions = [];
-        foreach ($options as $opt) {
-            if ($requestedLines === []) {
-                $restock = $opt['defaultRestock'];
-            } else {
-                $restock = $reqBySoldId[$opt['itemSoldId']] ?? $reqByItemId[$opt['itemId']] ?? $opt['defaultRestock'];
-            }
-            if ($restock && !$opt['canRestock']) {
-                $restock = false;
-            }
-            $decisions[] = $opt + ['restock' => $restock];
-        }
-        return $decisions;
-    }
-
-    private function restockLine(array $d, string $companyId, string $outletId, string $transactionId, string $userId): void
-    {
-        if ($d['kind'] === 'ownStock') {
-            $locRow = ncmExecute('SELECT locationid FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$d['itemId'], $companyId]);
-            Inventory::manageStock([
-                'itemId'        => $d['itemId'],
-                'outletId'      => $outletId,
-                'date'          => date('Y-m-d'),
-                'locationId'    => $locRow['locationid'] ?? null,
-                'count'         => $d['qty'],
-                'type'          => '+',
-                'source'        => 'void',
-                'transactionId' => $transactionId,
-                'cogs'          => $d['unitCogs'],
-                'userId'        => $userId,
-                'companyId'     => $companyId,
-            ]);
-        } elseif ($d['kind'] === 'ingredientReversal') {
-            $leaves = Inventory::explodeRecipe($d['itemId'], $companyId, $d['qty']);
-            foreach ((array) $leaves as $leafItemId => $leafQty) {
-                if ((float) $leafQty <= 0) {
-                    continue;
-                }
-                $locRow = ncmExecute('SELECT locationid FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$leafItemId, $companyId]);
-                Inventory::manageStock([
-                    'itemId'        => $leafItemId,
-                    'outletId'      => $outletId,
-                    'date'          => date('Y-m-d'),
-                    'locationId'    => $locRow['locationid'] ?? null,
-                    'count'         => abs((float) $leafQty),
-                    'type'          => '+',
-                    'source'        => 'void',
-                    'transactionId' => $transactionId,
-                    'userId'        => $userId,
-                    'companyId'     => $companyId,
-                ]);
-            }
-        }
-        // 'service': nada que reponer (ya filtrado por canRestock=false antes de llegar acá).
-    }
-
-    private function recordWaste(array $d, string $companyId, string $outletId, string $wasteReasonId, string $userId, string $voidReason): void
-    {
-        global $db;
-
-        $locRow = ncmExecute('SELECT locationid FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$d['itemId'], $companyId]);
-        $cost   = round($d['unitCogs'] * $d['qty'], 2);
-
-        $docNumber = null;
-        try {
-            $docNumber = DocumentNumber::allocate('merma', DocumentNumber::SCOPE_OUTLET, $outletId, $companyId);
-        } catch (\Throwable $e) {
-            // Sin timbrado/rango configurado para 'merma' en este outlet — la
-            // merma igual se registra, sin correlativo (mismo criterio que
-            // ProductionService cuando el outlet no numera mermas).
-            error_log('[SaleVoidService] DocumentNumber::allocate(merma) falló: ' . $e->getMessage());
-        }
-
-        $db->Execute(
-            "INSERT INTO waste_event (wasteid, companyid, outletid, locationid, itemid, qty, reasonid, source, cost, note, userid, docnumber)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, 'manual', ?, ?, ?, ?)",
-            [
-                $companyId,
-                $outletId,
-                $locRow['locationid'] ?? null,
-                $d['itemId'],
-                $d['qty'],
-                $wasteReasonId,
-                $cost,
-                'Anulación de venta: ' . $voidReason,
-                $userId,
-                $docNumber,
-            ]
-        );
-    }
-
-    /**
-     * Get-or-create del wasteReason "Devolución de cliente" — lazy, por
-     * tenant, mismo criterio que `WasteReasonService::ensureSeed()`. Se
-     * asegura primero de que el catálogo default del tenant exista (así
-     * convive con los 5 defaults en vez de ser la única fila), y solo si
-     * después de eso "Devolución de cliente" no está, la crea.
-     */
-    private function getOrCreateReturnWasteReasonId(string $companyId, \DB $db): string
-    {
-        $existing = ncmExecute(
-            "SELECT taxonomyid FROM taxonomy WHERE companyid = ? AND taxonomytype = 'wasteReason' AND taxonomyname = ? LIMIT 1",
-            [$companyId, self::WASTE_REASON_NAME]
-        );
-        if ($existing) {
-            return (string) $existing['taxonomyid'];
-        }
-
-        (new WasteReasonService($db))->ensureSeed($companyId);
-
-        $rs = $db->Execute(
-            "INSERT INTO taxonomy (taxonomyId, companyId, taxonomyType, taxonomyName, taxonomyExtra)
-             VALUES (gen_random_uuid(), ?, 'wasteReason', ?, ?::jsonb)
-             RETURNING taxonomyId",
-            [$companyId, self::WASTE_REASON_NAME, json_encode(['sortOrder' => 999])]
-        );
-        if ($rs === false || $rs->EOF) {
-            throw new \RuntimeException('No se pudo crear el motivo de merma "Devolución de cliente"');
-        }
-        $id = (string) ($rs->fields['taxonomyid'] ?? $rs->fields['taxonomyId'] ?? '');
-        if ($id === '') {
-            throw new \RuntimeException('No se pudo crear el motivo de merma "Devolución de cliente"');
-        }
-        return $id;
     }
 
     /**

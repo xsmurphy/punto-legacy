@@ -3,7 +3,6 @@ declare(strict_types=1);
 
 namespace Punto\Api\Services;
 
-use Punto\App\Domain\Inventory;
 use Punto\Api\Documents\DocumentNumber;
 
 /**
@@ -26,14 +25,189 @@ use Punto\Api\Documents\DocumentNumber;
  * terminó en scope outlet en vez del `register` que D2 de context/37
  * proponía por default. `outletId` sí es obligatorio en el endpoint (403 si
  * falta), por eso es scope seguro acá.
+ *
+ * D2 (reposición de stock, 2026-08-21) — antes esta clase reponía SIEMPRE
+ * que el ítem tuviera `itemTrackInventory`, sin preguntar y sin registrar
+ * merma; eso violaba D2 (una producción directa/combo no se "des-prepara") y
+ * no daba lugar a la decisión del cajero. Ahora usa `StockReversalPolicy`
+ * (extraída de `SaleVoidService`, mismo wrapper compartido — regla del
+ * proyecto de atacar el wrapper, no duplicar el call-site): clasifica cada
+ * ítem devuelto contra la tabla D2, acepta `restock`/`itemSoldId` opcionales
+ * por línea del request, repone solo lo que el cajero eligió Y el sistema
+ * habilita (`canRestock`), y genera `waste_event` para el resto con impacto
+ * real de stock.
+ *
+ * D3 (forma de reintegro, 2026-08-21) — `settingReturnRefund` (`cash` |
+ * `credit` | `ask`, default `ask`, `company.config` JSONB) fija una política
+ * única de comercio. Con `cash`/`credit` fijado, un request con el otro modo
+ * se rechaza (422). Regla ya vigente que se preserva: modo `credit` exige
+ * cliente en la venta original — si la política lo fuerza a `credit` y la
+ * venta no tiene cliente, cae a `cash` en vez de fallar (no hay a quién
+ * acreditarle, pero el comercio igual quiere poder devolver la plata).
  */
 final class ReturnService
 {
     private ?TransactionLinkService $linkSvc = null;
+    private ?StockReversalPolicy    $stockPolicy = null;
 
     private function links(): TransactionLinkService
     {
         return $this->linkSvc ??= new TransactionLinkService();
+    }
+
+    /** D2 — wrapper COMPARTIDO con `SaleVoidService::void()`. Ver StockReversalPolicy. */
+    private function stockPolicy(): StockReversalPolicy
+    {
+        return $this->stockPolicy ??= new StockReversalPolicy();
+    }
+
+    /**
+     * D3: política de reintegro del tenant. `company.config` es JSONB
+     * schemaless — sin DDL propia, mismo patrón que `settingSellSoldOut`/
+     * `settingReturnAllowIngredientReversal`.
+     */
+    private function settingReturnRefund(string $companyId): string
+    {
+        $row = ncmExecute(
+            "SELECT config->>'settingReturnRefund' AS val FROM company WHERE companyid = ? LIMIT 1",
+            [$companyId]
+        );
+        $val = ($row !== false && $row !== null) ? (string) ($row['val'] ?? '') : '';
+        return in_array($val, ['cash', 'credit'], true) ? $val : 'ask';
+    }
+
+    /**
+     * Todas las líneas vendidas de la venta original, AGREGADAS por itemId
+     * (una misma venta puede tener el mismo producto en varias filas de
+     * `itemSold` — carrito sin `mergeRepeated`, ver comentario histórico más
+     * abajo). Reusada por `create()` (validación + armado de la devolución) y
+     * `returnOptions()` (listado para la UI) — antes cada una tenía su propia
+     * query, ahora es una sola fuente.
+     *
+     * itemSold SIN comillas a propósito — la tabla se creó sin quotes
+     * (db-schema-postgres.sql) → Postgres la plegó a minúsculas (itemsold).
+     * Citarla como "itemSold" exige match exacto de mayúsculas y Postgres la
+     * rechaza con "relation itemSold does not exist" (mismo bug ya
+     * documentado en `EInvoiceService.php:1767`, sigue roto ahí, fuera de
+     * alcance).
+     *
+     * @return array<string,array> itemId => fila agregada (itemsoldid
+     *         representativo — MIN, no identifica una fila física puntual
+     *         cuando hay 2+ filas del mismo itemId; la clasificación D2 y el
+     *         cupo disponible son itemId-level, no dependen de cuál fila
+     *         física es).
+     */
+    private function aggregatedParentLines(string $parentTransactionId): array
+    {
+        $rs = ncmExecute(
+            'SELECT is1.itemid                              AS itemid,
+                    SUM(is1.itemsoldunits)                   AS itemsoldunits,
+                    SUM(is1.itemsoldtotal)                   AS itemsoldtotal,
+                    SUM(COALESCE(is1.itemsolddiscount, 0))   AS itemsolddiscount,
+                    SUM(COALESCE(is1.itemsoldcogs, 0) * ABS(is1.itemsoldunits))
+                      / NULLIF(SUM(ABS(is1.itemsoldunits)), 0) AS itemsoldcogs,
+                    MIN(is1.itemsoldid::text)                AS itemsoldid,
+                    MIN(i.itemname)                          AS itemname
+               FROM itemSold is1
+               JOIN item i ON i.itemid = is1.itemid
+              WHERE is1.transactionid = ?
+              GROUP BY is1.itemid',
+            [$parentTransactionId],
+            false,
+            true
+        );
+        $rows = [];
+        if ($rs) {
+            while (!$rs->EOF) {
+                $rows[(string) $rs->fields['itemid']] = $rs->fields;
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        return $rows;
+    }
+
+    /**
+     * Cuánto se devolvió ya de cada itemId de la venta original, sumando
+     * TODAS las devoluciones previas vinculadas (`$returnIds`). Reusada por
+     * `create()` (guard de cupo) y `returnOptions()` (`alreadyReturned` de
+     * cada línea) — antes `create()` la calculaba con una query POR ítem
+     * solicitado; ahora es una sola query para todos.
+     *
+     * @param list<string> $returnIds
+     * @return array<string,float> itemId => qty ya devuelta
+     */
+    private function alreadyReturnedByItem(string $companyId, array $returnIds): array
+    {
+        if ($returnIds === []) {
+            return [];
+        }
+        $ph = implode(',', array_fill(0, count($returnIds), '?'));
+        $rs = ncmExecute(
+            "SELECT itemid, SUM(ABS(itemsoldunits)) AS qty
+               FROM itemSold
+              WHERE transactionid IN ($ph)
+              GROUP BY itemid",
+            $returnIds,
+            false,
+            true
+        );
+        $out = [];
+        if ($rs) {
+            while (!$rs->EOF) {
+                $out[(string) $rs->fields['itemid']] = (float) $rs->fields['qty'];
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+        return $out;
+    }
+
+    /**
+     * Por cada línea vendida de la venta original (agregada por itemId): qué
+     * es POSIBLE reponer (tabla D2 de context/40), cuánto ya se devolvió y
+     * cuánto queda disponible. La UI arma el formulario de devolución con
+     * esto en vez de listar los ítems por su cuenta — reemplaza el listado
+     * ad-hoc que tenía antes.
+     *
+     * @return list<array{itemSoldId:string,itemId:string,name:string,soldQty:float,alreadyReturned:float,availableQty:float,unitPrice:float,canRestock:bool,defaultRestock:bool,kind:string}>
+     */
+    public function returnOptions(string $companyId, string $parentTransactionId): array
+    {
+        $parent = ncmExecute(
+            'SELECT transactionid FROM transaction WHERE transactionid = ? AND companyid = ? AND transactiontype IN (0, 3) LIMIT 1',
+            [$parentTransactionId, $companyId]
+        );
+        if (!$parent) {
+            return [];
+        }
+
+        $policy = $this->stockPolicy();
+        $allowIngredientReversal = $policy->settingAllowIngredientReversal($companyId);
+        $lines = $this->aggregatedParentLines($parentTransactionId);
+        $returnIds = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
+        $alreadyByItem = $this->alreadyReturnedByItem($companyId, $returnIds);
+
+        $out = [];
+        foreach ($lines as $itemId => $row) {
+            $classified = $policy->classifyLine($row, $companyId, $allowIngredientReversal);
+            $already   = $alreadyByItem[$itemId] ?? 0.0;
+            $available = max(0.0, round($classified['qty'] - $already, 4));
+
+            $out[] = [
+                'itemSoldId'      => $classified['itemSoldId'],
+                'itemId'          => $classified['itemId'],
+                'name'            => $classified['name'],
+                'soldQty'         => $classified['qty'],
+                'alreadyReturned' => $already,
+                'availableQty'    => $available,
+                'unitPrice'       => $classified['unitPrice'],
+                'canRestock'      => $classified['canRestock'],
+                'defaultRestock'  => $classified['defaultRestock'],
+                'kind'            => $classified['kind'],
+            ];
+        }
+        return $out;
     }
 
     /**
@@ -44,7 +218,17 @@ final class ReturnService
      * @param string      $outletId
      * @param string|null $registerId  Puede ser null cuando se llama desde panel sin caja.
      * @param string      $parentTransactionId
-     * @param array       $items    [{itemId: string, qty: float}]
+     * @param array       $items    [{itemId: string, qty: float, restock?: bool, itemSoldId?: string}]
+     *                    `restock` — decisión del cajero para ESTE ítem devuelto
+     *                    (D2). Ausente = default de `StockReversalPolicy::classifyLine()`
+     *                    para ese itemId. Clampeado a `canRestock` — pedir
+     *                    reponer algo que el sistema marcó imposible se
+     *                    ignora en silencio (mismo criterio que
+     *                    `SaleVoidService::void()`, ver StockReversalPolicy).
+     *                    `itemSoldId` — opcional, no participa del cupo
+     *                    (itemId-level, ver `aggregatedParentLines()`); solo
+     *                    viaja para simetría con el contrato de
+     *                    `StockReversalPolicy::resolveLineDecisions()`.
      * @param string      $refundMode  'cash' | 'credit'
      * @param string|null $note
      * @return array
@@ -65,6 +249,17 @@ final class ReturnService
             throw new \InvalidArgumentException('No hay items para devolver.');
         }
 
+        // D3: política de reintegro del tenant. Con 'cash'/'credit' fijado,
+        // un request con el otro modo se rechaza de entrada — antes de tocar
+        // la BD. Con 'ask' (default) ambos son válidos.
+        $refundPolicy = $this->settingReturnRefund($companyId);
+        if ($refundPolicy !== 'ask' && $refundPolicy !== $refundMode) {
+            throw new \InvalidArgumentException(
+                "La política de devoluciones de este comercio está fijada en '$refundPolicy' "
+                . "(configuración settingReturnRefund) — no se puede devolver en modo '$refundMode'."
+            );
+        }
+
         // Validación rápida pre-TX (solo lookups de solo lectura, sin locks)
         if ($refundMode === 'credit') {
             $parentCheck = ncmExecute(
@@ -76,7 +271,17 @@ final class ReturnService
                 throw new \InvalidArgumentException('Transacción no encontrada o no válida para devolución.');
             }
             if (empty($parentCheck['customerid'])) {
-                throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
+                // D3: si la POLÍTICA fuerza 'credit' y la venta no tiene
+                // cliente, cae a 'cash' en vez de fallar — no hay a quién
+                // acreditarle, pero el comercio igual quiere poder devolver
+                // la plata. Si el cajero eligió 'credit' libremente (política
+                // 'ask') sin que la venta tenga cliente, sigue siendo un
+                // error de input (regla ya vigente, sin cambios).
+                if ($refundPolicy === 'credit') {
+                    $refundMode = 'cash';
+                } else {
+                    throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
+                }
             }
         }
 
@@ -85,6 +290,7 @@ final class ReturnService
 
         $newTransactionId = null;
         $stockMovements   = 0;
+        $wasted           = 0;
         $returnTotal      = 0.0;   // bruto devuelto (espeja itemSoldTotal)
         $returnDiscount   = 0.0;   // descuento proporcional devuelto
         $processedItems   = [];
@@ -103,12 +309,25 @@ final class ReturnService
                 throw new \InvalidArgumentException('Transacción no encontrada o no válida para devolución.');
             }
             if ($refundMode === 'credit' && empty($parent['customerid'])) {
-                throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
+                // Mismo fallback que el pre-check, re-validado DENTRO del lock
+                // (la venta no cambia de cliente entre el pre-check y acá,
+                // pero se mantiene el mismo criterio por consistencia).
+                if ($refundPolicy === 'credit') {
+                    $refundMode = 'cash';
+                } else {
+                    throw new \InvalidArgumentException('Modo crédito requiere que la venta original tenga cliente asociado.');
+                }
             }
 
-            // Devoluciones previas — se lee UNA vez fuera del loop (no cambia
-            // dentro de esta request y no depende del itemId).
-            $returnIds = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
+            $policy = $this->stockPolicy();
+            $allowIngredientReversal = $policy->settingAllowIngredientReversal($companyId);
+
+            // Líneas de la venta original, agregadas por itemId (D2 + cupo),
+            // y lo ya devuelto por itemId — ambas UNA sola query cada una
+            // (antes: una query POR ítem solicitado, dentro del loop).
+            $aggregatedLines = $this->aggregatedParentLines($parentTransactionId);
+            $returnIds       = $this->links()->listDerivedIds($companyId, $parentTransactionId, 'return');
+            $alreadyByItem   = $this->alreadyReturnedByItem($companyId, $returnIds);
 
             // Procesar cada ítem: leer original + validar qty disponible (dentro de la TX)
             foreach ($items as $item) {
@@ -119,93 +338,44 @@ final class ReturnService
                     throw new \InvalidArgumentException("Qty inválida para item $itemId.");
                 }
 
-                // Datos del itemSold original — scopeado por companyId via la TX padre.
-                // AGREGADO por itemId, no GetRow: una misma venta puede tener el
-                // mismo producto en DOS líneas de itemSold (el carrito del POS
-                // trae `mergeRepeated` como opción, no como invariante: apagado,
-                // las repeticiones se guardan separadas). Leer una sola daría un
-                // cupo disponible menor al real y el cajero no podría devolver
-                // todo lo que el cliente compró. `HAVING COUNT(*) > 0` evita que
-                // los agregados devuelvan una fila de nulls cuando el item no
-                // existe en la transacción (sin él, `!$origItem` nunca dispara).
-                // itemTrackInventory / locationId salen del JOIN a `item`, que es
-                // una única fila por itemId: MIN() es solo para poder proyectarlas
-                // junto a los agregados, no una elección entre valores distintos.
-                // Bug encontrado al armar la cobertura de esta sesión (pre-existente,
-                // no relacionado con numeración): la query original leía
-                // `i.itemhasstock`/`i.itemlocationid`, columnas que NUNCA existieron
-                // en `item` (schema real: `itemTrackInventory` booleano — mismo
-                // idioma que ItemService::getInventory, StockTransferService,
-                // InventoryCountService — y `locationId`, mismo que
-                // SaleService.php:1847/1870 `SELECT locationId FROM item ...`).
-                // Postgres rechaza la query ANTES de mirar los datos ("column
-                // i.itemhasstock does not exist"): ReturnService::create() no podía
-                // ejecutarse con NINGÚN item, nunca — se corrige acá porque bloqueaba
-                // ejercitar el código que se está numerando en esta tarea.
-                //
-                // Segundo bug pre-existente encontrado en la misma corrida (también
-                // desbloqueante, también sin relación con numeración): la tabla se
-                // creó SIN comillas (`CREATE TABLE itemSold`, db-schema-postgres.sql),
-                // así que Postgres la guarda plegada a minúsculas (`itemsold`). Citarla
-                // entrecomillada como `"itemSold"` exige coincidencia EXACTA de mayúsculas
-                // y Postgres la rechaza con "relation itemSold does not exist" — se
-                // corrige quitando las comillas (mismo criterio que `SaleService::
-                // AutoExecute('itemSold', ...)`, que nunca cita el nombre). El mismo
-                // patrón de comillas quedaba roto en `PurchaseCreditNoteService.php`
-                // (corregido 2026-08-17 al tocar ese archivo para context/29 §5 —
-                // ver `verify_supplier_document.php`, caso 3, que lo destapó); sigue
-                // roto, sin tocar, en `EInvoiceService.php:1767` (fuera de alcance).
-                $origItem = $db->GetRow(
-                    'SELECT SUM(is1.itemsoldunits)                 AS itemsoldunits,
-                            SUM(is1.itemsoldtotal)                 AS itemsoldtotal,
-                            SUM(COALESCE(is1.itemsolddiscount, 0)) AS itemsolddiscount,
-                            SUM(COALESCE(is1.itemsoldcogs, 0) * ABS(is1.itemsoldunits))
-                              / NULLIF(SUM(ABS(is1.itemsoldunits)), 0) AS itemsoldcogs,
-                            MIN(i.itemtrackinventory::int)         AS itemhasstock,
-                            MIN(i.locationid::text)                AS itemlocationid
-                     FROM itemSold is1
-                     JOIN item i ON i.itemid = is1.itemid
-                     WHERE is1.transactionid = ? AND is1.itemid = ?
-                     HAVING COUNT(*) > 0',
-                    [$parentTransactionId, $itemId]
-                );
-                if (!$origItem) {
+                $origRow = $aggregatedLines[$itemId] ?? null;
+                if ($origRow === null) {
                     throw new \InvalidArgumentException("Item $itemId no encontrado en la transacción original.");
                 }
 
-                $soldQty   = abs((float) $origItem['itemsoldunits']);
+                // D2: clasificación (kind/canRestock/defaultRestock/hadStockImpact)
+                // — wrapper compartido con SaleVoidService.
+                $classified = $policy->classifyLine($origRow, $companyId, $allowIngredientReversal);
+
+                $soldQty = $classified['qty'];
                 // itemSoldTotal es el BRUTO de la linea y itemSoldDiscount su
                 // descuento (ver lib/cart/allocate-discounts.ts): lo que el
                 // cliente pago es la resta. Devolver sobre el bruto le estaria
-                // reintegrando plata que nunca entrego.
-                $lineTotal = abs((float) $origItem['itemsoldtotal']);
-                $lineDisc  = abs((float) ($origItem['itemsolddiscount'] ?? 0));
+                // reintegrando plata que nunca entrego. Precisión completa acá
+                // (sin redondear unitPrice/unitDisc) — solo se redondea la
+                // línea ya multiplicada por reqQty, igual que antes: redondear
+                // el unitario primero desalinearía una devolución total del
+                // total exacto de la venta.
+                $lineTotal = abs((float) $origRow['itemsoldtotal']);
+                $lineDisc  = abs((float) ($origRow['itemsolddiscount'] ?? 0));
                 $unitPrice = $soldQty > 0 ? $lineTotal / $soldQty : 0.0;
                 $unitDisc  = $soldQty > 0 ? $lineDisc  / $soldQty : 0.0;
-                // itemSoldCOGS es COSTO UNITARIO, no monto de línea: SaleService
-                // graba ahí el `stockOnHandCOGS` crudo del item y tanto el rollup
-                // (mig 42: `SUM(itemSoldCOGS * itemSoldUnits)`) como
-                // Inventory::manageStock (`$newCOGS = $COGS * $count`) lo
-                // multiplican por unidades. Por eso NO se suma como los demás
-                // campos: se promedia PONDERADO POR UNIDADES, que es el único
-                // criterio que deja invariante el costo total de las líneas
-                // fusionadas (SUM(cogs*units) / SUM(units)). Un SUM plano
-                // multiplicaría el costo por la cantidad de líneas, y un promedio
-                // simple daría mal si las líneas tienen distinta cantidad.
-                $unitCogs  = abs((float) ($origItem['itemsoldcogs'] ?? 0));
+                $unitCogs  = $classified['unitCogs']; // ya round(...,4), misma fórmula ponderada que antes.
 
-                // Qty ya devuelta (dentro de TX — ve las filas del lock anterior)
-                $alreadyReturned = 0.0;
-                if ($returnIds !== []) {
-                    $ph = implode(',', array_fill(0, count($returnIds), '?'));
-                    $alreadyReturned = (float) $db->GetOne(
-                        "SELECT COALESCE(SUM(ABS(is2.itemsoldunits)), 0)
-                         FROM itemSold is2
-                         WHERE is2.transactionid IN ($ph) AND is2.itemid = ?",
-                        [...$returnIds, $itemId]
-                    );
+                // Disponible = lo vendido menos lo ya devuelto en devoluciones
+                // PREVIAS (`$alreadyByItem`) menos lo ya comprometido por OTRA
+                // línea de ESTE MISMO request para el mismo itemId — sin esto
+                // último, dos líneas del mismo itemId en un solo request
+                // podían pasar el guard cada una por separado y devolver más
+                // de lo vendido en conjunto (bug latente pre-existente a esta
+                // sesión, corregido de paso porque el loop ya recorre
+                // `$processedItems`).
+                $alreadyReturned = $alreadyByItem[$itemId] ?? 0.0;
+                foreach ($processedItems as $committed) {
+                    if ($committed['itemId'] === $itemId) {
+                        $alreadyReturned += $committed['qty'];
+                    }
                 }
-
                 $available = $soldQty - $alreadyReturned;
                 if ($reqQty > $available + 0.001) {
                     throw new \InvalidArgumentException(
@@ -221,16 +391,34 @@ final class ReturnService
                 $returnTotal    += $lineReturnTotal;
                 $returnDiscount += $lineReturnDisc;
 
+                // D2: decisión del cajero para ESTA línea, vía el policy
+                // compartido — si el request omite `restock` para este ítem,
+                // se pasa `$requestedLines=[]` para que aplique el default de
+                // `classifyLine()` (mismo contrato que SaleVoidService); si lo
+                // manda, se resuelve por itemSoldId/itemId (siempre único acá,
+                // ver aggregatedParentLines) y se clampea a `canRestock`.
+                $requestedLines = [];
+                if (array_key_exists('restock', $item)) {
+                    $requestedLines[] = [
+                        'itemSoldId' => isset($item['itemSoldId']) ? (string) $item['itemSoldId'] : null,
+                        'itemId'     => $itemId,
+                        'restock'    => (bool) $item['restock'],
+                    ];
+                }
+                $decision = $policy->resolveLineDecisions([$classified], $requestedLines);
+                $restock  = $decision[0]['restock'];
+
                 $processedItems[] = [
-                    'itemId'      => $itemId,
-                    'qty'         => $reqQty,
-                    'lineTotal'   => $lineReturnTotal,
-                    'lineDiscount'=> $lineReturnDisc,
+                    'itemId'         => $itemId,
+                    'qty'            => $reqQty,
+                    'lineTotal'      => $lineReturnTotal,
+                    'lineDiscount'   => $lineReturnDisc,
                     // Unitario, NO multiplicado por qty: así lo espera tanto la
                     // columna itemSoldCOGS como manageStock (ver arriba).
-                    'unitCogs'    => round($unitCogs, 4),
-                    'hasStock'   => !empty($origItem['itemhasstock']),
-                    'locationId' => $origItem['itemlocationid'] ?? null,
+                    'unitCogs'       => round($unitCogs, 4),
+                    'kind'           => $classified['kind'],
+                    'hadStockImpact' => $classified['hadStockImpact'],
+                    'restock'        => $restock,
                 ];
             }
 
@@ -292,6 +480,7 @@ final class ReturnService
             // Dentro de la misma TX: si el commit falla, el link tampoco queda.
             $this->links()->link($companyId, $parentTransactionId, (string) $newTransactionId, 'return');
 
+            $wasteReasonId = null;
             foreach ($processedItems as $pi) {
                 $itemSoldId = $db->GetOne('SELECT gen_random_uuid()');
 
@@ -314,23 +503,32 @@ final class ReturnService
                     ]
                 );
 
-                if ($pi['hasStock']) {
-                    $result = \Punto\App\Domain\Inventory::manageStock([
-                        'itemId'        => $pi['itemId'],
-                        'outletId'      => $outletId,
-                        'date'          => date('Y-m-d'),
-                        'locationId'    => $pi['locationId'],
-                        'count'         => $pi['qty'],
-                        'type'          => '+',
-                        'source'        => 'return',
-                        'transactionId' => $newTransactionId,
-                        'cogs'          => $pi['unitCogs'],
-                        'userId'        => $userId,
-                        'companyId'     => $companyId,
-                    ]);
-                    if ($result !== false) {
-                        $stockMovements++;
-                    }
+                // D2: repone SOLO lo que el cajero eligió Y el sistema
+                // habilita; lo que tuvo impacto real de stock y no se repuso
+                // genera waste_event (wrapper compartido con SaleVoidService,
+                // `source='return'` en el ledger de stock para distinguir el
+                // origen del movimiento).
+                if ($pi['restock']) {
+                    $policy->restockLine(
+                        ['itemId' => $pi['itemId'], 'kind' => $pi['kind'], 'qty' => $pi['qty'], 'unitCogs' => $pi['unitCogs']],
+                        $companyId,
+                        $outletId,
+                        (string) $newTransactionId,
+                        $userId,
+                        'return'
+                    );
+                    $stockMovements++;
+                } elseif ($pi['hadStockImpact']) {
+                    $wasteReasonId ??= $policy->getOrCreateReturnWasteReasonId($companyId, $db);
+                    $policy->recordWaste(
+                        ['itemId' => $pi['itemId'], 'qty' => $pi['qty'], 'unitCogs' => $pi['unitCogs']],
+                        $companyId,
+                        $outletId,
+                        $wasteReasonId,
+                        $userId,
+                        'Devolución de cliente' . ($note ? ': ' . $note : '')
+                    );
+                    $wasted++;
                 }
             }
 
@@ -342,13 +540,15 @@ final class ReturnService
                 );
             }
 
-            // Nota de crédito (F3): se encola DENTRO de la transacción, igual
+            // Nota de crédito (F5): se encola DENTRO de la transacción, igual
             // que la factura de una venta (SaleService::enqueueElectronicInvoice)
             // — si la devolución se revierte, no queda un documento fiscal
             // encolado para una devolución que nunca existió. El servicio es
-            // silencioso puertas adentro (sin cuenta conectada, autoIssue off);
-            // el try/catch es para que un bug del módulo de FE no tumbe una
-            // devolución ya validada.
+            // silencioso puertas adentro (sin cuenta conectada, autoIssue off,
+            // o factura original no emitida electrónicamente —
+            // `EInvoiceService::parentInvoiceIsIssued()`); el try/catch es
+            // para que un bug del módulo de FE no tumbe una devolución ya
+            // validada.
             try {
                 (new \Punto\Api\EInvoice\EInvoiceService())->enqueueForSale(
                     $companyId,
@@ -393,6 +593,7 @@ final class ReturnService
             'total'                 => abs($returnNet),
             'refundMode'            => $refundMode,
             'stockMovements'        => $stockMovements,
+            'wasted'                => $wasted,
             'customerCreditApplied' => $refundMode === 'credit' ? abs($returnNet) : null,
         ];
     }

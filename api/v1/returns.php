@@ -4,8 +4,17 @@ declare(strict_types=1);
 /**
  * /api/v1/returns.php — devoluciones de venta.
  *
- * POST { action: "create", parentTransactionId, items: [{itemId, qty}], refundMode: 'cash'|'credit', note? }
+ * POST { action: "create", parentTransactionId,
+ *        items: [{itemId, qty, restock?: bool, itemSoldId?: string}],
+ *        refundMode: 'cash'|'credit', note? }
  * GET  ?action=listForParent&parentId=UUID
+ * GET  ?action=returnOptions&parentId=UUID  → D2 (context/40): qué es posible
+ *      reponer por línea vendida + cupo disponible. La UI arma el form de
+ *      devolución con esto en vez de listar los ítems por su cuenta.
+ *
+ * D3 (context/40): `settingReturnRefund` puede rechazar un `refundMode` que
+ * no matchea la política del tenant — ver `ReturnService::create()`, 422
+ * con mensaje explícito.
  *
  * Auth: JWT de tenant (panel o pos-app).
  * Responde con envelope canónico { ok, data }.
@@ -72,10 +81,24 @@ if ($method === 'POST') {
             apiError('qty debe ser mayor a 0 en todos los items', 400);
         }
 
-        $validatedItems[] = [
+        $validated = [
             'itemId' => $itemId,
             'qty'    => (float) $qty,
         ];
+        // D2 (context/40): decisión del cajero por línea, opcional — ausente
+        // = default de StockReversalPolicy::classifyLine() para ese itemId.
+        if (array_key_exists('restock', $item)) {
+            $validated['restock'] = !empty($item['restock']);
+        }
+        if (!empty($item['itemSoldId'])) {
+            $soldId = trim((string) $item['itemSoldId']);
+            if (!isValidUuidReturn($soldId)) {
+                apiError('itemSoldId inválido en items', 400);
+            }
+            $validated['itemSoldId'] = $soldId;
+        }
+
+        $validatedItems[] = $validated;
     }
 
     try {
@@ -104,15 +127,20 @@ if ($method === 'GET') {
     $action   = (string) ($_GET['action'] ?? '');
     $parentId = trim((string) ($_GET['parentId'] ?? ''));
 
-    if ($action !== 'listForParent') {
-        apiError('action desconocida', 400);
-    }
     if (!isValidUuidReturn($parentId)) {
         apiError('parentId inválido', 400);
     }
 
-    $rows = $svc->listForParent($parentId, $companyId);
-    apiOk(['returns' => $rows]);
+    if ($action === 'listForParent') {
+        $rows = $svc->listForParent($parentId, $companyId);
+        apiOk(['returns' => $rows]);
+    }
+
+    if ($action === 'returnOptions') {
+        apiOk(['lines' => $svc->returnOptions($companyId, $parentId)]);
+    }
+
+    apiError('action desconocida', 400);
 }
 
 apiError('Método no soportado', 405);
