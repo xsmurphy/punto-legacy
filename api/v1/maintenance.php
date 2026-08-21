@@ -56,7 +56,9 @@ if ($method !== 'POST') {
 if (!defined('EINVOICE_DRAIN_SECRET') || EINVOICE_DRAIN_SECRET === '') {
     apiError('EINVOICE_DRAIN_SECRET no configurado — los jobs de mantenimiento están deshabilitados.', 503);
 }
-$given = (string) ($_SERVER['HTTP_X_MAINTENANCE_SECRET'] ?? ($_GET['secret'] ?? ''));
+// Solo por header: un secreto en la query string termina en logs de acceso y
+// del proxy. El único caller (maintenance.sh) usa el header.
+$given = (string) ($_SERVER['HTTP_X_MAINTENANCE_SECRET'] ?? '');
 if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }

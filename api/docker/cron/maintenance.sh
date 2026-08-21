@@ -9,10 +9,11 @@
 #   job-name ∈ {rollup-reconcile, purge-tenant-audit, purge-deleted-row, einvoice-drain}
 #
 # Le pega a localhost:3000 (el mismo `php -S` que sirve el tráfico externo —
-# el cron vive adentro del container, no hay red aparte). El header Host
-# importa: el router/bootstrap puede depender de él para resolver dominio/CORS
-# (mismo criterio que el HEALTHCHECK del Dockerfile, que usa
-# `-H "Host: api.punto.la"`).
+# el cron vive adentro del container, no hay red aparte). Sin header Host
+# explícito: ni router.php ni bootstrap.php ni cors.php resuelven nada por
+# Host en /v1/* (CORS va por Origin), y hardcodear un dominio acá viola la
+# regla del proyecto (CLAUDE.md §3). Si algún día el bootstrap resuelve
+# tenant por subdominio, el Host tiene que salir de una env var, no de acá.
 #
 # Si EINVOICE_DRAIN_SECRET no está seteada, el job de mantenimiento está
 # deshabilitado (el endpoint respondería 503) — no tiene sentido pegarle y
@@ -28,7 +29,6 @@ if [ -z "${EINVOICE_DRAIN_SECRET:-}" ]; then
 fi
 
 RESPONSE=$(curl -fsS -X POST \
-    -H "Host: api.punto.la" \
     -H "X-Maintenance-Secret: ${EINVOICE_DRAIN_SECRET}" \
     "http://localhost:3000/v1/maintenance?job=${JOB}" 2>&1) \
     && echo "[maintenance-cron] job=${JOB} ok response=${RESPONSE}" \

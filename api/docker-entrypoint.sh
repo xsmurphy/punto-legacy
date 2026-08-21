@@ -100,7 +100,7 @@ fi
 # (y los curl que dispara) no quedan huérfanos ni zombies.
 if [ -n "$EINVOICE_DRAIN_SECRET" ]; then
     echo "[entrypoint] EINVOICE_DRAIN_SECRET seteada — arrancando crond (jobs de mantenimiento)"
-    crond -b -l 8
+    crond -b -l 8 || echo "[entrypoint] crond no pudo arrancar — jobs de mantenimiento NO programados (ignorado, la API arranca igual)" >&2
 else
     echo "[entrypoint] EINVOICE_DRAIN_SECRET no seteada — jobs de mantenimiento NO programados"
 fi
