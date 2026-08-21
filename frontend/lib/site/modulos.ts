@@ -437,7 +437,181 @@ export const MODULOS: Modulo[] = [
       },
     ],
   },
+  {
+    slug: "pantalla-de-cocina",
+    label: "Pantalla de cocina",
+    eyebrow: "Pantalla de cocina (KDS)",
+    heroTitle: "La comanda deja de ser un papel",
+    heroDescription:
+      "Cada estación ve en su pantalla lo que le toca preparar, en orden de llegada y con el tiempo de espera corriendo. Sin impresora que se quede sin papel, sin tickets que se pierden entre la barra y la plancha.",
+    heroImage: {
+      src: "/site/pos-screenshot.png",
+      alt: "Pantalla de cocina de Punto con las comandas en preparación",
+    },
+    essentials: [
+      "Un tablero por estación: cocina, barra, plancha o el horno ven solo lo suyo.",
+      "La comanda entra sola apenas se manda el pedido, con su hora de entrada.",
+      "Los agregados y las aclaraciones se leen indentados bajo cada plato.",
+      "Si algo se marcó listo por error, se vuelve atrás sin llamar a nadie.",
+    ],
+    sections: [
+      {
+        kicker: "Cada estación, su tablero",
+        title: "La cocina ve platos; la barra, tragos",
+        paragraphs: [
+          "Un pedido de mesa puede repartirse entre tres estaciones y cada una recibe solo su parte. El que arma tragos no tiene que leer la comanda entera para encontrar lo suyo, y nadie prepara dos veces lo mismo.",
+          "El orden lo pone la hora de entrada, no quién grita más fuerte: la tanda se arma por antigüedad y el tiempo de espera de cada comanda está a la vista.",
+        ],
+        linkLabel: "Ver el tablero",
+        mockup: {
+          label: "Cocina · en preparación",
+          title: "Tablero por estación",
+          rows: [
+            { left: "#47 · Mesa 3", right: "4 min", sub: ["2× Lomito · sin cebolla"] },
+            { left: "#48 · Mostrador", right: "2 min", sub: ["1× Milanesa · con papas"] },
+            { left: "#49 · Mesa 7", right: "1 min", sub: ["1× Costilla al horno"] },
+          ],
+        },
+      },
+      {
+        kicker: "Sin traducción de por medio",
+        title: "Lo que pidió el cliente, tal cual",
+        paragraphs: [
+          "El punto de la carne, la mitad sin aceitunas, el extra de queso: los agregados bajan indentados bajo su plato, no como una nota suelta al final que alguien puede saltear.",
+          "La comanda muestra todo lo que hay que preparar, cobre o no cobre. El que cocina no tiene que saber qué se facturó — solo qué sale.",
+        ],
+        linkLabel: "Ver una comanda",
+        mockup: {
+          label: "#47 · Mesa 3",
+          title: "Comanda completa",
+          rows: [
+            { left: "1× Lomito completo", sub: ["Sin cebolla", "Extra queso"] },
+            { left: "1× Papas rústicas", sub: ["Punto crocante"] },
+            { left: "1× Limonada de menta" },
+          ],
+        },
+      },
+      {
+        kicker: "Marcar y deshacer",
+        title: "El plato avanza — y también puede volver",
+        paragraphs: [
+          "Cuando el plato sale, se marca listo y desaparece del tablero. Si se marcó de más — pasa en hora pico — se vuelve atrás desde la misma pantalla, sin pedirle permiso a la caja.",
+          "Cada cambio queda registrado con su hora, así el encargado puede mirar después cuánto tardó realmente cada comanda en salir.",
+        ],
+        linkLabel: "Ver los tiempos",
+        mockup: {
+          label: "Turno noche",
+          title: "Tiempos de preparación",
+          rows: [
+            { left: "Promedio de salida", right: "9 min" },
+            { left: "Comanda más lenta", right: "21 min", sub: ["#38 · mesa de 8"] },
+            { left: "Servidas", right: "84" },
+          ],
+        },
+      },
+    ],
+  },
 ]
+
 export function getModulo(slug: string): Modulo | undefined {
   return MODULOS.find((m) => m.slug === slug)
+}
+
+/**
+ * Entrada de módulo para menús y listados. Los que todavía no tienen
+ * minipage propia van con `href: "#"`.
+ */
+export type ModuloLink = { label: string; description: string; href: string }
+
+/** Grupos de módulos: los de base y los que definen un tipo de negocio. */
+export type ModuloGroup = { key: string; label: string; items: ModuloLink[] }
+
+export const MODULO_GROUPS: ModuloGroup[] = [
+  {
+    key: "base",
+    label: "En todo negocio",
+    items: [
+      {
+        label: "Punto de Venta",
+        description: "Vender en segundos, con o sin internet",
+        href: "/modulos/punto-de-venta",
+      },
+      {
+        label: "Panel de administración",
+        description: "Ventas, stock y reportes de todas las sucursales",
+        href: "/modulos/panel",
+      },
+      {
+        label: "Punto AI",
+        description: "El asistente que analiza tus datos y responde",
+        href: "/modulos/punto-ai",
+      },
+      {
+        label: "Facturación electrónica",
+        description: "El comprobante se emite y se envía solo",
+        href: "#",
+      },
+    ],
+  },
+  {
+    key: "gastronomia",
+    label: "Para gastronomía",
+    items: [
+      {
+        label: "Mesas y órdenes",
+        description: "Cuenta por mesa y rondas que se suman",
+        href: "/modulos/mesas-y-ordenes",
+      },
+      {
+        label: "Pantalla de cocina",
+        description: "La comanda entra sola a cada estación",
+        href: "/modulos/pantalla-de-cocina",
+      },
+      {
+        label: "Producción y recetas",
+        description: "La receta descuenta insumos y calcula el costo",
+        href: "#",
+      },
+    ],
+  },
+  {
+    key: "comercio",
+    label: "Para comercio",
+    items: [
+      {
+        label: "Stock y compras",
+        description: "Existencias por depósito y costos al día",
+        href: "#",
+      },
+      {
+        label: "Clientes y crédito",
+        description: "Cuenta corriente con límite y cobranzas",
+        href: "#",
+      },
+      {
+        label: "Gift cards y vales",
+        description: "Cobrar hoy lo que se entrega después",
+        href: "/modulos/gift-cards",
+      },
+    ],
+  },
+]
+
+/** Módulos que destaca cada rubro, para el bloque de su minipage. */
+export const RUBRO_MODULOS: Record<string, string[]> = {
+  restaurantes: ["mesas-y-ordenes", "pantalla-de-cocina", "punto-de-venta", "panel"],
+  "bares-y-pubs": ["mesas-y-ordenes", "pantalla-de-cocina", "punto-de-venta", "panel"],
+  cafeterias: ["punto-de-venta", "mesas-y-ordenes", "gift-cards", "panel"],
+  panaderias: ["punto-de-venta", "pantalla-de-cocina", "panel", "punto-ai"],
+  heladerias: ["punto-de-venta", "mesas-y-ordenes", "gift-cards", "panel"],
+  minimarkets: ["punto-de-venta", "panel", "punto-ai", "gift-cards"],
+  farmacias: ["punto-de-venta", "panel", "punto-ai"],
+  ferreterias: ["punto-de-venta", "panel", "punto-ai"],
+  "tiendas-de-ropa": ["punto-de-venta", "panel", "gift-cards", "punto-ai"],
+}
+
+export function modulosForRubro(slug: string): Modulo[] {
+  return (RUBRO_MODULOS[slug] ?? [])
+    .map((s) => getModulo(s))
+    .filter((m): m is Modulo => Boolean(m))
 }

@@ -6,6 +6,7 @@ import Link from "next/link"
 import { ArrowRight } from "lucide-react"
 
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
+import { MODULO_GROUPS } from "@/lib/site/modulos"
 import { cn } from "@/lib/utils"
 
 /*
@@ -23,69 +24,6 @@ export type MenuEntry = {
   /** Bajada del preview; si falta se usa `description`. */
   previewText?: string
 }
-
-export const MODULOS_MENU: MenuEntry[] = [
-  {
-    label: "Punto de Venta",
-    description: "Vender en segundos y cerrar el turno con arqueo",
-    href: "/modulos/punto-de-venta",
-    preview: {
-      src: "/site/pos-screenshot.png",
-      alt: "Pantalla de venta de Punto",
-    },
-    previewText: "Catálogo con fotos, cobro en dos toques y comprobante al cerrar.",
-  },
-  {
-    label: "Facturación electrónica",
-    description: "El comprobante se emite y se envía solo",
-    href: "#",
-    previewText: "La factura sale de la misma venta, con su numeración en regla.",
-  },
-  {
-    label: "Stock y compras",
-    description: "Existencias por depósito y costos al día",
-    href: "#",
-    previewText: "Cada venta descuenta, cada compra repone y actualiza el costo.",
-  },
-  {
-    label: "Clientes y crédito",
-    description: "Cuenta corriente con límite y cobranzas",
-    href: "#",
-    previewText: "Quién compró, cuánto debe y qué se cobró, con recibo de cada pago.",
-  },
-  {
-    label: "Mesas y órdenes",
-    description: "Cuenta por mesa y comandas a cocina",
-    href: "/modulos/mesas-y-ordenes",
-    previewText: "El salón y la cocina, en la misma página.",
-  },
-  {
-    label: "Gift cards y vales",
-    description: "Cobrar hoy lo que se entrega después",
-    href: "/modulos/gift-cards",
-    previewText: "Plata a favor del cliente o productos ya pagos, con un código.",
-  },
-  {
-    label: "Panel de administración",
-    description: "Ventas, stock y reportes de todas las sucursales",
-    href: "/modulos/panel",
-    preview: {
-      src: "/site/panel-screenshot.png",
-      alt: "Panel de administración de Punto",
-    },
-    previewText: "El negocio entero en una pantalla, sucursal por sucursal.",
-  },
-  {
-    label: "Punto AI",
-    description: "El asistente que analiza tus datos y responde",
-    href: "/modulos/punto-ai",
-    preview: {
-      src: "/site/ai-screenshot.png",
-      alt: "Punto AI analizando las ventas del negocio",
-    },
-    previewText: "Preguntale por tus números y responde con los datos del negocio.",
-  },
-]
 
 export const RUBROS_MENU: MenuEntry[] = [
   {
@@ -150,6 +88,43 @@ export const RUBROS_MENU: MenuEntry[] = [
   },
 ]
 
+const MODULO_PREVIEWS: Record<string, { src?: string; text: string }> = {
+  "Punto de Venta": {
+    src: "/site/pos-screenshot.png",
+    text: "Catálogo con fotos, cobro en dos toques y comprobante al cerrar.",
+  },
+  "Panel de administración": {
+    src: "/site/panel-screenshot.png",
+    text: "El negocio entero en una pantalla, sucursal por sucursal.",
+  },
+  "Punto AI": {
+    src: "/site/ai-screenshot.png",
+    text: "Preguntale por tus números y responde con los datos del negocio.",
+  },
+  "Facturación electrónica": {
+    text: "La factura sale de la misma venta, con su numeración en regla.",
+  },
+  "Mesas y órdenes": {
+    src: "/site/pos-screenshot.png",
+    text: "El salón y la cocina, en la misma página.",
+  },
+  "Pantalla de cocina": {
+    text: "Cada estación ve lo suyo, en orden de llegada.",
+  },
+  "Producción y recetas": {
+    text: "La receta descuenta insumos y calcula el costo real del plato.",
+  },
+  "Stock y compras": {
+    text: "Cada venta descuenta, cada compra repone y actualiza el costo.",
+  },
+  "Clientes y crédito": {
+    text: "Quién compró, cuánto debe y qué se cobró, con su recibo.",
+  },
+  "Gift cards y vales": {
+    text: "Plata a favor del cliente o productos ya pagos, con un código.",
+  },
+}
+
 function EntryList({
   title,
   entries,
@@ -196,28 +171,64 @@ function EntryList({
   )
 }
 
-/** Panel de Módulos: lista + card con la captura del módulo apuntado. */
+/** Panel de Módulos: grupos a la izquierda, preview del módulo apuntado. */
 export function ModulosMenu() {
-  const [active, setActive] = React.useState(0)
-  const entry = MODULOS_MENU[active]
+  const [active, setActive] = React.useState<{ g: number; i: number }>({ g: 0, i: 0 })
+  const entry = MODULO_GROUPS[active.g].items[active.i]
+  const preview = MODULO_PREVIEWS[entry.label]
 
   return (
-    <div className="flex md:w-[52rem]">
-      <EntryList
-        title="Módulos"
-        entries={MODULOS_MENU}
-        active={active}
-        onHover={setActive}
-      />
-      <div className="m-2 hidden w-72 shrink-0 flex-col gap-3 rounded-xl bg-muted p-4 md:flex">
+    <div className="flex md:w-[54rem]">
+      <div className="flex-1 p-4 md:p-5">
+        {/* Agrupados como en el sitio viejo: lo que usa todo negocio y lo
+            que define un rubro. */}
+        <div className="grid gap-x-4 gap-y-4 md:grid-cols-3">
+          {MODULO_GROUPS.map((group, g) => (
+            <div key={group.key} className="flex flex-col">
+              <p className="mb-1.5 px-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                {group.label}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {group.items.map((item, i) => (
+                  <DropdownMenuItem
+                    key={item.label}
+                    asChild
+                    className={cn(
+                      "items-start rounded-lg px-3 py-2",
+                      g === active.g && i === active.i && "bg-accent",
+                    )}
+                  >
+                    <Link
+                      href={item.href}
+                      onMouseEnter={() => setActive({ g, i })}
+                      onFocus={() => setActive({ g, i })}
+                    >
+                      <span className="flex flex-col gap-0.5">
+                        <span className="text-sm font-medium leading-none">
+                          {item.label}
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {item.description}
+                        </span>
+                      </span>
+                    </Link>
+                  </DropdownMenuItem>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="m-2 hidden w-64 shrink-0 flex-col gap-3 rounded-xl bg-muted p-4 md:flex">
         <div className="relative aspect-[2880/1400] w-full overflow-hidden rounded-lg border bg-background">
-          {entry.preview ? (
+          {preview?.src ? (
             <Image
-              key={entry.preview.src}
-              src={entry.preview.src}
-              alt={entry.preview.alt}
+              key={preview.src}
+              src={preview.src}
+              alt=""
               fill
-              sizes="288px"
+              sizes="256px"
               className="object-cover object-left-top"
             />
           ) : (
@@ -227,16 +238,18 @@ export function ModulosMenu() {
         <div className="flex flex-col gap-1">
           <p className="text-base font-semibold tracking-tight">{entry.label}</p>
           <p className="text-sm text-muted-foreground">
-            {entry.previewText ?? entry.description}
+            {preview?.text ?? entry.description}
           </p>
         </div>
-        <Link
-          href={entry.href}
-          className="group mt-auto inline-flex items-center gap-1.5 text-sm font-medium"
-        >
-          Ver el módulo
-          <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-        </Link>
+        {entry.href !== "#" ? (
+          <Link
+            href={entry.href}
+            className="group mt-auto inline-flex items-center gap-1.5 text-sm font-medium"
+          >
+            Ver el módulo
+            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+          </Link>
+        ) : null}
       </div>
     </div>
   )

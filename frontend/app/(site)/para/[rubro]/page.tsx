@@ -7,6 +7,7 @@ import { ArrowRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
+import { modulosForRubro } from "@/lib/site/modulos"
 import { RUBROS, getRubro, type Rubro } from "@/lib/site/rubros"
 import { cn } from "@/lib/utils"
 
@@ -129,6 +130,7 @@ export default async function RubroPage({
   if (!rubro) notFound()
 
   const others = RUBROS.filter((r) => r.slug !== rubro.slug)
+  const modulos = modulosForRubro(rubro.slug)
 
   return (
     <div className="pt-16">
@@ -198,6 +200,35 @@ export default async function RubroPage({
           </section>
         )
       })}
+
+      {/* Módulos que usa este rubro */}
+      {modulos.length ? (
+        <section className="mx-auto w-full max-w-6xl px-4 py-16 md:px-6 md:py-24">
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Los módulos que más usa {rubro.posesivo}
+          </p>
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {modulos.map((m) => (
+              <Link
+                key={m.slug}
+                href={`/modulos/${m.slug}`}
+                className="group flex flex-col gap-2 rounded-2xl border p-5 transition-colors hover:bg-muted/50"
+              >
+                <span className="text-base font-semibold tracking-tight">
+                  {m.label}
+                </span>
+                <span className="text-sm text-muted-foreground">
+                  {m.heroTitle}
+                </span>
+                <span className="mt-1 inline-flex items-center gap-1.5 text-sm font-medium">
+                  Ver el módulo
+                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                </span>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* Otros rubros */}
       <section className="mx-auto w-full max-w-6xl px-4 py-16 md:px-6 md:py-24">
