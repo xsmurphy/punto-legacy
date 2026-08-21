@@ -959,7 +959,65 @@ final class TransactionService
     }
 
     /**
+     * Restaura balances de pago (points/storeCredit/giftcard) al anular una
+     * transacción — extraído de `voidTransaction()` (era código inline acá)
+     * para que `SaleVoidService::void()` (F1 de context/40-anulacion-y-nota-
+     * credito.md) lo reuse SIN duplicar los fixes de abajo. Único punto de
+     * verdad para "cómo se revierte un pago al anular".
+     *
+     * Bugs PG corregidos vs el legacy `voidSale()` (app/includes/functions.php:4658),
+     * conservados acá:
+     *   - giftcard restore: WHERE incompleto (`AND outletId = ` sin valor) → parametrizado.
+     *   - points/storeCredit: `contactAmount + $dat['price']` concatenado → parametrizado.
+     *   - groupByPaymentMethod() hace `unset($nu['extra'])` antes de pushear —
+     *     iterar los pagos RAW (no agrupados) es obligatorio para que el
+     *     restore de giftcard tenga `extra` disponible.
+     *
+     * @param string      $transactionPaymentTypeRaw JSON crudo de `transaction.transactionPaymentType`.
+     */
+    public static function restorePaymentBalances(\DB $db, string $companyId, ?string $customerId, string $transactionPaymentTypeRaw): void
+    {
+        $payments = json_decode($transactionPaymentTypeRaw, true);
+        foreach (is_array($payments) ? $payments : [] as $payment) {
+            $type  = (string) ($payment['type']  ?? '');
+            $price = (float)  ($payment['price'] ?? 0);
+            if ($price <= 0) {
+                continue;
+            }
+
+            // Devolver balance del cliente (solo si hay cliente válido).
+            if (validity($customerId) && $type === 'points') {
+                $db->Execute(
+                    "UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + ?, updated_at = ? WHERE contactId = ?",
+                    [$price, TODAY, $customerId]
+                );
+            } elseif (validity($customerId) && $type === 'storeCredit') {
+                $db->Execute(
+                    "UPDATE contact SET contactStoreCredit = contactStoreCredit + ?, updated_at = ? WHERE contactId = ?",
+                    [$price, TODAY, $customerId]
+                );
+            } elseif ($type === 'giftcard') {
+                // Devolver saldo a gift card — WHERE completo + companyId scope + parametrizado.
+                $extra = $payment['extra'] ?? null;
+                if (is_numeric($extra)) {
+                    $db->Execute(
+                        'UPDATE giftCardSold SET giftCardSoldValue = giftCardSoldValue + ? WHERE (giftCardSoldCode = ? OR timestamp = ?) AND companyId = ?',
+                        [$price, $extra, $extra, $companyId]
+                    );
+                }
+            }
+        }
+    }
+
+    /**
      * Anula una transacción (type→7). Port de voidSale() (app/includes/functions.php:4658).
+     *
+     * IMPORTANTE: para ventas contado/crédito (transactionType 0/3), este
+     * método YA NO es el camino — `api/v1/transactions.php` delega a
+     * `SaleVoidService::void()` (F1/F2 de context/40-anulacion-y-nota-credito.md),
+     * que NO pisa transactionType y agrega voidedAt/voidReason/voidedBy en su
+     * lugar. Este método legacy sigue vigente para los DEMÁS tipos de
+     * transacción (cotizaciones, etc.) que `SaleVoidService` no cubre.
      *
      * Bugs PG corregidos vs el legacy:
      *   - giftcard restore: WHERE incompleto (`AND outletId = ` sin valor) → parametrizado.
@@ -989,44 +1047,7 @@ final class TransactionService
         );
 
         if ($tx) {
-            $customerId = $tx['customerId'] ?? null;
-            // Iterar los pagos RAW (no groupByPaymentMethod) porque groupBy hace
-            // unset($nu['extra']) antes de pushear — $dat['extra'] sería siempre null
-            // y el restore de giftcard nunca funcionaría. Para el void basta iterar
-            // cada línea de pago individualmente (no necesitamos agrupar totales).
-            $payments = json_decode($tx['transactionPaymentType'] ?? '', true);
-            foreach (is_array($payments) ? $payments : [] as $payment) {
-                $type  = (string) ($payment['type']  ?? '');
-                $price = (float)  ($payment['price'] ?? 0);
-                if ($price <= 0) {
-                    continue;
-                }
-
-                // Devolver balance del cliente (solo si hay cliente válido).
-                if (validity($customerId) && $type === 'points') {
-                    $this->db->Execute(
-                        "UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount + ?, updated_at = ? WHERE contactId = ?",
-                        [$price, TODAY, $customerId]
-                    );
-                } elseif (validity($customerId) && $type === 'storeCredit') {
-                    $this->db->Execute(
-                        "UPDATE contact SET contactStoreCredit = contactStoreCredit + ?, updated_at = ? WHERE contactId = ?",
-                        [$price, TODAY, $customerId]
-                    );
-                } elseif ($type === 'giftcard') {
-                    // Devolver saldo a gift card — FIX: WHERE completo + companyId scope
-                    // + parametrizado. El legacy tenía `AND outletId = ` sin valor →
-                    // sintácticamente rota. También: groupByPaymentMethod descarta
-                    // 'extra' → el legacy nunca restauró giftcards en void (bug silencioso).
-                    $extra = $payment['extra'] ?? null;
-                    if (is_numeric($extra)) {
-                        $this->db->Execute(
-                            'UPDATE giftCardSold SET giftCardSoldValue = giftCardSoldValue + ? WHERE (giftCardSoldCode = ? OR timestamp = ?) AND companyId = ?',
-                            [$price, $extra, $extra, $companyId]
-                        );
-                    }
-                }
-            }
+            self::restorePaymentBalances($this->db, $companyId, $tx['customerId'] ?? null, $tx['transactionPaymentType'] ?? '');
         }
 
         // 2. Marcar transacción como anulada (type=7).

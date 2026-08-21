@@ -135,6 +135,7 @@ final class FiscalService
         // pisar el cap).
         $sql = "SELECT $cols FROM transaction
                 WHERE transactionType IN (" . self::TX_TYPES . ")
+                AND " . SaleFilters::notVoidedSql() . "
                 AND transactionDate BETWEEN ? AND ?" . $roc . "
                 ORDER BY invoiceNo DESC LIMIT 5000";
         $res = ncmExecute($sql, [$from, $to], false, false, true);

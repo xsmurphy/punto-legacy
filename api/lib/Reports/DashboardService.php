@@ -111,6 +111,7 @@ final class DashboardService
             "SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount,
                     SUM(transactionUnitsSold) as units, COUNT(transactionId) as count
              FROM transaction WHERE transactionType IN (0,3,6)
+             AND " . SaleFilters::notVoidedSql() . "
              AND transactionDate >= ? AND transactionDate <= ?" . $roc,
             [$from, $to]
         );
@@ -144,7 +145,8 @@ final class DashboardService
         [$from, $to] = $this->range($opts);
         $res = ncmExecute(
             "SELECT transactionId, transactionTotal, transactionDiscount, transactionType
-             FROM transaction WHERE transactionType IN (0,3) AND transactionDate BETWEEN ? AND ?" . $roc,
+             FROM transaction WHERE transactionType IN (0,3) AND " . SaleFilters::notVoidedSql() . "
+             AND transactionDate BETWEEN ? AND ?" . $roc,
             [$from, $to], false, false, true
         );
         $res  = is_array($res) ? $res : [];
@@ -188,7 +190,8 @@ final class DashboardService
             "SELECT COUNT(DISTINCT a.customerId) as count
              FROM transaction a, contact b
              WHERE a.transactionDate BETWEEN ? AND ? AND a.customerId IS NOT NULL" . $rocA . "
-             AND a.transactionType IN (0,3) AND a.customerId = b.contactId
+             AND a.transactionType IN (0,3) AND " . SaleFilters::notVoidedSql('a') . "
+             AND a.customerId = b.contactId
              AND b.contactDate < ? AND b.type = 1",
             [$from, $to, $from]
         );
@@ -248,7 +251,8 @@ final class DashboardService
         $res = ncmExecute(
             "SELECT EXTRACT(HOUR FROM transactionDate)::int as hora, COUNT(transactionId) as total,
                     SUM(transactionUnitsSold) as units
-             FROM transaction WHERE transactionType IN (0,3) AND transactionDate BETWEEN ? AND ?" . $roc . "
+             FROM transaction WHERE transactionType IN (0,3) AND " . SaleFilters::notVoidedSql() . "
+             AND transactionDate BETWEEN ? AND ?" . $roc . "
              GROUP BY hora ORDER BY units DESC LIMIT 6",
             [$from, $to], false, false, true
         );
@@ -268,7 +272,8 @@ final class DashboardService
         $res = ncmExecute(
             "SELECT a.itemId as id, SUM(a.itemSoldUnits) as count, SUM(a.itemSoldTotal) as total
              FROM itemSold a, transaction b
-             WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
+             WHERE b.transactionType IN (0,3) AND " . SaleFilters::notVoidedSql('b') . "
+             AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
              AND a.transactionId = b.transactionId AND a.itemSoldTotal > 0
              GROUP BY a.itemId ORDER BY count DESC LIMIT 5",
             [$from, $to], false, false, true
@@ -294,7 +299,8 @@ final class DashboardService
             "SELECT b.$col as tax, SUM(a.itemSoldUnits) as usold
              FROM itemSold a, item b, transaction c
              WHERE a.itemId = b.itemId AND a.itemSoldDate BETWEEN ? AND ?
-             AND c.transactionType IN (0,3) AND a.transactionId = c.transactionId" . $rocC . "
+             AND c.transactionType IN (0,3) AND " . SaleFilters::notVoidedSql('c') . "
+             AND a.transactionId = c.transactionId" . $rocC . "
              GROUP BY b.$col ORDER BY usold DESC LIMIT 10",
             [$from, $to], false, false, true
         );
@@ -586,6 +592,7 @@ final class DashboardService
                     SELECT 1 FROM transaction t
                     WHERE t.transactionDate BETWEEN ? AND ?
                     AND t.transactionType IN (0,3)
+                    AND ' . SaleFilters::notVoidedSql('t') . '
                     AND t.customerId = c.contactId
                 )';
 

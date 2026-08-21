@@ -1,10 +1,12 @@
 # 40 — Anulación y Nota de Crédito
 
-> Estado: **plan abierto** (2026-08-14) para la anulación de VENTAS/facturas
-> (F1-F6 abajo). Pedido del owner desde `/pos` → detalle de transacción: los
-> botones "Anular" y "Devolución" están deshabilitados. **Las cuatro
-> decisiones están cerradas.** Todas las fases pueden ejecutarse. Nada
-> implementado todavía para venta.
+> Estado: **F1+F2 implementadas (2026-08-21)** para la anulación de VENTAS
+> (contado/crédito, type 0/3) — ver sección "Implementación (F1+F2)" al
+> final. **F3-F6 (numeración de NC, nota de crédito como documento propio, NC
+> electrónica, UI en `/pos`) siguen sin implementar**, plan abierto tal como
+> quedó cerrado el 2026-08-14. Pedido del owner desde `/pos` → detalle de
+> transacción: los botones "Anular" y "Devolución" siguen deshabilitados en
+> la UI hasta F6.
 >
 > **Anulación de RECIBOS DE PAGO/COBRO (type=5) — implementada 2026-08-16.**
 > Ver sección al final de este doc. Es un feature DISTINTO del de arriba (no
@@ -193,6 +195,100 @@ siendo esa factura, con su número y su timbrado, marcada como anulada.
   —anular a los dos minutos, antes de preparar— es justamente donde reponer
   insumos de una producción directa SÍ corresponde, y es la razón de que
   `settingReturnAllowIngredientReversal` exista en vez de prohibirlo siempre.
+
+---
+
+## Implementación (F1+F2) — 2026-08-21
+
+`SaleVoidService` (`api/lib/services/SaleVoidService.php`) — servicio nuevo,
+namespace `Punto\Api\Services`. Implementa D1-D4 tal como quedaron cerradas
+arriba: NO pisa `transactionType`, agrega `voidedAt`/`voidReason`/`voidedBy`
+(mig `154_sale_void.sql`, columnas lowercase — `transaction` es tabla legacy,
+§44 de `context/08-convenciones-criticas.md`). También marca
+`transactionComplete = TRUE` al anular una venta a crédito: la deuda
+desaparece, y con eso `OpenInvoicesService` deja de listarla sola (filtra
+`transactionComplete = false`), sin tocar ese servicio.
+
+- **`void()`**: lockea la venta (`FOR UPDATE`), rechaza si ya está anulada
+  (409 `ALREADY_VOIDED`), si pasaron las 48h desde `transactionDate` (422
+  `VOID_WINDOW_EXPIRED`, D4), si tiene devoluciones vigentes vinculadas
+  (`transaction_link kind='return'`, 409 `HAS_RETURNS`) o recibos de cobro
+  vigentes (`kind='credit_payment'`, 409 `HAS_PAYMENTS` — hay que anularlos
+  primero, `CreditPaymentService::void()`).
+- **Reposición de stock (D2)**: `voidOptions()` clasifica cada línea contra
+  la tabla D2 (`ownStock`/`ingredientReversal`/`service`) usando
+  `Inventory::explodeRecipe()` (explosión MULTI-NIVEL real — no el nivel
+  único que usa el legacy `TransactionService::voidTransaction()`, mejora
+  intencional para combos de varios niveles). El cajero decide por línea
+  (`$lines`), clampeado a lo que `canRestock` habilita. Lo que no se repone
+  y tuvo impacto real de stock genera `waste_event` (motivo "Devolución de
+  cliente", get-or-create lazy en `taxonomy`, mismo criterio que
+  `WasteReasonService::ensureSeed()`).
+- **`settingReturnAllowIngredientReversal`**: vive en `company.config` JSONB,
+  sin DDL propia (mismo patrón que `settingSellSoldOut`). Se lee directo con
+  `config->>'settingReturnAllowIngredientReversal' = 'yes'`.
+- **Pagos**: `TransactionService::restorePaymentBalances()` — lógica de
+  restore de points/storeCredit/giftcard EXTRAÍDA de `voidTransaction()` a un
+  método estático compartido (antes vivía inline ahí, ahora la reusan los dos
+  callers).
+- **Caja**: `FinanceLedger::voidBySource($companyId,'sale',$transactionId)`
+  DENTRO de la misma transacción de BD — si falla, la anulación entera
+  revierte (no es best-effort como el endpoint legacy, que probaba 4 sources
+  a ciegas porque no sabía el tipo real; acá se sabe con certeza).
+- **F2 (FE)**: si hay `einvoice_document` `issued` (doctype `FC`/`FCR` según
+  contado/crédito) para la venta, `EInvoiceService::cancel()` corre DENTRO de
+  la misma transacción — si SIFEN rechaza, todo (voidedAt, stock, pagos,
+  caja) hace rollback. Es la única pieza no best-effort del flujo.
+
+**Endpoints**:
+- POS: `api/v1/sales-void.php` — `GET ?id=` → `canVoid()` + `voidOptions()`;
+  `POST {id, reason, lines}` → `void()`. Auth `apiAuthTenant(['panel',
+  'pos-app'])` (mismo realm que `returns.php`, la acción hermana del mismo
+  detalle de transacción — NO `apiAuthPosContext()`/Bearer pese a lo que
+  decía el brief original de la tarea, corregido contra el código real de
+  `returns.php`). Gatea `pos.sale.void` (permiso ya existente, ya sembrado en
+  owner/manager).
+- Panel: `PUT /v1/transactions?resource=void` — venta contado/crédito (type
+  0/3) delega a `SaleVoidService::void()` con `lines=[]` (defaults);
+  cualquier otro tipo sigue el camino legacy (`voidTransaction()`, type→7).
+  De paso se cerró un gap encontrado auditando este endpoint: nunca
+  chequeaba `pos.sale.void` (cualquier device autenticado podía anular) —
+  ahora sí, para las dos ramas.
+
+**Reportes (exclusión de anuladas)**: `Reports\SaleFilters::notVoidedSql()`
+— helper nuevo, agrega `AND voidedAt IS NULL` a cualquier WHERE que ya
+filtre `transactionType IN (0,3,...)`. Aplicado a los call-sites de mayor
+materialidad (dashboard "total vendido", RG90/Libro Ventas, reporte de
+Ventas): `DashboardService` (7 sitios), `FiscalService::loadSales()` (RG90),
+`SalesService::salesTotals/series/hours/byDay` (Reports, 4 sitios).
+**NO tocados en este pase** (mismo patrón `transactionType IN (0,3...)`,
+`SaleFilters` ya existe para aplicarlos en una pasada de seguimiento):
+`CustomersService`, `CategoriesService`, `BrandsService`,
+`ProductionService` (Reports), `ProductsService`, `UsersService`,
+`PaymentMethodsService`, `CashflowService`, `ContactAnalyticsService`,
+`SummaryYearService`, `NonAddingSales`. **Excluidos a propósito** (no es el
+mismo criterio): `Reports\TransactionsService` (listado/detalle general —
+YA incluye type=7 adrede, quiere mostrar lo anulado, no ocultarlo — mismo
+principio que la anulación de recibos: "desaparecer es indistinguible de se
+borró"), `services/DrawerService` (reconciliación de turno/caja — ¿una venta
+anulada a mitad de turno sigue en el cierre de ESE turno? pregunta de
+producto sin cerrar), `Admin/TenantHealthService` (señal de actividad del
+tenant, no de revenue), y los `TX_TYPES` de `PurchasesService`/lado-compra de
+`ProductsService` (tabla no relacionada).
+
+`Transactions\TransactionDetailService::find()` (resolver canónico,
+context/39) expone `voidedAt`/`voidReason`/`voidedBy`/`voidedByName`; `void`
+ahora es `type===7 || voidedAt !== null` (antes solo miraba `type===7`).
+
+**Test**: `api/tests/sale_void_test.php` + `run_sale_void_test.sh` (+ helper
+`_sale_void_once_cli.php` para los casos que esperan `apiError`/`exit`),
+mismo patrón que `credit_payment_void_test.php`. Cubre: reposición mixta
+(stock propio repuesto, insumos de producción directa NO repuestos por
+default + `waste_event`, ítem de servicio sin efecto), idempotencia (409),
+ventana de 48h (422), `HAS_RETURNS` (409), y exclusión en
+`SalesService::salesTotals()`. **No cubre F2** (cancelación FE): requeriría
+provisionar Factomate contra el tenant fixture, fuera de alcance de un arnés
+"sin red" como `verify_chain`.
 
 ---
 
