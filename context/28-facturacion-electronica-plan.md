@@ -847,9 +847,16 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
    ¿Se setea después por otro endpoint, es el de la sucursal (`Branch.Phone`),
    o `PhoneLogin` resuelve distinto para un usuario-email? **Bloquea la cadena
    de auth de los emisores dados de alta por Punto.**
-6. **El admin, ¿autentica igual que un usuario de tenant** (`/Token` →
-   `PhoneLogin`) o solo con `/Token`? Ahora sabemos que el admin es un usuario
-   **sin tenant**, así que el segundo paso probablemente no le aplique.
+6. ~~**El admin, ¿autentica igual que un usuario de tenant** (`/Token` →
+   `PhoneLogin`) o solo con `/Token`?~~ — **RESUELTA** (2026-08-21, verificada
+   contra DEV con la credencial admin real que entregó Factomate): el admin
+   autentica **solo con `/Token`**, sin `PhoneLogin`, exactamente como asume
+   `FactomateSession::getAdminBearer()`. `GET /api/account/GetUserInfo` con ese
+   bearer responde 200 mandando el **username en el header `phonenumber`** — o
+   sea que para el admin ese header acepta la identidad de login y no hace
+   falta su teléfono real (el usuario admin sí tiene uno propio en Factomate,
+   distinto del username). La respuesta no trae `TenantId`, lo que confirma
+   que el admin es un usuario global sin tenant.
 7. **¿Hay endpoint de reseteo de contraseña de un usuario de tenant?** La de
    `CreateExternal` se devuelve una sola vez; sin reseteo, perderla deja al
    emisor inaccesible.
@@ -891,6 +898,19 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 - `FACTOMATE_BASE_URL_PROD` — default vacío. Sin configurar, cualquier cuenta en
   `environment='prod'` falla explícito (nunca cae a test).
 - F1: `EINVOICE_DRAIN_SECRET` + entrada de cron en el server de producción.
+  **Estado 2026-08-21: la var NO está cargada y NO hay cron** (ni crontab, ni
+  `pg_cron`, ni tarea de Coolify). Sin la var el endpoint responde 503, así que
+  hoy lo único que emite es el intento inline post-venta; un documento que falle
+  ahí queda en la cola sin que nadie lo drene.
+- F7: `FACTOMATE_ADMIN_USERNAME_TEST` / `FACTOMATE_ADMIN_PASSWORD_TEST` — la
+  credencial admin de Punto en Factomate, sin la cual `provision()` no puede dar
+  de alta ningún emisor (no quedó camino manual: F7 retiró los campos por
+  comercio). **Factomate la entregó el 2026-08-21 y está verificada contra DEV**
+  (ver pregunta 6 arriba); falta cargarla en Coolify. Las credenciales viven
+  SOLO en las env vars del deploy — nunca en el repo ni en este doc.
+- **Estado del entorno de producción al 2026-08-21**: la única var de FE
+  presente es `APP_ENCRYPTION_KEY`. Faltan las dos `FACTOMATE_ADMIN_*_TEST` y
+  `EINVOICE_DRAIN_SECRET`; las demás tienen default útil en `simple.config.php`.
 - F3: `TAXPAYER_LOOKUP_URL` — padrón público para el lookup de RUC
   (`GET {url}/{documento sin DV}`), default `https://turuc.com.py/api/contribuyente`.
   Vacía → el lookup solo responde con la fuente del proveedor de FE.
