@@ -1,16 +1,37 @@
 "use client"
 
+/**
+ * Selector de usuario reusable del POS: vendedor de una línea, vendedor de la
+ * venta y repartidor de una orden (los tres call-sites pasan su propio
+ * `title`).
+ *
+ * Es una lista BUSCABLE, así que se compone con `Command` (cmdk) dentro de un
+ * `Dialog`, que es el primitive de shadcn para exactamente este caso. Antes era
+ * un `Input` con una lupa absolute + filtrado a mano + un `Button variant=ghost`
+ * por fila + un `<span>` con `backgroundColor: "#6b7280"` inline como avatar:
+ * cuatro desvíos del design system (hex hardcodeado, primitive equivocado,
+ * `DialogTitle` con el tamaño pisado a `text-2xl`) que se veían como una
+ * pantalla ajena al resto del POS — reporte del owner 2026-08-21.
+ *
+ * Con `Command` el filtrado lo hace cmdk (se va el `useState` de búsqueda) y
+ * se gana navegación por teclado: flechas + Enter para elegir sin tocar la
+ * pantalla, que es como se opera una caja de alto volumen.
+ */
+
 import * as React from "react"
-import { Search } from "lucide-react"
+import { Check } from "lucide-react"
+
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { Button } from "@/components/ui/button"
-import { EmptyState } from "@/components/empty-state"
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@/components/ui/command"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
 
 interface SellerPickerDialogProps {
@@ -29,76 +50,60 @@ export function SellerPickerDialog({
   currentUserId,
   title = "Asignar usuario",
 }: SellerPickerDialogProps) {
-  const [search, setSearch] = React.useState("")
   const users = useCatalogStore((s) => s.users)
 
-  React.useEffect(() => {
-    if (open) setSearch("")
-  }, [open])
-
-  const filtered = React.useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return users
-    return users.filter((u) => u.name.toLowerCase().includes(q))
-  }, [users, search])
+  const choose = (userId: string | null) => {
+    onSelect(userId)
+    onOpenChange(false)
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle className="text-2xl font-semibold">
-            {title}
-          </DialogTitle>
+      <DialogContent className="overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="px-4 pt-4">
+          <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
-        <div className="relative mb-1">
-          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Buscar..."
-            className="pl-9"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            autoFocus
-          />
-        </div>
-        <div className="flex flex-col gap-1 py-1 max-h-72 overflow-y-auto">
-          {filtered.length === 0 ? (
-            <EmptyState
-              icon={Search}
-              title="Sin resultados"
-              description={`No hay usuarios que coincidan con "${search}"`}
-            />
-          ) : (
-            <>
-              {filtered.map((u) => (
-                <Button
+        {/* `value` incluye el id: cmdk exige valores únicos y dos usuarios
+            pueden llamarse igual. El id es un uuid, así que no interfiere con
+            lo que el operador tipea al buscar por nombre. */}
+        <Command className="bg-transparent">
+          <CommandInput placeholder="Buscar..." autoFocus />
+          <CommandList className="max-h-72">
+            <CommandEmpty>Sin resultados.</CommandEmpty>
+            <CommandGroup>
+              {users.map((u) => (
+                <CommandItem
                   key={u.id}
-                  type="button"
-                  variant={currentUserId === u.id ? "default" : "ghost"}
-                  className="w-full justify-start gap-3"
-                  onClick={() => { onSelect(u.id); onOpenChange(false) }}
+                  value={`${u.name} ${u.id}`}
+                  onSelect={() => choose(u.id)}
+                  className="gap-3 py-2"
                 >
-                  <span
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-                    style={{ backgroundColor: "#6b7280" }}
-                  >
-                    {u.name.charAt(0).toUpperCase()}
-                  </span>
-                  {u.name}
-                </Button>
+                  <Avatar className="size-7">
+                    <AvatarFallback className="text-xs">
+                      {u.name.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="truncate">{u.name}</span>
+                  {currentUserId === u.id && <Check className="ml-auto" />}
+                </CommandItem>
               ))}
-              {currentUserId && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="w-full justify-start text-muted-foreground mt-1"
-                  onClick={() => { onSelect(null); onOpenChange(false) }}
-                >
-                  Quitar asignación
-                </Button>
-              )}
-            </>
-          )}
-        </div>
+            </CommandGroup>
+            {currentUserId && (
+              <>
+                <CommandSeparator />
+                <CommandGroup>
+                  <CommandItem
+                    value="quitar asignación"
+                    onSelect={() => choose(null)}
+                    className="py-2 text-muted-foreground"
+                  >
+                    Quitar asignación
+                  </CommandItem>
+                </CommandGroup>
+              </>
+            )}
+          </CommandList>
+        </Command>
       </DialogContent>
     </Dialog>
   )
