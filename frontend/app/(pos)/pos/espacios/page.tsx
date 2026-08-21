@@ -229,7 +229,15 @@ export default function EspaciosPage() {
             className="h-full"
           />
         ) : (
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))]">
+            {/* Columnas por ANCHO DE CELDA, no por breakpoint: el tile mide
+                siempre ~8.5rem y la cantidad de columnas sale del ancho real
+                disponible. Es lo que hace que "pantalla completa" (que oculta el
+                carrito) muestre MÁS mesas en vez de agrandar las mismas — con
+                `lg:grid-cols-6` fijas, ensanchar el contenedor estiraba las 6
+                columnas (reporte del owner 2026-08-21). Mobile queda en 3
+                columnas fijas: ahí el módulo ocupa la pantalla entera y
+                `auto-fill` con este mínimo daría solo 2. */}
             {gridTables.map((table) => (
               <div key={table.id} className="aspect-square">
                 <PosSpaceTile table={table} onClick={() => handleTileClick(table)} />

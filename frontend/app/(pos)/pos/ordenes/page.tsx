@@ -132,7 +132,10 @@ export default function PosOrdenesPage() {
           ) : view === "list" ? (
             <OrdersListView orders={filtered} onOpenOrder={handleOpenOrder} />
           ) : (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-[repeat(auto-fill,minmax(17rem,1fr))]">
+              {/* Columnas por ANCHO DE TARJETA, no por breakpoint — mismo criterio
+                  que la grilla de /pos/espacios: en pantalla completa (sin carrito)
+                  tienen que entrar MÁS órdenes, no verse más anchas las mismas. */}
               {filtered.map((order) => (
                 <OrderCard key={order.id} order={order} />
               ))}
