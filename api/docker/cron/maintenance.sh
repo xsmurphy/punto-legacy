@@ -10,10 +10,11 @@
 #
 # Le pega a localhost:3000 (el mismo `php -S` que sirve el tráfico externo —
 # el cron vive adentro del container, no hay red aparte). Sin header Host
-# explícito: ni router.php ni bootstrap.php ni cors.php resuelven nada por
-# Host en /v1/* (CORS va por Origin), y hardcodear un dominio acá viola la
-# regla del proyecto (CLAUDE.md §3). Si algún día el bootstrap resuelve
-# tenant por subdominio, el Host tiene que salir de una env var, no de acá.
+# explícito, y eso es seguro porque simple.config.php ya NO decide "entorno
+# local" por Host cuando API_URL viene del env (ver comentario ahí): antes un
+# request a localhost hacía que APP_URL/PUBLIC_URL/etc. se resolvieran a
+# localhost y el drainer de FE armaba links de portal rotos. Hardcodear un
+# dominio acá violaría la regla del proyecto (CLAUDE.md §3).
 #
 # Si EINVOICE_DRAIN_SECRET no está seteada, el job de mantenimiento está
 # deshabilitado (el endpoint respondería 503) — no tiene sentido pegarle y

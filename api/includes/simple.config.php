@@ -42,7 +42,16 @@ define('HASH_TIMES',65646);
     }
 })();
 // Detección automática de entorno local
-$_isLocal = (isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'localhost') !== false);
+// Entorno local = NO hay URLs configuradas por env Y el Host es localhost.
+// Antes bastaba el Host: cualquier request interno a localhost (healthcheck,
+// cron de mantenimiento en api/docker/cron/maintenance.sh) hacía que TODAS las
+// constantes de URL de abajo se resolvieran a localhost AUNQUE el env de
+// producción estuviera completo — un documento electrónico drenado por el
+// cron armaba su link de portal con http://localhost. Por eso el HEALTHCHECK
+// del Dockerfile tuvo que hardcodear un Host, contra la regla del proyecto.
+// Con el env configurado, el Host ya no decide nada (2026-08-21).
+$_isLocal = (($_ENV['API_URL'] ?? '') === '')
+    && isset($_SERVER['HTTP_HOST']) && strpos($_SERVER['HTTP_HOST'], 'localhost') !== false;
 
 define('API_URL',       $_isLocal ? 'http://localhost:8002/API'     : ($_ENV['API_URL']    ?? ''));
 define('PUBLIC_URL',    $_isLocal ? 'http://localhost:8002/screens' : ($_ENV['PUBLIC_URL'] ?? ''));
