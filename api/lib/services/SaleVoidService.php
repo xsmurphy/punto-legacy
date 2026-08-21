@@ -442,7 +442,7 @@ final class SaleVoidService
      * `TransactionService::voidTransaction()` legacy, que un combo de varios
      * niveles subestima (ver context/modules/05-stock.md regla 10).
      */
-    private function classifyLine(array $f, string $companyId, bool $allowIngredientReversal): array
+    private function classifyLine(array|\ArrayAccess $f, string $companyId, bool $allowIngredientReversal): array
     {
         $itemId = (string) ($f['itemid'] ?? '');
         $units  = abs((float) ($f['itemsoldunits'] ?? 0));
