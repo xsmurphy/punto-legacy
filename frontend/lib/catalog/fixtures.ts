@@ -25,6 +25,8 @@ export const fixtureConfig: PosConfig = {
   companyId: "1",
   companyLogo: null,
   publicUrl: "http://localhost:3001",
+  settingReturnRefund: "ask",
+  settingReturnAllowIngredientReversal: false,
 }
 
 // ── Caja ──────────────────────────────────────────────────────────────────────

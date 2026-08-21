@@ -84,6 +84,19 @@ export interface PosConfig {
    */
   bancardQrEnabled?: boolean
   bancardPosEnabled?: boolean
+  /**
+   * D3 (context/40-anulacion-y-nota-credito.md): política de reintegro de
+   * devoluciones fijada por el comercio. `'ask'` (default) — el POS
+   * pregunta en cada devolución; `'cash'`/`'credit'` fijo — el back
+   * rechaza (422) un request con el otro modo, así que el POS no debería
+   * ofrecerlo.
+   */
+  settingReturnRefund?: "cash" | "credit" | "ask"
+  /**
+   * D2 (context/40): habilita OFRECER la reposición de insumos de una
+   * producción directa/combo que no llegó a prepararse. Default false.
+   */
+  settingReturnAllowIngredientReversal?: boolean
 }
 
 // ── Caja (register) ───────────────────────────────────────────────────────────

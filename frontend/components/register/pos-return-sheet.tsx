@@ -5,14 +5,22 @@
  *
  * 3 pasos inline (no wizard con rutas):
  *   1. Buscar transacción (tipo 0 o 3 — contado / crédito)
- *   2. Seleccionar items y qty a devolver
- *   3. Elegir refund mode (efectivo / crédito al cliente) + nota + confirmar
+ *   2. Seleccionar items, qty y reposición de stock por línea (D2,
+ *      context/40-anulacion-y-nota-credito.md)
+ *   3. Elegir refund mode (efectivo / crédito al cliente) según la política
+ *      del comercio (D3) + nota + confirmar
  *
- * Abierto desde el menú del POS (pos-main-menu.tsx).
+ * El paso 2 se alimenta de `useReturnOptions` (GET returnOptions) — reemplaza
+ * el listado que antes armaba con `transactionDatas` de la venta original.
+ * `availableQty` YA descuenta devoluciones previas, no se recalcula acá.
+ *
+ * Abierto desde el menú del POS (pos-main-menu.tsx) y desde el detalle de
+ * transacción (`pos-transactions-dialog.tsx`, `transactions-list.tsx`) con
+ * `parentTransactionId`.
  */
 
 import * as React from "react"
-import { RotateCcw, Search, ChevronLeft, X } from "lucide-react"
+import { RotateCcw, Search, ChevronLeft } from "lucide-react"
 import { toast } from "sonner"
 
 import { cn } from "@/lib/utils"
@@ -20,6 +28,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Sheet,
   SheetContent,
@@ -27,14 +38,6 @@ import {
   SheetTitle,
   SheetDescription,
 } from "@/components/ui/sheet"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -47,20 +50,23 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Separator } from "@/components/ui/separator"
 
-import { useTransactionsList, useTransaction, type TransactionDataItem } from "@/hooks/use-transactions"
-import { useCreateReturn, type ReturnItem } from "@/hooks/use-returns"
+import { useTransactionsList, useTransaction } from "@/hooks/use-transactions"
+import {
+  useReturnOptions,
+  useCreateReturn,
+  ReturnError,
+  type ReturnLine,
+  type ReturnItem,
+} from "@/hooks/use-returns"
 import { formatMoney } from "@/lib/format-money"
 import { formatDateTime } from "@/lib/format-date"
 import { useCatalogStore } from "@/lib/catalog/store"
 
 // ── Tipos internos ─────────────────────────────────────────────────────────────
 
-interface SelectedItem {
-  itemId: string
-  name: string
-  soldQty: number
-  unitPrice: number
+interface SelectedLine extends ReturnLine {
   returnQty: number
+  restock: boolean
 }
 
 type Step = "search" | "items" | "confirm"
@@ -74,6 +80,15 @@ interface PosReturnSheetProps {
   parentTransactionId?: string
 }
 
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+/** Por qué no se puede reponer al stock, según cómo el ítem descontó al venderse (tabla D2, context/40). `null` = sí se puede (ownStock). */
+function restockReason(kind: ReturnLine["kind"]): string | null {
+  if (kind === "ingredientReversal") return "Los insumos ya se consumieron"
+  if (kind === "service") return "No maneja stock"
+  return null
+}
+
 // ── Componente principal ───────────────────────────────────────────────────────
 
 export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosReturnSheetProps) {
@@ -82,7 +97,7 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
   const [step, setStep] = React.useState<Step>(parentTransactionId ? "items" : "search")
   const [search, setSearch] = React.useState("")
   const [selectedTransactionId, setSelectedTransactionId] = React.useState<string | null>(parentTransactionId ?? null)
-  const [selectedItems, setSelectedItems] = React.useState<SelectedItem[]>([])
+  const [selectedItems, setSelectedItems] = React.useState<SelectedLine[]>([])
   const [refundMode, setRefundMode] = React.useState<"cash" | "credit">("cash")
   const [note, setNote] = React.useState("")
   const [confirmOpen, setConfirmOpen] = React.useState(false)
@@ -147,29 +162,40 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
 
   // ── Paso 2: selección de items ──────────────────────────────────────────────
 
-  const { data: txDetail, isLoading: detailLoading } = useTransaction(selectedTransactionId)
+  // Solo para `customerId` (D3 — gating de "Crédito al cliente"); el listado
+  // de ítems viene de `useReturnOptions`, no de `transactionDatas`.
+  const { data: txDetail } = useTransaction(selectedTransactionId)
+  const {
+    data: optionsData,
+    isLoading: optionsLoading,
+    isError: optionsError,
+  } = useReturnOptions(selectedTransactionId)
 
-  // Al cargar el detalle, inicializar los items seleccionados con qty = 0
+  // Al cargar las opciones, inicializar selección con qty=0 y el default de reposición.
   React.useEffect(() => {
-    if (!txDetail?.transactionDatas) return
+    if (!optionsData) return
     setSelectedItems(
-      txDetail.transactionDatas.map((d: TransactionDataItem) => ({
-        itemId:    d.itemId,
-        name:      d.name,
-        soldQty:   d.count,
-        unitPrice: d.price,
+      optionsData.map((line) => ({
+        ...line,
         returnQty: 0,
+        restock: line.defaultRestock,
       })),
     )
-  }, [txDetail])
+  }, [optionsData])
 
-  function updateQty(itemId: string, qty: number) {
+  function updateQty(itemSoldId: string, qty: number) {
     setSelectedItems((prev) =>
       prev.map((it) =>
-        it.itemId === itemId
-          ? { ...it, returnQty: Math.min(Math.max(0, qty), it.soldQty) }
+        it.itemSoldId === itemSoldId
+          ? { ...it, returnQty: Math.min(Math.max(0, qty), it.availableQty) }
           : it,
       ),
+    )
+  }
+
+  function updateRestock(itemSoldId: string, value: boolean) {
+    setSelectedItems((prev) =>
+      prev.map((it) => (it.itemSoldId === itemSoldId ? { ...it, restock: value } : it)),
     )
   }
 
@@ -192,13 +218,45 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
 
   const hasCustomer = Boolean(txDetail?.customerId)
 
+  // D3: la política del comercio (`settingReturnRefund`) filtra qué modos se
+  // ofrecen. 'ask' (default) ofrece los dos, sujeto a la regla existente de
+  // "sin cliente no hay crédito". Con 'cash'/'credit' fijo, la otra opción NO
+  // se ofrece — si la política dice 'credit' pero la venta no tiene cliente,
+  // cae a efectivo (no hay a quién acreditarle, ver context/40 D3).
+  const refundPolicy = config?.settingReturnRefund ?? "ask"
+  const availableModes = React.useMemo<Array<"cash" | "credit">>(() => {
+    if (refundPolicy === "cash") return ["cash"]
+    if (refundPolicy === "credit") return hasCustomer ? ["credit"] : ["cash"]
+    return hasCustomer ? ["cash", "credit"] : ["cash"]
+  }, [refundPolicy, hasCustomer])
+
+  React.useEffect(() => {
+    if (!availableModes.includes(refundMode)) {
+      setRefundMode(availableModes[0])
+    }
+  }, [availableModes, refundMode])
+
+  const policyLocked = refundPolicy !== "ask"
+  const policyNote = !policyLocked
+    ? null
+    : refundPolicy === "credit" && !hasCustomer
+      ? "La venta no tiene cliente — se reintegra en efectivo."
+      : "Definido por el comercio."
+
+  const restockCount = itemsToReturn.filter((it) => it.restock && it.canRestock).length
+  const wasteCount = itemsToReturn.filter(
+    (it) => it.kind !== "service" && !(it.restock && it.canRestock),
+  ).length
+
   async function handleConfirm() {
     if (!selectedTransactionId) return
     setConfirmOpen(false)
 
     const items: ReturnItem[] = itemsToReturn.map((it) => ({
       itemId: it.itemId,
-      qty:    it.returnQty,
+      itemSoldId: it.itemSoldId,
+      qty: it.returnQty,
+      restock: it.canRestock ? it.restock : false,
     }))
 
     try {
@@ -211,7 +269,11 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
       toast.success("Devolución procesada correctamente.")
       handleOpenChange(false)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Error al procesar la devolución.")
+      const message =
+        err instanceof ReturnError || err instanceof Error
+          ? err.message
+          : "Error al procesar la devolución."
+      toast.error(message)
     }
   }
 
@@ -322,55 +384,94 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
           {/* ── Paso 2: seleccionar items ────────────────────────────── */}
           {step === "items" && (
             <div className="flex min-h-0 flex-1 flex-col">
-              {detailLoading && (
+              {optionsLoading && (
+                <div className="flex flex-col gap-3 px-6 py-4">
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                  <Skeleton className="h-16 w-full" />
+                </div>
+              )}
+
+              {!optionsLoading && optionsError && (
                 <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-                  Cargando detalle…
+                  No se pudo consultar la devolución. Cerrá e intentá de nuevo.
                 </p>
               )}
-              {!detailLoading && txDetail && (
+
+              {!optionsLoading && !optionsError && (
                 <>
                   <div className="flex-1 overflow-y-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Ítem</TableHead>
-                          <TableHead className="text-right">Vendido</TableHead>
-                          <TableHead className="w-28 text-right">A devolver</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {selectedItems.map((it) => (
-                          <TableRow key={it.itemId}>
-                            <TableCell className="max-w-[180px]">
-                              <p className="truncate text-sm font-medium">{it.name}</p>
-                              <p className="text-xs text-muted-foreground tabular-nums">
-                                {formatMoney(it.unitPrice, config)} c/u
-                              </p>
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-sm">
-                              {it.soldQty}
-                            </TableCell>
-                            <TableCell className="text-right">
+                    <div className="divide-y">
+                      {selectedItems.map((it) => {
+                        const disabled = it.availableQty === 0
+                        const reason = restockReason(it.kind)
+                        return (
+                          <div
+                            key={it.itemSoldId}
+                            className={cn(
+                              "flex flex-col gap-2 px-6 py-3",
+                              disabled && "opacity-50",
+                            )}
+                          >
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">{it.name}</p>
+                                <p className="text-xs text-muted-foreground tabular-nums">
+                                  Vendido {it.soldQty}
+                                  {it.alreadyReturned > 0 && ` · Devuelto ${it.alreadyReturned}`}
+                                  {" · "}
+                                  {formatMoney(it.unitPrice, config)} c/u
+                                </p>
+                                {disabled && (
+                                  <p className="text-xs text-muted-foreground">Ya devuelto</p>
+                                )}
+                              </div>
                               <Input
                                 type="number"
                                 min={0}
-                                max={it.soldQty}
+                                max={it.availableQty}
                                 step={1}
+                                disabled={disabled}
                                 value={it.returnQty === 0 ? "" : it.returnQty}
                                 onChange={(e) =>
-                                  updateQty(it.itemId, Number(e.target.value) || 0)
+                                  updateQty(it.itemSoldId, Number(e.target.value) || 0)
                                 }
-                                className="h-8 w-20 text-right tabular-nums"
+                                className="h-8 w-20 shrink-0 text-right tabular-nums"
                                 placeholder="0"
                               />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
+                            </div>
+
+                            {it.returnQty > 0 && (
+                              <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2">
+                                <div className="min-w-0">
+                                  <Label
+                                    htmlFor={`restock-${it.itemSoldId}`}
+                                    className="text-xs text-muted-foreground"
+                                  >
+                                    Vuelve al stock
+                                  </Label>
+                                  {!it.canRestock && reason && (
+                                    <p className="text-xs text-muted-foreground">{reason}</p>
+                                  )}
+                                </div>
+                                <Switch
+                                  id={`restock-${it.itemSoldId}`}
+                                  checked={it.canRestock && it.restock}
+                                  disabled={!it.canRestock}
+                                  onCheckedChange={(v) => updateRestock(it.itemSoldId, v)}
+                                />
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
                   </div>
 
                   <div className="border-t bg-background px-6 py-4">
+                    <p className="mb-3 text-xs text-muted-foreground">
+                      Lo que no vuelve al stock se registra como pérdida (merma).
+                    </p>
                     <div className="mb-3 flex items-center justify-between text-sm">
                       <span className="text-muted-foreground">
                         {itemsToReturn.length} ítem{itemsToReturn.length !== 1 ? "s" : ""} seleccionado{itemsToReturn.length !== 1 ? "s" : ""}
@@ -405,7 +506,7 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
                   <div className="divide-y rounded-md border">
                     {itemsToReturn.map((it) => (
                       <div
-                        key={it.itemId}
+                        key={it.itemSoldId}
                         className="flex items-center justify-between px-3 py-2.5 text-sm"
                       >
                         <span className="min-w-0 truncate">{it.name}</span>
@@ -419,46 +520,74 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
 
                 <Separator />
 
-                {/* Total */}
-                <div className="flex items-center justify-between rounded-lg bg-muted/40 px-4 py-3">
-                  <span className="text-sm font-medium">Total a devolver</span>
-                  <span className="text-lg font-bold tabular-nums">
-                    {formatMoney(returnTotal, config)}
-                  </span>
+                {/* Total + resumen de stock/merma (D2) */}
+                <div className="flex flex-col gap-2 rounded-lg bg-muted/40 px-4 py-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Total a devolver</span>
+                    <span className="text-lg font-bold tabular-nums">
+                      {formatMoney(returnTotal, config)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>
+                      {restockCount} línea{restockCount !== 1 ? "s" : ""} vuelve
+                      {restockCount === 1 ? "" : "n"} al stock
+                    </span>
+                    <span>
+                      {wasteCount} línea{wasteCount !== 1 ? "s" : ""} a merma
+                    </span>
+                  </div>
                 </div>
 
-                {/* Modo de devolución */}
+                {/* Modo de devolución (D3) */}
                 <div>
                   <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Forma de devolución
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Button
-                      variant="outline"
-                      onClick={() => setRefundMode("cash")}
-                      className={cn(
-                        "h-auto py-3 text-sm font-medium",
-                        refundMode === "cash" && "border-primary bg-primary/5 text-primary",
+                  {!policyLocked ? (
+                    <>
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button
+                          variant="outline"
+                          onClick={() => setRefundMode("cash")}
+                          className={cn(
+                            "h-auto py-3 text-sm font-medium",
+                            refundMode === "cash" && "border-primary bg-primary/5 text-primary",
+                          )}
+                        >
+                          Efectivo
+                        </Button>
+                        <Button
+                          variant="outline"
+                          onClick={() => setRefundMode("credit")}
+                          disabled={!hasCustomer}
+                          className={cn(
+                            "h-auto py-3 text-sm font-medium",
+                            refundMode === "credit" && "border-primary bg-primary/5 text-primary",
+                          )}
+                        >
+                          Crédito al cliente
+                        </Button>
+                      </div>
+                      {!hasCustomer && (
+                        <p className="mt-1.5 text-xs text-muted-foreground">
+                          La venta no tiene cliente — solo disponible devolución en efectivo.
+                        </p>
                       )}
-                    >
-                      Efectivo
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setRefundMode("credit")}
-                      disabled={!hasCustomer}
-                      className={cn(
-                        "h-auto py-3 text-sm font-medium",
-                        refundMode === "credit" && "border-primary bg-primary/5 text-primary",
+                    </>
+                  ) : (
+                    <>
+                      <Button
+                        variant="outline"
+                        disabled
+                        className="h-auto w-full border-primary bg-primary/5 py-3 text-sm font-medium text-primary"
+                      >
+                        {refundMode === "cash" ? "Efectivo" : "Crédito al cliente"}
+                      </Button>
+                      {policyNote && (
+                        <p className="mt-1.5 text-xs text-muted-foreground">{policyNote}</p>
                       )}
-                    >
-                      Crédito al cliente
-                    </Button>
-                  </div>
-                  {!hasCustomer && (
-                    <p className="mt-1.5 text-xs text-muted-foreground">
-                      La venta no tiene cliente — solo disponible devolución en efectivo.
-                    </p>
+                    </>
                   )}
                 </div>
 

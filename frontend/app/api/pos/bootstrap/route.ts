@@ -146,6 +146,13 @@ interface UpstreamBootstrap {
    * el reshaper cae a `true`, mismo default fiscal que el backend.
    */
   activeOutletTaxIncluded?: boolean
+  /**
+   * D2/D3 (context/40-anulacion-y-nota-credito.md) — política de
+   * devoluciones del comercio. Ausente = bootstrap upstream viejo, el
+   * reshaper cae a los mismos defaults que `api/v1/bootstrap.php`.
+   */
+  settingReturnRefund?: "cash" | "credit" | "ask"
+  settingReturnAllowIngredientReversal?: boolean
 }
 
 // Fila de /v1/taxes — ver TaxService::present() (F0, tabla `tax`).
@@ -321,6 +328,11 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     companyWebsite: bs.companyWebsite || null,
     bancardQrEnabled: bs.bancardQr === true,
     bancardPosEnabled: bs.bancardPos === true,
+    settingReturnRefund:
+      bs.settingReturnRefund === "cash" || bs.settingReturnRefund === "credit"
+        ? bs.settingReturnRefund
+        : "ask",
+    settingReturnAllowIngredientReversal: bs.settingReturnAllowIngredientReversal === true,
   }
 }
 
