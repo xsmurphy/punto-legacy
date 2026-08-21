@@ -58,27 +58,17 @@ export function FeaturesGrid() {
         ref={scrollerRef}
         className="mt-10 flex snap-x snap-mandatory gap-4 overflow-x-auto px-[max(1rem,calc((100vw-72rem)/2+1rem))] pb-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
-        {FEATURE_CARDS.map((feature) => {
-          const Icon = feature.icon
-          return (
-            <article
-              key={feature.key}
-              className="flex w-64 shrink-0 snap-start flex-col gap-4 rounded-2xl border bg-background p-5 md:w-72"
-            >
-              <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
-                <Icon className="size-5 text-foreground" />
-              </div>
-              <div className="flex flex-col gap-1.5">
-                <h3 className="text-base font-semibold tracking-tight">
-                  {feature.title}
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {feature.description}
-                </p>
-              </div>
-            </article>
-          )
-        })}
+        {FEATURE_CARDS.map((feature) => (
+          <article
+            key={feature.key}
+            className="flex w-64 shrink-0 snap-start flex-col gap-2 rounded-2xl border bg-background p-5 md:w-72"
+          >
+            <h3 className="text-base font-semibold tracking-tight">
+              {feature.title}
+            </h3>
+            <p className="text-sm text-muted-foreground">{feature.description}</p>
+          </article>
+        ))}
       </div>
     </section>
   )

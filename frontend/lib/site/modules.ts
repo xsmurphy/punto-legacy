@@ -1,24 +1,3 @@
-import type { LucideIcon } from "lucide-react"
-import {
-  ArrowLeftRight,
-  Boxes,
-  CalendarClock,
-  ChefHat,
-  CloudOff,
-  Coins,
-  FileCheck,
-  FileText,
-  Gift,
-  Layers,
-  MonitorSmartphone,
-  Printer,
-  ReceiptText,
-  Sparkles,
-  Store,
-  Tags,
-  Truck,
-} from "lucide-react"
-
 /** Tab grande de la sección "Tu negocio puede ser mucho más". */
 export type ModuleTab = {
   key: string
@@ -105,7 +84,6 @@ export const MODULE_TABS: ModuleTab[] = [
 /** Mini-card de la sección "Todo en un solo lugar". */
 export type FeatureCard = {
   key: string
-  icon: LucideIcon
   title: string
   description: string
 }
@@ -113,103 +91,86 @@ export type FeatureCard = {
 export const FEATURE_CARDS: FeatureCard[] = [
   {
     key: "ai",
-    icon: Sparkles,
     title: "Punto AI",
     description: "Preguntale por tus números y responde con los datos del negocio.",
   },
   {
     key: "efactura",
-    icon: FileCheck,
     title: "Factura electrónica",
     description: "El comprobante se emite y se envía solo, con su estado siempre a la vista.",
   },
   {
     key: "sucursales",
-    icon: Store,
     title: "Multi-sucursal",
     description: "Catálogo, precios y reportes por sucursal, bajo una sola marca.",
   },
   {
     key: "ordenes",
-    icon: CalendarClock,
     title: "Órdenes y mesas",
     description: "El pedido viaja a cocina sin papeles y cada mesa muestra su cuenta abierta.",
   },
   {
     key: "cotizaciones",
-    icon: FileText,
     title: "Cotizaciones",
     description: "El presupuesto se arma como una venta y se convierte en una con un toque.",
   },
   {
     key: "vales",
-    icon: Gift,
     title: "Gift cards y vales",
     description: "Se venden por adelantado y se canjean en caja, sin papelitos.",
   },
   {
     key: "credito",
-    icon: Coins,
     title: "Crédito y cobranzas",
     description: "Venta a crédito con límite por cliente y recibos de cada pago.",
   },
   {
     key: "compras",
-    icon: Truck,
     title: "Compras y proveedores",
     description: "La compra carga el stock y deja el costo actualizado.",
   },
   {
     key: "produccion",
-    icon: ChefHat,
     title: "Producción y recetas",
     description: "La receta descuenta insumos y calcula el costo del plato sola.",
   },
   {
     key: "combos",
-    icon: Layers,
     title: "Combos y agregados",
     description: "Mitades, adicionales y combos que bajan literales a la comanda.",
   },
   {
     key: "precios",
-    icon: Tags,
     title: "Listas de precio",
     description: "Mayorista, mostrador o delivery: cada canal con su precio.",
   },
   {
     key: "offline",
-    icon: CloudOff,
     title: "Modo offline",
     description: "Se corta internet y la caja sigue vendiendo. Al volver, todo se sincroniza.",
   },
   {
     key: "sync",
-    icon: ArrowLeftRight,
     title: "Sync en tiempo real",
     description: "Lo que pasa en una caja se ve en todas, al instante.",
   },
   {
     key: "remision",
-    icon: Boxes,
     title: "Remisiones",
     description: "El traslado entre depósitos sale documentado, no anotado.",
   },
   {
     key: "fiscales",
-    icon: ReceiptText,
     title: "Reportes fiscales",
     description: "Los libros de venta y de compra salen del sistema, no del contador apurado.",
   },
   {
     key: "impresion",
-    icon: Printer,
     title: "Plantillas de impresión",
     description: "Ticket, factura y comanda con tu logo, tal como los querés.",
   },
   {
     key: "dispositivos",
-    icon: MonitorSmartphone,
     title: "Dispositivos y cajas",
     description: "Cada caja con su sesión, sus permisos y su numeración propia.",
   },
