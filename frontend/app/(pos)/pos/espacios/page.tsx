@@ -22,6 +22,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { LayoutGrid, Map } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
+import { FullscreenToggle } from "@/components/pos/fullscreen-toggle"
 import { PosSpaceTile } from "@/components/spaces/pos-space-tile"
 import { OpenSpaceDialog } from "@/components/spaces/open-space-dialog"
 import { SpaceSessionDialog } from "@/components/spaces/space-session-dialog"
@@ -282,6 +283,10 @@ export default function EspaciosPage() {
               />
             ))}
           </div>
+          {/* Toggle de pantalla completa — posición fija al final de la pill
+              (regla del POS: posiciones estables, sin desplazamientos). */}
+          <div className="hidden h-6 w-px shrink-0 bg-white/15 md:block" />
+          <FullscreenToggle />
         </div>
       </div>
     </div>

@@ -84,6 +84,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useRegisterClaim } from "@/hooks/use-register-claim"
 import { posApi } from "@/lib/api/pos-client"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { useWorkspaceStore, supportsFullscreen } from "@/lib/pos/workspace-store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
@@ -179,6 +180,13 @@ function PosWorkspaceLayoutInner({
   const moduleTitle = moduleTitleFor(pathname) ?? (hotkeysAsModule ? "HotKeys" : null)
   const moduleAsDialog = isMobile && moduleTitle !== null
 
+  // Toggle "pantalla completa" de módulo (oculta el CartPanel): solo desktop
+  // y solo en rutas que lo soportan (/pos/espacios, /pos/ordenes). En /pos
+  // (home, venta) el carrito SIEMPRE se ve aunque el flag esté prendido —
+  // la venta nunca cambia de layout, es memoria muscular del cajero.
+  const modulesFullscreen = useWorkspaceStore((s) => s.modulesFullscreen)
+  const cartHidden = !isMobile && !moduleAsDialog && supportsFullscreen(pathname) && modulesFullscreen
+
   // Auto-lock al arrancar si hay >1 operador (sin flash entre paints).
   // El flag vive en el lock-store (no en un useRef local) para sobrevivir
   // remounts del layout — Next puede invalidar la cache al navegar entre
@@ -238,11 +246,19 @@ function PosWorkspaceLayoutInner({
       <SpaceSettlementProvider />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {!moduleAsDialog && (
-          <div className="hidden flex-[7] overflow-hidden md:block">
+          <div
+            className={cn(
+              "hidden overflow-hidden md:block",
+              cartHidden ? "flex-1" : "flex-[7]",
+            )}
+          >
             {children}
           </div>
         )}
-        <div className="flex-1 overflow-hidden md:flex-[3]">
+        {/* No se desmonta con `cartHidden`: el panel es persistente (ver
+            docblock del layout) y además guarda estado local de UI propio
+            además del zustand store. Solo se oculta con `hidden`. */}
+        <div className={cn("flex-1 overflow-hidden md:flex-[3]", cartHidden && "hidden")}>
           <CartPanel />
         </div>
       </div>
