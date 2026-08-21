@@ -116,6 +116,13 @@ export const RUBROS_MENU: MenuEntry[] = [
     previewText: "Miles de artículos y un mostrador que no duda.",
   },
   {
+    label: "Bares y pubs",
+    description: "Barra, comandas y cuenta dividida",
+    href: "/para/bares-y-pubs",
+    preview: { src: "/site/rubro-restaurantes.jpg", alt: "" },
+    previewText: "La barra no para y la cuenta no se pierde.",
+  },
+  {
     label: "Cafeterías",
     description: "Mostrador rápido y clientela que vuelve",
     href: "/para/cafeterias",
@@ -127,6 +134,12 @@ export const RUBROS_MENU: MenuEntry[] = [
     description: "Recetas, producción y venta al peso",
     href: "/para/panaderias",
     previewText: "Producción de madrugada, caja sin fila.",
+  },
+  {
+    label: "Heladerías",
+    description: "Venta por peso, bochas y combos",
+    href: "/para/heladerias",
+    previewText: "El pico del fin de semana, servido sin fila.",
   },
   {
     label: "Tiendas de ropa",
