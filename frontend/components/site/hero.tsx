@@ -19,6 +19,7 @@ const HERO_IMAGES = [
   { src: "/site/hero.jpg" },
   { src: "/site/rubro-restaurantes.jpg" },
   { src: "/site/rubro-salud-y-belleza.jpg" },
+  { src: "/site/rubro-retail.jpg" },
 ]
 
 export function SiteHero() {

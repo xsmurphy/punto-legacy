@@ -36,7 +36,7 @@ const SPOTLIGHTS: Spotlight[] = [
     title: "Vender no debería tomar más de unos segundos",
     description:
       "Buscador instantáneo, artículos con foto a la vista y cobro en dos toques. Contado, crédito o varios medios de pago en la misma venta — con el comprobante saliendo al cerrar. Y si se corta internet o la luz, seguís vendiendo: al volver la conexión, todo se sincroniza solo.",
-    primary: { label: "Conocer el Punto de Venta", href: "#" },
+    primary: { label: "Conocer el Punto de Venta", href: "/modulos/punto-de-venta" },
     secondary: { label: "Empezar gratis", href: "#" },
     images: [
       {
@@ -52,7 +52,7 @@ const SPOTLIGHTS: Spotlight[] = [
     title: "Tu negocio entero, a la vista",
     description:
       "Ventas de todas las sucursales, stock, cuentas por cobrar y el resultado del día en la misma pantalla. Cargá artículos, mirá el arqueo de cada turno y llevá el control desde la computadora del local o desde el teléfono, estés donde estés.",
-    primary: { label: "Conocer el panel", href: "#" },
+    primary: { label: "Conocer el panel", href: "/modulos/panel" },
     secondary: { label: "Ver los reportes", href: "#" },
     images: [
       {
@@ -72,7 +72,7 @@ const SPOTLIGHTS: Spotlight[] = [
     title: "Un analista que ya conoce tus números",
     description:
       "Preguntale en tu idioma y responde con los datos reales de tu negocio: cómo viene el mes contra el anterior, qué producto dejó más margen, qué clientes no volvieron, qué hay que reponer esta semana. Arma el reporte, lo grafica y explica qué está pasando — sin que tengas que exportar una planilla ni saber por dónde empezar.",
-    primary: { label: "Conocer Punto AI", href: "#" },
+    primary: { label: "Conocer Punto AI", href: "/modulos/punto-ai" },
     secondary: { label: "Ver un ejemplo", href: "#" },
     images: [
       {

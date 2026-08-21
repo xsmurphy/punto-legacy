@@ -46,7 +46,7 @@ const MODULOS: MenuEntry[] = [
     icon: Store,
     label: "Punto de Venta",
     description: "Vender en segundos y cerrar el turno con arqueo",
-    href: "#",
+    href: "/modulos/punto-de-venta",
   },
   {
     icon: ReceiptText,
@@ -68,15 +68,15 @@ const MODULOS: MenuEntry[] = [
   },
   {
     icon: BarChart3,
-    label: "Reportes",
-    description: "El negocio en números, sin planillas",
-    href: "#",
+    label: "Panel de administración",
+    description: "Ventas, stock y reportes de todas las sucursales",
+    href: "/modulos/panel",
   },
   {
     icon: Sparkles,
     label: "Punto AI",
     description: "El asistente que analiza tus datos y responde",
-    href: "#",
+    href: "/modulos/punto-ai",
   },
 ]
 
@@ -248,6 +248,7 @@ export function SiteHeader() {
   const overHero =
     pathname === "/home" ||
     pathname === "/" ||
+    pathname.startsWith("/modulos/") ||
     Boolean(rubroSlug && getRubro(rubroSlug)?.heroImage)
   const [scrolled, setScrolled] = React.useState(false)
 
@@ -291,7 +292,7 @@ export function SiteHeader() {
               title="Punto AI"
               description="Preguntale por tus ventas y responde con tus datos."
               cta="Ver el asistente"
-              href="/home"
+              href="/modulos/punto-ai"
               image={{
                 src: "/site/ai-screenshot.png",
                 alt: "Punto AI analizando las ventas del negocio",

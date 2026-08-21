@@ -2,6 +2,7 @@ import Link from "next/link"
 
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { FEATURE_CARDS, HOME_RUBROS } from "@/lib/site/modules"
+import { MODULOS } from "@/lib/site/modulos"
 
 const RECURSOS = [
   { label: "Precios", href: "#" },
@@ -71,14 +72,20 @@ export function SiteFooter() {
           </div>
           <FooterColumn
             title="Producto"
-            links={FEATURE_CARDS.slice(0, 8).map((f) => ({
-              label: f.title,
-              href: "#",
-            }))}
+            links={[
+              ...MODULOS.map((m) => ({
+                label: m.label,
+                href: `/modulos/${m.slug}`,
+              })),
+              ...FEATURE_CARDS.slice(0, 5).map((f) => ({
+                label: f.title,
+                href: "#",
+              })),
+            ]}
           />
           <FooterColumn
             title="Más producto"
-            links={FEATURE_CARDS.slice(8).map((f) => ({
+            links={FEATURE_CARDS.slice(5).map((f) => ({
               label: f.title,
               href: "#",
             }))}
