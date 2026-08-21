@@ -9,6 +9,7 @@
  */
 
 import * as React from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import { CalendarIcon, ChevronLeft, Filter, Loader2, MoreHorizontal, Receipt, X } from "lucide-react"
 import { format } from "date-fns"
 import { es } from "date-fns/locale"
@@ -57,6 +58,8 @@ import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { TransactionSuccessDialog } from "@/components/register/transaction-success-dialog"
+import { PosReturnSheet } from "@/components/register/pos-return-sheet"
+import { PosVoidSaleDialog } from "@/components/register/pos-void-sale-dialog"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -487,6 +490,7 @@ export function TransactionDetail({
   bordered?: boolean
 }) {
   const { data: detail, isLoading } = usePosTransactionDetail(encId)
+  const queryClient = useQueryClient()
   const config = useCatalogStore((s) => s.config)
   const paymentMethods = useCatalogStore((s) => s.paymentMethods)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
@@ -503,6 +507,11 @@ export function TransactionDetail({
   // que espera `/pos/transactions/[id]`); se resuelve el detalle recién al
   // imprimir para no pagar un round-trip si el cajero no imprime.
   const [creditReceipt, setCreditReceipt] = React.useState<{ encId: string; amount: number } | null>(null)
+  // Anulación (F6, context/40-anulacion-y-nota-credito.md) — "Devolución"
+  // reusa PosReturnSheet (ya vive standalone en transactions-list.tsx del
+  // panel, mismo patrón `parentTransactionId`).
+  const [voidDialogOpen, setVoidDialogOpen] = React.useState(false)
+  const [returnSheetOpen, setReturnSheetOpen] = React.useState(false)
 
   if (!encId) {
     return (
@@ -532,6 +541,13 @@ export function TransactionDetail({
   const docLabel = detail.invoicePrefix
     ? `${detail.invoicePrefix}-${detail.documentNo}`
     : (detail.documentNo ?? "")
+
+  // Anulación/Devolución (F6, context/40): solo venta contado/crédito, y
+  // solo si NO está anulada — para otros tipos y para una tx ya anulada los
+  // items del menú se OCULTAN, no se deshabilitan.
+  const isVoided = detail.void === true || Boolean(detail.voidedAt)
+  const canOfferVoid = (typeNum === 0 || typeNum === 3) && !isVoided
+  const canOfferReturn = (typeNum === 0 || typeNum === 3) && !isVoided
 
   const items = detail.transactionDatas ?? []
   const payments = detail.pMethods ?? []
@@ -670,7 +686,15 @@ export function TransactionDetail({
                 )}
                 {docLabel && <span className="tabular-nums">#{docLabel}</span>}
                 {formattedDate !== "—" && <span className="tabular-nums">{formattedDate}</span>}
+                {isVoided && <Badge variant="destructive">Anulada</Badge>}
               </div>
+              {isVoided && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {detail.voidedAt && formatDateTime(detail.voidedAt)}
+                  {detail.voidedByName && ` · ${detail.voidedByName}`}
+                  {detail.voidReason && ` · ${detail.voidReason}`}
+                </p>
+              )}
             </div>
             <div className="shrink-0 flex flex-col items-end gap-2">
               <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
@@ -710,9 +734,18 @@ export function TransactionDetail({
                     {typeNum === 9 && (
                       <DropdownMenuItem onSelect={() => setQuotePdfOpen(true)}>Ver PDF</DropdownMenuItem>
                     )}
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem disabled>Anular</DropdownMenuItem>
-                    <DropdownMenuItem disabled>Devolución</DropdownMenuItem>
+                    {(canOfferReturn || canOfferVoid) && <DropdownMenuSeparator />}
+                    {canOfferVoid && (
+                      <DropdownMenuItem
+                        className="text-destructive focus:text-destructive"
+                        onSelect={() => setVoidDialogOpen(true)}
+                      >
+                        Anular
+                      </DropdownMenuItem>
+                    )}
+                    {canOfferReturn && (
+                      <DropdownMenuItem onSelect={() => setReturnSheetOpen(true)}>Devolución</DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
@@ -925,6 +958,38 @@ export function TransactionDetail({
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* Anulación (F6, context/40) — solo se monta con la tx del detalle
+          actual resuelta (evita pedir /api/pos/sales-void con un id viejo
+          si el cajero cambió de selección mientras el dialog estaba cerrado). */}
+      {voidDialogOpen && (
+        <PosVoidSaleDialog
+          open={voidDialogOpen}
+          onOpenChange={setVoidDialogOpen}
+          transactionId={detail.transactionId}
+          invoiceLabel={docLabel}
+          total={total}
+          dateLabel={formattedDate}
+          onOfferReturn={() => {
+            setVoidDialogOpen(false)
+            setReturnSheetOpen(true)
+          }}
+        />
+      )}
+
+      {/* Devolución — mismo patrón que components/domain/transactions/transactions-list.tsx
+          (panel): parentTransactionId = UUID crudo, no el encId de la lista. */}
+      <PosReturnSheet
+        open={returnSheetOpen}
+        onOpenChange={(v) => {
+          setReturnSheetOpen(v)
+          if (!v) {
+            queryClient.invalidateQueries({ queryKey: ["pos-transaction"] })
+            queryClient.invalidateQueries({ queryKey: ["pos-transactions"] })
+          }
+        }}
+        parentTransactionId={detail.transactionId}
+      />
     </TooltipProvider>
   )
 }

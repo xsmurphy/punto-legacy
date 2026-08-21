@@ -57,6 +57,18 @@ export interface TransactionDetail {
   appointments?: Array<{ transactionId: string; transactionDate: string; transactionTotal: number }>
   /** Recibos de pago (type=5) hijos — solo type=3. */
   paymentsReceived?: Array<{ transactionId: string; date: string; amount: number; invoiceNo?: string; paymentMethod?: string }>
+  /**
+   * Anulación (F6, context/40-anulacion-y-nota-credito.md). `void` cubre
+   * DOS caminos: el legacy (`type === 7`, hooks/use-void-transaction.ts) y
+   * el nuevo de SaleVoidService sobre venta contado/crédito (`voidedAt` sin
+   * pisar `transactionType`) — ver TransactionDetailService::getSingle.
+   * `voidedAt`/`voidReason`/`voidedBy(Name)` solo pueblan con el camino nuevo.
+   */
+  void?: boolean
+  voidedAt?: string | null
+  voidReason?: string | null
+  voidedBy?: string | null
+  voidedByName?: string | null
 }
 
 export interface TransactionDataItem {
