@@ -49,7 +49,9 @@ if ($method === 'POST' && $action === 'drain') {
     if (!defined('EINVOICE_DRAIN_SECRET') || EINVOICE_DRAIN_SECRET === '') {
         apiError('EINVOICE_DRAIN_SECRET no configurado — el drainer está deshabilitado.', 503);
     }
-    $given = (string) ($_SERVER['HTTP_X_DRAIN_SECRET'] ?? ($_GET['secret'] ?? ''));
+    // Solo por header (2026-08-21): el fallback `?secret=` dejaba el secreto en
+    // logs de acceso/proxy. Ningún caller lo usaba.
+    $given = (string) ($_SERVER['HTTP_X_DRAIN_SECRET'] ?? '');
     // hash_equals: comparación en tiempo constante, mismo criterio que cualquier
     // verificación de secreto compartido del repo (evita timing attack trivial).
     if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {

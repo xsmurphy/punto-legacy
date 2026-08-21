@@ -912,20 +912,27 @@ Las tres primeras bloquean verificación; la cuarta bloquea el white-label.
 - `FACTOMATE_BASE_URL_TEST` — default `https://facturadordev.automate.com.py` (el de la guía).
 - `FACTOMATE_BASE_URL_PROD` — default vacío. Sin configurar, cualquier cuenta en
   `environment='prod'` falla explícito (nunca cae a test).
-- F1: `EINVOICE_DRAIN_SECRET` + entrada de cron en el server de producción.
-  **Estado 2026-08-21: la var NO está cargada y NO hay cron** (ni crontab, ni
-  `pg_cron`, ni tarea de Coolify). Sin la var el endpoint responde 503, así que
-  hoy lo único que emite es el intento inline post-venta; un documento que falle
-  ahí queda en la cola sin que nadie lo drene.
+- F1: `EINVOICE_DRAIN_SECRET`. **Estado 2026-08-21 (actualizado): la var YA
+  ESTÁ cargada en el container de producción.** Lo que faltaba no era la var
+  sino quién la invoca — no había cron. Ese hueco se cerró con el scheduler
+  DENTRO de la imagen del API (`crond` de BusyBox, `api/docker/cron/`, ver
+  `context/06-infraestructura.md` § Jobs de mantenimiento): cada 5 min pega a
+  `POST /v1/maintenance?job=einvoice-drain`, que delega en
+  `EInvoiceService::drain()` (mismo código que `einvoice.php?action=drain`,
+  sin duplicar). No se agregó tarea de Coolify ni `pg_cron` — decisión
+  cerrada, el cron vive versionado en el repo.
 - F7: `FACTOMATE_ADMIN_USERNAME_TEST` / `FACTOMATE_ADMIN_PASSWORD_TEST` — la
   credencial admin de Punto en Factomate, sin la cual `provision()` no puede dar
   de alta ningún emisor (no quedó camino manual: F7 retiró los campos por
-  comercio). **Factomate la entregó el 2026-08-21 y está verificada contra DEV**
-  (ver pregunta 6 arriba); falta cargarla en Coolify. Las credenciales viven
-  SOLO en las env vars del deploy — nunca en el repo ni en este doc.
-- **Estado del entorno de producción al 2026-08-21**: la única var de FE
-  presente es `APP_ENCRYPTION_KEY`. Faltan las dos `FACTOMATE_ADMIN_*_TEST` y
-  `EINVOICE_DRAIN_SECRET`; las demás tienen default útil en `simple.config.php`.
+  comercio). **Estado 2026-08-21 (actualizado): ya está cargada en el
+  container de producción**, verificada contra DEV (ver pregunta 6 arriba).
+  Las credenciales viven SOLO en las env vars del deploy — nunca en el repo
+  ni en este doc.
+- **Estado del entorno de producción al 2026-08-21 (verificado vía
+  `docker inspect` del container del API)**: `APP_ENCRYPTION_KEY`,
+  `EINVOICE_DRAIN_SECRET` y las dos `FACTOMATE_ADMIN_*_TEST` están las
+  cuatro cargadas. `FACTOMATE_ADMIN_*_PROD` no se verificó en esta pasada;
+  las demás vars de FE tienen default útil en `simple.config.php`.
 - F3: `TAXPAYER_LOOKUP_URL` — padrón público para el lookup de RUC
   (`GET {url}/{documento sin DV}`), default `https://turuc.com.py/api/contribuyente`.
   Vacía → el lookup solo responde con la fuente del proveedor de FE.

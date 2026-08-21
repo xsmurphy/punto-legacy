@@ -87,5 +87,23 @@ if [ -f /var/www/database/seed_admin.php ]; then
     php /var/www/database/seed_admin.php || echo "[entrypoint] seed_admin falló (ignorado)" >&2
 fi
 
+# Jobs de mantenimiento (drainer de FE, reconcile de rollups, purgas de
+# tenant_audit/deleted_row — ver context/06-infraestructura.md § Jobs de
+# mantenimiento). crond corre EN ESTE MISMO container, pegándole a
+# localhost:3000 (api/docker/cron/maintenance.sh → POST /v1/maintenance).
+# Gateado por EINVOICE_DRAIN_SECRET: sin la var, el endpoint respondería 503
+# de cualquier forma, así que ni siquiera arrancamos el scheduler (mismo
+# criterio best-effort que el seed de admin — no aborta el boot).
+# `crond -b`: background (no toma el foreground, que es de tini/php -S).
+# `-l 8`: loglevel 8 = solo errores + "corrió el job" (no cada wakeup de
+# minuto), a stderr → docker logs. tini sigue siendo PID 1, así que crond
+# (y los curl que dispara) no quedan huérfanos ni zombies.
+if [ -n "$EINVOICE_DRAIN_SECRET" ]; then
+    echo "[entrypoint] EINVOICE_DRAIN_SECRET seteada — arrancando crond (jobs de mantenimiento)"
+    crond -b -l 8 || echo "[entrypoint] crond no pudo arrancar — jobs de mantenimiento NO programados (ignorado, la API arranca igual)" >&2
+else
+    echo "[entrypoint] EINVOICE_DRAIN_SECRET no seteada — jobs de mantenimiento NO programados"
+fi
+
 # Ejecutar el CMD original (tini + php -S)
 exec "$@"
