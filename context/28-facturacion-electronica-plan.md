@@ -414,6 +414,21 @@ Dos cosas que este manual resuelve y que estaban abiertas:
 
 ### Modelo de provisioning (confirmado por Factomate, 2026-07-29)
 
+> **El emisor SIEMPRE lo crea Punto** (decisión del owner, 2026-08-21). Enlazar
+> un tenant que ya existe en Factomate —creado por fuera, o un comercio que ya
+> era cliente de ellos— **no está soportado y es deliberado**: `provision()`
+> solo mira si hay `factomate_tenant_id` en la fila local, y si no lo hay va
+> derecho a `CreateExternal`. Contra un emisor preexistente eso falla con "Ya
+> existe un usuario con el email indicado" (manual §2.5) y el alta queda trabada
+> en `provisioning`; con otro email, crea un SEGUNDO emisor con el mismo RUC.
+> Si algún día hay que migrar comercios que ya facturan con Factomate, el
+> camino correcto es un segundo modo de alta ("ya tengo cuenta"): login real
+> con la credencial del comercio, `tenantId` desde `POST /api/sincro/config`,
+> persistir la fila igual que el alta y reusar el cierre de `provision()`
+> (releer timbrados + `status='ok'`). Nada aguas abajo depende de cómo se creó
+> la fila. Queda por decidir ahí si los `BranchDocumentType` existentes se
+> importan y se mapean a cajas, o se ignoran.
+
 El manual de ABM no incluía creación de `Tenant` ni de `User`, pero Factomate
 confirmó que **sí existe por API** y cómo funciona:
 
