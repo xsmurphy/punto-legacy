@@ -139,10 +139,15 @@ define('FACTOMATE_ADMIN_PASSWORD_PROD', $_ENV['FACTOMATE_ADMIN_PASSWORD_PROD'] ?
 // Entorno donde se provisionan los emisores NUEVOS (F7). Global, no elección
 // del tenant. 'test' hasta que el white-label esté validado contra prod.
 define('EINVOICE_DEFAULT_ENVIRONMENT', $_ENV['EINVOICE_DEFAULT_ENVIRONMENT'] ?? 'test');
-// EINVOICE_DRAIN_SECRET: secreto compartido para POST /v1/einvoice?action=drain
-// (F1) — el cron del sistema invoca el drainer del outbox SIN pasar por
-// apiAuthTenant (no hay realm de panel en un cron). Vacía/no definida → el
-// endpoint responde 503 SIEMPRE, nunca abierto sin secreto.
+// EINVOICE_DRAIN_SECRET: secreto compartido de jobs internos del sistema —
+// gatea POST /v1/einvoice?action=drain (F1, drainer del outbox de FE) y
+// POST /v1/maintenance?job=... (rollup-reconcile / purge-tenant-audit /
+// purge-deleted-row / einvoice-drain, ver context/06-infraestructura.md §
+// Jobs de mantenimiento). El nombre quedó del drainer de FE (primer caso de
+// uso), pero cubre cualquier job que el cron de la imagen invoque SIN pasar
+// por apiAuthTenant (no hay realm de panel/device en un cron). No se separó
+// en una env var nueva a propósito: una sola var menos que cargar en Coolify.
+// Vacía/no definida → esos endpoints responden 503 SIEMPRE, nunca abiertos.
 define('EINVOICE_DRAIN_SECRET', $_ENV['EINVOICE_DRAIN_SECRET'] ?? '');
 // TAXPAYER_LOOKUP_URL: padrón público de contribuyentes para el lookup de RUC
 // (GET {url}/{documento sin DV}). Fallback de Contacts\TaxpayerLookupService

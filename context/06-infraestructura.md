@@ -175,6 +175,60 @@ El backfill UPDATE previo al DROP puede correr perfectamente con el usuario `pun
 
 Ejemplo: migración `06_contact_jsonb_demote.sql` (backfill → DROP de 6 columnas) requirió ejecución como usuario owner, no como `punto`.
 
+## Jobs de mantenimiento (cron en la imagen del API, 2026-08-21)
+
+**Hallazgo que originó esto**: tres jobs periódicos existían en código pero
+nadie los ejecutaba en producción. Las migraciones 36 y 138 programaban su
+propia purga con `pg_cron`, pero `pg_cron` NO está instalado en la imagen
+`postgres:18-alpine` de producción — ambas migraciones tienen un fallback
+tolerante (`RAISE NOTICE` en vez de fallar el deploy), así que el `NOTICE`
+se perdió en los logs de una migración y nadie lo notó. El drainer de FE
+(F1) dependía de un cron externo que tampoco se configuró nunca. Resultado
+verificado en prod: `report_rollup` con 0 filas y `rollup_dirty` con 134
+períodos pendientes.
+
+**Decisión (cerrada, no relitigar)**: el scheduler vive DENTRO de la imagen
+del API — Alpine ya trae `crond` de BusyBox. Todo queda versionado en el
+repo y viaja con cada deploy, sin configurar nada aparte en Coolify.
+`pg_cron` queda descartado como requisito (no está en la imagen managed de
+Postgres y no va a estarlo). Redis NO se usa como scheduler.
+
+**Piezas**:
+- `api/v1/maintenance.php` — `POST /v1/maintenance?job=<nombre>`, SIN
+  `apiAuthTenant` (lo llama el cron, no un operador). Gateado por el mismo
+  secreto que el drainer de FE: header `X-Maintenance-Secret`, comparado con
+  `hash_equals` contra la env var `EINVOICE_DRAIN_SECRET` (reusada — ver
+  comentario en `simple.config.php`), 503 si no está configurada.
+- Cada job corre bajo `pg_try_advisory_lock(hashtext('maintenance:'||job))` —
+  si no consigue el lock (otro tick del cron todavía adentro, o el día de
+  mañana N réplicas del API pegándole al mismo Postgres) responde 200
+  `{skipped:true}` en vez de pisar la corrida en curso.
+- `api/docker/cron/maintenance.sh` — script `sh` (BusyBox) que hace
+  `curl -X POST` a `http://localhost:3000/v1/maintenance?job=...` (mismo
+  container, mismo `php -S` que sirve el tráfico externo) y loguea la
+  respuesta a stdout. Sale 0 sin pegarle a nada si `EINVOICE_DRAIN_SECRET`
+  no está seteada (evita spam de error logs).
+- `api/docker/cron/crontab` — instalado en `/etc/crontabs/root` (formato
+  BusyBox).
+- `docker-entrypoint.sh` — levanta `crond -b -l 8` al boot, SOLO si
+  `EINVOICE_DRAIN_SECRET` está seteada (mismo criterio best-effort que el
+  seed de admin). `tini` sigue siendo PID 1, así que `crond` no queda
+  huérfano.
+
+**Jobs y frecuencia**:
+
+| Job | Frecuencia | Qué hace |
+|---|---|---|
+| `einvoice-drain` | cada 5 min | delega en `EInvoiceService::drain()` — drena `pending`/`error` vencidos del outbox de FE |
+| `rollup-reconcile` | cada 10 min | `SELECT rollup_reconcile(500)` — drena `rollup_dirty`, recompute day→month→year |
+| `purge-tenant-audit` | diario 03:00 | `DELETE FROM tenant_audit WHERE createdat < now() - interval '2 months'` (mig 36; columna normalizada a lowercase por mig 150 — NO citar `"createdAt"`) |
+| `purge-deleted-row` | diario 04:00 | `DELETE FROM deleted_row WHERE deleted_at < now() - interval '90 days'` (mig 138; `deleted_at` siempre fue lowercase) |
+
+**Cómo verificar que corren**: `docker logs <container-api> | grep maintenance`
+— el entrypoint loguea si `crond` arrancó o no, `maintenance.sh` loguea cada
+disparo (`[maintenance-cron] job=... ok/FAILED`), y el endpoint loguea cada
+corrida (`[maintenance] job=... result=...`).
+
 ## CI — GitHub Actions (establecido 2026-06-04, commits 17a2293 + 7ab230a)
 
 **Workflow**: `.github/workflows/ci.yml` — dispara en `push` a main y en `pull_request` a main. Cancel-in-progress activado.

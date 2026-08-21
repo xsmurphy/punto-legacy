@@ -1,0 +1,16 @@
+# Punto — crontab de BusyBox (crond), instalado en /etc/crontabs/root.
+#
+# Corre DENTRO del mismo container que sirve la API (php -S en localhost:3000).
+# Si el día de mañana el API se escala a N réplicas, cada réplica correría su
+# propio crond y le pegaría al mismo Postgres al mismo minuto — lo que evita
+# que dos corridas del mismo job pisen datos es el advisory lock
+# (pg_try_advisory_lock, api/v1/maintenance.php), NO este crontab. El
+# crontab por sí solo asume single-instance.
+#
+# Formato BusyBox: min hora dia mes diasemana comando (sin columna de usuario,
+# ya vive en /etc/crontabs/root).
+
+*/5  *  *  *  *   /usr/local/bin/maintenance.sh einvoice-drain
+*/10 *  *  *  *   /usr/local/bin/maintenance.sh rollup-reconcile
+0    3  *  *  *   /usr/local/bin/maintenance.sh purge-tenant-audit
+0    4  *  *  *   /usr/local/bin/maintenance.sh purge-deleted-row

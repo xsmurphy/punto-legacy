@@ -115,7 +115,16 @@ Más una **finalización nocturna**: marcar como dirty el día de ayer de todos 
 
 pg_cron: `SELECT cron.schedule('rollup-reconcile', '*/5 * * * *', 'SELECT rollup_reconcile(500)');` (cada 5 min, hasta 500 períodos por corrida). Más `'rollup-nightly'` a las 03:00.
 
-> Fallback si pg_cron no está habilitado en el Postgres managed (mismo problema que mig 36): endpoint `POST /v1/admin/rollup/reconcile` que corre `rollup_reconcile()` on-demand, invocable por un cron externo (Coolify scheduled task) o manualmente. El docker-entrypoint puede correrlo también.
+> **Estado real (2026-08-21)**: `pg_cron` NO está instalado en la imagen
+> `postgres:18-alpine` de producción y quedó descartado como requisito
+> (decisión del owner). El disparo real es `POST /v1/maintenance?job=rollup-reconcile`
+> (no `/v1/admin/rollup/reconcile` — un único endpoint de mantenimiento cubre
+> este job + los de purga + el drainer de FE), invocado cada 10 min por
+> `crond` de BusyBox DENTRO de la imagen del API (`api/docker/cron/`, ver
+> `context/06-infraestructura.md` § Jobs de mantenimiento). `p_max` default
+> 500, tope 5000 vía query param `limit`. Antes de este cron, `report_rollup`
+> tenía 0 filas en prod con 134 períodos acumulados en `rollup_dirty` — nadie
+> lo estaba disparando.
 
 ### Read-path
 

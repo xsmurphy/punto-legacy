@@ -99,6 +99,17 @@ ENV PHP_CLI_SERVER_WORKERS=28 \
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
+# Jobs de mantenimiento (drainer de FE, reconcile de rollups, purgas — ver
+# context/06-infraestructura.md § Jobs de mantenimiento): crond de BusyBox
+# YA viene con la imagen Alpine base, no hace falta instalar pg_cron ni nada
+# externo — todo el scheduler queda versionado en el repo y viaja con cada
+# deploy. /etc/crontabs/root es donde BusyBox espera el crontab del usuario
+# root (formato sin columna de usuario). docker-entrypoint.sh levanta
+# `crond -b` al boot, condicionado a que EINVOICE_DRAIN_SECRET esté seteada.
+COPY docker/cron/maintenance.sh /usr/local/bin/maintenance.sh
+RUN chmod +x /usr/local/bin/maintenance.sh
+COPY docker/cron/crontab /etc/crontabs/root
+
 # Puerto 3000 — default que Coolify configura en Traefik.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD curl -fsS -H "Host: api.punto.la" http://localhost:3000/v1/health > /dev/null || exit 1
