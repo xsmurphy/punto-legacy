@@ -111,6 +111,14 @@ final class SettingsService
             'paymentId'       => $this->truthy($r['settingPaymentMethodId'] ?? null),
             'creditLine'      => $this->truthy($r['settingForceCreditLine'] ?? null),
             'storeCredit'     => $this->truthy($r['settingStoreCredit'] ?? null),
+            // D3/D2 de context/40-anulacion-y-nota-credito.md — devoluciones.
+            // 'ask' es el default explícito de negocio (no vacío/no-seteado):
+            // el comercio elige forzar 'cash'/'credit' o dejar que el cajero
+            // pregunte en cada devolución.
+            'settingReturnRefund' => in_array((string) ($r['settingReturnRefund'] ?? ''), ['cash', 'credit'], true)
+                ? (string) $r['settingReturnRefund']
+                : 'ask',
+            'settingReturnAllowIngredientReversal' => ((string) ($r['settingReturnAllowIngredientReversal'] ?? '')) === 'yes',
             // Toggles (settingObj / _fullSettings)
             'ignoreInternal'      => $this->truthy($obj['ignoreInternal'] ?? null),
             'stockCountBlind'     => $this->truthy($obj['stockCountBlind'] ?? null),
@@ -205,6 +213,18 @@ final class SettingsService
         }
         if (array_key_exists('sellsoldout', $f)) {
             $record['settingSellSoldOut'] = !empty($f['sellsoldout']) ? 'yes' : 'no';
+        }
+        // D3/D2 de context/40-anulacion-y-nota-credito.md — mismo criterio
+        // 'yes'/'no' que settingSellSoldOut/settingDecimal de arriba (NO el
+        // 1/0 de $tinyBoolMap): StockReversalPolicy/ReturnService ya leen
+        // `config->>'settingReturnAllowIngredientReversal' = 'yes'` — escribir
+        // 1/0 acá los dejaría desincronizados con esa lectura.
+        if (array_key_exists('settingReturnRefund', $f)) {
+            $val = (string) $f['settingReturnRefund'];
+            $record['settingReturnRefund'] = in_array($val, ['cash', 'credit'], true) ? $val : 'ask';
+        }
+        if (array_key_exists('settingReturnAllowIngredientReversal', $f)) {
+            $record['settingReturnAllowIngredientReversal'] = !empty($f['settingReturnAllowIngredientReversal']) ? 'yes' : 'no';
         }
         $tinyBoolMap = [
             'itemSerialized'     => 'settingItemSerialized',

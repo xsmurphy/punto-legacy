@@ -164,9 +164,20 @@ if ($method === 'POST') {
         'settingRemoveTaxes', 'paymentId', 'creditLine', 'storeCredit',
         'ignoreInternal', 'stockCountBlind', 'blockUsedDocNo', 'autoSendDocs',
         'taxPy', 'weightBarcodes', 'deletedItemsHistory',
+        // D2 de context/40-anulacion-y-nota-credito.md — devoluciones.
+        'settingReturnAllowIngredientReversal',
     ];
     foreach ($boolMap as $k) {
         if ($present($k)) { $fields[$k] = $b($k); }
+    }
+
+    // D3 de context/40 — enum cerrado, clampeado server-side (mismo criterio
+    // que agentPersonality arriba): nunca texto libre del cliente llega a
+    // company.config.
+    if ($present('settingReturnRefund')) {
+        $fields['settingReturnRefund'] = in_array($s('settingReturnRefund'), ['cash', 'credit'], true)
+            ? $s('settingReturnRefund')
+            : 'ask';
     }
 
     try {

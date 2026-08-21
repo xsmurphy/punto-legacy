@@ -15,9 +15,10 @@ declare(strict_types=1);
  * `linesJson` (opcional) — array JSON de `{itemId|itemSoldId, restock}`, para
  * ejercitar el guard de `resolveLineDecisions()` (P2, code review F1+F2):
  * una línea ambigua (`itemId` sin `itemSoldId` cuando la venta tiene 2+
- * líneas de ese ítem) tira `AmbiguousVoidLineException`, catcheada dentro de
- * `void()` como 422 — otro caso que necesita subproceso, mismo motivo que el
- * resto de este helper.
+ * líneas de ese ítem) tira `AmbiguousStockLineException` (StockReversalPolicy,
+ * compartida con ReturnService), catcheada dentro de `void()` como 422 —
+ * otro caso que necesita subproceso, mismo motivo que el resto de este
+ * helper.
  */
 
 require_once dirname(__DIR__) . '/bootstrap.php';

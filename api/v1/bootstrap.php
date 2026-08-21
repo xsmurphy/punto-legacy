@@ -55,6 +55,15 @@ $row = ncmExecute(
         -- company.moduleData.bancard. El POS necesita los dos para saber si
         -- ofrecer el QR y si mostrar la config del terminal físico.
         config->>'bancard'                  AS bancard,
+        -- D3/D2 de context/40-anulacion-y-nota-credito.md: el POS necesita
+        -- estos dos para el flujo de devolución — settingReturnRefund decide
+        -- si pregunta 'cash'/'credit' o los ofrece los dos ('ask', default);
+        -- settingReturnAllowIngredientReversal habilita ofrecer reponer
+        -- insumos de una producción directa que no llegó a prepararse. Mismo
+        -- patrón que el resto de los settingX de acá: JSONB schemaless, sin
+        -- columna propia.
+        config->>'settingReturnRefund'                  AS returnrefund,
+        config->>'settingReturnAllowIngredientReversal' AS returnallowingredientreversal,
         moduleData                          AS moduledata
      FROM company
      WHERE companyId = ?",
@@ -235,6 +244,17 @@ apiOk([
     // propio — mismo fallback que SaleService::enrichWithTaxes.
     'activeOutletTaxIncluded' => $activeOutletTaxIncluded,
     'outlets'          => $outlets,
+    // D3 (context/40): política de reintegro de devoluciones — 'cash' |
+    // 'credit' | 'ask' (default). Con 'ask' el POS pregunta en cada
+    // devolución; con 'cash'/'credit' fijado, el back rechaza (422) un
+    // request con el otro modo, así que el POS ni siquiera debería ofrecerlo.
+    'settingReturnRefund' => in_array((string) ($row['returnrefund'] ?? ''), ['cash', 'credit'], true)
+        ? (string) $row['returnrefund']
+        : 'ask',
+    // D2 (context/40): habilita OFRECER la reposición de insumos de una
+    // producción directa/combo que no llegó a prepararse. Default false —
+    // mismo criterio 'yes'/'no' que el resto de los settingX booleanos.
+    'settingReturnAllowIngredientReversal' => ((string) ($row['returnallowingredientreversal'] ?? '')) === 'yes',
     // Cantidad de usuarios (type=0) activos del tenant — usado por el POS
     // para auto-activar el lock screen al entrar cuando hay > 1 usuario
     // (regla de owner: comercio con varios cajeros se inicia bloqueado).
