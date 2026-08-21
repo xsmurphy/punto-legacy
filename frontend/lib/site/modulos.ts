@@ -290,8 +290,154 @@ export const MODULOS: Modulo[] = [
       },
     ],
   },
+  {
+    slug: "mesas-y-ordenes",
+    label: "Mesas y órdenes",
+    eyebrow: "Mesas y órdenes",
+    heroTitle: "El salón y la cocina, en la misma página",
+    heroDescription:
+      "Cada mesa con su cuenta abierta, cada pedido con su hora de entrada en cocina. Se agrega una ronda, se divide la cuenta o se cobra desde cualquier caja del local, y todos los dispositivos ven lo mismo al instante.",
+    heroImage: {
+      src: "/site/pos-screenshot.png",
+      alt: "Punto de Venta con el salón y las mesas abiertas",
+    },
+    essentials: [
+      "La mesa acumula rondas y muestra su cuenta al día desde cualquier dispositivo.",
+      "El pedido entra a cocina con su hora, sus agregados y sus aclaraciones.",
+      "La cuenta se divide por ítems, por monto o en partes iguales.",
+      "Cada estación — cocina, barra, plancha — recibe solo lo suyo.",
+    ],
+    sections: [
+      {
+        kicker: "Estado compartido, no copias",
+        title: "La mesa es la misma desde cualquier caja",
+        paragraphs: [
+          "El mozo toma el pedido en el salón, la caja del fondo cobra y el encargado mira desde el panel: los tres ven el mismo saldo. No hay una versión de la mesa por dispositivo ni un papel que haya que ir a buscar.",
+          "Cuando el cliente pide la cuenta, la mesa lo señala sin bloquearse — si alguien suma un postre después, entra igual y la cuenta se actualiza.",
+        ],
+        linkLabel: "Ver el salón",
+        mockup: {
+          label: "Salón",
+          title: "Mesas abiertas",
+          rows: [
+            { left: "Mesa 3", right: "Gs. 128.000", sub: ["Ocupada · 25 min"] },
+            { left: "Mesa 7", right: "Gs. 96.000", sub: ["Pidió la cuenta"] },
+            { left: "Mesa 12", right: "—", sub: ["Libre"] },
+          ],
+        },
+      },
+      {
+        kicker: "Cada estación, lo suyo",
+        title: "La comanda se reparte sola entre cocina y barra",
+        paragraphs: [
+          "Los tragos van a la barra, los platos a la cocina y la pizza al horno, cada uno en su pantalla y en orden de llegada. Nadie tiene que gritar el pedido ni repartir papeles entre sectores.",
+          "Los agregados y las aclaraciones bajan literales — sin cebolla, punto jugoso, para llevar — y cada línea se marca como lista cuando sale.",
+        ],
+        linkLabel: "Ver la pantalla de cocina",
+        mockup: {
+          label: "Cocina · en preparación",
+          title: "Cola de comandas",
+          rows: [
+            { left: "#47 · Mesa 3", right: "hace 4 min", sub: ["2× Lomito · sin cebolla"] },
+            { left: "#48 · Mesa 7", right: "hace 1 min", sub: ["1× Costilla al horno"] },
+          ],
+        },
+      },
+      {
+        kicker: "La cuenta sin drama",
+        title: "Dividir y cobrar en partes, con su comprobante",
+        paragraphs: [
+          "La mesa se puede cobrar entera o en partes: por lo que consumió cada uno, por un monto suelto o en partes iguales. Cada pago parcial genera su propio comprobante, así el que necesita factura la tiene.",
+          "La mesa se cierra recién cuando el saldo llega a cero. No hay forma de dejarla abierta con plata pendiente por descuido.",
+        ],
+        linkLabel: "Ver el cobro dividido",
+        mockup: {
+          label: "Mesa 3 · 3 personas",
+          title: "Dividir la cuenta",
+          rows: [
+            { left: "Pagó Gladys", right: "Gs. 45.000", sub: ["por sus ítems"] },
+            { left: "Pagó Osvaldo", right: "Gs. 45.000", sub: ["efectivo"] },
+            { left: "Pendiente", right: "Gs. 38.000" },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    slug: "gift-cards",
+    label: "Gift cards y vales",
+    eyebrow: "Gift cards y vales",
+    heroTitle: "Cobrar hoy lo que se entrega después",
+    heroDescription:
+      "La gift card es plata a favor del cliente; el vale, productos ya pagos. Las dos se venden en la caja, se canjean con un código y descuentan solo lo que corresponde — sin cuadernos ni papelitos detrás del mostrador.",
+    heroImage: {
+      src: "/site/pos-screenshot.png",
+      alt: "Punto de Venta con el canje de una gift card",
+    },
+    essentials: [
+      "La gift card guarda un importe y se usa como medio de pago, entera o en varias compras.",
+      "El vale guarda productos exactos, con su precio congelado al emitirse.",
+      "El canje ocurre dentro de la venta: si algo falla, no se consume el saldo.",
+      "Cada código deja su historia: cuándo se vendió, dónde se usó y qué queda.",
+    ],
+    sections: [
+      {
+        kicker: "Plata por adelantado",
+        title: "La gift card entra a la caja hoy",
+        paragraphs: [
+          "El cliente compra un monto, se lleva el código y lo usa cuando quiera. Para el negocio es caja hoy y una visita casi asegurada después — con el detalle de que la mayoría gasta más que el saldo.",
+          "Se puede usar en una compra o en varias: el sistema lleva el saldo restante y lo aplica como un medio de pago más, combinable con efectivo o tarjeta.",
+        ],
+        linkLabel: "Ver el canje",
+        mockup: {
+          label: "Cobro",
+          title: "Gift card aplicada",
+          rows: [
+            { left: "Total de la venta", right: "Gs. 185.000" },
+            { left: "Gift card GC-4821", right: "Gs. -150.000", sub: ["saldo restante Gs. 0"] },
+            { left: "Efectivo", right: "Gs. 35.000" },
+          ],
+        },
+      },
+      {
+        kicker: "Mercadería ya paga",
+        title: "El vale es por productos, no por plata",
+        paragraphs: [
+          "Un combo de desayuno, diez lavados, una torta encargada: el vale guarda los ítems exactos con su precio congelado al momento de emitirse. Cuando el cliente lo trae, las líneas entran a la venta sin volver a sumar al total — ya se cobraron.",
+          "Si el precio subió en el medio, no importa: lo que se vendió fue el producto, y el sistema lo respeta.",
+        ],
+        linkLabel: "Ver un vale",
+        mockup: {
+          label: "Vale V-1042",
+          title: "Productos incluidos",
+          rows: [
+            { left: "2× Café con leche", right: "incluido" },
+            { left: "2× Medialuna", right: "incluido" },
+            { left: "Emitido", right: "12/08", sub: ["un solo uso"] },
+          ],
+        },
+      },
+      {
+        kicker: "Sin dobles canjes",
+        title: "El código se consume una sola vez",
+        paragraphs: [
+          "El canje pasa dentro de la venta, en el mismo movimiento: o se cobra y se consume el saldo, o no pasa nada. No existe el caso de un vale marcado como usado en una venta que después se cayó.",
+          "Y cada código guarda su rastro — quién lo vendió, en qué sucursal se usó y qué saldo queda — así el reclamo del mostrador se resuelve mirando la pantalla.",
+        ],
+        linkLabel: "Ver el historial",
+        mockup: {
+          label: "GC-4821",
+          title: "Historial del código",
+          rows: [
+            { left: "Vendida", right: "Gs. 150.000", sub: ["Centro · 02/08"] },
+            { left: "Usada", right: "Gs. 150.000", sub: ["Villa Morra · 19/08"] },
+            { left: "Saldo", right: "Gs. 0" },
+          ],
+        },
+      },
+    ],
+  },
 ]
-
 export function getModulo(slug: string): Modulo | undefined {
   return MODULOS.find((m) => m.slug === slug)
 }

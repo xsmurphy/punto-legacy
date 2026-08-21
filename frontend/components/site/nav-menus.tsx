@@ -54,6 +54,18 @@ export const MODULOS_MENU: MenuEntry[] = [
     previewText: "Quién compró, cuánto debe y qué se cobró, con recibo de cada pago.",
   },
   {
+    label: "Mesas y órdenes",
+    description: "Cuenta por mesa y comandas a cocina",
+    href: "/modulos/mesas-y-ordenes",
+    previewText: "El salón y la cocina, en la misma página.",
+  },
+  {
+    label: "Gift cards y vales",
+    description: "Cobrar hoy lo que se entrega después",
+    href: "/modulos/gift-cards",
+    previewText: "Plata a favor del cliente o productos ya pagos, con un código.",
+  },
+  {
     label: "Panel de administración",
     description: "Ventas, stock y reportes de todas las sucursales",
     href: "/modulos/panel",
