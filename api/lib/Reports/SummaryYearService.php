@@ -100,6 +100,7 @@ final class SummaryYearService
                     COALESCE(SUM(transactionTotal), 0)     AS total
              FROM transaction
              WHERE transactionType IN (0, 3)
+               AND ' . SaleFilters::notVoidedSql() . '
                AND transactionDate BETWEEN ? AND ?' . $roc . '
              GROUP BY EXTRACT(MONTH FROM transactionDate)
              ORDER BY month ASC',

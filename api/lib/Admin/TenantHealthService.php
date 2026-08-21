@@ -416,6 +416,13 @@ class TenantHealthService
         return $this->mapByCompany($r, 'companyid');
     }
 
+    /**
+     * Anulación de ventas (`voidedAt`, mig 154, context/40-anulacion-y-nota-
+     * credito.md): NO usa `SaleFilters::notVoidedSql()` a propósito — esto es
+     * señal de ACTIVIDAD del tenant (¿sigue operando la caja?) para el
+     * dashboard `/admin`, no un reporte de revenue. Una venta anulada
+     * igual demuestra que el tenant usó el POS ese día.
+     */
     private function fetchActivity(array $ids): array
     {
         global $db;

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Contacts;
 
+use Punto\Api\Reports\SaleFilters;
+
 /**
  * Analítica de comportamiento de un contacto (cliente o proveedor).
  *
@@ -74,7 +76,8 @@ final class ContactAnalyticsService
                 MIN(transactionDate)                AS first_date,
                 MAX(transactionDate)                AS last_date
              FROM transaction
-             WHERE companyId = ? AND $linkCol = ? AND $txCol IN ($txMarkers)",
+             WHERE companyId = ? AND $linkCol = ? AND $txCol IN ($txMarkers)
+                   AND " . SaleFilters::notVoidedSql() . "",
             array_merge([$companyId, $contactId], $txTypes)
         );
 
@@ -104,6 +107,7 @@ final class ContactAnalyticsService
              FROM itemSold a
              JOIN transaction b ON a.transactionId = b.transactionId
              WHERE b.companyId = ? AND b.$linkCol = ? AND b.$txCol IN ($txMarkers)
+                   AND " . SaleFilters::notVoidedSql('b') . "
                    AND a.itemSoldTotal > 0
              GROUP BY a.itemId
              ORDER BY count DESC
@@ -134,6 +138,7 @@ final class ContactAnalyticsService
              JOIN item b        ON a.itemId = b.itemId
              JOIN transaction c ON a.transactionId = c.transactionId
              WHERE c.companyId = ? AND c.$linkCol = ? AND c.$txCol IN ($txMarkers)
+                   AND " . SaleFilters::notVoidedSql('c') . "
                    AND b.categoryId IS NOT NULL
              GROUP BY b.categoryId
              ORDER BY total DESC
@@ -159,6 +164,7 @@ final class ContactAnalyticsService
                     COALESCE(SUM(transactionTotal), 0) AS total
              FROM transaction
              WHERE companyId = ? AND $linkCol = ? AND $txCol IN ($txMarkers)
+                   AND " . SaleFilters::notVoidedSql() . "
              GROUP BY $txCol",
             array_merge([$companyId, $contactId], $txTypes)
         );
@@ -176,6 +182,7 @@ final class ContactAnalyticsService
                     COALESCE(SUM(transactionTotal), 0)      AS total
              FROM transaction
              WHERE companyId = ? AND $linkCol = ? AND $txCol IN ($txMarkers)
+                   AND " . SaleFilters::notVoidedSql() . "
              GROUP BY hora
              ORDER BY cnt DESC
              LIMIT 6",
@@ -194,6 +201,7 @@ final class ContactAnalyticsService
                     COALESCE(SUM(transactionTotal), 0)     AS total
              FROM transaction
              WHERE companyId = ? AND $linkCol = ? AND $txCol IN ($txMarkers)
+                   AND " . SaleFilters::notVoidedSql() . "
              GROUP BY dow
              ORDER BY dow ASC",
             array_merge([$companyId, $contactId], $txTypes)
@@ -213,6 +221,7 @@ final class ContactAnalyticsService
                     COALESCE(SUM(transactionTotal), 0)                       AS total
              FROM transaction
              WHERE companyId = ? AND $linkCol = ? AND $txCol IN ($txMarkers)
+                   AND " . SaleFilters::notVoidedSql() . "
                    AND transactionDate >= (NOW() - INTERVAL '12 months')
              GROUP BY month_key
              ORDER BY month_key ASC",
@@ -231,6 +240,7 @@ final class ContactAnalyticsService
                     COALESCE(SUM(transactionTotal), 0) AS total
              FROM transaction
              WHERE companyId = ? AND $linkCol = ? AND $txCol IN ($txMarkers)
+                   AND " . SaleFilters::notVoidedSql() . "
                    AND outletId IS NOT NULL
              GROUP BY outletId
              ORDER BY cnt DESC

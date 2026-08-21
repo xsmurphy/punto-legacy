@@ -34,6 +34,15 @@ declare(strict_types=1);
  *   (e) reportes: `Reports\SalesService::salesTotals()` (uno de los
  *       call-sites que suma `AND SaleFilters::notVoidedSql()`) deja de sumar
  *       la venta anulada.
+ *   (f) rollup (F4, mig 155): `rollup_recompute_period(companyId,'sales',day)`
+ *       recalculado tras la anulación NO incluye la venta anulada — su
+ *       cnt/total consolidado del día coincide con la misma query filtrada
+ *       en vivo por `voidedat IS NULL` (si el rollup no excluyera lo
+ *       anulado, sería mayor que la query en vivo y el caso fallaría).
+ *   (g) línea ambigua (P2, code review F1+F2): una venta con 2 líneas del
+ *       MISMO itemId + un request que manda `itemId` sin `itemSoldId` se
+ *       rechaza (422) en vez de contagiar la misma decisión de reposición a
+ *       ambas líneas.
  *
  * (b)/(c)/(d) usan `apiConflict()`/`apiUnprocessable()`, que hacen `exit`
  * directo — corren en subproceso (`_sale_void_once_cli.php`), mismo patrón
@@ -269,6 +278,54 @@ check(
     ((int) ($before['count'] ?? 0) - (int) ($after['count'] ?? 0)) === 1
         && abs(((float) ($before['total'] ?? 0) - (float) ($after['total'] ?? 0)) - 7777.0) < 0.01,
     'before=' . json_encode($before) . ' after=' . json_encode($after),
+    $failures
+);
+
+// ── (f) rollup: la función excluye la venta anulada (F4, mig 155) ─────────
+$todayDay = date('Y-m-d');
+$db->Execute('SELECT rollup_recompute_period(?::uuid, ?, ?::date)', [$companyId, 'sales', $todayDay]);
+
+$rollupRow = ncmExecute(
+    "SELECT cnt, total FROM report_rollup
+     WHERE companyid = ? AND domain = 'sales' AND periodtype = 'day' AND periodstart = ?::date AND outletid IS NULL",
+    [$companyId, $todayDay]
+);
+$liveRow = ncmExecute(
+    "SELECT COUNT(*) AS cnt, COALESCE(SUM(transactiontotal),0) AS total FROM transaction
+     WHERE companyid = ? AND transactiontype IN (0,3) AND transactiondate::date = ?::date AND voidedat IS NULL",
+    [$companyId, $todayDay]
+);
+check(
+    '(f) rollup_recompute_period("sales"): cnt/total del día coinciden con la query en vivo filtrada por voidedat (venta anulada excluida del rollup)',
+    $rollupRow && $liveRow
+        && (int) $rollupRow['cnt'] === (int) $liveRow['cnt']
+        && abs((float) $rollupRow['total'] - (float) $liveRow['total']) < 0.01,
+    'rollup=' . json_encode($rollupRow) . ' live(voidedat IS NULL)=' . json_encode($liveRow),
+    $failures
+);
+
+// ── (g) línea ambigua: 2 líneas del mismo itemId + request sin itemSoldId ──
+$saleG = makeSale($companyId, $outletId, $registerId, $userId, [
+    ['itemId' => $stockItemId, 'units' => 1, 'total' => 1000, 'cogs' => 100],
+    ['itemId' => $stockItemId, 'units' => 2, 'total' => 2000, 'cogs' => 200],
+]);
+$linesJson = json_encode([['itemId' => $stockItemId, 'restock' => true]]);
+
+$cmd = escapeshellarg($phpBin) . ' -d variables_order=EGPCS ' . escapeshellarg(__DIR__ . '/_sale_void_once_cli.php')
+    . ' ' . escapeshellarg($companyId) . ' ' . escapeshellarg($saleG) . ' ' . escapeshellarg($userId)
+    . ' ' . escapeshellarg($registerId) . ' ' . escapeshellarg($outletId) . ' ' . escapeshellarg('línea ambigua')
+    . ' ' . escapeshellarg($linesJson) . ' 2>&1';
+$output = shell_exec($cmd) ?? '';
+check(
+    '(g) 2 líneas del mismo itemId + request sin itemSoldId se rechaza (422, no contagia la decisión)',
+    str_contains($output, '"ok":false') && str_contains($output, '422') && str_contains($output, 'itemSoldId'),
+    "salida del subproceso: $output",
+    $failures
+);
+check(
+    '(g) rollback limpio: la venta NO quedó anulada tras el 422 (el UPDATE voidedAt de paso 1 se revirtió)',
+    voidedAt($saleG) === null,
+    'voidedat=' . voidedAt($saleG),
     $failures
 );
 

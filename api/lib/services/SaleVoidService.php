@@ -343,6 +343,13 @@ final class SaleVoidService
             if ($failed) {
                 apiError('No se pudo anular la venta: la transacción abortó', 500);
             }
+        } catch (AmbiguousVoidLineException $e) {
+            // 422, no 409: es un error de INPUT del request (líneas ambiguas),
+            // no un conflicto de estado de la venta — mismo rollback limpio
+            // que el resto de los catches de este método.
+            $db->FailTrans();
+            $db->CompleteTrans();
+            apiError($e->getMessage(), 422);
         } catch (\Throwable $e) {
             $db->FailTrans();
             $db->CompleteTrans();
@@ -359,6 +366,28 @@ final class SaleVoidService
             realtimePublish('transaction', 'update', $transactionId, 'all');
         } catch (\Throwable $e) {
             // Ignorar — no crítico.
+        }
+
+        // Rollup: marcar sucio el día de la venta anulada (F4, context/40 +
+        // mig 155). Mismos dominios que SaleService::save() usa para una
+        // venta contado/crédito (SaleService.php:286-294) — la anulación
+        // afecta los mismos 3 buckets que la creación de la venta.
+        try {
+            \rollupMarkDirty($companyId, ['sales', 'item_sales', 'payments'], $txDate);
+        } catch (\Throwable $e) {
+            error_log('[SaleVoidService] rollupMarkDirty: ' . $e->getMessage());
+        }
+
+        // Auditoría (módulo FACTURACION) — P0 encontrado en code review de
+        // F1+F2: ni este método ni ninguno de sus dos callers (`sales-void.php`
+        // del POS, `transactions.php?resource=void` del panel para type 0/3)
+        // llamaban `sendAuditoria()`. La rama LEGACY de `transactions.php`
+        // (tipos que NO son 0/3, `voidTransaction()`) sí la llama — puesta acá
+        // una sola vez, ambos endpoints quedan cubiertos sin duplicarla.
+        try {
+            $this->sendVoidAudit($companyId, $transactionId, $userId, $reason, $registerId, $resolvedOutletId);
+        } catch (\Throwable $e) {
+            error_log('[SaleVoidService] sendVoidAudit: ' . $e->getMessage());
         }
 
         return [
@@ -460,15 +489,50 @@ final class SaleVoidService
      * puede pedir reponer lo que el sistema marcó imposible. `$requestedLines`
      * vacío = defaults de cada línea (D2, "si $lines viene vacío, aplicar
      * defaults").
+     *
+     * P2 (code review F1+F2): el fallback por `itemId` (cuando el request no
+     * manda `itemSoldId`) contagiaba la MISMA decisión a todas las líneas de
+     * la venta con ese itemId — si el cliente compró el mismo ítem en dos
+     * líneas separadas y el cajero solo quería reponer una, ambas terminaban
+     * con el mismo `restock`. Se resuelve SIEMPRE por `itemSoldId` primero
+     * (único por fila, sin ambigüedad); el fallback por `itemId` solo se
+     * acepta cuando ese itemId es único entre las líneas de ESTA venta — si
+     * hay 2+ líneas del mismo ítem y el request no distingue por
+     * `itemSoldId`, se rechaza con 422 en vez de aplicar una decisión que no
+     * se puede atribuir a una línea sin ambigüedad.
      */
     private function resolveLineDecisions(array $options, array $requestedLines): array
     {
-        $reqByKey = [];
+        $itemIdCounts = [];
+        foreach ($options as $opt) {
+            $itemIdCounts[$opt['itemId']] = ($itemIdCounts[$opt['itemId']] ?? 0) + 1;
+        }
+
+        $reqBySoldId = [];
+        $reqByItemId = [];
         foreach ($requestedLines as $l) {
-            $key = (string) ($l['itemSoldId'] ?? $l['itemId'] ?? '');
-            if ($key !== '') {
-                $reqByKey[$key] = (bool) ($l['restock'] ?? false);
+            $soldId  = (string) ($l['itemSoldId'] ?? '');
+            $itemId  = (string) ($l['itemId'] ?? '');
+            $restock = (bool) ($l['restock'] ?? false);
+
+            if ($soldId !== '') {
+                $reqBySoldId[$soldId] = $restock;
+                continue;
             }
+            if ($itemId === '') {
+                continue;
+            }
+            if (($itemIdCounts[$itemId] ?? 0) > 1) {
+                // NO apiError() acá — este método corre DENTRO de la transacción
+                // de BD de void() (después del UPDATE que marca voidedAt), así
+                // que un `exit` directo saltearía FailTrans()/CompleteTrans().
+                // Se tira una excepción catcheable; el caller decide cómo
+                // responder (ver AmbiguousVoidLineException en void()).
+                throw new AmbiguousVoidLineException(
+                    "La venta tiene más de una línea del ítem {$itemId}: mandá itemSoldId por línea, itemId solo no alcanza para decidir cuál."
+                );
+            }
+            $reqByItemId[$itemId] = $restock;
         }
 
         $decisions = [];
@@ -476,7 +540,7 @@ final class SaleVoidService
             if ($requestedLines === []) {
                 $restock = $opt['defaultRestock'];
             } else {
-                $restock = $reqByKey[$opt['itemSoldId']] ?? $reqByKey[$opt['itemId']] ?? $opt['defaultRestock'];
+                $restock = $reqBySoldId[$opt['itemSoldId']] ?? $reqByItemId[$opt['itemId']] ?? $opt['defaultRestock'];
             }
             if ($restock && !$opt['canRestock']) {
                 $restock = false;
@@ -595,5 +659,58 @@ final class SaleVoidService
             throw new \RuntimeException('No se pudo crear el motivo de merma "Devolución de cliente"');
         }
         return $id;
+    }
+
+    /**
+     * Auditoría (módulo FACTURACION) — mismo shape que `SaleService::sendAudit()`
+     * (creación de venta) y que la rama LEGACY de `api/v1/transactions.php`
+     * (`voidTransaction()`, tipos que no son 0/3). `sendAuditoria()` es curl
+     * best-effort (gateada por AUDITORIA_URL/TOKEN vacíos en dev — mismo guard
+     * que `SaleService::sendAudit()`), por eso el caller la llama post-commit
+     * dentro de su propio try/catch: un fallo acá nunca revierte la anulación
+     * ya confirmada.
+     */
+    private function sendVoidAudit(
+        string  $companyId,
+        string  $transactionId,
+        string  $userId,
+        string  $reason,
+        ?string $registerId,
+        string  $outletId
+    ): void {
+        if (!defined('AUDITORIA_URL') || !defined('AUDITORIA_TOKEN')
+            || AUDITORIA_URL === '' || AUDITORIA_TOKEN === '') {
+            return; // auditoría no configurada (dev) → no-op
+        }
+
+        $userName     = getValue('contact', 'contactName', "WHERE contactId = '{$userId}'");
+        $registerName = $registerId !== null && $registerId !== ''
+            ? getValue('register', 'registerName', "WHERE registerId = '{$registerId}'")
+            : '';
+        $companyName = defined('COMPANY_NAME') ? COMPANY_NAME : '';
+        $outletName  = $outletId !== '' ? getCurrentOutletName($outletId) : '';
+        $transaction = ncmExecute('SELECT * FROM transaction WHERE transactionid = ? AND companyid = ? LIMIT 1', [$transactionId, $companyId]);
+
+        sendAuditoria([
+            'date'       => defined('TODAY') ? TODAY : date('Y-m-d H:i:s'),
+            'user'       => $userName,
+            'module'     => 'FACTURACION',
+            'origin'     => 'CAJA',
+            'company_id' => $companyId,
+            'data'       => [
+                'action'        => "El usuario {$userName} anuló una factura desde la caja {$registerName}",
+                'reason'        => $reason,
+                'userId'        => $userId,
+                'userName'      => $userName,
+                'operationData' => $transaction,
+                'registerId'    => $registerId,
+                'registerName'  => $registerName,
+                'companyID'     => $companyId,
+                'companyName'   => $companyName,
+                'outletId'      => $outletId,
+                'outletName'    => $outletName,
+                'timestamp'     => $transaction['timestamp'] ?? null,
+            ],
+        ], AUDITORIA_TOKEN);
     }
 }

@@ -102,6 +102,7 @@ final class ProductsService
             $sql = "SELECT a.itemId as id, $selFlat
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ") AND b.customerId = ?" . $rocB . "
+                    AND " . SaleFilters::notVoidedSql('b') . "
                     AND b.transactionId = a.transactionId
                     GROUP BY id ORDER BY usold DESC";
             $params = [$f['cusId']];
@@ -110,6 +111,7 @@ final class ProductsService
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")
                     AND b.transactionDate BETWEEN ? AND ? AND b.userId = ?" . $rocB . "
+                    AND " . SaleFilters::notVoidedSql('b') . "
                     AND a.transactionId = b.transactionId
                     GROUP BY id ORDER BY usold DESC";
             $params = [$from, $to, $f['usrId']];
@@ -120,6 +122,7 @@ final class ProductsService
             $sql = "SELECT a.itemId as id, EXTRACT(MONTH FROM a.itemSoldDate)::int as smonth, $sel
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")" . $rocB . "
+                    AND " . SaleFilters::notVoidedSql('b') . "
                     AND a.transactionId = b.transactionId
                     AND EXTRACT(YEAR FROM a.itemSoldDate) = ? AND a.itemId = ?
                     GROUP BY smonth, id ORDER BY smonth ASC";
@@ -128,6 +131,7 @@ final class ProductsService
             $sql = "SELECT a.itemId as id, $selUnits
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")" . $rocB . "
+                    AND " . SaleFilters::notVoidedSql('b') . "
                     AND a.itemId = ? AND a.transactionId = b.transactionId
                     GROUP BY id ORDER BY usold DESC";
             $params = [$f['itmId']];
@@ -136,6 +140,7 @@ final class ProductsService
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")
                     AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
+                    AND " . SaleFilters::notVoidedSql('b') . "
                     AND a.transactionId = b.transactionId
                     GROUP BY id ORDER BY usold DESC";
             $params = [$from, $to];
@@ -213,28 +218,33 @@ final class ProductsService
                     FROM transaction a, itemSold b
                     WHERE a.transactionDate BETWEEN ? AND ?" . $rocA . "
                     AND a.transactionType IN (" . self::TX_TYPES . ") AND a.transactionId = b.transactionId
+                    AND " . SaleFilters::notVoidedSql('a') . "
                     AND b.itemId IN (SELECT itemId FROM item WHERE (itemName ILIKE ? OR itemSKU ILIKE ?) AND companyId = ? AND itemStatus = 1)
                     ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$from, $to, $like, $like, $companyId];
         } elseif ($filters['cusId']) {
             $sql = "SELECT $sel FROM transaction a, itemSold b
                     WHERE a.transactionType IN (" . self::TX_TYPES . ") AND a.customerId = ?" . $rocA . "
+                    AND " . SaleFilters::notVoidedSql('a') . "
                     AND a.transactionId = b.transactionId ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$filters['cusId']];
         } elseif ($filters['usrId']) {
             $sql = "SELECT $sel FROM transaction a, itemSold b
                     WHERE a.transactionDate BETWEEN ? AND ? AND a.transactionType IN (" . self::TX_TYPES . ")" . $rocA . "
+                    AND " . SaleFilters::notVoidedSql('a') . "
                     AND a.transactionId = b.transactionId AND b.userId = ? ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$from, $to, $filters['usrId']];
         } elseif ($filters['itmId']) {
             $sql = "SELECT $sel FROM transaction a, itemSold b
                     WHERE a.transactionType IN (" . self::TX_TYPES . ") AND b.itemId = ?" . $rocA . "
+                    AND " . SaleFilters::notVoidedSql('a') . "
                     AND a.transactionId = b.transactionId ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$filters['itmId']];
         } else {
             $sql = "SELECT $sel FROM transaction a, itemSold b
                     WHERE a.transactionDate BETWEEN ? AND ?" . $rocA . "
                     AND a.transactionType IN (" . self::TX_TYPES . ") AND a.transactionId = b.transactionId
+                    AND " . SaleFilters::notVoidedSql('a') . "
                     ORDER BY a.transactionDate DESC LIMIT 2000";
             $params = [$from, $to];
         }

@@ -72,6 +72,7 @@ final class SalesService
                     COALESCE(SUM(transactionTotal), 0)    AS total
                 FROM transaction
                 WHERE transactionType = ?
+                AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
                 AND transactionDate <= ?' . $roc;
 

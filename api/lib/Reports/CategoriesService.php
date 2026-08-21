@@ -99,6 +99,7 @@ final class CategoriesService
                   AND a.itemSoldDate BETWEEN ? AND ?
                   AND a.transactionId = b.transactionId' . $roc . '
                   AND b.transactionType IN (0, 3)
+                  AND ' . SaleFilters::notVoidedSql('b') . '
                 GROUP BY c.categoryId
                 ORDER BY usold DESC';
 

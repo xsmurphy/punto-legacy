@@ -27,6 +27,7 @@ final class CustomersService
                        STRING_AGG(meta->>'tags', ',')      AS tags
                 FROM transaction
                 WHERE transactionType IN (0, 3)
+                  AND " . SaleFilters::notVoidedSql() . "
                   AND transactionDate BETWEEN ? AND ?
                   AND customerId IS NOT NULL" . $roc . "
                 GROUP BY customerId

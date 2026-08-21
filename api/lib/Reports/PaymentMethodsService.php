@@ -30,6 +30,7 @@ final class PaymentMethodsService
                        invoiceNo, outletId, customerId, registerId
                 FROM transaction
                 WHERE transactionType IN (0, 5)
+                AND " . SaleFilters::notVoidedSql() . "
                 AND transactionDate BETWEEN ? AND ?" . $roc;
 
         $res = ncmExecute($sql, [$from, $to], false, true);

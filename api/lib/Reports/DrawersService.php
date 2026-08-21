@@ -26,6 +26,10 @@ use Punto\Api\Contacts\ContactDisplayName;
  *  - El detalle se re-consulta por id (no confía en blob del cliente).
  *  - `remove()` scopea por companyId (legacy era IDOR + LIMIT roto en PG).
  *  - Las sumas de expenses (extracciones/ingresos) filtran por companyId además de registerId.
+ *
+ * Anulación de ventas (`voidedAt`, mig 154, context/40-anulacion-y-nota-credito.md):
+ * este servicio NO usa `SaleFilters::notVoidedSql()` a propósito, mismo motivo que
+ * `Services\DrawerService` — es reconciliación de turno/caja, no un reporte de ventas.
  */
 final class DrawersService
 {
