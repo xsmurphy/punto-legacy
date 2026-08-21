@@ -31,6 +31,7 @@
  */
 
 import * as React from "react"
+import { createRoot, type Root } from "react-dom/client"
 import { useTheme } from "next-themes"
 import { MapPin, WifiOff } from "lucide-react"
 
@@ -60,6 +61,19 @@ const FALLBACK_CENTER: [number, number] = [-57.6359, -25.2637]
 /** Si el estilo no terminó de cargar en este lapso, asumimos que no hay red. */
 const STYLE_LOAD_TIMEOUT_MS = 12_000
 
+/**
+ * Desmonta los roots de React de los popups. Va en un microtask porque
+ * `root.unmount()` sincrónico desde el cleanup de un efecto dispara el warning
+ * "Attempted to synchronously unmount a root while React was already
+ * rendering".
+ */
+function unmountPopupRoots(roots: Root[]): void {
+  const snapshot = [...roots]
+  queueMicrotask(() => {
+    for (const r of snapshot) r.unmount()
+  })
+}
+
 function hasCoords(o: Order): boolean {
   return (
     typeof o.deliveryLat === "number" &&
@@ -84,6 +98,11 @@ export function OrdersMapView({
   const containerRef = React.useRef<HTMLDivElement | null>(null)
   const mapRef = React.useRef<MapLibreMap | null>(null)
   const markersRef = React.useRef<MapLibreMarker[]>([])
+  // Roots de React montados dentro de los popups de MapLibre (ver
+  // OrderMapPopup). Se guardan para desmontarlos cuando los markers se
+  // reconcilian o el componente muere: MapLibre destruye el nodo del popup,
+  // pero el root de React seguiría vivo y filtrando memoria.
+  const popupRootsRef = React.useRef<Root[]>([])
   const didFitRef = React.useRef(false)
 
   const [loadFailed, setLoadFailed] = React.useState(false)
@@ -142,6 +161,8 @@ export function OrdersMapView({
       window.clearTimeout(timeout)
       for (const m of markersRef.current) m.remove()
       markersRef.current = []
+      unmountPopupRoots(popupRootsRef.current)
+      popupRootsRef.current = []
       mapRef.current?.remove()
       mapRef.current = null
       setMapReady(false)
@@ -169,6 +190,8 @@ export function OrdersMapView({
 
       for (const m of markersRef.current) m.remove()
       markersRef.current = []
+      unmountPopupRoots(popupRootsRef.current)
+      popupRootsRef.current = []
 
       const coords: Array<[number, number]> = []
 
@@ -204,16 +227,31 @@ export function OrdersMapView({
         }
         el.textContent = order.orderNumber !== null ? `#${order.orderNumber}` : "#—"
 
-        const popup = new maplibregl.Popup({ offset: 18, closeButton: true }).setHTML(
-          popupHtml(order, formatMoney(orderTotal(order), config)),
+        // Popup con React adentro (ver OrderMapPopup): nodo suelto + createRoot,
+        // y `setDOMContent` en vez de `setHTML`. `closeButton: false` porque el
+        // botón nativo de MapLibre es una × sin estilo que no matchea nada del
+        // design system; el popup se cierra tocando el mapa u otro pin, que es
+        // el gesto natural en una tablet.
+        const popupNode = document.createElement("div")
+        const root = createRoot(popupNode)
+        popupRootsRef.current.push(root)
+        const popup = new maplibregl.Popup({
+          offset: 18,
+          closeButton: false,
+          className: "punto-map-popup",
+          maxWidth: "none",
+        }).setDOMContent(popupNode)
+
+        root.render(
+          <OrderMapPopup
+            order={order}
+            total={formatMoney(orderTotal(order), config)}
+            onOpen={() => {
+              popup.remove()
+              onOpenOrderRef.current(order)
+            }}
+          />,
         )
-        popup.on("open", () => {
-          const node = popup.getElement()?.querySelector<HTMLButtonElement>("[data-order-open]")
-          node?.addEventListener("click", () => {
-            popup.remove()
-            onOpenOrderRef.current(order)
-          })
-        })
 
         const marker = new maplibregl.Marker({ element: el })
           .setLngLat([lng, lat])
@@ -316,50 +354,70 @@ export function OrdersMapView({
 /** Ícono de local para el marker del outlet (lucide `Store`, inline por ser DOM crudo). */
 const STORE_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 7 4.41-4.41A2 2 0 0 1 7.83 2h8.34a2 2 0 0 1 1.42.59L22 7"/><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><path d="M15 22v-4a2 2 0 0 0-2-2h-2a2 2 0 0 0-2 2v4"/><path d="M2 7h20"/><path d="M22 7v3a2 2 0 0 1-2 2 2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 16 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 12 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 8 12a2.7 2.7 0 0 1-1.59-.63.7.7 0 0 0-.82 0A2.7 2.7 0 0 1 4 12a2 2 0 0 1-2-2V7"/></svg>`
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
-
 /**
- * Contenido del popup. Es HTML crudo (MapLibre no renderiza React acá), así
- * que TODO valor dinámico pasa por `escapeHtml`.
+ * Contenido del popup de una orden.
+ *
+ * Es un componente React montado con `createRoot` sobre un nodo suelto que se
+ * le pasa a MapLibre con `setDOMContent` — NO un string de HTML inyectado con
+ * `setHTML`, como estaba antes. El string obligaba a reimplementar a mano cada
+ * control (el botón era un `<button>` con clases copiadas de `Button`), así que
+ * el popup quedaba fuera del design system y se desincronizaba solo:
+ * cualquier cambio de los primitives no llegaba acá (regla del proyecto: shadcn
+ * sobre HTML nativo, `context/14-ui-conventions.md`). Con React adentro usa los
+ * MISMOS componentes que el resto del POS, y de paso desaparece el
+ * `escapeHtml` — React escapa por construcción.
+ *
+ * El chrome propio de MapLibre (caja blanca, sombra, tip y botón de cerrar) se
+ * neutraliza en `app/globals.css`, así que lo que se ve es esta Card y nada más.
  */
-function popupHtml(order: Order, total: string): string {
+function OrderMapPopup({
+  order,
+  total,
+  onOpen,
+}: {
+  order: Order
+  total: string
+  onOpen: () => void
+}) {
   const number = order.orderNumber !== null ? `#${order.orderNumber}` : "#—"
   const since = order.sentAt ?? order.createdAt
   const age = since ? formatRelativeShort(since) : null
-  const tier = orderElapsedTier(order)
-  const accent = KDS_TIER_ACCENT[tier]
   // Edad con el MISMO canal de color que el pill del KDS (amber/rose) — el
   // cajero lee la urgencia igual en el mapa que en cocina.
-  const ageHtml = age
-    ? `<span class="tabular-nums font-medium"${accent ? ` style="color:${accent}"` : ""}>${escapeHtml(age)}</span>`
-    : ""
-  const courier = order.courierName
-    ? escapeHtml(order.courierName)
-    : `<span class="text-muted-foreground">Sin repartidor</span>`
-  return `
-    <div class="flex min-w-44 flex-col gap-1.5 p-1 text-foreground">
-      <div class="flex items-baseline justify-between gap-3">
-        <p class="text-base font-semibold tabular-nums">Orden ${escapeHtml(number)}</p>
-        ${ageHtml}
+  const accent = KDS_TIER_ACCENT[orderElapsedTier(order)]
+
+  return (
+    <div className="flex w-56 flex-col gap-2 rounded-lg border bg-popover p-3 text-popover-foreground shadow-md">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-sm font-semibold tabular-nums">Orden {number}</p>
+        {age ? (
+          <span
+            className="text-xs font-medium tabular-nums text-muted-foreground"
+            style={accent ? { color: accent } : undefined}
+          >
+            {age}
+          </span>
+        ) : null}
       </div>
-      <p class="text-sm text-muted-foreground">${escapeHtml(order.customerName ?? "Sin cliente")}</p>
-      <div class="flex items-center justify-between gap-3 text-sm">
-        <span class="text-muted-foreground">${escapeHtml(statusLabelFor(order))}</span>
-        <span class="font-semibold tabular-nums">${escapeHtml(total)}</span>
+
+      <p className="truncate text-sm text-muted-foreground" title={order.customerName ?? undefined}>
+        {order.customerName ?? "Sin cliente"}
+      </p>
+
+      <div className="flex items-center justify-between gap-2">
+        <Badge variant={STATUS_VARIANT[order.status] ?? "secondary"}>{statusLabelFor(order)}</Badge>
+        <span className="text-sm font-semibold tabular-nums">{total}</span>
       </div>
-      <p class="text-sm">${courier}</p>
-      <button type="button" data-order-open
-        class="mt-1 inline-flex h-9 items-center justify-center rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground">
+
+      <p className="truncate text-xs text-muted-foreground">
+        {order.courierName ?? "Sin repartidor"}
+      </p>
+
+      <Button size="sm" className="w-full" onClick={onOpen}>
         Ver detalle
-      </button>
+      </Button>
     </div>
-  `
+  )
 }
 
 /**

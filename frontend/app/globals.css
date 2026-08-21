@@ -375,3 +375,22 @@
     font-weight: 600;
     letter-spacing: 0.025em;
 }
+/* MapLibre — popup sin chrome propio.
+   El popup de los mapas (hoy /pos/ordenes) renderiza React con componentes
+   shadcn adentro (ver components/orders/orders-map-view.tsx). MapLibre pinta
+   ADEMÁS su propia caja: fondo blanco fijo, padding, radio y sombra, más un
+   "tip" triangular — todo con colores hardcodeados que ignoran el tema y se
+   veían como una segunda tarjeta por detrás de la nuestra. Acá se neutraliza
+   el contenedor y se le da al tip el color de `--popover`, así el conjunto
+   queda como cualquier Popover del design system, en claro y en oscuro. */
+.punto-map-popup .maplibregl-popup-content {
+    background: transparent;
+    padding: 0;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.punto-map-popup .maplibregl-popup-tip {
+    border-top-color: var(--popover);
+    border-bottom-color: var(--popover);
+}
