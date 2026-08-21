@@ -1,205 +1,20 @@
 "use client"
 
 import * as React from "react"
-import Image from "next/image"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import {
-  ArrowRight,
-  BarChart3,
-  Boxes,
-  ChevronDown,
-  Coffee,
-  Croissant,
-  Hammer,
-  Pill,
-  ReceiptText,
-  Shirt,
-  Sparkles,
-  ShoppingBasket,
-  Store,
-  Users,
-  UtensilsCrossed,
-  type LucideIcon,
-} from "lucide-react"
+import { ChevronDown } from "lucide-react"
 
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { ModulosMenu, RubrosMenu } from "@/components/site/nav-menus"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { getRubro } from "@/lib/site/rubros"
 import { cn } from "@/lib/utils"
-
-type MenuEntry = {
-  icon: LucideIcon
-  label: string
-  description: string
-  href: string
-}
-
-const MODULOS: MenuEntry[] = [
-  {
-    icon: Store,
-    label: "Punto de Venta",
-    description: "Vender en segundos y cerrar el turno con arqueo",
-    href: "/modulos/punto-de-venta",
-  },
-  {
-    icon: ReceiptText,
-    label: "Facturación electrónica",
-    description: "El comprobante se emite y se envía solo",
-    href: "#",
-  },
-  {
-    icon: Boxes,
-    label: "Stock y compras",
-    description: "Existencias por depósito y costos al día",
-    href: "#",
-  },
-  {
-    icon: Users,
-    label: "Clientes y crédito",
-    description: "Cuenta corriente con límite y cobranzas",
-    href: "#",
-  },
-  {
-    icon: BarChart3,
-    label: "Panel de administración",
-    description: "Ventas, stock y reportes de todas las sucursales",
-    href: "/modulos/panel",
-  },
-  {
-    icon: Sparkles,
-    label: "Punto AI",
-    description: "El asistente que analiza tus datos y responde",
-    href: "/modulos/punto-ai",
-  },
-]
-
-const RUBROS_MENU: MenuEntry[] = [
-  {
-    icon: UtensilsCrossed,
-    label: "Restaurantes",
-    description: "Mesas, comandas y cuenta dividida",
-    href: "/para/restaurantes",
-  },
-  {
-    icon: ShoppingBasket,
-    label: "Minimarkets",
-    description: "Escanear, cobrar y reponer a tiempo",
-    href: "/para/minimarkets",
-  },
-  {
-    icon: Pill,
-    label: "Farmacias",
-    description: "Vencimientos y cuenta corriente al día",
-    href: "/para/farmacias",
-  },
-  {
-    icon: Hammer,
-    label: "Ferreterías",
-    description: "Miles de códigos sin dudar en el mostrador",
-    href: "/para/ferreterias",
-  },
-  {
-    icon: Coffee,
-    label: "Cafeterías",
-    description: "Mostrador rápido y clientela que vuelve",
-    href: "/para/cafeterias",
-  },
-  {
-    icon: Croissant,
-    label: "Panaderías",
-    description: "Recetas, producción y venta al peso",
-    href: "/para/panaderias",
-  },
-  {
-    icon: Shirt,
-    label: "Tiendas de ropa",
-    description: "Talles, colores y cambios con nota de crédito",
-    href: "/para/tiendas-de-ropa",
-  },
-]
-
-function MenuList({
-  title,
-  entries,
-}: {
-  title: string
-  entries: MenuEntry[]
-}) {
-  return (
-    <div className="flex-1 p-4 md:p-5">
-      <p className="mb-2 px-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        {title}
-      </p>
-      <div className="flex flex-col gap-0.5">
-        {entries.map((entry) => (
-          <DropdownMenuItem
-            key={entry.label}
-            asChild
-            className="items-start gap-3 rounded-lg p-2.5"
-          >
-            <Link href={entry.href}>
-              <entry.icon className="mt-0.5 size-5 shrink-0 text-foreground" />
-              <span className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium leading-none">
-                  {entry.label}
-                </span>
-                <span className="text-sm text-muted-foreground">
-                  {entry.description}
-                </span>
-              </span>
-            </Link>
-          </DropdownMenuItem>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function FeaturedCard({
-  title,
-  description,
-  cta,
-  href,
-  image,
-}: {
-  title: string
-  description: string
-  cta: string
-  href: string
-  image?: { src: string; alt: string; width: number; height: number }
-}) {
-  return (
-    <div className="m-2 flex w-64 shrink-0 flex-col gap-3 rounded-xl bg-muted p-4">
-      {image ? (
-        <Image
-          src={image.src}
-          alt={image.alt}
-          width={image.width}
-          height={image.height}
-          sizes="224px"
-          className="w-full rounded-lg border"
-        />
-      ) : null}
-      <div className="flex flex-col gap-1">
-        <p className="text-base font-semibold tracking-tight">{title}</p>
-        <p className="text-sm text-muted-foreground">{description}</p>
-      </div>
-      <Button asChild size="sm" className="mt-auto w-full rounded-full">
-        <Link href={href}>
-          {cta}
-          <ArrowRight className="size-4" />
-        </Link>
-      </Button>
-    </div>
-  )
-}
 
 function NavMenu({
   label,
@@ -287,28 +102,10 @@ export function SiteHeader() {
           )}
         >
           <NavMenu label="Módulos" overlay={overlay}>
-            <MenuList title="Módulos" entries={MODULOS} />
-            <FeaturedCard
-              title="Punto AI"
-              description="Preguntale por tus ventas y responde con tus datos."
-              cta="Ver el asistente"
-              href="/modulos/punto-ai"
-              image={{
-                src: "/site/ai-screenshot.png",
-                alt: "Punto AI analizando las ventas del negocio",
-                width: 2868,
-                height: 1388,
-              }}
-            />
+            <ModulosMenu />
           </NavMenu>
           <NavMenu label="Rubros" overlay={overlay}>
-            <MenuList title="Rubros" entries={RUBROS_MENU} />
-            <FeaturedCard
-              title="¿Tu rubro es otro?"
-              description="Contanos cómo trabaja tu negocio y lo vemos juntos."
-              cta="Escribinos"
-              href="#"
-            />
+            <RubrosMenu />
           </NavMenu>
           <Link
             href="#"
