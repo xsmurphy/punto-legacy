@@ -1645,6 +1645,22 @@ system/
 
 ---
 
+## Feature request — entidad fiscal separada del contacto (2026-08-21, sin planificar)
+
+**Separar "quién compra" de "a quién se factura".** Hoy `contact` mezcla el
+cliente con sus datos de facturación, así que N personas distintas que
+facturan a la misma empresa se cargan como N contactos que repiten RUC,
+razón social y dirección fiscal — redundancia real en la BD, y hace que
+reportes como Cuentas por Cobrar partan al mismo receptor en varias filas.
+El modelo correcto es una entidad fiscal (receptor) propia, con relación N:1
+desde el contacto: el contacto es la persona con la que se opera, la entidad
+fiscal es a quién sale el documento. Impacta facturación electrónica (el
+receptor del DE), cuentas por cobrar y el buscador de clientes del POS.
+Observación del owner 2026-08-21: un RUC repetido NO implica contacto
+duplicado — es un caso legítimo y frecuente.
+
+---
+
 ## Backlog testing 2026-07-07 — Panel + POS (feedback testers)
 
 **Re-reportado casi íntegro por testers el 2026-07-30** (doc "Punto Panel") —
