@@ -166,7 +166,8 @@ function EntryList({
       <p className="mb-2 px-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         {title}
       </p>
-      <div className="flex flex-col gap-0.5">
+      {/* Dos columnas: con 6+ entradas una sola columna se va de alto. */}
+      <div className="grid grid-cols-2 gap-x-2 gap-y-0.5">
         {entries.map((entry, i) => (
           <DropdownMenuItem
             key={entry.label}
@@ -201,7 +202,7 @@ export function ModulosMenu() {
   const entry = MODULOS_MENU[active]
 
   return (
-    <div className="flex">
+    <div className="flex md:w-[52rem]">
       <EntryList
         title="Módulos"
         entries={MODULOS_MENU}
@@ -247,7 +248,7 @@ export function RubrosMenu() {
   const entry = RUBROS_MENU[active]
 
   return (
-    <div className="flex">
+    <div className="flex md:w-[52rem]">
       <EntryList
         title="Rubros"
         entries={RUBROS_MENU}
