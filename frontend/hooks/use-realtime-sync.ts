@@ -67,7 +67,13 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // panel no llegaba a la caja hasta el próximo bootstrap manual.
   tax:               [["taxes"], ["taxonomies", "tax"], ["pos-bootstrap"]],
   location:          [["outlet-locations"]],
-  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["dashboard"], ["dashboard-widget"]],
+  // `["pos-transaction"]` (singular, SIN id) — F6 context/40: la anulación
+  // (SaleVoidService::void) emite `transaction update` y el detalle abierto
+  // en `pos-transactions-dialog.tsx` está cacheado bajo `["pos-transaction",
+  // encId]` (hooks/use-pos-transactions.ts). El key parcial matchea por
+  // prefijo cualquier id abierto, sin depender de que el evento traiga el
+  // mismo id (viene el UUID crudo, el detalle cachea con `enc(transactionId)`).
+  transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["dashboard"], ["dashboard-widget"]],
   drawer:            [["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
   expense:           [["reports", "expenses"], ["dashboard"], ["dashboard-widget"]],
   // setting también invalida pos-bootstrap porque lo usa el POS para leer config del tenant.
