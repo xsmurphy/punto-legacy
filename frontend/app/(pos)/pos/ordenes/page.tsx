@@ -26,6 +26,7 @@ import { ClipboardList, LayoutGrid, List, Map } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
+import { FullscreenToggle } from "@/components/pos/fullscreen-toggle"
 import { OrderCard } from "@/components/orders/order-card"
 import { OrderDetailView } from "@/components/orders/order-detail-view"
 import { OrdersListView } from "@/components/orders/orders-list-view"
@@ -192,6 +193,10 @@ export default function PosOrdenesPage() {
               />
             ))}
           </div>
+          {/* Toggle de pantalla completa — posición fija al final de la pill
+              (regla del POS: posiciones estables, sin desplazamientos). */}
+          <div className="hidden h-6 w-px shrink-0 bg-white/15 md:block" />
+          <FullscreenToggle />
         </div>
       </div>
 
