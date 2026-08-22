@@ -2,7 +2,7 @@
 /**
  * REST — Endpoint interno de jobs de mantenimiento periódicos.
  *
- *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|partition-ensure>
+ *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|partition-ensure|period-close>
  *       → { processed?, deleted?, issued?, errors?, skipped?, job }
  *
  * SIN apiAuthTenant: lo invoca el cron DENTRO de la imagen del API
@@ -42,6 +42,16 @@
  *                          ya mordió a `rollup_dirty` (134 pendientes sin que
  *                          nadie corriera el job), acá el costo de no alertar
  *                          es un INSERT fallando duro en un mes sin partición.
+ *   - period-close       → D7/E1b de context/48-escalamiento-de-datos.md (mig 157):
+ *                          `SELECT * FROM period_close_due()` (default 1 mes,
+ *                          override por tenant en `company.config->>'settingPeriodCloseMonths'`)
+ *                          y por cada `(companyid, period)` pendiente,
+ *                          `SELECT period_close_run(companyid, period, NULL, 'job')` —
+ *                          inserta el cierre y re-encola el mes completo en
+ *                          `rollup_dirty`. Después de un cierre, el trigger
+ *                          `fn_period_guard()` empieza a rechazar UPDATE/DELETE
+ *                          sobre ese período en `transaction`/`itemsold`/`stock`/
+ *                          `cpayments`/`expenses`.
  *
  * Lock: cada job corre bajo pg_try_advisory_lock(hashtext('maintenance:'||job)).
  * Si no consigue el lock (otra corrida del mismo job ya está adentro — dos
@@ -74,7 +84,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'partition-ensure'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'partition-ensure', 'period-close'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -116,6 +126,9 @@ function maintenanceRunJob(string $job): array
 
         case 'partition-ensure':
             return maintenancePartitionEnsure($db);
+
+        case 'period-close':
+            return maintenancePeriodClose($db);
 
         default:
             // Inalcanzable: $job ya validado contra $knownJobs arriba.
@@ -163,6 +176,35 @@ function maintenancePartitionEnsure(\DB $db): array
     }
 
     return ['created' => $created, 'health' => $health];
+}
+
+/**
+ * D7/E1b de context/48-escalamiento-de-datos.md (mig 157). Por cada tenant
+ * con un período vencido (según `period_close_due()` — default 1 mes, con
+ * override por tenant en `company.config->>'settingPeriodCloseMonths'`),
+ * corre `period_close_run` para cerrarlo: inserta el cierre en
+ * `period_close` y re-encola el mes completo en `rollup_dirty`.
+ */
+function maintenancePeriodClose(\DB $db): array
+{
+    $due    = $db->Execute('SELECT * FROM period_close_due()');
+    $closed = [];
+
+    if ($due === false) {
+        return ['closed' => $closed];
+    }
+
+    while (!$due->EOF) {
+        $companyId = $due->fields['companyid'];
+        $period    = $due->fields['period'];
+
+        $db->GetOne('SELECT period_close_run(?, ?, NULL, ?)', [$companyId, $period, 'job']);
+        $closed[] = ['companyId' => $companyId, 'period' => $period];
+
+        $due->MoveNext();
+    }
+
+    return ['closed' => $closed];
 }
 
 global $db;
