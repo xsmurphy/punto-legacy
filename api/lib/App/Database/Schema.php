@@ -205,7 +205,7 @@ final class Schema
                    FROM pg_attribute a
                    JOIN pg_class c ON c.oid = a.attrelid
                    JOIN pg_namespace n ON n.oid = c.relnamespace
-                  WHERE n.nspname = current_schema() AND c.relkind = 'r' AND a.attnum > 0 AND NOT a.attisdropped"
+                  WHERE n.nspname = current_schema() AND c.relkind IN ('r','p') AND a.attnum > 0 AND NOT a.attisdropped"
             );
             if ($rs && !$rs->EOF) {
                 return $stamp = (string) ($rs->fields['s'] ?? 'na');
@@ -229,19 +229,32 @@ final class Schema
             // Una sola pasada por todo el schema. `pg_attribute` en vez de
             // information_schema: es sensiblemente más rápido y trae el tipo y
             // la pertenencia a la PK en la misma fila.
+            //
+            // `relkind IN ('r','p')`: 'p' son tablas PARTICIONADAS (E1,
+            // context/48 — `transaction`/`itemsold` desde la mig 156). Sin
+            // esto una tabla particionada desaparecía del catálogo apenas se
+            // migraba: `ncmInsert`/`Schema::split` dejaban de rutear sus
+            // columnas y toda venta empezaba a fallar.
+            //
+            // `pk_first_attnum`: primer atnum de la PK, vía indkey[0] (int2vector
+            // es indexable, 0-based). Se usa abajo para las PK COMPUESTAS de las
+            // tablas particionadas (ver comentario en el loop).
             $rs = $db->Execute(
                 "SELECT c.relname                    AS tabla,
+                        c.relkind                    AS relkind,
                         a.attname                    AS col,
+                        a.attnum                     AS attnum,
                         format_type(a.atttypid, NULL) AS tipo,
                         COALESCE(i.indisprimary, false) AS es_pk,
-                        COALESCE(array_length(i.indkey::int[], 1), 0) AS pk_cols
+                        COALESCE(array_length(i.indkey::int[], 1), 0) AS pk_cols,
+                        i.indkey[0]::int              AS pk_first_attnum
                    FROM pg_attribute a
                    JOIN pg_class c      ON c.oid = a.attrelid
                    JOIN pg_namespace n  ON n.oid = c.relnamespace
               LEFT JOIN pg_index i      ON i.indrelid = c.oid AND i.indisprimary
                                        AND a.attnum = ANY(i.indkey)
                   WHERE n.nspname = current_schema()
-                    AND c.relkind = 'r'
+                    AND c.relkind IN ('r','p')
                     AND a.attnum > 0
                     AND NOT a.attisdropped"
             );
@@ -263,10 +276,32 @@ final class Schema
 
                 $out[$table]['columns'][strtolower($col)] = $col;
 
-                // PK simple. Compuesta (pk_cols > 1) se ignora a propósito.
+                // PK simple (pk_cols === 1): sin cambios, es el caso normal.
+                //
+                // PK COMPUESTA (pk_cols > 1) en una tabla PARTICIONADA
+                // (relkind='p'): Postgres exige que la columna de partición
+                // forme parte de la PK, así que `transaction`/`itemsold`
+                // (mig 156) tienen PK (transactionid, transactiondate) /
+                // (itemsoldid, itemsolddate). La columna de identidad real
+                // sigue siendo la PRIMERA (transactionid/itemsoldid) — la
+                // segunda está ahí solo para satisfacer al motor. Se expone
+                // esa primera columna como `pk`/`pkType` (vía indkey[0]) para
+                // que `ncmInsert`/`AutoExecute` sigan generando su UUID v7
+                // igual que antes del particionado. Una PK compuesta de una
+                // tabla NO particionada sigue ignorándose (comportamiento
+                // viejo): ahí sí no hay UNA columna que generar.
                 $esPk    = self::truthy($f['es_pk'] ?? false);
                 $pkCols  = (int) ($f['pk_cols'] ?? 0);
-                if ($esPk && $pkCols === 1) {
+                $relkind = (string) ($f['relkind'] ?? 'r');
+                $attnum  = (int) ($f['attnum'] ?? -1);
+                $pkFirstAttnum = isset($f['pk_first_attnum']) && $f['pk_first_attnum'] !== null
+                    ? (int) $f['pk_first_attnum']
+                    : null;
+
+                $esIdentidadDeLaPk = $pkCols === 1
+                    || ($relkind === 'p' && $pkFirstAttnum !== null && $attnum === $pkFirstAttnum);
+
+                if ($esPk && $esIdentidadDeLaPk) {
                     $out[$table]['pk']     = $col;
                     $out[$table]['pkType'] = $tipo;
                 }

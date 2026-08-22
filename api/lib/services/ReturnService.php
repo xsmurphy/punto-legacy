@@ -488,8 +488,8 @@ final class ReturnService
                     'INSERT INTO itemSold (
                         itemsoldid, itemid, transactionid,
                         itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldcogs,
-                        itemsolddate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW())',
+                        itemsolddate, companyid, outletid, registerid
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)',
                     [
                         $itemSoldId,
                         $pi['itemId'],
@@ -500,6 +500,12 @@ final class ReturnService
                         // Signo negativo = espeja `flipOnReturn` de SaleService
                         // (lib/Sales/SaleService.php:1445) sobre el mismo campo.
                         -abs($pi['unitCogs']),
+                        // D4 de context/48-escalamiento-de-datos.md (mig 156):
+                        // mismos valores que la INSERT de `transaction` de
+                        // arriba, en este mismo método.
+                        $companyId,
+                        $outletId,
+                        $registerId ?: null,
                     ]
                 );
 

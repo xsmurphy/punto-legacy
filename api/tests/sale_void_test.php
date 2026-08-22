@@ -138,6 +138,10 @@ function makeSale(
             'itemSoldTotal'  => $line['total'],
             'itemSoldCOGS'   => $line['cogs'],
             'itemSoldDate'   => $date,
+            // D4 de context/48-escalamiento-de-datos.md (mig 156).
+            'companyId'      => $companyId,
+            'outletId'       => $outletId,
+            'registerId'     => $registerId,
         ], 'INSERT');
     }
 
