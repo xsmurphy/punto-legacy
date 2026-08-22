@@ -5,10 +5,13 @@
  *
  *   GET  /v1/period-close
  *     → { months: [{period, transactionCount, closed, closedAt, closedBy, source}],
- *         closeMonths, nextAutoClose }
- *     Lista los últimos meses con transacciones económicas del tenant
+ *         closeMonths, nextAutoClose, hasOlder }
+ *     Lista los últimos 24 meses con transacciones económicas del tenant
  *     (transactiontype IN (0,1,3,4,5,6,7,10,14) — ver api/lib/Sales/SaleType.php),
- *     con su estado de cierre.
+ *     con su estado de cierre. `hasOlder=true` si hay transacciones más
+ *     viejas que esos 24 meses (no se listan, solo se avisa — fix
+ *     code-review mig 157: la query original escaneaba `transaction`
+ *     entera sin cota de fecha).
  *
  *   POST /v1/period-close { period: 'YYYY-MM' }
  *     → { period, closed: true }
@@ -35,6 +38,12 @@ global $db;
 if ($method === 'GET') {
     $closeMonths = max(1, min(12, (int) ((new \Punto\Api\Settings\SettingsService())->general($companyId)['settingPeriodCloseMonths'] ?? 1)));
 
+    // Fix code-review mig 157: sin cota de fecha esto escaneaba `transaction`
+    // entera (todas las particiones históricas, mig 156) solo para mostrar
+    // 24 filas. Acotado a los últimos 24 meses — el particionado por rango
+    // (transactiondate) hace pruning y solo toca esas particiones. `hasOlder`
+    // (debajo) le avisa al panel si hay historia más vieja sin listarla acá.
+    //
     // Meses con transacciones económicas del tenant, LEFT JOIN contra el
     // estado de cierre. `forceObj=true`: siempre RecordsetIterator, sin
     // importar cuántas filas vuelvan (0/1/muchas) — ver DB layer del proyecto.
@@ -49,6 +58,7 @@ if ($method === 'GET') {
                     FROM transaction
                    WHERE companyid = ?
                      AND transactiontype = ANY (ARRAY[0,1,3,4,5,6,7,10,14])
+                     AND transactiondate >= (date_trunc('month', now() AT TIME ZONE 'America/Asuncion') - interval '24 months')
                    GROUP BY 1
                 ) m
            LEFT JOIN period_close pc ON pc.companyid = ? AND pc.period = m.period
@@ -59,6 +69,20 @@ if ($method === 'GET') {
         false,
         true
     );
+
+    // Historia más vieja que la ventana de 24 meses de arriba, sin listarla
+    // (solo un flag) — EXISTS + LIMIT 1 implícito, no repite el scan que
+    // acotamos arriba.
+    $hasOlderRaw = $db->GetOne(
+        "SELECT EXISTS (
+                SELECT 1 FROM transaction
+                 WHERE companyid = ?
+                   AND transactiontype = ANY (ARRAY[0,1,3,4,5,6,7,10,14])
+                   AND transactiondate < (date_trunc('month', now() AT TIME ZONE 'America/Asuncion') - interval '24 months')
+               )",
+        [$companyId]
+    );
+    $hasOlder = maintenancePgBoolTrueForPeriodClose($hasOlderRaw);
 
     $months = [];
     if ($rs !== false) {
@@ -89,6 +113,7 @@ if ($method === 'GET') {
         'months'        => $months,
         'closeMonths'   => $closeMonths,
         'nextAutoClose' => $next->format('Y-m-d'),
+        'hasOlder'      => $hasOlder,
     ]);
 }
 

@@ -414,6 +414,29 @@ final class CreditPaymentService
             apiError('El recibo ya fue anulado', 422);
         }
 
+        // Fix code-review mig 157 (context/48 D7): anular un recibo de un
+        // período cerrado cambiaría el hecho económico de un mes ya
+        // cerrado — bloqueado por diseño, se corrige con un recibo/documento
+        // nuevo en el período abierto (no reabriendo el viejo). El trigger
+        // fn_period_guard() de todos modos lo rechazaría al llegar al primer
+        // UPDATE de abajo, pero hacerlo ACÁ (antes de tocar nada) evita
+        // dejar a medio camino el lock de las facturas vinculadas y da un
+        // mensaje específico del caso, no el genérico del trigger.
+        $periodClosed = $db->GetOne(
+            'SELECT period_is_closed(?, ?)',
+            [$companyId, $payment['transactionDate']]
+        );
+        if ($periodClosed === true || $periodClosed === 't' || $periodClosed === '1') {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \Punto\Api\Support\PeriodClosedException(
+                '',
+                0,
+                null,
+                'El documento pertenece a un período cerrado; emití una nota de crédito / ajuste en el período abierto.'
+            );
+        }
+
         $isCustomer = !empty($payment['customerId']);
         $kind       = $isCustomer ? 'credit_payment' : 'purchase_payment';
 

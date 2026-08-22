@@ -448,6 +448,21 @@ final class PurchaseCreditNoteService
             $movedItemIds[(string) $m['itemid']] = true;
         }
 
+        // Fix code-review mig 157 (context/48 D7): anular una NC de compra de
+        // un período cerrado cambiaría el hecho económico de un mes ya
+        // cerrado — bloqueado por diseño, se corrige con un documento nuevo
+        // en el período abierto. Pre-check ANTES de abrir la TX y tocar
+        // stock — mismo criterio que PurchasesService::void().
+        $periodClosed = $db->GetOne('SELECT period_is_closed(?, ?)', [$companyId, $date]);
+        if ($periodClosed === true || $periodClosed === 't' || $periodClosed === '1') {
+            throw new \Punto\Api\Support\PeriodClosedException(
+                '',
+                0,
+                null,
+                'El documento pertenece a un período cerrado; emití una nota de crédito / ajuste en el período abierto.'
+            );
+        }
+
         $db->StartTrans();
 
         ncmExecute(

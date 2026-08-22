@@ -729,6 +729,23 @@ final class PurchasesService
         $supplierId = $row['supplierid'] !== null ? (string) $row['supplierid'] : null;
         $date       = (string) $row['transactiondate'];
 
+        // Fix code-review mig 157 (context/48 D7): anular una compra de un
+        // período cerrado cambiaría el hecho económico de un mes ya
+        // cerrado — bloqueado por diseño, se corrige con un documento nuevo
+        // (NC/ajuste) en el período abierto. Pre-check ANTES de abrir la TX
+        // y tocar stock: mismo trigger fn_period_guard() lo rechazaría en el
+        // UPDATE de abajo, pero acá se detecta limpio, sin dejar reversas de
+        // stock a medio camino, y con mensaje específico del caso.
+        $periodClosed = $db->GetOne('SELECT period_is_closed(?, ?)', [$companyId, $date]);
+        if ($periodClosed === true || $periodClosed === 't' || $periodClosed === '1') {
+            throw new \Punto\Api\Support\PeriodClosedException(
+                '',
+                0,
+                null,
+                'El documento pertenece a un período cerrado; emití una nota de crédito / ajuste en el período abierto.'
+            );
+        }
+
         $db->StartTrans();
 
         ncmExecute(

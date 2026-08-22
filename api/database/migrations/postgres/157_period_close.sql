@@ -240,6 +240,13 @@ CREATE OR REPLACE FUNCTION period_close_due(p_months int DEFAULT 1)
 RETURNS TABLE(companyid uuid, period date) LANGUAGE plpgsql AS $$
 DECLARE
   v_cutoff date := date_trunc('month', now() AT TIME ZONE 'America/Asuncion')::date;
+  -- Fix code-review mig 157: sin cota de fecha esta función escaneaba
+  -- `transaction` entera (todas las particiones históricas, mig 156) en
+  -- cada corrida del job. 14 = 12 (ventana máxima configurable por tenant,
+  -- settingPeriodCloseMonths) + 2 de margen. Acotar acá con
+  -- `t.transactiondate >= v_floor` deja que el particionado por rango pode
+  -- particiones viejas del plan.
+  v_floor  date := (v_cutoff - interval '14 months')::date;
 BEGIN
   RETURN QUERY
   SELECT DISTINCT t.companyid, m.period
@@ -254,17 +261,47 @@ BEGIN
     SELECT LEAST(GREATEST(COALESCE((c.config ->> 'settingPeriodCloseMonths')::int, p_months), 1), 12) AS months
   ) cfg
   WHERE t.transactiontype = ANY (ARRAY[0,1,3,4,5,6,7,10,14])
+    AND t.transactiondate >= v_floor
     AND m.period < (v_cutoff - (cfg.months || ' months')::interval)::date
     AND NOT EXISTS (
       SELECT 1 FROM period_close pc
        WHERE pc.companyid = t.companyid AND pc.period = m.period
-    );
+    )
+
+  UNION
+
+  -- Segunda rama: backlog real — un tenant con algún mes SIN cerrar más
+  -- viejo que el piso de 14 meses (ej. nunca corrió el job). La rama de
+  -- arriba jamás lo vería (queda fuera de v_floor) y quedaría inmutable
+  -- para siempre sin esto. Acotada con el índice
+  -- idx_tx_company_type(companyid, transactiontype, transactiondate) +
+  -- DISTINCT ON (un mes por company, el más viejo) + LIMIT — no es el scan
+  -- abierto que tenía la versión original, pero sigue tocando particiones
+  -- viejas: si en producción esto pesa, sacar esta rama y dejar solo la
+  -- ventana de 14 meses (documentarlo en context/48 D7 si se hace).
+  SELECT b.companyid, b.period FROM (
+    SELECT DISTINCT ON (t.companyid)
+           t.companyid,
+           date_trunc('month', t.transactiondate AT TIME ZONE 'America/Asuncion')::date AS period
+      FROM transaction t
+     WHERE t.transactiontype = ANY (ARRAY[0,1,3,4,5,6,7,10,14])
+       AND t.transactiondate < v_floor
+       AND NOT EXISTS (
+             SELECT 1 FROM period_close pc
+              WHERE pc.companyid = t.companyid
+                AND pc.period = date_trunc('month', t.transactiondate AT TIME ZONE 'America/Asuncion')::date
+           )
+     ORDER BY t.companyid, t.transactiondate ASC
+     LIMIT 50
+  ) b;
 END;
 $$;
 
 COMMENT ON FUNCTION period_close_due(int) IS
   'E1b, context/48 D7. Meses con transacciones económicas, fuera de la '
   'ventana abierta del tenant (o del default p_months si no configuró), '
-  'y aún no cerrados. Usado por el job period-close (maintenance.php).';
+  'y aún no cerrados. Rama principal acotada a los últimos 14 meses '
+  '(pruning de particiones, mig 156); rama secundaria (LIMIT 50) atrapa '
+  'backlog más viejo que eso. Usado por el job period-close (maintenance.php).';
 
 COMMIT;

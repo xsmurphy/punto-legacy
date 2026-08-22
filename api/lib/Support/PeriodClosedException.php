@@ -26,12 +26,23 @@ namespace Punto\Api\Support;
  */
 final class PeriodClosedException extends \RuntimeException
 {
-    public function __construct(string $dbMessage = '', int $code = 0, ?\Throwable $previous = null)
-    {
-        parent::__construct(
-            'El período está cerrado; corregí con un documento nuevo (nota de crédito, ajuste de stock, movimiento de caja).',
-            $code,
-            $previous
-        );
+    private const DEFAULT_MESSAGE = 'El período está cerrado; corregí con un documento nuevo (nota de crédito, ajuste de stock, movimiento de caja).';
+
+    /**
+     * $dbMessage se recibe (para debug/logging vía $previous) pero NUNCA se
+     * muestra tal cual — el DETAIL crudo del trigger no es apto para
+     * usuario final. $friendlyMessage permite a un pre-check aplicativo
+     * (ej. CreditPaymentService::void()) dar un mensaje específico al caso
+     * (qué documento, qué corrección hacer) sin dejar de ser esta MISMA
+     * excepción tipada — así bootstrap.php la mapea a 409 sin necesidad de
+     * un catch/mapeo nuevo por endpoint.
+     */
+    public function __construct(
+        string $dbMessage = '',
+        int $code = 0,
+        ?\Throwable $previous = null,
+        ?string $friendlyMessage = null
+    ) {
+        parent::__construct($friendlyMessage ?? self::DEFAULT_MESSAGE, $code, $previous);
     }
 }

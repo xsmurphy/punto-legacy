@@ -324,6 +324,20 @@ Sin endpoint de "reabrir" (fuera de alcance). Cierre automático: job
 desde el panel, permiso `settings.periodClose`, UI en
 `/settings/cierre-de-periodo`.
 
+**Anular un recibo de cobro o una compra de un período cerrado está
+bloqueado por diseño** (decisión del owner, fix code-review mig 157,
+2026-08-22): `CreditPaymentService::void()`, `PurchasesService::void()` y
+`PurchaseCreditNoteService::void()` mutan `transaction.transactionStatus`,
+y eso es exactamente lo que D7 vuelve inmutable — anular cambiaría el
+hecho económico de un mes ya cerrado. Se corrige con un documento nuevo
+(nota de crédito, ajuste) en el período abierto, igual que cualquier otro
+error post-corte (ver "Error detectado después del corte" arriba). Los
+tres `void()` hacen un pre-check (`SELECT period_is_closed(?, ?)`) con la
+fecha del documento ANTES de tocar nada y devuelven 409 con mensaje
+específico (misma `PeriodClosedException`, sin mapeo nuevo por endpoint);
+el trigger `fn_period_guard()` los rechazaría igual si el pre-check
+faltara, pero sin él el 409 llegaba después de lockear filas de más.
+
 **D8 — El grano del rollup lo definen los filtros, no las métricas.**
 Observación del owner (2026-08-21), textual en esencia: "si sumo las ventas
 del 2025 puedo tenerlas en 12 registros, pero ¿qué pasa si quiero solo las

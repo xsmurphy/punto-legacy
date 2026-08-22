@@ -330,7 +330,22 @@ class DB
             // $db->Execute directos de los servicios pasan todos por acá) —
             // se relanza como excepción tipada acá, no por endpoint, para que
             // el mapeo a HTTP 409 viva en un solo lugar (api/bootstrap.php).
-            if (str_contains($e->getMessage(), 'period_closed')) {
+            // Matcheamos por SQLSTATE (getCode()) ADEMÁS del texto: PDO expone
+            // el SQLSTATE como código de la excepción — más robusto que confiar
+            // solo en el mensaje si el driver alguna vez le antepone contexto.
+            if (str_contains($e->getMessage(), 'period_closed') || $e->getCode() === 'PC001') {
+                // Fix code-review mig 157: tiramos una excepción en vez de
+                // `return false`, así que el caller NUNCA llega a su propio
+                // CompleteTrans()/RollbackTrans() — sin este rollback explícito
+                // acá, la transacción PDO queda abierta colgada (visible como
+                // "idle in transaction" en pg_stat_activity) hasta que el
+                // proceso PHP termina. Cerramos la TX (todos los niveles de
+                // anidamiento, StartTrans() o BeginTrans()) ANTES de propagar.
+                if ($this->pdo->inTransaction()) {
+                    $this->pdo->rollBack();
+                }
+                $this->transDepth = 0;
+                $this->transOk    = true;
                 throw new \Punto\Api\Support\PeriodClosedException($e->getMessage(), (int) $e->getCode(), $e);
             }
             return false;
