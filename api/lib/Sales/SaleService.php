@@ -264,13 +264,38 @@ final class SaleService
         // silencioso y devuelve true. HasFailedTrans() no lo refleja. Sin esta
         // verificación, una venta que rolleó reportaría success → plata/inventario
         // fantasma. Confirmamos con un SELECT que la fila realmente persistió.
+        //
+        // La lectura va DENTRO de un try: es una query como cualquier otra y
+        // desde 2026-08-22 el wrapper LANZA. Si falla acá —con `CompleteTrans()`
+        // ya devuelto y la venta commiteada—, dejar volar la excepción daba un
+        // 500 sobre una venta que EXISTE: el POS la reencolaba, y al re-sincronizar
+        // chocaba contra `uq_transaction_expedition_invoiceno` y quedaba
+        // `NUMBER_TAKEN` PERMANENTE (error sin reintento en el diálogo de cola).
+        // Criterio: si el commit devolvió OK y solo falló la VERIFICACIÓN,
+        // asumimos persistida — es la hipótesis que no destruye el comprobante.
+        // La verificación existe para atrapar el commit-que-degrada-a-rollback,
+        // no para convertir un hipo de lectura en una venta perdida.
         $persisted = false;
         if ($insertOk !== false && !empty($transId)) {
-            $check = $this->db->Execute(
-                'SELECT transactionId FROM transaction WHERE transactionId = ? LIMIT 1',
-                [(string) $transId]
-            );
-            $persisted = $check && !$check->EOF;
+            try {
+                $check = $this->db->Execute(
+                    'SELECT transactionId FROM transaction WHERE transactionId = ? LIMIT 1',
+                    [(string) $transId]
+                );
+                $persisted = $check && !$check->EOF;
+            } catch (DbQueryException $e) {
+                // ALERTA, no ruido: en el caso patológico (PG degradó el COMMIT
+                // a ROLLBACK Y ADEMÁS la verificación no pudo leer) esto marca
+                // como vendida una venta que no persistió. Se elige igual
+                // porque la alternativa —500— rompe una venta buena en el caso
+                // común, pero tiene que ser encontrable en GlitchTip, no una
+                // línea más entre los logs de rutina.
+                error_log('[SaleService] ALERTA: verificación post-commit NO PUDO LEER para transaction '
+                    . (string) $transId . ' — se ASUME persistida (el commit devolvió OK). '
+                    . 'Si la venta no aparece en el panel, este es el motivo. '
+                    . $e->getMessage() . ' | SQLSTATE ' . $e->sqlState());
+                $persisted = true;
+            }
         }
 
         if ($failed || $insertOk === false || empty($transId) || !$persisted) {
@@ -1330,7 +1355,11 @@ final class SaleService
                 || stripos($err, 'duplicate') !== false) {
                 throw new InvalidSaleInputException("El código de gift card '{$code}' ya existe — generá uno nuevo");
             }
-            throw new InvalidSaleInputException('No se pudo emitir la gift card: ' . $err);
+            // Cualquier otro error de SQL: el texto de PG va al log, no al 422
+            // (filtra el schema al POS).
+            error_log('[SaleService] issueGiftCard falló: ' . $err
+                . ' | SQLSTATE ' . $e->sqlState() . ' | SQL: ' . $e->sql());
+            throw new InvalidSaleInputException('No se pudo emitir la gift card. Reintentá; si persiste, avisá a soporte.');
         }
     }
 
@@ -2398,13 +2427,24 @@ final class SaleService
         $failed  = $this->db->HasFailedTrans();
         $this->db->CompleteTrans();
 
+        // Mismo criterio que save(): la verificación es una query y el wrapper
+        // lanza. Un fallo de LECTURA con la cotización ya commiteada no puede
+        // convertirse en 500 — el caller la reintentaría y duplicaría el
+        // documento. Se asume persistida y se registra.
         $persisted = false;
         if ($insertOk !== false && !empty($transId)) {
-            $check = $this->db->Execute(
-                'SELECT transactionId FROM transaction WHERE transactionId = ? LIMIT 1',
-                [(string) $transId]
-            );
-            $persisted = $check && !$check->EOF;
+            try {
+                $check = $this->db->Execute(
+                    'SELECT transactionId FROM transaction WHERE transactionId = ? LIMIT 1',
+                    [(string) $transId]
+                );
+                $persisted = $check && !$check->EOF;
+            } catch (DbQueryException $e) {
+                error_log('[SaleService] verificación post-commit de cotización falló para transaction '
+                    . (string) $transId . ' — se ASUME persistida (el commit devolvió OK): '
+                    . $e->getMessage() . ' | SQLSTATE ' . $e->sqlState());
+                $persisted = true;
+            }
         }
 
         if ($failed || $insertOk === false || empty($transId) || !$persisted) {

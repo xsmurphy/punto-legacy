@@ -1,5 +1,14 @@
 <?php
 
+// `head.php` carga `libraries/countries.php` en scope GLOBAL, pero este archivo
+// se hace `require` DESDE ADENTRO de `apiAuthTenant()` (api/bootstrap.php), o
+// sea en scope de función: sin este `global`, `$countries` no se ve acá y la
+// línea de `$compPhoneCode` explota con "Undefined variable $countries" (Whoops
+// la promueve a excepción → 500 en todo endpoint que pase por ese camino).
+// `global` en scope global es un no-op, así que el include directo sigue
+// funcionando igual.
+global $countries;
+
 if(!$companyId){
 	die();
 }

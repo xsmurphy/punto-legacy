@@ -51,8 +51,23 @@ namespace Punto\Api\Support;
  * realtime, impresión). En esos casos: `try/catch (DbQueryException)` +
  * `error_log` explícito, nunca un catch mudo. Ver el invariante en
  * `context/08-convenciones-criticas.md`.
+ *
+ * POR QUÉ EXTIENDE `\Exception` Y NO `\RuntimeException`
+ * ----------------------------------------------------
+ * El repo tiene ~104 `catch (\RuntimeException)` que traducen fallos de
+ * NEGOCIO a respuestas amigables (400/422 con el texto de la excepción). Si
+ * esta clase heredara de `\RuntimeException`, todos ellos se tragarían los
+ * errores de SQL y los re-etiquetarían como fallos de negocio — exactamente
+ * lo que este cambio vino a eliminar. El caso peor documentado:
+ * `EInvoiceService::issue()` atrapa el `\RuntimeException` de
+ * `SaleToInvoiceMapper::build()` y marca el documento fiscal como error
+ * PERMANENTE con el texto crudo de PG (`markError`), sin reintento posible.
+ *
+ * Consecuencia buscada: un error de SQL sin `catch (DbQueryException)`
+ * explícito llega a `api/bootstrap.php` y sale como 500 genérico + GlitchTip,
+ * que es el contrato. Quien QUIERA tolerarlo lo atrapa por su tipo real.
  */
-final class DbQueryException extends \RuntimeException
+final class DbQueryException extends \Exception
 {
     /** SQLSTATE de PG (`$e->getCode()` del PDOException — es string, ej. '23502'). */
     private string $sqlState;
@@ -74,7 +89,7 @@ final class DbQueryException extends \RuntimeException
         $this->sql        = mb_substr($sql, 0, 500);
         $this->paramCount = $paramCount;
 
-        // `code` de RuntimeException es int; el SQLSTATE de PG es
+        // `code` de Exception es int; el SQLSTATE de PG es
         // alfanumérico ('23505', 'PC001', '42703'), así que el string
         // canónico vive en $sqlState y sqlState() es el getter a usar.
         // `(int)` acá es best-effort para compatibilidad con quien lea

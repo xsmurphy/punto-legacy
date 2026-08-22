@@ -633,7 +633,12 @@ final class ReturnService
             // no existe (mismo criterio que la verificación post-commit de
             // SaleService::save(), §22.8.1).
             if (!$db->CompleteTrans()) {
-                throw new \RuntimeException('La devolución no se pudo confirmar (transacción revertida): ' . ($db->ErrorMsg() ?: 'sin detalle'));
+                // El detalle de PG (`ErrorMsg()`) va al log: este RuntimeException
+                // lo atrapa `api/v1/returns.php` y lo imprime tal cual en la
+                // respuesta, así que concatenarlo filtraba el schema al cliente.
+                error_log('[ReturnService] devolución revertida en CompleteTrans: '
+                    . ($db->ErrorMsg() ?: 'sin detalle'));
+                throw new \RuntimeException('La devolución no se pudo confirmar (la operación se revirtió). Reintentá; si persiste, avisá a soporte.');
             }
 
         } catch (\Throwable $e) {

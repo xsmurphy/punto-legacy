@@ -296,8 +296,6 @@ final class Customer
      */
     public static function getContactData(mixed $id, mixed $type = false, mixed $cache = false): mixed
     {
-        $countries = [];
-
         $id = is_string($id) ? trim($id) : '';
         if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id)) {
             return false;
@@ -342,6 +340,14 @@ final class Customer
                     $age = date_diff(date_create($result['contactBirthDay']), date_create('today'))->y;
                 }
 
+                // `$countries` lo define `libraries/countries.php` al incluirse
+                // (el include hereda este scope). El `[]` es el fallback para
+                // cuando el contacto no tiene país —o cuando el `include_once`
+                // ya corrió antes en la request y no vuelve a ejecutarse—, así
+                // que el `countryName` de abajo no rompe. Se declara ACÁ, junto
+                // a su único uso, y no arriba de todo: allá quedaba antes de un
+                // guard que puede retornar sin llegar nunca a necesitarla.
+                $countries = [];
                 if ($result['contactCountry']) {
                     include_once('libraries/countries.php');
                 }

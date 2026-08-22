@@ -714,14 +714,23 @@ final class OrderCoreService
             throw new \RuntimeException('Fallo al actualizar el estado de la orden (transacción abortada)');
         }
 
-        $order = $this->find($companyId, $id);
-        // Si seguimos dentro de una TX externa (cascada — ej. SpaceSessionService::
-        // cancel), el publish se DIFIERE: notificar al KDS un cambio que la TX
-        // externa puede rollbackear sería un phantom notify. El orquestador
-        // llama publishOrderStatus() tras SU commit.
-        if ($order !== null && !$db->InTrans()) {
-            $this->publish($companyId, $order['outletId'], 'order:status', $order);
-            realtimePublish('order', 'update', $id);
+        // Side-effects post-commit: best-effort, mismo criterio que send().
+        // El `find()` es una lectura de BD y desde 2026-08-22 el wrapper LANZA
+        // ante un error de SQL: sin este try, un fallo acá devolvería 500 sobre
+        // un cambio de estado YA commiteado y el POS reintentaría.
+        $order = null;
+        try {
+            $order = $this->find($companyId, $id);
+            // Si seguimos dentro de una TX externa (cascada — ej. SpaceSessionService::
+            // cancel), el publish se DIFIERE: notificar al KDS un cambio que la TX
+            // externa puede rollbackear sería un phantom notify. El orquestador
+            // llama publishOrderStatus() tras SU commit.
+            if ($order !== null && !$db->InTrans()) {
+                $this->publish($companyId, $order['outletId'], 'order:status', $order);
+                realtimePublish('order', 'update', $id);
+            }
+        } catch (\Throwable $e) {
+            error_log('[OrderCoreService::updateStatus] publish post-commit falló (orden ' . $id . '): ' . $e->getMessage());
         }
         return $order ?? [];
     }
@@ -931,10 +940,19 @@ final class OrderCoreService
             throw new \RuntimeException('Fallo al cobrar la orden (transacción abortada)');
         }
 
-        $result = $this->find($companyId, $orderId);
-        if ($result !== null && !$db->InTrans()) {
-            $this->publish($companyId, $result['outletId'], 'order:status', $result);
-            realtimePublish('order', 'update', $orderId);
+        // Side-effects post-commit: best-effort, mismo criterio que send().
+        // Acá es CRÍTICO: el cobro ya está commiteado y el comprobante ya salió.
+        // Un error de SQL en el `find()` (o en el publish) devolvía 500 sobre un
+        // COBRO YA HECHO y el POS reintentaba cobrar. Se registra y se sigue.
+        $result = null;
+        try {
+            $result = $this->find($companyId, $orderId);
+            if ($result !== null && !$db->InTrans()) {
+                $this->publish($companyId, $result['outletId'], 'order:status', $result);
+                realtimePublish('order', 'update', $orderId);
+            }
+        } catch (\Throwable $e) {
+            error_log('[OrderCoreService::markPaid] publish post-commit falló (orden ' . $orderId . '): ' . $e->getMessage());
         }
         return $result ?? [];
     }
@@ -1059,15 +1077,24 @@ final class OrderCoreService
             throw new \RuntimeException('Fallo al actualizar el ítem de la orden (transacción abortada)');
         }
 
-        $order = $this->find($companyId, $orderId);
-        if ($order !== null) {
-            $this->publish($companyId, $order['outletId'], 'order:item-status', [
-                'orderId'     => $orderId,
-                'orderItemId' => $orderItemId,
-                'status'      => $status,
-                'order'       => $order,
-            ]);
-            realtimePublish('order', 'update', $orderId);
+        // Side-effects post-commit: best-effort, mismo criterio que send().
+        // El `find()` es una lectura de BD y desde 2026-08-22 el wrapper LANZA
+        // ante un error de SQL: sin este try, un fallo acá devolvería 500 sobre
+        // un cambio de ítem YA commiteado y el KDS reintentaría el bump.
+        $order = null;
+        try {
+            $order = $this->find($companyId, $orderId);
+            if ($order !== null) {
+                $this->publish($companyId, $order['outletId'], 'order:item-status', [
+                    'orderId'     => $orderId,
+                    'orderItemId' => $orderItemId,
+                    'status'      => $status,
+                    'order'       => $order,
+                ]);
+                realtimePublish('order', 'update', $orderId);
+            }
+        } catch (\Throwable $e) {
+            error_log('[OrderCoreService::updateItemStatus] publish post-commit falló (orden ' . $orderId . '): ' . $e->getMessage());
         }
         return $order ?? [];
     }

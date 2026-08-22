@@ -71,7 +71,31 @@ foreach ($sales as $item) {
     // EMITIDA por reglas de negocio del POS, pero la exclusividad de caja es
     // ESTADO COMPARTIDO (distinción explícita de §53) — acá sí corresponde
     // bloquear, por venta, sin tumbar el resto del lote.
-    $conflict = RegisterLeaseService::holderConflict($regId, $compId, $deviceId);
+    //
+    // El chequeo va en su propio try: `holderConflict()` LEE de BD y, desde
+    // que el wrapper lanza `DbQueryException`, un error de SQL acá tumbaba el
+    // LOTE ENTERO con 500 sobre ventas YA EMITIDAS E IMPRESAS en el device
+    // (viola offline-first, context/08 §53). Antes de que el wrapper lanzara,
+    // el mismo error devolvía `false`/vacío y el ítem salía como
+    // REGISTER_NOT_HELD sin arrastrar al resto. Se conserva ese
+    // comportamiento: falla SOLO este ítem, con SERVER_ERROR (no
+    // REGISTER_NOT_HELD — no sabemos si la caja está tomada, no pudimos leer)
+    // y el lote sigue.
+    try {
+        $conflict = RegisterLeaseService::holderConflict($regId, $compId, $deviceId);
+    } catch (DbQueryException $e) {
+        error_log('[offline-sync] holderConflict falló para ' . $tempId . ': ' . $e->getMessage()
+            . ' | SQLSTATE ' . $e->sqlState() . ' | SQL: ' . $e->sql());
+        $results[] = [
+            'clientTempId' => $tempId,
+            'ok'           => false,
+            'error'        => [
+                'code'    => 'SERVER_ERROR',
+                'message' => 'No se pudo verificar la caja. La venta sigue en la cola local.',
+            ],
+        ];
+        continue;
+    }
     if ($conflict !== null) {
         $results[] = [
             'clientTempId' => $tempId,
@@ -159,14 +183,20 @@ foreach ($sales as $item) {
         ];
         continue;
     } catch (SaleAbortedException $e) {
-        $msg  = $e->dbError ?? $e->getMessage() ?? 'Sale aborted';
-        $code = (stripos($msg, 'stock') !== false) ? 'STOCK_OUT' : 'SERVER_ERROR';
+        // El texto crudo de PG se usa SOLO para clasificar (server-side) y para
+        // el log; lo que viaja al device es un mensaje genérico. Devolverlo
+        // filtraba tablas, columnas y constraints del schema a cualquiera que
+        // mire la cola de sync.
+        error_log('[offline-sync] venta abortada ' . $tempId . ': ' . ($e->dbError ?? $e->getMessage()));
+        $isStock = $e->isStockFailure();
         $results[] = [
             'clientTempId' => $tempId,
             'ok'           => false,
             'error'        => [
-                'code'    => $code,
-                'message' => $msg,
+                'code'    => $isStock ? 'STOCK_OUT' : 'SERVER_ERROR',
+                'message' => $isStock
+                    ? 'Stock insuficiente para uno o más ítems de la venta.'
+                    : $e->clientMessage(),
             ],
         ];
         continue;

@@ -84,7 +84,9 @@ if ($rawType === SaleType::Quote->value) {
     } catch (InvalidSaleInputException $e) {
         apiError($e->getMessage(), 422);
     } catch (SaleAbortedException $e) {
-        apiError($e->dbError ?? 'Quote transaction aborted', 500);
+        // El texto de PG va al log, NUNCA a la respuesta (filtra el schema).
+        error_log('[sales] cotización abortada: ' . ($e->dbError ?? $e->getMessage()));
+        apiError($e->clientMessage(), 500);
     }
 
     apiOk($quoteResult);
@@ -180,7 +182,9 @@ try {
     // Validaciones del servicio (ej: clientId no pertenece al tenant) → 422.
     apiError($e->getMessage(), 422);
 } catch (SaleAbortedException $e) {
-    apiError($e->dbError ?? 'Sale transaction aborted', 500);
+    // El texto de PG va al log, NUNCA a la respuesta (filtra el schema).
+    error_log('[sales] venta abortada: ' . ($e->dbError ?? $e->getMessage()));
+    apiError($e->clientMessage(), 500);
 }
 
 // Venta guardada — mantener document_sequence consistente con el número que

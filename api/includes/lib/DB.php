@@ -806,10 +806,29 @@ class DB
      * True si hay una transacción abierta (cualquier profundidad). Usado por
      * services para decidir si un side-effect (publish WS) corre ahora o
      * debe diferirse a después del commit del orquestador externo.
+     *
+     * OJO: cuenta SOLO el anidamiento de `StartTrans()`. Una transacción
+     * abierta con `BeginTrans()` (el patrón directo) no incrementa
+     * `transDepth` y acá da false. Para "¿hay CUALQUIER transacción PG
+     * abierta?" usá `HasOpenTransaction()`.
      */
     public function InTrans(): bool
     {
         return $this->transDepth > 0;
+    }
+
+    /**
+     * True si hay una transacción PG abierta, sin importar por cuál de los dos
+     * patrones se abrió (`StartTrans()` o `BeginTrans()`). Pregunta al driver,
+     * no al contador.
+     *
+     * Existe para los guards del tipo "no me llames dentro de una transacción
+     * ajena": `InTrans()` sola deja ciego el patrón `BeginTrans()`. Ver
+     * `ItemRepository::hardDelete()`.
+     */
+    public function HasOpenTransaction(): bool
+    {
+        return $this->pdo !== null && $this->pdo->inTransaction();
     }
 
     /**
@@ -823,17 +842,45 @@ class DB
         $this->pdo->beginTransaction();
     }
 
-    /** Confirma transacción directa. */
+    /**
+     * Confirma transacción directa.
+     *
+     * La guarda `inTransaction()` NO es defensiva de más: desde que el
+     * wrapper lanza `DbQueryException`, `failTransaction()` ya hizo el
+     * `rollBack()` antes de propagar, así que cuando el caller llega a su
+     * `catch` NO queda transacción PDO abierta. Sin la guarda, este
+     * `commit()` tira `PDOException("There is no active transaction")` DESDE
+     * el catch y REEMPLAZA el error real de SQL — el operador ve un mensaje
+     * sobre transacciones y el de PG se pierde. Se arregla acá y no en los
+     * 9 call-sites (regla del wrapper compartido, CLAUDE.md).
+     *
+     * CONTRATO DEL RETORNO: `true` significa "no queda transacción abierta",
+     * NO "se commitearon tus cambios". Cuando la guarda no encuentra
+     * transacción es porque el wrapper ya la rollbackeó al lanzar. Hoy ningún
+     * caller mira este bool (a diferencia de `CompleteTrans()`, cuyo `false`
+     * SÍ hay que chequear); si alguno empieza a mirarlo, tiene que ser para
+     * esa pregunta y no para "¿se guardó?".
+     */
     public function CommitTrans(): bool
     {
-        $this->pdo->commit();
+        if ($this->pdo !== null && $this->pdo->inTransaction()) {
+            $this->pdo->commit();
+        }
         return true;
     }
 
-    /** Revierte transacción directa. */
+    /**
+     * Revierte transacción directa.
+     *
+     * Devuelve `true` aunque no haya nada que revertir: el contrato del
+     * método es "después de esto no hay transacción abierta", y eso se
+     * cumple igual si `failTransaction()` ya la cerró. Ver CommitTrans().
+     */
     public function RollbackTrans(): bool
     {
-        $this->pdo->rollBack();
+        if ($this->pdo !== null && $this->pdo->inTransaction()) {
+            $this->pdo->rollBack();
+        }
         $this->transOk = false;
         return true;
     }

@@ -92,14 +92,16 @@ final class ItemRepository
      *      detectamos de forma genérica (sin enumerar cada tabla) y devolvemos
      *      'referenced' en vez de un false ambiguo.
      *
-     * NO LLAMAR DENTRO DE UNA TRANSACCIÓN ABIERTA. El `catch (DbQueryException)`
-     * que traduce la violación de FK a 'referenced' solo es correcto si este
-     * DELETE es la única escritura en vuelo: cuando el wrapper lanza ya hizo
-     * rollback de TODA la transacción (`DB::failTransaction()`), así que un
-     * caller que envolviera esto en `StartTrans()` vería 'referenced' —un
-     * resultado de negocio normal— mientras su propio trabajo desapareció. Hoy
-     * ningún call-site abre transacción alrededor; si alguno lo necesita, el
-     * pre-check de FK tiene que hacerse con un SELECT antes, no con el catch.
+     * NO LLAMAR DENTRO DE UNA TRANSACCIÓN ABIERTA — y la restricción está
+     * IMPUESTA, no solo documentada (ver `$callerInTrans` abajo). El
+     * `catch (DbQueryException)` que traduce la violación de FK a 'referenced'
+     * solo es correcto si este DELETE es la única escritura en vuelo: cuando el
+     * wrapper lanza ya hizo rollback de TODA la transacción
+     * (`DB::failTransaction()`), así que un caller que envolviera esto en
+     * `StartTrans()` recibiría 'referenced' —un resultado de negocio normal—
+     * mientras su propio trabajo desapareció sin aviso. Hoy ningún call-site
+     * abre transacción alrededor; si alguno lo necesita, el pre-check de FK
+     * tiene que hacerse con un SELECT antes, no con el catch.
      *
      * @return true|'sold'|'referenced'|false
      *   - true          → eliminado OK
@@ -134,11 +136,30 @@ final class ItemRepository
             return 'referenced';
         }
 
+        // Se captura ANTES del DELETE, no dentro del catch: `failTransaction()`
+        // cierra la transacción y pone `transDepth = 0` antes de lanzar, así
+        // que preguntarlo en el catch devuelve false SIEMPRE y el guard nunca
+        // dispararía.
+        //
+        // `HasOpenTransaction()` y no `InTrans()`: esta última solo cuenta el
+        // anidamiento de `StartTrans()` y dejaría ciego al patrón
+        // `BeginTrans()/CommitTrans()`, que rompe exactamente igual.
+        $callerInTrans = $this->db->HasOpenTransaction();
+
         // Solo borrar si está archivado (itemStatus=0) y pertenece a la company.
         $sql = "DELETE FROM item WHERE itemId = ? AND companyId = ? AND itemStatus = 0";
         try {
             $this->db->Execute($sql, [$id, $companyId]);
         } catch (DbQueryException $e) {
+            // Si veníamos DENTRO de una transacción del caller, el wrapper ya la
+            // rollbackeó ENTERA antes de lanzar. Devolver 'referenced' acá sería
+            // reportar un resultado de negocio benigno sobre un trabajo que se
+            // evaporó (el caller commitearía "ok" sobre la nada). Se relanza.
+            if ($callerInTrans) {
+                error_log('[ItemRepository::hardDelete] llamado dentro de una transacción abierta; '
+                    . 'el rollback del wrapper ya descartó el trabajo del caller. Relanzando: ' . $e->getMessage());
+                throw $e;
+            }
             // Guard 2: las FK a item son RESTRICT → un DELETE bloqueado lanza
             // violación de FK (PG SQLSTATE 23503). La traducimos a 'referenced'
             // para devolver un 409 claro en vez de un 500/422 confuso. Antes se
