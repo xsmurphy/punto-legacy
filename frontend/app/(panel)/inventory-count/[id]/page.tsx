@@ -28,6 +28,13 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   Table,
   TableBody,
   TableCell,
@@ -36,6 +43,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+import { useCategories } from "@/hooks/use-categories"
 import {
   useInventoryCount,
   useSetCountedQty,
@@ -48,6 +56,10 @@ import { formatMoney as _formatMoney } from "@/lib/format"
 function formatMoney(v: number): string {
   return _formatMoney(v, undefined)
 }
+
+/** Centinelas del <Select>: Radix no acepta value="" en un SelectItem. */
+const ALL_CATEGORIES = "__all__"
+const NO_CATEGORY    = "__none__"
 
 const STATUS_LABEL: Record<number, string> = {
   0: "Cancelado",
@@ -165,21 +177,63 @@ export default function InventoryCountDetailPage() {
   const cancel  = useCancelInventoryCount()
 
   const [search, setSearch] = React.useState("")
+  const [categoryFilter, setCategoryFilter] = React.useState<string>(ALL_CATEGORIES)
   const [page, setPage]     = React.useState(0)
   const PAGE_SIZE = 100
 
   const session  = data?.session
   const allItems = data?.items ?? []
 
+  // Las opciones salen de las líneas de ESTA sesión, no del catálogo: filtrar
+  // por una categoría que el conteo no incluye solo daría una tabla vacía.
+  const categoryOptions = React.useMemo(() => {
+    const byId = new Map<string, string>()
+    let hasUncategorized = false
+    for (const it of allItems) {
+      if (it.categoryId && it.categoryName) byId.set(it.categoryId, it.categoryName)
+      else hasUncategorized = true
+    }
+    const opts = [...byId.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "es"))
+    if (hasUncategorized) opts.push({ id: NO_CATEGORY, name: "Sin categoría" })
+    return opts
+  }, [allItems])
+
+  // Alcance persistido (mig 158) — por qué esta sesión contiene lo que
+  // contiene. Los nombres salen del catálogo, no de las líneas: un ítem puede
+  // haber entrado por una categoría SECUNDARIA y mostrar otra como principal.
+  // `scope` sin claves = sesión anterior a la mig, alcance desconocido.
+  const { data: categoriesData } = useCategories()
+  const scopeSummary = React.useMemo(() => {
+    const scope = session?.scope
+    if (!scope || scope.categoryIds === undefined) return null
+
+    const byId = new Map((categoriesData?.categories ?? []).map((c) => [c.id, c.name]))
+    const parts: string[] = [
+      scope.categoryIds.length === 0
+        ? "todas las categorías"
+        : scope.categoryIds.map((cid) => byId.get(cid) ?? "categoría eliminada").join(", "),
+    ]
+    if (scope.includeZeroStock) parts.push("incluye artículos sin stock en la sucursal")
+    return parts.join(" · ")
+  }, [session?.scope, categoriesData])
+
   const filteredItems = React.useMemo(() => {
     const q = search.trim().toLowerCase()
-    if (!q) return allItems
-    return allItems.filter(
-      (it) =>
+    return allItems.filter((it) => {
+      if (categoryFilter === NO_CATEGORY) {
+        if (it.categoryId) return false
+      } else if (categoryFilter !== ALL_CATEGORIES && it.categoryId !== categoryFilter) {
+        return false
+      }
+      if (!q) return true
+      return (
         it.name.toLowerCase().includes(q) ||
         (it.sku ?? "").toLowerCase().includes(q)
-    )
-  }, [allItems, search])
+      )
+    })
+  }, [allItems, search, categoryFilter])
 
   const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE)
   const pagedItems = filteredItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
@@ -257,6 +311,7 @@ export default function InventoryCountDetailPage() {
             {session.finishedAt && (
               <p>Finalizado: {formatDate(session.finishedAt)} por {session.finishedByName ?? session.finishedBy}</p>
             )}
+            {scopeSummary && <p>Alcance: {scopeSummary}</p>}
             {session.note && <p>Nota: {session.note}</p>}
           </div>
         </div>
@@ -331,7 +386,7 @@ export default function InventoryCountDetailPage() {
         )}
       </header>
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -341,6 +396,24 @@ export default function InventoryCountDetailPage() {
             onChange={(e) => { setSearch(e.target.value); setPage(0) }}
           />
         </div>
+        {categoryOptions.length > 1 && (
+          <Select
+            value={categoryFilter}
+            onValueChange={(v) => { setCategoryFilter(v); setPage(0) }}
+          >
+            <SelectTrigger className="w-[200px]">
+              <SelectValue placeholder="Todas las categorías" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_CATEGORIES}>Todas las categorías</SelectItem>
+              {categoryOptions.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <span className="text-sm text-muted-foreground whitespace-nowrap">
           {filteredItems.length} / {allItems.length} artículos
         </span>
@@ -352,6 +425,7 @@ export default function InventoryCountDetailPage() {
             <TableRow>
               <TableHead>Artículo</TableHead>
               <TableHead>SKU</TableHead>
+              <TableHead>Categoría</TableHead>
               <TableHead className="text-right">Esperado</TableHead>
               <TableHead className="text-right">Contado</TableHead>
               <TableHead className="text-right">Diferencia</TableHead>
@@ -361,8 +435,10 @@ export default function InventoryCountDetailPage() {
           <TableBody>
             {pagedItems.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
-                  {search ? "Sin resultados para la búsqueda" : "Sin artículos en esta sesión"}
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  {search || categoryFilter !== ALL_CATEGORIES
+                    ? "Sin resultados para el filtro"
+                    : "Sin artículos en esta sesión"}
                 </TableCell>
               </TableRow>
             )}
@@ -379,6 +455,7 @@ export default function InventoryCountDetailPage() {
                 <TableRow key={item.itemId}>
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="text-muted-foreground">{item.sku ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground">{item.categoryName ?? "—"}</TableCell>
                   <TableCell className="text-right">{item.expectedQty}</TableCell>
                   {/* `flex justify-end` en vez de `text-right`: el input es un
                       bloque de ancho fijo y text-align no lo alinea. */}

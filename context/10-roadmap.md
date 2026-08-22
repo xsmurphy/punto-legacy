@@ -102,6 +102,7 @@ detrás. Estado se actualiza acá a medida que se cierran.
    esperada. Fix: alcance del conteo como dato (`outletId`, `locationId`,
    `categoryIds[]`, `includeZeroStock`) persistido en `inventory_count`,
    `InventoryCountScope::itemsQuery()` único, preview "vas a contar N".
+   **Resuelto** (inventory-count-scope)
 5. **Ventas › Transacciones: ver filtros activos.** El filtro por método de
    pago / tipo de venta no existe todavía. Fix: Selects en `toolbarSlot` +
    chips removibles, patrón de `items/page.tsx`.
