@@ -91,15 +91,24 @@ final class ProductsService
         $rocB    = $this->rocAlias($roc, 'b');
         $isMonth = false;
 
-        $selFlat  = "SUM(a.itemSoldUnits) as usold, SUM(a.itemSoldTotal) as total,
-                     SUM(a.itemSoldTax) as tax, SUM(ABS(a.itemSoldCOGS)) as cogs,
-                     SUM(a.itemSoldComission) as comission, SUM(a.itemSoldDiscount) as discount";
-        $selUnits = "SUM(a.itemSoldUnits) as usold, SUM(a.itemSoldTotal) as total,
-                     SUM(a.itemSoldTax) as tax, SUM(ABS(a.itemSoldCOGS) * a.itemSoldUnits) as cogs,
-                     SUM(a.itemSoldComission) as comission, SUM(a.itemSoldDiscount) as discount";
+        // UNA sola proyección para todos los modos de filtro. Antes había dos,
+        // idénticas salvo el COGS: la de los filtros por cliente/usuario sumaba
+        // `ABS(itemSoldCOGS)` a secas. `itemSoldCOGS` es el costo UNITARIO
+        // (contrato fijado en SaleService::persistItemsAndStock), así que ese
+        // modo devolvía el costo de una unidad como si fuera el de todas — el
+        // margen por cliente y por vendedor salía inflado, y solo en esos dos
+        // tabs. Dos proyecciones para el mismo agregado es cómo una se arregla
+        // y la otra queda vieja: ahora hay una.
+        //
+        // ABS() antes de multiplicar: en una devolución `itemSoldUnits` y
+        // `itemSoldCOGS` vienen AMBAS negadas (`flipOnReturn`), y negativo ×
+        // negativo sumaría costo en vez de restarlo.
+        $sel = "SUM(a.itemSoldUnits) as usold, SUM(a.itemSoldTotal) as total,
+                SUM(a.itemSoldTax) as tax, SUM(ABS(a.itemSoldCOGS) * a.itemSoldUnits) as cogs,
+                SUM(a.itemSoldComission) as comission, SUM(a.itemSoldDiscount) as discount";
 
         if ($f['cusId']) {
-            $sql = "SELECT a.itemId as id, $selFlat
+            $sql = "SELECT a.itemId as id, $sel
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ") AND b.customerId = ?" . $rocB . "
                     AND " . SaleFilters::notVoidedSql('b') . "
@@ -107,7 +116,7 @@ final class ProductsService
                     GROUP BY id ORDER BY usold DESC";
             $params = [$f['cusId']];
         } elseif ($f['usrId']) {
-            $sql = "SELECT a.itemId as id, $selFlat
+            $sql = "SELECT a.itemId as id, $sel
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")
                     AND b.transactionDate BETWEEN ? AND ? AND b.userId = ?" . $rocB . "
@@ -116,7 +125,6 @@ final class ProductsService
                     GROUP BY id ORDER BY usold DESC";
             $params = [$from, $to, $f['usrId']];
         } elseif ($f['itmId'] && $f['month']) {
-            $sel = $selUnits;
             $isMonth = true;
             $year    = (int) ($f['year'] ?: date('Y'));
             $sql = "SELECT a.itemId as id, EXTRACT(MONTH FROM a.itemSoldDate)::int as smonth, $sel
@@ -128,7 +136,7 @@ final class ProductsService
                     GROUP BY smonth, id ORDER BY smonth ASC";
             $params = [$year, $f['itmId']];
         } elseif ($f['itmId']) {
-            $sql = "SELECT a.itemId as id, $selUnits
+            $sql = "SELECT a.itemId as id, $sel
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")" . $rocB . "
                     AND " . SaleFilters::notVoidedSql('b') . "
@@ -136,7 +144,7 @@ final class ProductsService
                     GROUP BY id ORDER BY usold DESC";
             $params = [$f['itmId']];
         } else {
-            $sql = "SELECT a.itemId as id, $selUnits
+            $sql = "SELECT a.itemId as id, $sel
                     FROM itemSold a, transaction b
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")
                     AND b.transactionDate BETWEEN ? AND ?" . $rocB . "

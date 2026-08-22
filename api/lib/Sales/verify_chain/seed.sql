@@ -152,6 +152,32 @@ INSERT INTO item_compound (parentItemId, childItemId, quantity, sort, companyId)
     ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6b', 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6a', 2, 0, '0ea6c5d8-57e5-4226-8140-ec914deec024')
 ON CONFLICT (parentItemId, childItemId) DO UPDATE SET quantity = EXCLUDED.quantity;
 
+-- Receta de DOS NIVELES + insumo sin ledger (verify_production_cogs.php,
+-- unificación del costeo 2026-08-22 en `RecipeCosting`). Ejercita los tres
+-- puntos donde las tres fórmulas viejas divergían:
+--   * VERIFY-PROD-SUBPREP: producción directa SIN stock propio, receta de 3 ×
+--     VERIFY-PROD-INSUMO. Su `itemcost` de catálogo es 7777 A PROPÓSITO — un
+--     costeo de un solo nivel valuaría la sub-preparación con ESE número en
+--     vez de bajar a sus insumos, y el 7777 lo delata en el diff del arnés.
+--   * VERIFY-PROD-NOSTOCK: insumo sin control de inventario (agua/sal). Nunca
+--     tiene filas en `stock`, así que solo se puede valuar con `itemcost`
+--     (250): la fórmula vieja de la venta, sin fallback, lo contaba como 0.
+--     Lleva `itemWaste` 20% para que además se vea la merma aplicada
+--     (1 / (1 - 0.20) = 1.25 unidades por unidad producida).
+--   * VERIFY-PROD-L2: el terminado, 1 × SUBPREP + 1 × NOSTOCK.
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemcost, itemtype, itemstatus, itemcansale, itemtrackinventory, itemproduction, data, companyid, itemkind) VALUES
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6c', 'Verify sub-preparación',      'VERIFY-PROD-SUBPREP',     0, 7777, 'product', 1, FALSE, FALSE, FALSE, '{}'::jsonb,                 '0ea6c5d8-57e5-4226-8140-ec914deec024', 'produccion_directa'),
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6d', 'Verify insumo sin stock',     'VERIFY-PROD-NOSTOCK',     0,  250, 'product', 1, FALSE, FALSE, FALSE, '{"itemWaste": 20}'::jsonb,  '0ea6c5d8-57e5-4226-8140-ec914deec024', 'insumo_sin_stock'),
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6e', 'Verify producción 2 niveles', 'VERIFY-PROD-L2',      20000,    0, 'product', 1, TRUE,  FALSE, FALSE, '{}'::jsonb,                 '0ea6c5d8-57e5-4226-8140-ec914deec024', 'produccion_directa')
+ON CONFLICT (itemid) DO UPDATE SET itemcost = EXCLUDED.itemcost, data = EXCLUDED.data,
+    itemtrackinventory = EXCLUDED.itemtrackinventory, itemproduction = EXCLUDED.itemproduction;
+
+INSERT INTO item_compound (parentItemId, childItemId, quantity, sort, companyId) VALUES
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6c', 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6a', 3, 0, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6e', 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6c', 1, 0, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6e', 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6d', 1, 1, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+ON CONFLICT (parentItemId, childItemId) DO UPDATE SET quantity = EXCLUDED.quantity;
+
 -- Plantilla de impresión (context/08 §53, verify_offline_resolution.php):
 -- prueba que el device (`pos-app`) puede leer `document_template` — antes
 -- `apiAuthTenant(['panel'])` la bloqueaba para cualquier token que no fuera

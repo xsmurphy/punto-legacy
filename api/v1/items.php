@@ -447,7 +447,7 @@ if ($id !== null && $resource === 'compounds') {
     $compoundSvc = new \Punto\Api\Items\ItemCompoundService($db);
 
     if ($method === 'GET') {
-        apiOk(['compounds' => $compoundSvc->listForParent($id, $companyId)]);
+        apiOk($compoundSvc->recipe($id, $companyId));
     }
     if ($method === 'POST') {
         $childItemId = (string) ($_POST['childItemId'] ?? '');
@@ -455,7 +455,7 @@ if ($id !== null && $resource === 'compounds') {
         if ($childItemId === '') apiError('childItemId requerido', 422);
         try {
             $newId = $compoundSvc->add($id, $companyId, $childItemId, $quantity);
-            apiOk(['compoundId' => $newId, 'compounds' => $compoundSvc->listForParent($id, $companyId)], 201);
+            apiOk(['compoundId' => $newId] + $compoundSvc->recipe($id, $companyId), 201);
         } catch (\Throwable $e) {
             apiError($e->getMessage(), 422);
         }
@@ -467,7 +467,7 @@ if ($id !== null && $resource === 'compounds') {
             $quantity = (float) ($_POST['quantity'] ?? 0);
             try {
                 $compoundSvc->updateQuantity($id, $companyId, $compoundId, $quantity);
-                apiOk(['compounds' => $compoundSvc->listForParent($id, $companyId)]);
+                apiOk($compoundSvc->recipe($id, $companyId));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
@@ -475,14 +475,14 @@ if ($id !== null && $resource === 'compounds') {
         $order = $_POST['order'] ?? [];
         if (!is_array($order)) apiError('order debe ser array', 422);
         $compoundSvc->reorder($id, $companyId, $order);
-        apiOk(['compounds' => $compoundSvc->listForParent($id, $companyId)]);
+        apiOk($compoundSvc->recipe($id, $companyId));
     }
     if ($method === 'DELETE') {
         $compoundId = (string) ($_GET['compoundId'] ?? '');
         if ($compoundId === '') apiError('compoundId requerido', 422);
         try {
             $compoundSvc->delete($id, $companyId, $compoundId);
-            apiOk(['deleted' => true, 'compounds' => $compoundSvc->listForParent($id, $companyId)]);
+            apiOk(['deleted' => true] + $compoundSvc->recipe($id, $companyId));
         } catch (\Throwable $e) {
             apiError($e->getMessage(), 422);
         }

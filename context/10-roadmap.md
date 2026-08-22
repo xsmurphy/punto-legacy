@@ -75,6 +75,7 @@ detrás. Estado se actualiza acá a medida que se cierran.
 
 1. **Costo de producción directa en reportes no coincide con el costo de la
    receta** (Hamburguesa Cheddar: ficha Gs 13.820, reporte otro número).
+   **Resuelto** (`api/recipe-costing`).
    Causa: tres fórmulas de costo de receta conviviendo —
    ficha (`ItemCompoundService`, `Σ qty × itemCost`, sin merma, 1 nivel),
    venta (`Inventory::getProductionCOGS`, promedio móvil con merma, SIN
@@ -204,20 +205,23 @@ horizontal"*. No implementado. Lo que hay que saber antes de encararlo:
 ## Bugs destapados al documentar los módulos (2026-08-17)
 
 Salieron de escribir `context/modules/` — cada uno con evidencia `path:line` en
-el doc del módulo. **Ninguno está arreglado**; el owner decidió anotarlos y
-seguir documentando. Los dos primeros son plata.
+el doc del módulo. Los dos primeros son plata, y ya están cerrados; los otros
+dos siguen abiertos.
 
-1. **El costo de producción directa NUNCA se calcula.** `SaleService.php:1715`
-   compara `itemType === 'direct_production'`, pero un `produccion_directa`
-   persiste `itemType = 'product'` (`ItemKind.php:32`) — `'direct_production'`
-   es una etiqueta sintética de presentación que jamás se escribe a BD. El
-   branch `getProductionCOGS()` es código muerto: cae al `else`
-   (`getItemStock`), que no tiene filas para un ítem que no trackea stock
-   propio. **Margen y ganancia de producción directa están mal.** Detalle:
-   `context/modules/06-produccion.md`.
+1. **El costo de producción directa NUNCA se calcula.** **Resuelto**
+   (`4ada70c1`). `SaleService` comparaba `itemType === 'direct_production'`,
+   una etiqueta sintética de presentación que jamás se escribe a BD (un
+   `produccion_directa` persiste `itemType = 'product'`, `ItemKind.php:32`), y
+   el branch de COGS era código muerto. Pasó a usar el predicado real
+   (`Inventory::saleExplodesRecipe()`, flags
+   `itemProduction`/`itemTrackInventory`). El costeo en sí se unificó después
+   en `RecipeCosting` — ver el item #1 del reporte del tester
+   "Actualización 21". Arnés: `verify_production_cogs.php` casos 1-2.
 2. **Los reportes de producción directa salen siempre vacíos**, sin error
-   visible — mismo string inexistente en el filtro
-   (`Reports/ProductionService.php:76,98,133-140`).
+   visible. **Resuelto** (`4ada70c1`). Misma causa; los tabs filtran ahora por
+   los flags reales + `EXISTS item_compound` (los flags solos no alcanzan:
+   servicio / insumo_sin_stock / descuento comparten la misma combinación).
+   Arnés: `verify_production_cogs.php` casos 3/3b.
 3. **Una orden/mesa con add-ons pierde el desglose al cobrarse.**
    `CreateOrderItemInput`/`OrderItem` no tienen `selections`
    (`frontend/hooks/use-orders.ts:156-164,45-65`) y `OrderCoreService` no lo
