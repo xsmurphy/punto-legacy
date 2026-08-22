@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 2;
+    public const CURRENT_VERSION = 3;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -80,6 +80,11 @@ final class PermissionCatalog
             ['id' => 'settings.device.manage',   'label' => 'Gestionar dispositivos', 'group' => 'Configuración'],
             ['id' => 'settings.role.manage',     'label' => 'Gestionar roles y permisos','group' => 'Configuración'],
             ['id' => 'settings.company.edit',    'label' => 'Editar datos del comercio','group' => 'Configuración'],
+            // D7/E1b de context/48-escalamiento-de-datos.md (mig 157): cerrar
+            // un período es irreversible (no hay endpoint de reabrir), por
+            // eso va detrás de un permiso propio en vez de colgar de
+            // settings.company.edit.
+            ['id' => 'settings.periodClose',     'label' => 'Cerrar períodos contables','group' => 'Configuración', 'since' => 3],
 
             ['id' => 'billing.view',             'label' => 'Ver facturación',         'group' => 'Facturación'],
             ['id' => 'billing.manage',           'label' => 'Gestionar plan y pagos',  'group' => 'Facturación'],
