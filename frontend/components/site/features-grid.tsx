@@ -1,14 +1,17 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 import { ArrowLeft, ArrowRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { FEATURE_CARDS } from "@/lib/site/modules"
+import { cn } from "@/lib/utils"
 
 /**
- * Sección "Todo en un solo lugar": carousel horizontal de mini-features con
- * scroll-snap y flechas de paginación.
+ * Sección "Cada módulo viene incluido": carousel de cards VERTICALES. Las
+ * que tienen foto la usan de fondo con el texto encima; las que no, quedan
+ * sobre un degradado de marca. Mismo alto para todas, así la fila no baila.
  */
 export function FeaturesGrid() {
   const scrollerRef = React.useRef<HTMLDivElement>(null)
@@ -64,14 +67,51 @@ export function FeaturesGrid() {
         {FEATURE_CARDS.map((feature) => (
           <article
             key={feature.key}
-            className="flex w-64 shrink-0 snap-start flex-col gap-2 rounded-2xl border bg-background p-5 md:w-72"
+            className={cn(
+              "relative flex h-96 w-64 shrink-0 snap-start flex-col justify-end overflow-hidden rounded-3xl md:w-72",
+              !feature.image && "border"
+            )}
           >
-            <h3 className="text-base font-semibold tracking-tight">
-              {feature.title}
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              {feature.description}
-            </p>
+            {feature.image ? (
+              <>
+                <Image
+                  src={feature.image}
+                  alt=""
+                  fill
+                  sizes="(max-width: 768px) 16rem, 18rem"
+                  className="object-cover"
+                />
+                {/* Oscurecedor: el texto va encima de la foto */}
+                <div
+                  aria-hidden
+                  className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/45 to-black/10"
+                />
+              </>
+            ) : (
+              <div
+                aria-hidden
+                className="absolute inset-0 bg-gradient-to-br from-chart-1/20 via-transparent to-muted"
+              />
+            )}
+
+            <div className="relative flex flex-col gap-2 p-6">
+              <h3
+                className={cn(
+                  "text-lg font-semibold tracking-tight",
+                  feature.image && "text-white"
+                )}
+              >
+                {feature.title}
+              </h3>
+              <p
+                className={cn(
+                  "text-sm",
+                  feature.image ? "text-white/70" : "text-muted-foreground"
+                )}
+              >
+                {feature.description}
+              </p>
+            </div>
           </article>
         ))}
       </div>

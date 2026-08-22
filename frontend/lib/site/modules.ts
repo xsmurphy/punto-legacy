@@ -81,34 +81,43 @@ export const MODULE_TABS: ModuleTab[] = [
   },
 ]
 
-/** Mini-card de la sección "Todo en un solo lugar". */
+/**
+ * Card de la sección "Cada módulo viene incluido". Las que traen `image`
+ * se pintan como card vertical con la foto de fondo; el resto queda en
+ * card de texto sobre el degradado de marca.
+ */
 export type FeatureCard = {
   key: string
   title: string
   description: string
+  image?: string
 }
 
 export const FEATURE_CARDS: FeatureCard[] = [
   {
     key: "ai",
+    image: "/site/ai-screenshot.png",
     title: "Punto AI",
     description:
       "Preguntale por tus números y responde con los datos del negocio.",
   },
   {
     key: "efactura",
+    image: "/site/pos-cobro.png",
     title: "Factura electrónica",
     description:
       "El comprobante se emite y se envía solo, con su estado siempre a la vista.",
   },
   {
     key: "sucursales",
+    image: "/site/rubro-retail.jpg",
     title: "Multi-sucursal",
     description:
       "Catálogo, precios y reportes por sucursal, bajo una sola marca.",
   },
   {
     key: "ordenes",
+    image: "/site/pos-gastronomia.png",
     title: "Órdenes y mesas",
     description:
       "El pedido viaja a cocina sin papeles y cada mesa muestra su cuenta abierta.",
@@ -121,6 +130,7 @@ export const FEATURE_CARDS: FeatureCard[] = [
   },
   {
     key: "vales",
+    image: "/site/mockup-barber.jpg",
     title: "Gift cards y vales",
     description:
       "Se venden por adelantado y se canjean en caja, sin papelitos.",
@@ -133,11 +143,13 @@ export const FEATURE_CARDS: FeatureCard[] = [
   },
   {
     key: "compras",
+    image: "/site/rubro-salud-y-belleza.jpg",
     title: "Compras y proveedores",
     description: "La compra carga el stock y deja el costo actualizado.",
   },
   {
     key: "produccion",
+    image: "/site/hero.jpg",
     title: "Producción y recetas",
     description:
       "La receta descuenta insumos y calcula el costo del plato sola.",
@@ -150,11 +162,13 @@ export const FEATURE_CARDS: FeatureCard[] = [
   },
   {
     key: "precios",
+    image: "/site/mockup-retail.jpg",
     title: "Listas de precio",
     description: "Mayorista, mostrador o delivery: cada canal con su precio.",
   },
   {
     key: "offline",
+    image: "/site/rubro-restaurantes.jpg",
     title: "Modo offline",
     description:
       "Se corta internet y la caja sigue vendiendo. Al volver, todo se sincroniza.",
@@ -182,6 +196,7 @@ export const FEATURE_CARDS: FeatureCard[] = [
   },
   {
     key: "dispositivos",
+    image: "/site/pos-retail.png",
     title: "Dispositivos y cajas",
     description:
       "Cada caja con su sesión, sus permisos y su numeración propia.",
