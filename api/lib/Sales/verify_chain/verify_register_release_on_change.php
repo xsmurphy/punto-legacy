@@ -205,7 +205,16 @@ function verifyReleasePostActiveRegister(int $port, string $bearer, string $regi
     return verifyReleaseHttp($port, 'POST', '/v1/active-register.php', $bearer, json_encode(['registerId' => $registerId]));
 }
 
-/** Estado actual de la tenencia de una caja, directo de BD (para asserts). */
+/**
+ * Estado actual de la tenencia de una caja, directo de BD (para asserts).
+ *
+ * `ncmRow()` (api/includes/lib/DB.php) y no un `return $row` pelado: TODA fila
+ * que sale del DB layer es un `CaseInsensitiveArray`, que se lee como array
+ * (ArrayAccess) pero NO satisface el typehint `array` — cruzarlo por un
+ * `return` declarado `: ?array` tira TypeError en runtime. Es la conversión
+ * canónica del proyecto para el caso "el valor cruza una frontera que exige
+ * array de verdad"; ver el docblock de `ncmRow()`.
+ */
 function verifyReleaseLeaseRow(string $registerId): ?array
 {
     $row = ncmExecute(
@@ -216,7 +225,7 @@ function verifyReleaseLeaseRow(string $registerId): ?array
           LIMIT 1',
         [$registerId]
     );
-    return ($row !== false && $row !== 0) ? $row : null;
+    return ($row !== false && $row !== 0) ? ncmRow($row) : null;
 }
 
 try {
