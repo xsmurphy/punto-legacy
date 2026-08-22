@@ -1,6 +1,6 @@
 # 48 — Escalamiento de datos (particionado, réplica, rollup)
 
-> Estado (2026-08-21): **plan, D1-D7 cerradas por el owner, NO relitigar.**
+> Estado (2026-08-21): **plan, D1-D8 cerradas por el owner, NO relitigar.**
 > Preocupación del owner (textual): SaaS multi-tenant con años de histórico
 > por delante — ¿cómo evita que el crecimiento acumulado sobrecargue toda la
 > infraestructura? Propuso en caliente 3 bases (caliente/histórica/fría).
