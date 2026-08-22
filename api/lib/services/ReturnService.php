@@ -106,8 +106,18 @@ final class ReturnService
                     SUM(COALESCE(is1.itemsolddiscount, 0))   AS itemsolddiscount,
                     SUM(COALESCE(is1.itemsoldcogs, 0) * ABS(is1.itemsoldunits))
                       / NULLIF(SUM(ABS(is1.itemsoldunits)), 0) AS itemsoldcogs,
+                    SUM(COALESCE(is1.itemsoldtax, 0))        AS itemsoldtax,
                     MIN(is1.itemsoldid::text)                AS itemsoldid,
-                    MIN(i.itemname)                          AS itemname
+                    MIN(i.itemname)                          AS itemname,
+                    -- D8 de context/48-escalamiento-de-datos.md (mig 158):
+                    -- taxrate/taxkind/itemsoldcategory son congelados por
+                    -- línea en la venta original — la devolución los COPIA
+                    -- (MIN, deberían ser idénticos entre líneas duplicadas
+                    -- del mismo itemId; si no lo son, MIN es una aproximación
+                    -- razonable, no hay una "línea representativa" única).
+                    MIN(is1.taxrate)                         AS taxrate,
+                    MIN(is1.taxkind)                         AS taxkind,
+                    MIN(is1.itemsoldcategory::text)          AS itemsoldcategory
                FROM itemSold is1
                JOIN item i ON i.itemid = is1.itemid
               WHERE is1.transactionid = ?
@@ -358,9 +368,20 @@ final class ReturnService
                 // total exacto de la venta.
                 $lineTotal = abs((float) $origRow['itemsoldtotal']);
                 $lineDisc  = abs((float) ($origRow['itemsolddiscount'] ?? 0));
+                $lineTax   = abs((float) ($origRow['itemsoldtax'] ?? 0));
                 $unitPrice = $soldQty > 0 ? $lineTotal / $soldQty : 0.0;
                 $unitDisc  = $soldQty > 0 ? $lineDisc  / $soldQty : 0.0;
+                $unitTax   = $soldQty > 0 ? $lineTax   / $soldQty : 0.0;
                 $unitCogs  = $classified['unitCogs']; // ya round(...,4), misma fórmula ponderada que antes.
+                // D8 de context/48-escalamiento-de-datos.md (mig 158):
+                // congelados de la línea ORIGINAL, copiados tal cual —
+                // itemsoldtax es la única de las tres que se prorratea (es
+                // un monto de línea, escala con reqQty); taxrate/taxkind/
+                // categoría son la MISMA tasa/categoría sea cual sea la qty
+                // devuelta.
+                $origTaxRate = (float) ($origRow['taxrate'] ?? 0);
+                $origTaxKind = (string) ($origRow['taxkind'] ?? 'exempt');
+                $origCategoryId = !empty($origRow['itemsoldcategory']) ? (string) $origRow['itemsoldcategory'] : null;
 
                 // Disponible = lo vendido menos lo ya devuelto en devoluciones
                 // PREVIAS (`$alreadyByItem`) menos lo ya comprometido por OTRA
@@ -388,6 +409,7 @@ final class ReturnService
                 // cancela EXACTAMENTE a la venta original en las dos columnas.
                 $lineReturnTotal = round($unitPrice * $reqQty, 2);
                 $lineReturnDisc  = round($unitDisc  * $reqQty, 2);
+                $lineReturnTax   = round($unitTax   * $reqQty, 2);
                 $returnTotal    += $lineReturnTotal;
                 $returnDiscount += $lineReturnDisc;
 
@@ -413,12 +435,17 @@ final class ReturnService
                     'qty'            => $reqQty,
                     'lineTotal'      => $lineReturnTotal,
                     'lineDiscount'   => $lineReturnDisc,
+                    'lineTax'        => $lineReturnTax,
                     // Unitario, NO multiplicado por qty: así lo espera tanto la
                     // columna itemSoldCOGS como manageStock (ver arriba).
                     'unitCogs'       => round($unitCogs, 4),
                     'kind'           => $classified['kind'],
                     'hadStockImpact' => $classified['hadStockImpact'],
                     'restock'        => $restock,
+                    // D8 (mig 158) — congelados, copiados de la línea original.
+                    'taxRate'        => $origTaxRate,
+                    'taxKind'        => $origTaxKind,
+                    'categoryId'     => $origCategoryId,
                 ];
             }
 
@@ -488,8 +515,9 @@ final class ReturnService
                     'INSERT INTO itemSold (
                         itemsoldid, itemid, transactionid,
                         itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldcogs,
+                        itemsoldtax, taxrate, taxkind, itemsoldcategory,
                         itemsolddate, companyid, outletid, registerid
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)',
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)',
                     [
                         $itemSoldId,
                         $pi['itemId'],
@@ -500,6 +528,18 @@ final class ReturnService
                         // Signo negativo = espeja `flipOnReturn` de SaleService
                         // (lib/Sales/SaleService.php:1445) sobre el mismo campo.
                         -abs($pi['unitCogs']),
+                        // D8 de context/48-escalamiento-de-datos.md (mig 158):
+                        // itemsoldtax NUNCA se poblaba en una devolución
+                        // (hallazgo de esta sesión) — sin esto, tax10/tax5 del
+                        // rollup de ventas quedaban ciegos a lo devuelto.
+                        // Negativo, mismo criterio que total/discount arriba.
+                        -abs($pi['lineTax']),
+                        // taxRate/taxKind/categoryId: congelados, copiados de
+                        // la línea original (ver aggregatedParentLines) — NO
+                        // se recalculan ni flipean signo (no son montos).
+                        $pi['taxRate'],
+                        $pi['taxKind'],
+                        $pi['categoryId'],
                         // D4 de context/48-escalamiento-de-datos.md (mig 156):
                         // mismos valores que la INSERT de `transaction` de
                         // arriba, en este mismo método.
@@ -583,6 +623,21 @@ final class ReturnService
             (new \Punto\Api\Finance\FinanceLedger())->recordReturn($companyId, (string) $newTransactionId);
         } catch (\Throwable $e) {
             error_log('[ReturnService] FinanceLedger::recordReturn falló para ' . $newTransactionId . ': ' . $e->getMessage());
+        }
+
+        // Rollup: marcar el día de la devolución sucio (best-effort). D8 de
+        // context/48-escalamiento-de-datos.md (mig 158): kind='devolucion'
+        // vive DENTRO de 'sales'/'item_sales'/'payments' (mig 158 absorbió
+        // los dominios 'returns'/'item_returns') — hallazgo de esta sesión:
+        // ReturnService nunca llamaba rollupMarkDirty (grep confirmó cero
+        // call-sites), a diferencia de SaleService/SaleVoidService/
+        // DrawerService. El día es HOY (server time): el INSERT de arriba
+        // usa NOW(), no una fecha del payload — misma sesión de PG que
+        // corre en America/Asuncion (api/includes/db.php).
+        try {
+            \rollupMarkDirty($companyId, ['sales', 'item_sales', 'payments'], date('Y-m-d'));
+        } catch (\Throwable $e) {
+            error_log('[ReturnService] rollupMarkDirty: ' . $e->getMessage());
         }
 
         // Emisión inline POST-COMMIT, best-effort: la devolución ya está

@@ -285,13 +285,19 @@ check(
     $failures
 );
 
-// ── (f) rollup: la función excluye la venta anulada (F4, mig 155) ─────────
+// ── (f) rollup: status=vigente excluye la venta anulada (D8, mig 158) ─────
+// D8 de context/48-escalamiento-de-datos.md (mig 158): domain='sales' migró
+// de report_rollup (grano genérico, "anuladas excluidas" del F4/mig 155) a
+// rollup_sales_day (grano día tipado, "anuladas" ahora SON una fila propia
+// vía status='anulada' en vez de estar afuera del rollup) — el check pasa a
+// filtrar status='vigente' en vez de confiar en que la fila no exista.
 $todayDay = date('Y-m-d');
 $db->Execute('SELECT rollup_recompute_period(?::uuid, ?, ?::date)', [$companyId, 'sales', $todayDay]);
 
 $rollupRow = ncmExecute(
-    "SELECT cnt, total FROM report_rollup
-     WHERE companyid = ? AND domain = 'sales' AND periodtype = 'day' AND periodstart = ?::date AND outletid IS NULL",
+    "SELECT COALESCE(SUM(cnt), 0) AS cnt, COALESCE(SUM(net), 0) AS total
+     FROM rollup_sales_day
+     WHERE companyid = ? AND day = ?::date AND kind IN ('contado', 'credito') AND status = 'vigente'",
     [$companyId, $todayDay]
 );
 $liveRow = ncmExecute(
@@ -300,7 +306,7 @@ $liveRow = ncmExecute(
     [$companyId, $todayDay]
 );
 check(
-    '(f) rollup_recompute_period("sales"): cnt/total del día coinciden con la query en vivo filtrada por voidedat (venta anulada excluida del rollup)',
+    '(f) rollup_recompute_period("sales"): cnt/total del día (status=vigente) coinciden con la query en vivo filtrada por voidedat (venta anulada excluida del rollup)',
     $rollupRow && $liveRow
         && (int) $rollupRow['cnt'] === (int) $liveRow['cnt']
         && abs((float) $rollupRow['total'] - (float) $liveRow['total']) < 0.01,

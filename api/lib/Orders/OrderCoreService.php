@@ -848,6 +848,44 @@ final class OrderCoreService
         // (mig 115). Vive DENTRO de esta misma TX: si el commit falla, el
         // link tampoco queda.
         $this->links->linkOrder($companyId, $orderId, $transactionId);
+
+        // D8 de context/48-escalamiento-de-datos.md (mig 158): channel se
+        // resuelve ACÁ, no en SaleService — la venta simple (tipo 0/3) no
+        // sabe si nació de una orden de mesa/ecommerce hasta que se vincula.
+        // SaleService ya dejó 'mostrador' o 'delivery' (por addressId) al
+        // crear la transacción; acá se sobre-escribe SOLO si la orden aporta
+        // más información (mesa siempre gana sobre lo que SaleService haya
+        // puesto — una venta de mesa no tiene addressId, así que no hay
+        // conflicto real). No se toca nada si la orden es 'counter' sin
+        // espacio: dejar lo que SaleService ya resolvió.
+        $orderSource = (string) ($order['source'] ?? 'counter');
+        $hasSpace    = !empty($order['spacesessionid']);
+        $channel     = null;
+        if ($orderSource === 'table' || $hasSpace) {
+            $channel = 'mesa';
+        } elseif ($orderSource === 'ecommerce') {
+            $channel = 'delivery';
+        }
+        if ($channel !== null) {
+            $txRow = $this->db->Execute(
+                'UPDATE transaction SET channel = ? WHERE transactionid = ? AND companyid = ? RETURNING transactiondate',
+                [$channel, $transactionId, $companyId]
+            );
+            $txDate = ($txRow && !$txRow->EOF) ? (string) $txRow->fields['transactiondate'] : null;
+            if ($txDate !== null) {
+                // El día ya pudo haber sido reconciliado con channel viejo
+                // (rollupMarkDirty de SaleService corrió ANTES de este
+                // UPDATE si el cobro llega en otra request que la creación)
+                // — se vuelve a encolar 'sales' para que el próximo
+                // rollup-reconcile refleje el channel correcto.
+                try {
+                    \rollupMarkDirty($companyId, ['sales'], substr($txDate, 0, 10));
+                } catch (\Throwable $e) {
+                    error_log('[OrderCoreService] rollupMarkDirty (channel): ' . $e->getMessage());
+                }
+            }
+        }
+
         $this->recordEvent($companyId, (string) $order['outletid'], $orderId, null, null, 'order', (string) $order['status'], 'closed');
 
         $failed = $db->HasFailedTrans();
