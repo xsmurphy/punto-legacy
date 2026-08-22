@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, type Resolver, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid, Search } from "lucide-react"
+import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid, Search, Lock } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -148,6 +148,11 @@ const settingsSchema = z.object({
   taxPy: z.boolean(),
   weightBarcodes: z.boolean(),
   deletedItemsHistory: z.boolean(),
+  // D7/E1b de context/48-escalamiento-de-datos.md — editable desde
+  // /settings/cierre-de-periodo (page propia), no desde este modal. Vive en
+  // el schema porque el form hidrata desde el GET; ninguna sección de este
+  // modal lo manda (el merge parcial del backend lo deja intacto).
+  settingPeriodCloseMonths: z.number(),
   // Asistente IA — editable desde AgentSettingsDialog (chat), no desde este
   // modal. Viven en el schema porque el form los hidrata desde el GET, pero
   // ninguna seccion de este modal los manda: el merge parcial del backend los
@@ -207,6 +212,9 @@ const SECTIONS: {
   { id: "printers" as unknown as SettingsSection, label: "Impresoras", icon: Printer, href: "/settings/printers" },
   { id: "tables" as unknown as SettingsSection, label: "Espacios", icon: LayoutGrid, href: "/settings/espacios" },
   { id: "roles" as unknown as SettingsSection, label: "Roles y permisos", icon: ShieldCheck, href: "/settings/roles" },
+  // D7/E1b de context/48-escalamiento-de-datos.md — página propia (listado +
+  // acción de cierre), no un tab del modal.
+  { id: "period-close" as unknown as SettingsSection, label: "Cierre de período", icon: Lock, href: "/settings/cierre-de-periodo" },
   // Redes sociales se fusionó a la sección Empresa (al final del tab) en vez
   // de tener una sección propia — el tab solo con 4 inputs estaba subutilizado.
 ]
@@ -1360,6 +1368,7 @@ function emptyValues(): SettingsFormValues {
     taxPy: false,
     weightBarcodes: false,
     deletedItemsHistory: false,
+    settingPeriodCloseMonths: 1,
     agentName: "",
     agentPersonality: "professional",
   }

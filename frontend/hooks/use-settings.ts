@@ -106,6 +106,12 @@ const SERIALIZE_STRING_FIELDS: (keyof SettingsFormValues)[] = [
   "agentName", "agentPersonality",
 ]
 
+// D7/E1b de context/48-escalamiento-de-datos.md — mismo passthrough que
+// SERIALIZE_STRING_FIELDS (el backend castea con (int) + clamp 1..12).
+const SERIALIZE_NUMBER_FIELDS: (keyof SettingsFormValues)[] = [
+  "settingPeriodCloseMonths",
+]
+
 const SERIALIZE_BOOL_FIELDS: (keyof SettingsFormValues)[] = [
   "decimal", "sellsoldout", "itemSerialized", "drawerEmail", "drawerBlind",
   "settingRemoveTaxes", "paymentId", "creditLine", "storeCredit",
@@ -126,6 +132,9 @@ function serialize(values: Partial<SettingsFormValues>): Record<string, unknown>
   const out: Record<string, unknown> = {}
 
   for (const key of SERIALIZE_STRING_FIELDS) {
+    if (values[key] !== undefined) out[key] = values[key]
+  }
+  for (const key of SERIALIZE_NUMBER_FIELDS) {
     if (values[key] !== undefined) out[key] = values[key]
   }
   for (const key of SERIALIZE_BOOL_FIELDS) {
