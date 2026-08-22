@@ -62,14 +62,27 @@ if ($isDebug) {
     apiError('Código inválido o expirado', 401);
 }
 
-$result = \Punto\Api\Auth\SignupService::create([
-    'storename' => $storename,
-    'username'  => $username,
-    'password'  => $password,
-    'category'  => $category,
-    'country'   => $country,
-    'phone'     => $phone,
-]);
+try {
+    $result = \Punto\Api\Auth\SignupService::create([
+        'storename' => $storename,
+        'username'  => $username,
+        'password'  => $password,
+        'category'  => $category,
+        'country'   => $country,
+        'phone'     => $phone,
+    ]);
+} catch (\Punto\Api\Support\DbQueryException $e) {
+    // El alta corre entera dentro de una transacción y devolvía
+    // `['ok'=>false,'error'=>ErrorMsg()]` cuando el wrapper devolvía `false`.
+    // Ahora el wrapper LANZA, así que ese `return` ya no se alcanza y sin este
+    // catch el alta respondería un 500 genérico. Se mantiene el 400 con
+    // mensaje de usuario; la causa real de PG va al log (nunca al cliente:
+    // filtraría nombres de tablas/columnas a un endpoint SIN autenticar).
+    // El wrapper ya rollbackeó la transacción antes de propagar.
+    error_log('[signup] DbQueryException: ' . $e->getMessage()
+        . ' | SQLSTATE ' . $e->sqlState() . ' | SQL: ' . $e->sql());
+    apiError('No se pudo crear la cuenta. Intentá de nuevo en unos minutos.', 400);
+}
 
 if (!$result['ok']) {
     // 409 cuando el conflicto es de duplicado (mensaje del service); 400 default.

@@ -12,6 +12,7 @@ use Punto\Api\Sales\Exceptions\DuplicateInvoiceNumberException;
 use Punto\Api\Sales\Exceptions\DuplicateSaleException;
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
+use Punto\Api\Support\DbQueryException;
 use Punto\Api\Tax\TaxEngine;
 
 /**
@@ -157,75 +158,97 @@ final class SaleService
         // ── B1: abrir transacción ──────────────────────────────────────────
         $this->db->StartTrans();
 
-        // ── B3: construir record de `transaction` ──────────────────────────
-        $record = $this->buildTransactionRecord(
-            input:                  $input,
-            saleDetail:             $saleDetail,
-            totalUnits:             $totalUnits,
-            userId:                 $userId,
-            responsibleId:          $responsibleId,
-            decimals:               $decimals,
-            invoiceAuth:            $invoiceAuth,
-            invoiceAuthStart:       $invoiceAuthStart,
-            invoiceAuthExpiration:  $invoiceAuthExpiration,
-        );
+        // El wrapper DB LANZA `DbQueryException` ante cualquier error de PG
+        // (2026-08-22) en vez de devolver `false`. Sin este catch, el fallo
+        // que ANTES caía en la verificación post-commit de abajo —y se
+        // traducía a DuplicateInvoiceNumberException / DuplicateSaleException /
+        // SaleAbortedException— se escaparía crudo hasta bootstrap.php como un
+        // 500 genérico. Eso rompería el contrato que el POS espera: `/v1/sales`
+        // devuelve 409 y `/v1/offline-sync` devuelve `NUMBER_TAKEN` para que la
+        // cola offline renumere en vez de reintentar para siempre (P0 fiscal:
+        // dos comprobantes con el mismo número son multa por comprobante).
+        //
+        // La clasificación del error es la MISMA en los dos caminos —
+        // `abortSale()` — así que no hay dos lugares que puedan divergir.
+        // El wrapper ya cerró la transacción PDO antes de propagar.
+        try {
 
-        // ── B3: INSERT principal de la venta ────────────────────────────────
-        $insertOk = $this->db->AutoExecute('transaction', $record, 'INSERT');
-        $transId  = $this->db->Insert_ID();
+            // ── B3: construir record de `transaction` ──────────────────────────
+            $record = $this->buildTransactionRecord(
+                input:                  $input,
+                saleDetail:             $saleDetail,
+                totalUnits:             $totalUnits,
+                userId:                 $userId,
+                responsibleId:          $responsibleId,
+                decimals:               $decimals,
+                invoiceAuth:            $invoiceAuth,
+                invoiceAuthStart:       $invoiceAuthStart,
+                invoiceAuthExpiration:  $invoiceAuthExpiration,
+            );
 
-        // ── B4 + B6 + B7: relaciones (toTaxObj / toAddress / toTag) ─────────
-        // Solo si el INSERT principal funcionó (evita FK violations en cascada
-        // que ensuciarían el error real). Corren dentro de la misma transacción.
-        if ($insertOk !== false && !empty($transId)) {
-            $this->persistRelations($input, (string) $transId, $saleDetail, $decimals);
+            // ── B3: INSERT principal de la venta ────────────────────────────────
+            $insertOk = $this->db->AutoExecute('transaction', $record, 'INSERT');
+            $transId  = $this->db->Insert_ID();
 
-            // ── B8: itemSold + COGS + comisiones + manageStock (inventario) ──
-            $this->persistItemsAndStock($input, (string) $transId, $saleDetail);
+            // ── B4 + B6 + B7: relaciones (toTaxObj / toAddress / toTag) ─────────
+            // Solo si el INSERT principal funcionó (evita FK violations en cascada
+            // que ensuciarían el error real). Corren dentro de la misma transacción.
+            if ($insertOk !== false && !empty($transId)) {
+                $this->persistRelations($input, (string) $transId, $saleDetail, $decimals);
 
-            // ── B10 (35c.1): redención de gift card — debita el saldo usado ────
-            $this->persistGiftCardRedemptions($input);
+                // ── B8: itemSold + COGS + comisiones + manageStock (inventario) ──
+                $this->persistItemsAndStock($input, (string) $transId, $saleDetail);
 
-            // ── F2 vouchers (context/36-vouchers-plan.md): consumir los vales
-            //    canjeados en el carrito — DENTRO de esta misma transacción, no
-            //    fire-and-forget post-commit (lección de T1, 1f9c8f97, y del
-            //    consume de gift cards: si corriera después y fallara, la venta
-            //    quedaría cobrada con un vale que sigue disponible para reusar).
-            $this->persistVoucherRedemptions($saleDetail, (string) $transId);
+                // ── B10 (35c.1): redención de gift card — debita el saldo usado ────
+                $this->persistGiftCardRedemptions($input);
 
-            // ── B10 (35e): débito de points y storeCredit del cliente ─────────
-            // (manageCustomerLoyalty/StoreCredit 'used' vía helpers legacy dentro
-            //  de la tx; se saltan si no hay cliente).
-            $this->persistBalanceRedemptions($input);
+                // ── F2 vouchers (context/36-vouchers-plan.md): consumir los vales
+                //    canjeados en el carrito — DENTRO de esta misma transacción, no
+                //    fire-and-forget post-commit (lección de T1, 1f9c8f97, y del
+                //    consume de gift cards: si corriera después y fallara, la venta
+                //    quedaría cobrada con un vale que sigue disponible para reusar).
+                $this->persistVoucherRedemptions($saleDetail, (string) $transId);
 
-            // ── B10: loyalty EARNED (cash/card; points/storeCredit/giftcard NO
-            //         ganan puntos — mismo guard que el legacy) ────────────────
-            $this->persistLoyaltyEarning($input);
+                // ── B10 (35e): débito de points y storeCredit del cliente ─────────
+                // (manageCustomerLoyalty/StoreCredit 'used' vía helpers legacy dentro
+                //  de la tx; se saltan si no hay cliente).
+                $this->persistBalanceRedemptions($input);
 
-            // ── B12 (35f): venta recurrente — crea fila en `recurring` ────────
-            // Solo para creditsale (type=3); cashsale no tiene recurrente (el
-            // legacy lo gatea con in_array(['creditsale','schedule'])). Dentro
-            // de la tx: si falla, rollbackea con la venta.
-            $this->persistRecurring($input, (string) $transId);
+                // ── B10: loyalty EARNED (cash/card; points/storeCredit/giftcard NO
+                //         ganan puntos — mismo guard que el legacy) ────────────────
+                $this->persistLoyaltyEarning($input);
 
-            // ── B9 (35g): packs de servicios — crear sold_pack por cada pack vendido ──
-            // POST-COMMIT best-effort: si no hay cliente (clientId null), no podemos
-            // crear el sold_pack (contactId NOT NULL). Se loguea y omite sin fallar
-            // la venta. El sold_pack se crea DENTRO de la tx para garantizar
-            // atomicidad (pack creado ↔ venta persistida).
-            if ($input->clientId !== null) {
-                $this->persistPackSales($input, (string) $transId, $saleDetail);
+                // ── B12 (35f): venta recurrente — crea fila en `recurring` ────────
+                // Solo para creditsale (type=3); cashsale no tiene recurrente (el
+                // legacy lo gatea con in_array(['creditsale','schedule'])). Dentro
+                // de la tx: si falla, rollbackea con la venta.
+                $this->persistRecurring($input, (string) $transId);
+
+                // ── B9 (35g): packs de servicios — crear sold_pack por cada pack vendido ──
+                // POST-COMMIT best-effort: si no hay cliente (clientId null), no podemos
+                // crear el sold_pack (contactId NOT NULL). Se loguea y omite sin fallar
+                // la venta. El sold_pack se crea DENTRO de la tx para garantizar
+                // atomicidad (pack creado ↔ venta persistida).
+                if ($input->clientId !== null) {
+                    $this->persistPackSales($input, (string) $transId, $saleDetail);
+                }
+
+                // ── F1 facturación electrónica: enqueue transaccional ──────────────
+                // Dentro de la MISMA transacción de la venta: si la venta rollbackea,
+                // el documento encolado rollbackea con ella (nunca queda un outbox
+                // huérfano apuntando a una venta que no existe). best-effort: un
+                // fallo acá (cuenta mal configurada, etc.) NUNCA aborta la venta —
+                // reemplaza al hook legacy dispatchElectronicInvoice, que vivía
+                // post-commit y dependía de sendFE/FACTURACION_ELECTRONICA_TOKEN
+                // (proveedor de FE anterior, retirado entero en F4).
+                $this->enqueueElectronicInvoice($input, (string) $transId);
             }
 
-            // ── F1 facturación electrónica: enqueue transaccional ──────────────
-            // Dentro de la MISMA transacción de la venta: si la venta rollbackea,
-            // el documento encolado rollbackea con ella (nunca queda un outbox
-            // huérfano apuntando a una venta que no existe). best-effort: un
-            // fallo acá (cuenta mal configurada, etc.) NUNCA aborta la venta —
-            // reemplaza al hook legacy dispatchElectronicInvoice, que vivía
-            // post-commit y dependía de sendFE/FACTURACION_ELECTRONICA_TOKEN
-            // (proveedor de FE anterior, retirado entero en F4).
-            $this->enqueueElectronicInvoice($input, (string) $transId);
+        } catch (DbQueryException $e) {
+            // `ErrorMsg()` sigue poblado (el wrapper guarda lastError/firstError
+            // ANTES de lanzar), pero usamos el mensaje de la excepción: es la
+            // causa exacta de ESTE fallo, sin riesgo de leer una cascada 25P02.
+            $this->abortSale($input, $e->getMessage());
         }
 
         // ── B11: cerrar la transacción ──────────────────────────────────────
@@ -251,29 +274,7 @@ final class SaleService
         }
 
         if ($failed || $insertOk === false || empty($transId) || !$persisted) {
-            // mig 145 — choque REAL de numeración: (companyId, registerId,
-            // timbrado, invoiceNo) ya existe bajo OTRO transactionUID. Chequear
-            // ANTES del 23505 genérico de abajo: ambos violan una UNIQUE y
-            // devuelven el mismo SQLSTATE, pero significan cosas opuestas — este
-            // es un comprobante duplicado real (nunca "éxito silencioso"), no un
-            // reintento del mismo evento.
-            if ($dbError !== '' && str_contains($dbError, 'uq_transaction_expedition_invoiceno')) {
-                throw new DuplicateInvoiceNumberException(
-                    registerId: (string) $this->ctx->registerId,
-                    invoiceNo:  $input->invoiceNo,
-                );
-            }
-            // Safety-net contra race condition: si dos requests concurrentes pasan
-            // el dupli check (UNIQUE en `transactionUID` previene el doble INSERT),
-            // el segundo cae acá con SQLSTATE 23505. Lo convertimos a duplicate
-            // para que la cola offline reciba 200 y marque el UID, no 500.
-            if ($dbError !== '' && str_contains($dbError, '23505')) {
-                throw new DuplicateSaleException(uid: $input->uid);
-            }
-            throw new SaleAbortedException(
-                dbError: $dbError !== '' ? $dbError : null,
-                message: 'Sale transaction aborted (no persistió tras commit)',
-            );
+            $this->abortSale($input, $dbError);
         }
 
         // ── B14 + B15: notificaciones (email/SMS al cliente + auditoría + e-gift) ──
@@ -339,6 +340,45 @@ final class SaleService
             transactionId:     (string) $transId,
             uid:               $input->uid,
             einvoicePortalUrl: $portalUrl,
+        );
+    }
+
+    /**
+     * Clasifica un fallo de escritura de la venta y lanza la excepción tipada
+     * que corresponde. FUENTE ÚNICA: la llaman los DOS caminos que pueden
+     * detectar el fallo —el `catch (DbQueryException)` del bloque de escritura
+     * y la verificación post-commit— así que no pueden divergir.
+     *
+     * El orden importa. `uq_transaction_expedition_invoiceno` (mig 145) y el
+     * 23505 genérico son AMBOS unique_violation y traen el mismo SQLSTATE, pero
+     * significan cosas opuestas:
+     *
+     *   - `uq_transaction_expedition_invoiceno`: (companyId, registerId,
+     *     timbrado, invoiceNo) ya existe bajo OTRO transactionUID. Es un
+     *     comprobante duplicado REAL, nunca un "éxito silencioso" — el POS
+     *     tiene que renumerar. Se chequea PRIMERO.
+     *   - 23505 a secas: dos requests concurrentes del MISMO evento pasaron el
+     *     dupli check y el segundo chocó contra la UNIQUE de `transactionUID`.
+     *     La cola offline debe recibir 200 y marcar el UID como hecho, no 500
+     *     (si no, reintenta para siempre).
+     *
+     * @param string $dbError mensaje crudo de PG (de DbQueryException o de
+     *                        ErrorMsg()); trae el SQLSTATE embebido.
+     */
+    private function abortSale(SaleInput $input, string $dbError): never
+    {
+        if ($dbError !== '' && str_contains($dbError, 'uq_transaction_expedition_invoiceno')) {
+            throw new DuplicateInvoiceNumberException(
+                registerId: (string) $this->ctx->registerId,
+                invoiceNo:  $input->invoiceNo,
+            );
+        }
+        if ($dbError !== '' && str_contains($dbError, '23505')) {
+            throw new DuplicateSaleException(uid: $input->uid);
+        }
+        throw new SaleAbortedException(
+            dbError: $dbError !== '' ? $dbError : null,
+            message: 'Sale transaction aborted (no persistió tras commit)',
         );
     }
 
@@ -1255,31 +1295,37 @@ final class SaleService
         // en `giftcard` (mig 44, columnas quoted) → el INSERT falla SIEMPRE.
         // `id` se omite: la columna tiene DEFAULT gen_random_uuid() (mig 44).
         // Mismo patrón quoted que api/v1/giftcards.php (validate/consume).
-        $ok = $this->db->Execute(
-            'INSERT INTO giftcard
-                (id, companyid, code, initialbalance, currentbalance, expiresat,
-                 beneficiarycontactid, beneficiaryname, note, issuedbytransactionid,
-                 outletid, status)
-             VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            [
-                $companyId,
-                $code,
-                $amount,
-                $amount,
-                $expiresAt,
-                $beneficiaryId,
-                $beneficiaryName,
-                $note !== '' ? $note : null,
-                $transId,
-                $this->ctx->outletId,
-                1,
-            ]
-        );
-        if ($ok === false) {
+        try {
+            $this->db->Execute(
+                'INSERT INTO giftcard
+                    (id, companyid, code, initialbalance, currentbalance, expiresat,
+                     beneficiarycontactid, beneficiaryname, note, issuedbytransactionid,
+                     outletid, status)
+                 VALUES (gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [
+                    $companyId,
+                    $code,
+                    $amount,
+                    $amount,
+                    $expiresAt,
+                    $beneficiaryId,
+                    $beneficiaryName,
+                    $note !== '' ? $note : null,
+                    $transId,
+                    $this->ctx->outletId,
+                    1,
+                ]
+            );
+        } catch (DbQueryException $e) {
             // Carrera concurrente contra la UNIQUE (companyid, code): PG
-            // devuelve SQLSTATE 23505 (unique_violation) en el ErrorMsg.
-            $err = $this->db->ErrorMsg();
-            if (stripos($err, '23505') !== false
+            // devuelve SQLSTATE 23505 (unique_violation). Antes esto se leía de
+            // `ErrorMsg()` DESPUÉS de que Execute() devolviera false; ahora el
+            // wrapper lanza, así que la detección va en el catch y se apoya en
+            // `sqlState()` (exacto) además del texto (por si el driver cambia
+            // el wording del mensaje).
+            $err = $e->getMessage();
+            if ($e->sqlState() === '23505'
+                || stripos($err, '23505') !== false
                 || stripos($err, 'unique') !== false
                 || stripos($err, 'duplicate') !== false) {
                 throw new InvalidSaleInputException("El código de gift card '{$code}' ya existe — generá uno nuevo");
@@ -2327,12 +2373,25 @@ final class SaleService
         $record['invoiceNo']           = $quoteNo;
         $record['transactionComplete'] = 1;
 
-        $insertOk = $this->db->AutoExecute('transaction', $record, 'INSERT');
-        $transId  = $this->db->Insert_ID();
+        try {
+            $insertOk = $this->db->AutoExecute('transaction', $record, 'INSERT');
+            $transId  = $this->db->Insert_ID();
 
-        if ($insertOk !== false && !empty($transId)) {
-            $this->persistRelations($input, (string) $transId, $saleDetail, $decimals);
-            $this->persistQuoteItems($input, (string) $transId, $saleDetail);
+            if ($insertOk !== false && !empty($transId)) {
+                $this->persistRelations($input, (string) $transId, $saleDetail, $decimals);
+                $this->persistQuoteItems($input, (string) $transId, $saleDetail);
+            }
+        } catch (DbQueryException $e) {
+            // Mismo motivo que en save(): el wrapper lanza, así que sin este
+            // catch el fallo se escaparía crudo y el caller perdería la
+            // SaleAbortedException que ya espera. Una cotización NO tiene
+            // número fiscal en juego, así que no hay clasificación de
+            // duplicados que hacer — el rollback del wrapper ya devolvió el
+            // número de cotización reservado dentro de la transacción.
+            throw new SaleAbortedException(
+                dbError: $e->getMessage(),
+                message: 'Quote transaction aborted',
+            );
         }
 
         $dbError = $this->db->ErrorMsg();

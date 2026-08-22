@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Reports;
 
 use Punto\Api\Contacts\ContactDisplayName;
+use Punto\Api\Support\DbQueryException;
 
 /**
  * Dominio de Reportes — Gift Cards (API compartida, motor ERP).
@@ -158,35 +159,42 @@ final class GiftcardsService
         $note = (string) ($data['note'] ?? '');
         $expires = (string) ($data['expires'] ?? '');
 
-        $r = $db->Execute(
-            'UPDATE giftcard
-                SET code = ?, currentbalance = ?, expiresat = ?, note = ?,
-                    beneficiarycontactid = ?, beneficiaryname = ?
-              WHERE id = ? AND companyid = ?',
-            [
-                $code,
-                (float) ($data['value'] ?? 0),
-                ($expires !== '' ? $expires : null),
-                ($note !== '' ? $note : null),
-                ($benefId !== '' ? $benefId : null),
-                $beneficiaryName,
-                $id,
-                $companyId,
-            ]
-        );
-        if ($r === false) {
+        try {
+            $db->Execute(
+                'UPDATE giftcard
+                    SET code = ?, currentbalance = ?, expiresat = ?, note = ?,
+                        beneficiarycontactid = ?, beneficiaryname = ?
+                  WHERE id = ? AND companyid = ?',
+                [
+                    $code,
+                    (float) ($data['value'] ?? 0),
+                    ($expires !== '' ? $expires : null),
+                    ($note !== '' ? $note : null),
+                    ($benefId !== '' ? $benefId : null),
+                    $beneficiaryName,
+                    $id,
+                    $companyId,
+                ]
+            );
+        } catch (DbQueryException $e) {
             // Carrera concurrente contra uq_giftcard_company_code_ci (mig 126)
             // que el pre-check de arriba no alcanzó a ver — mismo criterio que
-            // SaleService::issueGiftCard(). Cualquier otra falla de UPDATE
-            // sigue devolviendo false (comportamiento previo, sin exception).
-            $err = $db->ErrorMsg();
-            if (stripos($err, '23505') !== false
+            // SaleService::issueGiftCard(). Antes esto se detectaba leyendo
+            // `ErrorMsg()` DESPUÉS de que Execute() devolviera false; el wrapper
+            // ahora lanza, así que la detección vive en el catch y mira el
+            // SQLSTATE exacto además del texto.
+            $err = $e->getMessage();
+            if ($e->sqlState() === '23505'
+                || stripos($err, '23505') !== false
                 || stripos($err, 'unique') !== false
                 || stripos($err, 'duplicate') !== false) {
                 throw new \InvalidArgumentException("El código de gift card '{$code}' ya existe — usá otro");
             }
+            // Cualquier otra falla de UPDATE se propaga: antes devolvía `false`
+            // y el caller lo mostraba como "no se pudo guardar" sin causa.
+            throw $e;
         }
-        return $r !== false;
+        return true;
     }
 
     /** Lookup batch transactionId → "invoicePrefix+invoiceNo", scopeado por companyId. */

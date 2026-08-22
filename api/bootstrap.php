@@ -12,77 +12,11 @@
  */
 
 // ── Observabilidad de errores ────────────────────────────────────────────────
-// display_errors sigue en 0 (no filtrar stack traces al cliente), pero los
-// fatales/excepciones DEBEN ser visibles. Incidente 2026-06-30: un
-// "Call to undefined method DB::GetRow()" en pagos a crédito quedó 100% silente
-// (display_errors=0 + log_errors off) y costó horas de diagnóstico. Estos
-// handlers logean a stderr (→ docker logs) y devuelven un JSON 500 limpio en
-// vez de una respuesta vacía/HTML. error_log va a stderr por la config del
-// Dockerfile (log_errors=On, error_log=/proc/self/fd/2).
-// Sentry (observabilidad/alertas) se inicializa más abajo, después del autoload,
-// y SOLO si SENTRY_DSN está seteado. Estos handlers lo invocan vía function_exists:
-// si Sentry no se inicializó (sin DSN), captureException/captureMessage no existen
-// y el reporte es no-op — el error_log + JSON 500 siguen funcionando igual.
-set_exception_handler(static function (\Throwable $e): void {
-    error_log('[uncaught] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
-    // Error SQL que nadie atrapó (DB::Execute y compañía lanzan desde
-    // 2026-08-22 en vez de devolver `false` silencioso — ver
-    // api/lib/Support/DbQueryException.php). El SQL y el SQLSTATE van al log
-    // para poder diagnosticar; NUNCA a la respuesta: el texto de PG filtra
-    // nombres de tabla/columna del schema. La respuesta es el 500 genérico
-    // de más abajo.
-    if ($e instanceof \Punto\Api\Support\DbQueryException) {
-        error_log('[db] SQLSTATE ' . $e->sqlState() . ' | params: ' . $e->paramCount() . ' | SQL: ' . $e->sql());
-    }
-    if (function_exists('\\Sentry\\captureException')) {
-        \Sentry\captureException($e);
-    }
-    if (!headers_sent()) {
-        // Guard de cierre de período (mig 157, context/48 D7): endpoints que
-        // no atrapan \Throwable ellos mismos llegan hasta acá. Se responde
-        // 409 con el mensaje ya amigable de la excepción (armado en
-        // api/lib/Support/PeriodClosedException.php) en vez del 500
-        // genérico — único lugar del mapeo, ver DB::Execute().
-        if ($e instanceof \Punto\Api\Support\PeriodClosedException) {
-            http_response_code(409);
-            header('Content-Type: application/json');
-            echo json_encode(['ok' => false, 'error' => ['message' => $e->getMessage(), 'code' => 409]], JSON_UNESCAPED_UNICODE);
-            return;
-        }
-        // Error SQL: 500 con mensaje GENÉRICO. El `getMessage()` de
-        // DbQueryException es el texto crudo de PG ("column t.foo does not
-        // exist", "duplicate key value violates unique constraint
-        // uq_..."): filtra el schema al cliente, así que no sale nunca.
-        // Ya quedó logueado arriba con SQLSTATE + SQL.
-        if ($e instanceof \Punto\Api\Support\DbQueryException) {
-            http_response_code(500);
-            header('Content-Type: application/json');
-            echo json_encode(['ok' => false, 'error' => ['message' => 'Error al procesar la operación', 'code' => 500]], JSON_UNESCAPED_UNICODE);
-            return;
-        }
-        http_response_code(500);
-        header('Content-Type: application/json');
-    }
-    echo json_encode(['ok' => false, 'error' => ['message' => 'Error interno del servidor', 'code' => 500]]);
-});
-register_shutdown_function(static function (): void {
-    $err = error_get_last();
-    if ($err === null || !in_array($err['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR, E_USER_ERROR], true)) {
-        return;
-    }
-    error_log('[fatal] ' . $err['message'] . ' @ ' . $err['file'] . ':' . $err['line']);
-    if (function_exists('\\Sentry\\captureMessage')) {
-        \Sentry\captureMessage(
-            '[fatal] ' . $err['message'] . ' @ ' . $err['file'] . ':' . $err['line'],
-            \Sentry\Severity::fatal()
-        );
-    }
-    if (!headers_sent()) {
-        http_response_code(500);
-        header('Content-Type: application/json');
-        echo json_encode(['ok' => false, 'error' => ['message' => 'Error interno del servidor', 'code' => 500]]);
-    }
-});
+// Registro de los handlers de excepciones/fatales. Viven en un include propio
+// porque el realm `/v1/admin/*` NO carga este bootstrap y también los necesita
+// (los carga desde lib/Auth/AdminAuth.php) — ver api/includes/error_handlers.php.
+require_once __DIR__ . '/includes/error_handlers.php';
+puntoRegisterErrorHandlers();
 
 session_start();
 

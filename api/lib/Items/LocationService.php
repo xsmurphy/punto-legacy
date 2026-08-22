@@ -39,8 +39,11 @@ final class LocationService
                   JOIN taxonomy t ON t.taxonomyId = il.locationId
                  WHERE il.itemId = ? AND il.outletId = ?
                  ORDER BY il.isDefault DESC, t.taxonomyName ASC";
+        // Sin fallback a `[]`: un error de SQL acá hacía que el item pareciera
+        // no tener depósitos, y de ahí sale de qué depósito descuenta stock una
+        // venta. El wrapper lanza (DbQueryException) y el error se ve.
         $rs = $this->db->Execute($sql, [$itemId, $outletId]);
-        return $rs === false ? [] : $rs->GetRows();
+        return $rs->GetRows();
     }
 
     /**
@@ -55,7 +58,7 @@ final class LocationService
                  WHERE il.itemId = ?
                  ORDER BY o.outletName, il.isDefault DESC, t.taxonomyName";
         $rs = $this->db->Execute($sql, [$itemId]);
-        return $rs === false ? [] : $rs->GetRows();
+        return $rs->GetRows();
     }
 
     /**

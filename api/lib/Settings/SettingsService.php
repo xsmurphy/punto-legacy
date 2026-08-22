@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Settings;
 
 use DateTimeZone;
+use Punto\Api\Support\DbQueryException;
 use Punto\Api\Support\Slug;
 
 /**
@@ -316,23 +317,28 @@ final class SettingsService
             return true;
         }
 
-        $res = ncmUpdate([
-            'records'     => $record,
-            'table'       => 'company',
-            'where'       => 'companyId = ?',
-            'whereParams' => [$companyId],
-        ]);
-        if (is_array($res) && $res['error'] === false) {
-            return true;
+        try {
+            $res = ncmUpdate([
+                'records'     => $record,
+                'table'       => 'company',
+                'where'       => 'companyId = ?',
+                'whereParams' => [$companyId],
+            ]);
+        } catch (DbQueryException $e) {
+            // Red final: violación del UNIQUE parcial (mig 113) por carrera
+            // entre el pre-check de assertSlugAvailable() y este UPDATE.
+            // Antes se leía del `['error' => msg]` que devolvía ncmUpdate
+            // cuando el wrapper devolvía false; ahora el wrapper lanza y el
+            // contrato de error de ncmUpdate ya no se alcanza para fallos de
+            // SQL — la detección tiene que vivir acá.
+            if ($e->sqlState() === '23505'
+                || stripos($e->getMessage(), 'idx_company_slug_unique') !== false
+                || stripos($e->getMessage(), 'duplicate key') !== false) {
+                throw new \RuntimeException('Ese slug ya está en uso');
+            }
+            throw $e;
         }
-        // Red final: violación del UNIQUE parcial (mig 113) por carrera entre
-        // el pre-check de assertSlugAvailable() y este UPDATE. Mapeamos el
-        // error crudo de PG a mensaje legible en vez de dejar pasar un 500.
-        $errMsg = is_array($res) ? (string) ($res['error'] ?? '') : '';
-        if (stripos($errMsg, 'idx_company_slug_unique') !== false || stripos($errMsg, 'duplicate key') !== false) {
-            throw new \RuntimeException('Ese slug ya está en uso');
-        }
-        return false;
+        return is_array($res) && $res['error'] === false;
     }
 
     /**

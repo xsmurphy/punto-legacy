@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Items;
 
 use CaseInsensitiveArray;
+use Punto\Api\Support\DbQueryException;
 
 /**
  * ItemRepository — acceso a la tabla `item` con SQL parametrizado.
@@ -125,16 +126,22 @@ final class ItemRepository
 
         // Solo borrar si está archivado (itemStatus=0) y pertenece a la company.
         $sql = "DELETE FROM item WHERE itemId = ? AND companyId = ? AND itemStatus = 0";
-        $rs  = $this->db->Execute($sql, [$id, $companyId]);
-        if ($rs === false) {
+        try {
+            $this->db->Execute($sql, [$id, $companyId]);
+        } catch (DbQueryException $e) {
             // Guard 2: las FK a item son RESTRICT → un DELETE bloqueado lanza
             // violación de FK (PG SQLSTATE 23503). La traducimos a 'referenced'
-            // para devolver un 409 claro en vez de un 500/422 confuso.
-            $err = (string) $this->db->ErrorMsg();
-            if (stripos($err, 'foreign key') !== false || stripos($err, '23503') !== false) {
+            // para devolver un 409 claro en vez de un 500/422 confuso. Antes se
+            // leía de `ErrorMsg()` tras el `false`; el wrapper ahora lanza.
+            $err = $e->getMessage();
+            if ($e->sqlState() === '23503'
+                || stripos($err, 'foreign key') !== false
+                || stripos($err, '23503') !== false) {
                 return 'referenced';
             }
-            return false;
+            // Cualquier otro error de BD se propaga: el `return false` de antes
+            // se mostraba como "no se pudo borrar" sin decir por qué.
+            throw $e;
         }
         // AffectedRows() = 0 significa que no encontró la fila (no archivado o no existe).
         return $this->db->Affected_Rows() > 0;

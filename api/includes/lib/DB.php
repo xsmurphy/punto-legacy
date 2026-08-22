@@ -35,6 +35,16 @@
  * Ver context/08-convenciones-criticas.md y el kill-switch DB_THROW_ON_ERROR.
  */
 
+// Excepciones que ESTE archivo lanza. Van con `require_once` explícito y no por
+// autoload a propósito: el autoloader PSR-4 de `Punto\Api\` lo registra
+// `api/bootstrap.php`, que el realm `/v1/admin/*` NO carga (entra por
+// `includes/db.php` + `lib/Auth/AdminAuth.php`). Sin esto, un error de SQL en
+// un endpoint de /admin fallaría con "Class not found" en vez de con la
+// excepción — cambiando un problema por uno peor. El wrapper se hace cargo de
+// sus propias dependencias.
+require_once __DIR__ . '/../../lib/Support/PeriodClosedException.php';
+require_once __DIR__ . '/../../lib/Support/DbQueryException.php';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CaseInsensitiveArray — array con acceso case-insensitive a claves
 //

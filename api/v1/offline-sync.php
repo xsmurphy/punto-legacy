@@ -11,6 +11,7 @@ use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
 use Punto\Api\Sales\SaleInput;
 use Punto\Api\Sales\SaleService;
+use Punto\Api\Support\DbQueryException;
 use Punto\Api\Services\RegisterLeaseService;
 
 require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
@@ -169,18 +170,47 @@ foreach ($sales as $item) {
             ],
         ];
         continue;
+    } catch (DbQueryException $e) {
+        // Error de SQL fuera del bloque de escritura de SaleService::save()
+        // (los pre-checks previos al StartTrans: dupli check, lectura de
+        // impuestos, resolución de ítems). El bloque de escritura ya los
+        // traduce a SaleAbortedException, pero acá se cubre el resto: sin este
+        // catch, UNA venta con un problema de BD tumbaría el LOTE ENTERO del
+        // sync offline y las demás ventas —ya emitidas e impresas en el
+        // device— quedarían sin subir. Falla solo este ítem; el front lo deja
+        // en la cola local para revisión. El mensaje de PG no se devuelve al
+        // cliente (filtra el schema): va al log.
+        error_log('[offline-sync] DbQueryException en ' . $tempId . ': ' . $e->getMessage()
+            . ' | SQLSTATE ' . $e->sqlState() . ' | SQL: ' . $e->sql());
+        $results[] = [
+            'clientTempId' => $tempId,
+            'ok'           => false,
+            'error'        => [
+                'code'    => 'SERVER_ERROR',
+                'message' => 'Error al procesar la operación',
+            ],
+        ];
+        continue;
     }
 
     // Mantener document_sequence consistente con el número que el device ya
     // emitió offline — mismo criterio que sales.php en el camino online (ver
     // docblock de DocumentNumber::advanceTo()).
-    DocumentNumber::advanceTo(
-        'factura',
-        DocumentNumber::SCOPE_REGISTER,
-        $regId,
-        $compId,
-        $no,
-    );
+    // Best-effort: la venta YA está commiteada y el device YA imprimió el
+    // comprobante. Un fallo de BD acá (avanzar el correlativo del panel para
+    // que no reuse un número que el POS ya gastó) NO puede volver ok=false una
+    // venta emitida — se loguea y sigue. Mismo criterio que rollupMarkDirty.
+    try {
+        DocumentNumber::advanceTo(
+            'factura',
+            DocumentNumber::SCOPE_REGISTER,
+            $regId,
+            $compId,
+            $no,
+        );
+    } catch (\Throwable $e) {
+        error_log('[offline-sync] advanceTo falló para ' . $tempId . ' (venta ya persistida): ' . $e->getMessage());
+    }
 
     $results[] = [
         'clientTempId'  => $tempId,

@@ -14,7 +14,10 @@ final class LocationTaxonomyService
             'SELECT 1 FROM outlet WHERE outletid = ? AND companyid = ?',
             [$outletId, $companyId]
         );
-        if ($rs === false || count($rs->GetRows()) === 0) {
+        // Sin `=== false`: desde 2026-08-22 el wrapper LANZA ante un error de
+        // SQL (DbQueryException) en vez de devolverlo. Chequearlo acá tapaba un
+        // error de BD como "outlet no encontrado" — un 422 mentiroso.
+        if (count($rs->GetRows()) === 0) {
             throw new \InvalidArgumentException('Outlet no encontrado');
         }
 
@@ -25,9 +28,9 @@ final class LocationTaxonomyService
              RETURNING taxonomyid',
             [$companyId, $outletId, $name]
         );
-        if ($rs === false) {
-            throw new \RuntimeException('Error al crear depósito');
-        }
+        // El guard `$rs === false` que había acá quedó obsoleto: el wrapper
+        // lanza DbQueryException con la causa real de PG, que es más útil que
+        // "Error al crear depósito" a secas.
         $rows = $rs->GetRows();
         $id = (string) ($rows[0]['taxonomyid'] ?? '');
 

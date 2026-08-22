@@ -32,6 +32,13 @@ const ADMIN_ROLE_LEVELS = ['sales' => 1, 'support' => 2, 'owner' => 3];
 
 require_once __DIR__ . '/../response.php';
 
+// El realm /admin no pasa por api/bootstrap.php, así que sin esto no tendría
+// handler de excepciones: con display_errors=0 una excepción no atrapada
+// devolvía un 500 EN BLANCO, sin cuerpo JSON. Se registran acá porque este
+// archivo es el único que cargan los 13 endpoints de /v1/admin/*.
+require_once __DIR__ . '/../../includes/error_handlers.php';
+puntoRegisterErrorHandlers();
+
 /** Verifica credenciales contra admin_user (activo). Devuelve la fila o false. */
 function adminVerifyPassword(string $email, string $pass)
 {
