@@ -386,7 +386,9 @@ class CompanyAdminService
      *      transaction), contact.parentId+userId,
      *      item.itemParentId, accountCategory.accountCategoryParentId, outlet.taxId←circular)
      *   1. Tablas que referencian transaction (itemSold, toTransaction, toTaxObj, toAddress,
-     *      toScheduleUID, giftCardSold, satisfaction, vPayments, comission, stock, printServer)
+     *      toScheduleUID, giftCardSold, satisfaction, vPayments, comission, stock, printServer,
+     *      document_remision, sold_pack, voucher, saas_invoice_sale — las 20 FK hacia
+     *      transaction_registry redirigidas por la mig 156 tienen que estar todas cubiertas acá)
      *   2. Tablas que referencian contact/item/register (cRecordValue→cRecordField→customerRecord,
      *      customerAddress, contactNote, campaign, drawer, toContact, production, reminder,
      *      activityLog, attendance, inventory, inventoryCount)
@@ -460,6 +462,24 @@ class CompanyAdminService
             $run('DELETE FROM comission    WHERE companyId = ?', [$id]);
             $run('DELETE FROM stock        WHERE companyId = ?', [$id]);
             $run('DELETE FROM printServer  WHERE companyId = ?', [$id]);
+            // document_remision/sold_pack/voucher: companyId propio con ON DELETE
+            // CASCADE hacia company, pero ESE cascade solo dispara cuando se borra
+            // la fila de company (paso 6) — acá todavía referencian transaction_registry
+            // vía transactionId/issuedbytransactionid/usedbytransactionid (mig 156), así
+            // que hay que adelantar el DELETE antes de tocar `transaction`. voucher_item
+            // y sold_pack_usage cascadean solos desde acá (ON DELETE CASCADE propio).
+            $run('DELETE FROM document_remision WHERE companyId = ?', [$id]);
+            $run('DELETE FROM sold_pack         WHERE companyId = ?', [$id]);
+            $run('DELETE FROM voucher           WHERE companyId = ?', [$id]);
+            // saas_invoice_sale: companyId es el tenant CLIENTE facturado, no el
+            // dueño de la transacción (transactionId vive en el tenant emisor) —
+            // filtrar por transactionId, no por companyId, para no borrar de más
+            // ni dejar sin cubrir el caso real que bloquea el DELETE de `transaction`.
+            $run(
+                'DELETE FROM saas_invoice_sale WHERE transactionId IN ' .
+                '(SELECT transactionId FROM transaction WHERE companyId = ?)',
+                [$id]
+            );
 
             // ── Paso 2: tablas que referencian contact / item / register ───────
             $run(

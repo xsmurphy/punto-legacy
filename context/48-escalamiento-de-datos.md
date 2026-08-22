@@ -191,6 +191,15 @@ igual que antes del particionado, sin necesitar un trigger `AFTER DELETE`
 a mano (verificado: Postgres trata el row-movement como UPDATE para la
 integridad referencial, no como delete+insert).
 
+Fix de code review sobre la implementación (mismo día): el `DETACH
+PARTITION` de la DEFAULT dentro de `ensure_month_partitions()` pide ACCESS
+EXCLUSIVE sobre `transaction`/`itemSold` — `DETACH ... CONCURRENTLY` no es
+opción porque Postgres no la permite dentro de una función/transacción. En
+su lugar, `SET LOCAL lock_timeout = '5s'` antes del DETACH: si el POS tiene
+una transacción activa que bloquea el lock, la función salta ese mes
+(`RAISE WARNING`, recrea las FK ya dropeadas) en vez de colgar al cajero —
+el cron de partition-ensure reintenta al día siguiente.
+
 Partición DEFAULT + 12 meses de margen (no solo forward, ver D3 arriba):
 regla offline-first (`project_offline_scope`) — el back nunca rechaza una
 venta ya emitida, así que una fecha fuera de cobertura cae en DEFAULT en
