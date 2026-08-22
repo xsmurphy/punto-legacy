@@ -5,7 +5,7 @@ import { FEATURE_CARDS, HOME_RUBROS } from "@/lib/site/modules"
 import { MODULOS } from "@/lib/site/modulos"
 
 const RECURSOS = [
-  { label: "Precios", href: "#" },
+  { label: "Precios", href: "/precios" },
   { label: "Ayuda", href: "#" },
   { label: "Guías", href: "#" },
 ]

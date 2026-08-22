@@ -1,0 +1,176 @@
+import type { Metadata } from "next"
+import Link from "next/link"
+import { Check } from "lucide-react"
+
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { CtaFinal } from "@/components/site/cta-final"
+
+export const metadata: Metadata = {
+  title: "Precios",
+  description:
+    "Un solo plan con todo incluido: Gs. 295.000 por mes y por sucursal. Facturación electrónica ilimitada, usuarios, cajas y productos sin límite.",
+}
+
+const INCLUIDO = [
+  {
+    label: "Facturación electrónica ilimitada",
+    detail: "Sin costo por comprobante ni cupos mensuales.",
+  },
+  {
+    label: "Usuarios ilimitados",
+    detail: "Sumá a todo tu equipo, cada uno con sus permisos.",
+  },
+  {
+    label: "Cajas ilimitadas",
+    detail: "Todas las terminales que necesite la sucursal.",
+  },
+  {
+    label: "Productos ilimitados",
+    detail: "El catálogo entero, con fotos y variantes.",
+  },
+  {
+    label: "Transacciones ilimitadas",
+    detail: "Vendé todo lo que puedas: no cobramos por ticket.",
+  },
+  {
+    label: "Soporte online 24/7",
+    detail: "Te respondemos cualquier día, a cualquier hora.",
+  },
+]
+
+const FAQS = [
+  {
+    q: "¿El precio es por negocio o por sucursal?",
+    a: "Por sucursal. Cada local paga Gs. 295.000 por mes y adentro no hay límites: todas las cajas, todos los usuarios y todos los productos que necesites. Si abrís una segunda sucursal, se suma solo esa.",
+  },
+  {
+    q: "¿La facturación electrónica se cobra aparte?",
+    a: "No. Está incluida y es ilimitada — no cobramos por comprobante emitido ni vendemos paquetes de facturas. Emitís las que tu negocio necesite.",
+  },
+  {
+    q: "¿Hay contrato o permanencia?",
+    a: "No hay contrato ni permanencia. Se paga mes a mes y podés dar de baja cuando quieras; tus datos siguen siendo tuyos y te los llevás cuando lo pidas.",
+  },
+  {
+    q: "¿Puedo probarlo antes de pagar?",
+    a: "Sí. Podés crear tu cuenta y usar el sistema completo, sin tarjeta. Recién cuando decidas seguir se activa el cobro.",
+  },
+  {
+    q: "¿Qué pasa si se corta internet?",
+    a: "El punto de venta sigue funcionando: la venta se emite igual y se sincroniza sola cuando vuelve la conexión. No se pierde nada ni hay que cargar nada dos veces.",
+  },
+  {
+    q: "¿Necesito comprar equipos especiales?",
+    a: "No. Punto funciona en la computadora, la tablet o el teléfono que ya tenés, desde el navegador. Si querés impresora de tickets o lector de código de barras, usás los que tengas o te asesoramos.",
+  },
+  {
+    q: "¿Me ayudan a cargar mis productos?",
+    a: "Sí. Te acompañamos en la puesta en marcha y podés importar tu catálogo y tus clientes desde una planilla en vez de cargarlos a mano.",
+  },
+  {
+    q: "¿El precio promocional sube después?",
+    a: "El precio promocional se mantiene mientras tu cuenta siga activa. Si más adelante cambia la lista, te avisamos con anticipación.",
+  },
+]
+
+export default function PreciosPage() {
+  return (
+    <div className="pt-16">
+      {/* Encabezado + plan */}
+      <section className="mx-auto w-full max-w-6xl px-4 py-20 md:px-6 md:py-28">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            Precios
+          </p>
+          {/* razón: escala display de marketing, no aplica escala panel (§14) */}
+          <h1 className="mt-4 text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+            Un solo plan, con todo adentro
+          </h1>
+          <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg text-muted-foreground md:text-xl">
+            Sin versiones recortadas ni módulos que se desbloquean pagando de
+            más. Un precio por sucursal y el sistema completo desde el primer
+            día.
+          </p>
+        </div>
+
+        <div className="mx-auto mt-12 max-w-2xl">
+          <div className="overflow-hidden rounded-3xl border bg-muted/40">
+            <div className="flex flex-col items-center gap-4 border-b px-8 py-10 text-center md:px-12">
+              <Badge className="rounded-full bg-chart-1 text-neutral-900 hover:bg-chart-1">
+                Precio promocional
+              </Badge>
+              <div className="flex items-baseline justify-center gap-2">
+                {/* razón: escala display de marketing, no aplica escala panel (§14) */}
+                <span className="text-5xl font-semibold tracking-tight tabular-nums md:text-6xl">
+                  Gs. 295.000
+                </span>
+              </div>
+              <p className="text-base text-muted-foreground">
+                por mes, por sucursal
+              </p>
+              <div className="mt-2 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
+                <Button asChild size="lg" className="rounded-full px-7">
+                  <Link href="#">Empezar</Link>
+                </Button>
+                <Button
+                  asChild
+                  size="lg"
+                  variant="outline"
+                  className="rounded-full px-7"
+                >
+                  <Link href="#">Escribinos</Link>
+                </Button>
+              </div>
+              <p className="text-sm text-muted-foreground">
+                Probalo gratis, sin tarjeta ni permanencia.
+              </p>
+            </div>
+
+            <ul className="grid gap-x-8 gap-y-5 px-8 py-10 md:grid-cols-2 md:px-12">
+              {INCLUIDO.map((item) => (
+                <li key={item.label} className="flex items-start gap-3">
+                  <Check className="mt-0.5 size-4 shrink-0 text-chart-1" />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-sm font-medium">{item.label}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {item.detail}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      {/* Preguntas frecuentes */}
+      <section className="mx-auto w-full max-w-3xl px-4 pb-20 md:px-6 md:pb-28">
+        {/* razón: escala display de marketing, no aplica escala panel (§14) */}
+        <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-5xl">
+          Preguntas frecuentes
+        </h2>
+        <Accordion type="single" collapsible className="mt-8 w-full">
+          {FAQS.map((faq) => (
+            <AccordionItem key={faq.q} value={faq.q}>
+              <AccordionTrigger className="text-left text-base font-medium">
+                {faq.q}
+              </AccordionTrigger>
+              <AccordionContent className="text-base text-muted-foreground">
+                {faq.a}
+              </AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </section>
+
+      <CtaFinal />
+    </div>
+  )
+}
