@@ -423,4 +423,15 @@ export interface PosBootstrap {
    * context/29-numeracion-y-exclusividad-de-caja.md §6).
    */
   nextInvoiceNo: number | null
+  /**
+   * Cuántos dígitos ocupa el correlativo de factura al imprimirse
+   * (`document_sequence.padwidth`, mig 159) — 7 = formato fiscal PY
+   * `001-001-0002129`.
+   *
+   * Es FORMATO, no dato: `nextInvoiceNo` sigue siendo el entero con el que el
+   * device numera. Baja en el bootstrap porque el POS emite offline y no
+   * puede consultar el ancho al imprimir. Se consume SOLO vía
+   * `lib/documents/format-document-number.ts`; `null` → default legal.
+   */
+  invoicePadWidth: number | null
 }

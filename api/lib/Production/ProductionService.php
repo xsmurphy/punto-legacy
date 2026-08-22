@@ -5,6 +5,7 @@ namespace Punto\Api\Production;
 
 use Punto\Api\Documents\DocumentNumber;
 use Punto\App\Domain\Inventory;
+use Punto\App\Domain\RecipeCosting;
 
 /**
  * ProductionService — órdenes de fabricación (F1, context/23-production-module-plan.md).
@@ -33,8 +34,20 @@ use Punto\App\Domain\Inventory;
  *   - Idempotencia: completar una orden que ya está `completed`/`cancelled`
  *     es un error explícito (nunca dobla el stock).
  *
- * Sub-recetas: un insumo que es a su vez un item producido consume su
- * PROPIO stock ya producido — no hay explosión recursiva en v1.
+ * Sub-recetas: depende de si el insumo lleva stock propio.
+ *   - Insumo de **producción previa** (lleva su propio stock terminado): se
+ *     consume tal cual, no se baja a su receta — ya se descontó al producirlo.
+ *   - Insumo **sin stock propio pero con receta** (sub-preparación): SÍ se
+ *     explota recursivamente (`Inventory::explodeRecipeDetailed`) hasta las
+ *     hojas reales. Recorrer un solo nivel la dejaba sin consumir nada.
+ *   (El docblock decía "no hay explosión recursiva en v1" — quedó viejo
+ *   respecto del código que ya tenía debajo; corregido 2026-08-22, era un
+ *   hallazgo de `context/modules/06-produccion.md` §3.3.)
+ *
+ * Costeo: la valuación de cada insumo (promedio ponderado del ledger de la
+ * sucursal, fallback a `item.itemCost`) NO se implementa acá — sale de
+ * `RecipeCosting`, la única fórmula de costo de receta del sistema, así que
+ * esta orden y la venta del mismo ítem dan el mismo número.
  */
 final class ProductionService
 {
@@ -436,13 +449,15 @@ final class ProductionService
             $childId    = (string) $ing['compoundId'];
             $qtyPerUnit = (float) $ing['toCompoundQty'];
 
-            // Un solo SELECT por insumo: waste %, ubicación, control de stock
-            // y costo de catálogo (fallback).
+            // Un solo SELECT por insumo: waste %, ubicación y control de
+            // stock. El costo ya NO sale de acá — lo resuelve `RecipeCosting`
+            // (avg del ledger con fallback a catálogo), para que no haya dos
+            // lugares que decidan cuánto vale un insumo.
             $childRow = ncmExecute(
                 // Ver el comentario de `itemWaste` arriba: JSONB, no columna.
                 "SELECT CASE WHEN jsonb_typeof(data->'itemWaste') = 'number'
                           THEN (data->>'itemWaste')::numeric ELSE 0 END AS itemwaste,
-                        locationid, itemtrackinventory, itemcost
+                        locationid, itemtrackinventory
                    FROM item WHERE itemid = ? AND companyid = ? LIMIT 1",
                 [$childId, $companyId]
             );
@@ -464,16 +479,14 @@ final class ProductionService
             $childLocation = $inLocation ?: ($childRow['locationid'] ?? null);
             $tracked       = $childRow ? !empty($childRow['itemtrackinventory']) : false;
 
-            // Costo real del insumo al momento de consumir (promedio ponderado
-            // del ledger de stock), fallback itemCost si nunca tuvo stock —
-            // mismo fallback que Inventory::getComboCOGS (F0).
-            $stock = Inventory::getItemStock($childId, $outletId);
-            $cost  = ($stock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS']) && (float) $stock['stockOnHandCOGS'] > 0)
-                ? (float) $stock['stockOnHandCOGS']
-                : null;
-            if ($cost === null) {
-                $cost = (float) ($childRow['itemcost'] ?? 0);
-            }
+            // Costo real del insumo al momento de consumir. La regla (promedio
+            // ponderado del ledger de stock si hubo movimiento, `item.itemCost`
+            // de catálogo si nunca lo tuvo) vive en `RecipeCosting` y en ningún
+            // otro lado — esta orden y la venta del mismo ítem tienen que
+            // valuar idéntico. Antes estaba escrita acá, otra vez en
+            // `getComboCOGS()` y a medias en `getProductionCOGS()` (sin el
+            // fallback), y las tres daban números distintos.
+            $cost = RecipeCosting::unitCost($childId, $companyId, $outletId)['cost'];
 
             // Insumo sin control de stock (insumo_sin_stock: agua, sal,
             // condimentos): manageStock devolvería false como NO-OP legítimo
@@ -487,31 +500,49 @@ final class ProductionService
             // sub-preparación: lo que hay que descontar está un nivel más
             // abajo. Recorrer un solo nivel la dejaba sin consumir nada — el
             // mismo defecto que tenía la venta de combos.
+            //
+            // `explodeRecipeDetailed()` y no `explodeRecipe()`: el mapa plano
+            // descarta las hojas que no mueven stock, y dentro de una
+            // sub-preparación esas hojas (agua, sal, condimentos del nivel de
+            // abajo) son costo real que desaparecía de `ingredientCost`. Acá
+            // vienen marcadas `stockLeaf=false`: cuestan, no se descuentan.
             $subLeaves = (!$tracked)
-                ? Inventory::explodeRecipe($childId, $companyId, $need)
+                ? Inventory::explodeRecipeDetailed($childId, $companyId, $need)
                 : [];
 
             if ($subLeaves !== []) {
                 // El costo de la sub-preparación es la suma de lo que consume,
                 // NO su `itemCost` de catálogo: sumar las dos cosas contaría el
                 // mismo insumo dos veces.
+                // Misma regla de valuación que el insumo directo de arriba, y
+                // en UNA consulta para todas las hojas en vez de dos por hoja.
+                $leafCosts = RecipeCosting::unitCosts(array_column($subLeaves, 'itemId'), $companyId, $outletId);
+
+                // Costo: TODAS las hojas. Movimiento: solo las que llevan
+                // ledger, agregadas por itemId (una hoja alcanzada por dos
+                // ramas es UN movimiento, como hacía `explodeRecipe()`).
                 $lineCost = 0.0;
-                foreach ($subLeaves as $leafId => $leafQty) {
+                $toMove   = [];
+                foreach ($subLeaves as $leaf) {
+                    $lineCost += ($leafCosts[$leaf['itemId']]['cost'] ?? 0.0) * $leaf['qty'];
+                    if ($leaf['stockLeaf'] === true) {
+                        $toMove[$leaf['itemId']] = ($toMove[$leaf['itemId']] ?? 0.0) + $leaf['qty'];
+                    }
+                }
+
+                foreach ($toMove as $leafId => $leafQty) {
                     $leafRow = ncmExecute(
-                        'SELECT locationid, itemtrackinventory, itemcost FROM item WHERE itemid = ? AND companyid = ? LIMIT 1',
+                        'SELECT locationid, itemtrackinventory FROM item WHERE itemid = ? AND companyid = ? LIMIT 1',
                         [$leafId, $companyId]
                     );
                     if (!$leafRow || empty($leafRow['itemtrackinventory'])) {
-                        // Hoja sin control de stock (agua, sal): sin movimiento,
-                        // pero su costo entra igual.
-                        $lineCost += ((float) ($leafRow['itemcost'] ?? 0)) * $leafQty;
+                        // Producción previa mal cargada (lleva stock propio
+                        // según el predicado pero itemTrackInventory está en
+                        // 0): manageStock sería un no-op que devuelve false,
+                        // indistinguible de un error de DB. Ya se contó su
+                        // costo arriba; no se fuerza un movimiento imposible.
                         continue;
                     }
-
-                    $leafStock = Inventory::getItemStock($leafId, $outletId);
-                    $leafCost  = ($leafStock && isset($leafStock['stockOnHandCOGS']) && is_numeric($leafStock['stockOnHandCOGS']) && (float) $leafStock['stockOnHandCOGS'] > 0)
-                        ? (float) $leafStock['stockOnHandCOGS']
-                        : (float) ($leafRow['itemcost'] ?? 0);
 
                     $result = Inventory::manageStock([
                         'itemId'        => $leafId,
@@ -531,8 +562,6 @@ final class ProductionService
                         $db->CompleteTrans();
                         throw new \RuntimeException('No se pudo descontar stock del insumo ' . $leafId);
                     }
-
-                    $lineCost += $leafCost * $leafQty;
                 }
             } else {
                 if ($tracked) {

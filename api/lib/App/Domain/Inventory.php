@@ -145,6 +145,12 @@ final class Inventory
      * profunda — la misma clase de bug que esta función vino a arreglar, pero
      * silencioso.
      *
+     * La recursión en sí vive en `explodeRecipeDetailed()` — esta función es
+     * el agregador que aplana sus hojas de STOCK a `itemId → cantidad`. Una
+     * sola implementación de las reglas de corte/merma/ciclos, compartida con
+     * el costeo (`RecipeCosting`): si divergieran, el COGS de una venta dejaría
+     * de valuar exactamente lo que esa venta descontó.
+     *
      * @param  array<string,bool> $visitados Guard de ciclos (A→B→A): una receta
      *         circular colgaría el proceso. Interno de la recursión.
      * @return array<string,float> itemId → cantidad a mover
@@ -154,6 +160,66 @@ final class Inventory
         mixed $companyId,
         float $units,
         array $visitados = [],
+    ): array {
+        $out = [];
+
+        foreach (self::explodeRecipeDetailed($itemId, $companyId, $units, true, $visitados) as $leaf) {
+            // Solo las hojas que REALMENTE mueven stock. Las hojas de costeo
+            // (`stockLeaf=false`: insumo sin control de inventario, o rama
+            // cortada por el guard de ciclos) no tienen ledger que descontar —
+            // `manageStock()` sería un no-op indistinguible de un error.
+            if ($leaf['stockLeaf'] !== true) {
+                continue;
+            }
+            $out[$leaf['itemId']] = ($out[$leaf['itemId']] ?? 0) + $leaf['qty'];
+        }
+
+        return $out;
+    }
+
+    /**
+     * La MISMA explosión que `explodeRecipe()`, sin aplanar: una entrada por
+     * hoja alcanzada, con su profundidad y de qué ingrediente directo del
+     * padre cuelga.
+     *
+     * Existe porque el costeo necesita tres cosas que el mapa plano
+     * `itemId → cantidad` ya perdió:
+     *
+     *   1. **Las hojas que NO mueven stock.** Un insumo sin control de
+     *      inventario (agua, sal, condimentos) no genera movimiento pero SÍ
+     *      cuesta plata, y su costo entra a la receta (misma regla que
+     *      `ProductionService::complete()` documenta desde F1). `explodeRecipe()`
+     *      lo descartaba en silencio: `saleExplodesRecipe()` da true (no lleva
+     *      stock propio) y como no tiene receta, la rama devolvía `[]`. Acá
+     *      esa hoja sale con `stockLeaf=false` y el costeo la valúa; el
+     *      consumidor de stock la filtra.
+     *   2. **`depth`**, para mostrar/auditar de qué nivel salió cada costo.
+     *   3. **`rootChildId`**, el ingrediente DIRECTO del padre del que
+     *      desciende la hoja — lo que permite costear línea por línea la ficha
+     *      de la receta con UNA sola explosión en vez de una por ingrediente.
+     *
+     * Reglas de corte, merma por nivel, multiplicación de cantidades y guard
+     * de ciclos son EXACTAMENTE las de `explodeRecipe()` (que ahora es un
+     * agregador sobre esta función): una sola recursión, una sola definición
+     * de "qué consume esta receta". Ver el docblock de `explodeRecipe()`.
+     *
+     * `$waste=false` desactiva la merma planificada en TODOS los niveles —
+     * lo usa `getProductionCOGS($itemId, false)`, el único caller que quiere
+     * el costo teórico sin merma. El stock SIEMPRE explota con merma.
+     *
+     * @param  array<string,bool> $visitados Guard de ciclos (A→B→A). Interno.
+     * @param  int                $depth     Nivel actual (1 = hijo directo). Interno.
+     * @param  string|null        $rootChildId Ingrediente directo del que desciende. Interno.
+     * @return list<array{itemId:string,qty:float,depth:int,rootChildId:string,stockLeaf:bool}>
+     */
+    public static function explodeRecipeDetailed(
+        mixed $itemId,
+        mixed $companyId,
+        float $units,
+        bool $waste = true,
+        array $visitados = [],
+        int $depth = 1,
+        ?string $rootChildId = null,
     ): array {
         if (!validity($itemId) || $units <= 0) {
             return [];
@@ -172,7 +238,7 @@ final class Inventory
             return [];
         }
 
-        $allWaste = self::getAllWasteValue();
+        $allWaste = $waste ? self::getAllWasteValue() : [];
         $out      = [];
 
         foreach ($compounds as $comp) {
@@ -191,15 +257,42 @@ final class Inventory
                 $need = (float) self::getNeedWithWaste($need, $wasteP);
             }
 
+            $childId = (string) $childId;
+            $root    = $rootChildId ?? $childId;
+
             if (self::saleExplodesRecipe($childId, $companyId)) {
                 // No lleva stock propio: lo que se consume está más abajo.
-                foreach (self::explodeRecipe($childId, $companyId, $need, $visitados) as $leafId => $leafQty) {
-                    $out[$leafId] = ($out[$leafId] ?? 0) + $leafQty;
+                $sub = self::explodeRecipeDetailed($childId, $companyId, $need, $waste, $visitados, $depth + 1, $root);
+
+                if ($sub === []) {
+                    // Fondo de la rama sin receta debajo: es un insumo que no
+                    // lleva ledger (o una rama cortada por ciclo). No hay stock
+                    // que mover, pero es un costo real de la receta — se emite
+                    // como hoja de COSTEO, no de stock.
+                    $out[] = [
+                        'itemId'      => $childId,
+                        'qty'         => $need,
+                        'depth'       => $depth,
+                        'rootChildId' => $root,
+                        'stockLeaf'   => false,
+                    ];
+                    continue;
                 }
-            } else {
-                // Lleva stock propio (o es producción previa): se consume acá.
-                $out[$childId] = ($out[$childId] ?? 0) + $need;
+
+                foreach ($sub as $leaf) {
+                    $out[] = $leaf;
+                }
+                continue;
             }
+
+            // Lleva stock propio (o es producción previa): se consume acá.
+            $out[] = [
+                'itemId'      => $childId,
+                'qty'         => $need,
+                'depth'       => $depth,
+                'rootChildId' => $root,
+                'stockLeaf'   => true,
+            ];
         }
 
         return $out;
@@ -323,78 +416,66 @@ final class Inventory
     }
 
     /**
-     * Costo de producción (COGS) de un ítem a partir de sus compuestos y stock.
-     * Equivalente legacy: `getProductionCOGS($itemId, $wasted)`.
+     * Costo de producción (COGS) de un ítem a partir de su receta, por UNIDAD.
+     *
+     * @deprecated 2026-08-22 — wrapper de `RecipeCosting::total()`, que es la
+     *   única fórmula de costo de receta del sistema. Los callers nuevos deben
+     *   llamar a `RecipeCosting` directo y pasarle la sucursal REAL de la
+     *   operación; esta función sigue existiendo por sus ~8 callers legacy.
+     *
+     * Qué cambió respecto de la implementación vieja (los tres eran bugs, ver
+     * `RecipeCosting` y el reporte del tester "Actualización 21" #1):
+     *   - era de UN nivel: una sub-preparación dentro de la receta no bajaba a
+     *     sus insumos, así que su costo real no entraba;
+     *   - no tenía fallback a `item.itemCost`: un insumo sin movimiento de
+     *     stock valía 0 y abarataba la receta en silencio;
+     *   - resolvía la sucursal con `OUTLET_ID` (la de la SESIÓN) incluso
+     *     costeando una venta de otra sucursal.
+     *
+     * `$outlet`/`$companyId` son opcionales SOLO para no romper los callers
+     * legacy; el default a `OUTLET_ID`/`COMPANY_ID` vive acá, no en
+     * `RecipeCosting` (que los exige explícitos).
      */
-    public static function getProductionCOGS(mixed $itemId, bool $wasted = true): int|float
-    {
-        $total  = 0;
-        $result = self::getCompoundsArray($itemId);
-
-        if ($result) {
-            $waste = self::getAllWasteValue();
-
-            foreach ($result as $key => $value) {
-                $id    = $value['compoundId'];
-                $count = (float) $value['toCompoundQty'];
-
-                $wasteP = $waste[$id] ?? '';
-
-                if ($wasteP > 0 && $wasted) {
-                    $count = self::getNeedWithWaste($count, $wasteP);
-                }
-
-                $avrg  = self::getItemStock($id);
-                $avrg  = $avrg['stockOnHandCOGS'] ?? 0;
-
-                $price  = ($avrg * $count);
-                $total += $price;
-            }
-        }
-
-        return $total;
+    public static function getProductionCOGS(
+        mixed $itemId,
+        bool $wasted = true,
+        mixed $outlet = false,
+        mixed $companyId = null,
+    ): int|float {
+        return RecipeCosting::total(
+            $itemId,
+            $companyId ?: COMPANY_ID,
+            $outlet ?: OUTLET_ID,
+            $wasted
+        );
     }
 
     /**
-     * COGS de un combo: suma costo real×unidades de cada componente.
-     * Equivalente legacy: `getComboCOGS($parent)`.
+     * COGS de un combo, por UNIDAD del combo.
      *
-     * Fix Producción F0 (context/23): antes usaba `itemPrice` (precio de
-     * VENTA) del ingrediente como "costo" — sobreestimaba el COGS de combos.
-     * Ahora usa el costo real: `stockOnHandCOGS` (promedio ponderado del
-     * ledger de stock), con fallback a `itemCost` si el ingrediente no
-     * trackea inventario (sin filas en `stock`).
+     * @deprecated 2026-08-22 — wrapper de `RecipeCosting::total()`. Ver la nota
+     *   en `getProductionCOGS()`.
+     *
+     * El fix F0 (context/23) ya había corregido lo peor (usaba `itemPrice`, el
+     * precio de VENTA del componente, como si fuera costo). Lo que quedaba:
+     * era de UN nivel, así que un combo cuyo componente es de producción
+     * directa se costeaba con el `itemCost` de catálogo de ESE componente en
+     * vez de con sus insumos reales — pese a que la venta del combo sí explota
+     * la receta hasta las hojas (`explodeRecipe`, combos recursivos). Ahora el
+     * COGS valúa exactamente las mismas hojas que el movimiento de stock
+     * descontó, merma incluida.
      */
-    public static function getComboCOGS(mixed $parent): int|float
-    {
-        $result    = self::getCompoundsArray($parent);
-        $comboCOGS = 0;
-
-        if (validity($result, 'array')) {
-            foreach ($result as $resulta) {
-                $id    = $resulta['compoundId'];
-                // (float), no number_format(): number_format() devuelve string con
-                // separador de miles ("1,500.50") — PHP 8 lo trata como numeric-string
-                // NO bien formado y $cost * $units trunca al primer segmento antes de
-                // la coma, corrompiendo el COGS para qty >= 1000. Bug preexistente,
-                // corregido acá porque esta misma función es la que fixeamos (F0).
-                $units = (float) $resulta['toCompoundQty'];
-
-                $stock = self::getItemStock($id);
-                $cost  = ($stock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS']) && (float) $stock['stockOnHandCOGS'] > 0)
-                    ? (float) $stock['stockOnHandCOGS']
-                    : null;
-
-                if ($cost === null) {
-                    $compData = ncmExecute('SELECT itemCost FROM item WHERE itemId = ? LIMIT 1', [$id]);
-                    $cost     = (float) ($compData['itemCost'] ?? 0);
-                }
-
-                $comboCOGS += $cost * $units;
-            }
-        }
-
-        return $comboCOGS;
+    public static function getComboCOGS(
+        mixed $parent,
+        mixed $outlet = false,
+        mixed $companyId = null,
+    ): int|float {
+        return RecipeCosting::total(
+            $parent,
+            $companyId ?: COMPANY_ID,
+            $outlet ?: OUTLET_ID,
+            true
+        );
     }
 
     /**

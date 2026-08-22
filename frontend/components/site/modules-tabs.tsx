@@ -29,9 +29,10 @@ export function ModulesTabs() {
             <TabsTrigger
               key={tab.key}
               value={tab.key}
-              // razón: pill activo en verde Punto (pedido del owner) — el
-              // blanco del primitive no se distingue del track claro
-              className="rounded-full px-4 py-2 text-sm font-medium data-[state=active]:bg-chart-1 data-[state=active]:text-neutral-900"
+              // razón: pill activo en gris oscuro — el blanco del primitive
+              // no se distingue del track claro. El verde de marca NUNCA va
+              // en botones, CTA ni pills (context/14 §5)
+              className="rounded-full px-4 py-2 text-sm font-medium data-[state=active]:bg-foreground data-[state=active]:text-background"
             >
               {tab.label}
             </TabsTrigger>

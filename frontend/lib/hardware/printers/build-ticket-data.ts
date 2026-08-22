@@ -5,6 +5,9 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
 import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
 import type { Tax } from "@/lib/types/tax"
+// Formateador único del correlativo (mig 159) — ver
+// `lib/documents/format-document-number.ts`. Prohibido `padStart` suelto acá.
+import { padDocumentNumber } from "@/lib/documents/format-document-number"
 
 export interface TicketData {
   // empresa / tenant
@@ -336,7 +339,13 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     // el return: el bloque `document_number` de la plantilla (blocks.ts)
     // renderizaba `data.documentNumber ?? null` → nunca imprimía nada, ni
     // siquiera en la venta offline donde SÍ había un número arrendado.
-    documentNumber: result.invoiceNumber ?? undefined,
+    //
+    // mig 159: se pinta con los ceros a la izquierda del talonario
+    // (`document_sequence.padwidth`, bajado en el bootstrap). El prefijo NO
+    // se concatena acá — `document_prefix` es su propio bloque y la plantilla
+    // decide si sale (context/08, "lo que se imprime lo decide la plantilla").
+    documentNumber: padDocumentNumber(result.invoiceNumber, state.invoicePadWidth) || undefined,
+    documentPrefix: activeRegister?.expeditionPoint ?? undefined,
     transactionId: result.transactionId,
     einvoiceUrl: result.einvoicePortalUrl ?? null,
     dueDate: payload.dueDate ?? null,
@@ -558,7 +567,9 @@ export function buildTicketDataFromTransaction(
     authExpiration: activeRegister?.authExpiration ?? null,
     customerName: tx.customerName?.trim() || undefined,
     docType,
-    documentNumber: tx.documentNo || undefined,
+    // mig 159 — mismo formateador que la venta recién cobrada, para que el
+    // reimpreso salga idéntico al original.
+    documentNumber: padDocumentNumber(tx.documentNo, state.invoicePadWidth) || undefined,
     documentPrefix: tx.invoicePrefix || undefined,
     transactionId: tx.transactionId,
     date: tx.date ?? new Date().toISOString(),
@@ -600,6 +611,18 @@ export interface TicketableTxDetail {
     transactionTax: number
     transactionPaymentType: Array<{ type: string; name: string; total: number }>
     invoiceNo: string | null
+    /**
+     * Correlativo YA formateado por el backend con el ancho del talonario
+     * (`DocumentNumber::pad`, mig 159) y prefijo del timbrado. Opcionales
+     * porque `TxDetailFull` los marca así, pero el resolver canónico
+     * (`TransactionDetailService`) siempre los manda.
+     *
+     * Se prefieren sobre `invoiceNo` a propósito: el panel NO conoce el
+     * `padwidth` de la caja que emitió (no hidrata el store del POS), así que
+     * re-padear acá inventaría un ancho. El backend ya lo resolvió.
+     */
+    invoiceNoPad?: string
+    invoicePrefix?: string
     customerName: string | null
   }
   items: Array<{
@@ -663,7 +686,11 @@ export function buildTicketDataFromTxDetail(
     companyName,
     customerName: tx.customerName?.trim() || undefined,
     docType,
-    documentNumber: tx.invoiceNo || undefined,
+    // Formateado server-side (ver TicketableTxDetail.invoiceNoPad). El
+    // fallback a `invoiceNo` crudo cubre un payload viejo cacheado, no el
+    // camino normal.
+    documentNumber: tx.invoiceNoPad || tx.invoiceNo || undefined,
+    documentPrefix: tx.invoicePrefix || undefined,
     transactionId: tx.transactionId,
     date: tx.transactionDate,
     items,

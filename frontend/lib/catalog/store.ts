@@ -56,6 +56,17 @@ interface CatalogState {
    */
   outletTaxIncluded: boolean
   /**
+   * Cuántos dígitos ocupa el correlativo de factura al imprimirse
+   * (`document_sequence.padwidth`, mig 159; 7 = formato fiscal PY).
+   *
+   * Viaja con el snapshot del bootstrap porque el ticket se arma en el device
+   * y la caja imprime sin red: el ancho tiene que estar acá, no consultarse
+   * al momento de imprimir. Es FORMATO — el correlativo que el device asigna
+   * (`lib/pos/invoice-numbering.ts`) sigue siendo un entero. Se consume solo
+   * vía `lib/documents/format-document-number.ts`.
+   */
+  invoicePadWidth: number | null
+  /**
    * Categorías y marcas del tenant (context/45-satelites-item-contact-sync.md
    * §Decisión: el VÍNCULO es satélite, la ENTIDAD no). `PosItem.categoryId`/
    * `brandId` las referencian por id — la UI resuelve el nombre contra estas
@@ -110,6 +121,8 @@ interface CatalogState {
      */
     taxes?: PosTaxRate[]
     outletTaxIncluded?: boolean
+    /** Opcional por el mismo motivo — bootstrap cacheado de antes de la mig 159. */
+    invoicePadWidth?: number | null
     /** Opcionales por el mismo motivo que `taxes` — bootstrap cacheado viejo. */
     categories?: PosCategory[]
     brands?: PosBrand[]
@@ -171,6 +184,7 @@ const initialState = {
   activeRegisterId: "",
   taxes: [] as PosTaxRate[],
   outletTaxIncluded: true,
+  invoicePadWidth: null as number | null,
   categories: [] as PosCategory[],
   brands: [] as PosBrand[],
   printTemplates: [] as PosPrintTemplate[],
@@ -208,6 +222,10 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       // el outlet nunca configuró itemsTaxIncluded.
       taxes: data.taxes ?? [],
       outletTaxIncluded: data.outletTaxIncluded ?? true,
+      // `null` → el formateador pone el default legal (7). Nunca "sin
+      // padding": un bootstrap viejo no puede hacer que la caja imprima
+      // números fuera del formato fiscal.
+      invoicePadWidth: data.invoicePadWidth ?? null,
       categories: data.categories ?? [],
       brands: data.brands ?? [],
       printTemplates: data.printTemplates ?? [],

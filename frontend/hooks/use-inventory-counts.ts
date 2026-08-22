@@ -21,11 +21,25 @@ export interface InventoryCountSession {
   totalCostDelta: number
 }
 
+/**
+ * Alcance con el que se abrió la sesión (mig 158). `categoryIds: []` =
+ * todas las categorías. En las sesiones anteriores a la migración el backend
+ * devuelve `{}` (alcance desconocido: se snapshoteaba todo el tenant), por
+ * eso las dos claves son opcionales.
+ */
+export interface InventoryCountScope {
+  categoryIds?: string[]
+  includeZeroStock?: boolean
+}
+
 export interface InventoryCountItem {
   inventoryCountItemId: string
   itemId: string
   name: string
   sku: string | null
+  /** Categoría principal (m2m item_category, fallback item.categoryId). */
+  categoryId: string | null
+  categoryName: string | null
   expectedQty: number
   countedQty: number | null
   difference: number | null
@@ -48,8 +62,17 @@ export interface InventoryCountDetail {
     startedByName: string | null
     finishedBy: string | null
     finishedByName: string | null
+    scope: InventoryCountScope
   }
   items: InventoryCountItem[]
+}
+
+/** Alcance que comparten `create` y `preview` — un solo tipo, sin divergencia. */
+export interface InventoryCountScopeInput {
+  outletId: string
+  locationId?: string
+  categoryIds?: string[]
+  includeZeroStock?: boolean
 }
 
 export function useInventoryCounts(filters?: { outletId?: string; status?: number }) {
@@ -79,10 +102,29 @@ export function useCreateInventoryCount() {
   return useMutation<
     { id: string; itemCount: number },
     Error,
-    { outletId: string; locationId?: string; note?: string }
+    InventoryCountScopeInput & { note?: string }
   >({
     mutationFn: (data) => api.post("/v1/inventory_count", { action: "create", ...data }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["inventory-counts"] }),
+  })
+}
+
+/**
+ * Cuántos artículos entrarían con el alcance elegido, sin crear la sesión.
+ * El backend lo resuelve con el MISMO predicado que usa `create`
+ * (`InventoryCountScope`), así que el número que ve el operador es el que
+ * va a obtener.
+ *
+ * `enabled` solo cuando hay sucursal: sin ella el alcance no existe.
+ */
+export function useInventoryCountPreview(scope: InventoryCountScopeInput | null) {
+  return useQuery<{ count: number }>({
+    queryKey: ["inventory-counts", "preview", scope],
+    queryFn: () => api.post("/v1/inventory_count", { action: "preview", ...scope }),
+    enabled: !!scope?.outletId,
+    staleTime: 30 * 1000,
+    // Un alcance que no matchea nada devuelve 0, no error — no reintentar.
+    retry: false,
   })
 }
 

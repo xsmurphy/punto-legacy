@@ -61,9 +61,37 @@ export interface ItemCompound {
    *  suelto. Base del descuento implícito del combo fijo (F5, context/41). */
   childPrice: number
   childKind: ItemKind | null
+  /** @deprecated Alias de `lineCatalogCost` — usar el nombre explícito. */
   lineCost: number
   /** `childPrice` x `quantity`. */
   linePrice: number
+  /** Costo de CATÁLOGO del componente por unidad (`item.itemCost`): lo que el
+   *  dueño cargó a mano. Igual a `childCost`. */
+  catalogCost: number
+  /** Costo REAL de una unidad de este componente HOY, calculado server-side
+   *  por `RecipeCosting`: promedio ponderado del ledger de stock de la
+   *  sucursal (fallback al catálogo si nunca tuvo movimiento), merma
+   *  planificada aplicada, y si el componente es a su vez una preparación,
+   *  el costo de SUS insumos. Es el número que la venta registra en
+   *  `itemSoldCOGS`. `null` = no se pudo resolver la sucursal. */
+  currentCost: number | null
+  /** `catalogCost` x `quantity`. */
+  lineCatalogCost: number
+  /** `currentCost` x `quantity`. `null` con el mismo criterio. */
+  lineCurrentCost: number | null
+}
+
+/**
+ * Los dos costos de una receta, por unidad del ítem padre. Server-side
+ * (`ItemCompoundService::recipe`) — el front NO los recalcula: la ficha tenía
+ * su propia fórmula y por eso mostraba un número distinto al de la venta
+ * (reporte del tester "Actualización 21" #1).
+ */
+export interface RecipeTotals {
+  /** Suma de `lineCatalogCost` — lo que dice el catálogo. */
+  catalogTotal: number
+  /** Costo real de producir una unidad hoy. `null` si no hubo sucursal. */
+  currentTotal: number | null
 }
 
 /**

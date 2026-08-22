@@ -64,8 +64,22 @@ final class RegisterService
             return [];
         }
 
+        // Formato del correlativo (mig 159) — el device imprime sin red, así
+        // que el ancho y el prefijo tienen que estar EN el bootstrap. Sin
+        // esto el ticket offline saldría con el número pelado y el mismo
+        // documento se vería distinto en la factura y en el panel.
+        $facturaMeta = \Punto\Api\Documents\DocumentNumber::sequenceMeta(
+            'factura', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId
+        );
+        $quoteMeta = \Punto\Api\Documents\DocumentNumber::sequenceMeta(
+            'cotizacion', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId
+        );
+
         return [
             'registerId' => $register['registerId'],
+            'invoicePadWidth' => $facturaMeta['padWidth'],
+            'invoicePrefix'   => $facturaMeta['prefix'],
+            'quotePadWidth'   => $quoteMeta['padWidth'],
             // Factura y cotización ya salen de `document_sequence` (F2,
             // context/37): son las dos que tienen emisor migrado, así que leer
             // los contadores legacy acá devolvería un número viejo — el emisor

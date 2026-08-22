@@ -43,7 +43,7 @@ final class RegisterAdminService
     private function numberingByRegister(): array
     {
         $rs = ncmExecute(
-            'SELECT s.scopeid, s.doctype, s.nextnumber, s.rangeto
+            'SELECT s.scopeid, s.doctype, s.nextnumber, s.rangeto, s.padwidth
                FROM document_sequence s
               WHERE s.companyid = ? AND s.scopetype = ?',
             [$this->companyId, DocumentNumber::SCOPE_REGISTER],
@@ -64,6 +64,10 @@ final class RegisterAdminService
                 $out[$id][$dt] = [
                     'next'    => (int) ($f['nextnumber'] ?? 1),
                     'rangeTo' => $f['rangeto'] === null ? null : (int) $f['rangeto'],
+                    // Ancho de impresión del correlativo (mig 159). El número
+                    // sigue siendo un entero: esto es CÓMO se pinta, no QUÉ se
+                    // guarda. Ver DocumentNumber::format().
+                    'padWidth' => (int) ($f['padwidth'] ?? DocumentNumber::DEFAULT_PAD_WIDTH),
                 ];
                 $rs->MoveNext();
             }
@@ -191,6 +195,15 @@ final class RegisterAdminService
                         'factura'    => (string) ($seq[$regId]['factura']['next'] ?? 1),
                         'cotizacion' => (string) ($seq[$regId]['cotizacion']['next'] ?? 1),
                     ],
+                    // Cuántos dígitos ocupa el correlativo al imprimirse
+                    // (mig 159). Va aparte de `numbering` a propósito: el
+                    // número es un entero y esto es su formato. El front lo
+                    // usa para el preview y para pintar el listado con el
+                    // mismo string que sale en la factura.
+                    'padWidth' => [
+                        'factura'    => (int) ($seq[$regId]['factura']['padWidth'] ?? DocumentNumber::DEFAULT_PAD_WIDTH),
+                        'cotizacion' => (int) ($seq[$regId]['cotizacion']['padWidth'] ?? DocumentNumber::DEFAULT_PAD_WIDTH),
+                    ],
                     // Fin del rango autorizado del timbrado. Null = sin techo
                     // declarado; el asignador solo corta cuando hay uno.
                     'range' => [
@@ -274,7 +287,7 @@ final class RegisterAdminService
         // El resto del alta reusa update(): mismas validaciones de timbrado,
         // mismo invariante de "no pisar un número emitido" (trivial en una caja
         // nueva, pero no se duplica la regla).
-        $fields = array_intersect_key($extra, array_flip(['fiscal', 'numbering', 'range', 'blindControl']));
+        $fields = array_intersect_key($extra, array_flip(['fiscal', 'numbering', 'range', 'blindControl', 'padWidth']));
         if ($fields !== []) {
             $this->update($id, $fields);
         }
@@ -404,6 +417,28 @@ final class RegisterAdminService
         // Invariante (decisión del owner): NUNCA puede pisar un número ya
         // emitido — sería una factura duplicada. Se valida contra `transaction`
         // y contra los arriendos pendientes antes de mover la secuencia.
+        // ── Ancho de impresión del correlativo (mig 159) ────────────────────
+        // El ancho es FORMATO, no número: se declara aparte y nunca entra en
+        // `nextnumber`. Esto es lo que arregla el reporte del tester — tipear
+        // "00002129" guardaba 2129 y el panel lo devolvía sin los ceros,
+        // porque los ceros nunca fueron parte del valor.
+        $padWidths = [];
+        if (array_key_exists('padWidth', $fields) && is_array($fields['padWidth'])) {
+            foreach ($fields['padWidth'] as $docType => $raw) {
+                if (!in_array($docType, self::DOC_TYPES, true)) {
+                    apiError('Tipo de documento desconocido: ' . (string) $docType, 422);
+                }
+                $w = trim((string) $raw);
+                if ($w === '') {
+                    continue;   // "no lo toques", igual que en numbering
+                }
+                if (!preg_match('/^\d+$/', $w) || (int) $w < 1 || (int) $w > 12) {
+                    apiError('La cantidad de dígitos debe estar entre 1 y 12', 422);
+                }
+                $padWidths[$docType] = (int) $w;
+            }
+        }
+
         $numbering = [];
         if (array_key_exists('numbering', $fields) && is_array($fields['numbering'])) {
             foreach ($fields['numbering'] as $docType => $raw) {
@@ -420,6 +455,17 @@ final class RegisterAdminService
                 if (!preg_match('/^\d+$/', $n) || (int) $n < 1) {
                     apiError('La numeración debe ser un entero positivo', 422);
                 }
+
+                // Compatibilidad con quien tipea el número CON los ceros
+                // ("00002129") y no manda `padWidth` — que es literalmente lo
+                // que hacía el tester. El ancho tipeado es la intención
+                // expresada, así que se toma como declaración de formato en
+                // vez de descartarse en silencio. Si `padWidth` viene
+                // explícito, manda ese: es el control dedicado del form.
+                if (!isset($padWidths[$docType]) && $n[0] === '0' && strlen($n) <= 12) {
+                    $padWidths[$docType] = strlen($n);
+                }
+
                 $n = (int) $n;
 
                 // Cada documento valida contra SU fuente: factura y cotización
@@ -569,7 +615,9 @@ final class RegisterAdminService
         // prefijo del timbrado. Los tres llegan por caminos distintos del
         // request, de ahí el OR — un cambio de solo prefijo también tiene que
         // bajar a la secuencia.
-        if (isset($numbering['factura']) || $rangeToTouched || $prefix !== null) {
+        // `$padWidths['factura']` entra en el OR por el mismo motivo: cambiar
+        // solo la cantidad de dígitos también tiene que bajar a la secuencia.
+        if (isset($numbering['factura']) || $rangeToTouched || $prefix !== null || isset($padWidths['factura'])) {
             $this->seedSequence(
                 $id,
                 'factura',
@@ -577,11 +625,20 @@ final class RegisterAdminService
                 $rangeTo,
                 $rangeToTouched,
                 $prefix,
+                $padWidths['factura'] ?? null,
             );
         }
-        // La cotización no lleva timbrado propio: solo su contador.
-        if (isset($numbering['cotizacion'])) {
-            $this->seedSequence($id, 'cotizacion', $numbering['cotizacion'], null, false, null);
+        // La cotización no lleva timbrado propio: solo su contador y su ancho.
+        if (isset($numbering['cotizacion']) || isset($padWidths['cotizacion'])) {
+            $this->seedSequence(
+                $id,
+                'cotizacion',
+                $numbering['cotizacion'] ?? null,
+                null,
+                false,
+                null,
+                $padWidths['cotizacion'] ?? null,
+            );
         }
 
         realtimePublish('register', 'update', $id);
@@ -649,6 +706,7 @@ final class RegisterAdminService
         ?int $rangeTo,
         bool $rangeTouched,
         ?string $prefix,
+        ?int $padWidth = null,
     ): void {
         global $db;
 
@@ -666,23 +724,28 @@ final class RegisterAdminService
         // Casts explícitos en todos los placeholders: sin ellos PG no puede
         // inferir el tipo de un `?` dentro de COALESCE y aborta con "could not
         // determine data type of parameter".
+        // `padwidth` sigue el mismo patrón COALESCE que el resto: null = "no
+        // se tocó", y en el INSERT cae al DEFAULT legal de la mig 159 (7).
+        // Nunca se borra: una secuencia siempre tiene ancho.
         $db->Execute(
             'INSERT INTO document_sequence
-                 (companyid, doctype, scopetype, scopeid, nextnumber, rangefrom, rangeto, prefix)
-             VALUES (?, ?, ?, ?, COALESCE(?::bigint, 1), ?::bigint, ?::bigint, ?::varchar)
+                 (companyid, doctype, scopetype, scopeid, nextnumber, rangefrom, rangeto, prefix, padwidth)
+             VALUES (?, ?, ?, ?, COALESCE(?::bigint, 1), ?::bigint, ?::bigint, ?::varchar,
+                     COALESCE(?::smallint, ' . DocumentNumber::DEFAULT_PAD_WIDTH . '))
              ON CONFLICT (companyid, doctype, scopetype, scopeid) DO UPDATE SET
                  nextnumber = COALESCE(?::bigint, document_sequence.nextnumber),
                  ' . $rangeSet . '
                  prefix     = COALESCE(?::varchar, document_sequence.prefix),
+                 padwidth   = COALESCE(?::smallint, document_sequence.padwidth),
                  updated_at = now()',
             array_merge(
                 [
                     $this->companyId, $docType, DocumentNumber::SCOPE_REGISTER, $registerId,
-                    $next, $next, $rangeTo, $prefix,
+                    $next, $next, $rangeTo, $prefix, $padWidth,
                     $next,
                 ],
                 $rangeParams,
-                [$prefix]
+                [$prefix, $padWidth]
             )
         );
     }

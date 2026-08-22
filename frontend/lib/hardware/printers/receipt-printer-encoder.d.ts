@@ -12,7 +12,8 @@ declare module "@point-of-sale/receipt-printer-encoder" {
     bold(value: boolean): this
     line(text: string): this
     newline(): this
-    rule(opts?: { style?: "single" | "double" }): this
+    /** `width` en CARACTERES de la grilla monoespaciada; default = columns. */
+    rule(opts?: { style?: "single" | "double"; width?: number }): this
     barcode(value: string, symbology: string, opts?: { height?: number }): this
     qrcode(
       value: string,

@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useDebounce } from "@/hooks/use-debounce"
 import {
   Tooltip,
   TooltipContent,
@@ -39,6 +40,8 @@ import { EmptyState } from "@/components/empty-state"
 import { usePosTransactionsList, usePosTransactionDetail } from "@/hooks/use-pos-transactions"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney } from "@/lib/format-money"
+// Formateador único del correlativo (mig 158) — el mismo que imprime el ticket.
+import { formatDocumentNumber } from "@/lib/documents/format-document-number"
 import { cn } from "@/lib/utils"
 import type { PosTransactionListItem } from "@/lib/types/pos-transactions"
 import type { TransactionDetail as TransactionDetailType } from "@/hooks/use-transactions"
@@ -109,9 +112,13 @@ function niceDateTime(iso: string): string {
  * "#null"/"#undefined" — mismo criterio que la columna "Documento" del
  * panel (`transactions-list.tsx`: `docNo || "—"`).
  */
-function invoiceLabel(item: PosTransactionListItem): string {
+function invoiceLabel(item: PosTransactionListItem, padWidth: number | null): string {
   if (!item.invoiceNo) return "—"
-  return item.invoicePrefix ? `#${item.invoicePrefix}-${item.invoiceNo}` : `#${item.invoiceNo}`
+  // mig 158: mismo formateador que el ticket. Antes el número salía pelado
+  // acá y con ceros en la factura impresa — el cajero veía dos números
+  // distintos para la misma venta.
+  const formatted = formatDocumentNumber(item.invoiceNo, item.invoicePrefix, padWidth)
+  return formatted ? `#${formatted}` : "—"
 }
 
 /**
@@ -123,15 +130,6 @@ function customerDocLabel(item: PosTransactionListItem): string {
   return item.customerDoc || "—"
 }
 
-
-function useDebounce(value: string, delay: number): string {
-  const [debounced, setDebounced] = React.useState(value)
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay)
-    return () => clearTimeout(t)
-  }, [value, delay])
-  return debounced
-}
 
 // ── Filtro de tipo ────────────────────────────────────────────────────────────
 
@@ -410,6 +408,9 @@ function TransactionRow({
   onSelect: (id: string) => void
 }) {
   const config = useCatalogStore((s) => s.config)
+  // Ancho del correlativo de la caja (mig 158) — el listado muestra el mismo
+  // número que salió impreso.
+  const invoicePadWidth = useCatalogStore((s) => s.invoicePadWidth)
   const hasName = Boolean(item.customerName)
 
   return (
@@ -446,7 +447,7 @@ function TransactionRow({
       <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
         <span className="tabular-nums shrink-0">{niceDateTime(item.rawDate || item.date)}</span>
         <span className="text-muted-foreground/50" aria-hidden>·</span>
-        <span className="tabular-nums truncate">{invoiceLabel(item)}</span>
+        <span className="tabular-nums truncate">{invoiceLabel(item, invoicePadWidth)}</span>
       </div>
     </button>
   )
@@ -494,6 +495,7 @@ export function TransactionDetail({
   const config = useCatalogStore((s) => s.config)
   const paymentMethods = useCatalogStore((s) => s.paymentMethods)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const invoicePadWidth = useCatalogStore((s) => s.invoicePadWidth)
   const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
   const { requestPrint, pickerDialog } = usePrintWithPicker()
@@ -538,9 +540,12 @@ export function TransactionDetail({
 
   const typeNum = Number(detail.type)
   const isCredit = typeNum === 3
-  const docLabel = detail.invoicePrefix
-    ? `${detail.invoicePrefix}-${detail.documentNo}`
-    : (detail.documentNo ?? "")
+  // mig 158 — formateador único; idéntico a lo que imprime el ticket.
+  const docLabel = formatDocumentNumber(
+    detail.documentNo,
+    detail.invoicePrefix,
+    invoicePadWidth,
+  )
 
   // Anulación/Devolución (F6, context/40): solo venta contado/crédito, y
   // solo si NO está anulada — para otros tipos y para una tx ya anulada los

@@ -217,6 +217,8 @@ interface UpstreamRegisterList {
 // (`/v1/numbering/lease`, RECHAZADO 2026-08-17).
 interface UpstreamDocNumbers {
   invoiceNo: number
+  /** Ancho de impresión del correlativo de factura (`document_sequence.padwidth`, mig 159). */
+  invoicePadWidth?: number
 }
 
 // Shape real de /v1/items rows y /v1/contacts rows — ver
@@ -731,6 +733,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // `lib/pos/invoice-numbering.ts`. `null` si el fetch degradó arriba.
     nextInvoiceNo:
       typeof docNumbersRes.data?.invoiceNo === "number" ? docNumbersRes.data.invoiceNo : null,
+    // mig 159: cuántos dígitos ocupa el correlativo impreso. El device
+    // factura sin red, así que el FORMATO tiene que bajar con el bootstrap —
+    // si no, el ticket offline sale con el número pelado y no coincide con lo
+    // que muestra el panel. `null` → el helper pone el default legal (7).
+    invoicePadWidth:
+      typeof docNumbersRes.data?.invoicePadWidth === "number"
+        ? docNumbersRes.data.invoicePadWidth
+        : null,
   }
 
   return NextResponse.json(bootstrap)

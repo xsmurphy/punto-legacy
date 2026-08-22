@@ -70,6 +70,7 @@ import {
   type ItemListItem,
 } from "@/lib/types/item"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
+import { useDebounce } from "@/hooks/use-debounce"
 
 export default function ItemsPage() {
   // useSearchParams() requiere Suspense boundary durante prerender (Next 15+
@@ -91,7 +92,16 @@ function ItemsPageInner() {
   const { data: categories } = useTaxonomiesByType("category")
   const [showArchived, setShowArchived] = React.useState(false)
   const [showVariants, setShowVariants] = React.useState(false)
+  // Búsqueda server-side (nombre, SKU o categoría — ver api/v1/items.php).
+  // Antes el <DataTable> filtraba client-side sobre las 200 filas cargadas
+  // por `useItems`, así que tipear el nombre de una categoría ("materia
+  // prima") no encontraba nada: esa columna nunca viajaba al globalFilter
+  // porque el texto vive en otra fila del listado, no en la del item. Con
+  // debounce para no pegarle un fetch a cada tecla.
+  const [searchInput, setSearchInput] = React.useState("")
+  const debouncedSearch = useDebounce(searchInput, 300)
   const { data, isLoading, error } = useItems({
+    q: debouncedSearch || undefined,
     archived: showArchived,
     parentId: parentId ?? undefined,
     includeVariants: showVariants,
@@ -597,7 +607,10 @@ function ItemsPageInner() {
               }
             }}
             isLoading={isLoading}
-            searchPlaceholder="Buscar por nombre o SKU…"
+            searchPlaceholder="Buscar por nombre, SKU o categoría…"
+            searchValue={searchInput}
+            onSearchChange={setSearchInput}
+            totalCount={data?.total}
             exportFileName="articulos"
             initialColumnVisibility={initialColumnVisibility}
             enableSelection

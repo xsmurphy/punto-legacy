@@ -27,9 +27,61 @@ final class ItemCompoundService
         $this->db = $db;
     }
 
-    /** Lista de ingredientes de un item, con datos del child resueltos. */
-    public function listForParent(string $parentItemId, string $companyId): array
-    {
+    /**
+     * Lista de ingredientes de un item, con datos del child resueltos.
+     *
+     * @param bool $withCurrentCost `false` omite el costeo real (los campos
+     *        `current*` viajan null) y se ahorra la explosión recursiva de la
+     *        receta + sus dos queries. Para callers que solo miran precios,
+     *        como `comboPricing()`.
+     */
+    public function listForParent(
+        string $parentItemId,
+        string $companyId,
+        ?string $outletId = null,
+        bool $withCurrentCost = true,
+    ): array {
+        return $this->recipe($parentItemId, $companyId, $outletId, $withCurrentCost)['compounds'];
+    }
+
+    /**
+     * La receta completa: ingredientes + los DOS totales de costo.
+     *
+     * Por qué dos y no uno (reporte del tester "Actualización 21" #1): la
+     * ficha mostraba `Σ quantity × item.itemCost` — costo de CATÁLOGO, sin
+     * merma y de un solo nivel — mientras la venta del mismo ítem registraba
+     * el costo REAL (promedio ponderado del ledger, con merma, recursivo). Dos
+     * números para "lo que cuesta esta hamburguesa", y el dueño no sabía cuál
+     * creer. Ahora se muestran los dos, con su nombre:
+     *
+     *   - `catalogCost` / `catalogTotal` — lo que dice el catálogo. Es el
+     *     número que el dueño CARGÓ, y sigue siendo útil como referencia y
+     *     para detectar costos de catálogo desactualizados.
+     *   - `currentCost` / `currentTotal` — lo que cuesta HOY producir una
+     *     unidad, calculado por `RecipeCosting` (la única fórmula del
+     *     sistema): explosión recursiva, merma planificada por nivel,
+     *     promedio ponderado por sucursal con fallback al catálogo. Es
+     *     EXACTAMENTE el número que la venta va a guardar en
+     *     `itemSold.itemSoldCOGS`.
+     *
+     * Ambos son por unidad del padre; `line*` es el total de esa fila. El
+     * front NO recalcula ninguno de los dos — recalcular en el cliente fue
+     * cómo la ficha terminó con su propia fórmula.
+     *
+     * `$outletId` es la sucursal contra la que se valúa el costo real. Sin
+     * ella cae en la de la sesión (`OUTLET_ID`), que es lo correcto para la
+     * ficha del panel: el dueño está mirando SU sucursal activa.
+     *
+     * @return array{compounds: list<array<string,mixed>>, totals: array{catalogTotal: float, currentTotal: float|null}}
+     */
+    public function recipe(
+        string $parentItemId,
+        string $companyId,
+        ?string $outletId = null,
+        bool $withCurrentCost = true,
+    ): array {
+        $empty = ['compounds' => [], 'totals' => ['catalogTotal' => 0.0, 'currentTotal' => 0.0]];
+
         // itemUOM vive en el JSONB `data` desde la migración 07 (demoted del
         // schema físico). Hay que leerlo via `data->>'itemUOM'` — buscarlo
         // como columna física falla con "column i.itemuom does not exist".
@@ -41,32 +93,96 @@ final class ItemCompoundService
                  WHERE ic.parentItemId = ? AND ic.companyId = ?
                  ORDER BY ic.sort ASC, ic.created_at ASC";
         $rs = $this->db->Execute($sql, [$parentItemId, $companyId]);
-        if ($rs === false) return [];
-        $out = [];
-        foreach ($rs->GetRows() as $r) {
-            $qty  = (float) ($r['quantity'] ?? 0);
-            $cost = (float) ($r['itemcost'] ?? $r['itemCost'] ?? 0);
+        if ($rs === false) return $empty;
+
+        $rows = $rs->GetRows();
+        if ($rows === []) return $empty;
+
+        // UNA sola explosión para toda la receta: `byChild` ya trae el costo
+        // real agrupado por ingrediente directo, incluidas las sub-recetas que
+        // cuelgan de él. Costear fila por fila serían N explosiones del mismo
+        // árbol.
+        //
+        // Sin sucursal resoluble no hay costo real posible: los campos
+        // `current*` viajan NULL y la ficha muestra "—". Es una pantalla de
+        // lectura — mejor un guion honesto que un 0 que parece un costo.
+        $costing = null;
+        if ($withCurrentCost) {
+            try {
+                $costing = \Punto\App\Domain\RecipeCosting::cost(
+                    $parentItemId,
+                    $companyId,
+                    $outletId ?: (defined('OUTLET_ID') ? OUTLET_ID : '')
+                );
+            } catch (\InvalidArgumentException $e) {
+                error_log('ItemCompoundService::recipe: sin outlet para costear la receta — ' . $e->getMessage());
+            }
+        }
+        $byChild = $costing['byChild'] ?? [];
+
+        $out          = [];
+        $catalogTotal = 0.0;
+        foreach ($rows as $r) {
+            $childId = (string) ($r['childitemid'] ?? $r['childItemId'] ?? '');
+            $qty     = (float) ($r['quantity'] ?? 0);
+            $cost    = (float) ($r['itemcost'] ?? $r['itemCost'] ?? 0);
             // itemPrice del hijo: es lo que costaría comprar ese componente por
             // separado. Lo consume comboPricing() para el descuento implícito
             // del combo fijo (F5, context/41) — el costo NO sirve para eso.
             $price = (float) ($r['itemprice'] ?? $r['itemPrice'] ?? 0);
+
+            $lineCatalogCost = round($qty * $cost, 4);
+            // Un ingrediente sin entrada en `byChild` es uno que la explosión
+            // no alcanzó (cantidad 0). Su costo real es 0, no el de catálogo —
+            // rellenar con el catálogo escondería justamente la diferencia que
+            // esta pantalla existe para mostrar.
+            $lineCurrentCost = $costing === null
+                ? null
+                : round((float) ($byChild[$childId] ?? 0.0), 4);
+
+            $catalogTotal += $lineCatalogCost;
+
             $out[] = [
-                'compoundId'   => $r['compoundid']   ?? $r['compoundId']   ?? null,
-                'parentItemId' => $r['parentitemid'] ?? $r['parentItemId'] ?? null,
-                'childItemId'  => $r['childitemid']  ?? $r['childItemId']  ?? null,
-                'quantity'     => $qty,
-                'sort'         => (int) ($r['sort'] ?? 0),
-                'childName'    => $r['itemname']     ?? $r['itemName']     ?? null,
-                'childSKU'     => $r['itemsku']      ?? $r['itemSKU']      ?? null,
-                'childUOM'     => $r['itemuom']      ?? $r['itemUOM']      ?? null,
-                'childCost'    => $cost,
-                'childPrice'   => $price,
-                'childKind'    => $r['itemkind']     ?? $r['itemKind']     ?? null,
-                'lineCost'     => round($qty * $cost, 4),
-                'linePrice'    => round($qty * $price, 4),
+                'compoundId'      => $r['compoundid']   ?? $r['compoundId']   ?? null,
+                'parentItemId'    => $r['parentitemid'] ?? $r['parentItemId'] ?? null,
+                'childItemId'     => $childId !== '' ? $childId : null,
+                'quantity'        => $qty,
+                'sort'            => (int) ($r['sort'] ?? 0),
+                'childName'       => $r['itemname']     ?? $r['itemName']     ?? null,
+                'childSKU'        => $r['itemsku']      ?? $r['itemSKU']      ?? null,
+                'childUOM'        => $r['itemuom']      ?? $r['itemUOM']      ?? null,
+                'childCost'       => $cost,
+                'childPrice'      => $price,
+                'childKind'       => $r['itemkind']     ?? $r['itemKind']     ?? null,
+                'catalogCost'     => $cost,
+                // OJO: no es comparable 1:1 con `catalogCost`. Es
+                // `lineCurrentCost / quantity`, y `lineCurrentCost` YA trae la
+                // merma planificada aplicada, así que un insumo con 20% de
+                // merma muestra su costo × 1.25 — el costo real de poner UNA
+                // unidad de ese insumo en el plato, no el precio al que se
+                // compró. Si algún día se quiere el costo "limpio" hay que
+                // pedirle a RecipeCosting el desglose con `waste=false`.
+                'currentCost'     => ($lineCurrentCost !== null && $qty > 0)
+                    ? round($lineCurrentCost / $qty, 4)
+                    : $lineCurrentCost,
+                'lineCatalogCost' => $lineCatalogCost,
+                'lineCurrentCost' => $lineCurrentCost,
+                // @deprecated alias de `lineCatalogCost` — sigue existiendo
+                // porque su nombre no decía CUÁL de los dos costos era, que es
+                // exactamente cómo esta pantalla terminó mostrando uno y la
+                // venta registrando otro.
+                'lineCost'        => $lineCatalogCost,
+                'linePrice'       => round($qty * $price, 4),
             ];
         }
-        return $out;
+
+        return [
+            'compounds' => $out,
+            'totals'    => [
+                'catalogTotal' => round($catalogTotal, 4),
+                'currentTotal' => $costing === null ? null : round((float) $costing['total'], 4),
+            ],
+        ];
     }
 
     /**
@@ -92,7 +208,9 @@ final class ItemCompoundService
      */
     public function comboPricing(string $parentItemId, string $companyId, float $comboPrice): ?array
     {
-        $components = $this->listForParent($parentItemId, $companyId);
+        // Solo mira `linePrice`: sin costeo real, que sería una explosión
+        // recursiva de la receta al pedo en cada carga de la ficha.
+        $components = $this->listForParent($parentItemId, $companyId, null, false);
         if ($components === []) {
             return null;
         }

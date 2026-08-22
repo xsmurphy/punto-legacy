@@ -20,7 +20,15 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ActiveFilters, type ActiveFilterItem } from "@/components/data-table/active-filters"
 import { DataTable, exportRowsToXlsx } from "@/components/data-table/data-table"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   DateRangePicker,
   defaultDateRange,
@@ -72,6 +80,7 @@ import {
   type TransactionDetail,
   type TransactionDataItem,
 } from "@/hooks/use-transactions"
+import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { posApi } from "@/lib/api/pos-client"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
@@ -105,6 +114,12 @@ export function txTypeLabel(type: string): string {
   return TX_TYPE_LABELS[type] ?? `Tipo ${type}`
 }
 
+// Tipos de venta que efectivamente devuelve /v1/reports/transactions?view=detail
+// (TransactionsService::TX_TYPES = '0,3,6,7,8') — mismo universo que ya
+// pinta la columna "Tipo" de la tabla, así el filtro nunca ofrece una opción
+// que no puede aparecer en esta vista.
+const SALE_TYPE_FILTER_VALUES = ["0", "3", "6", "7", "8"]
+
 function niceDateTime(iso: string): string {
   if (!iso) return "—"
   return formatDateTime(iso)
@@ -113,6 +128,10 @@ function niceDateTime(iso: string): string {
 function fmtDate(iso: string): string {
   if (!iso) return ""
   return formatDateTime(iso, "d MMM yyyy, HH:mm")
+}
+
+function fmtRangeDate(d: Date): string {
+  return formatDateTime(d.toISOString(), "d MMM yyyy")
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -127,6 +146,67 @@ interface TransactionsListProps {
 export function TransactionsList({ backHref, mode = "panel" }: TransactionsListProps) {
   const { data: bootstrap } = useBootstrap()
   const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  // defaultDateRange() arma `to: new Date()` en cada llamada — comparar el
+  // range actual contra un nuevo defaultDateRange() nunca da igualdad exacta
+  // (los milisegundos difieren). Se trackea "tocado" con un flag en vez de
+  // comparar valores.
+  const [rangeCustomized, setRangeCustomized] = React.useState(false)
+  function handleRangeChange(next: DateRangeValue) {
+    setRange(next)
+    setRangeCustomized(true)
+  }
+  function resetRange() {
+    setRange(defaultDateRange())
+    setRangeCustomized(false)
+  }
+
+  // Filtros de Método de pago / Tipo de venta (chips removibles, ver
+  // ActiveFilters más abajo). Método de pago sale de una fuente DISTINTA
+  // según el realm (client-per-realm, ver project_client_per_realm_no_cross_credentials):
+  // en POS del catálogo hidratado por bootstrap del dispositivo, en panel de
+  // /v1/payment-methods (cliente cookie del panel) — nunca se mezclan.
+  const [paymentMethodFilter, setPaymentMethodFilter] = React.useState<string>("all")
+  const [saleTypeFilter, setSaleTypeFilter] = React.useState<string>("all")
+  const catalogPaymentMethods = useCatalogStore((s) => s.paymentMethods)
+  const { data: panelPaymentMethodsData } = usePaymentMethods({ enabled: mode === "panel" })
+  const paymentMethodOptions = React.useMemo(() => {
+    const list = mode === "pos" ? catalogPaymentMethods : (panelPaymentMethodsData?.paymentMethods ?? [])
+    return list.map((m) => ({ id: m.id, name: m.name }))
+  }, [mode, catalogPaymentMethods, panelPaymentMethodsData])
+  const paymentMethodName =
+    paymentMethodFilter === "all"
+      ? undefined
+      : paymentMethodOptions.find((m) => m.id === paymentMethodFilter)?.name
+  function paymentMatches(payments: Array<{ name: string }> | undefined): boolean {
+    if (!paymentMethodName) return true
+    return (payments ?? []).some((p) => p.name === paymentMethodName)
+  }
+  const dateFilterItem: ActiveFilterItem | null = rangeCustomized
+    ? {
+        key: "range",
+        label: "Rango",
+        value: `${fmtRangeDate(range.from)} – ${fmtRangeDate(range.to)}`,
+        onRemove: resetRange,
+      }
+    : null
+  const paymentFilterItem: ActiveFilterItem | null = paymentMethodName
+    ? {
+        key: "paymentMethod",
+        label: "Método de pago",
+        value: paymentMethodName,
+        onRemove: () => setPaymentMethodFilter("all"),
+      }
+    : null
+  const saleTypeFilterItem: ActiveFilterItem | null =
+    saleTypeFilter !== "all"
+      ? {
+          key: "saleType",
+          label: "Tipo de venta",
+          value: txTypeLabel(saleTypeFilter),
+          onRemove: () => setSaleTypeFilter("all"),
+        }
+      : null
+
   const opts = React.useMemo(
     () => ({ ...rangeToBackend(range), params: { view: "detail" } }),
     [range],
@@ -203,6 +283,36 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
   const rows = data?.rows ?? []
   const cobrosRows = cobrosData?.rows ?? []
   const quotesRows = quotesData?.rows ?? []
+
+  // Filtrado en cliente (mismo patrón que items/page.tsx): las filas ya
+  // llegaron del backend para el rango elegido, acá solo se recorta por
+  // método de pago / tipo de venta. Cotizaciones no tiene `payments` y su
+  // `type` es siempre 9 (cotización) — no aplican esos dos filtros ahí.
+  const filteredRows = React.useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          paymentMatches(r.payments) &&
+          (saleTypeFilter === "all" || String(r.transactionType) === saleTypeFilter),
+      ),
+    [rows, paymentMethodName, saleTypeFilter],
+  )
+  const filteredCobrosRows = React.useMemo(
+    () => cobrosRows.filter((r) => paymentMatches(r.payments)),
+    [cobrosRows, paymentMethodName],
+  )
+
+  const txActiveFilters: ActiveFilterItem[] = [
+    dateFilterItem,
+    saleTypeFilterItem,
+    paymentFilterItem,
+  ].filter((i): i is ActiveFilterItem => i !== null)
+  const cobrosActiveFilters: ActiveFilterItem[] = [dateFilterItem, paymentFilterItem].filter(
+    (i): i is ActiveFilterItem => i !== null,
+  )
+  const quotesActiveFilters: ActiveFilterItem[] = [dateFilterItem].filter(
+    (i): i is ActiveFilterItem => i !== null,
+  )
 
   // POS-mode: Sheet state
   const [selectedId, setSelectedId] = React.useState<string | null>(null)
@@ -664,6 +774,41 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
     [bootstrap],
   )
 
+  // Selects de filtro — se arman una sola vez acá y se reusan en los
+  // `toolbarSlot` de Transacciones (siempre) y Cobros/POS (solo método de
+  // pago, ver comentario de `filteredCobrosRows`).
+  const saleTypeSelect = (
+    <Select value={saleTypeFilter} onValueChange={setSaleTypeFilter}>
+      <SelectTrigger className="h-9 w-[160px]">
+        <SelectValue placeholder="Tipo de venta" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="all">Todos los tipos</SelectItem>
+        {SALE_TYPE_FILTER_VALUES.map((v) => (
+          <SelectItem key={v} value={v}>
+            {txTypeLabel(v)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  )
+  const paymentMethodSelect =
+    paymentMethodOptions.length > 0 ? (
+      <Select value={paymentMethodFilter} onValueChange={setPaymentMethodFilter}>
+        <SelectTrigger className="h-9 w-[170px]">
+          <SelectValue placeholder="Método de pago" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Todos los métodos</SelectItem>
+          {paymentMethodOptions.map((m) => (
+            <SelectItem key={m.id} value={m.id}>
+              {m.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    ) : null
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -694,7 +839,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <DateRangePicker value={range} onChange={setRange} />
+          <DateRangePicker value={range} onChange={handleRangeChange} />
         </div>
       </header>
 
@@ -719,13 +864,24 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
           <TabsContent value="transacciones" className="mt-4">
             <DataTable
               tableId="report-transactions"
-              data={rows}
+              data={filteredRows}
               columns={txColumns}
               getRowId={(r) => r.transactionId}
               isLoading={isLoading}
               searchPlaceholder="Buscar por documento, cliente, cajero…"
               exportFileName="transacciones"
               onRowClick={handleRowClick}
+              toolbarSlot={
+                <>
+                  {saleTypeSelect}
+                  {paymentMethodSelect}
+                  {txActiveFilters.length > 0 && (
+                    <div className="w-full">
+                      <ActiveFilters items={txActiveFilters} />
+                    </div>
+                  )}
+                </>
+              }
               emptyMessage={
                 <EmptyState
                   icon={Receipt}
@@ -739,13 +895,23 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
           <TabsContent value="cobros" className="mt-4">
             <DataTable
               tableId="report-cobros"
-              data={cobrosRows}
+              data={filteredCobrosRows}
               columns={cobrosColumns}
               getRowId={(r) => r.transactionId}
               isLoading={cobrosLoading}
               searchPlaceholder="Buscar por documento, cliente, usuario…"
               exportFileName="cobros"
               onRowClick={(row) => setSelectedCobro(row)}
+              toolbarSlot={
+                <>
+                  {paymentMethodSelect}
+                  {cobrosActiveFilters.length > 0 && (
+                    <div className="w-full">
+                      <ActiveFilters items={cobrosActiveFilters} />
+                    </div>
+                  )}
+                </>
+              }
               emptyMessage={
                 <EmptyState
                   icon={Receipt}
@@ -766,6 +932,13 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
               searchPlaceholder="Buscar por documento, cliente, usuario…"
               exportFileName="cotizaciones"
               onRowClick={handleRowClick}
+              toolbarSlot={
+                quotesActiveFilters.length > 0 ? (
+                  <div className="w-full">
+                    <ActiveFilters items={quotesActiveFilters} />
+                  </div>
+                ) : undefined
+              }
               emptyMessage={
                 <EmptyState
                   icon={Receipt}
@@ -779,13 +952,24 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
       ) : (
         <DataTable
           tableId="report-transactions"
-          data={rows}
+          data={filteredRows}
           columns={txColumns}
           getRowId={(r) => r.transactionId}
           isLoading={isLoading}
           searchPlaceholder="Buscar por documento, cliente, cajero…"
           exportFileName="transacciones"
           onRowClick={handleRowClick}
+          toolbarSlot={
+            <>
+              {saleTypeSelect}
+              {paymentMethodSelect}
+              {txActiveFilters.length > 0 && (
+                <div className="w-full">
+                  <ActiveFilters items={txActiveFilters} />
+                </div>
+              )}
+            </>
+          }
           emptyMessage={
             <EmptyState
               icon={Receipt}

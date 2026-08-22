@@ -7,9 +7,11 @@ import {
   ITEM_TABLE_TYPES,
   formatMoney,
   itemTableColumns,
+  lineGeometry,
   sortBlocksForRender,
   ticketItemName,
 } from "./blocks"
+import type { LineGeometry } from "./blocks"
 
 function esc(s: string): string {
   return s
@@ -71,14 +73,30 @@ function renderBlockHtml(block: PrintBlock, data: TicketData): string {
   const align = blockAlign(block)
 
   switch (block.type) {
-    case "hor_line":
-      return `<hr style="border:none;border-top:1px dashed #000;margin:4px 0"/>`
+    // hor_line/ver_line acá son SOLO el camino de ROLLO (flujo lineal):
+    // `renderSheetBody` intercepta las líneas antes de que lleguen a esta
+    // función, porque en hoja necesitan posicionarse solas sin el wrapper
+    // que recorta (ver `positionedLine`). El grosor/largo salen del MISMO
+    // helper que usan el editor y el ESC/POS (`lineGeometry`, blocks.ts).
+    case "hor_line": {
+      const geo = lineGeometry(block)!
+      // Div de alto fijo y ancho automático: en el rollo la línea ocupa el
+      // ancho de la columna, que es lo que el editor ya fuerza para todo
+      // bloque de una plantilla de ticket (`applyReceiptWidthRule`). Antes
+      // era un `<hr>` PUNTEADO — el único de los tres renderers que dibujaba
+      // puntitos (el canvas y ESC/POS la hacen sólida).
+      return `<div style="height:${geo.thickness}px;background:#000;margin:4px 0"></div>`
+    }
 
-    case "ver_line":
+    case "ver_line": {
       // A diferencia de ESC/POS (no-op), en HTML sí tiene sentido dibujar
       // una línea vertical real (el fallback de navegador no está limitado
-      // a un rollo monocolumna).
-      return `<div style="display:inline-block;border-left:1px solid #000;height:1em;margin:0 4px"></div>`
+      // a un rollo monocolumna). El alto sale del bloque, no de `1em`: antes
+      // medía siempre una línea de texto, sin relación con el alto que el
+      // operador le dio en el editor.
+      const geo = lineGeometry(block)!
+      return `<div style="display:inline-block;width:${geo.thickness}px;height:${geo.length}px;background:#000;margin:0 4px"></div>`
+    }
 
     case "company_name":
       return `<div style="${align};font-weight:bold">${esc(data.companyName)}</div>`
@@ -225,11 +243,49 @@ function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number
     return `<div style="position:absolute;top:${px(top)};left:${px(left)};width:${px(width)};height:${px(height)};overflow:${overflow};white-space:${whiteSpace};${textOverflow}">${innerHtml}</div>`
   }
 
+  /**
+   * Línea (`hor_line`/`ver_line`) en HOJA — un ÚNICO div absoluto pintado con
+   * `background`, que NO pasa por `positioned()`.
+   *
+   * Ese wrapper genérico recorta con `overflow:hidden` a la altura exacta del
+   * bloque, y lo que se metía adentro era un `<hr>` con `margin:4px 0` (o un
+   * `<div>` con `margin:0 4px` para la vertical): con un bloque angosto el
+   * margen empujaba la línea FUERA del recorte y no se imprimía NADA — ni en
+   * la simulación ni en el papel, ni desde panel ni desde caja (bug
+   * 2026-08-22). Acá no hay contenido que recortar: la línea ES la geometría
+   * del div, así que no puede volver a desaparecer.
+   *
+   * Geometría desde `lineGeometry` (blocks.ts) — el mismo helper con el que
+   * dibuja el editor, que es lo que hace que lo que se ve en el canvas sea lo
+   * que sale en la hoja.
+   */
+  const positionedLine = (block: PrintBlock, geo: LineGeometry, top: number): string => {
+    const horizontal = geo.orientation === "horizontal"
+    // `crossOffset` centra la línea dentro de la caja del bloque (ver
+    // docblock de `lineGeometry`): la caja es el hueco que el operador
+    // posiciona, la línea va en su centro.
+    const y = top + (horizontal ? geo.crossOffset : 0)
+    const x = block.left + (horizontal ? 0 : geo.crossOffset)
+    const w = horizontal ? geo.length : geo.thickness
+    const h = horizontal ? geo.thickness : geo.length
+    return `<div style="position:absolute;top:${px(y)};left:${px(x)};width:${px(w)};height:${px(h)};background:#000"></div>`
+  }
+
   const parts: string[] = []
   let pushDown = 0
   let i = 0
   while (i < blocks.length) {
     const block = blocks[i]
+
+    // Las líneas se interceptan ANTES del camino genérico — ver
+    // `positionedLine`. `lineGeometry` devuelve null para todo lo demás, así
+    // que hace de guarda sin repetir acá el switch de tipos.
+    const lineGeo = lineGeometry(block)
+    if (lineGeo) {
+      parts.push(positionedLine(block, lineGeo, block.top + pushDown))
+      i++
+      continue
+    }
 
     if (ITEM_LINE_TYPES.has(block.type)) {
       const groupStart = i
@@ -336,7 +392,6 @@ export function renderTemplateToHtml(
   html, body { margin: 0; padding: 0; }
   body { font-family: '${fontFamily}', monospace; font-size: ${fontSize}; width: ${dim.widthMm}mm; height: ${dim.heightMm}mm; position: relative; }
   @media print { body { margin: 0; } }
-  hr { border: none; border-top: 1px dashed #000; margin: 4px 0; }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 1px 2px; }
 </style>
@@ -360,7 +415,6 @@ ${body}
   ${pageCss}
   body { font-family: '${fontFamily}', monospace; font-size: ${fontSize}; ${widthCss} }
   @media print { body { margin: 0; } }
-  hr { border: none; border-top: 1px dashed #000; margin: 4px 0; }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 1px 2px; }
 </style>

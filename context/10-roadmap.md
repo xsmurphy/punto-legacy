@@ -67,6 +67,54 @@ invariante del producto; el resto son mejoras de UI del POS.
    modo pertenece al menú del POS; desde el sidebar debe llevar a la vista por
    defecto del POS.
 
+## Reporte del tester — "Actualización 21" (recibido 2026-08-22)
+
+Seis items, contrastados contra el código el mismo día. Ninguno estaba
+resuelto; el #1 es en parte un bug ya cerrado (`4ada70c1`) con otro síntoma
+detrás. Estado se actualiza acá a medida que se cierran.
+
+1. **Costo de producción directa en reportes no coincide con el costo de la
+   receta** (Hamburguesa Cheddar: ficha Gs 13.820, reporte otro número).
+   **Resuelto** (`api/recipe-costing`).
+   Causa: tres fórmulas de costo de receta conviviendo —
+   ficha (`ItemCompoundService`, `Σ qty × itemCost`, sin merma, 1 nivel),
+   venta (`Inventory::getProductionCOGS`, promedio móvil con merma, SIN
+   fallback a `itemCost`, 1 nivel, outlet de `OUTLET_ID`), producción previa
+   (`ProductionService::complete`, recursiva con fallback). Además
+   `Reports/ProductionService.php:85,110` y `ProductsService.php:95` suman
+   `itemSoldCOGS` (unitario) sin `× itemSoldUnits`. Fix: servicio único
+   `RecipeCosting` sobre `explodeRecipe()`; las tres fórmulas pasan a ser
+   wrappers; contrato `itemSoldCOGS = unitario` fijado.
+2. **Próxima factura pierde los ceros a la izquierda.** `document_sequence.
+   nextnumber` es bigint y `RegisterAdminService::425` castea a int; el
+   `registerDocsLeadingZeros` legacy (mig 26) no tiene UI y solo lo leen 3
+   reportes. Fix: `document_sequence.padwidth` (default 7, `context/29 §1`) +
+   formateador único `DocumentNumber::format()` usado por panel, POS, ticket
+   y reportes; select "Dígitos del N°" en el form de caja.
+   **Resuelto** (document-number-padwidth)
+3. **Líneas horizontales/verticales de la plantilla no salen en papel.**
+   `html-renderer.ts:74-81` las pinta como contenido con margen dentro de un
+   wrapper `overflow:hidden` de la altura del bloque — una línea de 1px cae
+   fuera del clip; la vertical ignora `block.height`. El canvas las dibuja
+   como la caja entera, por eso se ven en el editor. Fix: helper de geometría
+   compartido por canvas + renderers; la línea ES la caja.
+   **Resuelto** (frontend/print-template-lines)
+4. **Nuevo conteo mezcla ítems de todas las sucursales + pedido de filtro por
+   categoría.** `InventoryCountService::create:56` snapshotea todos los
+   ítems trackeables del tenant; el outlet solo se usa para la cantidad
+   esperada. Fix: alcance del conteo como dato (`outletId`, `locationId`,
+   `categoryIds[]`, `includeZeroStock`) persistido en `inventory_count`,
+   `InventoryCountScope::itemsQuery()` único, preview "vas a contar N".
+   **Resuelto** (inventory-count-scope)
+5. **Ventas › Transacciones: ver filtros activos.** El filtro por método de
+   pago / tipo de venta no existe todavía. Fix: Selects en `toolbarSlot` +
+   chips removibles, patrón de `items/page.tsx`.
+   **Resuelto** (`frontend/transactions-filters`)
+6. **Artículos: buscar por nombre de categoría no encuentra.** `/items` trae
+   los 200 ítems más nuevos y busca client-side; el `q` server-side tampoco
+   cubre `taxonomyName`. Fix: `q` al servidor con debounce, SQL extendido a
+   categoría. **Resuelto** (`frontend/items-search-category`).
+
 ## Reporte del tester — "Mejoras Punto" (recibido 2026-08-19)
 
 Documento del tester con marcas de color propias: **verde = él lo dio por
@@ -157,20 +205,23 @@ horizontal"*. No implementado. Lo que hay que saber antes de encararlo:
 ## Bugs destapados al documentar los módulos (2026-08-17)
 
 Salieron de escribir `context/modules/` — cada uno con evidencia `path:line` en
-el doc del módulo. **Ninguno está arreglado**; el owner decidió anotarlos y
-seguir documentando. Los dos primeros son plata.
+el doc del módulo. Los dos primeros son plata, y ya están cerrados; los otros
+dos siguen abiertos.
 
-1. **El costo de producción directa NUNCA se calcula.** `SaleService.php:1715`
-   compara `itemType === 'direct_production'`, pero un `produccion_directa`
-   persiste `itemType = 'product'` (`ItemKind.php:32`) — `'direct_production'`
-   es una etiqueta sintética de presentación que jamás se escribe a BD. El
-   branch `getProductionCOGS()` es código muerto: cae al `else`
-   (`getItemStock`), que no tiene filas para un ítem que no trackea stock
-   propio. **Margen y ganancia de producción directa están mal.** Detalle:
-   `context/modules/06-produccion.md`.
+1. **El costo de producción directa NUNCA se calcula.** **Resuelto**
+   (`4ada70c1`). `SaleService` comparaba `itemType === 'direct_production'`,
+   una etiqueta sintética de presentación que jamás se escribe a BD (un
+   `produccion_directa` persiste `itemType = 'product'`, `ItemKind.php:32`), y
+   el branch de COGS era código muerto. Pasó a usar el predicado real
+   (`Inventory::saleExplodesRecipe()`, flags
+   `itemProduction`/`itemTrackInventory`). El costeo en sí se unificó después
+   en `RecipeCosting` — ver el item #1 del reporte del tester
+   "Actualización 21". Arnés: `verify_production_cogs.php` casos 1-2.
 2. **Los reportes de producción directa salen siempre vacíos**, sin error
-   visible — mismo string inexistente en el filtro
-   (`Reports/ProductionService.php:76,98,133-140`).
+   visible. **Resuelto** (`4ada70c1`). Misma causa; los tabs filtran ahora por
+   los flags reales + `EXISTS item_compound` (los flags solos no alcanzan:
+   servicio / insumo_sin_stock / descuento comparten la misma combinación).
+   Arnés: `verify_production_cogs.php` casos 3/3b.
 3. **Una orden/mesa con add-ons pierde el desglose al cobrarse.**
    `CreateOrderItemInput`/`OrderItem` no tienen `selections`
    (`frontend/hooks/use-orders.ts:156-164,45-65`) y `OrderCoreService` no lo

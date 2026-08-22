@@ -12,6 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { FONT_FAMILIES, FONT_SIZES } from "@/lib/print-template-palette"
+import { lineGeometry } from "@/lib/hardware/printers/blocks"
 import type { PrintBlock } from "@/lib/types/print-template"
 
 interface Props {
@@ -48,6 +49,12 @@ export function BlockInspector({ blocks, onChange }: Props) {
 
   const block = blocks[0]
   const editable = block.type === "custom"
+  // hor_line/ver_line: `text` no es contenido, es el GROSOR de la línea (ver
+  // `lineGeometry` en blocks.ts — el mismo mecanismo de "text como metadato
+  // según el tipo" que ya usan `tax_single` y los bloques por-tasa). Mostrar
+  // ahí el campo "Texto — (dinámico)" era engañoso: una línea no se rellena
+  // con ningún dato al imprimir.
+  const line = lineGeometry(block)
 
   return (
     <div className="space-y-4 overflow-y-auto px-4 py-4 text-sm">
@@ -65,26 +72,40 @@ export function BlockInspector({ blocks, onChange }: Props) {
         <NumberField label="Alto" value={block.height} onChange={(v) => onChange({ height: v })} />
       </div>
 
-      <div className="space-y-1.5">
-        <Label>Texto</Label>
-        {editable ? (
-          <Textarea
-            value={block.text}
-            onChange={(e) => onChange({ text: e.target.value })}
-            rows={3}
-            placeholder="Texto personalizado"
+      {line ? (
+        <div className="space-y-1.5">
+          <NumberField
+            label="Grosor (px)"
+            value={line.thickness}
+            onChange={(v) => onChange({ text: String(Math.max(1, v)) })}
           />
-        ) : (
-          <p className="rounded-md border bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
-            {block.text || "(dinámico)"}
-          </p>
-        )}
-        {!editable && (
           <p className="text-[11px] text-muted-foreground">
-            Este bloque se rellena automáticamente con datos reales al imprimir.
+            La línea se dibuja centrada en el bloque. El grosor nunca supera el{" "}
+            {line.orientation === "horizontal" ? "alto" : "ancho"} del bloque.
           </p>
-        )}
-      </div>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <Label>Texto</Label>
+          {editable ? (
+            <Textarea
+              value={block.text}
+              onChange={(e) => onChange({ text: e.target.value })}
+              rows={3}
+              placeholder="Texto personalizado"
+            />
+          ) : (
+            <p className="rounded-md border bg-muted/30 px-2 py-1.5 text-xs text-muted-foreground">
+              {block.text || "(dinámico)"}
+            </p>
+          )}
+          {!editable && (
+            <p className="text-[11px] text-muted-foreground">
+              Este bloque se rellena automáticamente con datos reales al imprimir.
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         <div className="space-y-1.5">

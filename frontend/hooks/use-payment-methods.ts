@@ -10,11 +10,12 @@ import type { PaymentMethod, PaymentMethodPayload } from "@/lib/types/payment-me
  * los 3 defaults (Efectivo/T.Crédito/T.Débito) en el primer GET si el tenant
  * no tiene ninguno.
  */
-export function usePaymentMethods() {
+export function usePaymentMethods(options?: { enabled?: boolean }) {
   return useQuery<{ paymentMethods: PaymentMethod[] }>({
     queryKey: ["payment-methods"],
     queryFn: () => api.get("/v1/payment-methods"),
     staleTime: 5 * 60 * 1000,
+    enabled: options?.enabled ?? true,
   })
 }
 

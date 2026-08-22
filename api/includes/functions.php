@@ -810,17 +810,23 @@ function getProductionCapacity($compounds,$inventory,$waste = false){
 }
 
 /**
- * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getProductionCOGS()`. ~8 callers.
+ * @deprecated Slice 13 (PSR-4) y otra vez 2026-08-22: la fórmula de costo de
+ *   receta es `\Punto\App\Domain\RecipeCosting::total($itemId, $companyId,
+ *   $outletId)`, que EXIGE la sucursal. Este global (y el
+ *   `Inventory::getProductionCOGS()` al que delega) resuelve la sucursal con
+ *   `OUTLET_ID`, la de la SESIÓN — que es justamente el bug que costeaba una
+ *   venta de la sucursal B con el promedio de la A. Sin callers vivos al
+ *   2026-08-22; se conserva por compatibilidad del namespace global.
  */
-function getProductionCOGS($itemId,$wasted=true){
-    return \Punto\App\Domain\Inventory::getProductionCOGS($itemId, (bool) $wasted);
+function getProductionCOGS($itemId,$wasted=true,$outlet=false,$companyId=null){
+    return \Punto\App\Domain\Inventory::getProductionCOGS($itemId, (bool) $wasted, $outlet, $companyId);
 }
 
 /**
- * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getComboCOGS()`. ~8 callers.
+ * @deprecated Ver la nota de `getProductionCOGS()` acá arriba — mismo caso.
  */
-function getComboCOGS($parent){
-    return \Punto\App\Domain\Inventory::getComboCOGS($parent);
+function getComboCOGS($parent,$outlet=false,$companyId=null){
+    return \Punto\App\Domain\Inventory::getComboCOGS($parent, $outlet, $companyId);
 }
 
 function getItemTypeName($result){

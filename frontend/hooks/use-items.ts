@@ -7,6 +7,7 @@ import {
   defaultAvailability,
   type ItemAvailability,
   type ItemCompound,
+  type RecipeTotals,
   type ItemFormValues,
   type ItemFull,
   type ItemImage,
@@ -283,7 +284,7 @@ export function importTemplateUrl(): string {
 // ── Recetas / Compuestos ───────────────────────────────────────────────────
 
 export function useItemCompounds(itemId: string | undefined) {
-  return useQuery<{ compounds: ItemCompound[] }>({
+  return useQuery<{ compounds: ItemCompound[]; totals: RecipeTotals }>({
     queryKey: ["items", itemId, "compounds"],
     queryFn: () => api.get(`/v1/items?id=${itemId}&resource=compounds`),
     enabled: !!itemId,
@@ -294,7 +295,7 @@ export function useItemCompounds(itemId: string | undefined) {
 export function useAddCompound() {
   const qc = useQueryClient()
   return useMutation<
-    { compoundId: string; compounds: ItemCompound[] },
+    { compoundId: string; compounds: ItemCompound[]; totals: RecipeTotals },
     Error,
     { itemId: string; childItemId: string; quantity: number }
   >({
@@ -315,7 +316,7 @@ export function useAddCompound() {
 export function useUpdateCompoundQuantity() {
   const qc = useQueryClient()
   return useMutation<
-    { compounds: ItemCompound[] },
+    { compounds: ItemCompound[]; totals: RecipeTotals },
     Error,
     { itemId: string; compoundId: string; quantity: number }
   >({
@@ -336,7 +337,7 @@ export function useUpdateCompoundQuantity() {
 export function useDeleteCompound() {
   const qc = useQueryClient()
   return useMutation<
-    { deleted: boolean; compounds: ItemCompound[] },
+    { deleted: boolean; compounds: ItemCompound[]; totals: RecipeTotals },
     Error,
     { itemId: string; compoundId: string }
   >({

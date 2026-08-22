@@ -1,5 +1,5 @@
 import ReceiptPrinterEncoder from "@point-of-sale/receipt-printer-encoder"
-import type { PrintTemplateConfig, PrintBlock } from "@/lib/types/print-template"
+import { PAPER_DIMENSIONS, type PrintTemplateConfig, type PrintBlock } from "@/lib/types/print-template"
 import type { TicketData } from "./build-ticket-data"
 import {
   BLOCK_VALUE_RESOLVERS,
@@ -8,6 +8,7 @@ import {
   ITEM_TABLE_TYPES,
   formatMoney,
   itemTableColumns,
+  lineGeometry,
   sortBlocksForRender,
   ticketItemName,
 } from "./blocks"
@@ -51,19 +52,64 @@ function renderItemTable(encoder: Encoder, block: PrintBlock, data: TicketData):
   return encoder
 }
 
-function renderSingleBlock(encoder: Encoder, block: PrintBlock, data: TicketData): Encoder {
+/**
+ * Contexto de PAPEL para traducir geometría de canvas (px) a la grilla
+ * monoespaciada del rollo. `canvasWidthPx` es el ancho del canvas con el que
+ * se diseñó la plantilla (`PAPER_DIMENSIONS[page_size].widthMm * mm`, la
+ * MISMA cuenta que ya usan el editor y `clampBlockToPaper` — no un número
+ * paralelo).
+ */
+interface EscPosPaper {
+  columns: number
+  canvasWidthPx: number
+}
+
+/**
+ * Ancho de una regla ESC/POS en CARACTERES, proporcional a lo que el bloque
+ * ocupa del ancho del canvas. Antes toda `hor_line` salía a ancho de papel
+ * completo sin mirar el bloque: una línea de media hoja en el editor imprimía
+ * una raya de punta a punta.
+ *
+ * En plantillas de TICKET el editor ya fuerza `width` = ancho del canvas
+ * (regla owner 2026-08-18, `applyReceiptWidthRule`), así que la fracción da 1
+ * y el resultado es el de siempre — `columns`. La proporción solo cambia algo
+ * cuando se manda a una térmica una plantilla diseñada para hoja.
+ */
+function escPosRuleWidth(lengthPx: number, paper: EscPosPaper): number {
+  if (!(paper.canvasWidthPx > 0)) return paper.columns
+  const fraction = lengthPx / paper.canvasWidthPx
+  if (!Number.isFinite(fraction) || fraction <= 0) return paper.columns
+  return Math.max(1, Math.min(paper.columns, Math.round(fraction * paper.columns)))
+}
+
+function renderSingleBlock(
+  encoder: Encoder,
+  block: PrintBlock,
+  data: TicketData,
+  paper: EscPosPaper,
+): Encoder {
   switch (block.type) {
     case "company_logo":
       console.warn("[render-template] BlockType no implementado: company_logo — requiere HTMLImageElement")
       return encoder
 
-    case "hor_line":
-      return encoder.rule({ style: "single" })
+    case "hor_line": {
+      // El GROSOR no se traduce acá: una térmica de líneas no tiene medio
+      // carácter de alto, la regla es siempre una fila. Lo que SÍ se respeta
+      // es el largo relativo al ancho del papel.
+      const geo = lineGeometry(block)!
+      const width = escPosRuleWidth(geo.length, paper)
+      if (block.align && block.align !== "left") encoder = encoder.align(block.align)
+      encoder = encoder.rule({ style: "single", width })
+      if (block.align && block.align !== "left") encoder = encoder.align("left")
+      return encoder
+    }
 
     case "ver_line":
       // No-op explícito: una línea vertical no tiene sentido en una
-      // impresora térmica de líneas (rollo, sin columnas reales). El
-      // fallback HTML sí la dibuja (ver html-renderer.ts).
+      // impresora térmica de líneas (rollo, sin columnas reales) — no hay dos
+      // columnas entre las cuales separar. El fallback HTML sí la dibuja, con
+      // la geometría del bloque (ver html-renderer.ts).
       return encoder
 
     case "transaction_id_barcode":
@@ -125,6 +171,13 @@ export function renderTemplateToEscPos(opts: {
 }): Uint8Array {
   const { template, data, paperWidthMm, openDrawer, copies } = opts
   const columns = paperWidthMm === 58 ? 32 : 48
+  // Ancho del canvas con el que se diseñó la plantilla — misma cuenta que el
+  // editor (`PAPER_DIMENSIONS[size].widthMm * mm`). `page_size` viaja en un
+  // JSONB abierto: un valor corrupto/legacy cae a A4, igual que en
+  // html-renderer.ts, en vez de tirar la impresión entera.
+  const dim = PAPER_DIMENSIONS[template.page_size] ?? PAPER_DIMENSIONS.a4page
+  const mmRatio = template.mm && template.mm > 0 ? template.mm : 3.78
+  const paper: EscPosPaper = { columns, canvasWidthPx: dim.widthMm * mmRatio }
 
   let encoder: Encoder = new ReceiptPrinterEncoder({ columns })
   encoder = encoder.initialize()
@@ -164,7 +217,7 @@ export function renderTemplateToEscPos(opts: {
         }
       }
     } else {
-      encoder = renderSingleBlock(encoder, block, data)
+      encoder = renderSingleBlock(encoder, block, data, paper)
       i++
     }
   }
