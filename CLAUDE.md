@@ -50,8 +50,10 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Numeración correlativa de documentos** | `37-numeracion-documentos.md` (plan abierto, D2/D3/D5 pendientes) |
 | **Impuestos multi-tasa / multi-país** | `38-impuestos-multi-pais.md` (F0-F3, F5 implementadas — F3 factura+ticket lee IVA congelado, F5 RG90/Libro Ventas; F4 rollup pendiente) |
 | **Detalle de transacción (resolver canónico)** | `39-detalle-transaccion.md` (F1-F3 implementadas — resolver + página `/transactions/{id}` + cotizaciones/pagos recibidos; F4 migrar el POS, abierta) |
-| **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (plan cerrado 2026-08-14, D1-D4 decididas, sin implementar) |
+| **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (F1-F6 implementadas 2026-08-21; F3/F4 numeración de NC como doctype propio sigue pendiente) |
 | **Reportes fiscales PY (RG90 / Marangatu)** | `46-reportes-fiscales-plan.md` (F5 de `context/38`; plan sin implementar, D1-D4 cerradas por el owner) |
+| **Reportes personalizados y export (IA)** | `47-reportes-personalizados-y-export.md` (plan sin implementar) |
+| **Escalamiento de datos (particionado, cierre de período)** | `48-escalamiento-de-datos.md` (plan sin implementar, D1-D9 cerradas) |
 | **Add-ons y combos** | `41-addons-y-combos.md` (F1-F5 implementadas, D1-D3 cerradas; F6 reportes y 2 gaps de F5 pendientes) |
 | **Multi-moneda (ventas, compras, arqueo)** | `42-multi-moneda.md` (feature request, sin planificar) |
 | **Remisión (traslado de mercadería)** | `42-remision.md` (implementada 2026-08-15, sin conexión SIFEN) |
