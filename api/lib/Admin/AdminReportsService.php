@@ -393,18 +393,22 @@ class AdminReportsService
             $aiCreditsByMonth[] = $row;
         }
 
-        // ── GMV agregado por mes (report_rollup, fila consolidada por tenant) ─
-        // domain='sales', periodType='month', outletId IS NULL = total del
-        // tenant ese mes (ver rollup_recompute_period en mig 41). Ya viene
-        // agregado — no hace falta recorrer `transaction`.
+        // ── GMV agregado por mes (rollup_sales_day, D8 de context/48, mig 158) ─
+        // domain 'sales' migró de report_rollup (fila consolidada outletId
+        // IS NULL) a rollup_sales_day (grano día, sin fila consolidada — se
+        // suma sobre TODAS las dimensiones, no hace falta filtrar outletid).
+        // kind IN (contado,credito) + status=vigente: mismo scope que el
+        // dominio 'sales' viejo (transactionType IN (0,3), sin anuladas);
+        // GMV no incluye devoluciones. Ya viene agregado — no hace falta
+        // recorrer `transaction`.
         // F5 (isinternal, mig 114): excluye el tenant emisor del GMV agregado —
         // resuelve el TODO que dejó pendiente esta migración.
         $gmvRows = $db->Execute(
-            "SELECT to_char(periodStart, 'YYYY-MM') AS month, COALESCE(SUM(total), 0) AS gmv
-             FROM report_rollup rr
-             WHERE domain = 'sales' AND periodType = 'month' AND outletId IS NULL
-               AND periodStart >= date_trunc('month', now()) - INTERVAL '11 months'
-               AND EXISTS (SELECT 1 FROM company co WHERE co.companyId = rr.companyId AND " . $this->notInternalWhere('co') . ")
+            "SELECT to_char(day, 'YYYY-MM') AS month, COALESCE(SUM(net), 0) AS gmv
+             FROM rollup_sales_day rr
+             WHERE kind IN ('contado', 'credito') AND status = 'vigente'
+               AND day >= date_trunc('month', now()) - INTERVAL '11 months'
+               AND EXISTS (SELECT 1 FROM company co WHERE co.companyId = rr.companyid AND " . $this->notInternalWhere('co') . ")
              GROUP BY month"
         );
         $rawGmv = [];
