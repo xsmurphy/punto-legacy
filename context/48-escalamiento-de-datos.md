@@ -169,20 +169,30 @@ está chica hoy a propósito — es la ventana de bajo costo.
   filas (ahí el patrón es "crear la partición, doble-escritura, backfill
   en batches, swap" — no aplica hoy).
 
-**D4 — `itemSold` gana `companyId` e índice compuesto
-`(companyId, itemId, itemSoldDate)`.** Hoy `itemSold` NO tiene
-`companyId` — el aislamiento multi-tenant depende de un JOIN a
-`transaction` en cada query, y los 4 índices existentes
+**D4 — `itemSold` gana `companyId`, `outletId` y `registerId` (además del
+`userId` que ya tiene) e índice compuesto `(companyId, itemId,
+itemSoldDate)`.** Ampliación del owner (2026-08-21): no solo `companyId` —
+también sucursal y caja. Son dos UUID más por línea (costo despreciable) y
+a cambio cualquier reporte por producto filtra por sucursal o caja sin el
+JOIN a `transaction`, que tras D3 es un JOIN contra una tabla particionada
+(más caro que hoy). Encaja con la regla de congelar de D8: la sucursal, la
+caja y el vendedor de la venta son hechos del momento, no se resuelven
+después. Índices adicionales: `(companyId, outletId, itemSoldDate)` y
+`(companyId, registerId, itemSoldDate)` solo si las señales de E1 los
+piden — no de entrada. Hoy `itemSold` NO tiene `companyId` — el
+aislamiento multi-tenant depende de un JOIN a `transaction` en cada
+query, y los 4 índices existentes
 (`idx_itemsold_tx`, `idx_itemsold_date`, `idx_itemsold_item`,
 `idx_itemsold_user`) son de una sola columna, ninguno sirve para el corte
 real que pide el owner: *"cuánto vendí de este producto en el año"* —
 `WHERE companyId = ? AND itemId = ? AND itemSoldDate BETWEEN ? AND ?`. Sin
 la columna desnormalizada ese filtro no puede ni empezar por `companyId`
-sin el JOIN. Se puebla con `UPDATE itemSold i SET companyId = t.companyId
-FROM transaction t WHERE t.transactionId = i.transactionId` en la
-migración, `NOT NULL` después del backfill, y mantenido en el insert de
-`SaleService`/`ReturnService` (mismo punto que ya escribe el resto de las
-columnas de `itemSold`).
+sin el JOIN. Se pueblan con `UPDATE itemSold i SET companyId = t.companyId, outletId
+= t.outletId, registerId = t.registerId FROM transaction t WHERE
+t.transactionId = i.transactionId` en la migración, `NOT NULL` después del
+backfill (`registerId` puede ser NULL: ventas desde panel sin caja), y
+mantenidas en el insert de `SaleService`/`ReturnService` (mismo punto que
+ya escribe el resto de las columnas de `itemSold`).
 
 **D5 — Completar dominios de rollup faltantes (compras, producción,
 stock — RB-3 de `context/18`).** Relevado en esta sesión: el grano
@@ -297,9 +307,19 @@ Decisiones:
   momento de la venta**, nunca resolverse por JOIN al catálogo actual. Si el
   rollup por categoría mirara la categoría de HOY del ítem, recategorizar un
   producto cambiaría el histórico solo — incompatible con D7. Mismo criterio
-  que el IVA congelado por línea (`context/38`) y que `itemSold.
-  itemSoldCategory`, que ya existe para esto. Dimensión nueva en el rollup ⇒
-  columna congelada en la fact, o no entra.
+  que el IVA congelado por línea (`context/38`), que `itemSold.
+  itemSoldCategory`, y que **`itemSold.itemSoldCOGS` — el costo del ítem al
+  momento de la venta** (señalado por el owner: sin eso el margen histórico
+  cambiaría cada vez que se actualiza el costo de un producto; es la métrica
+  congelada más importante después del precio). Dimensión o métrica nueva en
+  el rollup ⇒ columna congelada en la fact, o no entra.
+- **Rollup por día ≠ particionar por día.** El owner propuso el grano diario
+  justamente para conservar flexibilidad en el `WHERE` con un techo de 365
+  filas al año por combinación de dimensiones — correcto, y es lo que esta
+  decisión adopta. Pero son dos cosas distintas: el GRANO del rollup es día
+  (tabla agregada), el PARTICIONADO de la fact es por mes (D3, almacenamiento
+  físico). Particionar por día daría 365 particiones al año, pesado para el
+  planner sin ganancia real; el mes es el corte correcto para la fact.
 - **Migración**: la clave de `report_rollup` se amplía (mig nueva) y las
   funciones de recompute se reescriben una vez con el grano definitivo;
   después se recomputa todo desde `rollup_dirty` (hoy la tabla está vacía en
