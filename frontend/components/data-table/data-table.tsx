@@ -59,6 +59,23 @@ export interface DataTableProps<T> {
   onRowClick?: (row: T) => void
   /** Placeholder del search global. Default: "Buscar…". */
   searchPlaceholder?: string
+  /**
+   * Búsqueda controlada por el caller (server-side). Si se pasa junto con
+   * `onSearchChange`, el input de búsqueda queda controlado desde afuera y
+   * el filtro de texto client-side (`globalFilter` sobre `data`) se
+   * desactiva — se asume que `data` ya llegó filtrada del servidor por ese
+   * mismo término. Sin `onSearchChange`, el buscador sigue siendo 100%
+   * client-side sobre `data` (comportamiento default, sin cambios).
+   */
+  searchValue?: string
+  onSearchChange?: (value: string) => void
+  /**
+   * Total real en el servidor cuando `data` es un subset (ej. un LIMIT del
+   * backend). Si se pasa y es mayor a las filas cargadas, el contador de
+   * resultados muestra "Mostrando X de Y" en vez de "X resultados", para que
+   * quede claro que hay más allá de lo cargado.
+   */
+  totalCount?: number
   /** Nombre del archivo de export (sin extensión). Si null, oculta el botón. */
   exportFileName?: string | null
   /** Mensaje en estado vacío. */
@@ -98,6 +115,9 @@ export function DataTable<T>({
   getRowId,
   onRowClick,
   searchPlaceholder = "Buscar…",
+  searchValue,
+  onSearchChange,
+  totalCount,
   exportFileName,
   emptyMessage,
   isLoading,
@@ -117,6 +137,11 @@ export function DataTable<T>({
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [globalFilter, setGlobalFilter] = React.useState("")
+  // Búsqueda externa (server-side): con `onSearchChange` el input lo maneja
+  // el caller y `data` ya llega filtrada — el `globalFilter` de la tabla
+  // queda forzado a "" para no re-filtrar client-side sobre datos que ya
+  // pasaron por el filtro del servidor.
+  const isSearchControlled = onSearchChange !== undefined
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>(
     () => {
       const persisted = loadVisibility(tableId)
@@ -167,7 +192,13 @@ export function DataTable<T>({
   const table = useReactTable<T>({
     data,
     columns: finalColumns,
-    state: { sorting, columnFilters, globalFilter, columnVisibility, rowSelection },
+    state: {
+      sorting,
+      columnFilters,
+      globalFilter: isSearchControlled ? "" : globalFilter,
+      columnVisibility,
+      rowSelection,
+    },
     getRowId: getRowId ? (row) => getRowId(row) : undefined,
     enableRowSelection: !!enableSelection,
     onSortingChange: setSorting,
@@ -318,8 +349,12 @@ export function DataTable<T>({
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            value={globalFilter ?? ""}
-            onChange={(e) => setGlobalFilter(e.target.value)}
+            value={isSearchControlled ? searchValue ?? "" : globalFilter ?? ""}
+            onChange={(e) =>
+              isSearchControlled
+                ? onSearchChange?.(e.target.value)
+                : setGlobalFilter(e.target.value)
+            }
             placeholder={searchPlaceholder}
             className="h-9 pl-8"
           />
@@ -498,8 +533,16 @@ export function DataTable<T>({
       {/* Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
-          {table.getFilteredRowModel().rows.length}{" "}
-          {table.getFilteredRowModel().rows.length === 1 ? "resultado" : "resultados"}
+          {totalCount != null && totalCount > table.getFilteredRowModel().rows.length ? (
+            <>
+              Mostrando {table.getFilteredRowModel().rows.length} de {totalCount}
+            </>
+          ) : (
+            <>
+              {table.getFilteredRowModel().rows.length}{" "}
+              {table.getFilteredRowModel().rows.length === 1 ? "resultado" : "resultados"}
+            </>
+          )}
         </span>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
