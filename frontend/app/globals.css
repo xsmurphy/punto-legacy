@@ -18,7 +18,12 @@
  * variantes en dark (los grises se confunden con el background oscuro).
  */
 
-@custom-variant dark (&:is(.dark *));
+/* Un subtree marcado `.light` (el sitio de marketing) queda FUERA del modo
+   oscuro aunque el <html> tenga `.dark`: sin el `:not(.light *)`, las
+   utilities `dark:` de los primitives de shadcn siguen aplicando adentro y
+   pisan los tokens claros — pasó con el estado activo de Tabs, que tomaba
+   `dark:data-[state=active]:bg-input/30`. */
+@custom-variant dark (&:is(.dark *):not(.light *));
 
 @theme inline {
     --font-heading: var(--font-sans);
