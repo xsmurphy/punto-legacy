@@ -3,6 +3,7 @@ import Link from "next/link"
 import { HeroBackdrop } from "@/components/site/hero-backdrop"
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
+import { planLine } from "@/lib/site/markets"
 import { SIGNUP_URL } from "@/lib/site/links"
 
 /**
@@ -61,9 +62,7 @@ export function SiteHero() {
             </Link>
           </Button>
         </div>
-        <p className="mt-4 text-sm text-white/60">
-          Probalo gratis, sin tarjeta ni permanencia.
-        </p>
+        <p className="mt-4 text-sm text-white/60">{planLine()}</p>
       </div>
     </section>
   )

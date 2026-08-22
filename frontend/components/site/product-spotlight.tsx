@@ -40,7 +40,7 @@ const SPOTLIGHTS: Spotlight[] = [
       label: "Conocer el Punto de Venta",
       href: "/modulos/punto-de-venta",
     },
-    secondary: { label: "Empezar gratis", href: "#" },
+    secondary: { label: "Ver precios", href: "/precios" },
     images: [
       {
         src: "/site/pos-screenshot.png",

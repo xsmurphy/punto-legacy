@@ -115,6 +115,11 @@ export function marketMoney(
   return `${market.moneda.prefijo} ${n}`
 }
 
+/** Microcopy del precio bajo los CTA — una sola frase para todo el sitio. */
+export function planLine(market: Market = getMarket()): string {
+  return `${marketMoney(market.plan.precio, market)} ${market.plan.periodo}, con todo incluido.`
+}
+
 /** Convierte un monto de ejemplo a la escala del mercado. */
 export function marketExampleMoney(
   amount: number,

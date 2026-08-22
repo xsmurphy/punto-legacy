@@ -6,6 +6,7 @@ import { ArrowRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
+import { planLine } from "@/lib/site/markets"
 import { SIGNUP_URL } from "@/lib/site/links"
 import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
@@ -68,7 +69,7 @@ function HeroCtas({ onPhoto = false }: { onPhoto?: boolean }) {
           onPhoto ? "text-white/60" : "text-muted-foreground"
         )}
       >
-        Probalo gratis, sin tarjeta ni permanencia.
+        {planLine()}
       </p>
     </div>
   )

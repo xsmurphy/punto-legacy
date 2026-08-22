@@ -71,8 +71,8 @@ const FAQS = [
     a: "No hay contrato ni permanencia. Se paga mes a mes y podés dar de baja cuando quieras; tus datos siguen siendo tuyos y te los llevás cuando lo pidas.",
   },
   {
-    q: "¿Puedo probarlo antes de pagar?",
-    a: "Sí. Podés crear tu cuenta y usar el sistema completo, sin tarjeta. Recién cuando decidas seguir se activa el cobro.",
+    q: "¿Puedo ver el sistema antes de contratar?",
+    a: "Sí. Escribinos y te lo mostramos funcionando con casos de tu rubro, para que veas cómo cargarías tus productos y cómo se cobra en tu mostrador antes de decidir.",
   },
   {
     q: "¿Qué pasa si se corta internet?",
@@ -155,7 +155,7 @@ export default function PreciosPage() {
                 </Button>
               </div>
               <p className="text-sm text-muted-foreground">
-                Probalo gratis, sin tarjeta ni permanencia.
+                Se paga mes a mes, sin contrato.
               </p>
             </div>
 
