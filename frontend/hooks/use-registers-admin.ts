@@ -44,7 +44,7 @@ export interface RegisterNumbering {
 
 /**
  * Cuántos dígitos ocupa el correlativo al IMPRIMIRSE
- * (`document_sequence.padwidth`, mig 158). 7 = formato fiscal PY
+ * (`document_sequence.padwidth`, mig 159). 7 = formato fiscal PY
  * (`001-001-0002129`).
  *
  * Va aparte de `RegisterNumbering` porque no es el número: el correlativo se
@@ -109,7 +109,7 @@ export function useCreateRegister() {
        *  expedición y el número desde el que arranca es dato del timbrado. */
       fiscal?: Partial<RegisterFiscal>
       numbering?: Partial<RegisterNumbering>
-      /** Dígitos del correlativo impreso (mig 158). Formato, no número. */
+      /** Dígitos del correlativo impreso (mig 159). Formato, no número. */
       padWidth?: Partial<RegisterPadWidth>
       range?: { facturaTo?: string }
     }
@@ -146,7 +146,7 @@ export function useUpdateRegister() {
       blindControl?: boolean
       fiscal?: Partial<RegisterFiscal>
       numbering?: Partial<RegisterNumbering>
-      /** Dígitos del correlativo impreso (mig 158). Formato, no número. */
+      /** Dígitos del correlativo impreso (mig 159). Formato, no número. */
       padWidth?: Partial<RegisterPadWidth>
       range?: { facturaTo?: string }
     }

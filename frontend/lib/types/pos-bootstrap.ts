@@ -425,7 +425,7 @@ export interface PosBootstrap {
   nextInvoiceNo: number | null
   /**
    * Cuántos dígitos ocupa el correlativo de factura al imprimirse
-   * (`document_sequence.padwidth`, mig 158) — 7 = formato fiscal PY
+   * (`document_sequence.padwidth`, mig 159) — 7 = formato fiscal PY
    * `001-001-0002129`.
    *
    * Es FORMATO, no dato: `nextInvoiceNo` sigue siendo el entero con el que el

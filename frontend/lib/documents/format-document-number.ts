@@ -1,7 +1,7 @@
 /**
  * Formateador ÚNICO de números de documento del lado front.
  *
- * Espejo exacto de `api/lib/Documents/DocumentNumber.php` (mig 158). Los dos
+ * Espejo exacto de `api/lib/Documents/DocumentNumber.php` (mig 159). Los dos
  * tienen que dar el mismo string para el mismo documento: el panel lo muestra,
  * el ticket lo imprime y el reporte fiscal lo declara ante la SET. Si divergen,
  * el mismo documento aparece con dos números.
@@ -34,7 +34,7 @@ const MIN_PAD_WIDTH = 1
 const MAX_PAD_WIDTH = 12
 
 /**
- * Ancho utilizable. Fuera del rango del CHECK de la mig 158 (o ausente) cae al
+ * Ancho utilizable. Fuera del rango del CHECK de la mig 159 (o ausente) cae al
  * default legal — nunca lanza: un ancho corrupto no puede impedir que se
  * imprima un documento ya emitido.
  */

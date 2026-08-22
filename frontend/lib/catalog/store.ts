@@ -57,7 +57,7 @@ interface CatalogState {
   outletTaxIncluded: boolean
   /**
    * Cuántos dígitos ocupa el correlativo de factura al imprimirse
-   * (`document_sequence.padwidth`, mig 158; 7 = formato fiscal PY).
+   * (`document_sequence.padwidth`, mig 159; 7 = formato fiscal PY).
    *
    * Viaja con el snapshot del bootstrap porque el ticket se arma en el device
    * y la caja imprime sin red: el ancho tiene que estar acá, no consultarse
@@ -121,7 +121,7 @@ interface CatalogState {
      */
     taxes?: PosTaxRate[]
     outletTaxIncluded?: boolean
-    /** Opcional por el mismo motivo — bootstrap cacheado de antes de la mig 158. */
+    /** Opcional por el mismo motivo — bootstrap cacheado de antes de la mig 159. */
     invoicePadWidth?: number | null
     /** Opcionales por el mismo motivo que `taxes` — bootstrap cacheado viejo. */
     categories?: PosCategory[]

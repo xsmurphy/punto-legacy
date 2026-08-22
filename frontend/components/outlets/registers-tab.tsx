@@ -38,7 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { formatDate } from "@/lib/format-date"
-// Formateador único del correlativo (mig 158) — el mismo que usa el ticket.
+// Formateador único del correlativo (mig 159) — el mismo que usa el ticket.
 // El preview del form y la columna del listado tienen que mostrar EXACTAMENTE
 // lo que va a salir impreso.
 import { formatDocumentNumber, DEFAULT_PAD_WIDTH } from "@/lib/documents/format-document-number"
@@ -109,7 +109,7 @@ const EMPTY_PAD_WIDTH: RegisterPadWidth = {
 }
 
 /**
- * Opciones del selector de dígitos. El CHECK de la mig 158 permite 1..12, pero
+ * Opciones del selector de dígitos. El CHECK de la mig 159 permite 1..12, pero
  * el form ofrece 4..10: por debajo de 4 no hay talonario real y por encima de
  * 10 tampoco. Un valor fuera de la lista (cargado por API) igual se respeta —
  * el `<Select>` lo muestra porque se agrega dinámicamente abajo.
@@ -235,7 +235,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
       cell: ({ row }) => {
         const reg = row.original
         const to = reg.range?.facturaTo
-        // Se muestra EXACTAMENTE como va a salir impreso (mig 158): mismo
+        // Se muestra EXACTAMENTE como va a salir impreso (mig 159): mismo
         // formateador que el ticket y que el detalle. Antes se pintaba el
         // entero pelado y no coincidía con la factura.
         const next = formatDocumentNumber(
