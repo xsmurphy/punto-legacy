@@ -60,7 +60,7 @@ final class BrandsService
             $grouped[$brandId]['total']    += $m['total'];
             $grouped[$brandId]['tax']      += $m['tax'];
             $grouped[$brandId]['cogs']     += $m['cogs'];
-            // mig 158: `discount` ya es SUM(itemSoldDiscount) plano — el
+            // mig 159: `discount` ya es SUM(itemSoldDiscount) plano — el
             // `discountFlat` que se leía acá existía solo porque la columna
             // `discount` del rollup venía inflada por *ABS(units).
             $grouped[$brandId]['discount'] += $m['discount'];

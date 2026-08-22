@@ -1,4 +1,4 @@
--- 158_rollup_daily_grain.sql
+-- 159_rollup_daily_grain.sql
 -- D8 de context/48-escalamiento-de-datos.md: "el grano del rollup lo
 -- definen los filtros, no las métricas". report_rollup (mig 41) solo podía
 -- filtrar por las columnas de su clave (companyId/domain/periodType/
@@ -94,7 +94,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION fn_period_guard() IS
-  'E1b (mig 157) + D8 (mig 158). Genérico via TG_ARGV: [0]=columna fecha, '
+  'E1b (mig 157) + D8 (mig 159). Genérico via TG_ARGV: [0]=columna fecha, '
   '[1]=modo (tx|itemsold|plain). En modo tx, un UPDATE que solo toca '
   'transactioncomplete/updated_at/channel se permite aunque el período esté '
   'cerrado (metadata de clasificación, no el hecho económico). Levanta '
@@ -693,7 +693,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION rollup_recompute_period(uuid, text, date) IS
-  'D8 context/48 (mig 158). sales/item_sales/payments: grano día único en '
+  'D8 context/48 (mig 159). sales/item_sales/payments: grano día único en '
   'rollup_sales_day/rollup_item_sales_day/rollup_payments_day — mes/año se '
   'derivan con SUM sobre day, no se almacenan. returns/item_returns '
   'absorbidos (kind=devolucion). expenses/drawer_expenses: sin cambios '
@@ -726,7 +726,7 @@ END;
 $$;
 
 COMMENT ON FUNCTION period_close_run(uuid, date, uuid, text) IS
-  'E1b (mig 157) + D8 (mig 158). Dominios vigentes tras el grano diario: '
+  'E1b (mig 157) + D8 (mig 159). Dominios vigentes tras el grano diario: '
   'sales/item_sales/payments (rollup_*_day) + expenses/drawer_expenses '
   '(report_rollup, sin migrar). returns/item_returns quitados — absorbidos '
   'por kind=devolucion.';
@@ -767,7 +767,7 @@ BEGIN
     SELECT rollup_reconcile(5000) INTO v_processed;
     EXIT WHEN v_processed = 0 OR v_iter >= 20;
   END LOOP;
-  RAISE NOTICE 'mig 158: rollup_reconcile corrió % iteración(es); rollup_dirty pendiente: %',
+  RAISE NOTICE 'mig 159: rollup_reconcile corrió % iteración(es); rollup_dirty pendiente: %',
     v_iter, (SELECT COUNT(*) FROM rollup_dirty);
 END $$;
 

@@ -6,7 +6,7 @@ namespace Punto\Api\Reports;
 /**
  * RollupReader — lectura del rollup pre-agregado para reportes.
  *
- * D8 de context/48-escalamiento-de-datos.md (mig 158): 'sales'/'item_sales'/
+ * D8 de context/48-escalamiento-de-datos.md (mig 159): 'sales'/'item_sales'/
  * 'payments' migraron de `report_rollup` (grano genérico day/month/year) a
  * tres tablas TIPADAS de grano día único (`rollup_sales_day`,
  * `rollup_item_sales_day`, `rollup_payments_day`) — mes/año se derivan acá
@@ -179,7 +179,7 @@ final class RollupReader
      * la contraparte rollup de ramas live que filtran `transactionType IN
      * (0, 3)` — ver CategoriesService.php:101 y BrandsService.php:98 — o sea
      * ventas, sin devoluciones. Sin este filtro las devoluciones (que mig
-     * 158 guarda con signo negativo) neteaban las ventas y el mismo reporte
+     * 159 guarda con signo negativo) neteaban las ventas y el mismo reporte
      * daba números distintos con el rollup encendido que con
      * REPORTS_ROLLUP_ENABLED apagado.
      *
@@ -234,7 +234,7 @@ final class RollupReader
                     'total'       => (float) ($f['total']       ?? 0),
                     'tax'         => (float) ($f['tax']         ?? 0),
                     'cogs'        => (float) ($f['cogs']        ?? 0),
-                    // Un solo `discount` (mig 158): la columna ya es
+                    // Un solo `discount` (mig 159): la columna ya es
                     // SUM(itemsolddiscount) plano, igual que las ramas live.
                     // `discountFlat` desapareció con la columna que lo
                     // alimentaba — existía solo para tener el valor correcto

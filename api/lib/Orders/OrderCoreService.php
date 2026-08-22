@@ -849,7 +849,7 @@ final class OrderCoreService
         // link tampoco queda.
         $this->links->linkOrder($companyId, $orderId, $transactionId);
 
-        // D8 de context/48-escalamiento-de-datos.md (mig 158): channel se
+        // D8 de context/48-escalamiento-de-datos.md (mig 159): channel se
         // resuelve ACÁ, no en SaleService — la venta simple (tipo 0/3) no
         // sabe si nació de una orden de mesa/ecommerce hasta que se vincula.
         // SaleService ya dejó 'mostrador' o 'delivery' (por addressId) al

@@ -1,7 +1,7 @@
 # Plan: Tablas de Rollup para Reportes (pre-agregación)
 
 > **Actualización 2026-08-22 (D8 de `context/48-escalamiento-de-datos.md`,
-> mig 158):** los dominios `sales`/`item_sales`/`payments`/`returns`/
+> mig 159):** los dominios `sales`/`item_sales`/`payments`/`returns`/
 > `item_returns` de `report_rollup` (descriptos más abajo) fueron
 > REEMPLAZADOS por tres tablas tipadas de grano día único —
 > `rollup_sales_day`, `rollup_item_sales_day`, `rollup_payments_day` — para

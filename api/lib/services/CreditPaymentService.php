@@ -515,7 +515,7 @@ final class CreditPaymentService
         //
         // OJO (deuda conocida, no se cambia acá): la anulación de un recibo
         // usa transactionStatus=6, NO voidedat, y ni el recompute de
-        // rollup_payments_day (mig 158) ni la rama live
+        // rollup_payments_day (mig 159) ni la rama live
         // (PaymentMethodsService:33, que filtra solo voidedat) lo excluyen —
         // o sea que hoy el monto sigue contando en Medios de Pago en AMBAS
         // ramas. El recompute mantiene la paridad a propósito; corregir el
@@ -738,7 +738,7 @@ final class CreditPaymentService
         $db->CompleteTrans();
 
         // Rollup: el recibo (transactionType=5) ES una fila de
-        // rollup_payments_day (kind='cobro', ver mig 158) — sin marcar el día
+        // rollup_payments_day (kind='cobro', ver mig 159) — sin marcar el día
         // sucio, un cobro de crédito nunca aparecía en el reporte de medios
         // de pago hasta que otro evento del mismo día encolara el rollup.
         // Best-effort post-commit, mismo criterio que SaleService:297.
