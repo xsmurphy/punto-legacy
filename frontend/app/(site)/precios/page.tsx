@@ -40,6 +40,10 @@ const INCLUIDO = [
     detail: "Vendé todo lo que puedas: no cobramos por ticket.",
   },
   {
+    label: "10.000 créditos de IA por mes",
+    detail: "Para preguntarle a Punto AI por tus números y tus reportes.",
+  },
+  {
     label: "Soporte online 24/7",
     detail: "Te respondemos cualquier día, a cualquier hora.",
   },
@@ -73,6 +77,10 @@ const FAQS = [
   {
     q: "¿Me ayudan a cargar mis productos?",
     a: "Sí. Te acompañamos en la puesta en marcha y podés importar tu catálogo y tus clientes desde una planilla en vez de cargarlos a mano.",
+  },
+  {
+    q: "¿Qué son los créditos de IA y para qué alcanzan?",
+    a: "Son el consumo de Punto AI, el asistente que responde sobre los datos de tu negocio. El plan incluye 10.000 créditos por mes, que cubren de sobra el uso normal de un comercio: preguntar cómo viene el mes, pedir un reporte o revisar qué producto dejó más margen. Si tu equipo lo usa mucho más, se pueden sumar créditos aparte.",
   },
   {
     q: "¿El precio promocional sube después?",
