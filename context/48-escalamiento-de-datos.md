@@ -49,7 +49,7 @@ necesario pero no alcanza:
   catálogo de `context/47` no anticipó) — eso necesita, en el techo,
   un motor analítico aparte (E5).
 
-## Decisiones (D1-D7)
+## Decisiones (D1-D8)
 
 **D1 — Una sola base de datos, particionada por dentro. NO tres bases
 físicas — pero SÍ se adopta la inmutabilidad por cierre de período que
@@ -257,6 +257,54 @@ Consecuencias:
   día N del mes siguiente al vencimiento de la ventana; también debe
   poder cerrarse manualmente desde el panel con permiso de owner (fuera
   del cron, para cerrar antes si el tenant lo pide).
+
+**D8 — El grano del rollup lo definen los filtros, no las métricas.**
+Observación del owner (2026-08-21), textual en esencia: "si sumo las ventas
+del 2025 puedo tenerlas en 12 registros, pero ¿qué pasa si quiero solo las
+al contado y no a crédito? De esos meses ya sumados no tengo cómo extraer
+cuáles son contado y cuáles crédito — y así como esa hay muchas variables".
+Es exactamente el problema: **un agregado solo se puede filtrar por las
+dimensiones que forman parte de su clave**; todo filtro que no esté en la
+clave se perdió al sumar. Y hoy pasa: `rollup_recompute_period` suma
+`transactionType IN (0, 3)` en la misma fila (mig 41 líneas 60/150) y la
+clave del grano es solo `companyId, domain, periodType, periodStart,
+outletId` (`uq_report_rollup_grain`) — "ventas al contado del año" NO sale
+del rollup actual.
+
+Decisiones:
+- **Grano diario único, ancho en dimensiones, no muchos dominios angostos.**
+  Para ventas: `día × outletId × registerId × condición (contado/crédito) ×
+  tipo de documento × estado (vigente/anulada)`. Unas 10-30 filas por día por
+  tenant (~5-10k al año) y de ahí sale CUALQUIER combinación con `SUM` +
+  `WHERE`: todo el año, solo contado, una sucursal, solo anuladas. Mes y año
+  NO se almacenan aparte: se derivan del diario (menos filas que mantener,
+  una sola fuente). Para `item_sales`: `día × outletId × itemId ×
+  categoría congelada` (acotado por ítems distintos vendidos ese día, no por
+  el catálogo entero). Para `payments`: `día × outletId × medio de pago ×
+  condición`.
+- **Regla para decidir qué entra en la clave**: cardinalidad baja y uso real
+  como filtro. Sucursal, caja, condición, tipo, estado, medio de pago,
+  categoría, vendedor: SÍ. Cruces de alta cardinalidad entre sí (ítem ×
+  cliente, ítem × vendedor × hora): NO — el producto de cardinalidades da un
+  agregado más grande que la tabla de hechos. Esas preguntas van a la fact
+  particionada (D3) con índice compuesto (D4) y techo de rango.
+- **El catálogo de `context/47` declara por dataset qué filtros son
+  dimensiones del rollup y cuáles obligan a ir en vivo.** Un filtro fuera de
+  la clave nunca "aproxima" desde el rollup: o va en vivo con techo, o se
+  rechaza. Es la regla que evita que un dashboard devuelva un número que
+  parece correcto y no lo es.
+- **Toda dimensión del rollup tiene que estar CONGELADA en el hecho al
+  momento de la venta**, nunca resolverse por JOIN al catálogo actual. Si el
+  rollup por categoría mirara la categoría de HOY del ítem, recategorizar un
+  producto cambiaría el histórico solo — incompatible con D7. Mismo criterio
+  que el IVA congelado por línea (`context/38`) y que `itemSold.
+  itemSoldCategory`, que ya existe para esto. Dimensión nueva en el rollup ⇒
+  columna congelada en la fact, o no entra.
+- **Migración**: la clave de `report_rollup` se amplía (mig nueva) y las
+  funciones de recompute se reescriben una vez con el grano definitivo;
+  después se recomputa todo desde `rollup_dirty` (hoy la tabla está vacía en
+  prod, así que el costo es cero). Hacerlo ANTES de E2 — agregar dominios
+  sobre el grano viejo es trabajo que habría que rehacer.
 
 ## Etapas — señal de activación, no calendario
 
