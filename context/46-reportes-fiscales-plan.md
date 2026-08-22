@@ -47,7 +47,7 @@ de la tabla).
 | N° de comprobante estructurado (EEE-PPP-NNNNNNN) | **No persiste por transacción.** `transaction.invoicePrefix` queda VACÍO para ventas normales — `SaleService::buildTransactionRecord()` no lo incluye en el INSERT. El EEE-PPP se reconstruye en el momento de leer desde `register.data` (ver fila anterior). Consecuencia: si el timbrado de una caja cambió después de una venta vieja, el reporte de esa venta muestra el timbrado ACTUAL, no el vigente al vender — mismo patrón de riesgo que "tasa vigente vs congelada" en EInvoice (`context/28`). Ver Decisión abierta #2 — **desactualizado desde 2026-08-18**: la mig 145 congela el timbrado en la transacción (`invoiceauth`/`invoiceauthstart`/`invoiceauthexpiration`); el reconstruido desde `register.data` queda solo como fallback para filas previas a esa migración |
 | IVA por línea, congelado — **VENTAS** | **Existe desde F2a** — `groupTaxByRate()` agrupa por tasa sobre las líneas ya congeladas y persiste `[{taxId,rate,kind,base,amount}]` en la tabla `toTaxObj` (`SaleService.php:1995-2044`, INSERT en `SaleService.php:671-675`) |
 | IVA por línea, congelado — **COMPRAS** | **No existe agregado por tasa.** Grep de `toTaxObj` en `api/lib/Purchases/` (incluye `PurchaseCreditNoteService.php`) es vacío. Solo hay `itemSold.taxId`/`itemSoldTax` por línea, sin agregación |
-| `toTaxObjText` — límite de tamaño | **Bug conocido, bloqueante para F5**: `VARCHAR(255)` (`db-schema-postgres.sql:532`, en la raíz del repo). Con ~6+ tasas el JSON excede 255 chars → Postgres aborta por truncación (22001) y la venta entera falla (`SaleAbortedException`, comentado en `SaleService.php:664-670`) |
+| `toTaxObjText` — límite de tamaño | **RESUELTO (mig `124_totaxobj_text_widen.sql`)**: la columna ya es `text`, no `VARCHAR(255)`. Ya no bloquea F5. |
 | RUC / razón social contraparte | `contact.contactTIN` (RUC), `contact.contactCI` (cédula) — confirmados (`db-schema-postgres.sql:219-220`). No existe columna de "tipo de documento" (pasaporte/cédula extranjera/diplomático) ni de "innominado" en `contact` |
 | Timbrado por caja | Vive en `register.data` JSONB, leído en `EInvoiceProvisioningService::registerStamps()` (query en línea 458-460) |
 | `einvoice_document` (CDC, número fiscal real, estado SIFEN) | `cdc`/`doctype` nacen en mig `92_einvoice.sql:63-83`; `document_number`/`sifen_status`/`sifen_result` se agregan en mig `95_einvoice_factomate.sql` (ALTER TABLE, líneas 93/96/99) |
@@ -264,7 +264,9 @@ tabla de agregación nueva.
 1. **Compras necesitan el mismo congelado por tasa que ventas** (extender
    `groupTaxByRate`/`toTaxObj` a `PurchasesService`/`PurchaseCreditNoteService`).
    Continuación directa de F2 de `context/38`, no trabajo nuevo inventado acá.
-2. **`toTaxObjText` deja de ser `VARCHAR(255)`** — ampliar a `TEXT`.
+2. ~~**`toTaxObjText` deja de ser `VARCHAR(255)`**~~ — **RESUELTO**: la
+   columna ya es `text` desde la mig `124_totaxobj_text_widen.sql`. Deja de
+   ser un blocker de F5.
 3. **Corregir el signo de `toTaxObj` en devoluciones** (hoy positivo, cuando
    `itemSoldTax`/`transactionTax` van negativos) antes de sumarlo en un
    período.
@@ -320,16 +322,18 @@ Un generador de archivo por período, no 3 páginas de solo-lectura.
 
 | Fase | Contenido | Depende de |
 |---|---|---|
-| **F5.0** | Fix de datos: `toTaxObjText` a `TEXT`; corregir signo en devoluciones; extender `groupTaxByRate`/`toTaxObj` a compras y NC de compra | F2 de context/38 (cerrado en ventas, se completa acá para compras) |
+| **F5.0** | Fix de datos: ~~`toTaxObjText` a `TEXT`~~ **RESUELTO** (mig 124); sigue pendiente corregir signo en devoluciones y extender `groupTaxByRate`/`toTaxObj` a compras y NC de compra | F2 de context/38 (cerrado en ventas, se completa acá para compras) |
 | **F5.1** | Exponer `sifen_status='Aprobado'` como filtro reusable de exclusión | Nada nuevo — dato ya existe (mig 95) |
 | **F5.2** | Generador de archivo VENTAS: service (filtro numeración fiscal + exclusión e-invoice + selectores de imputación en tiempo de generación) + página de preview + descarga ZIP (tab-delimited, CRLF, sin encabezado, batching 5.000) | F5.0 + F5.1 |
 | **F5.3** | Generador de archivo COMPRAS: mismo patrón, incluye NC de compra (tipo 14). **Validar contra un archivo real de Compras antes de dar por buena la spec del PDF** (§2.3) | F5.0 |
 | **F5.4** (descartado, no reabrir) | INGRESOS/EGRESOS | Decisión cerrada del owner — fuera de alcance |
 
-F5.0 es el corte delicado: toca `PurchasesService`/`PurchaseCreditNoteService`
+F5.0 sigue siendo el corte delicado en lo que le queda (extender
+`groupTaxByRate`/`toTaxObj` a `PurchasesService`/`PurchaseCreditNoteService`
 en producción, mismo tipo de riesgo que F2 de `context/38` cuando tocó
-`SaleService`. F5.1 es aditivo, bajo riesgo. F5.2/F5.3 son de solo lectura
-sobre datos ya congelados.
+`SaleService`) — el fix de ancho de columna ya no es parte del riesgo, está
+resuelto. F5.1 es aditivo, bajo riesgo. F5.2/F5.3 son de solo lectura sobre
+datos ya congelados.
 
 ## 6. Decisiones cerradas por el owner (no reabrir)
 
