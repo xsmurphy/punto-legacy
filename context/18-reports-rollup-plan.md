@@ -1,5 +1,19 @@
 # Plan: Tablas de Rollup para Reportes (pre-agregación)
 
+> **Actualización 2026-08-22 (D8 de `context/48-escalamiento-de-datos.md`,
+> mig 158):** los dominios `sales`/`item_sales`/`payments`/`returns`/
+> `item_returns` de `report_rollup` (descriptos más abajo) fueron
+> REEMPLAZADOS por tres tablas tipadas de grano día único —
+> `rollup_sales_day`, `rollup_item_sales_day`, `rollup_payments_day` — para
+> poder filtrar por dimensión (contado vs crédito, vigente vs anulada,
+> canal) sin perderla al sumar. `returns`/`item_returns` ya no son
+> dominios propios: viven como `kind='devolucion'` con signo negativo
+> dentro de `sales`/`item_sales`. `report_rollup` queda vigente SOLO para
+> `expenses`/`drawer_expenses` hasta que E2 (`context/48`) los migre
+> también. El resto de este doc describe el diseño genérico original —
+> sigue aplicando a esos dos dominios; para el esquema nuevo, ver
+> `context/48` D8 y `RollupReader.php`.
+
 **Estado:** En ejecución (iniciado 2026-06-21).
 **Objetivo:** consultar rangos amplios (ej. ventas por año × 5 años, productos vendidos × 12 meses) en O(períodos) en vez de O(filas), pre-agregando las tablas que crecen sin techo en buckets día/mes/año.
 

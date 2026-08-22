@@ -441,6 +441,43 @@ SELECT SUM(net) FROM rollup_sales_day
    AND kind = 'contado' AND status = 'vigente';
 ```
 
+**D8 — Implementado 2026-08-22 (mig 158_rollup_daily_grain.sql).** Tablas
+finales, tal cual el esquema cerrado arriba salvo lo siguiente:
+
+- `rollup_item_sales_day` suma 3 columnas al esquema cerrado —
+  `comission`, `discountflat`, `cogsabsflat` — para no perder métricas que
+  el `extra` jsonb del `report_rollup` viejo sí tenía y que
+  CategoriesService/BrandsService consumen. `discount` (la del esquema
+  cerrado) preserva a propósito una fórmula con lo que probablemente sea
+  un bug de escala del rollup viejo (`itemsolddiscount * itemsoldunits`,
+  cuando `itemsolddiscount` ya es un total de línea) — se mantiene así
+  para no romper la paridad numérica de CategoriesService; `discountflat`
+  es el valor correcto sin multiplicar (el que ya usaba BrandsService).
+- Columnas congeladas nuevas: `itemsold.taxrate`/`itemsold.taxkind`
+  ('rate'|'exempt' — el motor real usa esos valores, NO 'vat') y
+  `transaction.channel` ('mostrador'|'mesa'|'delivery'). `channel` se
+  resuelve en dos tiempos: `SaleService` distingue mostrador/delivery por
+  `addressId` al emitir; `OrderCoreService::markPaid()` sobre-escribe a
+  'mesa' cuando la venta se vincula a una orden de mesa/espacio (esa
+  información no existe todavía cuando se emite la venta).
+- Hallazgo de esta sesión: `itemSold.itemSoldCategory` — que el plan
+  original de D8 asumía ya congelada — en realidad NUNCA se poblaba
+  (cero writers). Se cerró: `SaleService` la congela desde `item.categoryId`
+  al vender; `ReturnService` la copia de la línea original. Backfill
+  histórico con la categoría ACTUAL (aproximación, no hay forma de
+  reconstruir la de hace un año).
+- `ReturnService` tampoco llamaba `rollupMarkDirty` nunca (otro hallazgo) —
+  las devoluciones no entraban al rollup en absoluto. Corregido: marca
+  `['sales','item_sales','payments']` post-commit, igual que
+  `SaleService`/`SaleVoidService`.
+- `fn_period_guard` (mig 157) permite ahora que un `UPDATE` que solo toca
+  `channel` (además de `transactioncomplete`/`updated_at`) pase aunque el
+  período esté cerrado — necesario para que `markPaid()` pueda clasificar
+  el canal de una venta vieja sin chocar con el guard de inmutabilidad.
+- `RollupReader` mantiene las mismas firmas públicas; suma
+  `salesDaily(company, from, to, filters)` sin endpoint todavía — es la
+  base que va a consumir `context/47`.
+
 **D9 — Backups: cambiar el método, no el número de bases.** Objeción del
 owner (2026-08-21): "¿conviene que el histórico conviva con la base
 caliente? Imaginá backups diarios con 20 GB de histórico". Es legítima,
