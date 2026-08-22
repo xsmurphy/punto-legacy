@@ -684,6 +684,43 @@ final class DrawerService
     // ========================================================================
 
     /**
+     * "Sin caja" → null, para TODO resolver de drawer que reciba un registerId.
+     *
+     * `registerId` vacío/null NO es un dato corrupto: es el estado REAL de todo
+     * lo que se opera desde el panel, sin caja de por medio. El caso testigo es
+     * el pago a proveedor — `PurchasesService` nunca setea `registerId` en la
+     * compra (la carga es de backoffice), así que `CreditPaymentService::
+     * insertReceipt()` lee la columna NULL del parent y la castea a `''`.
+     *
+     * Por qué la normalización va acá y no en cada call-site: mandar `''` como
+     * parámetro `?` contra una columna `uuid` tira "invalid input syntax for
+     * type uuid", y ese error ENVENENA la transacción Postgres que envuelve la
+     * llamada (`StartTrans()` de `CreditPaymentService::create/
+     * createDistributed`). El `catch` del resolver atrapa la excepción y
+     * devuelve null sin ruido, pero cualquier statement posterior DENTRO de la
+     * misma transacción —el INSERT real del recibo— sale con "25P02 current
+     * transaction is aborted": el pago a proveedor fallaba con 500 SIEMPRE, no
+     * solo el helper. Un `catch` nunca puede reparar eso; hay que no tocar la
+     * DB.
+     *
+     * El guard existía SOLO dentro de `resolveOpenDrawerId`, y
+     * `resolveDrawerIdForDate` —que su propio docblock declara "el reemplazo
+     * correcto" para el money-path— nació sin él y reintrodujo el mismo 500.
+     * Centralizarlo es lo que hace que el próximo resolver de esta familia no
+     * pueda volver a escribirse sin la normalización.
+     *
+     * Solo para los resolvers de LECTURA, donde null es una respuesta válida
+     * ("esta operación no cuelga de ningún turno"). Los caminos de ESCRITURA
+     * (`open()`/`close()`) exigen una caja real y validan el registerId
+     * aguas arriba — ahí un vacío es un error de contexto, no un null legítimo.
+     */
+    private static function registerIdOrNull(?string $registerId): ?string
+    {
+        $registerId = trim((string) $registerId);
+        return $registerId === '' ? null : $registerId;
+    }
+
+    /**
      * drawerId de la caja ABIERTA de un register (scopeado por company), o null.
      * Responde "¿hay caja abierta AHORA MISMO?" — legítimo para guards de
      * abrir/cerrar caja, pero NUNCA para sellar `transaction.drawerId` en el
@@ -698,20 +735,10 @@ final class DrawerService
      * el money-path no siempre lo tiene a mano (el credit payment toma el
      * register del parent).
      */
-    public static function resolveOpenDrawerId(string $registerId, string $companyId): ?string
+    public static function resolveOpenDrawerId(?string $registerId, string $companyId): ?string
     {
-        // registerId='' es un valor REAL que produce el pago a proveedor
-        // (PurchasesService nunca setea registerId — ver CreditPaymentService::
-        // insertReceipt) — mandarlo tal cual como parámetro `?` contra una
-        // columna uuid tira "invalid input syntax for type uuid" y ese error
-        // ENVENENA la transacción Postgres que lo envuelve (StartTrans() de
-        // CreditPaymentService::create/createDistributed): el catch de abajo
-        // atrapa la excepción y devuelve null sin problema, pero cualquier
-        // statement posterior DENTRO de la misma transacción (el INSERT real
-        // del recibo) sale con "25P02 current transaction is aborted" — el
-        // pago a proveedor fallaba con 500 SIEMPRE, no solo este helper.
-        // Cortar acá antes de tocar la DB es la raíz, no un catch más.
-        if ($registerId === '') {
+        $registerId = self::registerIdOrNull($registerId);
+        if ($registerId === null) {
             return null;
         }
         try {
@@ -758,8 +785,12 @@ final class DrawerService
      * Mismo centinela legacy que `resolveOpenDrawerId`/`findOpenRow`:
      * `drawerCloseDate < '2000-01-01 00:00:00'` cuenta como "sigue abierto".
      */
-    public static function resolveDrawerIdForDate(string $registerId, string $companyId, ?string $operationDate): ?string
+    public static function resolveDrawerIdForDate(?string $registerId, string $companyId, ?string $operationDate): ?string
     {
+        $registerId = self::registerIdOrNull($registerId);
+        if ($registerId === null) {
+            return null;
+        }
         if ($operationDate === null || $operationDate === '' || strtotime($operationDate) === false) {
             return null;
         }
