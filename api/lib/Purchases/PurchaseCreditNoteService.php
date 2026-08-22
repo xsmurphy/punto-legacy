@@ -325,8 +325,8 @@ final class PurchaseCreditNoteService
                     'INSERT INTO itemSold (
                         itemsoldid, itemid, transactionid,
                         itemsoldunits, itemsoldtotal, itemsolddiscount, itemsoldtax,
-                        itemsolddate, meta
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?)',
+                        itemsolddate, meta, companyid, outletid
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, ?, ?)',
                     [
                         $itemSoldId,
                         $pi['itemId'],
@@ -338,6 +338,13 @@ final class PurchaseCreditNoteService
                         $pi['lineDiscount'],
                         $pi['lineTax'],
                         json_encode($pi['taxId'] !== null && $pi['taxId'] !== '' ? ['taxId' => $pi['taxId']] : []),
+                        // D4 de context/48-escalamiento-de-datos.md (mig 156).
+                        // Sin registerid: esta transacción (tipo 14, NC de
+                        // compra) no tiene columna registerid — es un flujo
+                        // de panel, no de caja (ver INSERT de `transaction`
+                        // más arriba en este mismo método).
+                        $companyId,
+                        $outletId,
                     ]
                 );
 

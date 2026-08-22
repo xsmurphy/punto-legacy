@@ -2058,6 +2058,15 @@ final class SaleService
                 'itemSoldDate'      => $input->date,
                 'transactionId'     => $transId,
                 'userId'            => !empty($sD['user']) ? (string) $sD['user'] : null,
+                // D4 de context/48-escalamiento-de-datos.md (mig 156):
+                // itemSold gana estas 3 columnas denormalizadas para poder
+                // filtrar reportes por sucursal/caja sin JOIN a transaction
+                // (que tras el particionado es más caro). Mismos valores que
+                // buildTransactionRecord() ya usó para el INSERT de arriba —
+                // no hace falta releer nada.
+                'companyId'         => $this->ctx->companyId,
+                'outletId'          => $this->ctx->outletId,
+                'registerId'        => $this->ctx->registerId,
             ];
             $itemSoldDescription = $this->resolveItemSoldDescription($sD);
             if ($itemSoldDescription !== null) {
@@ -2393,6 +2402,11 @@ final class SaleService
                 'itemSoldDate'      => $input->date,
                 'transactionId'     => $transId,
                 'userId'            => !empty($sD['user']) ? (string) $sD['user'] : null,
+                // D4 de context/48-escalamiento-de-datos.md (mig 156) — ver
+                // el comentario gemelo en persistItemsAndStock() más arriba.
+                'companyId'         => $this->ctx->companyId,
+                'outletId'          => $this->ctx->outletId,
+                'registerId'        => $this->ctx->registerId,
             ];
             $itemSoldDescription = $this->resolveItemSoldDescription($sD);
             if ($itemSoldDescription !== null) {
