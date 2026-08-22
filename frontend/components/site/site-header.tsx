@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import { ChevronDown } from "lucide-react"
 
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { MobileNav } from "@/components/site/mobile-nav"
 import { ModulosMenu, RubrosMenu } from "@/components/site/nav-menus"
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
@@ -127,7 +128,7 @@ export function SiteHeader() {
           </Link>
         </nav>
 
-        <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-2 md:flex">
           <Button
             asChild
             variant="ghost"
@@ -150,6 +151,7 @@ export function SiteHeader() {
             <Link href={SIGNUP_URL}>Empezar</Link>
           </Button>
         </div>
+        <MobileNav overlay={overlay} />
       </div>
     </header>
   )
