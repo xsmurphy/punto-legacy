@@ -58,7 +58,7 @@ if ($method === 'POST') {
         // expedición y el número desde el que arranca es dato del timbrado que
         // la SET le autorizó, no una config posterior.
         $extra = [];
-        foreach (['fiscal', 'numbering', 'range'] as $k) {
+        foreach (['fiscal', 'numbering', 'range', 'padWidth'] as $k) {
             if (isset($body[$k]) && is_array($body[$k])) { $extra[$k] = $body[$k]; }
         }
         apiOk($adminSvc->create($reqOutletId, $name, $extra));
@@ -76,6 +76,10 @@ if ($method === 'POST') {
         // `document_sequence`; ver RegisterAdminService::update.
         if (isset($body['numbering']) && is_array($body['numbering'])) { $fields['numbering'] = $body['numbering']; }
         if (isset($body['range']) && is_array($body['range']))         { $fields['range']     = $body['range']; }
+        // Cantidad de dígitos del correlativo impreso, por documento (mig
+        // 158). Es formato, no número: viaja aparte de `numbering` porque el
+        // valor guardado sigue siendo el entero.
+        if (isset($body['padWidth']) && is_array($body['padWidth']))   { $fields['padWidth']  = $body['padWidth']; }
         // Control de caja a ciegas — flag panel-only (el device lo lee en
         // GET ?resource=config pero su PUT no puede tocarlo).
         if (isset($body['blindControl'])) {

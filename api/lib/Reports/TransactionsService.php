@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\Api\Documents\DocumentNumber;
+
 /**
  * Dominio de Reportes — Pagos y Transacciones / Transactions (API compartida, motor ERP).
  *
@@ -125,14 +127,21 @@ final class TransactionsService
             if ($type === '6' && ($reg['returnPrefix'] ?? null) !== null) {
                 $invoicePrefix = (string) $reg['returnPrefix'];
             }
-            $lead = (int) ($reg['docsLeadingZeros'] ?? 0);
+            // Ancho del TALONARIO de este documento (mig 159). La devolución
+            // (type 6) no tiene talonario propio todavía, así que hereda el de
+            // la factura — que es el ancho con el que esa caja viene
+            // imprimiendo. `null` → el default legal de `DocumentNumber`.
+            $padWidth  = $this->padWidthFor($reg, $type);
             $invoiceNo = (string) ($f['invoiceNo'] ?? '');
-            $paddedNo  = $lead > 0 ? str_pad($invoiceNo, $lead, '0', STR_PAD_LEFT) : $invoiceNo;
 
             $tagsArr = $this->decodeTags($f['tags'] ?? null);
             if ($tagsArr && (in_array('166227', $tagsArr, false))) {
-                $invoicePrefix = ''; $invoiceAuth = ''; $paddedNo = $invoiceNo;
+                // Documento marcado como interno: no lleva timbrado, así que
+                // tampoco lleva el formato fiscal. `padWidth = 1` es "sin
+                // relleno" (todo número tiene al menos un dígito).
+                $invoicePrefix = ''; $invoiceAuth = ''; $padWidth = 1;
             }
+            $paddedNo = DocumentNumber::pad($invoiceNo, $padWidth);
             $tagNames = $this->tagNames($tagsArr, $companyId);
 
             $custId = (string) $f['customerId'];
@@ -150,9 +159,10 @@ final class TransactionsService
                 // ninguna lectura válida. El guión va SOLO si hay las dos
                 // partes: con prefijo y sin número (ventas no fiscales) no
                 // puede quedar un "001-001-" colgado.
-                'docNo'               => ($invoicePrefix !== '' && $paddedNo !== '')
-                    ? $invoicePrefix . '-' . $paddedNo
-                    : $invoicePrefix . $paddedNo,
+                // Formateador único (mig 159): mismo string que imprime el
+                // ticket y que muestra el detalle. Antes cada consumidor
+                // componía el suyo y ya habían divergido en el separador.
+                'docNo'               => DocumentNumber::format($invoiceNo, $invoicePrefix, $padWidth),
                 'invoiceNo'           => $invoiceNo,
                 'date'                => (string) $f['transactionDate'],
                 'dueDate'             => (string) ($f['transactionDueDate'] ?? ''),
@@ -253,7 +263,16 @@ final class TransactionsService
             $rows[] = [
                 'transactionId' => (string) $f['transactionId'],
                 'parentId'      => $pid,
-                'parentInvoice' => trim(((string) ($parentReg['invoicePrefix'] ?? '')) . ' ' . ((string) ($p['invoiceNo'] ?? ''))),
+                // La factura de origen se muestra con el MISMO formato que en
+                // el listado de ventas. Antes acá se componía con un espacio
+                // y sin padding: la misma factura se veía "001-001 2129" en
+                // cobros y "001-001-0002129" en ventas.
+                'parentInvoice' => DocumentNumber::format(
+                    $p['invoiceNo'] ?? null,
+                    (string) ($parentReg['invoicePrefix'] ?? ''),
+                    // El padre es siempre una venta (parentInvoices filtra 0,3).
+                    $this->padWidthFor($parentReg, 0),
+                ),
                 'invoiceNo'     => (string) ($f['invoiceNo'] ?? ''),
                 'date'          => (string) $f['transactionDate'],
                 'customerName'  => $custId ? ($contacts[$custId]['name'] ?? '') : '',
@@ -568,11 +587,42 @@ final class TransactionsService
     }
 
     /**
-     * registers → {name, invoiceAuth, invoicePrefix, docsLeadingZeros, returnPrefix}
+     * Ancho del talonario que le corresponde a una transacción, sacado de una
+     * fila de `registerInfo()`.
+     *
+     * Público porque los otros dos consumidores del formato lo necesitan con
+     * el MISMO criterio (`Transactions\TransactionDetailService::find()` y
+     * `Reports\FiscalService`). Duplicar este `??` en cada uno es exactamente
+     * cómo se separaron los tres `str_pad` que la mig 159 viene a unificar.
+     *
+     * Los documentos sin talonario propio todavía (devolución type 6, pago de
+     * crédito type 5) heredan el de la FACTURA: es el ancho con el que esa
+     * caja viene imprimiendo, no el default genérico. `null` = sin dato →
+     * `DocumentNumber` pone el default legal.
+     *
+     * @param array<string,mixed> $reg fila de registerInfo()
+     */
+    public function padWidthFor(array $reg, int|string|null $saleType): ?int
+    {
+        $widths  = is_array($reg['padWidth'] ?? null) ? $reg['padWidth'] : [];
+        $docType = DocumentNumber::docTypeForSaleType($saleType);
+
+        return $widths[$docType] ?? $widths['factura'] ?? null;
+    }
+
+    /**
+     * registers → {name, invoiceAuth, invoicePrefix, padWidth, returnPrefix}
      *
      * Público (F1, context/39-detalle-transaccion.md): `Transactions\TransactionDetailService::find()`
      * lo reusa para resolver timbrado/prefix del detalle — mismo criterio que
      * el listado, sin duplicar la lectura de `register.data` JSONB.
+     *
+     * `padWidth` es un mapa docType → ancho (mig 159), no un escalar: el ancho
+     * es propiedad del TALONARIO, y una caja lleva uno por documento (factura
+     * y cotización comparten la columna `invoiceNo` pero son dos talonarios).
+     * Reemplaza al `registerDocsLeadingZeros` de `register.data`, que era un
+     * ancho único para toda la caja y que los tres consumidores padeaban por
+     * su cuenta con resultados divergentes (ver `DocumentNumber::format`).
      */
     public function registerInfo(array $ids, string $companyId): array
     {
@@ -581,6 +631,21 @@ final class TransactionsService
             return [];
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
+
+        // Anchos de TODAS las secuencias de estas cajas en UNA query — el
+        // formateo de un listado no puede hacer un SELECT por fila (por eso
+        // `DocumentNumber::formatFor()` no se usa acá).
+        $padByRegister = [];
+        $seqRes = ncmExecute(
+            "SELECT scopeid, doctype, padwidth
+               FROM document_sequence
+              WHERE companyid = ? AND scopetype = 'register' AND scopeid IN ($ph)",
+            array_merge([$companyId], $ids), false, false, true
+        );
+        foreach (is_array($seqRes) ? $seqRes : [] as $s) {
+            $padByRegister[(string) $s['scopeid']][(string) $s['doctype']] = (int) $s['padwidth'];
+        }
+
         // Migración 26 (2026-06-13): registerInvoiceAuth/Prefix/DocsLeadingZeros
         // viven en `data` JSONB. `SELECT *` deja que ncmExecute aplique
         // `_flattenJsonb` y exponga las keys del JSONB como columnas virtuales
@@ -606,7 +671,12 @@ final class TransactionsService
                 'name'             => (string) ($r['registerName'] ?? ''),
                 'invoiceAuth'      => (string) ($r['registerInvoiceAuth'] ?? ''),
                 'invoicePrefix'    => (string) ($r['registerInvoicePrefix'] ?? ''),
-                'docsLeadingZeros' => (int) ($r['registerDocsLeadingZeros'] ?? 0),
+                // docType → ancho. Ya NO sale de `register.data`: el legacy
+                // `registerDocsLeadingZeros` quedó backfilleado en
+                // `document_sequence.padwidth` por la mig 159 y esta es la
+                // única lectura viva. Vacío = el default legal de 7 lo pone
+                // `DocumentNumber::format()`.
+                'padWidth'         => $padByRegister[(string) $r['registerId']] ?? [],
                 'returnPrefix'     => isset($r['registerReturnPrefix'])
                     ? (string) $r['registerReturnPrefix'] : null,
             ];

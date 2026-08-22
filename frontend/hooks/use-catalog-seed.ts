@@ -95,6 +95,8 @@ export function useCatalogSeed() {
           activeRegisterId: bootstrap.activeRegisterId,
           taxes: bootstrap.taxes,
           outletTaxIncluded: bootstrap.outletTaxIncluded,
+          // mig 158 — formato del correlativo impreso, no el número.
+          invoicePadWidth: bootstrap.invoicePadWidth ?? null,
           categories: bootstrap.categories ?? [],
           brands: bootstrap.brands ?? [],
           printTemplates: bootstrap.printTemplates ?? [],

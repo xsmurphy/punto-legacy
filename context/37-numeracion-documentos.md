@@ -194,6 +194,39 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
   el `MAX` de `numbering_lease` (facturas) y el piso de
   `register.data.registerNumbering`. Los 9 contadores legacy y el piso quedan
   obsoletos y se retiran en F2 — la tabla los subsume.
+- **D7 — Ancho del correlativo (`padwidth`).** CERRADA 2026-08-22 (mig 159).
+  Reporte del tester: en Sucursal › Cajas, tipear `00002129` en "Próxima
+  factura" guardaba `2129`. Pedía elegir la cantidad de dígitos.
+
+  **Decisión: el correlativo se guarda ENTERO; los ceros son FORMATO.** No se
+  guarda "00002129" como texto. `nextnumber` e `invoiceNo` son BIGINT porque
+  el asignador hace `nextnumber + 1`, el timbrado corta contra `rangeto` y la
+  unicidad por caja (mig 145) es sobre el entero — con texto, `"00002129" >
+  "10"` sería falso y todo eso se rompe.
+
+  El ancho se declara al lado de la secuencia: `document_sequence.padwidth`
+  (`smallint`, CHECK 1..12, DEFAULT 7 = formato fiscal PY `EEE-PPP-NNNNNNN`,
+  context/29 §1). Es propiedad del TALONARIO, no de la caja: NC, ND y remisión
+  llevan timbrado propio, y `document_sequence` ya está partida por doctype.
+
+  **Un solo formateador por lado.** `DocumentNumber::format/pad/formatFor` en
+  PHP y `lib/documents/format-document-number.ts` en el front. Antes convivían
+  cuatro formatos para el mismo número — `prefix-NNNNNNN` con padding 7
+  hardcodeado (compras), `prefix+NNNN` sin separador (detalle de transacción),
+  `prefix-NNNN` con el ancho de la caja (listado de ventas) y `prefix NNNN`
+  con espacio (cobros). El mismo documento se veía distinto según la pantalla.
+
+  **Legacy retirado.** `register.data.registerDocsLeadingZeros` (mig 26, sin
+  UI, un ancho único para toda la caja) quedó backfilleado en `padwidth`. Su
+  semántica real era ANCHO TOTAL, no "cantidad de ceros" como decía el
+  comentario de la mig 26 — manda el uso: los tres consumidores lo pasaban
+  como segundo argumento de `str_pad`. Ya no lo lee nadie.
+
+  **Inferencia por compatibilidad.** Si el PUT trae `next` con ceros a la
+  izquierda y no manda `padWidth`, se toma `padwidth = strlen(raw)`: el ancho
+  tipeado es la intención expresada, no se descarta en silencio. `padWidth`
+  explícito (el `<Select>` del form) siempre gana.
+
 - **D5 — Fin de rango del timbrado.** PENDIENTE, pero ya no bloquea nada:
   el corte duro en `rangeTo` está implementado (es el mínimo legal). Lo que
   falta decidir es el PREAVISO: a cuántos números del techo avisar y dónde

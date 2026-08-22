@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Documents;
 
+use Punto\Api\Sales\SaleType;
+
 /**
  * Asignador único de numeración correlativa de documentos (context/37, mig 117).
  *
@@ -44,6 +46,13 @@ final class DocumentNumber
     public const SCOPE_REGISTER = 'register';
     public const SCOPE_OUTLET   = 'outlet';
     public const SCOPE_COMPANY  = 'company';
+
+    /**
+     * Ancho por defecto del correlativo impreso: `EEE-PPP-NNNNNNN`, formato
+     * fiscal PY (context/29 §1). Espejo del DEFAULT de
+     * `document_sequence.padwidth` (mig 159) — si cambia uno, cambia el otro.
+     */
+    public const DEFAULT_PAD_WIDTH = 7;
 
     /**
      * Reserva y devuelve el próximo número del documento.
@@ -190,4 +199,151 @@ final class DocumentNumber
         return $row ? (int) ($row['nextnumber'] ?? 1) : 1;
     }
 
+    // ════════════════════════════════════════════════════════════════════
+    //  FORMATO — el correlativo es un entero; los ceros son presentación
+    // ════════════════════════════════════════════════════════════════════
+    //
+    // `nextnumber` e `invoiceNo` son BIGINT a propósito: el asignador hace
+    // `nextnumber + 1`, el timbrado compara contra `rangeto` y la unicidad
+    // por caja (mig 145) es sobre el entero. Meter los ceros DENTRO del valor
+    // obligaría a que todo eso fuera texto y "00002129" > "10" sería falso.
+    //
+    // Por eso hay UN solo formateador y vive acá, al lado del asignador: el
+    // ancho es un atributo del talonario (`document_sequence.padwidth`,
+    // mig 159), igual que el prefijo y el rango. Antes cada consumidor hacía
+    // su propio `str_pad` leyendo `register.data.registerDocsLeadingZeros`,
+    // y ya habían divergido: TransactionDetailService componía
+    // `prefix . numero` (sin guion) mientras FiscalService y
+    // TransactionsService componían `prefix . '-' . numero`. El mismo
+    // documento salía con dos números distintos según qué pantalla lo
+    // pintara.
+
+    /**
+     * Correlativo con ceros a la izquierda, SIN prefijo.
+     *
+     * Devuelve '' para un número ausente o < 1: una transacción sin
+     * `invoiceNo` no tiene número, y rellenarla daría el "0000000" fantasma
+     * que producía el `str_pad('')` de los call-sites viejos.
+     */
+    public static function pad(int|string|null $number, ?int $padWidth = null): string
+    {
+        $n = (int) $number;
+        if ($n < 1) {
+            return '';
+        }
+        $w = self::normalizePadWidth($padWidth);
+
+        return str_pad((string) $n, $w, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Número de documento completo, tal como se imprime: `001-001-0002129`.
+     *
+     * El guion entre prefijo y correlativo es parte del formato fiscal PY
+     * (context/29 §1). Sin prefijo devuelve solo el correlativo padeado —
+     * NO inventa un separador huérfano.
+     *
+     * @param string|null $prefix "EEE-PPP" del timbrado, o el prefijo de
+     *                            devolución cuando el documento es una NC.
+     */
+    public static function format(
+        int|string|null $number,
+        ?string $prefix = null,
+        ?int $padWidth = null,
+    ): string {
+        $padded = self::pad($number, $padWidth);
+        $pfx    = trim((string) $prefix);
+
+        if ($pfx === '') {
+            return $padded;
+        }
+        if ($padded === '') {
+            return $pfx;
+        }
+
+        return $pfx . '-' . $padded;
+    }
+
+    /**
+     * Igual que `format()`, pero el prefijo y el ancho salen de la secuencia
+     * en vez de que los pase el caller. Para los consumidores que tienen el
+     * scope a mano y no cargaron la caja (ej. un reimpreso puntual).
+     *
+     * Los listados NO deberían usar esto en un loop — es un SELECT por fila.
+     * Ahí va `Reports\TransactionsService::registerInfo()`, que trae prefijo
+     * y ancho de todas las cajas del listado en una sola query.
+     */
+    public static function formatFor(
+        string $docType,
+        string $scopeType,
+        string $scopeId,
+        string $companyId,
+        int|string|null $number,
+    ): string {
+        $meta = self::sequenceMeta($docType, $scopeType, $scopeId, $companyId);
+
+        return self::format($number, $meta['prefix'], $meta['padWidth']);
+    }
+
+    /**
+     * Prefijo y ancho declarados de una secuencia. Fallback al default legal
+     * cuando la fila todavía no existe — la caja se siembra al crearse
+     * (`RegisterAdminService::create`), así que esto solo pega en datos
+     * anteriores a la mig 127.
+     *
+     * @return array{prefix: string, padWidth: int}
+     */
+    public static function sequenceMeta(
+        string $docType,
+        string $scopeType,
+        string $scopeId,
+        string $companyId,
+    ): array {
+        $row = ncmExecute(
+            'SELECT prefix, padwidth FROM document_sequence
+              WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?
+              LIMIT 1',
+            [$companyId, $docType, $scopeType, $scopeId]
+        );
+
+        return [
+            'prefix'   => (string) ($row['prefix'] ?? ''),
+            'padWidth' => self::normalizePadWidth($row ? ($row['padwidth'] ?? null) : null),
+        ];
+    }
+
+    /**
+     * Documento al que pertenece la numeración de una transacción.
+     *
+     * `factura` y `cotizacion` comparten la columna `invoiceNo` pero son
+     * talonarios distintos, con su propio contador y su propio ancho — el
+     * mapeo sale del enum, no de literales sueltos (misma razón que el
+     * `match` de `RegisterAdminService::update`).
+     *
+     * Devuelve `null` cuando el tipo no tiene talonario propio hoy: el caller
+     * cae al default y no inventa una secuencia inexistente.
+     */
+    public static function docTypeForSaleType(int|string|null $saleType): ?string
+    {
+        return match ((int) $saleType) {
+            SaleType::Cashsale->value, SaleType::Creditsale->value => 'factura',
+            SaleType::Quote->value                                => 'cotizacion',
+            default                                               => null,
+        };
+    }
+
+    /**
+     * Ancho utilizable: fuera del rango del CHECK de la mig 159 (o ausente)
+     * cae al default legal. Nunca lanza — un ancho corrupto no puede impedir
+     * que se imprima un documento ya emitido.
+     */
+    private static function normalizePadWidth(int|string|null $padWidth): int
+    {
+        if ($padWidth === null || $padWidth === '') {
+            return self::DEFAULT_PAD_WIDTH;
+        }
+        $w = (int) $padWidth;
+
+        return ($w >= 1 && $w <= 12) ? $w : self::DEFAULT_PAD_WIDTH;
+    }
 }
