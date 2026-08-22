@@ -285,8 +285,8 @@ check(
     $failures
 );
 
-// ── (f) rollup: status=vigente excluye la venta anulada (D8, mig 159) ─────
-// D8 de context/48-escalamiento-de-datos.md (mig 159): domain='sales' migró
+// ── (f) rollup: status=vigente excluye la venta anulada (D8, mig 160) ─────
+// D8 de context/48-escalamiento-de-datos.md (mig 160): domain='sales' migró
 // de report_rollup (grano genérico, "anuladas excluidas" del F4/mig 155) a
 // rollup_sales_day (grano día tipado, "anuladas" ahora SON una fila propia
 // vía status='anulada' en vez de estar afuera del rollup) — el check pasa a

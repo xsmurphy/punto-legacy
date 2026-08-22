@@ -109,7 +109,7 @@ final class ReturnService
                     SUM(COALESCE(is1.itemsoldtax, 0))        AS itemsoldtax,
                     MIN(is1.itemsoldid::text)                AS itemsoldid,
                     MIN(i.itemname)                          AS itemname,
-                    -- D8 de context/48-escalamiento-de-datos.md (mig 159):
+                    -- D8 de context/48-escalamiento-de-datos.md (mig 160):
                     -- taxrate/taxkind/itemsoldcategory son congelados por
                     -- línea en la venta original — la devolución los COPIA
                     -- (MIN, deberían ser idénticos entre líneas duplicadas
@@ -373,7 +373,7 @@ final class ReturnService
                 $unitDisc  = $soldQty > 0 ? $lineDisc  / $soldQty : 0.0;
                 $unitTax   = $soldQty > 0 ? $lineTax   / $soldQty : 0.0;
                 $unitCogs  = $classified['unitCogs']; // ya round(...,4), misma fórmula ponderada que antes.
-                // D8 de context/48-escalamiento-de-datos.md (mig 159):
+                // D8 de context/48-escalamiento-de-datos.md (mig 160):
                 // congelados de la línea ORIGINAL, copiados tal cual —
                 // itemsoldtax es la única de las tres que se prorratea (es
                 // un monto de línea, escala con reqQty); taxrate/taxkind/
@@ -442,7 +442,7 @@ final class ReturnService
                     'kind'           => $classified['kind'],
                     'hadStockImpact' => $classified['hadStockImpact'],
                     'restock'        => $restock,
-                    // D8 (mig 159) — congelados, copiados de la línea original.
+                    // D8 (mig 160) — congelados, copiados de la línea original.
                     'taxRate'        => $origTaxRate,
                     'taxKind'        => $origTaxKind,
                     'categoryId'     => $origCategoryId,
@@ -538,7 +538,7 @@ final class ReturnService
                         // Signo negativo = espeja `flipOnReturn` de SaleService
                         // (lib/Sales/SaleService.php:1445) sobre el mismo campo.
                         -abs($pi['unitCogs']),
-                        // D8 de context/48-escalamiento-de-datos.md (mig 159):
+                        // D8 de context/48-escalamiento-de-datos.md (mig 160):
                         // itemsoldtax NUNCA se poblaba en una devolución
                         // (hallazgo de esta sesión) — sin esto, tax10/tax5 del
                         // rollup de ventas quedaban ciegos a lo devuelto.
@@ -636,8 +636,8 @@ final class ReturnService
         }
 
         // Rollup: marcar el día de la devolución sucio (best-effort). D8 de
-        // context/48-escalamiento-de-datos.md (mig 159): kind='devolucion'
-        // vive DENTRO de 'sales'/'item_sales'/'payments' (mig 159 absorbió
+        // context/48-escalamiento-de-datos.md (mig 160): kind='devolucion'
+        // vive DENTRO de 'sales'/'item_sales'/'payments' (mig 160 absorbió
         // los dominios 'returns'/'item_returns') — hallazgo de esta sesión:
         // ReturnService nunca llamaba rollupMarkDirty (grep confirmó cero
         // call-sites), a diferencia de SaleService/SaleVoidService/

@@ -38,12 +38,12 @@
  *     renovaron desde entonces). No captura bajas por `blocked` manual sin
  *     expiresAt en ese mes (no hay columna con timestamp de ese evento).
  *   - GMV (series.gmvByMonth) sale de `rollup_sales_day` (D8 de context/48,
- *     mig 159): grano día, sin fila consolidada por tenant — el mes se deriva
+ *     mig 160): grano día, sin fila consolidada por tenant — el mes se deriva
  *     con SUM(net) agrupando por to_char(day,'YYYY-MM') y se filtra a ventas
  *     vigentes (kind IN ('contado','credito'), status='vigente'), sumado
  *     cross-tenant. Ya agregado, sin costo de recorrer `transaction`. El
  *     `report_rollup` (domain='sales', periodType='month', outletId IS NULL)
- *     que alimentaba esto antes de la mig 159 ya no existe: esa migración
+ *     que alimentaba esto antes de la mig 160 ya no existe: esa migración
  *     borra los dominios sales/item_sales/payments de esa tabla.
  *   - Créditos IA por mes/capability salen de `ai_credit_ledger.meta->>'capability'`
  *     (delta<0 = consumo). NUNCA usar el operador `?`/`?|`/`?&` de jsonb con
@@ -398,7 +398,7 @@ class AdminReportsService
             $aiCreditsByMonth[] = $row;
         }
 
-        // ── GMV agregado por mes (rollup_sales_day, D8 de context/48, mig 159) ─
+        // ── GMV agregado por mes (rollup_sales_day, D8 de context/48, mig 160) ─
         // domain 'sales' migró de report_rollup (fila consolidada outletId
         // IS NULL) a rollup_sales_day (grano día, sin fila consolidada — se
         // suma sobre TODAS las dimensiones, no hace falta filtrar outletid).

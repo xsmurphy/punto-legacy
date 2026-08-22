@@ -441,7 +441,7 @@ SELECT SUM(net) FROM rollup_sales_day
    AND kind = 'contado' AND status = 'vigente';
 ```
 
-**D8 — Implementado 2026-08-22 (mig 159_rollup_daily_grain.sql).** Tablas
+**D8 — Implementado 2026-08-22 (mig 160_rollup_daily_grain.sql).** Tablas
 finales, tal cual el esquema cerrado arriba salvo lo siguiente:
 
 - `rollup_item_sales_day` suma 2 columnas al esquema cerrado —
@@ -506,7 +506,7 @@ finales, tal cual el esquema cerrado arriba salvo lo siguiente:
   coincide exacto en todos los casos probados.
 
 **D8 — correcciones del code-review (2026-08-22, mismo commit).** Lo que
-había quedado mal en la primera pasada y ya está corregido en la mig 159:
+había quedado mal en la primera pasada y ya está corregido en la mig 160:
 
 - La migración ABORTABA en cualquier base con un período cerrado: los
   backfills de `itemsold` disparaban `fn_period_guard` (PC001) y el

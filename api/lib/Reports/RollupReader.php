@@ -6,7 +6,7 @@ namespace Punto\Api\Reports;
 /**
  * RollupReader — lectura del rollup pre-agregado para reportes.
  *
- * D8 de context/48-escalamiento-de-datos.md (mig 159): 'sales'/'item_sales'/
+ * D8 de context/48-escalamiento-de-datos.md (mig 160): 'sales'/'item_sales'/
  * 'payments' migraron de `report_rollup` (grano genérico day/month/year) a
  * tres tablas TIPADAS de grano día único (`rollup_sales_day`,
  * `rollup_item_sales_day`, `rollup_payments_day`) — mes/año se derivan acá
@@ -234,7 +234,7 @@ final class RollupReader
                     'total'       => (float) ($f['total']       ?? 0),
                     'tax'         => (float) ($f['tax']         ?? 0),
                     'cogs'        => (float) ($f['cogs']        ?? 0),
-                    // Un solo `discount` (mig 159): la columna ya es
+                    // Un solo `discount` (mig 160): la columna ya es
                     // SUM(itemsolddiscount) plano, igual que las ramas live.
                     // `discountFlat` desapareció con la columna que lo
                     // alimentaba — existía solo para tener el valor correcto
