@@ -105,6 +105,7 @@ detrás. Estado se actualiza acá a medida que se cierran.
 5. **Ventas › Transacciones: ver filtros activos.** El filtro por método de
    pago / tipo de venta no existe todavía. Fix: Selects en `toolbarSlot` +
    chips removibles, patrón de `items/page.tsx`.
+   **Resuelto** (`frontend/transactions-filters`)
 6. **Artículos: buscar por nombre de categoría no encuentra.** `/items` trae
    los 200 ítems más nuevos y busca client-side; el `q` server-side tampoco
    cubre `taxonomyName`. Fix: `q` al servidor con debounce, SQL extendido a
