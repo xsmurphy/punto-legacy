@@ -2,7 +2,7 @@
 /**
  * REST — Endpoint interno de jobs de mantenimiento periódicos.
  *
- *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain>
+ *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|partition-ensure>
  *       → { processed?, deleted?, issued?, errors?, skipped?, job }
  *
  * SIN apiAuthTenant: lo invoca el cron DENTRO de la imagen del API
@@ -31,6 +31,17 @@
  *   - einvoice-drain     → delega en EInvoiceService::drain() (mismo código que
  *                          `einvoice.php?action=drain`, sin duplicar lógica) —
  *                          único punto de entrada para el cron de la imagen.
+ *   - partition-ensure   → E1 de context/48-escalamiento-de-datos.md (mig 156):
+ *                          `SELECT ensure_month_partitions('transaction'|'itemsold',
+ *                          'transactiondate'|'itemsolddate', 12)` + chequeo
+ *                          `partition_health(..., 3)`. Si a alguna de las 2
+ *                          tablas le faltan particiones para los próximos 3
+ *                          meses, alerta a Sentry (mismo patrón best-effort de
+ *                          `\Sentry\captureMessage` gateado por `function_exists`
+ *                          que `bootstrap.php`) — mismo "falla silenciosa" que
+ *                          ya mordió a `rollup_dirty` (134 pendientes sin que
+ *                          nadie corriera el job), acá el costo de no alertar
+ *                          es un INSERT fallando duro en un mes sin partición.
  *
  * Lock: cada job corre bajo pg_try_advisory_lock(hashtext('maintenance:'||job)).
  * Si no consigue el lock (otra corrida del mismo job ya está adentro — dos
@@ -63,7 +74,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'partition-ensure'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -103,10 +114,55 @@ function maintenanceRunJob(string $job): array
             $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 20;
             return (new \Punto\Api\EInvoice\EInvoiceService())->drain($limit);
 
+        case 'partition-ensure':
+            return maintenancePartitionEnsure($db);
+
         default:
             // Inalcanzable: $job ya validado contra $knownJobs arriba.
             throw new \RuntimeException('job desconocido: ' . $job);
     }
+}
+
+/**
+ * E1 de context/48-escalamiento-de-datos.md (mig 156). Crea las particiones
+ * mensuales que falten (12 meses de margen) para `transaction`/`itemsold` y
+ * chequea que haya cobertura para los próximos 3 meses — si no, alerta.
+ */
+function maintenancePartitionEnsure(\DB $db): array
+{
+    $tables = [
+        'transaction' => 'transactiondate',
+        'itemsold'    => 'itemsolddate',
+    ];
+
+    $created = [];
+    $health  = [];
+
+    foreach ($tables as $table => $column) {
+        $createdRaw = $db->GetOne(
+            "SELECT array_to_json(ensure_month_partitions(?, ?, 12))",
+            [$table, $column]
+        );
+        $created[$table] = $createdRaw !== false && $createdRaw !== null
+            ? (json_decode((string) $createdRaw, true) ?? [])
+            : [];
+
+        $health[$table] = (int) $db->GetOne(
+            'SELECT partition_health(?, ?, 3)',
+            [$table, $column]
+        );
+
+        if ($health[$table] < 3) {
+            $msg = "[partition-ensure] {$table} tiene cobertura de particiones "
+                 . "para menos de 3 meses hacia adelante (health={$health[$table]})";
+            error_log($msg);
+            if (function_exists('\\Sentry\\captureMessage')) {
+                \Sentry\captureMessage($msg, \Sentry\Severity::error());
+            }
+        }
+    }
+
+    return ['created' => $created, 'health' => $health];
 }
 
 global $db;
