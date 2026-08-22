@@ -85,22 +85,38 @@ INSERT INTO transaction_registry
          transactionuid, transactiontype, invoiceauth, invoiceno
     FROM transaction;
 
--- Liberar los 2 nombres de unicidad global de `transaction` (se recrean
--- sobre el registry con el MISMO nombre -- SaleService.php:256-270 detecta
--- el choque fiscal/duplicado por el nombre exacto del constraint/index).
-ALTER TABLE transaction DROP CONSTRAINT transaction_transactionuid_key;
-DROP INDEX uq_transaction_expedition_invoiceno;
-
+-- Las 2 unicidades globales se crean sobre el registry ANTES de redirigir
+-- las FK (paso 2): `toscheduleuid_transactionuid_fkey` va a apuntar a
+-- transaction_registry(transactionuid), y Postgres exige que exista una
+-- unique constraint sobre esa columna ANTES de poder crear la FK.
+--
+-- Nombres con sufijo `_tmp` a proposito: el nombre FINAL
+-- (transaction_transactionuid_key / uq_transaction_expedition_invoiceno) lo
+-- sigue usando la `transaction` VIEJA hasta que se dropea mas abajo — los
+-- nombres de indice son unicos a nivel schema (no a nivel tabla), asi que
+-- no se puede crear el definitivo dos veces a la vez. Se renombran al
+-- nombre real apenas se libera (SaleService.php:256-270 detecta el choque
+-- fiscal/duplicado por el nombre EXACTO del constraint/index).
 ALTER TABLE transaction_registry
-  ADD CONSTRAINT transaction_transactionuid_key UNIQUE (transactionuid);
+  ADD CONSTRAINT transaction_transactionuid_key_tmp UNIQUE (transactionuid);
 
-CREATE UNIQUE INDEX uq_transaction_expedition_invoiceno
+CREATE UNIQUE INDEX uq_transaction_expedition_invoiceno_tmp
   ON transaction_registry (companyid, registerid, COALESCE(invoiceauth, ''), invoiceno)
   WHERE invoiceno IS NOT NULL AND transactiontype IN (0, 3);
 
 -- ═══════════════════════════════════════════════════════════════════════
 -- 2. Redirigir las 20 FK entrantes hacia transaction_registry
 --    (confirmadas 1:1 contra pg_constraint en prod, 2026-08-22)
+--
+--    ANTES de tocar la unicidad vieja de `transaction.transactionuid` mas
+--    abajo: `toscheduleuid_transactionuid_fkey` depende del indice que
+--    respalda a `transaction_transactionuid_key` (Postgres no deja dropear
+--    un UNIQUE si una FK todavia referencia esa columna) — probado en el
+--    arnes de esta mig, error real: "cannot drop constraint
+--    transaction_transactionuid_key ... DETAIL: constraint
+--    toscheduleuid_transactionuid_fkey ... depends on index
+--    transaction_transactionuid_key". Redirigir primero libera esa
+--    dependencia.
 -- ═══════════════════════════════════════════════════════════════════════
 
 ALTER TABLE comission
@@ -183,6 +199,21 @@ ALTER TABLE vpayments
   DROP CONSTRAINT vpayments_transactionid_fkey,
   ADD  CONSTRAINT vpayments_transactionid_fkey FOREIGN KEY (transactionid) REFERENCES transaction_registry(transactionid);
 
+-- Ahora sí: liberar los 2 nombres de unicidad global de `transaction` (ya
+-- no hay ninguna FK apuntando a transaction(transactionuid) — toscheduleuid
+-- se redirigió arriba — así que el DROP CONSTRAINT no encuentra
+-- dependientes) y renombrar los `_tmp` del registry al nombre real —
+-- SaleService.php:256-270 detecta el choque fiscal/duplicado por el
+-- nombre EXACTO del constraint/index.
+ALTER TABLE transaction DROP CONSTRAINT transaction_transactionuid_key;
+DROP INDEX uq_transaction_expedition_invoiceno;
+
+ALTER TABLE transaction_registry
+  RENAME CONSTRAINT transaction_transactionuid_key_tmp TO transaction_transactionuid_key;
+
+ALTER INDEX uq_transaction_expedition_invoiceno_tmp
+  RENAME TO uq_transaction_expedition_invoiceno;
+
 -- ═══════════════════════════════════════════════════════════════════════
 -- 3. Funciones genéricas de particionado (usadas por transaction e itemsold,
 --    y por el job `partition-ensure` de aca en adelante)
@@ -203,6 +234,9 @@ DECLARE
   v_part_name     text;
   v_created       text[] := ARRAY[]::text[];
   v_rows_in_range bigint;
+  v_fk            RECORD;
+  v_fk_defs       text[];
+  v_fk_def        text;
 BEGIN
   SELECT n.nspname, c.relname INTO v_schema, v_bare_name
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -262,6 +296,27 @@ BEGIN
       -- no permite crear una partición cuyo rango se superpone con filas
       -- que ya viven en la DEFAULT sin antes desatarla).
       IF v_rows_in_range > 0 THEN
+        -- Dropear temporalmente cualquier FK que apunte a p_table (ej.
+        -- transaction_registry -> transaction) y recrearla despues del
+        -- reattach, con la MISMA definición (pg_get_constraintdef).
+        -- Postgres no deja hacer DETACH PARTITION de la default si
+        -- CUALQUIER fila ahí -- no solo las del rango que se está por
+        -- mover -- sigue referenciada por una FK hacia el padre (probado
+        -- en el arnés de esta mig: "removing partition ... violates
+        -- foreign key constraint" con un dato viejo suelto en la default
+        -- que la corrida actual no toca). Este DROP/ADD corre dentro de la
+        -- misma transacción que todo lo demás, así que nunca queda un
+        -- estado sin la FK visible desde afuera.
+        v_fk_defs := ARRAY[]::text[];
+        FOR v_fk IN
+          SELECT conrelid::regclass::text AS tbl, conname AS name, pg_get_constraintdef(oid) AS def
+            FROM pg_constraint
+           WHERE confrelid = p_table AND contype = 'f'
+        LOOP
+          v_fk_defs := array_append(v_fk_defs, format('ALTER TABLE %s ADD CONSTRAINT %I %s', v_fk.tbl, v_fk.name, v_fk.def));
+          EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', v_fk.tbl, v_fk.name);
+        END LOOP;
+
         EXECUTE format('ALTER TABLE %s DETACH PARTITION %I', p_table, v_default_name);
       END IF;
 
@@ -294,6 +349,18 @@ BEGIN
         );
         EXECUTE format('ALTER TABLE %I ENABLE TRIGGER ALL', v_default_name);
         EXECUTE format('ALTER TABLE %s ATTACH PARTITION %I DEFAULT', p_table, v_default_name);
+
+        -- Recrear las FK dropeadas más arriba (si había alguna). FOREACH
+        -- sobre un array vacío no itera (a diferencia de `FOR i IN 1..
+        -- array_length(...)`, que explota con NULL cuando el array está
+        -- vacío -- array_length() de un array vacío es NULL, no 0).
+        -- Revalida toda la tabla referenciante contra p_table -- costo
+        -- aceptable: este camino solo corre cuando hay backlog real en la
+        -- default, que en régimen normal (job corriendo todos los días
+        -- con margen de 12 meses) no debería pasar nunca.
+        FOREACH v_fk_def IN ARRAY v_fk_defs LOOP
+          EXECUTE v_fk_def;
+        END LOOP;
       END IF;
     END IF;
 
