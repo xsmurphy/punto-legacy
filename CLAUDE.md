@@ -47,21 +47,19 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **`/admin` SaaS (dashboard, salud, planes, billing)** | `34-admin-saas-plan.md` (F1-F6 implementadas) |
 | **Vínculos entre transacciones/órdenes (`transaction_link`)** | `35-transaction-link.md` (mig 115, implementado) |
 | **Vouchers (vales por productos)** | `36-vouchers-plan.md` (F1/F2 implementadas 2026-08-07 — canje atómico dentro de la venta; F3 emisión desde caja pendiente) |
-| **Numeración correlativa de documentos** | `37-numeracion-documentos.md` (plan abierto, D2/D3/D5 pendientes) |
+| **Numeración correlativa de documentos** | `37-numeracion-documentos.md` (F1-F3 implementadas, D3/D5/D6 pendientes) |
 | **Impuestos multi-tasa / multi-país** | `38-impuestos-multi-pais.md` (F0-F3, F5 implementadas — F3 factura+ticket lee IVA congelado, F5 RG90/Libro Ventas; F4 rollup pendiente) |
 | **Detalle de transacción (resolver canónico)** | `39-detalle-transaccion.md` (F1-F3 implementadas — resolver + página `/transactions/{id}` + cotizaciones/pagos recibidos; F4 migrar el POS, abierta) |
-| **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (F1-F6 implementadas 2026-08-21; F3/F4 numeración de NC como doctype propio sigue pendiente) |
+| **Anulación y nota de crédito** | `40-anulacion-y-nota-credito.md` (F1/F2/F5 implementadas 2026-08-21, D2/D3 implementadas en la devolución; F3/F4/F6 —numeración de NC como doctype propio + UI en `/pos`— pendientes) |
 | **Reportes fiscales PY (RG90 / Marangatu)** | `46-reportes-fiscales-plan.md` (F5 de `context/38`; plan sin implementar, D1-D4 cerradas por el owner) |
-| **Reportes personalizados y export (IA)** | `47-reportes-personalizados-y-export.md` (plan sin implementar) |
-| **Escalamiento de datos (particionado, cierre de período)** | `48-escalamiento-de-datos.md` (plan sin implementar, D1-D9 cerradas) |
 | **Add-ons y combos** | `41-addons-y-combos.md` (F1-F5 implementadas, D1-D3 cerradas; F6 reportes y 2 gaps de F5 pendientes) |
 | **Multi-moneda (ventas, compras, arqueo)** | `42-multi-moneda.md` (feature request, sin planificar) |
 | **Remisión (traslado de mercadería)** | `42-remision.md` (implementada 2026-08-15, sin conexión SIFEN) |
-| **Sync incremental del POS (reconexión/arranque, lápidas de borrado)** | `43-sync-incremental.md` (implementado 2026-08-16, delta en frío pendiente) |
+| **Sync incremental del POS (reconexión/arranque, lápidas de borrado)** | `43-sync-incremental.md` (implementado 2026-08-16; arranque en frío usa bootstrap completo por decisión explícita, no es un pendiente) |
 | **Listas de precio offline (motor espejo + bajada al bootstrap)** | `44-listas-de-precio-offline.md` (plan sin implementar, D0-D6) |
-| **Ítem/contacto como raíces de sync (trigger genérico de satélites)** | `45-satelites-item-contact-sync.md` (plan sin implementar, generaliza el D1 de 44) |
+| **Ítem/contacto como raíces de sync (trigger genérico de satélites)** | `45-satelites-item-contact-sync.md` (implementado 2026-08-17, mig 139; generalizó el D1 de 44) |
 | **Reportes personalizados, export y dashboards** | `47-reportes-personalizados-y-export.md` (plan sin implementar, D1-D9 cerradas por el owner; F0 catálogo+ejecutor es el primer trabajo) |
-| **Escalamiento de datos (particionado, réplica, cierre de período)** | `48-escalamiento-de-datos.md` (plan, D1-D7 cerradas por el owner; E1 particionado + E1b cierre de período son la etapa a ejecutar ahora) |
+| **Escalamiento de datos (particionado, réplica, cierre de período)** | `48-escalamiento-de-datos.md` (plan, D1-D7 cerradas por el owner; E1 particionado, E1b cierre de período y D8 grano del rollup implementados 2026-08-22, migs 156/157/160) |
 | **Cómo funciona cada módulo (y qué asume de los otros)** | `modules/_index.md` + un doc por módulo — LEER el del módulo que vas a tocar ANTES de integrarte con él |
 | **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
 | Bitácora de sesiones | `_session-log.md` (índice histórico, append) |
