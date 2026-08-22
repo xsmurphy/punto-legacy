@@ -403,18 +403,82 @@ final class RoleService
         }
 
         $merged = array_values(array_unique(array_merge($perms, $missing)));
-        self::_savePermissions($roleId, $merged, $companyId, $slug);
+
+        // Este backfill corre dentro de una LECTURA de permisos (getPermissions
+        // → _loadPermissions), así que una falla de escritura NO puede
+        // propagarse: dejaría al tenant sin poder autorizar ninguna acción por
+        // un problema de persistencia. Se loguea y se sigue con el merge, que
+        // es la respuesta correcta para ESTA request; la próxima lectura vuelve
+        // a intentar reconciliar (el mecanismo ya es idempotente).
+        try {
+            self::_savePermissions($roleId, $merged, $companyId, $slug);
+        } catch (\Throwable $e) {
+            error_log('[RoleService] _reconcileSeedGaps: no se pudo persistir el backfill del rol '
+                . $roleId . ': ' . $e->getMessage());
+        }
+
         return $merged;
     }
 
+    /**
+     * Nombre de la fila `roleData` de un rol.
+     *
+     * `taxonomy.taxonomyName` es NOT NULL (db-schema-postgres.sql) y además
+     * tiene un índice UNIQUE por `(companyId, taxonomyType, LOWER(taxonomyName))`
+     * (mig 38) — o sea que la fila de permisos necesita un nombre, y ese nombre
+     * tiene que ser único DENTRO del tipo 'roleData' de la company.
+     *
+     * Derivarlo del `roleId` (UUID, PK de la tabla) es lo único que garantiza
+     * las dos cosas a la vez y sin depender del slug: dos roles custom
+     * (slug=null) de la misma company colisionarían con cualquier nombre fijo
+     * tipo '_permissions', y renombrar el rol no puede invalidar sus permisos.
+     */
+    private static function _roleDataName(string $roleId): string
+    {
+        return 'roleData:' . $roleId;
+    }
+
+    /**
+     * Persiste la lista de permisos de un rol. ÚNICO punto de escritura de
+     * `roleData` — createRole, updateRole, seedCompanyRoles y
+     * _reconcileSeedGaps pasan todos por acá.
+     *
+     * ATÓMICO y RUIDOSO, las dos cosas a propósito:
+     *
+     *  - El upsert es DELETE + INSERT. Sin transacción, un INSERT que falla
+     *    deja el rol SIN NINGÚN permiso — el borrado ya se hizo. Es exactamente
+     *    lo que pasaba cuando el INSERT reventaba con `23502` por no mandar
+     *    `taxonomyname` (NOT NULL): editar permisos desde el panel BORRABA la
+     *    fila y no la reescribía. La transacción hace que el par sea todo-o-nada.
+     *  - Lanza si no pudo escribir. `ncmInsert()` solo loguea y devuelve false,
+     *    y esta función seteaba el cache igual: el caller creía haber guardado,
+     *    la request seguía sirviendo la lista en memoria, y el dato no estaba
+     *    en ningún lado. Ese silencio es lo que hizo que el bug de
+     *    `taxonomyname` sobreviviera sin que nadie lo notara — el fix de la
+     *    columna sin este cambio dejaría el mismo agujero abierto para la
+     *    próxima constraint que se agregue a `taxonomy`.
+     *
+     * El único caller que NO puede propagar la excepción es
+     * `_reconcileSeedGaps()` (corre dentro de una LECTURA de permisos: tirar
+     * ahí dejaría al tenant sin poder autenticar nada) — la atrapa y sigue,
+     * ver su comentario.
+     *
+     * @throws RuntimeException si la fila no quedó persistida.
+     */
     private static function _savePermissions(string $roleId, array $permissions, string $companyId, ?string $slug): void
     {
-        // Upsert: borrar + reinsert
+        global $db;
+
+        // StartTrans/CompleteTrans son reentrantes (llevan `transDepth`), así
+        // que esto anida sin romper una transacción externa del caller.
+        $db->StartTrans();
+
         ncmExecute(
             "DELETE FROM taxonomy WHERE taxonomytype='roleData' AND sourceid=?::uuid AND companyid=?",
             [$roleId, $companyId], true
         );
-        ncmInsert(['records' => [
+        $inserted = ncmInsert(['records' => [
+            'taxonomyname'  => self::_roleDataName($roleId),
             'taxonomytype'  => 'roleData',
             'sourceid'      => $roleId,
             'taxonomyextra' => json_encode([
@@ -424,6 +488,17 @@ final class RoleService
             ]),
             'companyid'     => $companyId,
         ], 'table' => 'taxonomy']);
+
+        if ($inserted === false) {
+            $db->FailTrans();
+        }
+        // CompleteTrans() devuelve false tanto por FailTrans() como por
+        // cualquier error de PG que el layer haya registrado en el camino.
+        if ($db->CompleteTrans() === false || $inserted === false) {
+            throw new RuntimeException(
+                "No se pudieron persistir los permisos del rol $roleId (company $companyId)"
+            );
+        }
 
         self::$cache[$companyId][$roleId] = array_values($permissions);
     }

@@ -98,7 +98,30 @@ function resetRoleServiceCache(): void
     $prop->setValue(null, []);
 }
 
-/** Limpia + inserta un role + roleData de prueba, directo en `taxonomy`. */
+/**
+ * Limpia + inserta un role + roleData de prueba, directo en `taxonomy`.
+ *
+ * Dos invariantes de la tabla que este seed tiene que respetar, y que antes
+ * no respetaba (las dos fallas eran SILENCIOSAS — ncmExecute solo loguea el
+ * error de PG y sigue, así que los tres roles se "sembraban" sin existir):
+ *
+ *   1. `taxonomyname` es NOT NULL. La fila `roleData` se insertaba sin ese
+ *      campo → 23502 → NUNCA se creaba. Sin roleData, el JOIN de
+ *      RoleService::_loadPermissions() no devuelve nada, `_reconcileSeedGaps()`
+ *      ni se llama, y el caso 1 fallaba con "no recibió el permiso" +
+ *      "catalogVersion quedó NULL" — un síntoma del arnés, no del backfill.
+ *      Los casos 2/2b/3/4 pasaban en VERDE FALSO por el mismo motivo: sin
+ *      fila que leer, "no recuperó el permiso" y "no reescribió nada" son
+ *      trivialmente ciertos.
+ *   2. `uq_taxonomy_company_type_name` (mig 38) es UNIQUE por
+ *      `(companyId, taxonomyType, LOWER(taxonomyName))`. Los tres roles
+ *      compartían el literal 'VERIFY test role', así que el 2º y el 3º
+ *      chocaban con el 1º (que este mismo seed no borra: el DELETE es por
+ *      taxonomyid, y cada rol tiene el suyo).
+ *
+ * Por eso el nombre sale del `$roleId`: único por construcción en ambas
+ * tablas lógicas, sin depender del slug ni de un literal a mano.
+ */
 function seedTestRole(string $roleId, string $companyId, ?string $slug, array $permissions, ?int $catalogVersion): void
 {
     ncmExecute("DELETE FROM taxonomy WHERE taxonomyid = ?::uuid AND companyid = ?", [$roleId, $companyId], true);
@@ -107,7 +130,7 @@ function seedTestRole(string $roleId, string $companyId, ?string $slug, array $p
     ncmExecute(
         "INSERT INTO taxonomy (taxonomyid, taxonomyname, taxonomytype, taxonomyextra, companyid)
          VALUES (?::uuid, ?, 'role', ?, ?)",
-        [$roleId, 'VERIFY test role', json_encode(['isSeed' => $slug !== null, 'slug' => $slug]), $companyId],
+        [$roleId, 'VERIFY test role ' . $roleId, json_encode(['isSeed' => $slug !== null, 'slug' => $slug]), $companyId],
         true
     );
 
@@ -117,11 +140,32 @@ function seedTestRole(string $roleId, string $companyId, ?string $slug, array $p
         $roleDataExtra['slug'] = $slug;
     }
     ncmExecute(
-        "INSERT INTO taxonomy (taxonomytype, sourceid, taxonomyextra, companyid)
-         VALUES ('roleData', ?::uuid, ?, ?)",
-        [$roleId, json_encode($roleDataExtra), $companyId],
+        "INSERT INTO taxonomy (taxonomyname, taxonomytype, sourceid, taxonomyextra, companyid)
+         VALUES (?, 'roleData', ?::uuid, ?, ?)",
+        ['roleData:' . $roleId, $roleId, json_encode($roleDataExtra), $companyId],
         true
     );
+
+    // El seed se verifica a sí mismo. `ncmExecute()` NUNCA relanza el error de
+    // PG —solo lo loguea y devuelve false—, así que un INSERT rechazado por
+    // cualquier constraint deja este arnés corriendo sobre roles que no
+    // existen, y los casos 2/2b/3/4 pasan en VERDE FALSO: sin fila que leer,
+    // "no recuperó el permiso" y "no reescribió nada" son trivialmente
+    // ciertos. Fue exactamente lo que pasó con `taxonomyname` NOT NULL. Cortar
+    // acá convierte cualquier constraint futura de `taxonomy` en un fallo
+    // ruidoso del arnés en vez de en cobertura fantasma.
+    // Las DOS filas: `_loadPermissions()` las JOINea, así que si falta
+    // cualquiera de las dos el rol se lee como "sin permisos" y el verde es
+    // igual de falso.
+    $roleRow = ncmExecute(
+        "SELECT taxonomyid FROM taxonomy WHERE taxonomyid = ?::uuid AND taxonomytype = 'role' AND companyid = ?",
+        [$roleId, $companyId]
+    );
+    if (!$roleRow || loadRoleDataRaw($roleId, $companyId) === null) {
+        fwrite(STDERR, "[verify_role_permission_backfill] ERROR: el seed del rol $roleId no persistió "
+            . "(revisar el log de [DB] arriba — constraint de `taxonomy` rechazando el INSERT)\n");
+        exit(1);
+    }
 }
 
 function loadRoleDataRaw(string $roleId, string $companyId): ?array
