@@ -161,14 +161,20 @@ final class RecipeCosting
         // recencia que `Inventory::getItemStock()` (stockDate DESC, stockId
         // solo desempata: los UUID de PG son v4 random, no ordenables por
         // tiempo), resuelta para todos los ítems de una con DISTINCT ON.
+        //
+        // `companyId` en el WHERE no es redundante con el filtro de `item` de
+        // abajo: los itemIds entran por parámetro desde una explosión de
+        // receta, y sin este filtro una fila de `stock` de OTRO tenant que
+        // compartiera itemId decidiría el costo. Aislamiento multi-tenant se
+        // filtra en CADA tabla que se toca, no en una sola del conjunto.
         $ph  = implode(',', array_fill(0, count($ids), '?'));
         $avg = [];
         $rs  = ncmExecute(
             'SELECT DISTINCT ON (itemId) itemId, stockOnHandCOGS
                FROM stock
-              WHERE itemId IN (' . $ph . ') AND outletId = ?
+              WHERE itemId IN (' . $ph . ') AND outletId = ? AND companyId = ?
               ORDER BY itemId, stockDate DESC, stockId DESC',
-            array_merge($ids, [$outletId]),
+            array_merge($ids, [$outletId, $companyId]),
             false,
             true
         );

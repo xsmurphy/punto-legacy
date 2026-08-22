@@ -1953,7 +1953,7 @@ function ProduccionTab({
               Perfil). El costo total se suma del costo de cada componente —
               sirve para calcular margen del combo vs venderlos por separado.
             </p>
-            <CompoundsEditor itemId={id} />
+            <CompoundsEditor itemId={id} kind={kind} />
           </CardContent>
         </Card>
         <ComboPricingCard pricing={comboPricing} />
@@ -1994,7 +1994,7 @@ function ProduccionTab({
             este artículo. El costo total se suma de cantidad × costo unitario
             de cada ingrediente.
           </p>
-          <CompoundsEditor itemId={id} />
+          <CompoundsEditor itemId={id} kind={kind} />
         </CardContent>
       </Card>
 

@@ -2022,53 +2022,13 @@ final class SaleService
                     : getItemComsissionTotal($itemId, $sD['count'], $comissionTotal);
 
                 // ── COGS según tipo de item ─────────────────────────────────
-                //
-                // CONTRATO: `itemSold.itemSoldCOGS` es el costo UNITARIO (por
-                // una unidad vendida), NO el costo de la línea. Todo consumidor
-                // que quiera el costo total multiplica por `itemSoldUnits`
-                // (`Reports\ProductsService`, `Reports\ProductionService`,
-                // `StockReversalPolicy`). Ver el docblock de `RecipeCosting`.
-                //
-                $itemSoldCOGS = [];
-                // Predicados reales (fix 2026-08-19): `$itemType` es un string
-                // sintetico de UI que NUNCA se persiste, asi que comparar contra
-                // 'direct_production' dejaba el COGS en null siempre.
-                //
-                // La sucursal es la de la VENTA (`$this->ctx->outletId`), no la
-                // de la sesión: el costo promedio de un insumo es POR sucursal,
-                // y los wrappers legacy (`getProductionCOGS`/`getComboCOGS`)
-                // caían en `OUTLET_ID` — una venta de la sucursal B se costeaba
-                // con el promedio de la A (reporte del tester "Actualización 21"
-                // #1). Se llama a `RecipeCosting` directo, la única fórmula de
-                // costo de receta: misma explosión recursiva que mueve el stock,
-                // con merma por nivel y fallback a `item.itemCost`.
-                //
-                // El try/catch NO es defensivo por si acaso: `RecipeCosting`
-                // exige la sucursal y tira si falta, y esta venta YA fue
-                // emitida en la caja (ticket impreso, plata cobrada). El back
-                // nunca rechaza una venta emitida — el COGS es dato de
-                // reporte, no el hecho económico. Sin sucursal se guarda la
-                // venta con COGS null y queda el rastro en el log, en vez de
-                // devolver un 500 que el POS reintenta para siempre.
-                if ($isDirectProduction || $isCombo) {
-                    try {
-                        $itemSoldCOGS['stockOnHandCOGS'] = \Punto\App\Domain\RecipeCosting::total(
-                            $itemId,
-                            $companyId,
-                            $this->ctx->outletId
-                        );
-                    } catch (\InvalidArgumentException $e) {
-                        error_log('SaleService: no se pudo costear la receta de ' . $itemId . ' — ' . $e->getMessage());
-                    }
-                } else {
-                    // Con la sucursal de la VENTA: sin ella cae en OUTLET_ID (la de la
-                    // sesión) y el costo del item vendido sale del stock de otra
-                    // sucursal.
-                    $itemSoldCOGS = getItemStock($itemId, $this->ctx->outletId);
-                }
-                $cogsVal = (is_array($itemSoldCOGS) || $itemSoldCOGS instanceof \ArrayAccess)
-                    ? ($itemSoldCOGS['stockOnHandCOGS'] ?? null)
-                    : null;
+                // La fórmula vive en resolveUnitCOGS() — la MISMA que usa la
+                // cotización. `$isDirectProduction || $isCombo` (predicados
+                // reales, fix 2026-08-19: `$itemType` es un string sintético
+                // de UI que nunca se persiste) ya está calculado acá porque el
+                // `source` del movimiento de stock lo necesita igual, así que
+                // se pasa y el helper se ahorra el SELECT.
+                $cogsVal = $this->resolveUnitCOGS($itemId, $companyId, $isDirectProduction || $isCombo);
             }
 
             // ── INSERT itemSold ─────────────────────────────────────────────
@@ -2082,7 +2042,6 @@ final class SaleService
                 'itemSoldDiscount'  => flipOnReturn($typeStr, $sD['totalDiscount']),
                 'itemSoldUnits'     => flipOnReturn($typeStr, $sD['count']),
                 'itemSoldComission' => flipOnReturn($typeStr, $comission),
-                'itemSoldCOGS'      => flipOnReturn($typeStr, $cogsVal),
                 'itemSoldParent'    => !empty($sD['parent']) ? $sD['parent'] : null,
                 'itemId'            => $itemId,
                 'itemSoldDate'      => $input->date,
@@ -2098,6 +2057,15 @@ final class SaleService
                 'outletId'          => $this->ctx->outletId,
                 'registerId'        => $this->ctx->registerId,
             ];
+            // `itemSoldCOGS` se OMITE cuando no se pudo determinar, para que la
+            // columna quede NULL. Escribir el null directo no alcanza:
+            // `flipOnReturn(null)` devuelve 0, y un 0 se lee como "costó nada"
+            // → margen 100% en todos los reportes de ese ítem. NULL dice "no
+            // sé", que es la verdad. Aplica también a las líneas hijas de un
+            // combo (`$isCompoundChild`), cuyo costo ya está en el padre.
+            if ($cogsVal !== null) {
+                $records['itemSoldCOGS'] = flipOnReturn($typeStr, $cogsVal);
+            }
             $itemSoldDescription = $this->resolveItemSoldDescription($sD);
             if ($itemSoldDescription !== null) {
                 $records['itemSoldDescription'] = $itemSoldDescription;
@@ -2368,6 +2336,64 @@ final class SaleService
     }
 
     /**
+     * COGS UNITARIO de una línea (venta o cotización) — fuente única.
+     *
+     * CONTRATO: el valor es por UNA unidad, nunca el de la línea. Quien quiera
+     * el costo total multiplica por `itemSoldUnits`.
+     *
+     * Existe porque la venta y la cotización tenían cada una su propio bloque:
+     * la venta explotaba la receta y la cotización llamaba a `getItemStock()`
+     * a secas, así que cotizar un ítem de producción directa (que por
+     * definición NO lleva stock propio) daba COGS vacío y el margen de la
+     * cotización salía 100%. Dos copias de la misma decisión es cómo se
+     * arregla una y queda la otra.
+     *
+     * @param  bool|null $usesRecipe Si el caller ya lo calculó (la venta lo
+     *         necesita igual para el `source` del movimiento de stock), se
+     *         pasa para no repetir el SELECT. `null` = resolverlo acá.
+     * @return float|null `null` significa "no se pudo determinar", NO cero.
+     *         El caller debe OMITIR la columna para que quede NULL en la BD:
+     *         un 0 se lee como "costó nada" y pinta margen 100% en reportes.
+     */
+    private function resolveUnitCOGS(string $itemId, string $companyId, ?bool $usesRecipe = null): ?float
+    {
+        if ($usesRecipe === null) {
+            $row      = ncmExecute(
+                'SELECT itemType FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                [$itemId, $companyId]
+            );
+            $itemType = (is_array($row) || $row instanceof \ArrayAccess) ? (string) ($row['itemType'] ?? '') : '';
+
+            $usesRecipe = in_array($itemType, ['precombo', 'combo'], true)
+                || \Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId);
+        }
+
+        if ($usesRecipe) {
+            // Sucursal de la operación, no la de la sesión. `RecipeCosting`
+            // exige la sucursal y tira si falta; acá se degrada a null en vez
+            // de propagar, porque esta venta YA fue emitida en la caja (ticket
+            // impreso, plata cobrada) y el back nunca rechaza una venta
+            // emitida — el COGS es dato de reporte, no el hecho económico.
+            try {
+                return (float) \Punto\App\Domain\RecipeCosting::total($itemId, $companyId, $this->ctx->outletId);
+            } catch (\InvalidArgumentException $e) {
+                error_log('SaleService: no se pudo costear la receta de ' . $itemId . ' — ' . $e->getMessage());
+                return null;
+            }
+        }
+
+        // Ítem con stock propio: su costo promedio ponderado vigente en la
+        // sucursal de la operación.
+        $stock = getItemStock($itemId, $this->ctx->outletId);
+        if (!is_array($stock) && !($stock instanceof \ArrayAccess)) {
+            return null;
+        }
+        $val = $stock['stockOnHandCOGS'] ?? null;
+
+        return is_numeric($val) ? (float) $val : null;
+    }
+
+    /**
      * Loop de items para cotización: solo itemSold, sin manageStock.
      *
      * @param array<int,array<string,mixed>> $saleDetail
@@ -2413,10 +2439,13 @@ final class SaleService
                 ? getUserComissionTotal($comissionTotal, $userComission)
                 : getItemComsissionTotal($itemId, $sD['count'], $comissionTotal);
 
-            $itemSoldCOGS = getItemStock($itemId, $this->ctx->outletId);
-            $cogsVal = (is_array($itemSoldCOGS) || $itemSoldCOGS instanceof \ArrayAccess)
-                ? ($itemSoldCOGS['stockOnHandCOGS'] ?? null)
-                : null;
+            // MISMA fórmula que la venta (resolveUnitCOGS). Antes esto era
+            // `getItemStock()` a secas: un ítem de producción directa no lleva
+            // stock propio, así que la cotización le ponía COGS vacío y el
+            // margen salía 100%. Sin `$usesRecipe` el helper lo resuelve solo
+            // (acá no se calculó: la cotización no mueve stock y no lo
+            // necesitaba para nada más).
+            $cogsVal = $this->resolveUnitCOGS($itemId, $companyId);
 
             $records = [
                 'itemSoldTotal'     => (float) $sD['total'],
@@ -2426,7 +2455,6 @@ final class SaleService
                 'itemSoldDiscount'  => (float) $sD['totalDiscount'],
                 'itemSoldUnits'     => (float) $sD['count'],
                 'itemSoldComission' => $comission,
-                'itemSoldCOGS'      => $cogsVal,
                 'itemSoldParent'    => !empty($sD['parent']) ? $sD['parent'] : null,
                 'itemId'            => $itemId,
                 'itemSoldDate'      => $input->date,
@@ -2438,6 +2466,11 @@ final class SaleService
                 'outletId'          => $this->ctx->outletId,
                 'registerId'        => $this->ctx->registerId,
             ];
+            // Mismo criterio que la venta: omitir deja NULL, escribir 0
+            // mentiría un margen del 100% en la cotización.
+            if ($cogsVal !== null) {
+                $records['itemSoldCOGS'] = $cogsVal;
+            }
             $itemSoldDescription = $this->resolveItemSoldDescription($sD);
             if ($itemSoldDescription !== null) {
                 $records['itemSoldDescription'] = $itemSoldDescription;

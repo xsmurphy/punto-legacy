@@ -47,19 +47,13 @@ declare(strict_types=1);
  * item_compound). Uso: ver run.sh, invocarlo como paso adicional con las
  * mismas env vars POSTGRES_*.
  *
- * Exit code 0 si los casos 1 y 2 pasan; 1 si alguno de esos dos falla.
+ * Exit code 0 solo si TODOS los casos pasan; 1 si falla cualquiera.
  *
- * Casos 3/3b (`Reports\ProductionService::general()`/`detail()`) NO tumban
- * el exit code por ahora — ver el comentario largo junto a "Caso 3" más
- * abajo: investigación 2026-08-19 (sin acceso a Postgres real) no encontró
- * ningún bug de lógica en el predicado de ProductionService.php, y los
- * casos 1/2 de este mismo arnés ya prueban en runtime que las condiciones
- * de ese predicado se cumplen — así que general()/detail() DEBERÍAN
- * encontrar la venta. Si siguen sin encontrarla, el diagnóstico que
- * imprimen (stderr, `$db->ErrorMsg()` + flags reales del ítem) es la pista
- * para la causa raíz real. Una vez confirmada, hay que RE-ENDURECER estos
- * dos casos (volver a sumarlos a `$failures`) — no es un pase libre
- * permanente.
+ * Los casos 3/3b vivieron un tiempo como AVISO no-bloqueante porque no se
+ * sabía por qué fallaban. Se re-endurecieron el 2026-08-22 al confirmar la
+ * causa raíz contra Postgres real: `MAX()` sobre columnas uuid
+ * (`function max(uuid) does not exist`) que `DB::Execute()` se tragaba
+ * devolviendo `false`. Ya no hay razón para tolerarlos.
  */
 
 require_once dirname(__DIR__, 3) . '/bootstrap.php';
@@ -394,45 +388,27 @@ if ($resultL2 !== null) {
 
 // ── Caso 3: Reports\ProductionService::general()/detail() traen la venta ──
 //
-// INVESTIGACIÓN 2026-08-19 (lectura estática, sin acceso a Postgres real —
-// ver reporte de la tarea "arnés en verde"): general() y detail() comparten
-// el MISMO predicado WHERE letra por letra (itemProduction/itemTrackInventory
-// + itemType NOT IN combo/precombo + EXISTS item_compound) y este script los
-// llama con los MISMOS parámetros ($today, roc='', companyId) — estructural-
-// mente NO pueden divergir en si encuentran o no VERIFY-PROD-DIRECT. Los
-// casos 1 y 2 de arriba, si pasan, ya prueban en runtime real que el item
-// tiene los flags correctos Y que item_compound existe (SaleService calculó
-// el COGS explotando la receta) — las mismas condiciones que exige este
-// predicado. No se encontró ningún bug de lógica en ProductionService.php
-// que explique un fallo AISLADO de caso 3 (revisado dos veces
-// independientemente). Dos hipótesis quedan abiertas, ninguna confirmable
-// sin correr contra el Postgres real:
-//   (a) caso 3b (detail()) también falla siempre que caso 3 falla — el log
-//       original solo citó "caso 3, filtro itemProduction" pero dado el
-//       predicado idéntico, lo más probable es que ambos fallen juntos.
-//   (b) la query agregada (SUM/GROUP BY) de general() tira una excepción de
-//       Postgres real que Query::execute()/DB::Execute() traga silenciosa-
-//       mente (devuelve false, solo error_log, ver DB.php) en vez de
-//       propagarla — el diagnóstico de abajo la expone si es el caso.
-// No se tocó ProductionService.php sin evidencia de que esté mal (regla del
-// proyecto: no parchar sin causa raíz confirmada). Si el diagnóstico de
-// abajo revela la causa real, hay que RE-ENDURECER este caso (volver a
-// sumar a $failures) con el fix correspondiente — dejarlo así es temporal,
-// no una aceptación de que "caso 3 puede fallar".
+// RESUELTO 2026-08-22. Este caso vivió un tiempo como AVISO no-bloqueante
+// porque la investigación estática no encontraba por qué fallaba. La causa
+// era la hipótesis (b) que ese comentario dejó anotada: la query agregada de
+// `general()` tiraba un error REAL de Postgres —
+// `SQLSTATE[42883]: function max(uuid) does not exist`, por `MAX(a.userId)` y
+// `MAX(b.outletId)` sobre columnas uuid — y `DB::Execute()` se lo tragaba
+// devolviendo `false` (solo `error_log`), así que el tab salía vacío sin
+// ningún síntoma. Corregido en `Reports/ProductionService.php` con
+// `(array_agg(x ORDER BY itemSoldDate DESC NULLS LAST))[1]`.
+//
+// Con la causa raíz confirmada y arreglada, el caso vuelve a ser un assert
+// duro: si no trae la venta, el arnés falla. El diagnóstico (ErrorMsg + flags
+// reales del ítem) se conserva en el mensaje de la falla, que es cuando sirve.
 $today  = date('Y-m-d');
 $report = new ProductionReportService();
-// Diagnóstico por caso: [3 => bool, '3b' => bool] — true si ESE caso disparó
-// el AVISO no-bloqueante. Usado al final para que el resumen ("TODO OK" vs.
-// algo más honesto) no mienta si algo quedó pendiente de investigar.
-$avisos = [];
 
 /**
- * Corre un caso de ProductionService (general()/detail()) y, si no
- * encuentra la venta, arma diagnóstico en vez de sumar a $failures
- * directamente (ver nota grande arriba) — devuelve true si encontró la
- * venta, false si disparó el AVISO.
+ * Corre un caso de ProductionService (general()/detail()) y exige que traiga
+ * la venta. Si no la trae, arma el diagnóstico y lo suma a $failures.
  */
-function verifyPgProdCaseAviso(string $label, callable $call, string $directId, string $companyId, array &$avisos): bool
+function verifyPgProdCase(string $label, callable $call, string $directId, string $companyId, array &$failures): void
 {
     global $db;
     // $db->firstError (lo que expone ErrorMsg()) es STICKY entre llamadas:
@@ -441,34 +417,26 @@ function verifyPgProdCaseAviso(string $label, callable $call, string $directId, 
     // subsiguiente (noteFirstError() es no-op si firstError ya está seteado).
     // Sin esto, si caso 3 (general()) tira un error real, caso 3b (detail())
     // heredaría ese mismo firstError viejo y su propio error (si lo tuviera)
-    // quedaría enmascarado — exactamente el escenario (ambos casos fallan
-    // con error real) que este diagnóstico existe para detectar. Envolver la
-    // llamada en Start/CompleteTrans (inocuo sobre SELECTs puros) resetea
-    // firstError ANTES de cada caso, así el snapshot antes/después es
-    // realmente del caso actual, no arrastre del anterior.
+    // quedaría enmascarado. Envolver la llamada en Start/CompleteTrans
+    // (inocuo sobre SELECTs puros) resetea firstError ANTES de cada caso.
+    // Este mecanismo es el que destapó el `max(uuid)` — no sacarlo.
     $db->StartTrans();
     $errBefore = $db->ErrorMsg();
     $result    = $call();
     $errAfter  = $db->ErrorMsg();
     $db->CompleteTrans();
 
-    $found = false;
     foreach (($result['rows'] ?? []) as $r) {
         if (($r['itemId'] ?? null) === $directId) {
-            $found = true;
-            break;
+            echo "[verify_production_cogs] OK {$label}: trae la venta\n";
+            return;
         }
-    }
-    if ($found) {
-        echo "[verify_production_cogs] OK {$label}: trae la venta\n";
-        return true;
     }
 
     $diag = "itemId={$directId} companyId={$companyId}";
     if ($errAfter !== '' && $errAfter !== $errBefore) {
-        // Hipótesis (b) del comentario grande de arriba: la query tiró un
-        // error real de Postgres que ncmExecute() tragó — si esto imprime
-        // algo, ESA es la causa raíz, no el predicado.
+        // Un error de Postgres que ncmExecute() se tragó — ESA es la causa
+        // raíz, no el predicado. Así se encontró el max(uuid).
         $diag .= " | \$db->ErrorMsg() (nuevo tras esta llamada): {$errAfter}";
     }
     $liveItem     = $db->GetRow('SELECT itemtype, itemcansale, itemtrackinventory, itemproduction FROM item WHERE itemId = ?', [$directId]);
@@ -476,30 +444,24 @@ function verifyPgProdCaseAviso(string $label, callable $call, string $directId, 
     $diag .= ' | item real: ' . ($liveItem ? json_encode($liveItem) : 'NO ENCONTRADO');
     $diag .= ' | item_compound existe: ' . ($liveCompound ? 'sí' : 'NO');
 
-    $avisos[$label] = true;
-    // No se suma a $failures — investigado, sin causa raíz confirmable sin
-    // Postgres real (ver comentario grande arriba). Queda VISIBLE en la
-    // salida con el diagnóstico completo; no tumba el exit code hasta
-    // confirmar cuál hipótesis es la real.
-    fwrite(STDERR, "[verify_production_cogs] AVISO (no tumba exit code) {$label}: no trajo VERIFY-PROD-DIRECT — {$diag}\n");
-    return false;
+    $failures[] = "{$label}: no trajo VERIFY-PROD-DIRECT — {$diag}";
 }
 
 // buildRows() devuelve {rows:[...], totals:{...}} — cada row usa la key
 // `itemId` (no `id`), ver ProductionService.php:259-300.
-verifyPgProdCaseAviso(
+verifyPgProdCase(
     'caso 3 (Reports\\ProductionService::general())',
     fn() => $report->general($today . ' 00:00:00', $today . ' 23:59:59', '', $companyId),
     $DIRECT_ID,
     $companyId,
-    $avisos
+    $failures
 );
-verifyPgProdCaseAviso(
+verifyPgProdCase(
     'caso 3b (Reports\\ProductionService::detail())',
     fn() => $report->detail($today . ' 00:00:00', $today . ' 23:59:59', '', $companyId),
     $DIRECT_ID,
     $companyId,
-    $avisos
+    $failures
 );
 
 if ($failures !== []) {
@@ -508,15 +470,6 @@ if ($failures !== []) {
         fwrite(STDERR, "  - {$f}\n");
     }
     exit(1);
-}
-
-if ($avisos !== []) {
-    // Exit 0 a propósito (casos 1/2, los fiscalmente críticos, pasaron) pero
-    // el banner NO dice "TODO OK" — sería mentira visible en stdout mientras
-    // el AVISO real quedó en stderr. Ver nota grande antes de "Caso 3" para
-    // el motivo y las dos hipótesis abiertas.
-    echo "[verify_production_cogs] OK casos 1/2 (costeo real + stockSource) — " . count($avisos) . " caso(s) con AVISO sin resolver (ver stderr arriba), no bloquea\n";
-    exit(0);
 }
 
 echo "[verify_production_cogs] TODO OK\n";

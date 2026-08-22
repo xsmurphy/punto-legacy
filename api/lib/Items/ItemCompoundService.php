@@ -27,10 +27,21 @@ final class ItemCompoundService
         $this->db = $db;
     }
 
-    /** Lista de ingredientes de un item, con datos del child resueltos. */
-    public function listForParent(string $parentItemId, string $companyId, ?string $outletId = null): array
-    {
-        return $this->recipe($parentItemId, $companyId, $outletId)['compounds'];
+    /**
+     * Lista de ingredientes de un item, con datos del child resueltos.
+     *
+     * @param bool $withCurrentCost `false` omite el costeo real (los campos
+     *        `current*` viajan null) y se ahorra la explosión recursiva de la
+     *        receta + sus dos queries. Para callers que solo miran precios,
+     *        como `comboPricing()`.
+     */
+    public function listForParent(
+        string $parentItemId,
+        string $companyId,
+        ?string $outletId = null,
+        bool $withCurrentCost = true,
+    ): array {
+        return $this->recipe($parentItemId, $companyId, $outletId, $withCurrentCost)['compounds'];
     }
 
     /**
@@ -63,8 +74,12 @@ final class ItemCompoundService
      *
      * @return array{compounds: list<array<string,mixed>>, totals: array{catalogTotal: float, currentTotal: float|null}}
      */
-    public function recipe(string $parentItemId, string $companyId, ?string $outletId = null): array
-    {
+    public function recipe(
+        string $parentItemId,
+        string $companyId,
+        ?string $outletId = null,
+        bool $withCurrentCost = true,
+    ): array {
         $empty = ['compounds' => [], 'totals' => ['catalogTotal' => 0.0, 'currentTotal' => 0.0]];
 
         // itemUOM vive en el JSONB `data` desde la migración 07 (demoted del
@@ -92,14 +107,16 @@ final class ItemCompoundService
         // `current*` viajan NULL y la ficha muestra "—". Es una pantalla de
         // lectura — mejor un guion honesto que un 0 que parece un costo.
         $costing = null;
-        try {
-            $costing = \Punto\App\Domain\RecipeCosting::cost(
-                $parentItemId,
-                $companyId,
-                $outletId ?: (defined('OUTLET_ID') ? OUTLET_ID : '')
-            );
-        } catch (\InvalidArgumentException $e) {
-            error_log('ItemCompoundService::recipe: sin outlet para costear la receta — ' . $e->getMessage());
+        if ($withCurrentCost) {
+            try {
+                $costing = \Punto\App\Domain\RecipeCosting::cost(
+                    $parentItemId,
+                    $companyId,
+                    $outletId ?: (defined('OUTLET_ID') ? OUTLET_ID : '')
+                );
+            } catch (\InvalidArgumentException $e) {
+                error_log('ItemCompoundService::recipe: sin outlet para costear la receta — ' . $e->getMessage());
+            }
         }
         $byChild = $costing['byChild'] ?? [];
 
@@ -138,6 +155,13 @@ final class ItemCompoundService
                 'childPrice'      => $price,
                 'childKind'       => $r['itemkind']     ?? $r['itemKind']     ?? null,
                 'catalogCost'     => $cost,
+                // OJO: no es comparable 1:1 con `catalogCost`. Es
+                // `lineCurrentCost / quantity`, y `lineCurrentCost` YA trae la
+                // merma planificada aplicada, así que un insumo con 20% de
+                // merma muestra su costo × 1.25 — el costo real de poner UNA
+                // unidad de ese insumo en el plato, no el precio al que se
+                // compró. Si algún día se quiere el costo "limpio" hay que
+                // pedirle a RecipeCosting el desglose con `waste=false`.
                 'currentCost'     => ($lineCurrentCost !== null && $qty > 0)
                     ? round($lineCurrentCost / $qty, 4)
                     : $lineCurrentCost,
@@ -184,7 +208,9 @@ final class ItemCompoundService
      */
     public function comboPricing(string $parentItemId, string $companyId, float $comboPrice): ?array
     {
-        $components = $this->listForParent($parentItemId, $companyId);
+        // Solo mira `linePrice`: sin costeo real, que sería una explosión
+        // recursiva de la receta al pedo en cada carga de la ficha.
+        $components = $this->listForParent($parentItemId, $companyId, null, false);
         if ($components === []) {
             return null;
         }

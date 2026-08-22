@@ -300,11 +300,10 @@ fi
 #    consumido lleva stockSource='production' (antes siempre 'sale'). Ver
 #    docblock de verify_production_cogs.php. Corre contra el mismo Postgres
 #    seedeado arriba (tenant PY); no depende de los pasos anteriores.
-#    Casos 3/3b (Reports\ProductionService::general()/detail()) NO tumban
-#    el exit code de este paso — investigados 2026-08-19 sin causa raíz
-#    confirmable sin Postgres real, imprimen diagnóstico a stderr si vuelven
-#    a fallar. Ver comentario largo en el propio script antes de re-fiarse
-#    ciegamente de que este paso está 100% verde.
+#    Casos 3/3b (Reports\ProductionService::general()/detail()) SÍ tumban el
+#    exit code desde 2026-08-22: la causa de que salieran vacíos era
+#    `MAX(uuid)` en la query agregada, un error que DB::Execute() se tragaba.
+#    Corregido; el caso volvió a ser assert duro.
 echo ""
 echo "[run.sh] === costo de producción directa (itemSoldCOGS + stockSource + fórmula única RecipeCosting: 2 niveles, insumo sin ledger, otra sucursal) ==="
 if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_production_cogs.php"; then

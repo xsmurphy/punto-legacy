@@ -91,8 +91,20 @@ final class ProductionService
         // multiplicar: en una devolución las DOS columnas vienen negadas
         // (`flipOnReturn`), y negativo × negativo habría sumado costo en vez
         // de restarlo — mismo criterio que ProductsService.
+        //
+        // `userId`/`outletId` son UUID y Postgres NO tiene `max(uuid)`: la
+        // query entera moría con 42883 ("function max(uuid) does not exist")
+        // y `DB::Execute()` devuelve false tragándose el error, así que el tab
+        // salía vacío sin ningún síntoma visible. No son magnitudes a
+        // maximizar sino un valor REPRESENTATIVO de la fila agrupada, y el
+        // representante correcto es el de la venta más reciente — la misma
+        // que ya define `sdate` con MAX(itemSoldDate). `NULLS LAST` para que
+        // una fila sin fecha no se robe el primer puesto (en DESC el default
+        // de Postgres es NULLS FIRST).
         $sql = "SELECT a.itemId as id, SUM(a.itemSoldUnits) as usold, SUM(ABS(a.itemSoldCOGS) * a.itemSoldUnits) as cogs,
-                       MAX(a.userId) as usr, MAX(a.itemSoldDate) as sdate, MAX(b.outletId) as outlet
+                       (array_agg(a.userId   ORDER BY a.itemSoldDate DESC NULLS LAST))[1] as usr,
+                       MAX(a.itemSoldDate) as sdate,
+                       (array_agg(b.outletId ORDER BY a.itemSoldDate DESC NULLS LAST))[1] as outlet
                 FROM itemSold a, transaction b, item c
                 WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
                 AND " . SaleFilters::notVoidedSql('b') . "

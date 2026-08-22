@@ -44,9 +44,14 @@ import { cn } from "@/lib/utils"
 
 interface Props {
   itemId: string
+  /** `item.kind` del padre. Solo decide UNA frase del pie: para
+   *  `produccion_previa` el costo real NO es el que registra la venta (esa
+   *  descuenta el terminado, con el costo que se congeló al completar la
+   *  orden), sino el que valuará el próximo lote. Ver `ItemKind.php`. */
+  kind?: string | null
 }
 
-export function CompoundsEditor({ itemId }: Props) {
+export function CompoundsEditor({ itemId, kind }: Props) {
   const { data, isLoading } = useItemCompounds(itemId)
   const { data: bootstrap } = useBootstrap()
   const add = useAddCompound()
@@ -126,8 +131,10 @@ export function CompoundsEditor({ itemId }: Props) {
             cada ingrediente.{" "}
             <span className="font-medium">Costo real hoy</span>: lo que cuesta producir una
             unidad en esta sucursal ahora — promedio de compra de cada insumo, merma incluida,
-            bajando hasta los insumos de las sub-preparaciones. Es el costo que se registra al
-            vender.
+            bajando hasta los insumos de las sub-preparaciones.{" "}
+            {kind === "produccion_previa"
+              ? "Es el costo con el que se valuará el próximo lote que produzcas: la venta descuenta el terminado, con el costo que quedó congelado al completar su orden de producción."
+              : "Es el costo que se registra al vender."}
           </p>
         </div>
       )}
