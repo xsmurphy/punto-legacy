@@ -160,7 +160,7 @@ final class GiftcardsService
         $expires = (string) ($data['expires'] ?? '');
 
         try {
-            $db->Execute(
+            $r = $db->Execute(
                 'UPDATE giftcard
                     SET code = ?, currentbalance = ?, expiresat = ?, note = ?,
                         beneficiarycontactid = ?, beneficiaryname = ?
@@ -194,7 +194,8 @@ final class GiftcardsService
             // y el caller lo mostraba como "no se pudo guardar" sin causa.
             throw $e;
         }
-        return true;
+        // `$r === false` solo con el kill-switch DB_THROW_ON_ERROR apagado.
+        return $r !== false;
     }
 
     /** Lookup batch transactionId → "invoicePrefix+invoiceNo", scopeado por companyId. */

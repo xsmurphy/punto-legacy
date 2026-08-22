@@ -39,10 +39,17 @@ final class LocationService
                   JOIN taxonomy t ON t.taxonomyId = il.locationId
                  WHERE il.itemId = ? AND il.outletId = ?
                  ORDER BY il.isDefault DESC, t.taxonomyName ASC";
-        // Sin fallback a `[]`: un error de SQL acá hacía que el item pareciera
-        // no tener depósitos, y de ahí sale de qué depósito descuenta stock una
-        // venta. El wrapper lanza (DbQueryException) y el error se ve.
+        // Sin fallback silencioso a `[]`: un error de SQL acá hacía que el item
+        // pareciera no tener depósitos, y de ahí sale de qué depósito descuenta
+        // stock una venta. El wrapper lanza (DbQueryException) y el error se ve.
         $rs = $this->db->Execute($sql, [$itemId, $outletId]);
+        if ($rs === false) {
+            // Solo alcanzable con el kill-switch DB_THROW_ON_ERROR=false (modo
+            // incendio): ahí el wrapper vuelve a devolver `false` en vez de
+            // lanzar. Se loguea para que la degradación no sea invisible.
+            error_log('[LocationService] listForItemInOutlet: la query falló (DB_THROW_ON_ERROR apagado) — item ' . $itemId);
+            return [];
+        }
         return $rs->GetRows();
     }
 
@@ -58,6 +65,13 @@ final class LocationService
                  WHERE il.itemId = ?
                  ORDER BY o.outletName, il.isDefault DESC, t.taxonomyName";
         $rs = $this->db->Execute($sql, [$itemId]);
+        if ($rs === false) {
+            // Solo alcanzable con el kill-switch DB_THROW_ON_ERROR=false (modo
+            // incendio): ahí el wrapper vuelve a devolver `false` en vez de
+            // lanzar. Se loguea para que la degradación no sea invisible.
+            error_log('[LocationService] listForItem: la query falló (DB_THROW_ON_ERROR apagado) — item ' . $itemId);
+            return [];
+        }
         return $rs->GetRows();
     }
 
