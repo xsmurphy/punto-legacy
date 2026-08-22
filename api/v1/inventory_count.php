@@ -4,7 +4,9 @@
  *
  * GET  ?action=list[&outletId=<uuid>][&status=<0|1|2>][&limit=50][&offset=0]
  * GET  ?action=get&id=<uuid>
- * POST { action: "create", outletId, locationId?, note? }
+ * POST { action: "create", outletId, locationId?, note?, categoryIds?, includeZeroStock? }
+ * POST { action: "preview", outletId, locationId?, categoryIds?, includeZeroStock? }
+ *      → { count } — cuántos artículos entrarían, sin crear nada.
  * POST { action: "setQty", id, itemId, qty }
  * POST { action: "bulkSetQty", id, rows: [{itemId, qty}] }
  * POST { action: "finish", id }
@@ -71,10 +73,12 @@ if ($method === 'POST') {
     $body   = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
     $action = (string) ($body['action'] ?? '');
 
-    if ($action === 'create') {
+    // `create` y `preview` comparten alcance (sucursal/depósito/categorías/
+    // includeZeroStock): se parsea UNA vez para que el "vas a contar N" del
+    // diálogo no pueda validar distinto que la creación real.
+    if ($action === 'create' || $action === 'preview') {
         $outletId   = trim((string) ($body['outletId']   ?? ''));
         $locationId = trim((string) ($body['locationId'] ?? '')) ?: null;
-        $note       = trim((string) ($body['note']       ?? '')) ?: null;
 
         if (!isValidUuid($outletId)) {
             apiError('outletId inválido', 400);
@@ -83,8 +87,43 @@ if ($method === 'POST') {
             apiError('locationId inválido', 400);
         }
 
+        $rawCategories = $body['categoryIds'] ?? [];
+        if (!is_array($rawCategories)) {
+            apiError('categoryIds debe ser un array de UUIDs', 400);
+        }
+        $categoryIds = [];
+        foreach ($rawCategories as $c) {
+            $c = trim((string) $c);
+            if (!isValidUuid($c)) {
+                apiError('categoryIds contiene un UUID inválido', 400);
+            }
+            $categoryIds[] = $c;
+        }
+        // La pertenencia al tenant NO se chequea acá: la valida
+        // InventoryCountScope, único punto por el que pasan los dos caminos.
+
+        $includeZeroStock = (bool) ($body['includeZeroStock'] ?? false);
+
+        if ($action === 'preview') {
+            try {
+                apiOk($svc->preview($companyId, $outletId, $locationId, $categoryIds, $includeZeroStock));
+            } catch (\InvalidArgumentException $e) {
+                apiError($e->getMessage(), 422);
+            }
+        }
+
+        $note = trim((string) ($body['note'] ?? '')) ?: null;
+
         try {
-            $result = $svc->create($companyId, $outletId, $locationId, $userId, $note);
+            $result = $svc->create(
+                $companyId,
+                $outletId,
+                $locationId,
+                $userId,
+                $note,
+                $categoryIds,
+                $includeZeroStock,
+            );
             apiOk($result);
         } catch (\InvalidArgumentException $e) {
             apiError($e->getMessage(), 422);

@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 
+require_once __DIR__ . '/InventoryCountScope.php';
+
 /**
  * InventoryCountService — toma física de inventario.
  *
@@ -12,19 +14,64 @@ namespace Punto\Api\Services;
  * (countedQty = expectedQty). El operador que no contó un item no genera
  * movimiento de ajuste. Esto es un default conservador — se puede cambiar
  * si el negocio prefiere ajustar a 0.
+ *
+ * QUÉ ítems entran en la sesión NO se decide acá: lo decide
+ * `InventoryCountScope` (mig 158), compartido con el `action=preview` del
+ * endpoint. Antes este método snapshoteaba todo el catálogo del tenant y el
+ * outletId solo servía para la cantidad esperada — contar una sucursal traía
+ * los ítems de todas las demás en 0.
  */
 final class InventoryCountService
 {
-    public function create(string $companyId, string $outletId, ?string $locationId, string $startedBy, ?string $note): array
-    {
+    /**
+     * @param string[] $categoryIds  Vacío = todas las categorías.
+     */
+    public function create(
+        string $companyId,
+        string $outletId,
+        ?string $locationId,
+        string $startedBy,
+        ?string $note,
+        array $categoryIds = [],
+        bool $includeZeroStock = false,
+    ): array {
         global $db;
 
-        $outlet = ncmExecute(
-            'SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1',
-            [$outletId, $companyId]
+        $scope = InventoryCountScope::forRequest(
+            $companyId,
+            $outletId,
+            $locationId,
+            $categoryIds,
+            $includeZeroStock,
         );
-        if (!$outlet) {
-            throw new \InvalidArgumentException('outletId inválido para este tenant');
+        $locationId = $scope->locationId();
+
+        // Resolver los ítems ANTES de abrir la TX: si el alcance no incluye
+        // ninguno, no queremos gastar un correlativo de documento (allocate()
+        // vive dentro de la TX y el rollback lo devuelve, pero el conteo vacío
+        // tampoco tiene sentido de negocio — la UI ya muestra el total con
+        // action=preview antes de habilitar el botón).
+        [$itemsSql, $itemsParams] = $scope->itemsQuery();
+        $itemsRs = ncmExecute($itemsSql, $itemsParams, false, true);
+
+        $lines = [];
+        if ($itemsRs) {
+            while (!$itemsRs->EOF) {
+                $row     = $itemsRs->fields;
+                $lines[] = [
+                    (string) $row['itemid'],
+                    (float) $row['expectedqty'],
+                    (float) $row['unitcost'],
+                ];
+                $itemsRs->MoveNext();
+            }
+        }
+
+        if ($lines === []) {
+            throw new \InvalidArgumentException(
+                'El alcance elegido no incluye ningún artículo. Ampliá las categorías '
+                . 'o activá "Incluir artículos sin stock en la sucursal".'
+            );
         }
 
         $db->StartTrans();
@@ -39,9 +86,9 @@ final class InventoryCountService
         );
 
         $sessionRow = ncmExecute(
-            'INSERT INTO inventory_count (companyid, outletid, locationid, startedby, "note", docnumber)
-             VALUES (?, ?, ?, ?, ?, ?) RETURNING inventorycountid',
-            [$companyId, $outletId, $locationId ?: null, $startedBy, $note ?: null, $docNumber]
+            'INSERT INTO inventory_count (companyid, outletid, locationid, startedby, "note", docnumber, scope)
+             VALUES (?, ?, ?, ?, ?, ?, ?::jsonb) RETURNING inventorycountid',
+            [$companyId, $outletId, $locationId, $startedBy, $note ?: null, $docNumber, $scope->toJson()]
         );
 
         if (!$sessionRow || empty($sessionRow['inventoryCountId'])) {
@@ -52,48 +99,45 @@ final class InventoryCountService
 
         $countId = $sessionRow['inventoryCountId'];
 
-        $items = ncmExecute(
-            'SELECT itemid FROM item WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory = true',
-            [$companyId],
-            false,
-            true
-        );
-
-        $itemCount = 0;
-        if ($items) {
-            while (!$items->EOF) {
-                $itemId = $items->fields['itemid'];
-
-                if ($locationId) {
-                    $stockRow = ncmExecute(
-                        'SELECT tolocationcount as onHand FROM tolocation WHERE locationid = ? AND itemid = ? LIMIT 1',
-                        [$locationId, $itemId]
-                    );
-                    $onHand = $stockRow ? (float) $stockRow['onHand'] : 0.0;
-                    $cogs   = 0.0;
-                } else {
-                    $stockRow = ncmExecute(
-                        'SELECT stockonhand, stockonhandcogs FROM stock WHERE itemid = ? AND outletid = ? ORDER BY stockdate DESC, stockid DESC LIMIT 1',
-                        [$itemId, $outletId]
-                    );
-                    $onHand = $stockRow ? (float) $stockRow['stockonhand'] : 0.0;
-                    $cogs   = $stockRow ? (float) $stockRow['stockonhandcogs'] : 0.0;
-                }
-
-                ncmExecute(
-                    'INSERT INTO inventory_count_item (inventorycountid, itemid, expectedqty, unitcost)
-                     VALUES (?, ?, ?, ?)',
-                    [$countId, $itemId, $onHand, $cogs]
-                );
-
-                $itemCount++;
-                $items->MoveNext();
-            }
+        foreach ($lines as [$itemId, $onHand, $cogs]) {
+            ncmExecute(
+                'INSERT INTO inventory_count_item (inventorycountid, itemid, expectedqty, unitcost)
+                 VALUES (?, ?, ?, ?)',
+                [$countId, $itemId, $onHand, $cogs]
+            );
         }
 
         $db->CompleteTrans();
 
-        return ['id' => $countId, 'itemCount' => $itemCount];
+        return ['id' => $countId, 'itemCount' => count($lines)];
+    }
+
+    /**
+     * Cuántos artículos entrarían con este alcance, sin crear la sesión.
+     * Alimenta el "vas a contar N artículos" del diálogo — mismo predicado
+     * que usa create(), por construcción.
+     *
+     * @param string[] $categoryIds
+     */
+    public function preview(
+        string $companyId,
+        string $outletId,
+        ?string $locationId,
+        array $categoryIds = [],
+        bool $includeZeroStock = false,
+    ): array {
+        $scope = InventoryCountScope::forRequest(
+            $companyId,
+            $outletId,
+            $locationId,
+            $categoryIds,
+            $includeZeroStock,
+        );
+
+        [$sql, $params] = $scope->countQuery();
+        $row = ncmExecute($sql, $params);
+
+        return ['count' => (int) ($row['total'] ?? 0)];
     }
 
     public function get(string $id, string $companyId): ?array
@@ -112,12 +156,28 @@ final class InventoryCountService
             return null;
         }
 
+        // Categoría por línea: el m2m `item_category` manda (con la isPrimary
+        // adelante) y la FK legacy `item.categoryid` es el fallback para los
+        // ítems viejos que nunca se guardaron por el panel nuevo. Es el mismo
+        // doble camino que usa InventoryCountScope para filtrar — si el filtro
+        // metió un ítem por la legacy, la fila tiene que poder mostrarla.
         $itemsRs = ncmExecute(
             'SELECT ici.inventorycountitemid, ici.itemid, i.itemname as name, i.itemsku as sku,
                     ici.expectedqty, ici.countedqty, ici."difference", ici.unitcost,
-                    ici.countedat, ici.countedby
+                    ici.countedat, ici.countedby,
+                    COALESCE(pc.categoryid, lc.categoryid) as "categoryId",
+                    COALESCE(pc.name, lc.name)             as "categoryName"
              FROM inventory_count_item ici
              JOIN item i ON i.itemid = ici.itemid
+             LEFT JOIN LATERAL (
+                  SELECT c.categoryid, c.name
+                    FROM item_category ic
+                    JOIN category c ON c.categoryid = ic.categoryid
+                   WHERE ic.itemid = i.itemid
+                   ORDER BY ic.isprimary DESC NULLS LAST, c.name ASC
+                   LIMIT 1
+             ) pc ON true
+             LEFT JOIN category lc ON lc.categoryid = i.categoryid
              WHERE ici.inventorycountid = ?
              ORDER BY i.itemname ASC',
             [$id],
@@ -134,6 +194,8 @@ final class InventoryCountService
                     'itemId'      => $row['itemId'],
                     'name'        => $row['name'],
                     'sku'         => $row['sku'],
+                    'categoryId'   => $row['categoryId'],
+                    'categoryName' => $row['categoryName'],
                     'expectedQty' => (float) $row['expectedQty'],
                     'countedQty'  => $row['countedQty'] !== null ? (float) $row['countedQty'] : null,
                     'difference'  => $row['difference'] !== null ? (float) $row['difference'] : null,
@@ -160,6 +222,12 @@ final class InventoryCountService
                 'startedByName'    => $session['startedByName'],
                 'finishedBy'       => $session['finishedBy'],
                 'finishedByName'   => $session['finishedByName'],
+                // Alcance con el que se abrió (mig 158). El cast a object es
+                // necesario: un array PHP vacío serializa como `[]` y el
+                // cliente espera un objeto — las sesiones anteriores a la
+                // migración devuelven `{}` (alcance desconocido: se
+                // snapshoteaba todo el tenant), no una lista vacía.
+                'scope'            => (object) InventoryCountScope::decode($session['scope'] ?? null),
             ],
             'items' => $items,
         ];

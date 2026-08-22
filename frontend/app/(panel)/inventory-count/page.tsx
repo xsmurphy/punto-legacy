@@ -25,14 +25,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { EmptyState } from "@/components/empty-state"
+import { CategoryMultiSelect } from "@/components/categories/category-multi-select"
 
 import { useOutlets } from "@/hooks/use-outlets"
 import { useOutletLocations } from "@/hooks/use-outlet-locations"
+import { useCategories } from "@/hooks/use-categories"
+import { useDebounce } from "@/hooks/use-debounce"
 import {
   useInventoryCounts,
   useCreateInventoryCount,
+  useInventoryCountPreview,
+  type InventoryCountScopeInput,
   type InventoryCountSession,
 } from "@/hooks/use-inventory-counts"
 import { formatMoney as _formatMoney } from "@/lib/format"
@@ -68,6 +74,8 @@ function NewSessionDialog() {
   const [open, setOpen]             = React.useState(false)
   const [outletId, setOutletId]     = React.useState<string>("")
   const [locationId, setLocationId] = React.useState<string>("__none__")
+  const [categoryIds, setCategoryIds]           = React.useState<string[]>([])
+  const [includeZeroStock, setIncludeZeroStock] = React.useState(false)
   const [note, setNote]             = React.useState<string>("")
 
   const { data: outletsData } = useOutlets()
@@ -76,19 +84,42 @@ function NewSessionDialog() {
   // useOutletLocations retorna el array directamente (QueryResult<OutletLocation[]>)
   const { data: locations } = useOutletLocations(outletId || null)
 
+  const { data: categoriesData } = useCategories()
+  const categoryOptions = React.useMemo(
+    () => (categoriesData?.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
+    [categoriesData],
+  )
+
   const create = useCreateInventoryCount()
 
+  // Alcance que se manda al backend, uno solo para el preview y para el
+  // create — no puede divergir lo que se cuenta de lo que se crea.
+  const scope: InventoryCountScopeInput | null = React.useMemo(
+    () =>
+      outletId
+        ? {
+            outletId,
+            locationId: locationId !== "__none__" ? locationId : undefined,
+            categoryIds,
+            includeZeroStock,
+          }
+        : null,
+    [outletId, locationId, categoryIds, includeZeroStock],
+  )
+
+  // Debounce: tocar tres categorías seguidas dispararía tres previews.
+  const debouncedScope = useDebounce(scope, 300)
+  const preview = useInventoryCountPreview(debouncedScope)
+  const previewStale = scope !== debouncedScope || preview.isFetching
+  const previewCount = preview.data?.count ?? 0
+
   async function handleCreate() {
-    if (!outletId) {
+    if (!scope) {
       toast.error("Seleccioná una sucursal")
       return
     }
     try {
-      const result = await create.mutateAsync({
-        outletId,
-        locationId: (locationId && locationId !== "__none__") ? locationId : undefined,
-        note: note.trim() || undefined,
-      })
+      const result = await create.mutateAsync({ ...scope, note: note.trim() || undefined })
       toast.success(`Sesión creada con ${result.itemCount} artículos`)
       setOpen(false)
       router.push(`/inventory-count/${result.id}`)
@@ -102,6 +133,8 @@ function NewSessionDialog() {
     if (!v) {
       setOutletId("")
       setLocationId("__none__")
+      setCategoryIds([])
+      setIncludeZeroStock(false)
       setNote("")
     }
   }
@@ -156,6 +189,36 @@ function NewSessionDialog() {
           )}
 
           <div className="space-y-1.5">
+            <Label htmlFor="categories">Categorías (opcional)</Label>
+            <CategoryMultiSelect
+              id="categories"
+              options={categoryOptions}
+              value={categoryIds}
+              onChange={setCategoryIds}
+              placeholder="Todas las categorías"
+            />
+            <p className="text-xs text-muted-foreground">
+              Sin selección se cuentan todas. Un artículo entra si la categoría es
+              la principal o una de las secundarias.
+            </p>
+          </div>
+
+          <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+            <div className="space-y-0.5">
+              <Label htmlFor="include-zero">Incluir artículos sin stock en la sucursal</Label>
+              <p className="text-xs text-muted-foreground">
+                Por defecto se cuentan solo los artículos con movimiento en la sucursal
+                elegida. Activalo para el primer conteo de una sucursal nueva.
+              </p>
+            </div>
+            <Switch
+              id="include-zero"
+              checked={includeZeroStock}
+              onCheckedChange={setIncludeZeroStock}
+            />
+          </div>
+
+          <div className="space-y-1.5">
             <Label htmlFor="note">Nota (opcional)</Label>
             <Textarea
               id="note"
@@ -165,13 +228,45 @@ function NewSessionDialog() {
               rows={2}
             />
           </div>
+
+          {/* Posición fija: el bloque existe apenas hay sucursal y solo cambia
+              su texto, para que el botón de crear no se mueva bajo el cursor. */}
+          {outletId && (
+            <p className="text-sm text-muted-foreground" aria-live="polite">
+              {previewStale ? (
+                <span className="inline-flex items-center gap-2">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Calculando el alcance…
+                </span>
+              ) : preview.isError ? (
+                "No se pudo calcular el alcance."
+              ) : previewCount === 0 ? (
+                "El alcance elegido no incluye ningún artículo."
+              ) : (
+                <>
+                  Vas a contar <strong className="text-foreground">{previewCount}</strong>{" "}
+                  {previewCount === 1 ? "artículo" : "artículos"}.
+                </>
+              )}
+            </p>
+          )}
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => handleOpenChange(false)}>
             Cancelar
           </Button>
-          <Button onClick={handleCreate} disabled={create.isPending || !outletId}>
+          {/* Si el preview falla no bloqueamos la creación: el backend valida
+              el alcance de nuevo y devuelve el 422 con el motivo real. */}
+          <Button
+            onClick={handleCreate}
+            disabled={
+              create.isPending ||
+              !outletId ||
+              previewStale ||
+              (preview.isSuccess && previewCount === 0)
+            }
+          >
             {create.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Crear sesión
           </Button>
