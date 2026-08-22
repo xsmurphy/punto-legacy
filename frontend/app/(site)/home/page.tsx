@@ -3,6 +3,7 @@ import type { Metadata } from "next"
 import { CtaFinal } from "@/components/site/cta-final"
 import { FeaturesGrid } from "@/components/site/features-grid"
 import { SiteHero } from "@/components/site/hero"
+import { getMarket } from "@/lib/site/markets"
 import { ModulesTabs } from "@/components/site/modules-tabs"
 import { ProductSpotlight } from "@/components/site/product-spotlight"
 
@@ -14,7 +15,7 @@ export const metadata: Metadata = {
     title: "Punto — Tu negocio, en un solo punto",
     description:
       "Punto de Venta, panel de administración e IA integrada, en un mismo sistema.",
-    locale: "es_PY",
+    locale: getMarket().locale,
     type: "website",
   },
 }

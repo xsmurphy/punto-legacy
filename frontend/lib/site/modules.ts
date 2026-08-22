@@ -92,37 +92,44 @@ export const FEATURE_CARDS: FeatureCard[] = [
   {
     key: "ai",
     title: "Punto AI",
-    description: "Preguntale por tus números y responde con los datos del negocio.",
+    description:
+      "Preguntale por tus números y responde con los datos del negocio.",
   },
   {
     key: "efactura",
     title: "Factura electrónica",
-    description: "El comprobante se emite y se envía solo, con su estado siempre a la vista.",
+    description:
+      "El comprobante se emite y se envía solo, con su estado siempre a la vista.",
   },
   {
     key: "sucursales",
     title: "Multi-sucursal",
-    description: "Catálogo, precios y reportes por sucursal, bajo una sola marca.",
+    description:
+      "Catálogo, precios y reportes por sucursal, bajo una sola marca.",
   },
   {
     key: "ordenes",
     title: "Órdenes y mesas",
-    description: "El pedido viaja a cocina sin papeles y cada mesa muestra su cuenta abierta.",
+    description:
+      "El pedido viaja a cocina sin papeles y cada mesa muestra su cuenta abierta.",
   },
   {
     key: "cotizaciones",
     title: "Cotizaciones",
-    description: "El presupuesto se arma como una venta y se convierte en una con un toque.",
+    description:
+      "El presupuesto se arma como una venta y se convierte en una con un toque.",
   },
   {
     key: "vales",
     title: "Gift cards y vales",
-    description: "Se venden por adelantado y se canjean en caja, sin papelitos.",
+    description:
+      "Se venden por adelantado y se canjean en caja, sin papelitos.",
   },
   {
     key: "credito",
     title: "Crédito y cobranzas",
-    description: "Venta a crédito con límite por cliente y recibos de cada pago.",
+    description:
+      "Venta a crédito con límite por cliente y recibos de cada pago.",
   },
   {
     key: "compras",
@@ -132,12 +139,14 @@ export const FEATURE_CARDS: FeatureCard[] = [
   {
     key: "produccion",
     title: "Producción y recetas",
-    description: "La receta descuenta insumos y calcula el costo del plato sola.",
+    description:
+      "La receta descuenta insumos y calcula el costo del plato sola.",
   },
   {
     key: "combos",
     title: "Combos y agregados",
-    description: "Mitades, adicionales y combos que bajan literales a la comanda.",
+    description:
+      "Mitades, adicionales y combos que bajan literales a la comanda.",
   },
   {
     key: "precios",
@@ -147,7 +156,8 @@ export const FEATURE_CARDS: FeatureCard[] = [
   {
     key: "offline",
     title: "Modo offline",
-    description: "Se corta internet y la caja sigue vendiendo. Al volver, todo se sincroniza.",
+    description:
+      "Se corta internet y la caja sigue vendiendo. Al volver, todo se sincroniza.",
   },
   {
     key: "sync",
@@ -162,7 +172,8 @@ export const FEATURE_CARDS: FeatureCard[] = [
   {
     key: "fiscales",
     title: "Reportes fiscales",
-    description: "Los libros de venta y de compra salen del sistema, no del contador apurado.",
+    description:
+      "Los libros de venta y de compra salen del sistema, no del contador apurado.",
   },
   {
     key: "impresion",
@@ -172,7 +183,8 @@ export const FEATURE_CARDS: FeatureCard[] = [
   {
     key: "dispositivos",
     title: "Dispositivos y cajas",
-    description: "Cada caja con su sesión, sus permisos y su numeración propia.",
+    description:
+      "Cada caja con su sesión, sus permisos y su numeración propia.",
   },
 ]
 

@@ -1,6 +1,7 @@
 import { BadgeCheck } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
+import { getMarket } from "@/lib/site/markets"
 import { cn } from "@/lib/utils"
 
 /*
@@ -26,12 +27,12 @@ function MockFrame({
     <div
       aria-hidden
       className={cn(
-        "w-full max-w-sm select-none rounded-2xl border bg-background p-5 text-left",
-        className,
+        "w-full max-w-sm rounded-2xl border bg-background p-5 text-left select-none",
+        className
       )}
     >
       {label ? (
-        <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="mb-2 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           {label}
         </p>
       ) : null}
@@ -86,7 +87,11 @@ function MockTotal({ left, right }: { left: string; right: string }) {
 export function MockupTicket() {
   return (
     <MockFrame label="Caja 1" title="Venta en curso">
-      <MockRow left="1× Lomito árabe" right="Gs. 35.000" sub={["Sin cebolla · Extra queso"]} />
+      <MockRow
+        left="1× Lomito árabe"
+        right="Gs. 35.000"
+        sub={["Sin cebolla · Extra queso"]}
+      />
       <MockRow left="2× Jugo de mburucuyá" right="Gs. 24.000" />
       <MockTotal left="Cobrar" right="Gs. 59.000" />
     </MockFrame>
@@ -107,8 +112,15 @@ export function MockupArqueo() {
 export function MockupFactura() {
   return (
     <MockFrame label="Factura electrónica" title="001-001-0000482">
-      <MockRow left="González e Hijos S.A." sub={["RUC 80012345-6"]} />
-      <MockRow left="Total" right="Gs. 495.000" sub={["IVA 10% incluido: Gs. 45.000"]} />
+      <MockRow
+        left="González e Hijos S.A."
+        sub={[`${getMarket().terminos.docFiscal} 80012345-6`]}
+      />
+      <MockRow
+        left="Total"
+        right="Gs. 495.000"
+        sub={["IVA 10% incluido: Gs. 45.000"]}
+      />
       <div className="flex items-center gap-2">
         <Badge variant="secondary" className="gap-1">
           <BadgeCheck className="size-3.5" />
@@ -132,8 +144,16 @@ export function MockupStock() {
 export function MockupClientes() {
   return (
     <MockFrame label="Clientes" title="Los que vuelven">
-      <MockRow left="Carmen Ríos" right="Gs. 1.180.000" sub={["9 compras · última hace 2 días"]} />
-      <MockRow left="Diego Vera" right="Gs. 640.000" sub={["4 compras · debe Gs. 95.000"]} />
+      <MockRow
+        left="Carmen Ríos"
+        right="Gs. 1.180.000"
+        sub={["9 compras · última hace 2 días"]}
+      />
+      <MockRow
+        left="Diego Vera"
+        right="Gs. 640.000"
+        sub={["4 compras · debe Gs. 95.000"]}
+      />
       <MockRow left="Elvira Ruiz" right="Gs. 460.000" sub={["3 compras"]} />
     </MockFrame>
   )
@@ -155,7 +175,9 @@ export function MockupReporte() {
       </div>
       <div className="flex items-baseline justify-between">
         <span className="text-xs text-muted-foreground">08:00 — 20:00</span>
-        <span className="text-sm font-semibold tabular-nums">Gs. 8.420.000</span>
+        <span className="text-sm font-semibold tabular-nums">
+          Gs. 8.420.000
+        </span>
       </div>
     </MockFrame>
   )
@@ -163,8 +185,18 @@ export function MockupReporte() {
 
 export function MockupMesas() {
   const mesas = [
-    { name: "Mesa 3", state: "Ocupada · 25 min", total: "Gs. 128.000", busy: true },
-    { name: "Mesa 7", state: "Pedido en cocina", total: "Gs. 96.000", busy: true },
+    {
+      name: "Mesa 3",
+      state: "Ocupada · 25 min",
+      total: "Gs. 128.000",
+      busy: true,
+    },
+    {
+      name: "Mesa 7",
+      state: "Pedido en cocina",
+      total: "Gs. 96.000",
+      busy: true,
+    },
     { name: "Mesa 12", state: "Libre", total: "—", busy: false },
   ]
   return (
@@ -178,7 +210,7 @@ export function MockupMesas() {
             <span
               className={cn(
                 "size-2 rounded-full",
-                m.busy ? "bg-chart-1" : "bg-muted-foreground/40",
+                m.busy ? "bg-chart-1" : "bg-muted-foreground/40"
               )}
             />
             <span className="flex flex-col">

@@ -12,11 +12,15 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
 import { CtaFinal } from "@/components/site/cta-final"
+import { getMarket, marketMoney } from "@/lib/site/markets"
+
+const market = getMarket()
+const PRECIO = marketMoney(market.plan.precio, market)
+const CREDITOS = new Intl.NumberFormat("es-PY").format(market.plan.creditosIa)
 
 export const metadata: Metadata = {
   title: "Precios",
-  description:
-    "Un solo plan con todo incluido: Gs. 295.000 por mes y por sucursal. Facturación electrónica ilimitada, usuarios, cajas y productos sin límite.",
+  description: `Un solo plan con todo incluido: ${PRECIO} ${market.plan.periodo}. Facturación electrónica ilimitada, usuarios, cajas y productos sin límite.`,
 }
 
 const INCLUIDO = [
@@ -41,7 +45,7 @@ const INCLUIDO = [
     detail: "Vendé todo lo que puedas: no cobramos por ticket.",
   },
   {
-    label: "10.000 créditos de IA por mes",
+    label: `${CREDITOS} créditos de IA por mes`,
     detail: "Para preguntarle a Punto AI por tus números y tus reportes.",
   },
   {
@@ -53,7 +57,7 @@ const INCLUIDO = [
 const FAQS = [
   {
     q: "¿El precio es por negocio o por sucursal?",
-    a: "Por sucursal. Cada local paga Gs. 295.000 por mes y adentro no hay límites: todas las cajas, todos los usuarios y todos los productos que necesites. Si abrís una segunda sucursal, se suma solo esa.",
+    a: `Por sucursal. Cada local paga ${PRECIO} por mes y adentro no hay límites: todas las cajas, todos los usuarios y todos los productos que necesites. Si abrís una segunda sucursal, se suma solo esa.`,
   },
   {
     q: "¿La facturación electrónica se cobra aparte?",
@@ -81,7 +85,7 @@ const FAQS = [
   },
   {
     q: "¿Qué son los créditos de IA y para qué alcanzan?",
-    a: "Son el consumo de Punto AI, el asistente que responde sobre los datos de tu negocio. El plan incluye 10.000 créditos por mes, que cubren de sobra el uso normal de un comercio: preguntar cómo viene el mes, pedir un reporte o revisar qué producto dejó más margen. Si tu equipo lo usa mucho más, se pueden sumar créditos aparte.",
+    a: `Son el consumo de Punto AI, el asistente que responde sobre los datos de tu negocio. El plan incluye ${CREDITOS} créditos por mes, que cubren de sobra el uso normal de un comercio: preguntar cómo viene el mes, pedir un reporte o revisar qué producto dejó más margen. Si tu equipo lo usa mucho más, se pueden sumar créditos aparte.`,
   },
   {
     q: "¿El precio promocional sube después?",
@@ -112,17 +116,19 @@ export default function PreciosPage() {
         <div className="mx-auto mt-12 max-w-2xl">
           <div className="overflow-hidden rounded-3xl border bg-muted/40">
             <div className="flex flex-col items-center gap-4 border-b px-8 py-10 text-center md:px-12">
-              <Badge className="rounded-full bg-chart-1 text-neutral-900 hover:bg-chart-1">
-                Precio promocional
-              </Badge>
+              {market.plan.badge ? (
+                <Badge className="rounded-full bg-chart-1 text-neutral-900 hover:bg-chart-1">
+                  {market.plan.badge}
+                </Badge>
+              ) : null}
               <div className="flex items-baseline justify-center gap-2">
                 {/* razón: escala display de marketing, no aplica escala panel (§14) */}
                 <span className="text-5xl font-semibold tracking-tight tabular-nums md:text-6xl">
-                  Gs. 295.000
+                  {PRECIO}
                 </span>
               </div>
               <p className="text-base text-muted-foreground">
-                por mes, por sucursal
+                {market.plan.periodo}
               </p>
               <div className="mt-2 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                 <Button asChild size="lg" className="rounded-full px-7">

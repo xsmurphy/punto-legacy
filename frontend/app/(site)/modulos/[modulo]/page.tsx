@@ -8,6 +8,7 @@ import { WHATSAPP_URL } from "@/lib/site/contacto"
 import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
 import { ScreenshotCrossfade } from "@/components/site/screenshot-crossfade"
+import { applyMarketTerms } from "@/lib/site/markets"
 import { MODULOS, getModulo } from "@/lib/site/modulos"
 import { cn } from "@/lib/utils"
 
@@ -25,7 +26,7 @@ export async function generateMetadata({
   if (!modulo) return {}
   return {
     title: modulo.label,
-    description: modulo.heroDescription,
+    description: applyMarketTerms(modulo.heroDescription),
   }
 }
 
@@ -54,7 +55,7 @@ export default async function ModuloPage({
               {modulo.heroTitle}
             </h1>
             <p className="mx-auto mt-5 max-w-2xl text-lg text-pretty text-white/65 md:text-xl">
-              {modulo.heroDescription}
+              {applyMarketTerms(modulo.heroDescription)}
             </p>
           </div>
 
@@ -112,7 +113,7 @@ export default async function ModuloPage({
                   aria-hidden
                   className="mt-2 size-1.5 shrink-0 rounded-full bg-chart-1"
                 />
-                <span className="text-base">{item}</span>
+                <span className="text-base">{applyMarketTerms(item)}</span>
               </li>
             ))}
           </ul>
@@ -143,7 +144,7 @@ export default async function ModuloPage({
                     key={p.slice(0, 32)}
                     className="text-base text-muted-foreground"
                   >
-                    {p}
+                    {applyMarketTerms(p)}
                   </p>
                 ))}
                 <Link

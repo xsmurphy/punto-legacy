@@ -92,7 +92,7 @@ export const RUBROS: Rubro[] = [
         kicker: "La cuenta sin drama",
         title: "Dividir, cobrar y facturar en el mismo paso",
         paragraphs: [
-          "Al final de la comida cada uno sabe cuánto le toca: en partes iguales o por lo que pidió. La mesa se cobra en efectivo, QR o tarjeta — o mezclado — y la factura electrónica sale en ese mismo toque, con el RUC que el cliente diga.",
+          "Al final de la comida cada uno sabe cuánto le toca: en partes iguales o por lo que pidió. La mesa se cobra en efectivo, QR o tarjeta — o mezclado — y la factura electrónica sale en ese mismo toque, con el {docFiscal} que el cliente diga.",
           "Nada de reconstruir la mesa desde tres papeles: la cuenta vivió en el sistema desde el primer pedido.",
         ],
         linkLabel: "Ver el cobro de una mesa",
@@ -146,7 +146,7 @@ export const RUBROS: Rubro[] = [
         kicker: "La fila no espera",
         title: "Cobrar al ritmo del escáner",
         paragraphs: [
-          "En hora pico el mostrador se mide en segundos por cliente. El ticket se arma escaneando, el total se hace solo y el cobro acepta efectivo, QR o tarjeta sin cambiar de pantalla. Si el cliente pide factura, sale con su RUC en el mismo paso.",
+          "En hora pico el mostrador se mide en segundos por cliente. El ticket se arma escaneando, el total se hace solo y el cobro acepta efectivo, QR o tarjeta sin cambiar de pantalla. Si el cliente pide factura, sale con su {docFiscal} en el mismo paso.",
           "El teclado alcanza para todo el flujo — la caja de alto volumen no depende del mouse ni de menús escondidos.",
         ],
         linkLabel: "Ver la caja rápida",
@@ -224,8 +224,16 @@ export const RUBROS: Rubro[] = [
           label: "Mostrador",
           title: "Buscar: ibuprofeno",
           rows: [
-            { left: "Ibuprofeno 400mg × 10", right: "Gs. 15.000", sub: ["Centro: 24 · Villa Morra: 8"] },
-            { left: "Ibuprofeno 600mg × 10", right: "Gs. 22.000", sub: ["Centro: 11 · Villa Morra: 0"] },
+            {
+              left: "Ibuprofeno 400mg × 10",
+              right: "Gs. 15.000",
+              sub: ["Centro: 24 · Villa Morra: 8"],
+            },
+            {
+              left: "Ibuprofeno 600mg × 10",
+              right: "Gs. 22.000",
+              sub: ["Centro: 11 · Villa Morra: 0"],
+            },
           ],
         },
       },
@@ -240,8 +248,16 @@ export const RUBROS: Rubro[] = [
           label: "Este mes",
           title: "Próximos a vencer",
           rows: [
-            { left: "Amoxicilina susp.", right: "12 días", sub: ["Lote A-1042 · 6 unidades"] },
-            { left: "Vitamina C 500", right: "28 días", sub: ["Lote C-2210 · 14 unidades"] },
+            {
+              left: "Amoxicilina susp.",
+              right: "12 días",
+              sub: ["Lote A-1042 · 6 unidades"],
+            },
+            {
+              left: "Vitamina C 500",
+              right: "28 días",
+              sub: ["Lote C-2210 · 14 unidades"],
+            },
           ],
         },
       },
@@ -256,8 +272,16 @@ export const RUBROS: Rubro[] = [
           label: "Cuentas corrientes",
           title: "Saldos al día",
           rows: [
-            { left: "Elvira Ruiz", right: "Gs. 180.000", sub: ["límite Gs. 500.000"] },
-            { left: "Ramón Ortiz", right: "Gs. 65.000", sub: ["último pago hace 8 días"] },
+            {
+              left: "Elvira Ruiz",
+              right: "Gs. 180.000",
+              sub: ["límite Gs. 500.000"],
+            },
+            {
+              left: "Ramón Ortiz",
+              right: "Gs. 65.000",
+              sub: ["último pago hace 8 días"],
+            },
           ],
         },
       },
@@ -282,7 +306,7 @@ export const RUBROS: Rubro[] = [
         kicker: "Miles de códigos, un solo buscador",
         title: "El mostrador encuentra el artículo al primer intento",
         paragraphs: [
-          "El cliente pide \"un caño de media\" o \"el tornillo autoperforante de una pulgada\" y el buscador responde por nombre, medida o código, sin que el vendedor tenga que memorizar dónde está cada cosa entre miles de artículos.",
+          'El cliente pide "un caño de media" o "el tornillo autoperforante de una pulgada" y el buscador responde por nombre, medida o código, sin que el vendedor tenga que memorizar dónde está cada cosa entre miles de artículos.',
           "Si en el depósito de esta sucursal no queda, se ve al toque dónde sí hay stock, antes de mandar al cliente a buscar en otro lado.",
         ],
         linkLabel: "Ver el buscador de artículos",
@@ -290,8 +314,16 @@ export const RUBROS: Rubro[] = [
           label: "Mostrador",
           title: "Buscar: caño PVC",
           rows: [
-            { left: "Caño PVC 1/2\" × 6m", right: "Gs. 38.000", sub: ["Depósito central: 42 · Sucursal Ñemby: 6"] },
-            { left: "Codo PVC 1/2\"", right: "Gs. 3.500", sub: ["Depósito central: 210"] },
+            {
+              left: 'Caño PVC 1/2" × 6m',
+              right: "Gs. 38.000",
+              sub: ["Depósito central: 42 · Sucursal Ñemby: 6"],
+            },
+            {
+              left: 'Codo PVC 1/2"',
+              right: "Gs. 3.500",
+              sub: ["Depósito central: 210"],
+            },
           ],
         },
       },
@@ -307,7 +339,7 @@ export const RUBROS: Rubro[] = [
           label: "Cotización #084",
           title: "Obra Sosa · baño",
           rows: [
-            { left: "18× Caño PVC 1/2\" (m)", right: "Gs. 216.000" },
+            { left: '18× Caño PVC 1/2" (m)', right: "Gs. 216.000" },
             { left: "2× Bolsa cemento 50kg", right: "Gs. 130.000" },
             { left: "1× Kit grifería", right: "Gs. 380.000" },
           ],
@@ -326,8 +358,16 @@ export const RUBROS: Rubro[] = [
           label: "Cuentas corrientes",
           title: "Saldos al día",
           rows: [
-            { left: "Construcciones Ayala", right: "Gs. 1.240.000", sub: ["límite Gs. 3.000.000"] },
-            { left: "Don Feliciano", right: "Gs. 95.000", sub: ["último pago hace 12 días"] },
+            {
+              left: "Construcciones Ayala",
+              right: "Gs. 1.240.000",
+              sub: ["límite Gs. 3.000.000"],
+            },
+            {
+              left: "Don Feliciano",
+              right: "Gs. 95.000",
+              sub: ["último pago hace 12 días"],
+            },
           ],
         },
       },
@@ -361,8 +401,19 @@ export const RUBROS: Rubro[] = [
           title: "Pedidos en cola",
           caption: "Cada pedido con su hora de entrada.",
           rows: [
-            { left: "Orden 14 · hace 1 min", right: "2 items", sub: ["1× Latte grande, leche de avena", "1× Medialuna de manteca"] },
-            { left: "Orden 15 · recién", right: "1 item", sub: ["1× Espresso doble, sin azúcar"] },
+            {
+              left: "Orden 14 · hace 1 min",
+              right: "2 items",
+              sub: [
+                "1× Latte grande, leche de avena",
+                "1× Medialuna de manteca",
+              ],
+            },
+            {
+              left: "Orden 15 · recién",
+              right: "1 item",
+              sub: ["1× Espresso doble, sin azúcar"],
+            },
           ],
         },
       },
@@ -371,7 +422,7 @@ export const RUBROS: Rubro[] = [
         title: "Gift cards y el cliente que ya sabés cómo lo pide",
         paragraphs: [
           "La gift card se vende como cualquier producto y queda cargada con su saldo, lista para que alguien la regale y otro la use en su próxima visita.",
-          "El cliente frecuente tiene su cuenta con el historial de compras, así que cuando pide \"lo de siempre\" la caja ya sabe de qué habla.",
+          'El cliente frecuente tiene su cuenta con el historial de compras, así que cuando pide "lo de siempre" la caja ya sabe de qué habla.',
         ],
         linkLabel: "Ver una gift card",
         mockup: {
@@ -431,8 +482,16 @@ export const RUBROS: Rubro[] = [
           label: "Producción 4:30",
           title: "Horneada del día",
           rows: [
-            { left: "Pan francés × 80", right: "Gs. 96.000", sub: ["Harina 12kg · Levadura 200g"] },
-            { left: "Facturas surtidas × 60", right: "Gs. 84.000", sub: ["Harina 6kg · Manteca 1.5kg"] },
+            {
+              left: "Pan francés × 80",
+              right: "Gs. 96.000",
+              sub: ["Harina 12kg · Levadura 200g"],
+            },
+            {
+              left: "Facturas surtidas × 60",
+              right: "Gs. 84.000",
+              sub: ["Harina 6kg · Manteca 1.5kg"],
+            },
           ],
           footer: { left: "Costo del lote", right: "Gs. 180.000" },
         },
@@ -467,7 +526,11 @@ export const RUBROS: Rubro[] = [
           title: "Producido vs. vendido",
           rows: [
             { left: "Pan francés", right: "80 / 74", sub: ["sobraron 6"] },
-            { left: "Facturas surtidas", right: "60 / 60", sub: ["sin sobrante"] },
+            {
+              left: "Facturas surtidas",
+              right: "60 / 60",
+              sub: ["sin sobrante"],
+            },
           ],
         },
       },
@@ -492,7 +555,7 @@ export const RUBROS: Rubro[] = [
         kicker: "Un modelo, todas sus variantes",
         title: "Talle y color sin multiplicar artículos",
         paragraphs: [
-          "El vestido \"floreado corto\" es un solo artículo con sus variantes de talle y color: buscarlo en el mostrador muestra de una el stock de cada combinación, sin tener que adivinar entre veinte códigos parecidos.",
+          'El vestido "floreado corto" es un solo artículo con sus variantes de talle y color: buscarlo en el mostrador muestra de una el stock de cada combinación, sin tener que adivinar entre veinte códigos parecidos.',
           "Cuando un talle se agota, se ve al instante — y el vendedor puede ofrecer el color que sí queda antes de perder la venta.",
         ],
         linkLabel: "Ver las variantes de un modelo",
@@ -536,7 +599,11 @@ export const RUBROS: Rubro[] = [
           rows: [
             { left: "Campera de jean", right: "42 unidades" },
             { left: "Sweater oversize", right: "37 unidades" },
-            { left: "Pantalón cargo", right: "9 unidades", sub: ["quedó stock"] },
+            {
+              left: "Pantalón cargo",
+              right: "9 unidades",
+              sub: ["quedó stock"],
+            },
           ],
         },
       },
@@ -570,8 +637,16 @@ export const RUBROS: Rubro[] = [
           title: "Barra · cola de comandas",
           caption: "Cada pedido con su mesa y su hora.",
           rows: [
-            { left: "Mesa 5 · hace 2 min", right: "3 tragos", sub: ["2× Gin tonic", "1× Cerveza tirada 1L"] },
-            { left: "Barra · hace 1 min", right: "1 trago", sub: ["1× Whisky doble, sin hielo"] },
+            {
+              left: "Mesa 5 · hace 2 min",
+              right: "3 tragos",
+              sub: ["2× Gin tonic", "1× Cerveza tirada 1L"],
+            },
+            {
+              left: "Barra · hace 1 min",
+              right: "1 trago",
+              sub: ["1× Whisky doble, sin hielo"],
+            },
           ],
         },
       },
@@ -633,7 +708,7 @@ export const RUBROS: Rubro[] = [
         kicker: "Por peso o por bocha",
         title: "El mostrador cobra como se pide el helado",
         paragraphs: [
-          "El cliente pide \"un cuarto\" o \"tres bochas\" y el mostrador cobra de la misma forma: por peso en la balanza o por cantidad, con los agregados — chips, salsa, cucurucho de más — sumados en la misma pantalla sin recalcular nada a mano.",
+          'El cliente pide "un cuarto" o "tres bochas" y el mostrador cobra de la misma forma: por peso en la balanza o por cantidad, con los agregados — chips, salsa, cucurucho de más — sumados en la misma pantalla sin recalcular nada a mano.',
           "En la fila del sábado a la tarde eso hace la diferencia entre atender rápido o frenar la cola en cada pedido raro.",
         ],
         linkLabel: "Ver un pedido en el mostrador",
@@ -642,7 +717,11 @@ export const RUBROS: Rubro[] = [
           title: "Ticket en curso",
           rows: [
             { left: "0.5kg Pote 2 sabores", right: "Gs. 42.000" },
-            { left: "Cucurucho 3 bochas", right: "Gs. 18.000", sub: ["+ chips de chocolate"] },
+            {
+              left: "Cucurucho 3 bochas",
+              right: "Gs. 18.000",
+              sub: ["+ chips de chocolate"],
+            },
           ],
           footer: { left: "Cobrar", right: "Gs. 60.000" },
         },
@@ -659,7 +738,11 @@ export const RUBROS: Rubro[] = [
           label: "Producción de sabores",
           title: "Dulce de leche granizado",
           rows: [
-            { left: "Lote de 8kg", right: "Gs. 96.000", sub: ["Leche 5L · Dulce de leche 2kg"] },
+            {
+              left: "Lote de 8kg",
+              right: "Gs. 96.000",
+              sub: ["Leche 5L · Dulce de leche 2kg"],
+            },
           ],
           footer: { left: "Costo por kilo", right: "Gs. 12.000" },
         },
@@ -675,8 +758,16 @@ export const RUBROS: Rubro[] = [
           label: "Sábado de verano",
           title: "Stock por sucursal",
           rows: [
-            { left: "Dulce de leche granizado", right: "Centro: 4kg", sub: ["Costanera: 0kg — agotado"] },
-            { left: "Frutilla a la crema", right: "Centro: 6kg", sub: ["Costanera: 3kg"] },
+            {
+              left: "Dulce de leche granizado",
+              right: "Centro: 4kg",
+              sub: ["Costanera: 0kg — agotado"],
+            },
+            {
+              left: "Frutilla a la crema",
+              right: "Centro: 6kg",
+              sub: ["Costanera: 3kg"],
+            },
           ],
         },
       },

@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
 import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
+import { applyMarketTerms } from "@/lib/site/markets"
 import { modulosForRubro } from "@/lib/site/modulos"
 import { RUBROS, getRubro, type Rubro } from "@/lib/site/rubros"
 import { cn } from "@/lib/utils"
@@ -26,7 +27,7 @@ export async function generateMetadata({
   if (!rubro) return {}
   return {
     title: `Punto para ${rubro.label.toLowerCase()}`,
-    description: rubro.heroDescription,
+    description: applyMarketTerms(rubro.heroDescription),
   }
 }
 
@@ -86,7 +87,7 @@ function RubroHero({ rubro }: { rubro: Rubro }) {
           {rubro.heroTitle}
         </h1>
         <p className="mt-6 max-w-2xl text-base text-muted-foreground md:text-lg">
-          {rubro.heroDescription}
+          {applyMarketTerms(rubro.heroDescription)}
         </p>
         <div className="mt-8">
           <HeroCtas />
@@ -120,7 +121,7 @@ function RubroHero({ rubro }: { rubro: Rubro }) {
           {rubro.heroTitle}
         </h1>
         <p className="mt-6 max-w-2xl text-base text-white/70 md:text-lg">
-          {rubro.heroDescription}
+          {applyMarketTerms(rubro.heroDescription)}
         </p>
         <div className="mt-8">
           <HeroCtas onPhoto />
@@ -160,7 +161,7 @@ export default async function RubroPage({
                     aria-hidden
                     className="mt-2 size-1.5 shrink-0 rounded-full bg-chart-1"
                   />
-                  <span className="text-base">{item}</span>
+                  <span className="text-base">{applyMarketTerms(item)}</span>
                 </li>
               ))}
             </ul>
@@ -192,7 +193,7 @@ export default async function RubroPage({
                     key={p.slice(0, 32)}
                     className="text-base text-muted-foreground"
                   >
-                    {p}
+                    {applyMarketTerms(p)}
                   </p>
                 ))}
                 <Link

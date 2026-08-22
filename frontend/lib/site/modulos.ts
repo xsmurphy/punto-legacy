@@ -60,7 +60,11 @@ export const MODULOS: Modulo[] = [
           label: "Caja 1",
           title: "Venta en curso",
           rows: [
-            { left: "1× Lomito árabe", right: "Gs. 35.000", sub: ["Sin cebolla · Extra queso"] },
+            {
+              left: "1× Lomito árabe",
+              right: "Gs. 35.000",
+              sub: ["Sin cebolla · Extra queso"],
+            },
             { left: "2× Jugo de mburucuyá", right: "Gs. 24.000" },
           ],
           footer: { left: "Cobrar", right: "Gs. 59.000" },
@@ -97,8 +101,16 @@ export const MODULOS: Modulo[] = [
           label: "Sin conexión",
           title: "Ventas en espera",
           rows: [
-            { left: "Ticket #482", right: "Gs. 59.000", sub: ["emitido 19:41"] },
-            { left: "Ticket #483", right: "Gs. 118.000", sub: ["emitido 19:47"] },
+            {
+              left: "Ticket #482",
+              right: "Gs. 59.000",
+              sub: ["emitido 19:41"],
+            },
+            {
+              left: "Ticket #483",
+              right: "Gs. 118.000",
+              sub: ["emitido 19:47"],
+            },
           ],
           footer: { left: "Se suben al reconectar", right: "2" },
         },
@@ -155,8 +167,16 @@ export const MODULOS: Modulo[] = [
           title: "Ventas por sucursal",
           rows: [
             { left: "Centro", right: "Gs. 4.180.000", sub: ["92 tickets"] },
-            { left: "Villa Morra", right: "Gs. 2.940.000", sub: ["61 tickets"] },
-            { left: "San Lorenzo", right: "Gs. 1.300.000", sub: ["31 tickets"] },
+            {
+              left: "Villa Morra",
+              right: "Gs. 2.940.000",
+              sub: ["61 tickets"],
+            },
+            {
+              left: "San Lorenzo",
+              right: "Gs. 1.300.000",
+              sub: ["31 tickets"],
+            },
           ],
           footer: { left: "Total del día", right: "Gs. 8.420.000" },
         },
@@ -174,7 +194,11 @@ export const MODULOS: Modulo[] = [
           title: "Café en grano 1kg",
           rows: [
             { left: "Mostrador", right: "Gs. 95.000" },
-            { left: "Mayorista", right: "Gs. 78.000", sub: ["desde 6 unidades"] },
+            {
+              left: "Mayorista",
+              right: "Gs. 78.000",
+              sub: ["desde 6 unidades"],
+            },
             { left: "Costo", right: "Gs. 52.000", sub: ["margen 45%"] },
           ],
         },
@@ -207,9 +231,21 @@ export const MODULOS: Modulo[] = [
           label: "Este mes",
           title: "Lo más vendido",
           rows: [
-            { left: "Empanada de carne", right: "Gs. 1.278.000", sub: ["142 unidades"] },
-            { left: "Café con leche", right: "Gs. 1.470.000", sub: ["98 unidades"] },
-            { left: "Combo desayuno", right: "Gs. 1.586.000", sub: ["61 unidades"] },
+            {
+              left: "Empanada de carne",
+              right: "Gs. 1.278.000",
+              sub: ["142 unidades"],
+            },
+            {
+              left: "Café con leche",
+              right: "Gs. 1.470.000",
+              sub: ["98 unidades"],
+            },
+            {
+              left: "Combo desayuno",
+              right: "Gs. 1.586.000",
+              sub: ["61 unidades"],
+            },
           ],
         },
       },
@@ -237,7 +273,7 @@ export const MODULOS: Modulo[] = [
         kicker: "Preguntar es la interfaz",
         title: "La pregunta que harías en voz alta, respondida con datos",
         paragraphs: [
-          "\"¿Cómo viene el mes contra el anterior?\", \"¿qué producto me deja más margen?\", \"¿qué clientes no volvieron en 60 días?\". Punto AI entiende la pregunta, busca en tu información y contesta con el número concreto — más el gráfico cuando ayuda a verlo.",
+          '"¿Cómo viene el mes contra el anterior?", "¿qué producto me deja más margen?", "¿qué clientes no volvieron en 60 días?". Punto AI entiende la pregunta, busca en tu información y contesta con el número concreto — más el gráfico cuando ayuda a verlo.',
           "No hay que aprender dónde vive cada reporte ni qué filtro combinar: la conversación reemplaza el recorrido por los menús.",
         ],
         linkLabel: "Ver una respuesta",
@@ -245,7 +281,11 @@ export const MODULOS: Modulo[] = [
           label: "Punto AI",
           title: "¿Cómo viene la semana?",
           rows: [
-            { left: "Ventas 01 al 09", right: "Gs. 2.310.000", sub: ["8 días con ventas"] },
+            {
+              left: "Ventas 01 al 09",
+              right: "Gs. 2.310.000",
+              sub: ["8 días con ventas"],
+            },
             { left: "Día pico", right: "Gs. 495.000", sub: ["08/06"] },
             { left: "Más vendido", right: "Pizza peperoni" },
           ],
@@ -263,9 +303,21 @@ export const MODULOS: Modulo[] = [
           label: "Hallazgos",
           title: "Qué mirar esta semana",
           rows: [
-            { left: "Margen en bebidas", right: "-6 pts", sub: ["subió el costo del proveedor"] },
-            { left: "Martes", right: "-38%", sub: ["contra el resto de la semana"] },
-            { left: "Clientes sin volver", right: "9", sub: ["compraban cada 15 días"] },
+            {
+              left: "Margen en bebidas",
+              right: "-6 pts",
+              sub: ["subió el costo del proveedor"],
+            },
+            {
+              left: "Martes",
+              right: "-38%",
+              sub: ["contra el resto de la semana"],
+            },
+            {
+              left: "Clientes sin volver",
+              right: "9",
+              sub: ["compraban cada 15 días"],
+            },
           ],
         },
       },
@@ -338,8 +390,16 @@ export const MODULOS: Modulo[] = [
           label: "Cocina · en preparación",
           title: "Cola de comandas",
           rows: [
-            { left: "#47 · Mesa 3", right: "hace 4 min", sub: ["2× Lomito · sin cebolla"] },
-            { left: "#48 · Mesa 7", right: "hace 1 min", sub: ["1× Costilla al horno"] },
+            {
+              left: "#47 · Mesa 3",
+              right: "hace 4 min",
+              sub: ["2× Lomito · sin cebolla"],
+            },
+            {
+              left: "#48 · Mesa 7",
+              right: "hace 1 min",
+              sub: ["1× Costilla al horno"],
+            },
           ],
         },
       },
@@ -355,7 +415,11 @@ export const MODULOS: Modulo[] = [
           label: "Mesa 3 · 3 personas",
           title: "Dividir la cuenta",
           rows: [
-            { left: "Pagó Gladys", right: "Gs. 45.000", sub: ["por sus ítems"] },
+            {
+              left: "Pagó Gladys",
+              right: "Gs. 45.000",
+              sub: ["por sus ítems"],
+            },
             { left: "Pagó Osvaldo", right: "Gs. 45.000", sub: ["efectivo"] },
             { left: "Pendiente", right: "Gs. 38.000" },
           ],
@@ -394,7 +458,11 @@ export const MODULOS: Modulo[] = [
           title: "Gift card aplicada",
           rows: [
             { left: "Total de la venta", right: "Gs. 185.000" },
-            { left: "Gift card GC-4821", right: "Gs. -150.000", sub: ["saldo restante Gs. 0"] },
+            {
+              left: "Gift card GC-4821",
+              right: "Gs. -150.000",
+              sub: ["saldo restante Gs. 0"],
+            },
             { left: "Efectivo", right: "Gs. 35.000" },
           ],
         },
@@ -430,7 +498,11 @@ export const MODULOS: Modulo[] = [
           title: "Historial del código",
           rows: [
             { left: "Vendida", right: "Gs. 150.000", sub: ["Centro · 02/08"] },
-            { left: "Usada", right: "Gs. 150.000", sub: ["Villa Morra · 19/08"] },
+            {
+              left: "Usada",
+              right: "Gs. 150.000",
+              sub: ["Villa Morra · 19/08"],
+            },
             { left: "Saldo", right: "Gs. 0" },
           ],
         },
@@ -467,9 +539,21 @@ export const MODULOS: Modulo[] = [
           label: "Cocina · en preparación",
           title: "Tablero por estación",
           rows: [
-            { left: "#47 · Mesa 3", right: "4 min", sub: ["2× Lomito · sin cebolla"] },
-            { left: "#48 · Mostrador", right: "2 min", sub: ["1× Milanesa · con papas"] },
-            { left: "#49 · Mesa 7", right: "1 min", sub: ["1× Costilla al horno"] },
+            {
+              left: "#47 · Mesa 3",
+              right: "4 min",
+              sub: ["2× Lomito · sin cebolla"],
+            },
+            {
+              left: "#48 · Mostrador",
+              right: "2 min",
+              sub: ["1× Milanesa · con papas"],
+            },
+            {
+              left: "#49 · Mesa 7",
+              right: "1 min",
+              sub: ["1× Costilla al horno"],
+            },
           ],
         },
       },
@@ -504,7 +588,11 @@ export const MODULOS: Modulo[] = [
           title: "Tiempos de preparación",
           rows: [
             { left: "Promedio de salida", right: "9 min" },
-            { left: "Comanda más lenta", right: "21 min", sub: ["#38 · mesa de 8"] },
+            {
+              left: "Comanda más lenta",
+              right: "21 min",
+              sub: ["#38 · mesa de 8"],
+            },
             { left: "Servidas", right: "84" },
           ],
         },
@@ -599,8 +687,18 @@ export const MODULO_GROUPS: ModuloGroup[] = [
 
 /** Módulos que destaca cada rubro, para el bloque de su minipage. */
 export const RUBRO_MODULOS: Record<string, string[]> = {
-  restaurantes: ["mesas-y-ordenes", "pantalla-de-cocina", "punto-de-venta", "panel"],
-  "bares-y-pubs": ["mesas-y-ordenes", "pantalla-de-cocina", "punto-de-venta", "panel"],
+  restaurantes: [
+    "mesas-y-ordenes",
+    "pantalla-de-cocina",
+    "punto-de-venta",
+    "panel",
+  ],
+  "bares-y-pubs": [
+    "mesas-y-ordenes",
+    "pantalla-de-cocina",
+    "punto-de-venta",
+    "panel",
+  ],
   cafeterias: ["punto-de-venta", "mesas-y-ordenes", "gift-cards", "panel"],
   panaderias: ["punto-de-venta", "pantalla-de-cocina", "panel", "punto-ai"],
   heladerias: ["punto-de-venta", "mesas-y-ordenes", "gift-cards", "panel"],
