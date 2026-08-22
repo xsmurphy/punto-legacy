@@ -317,7 +317,26 @@ BEGIN
           EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', v_fk.tbl, v_fk.name);
         END LOOP;
 
-        EXECUTE format('ALTER TABLE %s DETACH PARTITION %I', p_table, v_default_name);
+        -- El DETACH pide ACCESS EXCLUSIVE sobre p_table (transaction/itemsold).
+        -- DETACH ... CONCURRENTLY evitaria ese lock pero Postgres NO permite
+        -- CONCURRENTLY dentro de una funcion/transaccion (siempre estamos
+        -- dentro de una al correr esto), asi que no es una opcion acá. En su
+        -- lugar: lock_timeout acotado -- si el POS tiene una transaccion
+        -- activa que bloquea el lock, preferimos abortar ESTE mes (recrear
+        -- las FK arriba dropeadas y reintentar en la corrida de manana del
+        -- cron de partition-ensure) antes que colgar al cajero esperando
+        -- indefinidamente. Ver context/48-escalamiento-de-datos.md D3.
+        BEGIN
+          SET LOCAL lock_timeout = '5s';
+          EXECUTE format('ALTER TABLE %s DETACH PARTITION %I', p_table, v_default_name);
+        EXCEPTION WHEN lock_not_available THEN
+          FOREACH v_fk_def IN ARRAY v_fk_defs LOOP
+            EXECUTE v_fk_def;
+          END LOOP;
+          RAISE WARNING 'ensure_month_partitions: no se pudo tomar el lock de % para desprender % (mes %) -- se salta este mes, se reintenta en la proxima corrida', p_table, v_default_name, v_month;
+          v_month := (v_month + interval '1 month')::date;
+          CONTINUE;
+        END;
       END IF;
 
       EXECUTE format(
@@ -376,8 +395,11 @@ COMMENT ON FUNCTION ensure_month_partitions(regclass, name, int) IS
   'la particion mas vieja ya creada (o el minimo real de p_column si '
   'todavia no hay ninguna) y now() + p_months_ahead meses. Crea tambien '
   'la particion DEFAULT si no existe. Si la DEFAULT ya tenia filas del mes '
-  'que se esta por crear, las migra automaticamente. Usada por la mig 156 '
-  '(bootstrap) y por el job partition-ensure de api/v1/maintenance.php.';
+  'que se esta por crear, las migra automaticamente (con lock_timeout de 5s '
+  'sobre el DETACH -- si el POS bloquea el lock, salta ese mes con RAISE '
+  'WARNING y lo reintenta la proxima corrida, sin colgar al cajero). Usada '
+  'por la mig 156 (bootstrap) y por el job partition-ensure de '
+  'api/v1/maintenance.php.';
 
 CREATE OR REPLACE FUNCTION partition_health(p_table regclass, p_column name, p_months_required int)
 RETURNS int LANGUAGE plpgsql AS $$
