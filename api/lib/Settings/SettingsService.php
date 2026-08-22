@@ -119,6 +119,12 @@ final class SettingsService
                 ? (string) $r['settingReturnRefund']
                 : 'ask',
             'settingReturnAllowIngredientReversal' => ((string) ($r['settingReturnAllowIngredientReversal'] ?? '')) === 'yes',
+            // D7/E1b de context/48-escalamiento-de-datos.md (mig 157) — ancho
+            // de la ventana abierta de cierre de período (mes en curso + N
+            // meses anteriores). Mismo default/clamp que `period_close_due()`
+            // en SQL (1..12, default 1) para que panel y job de mantenimiento
+            // coincidan siempre.
+            'settingPeriodCloseMonths' => max(1, min(12, (int) ($r['settingPeriodCloseMonths'] ?? 1))),
             // Toggles (settingObj / _fullSettings)
             'ignoreInternal'      => $this->truthy($obj['ignoreInternal'] ?? null),
             'stockCountBlind'     => $this->truthy($obj['stockCountBlind'] ?? null),
@@ -225,6 +231,11 @@ final class SettingsService
         }
         if (array_key_exists('settingReturnAllowIngredientReversal', $f)) {
             $record['settingReturnAllowIngredientReversal'] = !empty($f['settingReturnAllowIngredientReversal']) ? 'yes' : 'no';
+        }
+        // D7/E1b de context/48-escalamiento-de-datos.md — mismo clamp 1..12
+        // que period_close_due() en SQL.
+        if (array_key_exists('settingPeriodCloseMonths', $f)) {
+            $record['settingPeriodCloseMonths'] = max(1, min(12, (int) $f['settingPeriodCloseMonths']));
         }
         $tinyBoolMap = [
             'itemSerialized'     => 'settingItemSerialized',
