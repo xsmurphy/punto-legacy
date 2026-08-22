@@ -47,7 +47,9 @@ export function SiteHero() {
             size="lg"
             className="rounded-full bg-white px-7 text-neutral-900 hover:bg-white/90"
           >
-            <Link href="#">Empezar</Link>
+            <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+              Empezar
+            </Link>
           </Button>
           <Button
             asChild

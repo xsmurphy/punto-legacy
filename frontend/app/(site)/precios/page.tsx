@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/accordion"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { WHATSAPP_URL } from "@/lib/site/contacto"
 import { CtaFinal } from "@/components/site/cta-final"
 
 export const metadata: Metadata = {
@@ -94,14 +95,14 @@ export default function PreciosPage() {
       {/* Encabezado + plan */}
       <section className="mx-auto w-full max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
             Precios
           </p>
           {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-          <h1 className="mt-4 text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance md:text-6xl">
             Un solo plan, con todo adentro
           </h1>
-          <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg text-muted-foreground md:text-xl">
+          <p className="mx-auto mt-5 max-w-2xl text-lg text-pretty text-muted-foreground md:text-xl">
             Sin versiones recortadas ni módulos que se desbloquean pagando de
             más. Un precio por sucursal y el sistema completo desde el primer
             día.
@@ -125,7 +126,13 @@ export default function PreciosPage() {
               </p>
               <div className="mt-2 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                 <Button asChild size="lg" className="rounded-full px-7">
-                  <Link href="#">Empezar</Link>
+                  <Link
+                    href={WHATSAPP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Empezar
+                  </Link>
                 </Button>
                 <Button
                   asChild
@@ -133,7 +140,13 @@ export default function PreciosPage() {
                   variant="outline"
                   className="rounded-full px-7"
                 >
-                  <Link href="#">Escribinos</Link>
+                  <Link
+                    href={WHATSAPP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Escribinos
+                  </Link>
                 </Button>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -161,7 +174,7 @@ export default function PreciosPage() {
       {/* Preguntas frecuentes */}
       <section className="mx-auto w-full max-w-3xl px-4 pb-20 md:px-6 md:pb-28">
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-5xl">
+        <h2 className="text-3xl font-semibold tracking-tight text-balance md:text-5xl">
           Preguntas frecuentes
         </h2>
         <Accordion type="single" collapsible className="mt-8 w-full">

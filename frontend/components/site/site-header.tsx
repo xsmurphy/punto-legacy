@@ -8,6 +8,7 @@ import { ChevronDown } from "lucide-react"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { ModulosMenu, RubrosMenu } from "@/components/site/nav-menus"
 import { Button } from "@/components/ui/button"
+import { WHATSAPP_URL } from "@/lib/site/contacto"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,10 +30,10 @@ function NavMenu({
     <DropdownMenu>
       <DropdownMenuTrigger
         className={cn(
-          "flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium outline-none transition-colors",
+          "flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors outline-none",
           overlay
             ? "text-white/90 hover:bg-white/10 hover:text-white data-[state=open]:bg-white/10 data-[state=open]:text-white"
-            : "text-foreground/80 hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground",
+            : "text-foreground/80 hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
         )}
       >
         {label}
@@ -59,7 +60,9 @@ export function SiteHeader() {
   const pathname = usePathname()
   // Hay hero oscuro en el home ("/home", o "/" reescrito) y en los rubros
   // que traen foto de fondo — ahí el header arranca en modo overlay.
-  const rubroSlug = pathname.startsWith("/para/") ? pathname.split("/")[2] : undefined
+  const rubroSlug = pathname.startsWith("/para/")
+    ? pathname.split("/")[2]
+    : undefined
   const overHero =
     pathname === "/home" ||
     pathname === "/" ||
@@ -82,12 +85,15 @@ export function SiteHeader() {
         "fixed inset-x-0 top-0 z-50 transition-colors duration-300",
         overlay
           ? "bg-transparent"
-          : "border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70",
+          : "border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70"
       )}
     >
       <div className="relative mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 md:px-6">
         <Link href="/home" aria-label="Punto">
-          <PuntoLogo scheme={overlay ? "on-dark" : "on-light"} className="h-6 w-[88px]" />
+          <PuntoLogo
+            scheme={overlay ? "on-dark" : "on-light"}
+            className="h-6 w-[88px]"
+          />
         </Link>
 
         {/* Pills centradas. Sobre el hero son una cápsula translúcida; con el
@@ -98,7 +104,7 @@ export function SiteHeader() {
             "absolute left-1/2 hidden -translate-x-1/2 items-center gap-1 rounded-full border p-1 transition-colors md:flex",
             overlay
               ? "border-white/15 bg-white/10 backdrop-blur"
-              : "border-transparent bg-transparent",
+              : "border-transparent bg-transparent"
           )}
         >
           <NavMenu label="Módulos" overlay={overlay}>
@@ -113,7 +119,7 @@ export function SiteHeader() {
               "rounded-full px-4 py-2 text-sm font-medium transition-colors",
               overlay
                 ? "text-white/90 hover:bg-white/10 hover:text-white"
-                : "text-foreground/80 hover:bg-muted hover:text-foreground",
+                : "text-foreground/80 hover:bg-muted hover:text-foreground"
             )}
           >
             Precios
@@ -126,7 +132,7 @@ export function SiteHeader() {
             variant="ghost"
             className={cn(
               "rounded-full",
-              overlay && "text-white/90 hover:bg-white/10 hover:text-white",
+              overlay && "text-white/90 hover:bg-white/10 hover:text-white"
             )}
           >
             <Link href="/login">Ingresar</Link>
@@ -137,10 +143,12 @@ export function SiteHeader() {
             asChild
             className={cn(
               "rounded-full",
-              overlay && "bg-white text-neutral-900 hover:bg-white/90",
+              overlay && "bg-white text-neutral-900 hover:bg-white/90"
             )}
           >
-            <Link href="#">Empezar</Link>
+            <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+              Empezar
+            </Link>
           </Button>
         </div>
       </div>

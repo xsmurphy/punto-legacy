@@ -5,6 +5,7 @@ import { notFound } from "next/navigation"
 import { ArrowRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { WHATSAPP_URL } from "@/lib/site/contacto"
 import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
 import { modulosForRubro } from "@/lib/site/modulos"
@@ -38,10 +39,12 @@ function HeroCtas({ onPhoto = false }: { onPhoto?: boolean }) {
           size="lg"
           className={cn(
             "rounded-full px-7",
-            onPhoto && "bg-white text-neutral-900 hover:bg-white/90",
+            onPhoto && "bg-white text-neutral-900 hover:bg-white/90"
           )}
         >
-          <Link href="#">Empezar</Link>
+          <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+            Empezar
+          </Link>
         </Button>
         <Button
           asChild
@@ -50,13 +53,20 @@ function HeroCtas({ onPhoto = false }: { onPhoto?: boolean }) {
           className={cn(
             "rounded-full px-7",
             onPhoto &&
-              "border-white/25 bg-white/10 text-white backdrop-blur hover:bg-white/20 hover:text-white",
+              "border-white/25 bg-white/10 text-white backdrop-blur hover:bg-white/20 hover:text-white"
           )}
         >
-          <Link href="#">Escribinos</Link>
+          <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+            Escribinos
+          </Link>
         </Button>
       </div>
-      <p className={cn("text-sm", onPhoto ? "text-white/60" : "text-muted-foreground")}>
+      <p
+        className={cn(
+          "text-sm",
+          onPhoto ? "text-white/60" : "text-muted-foreground"
+        )}
+      >
         Probalo gratis, sin tarjeta ni permanencia.
       </p>
     </div>
@@ -67,12 +77,12 @@ function HeroCtas({ onPhoto = false }: { onPhoto?: boolean }) {
 function RubroHero({ rubro }: { rubro: Rubro }) {
   if (!rubro.heroImage) {
     return (
-      <section className="mx-auto w-full max-w-6xl px-4 pb-16 pt-16 md:px-6 md:pb-24 md:pt-24">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+      <section className="mx-auto w-full max-w-6xl px-4 pt-16 pb-16 md:px-6 md:pt-24 md:pb-24">
+        <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
           {rubro.eyebrow}
         </p>
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h1 className="mt-4 max-w-3xl text-balance text-5xl font-semibold tracking-tight md:text-7xl">
+        <h1 className="mt-4 max-w-3xl text-5xl font-semibold tracking-tight text-balance md:text-7xl">
           {rubro.heroTitle}
         </h1>
         <p className="mt-6 max-w-2xl text-base text-muted-foreground md:text-lg">
@@ -101,12 +111,12 @@ function RubroHero({ rubro }: { rubro: Rubro }) {
         aria-hidden
         className="absolute inset-x-0 bottom-0 h-64 bg-gradient-to-b from-transparent to-black/75"
       />
-      <div className="relative mx-auto w-full max-w-6xl px-4 pb-16 pt-32 md:px-6 md:pb-24 md:pt-40">
-        <p className="text-xs font-semibold uppercase tracking-widest text-white/60">
+      <div className="relative mx-auto w-full max-w-6xl px-4 pt-32 pb-16 md:px-6 md:pt-40 md:pb-24">
+        <p className="text-xs font-semibold tracking-widest text-white/60 uppercase">
           {rubro.eyebrow}
         </p>
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h1 className="mt-4 max-w-3xl text-balance text-5xl font-semibold tracking-tight text-white md:text-7xl">
+        <h1 className="mt-4 max-w-3xl text-5xl font-semibold tracking-tight text-balance text-white md:text-7xl">
           {rubro.heroTitle}
         </h1>
         <p className="mt-6 max-w-2xl text-base text-white/70 md:text-lg">
@@ -140,7 +150,7 @@ export default async function RubroPage({
       {rubro.thirtySeconds ? (
         <section className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6 md:pb-24">
           <div className="rounded-3xl border bg-muted/40 p-8 md:p-12">
-            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+            <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
               Lo esencial de {rubro.posesivo}
             </p>
             <ul className="mt-6 grid gap-x-10 gap-y-5 md:grid-cols-2">
@@ -167,16 +177,21 @@ export default async function RubroPage({
             className="mx-auto w-full max-w-6xl px-4 py-12 md:px-6 md:py-20"
           >
             <div className="grid items-center gap-10 md:grid-cols-2 md:gap-16">
-              <div className={cn("flex flex-col gap-5", reversed && "md:order-2")}>
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <div
+                className={cn("flex flex-col gap-5", reversed && "md:order-2")}
+              >
+                <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
                   {section.kicker}
                 </p>
                 {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-                <h2 className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+                <h2 className="text-4xl font-semibold tracking-tight text-balance md:text-6xl">
                   {section.title}
                 </h2>
                 {section.paragraphs.map((p) => (
-                  <p key={p.slice(0, 32)} className="text-base text-muted-foreground">
+                  <p
+                    key={p.slice(0, 32)}
+                    className="text-base text-muted-foreground"
+                  >
                     {p}
                   </p>
                 ))}
@@ -191,7 +206,7 @@ export default async function RubroPage({
               <div
                 className={cn(
                   "flex items-center justify-center rounded-3xl border bg-gradient-to-br from-chart-1/15 via-transparent to-muted/60 p-8 md:p-12",
-                  reversed && "md:order-1",
+                  reversed && "md:order-1"
                 )}
               >
                 <DataMockup {...section.mockup} />
@@ -204,7 +219,7 @@ export default async function RubroPage({
       {/* Módulos que usa este rubro */}
       {modulos.length ? (
         <section className="mx-auto w-full max-w-6xl px-4 py-16 md:px-6 md:py-24">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
             Los módulos que más usa {rubro.posesivo}
           </p>
           <div className="mt-6 grid gap-4 md:grid-cols-2">
@@ -232,7 +247,7 @@ export default async function RubroPage({
 
       {/* Otros rubros */}
       <section className="mx-auto w-full max-w-6xl px-4 py-16 md:px-6 md:py-24">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
           ¿Buscás otro rubro?
         </p>
         <div className="mt-6 flex flex-wrap gap-3">

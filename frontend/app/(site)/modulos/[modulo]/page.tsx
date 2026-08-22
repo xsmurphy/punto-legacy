@@ -4,6 +4,7 @@ import { notFound } from "next/navigation"
 import { ArrowRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { WHATSAPP_URL } from "@/lib/site/contacto"
 import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
 import { ScreenshotCrossfade } from "@/components/site/screenshot-crossfade"
@@ -45,14 +46,14 @@ export default async function ModuloPage({
       <section className="-mt-16 bg-neutral-950 pt-16 text-white">
         <div className="mx-auto w-full max-w-6xl px-4 py-20 md:px-6 md:py-28">
           <div className="mx-auto max-w-3xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-widest text-white/50">
+            <p className="text-xs font-semibold tracking-widest text-white/50 uppercase">
               {modulo.eyebrow}
             </p>
             {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-            <h1 className="mt-4 text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+            <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance md:text-6xl">
               {modulo.heroTitle}
             </h1>
-            <p className="mx-auto mt-5 max-w-2xl text-pretty text-lg text-white/65 md:text-xl">
+            <p className="mx-auto mt-5 max-w-2xl text-lg text-pretty text-white/65 md:text-xl">
               {modulo.heroDescription}
             </p>
           </div>
@@ -63,7 +64,13 @@ export default async function ModuloPage({
               size="lg"
               className="rounded-full bg-white px-7 text-neutral-900 hover:bg-white/90"
             >
-              <Link href="#">Empezar</Link>
+              <Link
+                href={WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Empezar
+              </Link>
             </Button>
             <Button
               asChild
@@ -71,7 +78,13 @@ export default async function ModuloPage({
               variant="outline"
               className="rounded-full border-white/25 bg-white/10 px-7 text-white hover:bg-white/20 hover:text-white"
             >
-              <Link href="#">Escribinos</Link>
+              <Link
+                href={WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Escribinos
+              </Link>
             </Button>
           </div>
 
@@ -89,7 +102,7 @@ export default async function ModuloPage({
       {/* Lo esencial */}
       <section className="mx-auto w-full max-w-6xl px-4 py-16 md:px-6 md:py-24">
         <div className="rounded-3xl border bg-muted/40 p-8 md:p-12">
-          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+          <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
             Lo esencial
           </p>
           <ul className="mt-6 grid gap-x-10 gap-y-5 md:grid-cols-2">
@@ -115,16 +128,21 @@ export default async function ModuloPage({
             className="mx-auto w-full max-w-6xl px-4 py-12 md:px-6 md:py-20"
           >
             <div className="grid items-center gap-10 md:grid-cols-2 md:gap-16">
-              <div className={cn("flex flex-col gap-5", reversed && "md:order-2")}>
-                <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <div
+                className={cn("flex flex-col gap-5", reversed && "md:order-2")}
+              >
+                <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
                   {section.kicker}
                 </p>
                 {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-                <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-5xl">
+                <h2 className="text-3xl font-semibold tracking-tight text-balance md:text-5xl">
                   {section.title}
                 </h2>
                 {section.paragraphs.map((p) => (
-                  <p key={p.slice(0, 32)} className="text-base text-muted-foreground">
+                  <p
+                    key={p.slice(0, 32)}
+                    className="text-base text-muted-foreground"
+                  >
                     {p}
                   </p>
                 ))}
@@ -139,7 +157,7 @@ export default async function ModuloPage({
               <div
                 className={cn(
                   "flex items-center justify-center rounded-3xl border bg-gradient-to-br from-chart-1/15 via-transparent to-muted/60 p-8 md:p-12",
-                  reversed && "md:order-1",
+                  reversed && "md:order-1"
                 )}
               >
                 <DataMockup {...section.mockup} />
@@ -151,12 +169,17 @@ export default async function ModuloPage({
 
       {/* Otros módulos */}
       <section className="mx-auto w-full max-w-6xl px-4 py-16 md:px-6 md:py-24">
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+        <p className="text-xs font-semibold tracking-widest text-muted-foreground uppercase">
           Sigue por acá
         </p>
         <div className="mt-6 flex flex-wrap gap-3">
           {others.map((m) => (
-            <Button key={m.slug} asChild variant="outline" className="rounded-full">
+            <Button
+              key={m.slug}
+              asChild
+              variant="outline"
+              className="rounded-full"
+            >
               <Link href={`/modulos/${m.slug}`}>{m.label}</Link>
             </Button>
           ))}
