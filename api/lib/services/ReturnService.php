@@ -480,14 +480,21 @@ final class ReturnService
             // totalUnits = suma real de unidades devueltas (no cuenta de líneas)
             $totalUnits = -array_sum(array_column($processedItems, 'qty'));
 
-            $db->Execute(
+            // RETURNING transactiondate: la fecha real de la devolución la
+            // pone NOW() en la base, y es la que necesita rollupMarkDirty
+            // post-commit (ver más abajo) — date('Y-m-d') de PHP puede caer
+            // en OTRO día que el de la base (TZ del contenedor distinta de
+            // la de la sesión de PG, o la request cruzando la medianoche) y
+            // recomputaría el día equivocado.
+            $txRow = $db->Execute(
                 'INSERT INTO transaction (
                     transactionid, transactiontype,
                     transactiontotal, transactiondiscount, transactionunitssold,
                     transactionpaymenttype, invoiceno,
                     transactiondate, transactionnote, transactionstatus, transactioncomplete,
                     customerid, registerid, userid, outletid, companyid, meta
-                ) VALUES (?, 6, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')',
+                ) VALUES (?, 6, ?, ?, ?, ?, ?, NOW(), ?, 1, TRUE, ?, ?, ?, ?, ?, \'{}\')
+                RETURNING transactiondate',
                 [
                     $newTransactionId,
                     -abs($returnTotal),
@@ -503,6 +510,9 @@ final class ReturnService
                     $companyId,
                 ]
             );
+            $returnDate = ($txRow && is_object($txRow) && !$txRow->EOF)
+                ? substr((string) $txRow->fields['transactiondate'], 0, 10)
+                : null;
             // Vínculo devolución → venta original (mig 115, kind='return').
             // Dentro de la misma TX: si el commit falla, el link tampoco queda.
             $this->links()->link($companyId, $parentTransactionId, (string) $newTransactionId, 'return');
@@ -631,13 +641,21 @@ final class ReturnService
         // los dominios 'returns'/'item_returns') — hallazgo de esta sesión:
         // ReturnService nunca llamaba rollupMarkDirty (grep confirmó cero
         // call-sites), a diferencia de SaleService/SaleVoidService/
-        // DrawerService. El día es HOY (server time): el INSERT de arriba
-        // usa NOW(), no una fecha del payload — misma sesión de PG que
-        // corre en America/Asuncion (api/includes/db.php).
-        try {
-            \rollupMarkDirty($companyId, ['sales', 'item_sales', 'payments'], date('Y-m-d'));
-        } catch (\Throwable $e) {
-            error_log('[ReturnService] rollupMarkDirty: ' . $e->getMessage());
+        // DrawerService. El día es el de la fila REALMENTE insertada
+        // (RETURNING transactiondate, ver el INSERT): date('Y-m-d') de PHP
+        // es la fecha del contenedor, que puede diferir de la de la sesión
+        // de PG (TZ distinta, o la request cruzando la medianoche) — marcar
+        // el día equivocado deja el día de la devolución sin recomputar y el
+        // reporte con la devolución faltante hasta el próximo evento de ese
+        // día. Si por lo que sea no vino la fecha, no se marca nada: el
+        // reconcile de pg_cron igual barre por fecha, y marcar un día al
+        // azar sería peor que no marcar.
+        if ($returnDate !== null) {
+            try {
+                \rollupMarkDirty($companyId, ['sales', 'item_sales', 'payments'], $returnDate);
+            } catch (\Throwable $e) {
+                error_log('[ReturnService] rollupMarkDirty: ' . $e->getMessage());
+            }
         }
 
         // Emisión inline POST-COMMIT, best-effort: la devolución ya está

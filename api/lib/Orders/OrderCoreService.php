@@ -867,9 +867,20 @@ final class OrderCoreService
             $channel = 'delivery';
         }
         if ($channel !== null) {
+            // El predicado sobre transactiondate NO es redundante: `transaction`
+            // está particionada por RANGE(transactiondate) desde mig 156, y un
+            // UPDATE que filtra solo por transactionid tiene que escanear TODAS
+            // las particiones (la PK no incluye la clave de partición, así que
+            // el planner no puede podar). La fecha sale de transaction_registry
+            // (mig 156), que es justo la tabla no-particionada con un índice
+            // único por transactionid — una búsqueda puntual que le da al
+            // planner la partición exacta.
             $txRow = $this->db->Execute(
-                'UPDATE transaction SET channel = ? WHERE transactionid = ? AND companyid = ? RETURNING transactiondate',
-                [$channel, $transactionId, $companyId]
+                'UPDATE transaction SET channel = ?
+                  WHERE transactionid = ? AND companyid = ?
+                    AND transactiondate = (SELECT transactiondate FROM transaction_registry WHERE transactionid = ?)
+                 RETURNING transactiondate',
+                [$channel, $transactionId, $companyId, $transactionId]
             );
             $txDate = ($txRow && !$txRow->EOF) ? (string) $txRow->fields['transactiondate'] : null;
             if ($txDate !== null) {

@@ -54,10 +54,16 @@ final class RollupReader
         }
 
         $rs = ncmExecute(
+            // tax = taxtotal (SUM(itemsoldtax) sin filtrar por tasa), NO
+            // tax10+tax5: ese par es el DESGLOSE fiscal PY y pierde en
+            // silencio cualquier línea con otra tasa (tenant de otro país,
+            // tasa nueva, o una tasa reconstruida por el backfill que no
+            // cayó en un bucket). El reporte de "impuesto del mes" tiene que
+            // ser el total, no la suma de dos buckets.
             "SELECT EXTRACT(MONTH FROM day)::int AS month,
                     COALESCE(SUM(cnt), 0)          AS cnt,
                     COALESCE(SUM(net), 0)          AS net,
-                    COALESCE(SUM(tax10 + tax5), 0) AS tax,
+                    COALESCE(SUM(taxtotal), 0)     AS tax,
                     COALESCE(SUM(discount), 0)     AS discount,
                     COALESCE(SUM(units), 0)        AS units
              FROM rollup_sales_day
@@ -166,13 +172,26 @@ final class RollupReader
     }
 
     /**
-     * status='vigente' únicamente — sin filtro de kind: kind=devolucion
-     * (signo negativo, ver mig 158) resta sola al sumar junto con
-     * contado/crédito. GROUP BY itemid solo (no categoryId): un ítem
-     * recategorizado a mitad del rango cae en más de una fila física de
-     * rollup_item_sales_day, pero acá se pliegan en un solo total por ítem
-     * — igual que el dominio 'item_sales' viejo, que no tenía categoría
-     * como dimensión propia.
+     * status='vigente' + kind IN ('contado','credito').
+     *
+     * kind='devolucion' se EXCLUYE a propósito: los consumers de este método
+     * (CategoriesService::salesByCategory, BrandsService::salesByBrand) son
+     * la contraparte rollup de ramas live que filtran `transactionType IN
+     * (0, 3)` — ver CategoriesService.php:101 y BrandsService.php:98 — o sea
+     * ventas, sin devoluciones. Sin este filtro las devoluciones (que mig
+     * 158 guarda con signo negativo) neteaban las ventas y el mismo reporte
+     * daba números distintos con el rollup encendido que con
+     * REPORTS_ROLLUP_ENABLED apagado.
+     *
+     * Las devoluciones NO se pierden: siguen en rollup_item_sales_day con
+     * kind='devolucion' y se consultan aparte (es lo que va a leer el
+     * catálogo de reportes de context/47 — "ventas netas" es una métrica
+     * distinta de "ventas", y ahí la resta es deliberada).
+     *
+     * GROUP BY itemid solo (no categoryId): un ítem recategorizado a mitad
+     * del rango cae en más de una fila física de rollup_item_sales_day, pero
+     * acá se pliegan en un solo total por ítem — igual que el dominio
+     * 'item_sales' viejo, que no tenía categoría como dimensión propia.
      */
     public function itemSalesRange(string $companyId, string $from, string $to, ?string $outletId): array
     {
@@ -188,18 +207,18 @@ final class RollupReader
 
         $rs = ncmExecute(
             "SELECT itemid::text AS itemid,
-                    COALESCE(SUM(qty), 0)          AS qty,
-                    COALESCE(SUM(gross), 0)        AS total,
-                    COALESCE(SUM(tax), 0)          AS tax,
-                    COALESCE(SUM(cogs), 0)         AS cogs,
-                    COALESCE(SUM(discount), 0)     AS discount,
-                    COALESCE(SUM(comission), 0)    AS comission,
-                    COALESCE(SUM(cogsabsflat), 0)  AS cogsabsflat,
-                    COALESCE(SUM(discountflat), 0) AS discountflat
+                    COALESCE(SUM(qty), 0)         AS qty,
+                    COALESCE(SUM(gross), 0)       AS total,
+                    COALESCE(SUM(tax), 0)         AS tax,
+                    COALESCE(SUM(cogs), 0)        AS cogs,
+                    COALESCE(SUM(discount), 0)    AS discount,
+                    COALESCE(SUM(comission), 0)   AS comission,
+                    COALESCE(SUM(cogsabsflat), 0) AS cogsabsflat
              FROM rollup_item_sales_day
              WHERE companyid = ?
                AND day BETWEEN ?::date AND ?::date
-               AND status = 'vigente'{$outletSql}
+               AND status = 'vigente'
+               AND kind IN ('contado', 'credito'){$outletSql}
              GROUP BY itemid",
             $params,
             false,
@@ -211,14 +230,18 @@ final class RollupReader
             while (!$rs->EOF) {
                 $f = $rs->fields;
                 $map[(string) $f['itemid']] = [
-                    'qty'          => (float) ($f['qty']          ?? 0),
-                    'total'        => (float) ($f['total']        ?? 0),
-                    'tax'          => (float) ($f['tax']          ?? 0),
-                    'cogs'         => (float) ($f['cogs']         ?? 0),
-                    'discount'     => (float) ($f['discount']     ?? 0),
-                    'comission'    => (float) ($f['comission']    ?? 0),
-                    'cogsAbsFlat'  => (float) ($f['cogsabsflat']  ?? 0),
-                    'discountFlat' => (float) ($f['discountflat'] ?? 0),
+                    'qty'         => (float) ($f['qty']         ?? 0),
+                    'total'       => (float) ($f['total']       ?? 0),
+                    'tax'         => (float) ($f['tax']         ?? 0),
+                    'cogs'        => (float) ($f['cogs']        ?? 0),
+                    // Un solo `discount` (mig 158): la columna ya es
+                    // SUM(itemsolddiscount) plano, igual que las ramas live.
+                    // `discountFlat` desapareció con la columna que lo
+                    // alimentaba — existía solo para tener el valor correcto
+                    // al lado del inflado por *ABS(units).
+                    'discount'    => (float) ($f['discount']    ?? 0),
+                    'comission'   => (float) ($f['comission']   ?? 0),
+                    'cogsAbsFlat' => (float) ($f['cogsabsflat'] ?? 0),
                 ];
                 $rs->MoveNext();
             }
