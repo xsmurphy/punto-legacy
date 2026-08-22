@@ -169,6 +169,38 @@ está chica hoy a propósito — es la ventana de bajo costo.
   filas (ahí el patrón es "crear la partición, doble-escritura, backfill
   en batches, swap" — no aplica hoy).
 
+**Implementado 2026-08-22 (mig 156, E1).** Desviación respecto a lo
+planeado arriba: en vez de dropear las FK entrantes sin reemplazo (camino
+2 de la sección "FK hacia `transaction`"), se creó `transaction_registry`
+— tabla chica, NO particionada, con las columnas mínimas para sostener 2
+unicidades que deben valer GLOBALMENTE (sin importar el mes de la venta) y
+que el particionado por sí solo rompe: `transactionUid` (dedup de
+reintentos offline del POS) y el número fiscal por punto de expedición
+(`uq_transaction_expedition_invoiceno`). Ninguno de los 2 caminos
+originalmente evaluados (FK compuesta con `transactionDate` denormalizada,
+o sin FK) resolvía esa unicidad global — es un problema ortogonal a la
+integridad referencial de los satélites. Motivo adicional para el
+registry en vez de "sin FK": la auditoría real contra `pg_constraint`
+encontró **20 FK entrantes** (no 10) — la denormalización de
+`transactionDate` en cada una hubiese sido más ancha que el registry.
+Las 20 FK se redirigieron a `transaction_registry(transactionId)` (o
+`transactionUid` para `toScheduleUid`), que a su vez tiene una FK de
+vuelta `ON DELETE CASCADE ON UPDATE CASCADE` hacia `transaction` — así el
+borrado y el "row movement" (UPDATE que cruza de mes) siguen funcionando
+igual que antes del particionado, sin necesitar un trigger `AFTER DELETE`
+a mano (verificado: Postgres trata el row-movement como UPDATE para la
+integridad referencial, no como delete+insert).
+
+Partición DEFAULT + 12 meses de margen (no solo forward, ver D3 arriba):
+regla offline-first (`project_offline_scope`) — el back nunca rechaza una
+venta ya emitida, así que una fecha fuera de cobertura cae en DEFAULT en
+vez de que el INSERT falle duro. `ensure_month_partitions()` reclasifica
+lo que haya quedado en DEFAULT cuando se amplía la cobertura, pero un dato
+viejo suelto (ej. una fecha basura de años atrás) queda en DEFAULT a
+propósito — no empuja la creación de años de particiones vacías. Detalle
+de implementación y arnés de verificación completo:
+`api/database/migrations/postgres/156_partition_transaction_itemsold.sql`.
+
 **D4 — `itemSold` gana `companyId`, `outletId` y `registerId` (además del
 `userId` que ya tiene) e índice compuesto `(companyId, itemId,
 itemSoldDate)`.** Ampliación del owner (2026-08-21): no solo `companyId` —
@@ -193,6 +225,15 @@ t.transactionId = i.transactionId` en la migración, `NOT NULL` después del
 backfill (`registerId` puede ser NULL: ventas desde panel sin caja), y
 mantenidas en el insert de `SaleService`/`ReturnService` (mismo punto que
 ya escribe el resto de las columnas de `itemSold`).
+
+**Implementado 2026-08-22 (mig 156).** Además de `SaleService`/
+`ReturnService`, también `PurchaseCreditNoteService` y los harnesses de
+test que insertan `itemSold` a mano quedaron pobladas. Red de seguridad
+DB-side agregada (no estaba en el plan original): trigger `BEFORE INSERT`
+en `itemsold` que completa `companyId`/`outletId`/`registerId` desde
+`transaction_registry` cuando el insert no los manda — cubre los
+call-sites SQL crudos de `verify_chain` y rechaza (RAISE) un
+`transactionId` que no exista, mismo efecto que tendría la FK.
 
 **D5 — Completar dominios de rollup faltantes (compras, producción,
 stock — RB-3 de `context/18`).** Relevado en esta sesión: el grano
@@ -442,7 +483,7 @@ Lecturas:
 | Etapa | Qué se hace | Señal de activación | Costo aprox. |
 |---|---|---|---|
 | **E0** | Cron de rollups (`rollup-reconcile` cada 10 min, dentro de la imagen API) | Ya activa (hecha hoy 2026-08-21) | Hecho |
-| **E1** | Particionado mensual de `transaction`/`itemSold` + `companyId` en `itemSold` + índice compuesto (D3+D4) | **Ahora.** No hay umbral que esperar: cada fila que entra sin particionar hoy es una fila que hay que migrar con downtime mañana. Prod: 723/1.029 filas — ventana de costo mínimo | 1 migración SQL + auditoría de FKs a dropear, sin downtime real a este volumen (horas de trabajo, 0 downtime) |
+| **E1** | Particionado mensual de `transaction`/`itemSold` + `companyId` en `itemSold` + índice compuesto (D3+D4) | **Implementada 2026-08-22 (mig 156).** | 1 migración SQL, 0 downtime real (723/1.029 filas) |
 | **E1b** | Cierre de período (D7): tabla `period_close` + trigger de inmutabilidad + job `period-close` | Junto con E1 — es la pieza que convierte "partición vieja" en "base fría" de verdad (nadie escribe ahí). Sin activador de volumen: es una regla de negocio, no una respuesta a tamaño | Migración + trigger + job de maintenance (horas); requiere cerrar con el owner la pregunta de "qué es inmutable" antes de escribir el trigger |
 | **E2** | RB-3: rollup de compras/producción/stock + retención del grano `day` de `item_sales` (D5) | Cuando el catálogo de reportes (`context/47`) necesite exponer Compras/Producción/Stock sobre rangos largos, o cuando una query en vivo de esos dominios pase p95 > 1-2s | Extensión del patrón existente (mismo helper de RB-1/RB-2), sin downtime |
 | **E3** | Réplica de lectura en streaming (D6), reportes/exports apuntan ahí | Cualquiera medible: p95 de checkout (POST venta) degradado en horario pico por contención de I/O; o queries de reporting > 25-30% del `total_time` de `pg_stat_statements` de la instancia primaria | Setup de replicación (horas) + verificar soporte en Coolify (bloqueante, ver Riesgos); 0 downtime del lado de escritura |
