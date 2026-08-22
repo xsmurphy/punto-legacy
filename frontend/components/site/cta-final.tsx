@@ -2,7 +2,6 @@ import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
-import { planLine } from "@/lib/site/markets"
 import { SIGNUP_URL } from "@/lib/site/links"
 
 /**
@@ -18,7 +17,10 @@ export function CtaFinal() {
         <h2 className="mx-auto max-w-2xl text-4xl font-semibold tracking-tight text-balance md:text-6xl">
           Tu primer ticket, hoy mismo
         </h2>
-        <p className="mt-4 text-base text-white/65 md:text-lg">{planLine()}</p>
+        <p className="mt-4 text-base text-white/65 md:text-lg">
+          Creás tu cuenta, cargás tus productos y cobrás la primera venta el
+          mismo día.
+        </p>
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Button
             asChild
