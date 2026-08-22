@@ -14,7 +14,14 @@ final class LocationTaxonomyService
             'SELECT 1 FROM outlet WHERE outletid = ? AND companyid = ?',
             [$outletId, $companyId]
         );
-        if ($rs === false || count($rs->GetRows()) === 0) {
+        // Ya NO se confunde un error de BD con "no encontrado" (era un 422
+        // mentiroso): desde 2026-08-22 el wrapper LANZA. El `=== false` de acá
+        // solo se alcanza con el kill-switch DB_THROW_ON_ERROR apagado, y ahí
+        // se reporta como error, no como outlet inexistente.
+        if ($rs === false) {
+            throw new \RuntimeException('Error de BD al validar el outlet');
+        }
+        if (count($rs->GetRows()) === 0) {
             throw new \InvalidArgumentException('Outlet no encontrado');
         }
 
@@ -25,6 +32,9 @@ final class LocationTaxonomyService
              RETURNING taxonomyid',
             [$companyId, $outletId, $name]
         );
+        // Con el wrapper lanzando, este guard solo se alcanza con el kill-switch
+        // DB_THROW_ON_ERROR apagado; en operación normal llega la
+        // DbQueryException con la causa real de PG, más útil que este mensaje.
         if ($rs === false) {
             throw new \RuntimeException('Error al crear depósito');
         }

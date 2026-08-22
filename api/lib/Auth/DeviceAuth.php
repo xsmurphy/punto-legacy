@@ -32,6 +32,46 @@ final class DeviceAuth
      *
      * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
      */
+    /**
+     * Busca el device ACTIVO ya pareado a este browser (chequeo de
+     * idempotencia). Existe como helper compartido porque los cuatro
+     * call-sites que hacían esta misma query a mano tenían todos el mismo bug.
+     *
+     * `$registerId` puede venir VACÍO de forma legítima: un device de módulo
+     * `screen` no está atado a una caja, y el INSERT de más abajo ya lo
+     * normalizaba a NULL (`$registerId !== '' ? $registerId : null`). La query
+     * de idempotencia NO hacía esa normalización y mandaba `''` a un
+     * `?::uuid`, que en PG es `22P02 invalid input syntax for type uuid`.
+     * Hasta 2026-08-22 eso pasaba desapercibido: el wrapper devolvía `false`,
+     * el código lo leía como "no hay device previo" y caía al INSERT, que
+     * hacía lo correcto por casualidad. Desde que el wrapper LANZA, el mismo
+     * error tumba el pareo de cualquier pantalla con un 500.
+     *
+     * Además de normalizar, se compara con `IS NOT DISTINCT FROM`: con
+     * `registerid = NULL` la igualdad devuelve NULL (nunca true) y un device
+     * de pantalla ya pareado no se encontraría jamás — se crearía uno nuevo en
+     * cada arranque hasta chocar contra `uq_device_browser_active`.
+     *
+     * @return array<string,mixed>|false La fila, o false si no hay device.
+     */
+    private static function findActiveDeviceByBrowser(
+        string $companyId,
+        string $registerId,
+        ?string $browserLocalId,
+    ) {
+        if ($browserLocalId === null || $browserLocalId === '') {
+            return false;
+        }
+        return ncmExecute(
+            'SELECT deviceid FROM device
+              WHERE companyid = ?::uuid
+                AND registerid IS NOT DISTINCT FROM ?::uuid
+                AND browserlocalid = ?
+                AND status = 1',
+            [$companyId, $registerId !== '' ? $registerId : null, $browserLocalId]
+        );
+    }
+
     public static function issueDeviceToken(
         string $companyId,
         string $outletId,
@@ -49,10 +89,7 @@ final class DeviceAuth
 
         // Idempotency check: si ya existe un device activo para este browser, reusar.
         if ($browserLocalId !== null && $browserLocalId !== '') {
-            $existing = ncmExecute(
-                'SELECT deviceid FROM device WHERE companyid=?::uuid AND registerid=?::uuid AND browserlocalid=? AND status=1',
-                [$companyId, $registerId, $browserLocalId]
-            );
+            $existing = self::findActiveDeviceByBrowser($companyId, $registerId, $browserLocalId);
             if ($existing) {
                 $deviceId = (string) ($existing['deviceid'] ?? '');
                 $token    = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
@@ -90,10 +127,7 @@ final class DeviceAuth
         } catch (\Throwable $e) {
             // Race condition: otro request ganó el INSERT con el mismo browserLocalId.
             if ($browserLocalId !== null && str_contains($e->getMessage(), 'uq_device_browser_active')) {
-                $winner = ncmExecute(
-                    'SELECT deviceid FROM device WHERE companyid=?::uuid AND registerid=?::uuid AND browserlocalid=? AND status=1',
-                    [$companyId, $registerId, $browserLocalId]
-                );
+                $winner = self::findActiveDeviceByBrowser($companyId, $registerId, $browserLocalId);
                 if ($winner) {
                     $deviceId = (string) ($winner['deviceid'] ?? '');
                     $token    = self::issueToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
@@ -181,10 +215,7 @@ final class DeviceAuth
         }
 
         if ($browserLocalId !== null && $browserLocalId !== '') {
-            $existing = ncmExecute(
-                'SELECT deviceid FROM device WHERE companyid=?::uuid AND registerid=?::uuid AND browserlocalid=? AND status=1',
-                [$companyId, $registerId, $browserLocalId]
-            );
+            $existing = self::findActiveDeviceByBrowser($companyId, $registerId, $browserLocalId);
             if ($existing) {
                 $deviceId = (string) ($existing['deviceid'] ?? '');
                 $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
@@ -219,10 +250,7 @@ final class DeviceAuth
             return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => false];
         } catch (\Throwable $e) {
             if ($browserLocalId !== null && str_contains($e->getMessage(), 'uq_device_browser_active')) {
-                $winner = ncmExecute(
-                    'SELECT deviceid FROM device WHERE companyid=?::uuid AND registerid=?::uuid AND browserlocalid=? AND status=1',
-                    [$companyId, $registerId, $browserLocalId]
-                );
+                $winner = self::findActiveDeviceByBrowser($companyId, $registerId, $browserLocalId);
                 if ($winner) {
                     $deviceId = (string) ($winner['deviceid'] ?? '');
                     $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);

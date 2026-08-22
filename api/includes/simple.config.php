@@ -177,6 +177,30 @@ define('NCM_SMS_COMPANY_ID',     $_ENV['NCM_SMS_COMPANY_ID']    ?? '');
 // conectividad admin (context/34 F6 §2, AiAdminService::testModel()).
 define('OPENROUTER_API_KEY',     $_ENV['OPENROUTER_API_KEY']    ?? '');
 
+// DB_THROW_ON_ERROR — kill-switch TRANSITORIO del contrato de errores del
+// wrapper PDO (api/includes/lib/DB.php). DEFAULT TRUE: ante un error de PG el
+// wrapper LANZA `Punto\Api\Support\DbQueryException` en vez de devolver
+// `false` silencioso (de 1.602 call-sites de Execute() solo 4 chequeaban el
+// false, así que un error SQL se degradaba a "recordset vacío" con HTTP 200).
+//
+// Poner en `false` SOLO para apagar un incendio: si un camino no auditado
+// revienta en prod, `DB_THROW_ON_ERROR=false` en Coolify restaura el
+// comportamiento viejo sin redeploy de código. NO es un estado en el que se
+// deba vivir — con el switch apagado los errores SQL vuelven a ser invisibles.
+// El guard de cierre de período (PeriodClosedException → HTTP 409) NO se ve
+// afectado: se chequea antes y lanza siempre.
+// Ver context/06-infraestructura.md y context/08-convenciones-criticas.md.
+// Fail-safe a propósito: SOLO un valor falsy explícito apaga el switch. Un
+// typo en la env var deja el default seguro (lanzar), no el peligroso.
+// `DB::throwOnError()` repite esta misma regla leyendo la env var directo,
+// porque este archivo se carga DESPUÉS de DB.php (head.php) y el realm
+// /v1/admin/* no lo carga nunca. Si cambiás la regla acá, cambiala allá.
+define('DB_THROW_ON_ERROR', !in_array(
+    strtolower(trim((string) ($_ENV['DB_THROW_ON_ERROR'] ?? 'true'))),
+    ['0', 'false', 'off', 'no'],
+    true
+));
+
 $companyCategories  = [
   'Salud y Fitness' =>[
     'Gimnasio/Club de Bienestar'  => '0.1',

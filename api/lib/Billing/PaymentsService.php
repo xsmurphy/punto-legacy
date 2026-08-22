@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Billing;
 
 use Punto\Api\Billing\Payments\DlocalGoProvider;
+use Punto\Api\Billing\Payments\PaymentProvider;
 
 // F5 (context/34-admin-saas-plan.md): SaasBillingService vive en namespace
 // GLOBAL (api/lib/Admin, mismo patrón que el resto de los servicios admin) —
@@ -31,11 +32,25 @@ require_once __DIR__ . '/../Admin/PlatformConfig.php';
  */
 final class PaymentsService
 {
-    private DlocalGoProvider $provider;
+    /**
+     * Índice único parcial (migración 30) que hace imposible acreditar dos
+     * veces el mismo pack por invoice. Es el backstop de idempotencia del
+     * webhook: si el INSERT en `ai_credit_ledger` choca contra ÉL, otro
+     * webhook ya acreditó. Ver el catch de `creditInvoice()`.
+     */
+    private const LEDGER_IDEMPOTENCY_INDEX = 'uq_ai_credit_ledger_invoice_grant';
 
-    public function __construct()
+    private PaymentProvider $provider;
+
+    /**
+     * El proveedor entra por constructor (default: dLocal Go) para que el
+     * camino del webhook —el que mueve PLATA— se pueda ejercitar de punta a
+     * punta en un arnés sin llamar a la API real. Producción no cambia: sin
+     * argumento sigue instanciando `DlocalGoProvider`.
+     */
+    public function __construct(?PaymentProvider $provider = null)
     {
-        $this->provider = new DlocalGoProvider();
+        $this->provider = $provider ?? new DlocalGoProvider();
     }
 
     public function isEnabled(): bool
@@ -337,7 +352,9 @@ final class PaymentsService
                 [$companyId, $credits, $newBalance, $invoiceId]
             );
             if ($ins === false) {
-                // Probable violación del índice único (otro webhook ya acreditó) → idempotente.
+                // Kill-switch DB_THROW_ON_ERROR=false: el wrapper vuelve a
+                // devolver `false` en vez de lanzar. Probable violación del
+                // índice único (otro webhook ya acreditó) → idempotente.
                 throw new \RuntimeException('ledger_duplicate');
             }
 
@@ -362,6 +379,30 @@ final class PaymentsService
 
             return ['handled' => true, 'status' => 'paid', 'credited' => $credits];
 
+        } catch (\Punto\Api\Support\DbQueryException $e) {
+            // VA ANTES del \Throwable a propósito. Desde que el wrapper lanza,
+            // el INSERT en ai_credit_ledger ya NO devuelve `false`: la violación
+            // del índice único (relatedInvoiceId) llega como DbQueryException
+            // con SQLSTATE 23505 y el `throw new RuntimeException('ledger_duplicate')`
+            // de arriba nunca se arma. Sin esta rama, un webhook duplicado de
+            // dLocal dejaba de detectarse y salía 500 → dLocal reintenta el pago.
+            // Es plata: la idempotencia se resuelve por SQLSTATE, no por texto.
+            $db->RollbackTrans();
+            // Se exige el NOMBRE del índice, no un 23505 a secas: 'already_paid'
+            // significa "otro webhook ya acreditó ESTA invoice", y eso lo prueba
+            // únicamente `uq_ai_credit_ledger_invoice_grant`. Cualquier otra
+            // violación de unicidad que aparezca en esta transacción es un bug,
+            // no una repetición — tragarla devolvería 'already_paid' sobre un
+            // pago que NUNCA se acreditó. Hoy el ledger es la única escritura
+            // con unique acá, pero eso es una propiedad frágil: el día que
+            // alguien agregue otro INSERT, este catch tiene que dejarlo pasar.
+            if ($e->sqlState() === '23505'
+                && str_contains($e->getMessage(), self::LEDGER_IDEMPOTENCY_INDEX)) {
+                error_log('[PaymentsService] ledger duplicado (' . self::LEDGER_IDEMPOTENCY_INDEX
+                    . ') para invoice ' . $invoiceId . ' — webhook idempotente, no se acredita de nuevo');
+                return ['handled' => true, 'status' => 'already_paid'];
+            }
+            throw $e;
         } catch (\Throwable $e) {
             $db->RollbackTrans();
             if ($e->getMessage() === 'ledger_duplicate') {

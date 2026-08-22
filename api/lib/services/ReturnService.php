@@ -612,11 +612,34 @@ final class ReturnService
                     'NC',
                     $parent['customerid'] ?? null,
                 );
+            } catch (\Punto\Api\Support\DbQueryException $e) {
+                // NO se traga: este catch corre DENTRO de la transacción de la
+                // devolución, y desde 2026-08-22 un error de SQL implica que el
+                // wrapper YA hizo rollback de TODO (DB::failTransaction()). Si
+                // acá solo logueáramos, el CompleteTrans() de abajo sería un
+                // no-op y este método devolvería un payload de éxito para una
+                // devolución cuyas filas (transaction, itemSold, reversión de
+                // stock, crédito al cliente) acaban de desaparecer. Un
+                // best-effort solo puede tragarse fallos que NO matan la
+                // transacción que lo rodea.
+                throw $e;
             } catch (\Throwable $e) {
                 error_log('[ReturnService] enqueue nota de crédito: ' . $e->getMessage());
             }
 
-            $db->CompleteTrans();
+            // El retorno de CompleteTrans() SÍ se mira: si la transacción
+            // quedó marcada como fallida, commit() degrada a ROLLBACK y
+            // devolver el payload de éxito sería reportar una devolución que
+            // no existe (mismo criterio que la verificación post-commit de
+            // SaleService::save(), §22.8.1).
+            if (!$db->CompleteTrans()) {
+                // El detalle de PG (`ErrorMsg()`) va al log: este RuntimeException
+                // lo atrapa `api/v1/returns.php` y lo imprime tal cual en la
+                // respuesta, así que concatenarlo filtraba el schema al cliente.
+                error_log('[ReturnService] devolución revertida en CompleteTrans: '
+                    . ($db->ErrorMsg() ?: 'sin detalle'));
+                throw new \RuntimeException('La devolución no se pudo confirmar (la operación se revirtió). Reintentá; si persiste, avisá a soporte.');
+            }
 
         } catch (\Throwable $e) {
             $db->FailTrans();

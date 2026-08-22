@@ -21,7 +21,7 @@ namespace Punto\Api\Billing\Payments;
  *   DLOCAL_GO_API_KEY, DLOCAL_GO_SECRET_KEY, DLOCAL_GO_WEBHOOK_SECRET,
  *   DLOCAL_GO_ENVIRONMENT ('sandbox'|'production'), DLOCAL_GO_BASE_URL (override).
  */
-final class DlocalGoProvider
+final class DlocalGoProvider implements PaymentProvider
 {
     private const SANDBOX_URL = 'https://api-sbx.dlocalgo.com/v1';
     private const PROD_URL    = 'https://api.dlocalgo.com/v1';

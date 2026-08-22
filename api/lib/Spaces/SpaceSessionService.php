@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Spaces;
 
+use Punto\Api\Support\DbQueryException;
+
 /**
  * SpaceSessionService — ciclo de vida de la ocupación de un espacio
  * (space_session, mig 80, context/15-espacios-module-plan.md F0+F1).
@@ -53,18 +55,24 @@ final class SpaceSessionService
             throw new \InvalidArgumentException('Un bloque decorativo no admite sesiones');
         }
 
-        $rs = $this->db->Execute(
-            'INSERT INTO space_session (sessionid, companyid, outletid, tableid, status, guests, waiterid)
-             VALUES (gen_random_uuid(), ?, ?, ?, \'open\', ?, ?)
-             RETURNING sessionid',
-            [$companyId, $outletId, $tableId, $guests, $waiterId]
-        );
-        if ($rs === false) {
-            $err = method_exists($this->db, 'ErrorMsg') ? (string) $this->db->ErrorMsg() : '';
-            if (str_contains($err, '23505') || str_contains($err, 'uq_space_session_active_per_space')) {
+        try {
+            $rs = $this->db->Execute(
+                'INSERT INTO space_session (sessionid, companyid, outletid, tableid, status, guests, waiterid)
+                 VALUES (gen_random_uuid(), ?, ?, ?, \'open\', ?, ?)
+                 RETURNING sessionid',
+                [$companyId, $outletId, $tableId, $guests, $waiterId]
+            );
+        } catch (DbQueryException $e) {
+            // Carrera contra uq_space_session_active_per_space: otra caja abrió
+            // el mismo espacio entre el chequeo y este INSERT. Antes se leía de
+            // `ErrorMsg()` tras el `false`; el wrapper ahora lanza, así que la
+            // detección va en el catch y usa el SQLSTATE exacto.
+            if ($e->sqlState() === '23505'
+                || str_contains($e->getMessage(), '23505')
+                || str_contains($e->getMessage(), 'uq_space_session_active_per_space')) {
                 throw new \RuntimeException('El espacio ya tiene una sesión activa');
             }
-            throw new \RuntimeException('No se pudo abrir el espacio');
+            throw new \RuntimeException('No se pudo abrir el espacio', 0, $e);
         }
         $id = (string) ($rs->fields['sessionid'] ?? '');
         if ($id === '') {

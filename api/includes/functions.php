@@ -1377,6 +1377,36 @@ function ncmExecute( $sql, $array = false, $cache = false, $forceObj = false, $g
  * @note El slice 10 PSR-4 hizo este wrapper delegar a `Query::update`, pero Query NO
  *       hacía JSONB routing → bug 500 silente. Revertido al cuerpo completo del panel.
  *       `Query::update` ahora delega de vuelta a esta función para evitar drift futuro.
+ *
+ * CONTRATO DE ERRORES (2026-08-22) — leer antes de tocar un caller
+ * ----------------------------------------------------------------
+ * Retornos posibles:
+ *   - `false`                        → input inválido (no llegó a tocar la BD)
+ *   - `['error' => false, 'id' =>…]` → UPDATE aplicado
+ *   - `['error' => '<msg de PG>']`   → SOLO alcanzable con el kill-switch
+ *                                      `DB_THROW_ON_ERROR=false`
+ *
+ * Con el kill-switch en su valor normal (encendido), un error de SQL ya NO
+ * vuelve por acá: el wrapper lanza `DbQueryException` y esta función ni
+ * siquiera retorna. Eso es DELIBERADO y es el objetivo del cambio — un
+ * `UPDATE` que falla tiene que ser un 500 ruidoso con GlitchTip, no un
+ * `['error' => msg]` que el caller convierte en un `return false` y el
+ * endpoint en un 400 amable indistinguible de "no encontrado".
+ *
+ * DECISIÓN: no se atrapa la excepción acá para re-armar `['error' => msg]`.
+ * Hacerlo reinstalaría exactamente el tragado silencioso que el cambio vino
+ * a eliminar, y en el choke point que más lo amplifica. La rama
+ * `['error' => msg]` se conserva únicamente por paridad con el kill-switch.
+ *
+ * CRITERIO PARA LOS CALLERS: la mayoría (~13) solo hace
+ * `return is_array($r) && empty($r['error']);` — para esos, propagar es la
+ * conducta CORRECTA y no requieren cambio: el booleano `false` que devolvían
+ * antes era justamente el error invisible. Un caller solo debe agregar
+ * `catch (DbQueryException)` cuando su mensaje lleva información de
+ * RECUPERACIÓN que se perdería con el 500 genérico — típicamente porque ya
+ * ocurrió un side-effect EXTERNO irreversible antes del UPDATE. Hoy el único
+ * caso así es `EInvoiceProvisioningService::createTenant()` (el emisor ya
+ * existe en Factomate y la contraseña no se puede volver a pedir): ver ahí.
  */
 function ncmUpdate($options)
 {

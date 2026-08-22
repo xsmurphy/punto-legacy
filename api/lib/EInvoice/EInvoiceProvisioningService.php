@@ -204,20 +204,36 @@ final class EInvoiceProvisioningService
         // ESCRITURA INMEDIATA — la contraseña no se puede volver a pedir.
         // phone_enc guarda la identidad de login del usuario: su email
         // (UserName = Email en CreateExternal, manual §2.2).
-        $r = ncmUpdate([
-            'table'       => 'einvoice_account',
-            'records'     => [
-                'factomate_tenant_id' => $created['tenantId'],
-                'factomate_user_id'   => $created['userId'],
-                'username'            => $created['email'],
-                'password_enc'        => CredentialVault::encrypt($created['password']),
-                'phone_enc'           => CredentialVault::encrypt($created['email']),
-                'token_enc'           => null,
-                'token_expires_at'    => null,
-            ],
-            'where'       => 'companyid = ?',
-            'whereParams' => [$companyId],
-        ]);
+        // El `catch (DbQueryException)` NO es decorativo: desde 2026-08-22 un
+        // error de SQL sale por excepción y ya NO vuelve como `['error' => msg]`,
+        // así que sin él el `if` de abajo —y con él el código FT- de
+        // recuperación— quedaba inalcanzable y el operador recibía un 500 pelado
+        // sobre un emisor que YA existe en Factomate con una contraseña que no
+        // se puede volver a pedir. Es la excepción explícita al criterio general
+        // de ncmUpdate (ver su docblock): acá el mensaje lleva información de
+        // recuperación irrecuperable de otro modo. No se traga nada — se
+        // registra el error de PG y se relanza el mismo RuntimeException.
+        $r = null;
+        try {
+            $r = ncmUpdate([
+                'table'       => 'einvoice_account',
+                'records'     => [
+                    'factomate_tenant_id' => $created['tenantId'],
+                    'factomate_user_id'   => $created['userId'],
+                    'username'            => $created['email'],
+                    'password_enc'        => CredentialVault::encrypt($created['password']),
+                    'phone_enc'           => CredentialVault::encrypt($created['email']),
+                    'token_enc'           => null,
+                    'token_expires_at'    => null,
+                ],
+                'where'       => 'companyid = ?',
+                'whereParams' => [$companyId],
+            ]);
+        } catch (\Punto\Api\Support\DbQueryException $e) {
+            error_log('[EInvoiceProvisioning] escritura local del emisor falló con SQL: '
+                . $e->getMessage() . ' | SQLSTATE ' . $e->sqlState());
+            $r = ['error' => 'db'];
+        }
         if (!is_array($r) || !empty($r['error'])) {
             // El emisor EXISTE en Factomate pero no pudimos guardar su
             // credencial: error ruidoso con los ids (nunca la contraseña)

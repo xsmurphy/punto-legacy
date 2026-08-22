@@ -559,13 +559,24 @@ final class DrawerService
         // liberar — ese camino ya tiene su salida explícita en "Liberar caja".
         // Self-release únicamente: jamás la tenencia de OTRO device, eso sería
         // el pisado automático que el owner rechazó (context/29 §6).
+        //
+        // Best-effort: la caja YA quedó cerrada en BD arriba. Desde 2026-08-22
+        // el wrapper LANZA ante un error de SQL, así que un fallo al liberar la
+        // tenencia devolvería 500 sobre un cierre que sí ocurrió — el cajero
+        // vería "no se pudo cerrar" con la caja cerrada. La tenencia huérfana
+        // se resuelve igual desde el panel ("Liberar caja"); el cierre no.
         if ($this->ctx->deviceId !== '') {
-            RegisterLeaseService::releaseByDevice(
-                $this->ctx->deviceId,
-                $this->ctx->companyId,
-                'device:' . $this->ctx->deviceId,
-                'released',
-            );
+            try {
+                RegisterLeaseService::releaseByDevice(
+                    $this->ctx->deviceId,
+                    $this->ctx->companyId,
+                    'device:' . $this->ctx->deviceId,
+                    'released',
+                );
+            } catch (\Throwable $e) {
+                error_log('[DrawerService] releaseByDevice falló tras cerrar caja (device '
+                    . $this->ctx->deviceId . '): ' . $e->getMessage());
+            }
         }
 
         return true;

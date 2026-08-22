@@ -84,7 +84,9 @@ if ($rawType === SaleType::Quote->value) {
     } catch (InvalidSaleInputException $e) {
         apiError($e->getMessage(), 422);
     } catch (SaleAbortedException $e) {
-        apiError($e->dbError ?? 'Quote transaction aborted', 500);
+        // El texto de PG va al log, NUNCA a la respuesta (filtra el schema).
+        error_log('[sales] cotización abortada: ' . ($e->dbError ?? $e->getMessage()));
+        apiError($e->clientMessage(), 500);
     }
 
     apiOk($quoteResult);
@@ -180,7 +182,9 @@ try {
     // Validaciones del servicio (ej: clientId no pertenece al tenant) → 422.
     apiError($e->getMessage(), 422);
 } catch (SaleAbortedException $e) {
-    apiError($e->dbError ?? 'Sale transaction aborted', 500);
+    // El texto de PG va al log, NUNCA a la respuesta (filtra el schema).
+    error_log('[sales] venta abortada: ' . ($e->dbError ?? $e->getMessage()));
+    apiError($e->clientMessage(), 500);
 }
 
 // Venta guardada — mantener document_sequence consistente con el número que
@@ -189,13 +193,21 @@ try {
 // números por encima de lo que el device ya emitió offline) — solo se
 // asegura de que la secuencia no quede atrás para el próximo peek()/panel.
 if ($input->invoiceNo !== null) {
-    \Punto\Api\Documents\DocumentNumber::advanceTo(
-        'factura',
-        \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER,
-        $regId,
-        $compId,
-        $input->invoiceNo,
-    );
+    // Best-effort: la venta YA está commiteada y el comprobante YA se imprimió.
+    // Un fallo de BD acá (adelantar el correlativo del panel) no puede hacer
+    // fallar una venta emitida — se loguea y la respuesta sale igual. Mismo
+    // criterio que rollupMarkDirty y que el camino offline (offline-sync.php).
+    try {
+        \Punto\Api\Documents\DocumentNumber::advanceTo(
+            'factura',
+            \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER,
+            $regId,
+            $compId,
+            $input->invoiceNo,
+        );
+    } catch (\Throwable $e) {
+        error_log('[sales] advanceTo falló (venta ya persistida): ' . $e->getMessage());
+    }
 }
 
 apiOk($result->toApiPayload());

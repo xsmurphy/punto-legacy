@@ -283,20 +283,29 @@ final class Customer
      * GDPR: devuelve PII (nombre, teléfono, email, dirección). El filtro
      * companyId = ? se preserva verbatim — aislamiento de tenant mantenido.
      *
-     * Quirk §22.5: UUID concatenado entre comillas simples en WHERE — PG requiere
-     * esto para evitar syntax error con UUIDs sin comillas.
+     * `$id` vacío o que no sea un UUID → false, SIN consultar. Antes el id se
+     * CONCATENABA al WHERE (`contactId = '" . $id . "'`, "quirk §22.5"), lo que
+     * tenía dos problemas: con `$id = ''` PG rechazaba la query entera con
+     * 22P02 (`invalid input syntax for type uuid: ""`) y el wrapper se comía el
+     * error devolviendo `false` — el reporte de producción mostraba el usuario
+     * en blanco y nadie se enteraba (destapado 2026-08-22 por
+     * verify_production_cogs, cuando el wrapper pasó a lanzar). Y la
+     * concatenación era una superficie de inyección innecesaria: el resto del
+     * codebase filtra `contactId = ?` con placeholder sin ningún problema, así
+     * que el "quirk" no existía.
      */
     public static function getContactData(mixed $id, mixed $type = false, mixed $cache = false): mixed
     {
-        $countries = [];
+        $id = is_string($id) ? trim($id) : '';
+        if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $id)) {
+            return false;
+        }
 
-        // PG: UUID entre comillas en SQL concat (§22.5).
-        $where   = "contactId = '" . $id . "'";
         $genders = ['Masculino', 'Femenino', 'Otro'];
 
         $result = ncmExecute(
-            'SELECT * FROM contact WHERE ' . $where . ' AND companyId = ? LIMIT 1',
-            [COMPANY_ID],
+            'SELECT * FROM contact WHERE contactId = ? AND companyId = ? LIMIT 1',
+            [$id, COMPANY_ID],
             $cache
         );
 
@@ -331,6 +340,14 @@ final class Customer
                     $age = date_diff(date_create($result['contactBirthDay']), date_create('today'))->y;
                 }
 
+                // `$countries` lo define `libraries/countries.php` al incluirse
+                // (el include hereda este scope). El `[]` es el fallback para
+                // cuando el contacto no tiene país —o cuando el `include_once`
+                // ya corrió antes en la request y no vuelve a ejecutarse—, así
+                // que el `countryName` de abajo no rompe. Se declara ACÁ, junto
+                // a su único uso, y no arriba de todo: allá quedaba antes de un
+                // guard que puede retornar sin llegar nunca a necesitarla.
+                $countries = [];
                 if ($result['contactCountry']) {
                     include_once('libraries/countries.php');
                 }

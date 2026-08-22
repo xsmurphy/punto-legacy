@@ -566,3 +566,16 @@ La línea, entonces:
 - Estación de impresión (`station`) → dependencia de internet aceptada por quien elige ese modo.
 
 NO "arreglar" el transport `station` para que funcione offline sin pedido explícito del owner.
+
+---
+
+## §54 — El wrapper DB lanza, ya no devuelve `false` en error SQL (2026-08-22)
+
+`DB.php` (`api/includes/lib/DB.php`) dejó de tragarse errores SQL. `Execute/AutoExecute/GetOne/GetRow/SelectLimit/GetAssoc/Insert` ahora lanzan `Punto\Api\Support\DbQueryException` (`api/lib/Support/DbQueryException.php`) por el choke point `DB::handleQueryFailure()`. De 1.602 call-sites de `Execute(` solo 4 chequeaban `=== false`, así que un error SQL se degradaba a "recordset vacío" con HTTP 200.
+
+- **Código nuevo: nadie chequea `=== false` para detectar error SQL.** Si el error puede propagar (caso normal), no envolver — deja que suba y lo atrape el handler global (`api/includes/error_handlers.php` → HTTP 500 genérico, SQL/SQLSTATE solo a `error_log`/GlitchTip).
+- `false` de `GetRow()`/`GetOne()` sigue significando **"sin filas"**, no error — no cambia. `Connect()` también sigue devolviendo `false` en fallo de conexión.
+- Si un camino TOLERA el fallo (feature/tabla opcional, side-effect no crítico de una venta ya emitida: telemetría, marcado de rollup, notificación, impresión, avance de correlativo post-commit) va `try/catch (DbQueryException)` EXPLÍCITO con su propio `error_log` — nunca un catch mudo.
+- Detección de duplicados/FK en el catch: usar `$e->sqlState()` (getter, string SQLSTATE), no leer `ErrorMsg()` después de un `false`.
+- `PeriodClosedException` no cambió: `handleQueryFailure()` la chequea PRIMERO (`period_closed`/PC001) y siempre la lanza → HTTP 409, antes de considerar `DbQueryException`.
+- Kill-switch transitorio `DB_THROW_ON_ERROR` (ver `context/06-infraestructura.md`) — apagar solo para incendio en prod, no para vivir apagado.

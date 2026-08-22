@@ -11,6 +11,7 @@ use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
 use Punto\Api\Sales\Exceptions\SaleAbortedException;
 use Punto\Api\Sales\SaleInput;
 use Punto\Api\Sales\SaleService;
+use Punto\Api\Support\DbQueryException;
 use Punto\Api\Services\RegisterLeaseService;
 
 require_once dirname(__DIR__) . '/lib/Auth/apiAuthPosContext.php';
@@ -70,7 +71,31 @@ foreach ($sales as $item) {
     // EMITIDA por reglas de negocio del POS, pero la exclusividad de caja es
     // ESTADO COMPARTIDO (distinción explícita de §53) — acá sí corresponde
     // bloquear, por venta, sin tumbar el resto del lote.
-    $conflict = RegisterLeaseService::holderConflict($regId, $compId, $deviceId);
+    //
+    // El chequeo va en su propio try: `holderConflict()` LEE de BD y, desde
+    // que el wrapper lanza `DbQueryException`, un error de SQL acá tumbaba el
+    // LOTE ENTERO con 500 sobre ventas YA EMITIDAS E IMPRESAS en el device
+    // (viola offline-first, context/08 §53). Antes de que el wrapper lanzara,
+    // el mismo error devolvía `false`/vacío y el ítem salía como
+    // REGISTER_NOT_HELD sin arrastrar al resto. Se conserva ese
+    // comportamiento: falla SOLO este ítem, con SERVER_ERROR (no
+    // REGISTER_NOT_HELD — no sabemos si la caja está tomada, no pudimos leer)
+    // y el lote sigue.
+    try {
+        $conflict = RegisterLeaseService::holderConflict($regId, $compId, $deviceId);
+    } catch (DbQueryException $e) {
+        error_log('[offline-sync] holderConflict falló para ' . $tempId . ': ' . $e->getMessage()
+            . ' | SQLSTATE ' . $e->sqlState() . ' | SQL: ' . $e->sql());
+        $results[] = [
+            'clientTempId' => $tempId,
+            'ok'           => false,
+            'error'        => [
+                'code'    => 'SERVER_ERROR',
+                'message' => 'No se pudo verificar la caja. La venta sigue en la cola local.',
+            ],
+        ];
+        continue;
+    }
     if ($conflict !== null) {
         $results[] = [
             'clientTempId' => $tempId,
@@ -158,14 +183,41 @@ foreach ($sales as $item) {
         ];
         continue;
     } catch (SaleAbortedException $e) {
-        $msg  = $e->dbError ?? $e->getMessage() ?? 'Sale aborted';
-        $code = (stripos($msg, 'stock') !== false) ? 'STOCK_OUT' : 'SERVER_ERROR';
+        // El texto crudo de PG se usa SOLO para clasificar (server-side) y para
+        // el log; lo que viaja al device es un mensaje genérico. Devolverlo
+        // filtraba tablas, columnas y constraints del schema a cualquiera que
+        // mire la cola de sync.
+        error_log('[offline-sync] venta abortada ' . $tempId . ': ' . ($e->dbError ?? $e->getMessage()));
+        $isStock = $e->isStockFailure();
         $results[] = [
             'clientTempId' => $tempId,
             'ok'           => false,
             'error'        => [
-                'code'    => $code,
-                'message' => $msg,
+                'code'    => $isStock ? 'STOCK_OUT' : 'SERVER_ERROR',
+                'message' => $isStock
+                    ? 'Stock insuficiente para uno o más ítems de la venta.'
+                    : $e->clientMessage(),
+            ],
+        ];
+        continue;
+    } catch (DbQueryException $e) {
+        // Error de SQL fuera del bloque de escritura de SaleService::save()
+        // (los pre-checks previos al StartTrans: dupli check, lectura de
+        // impuestos, resolución de ítems). El bloque de escritura ya los
+        // traduce a SaleAbortedException, pero acá se cubre el resto: sin este
+        // catch, UNA venta con un problema de BD tumbaría el LOTE ENTERO del
+        // sync offline y las demás ventas —ya emitidas e impresas en el
+        // device— quedarían sin subir. Falla solo este ítem; el front lo deja
+        // en la cola local para revisión. El mensaje de PG no se devuelve al
+        // cliente (filtra el schema): va al log.
+        error_log('[offline-sync] DbQueryException en ' . $tempId . ': ' . $e->getMessage()
+            . ' | SQLSTATE ' . $e->sqlState() . ' | SQL: ' . $e->sql());
+        $results[] = [
+            'clientTempId' => $tempId,
+            'ok'           => false,
+            'error'        => [
+                'code'    => 'SERVER_ERROR',
+                'message' => 'Error al procesar la operación',
             ],
         ];
         continue;
@@ -174,13 +226,21 @@ foreach ($sales as $item) {
     // Mantener document_sequence consistente con el número que el device ya
     // emitió offline — mismo criterio que sales.php en el camino online (ver
     // docblock de DocumentNumber::advanceTo()).
-    DocumentNumber::advanceTo(
-        'factura',
-        DocumentNumber::SCOPE_REGISTER,
-        $regId,
-        $compId,
-        $no,
-    );
+    // Best-effort: la venta YA está commiteada y el device YA imprimió el
+    // comprobante. Un fallo de BD acá (avanzar el correlativo del panel para
+    // que no reuse un número que el POS ya gastó) NO puede volver ok=false una
+    // venta emitida — se loguea y sigue. Mismo criterio que rollupMarkDirty.
+    try {
+        DocumentNumber::advanceTo(
+            'factura',
+            DocumentNumber::SCOPE_REGISTER,
+            $regId,
+            $compId,
+            $no,
+        );
+    } catch (\Throwable $e) {
+        error_log('[offline-sync] advanceTo falló para ' . $tempId . ' (venta ya persistida): ' . $e->getMessage());
+    }
 
     $results[] = [
         'clientTempId'  => $tempId,
