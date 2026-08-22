@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-22 — escalamiento de datos: particionado (E1) + cierre de período (E1b) + rollup diario (D8)
+
+Commits `4b929e60..99520b53` (56, ~20 en paralelo: fixes tester 21-08 #1-#6, site marketing, RecipeCosting, padwidth). Highlights: mig 156 particiona `transaction`/`itemsold` por mes con `transaction_registry` sin particionar como ancla de FKs/unicidad fiscal (20 FKs entrantes) + partición DEFAULT (offline-first) + job `partition-ensure`; mig 157 cierre de período (`fn_period_guard`, solo tipos económicos, ventana configurable) + endpoint/UI en Ajustes + `PeriodClosedException`→409; mig 160 rollup con grano diario (`rollup_sales_day`/`item_sales_day`/`payments_day`, columnas congeladas `taxrate/taxkind/channel`) reemplaza `rollup_recompute_period`, cierra gaps preexistentes (`itemSoldCategory` nunca poblado, returns sin marcar dirty). Verificado en prod: migs 156/157 OK; mig 160 deploy en curso al cierre — próxima sesión debe confirmar. Nueva regla del owner: planificar con Fable, ejecutar con Opus (razonamiento) o Sonnet (mecánico).
+
 ## 2026-08-21 — anulación de venta + NC (context/40 F1-F6) + auditoría de facturación electrónica + crond para jobs de mantenimiento
 
 Commits `e0b0c8cb..4b5a7bae` (36). Highlights: `SaleVoidService` con ventana 48h + reposición de stock por línea + rollback SIFEN (mig 154/155, `StockReversalPolicy` compartida con `ReturnService`); auditoría de 5 agentes contra Factomate DEV encontró que un vale canjeado bloquea la factura y que el ticket impreso no es un KuDE (informe: https://claude.ai/code/artifact/f34333b8-0dc4-4665-bbe3-dc3c52479550); `report_rollup` estaba vacío porque `pg_cron` no existe en la imagen — reemplazado por `crond` de BusyBox + `api/v1/maintenance.php`, ya corriendo en prod; POS con toggle de pantalla completa (`workspace-store.ts`) y dos componentes migrados de HTML crudo a shadcn (mapa de órdenes, selector de vendedor); docs nuevos `context/47`/`context/48` (reportes personalizados, escalamiento de datos). Pendiente: 0/12 cajas con timbrado bloquea probar FE end-to-end.
