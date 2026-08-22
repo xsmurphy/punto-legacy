@@ -326,6 +326,51 @@ Decisiones:
   prod, así que el costo es cero). Hacerlo ANTES de E2 — agregar dominios
   sobre el grano viejo es trabajo que habría que rehacer.
 
+**Esquema concreto del grano diario (cerrado con el owner, 2026-08-21).**
+Cada fila es una combinación de dimensiones que OCURRIÓ ese día (tabla
+dispersa: si una caja no vendió a crédito, no hay fila vacía). Mes y año
+se derivan con `SUM`, no se almacenan.
+
+| Dominio | Clave (además de `companyId` + `day`) | Métricas |
+|---|---|---|
+| `sales` | `outletId`, `registerId`, `userId` (vendedor/mesero), `kind` (contado / credito / devolucion), `status` (vigente / anulada), `channel` (mostrador / mesa / delivery) | `cnt`, `units`, `gross`, `discount`, `net`, `tax10`, `tax5`, `exento`, `cogs` |
+| `item_sales` | `outletId`, `itemId`, `categoryId` (congelada: `itemSoldCategory`), `kind`, `status` | `qty`, `gross`, `discount`, `net`, `tax`, `cogs`, `cnt` |
+| `payments` | `outletId`, `registerId`, `method` (efectivo / tarjeta / transferencia / QR / …), `kind` | `amount`, `cnt` |
+
+- El IVA va **separado por tasa** en `sales` (`tax10`/`tax5`/`exento`): el
+  Libro de Ventas (`context/38` F5 / `context/46`) lo pide así y no se
+  reconstruye después de sumar.
+- `item_sales` NO lleva `userId`: ítem × vendedor multiplica de más, y
+  "qué productos vendió Juan" es pregunta de fact, no de rollup.
+- Devoluciones entran como `kind = devolucion` con signo negativo, así
+  restan con el mismo `SUM` sin dominio aparte.
+- Fuera a propósito: cliente, hora del día, cualquier cruce ítem ×
+  persona — van a `itemSold` particionada (D3/D4) con techo de rango.
+- Tamaño: peor caso teórico por día = producto de cardinalidades (3
+  sucursales × 2 cajas × 4 vendedores × 3 × 2 × 3 ≈ 400), real 10-40 filas
+  por día por tenant → 4-15k al año. `item_sales` acotado por ítems
+  distintos vendidos ese día, no por el catálogo.
+
+Ejemplo de un día (dos sucursales, 102 ventas → 7 filas):
+
+```
+day        outlet  register user  kind    status  channel    cnt units gross     discount net       tax10   cogs
+2026-08-21 Centro  Caja 1   Juan  contado vigente mostrador   42  310  4.850.000  120.000 4.730.000 430.000 2.900.000
+2026-08-21 Centro  Caja 1   Juan  credito vigente mostrador    3   28    980.000        0   980.000  89.000   610.000
+2026-08-21 Centro  Caja 1   Juan  contado anulada mostrador    1    4     85.000        0    85.000   7.700    52.000
+2026-08-21 Centro  Caja 2   Ana   contado vigente mesa        18  140  2.100.000   50.000 2.050.000 186.000 1.300.000
+2026-08-21 Centro  Caja 2   Ana   contado vigente delivery     9   55    760.000        0   760.000  69.000   470.000
+2026-08-21 Norte   Caja 1   Pedro contado vigente mostrador   27  190  2.900.000   40.000 2.860.000 260.000 1.800.000
+2026-08-21 Norte   Caja 1   Pedro credito vigente mostrador    2   15    450.000        0   450.000  41.000   280.000
+```
+
+```sql
+-- Ventas del año, solo contado, sin anuladas
+SELECT SUM(net) FROM rollup_sales_day
+ WHERE companyid = ? AND day BETWEEN '2025-01-01' AND '2025-12-31'
+   AND kind = 'contado' AND status = 'vigente';
+```
+
 **D9 — Backups: cambiar el método, no el número de bases.** Objeción del
 owner (2026-08-21): "¿conviene que el histórico conviva con la base
 caliente? Imaginá backups diarios con 20 GB de histórico". Es legítima,
@@ -359,6 +404,38 @@ convivencia:
   ~15 min o ~5 GB comprimido, o se necesita PITR (restaurar "a las 14:32
   de ayer" tras un error operativo). Anotarlo en E1 como tarea de infra
   paralela — no depende del código.
+
+## Por qué el histórico frío no le pesa a la consulta caliente (medido)
+
+Objeción del owner (2026-08-21): "si leo el historial de esta semana, ¿el
+puntero no recorre toda la base incluyendo los millones del histórico?".
+No — medido en un Postgres 16 descartable en el servidor de Punto, con
+**10 millones de ventas (952 MB) repartidas en 5 años**, consulta "ventas de
+esta semana de la empresa 7" (782 filas):
+
+| Variante | Páginas leídas | Ejecución | Planificación |
+|---|---|---|---|
+| Tabla plana + índice `(companyid, fecha)` | **785 de ~122.000** (0,6 %) | 47 ms | 1 ms |
+| Particionada por mes (62 particiones) + mismo índice | solo la partición de agosto — `Subplans Removed: 60` | **2 ms** | 28 ms |
+
+Lecturas:
+- **El índice ya evita el recorrido**: es un árbol, llega a las 782 filas
+  por la rama correcta sin mirar las otras 9.999.218. Crece en profundidad
+  de forma logarítmica — de mil a cien millones de filas son 4-5 niveles
+  más, no cien mil veces más trabajo.
+- **Con partición, las 60 particiones viejas se descartan en el
+  planificador**: no se abren, no se leen, no entran a memoria. Para esa
+  consulta el histórico no existe.
+- **Costo real del particionado**: la planificación sube (28 ms con 62
+  particiones) porque hay más particiones que evaluar. Se amortiza con el
+  cache de planes y es la razón de particionar por MES y no por día (365
+  particiones/año dispararían ese costo sin ganancia).
+- Donde el tamaño SÍ pesa es en mantenimiento (`VACUUM`, `ANALYZE`,
+  backup, profundidad de índice) — justamente lo que el particionado
+  corta: cada partición se mantiene sola, y una cerrada (D7) no tiene
+  tuplas muertas, así que autovacuum deja de tocarla para siempre.
+- Lo que ocupa memoria es la ventana caliente y sus índices; el frío
+  queda en disco sin desplazarlos.
 
 ## Etapas — señal de activación, no calendario
 
