@@ -115,6 +115,17 @@ detrás. Estado se actualiza acá a medida que se cierran.
    cubre `taxonomyName`. Fix: `q` al servidor con debounce, SQL extendido a
    categoría. **Resuelto** (`frontend/items-search-category`).
 
+## Destapado por el arnés contra Postgres real (2026-08-22)
+
+- **`DB::Execute()` se traga errores SQL** (devuelve `false` + `error_log`).
+  Escondió durante meses el `max(uuid)` del reporte de producción y el
+  `23502` que hacía que `RoleService::_savePermissions()` nunca persistiera
+  (ambos arreglados en `5d964d83` / `e79bbeaf`). Pendiente: decidir si el
+  wrapper debe lanzar (o al menos en queries de escritura) — cualquier
+  próximo error SQL en una agregación vuelve a ser silencioso.
+- `verify_production_cogs` tiene el mismo patrón `''` → uuid en `contactId`
+  (no bloqueante, documentado en el arnés).
+
 ## Reporte del tester — "Mejoras Punto" (recibido 2026-08-19)
 
 Documento del tester con marcas de color propias: **verde = él lo dio por
