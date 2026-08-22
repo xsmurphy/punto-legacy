@@ -1,6 +1,6 @@
 # 48 — Escalamiento de datos (particionado, réplica, rollup)
 
-> Estado (2026-08-21): **plan, D1-D8 cerradas por el owner, NO relitigar.**
+> Estado (2026-08-21): **plan, D1-D9 cerradas por el owner, NO relitigar.**
 > Preocupación del owner (textual): SaaS multi-tenant con años de histórico
 > por delante — ¿cómo evita que el crecimiento acumulado sobrecargue toda la
 > infraestructura? Propuso en caliente 3 bases (caliente/histórica/fría).
@@ -49,7 +49,7 @@ necesario pero no alcanza:
   catálogo de `context/47` no anticipó) — eso necesita, en el techo,
   un motor analítico aparte (E5).
 
-## Decisiones (D1-D8)
+## Decisiones (D1-D9)
 
 **D1 — Una sola base de datos, particionada por dentro. NO tres bases
 físicas — pero SÍ se adopta la inmutabilidad por cierre de período que
@@ -325,6 +325,40 @@ Decisiones:
   después se recomputa todo desde `rollup_dirty` (hoy la tabla está vacía en
   prod, así que el costo es cero). Hacerlo ANTES de E2 — agregar dominios
   sobre el grano viejo es trabajo que habría que rehacer.
+
+**D9 — Backups: cambiar el método, no el número de bases.** Objeción del
+owner (2026-08-21): "¿conviene que el histórico conviva con la base
+caliente? Imaginá backups diarios con 20 GB de histórico". Es legítima,
+y la respuesta es que el problema es el MÉTODO de backup, no la
+convivencia:
+- Coolify respalda con `pg_dump` completo cada vez — a 20 GB son minutos
+  de lectura y un archivo de 2-4 GB comprimido; tolerable por años, pero
+  es la forma equivocada para una base que crece sin techo.
+- El estándar es **backup base + archivo continuo de WAL** (pgBackRest o
+  WAL-G contra el S3 que el proyecto ya usa): un backup completo una vez,
+  después solo viajan los cambios, de forma continua, con restore a
+  cualquier punto en el tiempo (PITR). El costo diario es proporcional a
+  lo que CAMBIA, no a lo acumulado — 20 GB o 500 GB se respaldan igual de
+  barato.
+- **Acá el cierre de período (D7) paga solo**: una partición cerrada es
+  inmutable, así que con backup incremental transfiere cero bytes por día,
+  y se puede volcar UNA sola vez (`pg_dump -t transaction_y2025_m03`) a S3
+  como archivo definitivo. Es la "base fría" del owner convertida en
+  archivo: no se respalda a diario porque no cambia. Lo que el backup
+  diario protege de verdad es la ventana abierta (1-2 meses), chica por
+  definición.
+- **Lo que SÍ se concede**: archivo profundo en base aparte. Particiones de
+  más de N años (ej. 2-3) pueden desprenderse (`DETACH`) y moverse a una
+  Postgres de archivo SOLO LECTURA — eso es E4. A esa edad el problema del
+  borde casi no existe (nadie devuelve una venta de hace tres años) y la
+  consulta excepcional va por un camino explícito de solo lectura
+  (`POSTGRES_ARCHIVE_*`, sin escritura posible). Lo que se sigue
+  descartando es partir la ventana de 1-2 años en dos bases: ahí viven
+  todas las referencias cruzadas (NC, cobros, anulaciones).
+- Señal para migrar de `pg_dump` a pgBackRest/WAL-G: el dump diario supera
+  ~15 min o ~5 GB comprimido, o se necesita PITR (restaurar "a las 14:32
+  de ayer" tras un error operativo). Anotarlo en E1 como tarea de infra
+  paralela — no depende del código.
 
 ## Etapas — señal de activación, no calendario
 
