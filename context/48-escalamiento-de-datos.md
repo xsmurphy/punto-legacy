@@ -477,6 +477,15 @@ finales, tal cual el esquema cerrado arriba salvo lo siguiente:
 - `RollupReader` mantiene las mismas firmas públicas; suma
   `salesDaily(company, from, to, filters)` sin endpoint todavía — es la
   base que va a consumir `context/47`.
+- **Hallazgo de verificación**: el `report_rollup` viejo, tal como estaba
+  en el dump de prod usado para probar esta migración, estaba INCOMPLETO
+  (`sales`/`item_sales` de meses viejos no coincidían con la fact real,
+  probablemente por datos de prueba insertados sin pasar por
+  `rollupMarkDirty`). El backfill completo de `rollup_dirty` que hace esta
+  migración (WHERE `transactiontype IN (0,3,5,6,7)`, sin filtro de fecha)
+  corrige esa deriva de paso — el rollup nuevo se verificó contra la fact
+  en vivo (no contra el rollup viejo, que no era una base confiable) y
+  coincide exacto en todos los casos probados.
 
 **D9 — Backups: cambiar el método, no el número de bases.** Objeción del
 owner (2026-08-21): "¿conviene que el histórico conviva con la base
