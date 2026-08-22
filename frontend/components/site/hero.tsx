@@ -2,6 +2,7 @@ import Link from "next/link"
 
 import { HeroBackdrop } from "@/components/site/hero-backdrop"
 import { Button } from "@/components/ui/button"
+import { WHATSAPP_URL } from "@/lib/site/contacto"
 
 /**
  * Hero full-bleed del home. El fondo son fotos de comercios reales que se
@@ -35,7 +36,7 @@ export function SiteHero() {
 
       <div className="relative mx-auto flex w-full max-w-6xl flex-col items-center px-4 py-32 text-center md:px-6">
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h1 className="max-w-3xl text-balance text-5xl font-semibold tracking-tight text-white md:text-7xl">
+        <h1 className="max-w-3xl text-5xl font-semibold tracking-tight text-balance text-white md:text-7xl">
           Todo tu negocio
           <br />
           pasa por un punto.
@@ -54,7 +55,9 @@ export function SiteHero() {
             variant="outline"
             className="rounded-full border-white/25 bg-white/10 px-7 text-white backdrop-blur hover:bg-white/20 hover:text-white"
           >
-            <Link href="#">Escribinos</Link>
+            <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+              Escribinos
+            </Link>
           </Button>
         </div>
         <p className="mt-4 text-sm text-white/60">

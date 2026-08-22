@@ -3,9 +3,11 @@ import Link from "next/link"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { FEATURE_CARDS, HOME_RUBROS } from "@/lib/site/modules"
 import { MODULOS } from "@/lib/site/modulos"
+import { WHATSAPP_URL } from "@/lib/site/contacto"
 
 const RECURSOS = [
   { label: "Precios", href: "/precios" },
+  { label: "Contacto", href: "/contacto" },
   { label: "Ayuda", href: "#" },
   { label: "Guías", href: "#" },
 ]
@@ -24,7 +26,7 @@ function FooterColumn({
 }) {
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs font-semibold uppercase tracking-wider text-white/45">
+      <p className="text-xs font-semibold tracking-wider text-white/45 uppercase">
         {title}
       </p>
       <ul className="flex flex-col gap-2">
@@ -63,7 +65,9 @@ export function SiteFooter() {
                 Instagram
               </Link>
               <Link
-                href="#"
+                href={WHATSAPP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-sm text-white/65 transition-colors hover:text-white"
               >
                 WhatsApp
@@ -106,7 +110,6 @@ export function SiteFooter() {
           <p className="text-xs text-white/45">
             © {new Date().getFullYear()} Punto
           </p>
-          <p className="text-xs text-white/45">Hecho en Paraguay</p>
         </div>
       </div>
     </footer>

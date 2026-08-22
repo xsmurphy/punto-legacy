@@ -1,6 +1,7 @@
 import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
+import { WHATSAPP_URL } from "@/lib/site/contacto"
 
 /**
  * CTA de cierre, compartido entre el home y los mini-sitios de rubro.
@@ -12,7 +13,7 @@ export function CtaFinal() {
     <section className="bg-neutral-950 text-white">
       <div className="mx-auto w-full max-w-6xl px-4 py-24 text-center md:px-6 md:py-32">
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h2 className="mx-auto max-w-2xl text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+        <h2 className="mx-auto max-w-2xl text-4xl font-semibold tracking-tight text-balance md:text-6xl">
           Tu primer ticket, hoy mismo
         </h2>
         <p className="mt-4 text-base text-white/65 md:text-lg">
@@ -32,7 +33,9 @@ export function CtaFinal() {
             variant="outline"
             className="rounded-full border-white/25 bg-white/10 px-7 text-white hover:bg-white/20 hover:text-white"
           >
-            <Link href="#">Escribinos</Link>
+            <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
+              Escribinos
+            </Link>
           </Button>
         </div>
       </div>
