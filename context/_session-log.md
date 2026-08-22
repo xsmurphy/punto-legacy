@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-22 — reporte del tester "Actualización 21" (6 items resueltos) + 3 bugs del arnés verify_chain
+
+Commits `526d4fee..HEAD` (34, entreverados con el eje de escalamiento de datos de la entry de arriba). Highlights: costo de producción unificado sobre `RecipeCosting` (merge `5d964d83`); mig 159 `padwidth` + formateador único de numeración de documentos (merge `0e681eb8`); geometría de línea compartida canvas/html/ESC-POS para plantillas (merge `d7faceef`); mig 158 alcance de conteo de inventario por sucursal/categoría (merge `a4af1397`); filtros+chips de pago/tipo de venta en Transacciones (merge `96aa9316`); búsqueda de Artículos por categoría (merge `768895fa`). El arnés `verify_chain` corrido en el server destapó 3 bugs de main (merge `e79bbeaf`, mig 160 `160_repair_missing_roledata.php`): permisos de rol nunca persistían (`taxonomyname` NOT NULL), pago a proveedor 500 (`registerId=''`), tipo de retorno `CaseInsensitiveArray`; hallazgo pendiente del owner: `DB::Execute()` traga errores SQL en silencio (`c4c21e3a`).
+
 ## 2026-08-22 — escalamiento de datos: particionado (E1) + cierre de período (E1b) + rollup diario (D8)
 
 Commits `4b929e60..99520b53` (56, ~20 en paralelo: fixes tester 21-08 #1-#6, site marketing, RecipeCosting, padwidth). Highlights: mig 156 particiona `transaction`/`itemsold` por mes con `transaction_registry` sin particionar como ancla de FKs/unicidad fiscal (20 FKs entrantes) + partición DEFAULT (offline-first) + job `partition-ensure`; mig 157 cierre de período (`fn_period_guard`, solo tipos económicos, ventana configurable) + endpoint/UI en Ajustes + `PeriodClosedException`→409; mig 160 rollup con grano diario (`rollup_sales_day`/`item_sales_day`/`payments_day`, columnas congeladas `taxrate/taxkind/channel`) reemplaza `rollup_recompute_period`, cierra gaps preexistentes (`itemSoldCategory` nunca poblado, returns sin marcar dirty). Verificado en prod: migs 156/157 OK; mig 160 deploy en curso al cierre — próxima sesión debe confirmar. Nueva regla del owner: planificar con Fable, ejecutar con Opus (razonamiento) o Sonnet (mecánico).

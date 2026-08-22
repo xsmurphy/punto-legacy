@@ -584,6 +584,14 @@ Tres columnas nuevas en la tabla legacy `item` (con quotes porque la tabla es le
 
 `period_close(companyid, period, closedat, closedby, source)` — un mes cerrado por tenant hace inmutables (vía el trigger genérico `fn_period_guard()`, `BEFORE UPDATE OR DELETE`) las filas económicas de ese mes en `transaction`/`itemsold` (solo `transactiontype IN (0,1,3,4,5,6,7,10,14)`, ver `api/lib/Sales/SaleType.php`) y en `stock`/`cpayments`/`expenses` (siempre, sin filtro de tipo). `transaction.transactioncomplete`, `updated_at` y `channel` (ver abajo) quedan mutables incluso en período cerrado. El guard nunca bloquea INSERT (offline-first). Ventana abierta configurable por tenant (`company.config->>'settingPeriodCloseMonths'`, 1..12, default 1 mes). Sin endpoint de reabrir. Cierre automático vía job `period-close` (`context/06`); cierre manual vía `POST /v1/period-close` (permiso `settings.periodClose`).
 
+#### `inventory_count.scope` — alcance del conteo por sucursal/categoría (migración 158)
+
+Columna `jsonb DEFAULT '{}'` con `{"categoryIds": [...], "includeZeroStock": bool}`. El alcance real (qué ítems pertenecen a la sucursal contada) se infiere de presencia en `stock.outletid`/`tolocation.locationid` — no hay columna "ítem de sucursal X" en el catálogo (tenant-scoped, `context/25`). Armador único: `api/lib/services/InventoryCountScope.php`.
+
+#### `document_sequence.padwidth` — ancho de padding del número de documento (migración 159)
+
+Columna `int DEFAULT 7` junto a `prefix`/`rangeto` en la misma secuencia (empresa, documento, scope) — reemplaza el `registerDocsLeadingZeros` único por caja del legacy, porque NC/ND/remisión llevan talonario propio en PY con ancho propio. Formateador único: `DocumentNumber::format()` (PHP) y `frontend/lib/documents/format-document-number.ts` (TS).
+
 #### Rollup de ventas de grano diario (migración 160, D8 de `context/48`)
 
 `transaction.channel` (`'mostrador'|'mesa'|'delivery'`, congelado al emitir/vincular) e `itemsold.taxrate`/`itemsold.taxkind` (`'rate'|'exempt'`, congelados por línea igual que el IVA de `context/38`) son columnas nuevas — dimensiones que antes no existían para poder filtrar reportes sin recalcular. `itemsold.itemsoldcategory` (existía desde antes) ahora SÍ se puebla (hallazgo de esta sesión: ningún writer la completaba). `report_rollup` (día/mes/año genérico) dejó de usarse para `sales`/`item_sales`/`payments` — reemplazado por `rollup_sales_day`/`rollup_item_sales_day`/`rollup_payments_day`, tablas tipadas de grano día único con la condición (contado/crédito/devolución), el estado (vigente/anulada) y el canal como columnas propias de la clave — no solo como métricas ya sumadas. Detalle completo en `context/48` D8.
