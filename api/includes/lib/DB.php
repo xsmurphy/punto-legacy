@@ -12,6 +12,27 @@
  *   SetFetchMode, cacheFlush, Close, selectDb, Connect, NConnect
  *
  * Propiedades: debug, databaseType, cacheSecs, fetchMode, port
+ *
+ * ── CONTRATO DE ERRORES (2026-08-22) ────────────────────────────────────────
+ * El wrapper LANZA. Ante un error de PG, los métodos de query
+ * (Execute/AutoExecute/Insert/GetOne/GetRow/GetAssoc/SelectLimit/cacheExecute)
+ * tiran `Punto\Api\Support\DbQueryException`, salvo el guard de cierre de
+ * período que sigue tirando `PeriodClosedException` (chequeado primero).
+ *
+ * ANTES devolvían `false`: de 1.602 call-sites de `Execute(` solo 4 lo
+ * chequeaban, así que un error SQL se degradaba a "recordset vacío" y el
+ * número equivocado llegaba al usuario con HTTP 200 (el `max(uuid)` del
+ * reporte de producción y el 23502 de RoleService vivieron meses así). El
+ * arreglo va en el wrapper — es el único choke point por el que pasan TODAS
+ * las queries del proyecto — y no en 1.602 call-sites.
+ *
+ * `false` sigue siendo un retorno LEGÍTIMO de GetRow()/GetOne() cuando la
+ * query no devolvió filas: eso es "vacío", no "error".
+ *
+ * Un camino que TOLERA el fallo (feature opcional, side-effect no crítico de
+ * una venta ya emitida) hace `try/catch (DbQueryException)` explícito + su
+ * `error_log`. Nunca un catch mudo, nunca `=== false`.
+ * Ver context/08-convenciones-criticas.md y el kill-switch DB_THROW_ON_ERROR.
  */
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,6 +239,11 @@ class DB
 
     /**
      * Establece la conexión con PostgreSQL.
+     *
+     * Sigue devolviendo `false` (no lanza `DbQueryException`): un fallo de
+     * CONEXIÓN no es una query rota, no hay SQL ni transacción que reportar,
+     * y `includes/db.php` ya lo trata explícitamente al arrancar. La regla
+     * "el wrapper lanza" aplica a las QUERIES.
      */
     public function Connect(string $host, string $user, string $pass, string $db): bool
     {
@@ -250,7 +276,9 @@ class DB
     // ─── Consultas ─────────────────────────────────────────────────────────
 
     /**
-     * Primera fila de un SELECT (CaseInsensitiveArray) o false.
+     * Primera fila de un SELECT (CaseInsensitiveArray), o false si la query
+     * NO devolvió filas. `false` acá significa "vacío", NO "error": un error
+     * de PG lanza `DbQueryException` desde Execute().
      * La capa NO implementaba este método → callers `$db->GetRow(...)` reventaban
      * con "Call to undefined method" → 500 silente (display_errors=0). Causó el
      * incidente de pagos a crédito y devoluciones (2026-06-30). Agregarlo acá
@@ -266,7 +294,9 @@ class DB
     }
 
     /**
-     * Primer valor (primera columna de la primera fila) o false.
+     * Primer valor (primera columna de la primera fila), o false si la query
+     * no devolvió filas. `false` = vacío, no error: los errores de PG llegan
+     * como `DbQueryException` desde Execute().
      */
     public function GetOne(string|array $sql, array|false $params = []): mixed
     {
@@ -282,7 +312,14 @@ class DB
 
     /**
      * Ejecuta SQL con parámetros posicionales (?).
-     * Retorna DBResult en éxito, false en error.
+     *
+     * Retorna DBResult en éxito. Ante un error de PG LANZA:
+     * `PeriodClosedException` si el fallo es el guard de cierre de período,
+     * `DbQueryException` en cualquier otro caso. El `DBResult|false` del tipo
+     * de retorno queda SOLO por el kill-switch `DB_THROW_ON_ERROR=false`
+     * (transitorio) — código nuevo NO debe chequear `=== false`, y un camino
+     * que tolere el fallo hace `try/catch (DbQueryException)` explícito con
+     * su `error_log`.
      */
     public function Execute(string|array $sql, array|false $params = []): DBResult|false
     {
@@ -315,46 +352,142 @@ class DB
             $this->lastRowCount = $stmt->rowCount();
             return new DBResult(($isSelect || $hasReturning) ? $stmt->fetchAll(PDO::FETCH_ASSOC) : []);
         } catch (PDOException $e) {
-            $this->lastError = $e->getMessage();
-            $this->noteFirstError($e->getMessage());
-            $this->lastErrNo = (int) $e->getCode();
-            // Mark transaction as failed so CompleteTrans rolls back
-            if ($this->pdo->inTransaction()) {
-                $this->transOk = false;
-            }
-            error_log('[DB] Execute error: ' . $e->getMessage() . ' | SQL: ' . substr($sql, 0, 200));
-            // Guard de cierre de período (mig 157, context/48 D7): el trigger
-            // fn_period_guard() levanta SQLSTATE PC001 con el literal
-            // 'period_closed'. Este es el ÚNICO choke point de escritura del
-            // proyecto (Query::execute, ncmUpdate/AutoExecute UPDATE y los
-            // $db->Execute directos de los servicios pasan todos por acá) —
-            // se relanza como excepción tipada acá, no por endpoint, para que
-            // el mapeo a HTTP 409 viva en un solo lugar (api/bootstrap.php).
-            // Matcheamos por SQLSTATE (getCode()) ADEMÁS del texto: PDO expone
-            // el SQLSTATE como código de la excepción — más robusto que confiar
-            // solo en el mensaje si el driver alguna vez le antepone contexto.
-            if (str_contains($e->getMessage(), 'period_closed') || $e->getCode() === 'PC001') {
-                // Fix code-review mig 157: tiramos una excepción en vez de
-                // `return false`, así que el caller NUNCA llega a su propio
-                // CompleteTrans()/RollbackTrans() — sin este rollback explícito
-                // acá, la transacción PDO queda abierta colgada (visible como
-                // "idle in transaction" en pg_stat_activity) hasta que el
-                // proceso PHP termina. Cerramos la TX (todos los niveles de
-                // anidamiento, StartTrans() o BeginTrans()) ANTES de propagar.
-                if ($this->pdo->inTransaction()) {
-                    $this->pdo->rollBack();
-                }
-                $this->transDepth = 0;
-                $this->transOk    = true;
-                throw new \Punto\Api\Support\PeriodClosedException($e->getMessage(), (int) $e->getCode(), $e);
-            }
+            // Manejo unificado (lastError / firstError / transOk / error_log /
+            // period_closed / DbQueryException). Si el kill-switch
+            // DB_THROW_ON_ERROR está en false, vuelve normalmente y caemos al
+            // `return false` histórico.
+            $this->handleQueryFailure($e, $sql, count($params), 'Execute');
             return false;
         }
+    }
+
+    // ─── Manejo de errores de query ────────────────────────────────────────
+
+    /**
+     * Kill-switch operativo: `DB_THROW_ON_ERROR` (constante de
+     * `api/includes/simple.config.php`, alimentada por la env var homónima).
+     * DEFAULT TRUE — el wrapper lanza.
+     *
+     * En `false` vuelve al comportamiento histórico (`return false` silencioso)
+     * sin necesidad de redeploy. Es TRANSITORIO: existe solo para apagar un
+     * incendio si algún camino no auditado revienta en prod, no para vivir
+     * apagado (context/06-infraestructura.md).
+     *
+     * El `defined()` importa: `DB.php` se carga también desde arneses y
+     * scripts CLI que no pasan por `simple.config.php`, y ahí el default
+     * seguro es lanzar.
+     */
+    private function throwOnError(): bool
+    {
+        if (defined('DB_THROW_ON_ERROR')) {
+            return (bool) constant('DB_THROW_ON_ERROR');
+        }
+        return true;
+    }
+
+    /**
+     * Cierra la transacción PDO abierta ANTES de propagar una excepción.
+     *
+     * Cuando el wrapper lanza, el caller nunca llega a su propio
+     * `CompleteTrans()`/`RollbackTrans()`: sin este rollback explícito la
+     * transacción queda colgada (visible como "idle in transaction" en
+     * `pg_stat_activity`) hasta que muere el proceso PHP. La lógica existía
+     * inline y SOLO en el camino de `PeriodClosedException`; acá está una vez
+     * y la usan los dos caminos — es el mismo criterio de "arreglar el wrapper
+     * compartido" del resto del archivo.
+     *
+     * `transDepth = 0` porque no queda nada que cerrar en NINGÚN nivel de
+     * anidamiento (`StartTrans()` o `BeginTrans()`). `transOk = false` porque
+     * la operación efectivamente falló: un caller que atrape la excepción y
+     * consulte `HasFailedTrans()`/`CompleteTrans()` debe leer "falló", no
+     * "todo bien" (el camino de período cerrado dejaba `true` acá, lo que
+     * hacía que un `CompleteTrans()` en el catch devolviera éxito sobre una
+     * transacción abortada). `StartTrans()` resetea `transOk` a true en el
+     * nivel externo, así que esto no envenena la próxima transacción.
+     */
+    private function failTransaction(): void
+    {
+        if ($this->pdo !== null && $this->pdo->inTransaction()) {
+            $this->pdo->rollBack();
+        }
+        $this->transDepth = 0;
+        $this->transOk    = false;
+    }
+
+    /**
+     * Choke point ÚNICO del manejo de `PDOException` del wrapper.
+     *
+     * Conserva TODO el estado de diagnóstico que los catches hacían por
+     * separado (`lastError`, `firstError`, `lastErrNo`, `transOk`,
+     * `error_log`) y después decide qué excepción propagar:
+     *
+     *   1. `period_closed` / SQLSTATE PC001 → `PeriodClosedException` (HTTP 409).
+     *      Va PRIMERO: es un fallo de REGLA DE NEGOCIO, no una query rota, y
+     *      tiene mensaje amigable propio.
+     *   2. Cualquier otro error → `DbQueryException` (HTTP 500 genérico).
+     *   3. Con el kill-switch apagado, no lanza: retorna y el caller cae a su
+     *      `return false` histórico.
+     *
+     * POR QUÉ LANZAR: de 1.602 call-sites de `Execute(` solo 4 chequeaban el
+     * `false`. Un error SQL se degradaba a "recordset vacío" y el número
+     * equivocado llegaba al usuario con HTTP 200 (el `max(uuid)` del reporte
+     * de producción y el 23502 de `RoleService::_savePermissions()` vivieron
+     * meses así). Ver `api/lib/Support/DbQueryException.php`.
+     */
+    private function handleQueryFailure(PDOException $e, string $sql, int $paramCount, string $ctx): void
+    {
+        $this->lastError = $e->getMessage();
+        $this->noteFirstError($e->getMessage());
+        $this->lastErrNo = (int) $e->getCode();
+        // Mark transaction as failed so CompleteTrans rolls back
+        if ($this->pdo !== null && $this->pdo->inTransaction()) {
+            $this->transOk = false;
+        }
+        error_log('[DB] ' . $ctx . ' error: ' . $e->getMessage() . ' | SQL: ' . substr($sql, 0, 200));
+
+        // Guard de cierre de período (mig 157, context/48 D7): el trigger
+        // fn_period_guard() levanta SQLSTATE PC001 con el literal
+        // 'period_closed'. Este es el ÚNICO choke point de escritura del
+        // proyecto (Query::execute, ncmUpdate/AutoExecute UPDATE y los
+        // $db->Execute directos de los servicios pasan todos por acá) —
+        // se relanza como excepción tipada acá, no por endpoint, para que
+        // el mapeo a HTTP 409 viva en un solo lugar (api/bootstrap.php).
+        // Matcheamos por SQLSTATE (getCode()) ADEMÁS del texto: PDO expone
+        // el SQLSTATE como código de la excepción — más robusto que confiar
+        // solo en el mensaje si el driver alguna vez le antepone contexto.
+        //
+        // Va ANTES del chequeo del kill-switch a propósito: PeriodClosedException
+        // es el contrato vigente de un guard de negocio (HTTP 409 en
+        // bootstrap.php, mensaje amigable al operador). Apagar DB_THROW_ON_ERROR
+        // apaga la novedad (DbQueryException), no lo que ya andaba.
+        if (str_contains($e->getMessage(), 'period_closed') || $e->getCode() === 'PC001') {
+            $this->failTransaction();
+            throw new \Punto\Api\Support\PeriodClosedException($e->getMessage(), (int) $e->getCode(), $e);
+        }
+
+        if (!$this->throwOnError()) {
+            return; // kill-switch: comportamiento histórico (`return false`)
+        }
+
+        $this->failTransaction();
+        throw new \Punto\Api\Support\DbQueryException(
+            $e->getMessage(),
+            (string) $e->getCode(),
+            $sql,
+            $paramCount,
+            $e
+        );
     }
 
 
     /**
      * INSERT o UPDATE automático desde un array asociativo.
+     *
+     * Los dos modos LANZAN ante un error de PG (`DbQueryException`, o
+     * `PeriodClosedException` si es el guard de período): el INSERT por su
+     * propio catch, el UPDATE porque delega en Execute(). El `bool` de
+     * retorno ya no distingue "falló" de "anduvo" — solo sobrevive por el
+     * kill-switch `DB_THROW_ON_ERROR=false`.
      */
     public function AutoExecute(string $table, array $data, string $mode, string $where = '', array $whereParams = []): bool
     {
@@ -404,14 +537,14 @@ class DB
                 // envenenada: todo lo que sigue devuelve 25P02 ("current
                 // transaction is aborted"), que es el síntoma que se reportaba,
                 // no la causa.
-                $this->lastError     = $e->getMessage();
-                $this->noteFirstError($e->getMessage());
-                $this->lastErrNo     = (int) $e->getCode();
+                // Desde 2026-08-22 esto ADEMÁS lanza DbQueryException (mismo
+                // choke point que Execute): el `return false` que quedaba acá
+                // era invisible para el 99% de los callers, que trataban el
+                // INSERT fallido como INSERT hecho. `_lastInsertId = null` se
+                // limpia ANTES de propagar para que nadie lea el id del INSERT
+                // anterior si atrapa la excepción.
                 $this->_lastInsertId = null;
-                if ($this->pdo->inTransaction()) {
-                    $this->transOk = false;
-                }
-                error_log('[DB] AutoExecute INSERT error: ' . $e->getMessage() . ' | SQL: ' . $sql);
+                $this->handleQueryFailure($e, $sql, count($params), 'AutoExecute INSERT');
                 return false;
             }
         } elseif ($mode === 'UPDATE') {
@@ -436,7 +569,8 @@ class DB
     }
 
     /**
-     * INSERT simple.
+     * INSERT simple. Delega en AutoExecute(): un INSERT que falla lanza
+     * `DbQueryException`, no devuelve `false` en silencio.
      */
     public function Insert(string $table, array $data): bool
     {
@@ -444,7 +578,8 @@ class DB
     }
 
     /**
-     * SELECT con LIMIT y OFFSET.
+     * SELECT con LIMIT y OFFSET. Delega en Execute(): los errores de PG salen
+     * como `DbQueryException`, no como `false`.
      */
     public function SelectLimit(string $sql, int $limit, int $offset = -1, array $params = []): DBResult|false
     {

@@ -25,6 +25,15 @@
 // y el reporte es no-op — el error_log + JSON 500 siguen funcionando igual.
 set_exception_handler(static function (\Throwable $e): void {
     error_log('[uncaught] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());
+    // Error SQL que nadie atrapó (DB::Execute y compañía lanzan desde
+    // 2026-08-22 en vez de devolver `false` silencioso — ver
+    // api/lib/Support/DbQueryException.php). El SQL y el SQLSTATE van al log
+    // para poder diagnosticar; NUNCA a la respuesta: el texto de PG filtra
+    // nombres de tabla/columna del schema. La respuesta es el 500 genérico
+    // de más abajo.
+    if ($e instanceof \Punto\Api\Support\DbQueryException) {
+        error_log('[db] SQLSTATE ' . $e->sqlState() . ' | params: ' . $e->paramCount() . ' | SQL: ' . $e->sql());
+    }
     if (function_exists('\\Sentry\\captureException')) {
         \Sentry\captureException($e);
     }
@@ -38,6 +47,17 @@ set_exception_handler(static function (\Throwable $e): void {
             http_response_code(409);
             header('Content-Type: application/json');
             echo json_encode(['ok' => false, 'error' => ['message' => $e->getMessage(), 'code' => 409]], JSON_UNESCAPED_UNICODE);
+            return;
+        }
+        // Error SQL: 500 con mensaje GENÉRICO. El `getMessage()` de
+        // DbQueryException es el texto crudo de PG ("column t.foo does not
+        // exist", "duplicate key value violates unique constraint
+        // uq_..."): filtra el schema al cliente, así que no sale nunca.
+        // Ya quedó logueado arriba con SQLSTATE + SQL.
+        if ($e instanceof \Punto\Api\Support\DbQueryException) {
+            http_response_code(500);
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'error' => ['message' => 'Error al procesar la operación', 'code' => 500]], JSON_UNESCAPED_UNICODE);
             return;
         }
         http_response_code(500);
