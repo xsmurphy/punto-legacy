@@ -15,7 +15,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { FONT_FAMILIES, FONT_SIZES, getBlockPlaceholder, getBlockTitle } from "@/lib/print-template-palette"
-import { resolveSingleBlockPreview } from "@/lib/hardware/printers/blocks"
+import { lineGeometry, resolveSingleBlockPreview } from "@/lib/hardware/printers/blocks"
 import type { TicketData } from "@/lib/hardware/printers/build-ticket-data"
 import {
   applyReceiptWidthRule,
@@ -313,12 +313,29 @@ function BlockContent({
    *  mismo uso que en `getBlockTitle` (ver Props de CanvasBlock). */
   taxes?: Tax[]
 }) {
-  if (block.type === "hor_line") {
-    // Línea sobre papel blanco — color fijo zinc para que se vea en ambos modos.
-    return <div className="h-px w-full bg-zinc-800" />
-  }
-  if (block.type === "ver_line") {
-    return <div className="h-full w-px bg-zinc-800" />
+  // hor_line/ver_line: MISMA geometría que el papel (`lineGeometry` en
+  // blocks.ts). Antes el canvas las pintaba como la caja entera pegada al
+  // borde (`h-px w-full` / `h-full w-px`) y cada renderer las dibujaba a su
+  // manera, así que el editor mentía sobre dónde y con qué grosor salía la
+  // línea impresa. El grosor se edita desde el inspector (block-inspector.tsx)
+  // y se persiste en `block.text`.
+  const line = lineGeometry(block)
+  if (line) {
+    const horizontal = line.orientation === "horizontal"
+    return (
+      <div className="relative size-full">
+        {/* Línea sobre papel blanco — color fijo zinc para que se vea en ambos modos. */}
+        <div
+          className="absolute bg-zinc-800"
+          style={{
+            top: horizontal ? line.crossOffset : 0,
+            left: horizontal ? 0 : line.crossOffset,
+            width: horizontal ? line.length : line.thickness,
+            height: horizontal ? line.thickness : line.length,
+          }}
+        />
+      </div>
+    )
   }
   if (block.type === "company_logo") {
     return (

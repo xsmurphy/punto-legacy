@@ -140,6 +140,82 @@ export const STRUCTURAL_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "payment_methods",
 ])
 
+// ── Geometría de líneas (hor_line / ver_line) ─────────────────────────────
+
+/**
+ * Grosor por defecto de una línea, en px del canvas del editor (≈96 DPI, el
+ * mismo sistema de coordenadas que `PrintBlock.top/left/width/height`).
+ * 1px es lo que el editor ya dibujaba (`h-px` en canvas-block.tsx): el
+ * default no cambia el aspecto de ninguna plantilla ya guardada.
+ */
+export const LINE_DEFAULT_THICKNESS_PX = 1
+
+export interface LineGeometry {
+  orientation: "horizontal" | "vertical"
+  /** Grosor en px del canvas. Nunca 0 — una línea de 0px no se imprime. */
+  thickness: number
+  /** Largo sobre el eje principal, en px del canvas. */
+  length: number
+  /** Corrimiento sobre el eje transversal para centrar la línea en la caja. */
+  crossOffset: number
+}
+
+/**
+ * ÚNICA fuente de la geometría de una línea — la comparten el editor
+ * (canvas-block.tsx), el papel (html-renderer.ts) y el rollo térmico
+ * (render-template.ts). Antes cada superficie la inventaba por su cuenta y
+ * las tres divergían: el canvas la pintaba como la caja entera
+ * (`h-px w-full` / `h-full w-px`), el HTML de hoja emitía un `<hr>` con
+ * `margin:4px 0` DENTRO del wrapper posicional (que recorta con
+ * `overflow:hidden` a la altura del bloque), y ESC/POS tiraba una regla de
+ * ancho de papel completo. Resultado: la línea se veía en el editor y NO
+ * salía nunca en la simulación ni en la impresión en hoja (bug 2026-08-22).
+ *
+ * Modelo: la caja del bloque es el HUECO que el operador posiciona y agarra
+ * con el mouse (el editor le impone `MIN_BLOCK_SIZE` = 20px de alto mínimo,
+ * así que la caja NO puede ser la línea misma sin volverse una barra negra
+ * de 20px); la línea se dibuja CENTRADA dentro de ese hueco, con el largo
+ * del eje principal de la caja y un grosor propio.
+ *
+ * El grosor vive en `block.text` — el mismo mecanismo de "campo `text` como
+ * METADATO por tipo de bloque" que ya usan `tax_single` (guarda la tasa) y
+ * los bloques por-tasa (guardan el `taxId`); ver print-template.ts. Para
+ * `hor_line`/`ver_line` ese campo estaba sin uso (`defaultText: ""` en
+ * print-template-palette.ts) y ningún resolver lo lee, así que no hace falta
+ * ampliar el shape del JSON persistido — que es EXACTO al del legacy a
+ * propósito (ver `PrintTemplateConfig`). Una plantilla vieja trae `""` y cae
+ * al default de 1px.
+ *
+ * Devuelve `null` para cualquier tipo que no sea una línea, así el caller lo
+ * usa como guarda en vez de repetir el `switch` de tipos.
+ */
+export function lineGeometry(
+  block: Pick<PrintBlock, "type" | "text" | "width" | "height">,
+): LineGeometry | null {
+  const type = normalizeBlockType(block.type)
+  if (type !== "hor_line" && type !== "ver_line") return null
+
+  // La orientación sale del TIPO, no de qué dimensión es mayor: una "Línea
+  // Horizontal" que el operador estira a lo alto sigue siendo horizontal —
+  // si no, los dos tipos de bloque serían indistinguibles y redimensionar
+  // uno lo convertiría en el otro sin avisar.
+  const orientation = type === "hor_line" ? "horizontal" : "vertical"
+  const horizontal = orientation === "horizontal"
+  const length = Math.max(1, Math.round(horizontal ? block.width : block.height))
+  const crossSize = Math.max(1, Math.round(horizontal ? block.height : block.width))
+
+  const requested = Number.parseFloat(block.text ?? "")
+  const thickness = Math.min(
+    // Nunca más gruesa que el hueco que el operador le dejó — si no, el
+    // canvas mostraría una línea recortada y el papel una barra que pisa a
+    // los bloques vecinos.
+    crossSize,
+    Number.isFinite(requested) && requested >= 1 ? Math.round(requested) : LINE_DEFAULT_THICKNESS_PX,
+  )
+
+  return { orientation, thickness, length, crossOffset: Math.round((crossSize - thickness) / 2) }
+}
+
 export interface ItemTableColumns {
   qty: boolean
   unitPrice: boolean

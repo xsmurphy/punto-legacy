@@ -96,6 +96,7 @@ detrás. Estado se actualiza acá a medida que se cierran.
    fuera del clip; la vertical ignora `block.height`. El canvas las dibuja
    como la caja entera, por eso se ven en el editor. Fix: helper de geometría
    compartido por canvas + renderers; la línea ES la caja.
+   **Resuelto** (frontend/print-template-lines)
 4. **Nuevo conteo mezcla ítems de todas las sucursales + pedido de filtro por
    categoría.** `InventoryCountService::create:56` snapshotea todos los
    ítems trackeables del tenant; el outlet solo se usa para la cantidad
