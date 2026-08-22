@@ -29,9 +29,9 @@ export function ModulesTabs() {
             <TabsTrigger
               key={tab.key}
               value={tab.key}
-              // razón: pill activo en foreground sólido — el blanco del
-              // primitive no se distingue del track sobre el body claro
-              className="rounded-full px-4 py-2 text-sm data-[state=active]:bg-foreground data-[state=active]:text-background"
+              // razón: pill activo en verde Punto (pedido del owner) — el
+              // blanco del primitive no se distingue del track claro
+              className="rounded-full px-4 py-2 text-sm font-medium data-[state=active]:bg-chart-1 data-[state=active]:text-neutral-900"
             >
               {tab.label}
             </TabsTrigger>
