@@ -28,7 +28,7 @@ export function ScreenshotCrossfade({
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return
     const id = window.setInterval(
       () => setActive((i) => (i + 1) % images.length),
-      intervalMs,
+      intervalMs
     )
     return () => window.clearInterval(id)
   }, [images.length, intervalMs])
@@ -46,7 +46,7 @@ export function ScreenshotCrossfade({
           sizes="(max-width: 1024px) 100vw, 1024px"
           className={cn(
             "object-cover transition-opacity duration-1000 ease-in-out",
-            i === active ? "opacity-100" : "opacity-0",
+            i === active ? "opacity-100" : "opacity-0"
           )}
         />
       ))}

@@ -62,6 +62,13 @@ export type Market = {
    * muestra todos — útil mientras haya un solo país.
    */
   rubros: string[] | null
+  /**
+   * Cómo se traducen los montos de EJEMPLO (mockups, tickets de muestra)
+   * a este mercado: se multiplican por `escala` y se redondean al múltiplo
+   * `redondeo`. La historia del mockup es la misma; los números tienen que
+   * sonar creíbles en la moneda local.
+   */
+  ejemplos: { escala: number; redondeo: number }
 }
 
 export const MARKETS: Record<MarketCode, Market> = {
@@ -85,6 +92,7 @@ export const MARKETS: Record<MarketCode, Market> = {
       coords: { lat: -25.2853893, lng: -57.5696954 },
     },
     rubros: null,
+    ejemplos: { escala: 1, redondeo: 1 },
   },
 }
 
@@ -107,7 +115,23 @@ export function marketMoney(
   return `${market.moneda.prefijo} ${n}`
 }
 
-/** Reemplaza los tokens de mercado en un texto de contenido. */
+/** Convierte un monto de ejemplo a la escala del mercado. */
+export function marketExampleMoney(
+  amount: number,
+  market: Market = getMarket()
+): string {
+  const escalado = amount * market.ejemplos.escala
+  const paso = market.ejemplos.redondeo || 1
+  const redondeado = Math.round(escalado / paso) * paso
+  return marketMoney(redondeado, market)
+}
+
+/**
+ * Reemplaza los tokens de mercado en un texto de contenido:
+ *   {docFiscal} {organismo} {moneda} y {money:145000}
+ * El token de dinero lleva el monto en la moneda base del contenido
+ * (guaraníes) y sale ya escalado y formateado para el mercado activo.
+ */
 export function applyMarketTerms(
   text: string,
   market: Market = getMarket()
@@ -116,4 +140,7 @@ export function applyMarketTerms(
     .replaceAll("{docFiscal}", market.terminos.docFiscal)
     .replaceAll("{organismo}", market.terminos.organismo)
     .replaceAll("{moneda}", market.moneda.prefijo)
+    .replace(/\{money:(-?\d+)\}/g, (_, n) =>
+      marketExampleMoney(Number(n), market)
+    )
 }

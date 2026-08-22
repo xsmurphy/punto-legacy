@@ -9,11 +9,11 @@ import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
 import { ScreenshotCrossfade } from "@/components/site/screenshot-crossfade"
 import { applyMarketTerms } from "@/lib/site/markets"
-import { MODULOS, getModulo } from "@/lib/site/modulos"
+import { getModulo, modulosVisibles } from "@/lib/site/modulos"
 import { cn } from "@/lib/utils"
 
 export function generateStaticParams() {
-  return MODULOS.map((m) => ({ modulo: m.slug }))
+  return modulosVisibles().map((m) => ({ modulo: m.slug }))
 }
 
 export async function generateMetadata({
@@ -39,7 +39,7 @@ export default async function ModuloPage({
   const modulo = getModulo(slug)
   if (!modulo) notFound()
 
-  const others = MODULOS.filter((m) => m.slug !== modulo.slug)
+  const others = modulosVisibles().filter((m) => m.slug !== modulo.slug)
 
   return (
     <div className="pt-16">

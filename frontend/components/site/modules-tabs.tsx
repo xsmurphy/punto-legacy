@@ -14,7 +14,7 @@ export function ModulesTabs() {
     <section className="mx-auto w-full max-w-6xl px-4 py-24 md:px-6 md:py-32">
       <div className="mx-auto max-w-2xl text-center">
         {/* razón: escala display de marketing, no aplica escala panel (§14) */}
-        <h2 className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+        <h2 className="text-4xl font-semibold tracking-tight text-balance md:text-6xl">
           El sistema no termina en el Punto de Venta
         </h2>
         <p className="mt-4 text-base text-muted-foreground md:text-lg">
@@ -46,7 +46,7 @@ export function ModulesTabs() {
                   hero) — no depende del tema del visitante. */}
               <div className="grid overflow-hidden rounded-3xl bg-neutral-950 text-white md:grid-cols-2">
                 <div className="flex flex-col justify-center gap-4 p-8 md:p-14">
-                  <h3 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
+                  <h3 className="text-3xl font-semibold tracking-tight text-balance md:text-4xl">
                     {tab.title}
                   </h3>
                   <p className="text-base text-white/65">{tab.description}</p>

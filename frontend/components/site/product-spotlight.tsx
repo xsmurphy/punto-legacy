@@ -36,7 +36,10 @@ const SPOTLIGHTS: Spotlight[] = [
     title: "Vender no debería tomar más de unos segundos",
     description:
       "Buscador instantáneo, artículos con foto a la vista y cobro en dos toques. Contado, crédito o varios medios de pago en la misma venta — con el comprobante saliendo al cerrar. Y si se corta internet o la luz, seguís vendiendo: al volver la conexión, todo se sincroniza solo.",
-    primary: { label: "Conocer el Punto de Venta", href: "/modulos/punto-de-venta" },
+    primary: {
+      label: "Conocer el Punto de Venta",
+      href: "/modulos/punto-de-venta",
+    },
     secondary: { label: "Empezar gratis", href: "#" },
     images: [
       {
@@ -86,13 +89,15 @@ const SPOTLIGHTS: Spotlight[] = [
 function SpotlightBlock({ data }: { data: Spotlight }) {
   const dark = data.tone === "dark"
   return (
-    <section className={cn("py-20 md:py-28", dark ? "bg-neutral-950" : "bg-muted/50")}>
+    <section
+      className={cn("py-20 md:py-28", dark ? "bg-neutral-950" : "bg-muted/50")}
+    >
       <div className="mx-auto w-full max-w-6xl px-4 md:px-6">
         <div className="mx-auto max-w-3xl text-center">
           <p
             className={cn(
-              "text-xs font-semibold uppercase tracking-widest",
-              dark ? "text-white/50" : "text-muted-foreground",
+              "text-xs font-semibold tracking-widest uppercase",
+              dark ? "text-white/50" : "text-muted-foreground"
             )}
           >
             {data.eyebrow}
@@ -100,16 +105,16 @@ function SpotlightBlock({ data }: { data: Spotlight }) {
           {/* razón: escala display de marketing, no aplica escala panel (§14) */}
           <h2
             className={cn(
-              "mt-4 text-balance text-4xl font-semibold tracking-tight md:text-6xl",
-              dark && "text-white",
+              "mt-4 text-4xl font-semibold tracking-tight text-balance md:text-6xl",
+              dark && "text-white"
             )}
           >
             {data.title}
           </h2>
           <p
             className={cn(
-              "mx-auto mt-5 max-w-2xl text-pretty text-lg md:text-xl",
-              dark ? "text-white/65" : "text-muted-foreground",
+              "mx-auto mt-5 max-w-2xl text-lg text-pretty md:text-xl",
+              dark ? "text-white/65" : "text-muted-foreground"
             )}
           >
             {data.description}
@@ -123,7 +128,7 @@ function SpotlightBlock({ data }: { data: Spotlight }) {
               href={link.href}
               className={cn(
                 "group inline-flex items-center gap-1.5 text-base font-medium md:text-lg",
-                dark ? "text-white/90 hover:text-white" : "text-foreground",
+                dark ? "text-white/90 hover:text-white" : "text-foreground"
               )}
             >
               {link.label}
@@ -136,7 +141,9 @@ function SpotlightBlock({ data }: { data: Spotlight }) {
           <div
             className={cn(
               "overflow-hidden rounded-2xl p-1.5 md:p-2",
-              dark ? "border border-white/10 bg-white/5" : "border bg-background",
+              dark
+                ? "border border-white/10 bg-white/5"
+                : "border bg-background"
             )}
           >
             <ScreenshotCrossfade

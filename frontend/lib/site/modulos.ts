@@ -6,6 +6,8 @@
  * Punto AI); los módulos menores se suman cuando se escriban.
  */
 
+import type { MarketCode } from "@/lib/site/markets"
+import { getMarket } from "@/lib/site/markets"
 import type { RubroMockup } from "@/lib/site/rubros"
 
 export type ModuloSection = {
@@ -27,6 +29,13 @@ export type Modulo = {
   heroImage: { src: string; alt: string }
   essentials: string[]
   sections: ModuloSection[]
+  /**
+   * Mercados donde este módulo se ofrece con ESTE contenido. Sin la marca,
+   * vale para todos. La facturación electrónica, por ejemplo, nombra a
+   * SIFEN: en otro país ese contenido no aplica y habrá que escribir el
+   * suyo.
+   */
+  mercados?: MarketCode[]
 }
 
 export const MODULOS: Modulo[] = [
@@ -62,12 +71,12 @@ export const MODULOS: Modulo[] = [
           rows: [
             {
               left: "1× Lomito árabe",
-              right: "Gs. 35.000",
+              right: "{money:35000}",
               sub: ["Sin cebolla · Extra queso"],
             },
-            { left: "2× Jugo de mburucuyá", right: "Gs. 24.000" },
+            { left: "2× Jugo de mburucuyá", right: "{money:24000}" },
           ],
-          footer: { left: "Cobrar", right: "Gs. 59.000" },
+          footer: { left: "Cobrar", right: "{money:59000}" },
         },
       },
       {
@@ -82,11 +91,11 @@ export const MODULOS: Modulo[] = [
           label: "Cobro",
           title: "Medios de pago",
           rows: [
-            { left: "Efectivo", right: "Gs. 40.000" },
-            { left: "Transferencia", right: "Gs. 19.000" },
-            { left: "Vuelto", right: "Gs. 0" },
+            { left: "Efectivo", right: "{money:40000}" },
+            { left: "Transferencia", right: "{money:19000}" },
+            { left: "Vuelto", right: "{money:0}" },
           ],
-          footer: { left: "Total cobrado", right: "Gs. 59.000" },
+          footer: { left: "Total cobrado", right: "{money:59000}" },
         },
       },
       {
@@ -103,12 +112,12 @@ export const MODULOS: Modulo[] = [
           rows: [
             {
               left: "Ticket #482",
-              right: "Gs. 59.000",
+              right: "{money:59000}",
               sub: ["emitido 19:41"],
             },
             {
               left: "Ticket #483",
-              right: "Gs. 118.000",
+              right: "{money:118000}",
               sub: ["emitido 19:47"],
             },
           ],
@@ -127,11 +136,11 @@ export const MODULOS: Modulo[] = [
           label: "Turno noche · Caja 2",
           title: "Arqueo de caja",
           rows: [
-            { left: "Apertura", right: "Gs. 500.000" },
-            { left: "Ventas en efectivo", right: "Gs. 2.140.000" },
-            { left: "Retiros", right: "Gs. -300.000" },
+            { left: "Apertura", right: "{money:500000}" },
+            { left: "Ventas en efectivo", right: "{money:2140000}" },
+            { left: "Retiros", right: "{money:-300000}" },
           ],
-          footer: { left: "Esperado", right: "Gs. 2.340.000" },
+          footer: { left: "Esperado", right: "{money:2340000}" },
         },
       },
     ],
@@ -166,19 +175,19 @@ export const MODULOS: Modulo[] = [
           label: "Hoy",
           title: "Ventas por sucursal",
           rows: [
-            { left: "Centro", right: "Gs. 4.180.000", sub: ["92 tickets"] },
+            { left: "Centro", right: "{money:4180000}", sub: ["92 tickets"] },
             {
               left: "Villa Morra",
-              right: "Gs. 2.940.000",
+              right: "{money:2940000}",
               sub: ["61 tickets"],
             },
             {
               left: "San Lorenzo",
-              right: "Gs. 1.300.000",
+              right: "{money:1300000}",
               sub: ["31 tickets"],
             },
           ],
-          footer: { left: "Total del día", right: "Gs. 8.420.000" },
+          footer: { left: "Total del día", right: "{money:8420000}" },
         },
       },
       {
@@ -193,13 +202,13 @@ export const MODULOS: Modulo[] = [
           label: "Artículo",
           title: "Café en grano 1kg",
           rows: [
-            { left: "Mostrador", right: "Gs. 95.000" },
+            { left: "Mostrador", right: "{money:95000}" },
             {
               left: "Mayorista",
-              right: "Gs. 78.000",
+              right: "{money:78000}",
               sub: ["desde 6 unidades"],
             },
-            { left: "Costo", right: "Gs. 52.000", sub: ["margen 45%"] },
+            { left: "Costo", right: "{money:52000}", sub: ["margen 45%"] },
           ],
         },
       },
@@ -233,17 +242,17 @@ export const MODULOS: Modulo[] = [
           rows: [
             {
               left: "Empanada de carne",
-              right: "Gs. 1.278.000",
+              right: "{money:1278000}",
               sub: ["142 unidades"],
             },
             {
               left: "Café con leche",
-              right: "Gs. 1.470.000",
+              right: "{money:1470000}",
               sub: ["98 unidades"],
             },
             {
               left: "Combo desayuno",
-              right: "Gs. 1.586.000",
+              right: "{money:1586000}",
               sub: ["61 unidades"],
             },
           ],
@@ -283,10 +292,10 @@ export const MODULOS: Modulo[] = [
           rows: [
             {
               left: "Ventas 01 al 09",
-              right: "Gs. 2.310.000",
+              right: "{money:2310000}",
               sub: ["8 días con ventas"],
             },
-            { left: "Día pico", right: "Gs. 495.000", sub: ["08/06"] },
+            { left: "Día pico", right: "{money:495000}", sub: ["08/06"] },
             { left: "Más vendido", right: "Pizza peperoni" },
           ],
         },
@@ -335,7 +344,7 @@ export const MODULOS: Modulo[] = [
           rows: [
             { left: "Nombre", right: "Medialuna de manteca" },
             { left: "Categoría", right: "Panadería" },
-            { left: "Precio", right: "Gs. 6.000" },
+            { left: "Precio", right: "{money:6000}" },
           ],
           footer: { left: "Confirmar", right: "Cancelar" },
         },
@@ -372,8 +381,16 @@ export const MODULOS: Modulo[] = [
           label: "Salón",
           title: "Mesas abiertas",
           rows: [
-            { left: "Mesa 3", right: "Gs. 128.000", sub: ["Ocupada · 25 min"] },
-            { left: "Mesa 7", right: "Gs. 96.000", sub: ["Pidió la cuenta"] },
+            {
+              left: "Mesa 3",
+              right: "{money:128000}",
+              sub: ["Ocupada · 25 min"],
+            },
+            {
+              left: "Mesa 7",
+              right: "{money:96000}",
+              sub: ["Pidió la cuenta"],
+            },
             { left: "Mesa 12", right: "—", sub: ["Libre"] },
           ],
         },
@@ -417,11 +434,11 @@ export const MODULOS: Modulo[] = [
           rows: [
             {
               left: "Pagó Gladys",
-              right: "Gs. 45.000",
+              right: "{money:45000}",
               sub: ["por sus ítems"],
             },
-            { left: "Pagó Osvaldo", right: "Gs. 45.000", sub: ["efectivo"] },
-            { left: "Pendiente", right: "Gs. 38.000" },
+            { left: "Pagó Osvaldo", right: "{money:45000}", sub: ["efectivo"] },
+            { left: "Pendiente", right: "{money:38000}" },
           ],
         },
       },
@@ -457,13 +474,13 @@ export const MODULOS: Modulo[] = [
           label: "Cobro",
           title: "Gift card aplicada",
           rows: [
-            { left: "Total de la venta", right: "Gs. 185.000" },
+            { left: "Total de la venta", right: "{money:185000}" },
             {
               left: "Gift card GC-4821",
-              right: "Gs. -150.000",
-              sub: ["saldo restante Gs. 0"],
+              right: "{money:-150000}",
+              sub: ["saldo restante {money:0}"],
             },
-            { left: "Efectivo", right: "Gs. 35.000" },
+            { left: "Efectivo", right: "{money:35000}" },
           ],
         },
       },
@@ -497,13 +514,17 @@ export const MODULOS: Modulo[] = [
           label: "GC-4821",
           title: "Historial del código",
           rows: [
-            { left: "Vendida", right: "Gs. 150.000", sub: ["Centro · 02/08"] },
+            {
+              left: "Vendida",
+              right: "{money:150000}",
+              sub: ["Centro · 02/08"],
+            },
             {
               left: "Usada",
-              right: "Gs. 150.000",
+              right: "{money:150000}",
               sub: ["Villa Morra · 19/08"],
             },
-            { left: "Saldo", right: "Gs. 0" },
+            { left: "Saldo", right: "{money:0}" },
           ],
         },
       },
@@ -599,10 +620,120 @@ export const MODULOS: Modulo[] = [
       },
     ],
   },
+
+  {
+    slug: "facturacion-electronica",
+    label: "Facturación electrónica",
+    eyebrow: "Facturación electrónica",
+    mercados: ["PY"],
+    heroTitle: "Facturación electrónica gratis y sin límites",
+    heroDescription:
+      "Emitís todos los documentos electrónicos que tu negocio necesite y no te cobramos ni uno. Sin paquetes de comprobantes, sin cupos mensuales y sin sorpresas cuando el mes viene bueno: la factura sale de la misma venta y viaja sola a SIFEN.",
+    heroImage: {
+      src: "/site/pos-screenshot.png",
+      alt: "Punto emitiendo una factura electrónica desde la venta",
+    },
+    essentials: [
+      "Documentos electrónicos ilimitados, sin costo por comprobante.",
+      "La factura se arma con la venta: el vendedor no carga nada dos veces.",
+      "Factura, autofactura y nota de crédito electrónica, con su CDC y su KuDE.",
+      "El estado de cada documento se ve en el panel, uno por uno.",
+    ],
+    sections: [
+      {
+        kicker: "Sin cupos ni paquetes",
+        title: "Facturar de más no te sale más caro",
+        paragraphs: [
+          "En Paraguay lo normal es pagar por tandas de documentos: mil comprobantes, cinco mil, y cuando se acaban hay que comprar otra. El negocio termina midiendo cuánto factura contra cuánto le queda de paquete — justo al revés de lo que debería preocuparle.",
+          "En Punto no funciona así. Emitir un documento electrónico no nos cuesta, y por eso no te lo cobramos: facturás lo que vendas, todos los meses, sin contar comprobantes ni renovar nada.",
+        ],
+        linkLabel: "Ver el plan completo",
+        mockup: {
+          label: "Este mes",
+          title: "Documentos emitidos",
+          rows: [
+            { left: "Facturas electrónicas", right: "1.284" },
+            { left: "Notas de crédito", right: "37" },
+            { left: "Costo por documento", right: "{money:0}" },
+          ],
+          footer: { left: "Total facturado al sistema", right: "{money:0}" },
+        },
+      },
+      {
+        kicker: "Sale de la venta",
+        title: "El comprobante no es un trámite aparte",
+        paragraphs: [
+          "El cajero cobra como siempre y, si el cliente da su RUC, el documento electrónico se genera con esa misma venta: los ítems, las tasas de IVA que realmente se cobraron y el total que cierra exacto contra el ticket.",
+          "Punto declara la tasa que se aplicó en el momento de vender, no la que figura hoy en el catálogo. Si cambiás un precio o una tasa después, los documentos ya emitidos siguen contando la verdad de esa venta.",
+        ],
+        linkLabel: "Ver la venta facturada",
+        mockup: {
+          label: "Factura electrónica",
+          title: "001-001-0000482",
+          rows: [
+            { left: "González e Hijos S.A.", sub: ["{docFiscal} 80012345-6"] },
+            { left: "Gravadas 10%", right: "{money:450000}" },
+            { left: "IVA 10%", right: "{money:45000}" },
+          ],
+          footer: { left: "Total del documento", right: "{money:495000}" },
+        },
+      },
+      {
+        kicker: "Aprobado o pendiente, siempre visible",
+        title: "Sabés en qué estado está cada documento",
+        paragraphs: [
+          "Cada documento muestra si SIFEN lo aprobó, si está en camino o si algo lo frenó, con su CDC a la vista y el KuDE listo para descargar o mandarle al cliente.",
+          "Si el envío falla — se cayó la conexión, el servicio no responde — el documento se reintenta solo. La venta nunca queda trabada esperando al fisco: se cobra igual y el comprobante se acomoda después.",
+        ],
+        linkLabel: "Ver los documentos",
+        mockup: {
+          label: "Documentos electrónicos",
+          title: "Estado de hoy",
+          rows: [
+            {
+              left: "001-001-0000482",
+              right: "Aprobado",
+              sub: ["CDC disponible"],
+            },
+            { left: "001-001-0000483", right: "Aprobado" },
+            {
+              left: "001-001-0000484",
+              right: "En proceso",
+              sub: ["reintenta solo"],
+            },
+          ],
+        },
+      },
+      {
+        kicker: "Cuando hay que corregir",
+        title: "Nota de crédito electrónica, atada a su factura",
+        paragraphs: [
+          "Una devolución no se resuelve borrando la factura: se emite la nota de crédito electrónica vinculada al documento original, con las tasas congeladas de esa venta.",
+          "Y si un documento tiene que anularse ante SIFEN, se cancela desde el panel indicando el motivo — con permiso propio, para que no lo haga cualquiera desde la caja.",
+        ],
+        linkLabel: "Ver una nota de crédito",
+        mockup: {
+          label: "Nota de crédito",
+          title: "Sobre 001-001-0000482",
+          rows: [
+            { left: "1× Café en grano 1kg", right: "{money:95000}" },
+            { left: "Motivo", right: "Devolución" },
+          ],
+          footer: { left: "Total acreditado", right: "{money:95000}" },
+        },
+      },
+    ],
+  },
 ]
 
+/** Módulos visibles en el mercado activo. */
+export function modulosVisibles(): Modulo[] {
+  const code = getMarket().code
+  return MODULOS.filter((m) => !m.mercados || m.mercados.includes(code))
+}
+
 export function getModulo(slug: string): Modulo | undefined {
-  return MODULOS.find((m) => m.slug === slug)
+  return modulosVisibles().find((m) => m.slug === slug)
 }
 
 /**
@@ -636,8 +767,8 @@ export const MODULO_GROUPS: ModuloGroup[] = [
       },
       {
         label: "Facturación electrónica",
-        description: "El comprobante se emite y se envía solo",
-        href: "#",
+        description: "Documentos ilimitados, sin costo por comprobante",
+        href: "/modulos/facturacion-electronica",
       },
     ],
   },

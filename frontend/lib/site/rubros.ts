@@ -100,11 +100,11 @@ export const RUBROS: Rubro[] = [
           label: "Mesa 12 · 3 personas",
           title: "Dividir la cuenta",
           rows: [
-            { left: "Gladys", right: "Gs. 75.000" },
-            { left: "Osvaldo", right: "Gs. 80.000" },
-            { left: "Rocío", right: "Gs. 60.000" },
+            { left: "Gladys", right: "{money:75000}" },
+            { left: "Osvaldo", right: "{money:80000}" },
+            { left: "Rocío", right: "{money:60000}" },
           ],
-          footer: { left: "Total", right: "Gs. 215.000" },
+          footer: { left: "Total", right: "{money:215000}" },
         },
       },
       {
@@ -118,11 +118,11 @@ export const RUBROS: Rubro[] = [
           label: "Turno noche",
           title: "Arqueo de caja",
           rows: [
-            { left: "Apertura", right: "Gs. 500.000" },
-            { left: "Ventas en efectivo", right: "Gs. 2.140.000" },
-            { left: "Esperado", right: "Gs. 2.640.000" },
+            { left: "Apertura", right: "{money:500000}" },
+            { left: "Ventas en efectivo", right: "{money:2140000}" },
+            { left: "Esperado", right: "{money:2640000}" },
           ],
-          footer: { left: "Contado", right: "Gs. 2.640.000" },
+          footer: { left: "Contado", right: "{money:2640000}" },
         },
       },
     ],
@@ -154,11 +154,11 @@ export const RUBROS: Rubro[] = [
           label: "Caja 1",
           title: "Ticket en curso",
           rows: [
-            { left: "2× Gaseosa 2L", right: "Gs. 30.000" },
-            { left: "1× Pan lactal", right: "Gs. 18.000" },
-            { left: "3× Yogur bebible", right: "Gs. 21.000" },
+            { left: "2× Gaseosa 2L", right: "{money:30000}" },
+            { left: "1× Pan lactal", right: "{money:18000}" },
+            { left: "3× Yogur bebible", right: "{money:21000}" },
           ],
-          footer: { left: "Cobrar", right: "Gs. 69.000" },
+          footer: { left: "Cobrar", right: "{money:69000}" },
         },
       },
       {
@@ -190,9 +190,9 @@ export const RUBROS: Rubro[] = [
           label: "Turno mañana",
           title: "Cierre de caja",
           rows: [
-            { left: "Esperado", right: "Gs. 3.480.000" },
-            { left: "Contado", right: "Gs. 3.465.000" },
-            { left: "Diferencia", right: "Gs. -15.000" },
+            { left: "Esperado", right: "{money:3480000}" },
+            { left: "Contado", right: "{money:3465000}" },
+            { left: "Diferencia", right: "{money:-15000}" },
           ],
         },
       },
@@ -226,12 +226,12 @@ export const RUBROS: Rubro[] = [
           rows: [
             {
               left: "Ibuprofeno 400mg × 10",
-              right: "Gs. 15.000",
+              right: "{money:15000}",
               sub: ["Centro: 24 · Villa Morra: 8"],
             },
             {
               left: "Ibuprofeno 600mg × 10",
-              right: "Gs. 22.000",
+              right: "{money:22000}",
               sub: ["Centro: 11 · Villa Morra: 0"],
             },
           ],
@@ -274,12 +274,12 @@ export const RUBROS: Rubro[] = [
           rows: [
             {
               left: "Elvira Ruiz",
-              right: "Gs. 180.000",
-              sub: ["límite Gs. 500.000"],
+              right: "{money:180000}",
+              sub: ["límite {money:500000}"],
             },
             {
               left: "Ramón Ortiz",
-              right: "Gs. 65.000",
+              right: "{money:65000}",
               sub: ["último pago hace 8 días"],
             },
           ],
@@ -316,12 +316,12 @@ export const RUBROS: Rubro[] = [
           rows: [
             {
               left: 'Caño PVC 1/2" × 6m',
-              right: "Gs. 38.000",
+              right: "{money:38000}",
               sub: ["Depósito central: 42 · Sucursal Ñemby: 6"],
             },
             {
               left: 'Codo PVC 1/2"',
-              right: "Gs. 3.500",
+              right: "{money:3500}",
               sub: ["Depósito central: 210"],
             },
           ],
@@ -339,11 +339,11 @@ export const RUBROS: Rubro[] = [
           label: "Cotización #084",
           title: "Obra Sosa · baño",
           rows: [
-            { left: '18× Caño PVC 1/2" (m)', right: "Gs. 216.000" },
-            { left: "2× Bolsa cemento 50kg", right: "Gs. 130.000" },
-            { left: "1× Kit grifería", right: "Gs. 380.000" },
+            { left: '18× Caño PVC 1/2" (m)', right: "{money:216000}" },
+            { left: "2× Bolsa cemento 50kg", right: "{money:130000}" },
+            { left: "1× Kit grifería", right: "{money:380000}" },
           ],
-          footer: { left: "Total cotizado", right: "Gs. 726.000" },
+          footer: { left: "Total cotizado", right: "{money:726000}" },
         },
       },
       {
@@ -360,12 +360,12 @@ export const RUBROS: Rubro[] = [
           rows: [
             {
               left: "Construcciones Ayala",
-              right: "Gs. 1.240.000",
-              sub: ["límite Gs. 3.000.000"],
+              right: "{money:1240000}",
+              sub: ["límite {money:3000000}"],
             },
             {
               left: "Don Feliciano",
-              right: "Gs. 95.000",
+              right: "{money:95000}",
               sub: ["último pago hace 12 días"],
             },
           ],
@@ -429,10 +429,10 @@ export const RUBROS: Rubro[] = [
           label: "Gift card",
           title: "Tarjeta regalo",
           rows: [
-            { left: "Código GC-3391", right: "Gs. 100.000" },
-            { left: "Usado hasta hoy", right: "Gs. 35.000" },
+            { left: "Código GC-3391", right: "{money:100000}" },
+            { left: "Usado hasta hoy", right: "{money:35000}" },
           ],
-          footer: { left: "Saldo disponible", right: "Gs. 65.000" },
+          footer: { left: "Saldo disponible", right: "{money:65000}" },
         },
       },
       {
@@ -446,11 +446,11 @@ export const RUBROS: Rubro[] = [
           label: "Turno mañana",
           title: "Cierre de caja",
           rows: [
-            { left: "Apertura", right: "Gs. 200.000" },
-            { left: "Ventas en efectivo", right: "Gs. 890.000" },
-            { left: "Esperado", right: "Gs. 1.090.000" },
+            { left: "Apertura", right: "{money:200000}" },
+            { left: "Ventas en efectivo", right: "{money:890000}" },
+            { left: "Esperado", right: "{money:1090000}" },
           ],
-          footer: { left: "Contado", right: "Gs. 1.085.000" },
+          footer: { left: "Contado", right: "{money:1085000}" },
         },
       },
     ],
@@ -484,16 +484,16 @@ export const RUBROS: Rubro[] = [
           rows: [
             {
               left: "Pan francés × 80",
-              right: "Gs. 96.000",
+              right: "{money:96000}",
               sub: ["Harina 12kg · Levadura 200g"],
             },
             {
               left: "Facturas surtidas × 60",
-              right: "Gs. 84.000",
+              right: "{money:84000}",
               sub: ["Harina 6kg · Manteca 1.5kg"],
             },
           ],
-          footer: { left: "Costo del lote", right: "Gs. 180.000" },
+          footer: { left: "Costo del lote", right: "{money:180000}" },
         },
       },
       {
@@ -508,10 +508,10 @@ export const RUBROS: Rubro[] = [
           label: "Mostrador domingo",
           title: "Ticket en curso",
           rows: [
-            { left: "1.2kg Pan casero", right: "Gs. 14.400" },
-            { left: "12× Factura de manteca", right: "Gs. 24.000" },
+            { left: "1.2kg Pan casero", right: "{money:14400}" },
+            { left: "12× Factura de manteca", right: "{money:24000}" },
           ],
-          footer: { left: "Cobrar", right: "Gs. 38.400" },
+          footer: { left: "Cobrar", right: "{money:38400}" },
         },
       },
       {
@@ -580,10 +580,10 @@ export const RUBROS: Rubro[] = [
           label: "Nota de crédito NC-0231",
           title: "Cambio de talle",
           rows: [
-            { left: "Devuelve: Blusa lino Talle M", right: "Gs. 145.000" },
-            { left: "Lleva: Blusa lino Talle S", right: "Gs. 145.000" },
+            { left: "Devuelve: Blusa lino Talle M", right: "{money:145000}" },
+            { left: "Lleva: Blusa lino Talle S", right: "{money:145000}" },
           ],
-          footer: { left: "Saldo a favor", right: "Gs. 0" },
+          footer: { left: "Saldo a favor", right: "{money:0}" },
         },
       },
       {
@@ -661,12 +661,12 @@ export const RUBROS: Rubro[] = [
           label: "Mesa 5 · 4 personas",
           title: "Dividir la cuenta",
           rows: [
-            { left: "Braulio", right: "Gs. 95.000" },
-            { left: "Nadia", right: "Gs. 95.000" },
-            { left: "Fabricio", right: "Gs. 60.000" },
-            { left: "Delia", right: "Gs. 90.000" },
+            { left: "Braulio", right: "{money:95000}" },
+            { left: "Nadia", right: "{money:95000}" },
+            { left: "Fabricio", right: "{money:60000}" },
+            { left: "Delia", right: "{money:90000}" },
           ],
-          footer: { left: "Total", right: "Gs. 340.000" },
+          footer: { left: "Total", right: "{money:340000}" },
         },
       },
       {
@@ -680,11 +680,11 @@ export const RUBROS: Rubro[] = [
           label: "Turno noche",
           title: "Arqueo de caja",
           rows: [
-            { left: "Apertura", right: "Gs. 400.000" },
-            { left: "Ventas en efectivo", right: "Gs. 1.850.000" },
-            { left: "Esperado", right: "Gs. 2.250.000" },
+            { left: "Apertura", right: "{money:400000}" },
+            { left: "Ventas en efectivo", right: "{money:1850000}" },
+            { left: "Esperado", right: "{money:2250000}" },
           ],
-          footer: { left: "Contado", right: "Gs. 2.230.000" },
+          footer: { left: "Contado", right: "{money:2230000}" },
         },
       },
     ],
@@ -716,14 +716,14 @@ export const RUBROS: Rubro[] = [
           label: "Mostrador sábado",
           title: "Ticket en curso",
           rows: [
-            { left: "0.5kg Pote 2 sabores", right: "Gs. 42.000" },
+            { left: "0.5kg Pote 2 sabores", right: "{money:42000}" },
             {
               left: "Cucurucho 3 bochas",
-              right: "Gs. 18.000",
+              right: "{money:18000}",
               sub: ["+ chips de chocolate"],
             },
           ],
-          footer: { left: "Cobrar", right: "Gs. 60.000" },
+          footer: { left: "Cobrar", right: "{money:60000}" },
         },
       },
       {
@@ -740,11 +740,11 @@ export const RUBROS: Rubro[] = [
           rows: [
             {
               left: "Lote de 8kg",
-              right: "Gs. 96.000",
+              right: "{money:96000}",
               sub: ["Leche 5L · Dulce de leche 2kg"],
             },
           ],
-          footer: { left: "Costo por kilo", right: "Gs. 12.000" },
+          footer: { left: "Costo por kilo", right: "{money:12000}" },
         },
       },
       {

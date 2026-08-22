@@ -25,11 +25,13 @@ export function HeroBackdrop({
 
   React.useEffect(() => {
     if (images.length < 2) return
-    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    const reduced = window.matchMedia(
+      "(prefers-reduced-motion: reduce)"
+    ).matches
     if (reduced) return
     const id = window.setInterval(
       () => setActive((i) => (i + 1) % images.length),
-      intervalMs,
+      intervalMs
     )
     return () => window.clearInterval(id)
   }, [images.length, intervalMs])
@@ -46,7 +48,7 @@ export function HeroBackdrop({
           sizes="100vw"
           className={cn(
             "object-cover transition-opacity duration-[2000ms] ease-in-out",
-            i === active ? "opacity-100" : "opacity-0",
+            i === active ? "opacity-100" : "opacity-0"
           )}
         />
       ))}

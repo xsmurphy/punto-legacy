@@ -102,7 +102,7 @@ const MODULO_PREVIEWS: Record<string, { src?: string; text: string }> = {
     text: "Preguntale por tus números y responde con los datos del negocio.",
   },
   "Facturación electrónica": {
-    text: "La factura sale de la misma venta, con su numeración en regla.",
+    text: "Todos los documentos que necesites, sin costo por comprobante.",
   },
   "Mesas y órdenes": {
     src: "/site/pos-screenshot.png",
@@ -138,7 +138,7 @@ function EntryList({
 }) {
   return (
     <div className="flex-1 p-4 md:p-5">
-      <p className="mb-2 px-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <p className="mb-2 px-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
         {title}
       </p>
       {/* Dos columnas: con 6+ entradas una sola columna se va de alto. */}
@@ -149,7 +149,7 @@ function EntryList({
             asChild
             className={cn(
               "items-start rounded-lg px-3 py-2.5",
-              i === active && "bg-accent",
+              i === active && "bg-accent"
             )}
           >
             <Link
@@ -158,7 +158,9 @@ function EntryList({
               onFocus={() => onHover(i)}
             >
               <span className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium leading-none">{entry.label}</span>
+                <span className="text-sm leading-none font-medium">
+                  {entry.label}
+                </span>
                 <span className="text-sm text-muted-foreground">
                   {entry.description}
                 </span>
@@ -173,7 +175,10 @@ function EntryList({
 
 /** Panel de Módulos: grupos a la izquierda, preview del módulo apuntado. */
 export function ModulosMenu() {
-  const [active, setActive] = React.useState<{ g: number; i: number }>({ g: 0, i: 0 })
+  const [active, setActive] = React.useState<{ g: number; i: number }>({
+    g: 0,
+    i: 0,
+  })
   const entry = MODULO_GROUPS[active.g].items[active.i]
   const preview = MODULO_PREVIEWS[entry.label]
 
@@ -185,7 +190,7 @@ export function ModulosMenu() {
         <div className="grid gap-x-4 gap-y-4 md:grid-cols-3">
           {MODULO_GROUPS.map((group, g) => (
             <div key={group.key} className="flex flex-col">
-              <p className="mb-1.5 px-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <p className="mb-1.5 px-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
                 {group.label}
               </p>
               <div className="flex flex-col gap-0.5">
@@ -195,7 +200,7 @@ export function ModulosMenu() {
                     asChild
                     className={cn(
                       "items-start rounded-lg px-3 py-2",
-                      g === active.g && i === active.i && "bg-accent",
+                      g === active.g && i === active.i && "bg-accent"
                     )}
                   >
                     <Link
@@ -204,7 +209,7 @@ export function ModulosMenu() {
                       onFocus={() => setActive({ g, i })}
                     >
                       <span className="flex flex-col gap-0.5">
-                        <span className="text-sm font-medium leading-none">
+                        <span className="text-sm leading-none font-medium">
                           {item.label}
                         </span>
                         <span className="text-xs text-muted-foreground">
@@ -236,7 +241,9 @@ export function ModulosMenu() {
           )}
         </div>
         <div className="flex flex-col gap-1">
-          <p className="text-base font-semibold tracking-tight">{entry.label}</p>
+          <p className="text-base font-semibold tracking-tight">
+            {entry.label}
+          </p>
           <p className="text-sm text-muted-foreground">
             {preview?.text ?? entry.description}
           </p>

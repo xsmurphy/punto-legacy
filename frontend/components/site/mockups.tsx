@@ -1,7 +1,7 @@
 import { BadgeCheck } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
-import { getMarket } from "@/lib/site/markets"
+import { applyMarketTerms, getMarket } from "@/lib/site/markets"
 import { cn } from "@/lib/utils"
 
 /*
@@ -36,7 +36,9 @@ function MockFrame({
           {label}
         </p>
       ) : null}
-      <p className="text-base font-semibold tracking-tight">{title}</p>
+      <p className="text-base font-semibold tracking-tight">
+        {applyMarketTerms(title)}
+      </p>
       {caption ? (
         <p className="mt-0.5 text-sm text-muted-foreground">{caption}</p>
       ) : null}
@@ -57,14 +59,16 @@ function MockRow({
   return (
     <div className="border-b border-border/60 pb-3 last:border-b-0 last:pb-0">
       <div className="flex items-baseline justify-between gap-3">
-        <span className="text-sm font-medium">{left}</span>
+        <span className="text-sm font-medium">{applyMarketTerms(left)}</span>
         {right ? (
-          <span className="text-sm font-semibold tabular-nums">{right}</span>
+          <span className="text-sm font-semibold tabular-nums">
+            {applyMarketTerms(right)}
+          </span>
         ) : null}
       </div>
       {sub?.map((s) => (
         <p key={s} className="mt-0.5 text-xs text-muted-foreground">
-          {s}
+          {applyMarketTerms(s)}
         </p>
       ))}
     </div>
@@ -74,8 +78,10 @@ function MockRow({
 function MockTotal({ left, right }: { left: string; right: string }) {
   return (
     <div className="flex items-center justify-between rounded-lg bg-primary px-4 py-2.5 text-primary-foreground">
-      <span className="text-sm font-semibold">{left}</span>
-      <span className="text-sm font-semibold tabular-nums">{right}</span>
+      <span className="text-sm font-semibold">{applyMarketTerms(left)}</span>
+      <span className="text-sm font-semibold tabular-nums">
+        {applyMarketTerms(right)}
+      </span>
     </div>
   )
 }
@@ -89,11 +95,11 @@ export function MockupTicket() {
     <MockFrame label="Caja 1" title="Venta en curso">
       <MockRow
         left="1× Lomito árabe"
-        right="Gs. 35.000"
+        right="{money:35000}"
         sub={["Sin cebolla · Extra queso"]}
       />
-      <MockRow left="2× Jugo de mburucuyá" right="Gs. 24.000" />
-      <MockTotal left="Cobrar" right="Gs. 59.000" />
+      <MockRow left="2× Jugo de mburucuyá" right="{money:24000}" />
+      <MockTotal left="Cobrar" right="{money:59000}" />
     </MockFrame>
   )
 }
@@ -101,10 +107,10 @@ export function MockupTicket() {
 export function MockupArqueo() {
   return (
     <MockFrame label="Turno noche · Caja 2" title="Arqueo de caja">
-      <MockRow left="Apertura" right="Gs. 500.000" />
-      <MockRow left="Ventas en efectivo" right="Gs. 2.140.000" />
-      <MockRow left="Retiros" right="Gs. -300.000" />
-      <MockTotal left="Esperado" right="Gs. 2.340.000" />
+      <MockRow left="Apertura" right="{money:500000}" />
+      <MockRow left="Ventas en efectivo" right="{money:2140000}" />
+      <MockRow left="Retiros" right="{money:-300000}" />
+      <MockTotal left="Esperado" right="{money:2340000}" />
     </MockFrame>
   )
 }
@@ -118,8 +124,8 @@ export function MockupFactura() {
       />
       <MockRow
         left="Total"
-        right="Gs. 495.000"
-        sub={["IVA 10% incluido: Gs. 45.000"]}
+        right="{money:495000}"
+        sub={["IVA 10% incluido: {money:45000}"]}
       />
       <div className="flex items-center gap-2">
         <Badge variant="secondary" className="gap-1">
@@ -146,15 +152,15 @@ export function MockupClientes() {
     <MockFrame label="Clientes" title="Los que vuelven">
       <MockRow
         left="Carmen Ríos"
-        right="Gs. 1.180.000"
+        right="{money:1180000}"
         sub={["9 compras · última hace 2 días"]}
       />
       <MockRow
         left="Diego Vera"
-        right="Gs. 640.000"
-        sub={["4 compras · debe Gs. 95.000"]}
+        right="{money:640000}"
+        sub={["4 compras · debe {money:95000}"]}
       />
-      <MockRow left="Elvira Ruiz" right="Gs. 460.000" sub={["3 compras"]} />
+      <MockRow left="Elvira Ruiz" right="{money:460000}" sub={["3 compras"]} />
     </MockFrame>
   )
 }
@@ -176,7 +182,7 @@ export function MockupReporte() {
       <div className="flex items-baseline justify-between">
         <span className="text-xs text-muted-foreground">08:00 — 20:00</span>
         <span className="text-sm font-semibold tabular-nums">
-          Gs. 8.420.000
+          {applyMarketTerms("{money:8420000}")}
         </span>
       </div>
     </MockFrame>
@@ -188,13 +194,13 @@ export function MockupMesas() {
     {
       name: "Mesa 3",
       state: "Ocupada · 25 min",
-      total: "Gs. 128.000",
+      total: "{money:128000}",
       busy: true,
     },
     {
       name: "Mesa 7",
       state: "Pedido en cocina",
-      total: "Gs. 96.000",
+      total: "{money:96000}",
       busy: true,
     },
     { name: "Mesa 12", state: "Libre", total: "—", busy: false },
