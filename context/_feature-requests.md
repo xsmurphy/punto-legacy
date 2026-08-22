@@ -17,26 +17,25 @@ facturación electrónica (en curso, `context/28`).
 
 ### Catálogo / Items
 
-- **Crear categoría inline desde el form de artículo** — `S`. Hoy obliga a ir
-  a settings/catalog; agregar "crear" en el combobox de categorías.
-- **Cantidad de sesiones en packs de sesiones** — `S`. Verificar: `itemSessions`
-  existe como columna (está en BULK_EDIT_WHITELIST de `ItemService.php`) pero
-  el form de item no la expone.
+- **Crear categoría inline desde el form de artículo** — CERRADO
+  (`frontend/components/items/categories-picker.tsx:56-81`).
+- **Cantidad de sesiones en packs de sesiones** — CERRADO (`itemSessions`
+  expuesto en `items/[id]/page.tsx:930`, `ItemService.php:81`).
 - **Stock mínimo + notificación automática** — `M`. Hook natural: centro de
   notificaciones (`context/31`). Requiere umbral por item (¿columna nueva o
   JSONB?) + job que compare stock.
-- **Columnas "stock actual" y "costo del stock" en el listado de items** — `S`.
-- **Historial de movimientos del artículo (kardex) en el detalle** — `M`. La
-  data existe (inventory ledger); falta query + tab/vista.
+- **Columnas "stock actual" y "costo del stock" en el listado de items** —
+  CERRADO (`ItemsQuery.php:171-173`).
+- **Historial de movimientos del artículo (kardex) en el detalle** — CERRADO
+  (`components/items/stock-tab.tsx`, `StockMovementsService.php`).
 
 ### Contactos / Usuarios
 
 - **Comisiones por usuario en Gs. o %** — `M`. Hoy la comisión es por item
   (`itemComissionPercent`/`Type`); esto pide default por usuario.
-- **Línea de crédito: dónde cargarla** — `S`. `contact.contactCreditLine` ya
-  existe en BD; falta exponerla en la ficha del contacto.
-- **Cobrar facturas a crédito desde el módulo Clientes** — `M`. Hoy solo desde
-  POS/transacciones.
+- **Línea de crédito: dónde cargarla** — CERRADO (`contact-detail-view.tsx`).
+- **Cobrar facturas a crédito desde el módulo Clientes** — CERRADO
+  (`ContactDetailView` + `AccountStatementSection`).
 - **Historial de transacciones en la ficha del contacto** — YA EXISTE
   (tab "Transacciones" de `ContactDetailView`, commit `e63cd670` 2026-07-17,
   con reimpresión y cobro de crédito). Problema de descubribilidad, no de
@@ -46,8 +45,9 @@ facturación electrónica (en curso, `context/28`).
 
 - **RG90 / Libro de Ventas y Compras (export fiscal PY)** — `L`. Formato
   normado por la SET; definir alcance con el owner.
-- **Export/print en TODOS los módulos de reportes** — `S-M`. `<DataTable>` ya
-  trae export XLSX; sweep de los reportes que no lo usan + botón imprimir.
+- **Export/print en TODOS los módulos de reportes** — parcial (verificado
+  2026-08-22): 19 de 25 páginas de reporte ya exportan XLSX. Falta export en
+  `cashflow`, `orders`, `schedule`; **impresión no existe en ningún reporte**.
 - **Notificaciones de facturas a crédito por vencer** con detalle completo
   (doc, cliente, ítems, IVA) — `M`. Centro de notificaciones (`context/31`).
 - **Reporte de productos "modo detallado"** (usuario, cliente, doc,
@@ -62,38 +62,43 @@ facturación electrónica (en curso, `context/28`).
 ### Compras / Gastos
 
 - **Columnas doc/timbrado/usuario/condición (contado-crédito) en registro y
-  reporte de compras** — `S`. `/purchase` ya captura timbrado+prefijo+nro.
-- **Compra por caja/paquete (1 caja = 24 unidades)** — `M`. Factor de
-  conversión de unidad de compra → unidad de stock.
-- **Subcategorías de gastos** — `M`. `fin_category` es árbol de 1 nivel por
-  diseño (`CategoryService.php`); esto pide nivel 2.
+  reporte de compras** — CERRADO en el reporte (`reports/purchases/page.tsx:74,88`,
+  columnas de documento y timbrado). `/purchase` ya captura timbrado+prefijo+nro.
+- **Compra por caja/paquete (1 caja = 24 unidades)** — CERRADO (`packSize`,
+  `PurchasesService.php:453`).
+- **Subcategorías de gastos** — CERRADO (`fin_category.parentid`, mig 72,
+  `CategoryService::resolveParentId()`).
 - **Recordar último costo de compra por producto** — la precarga en
   `/purchase` YA EXISTE (verificado 2026-08-01): al elegir el ítem, el
   ProductPicker llama `GET /v1/items?id=X&resource=last-purchase-price`
   (`api/v1/items.php:263-289`, último `itemSoldTotal/itemSoldUnits` de una
   compra) y autorrellena el precio de la línea. **Lo que sigue abierto** es la
   otra mitad del pedido: producción sin stock del insumo genera costos
-  negativos / márgenes distorsionados porque el COGS sale del `itemCost`
-  vigente, no de un último-costo de referencia. Eso es del módulo de
-  producción (`context/23`), no de compras — `M`.
+  negativos / márgenes distorsionados porque `RecipeCosting.php:197-205` usa
+  `item.itemCost` vigente, no un último-costo de referencia. Eso es del
+  módulo de producción (`context/23`), no de compras — `M`.
 
 ### POS / Espacios
 
-- **Asignar mozo a espacio/mesa** — `M`.
-- **Renombrar/etiquetar espacios** — `S` (el editor de layout ya edita nombre
-  — verificar qué falta: ¿desde el POS?).
-- **Shortcut de teclado "O" para pantalla de órdenes** — `S`, baja prioridad.
-  Respeta convención shortcuts Q/W/E/R (`context/08 §pos`).
+- **Asignar mozo a espacio/mesa** — parcial (verificado 2026-08-22): backend
+  completo (`space_session.waiterid`; `SpaceSessionService.php:35,57,403`) y
+  el tipo del hook ya lo trae, pero **falta toda la UI** — ningún componente
+  lo pasa al abrir mesa. Sin esto tampoco se puede contar personas atendidas
+  por mesero (pedido relacionado más abajo).
+- **Renombrar/etiquetar espacios** — confirmado abierto por ausencia
+  (auditoría 2026-08-22), "desde el POS" en particular.
+- **Shortcut de teclado "O" para pantalla de órdenes** — CERRADO
+  (`use-pos-hotkeys.ts:99-101`).
 - **Cobro por ítems individuales** — YA EXISTE (split `kind='items'`,
   2026-07-27). El tester no lo encontró o le falló (ver bug "Sale transaction
   aborted" en roadmap) — puede ser problema de descubribilidad.
 
 ### Impresión
 
-- **Imprimir recibo al registrar pagos de crédito + cierre de caja
-  automático al cerrar** — `M`. El cierre sin impresión ya está confirmado
-  como bug (auditoría 2026-07-30); esto amplía a recibos de cobro. Los docs
-  traen formatos de referencia de recibo y factura (ver los .docx).
+- **Cierre de caja automático al cerrar** — CERRADO (`pos-main-menu.tsx:1101-1110`,
+  commit `eac29e7e`).
+- **Imprimir recibo al registrar pagos de crédito** — `M`, sigue abierto. Los
+  docs traen formatos de referencia de recibo y factura (ver los .docx).
 - **Plantillas: columna de IVA por ítem + total IVA** — `S` (template editor).
 - **Formatos A4 / preimpresos con posicionamiento** — `L`. Editor de layout
   para hoja completa, distinto del ticket 80mm.
@@ -254,12 +259,18 @@ cliente** — `M`
   (Dueño / Encargado / Cajero, `RoleService::SEED_PERMISSIONS`) y
   `hasPermission()` en el backend.
 - **El problema real no es que falte la sección: es que la matriz es mayormente
-  decorativa.** Medido el 2026-07-30: de los 45 permisos del catálogo, solo
-  **17 se chequean** en algún lado del backend. Los 28 restantes se pueden
-  destildar y no pasa nada — entre ellos `pos.sale.void`, `pos.sale.refund`,
-  `pos.discount.apply`, `inventory.item.delete`, todo `contacts.*`,
-  `settings.device.manage` y `billing.manage`. Un rol "solo ver" hoy puede
-  anular ventas.
+  decorativa.** Remedido el 2026-08-22 (el catálogo creció): son **47
+  permisos**, de los cuales **27 se chequean** en algún lado del backend —
+  **20 sin ningún gate**. En orden de gravedad: `contacts.user.manage`
+  (`api/v1/users.php` POST/PUT/DELETE sin ningún gate — cualquier autenticado
+  crea/edita/borra usuarios y roles), `contacts.customer.delete`,
+  `contacts.supplier.manage`, `inventory.item.delete`, `pos.sale.refund`
+  (`returns.php`), `pos.drawer.open/close`, `settings.register.manage`,
+  `billing.view/manage`, `settings.tax.manage`, `settings.template.manage`,
+  `settings.device.pair/manage`, `ai.agent.elevated`, `pos.discount.apply`.
+  Un rol "solo ver" hoy puede anular ventas.
+  **Nota irónica**: el agente IA (`api/v1/ai/execute.php:66-75`) SÍ chequea
+  permisos que los endpoints humanos equivalentes no chequean.
 - En el frontend el gating es casi inexistente: un solo archivo consume
   `usePermissions()`. La UI no esconde ni deshabilita lo que el rol no puede.
 - La granularidad tampoco es uniforme: `inventory.item.*` y `contacts.customer.*`
@@ -285,7 +296,12 @@ anteriores. Varios items pueden estar ya resueltos en el sprint del 2026-06-23
 - **Lista no refresca al instante** al hacer bulk edit — requiere F5. — CERRADO (`frontend/hooks/use-items.ts:109`, `invalidateQueries`)
 
 ### Realtime
-- **Barra de categorías no se actualiza en tiempo real** — necesita hard reload. (sigue abierto — no se ubicó el componente)
+- **Barra de categorías no se actualiza en tiempo real** — CERRADO en
+  general: `use-realtime-sync.ts:55` invalida la queryKey `["taxonomies","category"]`.
+  **Bug nuevo encontrado en la auditoría 2026-08-22**: el filtro de categorías
+  de Artículos usa la queryKey `["taxonomies"]` a secas (`use-items.ts:483`);
+  TanStack no invalida por prefijo, así que la barra de categorías puede no
+  actualizarse específicamente en Items.
 - **Nuevas funciones de Items no funcionan** (descripción vaga del owner — necesita aclaración). (sigue abierto — necesita aclaración del owner)
 
 ### Bugs visibles
@@ -516,10 +532,11 @@ Lista compilada por soporte tras múltiples contactos con clientes que pidieron 
 
 ### Reportes / Medios de Pagos
 
-**Modo detallado + columna "caja"** — `S`
-> Hoy es solo agregado.
-
-- Datos disponibles (`transaction.registerId` → JOIN con `register.registerName`). Vista detallada + extender el SELECT.
+**Modo detallado + columna "caja"** — parcial (verificado 2026-08-22): el
+backend YA devuelve `detail[]` (`PaymentMethodsService.php:65-78`); el
+frontend solo consume `summary`. Falta la columna "caja" y consumir el
+detalle que ya viene. Hallazgo de la misma auditoría: hoy `reports/payment-methods`
+calcula y descarta `detail[]` **en cada request** — costo de query pagado sin uso.
 
 ---
 
@@ -609,6 +626,8 @@ Lista compilada por soporte tras múltiples contactos con clientes que pidieron 
 > Capturar # de comensales al abrir una mesa, agregar al reporte de staff.
 
 - Campo `partySize` o `guests` en la transacción de mesa. Reporte ya tiene la dimensión userId; solo agregar suma.
+- Depende de "Asignar mozo a espacio/mesa" (arriba, § POS/Espacios) — sin esa
+  UI tampoco hay quién contar.
 
 **Último costo de compra en producción (fix cálculo COGS)** — `M`
 > Bug en el cálculo de utilidad cuando se compra mercadería específicamente para producción: el sistema descuenta antes de calcular el costo de la producción, lo que mete ruido en el cálculo de precio final cuando se usa "% sobre costo".
