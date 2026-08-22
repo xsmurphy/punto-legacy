@@ -29,6 +29,17 @@ set_exception_handler(static function (\Throwable $e): void {
         \Sentry\captureException($e);
     }
     if (!headers_sent()) {
+        // Guard de cierre de período (mig 157, context/48 D7): endpoints que
+        // no atrapan \Throwable ellos mismos llegan hasta acá. Se responde
+        // 409 con el mensaje ya amigable de la excepción (armado en
+        // api/lib/Support/PeriodClosedException.php) en vez del 500
+        // genérico — único lugar del mapeo, ver DB::Execute().
+        if ($e instanceof \Punto\Api\Support\PeriodClosedException) {
+            http_response_code(409);
+            header('Content-Type: application/json');
+            echo json_encode(['ok' => false, 'error' => ['message' => $e->getMessage(), 'code' => 409]], JSON_UNESCAPED_UNICODE);
+            return;
+        }
         http_response_code(500);
         header('Content-Type: application/json');
     }

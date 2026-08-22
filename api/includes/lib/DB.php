@@ -323,6 +323,16 @@ class DB
                 $this->transOk = false;
             }
             error_log('[DB] Execute error: ' . $e->getMessage() . ' | SQL: ' . substr($sql, 0, 200));
+            // Guard de cierre de período (mig 157, context/48 D7): el trigger
+            // fn_period_guard() levanta SQLSTATE PC001 con el literal
+            // 'period_closed'. Este es el ÚNICO choke point de escritura del
+            // proyecto (Query::execute, ncmUpdate/AutoExecute UPDATE y los
+            // $db->Execute directos de los servicios pasan todos por acá) —
+            // se relanza como excepción tipada acá, no por endpoint, para que
+            // el mapeo a HTTP 409 viva en un solo lugar (api/bootstrap.php).
+            if (str_contains($e->getMessage(), 'period_closed')) {
+                throw new \Punto\Api\Support\PeriodClosedException($e->getMessage(), (int) $e->getCode(), $e);
+            }
             return false;
         }
     }
