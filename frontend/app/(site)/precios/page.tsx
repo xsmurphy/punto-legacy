@@ -122,7 +122,7 @@ export default function PreciosPage() {
           <div className="overflow-hidden rounded-3xl border bg-muted/40">
             <div className="flex flex-col items-center gap-4 border-b px-8 py-10 text-center md:px-12">
               {market.plan.badge ? (
-                <Badge className="rounded-full bg-chart-1 text-neutral-900 hover:bg-chart-1">
+                <Badge className="rounded-full bg-foreground text-background hover:bg-foreground">
                   {market.plan.badge}
                 </Badge>
               ) : null}
