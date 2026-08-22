@@ -67,6 +67,49 @@ invariante del producto; el resto son mejoras de UI del POS.
    modo pertenece al menú del POS; desde el sidebar debe llevar a la vista por
    defecto del POS.
 
+## Reporte del tester — "Actualización 21" (recibido 2026-08-22)
+
+Seis items, contrastados contra el código el mismo día. Ninguno estaba
+resuelto; el #1 es en parte un bug ya cerrado (`4ada70c1`) con otro síntoma
+detrás. Estado se actualiza acá a medida que se cierran.
+
+1. **Costo de producción directa en reportes no coincide con el costo de la
+   receta** (Hamburguesa Cheddar: ficha Gs 13.820, reporte otro número).
+   Causa: tres fórmulas de costo de receta conviviendo —
+   ficha (`ItemCompoundService`, `Σ qty × itemCost`, sin merma, 1 nivel),
+   venta (`Inventory::getProductionCOGS`, promedio móvil con merma, SIN
+   fallback a `itemCost`, 1 nivel, outlet de `OUTLET_ID`), producción previa
+   (`ProductionService::complete`, recursiva con fallback). Además
+   `Reports/ProductionService.php:85,110` y `ProductsService.php:95` suman
+   `itemSoldCOGS` (unitario) sin `× itemSoldUnits`. Fix: servicio único
+   `RecipeCosting` sobre `explodeRecipe()`; las tres fórmulas pasan a ser
+   wrappers; contrato `itemSoldCOGS = unitario` fijado.
+2. **Próxima factura pierde los ceros a la izquierda.** `document_sequence.
+   nextnumber` es bigint y `RegisterAdminService::425` castea a int; el
+   `registerDocsLeadingZeros` legacy (mig 26) no tiene UI y solo lo leen 3
+   reportes. Fix: `document_sequence.padwidth` (default 7, `context/29 §1`) +
+   formateador único `DocumentNumber::format()` usado por panel, POS, ticket
+   y reportes; select "Dígitos del N°" en el form de caja.
+3. **Líneas horizontales/verticales de la plantilla no salen en papel.**
+   `html-renderer.ts:74-81` las pinta como contenido con margen dentro de un
+   wrapper `overflow:hidden` de la altura del bloque — una línea de 1px cae
+   fuera del clip; la vertical ignora `block.height`. El canvas las dibuja
+   como la caja entera, por eso se ven en el editor. Fix: helper de geometría
+   compartido por canvas + renderers; la línea ES la caja.
+4. **Nuevo conteo mezcla ítems de todas las sucursales + pedido de filtro por
+   categoría.** `InventoryCountService::create:56` snapshotea todos los
+   ítems trackeables del tenant; el outlet solo se usa para la cantidad
+   esperada. Fix: alcance del conteo como dato (`outletId`, `locationId`,
+   `categoryIds[]`, `includeZeroStock`) persistido en `inventory_count`,
+   `InventoryCountScope::itemsQuery()` único, preview "vas a contar N".
+5. **Ventas › Transacciones: ver filtros activos.** El filtro por método de
+   pago / tipo de venta no existe todavía. Fix: Selects en `toolbarSlot` +
+   chips removibles, patrón de `items/page.tsx`.
+6. **Artículos: buscar por nombre de categoría no encuentra.** `/items` trae
+   los 200 ítems más nuevos y busca client-side; el `q` server-side tampoco
+   cubre `taxonomyName`. Fix: `q` al servidor con debounce, SQL extendido a
+   categoría.
+
 ## Reporte del tester — "Mejoras Punto" (recibido 2026-08-19)
 
 Documento del tester con marcas de color propias: **verde = él lo dio por
