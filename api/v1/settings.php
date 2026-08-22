@@ -180,6 +180,13 @@ if ($method === 'POST') {
             : 'ask';
     }
 
+    // D7/E1b de context/48-escalamiento-de-datos.md — ancho de la ventana
+    // abierta de cierre de período, clampeado 1..12 (mismo criterio que
+    // period_close_due() en SQL).
+    if ($present('settingPeriodCloseMonths')) {
+        $fields['settingPeriodCloseMonths'] = max(1, min(12, (int) $s('settingPeriodCloseMonths')));
+    }
+
     try {
         if (!$svc->updateGeneral(COMPANY_ID, $fields)) {
             apiError('No se pudo guardar', 500);

@@ -433,6 +433,15 @@ class CompanyAdminService
             // nullificar taxId en outlet primero, así podemos borrar taxonomy antes que outlet.
             $run('UPDATE outlet SET taxId = NULL WHERE companyId = ?', [$id]);
 
+            // period_close (mig 157, context/48 D7): fn_period_guard() lee esta
+            // tabla EN VIVO en cada UPDATE/DELETE de transaction/itemSold/stock/
+            // cpayments/expenses — si el tenant tiene algún mes cerrado, el purge
+            // de más abajo choca contra el mismo guard que protege datos en
+            // producción (aunque acá el borrado sea legítimo, es un hard delete
+            // total de la empresa). Se borra ANTES de tocar esas tablas para que
+            // el guard nunca vea companyId con meses cerrados durante el purge.
+            $run('DELETE FROM period_close WHERE companyId = ?', [$id]);
+
             // ── Paso 1: tablas que referencian transaction ─────────────────────
             $run(
                 'DELETE FROM itemSold WHERE transactionId IN ' .

@@ -87,14 +87,14 @@ ON CONFLICT (taxId) DO UPDATE SET rate = EXCLUDED.rate, kind = EXCLUDED.kind, na
 -- del precio que manda la venta — ejercita "precio modificado en la línea".
 -- itemTrackInventory=FALSE en todos: no hace falta inventario para el
 -- chequeo fiscal (manageStock no-opea sobre items no stockeables).
-INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid) VALUES
-    ('10223f3b-2e3d-4339-8496-9f288d8be65b', 'Verify 10% incluido',      'VERIFY-10-INC',         11000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{"itemTaxIncluded": true}'::jsonb,  '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('61230b1e-90e8-4018-ac59-865ca957b293', 'Verify 5% añadido',        'VERIFY-5-ADD',           5000, 'product', 1, TRUE, FALSE, 'c5f98ab9-9622-446e-9e90-ffb103309828', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('d4f2c9b6-baa0-4415-9f27-1f0e791c4df1', 'Verify 0% real añadido',   'VERIFY-0RATE-ADD',       8000, 'product', 1, TRUE, FALSE, '2e14f50c-30d2-4fe1-a141-241641a8ae17', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('dca3b670-60a6-4b81-a7d7-7e39a1f7cc30', 'Verify exenta incluido',   'VERIFY-EXEMPT-INC',      6000, 'product', 1, TRUE, FALSE, 'e16ad2ce-db03-48e3-81d1-653df1c1ab11', '{"itemTaxIncluded": true}'::jsonb,  '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('0e15e0bb-2892-404a-b2a4-78e769bee4a4', 'Verify 10% cantidad decimal', 'VERIFY-10-DECIMALQTY', 4000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('3334b924-7947-427a-88f5-b6987528703a', 'Verify 10% precio modificado', 'VERIFY-10-PRICEMOD', 50000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{"itemTaxIncluded": true}'::jsonb,  '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('5c835556-d25d-4258-861d-599ef3edae90', 'Verify 21% no admitido SIFEN', 'VERIFY-BAD21',         1000, 'product', 1, TRUE, FALSE, '90b39d98-ddfb-4909-b783-70277d5105f7', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid, itemkind) VALUES
+    ('10223f3b-2e3d-4339-8496-9f288d8be65b', 'Verify 10% incluido',      'VERIFY-10-INC',         11000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{"itemTaxIncluded": true}'::jsonb,  '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('61230b1e-90e8-4018-ac59-865ca957b293', 'Verify 5% añadido',        'VERIFY-5-ADD',           5000, 'product', 1, TRUE, FALSE, 'c5f98ab9-9622-446e-9e90-ffb103309828', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('d4f2c9b6-baa0-4415-9f27-1f0e791c4df1', 'Verify 0% real añadido',   'VERIFY-0RATE-ADD',       8000, 'product', 1, TRUE, FALSE, '2e14f50c-30d2-4fe1-a141-241641a8ae17', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('dca3b670-60a6-4b81-a7d7-7e39a1f7cc30', 'Verify exenta incluido',   'VERIFY-EXEMPT-INC',      6000, 'product', 1, TRUE, FALSE, 'e16ad2ce-db03-48e3-81d1-653df1c1ab11', '{"itemTaxIncluded": true}'::jsonb,  '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('0e15e0bb-2892-404a-b2a4-78e769bee4a4', 'Verify 10% cantidad decimal', 'VERIFY-10-DECIMALQTY', 4000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('3334b924-7947-427a-88f5-b6987528703a', 'Verify 10% precio modificado', 'VERIFY-10-PRICEMOD', 50000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{"itemTaxIncluded": true}'::jsonb,  '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('5c835556-d25d-4258-861d-599ef3edae90', 'Verify 21% no admitido SIFEN', 'VERIFY-BAD21',         1000, 'product', 1, TRUE, FALSE, '90b39d98-ddfb-4909-b783-70277d5105f7', '{"itemTaxIncluded": false}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto')
 ON CONFLICT (itemid) DO UPDATE SET itemname = EXCLUDED.itemname, itemprice = EXCLUDED.itemprice, taxid = EXCLUDED.taxid, data = EXCLUDED.data;
 
 -- Items stockeables (itemtrackinventory=TRUE) — usados por verify_realtime.php
@@ -102,9 +102,9 @@ ON CONFLICT (itemid) DO UPDATE SET itemname = EXCLUDED.itemname, itemprice = EXC
 -- todos itemtrackinventory=FALSE a propósito, no sirven para eso). Dos items
 -- (no uno) para poder probar el batching de ids con ítems DISTINTOS en el
 -- mismo request, no solo dedup del mismo id — ver context/15-realtime-sync-plan.md.
-INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid) VALUES
-    ('7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e5f', 'Verify stock trackeable', 'VERIFY-STOCK-TRACK', 1000, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e60', 'Verify stock trackeable 2', 'VERIFY-STOCK-TRACK-2', 1500, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid, itemkind) VALUES
+    ('7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e5f', 'Verify stock trackeable', 'VERIFY-STOCK-TRACK', 1000, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e60', 'Verify stock trackeable 2', 'VERIFY-STOCK-TRACK-2', 1500, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto')
 ON CONFLICT (itemid) DO UPDATE SET itemtrackinventory = EXCLUDED.itemtrackinventory;
 
 -- Items del sync incremental (context/43-sync-incremental.md, verify_sync.php):
@@ -112,9 +112,9 @@ ON CONFLICT (itemid) DO UPDATE SET itemtrackinventory = EXCLUDED.itemtrackinvent
 -- el catálogo entero) y el otro se archiva + hard-delete (demuestra que el
 -- id borrado aparece en `deletedIds` vía la lápida de mig 138). itemstatus=1
 -- de arranque — el script hace el archive/delete real.
-INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid) VALUES
-    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c6d', 'Verify sync modificable', 'VERIFY-SYNC-MODIFY', 2000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c6e', 'Verify sync borrable', 'VERIFY-SYNC-DELETE', 3000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid, itemkind) VALUES
+    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c6d', 'Verify sync modificable', 'VERIFY-SYNC-MODIFY', 2000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c6e', 'Verify sync borrable', 'VERIFY-SYNC-DELETE', 3000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto')
 ON CONFLICT (itemid) DO UPDATE SET itemstatus = 1, itemprice = EXCLUDED.itemprice;
 
 -- Item con add-ons (context/08 §53, hueco P0 offline cerrado 2026-08-16,
@@ -122,8 +122,8 @@ ON CONFLICT (itemid) DO UPDATE SET itemstatus = 1, itemprice = EXCLUDED.itempric
 -- que el hueco dejaba invendible sin conexión, porque el modal no podía
 -- resolver el grupo. La opción reusa VERIFY-5-ADD como producto real
 -- (`addon_group_option.itemId` → item, no un texto suelto).
-INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid) VALUES
-    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7a', 'Verify item con add-ons', 'VERIFY-ADDON-PARENT', 15000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid, itemkind) VALUES
+    ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7a', 'Verify item con add-ons', 'VERIFY-ADDON-PARENT', 15000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto')
 ON CONFLICT (itemid) DO UPDATE SET itemname = EXCLUDED.itemname;
 
 INSERT INTO "addon_group" (groupid, companyid, itemid, "name", minselect, maxselect, "sort", "status") VALUES
@@ -143,9 +143,9 @@ ON CONFLICT (optionid) DO UPDATE SET pricedelta = EXCLUDED.pricedelta;
 -- SaleService comparaba itemType==='direct_production', string que nunca se
 -- persiste) y que el movimiento de stock del insumo consumido lleve
 -- stockSource='production' (antes siempre 'sale').
-INSERT INTO item (itemid, itemname, itemsku, itemprice, itemcost, itemtype, itemstatus, itemcansale, itemtrackinventory, itemproduction, data, companyid) VALUES
-    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6a', 'Verify insumo producción', 'VERIFY-PROD-INSUMO', 0, 0, 'product', 1, FALSE, TRUE, FALSE, '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024'),
-    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6b', 'Verify producción directa', 'VERIFY-PROD-DIRECT', 9000, 0, 'product', 1, TRUE, FALSE, FALSE, '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemcost, itemtype, itemstatus, itemcansale, itemtrackinventory, itemproduction, data, companyid, itemkind) VALUES
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6a', 'Verify insumo producción', 'VERIFY-PROD-INSUMO', 0, 0, 'product', 1, FALSE, TRUE, FALSE, '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'insumo_stock'),
+    ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6b', 'Verify producción directa', 'VERIFY-PROD-DIRECT', 9000, 0, 'product', 1, TRUE, FALSE, FALSE, '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'produccion_directa')
 ON CONFLICT (itemid) DO UPDATE SET itemtrackinventory = EXCLUDED.itemtrackinventory, itemproduction = EXCLUDED.itemproduction;
 
 INSERT INTO item_compound (parentItemId, childItemId, quantity, sort, companyId) VALUES
@@ -206,9 +206,9 @@ INSERT INTO tax (taxId, companyId, name, rate, kind) VALUES
     ('eb7e216c-2649-48e1-8bbf-3aba6ad43c69', 'fa8cf679-9003-417e-8726-5b772d3b6e88', 'Exenta', 0, 'exempt')
 ON CONFLICT (taxId) DO UPDATE SET rate = EXCLUDED.rate, kind = EXCLUDED.kind, name = EXCLUDED.name;
 
-INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid) VALUES
-    ('52b6ee53-3702-4127-a5a9-f31c8a75b938', 'Verify 16% incluido',    'VERIFY-16-INC',        58.00, 'product', 1, TRUE, FALSE, '5af6f0c6-994b-4543-9455-4b67cb8c049e', '{"itemTaxIncluded": true}'::jsonb,  'fa8cf679-9003-417e-8726-5b772d3b6e88'),
-    ('5e117782-3014-4fb5-88cd-1601974eaf52', 'Verify 16% añadido',     'VERIFY-16-ADD',         25.00, 'product', 1, TRUE, FALSE, '5af6f0c6-994b-4543-9455-4b67cb8c049e', '{"itemTaxIncluded": false}'::jsonb, 'fa8cf679-9003-417e-8726-5b772d3b6e88'),
-    ('46e7fef1-eb5f-4c29-8edb-79936e698f10', 'Verify exenta incluido', 'VERIFY-B-EXEMPT',       40.00, 'product', 1, TRUE, FALSE, 'eb7e216c-2649-48e1-8bbf-3aba6ad43c69', '{"itemTaxIncluded": true}'::jsonb,  'fa8cf679-9003-417e-8726-5b772d3b6e88'),
-    ('21dcfb96-107a-4642-a597-d3503f391f68', 'Verify 16% cantidad decimal', 'VERIFY-B-DECIMALQTY', 10.00, 'product', 1, TRUE, FALSE, '5af6f0c6-994b-4543-9455-4b67cb8c049e', '{"itemTaxIncluded": false}'::jsonb, 'fa8cf679-9003-417e-8726-5b772d3b6e88')
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid, itemkind) VALUES
+    ('52b6ee53-3702-4127-a5a9-f31c8a75b938', 'Verify 16% incluido',    'VERIFY-16-INC',        58.00, 'product', 1, TRUE, FALSE, '5af6f0c6-994b-4543-9455-4b67cb8c049e', '{"itemTaxIncluded": true}'::jsonb,  'fa8cf679-9003-417e-8726-5b772d3b6e88', 'producto'),
+    ('5e117782-3014-4fb5-88cd-1601974eaf52', 'Verify 16% añadido',     'VERIFY-16-ADD',         25.00, 'product', 1, TRUE, FALSE, '5af6f0c6-994b-4543-9455-4b67cb8c049e', '{"itemTaxIncluded": false}'::jsonb, 'fa8cf679-9003-417e-8726-5b772d3b6e88', 'producto'),
+    ('46e7fef1-eb5f-4c29-8edb-79936e698f10', 'Verify exenta incluido', 'VERIFY-B-EXEMPT',       40.00, 'product', 1, TRUE, FALSE, 'eb7e216c-2649-48e1-8bbf-3aba6ad43c69', '{"itemTaxIncluded": true}'::jsonb,  'fa8cf679-9003-417e-8726-5b772d3b6e88', 'producto'),
+    ('21dcfb96-107a-4642-a597-d3503f391f68', 'Verify 16% cantidad decimal', 'VERIFY-B-DECIMALQTY', 10.00, 'product', 1, TRUE, FALSE, '5af6f0c6-994b-4543-9455-4b67cb8c049e', '{"itemTaxIncluded": false}'::jsonb, 'fa8cf679-9003-417e-8726-5b772d3b6e88', 'producto')
 ON CONFLICT (itemid) DO UPDATE SET itemname = EXCLUDED.itemname, itemprice = EXCLUDED.itemprice, taxid = EXCLUDED.taxid, data = EXCLUDED.data;

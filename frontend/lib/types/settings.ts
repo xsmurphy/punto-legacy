@@ -69,6 +69,11 @@ export interface SettingsGeneral {
   weightBarcodes: boolean
   deletedItemsHistory: boolean
 
+  // D7/E1b de context/48-escalamiento-de-datos.md — ancho de la ventana
+  // abierta de cierre de período (mes en curso + N meses anteriores).
+  // Clampeado 1..12 server-side (default 1).
+  settingPeriodCloseMonths: number
+
   // Asistente IA (por empresa)
   /** Nombre del asistente. Vacío = default "Asistente". Máx 40 caracteres. */
   agentName: string

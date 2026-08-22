@@ -224,6 +224,7 @@ Postgres y no va a estarlo). Redis NO se usa como scheduler.
 | `purge-tenant-audit` | diario 03:00 | `DELETE FROM tenant_audit WHERE createdat < now() - interval '2 months'` (mig 36; columna normalizada a lowercase por mig 150 — NO citar `"createdAt"`) |
 | `purge-deleted-row` | diario 04:00 | `DELETE FROM deleted_row WHERE deleted_at < now() - interval '90 days'` (mig 138; `deleted_at` siempre fue lowercase) |
 | `partition-ensure` | diario 02:30 | `ensure_month_partitions()` (mig 156, E1 de `context/48`) para `transaction`/`itemsold` — crea particiones mensuales con 12 meses de margen; si a alguna le faltan particiones para los próximos 3 meses (`partition_health()`), alerta a GlitchTip |
+| `period-close` | mensual, día 2 05:00 | `SELECT * FROM period_close_due()` (mig 157, D7/E1b de `context/48`) — por cada tenant con un mes vencido de su ventana abierta (`settingPeriodCloseMonths`, default 1), `SELECT period_close_run(companyid, period, NULL, 'job')`: inserta el cierre y re-encola el mes en `rollup_dirty`. Cierre manual (fuera del cron) vía `POST /v1/period-close`, permiso `settings.periodClose` |
 
 **Cómo verificar que corren**: `docker logs <container-api> | grep maintenance`
 — el entrypoint loguea si `crond` arrancó o no, `maintenance.sh` loguea cada
