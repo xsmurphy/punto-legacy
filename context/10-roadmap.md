@@ -108,7 +108,7 @@ detrás. Estado se actualiza acá a medida que se cierran.
 6. **Artículos: buscar por nombre de categoría no encuentra.** `/items` trae
    los 200 ítems más nuevos y busca client-side; el `q` server-side tampoco
    cubre `taxonomyName`. Fix: `q` al servidor con debounce, SQL extendido a
-   categoría.
+   categoría. **Resuelto** (`frontend/items-search-category`).
 
 ## Reporte del tester — "Mejoras Punto" (recibido 2026-08-19)
 

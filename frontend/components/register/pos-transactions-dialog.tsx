@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useDebounce } from "@/hooks/use-debounce"
 import {
   Tooltip,
   TooltipContent,
@@ -123,15 +124,6 @@ function customerDocLabel(item: PosTransactionListItem): string {
   return item.customerDoc || "—"
 }
 
-
-function useDebounce(value: string, delay: number): string {
-  const [debounced, setDebounced] = React.useState(value)
-  React.useEffect(() => {
-    const t = setTimeout(() => setDebounced(value), delay)
-    return () => clearTimeout(t)
-  }, [value, delay])
-  return debounced
-}
 
 // ── Filtro de tipo ────────────────────────────────────────────────────────────
 

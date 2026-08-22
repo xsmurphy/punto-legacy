@@ -747,7 +747,14 @@ switch ($method) {
 
         if (!empty($_GET['q'])) {
             $pattern  = '%' . $_GET['q'] . '%';
-            $where[]  = '(itemName ILIKE ? OR itemSKU ILIKE ?)';
+            // Incluye la categoría (cat.taxonomyName — mismo alias del LEFT
+            // JOIN taxonomy que arma buildItemsSelectSql()): el buscador de
+            // Artículos no encontraba nada al tipear el nombre de una
+            // categoría (ej. "materia prima") porque el WHERE solo miraba
+            // itemName/itemSKU. El countSql de abajo necesita el mismo JOIN
+            // porque ahora referencia `cat.` en el WHERE.
+            $where[]  = '(itemName ILIKE ? OR itemSKU ILIKE ? OR cat.taxonomyName ILIKE ?)';
+            $params[] = $pattern;
             $params[] = $pattern;
             $params[] = $pattern;
         }
@@ -789,7 +796,10 @@ switch ($method) {
             }
         }
 
-        $countSql = "SELECT COUNT(*) AS n FROM item i WHERE $whereSql";
+        // LEFT JOIN taxonomy cat: el WHERE puede referenciar `cat.taxonomyName`
+        // (búsqueda por categoría, arriba) — sin el JOIN el COUNT rompe con
+        // "missing FROM-clause entry for table cat".
+        $countSql = "SELECT COUNT(*) AS n FROM item i LEFT JOIN taxonomy cat ON cat.taxonomyId = i.categoryId WHERE $whereSql";
         $countRs  = $db->Execute($countSql, $params);
         $total    = ($countRs !== false && !$countRs->EOF) ? (int) $countRs->fields['n'] : 0;
 
