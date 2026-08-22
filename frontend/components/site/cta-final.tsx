@@ -2,6 +2,7 @@ import Link from "next/link"
 
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
+import { SIGNUP_URL } from "@/lib/site/links"
 
 /**
  * CTA de cierre, compartido entre el home y los mini-sitios de rubro.
@@ -25,9 +26,7 @@ export function CtaFinal() {
             size="lg"
             className="rounded-full bg-white px-7 text-neutral-900 hover:bg-white/90"
           >
-            <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
-              Empezar
-            </Link>
+            <Link href={SIGNUP_URL}>Empezar</Link>
           </Button>
           <Button
             asChild

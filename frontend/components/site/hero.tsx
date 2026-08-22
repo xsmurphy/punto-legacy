@@ -3,6 +3,7 @@ import Link from "next/link"
 import { HeroBackdrop } from "@/components/site/hero-backdrop"
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
+import { SIGNUP_URL } from "@/lib/site/links"
 
 /**
  * Hero full-bleed del home. El fondo son fotos de comercios reales que se
@@ -47,9 +48,7 @@ export function SiteHero() {
             size="lg"
             className="rounded-full bg-white px-7 text-neutral-900 hover:bg-white/90"
           >
-            <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
-              Empezar
-            </Link>
+            <Link href={SIGNUP_URL}>Empezar</Link>
           </Button>
           <Button
             asChild

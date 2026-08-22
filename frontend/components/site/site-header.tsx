@@ -9,6 +9,7 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 import { ModulosMenu, RubrosMenu } from "@/components/site/nav-menus"
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
+import { LOGIN_URL, SIGNUP_URL } from "@/lib/site/links"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -135,7 +136,7 @@ export function SiteHeader() {
               overlay && "text-white/90 hover:bg-white/10 hover:text-white"
             )}
           >
-            <Link href="/login">Ingresar</Link>
+            <Link href={LOGIN_URL}>Ingresar</Link>
           </Button>
           {/* razón: pill + blanco sobre el hero de video — CTA de marketing,
               no aplica la escala de botones del panel (§14) */}
@@ -146,9 +147,7 @@ export function SiteHeader() {
               overlay && "bg-white text-neutral-900 hover:bg-white/90"
             )}
           >
-            <Link href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer">
-              Empezar
-            </Link>
+            <Link href={SIGNUP_URL}>Empezar</Link>
           </Button>
         </div>
       </div>

@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
+import { SIGNUP_URL } from "@/lib/site/links"
 import { CtaFinal } from "@/components/site/cta-final"
 import { DataMockup } from "@/components/site/mockups"
 import { ScreenshotCrossfade } from "@/components/site/screenshot-crossfade"
@@ -65,13 +66,7 @@ export default async function ModuloPage({
               size="lg"
               className="rounded-full bg-white px-7 text-neutral-900 hover:bg-white/90"
             >
-              <Link
-                href={WHATSAPP_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Empezar
-              </Link>
+              <Link href={SIGNUP_URL}>Empezar</Link>
             </Button>
             <Button
               asChild

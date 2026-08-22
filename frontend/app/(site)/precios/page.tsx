@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
+import { SIGNUP_URL } from "@/lib/site/links"
 import { CtaFinal } from "@/components/site/cta-final"
 import { getMarket, marketMoney } from "@/lib/site/markets"
 
@@ -132,13 +133,7 @@ export default function PreciosPage() {
               </p>
               <div className="mt-2 flex w-full flex-col gap-3 sm:w-auto sm:flex-row">
                 <Button asChild size="lg" className="rounded-full px-7">
-                  <Link
-                    href={WHATSAPP_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Empezar
-                  </Link>
+                  <Link href={SIGNUP_URL}>Empezar</Link>
                 </Button>
                 <Button
                   asChild
