@@ -34,13 +34,14 @@ namespace Punto\Api\Support;
  * Mensaje de PG, SQLSTATE, el SQL truncado a 500 chars y el CONTEO de
  * parámetros. Los VALORES de los parámetros NO se guardan nunca: llevan PII
  * del tenant (teléfonos, documentos, nombres, montos) y esta excepción
- * termina en `error_log` y en Sentry/GlitchTip.
+ * termina en `error_log` y en GlitchTip (monitor.actuo.app, self-hosted; se
+ * reporta con el SDK de Sentry, que es el protocolo que GlitchTip habla).
  *
  * MAPEO A HTTP
  * ------------
  * Si nadie la atrapa, `api/bootstrap.php` (set_exception_handler) responde
  * 500 con un mensaje genérico. El SQL y el texto de PG NUNCA salen al
- * cliente — filtrarían el schema. Van a `error_log` y a Sentry.
+ * cliente — filtrarían el schema. Van a `error_log` y a GlitchTip.
  *
  * CUÁNDO ATRAPARLA
  * ----------------

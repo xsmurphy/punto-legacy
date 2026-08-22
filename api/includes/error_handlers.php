@@ -36,10 +36,11 @@ function puntoRegisterErrorHandlers(): void
     // handlers logean a stderr (→ docker logs) y devuelven un JSON 500 limpio en
     // vez de una respuesta vacía/HTML. error_log va a stderr por la config del
     // Dockerfile (log_errors=On, error_log=/proc/self/fd/2).
-    // Sentry (observabilidad/alertas) se inicializa en api/bootstrap.php, después
-    // del autoload y SOLO si SENTRY_DSN está seteado (el realm /admin no lo
-    // inicializa). Estos handlers lo invocan vía function_exists:
-    // si Sentry no se inicializó (sin DSN), captureException/captureMessage no existen
+    // GlitchTip (monitor.actuo.app, self-hosted — habla el protocolo de Sentry,
+    // por eso el cliente es el SDK `sentry/sentry` y el DSN va en SENTRY_DSN) se
+    // inicializa en api/bootstrap.php, después del autoload y SOLO si SENTRY_DSN
+    // está seteado (el realm /admin no lo inicializa). Estos handlers lo invocan
+    // vía function_exists: sin DSN, captureException/captureMessage no existen
     // y el reporte es no-op — el error_log + JSON 500 siguen funcionando igual.
     set_exception_handler(static function (\Throwable $e): void {
         error_log('[uncaught] ' . $e->getMessage() . ' @ ' . $e->getFile() . ':' . $e->getLine());

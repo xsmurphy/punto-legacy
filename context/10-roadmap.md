@@ -120,11 +120,18 @@ detrás. Estado se actualiza acá a medida que se cierran.
 - **`DB::Execute()` se traga errores SQL** (devuelve `false` + `error_log`).
   Escondió durante meses el `max(uuid)` del reporte de producción y el
   `23502` que hacía que `RoleService::_savePermissions()` nunca persistiera
-  (ambos arreglados en `5d964d83` / `e79bbeaf`). Pendiente: decidir si el
-  wrapper debe lanzar (o al menos en queries de escritura) — cualquier
-  próximo error SQL en una agregación vuelve a ser silencioso.
-- `verify_production_cogs` tiene el mismo patrón `''` → uuid en `contactId`
-  (no bloqueante, documentado en el arnés).
+  (ambos arreglados en `5d964d83` / `e79bbeaf`). **Resuelto** (2026-08-22,
+  branch `api/db-errores-ruidosos`): el wrapper ahora LANZA `DbQueryException`
+  en vez de devolver `false` (ver `context/08-convenciones-criticas.md` §54 y
+  `context/06-infraestructura.md` para el kill-switch `DB_THROW_ON_ERROR`). El
+  arnés nuevo contra Postgres real destapó y arregló dos bugs latentes más:
+  `Customer::getContactData()` concatenaba el id al WHERE sin sanitizar, y con
+  id vacío PG tiraba `22P02` que el wrapper se comía (el reporte de producción
+  mostraba el usuario en blanco); y el realm `/v1/admin/*` no cargaba
+  bootstrap y no tenía handler de excepciones — devolvía un 500 en blanco.
+- `verify_production_cogs` tenía el mismo patrón `''` → uuid en `contactId`.
+  **Resuelto** en el mismo branch: la causa era `Customer::getContactData()`
+  (ver arriba), no el arnés — ahora valida el UUID y usa placeholder.
 
 ## Reporte del tester — "Mejoras Punto" (recibido 2026-08-19)
 
