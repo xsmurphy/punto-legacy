@@ -132,8 +132,8 @@ contador necesita para el Libro de Compras.
 | Venta online persiste su número y lo lleva al ticket impreso | ✅ |
 | Recibo de cliente con correlativo propio | ✅ |
 | Devolución de venta con correlativo propio | ✅ |
-| **Sacar el arriendo de bloques** (§6, fila 1) | ⬜ |
-| **POS: "último correlativo de mi caja + 1" offline** | ⬜ |
-| **Panel: "Liberar caja"** (revocar tenencia) | ⬜ |
-| Capturar número + timbrado del proveedor en compras (§5) | ⬜ |
-| Recibo de proveedor, NC de compra | ⬜ (documento de terceros, ver §5) |
+| **Sacar el arriendo de bloques** (§6, fila 1) | ✅ (commits `be5563f2`/`d0571fce`; `numbering_lease` sin escritores nuevos) |
+| **POS: "último correlativo de mi caja + 1" offline** | ✅ (`frontend/lib/pos/invoice-numbering.ts`) |
+| **Panel: "Liberar caja"** (revocar tenencia) | ✅ (`registers-tab.tsx:135,576`, migs 148/149, permiso `settings.register.release`) |
+| Capturar número + timbrado del proveedor en compras (§5) | ✅ (`supplierAuthNo`, mig 144, `PurchasesService.php:46-133`) |
+| Recibo de proveedor, NC de compra | ✅ (`PurchaseCreditNoteService.php:289,539`) |

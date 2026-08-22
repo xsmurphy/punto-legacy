@@ -15,6 +15,10 @@
 /.next/
 /out/
 
+# service worker compilado por @serwist/next desde app/sw.ts (next.config.ts)
+# — se regenera en cada build, no debe versionarse
+/public/sw.js
+
 # production
 /build
 

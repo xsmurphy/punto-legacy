@@ -10,62 +10,62 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-07-29 (fulfillment F-D-0/F-D-1 completo, repartidor asignable, geocoding Photon, P0 ventas resuelto)
+> **Última actualización:** 2026-08-22 (auditoría del backlog contra código real: numeración fiscal resuelta, 3 P0 nuevos — vale infacturable, stock de add-ons en orden/mesa, permisos sin gate)
 
 ---
 
-## P0 FISCAL — numeración de comprobantes (2026-08-17)
+## P0 — hallazgos de la auditoría del backlog (2026-08-22)
 
-Dos problemas independientes, ambos destapados al documentar. **Prioridad
-máxima de la próxima sesión**: emitir facturas sin número o con números
-duplicados es ilegal en PY.
+Tres problemas nuevos, destapados al auditar el backlog contra el código real.
+Ocupan el lugar de prioridad que dejó libre la numeración fiscal (resuelta,
+ver abajo) — los tres son plata o seguridad, no UX.
 
-1. **Toda venta ONLINE se persiste sin número.** Verificado: el front nunca
-   manda `invoiceno` (`frontend/lib/commands/create-sale.ts`), `SaleInput`
-   lo deja `null` (`SaleInput.php:48,157`) y `SaleService::save()` persiste ese
-   null (`SaleService.php:663`) — nunca llama a `DocumentNumber::allocate()`
-   para venta (sí para cotización, `:1973`). El ÚNICO camino que asigna número
-   real es `api/v1/offline-sync.php:38,59` al drenar la cola offline. Además
-   `buildTicketData` nunca lleva `result.invoiceNumber` a `documentNumber`, así
-   que el ticket impreso no muestra comprobante en ninguna rama.
-   Detalle: `context/modules/10-pos-venta.md`, `17-numeracion.md`.
-2. **Cuatro dispositivos POS sobre la misma caja comparten el arriendo** →
-   dos pueden emitir el MISMO número sin conexión. Verificado contra
-   producción el 2026-07-28. Plan F0-F6 diseñado en
-   `context/29-numeracion-y-exclusividad-de-caja.md`, **nada implementado**.
-   Ese doc estaba fuera de la tabla de `CLAUDE.md` (agregado en `8c4aafee`),
-   por eso ninguna sesión lo leía.
+1. **Venta con vale canjeado no se puede facturar electrónicamente.**
+   `SaleToInvoiceMapper.php:174-190`: el guard de cuadratura compara la suma
+   de `item['total']` (bruto, incluye la línea del vale) contra `sale.total`
+   (que lo excluye, `context/36-vouchers-plan.md:50-53`) y aborta. Toda venta
+   con vale es hoy infacturable.
+2. **El stock de add-ons no se descuenta cuando la venta nace de una orden o
+   mesa.** `store.ts:1178-1199` y `:1278-1284` filtran `!isAddonChild()`, y
+   `SpaceBalanceService.php:81` / `SpaceSettlementService.php:393` filtran
+   `parentorderitemid IS NULL`, así que `expandAddonSelections` nunca corre.
+   La plata sale bien (el `unitPrice` ya incluye el delta); el inventario no.
+   Detalle completo: `context/modules/02-combos-y-addons.md`.
+3. **20 de 47 permisos del catálogo no tienen enforcement**, con
+   `api/v1/users.php` como peor caso: POST/PUT/DELETE sin ningún gate —
+   cualquier autenticado crea/edita/borra usuarios y roles. Lista completa y
+   orden de gravedad en `context/_feature-requests.md` § Roles y permisos.
 
-Relacionado: el invariante "no dos cajas con el mismo punto de expedición"
-existe en los planes y en la memoria del proyecto, pero **no hay constraint ni
-validación en el código** — verificado por ausencia.
+## P0 FISCAL — numeración de comprobantes ✅ RESUELTO (2026-08-22)
 
-## POS — bugs y mejoras reportados por el owner (2026-08-18)
+Los dos problemas que ocupaban este lugar desde 2026-08-17 ya están cerrados:
 
-Reportados tras la tanda de numeración. El P1 es el único que rompe un
-invariante del producto; el resto son mejoras de UI del POS.
+1. **Venta ONLINE sin número** — resuelto. `create-sale.ts:328,442` manda
+   `invoiceno`; verificado en prod: 0 ventas tipo 0/3 sin número desde
+   2026-08-19.
+2. **Cuatro POS compartiendo el arriendo de la misma caja** — resuelto.
+   Migs 141/143, `api/v1/register-lease.php`, `use-register-leases.ts`.
 
-1. **P1 — abrir una factura vencida desde el POS lleva al Panel.** En
-   Cliente › Info financiera, el click sobre una factura vencida navega al
-   panel administrativo. Viola la regla de realms: **todo lo que pasa en el
-   POS se queda en el POS**, los cajeros NO tienen acceso al panel. El detalle
-   tiene que abrirse dentro del POS (existe el resolver canónico de detalle de
-   transacción, `context/39-detalle-transaccion.md`, cuya F4 —migrar el POS—
-   está justamente abierta).
-2. **Modal de info de producto incompleto.** El icono de info de los hotkeys
-   abre una ventana con datos básicos y stock, pero sin galería de imágenes.
-   Faltan además datos que el vendedor necesita: categoría, marca, IVA, sucursal
-   asignada, tipo de ítem y SKU.
-3. **No hay forma de ver info de producto desde el buscador.** El listado de
-   productos del buscador del POS no expone el modal del punto 2 — la vía
-   natural es hacer click en la imagen del ítem.
-4. **Gráfico "POR MÉTODO DE PAGO" en el menú del POS**: debe ser solo la dona,
-   sin la lista de ítems de abajo.
-5. **Cliente › Datos usa una sola columna.** Casi toda la información cae en la
-   columna izquierda y obliga a scrollear de más; hay que repartirla en las dos.
-6. **El icono de hotkeys del sidebar abre el modo de edición de hotkeys.** Ese
-   modo pertenece al menú del POS; desde el sidebar debe llevar a la vista por
-   defecto del POS.
+Las 5 filas que seguían ⬜ en `context/29-numeracion-y-exclusividad-de-caja.md`
+§7 también están todas resueltas — ver ese doc.
+
+## POS — bugs y mejoras reportados por el owner (2026-08-18) ✅ RESUELTOS (2026-08-22)
+
+Las 6 quedaron cerradas, verificado contra código:
+
+1. **Abrir una factura vencida desde el POS lleva al Panel** — resuelto: hoy
+   abre un dialog interno (`pos-transaction-detail-dialog.tsx:1-24`), nunca
+   sale del realm device.
+2. **Modal de info de producto incompleto** — resuelto: `product-info-dialog.tsx:120-253`
+   ya trae galería, SKU, categoría, marca, tipo, IVA y sucursales.
+3. **No hay forma de ver info de producto desde el buscador** — resuelto
+   (`product-search-dialog.tsx:12,43,198`).
+4. **Gráfico "POR MÉTODO DE PAGO" con lista debajo** — resuelto, ya es solo la
+   dona (`pos-main-menu.tsx:898,905-908`).
+5. **Cliente › Datos a una sola columna** — resuelto, dos columnas
+   (`contact-detail-view.tsx:573`).
+6. **Icono de hotkeys del sidebar abría edición de hotkeys** — resuelto
+   (`pos-sidebar.tsx:99-107,168`).
 
 ## Reporte del tester — "Actualización 21" (recibido 2026-08-22)
 
@@ -151,42 +151,56 @@ contra el código.
   corto sin importarlo (6 call-sites, roto desde `fdc95a99`). Arreglado en
   `cbf6f974`.
 
-### P0 abierto
+### P0 ✅ RESUELTO (2026-08-22)
 
-- **Caja bloqueada sin recuperación**: usar la misma caja en varios
-  dispositivos la deja inutilizable, y "reconectar" desde el panel no la
-  libera. Consecuencia de la exclusividad de caja (hoy la tenencia ya no vence
-  sola). Existe "Liberar caja" en la pestaña Cajas de la sucursal, pero el
-  tester no llegó a ella.
+- **Caja bloqueada sin recuperación** — resuelto: "Liberar caja" existe y
+  funciona (`registers-tab.tsx:135,576`, migs 148/149, permiso
+  `settings.register.release`). Lo que faltaba era descubribilidad, no
+  código; el tester no había llegado a la pestaña Cajas de la sucursal.
 
 ### Pendientes nuevos (17-08 en adelante)
 
 1. **Multimoneda**: cobrar en dólares y guaraníes en Caja (plan en `context/42-multi-moneda.md`).
-2. **Pago a compra a crédito**: solo se puede pagar desde el panel; falla desde otro punto.
-3. **Cuentas por cobrar**: el saldo en Caja no coincide con el del panel del cliente.
+2. **Pago a compra a crédito**: existe en 2 puntos del panel; no existe en
+   `/purchase/[id]` ni en el POS (esto último, por diseño). Necesita repro
+   real para confirmar si el fallo reportado es uno de esos dos huecos.
+3. **Cuentas por cobrar: saldo en Caja no coincide con el panel** —
+   **RESUELTO**: hoy ambos renderizan el mismo componente sobre la misma
+   query (`OpenInvoicesService::contactStatement()`).
 4. **Contactos**: consolidar/unificar clientes duplicados desde panel y contactos.
 5. **Impresión**: formatos A4 y Oficio, elegibles en Caja antes de imprimir.
-6. **Cuentas por cobrar (resto del punto verde)**: aplicar el pago por el total
-   de la deuda, y asociar la deuda del panel con lo que muestra Finanzas del cliente.
+6. **Cuentas por cobrar (resto del punto verde)** — **RESUELTO**: pago por el
+   total de la deuda con reparto FIFO
+   (`CreditPaymentService::createDistributed()`).
 7. **Producción previa**: `El item a producir no trackea inventario
-   (itemTrackInventory)` al producir manualmente. Determinar si es validación
-   correcta o bug.
-8. **Inventario**: elegir categorías al hacer el conteo y poder habilitar costos.
+   (itemTrackInventory)` al producir manualmente — **no es bug**: guard
+   válido (`ProductionService.php:263-271`, commit `ab328a2d`).
+8. **Inventario**: elegir categorías al hacer el conteo y poder habilitar
+   costos — **RESUELTO**, ver "Actualización 21" item 4 (`inventory-count-scope`).
 
 ### Pendientes que ya venían del reporte anterior
 
 - Botón de anular / devolución / nota de crédito en Caja › Transacciones.
-- Al seleccionar un combo en caja no se despliegan sus artículos e insumos.
-- Tickets de comanda y factura se imprimen incompletos.
+- Al seleccionar un combo en caja no se despliegan sus artículos e insumos —
+  **RESUELTO** por F4 de add-ons (`AddonPickerDialog`, ver también T7 más abajo).
+- Tickets de comanda y factura se imprimen incompletos — **RESUELTO**, misma
+  causa que las líneas de plantilla que no salían en papel (commit `6cd9da75`).
 - Exportación RG90 y Libro Ventas desde Ventas › Transacciones (plan en `context/46`).
 - Reporte detallado en Reportes › Productos y servicios; historial por artículo;
-  acceso directo al historial desde la ficha del producto; filtro por categorías.
-- Costo de producción no se calcula en el reporte de productos y servicios.
-- Los reportes de salida no desglosan los componentes de un combo.
-- Auditoría con más detalle de los movimientos por usuario.
-- **Separar productos por sucursal**: se configuran por sucursal pero aparecen
-  todos juntos en Artículos, y la pantalla principal ofrece artículos de otras
-  sucursales para vender.
+  acceso directo al historial desde la ficha del producto — **RESUELTO**
+  (`GET /v1/reports/products?view=detail|combos`, `items/[id]/page.tsx:930`
+  para el historial). Filtro por categorías: sin verificar.
+- Costo de producción no se calcula en el reporte de productos y servicios —
+  **RESUELTO**, ver "Actualización 21" item 1 (`api/recipe-costing`).
+- Los reportes de salida no desglosan los componentes de un combo —
+  **RESUELTO** (`view=combos` del mismo endpoint de arriba).
+- Auditoría con más detalle de los movimientos por usuario — sigue abierto
+  (relacionado: "drill-down de staff" en `_feature-requests.md`).
+- **Separar productos por sucursal** — parcial: el POS ya NO mezcla
+  (`outletVisibilityClause()`, `ItemsQuery.php:319`, commit `a48c8555`). El
+  panel sigue mostrando el catálogo completo por diseño declarado
+  (`api/v1/items.php:155`) — queda como decisión de producto pendiente del
+  owner, no como bug.
 
 ## POS — modelo de viewports y orientación forzada (2026-08-19, sin implementar)
 
@@ -233,19 +247,18 @@ dos siguen abiertos.
    los flags reales + `EXISTS item_compound` (los flags solos no alcanzan:
    servicio / insumo_sin_stock / descuento comparten la misma combinación).
    Arnés: `verify_production_cogs.php` casos 3/3b.
-3. **Una orden/mesa con add-ons pierde el desglose al cobrarse.**
-   `CreateOrderItemInput`/`OrderItem` no tienen `selections`
-   (`frontend/hooks/use-orders.ts:156-164,45-65`) y `OrderCoreService` no lo
-   persiste, así que `loadFromOrder` reconstruye el carrito sin selecciones y
-   `expandAddonSelections` nunca corre: **no se descuenta el stock del add-on
-   elegido**, no hay líneas hijas y la comanda no puede mostrarlo. La plata
-   sale bien (el `unitPrice` ya incluye el delta); el inventario no. Detalle:
-   `context/modules/02-combos-y-addons.md`.
-4. **`$sD['type']` sigue leído en un segundo call-site.**
-   `SaleService.php:1807` lo usa para decidir el `source` del movimiento de
-   stock al explotar receta — el MISMO campo que el fix `822f8df3` documentó
-   (tres líneas arriba) como "el POS nunca lo manda". Se arregló una instancia
-   y quedó la otra.
+3. **Una orden/mesa con add-ons no descuenta el stock del add-on** — promovido
+   a P0, ver el ítem 2 de "P0 — hallazgos de la auditoría del backlog" al
+   principio de este doc. Corrección de framing: la plata SÍ sale bien y el
+   desglose SÍ llega a la comanda/KDS (`OrderCoreService.php:286-300`); lo que
+   falta es el descuento de stock y la línea hija en la venta, porque
+   `loadFromOrder` (`store.ts:1178-1199`) descarta las `selections` a
+   propósito (rehidratarlas duplicaría el recargo, que ya está en
+   `unitPrice`).
+4. **`$sD['type']` en `SaleService.php:1807`** — **no es un bug vivo**: es
+   rama muerta. Verificado que los usos restantes son un discriminador
+   interno del backend (`'type' => 'compound'`, línea 1893), no un valor que
+   dependa de lo que mande el frontend.
 
 **Además, dos divergencias plan↔código** (no son bugs, son deuda de estado):
 la mig 23 dejó escrito que iba a retirar `taxonomy` "cuando facturación/
@@ -350,9 +363,11 @@ evidencia de dónde quedó el fix.
 - **Etiquetas de venta: el catálogo que sugiere no es el que valida** (hallazgo
   2026-08-09, salido del review de las etiquetas por línea `37bd618c`). El
   picker sugiere desde un catálogo y el backend valida contra otro
-  (`taxonomy`/`toTag`), así que una etiqueta elegida de la sugerencia puede
-  ser rechazada al guardar y **abortar la venta**. Es plata: sin implementar,
-  sin confirmar en prod. Las etiquetas por LÍNEA no tienen este problema (no
+  (`taxonomy`/`toTag`, `frontend/lib/commands/create-sale.ts:207,291` vs
+  `SaleService.php:854-869`). **Framing corregido (verificado 2026-08-22): NO
+  aborta la venta** — la etiqueta rechazada se omite en silencio desde
+  `11a159e3`. Sigue pendiente arreglar el mismatch de catálogos (se pierde la
+  etiqueta, no la venta). Las etiquetas por LÍNEA no tienen este problema (no
   validan contra FK, son texto libre en `itemSold.meta`).
 
 ### Reporte del tester — 2026-08-03 (`requerimientos_punto_de_venta`)
@@ -372,7 +387,7 @@ marcados RE-TEST y no se tocan hasta que el tester confirme.
 | T4 | Descuento de -20% asignado a un cliente desde el panel no se aplica (ni automático ni manual) al totalizar en caja. | Listas de precios / caja | RESUELTO `ef6bab48` + `e03c8a2e` |
 | T5 | Cliente → Órdenes sale vacío ("Sin órdenes") aunque la orden se generó a nombre de ese cliente. Igual en panel y reporte. | Órdenes / ficha de cliente | RESUELTO — tab de la ficha + reporte general (ver nota abajo) |
 | T6 | Las cuentas por cobrar (facturas a crédito) no aparecen en los datos del cliente. | Clientes | RESUELTO — fuente única con el reporte general (ver nota abajo) |
-| T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | ABIERTO |
+| T7 | Combo dinámico/fijo no despliega sus categorías al agregarlo: entra al carrito como producto suelto, sin poder elegir los ítems. | Catálogo / POS | RESUELTO por F4 de add-ons (`AddonPickerDialog`) |
 | T8 | Al procesar un espacio por cantidad o total no lleva al listado de ventas, así que no se puede asignar cliente si pide factura. | Espacios | RESUELTO — arrastre del reporte anterior, verificado por el owner 2026-08-09 (ver nota abajo) |
 | T11 | Modal de detalle de transacción: demasiado chico y con la información pobre y cruda. Debería verse como una factura, con el nivel de detalle de la vista de compras (`/purchase/[id]`), no como una tabla de 3 columnas. Reportado con captura por el owner 2026-08-06. | Panel / transacciones | RESUELTO 2026-08-08 — `2c555b39` + `1dc99c45` (ver nota abajo) |
 | T9 | Modificar cantidad de un ítem del carrito: no deja tipear cantidad ni decimales, "persiste incluso usando Shift". | POS / carrito | RE-TEST (fix `4c0158d0`, desplegado hoy) |
@@ -780,7 +795,7 @@ no contra el reporte.
 **Confirmados (6):**
 
 - **Lista de precios / descuento de cliente no se aplica en Caja al
-  totalizar.** `priceListId` se guarda en el cart store al elegir lista
+  totalizar.** ~~`priceListId` se guarda en el cart store al elegir lista
   manualmente (`frontend/components/register/sale-options-drawer.tsx:739`)
   pero nada lo consume para recalcular precio —
   `frontend/lib/cart/add-catalog-item.ts:39` siempre usa `item.price` plano.
@@ -789,7 +804,8 @@ no contra el reporte.
   (`api/v1/price_resolve.php`, `resolvePriceBatch`) y el frontend tiene el
   hook (`frontend/hooks/use-price-lists.ts:107`, `useResolvePrices`) — pero
   ese hook no tiene NINGÚN consumidor en todo el repo. Endpoint construido,
-  nunca cableado al carrito.
+  nunca cableado al carrito.~~ **RESUELTO** (`use-price-context.ts`, commit
+  `69ff4014`) — el doc no lo reflejaba.
 - **Gift card "no se encontró" al canjear** — no es el problema de código
   manual (ya se puede tipear uno, `giftcard-validation-dialog.tsx:118-132`):
   es un mismatch de case. La emisión fuerza mayúsculas
@@ -806,29 +822,16 @@ no contra el reporte.
   fila ~768-785; comparar con el tab normal en ~738 que sí lo tiene) —
   clickear una cotización no abre nada, por eso "guardar/imprimir desde VER"
   no reacciona: nunca hay un VER.
-- **No imprime el cierre de caja al cerrar** — el botón "Imprimir" solo
-  existe dentro del bloque `{isOpen ? ... }` de `pos-main-menu.tsx:747-795`.
-  `handleSimpleConfirm` para el cierre (líneas 586-595) solo llama
-  `closeDrawer.mutateAsync` y cierra el modal; no imprime. Una vez cerrada la
-  caja el botón desaparece (`isOpen` pasa a `false`). No hay impresión
-  automática ni manual disponible después de cerrar.
+- **No imprime el cierre de caja al cerrar** — **RESUELTO**
+  (`pos-main-menu.tsx:1101-1110`, commit `eac29e7e`).
 - **Timbrado 0 / INICIO / VENCIMIENTO / DIRECCIÓN vacíos en la factura
-  impresa** — confirma y amplía la trampa ya conocida (ver
-  `_handoff.md`/nota más arriba de razón social/RUC/email/timbrado):
-  `TicketData` (`frontend/lib/hardware/printers/build-ticket-data.ts:11-96`)
-  documenta en comentarios que `authNumber`/`authStartDate`/`authExpiration`
-  (timbrado) Y `outletAddress`/`companyAddress` (dirección) NO viajan al
-  bootstrap del POS hoy. Es exactamente el mismo problema, sin nada
-  adicional — DIRECCIÓN e INICIO/VENCIMIENTO caen en la misma causa raíz.
+  impresa** — **RESUELTO**: `authNumber`/`authStartDate`/`authExpiration` y
+  `outletAddress`/`companyAddress` ya viajan al bootstrap del POS
+  (`api/v1/bootstrap.php:100-135`, `build-ticket-data.ts:11-118`).
 - **Combo dinámico y combo fijo se agregan como producto suelto, sin
-  desplegar las categorías configuradas** — el backend modela combos con
-  grupos y `sourceType='category'` completo (`ComboGroupService.php`,
-  mig 20) y el panel permite configurarlos, pero
-  `frontend/lib/cart/add-catalog-item.ts` no tiene NINGÚN branching para
-  `kind === "combo_fijo"` / `"combo_dinamico"` — cae al mismo camino que un
-  producto normal, con precio plano y sin abrir selección de ítems. `PosItem`
-  (bootstrap) tampoco trae los grupos del combo. Gap end-to-end entre panel y
-  runtime del POS, no una regresión puntual.
+  desplegar las categorías configuradas** — **RESUELTO** por F4 de add-ons
+  (`add-catalog-item.ts:38-41`, commit `f71496f6`; sub-líneas indentadas en
+  `cart-panel.tsx:921-940`).
 
 **Ya arreglados (5)** — el tester probó antes del fix o no volvió a probar:
 
@@ -897,19 +900,24 @@ están en `_feature-requests.md` §2026-07-31. Bugs nuevos verificados contra c�
 
 **Pendiente de reproducción (3)** — necesitan BD/sesión viva:
 
-- **Espacios: orden "Cobrada" re-suma su subtotal a pendientes** (duplica lo
-  ya pagado en pantalla). Sospechoso: `space-session-dialog.tsx:90-94` suma
-  TODAS las órdenes no-canceladas por diseño ("consumo total de la mesa") —
-  puede ser display de total donde el cajero espera saldo, o un settled-flag
-  que no se refleja. Ver flujo split en `espacios/page.tsx:232-340`.
+- **Espacios: orden "Cobrada" re-suma su subtotal a pendientes** — **no era
+  bug**, cerrado 2026-08-22: `space-session-dialog.tsx:90-94` muestra "Total
+  de la sesión" (consumo total de la mesa, a propósito); el cobro en sí usa
+  `SpaceBalanceService`, que sí excluye lo ya saldado. Eran dos números con
+  propósito distinto, no un descuadre.
 - **"Sale transaction aborted" al cobrar la última parte de una mesa por
-  partes.** El mensaje sale de `api/v1/sales.php:123` /
-  `SaleService.php:189` (venta no persistió tras commit). Repro necesaria
-  con sesión de espacios real.
-- **Productos de ambas sucursales mezclados en el catálogo** pese a asignar
-  outlet al crear. Área view-scope (`context/25-sucursales-y-scopes.md`) —
-  definir primero cuál es el comportamiento esperado (catálogo es
-  company-wide con outlet opcional por diseño).
+  partes.** NO VERIFICABLE sin repro en vivo, pero hay sospecha fundada tras
+  la auditoría de 2026-08-22: `SpaceSettlementService::registerPayment()`
+  corre `settleIfCovered()` en una TX ANIDADA que solo hace
+  `markPaid()`+`close()` en el último pago del split — exactamente cuando
+  aparece el síntoma. `preflightPayment` no elimina la carrera:
+  `SpaceSettlementService.php:258-277` documenta que el POS crea la venta
+  ANTES de la validación definitiva del pago parcial. Falta repro real.
+- **Productos de ambas sucursales mezclados en el catálogo** — parcial: el
+  POS ya NO mezcla (`outletVisibilityClause()`, `ItemsQuery.php:319`, commit
+  `a48c8555`). El panel sigue mostrando el catálogo completo por diseño
+  declarado (`api/v1/items.php:155`) — decisión de producto pendiente del
+  owner, no bug de código.
 
 ## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 
@@ -921,51 +929,33 @@ están en `_feature-requests.md` §2026-07-31. Bugs nuevos verificados contra c�
 - **SLA de tiempo por orden + Delivery (O4)** — plan `context/27-delivery-sla-plan.md` (2026-07-19). **Historial de transiciones F-EVT-0 ✅ (2026-07-27)**: migs 85/86, tabla `pos_order_event` (scope order|item, actor, station snapshoteado), `recordEvent()` en los 6 caminos que tocan status, misma TX — base del SLA. SLA target = máximo por estación (trabajo paralelo entre estaciones). Delivery con `fulfillment`/`out_for_delivery` **✅ completo (2026-07-29)**: F-D-0 (mig 94, snapshot de dirección, selector Mostrador/Retiro/Envío, mapa filtrado) + F-D-1 (mig 96 estado "En camino", mig 97 `courierid`/asignación de repartidor). Fiscalidad del `deliveryfee` resuelta: ítem del catálogo, cascada zona→banda. Abierto: app propia del repartidor (decisión cerrada — entra como usuario con permiso acotado, no device pareado — falta implementar).
 - **KDS — rediseño de flujo horizontal (2026-07-27)**: de columnas por estado a comandas en fila única, estado = color (la tarjeta nunca se mueve), pin local, teclado completo, recall (terminadas salen del board, "devolver a preparación" las trae de vuelta). El KDS nunca está desatendido — TV siempre con teclado/mouse detrás.
 - **Libreta de direcciones (2026-07-27)**: extendida sobre `customerAddress` existente (mig 87: `reference`+soft-delete), parser de coords centralizado en `lib/geo/parse-coordinates.ts`.
-- **Facturación electrónica (SIFEN/Paraguay)** — plan `context/28-facturacion-electronica-plan.md` (2026-07-27/30). Proveedor real: **Factomate** (no Automate). F0/F1/F2 ✅: conexión de cuenta por comercio (credenciales cifradas), emisión automática con outbox+drainer, listado/KuDE/cancelación/reconciliación. Verificado contra API real de DEV (2 facturas emitidas). Pendiente: `APP_ENCRYPTION_KEY` sin configurar en env (bloquea arranque del módulo), migs 92/93/95 sin correr en prod, F3-F7.
+- **Facturación electrónica (SIFEN/Paraguay)** — plan `context/28-facturacion-electronica-plan.md` (2026-07-27/30). Proveedor real: **Factomate** (no Automate). F0/F1/F2/F3/F4/F6/F7 ✅ Hechas (ya figuran así en el propio plan — este doc estaba desincronizado). Verificado contra API real de DEV (2 facturas emitidas). F5 (emisión diferida offline) bloqueada hasta que Factomate responda sobre la fecha de emisión diferida. Pendiente real: `APP_ENCRYPTION_KEY` sin configurar en Coolify (las migs 92/93/95 SÍ corrieron; sin la env var `CredentialVault` aborta y `einvoice_account` tiene 0 filas en prod) — acción del owner.
 
 ---
 
-## Pendiente: F-auth-jwt-only — eliminar `$_SESSION` de /app y /panel
+## `$_SESSION` — la premisa original quedó obsoleta, pero sigue vivo (actualizado 2026-08-22)
 
-**Objetivo**: todas las rutas de auth usan JWT puro (cookie HttpOnly). `$_SESSION` se usa hoy para almacenar datos del tenant en `panel/` y algo en `app/`. Con Redis sessions ya configurado, las sesiones son más confiables, pero la deuda arquitectónica sigue siendo que session y JWT coexisten.
+**La premisa de este item murió**: `/app` y `/panel` ya NO existen (eliminados
+en `dbaf0989`, `05aefff4`, `939bcfbb`) — no hay F-auth-jwt-only que correr
+sobre esas rutas. Pero `$_SESSION` **sigue vivo** en `/api`:
+`api/bootstrap.php:67` hace `session_start()` en cada request y `RateLimiter`
+lo usa como store (`api/head.php`, `api/v1/admin/login.php`). `loginPart()` es
+código muerto.
 
-**Alcance estimado**:
-1. **Fase 1 (`/app`)**: `app/handoff.php` ya no necesita `$_SESSION` — JWT es la única fuente de verdad del device pairing. Identificar los `$_SESSION` restantes en `/app` y migrar a claims del JWT o a endpoints del BFF.
-2. **Fase 2 (`/panel`)**: el panel usa `$_SESSION` para datos del tenant (company, outlet, user). Migrar a un endpoint BFF bootstrap que los BFFs pidan por JWT. `session_start()` desaparece del setup del panel.
+**Hallazgo de seguridad (2026-08-22)**: el `RateLimiter` del login de
+`/admin` frena por IP+email vía `$_SESSION` — el propio comentario del código
+(`rateLimiter.php:29-32`) admite que no frena a un atacante sin cookie. Es una
+debilidad real, no solo deuda arquitectónica: conviene mover el rate-limit a
+un store compartido (Redis) que no dependa de que el cliente mantenga sesión.
 
-**Beneficio**: container PHP truly stateless — sin sesiones PHP ni en disco ni en Redis para la app lógica (Redis sessions sigue necesario si se quiere clustering, pero no debería ser un requisito de funcionalidad).
+**DB.php y helpers JSONB duplicados app/panel** — **RESUELTO** por la
+eliminación de `/app` y `/panel` (mismos commits de arriba): la duplicación
+que describía este item ya no puede existir.
 
-**Deuda transitoria registrada** (no bloquea ningún trabajo actual):
-- `panel/bff/handoff.php` genera `redirectUrl='/@#dashboard'` hardcoded (deuda menor — deberá venir de config o del JWT).
-- `app/bff/electronic_invoice.php` expone `send_verification.php` directamente sin pasar por el BFF canónico (deuda arquitectónica).
-- Algunos paths legacy en `/app` y `/panel` aún tienen `APP_URL` hardcodeado en strings (deuda del de-hardcode de dominios).
-- Runner automático de migraciones sigue pendiente (ver sección Migration Runner).
-- **DB.php duplicado** (`/app/includes/lib/DB.php` ≡ `/panel/includes/lib/DB.php`): la deuda se manifestó cuando la copia de panel evolucionó (whereParams en AutoExecute) y la de app quedó atrás → bug 500 silente en TODOS los `ncmUpdate` con WHERE parametrizado. Sincronizadas en el commit del bug fix; **consolidar a un solo archivo compartido** (ej. `/shared/lib/DB.php` o composer autoload) para prevenir drift futuro. Mismo problema potencial con otros archivos duplicados del legacy (functions.php tiene subset overlap entre app/panel).
-- **JSONB routing helpers duplicados** (`generateUuidV7`, `_getTableSchema`, `_routeToJsonb` + cuerpos completos de `ncmInsert`/`ncmUpdate`): viven en `/panel/includes/functions.php:4602-5016` y, post-fix, también en `/app/includes/functions.php` (porque el slice 10 PSR-4 había reemplazado los wrappers por delegación a `Query::insert/update` que NO hacía routing — bug "column does not exist" en cualquier INSERT con campos demoted a JSONB). Sincronizados en el commit del bug fix; **consolidar a un módulo compartido** (ej. `/shared/JsonbRouter.php`) cargado desde ambos legacy entry points. `Query::insert/update` ahora delega a `ncmInsert/ncmUpdate` para forzar single source of truth.
+## Schema consolidation — campos no-queryables → JSONB ✅ RESUELTO
 
-## Schema consolidation — campos no-queryables → JSONB (post-F4)
-
-**Idea (charlada 2026-06-10):** generalizar el patrón ya aplicado a `company.config`/
-`outlet.data`/`plans.features` (columnas indexables + JSONB para el resto) a las dos tablas
-grandes restantes: `contact` (~25 cols) e `item` (~30 cols). El objetivo es flexibilidad y
-schema evolution sin migraciones por cada flag nuevo.
-
-**Tradeoff crítico — NO mover todo:** la regla es **indexable y queryable** se queda en
-columna; el resto va a `data` JSONB. Hoy `contact` tiene 6 índices específicos
-(`idx_contact_phone_company`, `idx_contact_email`, `idx_contact_tin`, `idx_contact_name`...)
-porque la app filtra por esos campos — moverlos a JSONB rompería los índices y los casts
-`->>` no siempre usan GIN (lo descubrimos cuando `p.features->>'inventory'` necesitó
-`COALESCE((...)::int, 0)`).
-
-**Proceso por tabla:**
-1. Auditar con `pg_stat_user_indexes` qué columnas se usan realmente en WHERE/JOIN.
-2. Migración: `ALTER TABLE` agrega `data JSONB`, backfill no-destructivo desde columnas,
-   los `_flattenJsonb` ya re-exponen las keys como propiedades (lectura sigue funcionando).
-3. WRITE de cada Service actualizado para enrutar las keys movidas a `data`.
-4. `DROP COLUMN` de las viejas en una segunda migración tras N releases (deuda controlada).
-
-**Timing:** post-F4 (cuando el shell `@.php` esté desacoplado y `$_SESSION` muerto). Hacerlo
-mid-F2/F3 sería migrar blanco móvil.
+El patrón `contact`/`item` → columnas indexables + `data JSONB` para el resto
+ya está implementado: `db-schema-postgres.sql:243,290`, `Schema::split()`.
 
 ---
 
@@ -1192,17 +1182,22 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 |---|-----------|---------|
 | 1 | ~~**Separar `_jwt_pos` de `_jwt_panel`**~~ ✓ | Cookies independientes ya funcionando (`_jwt` para realm pos-app, `_jwt_panel` para panel, `_jwt_screen` para checkout screen). Memoria [[jwt-two-tokens-rule]]. |
 | 2 | **`POST /v1/device/unpair`** | Para "Eliminar dispositivo del comercio" (hoy no existe el endpoint). |
-| 3 | **`POST /v1/lock-screen/verify`** | Verificar PIN contra backend + re-emitir `_jwt_pos`. Hoy: `STUB_PIN = "1234"` en `lock-screen.tsx`. |
-| 4 | **`bootstrap.user.name` y `bootstrap.user.roleName`** | Agregar al SELECT del bootstrap PHP. `roleName` ya disponible en `UsersService`. |
+| 3 | ~~**`POST /v1/lock-screen/verify`**~~ ✓ | **RESUELTO**: el lockscreen valida el PIN localmente (SHA-256 contra `pinhash` precacheado, `lock-screen.tsx:8`); ya no hay `STUB_PIN`. |
+| 4 | **`bootstrap.user.name` y `bootstrap.user.roleName`** | Agregar al SELECT del bootstrap PHP. `roleName` ya disponible en `UsersService`. Confirmado por ausencia en la auditoría 2026-08-22: `bootstrap.user` sigue siendo `{id, role}`, el operador activo no tiene nombre (la lista de empleados sí). |
 | 5 | **Persistir `register.data.mergeRepeated`** | Hoy solo en memoria Zustand (default ON). Falta `PUT /v1/register?resource=merge-repeated`. |
 | 6 | ~~**Endpoints reales de Control de Caja**~~ ✓ | Implementado: `DrawerService` + `api/v1/drawer.php`. Migs 33/34. |
 | 7 | ~~**Endpoints reales de Transacciones**~~ ✓ | Detalle, edición, duplicar/reimprimir, cierre desde panel. Órdenes O0-O2 ✅ (2026-07-19, ver abajo); Agenda pendiente. |
 | 8 | **Persistencia de impresoras** | Probable `register.data.printers` JSONB. |
-| 9 | **UI panel para gestión de cajas POS pareadas** (`/settings/devices` tab "Cajas") | Tabla `device` (mig 11) ya existe con CRUD backend; falta tab en `/settings/devices` (hoy solo lista checkout screens). |
+| 9 | ~~**UI panel para gestión de cajas POS pareadas**~~ ✓ | **Superado**: `connected-device.ts` unifica la tabla con `kind:"pos"` = "Caja POS" en `/settings/devices`. |
 
 ---
 
-## frontend — Selector de sucursal en menú del usuario (NUEVO 2026-06-12)
+## frontend — Selector de sucursal en menú del usuario ✅ RESUELTO
+
+**RESUELTO** (2026-08-22): implementado en `app-sidebar.tsx:182-241`. El
+detalle abajo queda como referencia histórica del diseño.
+
+### (histórico) NUEVO 2026-06-12
 
 **Feature ausente del frontend que SÍ existe en legacy.** En el menú dropdown del usuario (sidebar bottom) el panel legacy permite, cuando la cuenta tiene ≥2 sucursales:
 
@@ -1248,7 +1243,13 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 
 ---
 
-## Admin realm — super-admins de plataforma separados (iniciado 2026-05-28)
+## Admin realm — super-admins de plataforma separados (iniciado 2026-05-28) — SUPERSEDED
+
+> **Superseded (2026-08-22)**: el estado vivo de `/admin` (dashboard, salud,
+> planes, billing, F1-F6) se documenta ahora en
+> [34-admin-saas-plan.md](34-admin-saas-plan.md). Lo que sigue abajo queda
+> como referencia histórica de la separación de realms (F0-F6 de auth), ya
+> cerrada.
 
 **Decisión**: los super-admins de plataforma dejan de ser un "tenant especial" (flag `SAAS_ADM` sobre `MASTER_COMPANY_ID`) y pasan a ser usuarios propios en `admin_user`, con login en `/admin` y JWT criptográficamente separado del realm tenant. Ver [ADR-002](context/adr/ADR-002-admin-realm-separado.md) y `02-arquitectura.md § Admin realm`.
 
@@ -1393,8 +1394,8 @@ Conjunto grande de slices ejecutados en sesiones consecutivas (Opus orquesta + S
 
 | Slice | Scope | Prioridad |
 |---|---|---|
-| **AI-4** | UI en `/admin` para editar `ai_model_config` (modelo + creditsPerKToken por capability). Calibración de pricing real vs costo OpenRouter para que el margen cierre. | Alta |
-| **AI-5** | Capabilities extra: OCR (foto de factura → Gemini extrae ítems), análisis libre sobre rollup (queries NL → leen `report_rollup`), dashboards custom guardados en `dashboard.config` JSONB. → detalle en `context/30` (F2/F5). | Media |
+| ~~**AI-4**~~ ✓ | **RESUELTO**: pricing editable en `/admin` (`api/v1/admin/ai-config.php`, `AiAdminService::testModel()`). | — |
+| **AI-5** | **Parcial**: OCR de facturas ya implementado (`PurchaseDraftService.php`, tabla `purchase_draft`, mig 105). Sigue pendiente: análisis libre sobre rollup (queries NL → `report_rollup`), dashboards custom guardados en `dashboard.config` JSONB. → detalle en `context/30` (F2/F5). | Media |
 | **AI-tools++** | Expandir las 13 tools iniciales según uso: tools para reportes específicos, búsquedas avanzadas, recomendaciones (top sellers, stock bajo). | Media |
 | **AI proactivo** | Cron que detecta condiciones (stock bajo, ventas anómalas) y notifica al operador. Necesita canal — el FAB del agente puede mostrar un badge. | Baja |
 | **AI multi-canal** | Telegram / WhatsApp / SMS. Mismo agente, otros transports. Requiere vincular usuario externo → JWT del tenant (flow de pareo). | Baja |
@@ -1731,6 +1732,12 @@ prioridad, no una lista nueva. Los pocos puntos que SÍ son nuevos del batch
 2026-07-30 (reporte de gift card editable, columna de suma al pie en
 transacciones, columna de etiquetas internas, orden de pedido consolidado
 para cocina, tipo de venta/canal) están en `_feature-requests.md` §2026-07-30.
+
+**Actualización 2026-08-22**: varios ítems de esta lista cruda ya se
+resolvieron y quedaron marcados como CERRADO en `_feature-requests.md`
+(categoría inline, sesiones de servicio, columnas stock/costo, kardex, packs
+de compra, subcategorías de gastos) — el detalle y la evidencia viven ahí,
+no se duplican acá.
 
 **Fiscal/Reportes:**
 - Export RG90 / Libro de ventas (pedido 2x)
