@@ -283,22 +283,11 @@ Consecuencias:
   ventana de anulación es más corta que la ventana de cierre (2 meses >
   48 h, hoy no hay conflicto; si la ventana de anulación creciera más
   allá de la de cierre, sí lo habría).
-- **Qué es "inmutable" — pregunta abierta para el owner, no resuelta
-  acá.** Hay operaciones legítimas posteriores al corte que tocan
-  documentos viejos: un cobro de hoy salda una factura a crédito de hace
-  4 meses (`transaction.transactionComplete` cambia en la fila vieja); una
-  NC de hoy referencia una venta de hace 3 meses vía `transaction_link`
-  (la venta en sí no cambia, pero se le cuelga un derivado). Propuesta a
-  decidir con el owner: el **hecho económico** es inmutable (montos,
-  ítems, fechas, cliente, numeración — ningún reporte de ventas cerrado se
-  mueve), pero el **estado de liquidación** (saldada/pendiente) no, porque
-  se deriva de documentos posteriores y vive fuera del período cerrado.
-  Alternativa más estricta: `transactionComplete` deja de ser columna
-  mutable y pasa a derivarse de `transaction_link` al leer — ahí la fila
-  vieja literalmente nunca se toca. Relevado en esta sesión para
-  dimensionar esa alternativa: **26 archivos PHP / 69 ocurrencias** y
-  **6 archivos del frontend** leen/escriben `transactionComplete` hoy —
-  migrar a derivado es un refactor real, no un ajuste de trigger.
+- **Qué es "inmutable" — resuelto por el owner (ver "Implementado" abajo)**:
+  el hecho económico es inmutable; `transactionComplete`/`updated_at` de la
+  fila vieja quedan mutables porque se derivan de documentos posteriores
+  (un cobro de hoy, una NC de hoy vía `transaction_link`) que no tocan el
+  hecho en sí.
 - **Error detectado después del corte**: no se edita — se corrige con un
   documento nuevo en el período abierto (nota de crédito, ajuste de
   stock, movimiento de caja), igual que en contabilidad. El guard de D7
@@ -308,6 +297,23 @@ Consecuencias:
   día N del mes siguiente al vencimiento de la ventana; también debe
   poder cerrarse manualmente desde el panel con permiso de owner (fuera
   del cron, para cerrar antes si el tenant lo pide).
+
+**Implementado 2026-08-22 (mig 157).** Decisiones cerradas por el owner:
+1. Inmutable = el hecho económico (montos, ítems, fechas, cliente,
+   numeración, stock); `transaction.transactioncomplete` y `updated_at`
+   quedan mutables (se derivan de documentos posteriores, no del hecho).
+2. Alcance por tipo: `transaction`/`itemsold` solo para
+   `transactiontype IN (0,1,3,4,5,6,7,10,14)` (ver `api/lib/Sales/SaleType.php`);
+   `stock`/`cpayments`/`expenses` siempre bajo el guard, sin filtro de tipo.
+3. INSERT nunca se bloquea (offline-first) — el guard es `BEFORE UPDATE OR
+   DELETE` únicamente.
+4. Ventana configurable por tenant (`company.config->>'settingPeriodCloseMonths'`,
+   1..12, default 1 mes = 2 meses totales con el mes en curso).
+
+Sin endpoint de "reabrir" (fuera de alcance). Cierre automático: job
+`period-close` (mensual, día 2 05:00). Cierre manual: `POST /v1/period-close`
+desde el panel, permiso `settings.periodClose`, UI en
+`/settings/cierre-de-periodo`.
 
 **D8 — El grano del rollup lo definen los filtros, no las métricas.**
 Observación del owner (2026-08-21), textual en esencia: "si sumo las ventas
@@ -484,7 +490,7 @@ Lecturas:
 |---|---|---|---|
 | **E0** | Cron de rollups (`rollup-reconcile` cada 10 min, dentro de la imagen API) | Ya activa (hecha hoy 2026-08-21) | Hecho |
 | **E1** | Particionado mensual de `transaction`/`itemSold` + `companyId` en `itemSold` + índice compuesto (D3+D4) | **Implementada 2026-08-22 (mig 156).** | 1 migración SQL, 0 downtime real (723/1.029 filas) |
-| **E1b** | Cierre de período (D7): tabla `period_close` + trigger de inmutabilidad + job `period-close` | Junto con E1 — es la pieza que convierte "partición vieja" en "base fría" de verdad (nadie escribe ahí). Sin activador de volumen: es una regla de negocio, no una respuesta a tamaño | Migración + trigger + job de maintenance (horas); requiere cerrar con el owner la pregunta de "qué es inmutable" antes de escribir el trigger |
+| **E1b** | Cierre de período (D7): tabla `period_close` + trigger de inmutabilidad + job `period-close` | **Implementada 2026-08-22 (mig 157).** | Migración + trigger + job de maintenance + endpoint `/v1/period-close` + UI en Ajustes |
 | **E2** | RB-3: rollup de compras/producción/stock + retención del grano `day` de `item_sales` (D5) | Cuando el catálogo de reportes (`context/47`) necesite exponer Compras/Producción/Stock sobre rangos largos, o cuando una query en vivo de esos dominios pase p95 > 1-2s | Extensión del patrón existente (mismo helper de RB-1/RB-2), sin downtime |
 | **E3** | Réplica de lectura en streaming (D6), reportes/exports apuntan ahí | Cualquiera medible: p95 de checkout (POST venta) degradado en horario pico por contención de I/O; o queries de reporting > 25-30% del `total_time` de `pg_stat_statements` de la instancia primaria | Setup de replicación (horas) + verificar soporte en Coolify (bloqueante, ver Riesgos); 0 downtime del lado de escritura |
 | **E4** | Particiones de años viejos a tablespace barato o desprendidas (`DETACH PARTITION` + archivo) | Tamaño total del volumen Postgres administrado por Coolify se acerca al techo contratado, o particiones de > N años (ej. 3) con lectura casi nula medida por `pg_stat_user_tables` | Bajo — operación de partición nativa, sin downtime |
@@ -555,12 +561,6 @@ más de los mismos ítems. Por eso el rollup por ítem escala con
 
 ## Riesgos y preguntas abiertas
 
-- **Qué es "inmutable" bajo D7 (pregunta abierta para el owner).** El hecho
-  económico (montos, ítems, fechas, cliente, numeración) vs. el estado de
-  liquidación (`transactionComplete`) que legítimamente cambia después del
-  cierre por cobros/NC posteriores — ver desarrollo completo en D7. Sin
-  esta definición no se puede escribir el trigger de guard sin romper
-  flujos reales (cobro de una factura vieja, NC contra venta vieja).
 - **Auditoría de write-paths antes de dropear las FK a `transaction`
   (D3).** La decisión de sacar la FK enforced asume que las 10 tablas
   satélite se escriben siempre dentro de la misma transacción DB que el
