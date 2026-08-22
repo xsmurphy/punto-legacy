@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
 import { SIGNUP_URL } from "@/lib/site/links"
 import { CtaFinal } from "@/components/site/cta-final"
+import { FaqJsonLd, ProductJsonLd } from "@/components/site/structured-data"
 import { getMarket, marketMoney } from "@/lib/site/markets"
 
 const market = getMarket()
@@ -20,7 +21,8 @@ const PRECIO = marketMoney(market.plan.precio, market)
 const CREDITOS = new Intl.NumberFormat("es-PY").format(market.plan.creditosIa)
 
 export const metadata: Metadata = {
-  title: "Precios",
+  title: "Precios y planes",
+  alternates: { canonical: "/precios" },
   description: `Un solo plan con todo incluido: ${PRECIO} ${market.plan.periodo}. Facturación electrónica ilimitada, usuarios, cajas y productos sin límite.`,
 }
 
@@ -97,6 +99,8 @@ const FAQS = [
 export default function PreciosPage() {
   return (
     <div className="pt-16">
+      <ProductJsonLd />
+      <FaqJsonLd faqs={FAQS} />
       {/* Encabezado + plan */}
       <section className="mx-auto w-full max-w-6xl px-4 py-20 md:px-6 md:py-28">
         <div className="mx-auto max-w-3xl text-center">

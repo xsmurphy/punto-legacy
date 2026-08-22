@@ -28,6 +28,7 @@ export async function generateMetadata({
   return {
     title: modulo.label,
     description: applyMarketTerms(modulo.heroDescription),
+    alternates: { canonical: `/modulos/${modulo.slug}` },
   }
 }
 

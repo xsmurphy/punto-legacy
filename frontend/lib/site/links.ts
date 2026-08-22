@@ -15,3 +15,8 @@ export const SIGNUP_URL = `${APP_URL}/signup`
 
 /** Ingreso al panel. */
 export const LOGIN_URL = `${APP_URL}/login`
+
+/** Origen público del sitio de marketing — base de canónicas y sitemap. */
+export const SITE_URL = (
+  process.env.NEXT_PUBLIC_SITE_URL ?? "https://punto.la"
+).replace(/\/$/, "")

@@ -27,8 +27,9 @@ export async function generateMetadata({
   const rubro = getRubro(slug)
   if (!rubro) return {}
   return {
-    title: `Punto para ${rubro.label.toLowerCase()}`,
+    title: `Sistema de gestión para ${rubro.label.toLowerCase()}`,
     description: applyMarketTerms(rubro.heroDescription),
+    alternates: { canonical: `/para/${rubro.slug}` },
   }
 }
 

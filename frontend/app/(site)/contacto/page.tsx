@@ -13,6 +13,7 @@ import {
 
 export const metadata: Metadata = {
   title: "Contacto",
+  alternates: { canonical: "/contacto" },
   description: `Escribinos por WhatsApp al ${CONTACTO.telefono} o visitanos en ${CONTACTO.direccion}.`,
 }
 
