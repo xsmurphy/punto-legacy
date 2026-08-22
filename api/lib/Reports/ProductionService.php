@@ -82,7 +82,16 @@ final class ProductionService
         // `getItemTypeName()` (api/includes/functions.php:833) para clasificar
         // 'direct_production' en la UI.
         $rocB = $this->rocAlias($roc, 'b');
-        $sql = "SELECT a.itemId as id, SUM(a.itemSoldUnits) as usold, SUM(a.itemSoldCOGS) as cogs,
+        // `itemSoldCOGS` es el costo UNITARIO (contrato fijado en
+        // SaleService::persistItemsAndStock) — sumarlo sin multiplicar por
+        // `itemSoldUnits` daba el costo de UNA unidad como si fuera el de
+        // todas, y buildRows() encima lo dividía otra vez por las unidades
+        // (`$average = $cogs / $units`) para sacar el costo unitario. Con 2+
+        // ventas del mismo ítem el margen salía inventado. ABS() antes de
+        // multiplicar: en una devolución las DOS columnas vienen negadas
+        // (`flipOnReturn`), y negativo × negativo habría sumado costo en vez
+        // de restarlo — mismo criterio que ProductsService.
+        $sql = "SELECT a.itemId as id, SUM(a.itemSoldUnits) as usold, SUM(ABS(a.itemSoldCOGS) * a.itemSoldUnits) as cogs,
                        MAX(a.userId) as usr, MAX(a.itemSoldDate) as sdate, MAX(b.outletId) as outlet
                 FROM itemSold a, transaction b, item c
                 WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
@@ -109,7 +118,9 @@ final class ProductionService
         // Mismo fix que general() arriba: flags reales + EXISTS item_compound
         // (no el string sintético, y no solo los flags — ver comentario ahí).
         $rocB = $this->rocAlias($roc, 'b');
-        $sql = "SELECT a.itemId as id, a.itemSoldUnits as usold, a.itemSoldCOGS as cogs,
+        // Mismo contrato unitario que general(): la fila del tab "Detallado"
+        // muestra el costo de la LÍNEA, no el de una unidad.
+        $sql = "SELECT a.itemId as id, a.itemSoldUnits as usold, ABS(a.itemSoldCOGS) * a.itemSoldUnits as cogs,
                        a.userId as usr, a.itemSoldDate as sdate, b.outletId as outlet
                 FROM itemSold a, transaction b, item c
                 WHERE b.transactionType IN (0,3) AND b.transactionDate BETWEEN ? AND ?" . $rocB . "

@@ -306,7 +306,7 @@ fi
 #    a fallar. Ver comentario largo en el propio script antes de re-fiarse
 #    ciegamente de que este paso está 100% verde.
 echo ""
-echo "[run.sh] === costo de producción directa (itemSoldCOGS + stockSource de la explosión de receta) ==="
+echo "[run.sh] === costo de producción directa (itemSoldCOGS + stockSource + fórmula única RecipeCosting: 2 niveles, insumo sin ledger, otra sucursal) ==="
 if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_production_cogs.php"; then
   OVERALL_STATUS=1
 fi

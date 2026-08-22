@@ -22,6 +22,15 @@ import {
 } from "@/components/ui/popover"
 import { Badge } from "@/components/ui/badge"
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
   useAddCompound,
   useDeleteCompound,
   useItemCompounds,
@@ -43,8 +52,12 @@ export function CompoundsEditor({ itemId }: Props) {
   const add = useAddCompound()
   const compounds = data?.compounds ?? []
 
-  // Total de costo de la receta: suma de lineCost de cada ingrediente.
-  const totalCost = compounds.reduce((acc, c) => acc + (c.lineCost ?? 0), 0)
+  // Los dos totales vienen del servidor (`ItemCompoundService::recipe`). El
+  // front NO los recalcula: sumar `lineCost` acá era la tercera fórmula de
+  // costo de receta del sistema, y la que le mostraba al dueño un número
+  // distinto al que la venta registraba (reporte del tester "Actualización 21"
+  // #1). La fórmula única vive en `RecipeCosting` (PHP).
+  const totals = data?.totals
 
   return (
     <div className="flex flex-col gap-4">
@@ -66,41 +79,56 @@ export function CompoundsEditor({ itemId }: Props) {
       )}
 
       {compounds.length > 0 && (
-        <div className="rounded-md border">
-          <table className="w-full text-sm">
-            <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
-              <tr>
-                <th className="w-6"></th>
-                <th className="px-3 py-2 text-left font-medium">Ingrediente</th>
-                <th className="w-24 px-3 py-2 text-right font-medium">Cantidad</th>
-                <th className="w-20 px-3 py-2 text-left font-medium">UOM</th>
-                <th className="w-28 px-3 py-2 text-right font-medium">Costo unit.</th>
-                <th className="w-28 px-3 py-2 text-right font-medium">Subtotal</th>
-                <th className="w-12"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {compounds.map((c) => (
-                <CompoundRow
-                  key={c.compoundId}
-                  itemId={itemId}
-                  compound={c}
-                  bootstrap={bootstrap}
-                />
-              ))}
-            </tbody>
-            <tfoot className="border-t bg-muted/30">
-              <tr>
-                <td colSpan={5} className="px-3 py-2 text-right text-xs font-medium text-muted-foreground">
-                  Costo total de la receta
-                </td>
-                <td className="px-3 py-2 text-right text-sm font-semibold tabular-nums">
-                  {formatMoney(totalCost, bootstrap)}
-                </td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
+        <div className="space-y-2">
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-6" />
+                  <TableHead>Ingrediente</TableHead>
+                  <TableHead className="w-24 text-right">Cantidad</TableHead>
+                  <TableHead className="w-20">UOM</TableHead>
+                  <TableHead className="w-32 text-right">Costo de catálogo</TableHead>
+                  <TableHead className="w-32 text-right">Costo real hoy</TableHead>
+                  <TableHead className="w-12" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {compounds.map((c) => (
+                  <CompoundRow
+                    key={c.compoundId}
+                    itemId={itemId}
+                    compound={c}
+                    bootstrap={bootstrap}
+                  />
+                ))}
+              </TableBody>
+              <TableFooter>
+                <TableRow>
+                  <TableCell colSpan={4} className="text-right text-xs font-medium text-muted-foreground">
+                    Costo total de la receta
+                  </TableCell>
+                  <TableCell className="text-right text-sm font-semibold tabular-nums">
+                    {formatMoney(totals?.catalogTotal ?? 0, bootstrap)}
+                  </TableCell>
+                  <TableCell className="text-right text-sm font-semibold tabular-nums">
+                    {totals?.currentTotal == null
+                      ? "—"
+                      : formatMoney(totals.currentTotal, bootstrap)}
+                  </TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableFooter>
+            </Table>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            <span className="font-medium">Costo de catálogo</span>: el costo que cargaste en
+            cada ingrediente.{" "}
+            <span className="font-medium">Costo real hoy</span>: lo que cuesta producir una
+            unidad en esta sucursal ahora — promedio de compra de cada insumo, merma incluida,
+            bajando hasta los insumos de las sub-preparaciones. Es el costo que se registra al
+            vender.
+          </p>
         </div>
       )}
 
@@ -157,21 +185,21 @@ function CompoundRow({
   }
 
   return (
-    <tr className="border-b last:border-b-0 hover:bg-muted/20">
-      <td className="px-2 py-2 text-muted-foreground">
+    <TableRow>
+      <TableCell className="text-muted-foreground">
         <GripVertical className="size-3.5 opacity-30" />
-      </td>
-      <td className="px-3 py-2">
+      </TableCell>
+      <TableCell>
         <div className="flex flex-col">
           <span className="font-medium">{compound.childName || "(sin nombre)"}</span>
           {compound.childSKU && (
-            <span className="text-[10px] text-muted-foreground tabular-nums">
+            <span className="text-xs text-muted-foreground tabular-nums">
               {compound.childSKU}
             </span>
           )}
         </div>
-      </td>
-      <td className="px-3 py-2">
+      </TableCell>
+      <TableCell>
         <Input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -182,20 +210,36 @@ function CompoundRow({
               ;(e.currentTarget as HTMLInputElement).blur()
             }
           }}
+          // h-7: la fila es editable y hay 6 columnas — un Input de altura
+          // default rompe el ritmo vertical de la tabla de receta.
           className="h-7 text-right text-xs tabular-nums"
           inputMode="decimal"
         />
-      </td>
-      <td className="px-3 py-2 text-xs text-muted-foreground">
+      </TableCell>
+      <TableCell className="text-xs text-muted-foreground">
         {compound.childUOM || "—"}
-      </td>
-      <td className="px-3 py-2 text-right text-xs tabular-nums text-muted-foreground">
-        {formatMoney(compound.childCost, bootstrap)}
-      </td>
-      <td className="px-3 py-2 text-right text-xs font-medium tabular-nums">
-        {formatMoney(compound.lineCost, bootstrap)}
-      </td>
-      <td className="px-2 py-2">
+      </TableCell>
+      <TableCell className="text-right tabular-nums text-muted-foreground">
+        <div className="flex flex-col items-end">
+          <span>{formatMoney(compound.lineCatalogCost, bootstrap)}</span>
+          <span className="text-xs">
+            {formatMoney(compound.catalogCost, bootstrap)} c/u
+          </span>
+        </div>
+      </TableCell>
+      <TableCell className="text-right font-medium tabular-nums">
+        {compound.lineCurrentCost == null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <div className="flex flex-col items-end">
+            <span>{formatMoney(compound.lineCurrentCost, bootstrap)}</span>
+            <span className="text-xs font-normal text-muted-foreground">
+              {formatMoney(compound.currentCost ?? 0, bootstrap)} c/u
+            </span>
+          </div>
+        )}
+      </TableCell>
+      <TableCell>
         <Button
           type="button"
           variant="ghost"
@@ -214,8 +258,8 @@ function CompoundRow({
         >
           <Trash2 className="size-3.5" />
         </Button>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   )
 }
 

@@ -2022,14 +2022,44 @@ final class SaleService
                     : getItemComsissionTotal($itemId, $sD['count'], $comissionTotal);
 
                 // ── COGS según tipo de item ─────────────────────────────────
+                //
+                // CONTRATO: `itemSold.itemSoldCOGS` es el costo UNITARIO (por
+                // una unidad vendida), NO el costo de la línea. Todo consumidor
+                // que quiera el costo total multiplica por `itemSoldUnits`
+                // (`Reports\ProductsService`, `Reports\ProductionService`,
+                // `StockReversalPolicy`). Ver el docblock de `RecipeCosting`.
+                //
                 $itemSoldCOGS = [];
                 // Predicados reales (fix 2026-08-19): `$itemType` es un string
                 // sintetico de UI que NUNCA se persiste, asi que comparar contra
                 // 'direct_production' dejaba el COGS en null siempre.
-                if ($isDirectProduction) {
-                    $itemSoldCOGS['stockOnHandCOGS'] = getProductionCOGS($itemId);
-                } elseif ($isCombo) {
-                    $itemSoldCOGS['stockOnHandCOGS'] = getComboCOGS($itemId);
+                //
+                // La sucursal es la de la VENTA (`$this->ctx->outletId`), no la
+                // de la sesión: el costo promedio de un insumo es POR sucursal,
+                // y los wrappers legacy (`getProductionCOGS`/`getComboCOGS`)
+                // caían en `OUTLET_ID` — una venta de la sucursal B se costeaba
+                // con el promedio de la A (reporte del tester "Actualización 21"
+                // #1). Se llama a `RecipeCosting` directo, la única fórmula de
+                // costo de receta: misma explosión recursiva que mueve el stock,
+                // con merma por nivel y fallback a `item.itemCost`.
+                //
+                // El try/catch NO es defensivo por si acaso: `RecipeCosting`
+                // exige la sucursal y tira si falta, y esta venta YA fue
+                // emitida en la caja (ticket impreso, plata cobrada). El back
+                // nunca rechaza una venta emitida — el COGS es dato de
+                // reporte, no el hecho económico. Sin sucursal se guarda la
+                // venta con COGS null y queda el rastro en el log, en vez de
+                // devolver un 500 que el POS reintenta para siempre.
+                if ($isDirectProduction || $isCombo) {
+                    try {
+                        $itemSoldCOGS['stockOnHandCOGS'] = \Punto\App\Domain\RecipeCosting::total(
+                            $itemId,
+                            $companyId,
+                            $this->ctx->outletId
+                        );
+                    } catch (\InvalidArgumentException $e) {
+                        error_log('SaleService: no se pudo costear la receta de ' . $itemId . ' — ' . $e->getMessage());
+                    }
                 } else {
                     // Con la sucursal de la VENTA: sin ella cae en OUTLET_ID (la de la
                     // sesión) y el costo del item vendido sale del stock de otra

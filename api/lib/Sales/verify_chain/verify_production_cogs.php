@@ -26,6 +26,22 @@ declare(strict_types=1);
  *      `itemType = 'direct_production'`, el mismo string sintético, 0 filas
  *      siempre.
  *
+ * Ampliado 2026-08-22 con la unificación del costeo en `RecipeCosting`
+ * (reporte del tester "Actualización 21" #1 — la ficha del ítem y el reporte
+ * de producción mostraban números distintos porque había TRES fórmulas). Los
+ * casos 4-7 cubren, sobre una receta de dos niveles:
+ *
+ *   4. Una sub-preparación se costea con SUS insumos, no con su `itemCost`
+ *      de catálogo (la fórmula de la venta era de un solo nivel), y un insumo
+ *      sin ledger de stock cae a su costo de catálogo en vez de valer 0.
+ *   5. La MISMA receta costeada contra otra sucursal da otro número — la
+ *      sucursal es un parámetro, no `OUTLET_ID` (la de la sesión).
+ *   6. El desglose expone de dónde salió cada costo (`avg` vs `catalog`), la
+ *      profundidad de cada hoja y la merma planificada aplicada.
+ *   7. La venta real registra EXACTAMENTE ese costo en `itemSoldCOGS` (y es
+ *      unitario), descuenta el insumo del segundo nivel, y no inventa
+ *      movimientos para el insumo sin control de stock.
+ *
  * Requiere el mismo Postgres migrado+seedeado que `run_sale_chain.php` (ver
  * seed.sql, ítems VERIFY-PROD-INSUMO / VERIFY-PROD-DIRECT + su
  * item_compound). Uso: ver run.sh, invocarlo como paso adicional con las
@@ -187,6 +203,192 @@ if (!$row || $row->EOF) {
         $failures[] = "Caso 2: stockCount esperado {$expectedInsumoConsumed}, obtenido {$count}";
     } else {
         echo "[verify_production_cogs] OK caso 2: stock del insumo consumido con stockSource='production', count={$count}\n";
+    }
+}
+
+// ── Casos 4-7: fórmula única de costeo de receta (RecipeCosting, 2026-08-22)
+//
+// Los tres agujeros que tenía `getProductionCOGS()` y que ninguna prueba
+// cubría, con una receta de DOS niveles (seed.sql):
+//
+//     VERIFY-PROD-L2  (terminado, producción directa)
+//       ├── 1 × VERIFY-PROD-SUBPREP  (producción directa, sin stock propio)
+//       │        └── 3 × VERIFY-PROD-INSUMO  (trackeable, promedio real)
+//       └── 1 × VERIFY-PROD-NOSTOCK  (sin ledger, merma 20%, itemCost 250)
+//
+//   (a) DOS NIVELES: el costo de SUBPREP tiene que ser el de sus insumos
+//       (3 × 500 = 1500), no su `itemCost` de catálogo (7777, puesto en el
+//       seed justamente para que un costeo de un nivel se delate).
+//   (b) FALLBACK A CATÁLOGO: NOSTOCK no tiene ni puede tener filas en `stock`
+//       (manageStock es no-op sin itemTrackInventory). La fórmula vieja lo
+//       valuaba 0; vale su `itemCost`. Con merma 20%: 1 / (1 - 0.20) = 1.25
+//       unidades → 1.25 × 250 = 312.5.
+//   (c) SUCURSAL EXPLÍCITA: el mismo ítem en la sucursal B, donde el insumo
+//       se compró a 800, cuesta distinto. La fórmula vieja caía en OUTLET_ID
+//       (la de la SESIÓN) y devolvía el costo de la sucursal A siempre.
+$OUTLET_B      = 'c7d3e9a4-2b15-4f68-9c0e-5a7b8d2e1f34';
+$SUBPREP_ID    = 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6c';
+$NOSTOCK_ID    = 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6d';
+$L2_ID         = 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6e';
+$INSUMO_COST_B = 800.0;
+
+// Costo esperado por unidad de L2, sucursal A:
+//   SUBPREP: 1 × (3 × 500)             = 1500
+//   NOSTOCK: conMerma(1, 20%) × 250    =  312.5
+$expectedL2A = (3 * $INSUMO_COST) + (1 / (1 - 0.20)) * 250.0;
+// Misma receta, sucursal B (insumo a 800): 3 × 800 + 312.5
+$expectedL2B = (3 * $INSUMO_COST_B) + (1 / (1 - 0.20)) * 250.0;
+
+// Sucursal B propia de este caso (no toca la del seed): se crea acá, como
+// hace verify_outlet_visibility.php con la suya.
+$db->Execute(
+    'INSERT INTO outlet (outletId, outletName, outletStatus, companyId) VALUES (?, ?, 1, ?)
+     ON CONFLICT (outletId) DO UPDATE SET outletName = EXCLUDED.outletName',
+    [$OUTLET_B, 'Verify PY - Sucursal costeo B', $companyId]
+);
+
+// El MISMO insumo, comprado más caro en la sucursal B.
+$setupB = \Punto\App\Domain\Inventory::manageStock([
+    'itemId'        => $INSUMO_ID,
+    'source'        => 'purchase',
+    'count'         => 100,
+    'type'          => '+',
+    'cogs'          => $INSUMO_COST_B,
+    'userId'        => $userId,
+    'transactionId' => null,
+    'outletId'      => $OUTLET_B,
+    'locationId'    => null,
+    'note'          => 'verify_production_cogs setup sucursal B',
+    'date'          => date('Y-m-d H:i:s'),
+    'companyId'     => $companyId,
+]);
+if ($setupB === false) {
+    $failures[] = 'Setup sucursal B: manageStock() del insumo devolvió false';
+}
+
+// ── Caso 4: receta de dos niveles + insumo sin ledger, sucursal A ────────
+$costA = \Punto\App\Domain\RecipeCosting::cost($L2_ID, $companyId, $outletId);
+if (round((float) $costA['total'], 6) !== round($expectedL2A, 6)) {
+    $failures[] = "Caso 4: RecipeCosting::cost(L2, sucursal A) esperado {$expectedL2A}, obtenido "
+        . $costA['total'] . ' — si dio 7777+ la sub-preparación se valuó con su itemCost de catálogo'
+        . ' en vez de explotarse; si dio 1500 el insumo sin ledger (VERIFY-PROD-NOSTOCK) se contó 0.';
+} else {
+    echo "[verify_production_cogs] OK caso 4: receta de 2 niveles + insumo sin ledger = {$costA['total']}\n";
+}
+
+// ── Caso 5: la MISMA receta en otra sucursal cuesta distinto ────────────
+$costB = \Punto\App\Domain\RecipeCosting::cost($L2_ID, $companyId, $OUTLET_B);
+if (round((float) $costB['total'], 6) !== round($expectedL2B, 6)) {
+    $failures[] = "Caso 5: RecipeCosting::cost(L2, sucursal B) esperado {$expectedL2B}, obtenido "
+        . $costB['total'] . ' — si dio lo mismo que el caso 4, la sucursal se está ignorando'
+        . ' (la fórmula vieja caía en OUTLET_ID, la de la sesión).';
+} else {
+    echo "[verify_production_cogs] OK caso 5: la misma receta en la sucursal B = {$costB['total']} (insumo a {$INSUMO_COST_B})\n";
+}
+
+// ── Caso 6: el desglose dice de dónde salió cada costo ──────────────────
+$byItem = [];
+foreach ($costA['lines'] as $line) {
+    $byItem[$line['itemId']] = $line;
+}
+$insumoLine  = $byItem[$INSUMO_ID]  ?? null;
+$nostockLine = $byItem[$NOSTOCK_ID] ?? null;
+
+if (!$insumoLine || !$nostockLine) {
+    $failures[] = 'Caso 6: el desglose no trae las dos hojas esperadas (insumo trackeable + insumo sin ledger); trae: '
+        . implode(', ', array_keys($byItem));
+} elseif ($insumoLine['source'] !== \Punto\App\Domain\RecipeCosting::SOURCE_AVG) {
+    $failures[] = "Caso 6: el insumo trackeable debería valuarse con el promedio del ledger ('avg'), no '{$insumoLine['source']}'";
+} elseif ($nostockLine['source'] !== \Punto\App\Domain\RecipeCosting::SOURCE_CATALOG) {
+    $failures[] = "Caso 6: el insumo sin ledger debería caer al costo de catálogo ('catalog'), no '{$nostockLine['source']}'";
+} elseif ((int) $insumoLine['depth'] !== 2) {
+    $failures[] = "Caso 6: el insumo cuelga de una sub-preparación, depth esperado 2, obtenido {$insumoLine['depth']}";
+} elseif (round((float) $nostockLine['qty'], 6) !== round(1 / (1 - 0.20), 6)) {
+    $failures[] = "Caso 6: la merma planificada del 20% no se aplicó — qty esperada 1.25, obtenida {$nostockLine['qty']}";
+} else {
+    echo "[verify_production_cogs] OK caso 6: desglose correcto (insumo avg depth=2, sin-ledger catalog qty=1.25 con merma)\n";
+}
+
+// ── Caso 7: la venta real registra ESE número y descuenta ESE stock ─────
+$qtyL2 = 2.0;
+$uidL2 = 'verify-production-cogs-l2-' . bin2hex(random_bytes(6));
+$payloadL2 = [
+    'transaction' => [
+        'uid'  => $uidL2,
+        'type' => 0,
+        'sale' => [[
+            'itemId'        => $L2_ID,
+            'count'         => $qtyL2,
+            'name'          => 'VERIFY-PROD-L2',
+            'uniPrice'      => 20000.0,
+            'price'         => 20000.0,
+            'total'         => 20000.0 * $qtyL2,
+            'tax'           => 0,
+            'discount'      => 0,
+            'totalDiscount' => 0,
+            'user'          => '',
+            'type'          => '',
+            'date'          => '',
+            'note'          => '',
+            'currency'      => '',
+            'uId'           => 0,
+        ]],
+        'subtotal' => 20000.0 * $qtyL2,
+        'tax'      => 0,
+        'discount' => 0,
+        'payment'  => [['type' => 'cash', 'name' => 'Efectivo', 'total' => 20000.0 * $qtyL2]],
+        'date'      => date('Y-m-d H:i:s'),
+        'timestamp' => time(),
+    ],
+];
+
+try {
+    $resultL2 = $service->save(SaleInput::fromPayload($payloadL2));
+} catch (InvalidSaleInputException|SaleAbortedException|DuplicateSaleException $e) {
+    $resultL2 = null;
+    $failures[] = 'Caso 7: la venta de L2 no se pudo guardar: ' . $e->getMessage();
+}
+
+if ($resultL2 !== null) {
+    $txL2 = $resultL2->transactionId;
+
+    $row = $db->Execute(
+        'SELECT itemSoldCOGS FROM itemSold WHERE transactionId = ? AND itemId = ? LIMIT 1',
+        [$txL2, $L2_ID]
+    );
+    if (!$row || $row->EOF) {
+        $failures[] = 'Caso 7: no se encontró la fila itemSold de la venta de L2';
+    } else {
+        $gotL2 = abs((float) ($row->fields['itemsoldcogs'] ?? 0));
+        if (round($gotL2, 6) !== round($expectedL2A, 6)) {
+            $failures[] = "Caso 7: itemSoldCOGS de L2 esperado {$expectedL2A} (UNITARIO, no × {$qtyL2}), obtenido {$gotL2}";
+        } else {
+            echo "[verify_production_cogs] OK caso 7: la venta registró el mismo costo que RecipeCosting ({$gotL2}, unitario)\n";
+        }
+    }
+
+    // El insumo del nivel 2 SÍ se descuenta: 3 por unidad de L2 × 2 vendidas.
+    $row = $db->Execute(
+        'SELECT SUM(ABS(stockCount)) AS moved FROM stock WHERE itemId = ? AND transactionId = ?',
+        [$INSUMO_ID, $txL2]
+    );
+    $moved = ($row && !$row->EOF) ? (float) ($row->fields['moved'] ?? 0) : 0.0;
+    if (round($moved, 6) !== round(3 * $qtyL2, 6)) {
+        $failures[] = 'Caso 7: el insumo del segundo nivel debía descontarse ' . (3 * $qtyL2) . ", se descontó {$moved}";
+    } else {
+        echo "[verify_production_cogs] OK caso 7b: el insumo del segundo nivel se descontó ({$moved})\n";
+    }
+
+    // El insumo sin ledger NO genera movimiento — cuesta, pero no se descuenta.
+    $row = $db->Execute(
+        'SELECT COUNT(*) AS n FROM stock WHERE itemId = ? AND transactionId = ?',
+        [$NOSTOCK_ID, $txL2]
+    );
+    $n = ($row && !$row->EOF) ? (int) ($row->fields['n'] ?? 0) : 0;
+    if ($n !== 0) {
+        $failures[] = "Caso 7c: el insumo sin control de stock no debe generar movimiento, se generaron {$n}";
+    } else {
+        echo "[verify_production_cogs] OK caso 7c: el insumo sin ledger costea pero no mueve stock\n";
     }
 }
 
