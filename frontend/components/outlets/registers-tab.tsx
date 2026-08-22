@@ -30,7 +30,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Separator } from "@/components/ui/separator"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { formatDate } from "@/lib/format-date"
+// Formateador único del correlativo (mig 158) — el mismo que usa el ticket.
+// El preview del form y la columna del listado tienen que mostrar EXACTAMENTE
+// lo que va a salir impreso.
+import { formatDocumentNumber, DEFAULT_PAD_WIDTH } from "@/lib/documents/format-document-number"
 import {
   useRegistersAdmin,
   useCreateRegister,
@@ -39,6 +50,7 @@ import {
   type RegisterFiscal,
   type RegisterListItem,
   type RegisterNumbering,
+  type RegisterPadWidth,
 } from "@/hooks/use-registers-admin"
 import {
   useRegisterLeases,
@@ -90,6 +102,20 @@ const EMPTY_NUMBERING: RegisterNumbering = {
   cotizacion: "",
 }
 
+/** Ancho por defecto de una caja nueva: formato fiscal PY `001-001-0002129`. */
+const EMPTY_PAD_WIDTH: RegisterPadWidth = {
+  factura: DEFAULT_PAD_WIDTH,
+  cotizacion: DEFAULT_PAD_WIDTH,
+}
+
+/**
+ * Opciones del selector de dígitos. El CHECK de la mig 158 permite 1..12, pero
+ * el form ofrece 4..10: por debajo de 4 no hay talonario real y por encima de
+ * 10 tampoco. Un valor fuera de la lista (cargado por API) igual se respeta —
+ * el `<Select>` lo muestra porque se agrega dinámicamente abajo.
+ */
+const PAD_WIDTH_OPTIONS = [4, 5, 6, 7, 8, 9, 10]
+
 /**
  * CRUD de cajas para una sucursal específica. Scoped por `outletId`: filtra
  * la lista global y el form de crear no pregunta sucursal (la asume).
@@ -124,6 +150,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   const [newName, setNewName] = React.useState("")
   const [newFiscal, setNewFiscal] = React.useState<RegisterFiscal>(EMPTY_FISCAL)
   const [newNumbering, setNewNumbering] = React.useState<RegisterNumbering>(EMPTY_NUMBERING)
+  const [newPadWidth, setNewPadWidth] = React.useState<RegisterPadWidth>(EMPTY_PAD_WIDTH)
   const [newRangeTo, setNewRangeTo] = React.useState("")
 
   const [editTarget, setEditTarget] = React.useState<RegisterListItem | null>(null)
@@ -132,6 +159,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
   const [editBlind, setEditBlind] = React.useState(false)
   const [editFiscal, setEditFiscal] = React.useState<RegisterFiscal>(EMPTY_FISCAL)
   const [editNumbering, setEditNumbering] = React.useState<RegisterNumbering>(EMPTY_NUMBERING)
+  const [editPadWidth, setEditPadWidth] = React.useState<RegisterPadWidth>(EMPTY_PAD_WIDTH)
   const [editRangeTo, setEditRangeTo] = React.useState("")
 
   const [deleteTarget, setDeleteTarget] = React.useState<RegisterListItem | null>(null)
@@ -142,6 +170,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
     setNewName("")
     setNewFiscal(EMPTY_FISCAL)
     setNewNumbering(EMPTY_NUMBERING)
+    setNewPadWidth(EMPTY_PAD_WIDTH)
     setNewRangeTo("")
     setShowCreate(true)
   }
@@ -153,6 +182,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
     setEditBlind(reg.blindControl)
     setEditFiscal({ ...EMPTY_FISCAL, ...reg.fiscal })
     setEditNumbering({ ...EMPTY_NUMBERING, ...reg.numbering })
+    setEditPadWidth({ ...EMPTY_PAD_WIDTH, ...reg.padWidth })
     setEditRangeTo(reg.range?.facturaTo != null ? String(reg.range.facturaTo) : "")
   }
 
@@ -203,11 +233,19 @@ export function RegistersTab({ outletId }: { outletId: string }) {
       // rango de timbrado cargado se muestra el techo al lado — es la única
       // pista de cuánto queda antes de que la caja deje de poder facturar.
       cell: ({ row }) => {
-        const next = row.original.numbering.factura
-        const to = row.original.range?.facturaTo
+        const reg = row.original
+        const to = reg.range?.facturaTo
+        // Se muestra EXACTAMENTE como va a salir impreso (mig 158): mismo
+        // formateador que el ticket y que el detalle. Antes se pintaba el
+        // entero pelado y no coincidía con la factura.
+        const next = formatDocumentNumber(
+          reg.numbering.factura,
+          reg.fiscal.invoicePrefix,
+          reg.padWidth?.factura,
+        )
         return (
           <span className="text-sm tabular-nums">
-            {next}
+            {next || "—"}
             {to != null && (
               <span className="text-muted-foreground"> / {to}</span>
             )}
@@ -365,6 +403,8 @@ export function RegistersTab({ outletId }: { outletId: string }) {
               onFiscal={(p) => setNewFiscal((f) => ({ ...f, ...p }))}
               numbering={newNumbering}
               onNumbering={(p) => setNewNumbering((n) => ({ ...n, ...p }))}
+              padWidth={newPadWidth}
+              onPadWidth={(p) => setNewPadWidth((w) => ({ ...w, ...p }))}
               rangeTo={newRangeTo}
               onRangeTo={setNewRangeTo}
               numberingHint="Desde qué número emite esta caja. Vacío arranca en 1."
@@ -381,6 +421,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
                     name: newName.trim(),
                     fiscal: newFiscal,
                     numbering: newNumbering,
+                    padWidth: newPadWidth,
                     range: { facturaTo: newRangeTo },
                   },
                   {
@@ -435,6 +476,8 @@ export function RegistersTab({ outletId }: { outletId: string }) {
               onFiscal={(p) => setEditFiscal((f) => ({ ...f, ...p }))}
               numbering={editNumbering}
               onNumbering={(p) => setEditNumbering((n) => ({ ...n, ...p }))}
+              padWidth={editPadWidth}
+              onPadWidth={(p) => setEditPadWidth((w) => ({ ...w, ...p }))}
               rangeTo={editRangeTo}
               onRangeTo={setEditRangeTo}
               numberingHint="El próximo número que va a emitir esta caja."
@@ -454,6 +497,7 @@ export function RegistersTab({ outletId }: { outletId: string }) {
                     blindControl: editBlind,
                     fiscal: editFiscal,
                     numbering: editNumbering,
+                    padWidth: editPadWidth,
                     range: { facturaTo: editRangeTo },
                   },
                   {
@@ -568,6 +612,8 @@ function StampAndNumbering({
   onFiscal,
   numbering,
   onNumbering,
+  padWidth,
+  onPadWidth,
   rangeTo,
   onRangeTo,
   numberingHint,
@@ -577,11 +623,31 @@ function StampAndNumbering({
   onFiscal: (patch: Partial<RegisterFiscal>) => void
   numbering: RegisterNumbering
   onNumbering: (patch: Partial<RegisterNumbering>) => void
+  padWidth: RegisterPadWidth
+  onPadWidth: (patch: Partial<RegisterPadWidth>) => void
   rangeTo: string
   onRangeTo: (v: string) => void
   numberingHint: string
 }) {
   const digits = (v: string) => v.replace(/\D/g, "")
+
+  // El ancho guardado puede venir fuera de las opciones ofrecidas (cargado por
+  // API, o backfilleado del legacy `registerDocsLeadingZeros`). Se agrega a la
+  // lista en vez de descartarlo: el `<Select>` sin match dejaría el trigger en
+  // blanco y el primer guardado pisaría en silencio el ancho del tenant.
+  const padWidthChoices = React.useMemo(() => {
+    const set = new Set(PAD_WIDTH_OPTIONS)
+    if (padWidth.factura > 0) set.add(padWidth.factura)
+    return [...set].sort((a, b) => a - b)
+  }, [padWidth.factura])
+
+  // Preview con el número real que la caja va a emitir. Vacío (alta sin
+  // número cargado) → se previsualiza el 1, que es donde arranca la secuencia.
+  const invoicePreview = formatDocumentNumber(
+    numbering.factura || "1",
+    fiscal.invoicePrefix,
+    padWidth.factura,
+  )
 
   return (
     <>
@@ -657,6 +723,30 @@ function StampAndNumbering({
               placeholder="1"
               className="tabular-nums"
             />
+          </div>
+          {/* Los ceros a la izquierda son FORMATO, no parte del número: el
+              correlativo se guarda como entero (por eso tipear "00002129"
+              guardaba 2129). Acá se declara cuántos dígitos ocupa impreso. */}
+          <div className="space-y-1.5">
+            <Label htmlFor={`${idPrefix}-pad-width`}>Dígitos de la factura</Label>
+            <Select
+              value={String(padWidth.factura)}
+              onValueChange={(v) => onPadWidth({ factura: Number(v) })}
+            >
+              <SelectTrigger id={`${idPrefix}-pad-width`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {padWidthChoices.map((w) => (
+                  <SelectItem key={w} value={String(w)}>
+                    {w} dígitos
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground tabular-nums">
+              Se imprime {invoicePreview}
+            </p>
           </div>
           <div className="space-y-1.5">
             {/* Techo del rango autorizado: al agotarse, la caja deja de

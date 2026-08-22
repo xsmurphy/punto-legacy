@@ -92,9 +92,11 @@ final class TransactionDetailService
         if ($type === 6 && ($reg['returnPrefix'] ?? null) !== null) {
             $invoicePrefix = (string) $reg['returnPrefix'];
         }
-        $leadingZeros = (int) ($reg['docsLeadingZeros'] ?? 0);
+        // Ancho del talonario (mig 158) — antes salía de
+        // `register.data.registerDocsLeadingZeros` y se padeaba acá a mano.
+        $padWidth     = (new \Punto\Api\Reports\TransactionsService())->padWidthFor($reg, $type);
         $invoiceNoRaw = (string) ($tx['invoiceNo'] ?? '');
-        $invoiceNoPad = $leadingZeros > 0 ? str_pad($invoiceNoRaw, $leadingZeros, '0', STR_PAD_LEFT) : $invoiceNoRaw;
+        $invoiceNoPad = \Punto\Api\Documents\DocumentNumber::pad($invoiceNoRaw, $padWidth);
 
         // Venta emitida SIN IVA (mig 101) — mismo criterio que
         // Reports\TransactionsService::detail(): el valor real de PG llega
@@ -389,7 +391,14 @@ final class TransactionDetailService
             'authNo'        => (string) ($reg['invoiceAuth'] ?? ''),
             'invoicePrefix' => $invoicePrefix,
             'invoiceNoPad'  => $invoiceNoPad,
-            'docNo'         => $invoicePrefix . $invoiceNoPad,
+            // Formateador único (mig 158). OJO: acá el separador ANTES no
+            // existía (`$invoicePrefix . $invoiceNoPad` → "001-0010002129"),
+            // mientras el listado y los reportes fiscales sí ponían el guion.
+            // El detalle mostraba un número que no coincidía con el de la
+            // factura impresa. Ahora los tres salen de `format()`.
+            'docNo'         => \Punto\Api\Documents\DocumentNumber::format(
+                $invoiceNoRaw, $invoicePrefix, $padWidth
+            ),
             'subtotal'      => $subtotal,
             'netTotal'      => $netTotal,
         ];

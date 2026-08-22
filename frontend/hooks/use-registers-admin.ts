@@ -43,6 +43,23 @@ export interface RegisterNumbering {
 }
 
 /**
+ * Cuántos dígitos ocupa el correlativo al IMPRIMIRSE
+ * (`document_sequence.padwidth`, mig 158). 7 = formato fiscal PY
+ * (`001-001-0002129`).
+ *
+ * Va aparte de `RegisterNumbering` porque no es el número: el correlativo se
+ * guarda como entero y los ceros a la izquierda son formato. Tipear
+ * "00002129" en "Próxima factura" guardaba 2129 y volvía sin ceros — el
+ * ancho no tenía dónde vivir. Ahora vive acá.
+ *
+ * Al ESCRIBIR, vacío significa "no lo toques", igual que en `numbering`.
+ */
+export interface RegisterPadWidth {
+  factura: number
+  cotizacion: number
+}
+
+/**
  * Fin del rango autorizado por el timbrado. Al agotarse, el asignador corta la
  * emisión en vez de facturar fuera de timbrado. Null = sin techo declarado.
  */
@@ -62,6 +79,7 @@ export interface RegisterListItem {
   blindControl: boolean
   fiscal: RegisterFiscal
   numbering: RegisterNumbering
+  padWidth: RegisterPadWidth
   range: RegisterRange
   /** Hotkeys de artículo configurados en esta caja que hoy no resuelven
    *  contra su catálogo visible (otra sucursal, o ítem borrado) — el POS ya
@@ -91,6 +109,8 @@ export function useCreateRegister() {
        *  expedición y el número desde el que arranca es dato del timbrado. */
       fiscal?: Partial<RegisterFiscal>
       numbering?: Partial<RegisterNumbering>
+      /** Dígitos del correlativo impreso (mig 158). Formato, no número. */
+      padWidth?: Partial<RegisterPadWidth>
       range?: { facturaTo?: string }
     }
   >({
@@ -102,6 +122,7 @@ export function useCreateRegister() {
       }
       if (vars.fiscal !== undefined)    payload.fiscal    = vars.fiscal
       if (vars.numbering !== undefined) payload.numbering = vars.numbering
+      if (vars.padWidth !== undefined)  payload.padWidth  = vars.padWidth
       if (vars.range !== undefined)     payload.range     = vars.range
       return api.post<{ id: string; name: string }>("/v1/register", payload)
     },
@@ -125,6 +146,8 @@ export function useUpdateRegister() {
       blindControl?: boolean
       fiscal?: Partial<RegisterFiscal>
       numbering?: Partial<RegisterNumbering>
+      /** Dígitos del correlativo impreso (mig 158). Formato, no número. */
+      padWidth?: Partial<RegisterPadWidth>
       range?: { facturaTo?: string }
     }
   >({
@@ -135,6 +158,7 @@ export function useUpdateRegister() {
       if (vars.blindControl !== undefined) payload.blindControl = vars.blindControl
       if (vars.fiscal !== undefined)       payload.fiscal       = vars.fiscal
       if (vars.numbering !== undefined)    payload.numbering    = vars.numbering
+      if (vars.padWidth !== undefined)     payload.padWidth     = vars.padWidth
       if (vars.range !== undefined)        payload.range        = vars.range
       return api.post<{ ok: boolean }>("/v1/register", payload)
     },

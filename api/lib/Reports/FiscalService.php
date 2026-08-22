@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Reports;
 
 use Punto\Api\Contacts\ContactService;
+use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Tax\TaxBreakdownResolver;
 use Punto\Api\Tax\TaxEngine;
 
@@ -234,10 +235,13 @@ final class FiscalService
             if ($invoicePrefix === '') {
                 $invoicePrefix = (string) ($reg['invoicePrefix'] ?? '');
             }
-            $lead      = (int) ($reg['docsLeadingZeros'] ?? 0);
+            // Ancho del talonario (mig 158). Este es el reporte que va a la
+            // SET: el número tiene que salir EXACTAMENTE igual que en la
+            // factura impresa, por eso comparte formateador con el ticket y
+            // con el detalle en vez de tener su propio `str_pad`.
+            $padWidth  = (new TransactionsService())->padWidthFor($reg, $f['transactionType'] ?? null);
             $invoiceNo = (string) ($f['invoiceNo'] ?? '');
-            $paddedNo  = $lead > 0 ? str_pad($invoiceNo, $lead, '0', STR_PAD_LEFT) : $invoiceNo;
-            $docNo     = ($invoicePrefix !== '' && $paddedNo !== '') ? $invoicePrefix . '-' . $paddedNo : $invoicePrefix . $paddedNo;
+            $docNo     = DocumentNumber::format($invoiceNo, $invoicePrefix, $padWidth);
 
             // ── Cliente: tipo/número de identificación — Tabla 3 SET
             // (contact.contactIdType, mig 125), NO el parseo de string

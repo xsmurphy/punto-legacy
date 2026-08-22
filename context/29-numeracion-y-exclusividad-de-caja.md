@@ -25,6 +25,16 @@ Un número de comprobante paraguayo tiene tres partes:
 - El documento completo es `punto de expedición + correlativo`.
 - Esa combinación está asociada a un **número de timbrado**.
 
+> **Los 7 dígitos son FORMATO, no el número** (mig 158, D7 de `context/37`).
+> El correlativo se guarda entero (`document_sequence.nextnumber`,
+> `transaction.invoiceNo`, ambos BIGINT) y los ceros a la izquierda se ponen
+> al pintarlo. El ancho es configurable por talonario
+> (`document_sequence.padwidth`, default 7, editable en Sucursal › Cajas) y
+> lo aplica UN solo formateador por lado: `DocumentNumber::format()` en PHP,
+> `lib/documents/format-document-number.ts` en el front. Prohibido un
+> `str_pad`/`padStart` suelto en un call-site — es exactamente cómo se
+> separaron los cuatro formatos que la mig 158 unificó.
+
 En Punto: **una caja va atada a un punto de expedición propio.** Si `001-001`
 ya está asignado a una caja, JAMÁS otra caja puede usar `001-001` — la
 siguiente caja de esa sucursal es `001-002`.

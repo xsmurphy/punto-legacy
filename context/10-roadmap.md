@@ -90,6 +90,7 @@ detrás. Estado se actualiza acá a medida que se cierran.
    reportes. Fix: `document_sequence.padwidth` (default 7, `context/29 §1`) +
    formateador único `DocumentNumber::format()` usado por panel, POS, ticket
    y reportes; select "Dígitos del N°" en el form de caja.
+   **Resuelto** (document-number-padwidth)
 3. **Líneas horizontales/verticales de la plantilla no salen en papel.**
    `html-renderer.ts:74-81` las pinta como contenido con margen dentro de un
    wrapper `overflow:hidden` de la altura del bloque — una línea de 1px cae

@@ -598,6 +598,65 @@ try {
             }
         }
     }
+    // ── Caso 13 (mig 158) — el ancho del correlativo es FORMATO: se declara
+    //    en `document_sequence.padwidth`, NO se guarda dentro del número.
+    //    Dos cosas que tienen que valer a la vez:
+    //      a) `padwidth` baja al device por `docNumbers` (el POS imprime
+    //         offline: si el ancho no viaja, el ticket sale sin ceros);
+    //      b) el formateador compone `EEE-PPP-NNNNNNN` sin tocar el entero.
+    //    El caso trampa es el (b) con padWidth por DEBAJO de los dígitos que
+    //    ya tiene el número: padear nunca puede TRUNCAR un correlativo — eso
+    //    emitiría un documento con un número que no es el suyo. ───────────
+    if ($statusClaimC !== 200) {
+        $failures[] = 'Caso 13: setup — depende del device C de la caja 2, que no quedó disponible';
+    } else {
+        ncmExecute(
+            "UPDATE document_sequence SET padwidth = 9
+              WHERE scopetype = 'register' AND scopeid = ? AND doctype = 'factura'",
+            [$PY_REGISTER_2]
+        );
+        [$statusPad, $bodyPad] = verifyGetDocNumbers($port, $tokenC);
+        $padDown = $bodyPad['data']['invoicePadWidth'] ?? null;
+        if ($statusPad !== 200 || (int) $padDown !== 9) {
+            $failures[] = 'Caso 13a: docNumbers debía bajar invoicePadWidth=9 al device, llegó ' . $statusPad . ' ' . json_encode($bodyPad);
+        } else {
+            echo "[verify_register_lease] OK caso 13a: `padwidth` viaja al device en docNumbers (invoicePadWidth=9) — el POS puede formatear el ticket sin red\n";
+        }
+
+        // (b) El formateador, sobre la función pura. `nextnumber` sigue
+        //     intacto en la BD: lo único que cambió es cómo se pinta.
+        $fmtCases = [
+            // [numero, prefijo, ancho, esperado]
+            [2129,  '001-001', 7, '001-001-0002129'],
+            [2129,  '001-001', 4, '001-001-2129'],
+            // TRAMPA: ancho menor que el número — se respeta el número, NO se trunca.
+            [212934, '001-001', 4, '001-001-212934'],
+            // Sin prefijo no se inventa separador huérfano.
+            [2129,  '',        7, '0002129'],
+            // Sin número no hay "0000000" fantasma.
+            [0,     '001-001', 7, '001-001'],
+        ];
+        foreach ($fmtCases as [$num, $pfx, $w, $expected]) {
+            $got = \Punto\Api\Documents\DocumentNumber::format($num, $pfx, $w);
+            if ($got !== $expected) {
+                $failures[] = "Caso 13b: format({$num}, '{$pfx}', {$w}) esperaba '{$expected}', dio '{$got}'";
+            }
+        }
+        // El entero guardado no se tocó — el padding es presentación.
+        $seqRow = ncmExecute(
+            "SELECT nextnumber, padwidth FROM document_sequence
+              WHERE scopetype = 'register' AND scopeid = ? AND doctype = 'factura'",
+            [$PY_REGISTER_2]
+        );
+        $storedNext = ($seqRow !== false && $seqRow !== 0) ? (string) ($seqRow['nextnumber'] ?? '') : '';
+        if ($storedNext !== '' && !ctype_digit($storedNext)) {
+            $failures[] = 'Caso 13b: `nextnumber` debía seguir siendo un entero pelado, quedó ' . json_encode($storedNext);
+        } elseif ($storedNext !== '' && $storedNext[0] === '0' && $storedNext !== '0') {
+            $failures[] = 'Caso 13b: `nextnumber` NO puede guardar ceros a la izquierda (los ceros son formato), quedó ' . json_encode($storedNext);
+        } else {
+            echo "[verify_register_lease] OK caso 13b: format() compone 001-001-0002129 y NUNCA trunca un número más largo que el ancho; `nextnumber` sigue siendo el entero pelado\n";
+        }
+    }
 } catch (\RuntimeException $e) {
     $failures[] = 'Setup: ' . $e->getMessage();
 } finally {
