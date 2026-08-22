@@ -383,16 +383,32 @@ class DB
      * incendio si algún camino no auditado revienta en prod, no para vivir
      * apagado (context/06-infraestructura.md).
      *
-     * El `defined()` importa: `DB.php` se carga también desde arneses y
-     * scripts CLI que no pasan por `simple.config.php`, y ahí el default
-     * seguro es lanzar.
+     * El orden de resolución importa, y NO alcanza con mirar la constante:
+     * `simple.config.php` (donde se define) se carga DESPUÉS de este archivo
+     * en `head.php`, y el realm `/v1/admin/*` no lo carga NUNCA (entra por
+     * `includes/db.php` + `lib/Auth/AdminAuth.php`). Si esto dependiera solo de
+     * la constante, el kill-switch no tendría efecto en /admin ni en los
+     * arneses CLI — justo donde uno querría poder apagarlo. Así que:
+     *
+     *   1. constante `DB_THROW_ON_ERROR` si está definida (permite un override
+     *      explícito por código, ej. un test);
+     *   2. env var homónima;
+     *   3. default TRUE (lanzar).
+     *
+     * Fail-safe: SOLO un valor falsy explícito apaga el switch. Un typo en la
+     * env var deja el default seguro, no el peligroso. Misma regla que
+     * `simple.config.php` — si cambia una, cambia la otra.
      */
     private function throwOnError(): bool
     {
         if (defined('DB_THROW_ON_ERROR')) {
             return (bool) constant('DB_THROW_ON_ERROR');
         }
-        return true;
+        $raw = $_ENV['DB_THROW_ON_ERROR'] ?? getenv('DB_THROW_ON_ERROR');
+        if ($raw === false || $raw === null || $raw === '') {
+            return true;
+        }
+        return !in_array(strtolower(trim((string) $raw)), ['0', 'false', 'off', 'no'], true);
     }
 
     /**

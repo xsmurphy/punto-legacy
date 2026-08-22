@@ -92,11 +92,21 @@ final class ItemRepository
      *      detectamos de forma genérica (sin enumerar cada tabla) y devolvemos
      *      'referenced' en vez de un false ambiguo.
      *
+     * NO LLAMAR DENTRO DE UNA TRANSACCIÓN ABIERTA. El `catch (DbQueryException)`
+     * que traduce la violación de FK a 'referenced' solo es correcto si este
+     * DELETE es la única escritura en vuelo: cuando el wrapper lanza ya hizo
+     * rollback de TODA la transacción (`DB::failTransaction()`), así que un
+     * caller que envolviera esto en `StartTrans()` vería 'referenced' —un
+     * resultado de negocio normal— mientras su propio trabajo desapareció. Hoy
+     * ningún call-site abre transacción alrededor; si alguno lo necesita, el
+     * pre-check de FK tiene que hacerse con un SELECT antes, no con el catch.
+     *
      * @return true|'sold'|'referenced'|false
      *   - true          → eliminado OK
      *   - 'sold'        → tiene ventas asociadas, no se puede borrar
      *   - 'referenced'  → referenciado por otros registros (stock/inventario/etc.)
-     *   - false         → error de DB, o item no encontrado / no archivado
+     *   - false         → item no encontrado / no archivado (o error de DB con el
+     *                     kill-switch DB_THROW_ON_ERROR apagado)
      */
     public function hardDelete(string $id, string $companyId)
     {

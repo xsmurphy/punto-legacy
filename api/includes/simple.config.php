@@ -192,6 +192,9 @@ define('OPENROUTER_API_KEY',     $_ENV['OPENROUTER_API_KEY']    ?? '');
 // Ver context/06-infraestructura.md y context/08-convenciones-criticas.md.
 // Fail-safe a propósito: SOLO un valor falsy explícito apaga el switch. Un
 // typo en la env var deja el default seguro (lanzar), no el peligroso.
+// `DB::throwOnError()` repite esta misma regla leyendo la env var directo,
+// porque este archivo se carga DESPUÉS de DB.php (head.php) y el realm
+// /v1/admin/* no lo carga nunca. Si cambiás la regla acá, cambiala allá.
 define('DB_THROW_ON_ERROR', !in_array(
     strtolower(trim((string) ($_ENV['DB_THROW_ON_ERROR'] ?? 'true'))),
     ['0', 'false', 'off', 'no'],
