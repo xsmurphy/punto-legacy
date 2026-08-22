@@ -441,6 +441,130 @@ SELECT SUM(net) FROM rollup_sales_day
    AND kind = 'contado' AND status = 'vigente';
 ```
 
+**D8 — Implementado 2026-08-22 (mig 160_rollup_daily_grain.sql).** Tablas
+finales, tal cual el esquema cerrado arriba salvo lo siguiente:
+
+- `rollup_item_sales_day` suma 2 columnas al esquema cerrado —
+  `comission`, `cogsabsflat` — para no perder métricas que el `extra`
+  jsonb del `report_rollup` viejo sí tenía y que CategoriesService/
+  BrandsService consumen. `discount` es `SUM(itemsolddiscount)` a secas:
+  el rollup viejo lo multiplicaba por las unidades y eso era un BUG DE
+  ESCALA (el campo ya es el total de la línea — `ReturnService` lo divide
+  por qty justamente para sacar el unitario), no una convención a
+  preservar; las dos ramas live siempre sumaron el valor plano, así que la
+  corrección ACERCA rollup y live en vez de romper la paridad. Con eso
+  `discountflat` deja de tener razón de ser y no existe.
+- `rollup_sales_day` suma `taxtotal` (`SUM(itemsoldtax)` sin filtro por
+  tasa) al esquema cerrado. `tax10`/`tax5`/`exento` son DESGLOSE fiscal
+  (RG90/Libro Ventas): un tenant con otra tasa, o una tasa que el backfill
+  no pudo encajar, desaparecía de `tax10 + tax5` sin avisar. El "impuesto
+  del mes" que devuelve `RollupReader::monthlyBuckets` sale de `taxtotal`.
+- El backfill de `itemsold.taxrate` (reconstruido desde
+  `itemsoldtax/itemsoldtotal`, aproximado) ENCAJA el resultado en los
+  buckets fiscales reales: `[9,11] → 10`, `[4,6] → 5`, `itemsoldtax=0 →
+  0`. Sin eso, el redondeo de una línea con descuento parcial daba 9 u 11
+  y la línea se caía del desglose. Cualquier otra tasa se deja tal cual —
+  no se inventa un bucket, la línea suma igual en `taxtotal`.
+- `RollupReader::itemSalesRange` filtra `kind IN ('contado','credito')`:
+  sus consumers (Categorías, Marcas) son la contraparte rollup de ramas
+  live que filtran `transactionType IN (0,3)`. Sin ese filtro las
+  devoluciones neteaban las ventas y el mismo reporte daba distinto con el
+  rollup encendido que apagado. Las devoluciones siguen en la tabla con
+  `kind='devolucion'` y se consultan aparte (context/47).
+- Columnas congeladas nuevas: `itemsold.taxrate`/`itemsold.taxkind`
+  ('rate'|'exempt' — el motor real usa esos valores, NO 'vat') y
+  `transaction.channel` ('mostrador'|'mesa'|'delivery'). `channel` se
+  resuelve en dos tiempos: `SaleService` distingue mostrador/delivery por
+  `addressId` al emitir; `OrderCoreService::markPaid()` sobre-escribe a
+  'mesa' cuando la venta se vincula a una orden de mesa/espacio (esa
+  información no existe todavía cuando se emite la venta).
+- Hallazgo de esta sesión: `itemSold.itemSoldCategory` — que el plan
+  original de D8 asumía ya congelada — en realidad NUNCA se poblaba
+  (cero writers). Se cerró: `SaleService` la congela desde `item.categoryId`
+  al vender; `ReturnService` la copia de la línea original. Backfill
+  histórico con la categoría ACTUAL (aproximación, no hay forma de
+  reconstruir la de hace un año).
+- `ReturnService` tampoco llamaba `rollupMarkDirty` nunca (otro hallazgo) —
+  las devoluciones no entraban al rollup en absoluto. Corregido: marca
+  `['sales','item_sales','payments']` post-commit, igual que
+  `SaleService`/`SaleVoidService`.
+- `fn_period_guard` (mig 157) permite ahora que un `UPDATE` que solo toca
+  `channel` (además de `transactioncomplete`/`updated_at`) pase aunque el
+  período esté cerrado — necesario para que `markPaid()` pueda clasificar
+  el canal de una venta vieja sin chocar con el guard de inmutabilidad.
+- `RollupReader` mantiene las mismas firmas públicas; suma
+  `salesDaily(company, from, to, filters)` sin endpoint todavía — es la
+  base que va a consumir `context/47`.
+- **Hallazgo de verificación**: el `report_rollup` viejo, tal como estaba
+  en el dump de prod usado para probar esta migración, estaba INCOMPLETO
+  (`sales`/`item_sales` de meses viejos no coincidían con la fact real,
+  probablemente por datos de prueba insertados sin pasar por
+  `rollupMarkDirty`). El backfill completo de `rollup_dirty` que hace esta
+  migración (WHERE `transactiontype IN (0,3,5,6,7)`, sin filtro de fecha)
+  corrige esa deriva de paso — el rollup nuevo se verificó contra la fact
+  en vivo (no contra el rollup viejo, que no era una base confiable) y
+  coincide exacto en todos los casos probados.
+
+**D8 — correcciones del code-review (2026-08-22, mismo commit).** Lo que
+había quedado mal en la primera pasada y ya está corregido en la mig 160:
+
+- La migración ABORTABA en cualquier base con un período cerrado: los
+  backfills de `itemsold` disparaban `fn_period_guard` (PC001) y el
+  backfill de `transaction.channel` corría ANTES de la redefinición de esa
+  función. Ahora `fn_period_guard` se redefine primero y todos los
+  backfills corren con `session_replication_role = replica` (verificado:
+  el trigger de sync a `transaction_registry` es `AFTER UPDATE OF` sobre
+  columnas que estos backfills no tocan, así que no se desincroniza).
+- El recompute podaba particiones solo por `transaction`: la LATERAL de
+  `sales` y el JOIN de `item_sales` barrían TODAS las particiones de
+  `itemsold`. Ahora llevan `a.companyid = p_company` y una ventana de
+  `itemsolddate` de ±1 día alrededor del día recomputado.
+- `transactiontype = 7` era rama muerta en el `status` (el `WHERE` filtra
+  `IN (0,3,6)`). `status` lo define SOLO `voidedat`, y 7 no se agrega al
+  `WHERE`: el camino legacy que lo produce (`TransactionService::
+  voidTransaction`) PISA `transactiontype`, así que el `kind` original se
+  perdió y sería inventado; además ese camino ya no se usa para ventas
+  (`v1/transactions.php` rutea 0/3 a `SaleVoidService`, que deja el tipo
+  intacto). Prod tiene 0 filas type=7.
+- `(elem->>'price')::numeric` reventaba (22P02) con `''` o montos
+  formateados en el jsonb libre de `transactionpaymenttype` — y eso se
+  llevaba puesta la migración entera. Ahora el cast se valida con regexp
+  en una LATERAL, y se recuperó el filtro de mig 155 que descarta
+  elementos sin `type` NI `name` (no hay bucket `sin_especificar`).
+- Faltaba `rollupMarkDirty` en `CreditPaymentService` (alta y anulación del
+  recibo type=5), y `ReturnService` marcaba con `date('Y-m-d')` de PHP en
+  vez de la fecha real de la fila. Ambos usan ahora la fecha real del
+  documento.
+- El `UPDATE transaction SET channel` de `OrderCoreService::markPaid()`
+  escaneaba todas las particiones; lleva un predicado de
+  `transactiondate` resuelto contra `transaction_registry`.
+- La migración corre `rollup_reconcile` inline al final (acotado a 20
+  iteraciones) — sin eso, todos los reportes quedaban en cero entre el
+  deploy y el siguiente tick del cron, porque las tablas nuevas nacen
+  vacías y el rollup viejo ya fue borrado. **En una base grande hay que
+  sacar ese bloque**: la migración es una sola transacción y el container
+  no arranca hasta que termine.
+
+**D8 — pendientes conocidos (NO implementados, anotados a propósito):**
+
+1. `rollup_payments_day.kind='cobro'` mezcla el cobro a cliente con el
+   pago a proveedor: los dos son `transactiontype = 5` y hoy no se
+   distinguen. Separar en `cobro` / `pago_proveedor` cuando `context/47`
+   necesite el corte — hace falta mirar `customerid`/`supplierid` de la
+   fila, igual que hace `CreditPaymentService`.
+2. `CategoriesService::salesByCategory` sigue agrupando por
+   `item.categoryid` ACTUAL (re-JOIN al catálogo) en vez de leer la
+   `categoryid` CONGELADA que `rollup_item_sales_day` ya guarda — es
+   exactamente el anti-patrón que D8 prohíbe, y la columna congelada ya
+   existe y está poblada. Migrarlo cuando se toque Categorías (implica
+   agrupar por `categoryid` en el reader y decidir qué hacer con el
+   sentinel uuid cero = "sin categoría").
+3. La anulación de un recibo usa `transactionStatus = 6`, NO `voidedat`, y
+   ni el recompute de `rollup_payments_day` ni la rama live
+   (`PaymentMethodsService`) lo excluyen — el monto anulado sigue contando
+   en Medios de Pago en AMBAS ramas. El rollup mantiene la paridad a
+   propósito; corregirlo es un cambio de las dos ramas a la vez.
+
 **D9 — Backups: cambiar el método, no el número de bases.** Objeción del
 owner (2026-08-21): "¿conviene que el histórico conviva con la base
 caliente? Imaginá backups diarios con 20 GB de histórico". Es legítima,

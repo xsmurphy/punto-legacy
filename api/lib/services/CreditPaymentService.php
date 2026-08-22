@@ -508,6 +508,25 @@ final class CreditPaymentService
             apiError('No se pudo anular el recibo: la transacción abortó', 500);
         }
 
+        // Rollup: se recomputa el día DEL RECIBO, no el de hoy — la anulación
+        // puede ocurrir días después del cobro, y marcar hoy dejaría el día
+        // real sin recalcular. Best-effort post-commit, mismo criterio que
+        // SaleVoidService:384.
+        //
+        // OJO (deuda conocida, no se cambia acá): la anulación de un recibo
+        // usa transactionStatus=6, NO voidedat, y ni el recompute de
+        // rollup_payments_day (mig 160) ni la rama live
+        // (PaymentMethodsService:33, que filtra solo voidedat) lo excluyen —
+        // o sea que hoy el monto sigue contando en Medios de Pago en AMBAS
+        // ramas. El recompute mantiene la paridad a propósito; corregir el
+        // criterio es un cambio de las dos ramas a la vez, anotado en
+        // context/48 §D8.
+        try {
+            \rollupMarkDirty($companyId, ['payments'], substr((string) $payment['transactionDate'], 0, 10));
+        } catch (\Throwable $e) {
+            error_log('[CreditPaymentService] rollupMarkDirty (void): ' . $e->getMessage());
+        }
+
         try {
             realtimePublish('transaction', 'update', null);
         } catch (\Throwable $e) {
@@ -717,6 +736,20 @@ final class CreditPaymentService
         }
 
         $db->CompleteTrans();
+
+        // Rollup: el recibo (transactionType=5) ES una fila de
+        // rollup_payments_day (kind='cobro', ver mig 160) — sin marcar el día
+        // sucio, un cobro de crédito nunca aparecía en el reporte de medios
+        // de pago hasta que otro evento del mismo día encolara el rollup.
+        // Best-effort post-commit, mismo criterio que SaleService:297.
+        // La fecha es la REAL del recibo (TODAY, lo que se insertó en
+        // transactionDate arriba), NO date() del momento de este bloque:
+        // recomputar el día equivocado deja el día bueno sin recalcular.
+        try {
+            \rollupMarkDirty($companyId, ['payments'], substr((string) TODAY, 0, 10));
+        } catch (\Throwable $e) {
+            error_log('[CreditPaymentService] rollupMarkDirty: ' . $e->getMessage());
+        }
 
         // Notificación realtime best-effort (post-commit).
         try {

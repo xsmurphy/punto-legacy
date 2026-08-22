@@ -60,7 +60,10 @@ final class BrandsService
             $grouped[$brandId]['total']    += $m['total'];
             $grouped[$brandId]['tax']      += $m['tax'];
             $grouped[$brandId]['cogs']     += $m['cogs'];
-            $grouped[$brandId]['discount'] += $m['discountFlat'];
+            // mig 160: `discount` ya es SUM(itemSoldDiscount) plano — el
+            // `discountFlat` que se leía acá existía solo porque la columna
+            // `discount` del rollup venía inflada por *ABS(units).
+            $grouped[$brandId]['discount'] += $m['discount'];
         }
 
         $brands = Taxonomy::brands($companyId);

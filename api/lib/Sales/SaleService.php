@@ -284,7 +284,12 @@ final class SaleService
         // Rollup: marcar el día de la transacción sucio (best-effort).
         try {
             $rollupDomains = match ($input->type) {
-                \Punto\Api\Sales\SaleType::Return => ['returns', 'item_returns'],
+                // D8 (mig 160): 'returns'/'item_returns' fueron absorbidos
+                // por kind='devolucion' en 'sales'/'item_sales'. Rama sin
+                // callers hoy (SaleType::Return no se construye en ningún
+                // lado — ver ReturnService para el flujo real de
+                // devoluciones), se corrige igual por consistencia.
+                \Punto\Api\Sales\SaleType::Return => ['sales', 'item_sales', 'payments'],
                 \Punto\Api\Sales\SaleType::CashPurchase, \Punto\Api\Sales\SaleType::CreditPurchase => ['expenses'],
                 \Punto\Api\Sales\SaleType::CreditPayment => ['payments'],
                 default => ['sales', 'item_sales', 'payments'],
@@ -772,6 +777,15 @@ final class SaleService
                 (string) $this->ctx->companyId,
                 $input->date,
             ),
+
+            // D8 de context/48-escalamiento-de-datos.md (mig 160): canal
+            // congelado al emitir. Acá solo se puede distinguir 'delivery'
+            // (addressId presente, B6 arriba) de 'mostrador' — 'mesa' se
+            // resuelve DESPUÉS, cuando la venta se vincula a una pos_order
+            // de mesa vía OrderCoreService::markPaid() (esta venta simple no
+            // sabe todavía si nació de una mesa: ese contexto vive en
+            // pos_order, no en SaleInput).
+            'channel'                => $input->addressId !== null ? 'delivery' : 'mostrador',
         ];
     }
 
@@ -1947,11 +1961,19 @@ final class SaleService
 
             $itemId  = (string) $sD['itemId'];
             $itmData = $this->db->Execute(
-                'SELECT itemType, itemPrice FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                'SELECT itemType, itemPrice, categoryId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
                 [$itemId, $companyId]
             );
-            $itemType  = ($itmData && !$itmData->EOF) ? (string) ($itmData->fields['itemtype'] ?? '') : '';
-            $itemPrice = ($itmData && !$itmData->EOF) ? (float) ($itmData->fields['itemprice'] ?? 0) : 0.0;
+            $itemType     = ($itmData && !$itmData->EOF) ? (string) ($itmData->fields['itemtype'] ?? '') : '';
+            $itemPrice    = ($itmData && !$itmData->EOF) ? (float) ($itmData->fields['itemprice'] ?? 0) : 0.0;
+            // D8 de context/48-escalamiento-de-datos.md: itemSoldCategory
+            // NUNCA se poblaba (hallazgo de esta sesión — cero writers antes
+            // de esto). Se congela acá la categoría ACTUAL del ítem al
+            // momento de la venta — igual criterio que itemSoldCOGS/taxRate:
+            // un rollup por categoría no puede mirar el catálogo de HOY.
+            $itemCategoryId = ($itmData && !$itmData->EOF && !empty($itmData->fields['categoryid']))
+                ? (string) $itmData->fields['categoryid']
+                : null;
 
             // Discriminante real de "explota receta al vender" — mismo predicado
             // que usa la explosión de compuestos más abajo (`saleExplodesRecipe`,
@@ -2056,6 +2078,16 @@ final class SaleService
                 'companyId'         => $this->ctx->companyId,
                 'outletId'          => $this->ctx->outletId,
                 'registerId'        => $this->ctx->registerId,
+                // D8 de context/48-escalamiento-de-datos.md (mig 160):
+                // taxRate/taxKind ya vienen congelados por línea desde
+                // enrichWithTaxes() (ver arriba en el archivo) — NO se
+                // recalculan acá, se persisten tal cual. itemSoldCategory:
+                // ver comentario en la resolución de $itemCategoryId arriba.
+                // Ninguno de los tres flipea signo (rate/kind/categoría no
+                // son montos).
+                'taxRate'           => (float) ($sD['taxRate'] ?? 0),
+                'taxKind'           => (string) ($sD['taxKind'] ?? 'exempt'),
+                'itemSoldCategory'  => $itemCategoryId,
             ];
             // `itemSoldCOGS` se OMITE cuando no se pudo determinar, para que la
             // columna quede NULL. Escribir el null directo no alcanza:
@@ -2412,10 +2444,14 @@ final class SaleService
 
             $itemId  = (string) $sD['itemId'];
             $itmData = $this->db->Execute(
-                'SELECT itemType, itemPrice FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
+                'SELECT itemType, itemPrice, categoryId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',
                 [$itemId, $companyId]
             );
             $itemPrice = ($itmData && !$itmData->EOF) ? (float) ($itmData->fields['itemprice'] ?? 0) : 0.0;
+            // D8 (mig 160) — ver comentario gemelo en persistItemsAndStock().
+            $itemCategoryId = ($itmData && !$itmData->EOF && !empty($itmData->fields['categoryid']))
+                ? (string) $itmData->fields['categoryid']
+                : null;
 
             $userComission = false;
             if (!empty($sD['user'])) {
@@ -2465,6 +2501,15 @@ final class SaleService
                 'companyId'         => $this->ctx->companyId,
                 'outletId'          => $this->ctx->outletId,
                 'registerId'        => $this->ctx->registerId,
+                // D8 (mig 160) — ver comentario gemelo en persistItemsAndStock().
+                // Las cotizaciones no alimentan el rollup (nunca son
+                // transactiontype 0/3/6), pero se congelan igual por
+                // consistencia: si el día de mañana una cotización se
+                // convierte en venta real sin volver a pasar por acá, más
+                // vale que ya tenga el dato correcto.
+                'taxRate'           => (float) ($sD['taxRate'] ?? 0),
+                'taxKind'           => (string) ($sD['taxKind'] ?? 'exempt'),
+                'itemSoldCategory'  => $itemCategoryId,
             ];
             // Mismo criterio que la venta: omitir deja NULL, escribir 0
             // mentiría un margen del 100% en la cotización.
