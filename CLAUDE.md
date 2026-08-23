@@ -43,6 +43,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Auth rewrite (JWT → tokens opacos)** | `21-auth-rewrite.md` (plan cerrado 2026-06-29) |
 | **Sucursales, outlet scope, view-scope** | `25-sucursales-y-scopes.md` |
 | **Facturación electrónica (Factomate/SIFEN)** | `28-facturacion-electronica-plan.md` |
+| **KuDE y portal del cliente** | `49-kude-y-portal-cliente.md` (investigación normativa + plan; el ticket por defecto es comprobante interno NO fiscal, el KuDE se pone a disposición en el portal y se imprime a pedido — Decreto 872/2023 art. 25) |
 | **Numeración fiscal + exclusividad de caja (MODELO CANÓNICO)** | `29-numeracion-y-exclusividad-de-caja.md` (punto de expedición sucursal+caja único por timbrado; el arriendo de bloques fue RECHAZADO — ver §6 arquitecturas rechazadas antes de proponer nada) |
 | **`/admin` SaaS (dashboard, salud, planes, billing)** | `34-admin-saas-plan.md` (F1-F6 implementadas) |
 | **Vínculos entre transacciones/órdenes (`transaction_link`)** | `35-transaction-link.md` (mig 115, implementado) |
