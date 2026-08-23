@@ -1,26 +1,16 @@
 'use client'
 
-import * as React from 'react'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
+import { useOnlineStatus } from '@/hooks/use-online-status'
 
 export function OfflineBanner() {
-  const [isOnline, setIsOnline] = React.useState(true)
+  // Estado de red: wrapper compartido (hooks/use-online-status), el mismo que
+  // usa el gate de los medios de pago de pasarela en el cobro.
+  const isOnline = useOnlineStatus()
   const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
   const isSyncing = useOfflineSyncStore((s) => s.isSyncing)
   const failedCount = useOfflineSyncStore((s) => s.failedCount)
   const setQueueDialogOpen = useOfflineSyncStore((s) => s.setQueueDialogOpen)
-
-  React.useEffect(() => {
-    setIsOnline(navigator.onLine)
-    const handleOnline = () => setIsOnline(true)
-    const handleOffline = () => setIsOnline(false)
-    window.addEventListener('online', handleOnline)
-    window.addEventListener('offline', handleOffline)
-    return () => {
-      window.removeEventListener('online', handleOnline)
-      window.removeEventListener('offline', handleOffline)
-    }
-  }, [])
 
   // failedCount > 0 es TERMINAL (context/08 §53): no se resuelve solo al
   // volver la conexión, así que este banner se muestra SIEMPRE que haya

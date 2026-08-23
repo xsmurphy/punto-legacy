@@ -1,8 +1,14 @@
 # uPay (ueno bank) — cobro con QR / link / terminal desde el POS
 
-> Estado: **investigación + plan. Nada implementado.** D1–D10 son propuestas,
-> ninguna cerrada con el owner. Origen: pedido del owner 2026-08-23 — "falta en
-> el roadmap la integración con uPay de Ueno Bank".
+> Estado: **F1a IMPLEMENTADA** (2026-08-23, branch `frontend/psp-generico`) —
+> el refactor de raíz que desbloquea la integración: medio de pago POR
+> pasarela (`ensurePspMethod` + `PspCatalog`) y ciclo de cobro genérico
+> (`<PspQrDialog>` + adapter). El resto del doc sigue siendo **plan**: D1–D10
+> son propuestas, ninguna cerrada con el owner, y **uPay no está cableado**
+> (falta F0: credenciales y documentación real). Origen: pedido del owner
+> 2026-08-23 — "falta en el roadmap la integración con uPay de Ueno Bank".
+>
+> **Qué quedó desbloqueado y cómo se suma una pasarela** — ver §2.4.
 >
 > **Bloqueante de arranque:** la documentación técnica de uPay
 > (`desarrolladores.upay.com.py`) está **detrás de login**. Lo público es la
@@ -215,14 +221,31 @@ y las liquidaciones **no cuadran** — son dos ventanas de acreditación distint
 y dos escalas de comisión distintas (Bancard vs. 3,6% + IVA de uPay). El cajero
 tampoco sabe qué QR está mostrando.
 
-**Solución de raíz:** generalizar a
-`ensurePspMethod(companyId, systemKey, name, code, color)` y que cada PSP
-provisione **su propio** medio de pago —`systemKey='qr'` sigue siendo Bancard
-por retrocompatibilidad, uPay usa `systemKey='upayQr'` con nombre "uPay"—.
-`ensureQrMethod()` queda como wrapper delgado que llama a la genérica, así no
-se toca ningún call-site existente. **[V]** El rename **no** requiere migración
-de datos: el `systemKey` vive en `taxonomyExtra` (JSONB) y los tenants
-existentes ya tienen `'qr'`.
+**Solución de raíz — IMPLEMENTADA (F1a).**
+`PaymentMethodService::ensurePspMethod($companyId, $systemKey, $name, $code,
+$color)`: cada PSP provisiona **su propio** medio de pago. `systemKey='qr'`
+sigue siendo Bancard por retrocompatibilidad; `ensureQrMethod()` quedó como
+wrapper delgado que lee la entrada `bancard` del catálogo, así ningún
+call-site existente cambió. **Sin migración de datos**, ni de esquema ni de
+filas: el `systemKey` vive en `taxonomyExtra` (JSONB) y los tenants existentes
+ya tienen `'qr'`.
+
+**Qué pasa con las ventas históricas del método "QR" viejo: NADA, a
+propósito.** La separación por pasarela la da la FILA de taxonomía, no el
+systemKey — la venta persiste `transactionPaymentType[].type = taxonomyId` y
+el rollup agrupa por `COALESCE(type, name)`. Renombrar la fila de Bancard (a
+"QR Bancard", por ejemplo) o cambiarle el systemKey partiría la serie del
+reporte en dos buckets a mitad de la historia, y las ventas MUY viejas que
+guardaron solo `name` quedarían huérfanas de su bucket. Por eso Bancard
+conserva nombre "QR" y `systemKey='qr'` para siempre, y la pasarela nueva
+entra con fila propia.
+
+Dos comportamientos afinados en el camino, con arnés que los cubre:
+adoptar un método homónimo solo pasa si esa fila **no tiene systemKey** (una
+pasarela no se roba el medio de otro flujo por coincidencia de nombre), y si
+el nombre está tomado por un medio del sistema la provisión **falla explícito**
+en vez de reventar contra el UNIQUE `uq_taxonomy_company_type_name` (el caller
+lo loguea y el módulo queda activo, como siempre).
 
 ### (b) El flujo de cobro con QR está soldado a Bancard
 
@@ -232,10 +255,51 @@ cancelar/vencer). El ciclo es **idéntico** para cualquier PSP de QR; lo único
 específico es el endpoint de creación y el parseo de la respuesta cruda
 (ya aislado en `frontend/lib/payments/bancard-qr.ts`).
 
-**Solución de raíz:** extraer `<PspQrDialog>` genérico parametrizado por un
-*adapter* (`create`, `cancel`, `parse`, `pollKey`), y dejar Bancard y uPay como
-dos adapters. Duplicar 216 líneas de dialog para el segundo PSP es exactamente
-el parche que se vuelve permanente.
+**Solución de raíz — IMPLEMENTADA (F1a).**
+`frontend/components/register/psp-qr-dialog.tsx` es el ciclo completo
+(crear → pintar → publicar a la pantalla del cliente → pollear → cancelar/
+vencer → degradar sin red), parametrizado por un *adapter*. Bancard pasó a ser
+`frontend/lib/payments/psp/bancard.ts`, sin cambio de comportamiento
+observable: mismo endpoint, mismo payload, mismo parseo, mismo cancel.
+
+## 2.4 El punto de extensión (lo que queda por hacer para sumar una pasarela)
+
+**[V]** Estado tras F1a. Sumar una pasarela de QR son **tres archivos**, y
+ninguno es un copy-paste del módulo Bancard:
+
+| # | Dónde | Qué |
+|---|---|---|
+| 1 | `api/lib/PaymentMethods/PspCatalog.php` | Una entrada en `QR_PROVIDERS`: `module`, `channel`, `channelDefault`, `systemKey`, `methodName`, `code`, `color`, `label`. Hay un ejemplo comentado con los valores propuestos para uPay. |
+| 2 | `frontend/lib/payments/psp/<provider>.ts` | El adapter: `provider`, `systemKey`, `title` + `create()`, `cancel()`, y opcionalmente `confirm()` (el default lee la fila que el webhook deja en `vPayments`). |
+| 3 | `frontend/lib/payments/psp/index.ts` | Una línea en `ADAPTERS`. |
+
+Más lo del módulo en sí, que ya era el patrón conocido: la key en
+`ModulesService::NATIVE_KEYS` / `CONFIG_KEYS` y su canal en `updateConfig()`.
+
+Lo que **ya no hay que tocar**, porque dejó de nombrar pasarelas:
+
+- La provisión del medio de pago (`ensurePspMethod`, recorrida desde el toggle
+  y desde el guardado de config del módulo).
+- `api/v1/bootstrap.php`, que ahora emite el mapa genérico
+  `pspQr: { provider: bool }` derivado del catálogo (los flags
+  `bancardQr`/`bancardPos` se conservan intactos: son el contrato que ya leen
+  los POS desplegados, incluido uno con la config cacheada offline).
+- El filtrado del botón en la grilla del cobro, el dialog, el polling, la
+  pantalla del cliente y la degradación sin red.
+
+**[V]** Arnés: `api/tests/psp_payment_methods_test.php` (runner
+`run_psp_payment_methods_test.sh`, modo `PSP_TEST_IN_DOCKER=1` para el server).
+21 checks contra Postgres real — regresión de Bancard, dos pasarelas
+separables, ventas históricas intactas, grano del rollup, y guardas estáticas
+que fallan si una pasarela del catálogo se queda sin adapter en el front.
+
+**[I]** Lo que sigue pendiente de F1a y NO se hizo por falta de un segundo
+consumidor real: mover `CredentialVault` de `EInvoice\` a un namespace
+compartido (D4). Se hace cuando uPay traiga credenciales por comercio — mover
+una clase sin su segundo caller es refactor especulativo, y hoy nadie más la
+usa.
+
+---
 
 ## 2.3 Lo que uPay tiene y Bancard no: credenciales por comercio
 
@@ -393,16 +457,16 @@ fuera del alcance de este plan. Anotarlo, no mezclarlo.
 | Fase | Alcance | Esfuerzo | Depende de |
 |---|---|---|---|
 | **F0** | **Conseguir acceso.** Alta como comercio + desarrollador, leer el doc real de `desarrolladores.upay.com.py`, confirmar §6. **Sin esto no arranca nada** | — (owner) | ueno bank |
-| **F1a** | Refactor de raíz, **sin uPay todavía**: `ensurePspMethod` genérica, `<PspQrDialog>` + adapter Bancard, `CredentialVault` a namespace compartido. Regresión cero en Bancard | M | — |
+| **F1a** | ~~Refactor de raíz, **sin uPay todavía**: `ensurePspMethod` genérica, `<PspQrDialog>` + adapter Bancard. Regresión cero en Bancard~~ **HECHA 2026-08-23** (ver §2.4). `CredentialVault` al namespace compartido queda para F1b, con su segundo consumidor | M | — |
 | **F1b** | Módulo `upay` (backend): allowlist, toggle, canales, `bootstrap.php`, credenciales cifradas, UI de config en el panel | M | F0, F1a |
 | **F1c** | Canal QR: `POST /v1/upay` (create/cancel), webhook → `vPayments`, adapter uPay del dialog, medio de pago `upayQr` | L | F1b |
 | **F2** | Canal Link de Pagos: generar link desde caja/panel, compartir, vigencia 48 h, estado del link | M | F1c |
 | **F3** | Reconciliación de huérfanos (D8) — cubre Bancard y uPay | M | F1c |
 | **F4** | Conciliación de liquidación (bruto/neto/comisión) contra Finanzas | L | F3, `context/22` |
 
-**[I]** F1a se puede hacer **hoy**, sin credenciales y sin uPay: es refactor
-puro sobre Bancard, y es lo que evita que la integración de uPay nazca como
-copy-paste. Es el único trabajo de código desbloqueado.
+**[V]** F1a se hizo el 2026-08-23, sin credenciales y sin uPay. A partir de
+acá **todo lo que falta depende de F0** (acceso a la documentación y
+credenciales de ueno): no hay más trabajo de código desbloqueado.
 
 ---
 

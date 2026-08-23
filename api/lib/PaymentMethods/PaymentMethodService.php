@@ -240,27 +240,76 @@ final class PaymentMethodService
     }
 
     /**
-     * Provisiona el medio de pago "QR" (systemKey='qr') si el tenant no lo
-     * tiene. Lo invoca ModulesService al habilitar el canal QR del módulo
-     * Bancard: el cobro con QR del POS se dispara por systemKey, así que sin
-     * este row el botón no tendría contra qué registrar el pago.
+     * Provisiona el medio de pago de UNA pasarela de pago (PSP) si el tenant
+     * no lo tiene. Lo invoca ModulesService al habilitar el canal QR del
+     * módulo de esa pasarela: el cobro con QR del POS se dispara por
+     * systemKey, así que sin este row el botón no tendría contra qué
+     * registrar el pago.
      *
-     * Idempotente. Si el comercio YA tiene un método llamado "QR" (creado a
-     * mano antes de que existiera el módulo) se lo ADOPTA — se le pone el
-     * systemKey en vez de crear un segundo "QR" al lado. Saltear sin adoptar
-     * dejaba al tenant con el método visible pero sin el flujo del QR, que se
-     * dispara por systemKey.
+     * ── Por qué UN medio de pago POR pasarela ───────────────────────────────
+     *
+     * Hasta 2026-08 había un solo bucket "QR" para todo el tenant, porque
+     * había un solo PSP. Con dos pasarelas activas (Bancard + uPay) los dos
+     * cobros caerían en el mismo medio: el arqueo no podría separarlos y las
+     * liquidaciones no cuadrarían — son dos ventanas de acreditación y dos
+     * escalas de comisión distintas.
+     *
+     * La separación la da la FILA de taxonomía, no el systemKey: la venta
+     * persiste `transactionPaymentType[].type = taxonomyId` (ver
+     * `frontend/lib/commands/create-sale.ts`) y el rollup diario agrupa por
+     * `COALESCE(type, name)` (`rollup_payments_day`, mig 160). Dos filas
+     * distintas ⇒ dos buckets distintos, sin tocar el grano del rollup ni
+     * agregar columnas.
+     *
+     * ── Idempotencia y adopción ─────────────────────────────────────────────
+     *
+     * Si ya hay un método con ese systemKey, no hace nada. Si el comercio YA
+     * tiene un método llamado igual (creado a mano antes de que existiera el
+     * módulo) se lo ADOPTA — se le pone el systemKey en vez de crear un
+     * segundo método homónimo al lado. Saltear sin adoptar dejaba al tenant
+     * con el método visible pero sin el flujo del QR.
+     *
+     * @param string $systemKey  discriminante del medio (`taxonomyExtra.systemKey`)
+     * @param string $name       nombre del medio; también el que se adopta si ya existe
+     * @param string $code       atajo de teclado en la grilla del POS
+     * @param string $color      color del borde (paleta de frontend/lib/ui/color-palette.ts)
      */
-    public function ensureQrMethod(string $companyId): void
-    {
+    public function ensurePspMethod(
+        string $companyId,
+        string $systemKey,
+        string $name,
+        string $code,
+        string $color
+    ): void {
         // ensureSeed primero: en un tenant sin ningún método, seedear después
-        // de insertar el QR no correría (ensureSeed aborta si ya hay filas) y
-        // el comercio quedaría con QR y sin Efectivo.
+        // de insertar el del PSP no correría (ensureSeed aborta si ya hay
+        // filas) y el comercio quedaría con el QR y sin Efectivo.
         $this->ensureSeed($companyId);
 
+        $maxSort   = -1;
+        $sameName  = null;
         foreach ($this->list($companyId) as $m) {
-            if (($m['systemKey'] ?? null) === 'qr') return;
-            if (strcasecmp(trim((string) $m['name']), 'QR') !== 0) continue;
+            if (($m['systemKey'] ?? null) === $systemKey) return;
+            $maxSort = max($maxSort, (int) ($m['sortOrder'] ?? -1));
+            if (strcasecmp(trim((string) $m['name']), $name) === 0) {
+                $sameName = $m;
+            }
+        }
+
+        if ($sameName !== null) {
+            // Un método que ya es de otra pasarela —o de otro flujo del
+            // sistema, como Efectivo/Cheque— NO se roba por coincidencia de
+            // nombre: reapuntarlo mandaría plata de un medio a otro. Y crear
+            // un homónimo tampoco se puede (UNIQUE uq_taxonomy_company_type_name
+            // sobre companyId+type+lower(name)), así que se falla explícito.
+            // El caller (ModulesService) lo loguea y deja el módulo activo: el
+            // POS avisa que falta el medio en vez de cobrar contra el ajeno.
+            if (($sameName['systemKey'] ?? null) !== null) {
+                throw new \RuntimeException(
+                    "El comercio ya tiene un medio de pago \"$name\" reservado para otro flujo "
+                    . '(' . (string) $sameName['systemKey'] . "); no se puede provisionar el de la pasarela '$systemKey'."
+                );
+            }
 
             // Adopción: systemKey + requiresIdentifier=false (el identificador
             // del cobro por QR es el UID que genera el POS, no algo que el
@@ -269,33 +318,50 @@ final class PaymentMethodService
                 "UPDATE taxonomy
                     SET taxonomyExtra = (
                           COALESCE(NULLIF(taxonomyExtra, ''), '{}')::jsonb
-                          || jsonb_build_object('systemKey', 'qr', 'requiresIdentifier', false)
+                          || jsonb_build_object('systemKey', ?::text, 'requiresIdentifier', false)
                         )::text
                   WHERE taxonomyId = ? AND companyId = ? AND taxonomyType = ?",
-                [(string) $m['id'], $companyId, 'paymentMethod']
+                [$systemKey, (string) $sameName['id'], $companyId, 'paymentMethod']
             );
             return;
         }
 
         // Va al final del orden actual — no se mete arriba de los métodos que
         // el comercio ya ordenó a mano (sortOrder, mig del drag&drop).
-        $maxSort = -1;
-        foreach ($this->list($companyId) as $m) {
-            $maxSort = max($maxSort, (int) ($m['sortOrder'] ?? -1));
-        }
 
         $extra = [
-            'code'               => 'Q',
+            'code'               => $code,
             'hasChange'          => false,
             'requiresIdentifier' => false,
-            'systemKey'          => 'qr',
-            'color'              => 'indigo',
+            'systemKey'          => $systemKey,
+            'color'              => $color,
             'sortOrder'          => $maxSort + 1,
         ];
         $this->db->Execute(
             'INSERT INTO taxonomy (taxonomyId, companyId, taxonomyType, taxonomyName, taxonomyExtra)
              VALUES (gen_random_uuid(), ?, ?, ?, ?::jsonb)',
-            [$companyId, 'paymentMethod', 'QR', json_encode($this->normalizeExtra($extra))]
+            [$companyId, 'paymentMethod', $name, json_encode($this->normalizeExtra($extra))]
+        );
+    }
+
+    /**
+     * Medio de pago del QR de Bancard (systemKey='qr').
+     *
+     * Wrapper delgado sobre `ensurePspMethod()` — se conserva porque 'qr' es
+     * la identidad HISTÓRICA del medio de Bancard: los tenants que ya tienen
+     * el módulo activo tienen esa fila, y las ventas viejas guardaron su
+     * taxonomyId. Renombrarla o cambiarle el systemKey partiría la serie del
+     * reporte en dos buckets a mitad de la historia, así que no se toca.
+     */
+    public function ensureQrMethod(string $companyId): void
+    {
+        $psp = PspCatalog::qrProvider('bancard');
+        $this->ensurePspMethod(
+            $companyId,
+            (string) $psp['systemKey'],
+            (string) $psp['methodName'],
+            (string) $psp['code'],
+            (string) $psp['color']
         );
     }
 

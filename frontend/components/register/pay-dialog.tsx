@@ -51,7 +51,14 @@ import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 import { PaymentIdentifierDialog } from "./payment-identifier-dialog"
 import { GiftcardValidationDialog } from "./giftcard-validation-dialog"
-import { BancardQrDialog } from "./bancard-qr-dialog"
+import { PspQrDialog } from "./psp-qr-dialog"
+import {
+  isPspQrChannelEnabled,
+  isPspQrSystemKey,
+  pspQrAdapterForSystemKey,
+  type PspQrAdapter,
+} from "@/lib/payments/psp"
+import { useOnlineStatus } from "@/hooks/use-online-status"
 import { posApi } from "@/lib/api/pos-client"
 import { useSettingsCurrencies } from "@/hooks/use-settings"
 import { printSale } from "@/lib/hardware/printers"
@@ -200,22 +207,22 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const config = useCatalogStore((s) => s.config)
   const storedMethods = useCatalogStore((s) => s.paymentMethods)
 
-  // Canal QR del módulo Bancard (panel → Módulos). El medio de pago QR lo
+  // Canal QR de cada pasarela (panel → Módulos). El medio de pago lo
   // provisiona el backend al habilitar el canal, pero la fila sobrevive si el
   // módulo se apaga después — sin este filtro el botón seguiría cobrable.
-  const bancardQrEnabled = useCatalogStore((s) => s.config?.bancardQrEnabled ?? false)
-
+  // El gate es por pasarela: Bancard apagado no puede esconder el medio de
+  // otra pasarela que sí está activa (ver lib/payments/psp).
   const paymentMethods = React.useMemo(() => {
     const list = storedMethods.length > 0 ? storedMethods : FALLBACK_METHODS
     return [...list]
-      .filter((m) => m.systemKey !== "qr" || bancardQrEnabled)
+      .filter((m) => isPspQrChannelEnabled(m.systemKey, config))
       // Orden por sortOrder (drag&drop del panel); sin valor cae al final estable.
       .sort((a, b) => {
         const sa = a.sortOrder ?? Number.MAX_SAFE_INTEGER
         const sb = b.sortOrder ?? Number.MAX_SAFE_INTEGER
         return sa - sb
       })
-  }, [storedMethods, bancardQrEnabled])
+  }, [storedMethods, config])
 
   const { data: currenciesData } = useSettingsCurrencies()
   const currencies = currenciesData?.rows ?? []
@@ -251,8 +258,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     changeOverride?: number
   } | null>(null)
   const [pendingGiftcard, setPendingGiftcard] = React.useState(false)
-  /** Cobro con QR Bancard en curso: monto a cobrar con el QR. */
-  const [pendingQr, setPendingQr] = React.useState<number | null>(null)
+  /** Cobro con QR de pasarela en curso: con qué pasarela y por cuánto. */
+  const [pendingQr, setPendingQr] = React.useState<{
+    adapter: PspQrAdapter
+    amount: number
+  } | null>(null)
   const [dueDate, setDueDate] = React.useState(defaultDueDate())
   const [phase, setPhase] = React.useState<DialogPhase>("pay")
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
@@ -836,14 +846,24 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       return
     }
 
-    // QR Bancard: no se aplica el pago acá — se genera el QR, se muestra (y
-    // se espeja en la pantalla del cliente) y el pago se aplica recién cuando
-    // el PSP lo acredita. El monto sale de lo tipeado, o el restante.
-    if (method.systemKey === "qr") {
+    // QR de pasarela: no se aplica el pago acá — se genera el QR, se muestra
+    // (y se espeja en la pantalla del cliente) y el pago se aplica recién
+    // cuando el PSP lo acredita. El monto sale de lo tipeado, o el restante.
+    const pspAdapter = pspQrAdapterForSystemKey(method.systemKey)
+    if (pspAdapter) {
+      // Sin red no hay QR ni confirmación posible. Se avisa localmente y la
+      // caja sigue: el efectivo (y cualquier medio manual) se encola offline
+      // por el camino de siempre.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        toast.error(
+          `Sin conexión — el cobro con ${pspAdapter.title} necesita internet. Cobrá en efectivo o reintentá al volver la señal.`,
+        )
+        return
+      }
       const typed = parseDisplay(display)
       const qrAmount = typed > 0 ? typed : remaining
       if (qrAmount <= 0) return
-      setPendingQr(qrAmount)
+      setPendingQr({ adapter: pspAdapter, amount: qrAmount })
       return
     }
 
@@ -1188,18 +1208,20 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         onCancel={() => setPendingIdentifier(null)}
       />
 
-      {/* QR Bancard — el pago se aplica cuando el PSP lo acredita, no al
-          abrir el diálogo (ver BancardQrDialog). */}
-      <BancardQrDialog
+      {/* QR de pasarela — el pago se aplica cuando el PSP lo acredita, no al
+          abrir el diálogo (ver PspQrDialog). */}
+      <PspQrDialog
         open={pendingQr !== null}
-        amount={pendingQr ?? 0}
+        adapter={pendingQr?.adapter ?? null}
+        amount={pendingQr?.amount ?? 0}
         saleAmount={total}
         config={config}
         onPaid={(uid, paidAmount) => {
-          const qrMethod = paymentMethods.find((m) => m.systemKey === "qr")
+          const systemKey = pendingQr?.adapter.systemKey
+          const qrMethod = paymentMethods.find((m) => m.systemKey === systemKey)
           setPendingQr(null)
           if (!qrMethod) {
-            toast.error("Falta el medio de pago QR en el catálogo")
+            toast.error("Falta el medio de pago del QR en el catálogo")
             return
           }
           // El UID queda como identificador del pago: es la llave con la que
@@ -1291,6 +1313,8 @@ function PayPhase({
     (m) => m.systemKey && SECONDARY_SYSTEM_KEYS.includes(m.systemKey),
   )
   const activeCurrencies = currencies.filter((c) => c.value > 0)
+  // Estado de red: los medios de pasarela (QR) no pueden operar sin internet.
+  const isOnline = useOnlineStatus()
   // El visor muestra lo tipeado si hay algo; si no, muestra el remaining.
   // Esto se logra con placeholder: el input está vacío y el placeholder
   // es el remaining formateado — visualmente se lee como el monto a cobrar.
@@ -1452,6 +1476,12 @@ function PayPhase({
           {[...primaryMethods, ...secondaryMethods].map((m) => {
             const accent = resolveColorBg(m.color)
             const secondary = !!(m.systemKey && SECONDARY_SYSTEM_KEYS.includes(m.systemKey))
+            // Cobro por QR sin red: el botón se pinta apagado EN SU LUGAR —
+            // no se saca de la grilla, que movería los demás y rompería la
+            // memoria muscular del cajero. Sigue siendo clickeable a
+            // propósito (`aria-disabled`, no `disabled`): el click explica el
+            // motivo con un aviso local en vez de no hacer nada.
+            const pspOffline = !isOnline && isPspQrSystemKey(m.systemKey)
             return (
             <Button
               key={m.id}
@@ -1459,10 +1489,13 @@ function PayPhase({
               className={cn(
                 "h-10 justify-center gap-1.5 border-l-4 px-2 text-xs font-medium",
                 secondary && "text-muted-foreground",
+                pspOffline && "opacity-50",
               )}
               style={accent ? { borderLeftColor: accent } : undefined}
               onClick={() => onMethodClick(m)}
               disabled={!credito && remaining <= 0}
+              aria-disabled={pspOffline || undefined}
+              title={pspOffline ? "Necesita conexión a internet" : undefined}
             >
               <span className="truncate">{m.name}</span>
               {m.code && (

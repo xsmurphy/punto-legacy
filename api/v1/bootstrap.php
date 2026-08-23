@@ -171,24 +171,39 @@ $logoUrlResolved = ($logoHas && $logoUrlRaw !== '')
     ? $logoUrlRaw . ($logoStamp ? '?v=' . $logoStamp : '')
     : '';
 
-// ── Módulo Bancard (QR + terminal físico) ───────────────────────────────────
+// ── Pasarelas de pago con QR + terminal físico de Bancard ───────────────────
 // Mismo criterio que ModulesService::list(): el módulo está en el flat key
-// (lo que escribe el toggle) y los canales en moduleData.bancard, con default
-// ON — prender "Bancard" sin entrar a la config deja ambos canales usables.
-// Se resuelve acá y NO en el front: el POS recibe dos booleans y listo.
-$bancardOn = in_array((string) ($row['bancard'] ?? ''), ['1', 'true', 'on', 'yes'], true);
-$bancardCfg = json_decode((string) ($row['moduledata'] ?? ''), true);
-$bancardCfg = is_array($bancardCfg) && is_array($bancardCfg['bancard'] ?? null)
-    ? $bancardCfg['bancard']
-    : [];
-$bancardChannel = static function (string $key) use ($bancardCfg): bool {
-    if (!array_key_exists($key, $bancardCfg)) {
-        return true;  // default ON
-    }
-    return filter_var($bancardCfg[$key], FILTER_VALIDATE_BOOLEAN);
+// (lo que escribe el toggle) y los canales en moduleData.<module>, con el
+// default que declara el catálogo. Se resuelve acá y NO en el front: el POS
+// recibe booleans y no recombina nada.
+//
+// `pspQr` es el mapa genérico { provider: bool } que consume el POS para
+// filtrar el medio de pago de CADA pasarela (ver PspCatalog y
+// frontend/lib/payments/psp/). `bancardQr`/`bancardPos` se mantienen tal cual
+// porque son el contrato que ya leen los clientes desplegados — un POS con
+// config cacheada (offline) seguiría mandando el shape viejo.
+$moduleDataAll = json_decode((string) ($row['moduledata'] ?? ''), true);
+$moduleDataAll = is_array($moduleDataAll) ? $moduleDataAll : [];
+
+$moduleOn = static function (string $moduleKey) use ($row): bool {
+    return in_array((string) ($row[$moduleKey] ?? ''), ['1', 'true', 'on', 'yes'], true);
 };
-$bancardQr  = $bancardOn && $bancardChannel('qr');
-$bancardPos = $bancardOn && $bancardChannel('pos');
+
+$pspQr = [];
+foreach (\Punto\Api\PaymentMethods\PspCatalog::qrProviders() as $provider => $psp) {
+    $moduleKey = (string) $psp['module'];
+    $cfg = is_array($moduleDataAll[$moduleKey] ?? null) ? $moduleDataAll[$moduleKey] : [];
+    $pspQr[$provider] = \Punto\Api\PaymentMethods\PspCatalog::qrChannelOn(
+        $psp,
+        $moduleOn($moduleKey),
+        $cfg
+    );
+}
+
+$bancardCfg = is_array($moduleDataAll['bancard'] ?? null) ? $moduleDataAll['bancard'] : [];
+$bancardQr  = (bool) ($pspQr['bancard'] ?? false);
+$bancardPos = $moduleOn('bancard')
+    && (!array_key_exists('pos', $bancardCfg) || filter_var($bancardCfg['pos'], FILTER_VALIDATE_BOOLEAN));
 
 apiOk([
     'currency'    => $row['currency'] ?? '',
@@ -217,6 +232,9 @@ apiOk([
     // no apagado en la config). El front no vuelve a combinar nada.
     'bancardQr'          => $bancardQr,
     'bancardPos'         => $bancardPos,
+    // Canal QR por pasarela — { provider: bool }. Sumar una pasarela nueva no
+    // toca este archivo: entra por PspCatalog.
+    'pspQr'              => $pspQr,
     // Logo del tenant (S3, público). '' si no hay logo cargado — el front
     // hace fallback a la marca Punto. `?v=` cache-bust con logoUploadedAt.
     // MISMA lógica que SettingsService::general(): el logo vive en el blob

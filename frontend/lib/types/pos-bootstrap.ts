@@ -85,6 +85,15 @@ export interface PosConfig {
   bancardQrEnabled?: boolean
   bancardPosEnabled?: boolean
   /**
+   * Canal QR por pasarela de pago — `{ [provider]: boolean }`, resuelto
+   * server-side igual que los flags de Bancard (ver PspCatalog en
+   * `api/lib/PaymentMethods/`). Es lo que consulta el POS para decidir si
+   * muestra el medio de pago de CADA pasarela; `bancardQrEnabled` queda como
+   * el flag legacy equivalente a `pspQrEnabled.bancard` (config cacheada de
+   * un POS que arrancó antes del refactor).
+   */
+  pspQrEnabled?: Record<string, boolean>
+  /**
    * D3 (context/40-anulacion-y-nota-credito.md): política de reintegro de
    * devoluciones fijada por el comercio. `'ask'` (default) — el POS
    * pregunta en cada devolución; `'cash'`/`'credit'` fijo — el back

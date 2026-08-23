@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Modules;
 
+use Punto\Api\PaymentMethods\PspCatalog;
+
 /**
  * Dominio de Módulos nativos de Punto.
  *
@@ -227,29 +229,39 @@ final class ModulesService
             throw new \RuntimeException('No se pudo actualizar el estado del módulo.');
         }
 
-        // Bancard con el canal QR activo necesita el medio de pago QR para que
-        // el POS tenga contra qué registrar el cobro (se dispara por systemKey).
-        if ($key === 'bancard' && $enabled) {
-            $bancardCfg = is_array($moduleData['bancard'] ?? null) ? $moduleData['bancard'] : [];
-            $qrOn = !array_key_exists('qr', $bancardCfg) || $this->truthy($bancardCfg['qr']);
-            if ($qrOn) {
-                $this->ensureQrPaymentMethod($companyId);
+        // Un módulo de pasarela (PSP) con el canal QR activo necesita SU medio
+        // de pago para que el POS tenga contra qué registrar el cobro (se
+        // dispara por systemKey). Se recorre el catálogo en vez de nombrar
+        // 'bancard': cada PSP provisiona su propia fila y así el arqueo puede
+        // separarlos — ver PspCatalog.
+        if ($enabled) {
+            $moduleCfg = is_array($moduleData[$key] ?? null) ? $moduleData[$key] : [];
+            foreach (PspCatalog::qrProvidersForModule($key) as $provider => $psp) {
+                if (PspCatalog::qrChannelOn($psp, true, $moduleCfg)) {
+                    $this->ensurePspPaymentMethod($companyId, $provider, $psp);
+                }
             }
         }
     }
 
     /**
-     * Provisiona el medio de pago QR (idempotente). Best-effort: si falla, el
-     * módulo igual queda activo — el POS avisa al cajero que falta el método
-     * en vez de romper el toggle.
+     * Provisiona el medio de pago de una pasarela (idempotente). Best-effort:
+     * si falla, el módulo igual queda activo — el POS avisa al cajero que
+     * falta el método en vez de romper el toggle.
      */
-    private function ensureQrPaymentMethod($companyId): void
+    private function ensurePspPaymentMethod($companyId, string $provider, array $psp): void
     {
         try {
             global $db;
-            (new \Punto\Api\PaymentMethods\PaymentMethodService($db))->ensureQrMethod((string) $companyId);
+            (new \Punto\Api\PaymentMethods\PaymentMethodService($db))->ensurePspMethod(
+                (string) $companyId,
+                (string) $psp['systemKey'],
+                (string) $psp['methodName'],
+                (string) $psp['code'],
+                (string) $psp['color']
+            );
         } catch (\Throwable $e) {
-            error_log('[modules:bancard] no se pudo provisionar el medio de pago QR: ' . $e->getMessage());
+            error_log("[modules:$provider] no se pudo provisionar el medio de pago del QR: " . $e->getMessage());
         }
     }
 
@@ -395,8 +407,13 @@ final class ModulesService
                     'whereParams' => [$companyId],
                 ]);
 
-                if (!empty($bancardEntry['qr'])) {
-                    $this->ensureQrPaymentMethod($companyId);
+                // Mismo resolver de canal que el toggle (PspCatalog): guardar
+                // la config con el canal QR prendido provisiona el medio de
+                // pago de la pasarela si todavía no existe.
+                foreach (PspCatalog::qrProvidersForModule('bancard') as $provider => $psp) {
+                    if (PspCatalog::qrChannelOn($psp, true, $bancardEntry)) {
+                        $this->ensurePspPaymentMethod($companyId, $provider, $psp);
+                    }
                 }
                 break;
         }

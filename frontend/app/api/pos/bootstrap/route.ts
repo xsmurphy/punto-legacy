@@ -136,6 +136,12 @@ interface UpstreamBootstrap {
   /** Canales del módulo Bancard (bools ya resueltos por /v1/bootstrap). */
   bancardQr?: boolean
   bancardPos?: boolean
+  /**
+   * Canal QR por pasarela — { provider: bool }, ya resuelto server-side
+   * (PspCatalog). Ausente si el /api desplegado es anterior al refactor de
+   * pasarelas: en ese caso el POS cae al flag legacy `bancardQr`.
+   */
+  pspQr?: Record<string, boolean>
   activeOutletAddress?: string
   activeOutletBillingName?: string
   activeOutletTin?: string
@@ -330,6 +336,14 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     companyWebsite: bs.companyWebsite || null,
     bancardQrEnabled: bs.bancardQr === true,
     bancardPosEnabled: bs.bancardPos === true,
+    // Mapa genérico de pasarelas. Se completa con el flag legacy de Bancard
+    // para que un /api viejo (sin `pspQr`) no apague el botón del QR.
+    pspQrEnabled: {
+      bancard: bs.bancardQr === true,
+      ...Object.fromEntries(
+        Object.entries(bs.pspQr ?? {}).map(([provider, on]) => [provider, on === true]),
+      ),
+    },
     settingReturnRefund:
       bs.settingReturnRefund === "cash" || bs.settingReturnRefund === "credit"
         ? bs.settingReturnRefund

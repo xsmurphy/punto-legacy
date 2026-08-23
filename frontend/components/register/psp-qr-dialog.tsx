@@ -14,16 +14,19 @@ import {
 import { Button } from "@/components/ui/button"
 import { formatMoney } from "@/lib/format-money"
 import { posApi as api } from "@/lib/api/pos-client"
-import { parseBancardQr, type BancardQr } from "@/lib/payments/bancard-qr"
+import { useOnlineStatus } from "@/hooks/use-online-status"
+import { confirmPspPaymentByUid, type PspQr, type PspQrAdapter } from "@/lib/payments/psp-qr"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 
 /** Cada cuánto se le pregunta al backend si el pago ya entró. */
 const POLL_INTERVAL = 3_000
-/** Corte de la espera: el QR de Bancard no vive para siempre. */
+/** Corte de la espera: un QR de pasarela no vive para siempre. */
 const MAX_POLL_MS = 5 * 60_000
 
 interface Props {
   open: boolean
+  /** Pasarela con la que se cobra. null cierra el diálogo (no hay cobro en curso). */
+  adapter: PspQrAdapter | null
   /** Monto a cobrar con el QR (el restante del cobro, no el total de la venta). */
   amount: number
   /** Total de la venta — el PSP lo recibe aparte del monto cobrado. */
@@ -35,27 +38,43 @@ interface Props {
 }
 
 /**
- * Cobro con QR de Bancard.
+ * Cobro con QR de una pasarela de pago (PSP) — genérico.
  *
- * Flujo (todo contra endpoints que ya existían — este dialog no inventa
- * protocolo, ver api/v1/bancard.php y api/v1/vpayments.php):
+ * El ciclo es el mismo para cualquier pasarela; lo específico entra por el
+ * `adapter` (ver `frontend/lib/payments/psp-qr.ts`):
  *
- *   1. `POST /v1/bancard { type: 'create' }` con un UID nuevo → QR.
+ *   1. `adapter.create({ uid, amount, saleAmount })` → QR normalizado.
  *   2. El QR se pinta acá Y se publica a la pantalla del cliente
  *      (`/v1/screens?resource=publish` type `qr-show`) — el cliente escanea
  *      de la pantalla que mira, no del monitor del cajero.
- *   3. Polling a `GET /v1/vpayments?resource=byUID` hasta que el webhook del
- *      PSP deje la fila: eso ES la confirmación de pago.
+ *   3. Polling de la confirmación (default: la fila que el webhook del PSP
+ *      deja en `vPayments`, `GET /v1/vpayments?resource=byUID`).
  *   4. Al cerrar (cancelado, pagado o vencido) se manda `qr-hide` y, si el QR
- *      sigue pendiente, `type: 'cancel'` al PSP.
+ *      sigue pendiente, `adapter.cancel(id)`.
  *
  * El UID lo genera el cliente (crypto.randomUUID) y viaja al PSP dentro del
  * `identifier`: es la única llave que enlaza el QR con la fila de vPayments.
+ *
+ * ── Sin red ─────────────────────────────────────────────────────────────────
+ *
+ * Un cobro por QR es intrínsecamente online: sin red no hay QR ni
+ * confirmación posible. El diálogo lo dice con un mensaje LOCAL (no depende
+ * de que el server conteste) y deja Cancelar disponible; la caja sigue
+ * cobrando en efectivo por el camino normal, que sí se encola offline.
  */
-export function BancardQrDialog({ open, amount, saleAmount, config, onPaid, onCancel }: Props) {
-  const [qr, setQr] = React.useState<BancardQr | null>(null)
+export function PspQrDialog({
+  open,
+  adapter,
+  amount,
+  saleAmount,
+  config,
+  onPaid,
+  onCancel,
+}: Props) {
+  const [qr, setQr] = React.useState<PspQr | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [expired, setExpired] = React.useState(false)
+  const isOnline = useOnlineStatus()
 
   // UID de ESTA operación. En una ref porque el polling y el cleanup lo
   // necesitan sin re-suscribirse; se regenera en cada apertura.
@@ -76,7 +95,7 @@ export function BancardQrDialog({ open, amount, saleAmount, config, onPaid, onCa
 
   // ── 1. Crear el QR al abrir ────────────────────────────────────────────────
   React.useEffect(() => {
-    if (!open) return
+    if (!open || adapter === null) return
 
     let cancelled = false
     const uid = crypto.randomUUID()
@@ -87,18 +106,21 @@ export function BancardQrDialog({ open, amount, saleAmount, config, onPaid, onCa
     setError(null)
     setExpired(false)
 
+    // Aviso local, sin salir a la red: pedir el QR sin conexión solo agrega
+    // un timeout antes del mismo mensaje.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError(
+        `Sin conexión — el cobro con ${adapter.title} necesita internet. Cobrá en efectivo o reintentá al volver la señal.`,
+      )
+      return
+    }
+
     void (async () => {
       try {
-        const raw = await api.post<unknown>("/v1/bancard", {
-          type: "create",
-          QRAmount: amount,
-          saleAmount,
-          UID: uid,
-        })
+        const parsed = await adapter.create({ uid, amount, saleAmount })
         if (cancelled) return
-        const parsed = parseBancardQr(raw)
         if (!parsed) {
-          setError("Bancard no devolvió un QR válido. Cobrá por otro medio.")
+          setError(`${adapter.title} no devolvió un QR válido. Cobrá por otro medio.`)
           return
         }
         qrIdRef.current = parsed.id
@@ -121,12 +143,13 @@ export function BancardQrDialog({ open, amount, saleAmount, config, onPaid, onCa
     return () => {
       cancelled = true
     }
-  }, [open, amount, saleAmount, config, publishToScreen])
+  }, [open, adapter, amount, saleAmount, config, publishToScreen])
 
   // ── 2. Polling del pago ────────────────────────────────────────────────────
   React.useEffect(() => {
-    if (!open || qr === null || expired) return
+    if (!open || adapter === null || qr === null || expired) return
 
+    const confirm = adapter.confirm ?? confirmPspPaymentByUid
     const startedAt = Date.now()
     const timer = setInterval(() => {
       if (Date.now() - startedAt > MAX_POLL_MS) {
@@ -134,43 +157,39 @@ export function BancardQrDialog({ open, amount, saleAmount, config, onPaid, onCa
         return
       }
       void (async () => {
-        try {
-          // 404 mientras el pago no entró — el api client lo tira como error,
-          // así que el catch vacío ES el "todavía no" esperado.
-          const res = await api.get<{ success?: { amount?: number | string } }>(
-            `/v1/vpayments?resource=byUID&uid=${encodeURIComponent(uidRef.current)}`,
-          )
-          if (!res?.success || paidRef.current) return
-          paidRef.current = true
-          // El monto acreditado manda sobre el pedido: si el PSP cobró otra
-          // cifra, la venta tiene que registrar la real.
-          const paidAmount = Number(res.success.amount ?? amount) || amount
-          publishToScreen("qr-hide")
-          onPaid(uidRef.current, paidAmount)
-        } catch {
-          // pago todavía no acreditado
-        }
+        // El confirm devuelve null mientras el pago no entró (un 404 del
+        // backend es el "todavía no" esperado, no un error de la caja).
+        const res = await confirm(uidRef.current)
+        if (res === null || paidRef.current) return
+        paidRef.current = true
+        // El monto acreditado manda sobre el pedido: si el PSP cobró otra
+        // cifra, la venta tiene que registrar la real.
+        const paidAmount = res.amount ?? amount
+        publishToScreen("qr-hide")
+        onPaid(uidRef.current, paidAmount)
       })()
     }, POLL_INTERVAL)
 
     return () => clearInterval(timer)
-  }, [open, qr, expired, amount, onPaid, publishToScreen])
+  }, [open, adapter, qr, expired, amount, onPaid, publishToScreen])
 
   /** Cierre por cancelación/vencimiento: baja el QR de la pantalla del cliente
    *  y lo revierte en el PSP para que no quede cobrable. */
   const handleCancel = React.useCallback(() => {
     publishToScreen("qr-hide")
-    if (qrIdRef.current !== "" && !paidRef.current) {
-      void api.post("/v1/bancard", { type: "cancel", id: qrIdRef.current }).catch(() => {})
+    if (adapter !== null && qrIdRef.current !== "" && !paidRef.current) {
+      void adapter.cancel(qrIdRef.current)
     }
     onCancel()
-  }, [onCancel, publishToScreen])
+  }, [adapter, onCancel, publishToScreen])
 
   return (
-    <Dialog open={open} onOpenChange={(o) => { if (!o) handleCancel() }}>
+    <Dialog open={open && adapter !== null} onOpenChange={(o) => { if (!o) handleCancel() }}>
+      {/* razón: el contenido es un QR de 176px + monto; el `m` del proyecto
+          (sm:max-w-2xl) dejaría el QR flotando en una caja vacía. */}
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
-          <DialogTitle>QR Bancard</DialogTitle>
+          <DialogTitle>{adapter?.title ?? "Cobro con QR"}</DialogTitle>
         </DialogHeader>
 
         <div className="flex flex-col items-center gap-3 py-2">
@@ -192,14 +211,16 @@ export function BancardQrDialog({ open, amount, saleAmount, config, onPaid, onCa
               <div className="rounded-lg bg-white p-3">
                 {qr.imageUrl !== null ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={qr.imageUrl} alt="QR de pago Bancard" className="size-44" />
+                  <img src={qr.imageUrl} alt={`QR de pago ${adapter?.title ?? ""}`} className="size-44" />
                 ) : (
                   <QRCodeSVG value={qr.payload ?? ""} size={176} />
                 )}
               </div>
               <p className="flex items-center gap-2 text-xs text-muted-foreground">
                 <Loader2 className="size-3 animate-spin" />
-                Esperando el pago…
+                {isOnline
+                  ? "Esperando el pago…"
+                  : "Se cortó la conexión — no se puede confirmar el pago. Cancelá y cobrá por otro medio."}
               </p>
             </>
           )}
