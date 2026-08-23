@@ -546,6 +546,24 @@ Del mismo modo, `getSingle` de payments acepta dos shapes: `{type, price, extra,
 
 ---
 
+## §59 — Los hotkeys del POS se configuran en la caja, nunca en el panel
+
+La grilla de accesos rápidos es de la caja y se edita ahí. El panel **no** la
+edita: solo muestra una columna de diagnóstico con los hotkeys huérfanos
+(`registers-tab.tsx`, a raíz del incidente del 2026-08-18).
+
+Decisión del owner (2026-08-23), al zanjar la pregunta de qué pasa si el panel
+y la caja editan los hotkeys a la vez estando la caja sin conexión: **el
+conflicto no debe existir**. Quien arma la grilla es quien atiende con ella
+delante, y la edición offline con sincronización posterior solo es coherente si
+hay un único editor.
+
+Corolario: no agregar edición de hotkeys al panel. Si aparece el pedido,
+primero hay que resolver el modelo de merge de una grilla completa editada en
+dos lugares — que es exactamente el problema que esta decisión evita.
+
+---
+
 ## §58 — Toda regla que bloquea es opcional y configurable por comercio
 
 Punto lo usan negocios muy distintos. Una regla imprescindible para un
