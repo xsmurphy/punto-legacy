@@ -16,7 +16,6 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { getRubro } from "@/lib/site/rubros"
 import { cn } from "@/lib/utils"
 
 function NavMenu({
@@ -33,9 +32,7 @@ function NavMenu({
       <DropdownMenuTrigger
         className={cn(
           "flex items-center gap-1.5 rounded-full px-4 py-2 text-sm font-medium transition-colors outline-none",
-          overlay
-            ? "text-white/90 hover:bg-white/10 hover:text-white data-[state=open]:bg-white/10 data-[state=open]:text-white"
-            : "text-foreground/80 hover:bg-muted hover:text-foreground data-[state=open]:bg-muted data-[state=open]:text-foreground"
+          "text-white/90 hover:bg-white/10 hover:text-white data-[state=open]:bg-white/10 data-[state=open]:text-white"
         )}
       >
         {label}
@@ -53,33 +50,36 @@ function NavMenu({
 }
 
 /**
- * Header del sitio de marketing. En el home flota transparente sobre el hero
- * (pills translúcidas) y pasa a fondo sólido al scrollear; en el resto de
- * las páginas del sitio arranca sólido. Los menús abren paneles con lista
- * icono + descripción a la izquierda y card destacada a la derecha.
+ * Header del sitio de marketing. Es transparente MIENTRAS el hero oscuro
+ * sigue detrás y recién al pasarlo toma fondo negro translúcido — nunca
+ * blanco: la barra de marca es oscura en todo el sitio, igual que el pie.
+ * Las páginas sin hero arrancan ya con ese fondo.
  */
 export function SiteHeader() {
   const pathname = usePathname()
-  // Hay hero oscuro en el home ("/home", o "/" reescrito) y en los rubros
-  // que traen foto de fondo — ahí el header arranca en modo overlay.
-  const rubroSlug = pathname.startsWith("/para/")
-    ? pathname.split("/")[2]
-    : undefined
-  const overHero =
-    pathname === "/home" ||
-    pathname === "/" ||
-    pathname.startsWith("/modulos/") ||
-    Boolean(rubroSlug && getRubro(rubroSlug)?.heroImage)
-  const [scrolled, setScrolled] = React.useState(false)
+  const [pasoElHero, setPasoElHero] = React.useState(true)
+  const [menuAbierto, setMenuAbierto] = React.useState(false)
 
+  /*
+   * El corte lo marca el hero real, no una cantidad fija de píxeles: cada
+   * página tiene el suyo (el del home mide 92svh, el de un rubro 78svh) y
+   * las que no tienen ninguno quedan sólidas desde el arranque.
+   */
   React.useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 24)
-    onScroll()
-    window.addEventListener("scroll", onScroll, { passive: true })
-    return () => window.removeEventListener("scroll", onScroll)
-  }, [])
+    const hero = document.querySelector("[data-site-hero]")
+    if (!hero) {
+      setPasoElHero(true)
+      return
+    }
+    const io = new IntersectionObserver(
+      ([entry]) => setPasoElHero(!entry.isIntersecting),
+      { rootMargin: "-64px 0px 0px 0px", threshold: 0 }
+    )
+    io.observe(hero)
+    return () => io.disconnect()
+  }, [pathname])
 
-  const overlay = overHero && !scrolled
+  const overlay = !pasoElHero && !menuAbierto
 
   return (
     <header
@@ -87,15 +87,12 @@ export function SiteHeader() {
         "fixed inset-x-0 top-0 z-50 transition-colors duration-300",
         overlay
           ? "bg-transparent"
-          : "border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70"
+          : "border-b border-white/10 bg-neutral-950/85 backdrop-blur supports-[backdrop-filter]:bg-neutral-950/70"
       )}
     >
       <div className="relative mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-4 md:px-6">
         <Link href="/home" aria-label="Punto">
-          <PuntoLogo
-            scheme={overlay ? "on-dark" : "on-light"}
-            className="h-6 w-[88px]"
-          />
+          <PuntoLogo scheme="on-dark" className="h-6 w-[88px]" />
         </Link>
 
         {/* Pills centradas. Sobre el hero son una cápsula translúcida; con el
@@ -119,9 +116,7 @@ export function SiteHeader() {
             href="/precios"
             className={cn(
               "rounded-full px-4 py-2 text-sm font-medium transition-colors",
-              overlay
-                ? "text-white/90 hover:bg-white/10 hover:text-white"
-                : "text-foreground/80 hover:bg-muted hover:text-foreground"
+              "text-white/90 hover:bg-white/10 hover:text-white"
             )}
           >
             Precios
@@ -132,10 +127,7 @@ export function SiteHeader() {
           <Button
             asChild
             variant="ghost"
-            className={cn(
-              "rounded-full",
-              overlay && "text-white/90 hover:bg-white/10 hover:text-white"
-            )}
+            className="rounded-full text-white/90 hover:bg-white/10 hover:text-white"
           >
             <Link href={LOGIN_URL}>Ingresar</Link>
           </Button>
@@ -143,15 +135,12 @@ export function SiteHeader() {
               no aplica la escala de botones del panel (§14) */}
           <Button
             asChild
-            className={cn(
-              "rounded-full",
-              overlay && "bg-white text-neutral-900 hover:bg-white/90"
-            )}
+            className="rounded-full bg-white text-neutral-900 hover:bg-white/90"
           >
             <Link href={SIGNUP_URL}>Empezar</Link>
           </Button>
         </div>
-        <MobileNav overlay={overlay} />
+        <MobileNav onOpenChange={setMenuAbierto} />
       </div>
     </header>
   )

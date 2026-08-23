@@ -98,7 +98,10 @@ function RubroHero({ rubro }: { rubro: Rubro }) {
   }
 
   return (
-    <section className="relative isolate -mt-16 flex min-h-[78svh] items-end overflow-hidden bg-neutral-950">
+    <section
+      data-site-hero
+      className="relative isolate -mt-16 flex min-h-[78svh] items-end overflow-hidden bg-neutral-950"
+    >
       <Image
         aria-hidden
         src={rubro.heroImage}

@@ -46,7 +46,10 @@ export default async function ModuloPage({
   return (
     <div className="pt-16">
       {/* Hero: escena oscura con la captura del módulo */}
-      <section className="-mt-16 bg-neutral-950 pt-16 text-white">
+      <section
+        data-site-hero
+        className="-mt-16 bg-neutral-950 pt-16 text-white"
+      >
         <div className="mx-auto w-full max-w-6xl px-4 py-20 md:px-6 md:py-28">
           <div className="mx-auto max-w-3xl text-center">
             <p className="text-xs font-semibold tracking-widest text-white/50 uppercase">

@@ -26,7 +26,10 @@ const HERO_IMAGES = [
 
 export function SiteHero() {
   return (
-    <section className="relative isolate flex min-h-[92svh] flex-col justify-center overflow-hidden bg-neutral-950">
+    <section
+      data-site-hero
+      className="relative isolate flex min-h-[92svh] flex-col justify-center overflow-hidden bg-neutral-950"
+    >
       <HeroBackdrop images={HERO_IMAGES} />
       {/* Oscurecedor para legibilidad del texto sobre la foto */}
       <div aria-hidden className="absolute inset-0 bg-black/55" />

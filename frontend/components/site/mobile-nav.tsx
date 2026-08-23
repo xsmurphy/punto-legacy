@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react"
+import { ChevronDown, ChevronLeft, Menu, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { RUBROS_MENU } from "@/components/site/nav-menus"
@@ -35,13 +35,11 @@ function Fila({
   const contenido = (
     <>
       <span className="text-lg font-medium">{label}</span>
-      {chevron ? (
-        <ChevronRight className="size-5 text-muted-foreground" />
-      ) : null}
+      {chevron ? <ChevronDown className="size-5 text-white/50" /> : null}
     </>
   )
   const clases =
-    "flex min-h-14 w-full items-center justify-between border-b py-3 text-left"
+    "flex min-h-14 w-full items-center justify-between border-b border-white/10 py-3 text-left"
 
   return href ? (
     <Link href={href} className={clases}>
@@ -54,7 +52,11 @@ function Fila({
   )
 }
 
-export function MobileNav({ overlay }: { overlay: boolean }) {
+export function MobileNav({
+  onOpenChange,
+}: {
+  onOpenChange?: (open: boolean) => void
+}) {
   const [open, setOpen] = React.useState(false)
   const [vista, setVista] = React.useState<Vista>("raiz")
   const pathname = usePathname()
@@ -75,6 +77,8 @@ export function MobileNav({ overlay }: { overlay: boolean }) {
     }
   }, [open])
 
+  React.useEffect(() => onOpenChange?.(open), [open, onOpenChange])
+
   const cerrar = () => {
     setOpen(false)
     setVista("raiz")
@@ -88,16 +92,13 @@ export function MobileNav({ overlay }: { overlay: boolean }) {
         aria-label={open ? "Cerrar menú" : "Abrir menú"}
         aria-expanded={open}
         onClick={() => (open ? cerrar() : setOpen(true))}
-        className={cn(
-          "rounded-full",
-          overlay && !open && "text-white hover:bg-white/10 hover:text-white"
-        )}
+        className="rounded-full text-white hover:bg-white/10 hover:text-white"
       >
         {open ? <X className="size-5" /> : <Menu className="size-5" />}
       </Button>
 
       {open ? (
-        <div className="fixed inset-x-0 top-16 bottom-0 z-40 flex flex-col bg-background">
+        <div className="fixed inset-x-0 top-16 bottom-0 z-40 flex flex-col bg-neutral-950 text-white">
           <div className="flex-1 overflow-y-auto overscroll-contain px-4">
             {vista === "raiz" ? (
               <nav className="flex flex-col pt-2">
@@ -119,7 +120,7 @@ export function MobileNav({ overlay }: { overlay: boolean }) {
                 <button
                   type="button"
                   onClick={() => setVista("raiz")}
-                  className="mb-1 flex min-h-12 items-center gap-1 text-sm font-medium text-muted-foreground"
+                  className="mb-1 flex min-h-12 items-center gap-1 text-sm font-medium text-white/60"
                 >
                   <ChevronLeft className="size-4" />
                   Volver
@@ -129,7 +130,7 @@ export function MobileNav({ overlay }: { overlay: boolean }) {
                   <nav className="flex flex-col gap-6 pb-2">
                     {MODULO_GROUPS.map((group) => (
                       <div key={group.key} className="flex flex-col">
-                        <p className="pb-1 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                        <p className="pb-1 text-xs font-semibold tracking-wider text-white/45 uppercase">
                           {group.label}
                         </p>
                         {group.items.map((item) => (
@@ -158,8 +159,12 @@ export function MobileNav({ overlay }: { overlay: boolean }) {
           </div>
 
           {/* Zona fija del pulgar */}
-          <div className="flex flex-col gap-2 border-t bg-background px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
-            <Button asChild size="lg" className="rounded-full">
+          <div className="flex flex-col gap-2 border-t border-white/10 bg-neutral-950 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+            <Button
+              asChild
+              size="lg"
+              className="rounded-full bg-white text-neutral-900 hover:bg-white/90"
+            >
               <Link href={SIGNUP_URL}>Empezar</Link>
             </Button>
             <div className="flex gap-2">
@@ -167,7 +172,7 @@ export function MobileNav({ overlay }: { overlay: boolean }) {
                 asChild
                 size="lg"
                 variant="outline"
-                className="flex-1 rounded-full"
+                className="flex-1 rounded-full border-white/25 bg-white/10 text-white hover:bg-white/20 hover:text-white"
               >
                 <Link
                   href={WHATSAPP_URL}
@@ -181,7 +186,7 @@ export function MobileNav({ overlay }: { overlay: boolean }) {
                 asChild
                 size="lg"
                 variant="ghost"
-                className="flex-1 rounded-full"
+                className="flex-1 rounded-full text-white/90 hover:bg-white/10 hover:text-white"
               >
                 <Link href={LOGIN_URL}>Ingresar</Link>
               </Button>
