@@ -95,7 +95,6 @@ import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
-import { OfflineBanner } from "@/components/pos/offline-banner"
 import { OfflineStatusPill } from "@/components/pos/offline-status-pill"
 import { useCreateOrder, type Order, type Fulfillment } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
@@ -403,8 +402,8 @@ export function CartPanel() {
       {/* Sin banda de modo (removida 2026-07-19 por decisión del owner): la
           identificación del tipo de transacción la da el CTA de cobro/orden
           (CartBottom) — un solo canal de color, sin slot extra arriba del
-          toolbar. */}
-      <OfflineBanner />
+          toolbar. El estado de sincronización tampoco va acá: es UN solo
+          aviso, arriba de la toolbar (`OfflineStatusPill`). */}
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />

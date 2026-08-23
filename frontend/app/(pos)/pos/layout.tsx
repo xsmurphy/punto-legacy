@@ -88,7 +88,6 @@ import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import { useOfflineSync } from "@/hooks/use-offline-sync"
-import { OfflineBanner } from "@/components/pos/offline-banner"
 
 function OfflineSyncRunner() {
   useOfflineSync()
@@ -241,15 +240,6 @@ function PosWorkspaceLayoutInner({
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden">
-      {/* Banda full-width ARRIBA, SOLO para ventas fallidas (estado terminal).
-          Antes era hijo directo del flex-row de paneles → se renderizaba como
-          una franja vertical (toda la altura) entre el contenido y el carrito.
-          Ahora el tope es flex-col: banda arriba, paneles en una fila debajo.
-          El estado transitorio (sin conexión / sincronizando) lo muestra
-          `OfflineStatusPill`, montada DENTRO del carrito arriba de su toolbar
-          (`cart-panel.tsx`): un solo aviso, en el lugar que el cajero ya mira
-          para cobrar. */}
-      <OfflineBanner />
       <BeforeUnloadGuard />
       <HotkeysEditScope />
       <OfflineSyncRunner />

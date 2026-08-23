@@ -1,28 +1,30 @@
 "use client"
 
 /**
- * Indicador de "la caja está operando sin conexión" — y cuántas ventas hay
- * esperando para subir.
+ * EL indicador de estado de sincronización de la caja. Uno solo, y vive
+ * arriba de la toolbar del carrito (montado en `cart-panel.tsx`).
  *
- * Por qué es un pill flotante y no una banda
- * ──────────────────────────────────────────
- * Es un elemento que aparece y desaparece SOLO (se corta el wifi, vuelve, un
- * ciclo de sync arranca y termina). Como banda en el flujo del layout empujaba
- * todo el workspace hacia abajo cada vez — botones incluidos — y el docblock
- * del layout ya registraba que "parpadeaba en cada ciclo de sync". Eso rompe
- * la memoria muscular del cajero, que es una regla dura del POS: las señales
- * de estado se pintan SOBRE elementos fijos, nunca insertando bloques que
- * muevan lo que ya está en pantalla.
+ * Cubre los tres estados, con prioridad explícita:
+ *   1. ventas FALLIDAS (destructivo) — terminal, no se resuelve al volver la
+ *      conexión y exige que alguien la mire (context/08 §53);
+ *   2. sin conexión (ámbar), con la cola pendiente si la hay;
+ *   3. sincronizando.
  *
- * Va `absolute` sobre el workspace, en la esquina inferior izquierda: no ocupa
- * lugar en el flujo, así que su aparición no mueve nada, y en esa esquina no
- * tapa ni la grilla de hotkeys ni el carrito ni el CTA de cobro.
+ * Por qué uno solo (2026-08-23, pedido del owner con screenshot): antes esto
+ * se repartía entre este componente, flotando abajo a la izquierda del
+ * workspace, y una banda `OfflineBanner` montada en otros DOS puntos (el
+ * layout del POS y el tope del carrito). Con dos estados simultáneos el
+ * cajero veía la misma información hasta tres veces, y las bandas apiladas
+ * empujaban los iconos de la toolbar hacia abajo, comiéndole alto a la lista
+ * de ítems. `OfflineBanner` fue eliminado.
  *
- * NO cubre el caso terminal ("N ventas no se pudo sincronizar"): ese sigue
- * siendo `OfflineBanner`, a propósito. Es un estado que no se resuelve solo y
- * el owner pidió explícitamente que no quedara escondido en un indicador
- * chico (context/08 §53) — ahí el desplazamiento del layout es el precio
- * correcto, y además es un estado raro y persistente, no un parpadeo.
+ * Las ventas EN COLA no se avisan acá con una banda: no requieren atención
+ * (se sincronizan solas). Su señal es el punto en el icono del menú del POS
+ * (`pos-main-menu.tsx`), y el detalle vive en Menú → Ventas pendientes.
+ *
+ * Regla del POS que gobierna todo esto: las señales de estado no pueden mover
+ * de lugar lo que ya está en pantalla — la memoria muscular del cajero es
+ * parte de la interfaz.
  */
 
 import * as React from "react"
@@ -84,10 +86,12 @@ export function OfflineStatusPill() {
   const degraded = !isOnline || fromCache
   const syncing = isSyncing && pendingCount > 0
 
-  // El caso terminal es del banner, no de acá — si además hay fallidas, el
-  // pill se calla para no duplicar el mensaje.
-  if (failedCount > 0) return null
-  if (!degraded && !syncing) return null
+  // UN solo aviso de estado en toda la caja, con prioridad explícita
+  // (2026-08-23): las ventas fallidas ganan sobre sin-conexión, y sin-conexión
+  // sobre sincronizando. Antes esto se repartía entre este pill y una banda
+  // `OfflineBanner` montada en otro punto del carrito, así que con dos estados
+  // simultáneos se apilaban dos franjas y empujaban la toolbar hacia abajo.
+  if (failedCount === 0 && !degraded && !syncing) return null
 
   const queueLabel =
     pendingCount > 0
@@ -95,24 +99,36 @@ export function OfflineStatusPill() {
       : ""
   const snapshotAge = degraded && cachedAt ? formatSnapshotAge(cachedAt) : null
 
+  // Terminal: no se resuelve al volver la conexión, exige que alguien la mire
+  // (context/08 §53). Por eso es el único estado que se pinta en destructivo.
+  const failed = failedCount > 0
+
   const content = (
     <>
-      {degraded ? (
+      {failed ? (
+        <CloudOff className="size-3.5 shrink-0" />
+      ) : degraded ? (
         <CloudOff className="size-3.5 shrink-0" />
       ) : (
         <RefreshCw className="size-3.5 shrink-0 animate-spin" />
       )}
       <span className="truncate">
-        {degraded ? `Sin conexión${queueLabel}` : `Sincronizando ${pendingCount}`}
+        {failed
+          ? `${failedCount} venta${failedCount !== 1 ? "s" : ""} con error — tocá para revisar`
+          : degraded
+            ? `Sin conexión${queueLabel}`
+            : `Sincronizando ${pendingCount}`}
       </span>
     </>
   )
 
   const className = cn(
     "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
-    degraded
-      ? "border-amber-500/30 bg-amber-500/15 text-amber-900 backdrop-blur dark:text-amber-100"
-      : "border-border bg-background/90 text-muted-foreground backdrop-blur",
+    failed
+      ? "border-destructive/30 bg-destructive/10 text-destructive"
+      : degraded
+        ? "border-amber-500/30 bg-amber-500/15 text-amber-900 backdrop-blur dark:text-amber-100"
+        : "border-border bg-background/90 text-muted-foreground backdrop-blur",
   )
 
   return (
@@ -121,7 +137,7 @@ export function OfflineStatusPill() {
     // pidió un único aviso y en ese lugar. `shrink-0` para que la columna del
     // carrito no lo comprima cuando la lista de ítems crece.
     <div className="flex shrink-0 justify-center px-2 pt-2">
-      {pendingCount > 0 ? (
+      {pendingCount > 0 || failed ? (
         <button
           type="button"
           onClick={() => setQueueDialogOpen(true)}
