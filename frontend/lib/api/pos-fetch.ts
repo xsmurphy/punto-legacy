@@ -76,7 +76,7 @@ export async function posFetch(
           // ante 401 que nada tenían que ver con el device (ver api-client.ts).
           moduleLogout(qc)
           // Empuja al guard a re-chequear ya, sin esperar el poll de 60s.
-          qc.invalidateQueries({ queryKey: ["pos-bootstrap-auth"] })
+          qc.invalidateQueries({ queryKey: ["pos-bootstrap"] })
         } else {
           clearDeviceToken(module)
         }

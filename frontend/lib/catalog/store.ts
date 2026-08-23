@@ -4,8 +4,9 @@
  * Toda la UI del POS lee de este store — NUNCA hace fetch directo para
  * buscar un producto o un cliente. Esto garantiza:
  *   1. Búsqueda síncrona e instantánea (cero round-trips).
- *   2. Frontera offline: al activarla (fase offline), solo cambia la
- *      fuente de hidratación (BFF → IndexedDB), la UI no toca.
+ *   2. Frontera offline: la UI no sabe —ni tiene que saber— si el catálogo
+ *      vino de la red o del snapshot local. Solo cambia la fuente de
+ *      hidratación.
  *
  * Ciclo de vida:
  *   1. Al iniciar sesión de caja, `hydrate()` se llama con los datos del
@@ -15,10 +16,17 @@
  *      `patchCustomer` / `patchItem` para actualizar el store sin
  *      re-fetch total.
  *
- * TODO (Slice A): conectar `hydrate()` al fetch real de `/api/pos/bootstrap`.
- * TODO (Fase offline): persistir en IndexedDB (Dexie) + delta-sync.
+ * Persistencia (cerrado 2026-08-23 — el viejo "TODO: persistir en IndexedDB
+ * (Dexie)"): el store sigue siendo SOLO memoria, y eso es deliberado. Lo que
+ * se persiste es el bootstrap COMPLETO del que este store se hidrata, en
+ * `lib/pos/bootstrap-cache.ts` (IndexedDB vía `idb`, no Dexie). Así hay un
+ * solo formato persistido —la respuesta del BFF tal cual— en vez de un
+ * espejo del state shape que habría que migrar cada vez que este store cambia
+ * un campo. `usePosBootstrap()` sirve ese snapshot cuando la red no responde y
+ * `useCatalogSeed` hidrata igual, sin enterarse.
  *
- * Ver context/16-app-next-rewrite.md §5 (frontera offline) y §7 Slice A.
+ * Ver context/16-app-next-rewrite.md §5 (frontera offline) y
+ * context/43-sync-incremental.md.
  */
 
 import { create } from "zustand"

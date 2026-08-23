@@ -3,8 +3,8 @@
 import * as React from "react"
 import { useCartStore } from "@/lib/cart/store"
 import { useResolvePrices } from "@/hooks/use-price-lists"
-import { useBootstrap } from "@/hooks/use-bootstrap"
 import { posApi } from "@/lib/api/pos-client"
+import { useCatalogStore } from "@/lib/catalog/store"
 import { usePosUIStore } from "@/lib/ui/store"
 
 /**
@@ -52,12 +52,16 @@ export function usePriceContext() {
       .join("|"),
   )
 
-  // outletId del device (bootstrap ya está cacheado por el layout — este
-  // segundo useBootstrap no pega un fetch nuevo, react-query dedupea por
-  // queryKey). Sin esto, el escalón "lista default del outlet" de la
-  // prioridad del backend queda sin efecto.
-  const { data: bootstrap } = useBootstrap({ client: posApi })
-  const outletId = bootstrap?.activeOutletId || undefined
+  // outletId del device: sale del catalog store, que ya lo tiene del bootstrap
+  // del POS. Sin esto, el escalón "lista default del outlet" de la prioridad
+  // del backend queda sin efecto.
+  //
+  // Antes se leía de `useBootstrap({ client: posApi })` —el bootstrap del
+  // PANEL pedido con el Bearer del device— apoyándose en que el layout del POS
+  // ya lo tenía cacheado. Ese fetch se eliminó del layout (bloqueaba el
+  // arranque offline), y traerlo de vuelta acá sería reintroducir en el POS
+  // una dependencia de red que el catalog store ya resuelve local y offline.
+  const outletId = useCatalogStore((s) => s.outlet?.id) || undefined
 
   const resolveMutation = useResolvePrices({ client: posApi })
   const resolveRef = React.useRef(resolveMutation)

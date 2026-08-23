@@ -27,6 +27,10 @@ import { EmptyState } from "@/components/empty-state"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
 import { FullscreenToggle } from "@/components/pos/fullscreen-toggle"
+import {
+  ConnectionRequiredNotice,
+  isConnectionBlocked,
+} from "@/components/pos/connection-required"
 import { OrderCard } from "@/components/orders/order-card"
 import { OrderDetailView } from "@/components/orders/order-detail-view"
 import { OrdersListView } from "@/components/orders/orders-list-view"
@@ -47,8 +51,14 @@ const VIEWS: Array<{ id: OrdersView; icon: typeof LayoutGrid; label: string }> =
 ]
 
 export default function PosOrdenesPage() {
-  const { data, isLoading } = useActiveOrders()
+  const ordersQuery = useActiveOrders()
+  const { data, isLoading } = ordersQuery
   const orders = React.useMemo(() => data?.orders ?? [], [data])
+  // Frontera offline (context/16 §5): las órdenes son estado COMPARTIDO del
+  // outlet. Sin esto, offline la query queda `paused` (nunca falla, nunca
+  // resuelve) y la página caía en "Sin órdenes activas" — afirmando que no hay
+  // órdenes cuando en realidad no se pudo preguntar.
+  const ordersBlocked = isConnectionBlocked([ordersQuery])
 
   // Vista persistida por dispositivo (localStorage). Default: cuadros.
   const [view, setStoredView] = usePersistedView<OrdersView>(
@@ -111,7 +121,15 @@ export default function PosOrdenesPage() {
         {/* Cuadros / Lista — contenedor scrolleable. pb-16 deja aire para que
             la barra flotante no tape la última fila. */}
         <div className={cn("h-full overflow-y-auto p-4 pb-16", view === "map" && "hidden")}>
-          {isLoading ? (
+          {ordersBlocked ? (
+            // Local al módulo y DENTRO del contenedor: la barra flotante de
+            // vistas sigue en pantalla (Regla #10, context/14) y la caja
+            // alrededor sigue operando.
+            <ConnectionRequiredNotice
+              what="las órdenes"
+              onRetry={() => void ordersQuery.refetch()}
+            />
+          ) : isLoading ? (
             <p className="pt-6 text-center text-sm text-muted-foreground">Cargando órdenes...</p>
           ) : orders.length === 0 ? (
             <EmptyState

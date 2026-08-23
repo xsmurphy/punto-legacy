@@ -1,14 +1,14 @@
 "use client"
 
 import * as React from "react"
-import { useQuery } from "@tanstack/react-query"
 import { PosUnauthorizedSentinel } from "@/components/pos/pos-unauthorized-sentinel"
 import { DeviceNotConnected } from "@/components/layout/device-not-connected"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { WifiOff } from "lucide-react"
-import type { PosBootstrap } from "@/lib/types/pos-bootstrap"
+import { ApiError } from "@/lib/api-client"
 import { getDeviceToken } from "@/lib/auth/device-token"
+import { usePosBootstrap } from "@/hooks/use-pos-bootstrap"
 import { RealtimeProvider } from "@/components/realtime-provider"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 
@@ -32,15 +32,28 @@ function consumeRejectReason(): RejectReason {
 
 /**
  * Guard de auth exclusivo del POS. Verifica el Bearer token del device en
- * localStorage (`punto.device.token`, realm pos-app, 10 años). Si el token
- * está ausente, expirado o revocado → muestra <DeviceNotConnected /> con
- * instrucciones para re-parear desde /settings/devices del panel.
+ * localStorage (`punto.device.token`, realm pos-app, 10 años).
  *
- * Flujos cubiertos:
- *   1. Sin token en localStorage → DeviceNotConnected inmediato (sin round-trip)
- *   2. Token presente pero inválido/revocado → BFF retorna 401 → DeviceNotConnected
- *   3. Token válido → POS funciona
- *   4. Error transitorio (500, red) → UI de retry, NO bloquea
+ * Árbol de decisión — RED / CACHE / NADA
+ * ──────────────────────────────────────
+ *   1. Sin token en localStorage        → DeviceNotConnected (sin round-trip)
+ *   2. 401 del server                   → DeviceNotConnected (revoked/incomplete/unpaired)
+ *   3. Bootstrap de RED                 → POS normal
+ *   4. Sin red, con snapshot en IndexedDB → POS igual, en modo degradado
+ *   5. Sin red y SIN snapshot           → pantalla bloqueante de reintento
+ *
+ * Los casos 3 y 4 son indistinguibles para este componente a propósito: la
+ * degradación la resuelve `usePosBootstrap()`, que sirve el snapshot cuando la
+ * red falla. Acá llega un `PosBootstrap` y la caja abre. El único bloqueo real
+ * es el 5: un device que JAMÁS sincronizó no tiene catálogo, ni cajas, ni
+ * correlativo — no hay nada que dejar operar.
+ *
+ * Esto es un cambio de comportamiento deliberado (2026-08-23). Antes,
+ * CUALQUIER fallo no-401 pintaba un `fixed inset-0` sobre la caja entera; el
+ * comentario decía "para no bloquear la caja" y hacía exactamente lo
+ * contrario. Un corte de internet dejaba inoperable una caja que tenía todo
+ * lo necesario para vender, contra la regla base del producto: lo que se
+ * EMITE —factura, recibo, remisión, comanda— funciona siempre sin internet.
  *
  * El pairing se hace vía /connect/[id] generado por el admin en /settings/devices.
  */
@@ -55,45 +68,24 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
     setHasLocalToken(getDeviceToken() !== null)
   }, [])
 
-  const { data, status, error, refetch } = useQuery<PosBootstrap>({
-    queryKey: ["pos-bootstrap-auth"],
-    queryFn: async () => {
-      const headers: Record<string, string> = {}
-      const deviceToken = getDeviceToken()
-      if (deviceToken) {
-        headers["Authorization"] = `Bearer ${deviceToken}`
-      }
-      const res = await fetch("/api/pos/bootstrap", {
-        credentials: "include",
-        cache: "no-store",
-        headers,
-      })
-      if (res.status === 401) {
-        // El body trae `code: "session_revoked"` cuando el admin desconectó
-        // el device explícitamente, o `code: "device_incomplete"` cuando el
-        // device existe pero le falta outlet/register (pareo a medias — ver
-        // DeviceAuth::requireCompleteContext() en api/lib/Auth/DeviceAuth.php).
-        // Los distinguimos de "nunca se parea" para mostrar el copy correcto.
-        const payload = await res
-          .clone()
-          .json()
-          .catch(() => null) as { code?: string } | null
-        if (payload?.code === "session_revoked") setRejectReason("revoked")
-        else if (payload?.code === "device_incomplete") setRejectReason("incomplete")
-        throw Object.assign(new Error("DEVICE_UNAUTHORIZED"), { status: 401 })
-      }
-      if (!res.ok) {
-        throw Object.assign(new Error(`BFF error ${res.status}`), { status: res.status })
-      }
-      return res.json()
-    },
-    retry: 1,
-    refetchOnWindowFocus: true,
-    // Solo pollear mientras haya token — tras moduleLogout() el token se borra
-    // y refetchInterval vuelve false para no generar 401s en loop.
-    refetchInterval: () => (getDeviceToken() !== null ? 60_000 : false),
-    staleTime: 4 * 60 * 1000, // 4 min — el BFF es pesado (5 upstream calls)
-  })
+  // Una sola query de bootstrap para todo el POS (`["pos-bootstrap"]`). Antes
+  // este guard tenía la suya (`["pos-bootstrap-auth"]`) con un `fetch` crudo,
+  // en paralelo a la de `useCatalogSeed`: dos requests al endpoint más caro
+  // del POS (5 llamadas upstream) en cada arranque, y —lo que importa acá—
+  // dos caminos distintos hacia el mismo dato, de los cuales solo uno podía
+  // aprender a degradar. Ahora la degradación offline vive en un único lugar.
+  const { data, status, error, refetch } = usePosBootstrap()
+
+  // El motivo del rechazo lo publica `posFetch` en sessionStorage cuando ve el
+  // `code` del 401, y eso pasa DESPUÉS del montaje. Consumirlo solo en el
+  // efecto de arranque dejaba el copy en "unpaired" cuando el device era en
+  // realidad `revoked`/`incomplete`, que es el caso más común (el admin
+  // desconecta el device con la caja abierta).
+  React.useEffect(() => {
+    if (status !== "error") return
+    const consumed = consumeRejectReason()
+    if (consumed) setRejectReason(consumed)
+  }, [status, error])
 
   // Sin token en localStorage → DeviceNotConnected inmediato, sin round-trip.
   if (hasLocalToken === false) return <DeviceNotConnected reason={rejectReason ?? "unpaired"} />
@@ -102,11 +94,12 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   if (status === "pending") return <>{children}</>
 
   if (status === "error") {
-    const err = error as { status?: number }
-    if (err?.status === 401) {
+    if (error instanceof ApiError && error.status === 401) {
       return <DeviceNotConnected reason={rejectReason ?? "unpaired"} />
     }
-    // Error transitorio (500, red) → UI de retry para no bloquear la caja.
+    // Único bloqueo legítimo: no hay red Y no hay snapshot (device nuevo que
+    // nunca completó un bootstrap). Con snapshot, `usePosBootstrap` ya lo
+    // habría servido y esta rama no se alcanza.
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-background p-6">
         <Card className="w-full max-w-md">
@@ -117,7 +110,8 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
             <div className="space-y-1">
               <p className="text-base font-semibold">Sin conexión con el servidor</p>
               <p className="text-sm text-muted-foreground">
-                Verificá tu conexión a internet y reintentá.
+                Este dispositivo todavía no descargó los datos del comercio, así que
+                no puede operar sin conexión. Conectate a internet y reintentá.
               </p>
             </div>
             <Button onClick={() => refetch()} size="lg" className="w-full">
@@ -139,6 +133,10 @@ export function PosAuthGuard({ children }: { children: React.ReactNode }) {
   // Hasta 2026-08-09 el listener solo se montaba en PanelAuthGuard, que cubre
   // (panel) y (admin) — el POS vive en (pos) con este guard, así que la caja
   // NUNCA escuchaba: el backend publicaba y del otro lado no había nadie.
+  //
+  // Offline: el companyId puede venir del snapshot. `RealtimeProvider` intenta
+  // conectar y falla, que es lo correcto — reintenta solo y se engancha apenas
+  // vuelve la red, sin que la caja se entere.
   return (
     <>
       <PosUnauthorizedSentinel />

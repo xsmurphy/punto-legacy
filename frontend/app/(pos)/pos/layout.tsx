@@ -80,9 +80,8 @@ import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
 import { usePriceContext } from "@/hooks/use-price-context"
-import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useRegisterClaim } from "@/hooks/use-register-claim"
-import { posApi } from "@/lib/api/pos-client"
+import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useWorkspaceStore, supportsFullscreen } from "@/lib/pos/workspace-store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
@@ -90,6 +89,7 @@ import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import { useOfflineSync } from "@/hooks/use-offline-sync"
 import { OfflineBanner } from "@/components/pos/offline-banner"
+import { OfflineStatusPill } from "@/components/pos/offline-status-pill"
 
 function OfflineSyncRunner() {
   useOfflineSync()
@@ -192,14 +192,23 @@ function PosWorkspaceLayoutInner({
   // remounts del layout — Next puede invalidar la cache al navegar entre
   // rutas hijas (/pos → /pos/guardadas) y un useRef se resetearía, volviendo
   // a lockear cada vez. Incidente 2026-06-28.
-  // Bootstrap del layout del POS: multi-realm en backend, pero este layout
-  // SIEMPRE corre en contexto de device — inyecta posApi (Bearer) en vez
-  // del default `api` (cookie panel), ver invariante en lib/api-client.ts.
-  const { data: bootstrap } = useBootstrap({ client: posApi })
-  if (bootstrap && !useLockStore.getState().autoLockDone) {
+  //
+  // La cuenta de operadores sale del catalog store (`users`, que baja en el
+  // bootstrap del POS), NO de `/v1/bootstrap.userCount`. Hasta 2026-08-23
+  // este layout pedía ADEMÁS el bootstrap del PANEL con el Bearer del device
+  // y gateaba todo el render con `if (!bootstrap) return <PosLoadingScreen/>`:
+  // sin internet ese fetch no volvía nunca y la caja se quedaba clavada en el
+  // loading para siempre, aunque el catálogo estuviera cacheado. Era el
+  // segundo bloqueo del arranque offline, después del `PosAuthGuard`.
+  //
+  // El POS no necesita el bootstrap del panel para nada: el suyo ya trae
+  // `users`. Un bootstrap por realm, y el del POS sabe operar offline.
+  const catalogStatus = useCatalogStore((s) => s.status)
+  const operatorCount = useCatalogStore((s) => s.users.length)
+  const catalogReady = catalogStatus === "ready"
+  if (catalogReady && !useLockStore.getState().autoLockDone) {
     useLockStore.getState().markAutoLockDone()
-    const userCount = bootstrap.userCount
-    if (typeof userCount === "number" && userCount > 1) {
+    if (operatorCount > 1) {
       useLockStore.getState().lock()
     }
   }
@@ -225,16 +234,21 @@ function PosWorkspaceLayoutInner({
   // server-side.
   useRegisterClaim()
 
-  if (!bootstrap) {
+  // Gate del arranque: el catálogo hidratado (de red o del snapshot offline —
+  // ver `hooks/use-pos-bootstrap.ts`). Nunca una request en vuelo.
+  if (!catalogReady) {
     return <PosLoadingScreen />
   }
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden">
-      {/* Banner full-width ARRIBA. Antes era hijo directo del flex-row de
-          paneles → se renderizaba como una franja vertical (toda la altura)
-          entre el contenido y el carrito, parpadeando en cada ciclo de sync.
-          Ahora el tope es flex-col: banner arriba, paneles en una fila debajo. */}
+      {/* Banda full-width ARRIBA, SOLO para ventas fallidas (estado terminal).
+          Antes era hijo directo del flex-row de paneles → se renderizaba como
+          una franja vertical (toda la altura) entre el contenido y el carrito.
+          Ahora el tope es flex-col: banda arriba, paneles en una fila debajo.
+          El estado transitorio (sin conexión / sincronizando) lo muestra
+          `OfflineStatusPill` más abajo, flotando: aparecer y desaparecer no
+          puede mover los botones de lugar. */}
       <OfflineBanner />
       <BeforeUnloadGuard />
       <HotkeysEditScope />
@@ -293,6 +307,11 @@ function PosWorkspaceLayoutInner({
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Flota sobre el workspace (el contenedor de arriba es `relative`), así
+          que no desplaza nada al aparecer. Va último para quedar por encima
+          de los paneles, y debajo del LockScreen. */}
+      <OfflineStatusPill />
 
       <LockScreen />
     </div>

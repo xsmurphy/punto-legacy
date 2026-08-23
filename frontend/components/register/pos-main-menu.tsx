@@ -111,10 +111,9 @@ import {
 import { toast } from "sonner"
 import { usePosOutlets, usePosRegisters } from "@/hooks/use-pos-outlets"
 import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
-import { posFetch } from "@/lib/api/pos-fetch"
-import { getDeviceClaims } from "@/lib/auth/device-claims"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
 import { PrintersManager } from "@/components/settings/printers-manager"
+import { RemoveDeviceDialog } from "@/components/pos/remove-device-dialog"
 import {
   usePosRegisterConfig,
   useUpdatePosRegisterConfig,
@@ -1979,52 +1978,7 @@ function AjustesPanel() {
             <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Zona de peligro
             </p>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                >
-                  Eliminar dispositivo del comercio
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Eliminar dispositivo del comercio</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Esta acción desvinculará este dispositivo de la caja. Tendrás que volver a parearlo para usar el POS.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    onClick={async () => {
-                      try {
-                        const deviceId = getDeviceClaims("pos")?.deviceId ?? null
-                        const res = await posFetch("/api/pos/revoke-this-device", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ deviceId }),
-                        })
-                        if (!res.ok) {
-                          const data = await res.json().catch(() => ({}))
-                          toast.error((data as { error?: { message?: string } }).error?.message ?? "Error al eliminar el dispositivo")
-                          return
-                        }
-                        // El device fue revocado server-side; recargar /pos hace que
-                        // PosAuthGuard re-evalúe y muestre DeviceNotConnected.
-                        window.location.href = "/pos"
-                      } catch {
-                        toast.error("Error al eliminar el dispositivo")
-                      }
-                    }}
-                  >
-                    Eliminar
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <RemoveDeviceDialog />
           </div>
 
         </div>

@@ -1,5 +1,5 @@
 /**
- * Cola offline del POS — persiste ventas pendientes de sync en IndexedDB (via idb).
+ * Cola offline del POS — ventas emitidas que todavía no llegaron al backend.
  *
  * S2 del feature offline-writes (2026-06-25).
  *
@@ -8,55 +8,25 @@
  * pierde datos en privado/incógnito), IndexedDB es la storage correcta para
  * una cola de ventas offline.
  *
- * DB: 'punto-pos-offline', store: 'pendingSales', keyPath: 'clientTempId'
+ * La base y el schema los define `lib/pos/offline-db.ts` — este módulo solo
+ * opera sobre el store `pendingSales`. Antes abría `punto-pos-offline` por su
+ * cuenta; cuando apareció un segundo store (el snapshot del bootstrap, para
+ * que la caja arranque sin red) esa apertura duplicada pasó a ser un conflicto
+ * de versiones esperando a suceder. Ver el docblock de `offline-db.ts`.
  */
 
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
-import type { CreateSalePayload } from '@/lib/commands/create-sale'
+import { getPosOfflineDB as getDB } from '@/lib/pos/offline-db'
 
-export interface OfflineError {
-  code: string
-  message: string
-}
+// Los tipos de la fila viven con el schema, pero se re-exportan acá porque
+// los call-sites (`use-offline-sync`, `sync-queue-dialog`) los importan de
+// este módulo desde antes de que existiera `offline-db.ts`.
+export type {
+  OfflineError,
+  OfflineSaleStatus,
+  OfflineSaleRow,
+} from '@/lib/pos/offline-db'
 
-export type OfflineSaleStatus = 'pending' | 'syncing' | 'failed'
-
-export interface OfflineSaleRow {
-  clientTempId: string
-  invoiceNo: number
-  sale: CreateSalePayload
-  status: OfflineSaleStatus
-  error?: OfflineError
-  createdAt: string      // ISO
-  lastAttemptAt?: string // ISO
-  attempts: number
-}
-
-// ── Schema de la DB ───────────────────────────────────────────────────────────
-
-interface PosOfflineDB extends DBSchema {
-  pendingSales: {
-    key: string
-    value: OfflineSaleRow
-  }
-}
-
-// ── Singleton de la DB ────────────────────────────────────────────────────────
-
-let dbPromise: Promise<IDBPDatabase<PosOfflineDB>> | null = null
-
-function getDB(): Promise<IDBPDatabase<PosOfflineDB>> {
-  if (!dbPromise) {
-    dbPromise = openDB<PosOfflineDB>('punto-pos-offline', 1, {
-      upgrade(db) {
-        if (!db.objectStoreNames.contains('pendingSales')) {
-          db.createObjectStore('pendingSales', { keyPath: 'clientTempId' })
-        }
-      },
-    })
-  }
-  return dbPromise
-}
+import type { OfflineError, OfflineSaleRow } from '@/lib/pos/offline-db'
 
 // ── API pública ───────────────────────────────────────────────────────────────
 

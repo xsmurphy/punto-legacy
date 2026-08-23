@@ -25,8 +25,9 @@ export function useUpdateDeviceContext() {
         body,
       ),
     onSuccess: () => {
+      // Una sola query de bootstrap desde 2026-08-23: `["pos-bootstrap-auth"]`
+      // (la del guard) se fusionó con esta. Ver `hooks/use-pos-bootstrap.ts`.
       qc.invalidateQueries({ queryKey: ["pos-bootstrap"] })
-      qc.invalidateQueries({ queryKey: ["pos-bootstrap-auth"] })
     },
   })
 }
