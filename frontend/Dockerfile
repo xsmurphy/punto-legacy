@@ -71,4 +71,12 @@ USER nextjs
 
 EXPOSE 3000
 
+# Sin esto Coolify solo reporta el estado del contenedor ("Running (no
+# healthcheck)"): sabe que el proceso vive, no que Next ya puede responder.
+# Se usa `node` y no `curl` porque node:22-alpine no trae curl y sumarlo
+# engorda la imagen para un ping; node 22 ya tiene `fetch` global.
+# `start-period` cubre el arranque de Next (más lento que el de la API PHP).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD node -e "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
 CMD ["node", "server.js"]
