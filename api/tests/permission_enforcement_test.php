@@ -24,11 +24,16 @@ declare(strict_types=1);
  *         - rol CON la clave  → NO 403-por-permiso (puede fallar 404/422 más
  *           adelante; lo que importa es que el gate lo dejó pasar)
  *         - owner             → NO 403-por-permiso, siempre
- *   (C) Realm `pos-app` con roleId controlado: prueba que los gates de la
- *       caja (drawer) discriminan cuando el rol es real. Hoy en producción
- *       el device se emite con roleId='1' (owner) y pasan siempre — este
- *       bloque fija el comportamiento para cuando eso cambie.
+ *   (C) Realm `pos-app`: el rol seed `device`. Piso (todo lo que el POS
+ *       consume con el Bearer del dispositivo tiene que seguir andando) y
+ *       techo (lo que una terminal del mostrador no puede hacer).
+ *   (C2) El P0: un device no puede ver, editar ni archivar a los EMPLEADOS
+ *       del comercio — el camino por el que le reescribía el teléfono de
+ *       login al Dueño y se quedaba con el tenant.
  *   (D) Escalación de privilegios en /v1/users.
+ *   (E) La regla anti-escalación es compartida (RoleEscalation).
+ *   (F) Escalación por /v1/roles (editar permisos sin asignar ningún rol) y
+ *       el import CSV con mode=update, que es un UPDATE masivo.
  *
  * Uso (necesita Postgres migrado + seed.sql cargado — ver
  * `run_permission_enforcement_test.sh` para levantar todo de cero):
@@ -55,6 +60,14 @@ $userId     = $adminId;
 $roleId     = '1';
 require API_APP_DIR . '/data.php';
 
+/**
+ * userAgent con el que el arnés marca TODAS las sesiones que crea. Es lo que
+ * después usa el DELETE de limpieza del final para borrarlas: sin pasarlo
+ * explícito, bajo CLI no hay HTTP_USER_AGENT y la columna queda NULL, así que
+ * el DELETE no matchea nada y cada corrida acumula sesiones vivas.
+ */
+const AGENTE_DEL_ARNES = 'permission-enforcement-test';
+
 $failures = 0;
 $checks   = 0;
 
@@ -75,6 +88,34 @@ function check(string $label, bool $ok, string $detail, int &$failures, int &$ch
 //
 // Claves que a propósito NO se gatean. Cada una con su motivo — agregar algo
 // acá es una decisión de diseño, no una forma de callar el test.
+/**
+ * Gates que NO se pueden reconocer por `hasPermission('clave')`: la clave se
+ * arma por concatenación o sale de un mapa/ternario y a hasPermission() le
+ * llega una variable. Clave del array = literal exacto que aparece en el
+ * fuente; valor = claves del catálogo que ese literal gatea.
+ */
+const GATES_INDIRECTOS = [
+    // contacts.php — contactsPermFor()
+    "'contacts.customer.' . \$op"                          => ['contacts.customer.view', 'contacts.customer.create',
+                                                               'contacts.customer.edit', 'contacts.customer.delete'],
+    "'contacts.user.view' : 'contacts.user.manage'"         => ['contacts.user.view', 'contacts.user.manage'],
+    "'contacts.supplier.view' : 'contacts.supplier.manage'" => ['contacts.supplier.view', 'contacts.supplier.manage'],
+    // drawer.php — mapa acción → clave
+    "'open'    => 'pos.drawer.open',"                       => ['pos.drawer.open', 'pos.drawer.close', 'finance.manage'],
+    // items.php — itemsRequiredPermission()
+    "return 'inventory.item.view';"                         => ['inventory.item.view'],
+    "return 'inventory.stock.adjust';"                      => ['inventory.stock.adjust'],
+    "'inventory.item.delete' : 'inventory.item.edit'"       => ['inventory.item.delete', 'inventory.item.edit'],
+    "return 'inventory.item.create';"                       => ['inventory.item.create'],
+    "? 'inventory.item.edit'"                               => ['inventory.item.edit'],
+    // credit-payments.php — la clave sale del kind de la fila
+    "'pos.sale.void' : 'finance.manage'"                    => ['pos.sale.void', 'finance.manage'],
+    "'pos.sale.creditPayment' : 'finance.manage'"           => ['pos.sale.creditPayment', 'finance.manage'],
+    // billing.php — la clave sale del método
+    "'billing.view'"                                        => ['billing.view'],
+    "'billing.manage'"                                      => ['billing.manage'],
+];
+
 const EXCEPCIONES_CONOCIDAS = [
     // Offline-first (memoria del producto + context/08): el back NUNCA rechaza
     // una venta ya EMITIDA. La caja imprimió la factura y el cliente se fue;
@@ -107,14 +148,26 @@ foreach ($it as $f) {
     if (!str_contains($src, 'hasPermission(') && !str_contains($src, 'contactsRequire(')) continue;
     $rel = str_replace($apiDir . '/', '', $path);
 
+    // La clave cuenta como gateada solo si aparece como ARGUMENTO LITERAL de
+    // hasPermission(). Con el `str_contains($src, "'$id'")` anterior alcanzaba
+    // con nombrarla en un comentario, en un mensaje de error o en una lista de
+    // documentación dentro de un archivo que usara hasPermission() en otra
+    // línea — cobertura verde sin ningún gate real.
     foreach (PermissionCatalog::ids() as $id) {
-        if (str_contains($src, "'$id'")) { $gateados[$id][] = $rel; }
-    }
-    // contacts.php arma la familia de clientes por concatenación.
-    if (str_contains($src, "'contacts.customer.' . \$op")) {
-        foreach (['view', 'create', 'edit', 'delete'] as $op) {
-            $gateados["contacts.customer.$op"][] = $rel;
+        if (preg_match('/hasPermission\\(\\s*[\'"]' . preg_quote($id, '/') . '[\'"]\\s*\\)/', $src)) {
+            $gateados[$id][] = $rel;
         }
+    }
+
+    // Gates INDIRECTOS: la clave se arma por concatenación o sale de un mapa /
+    // de un ternario, y a hasPermission() le llega una variable. No se pueden
+    // matchear por el patrón de arriba, así que cada uno se declara por el
+    // literal EXACTO del código que lo construye. Si ese código cambia el
+    // literal deja de matchear y el check de cobertura lo denuncia — que es
+    // precisamente el aviso que se quiere.
+    foreach (GATES_INDIRECTOS as $literal => $ids) {
+        if (!str_contains($src, $literal)) continue;
+        foreach ($ids as $id) { $gateados[$id][] = $rel; }
     }
 }
 
@@ -219,6 +272,10 @@ function panelSession(string $roleId, string $companyId, string $outletId, strin
         'outletId'  => $outletId,
         'roleId'    => $roleId,
         'expiresAt' => date('Y-m-d H:i:s', time() + 3600),
+        // Sin esto el userAgent queda NULL bajo CLI y el DELETE de limpieza
+        // del final (WHERE useragent = AGENTE_DEL_ARNES) no matchea NINGUNA
+        // fila: cada corrida dejaba sus sesiones vivas en la BD.
+        'userAgent' => AGENTE_DEL_ARNES,
     ]);
 }
 
@@ -277,6 +334,19 @@ function esGateDePermiso(array $res, string $perm): bool
     return $res['status'] === 403 && str_contains($res['body'], "requiere: $perm");
 }
 
+/**
+ * `hitEndpoint()` devuelve status=0 cuando el subproceso no imprimió un
+ * envelope parseable — o sea, cuando el endpoint reventó ANTES de responder
+ * (fatal de PHP, require roto, boot caído). Los checks "rol CON la clave" y
+ * "owner" se afirmaban como `!esGateDePermiso(...)`, que con status=0 da
+ * true: el arnés pasaba en VERDE con el endpoint completamente roto. Pasar
+ * el gate exige las dos cosas — que haya respuesta y que no sea el 403.
+ */
+function pasaElGate(array $res, string $perm): bool
+{
+    return $res['status'] !== 0 && !esGateDePermiso($res, $perm);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // (B) Matriz endpoint × rol
 // ═══════════════════════════════════════════════════════════════════════════
@@ -293,26 +363,34 @@ foreach ($CASOS as [$perm, $etiqueta, $endpoint, $method, $query, $body]) {
 
     $con = hitEndpoint($endpoint, $method, $query, $body, $tokAll);
     check("[$perm] $etiqueta — rol CON la clave → pasa el gate",
-        !esGateDePermiso($con, $perm),
-        "el gate rechazó a un rol que SÍ tiene la clave. status={$con['status']} body=" . substr(trim($con['body']), 0, 240),
+        pasaElGate($con, $perm),
+        "el gate rechazó a un rol que SÍ tiene la clave, o el endpoint no respondió. status={$con['status']} body=" . substr(trim($con['body']), 0, 240),
         $failures, $checks);
 
     $own = hitEndpoint($endpoint, $method, $query, $body, $tokOwner);
     check("[$perm] $etiqueta — owner → pasa el gate",
-        !esGateDePermiso($own, $perm),
-        "el owner tiene que pasar SIEMPRE. status={$own['status']} body=" . substr(trim($own['body']), 0, 240),
+        pasaElGate($own, $perm),
+        "el owner tiene que pasar SIEMPRE, y el endpoint tiene que responder. status={$own['status']} body=" . substr(trim($own['body']), 0, 240),
         $failures, $checks);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// (C) Realm pos-app con roleId controlado — gates de la caja
+// (C) Realm pos-app — el rol del DISPOSITIVO
 // ═══════════════════════════════════════════════════════════════════════════
 //
-// En producción el device se emite con roleId='1' → seed owner → estos gates
-// pasan siempre (ver DeviceAuth::buildToken). Acá se emite la sesión pos-app
-// con un roleId REAL para probar que el gate discrimina: es lo que va a pasar
-// el día que el POS tenga sesión de operador, y fija el contrato ahora.
-echo "\n=== (C) gates de caja con rol real (realm pos-app) ===\n";
+// El device ya NO se emite con roleId='1' (→ seed owner → hasPermission()
+// true incondicional). Lleva el rol seed `device`, y tanto `bootstrap.php`
+// (apiAuthTenant) como `DeviceAuth::resolveDeviceToken()` lo RESUELVEN contra
+// el tenant en cada request en vez de leer el `roleid` de la sesión — así una
+// sesión vieja tampoco opera como owner. Por eso este bloque no inyecta roles:
+// inyectar uno no cambiaría nada, y el contrato que hay que fijar es el del
+// rol real.
+//
+// Dos cosas se prueban acá, y las dos son necesarias:
+//   (c.1) el PISO alcanza — el device puede hacer todo lo que el POS hace hoy
+//         con su Bearer. Si esto se cae, el cambio rompe cajas en producción.
+//   (c.2) el TECHO corta — lo que el device NO tiene que poder hacer, no puede.
+echo "\n=== (C) realm pos-app: el rol del dispositivo ===\n";
 
 $deviceId = '9f2c77aa-0000-4000-8000-0000000000d1';
 ncmExecute('DELETE FROM device WHERE deviceid = ?::uuid', [$deviceId], true);
@@ -334,47 +412,226 @@ function deviceSession(string $roleId, string $companyId, string $outletId, stri
         'roleId'     => $roleId,
         'module'     => 'pos',
         'expiresAt'  => null,
+        'userAgent'  => AGENTE_DEL_ARNES, // ver panelSession()
     ]);
 }
 
-$devNone  = deviceSession($roleNone, $companyId, $outletId, $registerId, $adminId, $deviceId);
-$devDraw  = deviceSession(
-    makeRole('permtest-caja', ['pos.drawer.open', 'pos.drawer.close'], $companyId, $adminId),
-    $companyId, $outletId, $registerId, $adminId, $deviceId
-);
-$devOwner = deviceSession($roleOwner, $companyId, $outletId, $registerId, $adminId, $deviceId);
+$roleDevice = RoleService::deviceRoleId($companyId);
+check('el tenant tiene el rol seed `device`', $roleDevice !== '',
+    'DeviceAuth y bootstrap lo necesitan para emitir/resolver la sesión pos-app', $failures, $checks);
 
-$devFin = deviceSession(
-    makeRole('permtest-caja-finanzas', ['finance.manage'], $companyId, $adminId),
-    $companyId, $outletId, $registerId, $adminId, $deviceId
-);
+$permsDevice = RoleService::getPermissions($roleDevice, $companyId);
+check('el rol `device` NO es owner (no tiene el catálogo completo)',
+    count($permsDevice) < count(PermissionCatalog::ids()),
+    'si tiene todo el catálogo volvimos al roleId=1 → owner: los gates del realm pos-app son letra muerta',
+    $failures, $checks);
 
+// (c.1) El PISO — toda clave que gatea algo que el POS consume con el Bearer
+// del device. La lista se derivó endpoint por endpoint del inventario de
+// `frontend/app/api/pos/*` + `lib/api/pos-client.ts`; si alguien recorta el
+// piso sin mirar, esto se pone rojo ANTES de romper una caja.
 foreach ([
-    ['pos.drawer.open',  'open',    $devDraw],
-    ['pos.drawer.close', 'close',   $devDraw],
-    ['finance.manage',   'expense', $devFin],
-    ['finance.manage',   'income',  $devFin],
-] as [$perm, $accion, $tokConPermiso]) {
-    $body = ['action' => $accion, 'amount' => 0];
+    'pos.sale.void'            => 'sales-void.php + transactions.php?resource=void (anular desde la caja)',
+    'pos.sale.refund'          => 'returns.php action=create (devolución)',
+    'pos.sale.creditPayment'   => 'credit-payments.php (cobro de crédito al cliente)',
+    'pos.drawer.open'          => 'drawer.php action=open',
+    'pos.drawer.close'         => 'drawer.php action=close',
+    'finance.manage'           => 'drawer.php action=expense|income (extracción/ingreso de efectivo)',
+    'inventory.item.view'      => 'items.php GET + resource=bulk-get (catálogo y sync)',
+    'contacts.customer.view'   => 'contacts.php GET type=1 + bulk-get',
+    'contacts.customer.create' => 'contacts.php POST type=1 (alta de cliente en el mostrador)',
+    'contacts.customer.edit'   => 'contacts.php PUT type=1',
+    'reports.sales.view'       => 'returns.php action=returnOptions|listForParent + detalle de venta',
+    'settings.register.manage' => 'register.php PUT resource=hotkeys|config (su propia caja)',
+] as $clave => $paraQue) {
+    check("piso del rol `device`: $clave — $paraQue",
+        in_array($clave, $permsDevice, true),
+        'sin esta clave el POS recibe 403 en producción', $failures, $checks);
+}
 
-    $sin = hitEndpoint('v1/drawer.php', 'POST', '', $body, '', $devNone);
-    check("[$perm] drawer POST $accion — rol SIN la clave → 403",
-        esGateDePermiso($sin, $perm),
-        "status={$sin['status']} body=" . substr(trim($sin['body']), 0, 240),
-        $failures, $checks);
-
-    $con = hitEndpoint('v1/drawer.php', 'POST', '', $body, '', $tokConPermiso);
-    check("[$perm] drawer POST $accion — rol CON la clave → pasa el gate",
-        !esGateDePermiso($con, $perm),
-        "status={$con['status']} body=" . substr(trim($con['body']), 0, 240),
-        $failures, $checks);
-
-    $own = hitEndpoint('v1/drawer.php', 'POST', '', $body, '', $devOwner);
-    check("[$perm] drawer POST $accion — owner → pasa el gate",
-        !esGateDePermiso($own, $perm),
-        "status={$own['status']} body=" . substr(trim($own['body']), 0, 240),
+// (c.2) El TECHO — lo que una terminal del mostrador no tiene que poder.
+foreach ([
+    'contacts.user.view', 'contacts.user.manage',
+    'contacts.supplier.view', 'contacts.supplier.manage',
+    'contacts.customer.delete',
+    'inventory.item.create', 'inventory.item.edit', 'inventory.item.delete',
+    'settings.template.manage', 'settings.tax.manage', 'settings.outlet.manage',
+    'settings.role.manage', 'settings.device.manage', 'settings.device.pair',
+    'settings.company.edit', 'billing.view', 'billing.manage',
+    'ai.agent.use', 'ai.agent.elevated', 'production.manage', 'einvoice.manage',
+] as $clave) {
+    check("techo del rol `device`: NO tiene $clave", !in_array($clave, $permsDevice, true),
+        'el token del device es eterno y vive en el localStorage de una tablet del mostrador',
         $failures, $checks);
 }
+
+// El pareo REAL: DeviceAuth tiene que emitir la sesión con el rol `device`, no
+// con roleId='1'. Los checks de arriba prueban qué PUEDE el rol; este prueba
+// que sea el que efectivamente se emite — sin él, cambiar SEED_PERMISSIONS
+// daría verde mientras DeviceAuth sigue emitiendo tokens de Dueño.
+// El $secret ya no se usa para nada (las sesiones son tokens opacos desde el
+// auth rewrite): solo hay un guard de "no arranques sin configurarlo".
+require_once dirname(__DIR__) . '/lib/Auth/DeviceAuth.php';
+if (($_ENV['JWT_SECRET'] ?? '') === '') {
+    $_ENV['JWT_SECRET'] = 'permission-enforcement-test';
+}
+$pareo = \Punto\Api\Auth\DeviceAuth::createDeviceAndIssueToken(
+    $companyId, $outletId, $registerId, $adminId, 'permtest pareo', AGENTE_DEL_ARNES
+);
+$sesionPareada = ncmExecute(
+    'SELECT roleid FROM auth_session WHERE tokenhash = ?',
+    [authHashToken((string) $pareo['token'])]
+);
+check('DeviceAuth emite la sesión pos-app con el rol `device` (no roleId=1)',
+    (string) ($sesionPareada['roleid'] ?? '') === $roleDevice,
+    'roleid emitido=' . (string) ($sesionPareada['roleid'] ?? '(ninguno)') . " esperado=$roleDevice",
+    $failures, $checks);
+ncmExecute('UPDATE device SET status = 0 WHERE deviceid = ?::uuid', [(string) $pareo['deviceId']], true);
+
+$devTok = deviceSession($roleDevice, $companyId, $outletId, $registerId, $adminId, $deviceId);
+
+// El drawer completo, con el rol real del device.
+foreach ([
+    ['pos.drawer.open',  'open'],
+    ['pos.drawer.close', 'close'],
+    ['finance.manage',   'expense'],
+    ['finance.manage',   'income'],
+] as [$perm, $accion]) {
+    $res = hitEndpoint('v1/drawer.php', 'POST', '', ['action' => $accion, 'amount' => 0], '', $devTok);
+    check("[$perm] drawer POST $accion — el device pasa el gate",
+        pasaElGate($res, $perm),
+        "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+        $failures, $checks);
+}
+
+// Fail-closed del mapa de acciones: una acción que no está en $drawerPerm no
+// puede colarse al switch de abajo sin haber pasado por ningún permiso.
+$res = hitEndpoint('v1/drawer.php', 'POST', '', ['action' => 'inventada', 'amount' => 0], '', $devTok);
+check('drawer: acción fuera del mapa de permisos → 400 antes del switch',
+    $res['status'] === 400,
+    "una acción sin clave asignada no puede pasar el gate. status={$res['status']} body="
+        . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// El device SÍ lee el catálogo, y NO lo escribe (guard de realm de items.php).
+$res = hitEndpoint('v1/items.php', 'GET', 'limit=1', [], '', $devTok);
+check('device: GET /v1/items → pasa el gate',
+    pasaElGate($res, 'inventory.item.view'),
+    "el POS necesita leer el catálogo. status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$res = hitEndpoint('v1/items.php', 'POST', '', ['kind' => 'basic'], '', $devTok);
+check('device: POST /v1/items (alta de ítem) → 403',
+    $res['status'] === 403,
+    "la administración del catálogo es del panel. status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// El device SÍ opera clientes.
+$res = hitEndpoint('v1/contacts.php', 'GET', 'type=1', [], '', $devTok);
+check('device: GET /v1/contacts?type=1 → pasa el gate',
+    pasaElGate($res, 'contacts.customer.view'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$res = hitEndpoint('v1/contacts.php', 'PUT', 'id=' . $clienteId,
+    ['name' => 'Verify PY Cliente sin credito'], '', $devTok);
+check('device: PUT /v1/contacts sobre un CLIENTE → pasa el gate',
+    pasaElGate($res, 'contacts.customer.edit'),
+    "el alta/edición de clientes en el mostrador tiene que seguir andando. status={$res['status']} body="
+        . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// (C2) P0 — un device no puede tocar a los EMPLEADOS del comercio
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// La cadena completa que esto cierra: `/v1/contacts` acepta el realm `pos-app`
+// → el gate de PUT resuelve `contacts.user.manage` para un contacto `type=0`
+// → la sesión del device se emitía con roleId='1' → LEGACY_MAP lo mapea a
+// `owner` → hasPermission() true incondicional → `ContactService::mapToColumns`
+// mapea `phone` a la columna `contactPhone` → `/v1/login.php` autentica por
+// `contactPhone AND type=0`. O sea: el device le cambiaba el teléfono de login
+// al Dueño y se quedaba con el comercio. El `contactId` del owner lo publica
+// `/v1/bootstrap.php`, así que ni siquiera había que adivinarlo.
+//
+// Dos capas lo cierran, y las dos se prueban: el rol `device` no tiene
+// `contacts.user.manage`, y `contactsRequire()` corta por REALM antes de
+// mirar permisos (para que siga cerrado aunque alguien le agregue la clave al
+// rol desde el panel).
+echo "\n=== (C2) el device no toca a los empleados del comercio ===\n";
+
+$ownerRow = ncmExecute(
+    "SELECT contactid, contactphone FROM contact
+      WHERE companyid = ? AND type = 0 AND contactstatus > 0
+      ORDER BY main DESC NULLS LAST LIMIT 1",
+    [$companyId]
+);
+$empleadoId  = (string) ($ownerRow['contactid'] ?? '');
+$telefonoPre = (string) ($ownerRow['contactphone'] ?? '');
+check('fixture: hay un contacto type=0 (empleado/dueño) para atacar',
+    $empleadoId !== '', 'sin esto los casos del P0 no prueban nada', $failures, $checks);
+
+// (a) PUT sobre un contacto type=0 desde el device
+$res = hitEndpoint('v1/contacts.php', 'PUT', 'id=' . $empleadoId, ['name' => 'Tomado'], '', $devTok);
+check('P0 (a): device PUT /v1/contacts sobre un type=0 → 403',
+    $res['status'] === 403,
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// (b) el ataque concreto: reescribirle el teléfono de login al Dueño
+$res = hitEndpoint('v1/contacts.php', 'PUT', 'id=' . $empleadoId, ['phone' => '595999000111'], '', $devTok);
+check('P0 (b): device cambiando el contactPhone del owner → 403',
+    $res['status'] === 403,
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$post = ncmExecute('SELECT contactphone FROM contact WHERE contactid = ?::uuid', [$empleadoId]);
+check('P0 (b): el teléfono de login del owner quedó intacto',
+    (string) ($post['contactphone'] ?? '') === $telefonoPre,
+    'si cambió, el 403 llegó tarde y el UPDATE ya se había hecho', $failures, $checks);
+
+// El mismo corte para las otras dos operaciones sobre type=0. La asimetría
+// original era exactamente esta: el guard de realm existía SOLO en DELETE.
+$res = hitEndpoint('v1/contacts.php', 'GET', 'id=' . $empleadoId, [], '', $devTok);
+check('P0: device GET /v1/contacts?id=<type=0> → 403',
+    $res['status'] === 403,
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$res = hitEndpoint('v1/contacts.php', 'DELETE', 'id=' . $empleadoId, [], '', $devTok);
+check('P0: device DELETE /v1/contacts?id=<type=0> → 403',
+    $res['status'] === 403,
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// Y desde el PANEL, un rol sin contacts.user.manage tampoco: el gate de
+// permiso sigue vivo, no lo reemplazó el de realm.
+$res = hitEndpoint('v1/contacts.php', 'PUT', 'id=' . $empleadoId, ['name' => 'Tomado'], $tokNone);
+check('P0: panel sin contacts.user.manage, PUT sobre un type=0 → 403 del gate',
+    esGateDePermiso($res, 'contacts.user.manage'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// Los sub-recursos del perfil resolvían el type del `?type=` del CALLER, no de
+// la fila: pasando ?type=1 sobre el id de un empleado el gate se evaluaba
+// contra la familia de clientes y ni el permiso ni el guard de realm llegaban
+// a mirar que el contacto era type=0.
+foreach (["analytics", "statement"] as $sub) {
+    $res = hitEndpoint('v1/contacts.php', 'GET', "id=$empleadoId&resource=$sub&type=1", [], '', $devTok);
+    check("P0: device GET /v1/contacts?resource=$sub sobre un type=0 (con ?type=1) → 403",
+        $res['status'] === 403,
+        "el type tiene que salir de la fila, no del query. status={$res['status']} body="
+            . substr(trim($res['body']), 0, 240),
+        $failures, $checks);
+}
+
+// Oráculo de existencia: sin permiso, un id que NO existe tiene que dar el
+// mismo 403 que uno que sí — nunca 404 (si no, se enumera la cartera).
+$res = hitEndpoint('v1/contacts.php', 'GET', 'id=00000000-0000-0000-0000-0000000000ff', [], $tokNone);
+check('contacts: el detalle por id gatea ANTES del 404 (no es oráculo de existencia)',
+    $res['status'] === 403,
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
 
 // ═══════════════════════════════════════════════════════════════════════════
 // (D) Escalación de privilegios en /v1/users
@@ -503,9 +760,121 @@ check('ai/execute.php create_user pasa por RoleEscalation',
     str_contains($aiSrc, 'RoleEscalation::guardOrThrow'),
     'la acción create_user del agente asigna un rol y tiene que aplicar la MISMA regla que /v1/users', $failures, $checks);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// (F) Escalación por la puerta de los ROLES, y el import que era un UPDATE
+// ═══════════════════════════════════════════════════════════════════════════
+echo "\n=== (F) /v1/roles y /v1/items?resource=import ===\n";
+
+// `settings.role.manage` sin control de escalación era la clave maestra del
+// tenant: /v1/roles no invocaba RoleEscalation en ninguna de sus tres puertas,
+// así que un PATCH sobre el rol PROPIO le agregaba las 47 claves del catálogo
+// sin asignarle un rol a nadie — y el guard "no cambiás tu propio rol" de
+// users.php nunca se enteraba, porque ningún usuario cambió de rol.
+$roleEditor = makeRole('permtest-editor-roles', [
+    'settings.role.manage', 'contacts.customer.view',
+], $companyId, $adminId);
+$tokEditor = panelSession($roleEditor, $companyId, $outletId, $adminId);
+
+// (f.1) PATCH del rol PROPIO
+$res = hitEndpoint('v1/roles.php', 'PATCH', 'id=' . $roleEditor,
+    ['permissions' => ['settings.role.manage', 'contacts.customer.view']], $tokEditor);
+check('roles: PATCH del rol PROPIO → 403',
+    $res['status'] === 403 && str_contains($res['body'], 'tu propio rol'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// (f.2) PATCH de OTRO rol, agregándole claves que el caller no tiene
+$roleVictima = makeRole('permtest-rol-victima', ['contacts.customer.view'], $companyId, $adminId);
+$res = hitEndpoint('v1/roles.php', 'PATCH', 'id=' . $roleVictima,
+    ['permissions' => ['contacts.customer.view', 'settings.company.edit']], $tokEditor);
+check('roles: PATCH agregando una clave que el caller no tiene → 403',
+    $res['status'] === 403 && str_contains($res['body'], 'settings.company.edit'),
+    "el mensaje tiene que nombrar la clave. status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// (f.3) POST creando un rol con el catálogo completo
+$res = hitEndpoint('v1/roles.php', 'POST', '',
+    ['name' => 'permtest-rol-dios', 'permissions' => PermissionCatalog::ids()], $tokEditor);
+check('roles: POST creando un rol con el catálogo completo → 403',
+    $res['status'] === 403 && str_contains($res['body'], 'que vos no tenés'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// (f.4) PATCH legítimo (subset de lo que el caller tiene) sigue pasando
+$res = hitEndpoint('v1/roles.php', 'PATCH', 'id=' . $roleVictima,
+    ['permissions' => ['contacts.customer.view']], $tokEditor);
+check('roles: PATCH con un subset de lo propio → pasa',
+    $res['status'] !== 403,
+    "recortar un rol con lo que uno mismo tiene es legítimo. status={$res['status']} body="
+        . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// (f.5) el owner sí puede todo
+$res = hitEndpoint('v1/roles.php', 'PATCH', 'id=' . $roleVictima,
+    ['permissions' => ['contacts.customer.view', 'settings.company.edit']], $tokOwner);
+check('roles: el owner SÍ puede otorgar cualquier clave',
+    $res['status'] !== 403,
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// (f.6) despojar a un rol MÁS PODEROSO. La escalación por esta puerta va al
+// revés y no es menos efectiva: el que tiene settings.role.manage le vacía los
+// permisos al Encargado —o al rol custom del otro admin— y queda como el único
+// que puede hacer algo, sin haberse otorgado nada a sí mismo.
+$res = hitEndpoint('v1/roles.php', 'PATCH', 'id=' . $roleOwner, ['permissions' => []], $tokEditor);
+check('roles: PATCH vaciando el rol owner → 403',
+    $res['status'] === 403,
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$roleFuerte = makeRole('permtest-rol-fuerte', [
+    'settings.company.edit', 'settings.outlet.manage', 'contacts.user.manage',
+], $companyId, $adminId);
+$res = hitEndpoint('v1/roles.php', 'PATCH', 'id=' . $roleFuerte, ['permissions' => []], $tokEditor);
+check('roles: PATCH vaciando un rol con claves que el caller no tiene → 403',
+    $res['status'] === 403 && str_contains($res['body'], 'más permisos que el tuyo'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$res = hitEndpoint('v1/roles.php', 'DELETE', 'id=' . $roleFuerte, [], $tokEditor);
+check('roles: DELETE de un rol con claves que el caller no tiene → 403',
+    $res['status'] === 403 && str_contains($res['body'], 'más permisos que el tuyo'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$res = hitEndpoint('v1/roles.php', 'DELETE', 'id=' . $roleEditor, [], $tokEditor);
+check('roles: DELETE del rol PROPIO → 403',
+    $res['status'] === 403 && str_contains($res['body'], 'tu propio rol'),
+    "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// (f.7) import mode=update pide inventory.item.edit, no .create.
+// El importador con mode=update hace UPDATE masivo de precios y costos de TODO
+// el catálogo; pedía `inventory.item.create`, así que un rol de solo alta lo
+// reescribía entero.
+$roleSoloAlta = makeRole('permtest-solo-alta', [
+    'inventory.item.view', 'inventory.item.create',
+], $companyId, $adminId);
+$tokSoloAlta = panelSession($roleSoloAlta, $companyId, $outletId, $adminId);
+
+$res = hitEndpoint('v1/items.php', 'POST', 'resource=import', ['mode' => 'update'], $tokSoloAlta);
+check('import: mode=update sin inventory.item.edit → 403',
+    esGateDePermiso($res, 'inventory.item.edit'),
+    "un rol de solo alta no puede reescribir el catálogo entero por CSV. status={$res['status']} body="
+        . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+$res = hitEndpoint('v1/items.php', 'POST', 'resource=import', ['mode' => 'insert'], $tokSoloAlta);
+check('import: mode=insert con inventory.item.create → pasa el gate',
+    pasaElGate($res, 'inventory.item.create'),
+    "el alta por CSV sigue siendo del rol de alta. status={$res['status']} body="
+        . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
 // ── Limpieza de lo que creó el arnés ──────────────────────────────────────
-ncmExecute('DELETE FROM auth_session WHERE companyid = ?::uuid AND useragent = ?', [$companyId, 'permission-enforcement-test'], true);
+ncmExecute('DELETE FROM auth_session WHERE companyid = ?::uuid AND useragent = ?', [$companyId, AGENTE_DEL_ARNES], true);
 ncmExecute('DELETE FROM device WHERE deviceid = ?::uuid', [$deviceId], true);
+ncmExecute('DELETE FROM device WHERE deviceid = ?::uuid', [(string) $pareo['deviceId']], true);
 ncmExecute('DELETE FROM contact WHERE contactid = ?::uuid', [$selfId], true);
 
 // ═══════════════════════════════════════════════════════════════════════════

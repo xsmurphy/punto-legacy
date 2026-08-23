@@ -48,6 +48,11 @@ final class RoleService
     // Mapeo de int legacy → slug del seed role.
     // Decisión 2026-06-25: reducir a 3 seeds (owner/manager/cashier). Los obsoletos
     // (admin, viewer) se mapean al equivalente más cercano para no romper users.
+    // OJO: este mapa NO tiene entrada para el rol `device`, y no debe tenerla.
+    // El device NUNCA se identifica con un int legacy — su sesión lleva el UUID
+    // del rol `device` resuelto por deviceRoleId(). Que el 1 signifique `owner`
+    // acá es justamente lo que convertía al token del dispositivo en un token
+    // de Dueño (ver deviceRoleId()).
     private const LEGACY_MAP = [
         1 => 'owner',
         2 => 'manager',  // admin viejo → manager
@@ -85,12 +90,79 @@ final class RoleService
             'inventory.item.view',
             'contacts.customer.view','contacts.customer.create',
         ],
+        // ── Rol del DISPOSITIVO, no de una persona ───────────────────────
+        //
+        // Es el rol con el que se emite la sesión `pos-app` (DeviceAuth). Antes
+        // esa sesión llevaba roleId='1', que LEGACY_MAP resuelve a `owner`, y
+        // `hasPermission()` le devuelve true a todo sin mirar el catálogo: los
+        // gates de 7 endpoints eran letra muerta bajo `pos-app` y una caja
+        // comprometida tenía los permisos del Dueño del comercio.
+        //
+        // El token del device es ETERNO y se emite AL PAREAR, mucho antes de
+        // que haya un operador en la caja: no puede representar a nadie. Lo que
+        // representa es una TERMINAL, y este es el piso de capacidades de una
+        // terminal. Re-emitirlo por operador está descartado a propósito —
+        // rompe offline-first (el token tiene que servir sin red) y revive la
+        // confusión device/operador del incidente 2026-07-19.
+        //
+        // El piso se derivó ENDPOINT POR ENDPOINT: es exactamente el conjunto
+        // de claves que hoy gatean algo que el POS consume con el Bearer del
+        // device. Sacar cualquiera de estas rompe una caja en producción;
+        // agregar otra amplía la superficie de un token que vive en el
+        // localStorage de una tablet del mostrador.
+        //
+        //   pos.*                        venta, anulación, devolución, cobro de
+        //                                crédito, apertura/cierre de caja.
+        //   finance.manage               extracción e ingreso de efectivo de la
+        //                                caja (drawer.php los mapea a esta clave).
+        //                                Todo /v1/finance/* es panel-only, y el
+        //                                pago/anulación a PROVEEDOR de
+        //                                credit-payments.php está cerrado al
+        //                                realm `panel`, así que desde un device
+        //                                esta clave no alcanza nada más.
+        //   inventory.item.view          catálogo (bootstrap, bulk-get, ficha).
+        //   contacts.customer.*          alta y edición de clientes en el
+        //                                mostrador. SIN `delete`: el POS no
+        //                                archiva contactos (y contacts.php ya
+        //                                restringe el archivado al panel).
+        //   reports.sales.view           opciones de devolución y detalle de una
+        //                                venta para reimprimir/anular.
+        //   settings.register.manage     hotkeys y toggles de SU PROPIA caja
+        //                                (register.php PUT ?resource=hotkeys|config;
+        //                                el alta/baja de cajas está cerrada al
+        //                                realm `panel` en el mismo archivo).
+        //
+        // Deliberadamente AFUERA: todo `contacts.user.*` (el equipo del comercio
+        // no se toca desde una caja — era el vector de toma del tenant),
+        // `contacts.supplier.*`, la escritura del catálogo, impuestos,
+        // plantillas (el POS las lee, y el GET no está gateado), sucursales,
+        // dispositivos, roles, billing, IA y producción.
+        'device' => [
+            'pos.sale.create','pos.sale.void','pos.sale.refund','pos.sale.creditPayment',
+            'pos.drawer.open','pos.drawer.close','pos.discount.apply',
+            'finance.manage',
+            'inventory.item.view',
+            'contacts.customer.view','contacts.customer.create','contacts.customer.edit',
+            'reports.sales.view',
+            'settings.register.manage',
+        ],
     ];
 
     private const SEED_NAMES = [
         'owner'   => 'Dueño',
         'manager' => 'Encargado',
         'cashier' => 'Cajero',
+        // No es un rol para asignarle a una persona: lo lleva la sesión del
+        // dispositivo pareado. Se siembra como los otros para que viva en la
+        // misma tabla y pase por el mismo mecanismo de reconciliación de
+        // permisos, en vez de ser una lista hardcodeada invisible desde el
+        // panel. Hoy la pantalla de roles lo muestra en solo lectura, como a
+        // los otros seeds (`isSeed`), y el selector de rol de un usuario lo
+        // ofrece igual que a los demás — asignárselo a una persona no escala
+        // nada (el piso es más chico que el de `cashier` en todo lo
+        // administrativo), pero conviene filtrarlo por `slug === 'device'` en
+        // ese selector cuando se toque esa pantalla.
+        'device'  => 'Dispositivo POS',
     ];
 
     // ─── Queries ────────────────────────────────────────────────────────────
@@ -303,6 +375,39 @@ final class RoleService
     }
 
     /**
+     * UUID del rol `device` del tenant — el que lleva la sesión `pos-app`.
+     *
+     * ÚNICO punto donde se decide con qué rol opera un dispositivo pareado.
+     * Siembra los roles del tenant si el slug todavía no existe (companies
+     * anteriores a la mig 161, o una company creada por un camino que no pasó
+     * por seedCompanyRoles).
+     *
+     * Lanza si después de sembrar sigue sin resolver: devolver '' dejaría al
+     * device con `hasPermission()` en false para todo, o —peor— invitaría a un
+     * fallback a `owner`, que es exactamente el bug que este rol cierra. Un
+     * tenant cuyo `taxonomy` no se puede escribir está roto de una forma que
+     * hay que ver, no absorber.
+     *
+     * @throws RuntimeException
+     */
+    public static function deviceRoleId(string $companyId): string
+    {
+        $id = self::_resolveSlugId_bySlug('device', $companyId);
+        if ($id !== '') {
+            return $id;
+        }
+        self::seedCompanyRoles($companyId);
+        self::clearSlugCache($companyId);
+        $id = self::_resolveSlugId_bySlug('device', $companyId);
+        if ($id === '') {
+            throw new RuntimeException(
+                "No se pudo resolver el rol 'device' de la company $companyId"
+            );
+        }
+        return $id;
+    }
+
+    /**
      * Mapea int legacy a UUID del seed role correspondiente.
      * Fallback: cashier si el int no está en el mapa.
      */
@@ -313,7 +418,7 @@ final class RoleService
     }
 
     /**
-     * Crea los 5 seed roles + permisos default para una company nueva.
+     * Crea los seed roles + permisos default para una company nueva.
      * Idempotente: si ya existen (mismo slug), no duplica.
      */
     public static function seedCompanyRoles(string $companyId): void

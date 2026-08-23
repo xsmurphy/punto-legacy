@@ -135,20 +135,26 @@ if ($method === 'POST') {
     // ya es la clave de todo lo que mueve caja (finance/movements.php,
     // pago a proveedor en credit-payments.php) y está en el seed de manager.
     //
-    // Realm `pos-app`: la sesión del device se emite con roleId='1'
-    // (DeviceAuth::buildToken), que RoleService resuelve al seed `owner` —
-    // en la caja este gate SIEMPRE pasa y no puede romper la operación
-    // (offline-first: la caja nunca se queda sin poder abrir/cerrar). Es
-    // efectivo para el realm `panel`, donde el rol es el del operador real.
-    // El día que el POS tenga sesión de operador propia, este mismo gate
-    // empieza a discriminar sin tocar el call-site.
+    // Realm `pos-app`: la sesión del device se emite con el rol seed `device`,
+    // cuyo piso incluye pos.drawer.open/close y finance.manage — abrir, cerrar
+    // y mover efectivo son operaciones de mostrador y la caja nunca se queda
+    // sin poder hacerlas (offline-first). El gate discrimina de verdad para
+    // cualquier rol más chico y para el realm `panel`.
     $drawerPerm = [
         'open'    => 'pos.drawer.open',
         'close'   => 'pos.drawer.close',
         'expense' => 'finance.manage',
         'income'  => 'finance.manage',
     ][$action] ?? null;
-    if ($drawerPerm !== null && !hasPermission($drawerPerm)) {
+    // Fail-CLOSED: una acción que no está en el mapa no tiene permiso
+    // asignado, y `$drawerPerm !== null &&` la dejaba pasar el gate entero
+    // para que el `default:` del switch de abajo la rechazara — o sea que la
+    // próxima acción que alguien agregue al switch sin agregarla al mapa nace
+    // sin gate. El 400 sale acá, antes de cualquier efecto.
+    if ($drawerPerm === null) {
+        apiError("Acción '$action' no soportada", 400);
+    }
+    if (!hasPermission($drawerPerm)) {
         apiError("No tenés permiso para esta acción (requiere: $drawerPerm)", 403);
     }
 

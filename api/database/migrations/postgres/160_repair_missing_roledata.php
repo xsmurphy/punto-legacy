@@ -75,8 +75,31 @@ if (!$pdo) {
 
 // Solo definiciones de clase (RoleService.php requiere PermissionCatalog.php y
 // nada más) — no toca la DB ni depende del bootstrap de la API.
-require_once dirname(__DIR__, 3) . '/lib/Auth/PermissionCatalog.php';
-require_once dirname(__DIR__, 3) . '/lib/Auth/RoleService.php';
+// Las clases de auth no se pueden requerir con una ruta relativa fija: el
+// código vive en DOS layouts distintos y las migraciones corren en los dos.
+//   - repo / arneses:  api/database/migrations/postgres → api/lib/Auth
+//   - container (api/Dockerfile): `COPY database ./database` duplica este
+//     árbol en /var/www/database, y el entrypoint corre
+//     /var/www/database/migrate.php — desde ahí dirname(__DIR__, 3) es
+//     /var/www y el código está en /var/www/api/lib/Auth.
+// `dirname(__DIR__, 3) . '/lib/Auth'` resuelve solo el primero: en el
+// container tiraba "Failed opening required" y el entrypoint abortaba el boot
+// con las migraciones a medio aplicar. Se busca hacia arriba en vez de contar
+// niveles.
+$authDir = null;
+$probe   = __DIR__;
+for ($i = 0; $i < 6; $i++) {
+    foreach ([$probe . '/lib/Auth', $probe . '/api/lib/Auth'] as $cand) {
+        if (is_file($cand . '/PermissionCatalog.php')) { $authDir = $cand; break 2; }
+    }
+    $probe = dirname($probe);
+}
+if ($authDir === null) {
+    fwrite(STDERR, "[migrate] ERROR: no encuentro lib/Auth/PermissionCatalog.php desde " . __DIR__ . "\n");
+    return;
+}
+require_once $authDir . '/PermissionCatalog.php';
+require_once $authDir . '/RoleService.php';
 
 $seedPermissions = (new ReflectionClass('RoleService'))->getConstants()['SEED_PERMISSIONS'] ?? null;
 if (!is_array($seedPermissions)) {

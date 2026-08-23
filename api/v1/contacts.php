@@ -50,10 +50,12 @@ $service = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\Contac
 // por este endpoint, salteándose el gate `contacts.user.manage` de
 // /v1/users. Mismo recurso, mismo permiso, sin importar por qué puerta entre.
 //
-// Realm `pos-app`: la sesión del device se emite con roleId='1'
-// (DeviceAuth::buildToken) → seed `owner` → estos gates siempre pasan en la
-// caja y no pueden romper el mostrador. Son efectivos hoy para el realm
-// `panel` (rol real del operador).
+// Realm `pos-app`: la sesión del device se emite con el rol seed `device`
+// (DeviceAuth::buildToken), cuyo piso NO incluye ninguna clave de
+// `contacts.user.*` ni `contacts.supplier.*` — o sea que estos gates son
+// efectivos también en la caja. Además, `contactsRequire()` corta cualquier
+// operación sobre un contacto type=0 (empleado) que no venga del panel: ver
+// el comentario de esa función.
 
 /** @param 'view'|'create'|'edit'|'delete' $op */
 function contactsPermFor(int $type, string $op): string
@@ -69,8 +71,32 @@ function contactsPermFor(int $type, string $op): string
     return 'contacts.customer.' . $op;
 }
 
+/**
+ * Gate único del endpoint. Dos capas, en este orden:
+ *
+ *  1. REALM. Los EMPLEADOS (type=0) del comercio solo se tocan desde el
+ *     panel — ver/editar/archivar. El token del POS es del DISPOSITIVO, es
+ *     eterno y se emite al parear (mucho antes de que haya un operador),
+ *     así que una caja comprometida no puede tener jurisdicción sobre el
+ *     equipo del tenant. Sin esto la cadena era: `contacts.php` acepta
+ *     `pos-app` → PUT resuelve `contacts.user.manage` → el device pasa el
+ *     gate → `ContactService::mapToColumns` mapea `phone` → `contactPhone`
+ *     → `login.php` autentica por `contactPhone AND type=0`: el device le
+ *     cambia el teléfono de login al Dueño y se queda con el comercio (el
+ *     `contactId` del owner lo publica `/v1/bootstrap.php`). El guard vive
+ *     acá y no en un verbo puntual justamente porque nació en DELETE y PUT
+ *     quedó afuera. Mismo patrón que el guard de realm de `/v1/items.php`.
+ *  2. PERMISO. `contact` es UNA tabla con tres roles y el catálogo tiene
+ *     una familia de claves por rol: el permiso depende de QUÉ contacto es.
+ *
+ * @param 'view'|'create'|'edit'|'delete' $op
+ */
 function contactsRequire(int $type, string $op): void
 {
+    global $ctx;
+    if ($type === 0 && (($ctx['realm'] ?? '') !== 'panel')) {
+        apiError('Los usuarios del comercio solo se gestionan desde el panel', 403);
+    }
     $perm = contactsPermFor($type, $op);
     if (!hasPermission($perm)) {
         apiError("No tenés permiso para esta acción (requiere: $perm)", 403);
@@ -185,11 +211,18 @@ if ($id !== null && $resource === 'analytics') {
     if ($method !== 'GET') {
         apiError('Method not allowed for /contacts/analytics', 405);
     }
-    $aType = (int) ($_GET['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
-    if (!in_array($aType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
-        $aType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
+    // El type sale de la FILA, no del `?type=` del caller. Con el type del
+    // caller, el gate se resolvía SIEMPRE contra la familia de claves de
+    // clientes/proveedores aunque el id fuera de un EMPLEADO (type=0): ni el
+    // permiso `contacts.user.view` ni el guard de realm de contactsRequire()
+    // llegaban a evaluarse, y un realm `pos-app` podía pedir el perfil de un
+    // empleado pasando `?type=1`. Además es lo correcto funcionalmente: si es
+    // cliente o proveedor lo dice la fila, no el tab desde el que se abrió.
+    $aType = contactsTypeOrNull($service, $id);
+    contactsRequire($aType ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, 'view');
+    if ($aType === null) {
+        apiError('Contacto no encontrado', 404);
     }
-    contactsRequire($aType, 'view');
     require_once __DIR__ . '/../lib/Contacts/ContactAnalyticsService.php';
     $svc = new \Punto\Api\Contacts\ContactAnalyticsService();
     $data = $svc->compute($id, $aType, COMPANY_ID);
@@ -209,13 +242,19 @@ if ($id !== null && $resource === 'statement') {
     if ($method !== 'GET') {
         apiError('Method not allowed for /contacts/statement', 405);
     }
-    $sType = (int) ($_GET['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
-    if (!in_array($sType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
-        $sType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
-    }
-    contactsRequire($sType, 'view');
-    // Confirma pertenencia al tenant antes de calcular (mismo guard que el detalle por id).
-    if ($service->getById($id, COMPANY_ID) === null) {
+    // El type sale de la FILA, no del `?type=` del caller. Con el type del
+    // caller, el gate se resolvía SIEMPRE contra la familia de claves de
+    // clientes/proveedores aunque el id fuera de un EMPLEADO (type=0): ni el
+    // permiso `contacts.user.view` ni el guard de realm de contactsRequire()
+    // llegaban a evaluarse, y un realm `pos-app` podía pedir el perfil de un
+    // empleado pasando `?type=1`. Además es lo correcto funcionalmente: si es
+    // cliente o proveedor lo dice la fila, no el tab desde el que se abrió.
+    // Resolverlo también confirma la pertenencia al tenant antes de calcular
+    // (contactsTypeOrNull filtra por COMPANY_ID), así que reemplaza al getById
+    // que hacía ese chequeo por separado.
+    $sType = contactsTypeOrNull($service, $id);
+    contactsRequire($sType ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, 'view');
+    if ($sType === null) {
         apiError('Contacto no encontrado', 404);
     }
     $svc  = new \Punto\Api\Reports\OpenInvoicesService();
@@ -251,12 +290,17 @@ switch ($method) {
             // proveedor recién creado devolviera 404 al abrir su detalle
             // (el front no siempre manda ?type=2), dando la falsa impresión
             // de que el alta no se había guardado.
-            $contact = $service->getById($id, COMPANY_ID);
-            if ($contact === null) apiError('Contacto no encontrado', 404);
             // El type sale de la FILA, no del ?type= del caller: el detalle
             // por id no filtra por type, así que el permiso tiene que
             // corresponder al contacto que realmente se está devolviendo.
+            //
+            // El gate va ANTES del 404 (misma razón que en
+            // contactsRequireExisting): con el 404 primero, este endpoint es
+            // un oráculo de existencia — sin ningún permiso se distingue un
+            // id real (404) de uno inventado (403) y se enumera la cartera.
+            $contact = $service->getById($id, COMPANY_ID);
             contactsRequire((int) ($contact['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER), 'view');
+            if ($contact === null) apiError('Contacto no encontrado', 404);
             apiOk($contact);
         }
 

@@ -160,9 +160,11 @@ if ($method === 'GET' && $resource === 'hotkeys') {
 // PUT ?resource=hotkeys = persistir la grilla de accesos directos en register.data.hotkeys.
 // registerId/companyId SIEMPRE del JWT. Valida + normaliza el shape server-side antes de guardar.
 if ($method === 'PUT' && $resource === 'hotkeys') {
-    // Realm `pos-app`: la sesión del device se emite con roleId='1' → seed
-    // `owner` (DeviceAuth::buildToken), así que la caja pasa siempre y esto no
-    // puede romper el mostrador. Es efectivo para el realm `panel`.
+    // Realm `pos-app`: el piso del rol seed `device` incluye
+    // settings.register.manage justamente por estas dos ramas — hotkeys y
+    // toggles de SU PROPIA caja se editan desde el mostrador (registerId sale
+    // del token, no del body). El alta/baja de cajas, que es lo que esa clave
+    // significa en el panel, está cerrada al realm `panel` más arriba.
     if (!hasPermission('settings.register.manage')) {
         apiError('No tenés permiso para esta acción (requiere: settings.register.manage)', 403);
     }
@@ -242,9 +244,11 @@ if ($method === 'GET' && $resource === 'config') {
 }
 
 if ($method === 'PUT' && $resource === 'config') {
-    // Realm `pos-app`: la sesión del device se emite con roleId='1' → seed
-    // `owner` (DeviceAuth::buildToken), así que la caja pasa siempre y esto no
-    // puede romper el mostrador. Es efectivo para el realm `panel`.
+    // Realm `pos-app`: el piso del rol seed `device` incluye
+    // settings.register.manage justamente por estas dos ramas — hotkeys y
+    // toggles de SU PROPIA caja se editan desde el mostrador (registerId sale
+    // del token, no del body). El alta/baja de cajas, que es lo que esa clave
+    // significa en el panel, está cerrada al realm `panel` más arriba.
     if (!hasPermission('settings.register.manage')) {
         apiError('No tenés permiso para esta acción (requiere: settings.register.manage)', 403);
     }

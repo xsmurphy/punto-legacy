@@ -135,6 +135,28 @@ final class PermissionCatalog
      * un seed también requiere subirle el `since` y bumpear CURRENT_VERSION,
      * porque si no los roles ya guardados nunca la reciben.
      *
+     * ⚠ SUBIR EL `since` DE UNA CLAVE PREEXISTENTE REVIVE REVOCACIONES
+     * MANUALES, y no hay forma de distinguirlas. `_reconcileSeedGaps()` decide
+     * "esto le falta y hay que dárselo" comparando `since` contra el
+     * `catalogVersion` con el que el rol fue guardado por última vez; no tiene
+     * registro de por qué la clave no está. Los dos casos son indistinguibles:
+     *
+     *   (A) el rol se guardó antes de que la clave entrara al default del seed
+     *       → nunca la tuvo, y dársela es el backfill que se quiere;
+     *   (B) un admin se la SACÓ a mano al rol desde el panel → dársela es
+     *       deshacer su decisión, en silencio y en TODOS los tenants a la vez.
+     *
+     * Ya pasó: `billing.view` existía desde el baseline y se le subió el
+     * `since` a 4 al agregarla al default de `manager`. Cualquier `manager`
+     * al que un admin le hubiera quitado "ver facturación" la recupera sola
+     * en la primera lectura de permisos post-deploy.
+     *
+     * O sea: subir el `since` de una clave que ya existía es un cambio que
+     * PISA configuración del tenant, no un backfill inocuo. Vale la pena
+     * cuando la clave es de lectura y su ausencia rompe una pantalla; para
+     * cualquier clave de escritura, o de radio de impacto alto, la opción
+     * correcta es dejar el `since` como está y que cada admin la agregue.
+     *
      * BASELINE_VERSION si no declara `since`.
      */
     public static function since(string $id): int

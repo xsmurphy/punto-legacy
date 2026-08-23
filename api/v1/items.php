@@ -179,9 +179,10 @@ $resource = (string) ($_GET['resource'] ?? '');
 // un gate por rama garantiza que la próxima rama que alguien agregue nazca
 // sin gate. Acá arriba, una rama nueva queda cubierta por default.
 //
-// Realm `pos-app`: el guard de arriba ya lo dejó en GET + bulk-get, y su
-// sesión se emite con roleId='1' → seed `owner` (DeviceAuth::buildToken), así
-// que la caja pasa siempre. El gate es efectivo para el realm `panel`.
+// Realm `pos-app`: el guard de arriba ya lo dejó en GET + bulk-get, y la
+// sesión del device se emite con el rol seed `device`, cuyo piso incluye
+// `inventory.item.view` y nada más de inventario — o sea que el gate es
+// efectivo en los dos realms.
 function itemsRequiredPermission(string $method, string $resource): string
 {
     // Toda lectura del catálogo — incluido `bulk-get`, que es POST solo por
@@ -199,7 +200,15 @@ function itemsRequiredPermission(string $method, string $resource): string
         // editar el ítem. `inventory.item.delete` es archivar/borrar el ÍTEM.
         return $resource === '' ? 'inventory.item.delete' : 'inventory.item.edit';
     }
-    if ($method === 'POST' && in_array($resource, ['', 'group', 'import', 'variants'], true)) {
+    // `import` con mode=update NO es un alta: es un UPDATE masivo de precios,
+    // costos y datos de TODO el catálogo por CSV. Pedirle `inventory.item.create`
+    // dejaba que un rol de solo alta reescribiera el catálogo entero.
+    if ($resource === 'import') {
+        return (($_POST['mode'] ?? 'insert') === 'update')
+            ? 'inventory.item.edit'
+            : 'inventory.item.create';
+    }
+    if ($method === 'POST' && in_array($resource, ['', 'group', 'variants'], true)) {
         return 'inventory.item.create';
     }
     // Resto de POST sobre sub-recursos, PUT/PATCH y cualquier verbo mutante.
