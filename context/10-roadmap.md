@@ -10,7 +10,56 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
+> **Última actualización:** 2026-08-23 (uPay/ueno bank: plan en `context/50-upay.md` — doc de la API detrás de login, F0 es conseguir acceso; el refactor `ensurePspMethod` + `<PspQrDialog>` es lo único desbloqueado hoy)
+>
+> 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
+
+---
+
+## uPay (ueno bank) — cobro desde el POS (2026-08-23, plan sin implementar)
+
+Plan completo en **`context/50-upay.md`**. Va acá y no en
+`_feature-requests.md` porque ese archivo es la pila de pedidos **de clientes**
+capturados del soporte; esto es una integración técnica que pidió el owner.
+
+**El agujero:** uPay ya está en el catálogo de módulos del panel como
+"Próximamente" (`frontend/lib/modules-catalog.ts:193`, puesto por `0565da2f`
+junto con el módulo Bancard) y **no tenía una sola línea en `context/`** — una
+card muerta sin nada detrás que dijera qué falta para prenderla.
+
+**Estado del relevamiento:**
+
+- uPay es la plataforma de cobros de ueno bank; **absorbió a Pagopar**.
+  Modalidades: QR, Link de Pagos (48 h), terminal uPOS, API + plugins de
+  e-commerce. QR es la que aplica al mostrador.
+- **La documentación de la API está detrás de login**
+  (`desarrolladores.upay.com.py` sirve solo la cáscara del SPA). Lo público es
+  la doc de Pagopar (rev. 2017): auth por `sha1(clave_privada . operación)`,
+  confirmación **por polling** (`pedidos/1.1/traer` → `pagado`), **sin webhook
+  documentado, sin reversa, sin liquidación**.
+- Entra con el **patrón de módulo de Bancard** (allowlist + flat key +
+  `moduleData` con canales + resolución server-side en `bootstrap.php`), y con
+  `CredentialVault` (AES-256-GCM) para las claves por comercio.
+- **Encaja en `rollup_payments_day` sin tocar el grano** (mig 160): `method`
+  sale de `transactionPaymentType`, un cobro uPay agrupa en `method='upay'`.
+
+**Dos deudas de raíz que hay que pagar antes** (si no, uPay nace como
+copy-paste de Bancard):
+
+- `PaymentMethodService::ensureQrMethod()` adopta **un solo** método "QR" por
+  tenant → con Bancard y uPay prendidos los dos PSP caen en el mismo bucket y
+  el arqueo no los separa. Generalizar a `ensurePspMethod`.
+- `bancard-qr-dialog.tsx` tiene el ciclo de cobro QR soldado al PSP. Extraer
+  `<PspQrDialog>` + adapter.
+
+Ese refactor (**F1a**) es el **único trabajo desbloqueado hoy**: no necesita
+credenciales ni acceso a la doc, y es refactor puro sobre Bancard.
+
+**Bloqueante (F0, owner):** alta como comercio/desarrollador en ueno para leer
+la doc real y conseguir sandbox. 13 preguntas abiertas en `context/50` §6 —
+las críticas: si la API es Pagopar o una nueva, si hay flujo de cobro
+presencial (el pedido de Pagopar exige email + ciudad + categoría por ítem, que
+en mostrador no existen), si hay webhook con contrato, y si hay sandbox.
 
 ---
 
