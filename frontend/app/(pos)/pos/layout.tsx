@@ -89,7 +89,6 @@ import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import { useOfflineSync } from "@/hooks/use-offline-sync"
 import { OfflineBanner } from "@/components/pos/offline-banner"
-import { OfflineStatusPill } from "@/components/pos/offline-status-pill"
 
 function OfflineSyncRunner() {
   useOfflineSync()
@@ -247,8 +246,9 @@ function PosWorkspaceLayoutInner({
           una franja vertical (toda la altura) entre el contenido y el carrito.
           Ahora el tope es flex-col: banda arriba, paneles en una fila debajo.
           El estado transitorio (sin conexión / sincronizando) lo muestra
-          `OfflineStatusPill` más abajo, flotando: aparecer y desaparecer no
-          puede mover los botones de lugar. */}
+          `OfflineStatusPill`, montada DENTRO del carrito arriba de su toolbar
+          (`cart-panel.tsx`): un solo aviso, en el lugar que el cajero ya mira
+          para cobrar. */}
       <OfflineBanner />
       <BeforeUnloadGuard />
       <HotkeysEditScope />
@@ -307,11 +307,6 @@ function PosWorkspaceLayoutInner({
           </DialogContent>
         </Dialog>
       )}
-
-      {/* Flota sobre el workspace (el contenedor de arriba es `relative`), así
-          que no desplaza nada al aparecer. Va último para quedar por encima
-          de los paneles, y debajo del LockScreen. */}
-      <OfflineStatusPill />
 
       <LockScreen />
     </div>

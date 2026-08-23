@@ -109,17 +109,18 @@ export function OfflineStatusPill() {
   )
 
   const className = cn(
-    "pointer-events-auto flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
+    "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
     degraded
       ? "border-amber-500/30 bg-amber-500/15 text-amber-900 backdrop-blur dark:text-amber-100"
       : "border-border bg-background/90 text-muted-foreground backdrop-blur",
   )
 
   return (
-    // `pointer-events-none` en el contenedor: el pill flota sobre el contenido
-    // del workspace y no puede robarle clicks a lo que tapa. Solo el botón
-    // (cuando hay cola que mostrar) vuelve a ser clickeable.
-    <div className="pointer-events-none absolute bottom-3 left-3 z-30 max-w-[min(20rem,60%)]">
+    // Vive DENTRO del carrito, arriba de la toolbar (montado en
+    // `cart-panel.tsx`). Ya no flota en absolute sobre el workspace: el owner
+    // pidió un único aviso y en ese lugar. `shrink-0` para que la columna del
+    // carrito no lo comprima cuando la lista de ítems crece.
+    <div className="flex shrink-0 justify-center px-2 pt-2">
       {pendingCount > 0 ? (
         <button
           type="button"
