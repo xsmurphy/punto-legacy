@@ -64,7 +64,14 @@ $row = ncmExecute(
         -- columna propia.
         config->>'settingReturnRefund'                  AS returnrefund,
         config->>'settingReturnAllowIngredientReversal' AS returnallowingredientreversal,
-        moduleData                          AS moduledata
+        -- moduleData NO es una columna de company: vive DENTRO del JSONB
+        -- config (ruteo de ncmUpdate/Schema::split), igual que los settingX de
+        -- arriba. Pedirla como columna daba SQLSTATE 42703 y, desde que el
+        -- wrapper DB dejo de tragarse los errores, eso paso a ser un 500 en
+        -- /v1/bootstrap: el POS entero quedaba en la pantalla de sin conexion.
+        -- El ->> la devuelve como el mismo string JSON que el caller ya espera
+        -- (mas abajo hace json_decode).
+        config->>'moduleData'               AS moduledata
      FROM company
      WHERE companyId = ?",
     [COMPANY_ID]
