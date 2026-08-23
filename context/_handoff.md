@@ -1,95 +1,112 @@
-# Hand-off — 2026-08-22
+# Hand-off — 2026-08-23
 
 ## Objetivo
-Cerrar el reporte del tester "Actualización 21" (6 items) contrastándolo contra el
-código real y resolviendo cada uno, en paralelo con el eje de escalamiento de datos
-(E1/E1b/D8, ya logueado en la entry de arriba). De paso, correr el arnés `verify_chain`
-en el server contra `main` para destapar bugs silenciosos antes de que los reporte
-un tester.
+Sesión larga multi-eje: cerrar escalamiento de datos (particionado + cierre de
+período + rollup diario, `context/48`), hacer que el wrapper DB y los arneses
+dejen de mentir sobre errores, cerrar el gap de 25 permisos sin enforcement,
+llevar el POS a operar completo sin conexión, y auditar el backlog completo
+contra el código real.
 
 ## Estado al cerrar
-Todo commiteado, pusheado y en `main` (Coolify deploya desde ahí). No verificado en
-prod smoke-test todavía (ver Próximo paso).
+Todo commiteado, pusheado y mergeado a `main` (`4b929e60..6896d69b`, 153
+commits, 31 merges, migs 156-164). Working tree limpio, sin branches
+colgando. Verificado en prod: particionado (E1), cierre de período (E1b),
+rollup diario (D8), el fix de bootstrap 500, y el semáforo de arqueo.
 
-- **6/6 items del tester resueltos y mergeados**: costo de receta unificado
-  (`5d964d83`), padwidth de numeración (`0e681eb8`, mig 159), líneas de plantilla
-  en impresión (`d7faceef`), alcance de conteo por sucursal/categoría (`a4af1397`,
-  mig 158), filtros de Transacciones (`96aa9316`), búsqueda de Artículos por
-  categoría (`768895fa`).
-- **3 bugs adicionales** encontrados por el arnés `verify_chain` corrido en el
-  server (167.71.165.221), arreglados y mergeados (`e79bbeaf`, mig 160
-  `160_repair_missing_roledata.php`): permisos de rol nunca persistían, pago a
-  proveedor daba 500, tipo de retorno `CaseInsensitiveArray` en un verificador.
-- **De la sesión de escalamiento (paralela, ya en main)**: mig 156 particionado,
-  mig 157 cierre de período, mig 160 rollup diario (`.sql`, distinto del 160 `.php`
-  de arriba — ver Trampas). También en main: fixes de SEO/precio del sitio
-  marketing (commits previos al rango de esta sesión).
+- **Escalamiento (`context/48`)**: E1/E1b/D8 implementadas y verificadas.
+  E2/E3 (réplica) siguen sin empezar — E3 bloqueada hasta confirmar si
+  Coolify soporta réplica read-only.
+- **Seguridad**: 45/47 permisos del catálogo con enforcement (2 restantes
+  quedan abiertos por diseño offline-first). Rol seed `device` (mig 162)
+  reemplaza el `roleId='1'` (owner) con el que operaba el POS antes.
+- **POS offline**: arranca sin red, opera, abre/cierra turno, verifica
+  tenencia antes de emitir. No cubre gestión de mesas/órdenes compartidas
+  entre cajas (requiere estado compartido, decisión de diseño ya tomada).
+- **2 bugs de plata siguen abiertos**, ambos esfuerzo M, no tocados esta
+  sesión (ver Próximo paso).
+- Backlog completo auditado por 5 agentes: ~50 de ~95 items ya estaban
+  resueltos en código aunque el doc no lo reflejara. Docs sincronizados.
 
 ## Archivos y cambios
-- `api/lib/App/Domain/RecipeCosting.php` — fórmula única de costo, consumida por
-  `getProductionCOGS`/`getComboCOGS`/`ProductionService::complete`.
-- `api/database/migrations/postgres/159_document_sequence_padwidth.sql` —
-  columna `padwidth`; `DocumentNumber::format()` (PHP) +
-  `frontend/lib/documents/format-document-number.ts` (TS) formateador único.
-- `frontend/lib/hardware/printers/blocks.ts` — `lineGeometry()` compartida por
-  canvas/html-renderer/ESC-POS.
-- `api/database/migrations/postgres/158_inventory_count_scope.sql` +
-  `api/lib/services/InventoryCountScope.php` — armador único del alcance.
-- `frontend/components/data-table/active-filters.tsx` — chips de filtro reusables.
-- `frontend/hooks/use-debounce.ts` — nuevo, usado por búsqueda server-side de `/items`.
-- `api/database/migrations/postgres/160_repair_missing_roledata.php` — repara
-  companies sin `roleData` (no re-corre en prod si ya tienen datos).
-- `api/lib/services/RoleService.php` — `_savePermissions()` ahora atómico y lanza.
-- `api/lib/services/DrawerService.php` — `registerIdOrNull()` extraído.
-- `context/10-roadmap.md` — sección "Reporte del tester — Actualización 21" con
-  el contraste original + los 6 ítems marcados resueltos.
-- `context/04-modelo-de-dominio.md` — agregadas migs 158/159 (160 rollup ya estaba).
-- `frontend/public/sw.js` — modificado en el working tree como artefacto de
-  build local; NO commitear (regla del repo).
+- `api/database/migrations/postgres/156_*.sql` — particionado mensual
+  `transaction`/`itemsold` + tabla `transaction_registry` (ancla de 20 FKs
+  entrantes + unicidad fiscal, NO particionada).
+- `api/database/migrations/postgres/157_*.sql` — cierre de período
+  (`fn_period_guard`, solo tipos económicos).
+- `api/database/migrations/postgres/160_*.sql` — rollup diario
+  (`rollup_sales_day`, `rollup_item_sales_day`, `rollup_payments_day`).
+- `api/database/migrations/postgres/162_*.sql` — rol seed `device`.
+- `api/database/migrations/postgres/163_*.sql` — exclusividad de mesas
+  vía aserción HMAC del operador.
+- `api/database/migrations/postgres/164_*.sql` — semáforo de cuadre en
+  arqueos (fix del faltante fantasma: esperado se recalculaba contra todos
+  los medios de pago en vez de solo efectivo).
+- `api/includes/lib/DB.php` — `Execute()` lanza `DbQueryException`, kill
+  switch `DB_THROW_ON_ERROR`.
+- `api/v1/bootstrap.php` — fix `moduleData` (vivía en JSONB `config`, no
+  columna propia; causaba 500 → "Sin conexión con el servidor" en el POS).
+- `api/lib/services/*` — `getAllItemStock($all=true)` corregido (iteraba
+  campos de una sucursal como si fueran outletIds, nunca agregaba).
+- `api/v1/users.php`, `api/v1/roles.php` — anti-escalación de privilegios.
+- `store.ts` (frontend, POS) — cola de operaciones offline, apertura/cierre
+  de turno sin red.
+- `SaleToInvoiceMapper.php:174` — guard de cuadratura pendiente de fix (ver
+  Próximo paso, NO tocado esta sesión).
+- `SpaceBalanceService.php:81` — filtra hijas de add-ons, pendiente (ver
+  Próximo paso, NO tocado esta sesión).
+- `context/48-escalamiento-de-datos.md`, `context/10-roadmap.md`,
+  `context/08-convenciones-criticas.md` (§56-59 nuevas), `context/49-*`
+  (KuDE y portal), `context/50-*` (uPay) — actualizados por los propios
+  agentes durante la sesión.
 
 ## Callejones sin salida
-- Dos agentes paralelos habían elegido mig 158 para conteo Y para padwidth —
-  se renumeró la del padwidth a 159 con sed sobre comentarios al mergear.
-  **Con agentes paralelos que crean migraciones, asignar el número en el brief
-  de antemano**, no confiar en que cada uno lea el `HEAD` del otro.
-- `npm run build` no termina si dos sesiones lo corren a la vez en la máquina
-  del owner (quedó colgado a 0.7% CPU 45 min). Usar `tsc --noEmit` como gate por
-  agente y reservar el build completo para una sola corrida desde `main`.
-- Docker no levanta local — el arnés `verify_chain` SOLO corre en el server
-  (167.71.165.221, directorios `/root/verify-rc*`, imagen `punto-php-test`,
-  Postgres descartable `verify_rc_pg` en :55432). Dos agentes compartiendo el
-  mismo directorio se pisan el rsync — un directorio por agente, mismo Postgres.
-- `php -l` y un arnés sin Postgres real NO detectan `ncmInsert`/`DB::Execute()`
-  devolviendo `false` en silencio — los 3 bugs del arnés solo salieron corriendo
-  contra una BD real con datos reales.
+- Particionar rompió las unicidades globales de Postgres (no se puede tener
+  un UNIQUE cross-partición sin incluir la columna de partición) — de ahí
+  `transaction_registry` como tabla no particionada aparte, en vez de forzar
+  la unicidad fiscal dentro de las particiones.
+- Un contenedor con prefijo `api-asqhqb…` en el server NO es Punto — costó
+  dos diagnósticos falsos antes de identificarlo. Ya documentado en
+  `context/06-infraestructura.md`, pero volvé a chequear el nombre exacto
+  del contenedor antes de operar sobre él.
+- El layout de archivos dentro del container NO espeja el repo (código en
+  `/var/www/api`, migraciones en `/var/www/database`) — una migración PHP
+  con `dirname(__DIR__, N)` asumiendo el layout del repo tiró el deploy
+  entero. Se resolvió buscando el archivo hacia arriba en vez de asumir N.
+- Colisión de número de migración entre sesiones paralelas pasó DOS veces
+  en este bloque — mirar `ls api/database/migrations/postgres | sort -n |
+  tail` justo antes de numerar una nueva, no confiar en el HEAD de otro
+  agente.
+- `set_exception_handler` consumía la excepción antes de que PHP aplicara
+  su exit code 255 — el runner de arneses veía exit 0 y cantaba "TODO OK"
+  aunque la ejecución hubiera abortado sin correr una sola aserción (pasó
+  con `JWT_SECRET` no exportado). Se resolvió exigiendo la línea literal
+  `HARNESS RESULT` en cada runner, no el exit code solo.
+- Un agente instaló PHP 8.4 en el host de producción para poder correr
+  arneses ahí — quedó instalado (CLI inerte, no se desinstaló). No repetir:
+  los arneses corren dentro del contenedor, no en el host.
 
 ## Próximo paso
-Smoke test en prod de los 6 items + 3 bugs, no hecho todavía en esta sesión:
-crear un conteo con categorías filtradas, editar permisos de un rol y confirmar
-que persisten tras refrescar, pago a proveedor desde el panel, imprimir una
-plantilla con líneas horizontales/verticales, cambiar el ancho de dígitos de una
-secuencia de factura en Ajustes → Cajas. Confirmar que mig 158/159/160(ambas)
-corrieron: `SELECT filename FROM schema_migrations WHERE filename LIKE '15%' OR filename LIKE '160%' ORDER BY filename`.
+De los dos bugs de plata que quedan abiertos, arrancar por
+`api/lib/App/.../SaleToInvoiceMapper.php:174` — el guard de cuadratura
+compara el monto bruto contra el neto cuando la venta canjeó un vale, así
+que una venta con vale nunca puede facturarse. El otro es
+`frontend/.../store.ts:1178` (descarta las `selections` de add-ons al
+cobrar una orden/mesa) + `SpaceBalanceService.php:81` (filtra las hijas) —
+el stock de add-ons no se descuenta. Ambos esfuerzo M, sin dependencias
+externas, se pueden arrancar en cualquier orden.
 
 ## Trampas conocidas
-- **Dos migraciones con el mismo número 160**: `160_rollup_daily_grain.sql` (D8,
-  escalamiento) y `160_repair_missing_roledata.php` (bug del arnés, esta sesión).
-  No es un bug funcional — `migrate.php` hace `usort` estable y arma la lista con
-  `array_merge($sqlFiles, $phpFiles)`, así que el `.sql` corre antes que el `.php`
-  siempre, determinístico. Pero es confuso: **no renombrar ninguno de los dos**
-  si ya corrieron en prod (el tracking es por filename exacto en
-  `schema_migrations`, renombrar los haría re-ejecutar). Para la próxima
-  migración nueva, usar 161+.
-- `DB::Execute()` (y `ncmInsert`) tragan errores SQL silenciosamente (log a
-  `error_log`, devuelven `false`) — es la causa raíz que escondió los 2 bugs de
-  permisos/pago-a-proveedor durante meses. Anotado en `context/10-roadmap.md`
-  (`c4c21e3a`) como hallazgo; decisión de si `DB::Execute()` debe lanzar en
-  escrituras queda pendiente del owner.
-- Del reporte del tester, quedan abiertos (no tocados esta sesión): roadmap
-  item 8 "habilitar costos en el conteo"; cotizaciones del listado no exponen
-  `docNo` formateado; `padStart(7)` de documentos de proveedor en compras no usa
-  el formateador nuevo (dominio distinto, no se tocó).
-- Postgres `verify_rc_pg` sigue corriendo en el server — borrar con
-  `docker rm -f verify_rc_pg` cuando ya no haga falta para otra corrida del arnés.
-- `frontend/public/sw.js` reaparece modificado tras cada build local — es
-  artefacto, no commitear.
+- Las 257 ventas históricas sin número de documento NO se van a backfillear
+  — decisión del owner, no es un bug pendiente.
+- El formato de papel de impresión se configura en Ajustes, nunca en Caja
+  (convención cerrada, §57 de `context/08`). El cierre de turno offline
+  SÍ debe mostrar el total registrado por el dispositivo (con sus huecos
+  declarados) — no es un bug si parece "incompleto", es la especificación.
+- uPay y KuDE están bloqueados por terceros (alta en Ueno Bank; preguntas a
+  Factomate + consulta al contador sobre si el QR satisface el art. 25 del
+  Decreto 872/2023) — no asumir que se puede avanzar sin esas respuestas.
+- Docs `context/08` tiene duplicados en §40-43, preexistentes a esta sesión,
+  no introducidos ahora — no es urgente pero está anotado.
+- Postgres UUIDs son v4 random: `ORDER BY id`/`max(id)` nunca da "más
+  reciente" (recordatorio recurrente, ya en memoria pero mordió antes).
+- Backlog completo auditado, versión visual: https://claude.ai/code/artifact/6f23d6f5-f511-4db3-a378-c2abe1a35ebb
