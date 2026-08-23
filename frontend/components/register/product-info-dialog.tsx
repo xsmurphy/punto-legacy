@@ -43,6 +43,7 @@ import {
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { EmptyState } from "@/components/empty-state"
+import { useOnlineStatus } from "@/hooks/use-online-status"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCategoryBrandMaps, resolveCategoryName, resolveBrandName } from "@/lib/catalog/resolve-names"
 import { formatMoney } from "@/lib/format-money"
@@ -186,7 +187,9 @@ export function ProductInfoDialog({ item, onClose }: Props) {
     return Math.max(maxOutlet, maxStock ?? 0, (minStock ?? 0) * 2, 1)
   }, [outlets, maxStock, minStock])
 
-  const offline = typeof navigator !== "undefined" && navigator.onLine === false
+  // Reactivo (hooks/use-online-status): la lectura suelta de `navigator.onLine`
+  // que había acá no se actualizaba si la red se caía con la ficha abierta.
+  const offline = !useOnlineStatus()
 
   return (
     <Dialog open={item !== null} onOpenChange={(open) => { if (!open) onClose() }}>

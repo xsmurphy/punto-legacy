@@ -43,17 +43,12 @@ card muerta sin nada detrás que dijera qué falta para prenderla.
 - **Encaja en `rollup_payments_day` sin tocar el grano** (mig 160): `method`
   sale de `transactionPaymentType`, un cobro uPay agrupa en `method='upay'`.
 
-**Dos deudas de raíz que hay que pagar antes** (si no, uPay nace como
-copy-paste de Bancard):
-
-- `PaymentMethodService::ensureQrMethod()` adopta **un solo** método "QR" por
-  tenant → con Bancard y uPay prendidos los dos PSP caen en el mismo bucket y
-  el arqueo no los separa. Generalizar a `ensurePspMethod`.
-- `bancard-qr-dialog.tsx` tiene el ciclo de cobro QR soldado al PSP. Extraer
-  `<PspQrDialog>` + adapter.
-
-Ese refactor (**F1a**) es el **único trabajo desbloqueado hoy**: no necesita
-credenciales ni acceso a la doc, y es refactor puro sobre Bancard.
+**Las dos deudas de raíz ya están pagadas** (F1a, 2026-08-23, branch
+`frontend/psp-generico`): `ensurePspMethod()` provisiona un medio de pago POR
+pasarela (con `PspCatalog` como fuente de verdad única) y el ciclo de cobro
+vive en `<PspQrDialog>` con un adapter por PSP (Bancard es el primero). Sin
+migración de datos y sin cambio de grano en el rollup. Sumar uPay ahora es un
+adapter + una entrada en el catálogo, no un copy-paste del módulo.
 
 **Bloqueante (F0, owner):** alta como comercio/desarrollador en ueno para leer
 la doc real y conseguir sandbox. 13 preguntas abiertas en `context/50` §6 —
