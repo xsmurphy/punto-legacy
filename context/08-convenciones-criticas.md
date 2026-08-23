@@ -546,7 +546,40 @@ Del mismo modo, `getSingle` de payments acepta dos shapes: `{type, price, extra,
 
 ---
 
-## §51 — El timbrado NO es obligatorio para operar; sí lo es con facturación electrónica
+## §58 — Toda regla que bloquea es opcional y configurable por comercio
+
+Punto lo usan negocios muy distintos. Una regla imprescindible para un
+restaurante con diez mozos es, para un kiosco de una persona, una molestia que
+le hace perder ventas. **Ninguna restricción operativa se activa sola para
+todos: nace apagada, o con un interruptor visible.**
+
+Decisión del owner (2026-08-23), a raíz de la exclusividad de mesas por mozo,
+que se encendía automáticamente al asignar un mozo — un local que solo quería
+el dato para reportes se comía el bloqueo.
+
+Ya siguen la regla, y son el patrón a copiar: `controlCaja` (no todos hacen
+arqueo), `blindControl`, `modoSoloOrdenes`, `settingReturnRefund`,
+`settingReturnAllowIngredientReversal`, `settingPeriodCloseMonths`.
+
+Deuda conocida, a saldar cuando se toquen: la **exclusividad de mesas por
+mozo** y el **lockscreen del POS** (un negocio de un solo usuario no necesita
+PIN).
+
+Cómo aplicarla:
+
+- El default es el comportamiento MENOS restrictivo. Excepción: cuando lo
+  exige la ley o la integridad del dato — el guard de cierre de período o la
+  cuadratura de una venta no bloquean por política, impiden un dato inválido, y
+  esos no se apagan.
+- El interruptor vive donde ya viven sus hermanos: config de la caja
+  (`register.data`, vía `RegisterAdminService`) si es por caja, o
+  `company.config` si es por comercio. No inventar un tercer lugar.
+- Si la regla se enforcea en el backend, el flag también se lee en el backend.
+  Un interruptor que solo esconde el botón no es un interruptor.
+
+---
+
+## §56 — El timbrado NO es obligatorio para operar; sí lo es con facturación electrónica
 
 Una caja puede vender sin timbrado cargado. Hay comercios que facturan con
 talonario manual o con preimpresos, y el POS tiene que dejarlos operar: nunca
@@ -571,7 +604,7 @@ que el tenant tenga facturación electrónica activa.
 
 ---
 
-## §50 — El formato de impresión se configura en Ajustes, nunca se elige en Caja
+## §57 — El formato de impresión se configura en Ajustes, nunca se elige en Caja
 
 Tamaño de papel (A4, oficio, rollo 80mm), márgenes y posicionamiento son
 configuración de la **plantilla**, y se definen en Ajustes. En Caja se imprime
