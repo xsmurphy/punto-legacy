@@ -30,8 +30,18 @@ export type RubroSection = {
   mockup: RubroMockup
 }
 
+/** Familia comercial a la que pertenece el rubro. */
+export type RubroGrupo = "gastronomia" | "retail" | "salud-y-belleza"
+
+export const RUBRO_GRUPOS: { key: RubroGrupo; label: string }[] = [
+  { key: "gastronomia", label: "Gastronomía" },
+  { key: "retail", label: "Retail" },
+  { key: "salud-y-belleza", label: "Salud y belleza" },
+]
+
 export type Rubro = {
   slug: string
+  grupo: RubroGrupo
   /** Nombre para listas ("Restaurantes"). */
   label: string
   /** Con artículo, para frases ("tu restaurante"). */
@@ -48,6 +58,7 @@ export type Rubro = {
 export const RUBROS: Rubro[] = [
   {
     slug: "restaurantes",
+    grupo: "gastronomia",
     label: "Restaurantes",
     posesivo: "tu restaurante",
     eyebrow: "Para restaurantes",
@@ -129,6 +140,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "minimarkets",
+    grupo: "retail",
     label: "Minimarkets",
     posesivo: "tu minimarket",
     eyebrow: "Para minimarkets",
@@ -200,6 +212,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "farmacias",
+    grupo: "retail",
     label: "Farmacias",
     posesivo: "tu farmacia",
     eyebrow: "Para farmacias",
@@ -289,6 +302,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "ferreterias",
+    grupo: "retail",
     label: "Ferreterías",
     posesivo: "tu ferretería",
     eyebrow: "Para ferreterías",
@@ -374,173 +388,11 @@ export const RUBROS: Rubro[] = [
     ],
   },
   {
-    slug: "cafeterias",
-    label: "Cafeterías",
-    posesivo: "tu cafetería",
-    eyebrow: "Para cafeterías",
-    heroTitle: "El mostrador rápido y la clientela que vuelve",
-    heroDescription:
-      "Cobrar el café en segundos, con combos y agregados que bajan claros a la barra. Gift cards para regalar y la historia de cada cliente para hacer que vuelva.",
-    thirtySeconds: [
-      "El pedido se arma en pantalla con tamaño, tipo de leche y agregados, y baja claro a la barra.",
-      "Los combos (café + medialuna) se cobran como una sola línea, al precio del combo.",
-      "Las gift cards se venden y se cargan como cualquier producto, listas para regalar.",
-      "La caja abre y cierra por turno, con el arqueo de cada barista.",
-    ],
-    sections: [
-      {
-        kicker: "Hora pico en la barra",
-        title: "El pedido baja claro, sin que el barista adivine",
-        paragraphs: [
-          "En la fila de las ocho de la mañana no hay tiempo para repetir el pedido dos veces: tamaño, tipo de leche, si va con azúcar o extra shot queda escrito en la pantalla de la barra apenas se cobra, en el orden en que llegó.",
-          "El combo de café con medialuna se cobra como una sola línea al precio del combo, sin que la cajera tenga que acordarse de aplicar el descuento a mano.",
-        ],
-        linkLabel: "Ver el pedido en barra",
-        mockup: {
-          label: "Barra · 8:05",
-          title: "Pedidos en cola",
-          caption: "Cada pedido con su hora de entrada.",
-          rows: [
-            {
-              left: "Orden 14 · hace 1 min",
-              right: "2 items",
-              sub: [
-                "1× Latte grande, leche de avena",
-                "1× Medialuna de manteca",
-              ],
-            },
-            {
-              left: "Orden 15 · recién",
-              right: "1 item",
-              sub: ["1× Espresso doble, sin azúcar"],
-            },
-          ],
-        },
-      },
-      {
-        kicker: "Para regalar y para volver",
-        title: "Gift cards y el cliente que ya sabés cómo lo pide",
-        paragraphs: [
-          "La gift card se vende como cualquier producto y queda cargada con su saldo, lista para que alguien la regale y otro la use en su próxima visita.",
-          'El cliente frecuente tiene su cuenta con el historial de compras, así que cuando pide "lo de siempre" la caja ya sabe de qué habla.',
-        ],
-        linkLabel: "Ver una gift card",
-        mockup: {
-          label: "Gift card",
-          title: "Tarjeta regalo",
-          rows: [
-            { left: "Código GC-3391", right: "{money:100000}" },
-            { left: "Usado hasta hoy", right: "{money:35000}" },
-          ],
-          footer: { left: "Saldo disponible", right: "{money:65000}" },
-        },
-      },
-      {
-        kicker: "El día cierra en números",
-        title: "Caja por turno, cada barista con su arqueo",
-        paragraphs: [
-          "Cada turno abre con un monto y cierra con arqueo: lo esperado contra lo contado, sin sorpresas al final del día. El dueño ve las ventas por franja horaria — el pico de la mañana no se parece en nada al de la tarde — sin pasar nada a mano a una planilla.",
-        ],
-        linkLabel: "Ver el arqueo del turno",
-        mockup: {
-          label: "Turno mañana",
-          title: "Cierre de caja",
-          rows: [
-            { left: "Apertura", right: "{money:200000}" },
-            { left: "Ventas en efectivo", right: "{money:890000}" },
-            { left: "Esperado", right: "{money:1090000}" },
-          ],
-          footer: { left: "Contado", right: "{money:1085000}" },
-        },
-      },
-    ],
-  },
-  {
-    slug: "panaderias",
-    label: "Panaderías",
-    posesivo: "tu panadería",
-    eyebrow: "Para panaderías",
-    heroTitle: "Producción de madrugada, caja sin fila",
-    heroDescription:
-      "La receta descuenta harina y calcula el costo de cada horneada. En el mostrador se vende por unidad o al peso, rápido, con la caja rindiendo por turno.",
-    thirtySeconds: [
-      "La receta de cada horneada descuenta harina, levadura y todo insumo, y calcula el costo real del lote.",
-      "En el mostrador se vende por unidad o por peso, con el mismo ticket para las dos formas.",
-      "El domingo a la mañana la caja aguanta la fila sin perder velocidad.",
-      "El reporte de producción compara lo horneado contra lo vendido, para ver qué sobró.",
-    ],
-    sections: [
-      {
-        kicker: "Antes de que abra el local",
-        title: "Cada horneada con su receta y su costo real",
-        paragraphs: [
-          "A las cuatro de la mañana la producción arranca con recetas: cada lote de pan francés o de facturas descuenta la harina, la levadura y el resto de los insumos del stock, y deja el costo real de esa horneada, no un número estimado a ojo.",
-          "Cuando sube el precio de la harina, el costo del producto se actualiza solo — no hace falta recalcular cada receta a mano.",
-        ],
-        linkLabel: "Ver una orden de producción",
-        mockup: {
-          label: "Producción 4:30",
-          title: "Horneada del día",
-          rows: [
-            {
-              left: "Pan francés × 80",
-              right: "{money:96000}",
-              sub: ["Harina 12kg · Levadura 200g"],
-            },
-            {
-              left: "Facturas surtidas × 60",
-              right: "{money:84000}",
-              sub: ["Harina 6kg · Manteca 1.5kg"],
-            },
-          ],
-          footer: { left: "Costo del lote", right: "{money:180000}" },
-        },
-      },
-      {
-        kicker: "El domingo a la mañana",
-        title: "Por unidad o por peso, el mismo mostrador",
-        paragraphs: [
-          "La fila del domingo no perdona: el pan se vende por kilo y la factura por unidad, y el mostrador cobra las dos cosas en el mismo ticket, sin cambiar de pantalla ni de balanza a las cajas.",
-          "El cliente que compra la docena de facturas y el kilo de pan casero sale con un solo ticket y, si lo pide, con su factura electrónica.",
-        ],
-        linkLabel: "Ver el mostrador",
-        mockup: {
-          label: "Mostrador domingo",
-          title: "Ticket en curso",
-          rows: [
-            { left: "1.2kg Pan casero", right: "{money:14400}" },
-            { left: "12× Factura de manteca", right: "{money:24000}" },
-          ],
-          footer: { left: "Cobrar", right: "{money:38400}" },
-        },
-      },
-      {
-        kicker: "Lo que sobró importa",
-        title: "Producido contra vendido, sin adivinar",
-        paragraphs: [
-          "Al cierre del día, el reporte compara cuánto se horneó contra cuánto se vendió: lo que sobró de cada producto queda anotado, y con eso la producción de mañana se ajusta en vez de repetir el mismo error.",
-        ],
-        linkLabel: "Ver el reporte de producción",
-        mockup: {
-          label: "Cierre del día",
-          title: "Producido vs. vendido",
-          rows: [
-            { left: "Pan francés", right: "80 / 74", sub: ["sobraron 6"] },
-            {
-              left: "Facturas surtidas",
-              right: "60 / 60",
-              sub: ["sin sobrante"],
-            },
-          ],
-        },
-      },
-    ],
-  },
-  {
-    slug: "tiendas-de-ropa",
-    label: "Tiendas de ropa",
+    slug: "ropa-y-accesorios",
+    grupo: "retail",
+    label: "Ropa y accesorios",
     posesivo: "tu tienda",
-    eyebrow: "Para tiendas de ropa",
+    eyebrow: "Para tiendas de ropa y accesorios",
     heroTitle: "Talles, colores y temporadas en orden",
     heroDescription:
       "Variantes por talle y color sin duplicar artículos, cambios y devoluciones con nota de crédito, y el reporte de qué se mueve antes de recomprar la temporada.",
@@ -603,170 +455,6 @@ export const RUBROS: Rubro[] = [
               left: "Pantalón cargo",
               right: "9 unidades",
               sub: ["quedó stock"],
-            },
-          ],
-        },
-      },
-    ],
-  },
-  {
-    slug: "bares-y-pubs",
-    label: "Bares y pubs",
-    posesivo: "tu bar",
-    eyebrow: "Para bares y pubs",
-    heroTitle: "La barra no para, la cuenta tampoco se pierde",
-    heroDescription:
-      "Cada mesa y cada cliente en la barra tiene su cuenta abierta, con lo que va pidiendo. La comanda sale impresa donde corresponde, la cuenta se divide entre varios al cerrar, y la caja de una noche fuerte cierra en un arqueo, no en una discusión.",
-    thirtySeconds: [
-      "La cuenta se abre por mesa o por cliente en la barra, y se va cargando trago a trago.",
-      "El pedido baja impreso donde corresponde: el trago a la barra, el picoteo a la cocina.",
-      "Al cerrar, la cuenta se divide entre varios con efectivo, QR y tarjeta mezclados.",
-      "El cierre de una noche fuerte compara lo esperado contra lo contado, turno por turno.",
-    ],
-    sections: [
-      {
-        kicker: "La barra en su hora pico",
-        title: "El pedido baja donde corresponde, sin gritos",
-        paragraphs: [
-          "Un viernes a la noche la barra no da abasto para gritar cada pedido hacia la cocina: el trago entra a la cola de la barra y el picoteo a la cola de la cocina, cada uno en su pantalla, con la mesa y la hora de pedido bien claras.",
-          "El barman arma la tanda por orden de llegada, sin depender de que alguien se acuerde de avisarle a los gritos entre la música.",
-        ],
-        linkLabel: "Ver las comandas de la barra",
-        mockup: {
-          label: "Viernes 23:15",
-          title: "Barra · cola de comandas",
-          caption: "Cada pedido con su mesa y su hora.",
-          rows: [
-            {
-              left: "Mesa 5 · hace 2 min",
-              right: "3 tragos",
-              sub: ["2× Gin tonic", "1× Cerveza tirada 1L"],
-            },
-            {
-              left: "Barra · hace 1 min",
-              right: "1 trago",
-              sub: ["1× Whisky doble, sin hielo"],
-            },
-          ],
-        },
-      },
-      {
-        kicker: "Cada uno paga lo suyo",
-        title: "Cuenta abierta, dividida al cerrar entre todos",
-        paragraphs: [
-          "La mesa que llegó a las diez y sigue pidiendo hasta la una tiene su cuenta abierta todo ese tiempo, sumando cada ronda. Al cerrar, se divide en partes iguales o por lo que tomó cada uno, y se cobra mezclando efectivo, QR y tarjeta sin reabrir nada.",
-        ],
-        linkLabel: "Ver el cierre de una mesa",
-        mockup: {
-          label: "Mesa 5 · 4 personas",
-          title: "Dividir la cuenta",
-          rows: [
-            { left: "Braulio", right: "{money:95000}" },
-            { left: "Nadia", right: "{money:95000}" },
-            { left: "Fabricio", right: "{money:60000}" },
-            { left: "Delia", right: "{money:90000}" },
-          ],
-          footer: { left: "Total", right: "{money:340000}" },
-        },
-      },
-      {
-        kicker: "La noche fuerte también cierra",
-        title: "Arqueo de caja después de la última ronda",
-        paragraphs: [
-          "A las tres de la mañana, cuando se apagan las luces, el turno cierra con arqueo: lo esperado contra lo contado, con cada retiro del día anotado desde antes. El dueño ve la noche completa — qué se vendió, a qué hora fue el pico — sin esperar a reconstruirla el lunes.",
-        ],
-        linkLabel: "Ver el arqueo de la noche",
-        mockup: {
-          label: "Turno noche",
-          title: "Arqueo de caja",
-          rows: [
-            { left: "Apertura", right: "{money:400000}" },
-            { left: "Ventas en efectivo", right: "{money:1850000}" },
-            { left: "Esperado", right: "{money:2250000}" },
-          ],
-          footer: { left: "Contado", right: "{money:2230000}" },
-        },
-      },
-    ],
-  },
-  {
-    slug: "heladerias",
-    label: "Heladerías",
-    posesivo: "tu heladería",
-    eyebrow: "Para heladerías",
-    heroTitle: "Por peso, por bocha, y la misma receta en todas las sucursales",
-    heroDescription:
-      "El pote se cobra por peso o por cantidad de bochas, con los agregados que pida el cliente. La receta de cada sabor descuenta los insumos de producción, y el catálogo es el mismo en todas las sucursales, para que el pico del verano no encuentre a nadie con una lista distinta.",
-    thirtySeconds: [
-      "El pote se cobra por peso o por bocha, con los agregados sumados en la misma pantalla.",
-      "Los combos (pote + toppings) salen a un precio cerrado, sin sumar cada ítem a mano.",
-      "La receta de cada sabor descuenta leche, crema y fruta al producirlo, con su costo real.",
-      "Todas las sucursales venden del mismo catálogo, así el precio no cambia de una punta a otra.",
-    ],
-    sections: [
-      {
-        kicker: "Por peso o por bocha",
-        title: "El mostrador cobra como se pide el helado",
-        paragraphs: [
-          'El cliente pide "un cuarto" o "tres bochas" y el mostrador cobra de la misma forma: por peso en la balanza o por cantidad, con los agregados — chips, salsa, cucurucho de más — sumados en la misma pantalla sin recalcular nada a mano.',
-          "En la fila del sábado a la tarde eso hace la diferencia entre atender rápido o frenar la cola en cada pedido raro.",
-        ],
-        linkLabel: "Ver un pedido en el mostrador",
-        mockup: {
-          label: "Mostrador sábado",
-          title: "Ticket en curso",
-          rows: [
-            { left: "0.5kg Pote 2 sabores", right: "{money:42000}" },
-            {
-              left: "Cucurucho 3 bochas",
-              right: "{money:18000}",
-              sub: ["+ chips de chocolate"],
-            },
-          ],
-          footer: { left: "Cobrar", right: "{money:60000}" },
-        },
-      },
-      {
-        kicker: "El sabor no se improvisa",
-        title: "Cada producción con su receta y su costo",
-        paragraphs: [
-          "El sabor de dulce de leche granizado se produce con una receta que descuenta la leche, la crema y el dulce de leche del stock, y deja el costo real de ese lote — no una estimación de memoria.",
-          "Cuando el precio de un insumo sube, el costo del sabor se actualiza solo, sin recalcular receta por receta.",
-        ],
-        linkLabel: "Ver una orden de producción",
-        mockup: {
-          label: "Producción de sabores",
-          title: "Dulce de leche granizado",
-          rows: [
-            {
-              left: "Lote de 8kg",
-              right: "{money:96000}",
-              sub: ["Leche 5L · Dulce de leche 2kg"],
-            },
-          ],
-          footer: { left: "Costo por kilo", right: "{money:12000}" },
-        },
-      },
-      {
-        kicker: "El mismo catálogo en todas partes",
-        title: "Del centro a la costanera, el mismo precio",
-        paragraphs: [
-          "En el pico del verano cada sucursal vende del mismo catálogo, con los mismos sabores y el mismo precio — el cliente no encuentra una lista distinta si va a la sucursal de la costanera en vez de la del centro. Y cuando un sabor se agota en una sucursal, se ve al instante en cuál sí queda.",
-        ],
-        linkLabel: "Ver el catálogo por sucursal",
-        mockup: {
-          label: "Sábado de verano",
-          title: "Stock por sucursal",
-          rows: [
-            {
-              left: "Dulce de leche granizado",
-              right: "Centro: 4kg",
-              sub: ["Costanera: 0kg — agotado"],
-            },
-            {
-              left: "Frutilla a la crema",
-              right: "Centro: 6kg",
-              sub: ["Costanera: 3kg"],
             },
           ],
         },

@@ -97,6 +97,10 @@ const MODULO_PREVIEWS: Record<string, { src?: string; text: string }> = {
     src: "/site/panel-screenshot.png",
     text: "El negocio entero en una pantalla, sucursal por sucursal.",
   },
+  Reportes: {
+    src: "/site/reportes-stats.png",
+    text: "Margen, ingresos y egresos del período, sin armar una planilla.",
+  },
   "Punto AI": {
     src: "/site/ai-screenshot.png",
     text: "Preguntale por tus números y responde con los datos del negocio.",
@@ -115,7 +119,8 @@ const MODULO_PREVIEWS: Record<string, { src?: string; text: string }> = {
     text: "La receta descuenta insumos y calcula el costo real del plato.",
   },
   "Stock y compras": {
-    text: "Cada venta descuenta, cada compra repone y actualiza el costo.",
+    src: "/site/item-profile.png",
+    text: "Sacale una foto a la factura del proveedor y la carga sale sola.",
   },
   "Clientes y crédito": {
     text: "Quién compró, cuánto debe y qué se cobró, con su recibo.",

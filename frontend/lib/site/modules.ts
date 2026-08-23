@@ -142,6 +142,13 @@ export const FEATURE_CARDS: FeatureCard[] = [
       "Venta a crédito con límite por cliente y recibos de cada pago.",
   },
   {
+    key: "compras-ia",
+    image: "/site/item-profile.png",
+    title: "Facturas de compra con IA",
+    description:
+      "Foto a la factura del proveedor y la carga sale sola, lista para aprobar.",
+  },
+  {
     key: "compras",
     image: "/site/rubro-salud-y-belleza.jpg",
     title: "Compras y proveedores",
@@ -185,6 +192,7 @@ export const FEATURE_CARDS: FeatureCard[] = [
   },
   {
     key: "fiscales",
+    image: "/site/reportes-stats.png",
     title: "Reportes fiscales",
     description:
       "Los libros de venta y de compra salen del sistema, no del contador apurado.",

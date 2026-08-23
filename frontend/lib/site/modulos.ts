@@ -730,16 +730,16 @@ export const MODULOS: Modulo[] = [
     eyebrow: "Stock y compras",
     heroTitle: "Saber qué hay, antes de que falte",
     heroDescription:
-      "Cada venta descuenta, cada compra repone y el costo se actualiza con lo que realmente pagaste. Existencias por depósito y por sucursal, mínimos que avisan y ajustes que quedan con nombre, fecha y motivo.",
+      "Cada venta descuenta y cada compra repone. La factura del proveedor se carga sacándole una foto — la IA extrae los artículos, las cantidades y los precios — y el costo queda al día sin tipear una línea.",
     heroImage: {
       src: "/site/item-profile.png",
       alt: "Ficha de un artículo en Punto, con su precio, IVA y stock por sucursal",
     },
     essentials: [
       "Saldo por depósito y por sucursal, actualizado con cada movimiento.",
+      "La factura del proveedor se carga con una foto: la IA extrae los datos y vos aprobás.",
       "La compra ingresa la mercadería con el costo real y deja la deuda al proveedor.",
       "Mínimos con aviso, para reponer antes del quiebre y no después.",
-      "Conteos, ajustes y transferencias con su historia completa.",
     ],
     sections: [
       {
@@ -766,15 +766,15 @@ export const MODULOS: Modulo[] = [
         },
       },
       {
-        kicker: "Comprar sin doble tipeo",
-        title: "La factura del proveedor carga el stock y el costo",
+        kicker: "Sacale una foto",
+        title: "La factura del proveedor se carga sola, con IA",
         paragraphs: [
-          "Se registra la compra, entra la mercadería y el costo del artículo queda actualizado con lo que pagaste esta vez. Si fue a crédito, la deuda con el proveedor aparece sola en cuentas por pagar.",
-          "Para no cargar línea por línea, se puede subir la foto o el PDF de la factura: el sistema arma el borrador y vos aprobás antes de que impacte en el inventario.",
+          "Cargar una compra a mano es tipear veinte líneas mirando un papel. En Punto le sacás una foto a la factura — o subís el PDF — y la IA extrae el proveedor, el número de comprobante, cada artículo con su cantidad, su precio y su IVA.",
+          "Lo que sale es un borrador para revisar, no un movimiento hecho: corregís lo que haga falta y recién al aprobarlo entra la mercadería al stock. La IA nunca toca el inventario ni la caja por su cuenta.",
         ],
-        linkLabel: "Ver una compra",
+        linkLabel: "Ver el borrador de una factura",
         mockup: {
-          label: "Compra 0012-4487",
+          label: "Borrador · extraído de la foto",
           title: "Distribuidora del Este",
           rows: [
             { left: "24× Café en grano 1kg", right: "{money:1248000}" },
@@ -782,6 +782,32 @@ export const MODULOS: Modulo[] = [
             { left: "Condición", right: "Crédito 30 días" },
           ],
           footer: { left: "Total", right: "{money:1344000}" },
+        },
+      },
+      {
+        kicker: "Del papel al inventario",
+        title: "Aprobada la compra, el costo queda al día",
+        paragraphs: [
+          "Al aprobar el borrador entra la mercadería con el costo real de esta compra, y el margen de cada artículo se recalcula con ese número. Si fue a crédito, la deuda con el proveedor aparece sola en cuentas por pagar, con su vencimiento.",
+          "El alta manual sigue disponible y termina en el mismo lugar: haya venido de una foto o de la carga a mano, la compra es una sola cosa en el sistema.",
+        ],
+        linkLabel: "Ver cuentas por pagar",
+        mockup: {
+          label: "Cuentas por pagar",
+          title: "Vencimientos próximos",
+          rows: [
+            {
+              left: "Distribuidora del Este",
+              right: "{money:1344000}",
+              sub: ["vence en 12 días"],
+            },
+            {
+              left: "Lácteos del Sur",
+              right: "{money:480000}",
+              sub: ["vence en 3 días"],
+            },
+          ],
+          footer: { left: "Total", right: "{money:1824000}" },
         },
       },
       {
@@ -1053,7 +1079,7 @@ export const MODULO_GROUPS: ModuloGroup[] = [
     items: [
       {
         label: "Stock y compras",
-        description: "Existencias por depósito y costos al día",
+        description: "La factura del proveedor se carga con una foto",
         href: "/modulos/stock-y-compras",
       },
       {
