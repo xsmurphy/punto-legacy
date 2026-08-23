@@ -89,11 +89,20 @@ export interface RegisterListItem {
   orphanHotkeys: number
 }
 
-export function useRegistersAdmin() {
+/**
+ * Listado de cajas del tenant (realm PANEL, cookie `_jwt_panel`).
+ *
+ * `enabled` para los consumidores compartidos con el POS: en un device sin
+ * sesión de panel este GET da 401 y sin red no da nada, así que las pantallas
+ * que ya saben con qué caja trabajan (Impresoras montado dentro del POS) lo
+ * apagan en vez de pedir algo que no van a usar.
+ */
+export function useRegistersAdmin(opts: { enabled?: boolean } = {}) {
   return useQuery<{ registers: RegisterListItem[] }>({
     queryKey: ["registers", "admin"],
     queryFn: () => api.get<{ registers: RegisterListItem[] }>("/v1/register?resource=listAll"),
     staleTime: 30 * 1000,
+    enabled: opts.enabled ?? true,
   })
 }
 

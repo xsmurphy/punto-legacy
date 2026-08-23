@@ -20,6 +20,21 @@ interface OfflineSyncState {
    * carrito la usa para no dejarla morir en silencio (context/08 §53).
    */
   failedCount: number
+  /**
+   * Operaciones de CONFIGURACIÓN y de CAJA en cola — ajustes, hotkeys,
+   * impresoras, apertura y cierre (`lib/pos/pending-ops.ts`). Contador aparte
+   * del de ventas porque no son la misma clase de cosa: una venta en cola es
+   * un comprobante ya emitido e impreso, una operación en cola es un cambio
+   * que el cajero hizo y todavía no viajó. Se cuentan por separado y se
+   * muestran juntas en el indicador único.
+   */
+  pendingOpsCount: number
+  /**
+   * Subconjunto TERMINAL de `pendingOpsCount`. Cuando ahí adentro hay un
+   * cierre de caja, esto es plata esperando a que alguien la mire — por eso
+   * escala al estado destructivo del indicador igual que una venta fallida.
+   */
+  failedOpsCount: number
   isSyncing: boolean
   lastSyncAt: string | null
   /**
@@ -40,6 +55,8 @@ interface OfflineSyncState {
   catalogCachedAt: string | null
   setPendingCount: (count: number) => void
   setFailedCount: (count: number) => void
+  setPendingOpsCount: (count: number) => void
+  setFailedOpsCount: (count: number) => void
   setIsSyncing: (syncing: boolean) => void
   setLastSyncAt: (at: string | null) => void
   setCatalogSource: (fromCache: boolean, cachedAt: string | null) => void
@@ -48,12 +65,16 @@ interface OfflineSyncState {
 export const useOfflineSyncStore = create<OfflineSyncState>()((set) => ({
   pendingCount: 0,
   failedCount: 0,
+  pendingOpsCount: 0,
+  failedOpsCount: 0,
   isSyncing: false,
   lastSyncAt: null,
   catalogFromCache: false,
   catalogCachedAt: null,
   setPendingCount: (count) => set({ pendingCount: count }),
   setFailedCount: (count) => set({ failedCount: count }),
+  setPendingOpsCount: (count) => set({ pendingOpsCount: count }),
+  setFailedOpsCount: (count) => set({ failedOpsCount: count }),
   setIsSyncing: (syncing) => set({ isSyncing: syncing }),
   setLastSyncAt: (at) => set({ lastSyncAt: at }),
   setCatalogSource: (fromCache, cachedAt) =>

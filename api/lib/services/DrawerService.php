@@ -540,11 +540,21 @@ final class DrawerService
         // de reporte no puede dejarlo con el turno abierto. Sin esperado, el
         // reporte muestra el cierre como estimado, que es lo mismo que le pasa
         // a los cierres anteriores a esta migración.
+        //
+        // Sale de `getClosingTotals()` y no de `getSummary()`: es el MISMO
+        // `subtotal` —`composeSummary()` lo calcula sin mirar `$products` ni
+        // `$stats`— pero sin las dos queries con JOIN a `itemSold` que arman
+        // los productos vendidos y las estadísticas del turno, que en este
+        // camino no lee nadie. Además deja al cierre y a la respuesta del
+        // endpoint (`api/v1/drawer.php`, que devuelve estos totales para que el
+        // POS reconcilie un cierre hecho sin conexión) leyendo por la misma
+        // puerta: si mañana cambia la fórmula del arqueo, no hay dos caminos
+        // que puedan quedar en desacuerdo.
         $expectedCash = null;
         try {
-            $summary = $this->getSummary($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
-            if ($summary !== null) {
-                $expectedCash = (float) $summary['subtotal'];
+            $totals = $this->getClosingTotals($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
+            if ($totals !== null) {
+                $expectedCash = (float) $totals['subtotal'];
             }
         } catch (\Throwable $e) {
             error_log("[DrawerService::close] no se pudo congelar el esperado (drawerId={$row['drawerId']}): " . $e->getMessage());
@@ -894,6 +904,50 @@ final class DrawerService
         $stats    = $this->getSaleStats($registerId, $since, $drawerId);
 
         return self::composeSummary($open, $expenses, $income, $payments, $products, $stats);
+    }
+
+    /**
+     * Totales del turno TAL COMO ESTÁN, sin productos ni estadísticas.
+     *
+     * Existe para una sola cosa: que el cierre pueda devolver el arqueo que el
+     * servidor calculó, y que el POS pueda compararlo contra el total que
+     * había mostrado sin conexión. Un cierre hecho offline se decide mirando
+     * lo que ese aparato registró; si el servidor termina con otro número,
+     * alguien tiene que enterarse (ver `shift-close-reconciliation.ts` del
+     * front).
+     *
+     * No usa `getSummary()` porque no necesita lo caro: los productos vendidos
+     * y las estadísticas de la sesión son dos queries con JOIN a `itemSold` que
+     * nadie va a mirar en esta respuesta. Las piezas que sí importan son las
+     * mismas, y el rollup lo hace `composeSummary()` — o sea que la fórmula
+     * sigue estando escrita en un solo lugar.
+     *
+     * @return array{date:string,total:float,subtotal:float,salesTotal:float,returns:float}|null
+     *         null si la caja ya está cerrada.
+     */
+    public function getClosingTotals(string $registerId, string $outletId, string $companyId): ?array
+    {
+        $open = $this->getOpen($registerId, $outletId, $companyId);
+        if ($open === null) {
+            return null;
+        }
+        $since    = $open['drawerOpenDate'];
+        $drawerId = $open['drawerId'] ?? null;
+
+        $summary = self::composeSummary(
+            $open,
+            $this->getExpenses($registerId, $since),
+            $this->getIncome($registerId, $since),
+            $this->getPaymentBreakdown($registerId, $since, $drawerId)
+        );
+
+        return [
+            'date'       => (string) $summary['date'],
+            'total'      => (float) $summary['total'],
+            'subtotal'   => (float) $summary['subtotal'],
+            'salesTotal' => (float) $summary['salesTotal'],
+            'returns'    => (float) $summary['returns'],
+        ];
     }
 
     /**

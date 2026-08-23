@@ -88,9 +88,14 @@ import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import { useOfflineSync } from "@/hooks/use-offline-sync"
+import { usePendingOpsSync } from "@/hooks/use-pending-ops-sync"
 
 function OfflineSyncRunner() {
+  // Dos colas, dos ciclos: ventas emitidas (comprobantes que ya existen en
+  // papel) y operaciones de configuración y de caja. Se montan juntas pero no
+  // se mezclan — ver el docblock de `lib/pos/pending-ops.ts`.
   useOfflineSync()
+  usePendingOpsSync()
   return null
 }
 

@@ -36,7 +36,11 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney, formatCurrencyAmount } from "@/lib/format-money"
 import { formatDateTime } from "@/lib/format-date"
 import { buildSalePayload, buildApiPayload } from "@/lib/commands/create-sale"
-import type { SalePaymentMethod, CreateSaleResult } from "@/lib/commands/create-sale"
+import type {
+  SalePaymentMethod,
+  CreateSaleResult,
+  CreateSalePayload,
+} from "@/lib/commands/create-sale"
 import { ApiError } from "@/lib/api-client"
 import { getNextInvoiceNo } from "@/lib/pos/invoice-numbering"
 import {
@@ -46,6 +50,7 @@ import {
   type RegisterConflictInfo,
 } from "@/lib/pos/register-conflict"
 import { enqueue, getCount } from "@/lib/pos/offline-queue"
+import { recordSale } from "@/lib/pos/shift-journal"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { refreshTenancy, type TenancyVerdictKind } from "@/lib/pos/register-tenancy"
 import { useTenancyStore } from "@/lib/pos/tenancy-store"
@@ -187,6 +192,32 @@ type DialogPhase = "pay" | "success" | "register-taken"
 // tenencia dejó de vencer por fecha (context/29 §4, 2026-08-17) — se
 // mantiene en el shape por compatibilidad, el render de abajo ya lo trata
 // como opcional.
+
+/**
+ * Anota la venta en el registro del turno de este dispositivo.
+ *
+ * Se llama en las DOS ramas de la emisión —la que posteó con red y la que
+ * encoló sin ella— porque para el arqueo son el mismo hecho: una venta que
+ * salió de esta caja. Es lo que le permite a Control de Caja mostrar un total
+ * sin conexión sin inventarlo ni pedirlo prestado a un cache del servidor.
+ *
+ * Fire-and-forget por diseño: `recordSale` no tira (todo su cuerpo es
+ * best-effort), y aunque tirara, la venta ya está emitida e impresa. Nada de
+ * lo que pase acá puede tocarla.
+ */
+async function journalSale(payload: CreateSalePayload): Promise<void> {
+  await recordSale({
+    registerId: useCatalogStore.getState().activeRegisterId,
+    uid: payload.uid,
+    date: payload.date,
+    payments: (payload.payment ?? []).map((p) => ({
+      name: p.name,
+      type: p.type,
+      total: p.total,
+    })),
+    internal: payload.interno === true,
+  })
+}
 
 // ── Componente principal ──────────────────────────────────────────────────────
 
@@ -641,6 +672,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
         // Encolar en IndexedDB
         await enqueue({ clientTempId: payload.uid, invoiceNo, sale: payload })
+        await journalSale(payload)
 
         // Stock optimistic
         const catalogItems = useCatalogStore.getState().items
@@ -683,6 +715,15 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
 
       setChange(changeAmount)
       setSaleResult(result)
+      // Anotar la venta en el registro del turno de este dispositivo. La venta
+      // ONLINE se anota igual que la offline: el total del turno que se muestra
+      // sin red es la suma de lo que esta caja emitió, y una venta hecha con
+      // conexión no deja de haber ocurrido en esta caja. Ver `shift-journal.ts`.
+      //
+      // Sin `await`: la venta ya está confirmada y lo que sigue es imprimir el
+      // comprobante. Una escritura de contabilidad interna no se pone delante
+      // del ticket del cliente.
+      void journalSale(payload)
 
       runAutoPrint(payload, result)
 

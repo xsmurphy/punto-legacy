@@ -18,7 +18,7 @@
 import { getPosOfflineDB as getDB } from '@/lib/pos/offline-db'
 
 // Los tipos de la fila viven con el schema, pero se re-exportan acá porque
-// los call-sites (`use-offline-sync`, `sync-queue-dialog`) los importan de
+// los call-sites (`use-offline-sync`, `sync-queue-list`) los importan de
 // este módulo desde antes de que existiera `offline-db.ts`.
 export type {
   OfflineError,

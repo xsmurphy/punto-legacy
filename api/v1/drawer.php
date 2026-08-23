@@ -158,6 +158,22 @@ if ($method === 'POST') {
         apiError("No tenés permiso para esta acción (requiere: $drawerPerm)", 403);
     }
 
+    // Arqueo del turno que se está por cerrar. Se lee ANTES del cierre porque
+    // después la fila ya no está abierta y `getOpen()` no la encuentra. Va en la
+    // respuesta para que un cierre hecho SIN CONEXIÓN pueda compararse contra el
+    // total que el dispositivo había mostrado: el cajero cerró mirando ese
+    // número y, si el del servidor es otro, tiene que verlo (front:
+    // `shift-close-reconciliation.ts`). Es best-effort — un fallo leyendo el
+    // arqueo no puede impedir que la caja cierre.
+    $closingTotals = null;
+    if ($action === 'close') {
+        try {
+            $closingTotals = $svc->getClosingTotals($registerId, $outletId, $companyId);
+        } catch (\Throwable $e) {
+            error_log('[drawer.php] getClosingTotals falló antes del cierre: ' . $e->getMessage());
+        }
+    }
+
     try {
         switch ($action) {
             case 'open':
@@ -182,12 +198,14 @@ if ($method === 'POST') {
     // $result es true en éxito, o un string con el motivo de idempotencia
     // (Already Open, Already Closed, etc.) — se devuelve como ok=true para
     // que el front lo maneje igual que el legacy (jsonDieMsg con 200+success).
-    if ($result === true) {
-        apiOk(['message' => 'true']);
-    } else {
-        // Idempotencia: la acción ya fue aplicada — respuesta 200 con mensaje
-        apiOk(['message' => $result]);
+    // `closing` solo viaja en el cierre y solo si se pudo leer. Ausente cuando
+    // la caja ya estaba cerrada (reenvío idempotente): no hay turno del que
+    // informar, y devolver ceros ahí se leería como "el turno fue de 0".
+    $payload = ['message' => $result === true ? 'true' : $result];
+    if ($closingTotals !== null) {
+        $payload['closing'] = $closingTotals;
     }
+    apiOk($payload);
 }
 
 apiError('Operación no reconocida', 400);

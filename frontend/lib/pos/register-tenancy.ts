@@ -70,6 +70,8 @@ import { posApi } from '@/lib/api/pos-client'
 import { ApiError } from '@/lib/api-client'
 import { extractRegisterConflictInfo } from '@/lib/pos/register-conflict'
 import { useTenancyStore } from '@/lib/pos/tenancy-store'
+import { useCatalogStore } from '@/lib/catalog/store'
+import { tenantNow } from '@/lib/format-date'
 
 export type { TenancyDenyReason }
 
@@ -232,18 +234,66 @@ interface ClaimResponse {
  *            TTL. Sobrescribir acá convertiría cada microcorte en una caja
  *            bloqueada, que es justo lo contrario de offline-first.
  */
+/**
+ * Desde cuándo corre ESTA tenencia, en hora local del tenant (naive).
+ *
+ * `claim.php` devuelve el MISMO `registerLeaseId` en cada latido mientras la
+ * tenencia siga siendo la misma fila de `register_lease`, así que un id que no
+ * cambió significa "sigo teniendo la caja desde antes" y hay que conservar el
+ * `heldSince` original. Un id nuevo (o ninguno anterior) es una tenencia nueva:
+ * empieza ahora.
+ *
+ * Si el grant anterior se perdió —base limpiada, device re-pareado— el
+ * `heldSince` se re-estampa en el presente aunque la tenencia server-side sea
+ * vieja. Eso hace que el device se declare con MENOS cobertura de la que tiene
+ * y muestre una advertencia de más, que es el lado seguro del error: la
+ * alternativa sería afirmar que vio un tramo del turno que no vio.
+ */
+function nextHeldSince(
+  prev: TenancyGrantRow | null,
+  registerId: string,
+  registerLeaseId: string | null,
+): string {
+  const now = tenantNow(useCatalogStore.getState().config?.timezone)
+  if (
+    prev &&
+    prev.status === 'held' &&
+    prev.registerId === registerId &&
+    prev.registerLeaseId !== null &&
+    prev.registerLeaseId === registerLeaseId &&
+    typeof prev.heldSince === 'string' &&
+    prev.heldSince !== ''
+  ) {
+    return prev.heldSince
+  }
+  return now
+}
+
+/**
+ * Desde cuándo este device tiene la caja, si la tiene. `null` cuando no hay
+ * grant, es de otra caja, o el grant es anterior a que existiera el campo.
+ */
+export async function tenancyHeldSince(registerId: string): Promise<string | null> {
+  const grant = await readGrant()
+  if (!grant || grant.registerId !== registerId || grant.status !== 'held') return null
+  return grant.heldSince ?? null
+}
+
 export async function refreshTenancy(registerId: string): Promise<TenancyVerdict> {
   try {
     const res = await posApi.post<ClaimResponse>('/v1/register/claim', {})
+    const prev = await readGrant()
+    const confirmedRegisterId = res?.registerId || registerId
     const row: TenancyGrantRow = {
       key: TENANCY_KEY,
       // La caja que el servidor confirmó manda sobre la que este device cree
       // tener: si divergen, el grant tiene que describir lo confirmado. Con esa
       // divergencia `evaluateGrant()` devuelve `other-register` y no deja
       // emitir, que es el desenlace correcto.
-      registerId: res?.registerId || registerId,
+      registerId: confirmedRegisterId,
       status: 'held',
       confirmedAt: new Date().toISOString(),
+      heldSince: nextHeldSince(prev, confirmedRegisterId, res?.registerLeaseId ?? null),
       registerLeaseId: res?.registerLeaseId ?? null,
       denyReason: null,
       holderDeviceId: null,
@@ -261,6 +311,8 @@ export async function refreshTenancy(registerId: string): Promise<TenancyVerdict
         registerId,
         status: 'denied',
         confirmedAt: new Date().toISOString(),
+        // Denegada: no hay tenencia, no hay "desde cuándo".
+        heldSince: null,
         registerLeaseId: null,
         denyReason: info.reason ?? 'taken_by_other',
         holderDeviceId: info.holderDeviceId,

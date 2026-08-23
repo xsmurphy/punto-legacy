@@ -16,6 +16,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { enqueueOp } from "@/lib/pos/pending-ops"
+import {
+  applyPendingConfigPatches,
+  loadLocalRegisterConfig,
+  saveLocalRegisterConfig,
+} from "@/lib/pos/local-register-state"
 
 export type PosRegisterConfig = {
   /**
@@ -75,14 +81,53 @@ async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
   return json.data as T
 }
 
+/**
+ * Lee la config de la caja, con red o sin ella.
+ *
+ * El árbol es el mismo del arranque en frío del catálogo (`bootstrap-source`):
+ * red → cache → nada. Y sobre lo que salga se aplican los patches en cola, en
+ * las DOS ramas: una respuesta fresca del servidor todavía no incluye lo que
+ * esta caja cambió hace un minuto y no pudo mandar, así que sin ese paso el
+ * primer refetch le revierte al cajero un interruptor que él acaba de tocar
+ * — que se lee como "el ajuste no anda", que es el bug que esto arregla.
+ *
+ * Cuando no hay red NI cache (device nuevo que nunca llegó a leer la config)
+ * la query falla y los consumidores caen a `POS_REGISTER_CONFIG_DEFAULTS`. Es
+ * lo correcto: inventar una config sería peor que usar la canónica.
+ */
 export function usePosRegisterConfig(registerId: string) {
   return useQuery<PosRegisterConfigResponse>({
     queryKey: ["pos-config", registerId],
-    queryFn: () => posJson<PosRegisterConfigResponse>("/api/pos/register-config"),
+    queryFn: async () => {
+      try {
+        const fresh = await posJson<PosRegisterConfigResponse>("/api/pos/register-config")
+        await saveLocalRegisterConfig(registerId, fresh.config)
+        return { config: await applyPendingConfigPatches(registerId, fresh.config) }
+      } catch (err) {
+        const cached = await loadLocalRegisterConfig(registerId)
+        if (!cached) throw err
+        return { config: await applyPendingConfigPatches(registerId, cached) }
+      }
+    },
     enabled: registerId !== "",
     staleTime: 30 * 1000,
     refetchOnWindowFocus: false,
   })
+}
+
+/**
+ * ¿El fallo fue "no se pudo hablar con el servidor"?
+ *
+ * `navigator.onLine` no alcanza y el codebase ya lo sabe: dice `true` con un
+ * cable enchufado a un router sin salida, o con el server caído. Lo que
+ * decide si el ajuste se encola es que la request NO haya obtenido respuesta,
+ * no lo que opine el navegador.
+ */
+function isUnreachable(err: unknown): boolean {
+  if (typeof navigator !== "undefined" && !navigator.onLine) return true
+  // `posJson` convierte el error de red en `TypeError` de fetch; un rechazo del
+  // servidor llega como Error con el mensaje del envelope y NO se encola.
+  return err instanceof TypeError
 }
 
 export function useUpdatePosRegisterConfig() {
@@ -90,12 +135,56 @@ export function useUpdatePosRegisterConfig() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
 
   return useMutation<PosRegisterConfigResponse, Error, Partial<PosRegisterConfig>, { prev: PosRegisterConfigResponse | undefined }>({
-    mutationFn: (patch) =>
-      posJson<PosRegisterConfigResponse>("/api/pos/register-config", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config: patch }),
-      }),
+    mutationFn: async (patch) => {
+      const effective = (): PosRegisterConfig => ({
+        ...POS_REGISTER_CONFIG_DEFAULTS,
+        ...(qc.getQueryData<PosRegisterConfigResponse>(["pos-config", activeRegisterId])?.config ??
+          {}),
+        ...patch,
+      })
+
+      /**
+       * Encolar es la respuesta a "no llegué", no a "me dijeron que no". Se
+       * guarda el PATCH —solo las claves que el cajero tocó— porque ahí está
+       * la regla de conflicto: el servidor lo mergea sobre lo que tenga
+       * guardado, así que un cambio hecho desde el panel en OTRA clave
+       * sobrevive. Ver `context/51`.
+       */
+      const enqueueOffline = async (): Promise<PosRegisterConfigResponse> => {
+        const config = effective()
+        await enqueueOp({
+          kind: "posConfig",
+          stream: "pos-config",
+          registerId: activeRegisterId,
+          payload: patch,
+          label: "Ajustes de la caja",
+          // Cinco interruptores tocados sin red son UN cambio de ajustes, no
+          // cinco operaciones en cola.
+          mergePayload: (prev, next) => ({
+            ...(prev as Partial<PosRegisterConfig>),
+            ...(next as Partial<PosRegisterConfig>),
+          }),
+        })
+        await saveLocalRegisterConfig(activeRegisterId, config)
+        return { config }
+      }
+
+      if (typeof navigator !== "undefined" && !navigator.onLine) {
+        return enqueueOffline()
+      }
+      try {
+        const saved = await posJson<PosRegisterConfigResponse>("/api/pos/register-config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ config: patch }),
+        })
+        await saveLocalRegisterConfig(activeRegisterId, saved.config)
+        return saved
+      } catch (err) {
+        if (isUnreachable(err)) return enqueueOffline()
+        throw err
+      }
+    },
     onMutate: async (patch) => {
       const key = ["pos-config", activeRegisterId]
       await qc.cancelQueries({ queryKey: key })
