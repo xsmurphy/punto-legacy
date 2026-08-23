@@ -38,6 +38,55 @@ $resource = $_GET['resource'] ?? null;
 
 $service = new \Punto\Api\Contacts\ContactService(new \Punto\Api\Contacts\ContactRepository($db));
 
+// ── Gate de autorización ────────────────────────────────────────────────────
+// `contact` es UNA tabla con tres roles (type 0=empleado, 1=cliente,
+// 2=proveedor) y el catálogo tiene una familia de permisos POR ROL. Gatear
+// solo por método no alcanza: el permiso depende de QUÉ contacto es, así que
+// el gate se resuelve con (type, operación).
+//
+// type=0 está contemplado a propósito: `getById()`, `update()` y `archive()`
+// NO filtran por type (ver ContactService::getById), así que sin esto
+// cualquiera con `contacts.customer.edit` podía editar o archivar un EMPLEADO
+// por este endpoint, salteándose el gate `contacts.user.manage` de
+// /v1/users. Mismo recurso, mismo permiso, sin importar por qué puerta entre.
+//
+// Realm `pos-app`: la sesión del device se emite con roleId='1'
+// (DeviceAuth::buildToken) → seed `owner` → estos gates siempre pasan en la
+// caja y no pueden romper el mostrador. Son efectivos hoy para el realm
+// `panel` (rol real del operador).
+
+/** @param 'view'|'create'|'edit'|'delete' $op */
+function contactsPermFor(int $type, string $op): string
+{
+    if ($type === 0) {
+        // El catálogo no separa create/edit/delete para empleados.
+        return $op === 'view' ? 'contacts.user.view' : 'contacts.user.manage';
+    }
+    if ($type === \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER) {
+        // Idem proveedores: una sola clave de gestión.
+        return $op === 'view' ? 'contacts.supplier.view' : 'contacts.supplier.manage';
+    }
+    return 'contacts.customer.' . $op;
+}
+
+function contactsRequire(int $type, string $op): void
+{
+    $perm = contactsPermFor($type, $op);
+    if (!hasPermission($perm)) {
+        apiError("No tenés permiso para esta acción (requiere: $perm)", 403);
+    }
+}
+
+/** type del contacto ya existente. 404 si no pertenece al tenant. */
+function contactsTypeOf(\Punto\Api\Contacts\ContactService $service, string $id): int
+{
+    $row = $service->getById($id, COMPANY_ID);
+    if ($row === null) {
+        apiError('Contacto no encontrado', 404);
+    }
+    return (int) ($row['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+}
+
 // ── Bulk-get quirúrgico (sync realtime, context/15) ────────────────────────
 // POST /v1/contacts?resource=bulk-get  body: { ids: [uuid, ...], type? }
 // Mismo criterio que /v1/items?resource=bulk-get: POST porque la lista de
@@ -68,6 +117,7 @@ if ($resource === 'bulk-get') {
     if (empty($ids)) {
         apiOk(['contacts' => []]);
     }
+    contactsRequire($bulkType, 'view');
     // Techo de borde — ver mismo comentario en /v1/items?resource=bulk-get.
     $ids = array_slice($ids, 0, 2000);
     apiOk(['contacts' => $service->getManyByIds($ids, COMPANY_ID, $bulkType)]);
@@ -76,6 +126,7 @@ if ($resource === 'bulk-get') {
 // ── Sub-recurso: direcciones ───────────────────────────────────────────────
 if ($id !== null && $resource === 'addresses') {
     if ($method === 'GET') {
+        contactsRequire(contactsTypeOf($service, $id), 'view');
         apiOk(['addresses' => $service->addresses($id, COMPANY_ID)]);
     }
     apiError('Method not allowed for /contacts/addresses', 405);
@@ -90,6 +141,11 @@ if ($id !== null && $resource === 'addresses') {
 if ($resource === 'taxpayer') {
     if ($method !== 'GET') {
         apiError('Method not allowed for /contacts?resource=taxpayer', 405);
+    }
+    // Todavía no hay contacto, así que no hay type contra el cual resolver:
+    // alcanza con poder dar de alta alguno de los dos roles.
+    if (!hasPermission('contacts.customer.create') && !hasPermission('contacts.supplier.manage')) {
+        apiError('No tenés permiso para esta acción (requiere: contacts.customer.create)', 403);
     }
     $ruc = trim((string) ($_GET['ruc'] ?? ''));
     if ($ruc === '') {
@@ -114,6 +170,7 @@ if ($id !== null && $resource === 'analytics') {
     if (!in_array($aType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
         $aType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
     }
+    contactsRequire($aType, 'view');
     require_once __DIR__ . '/../lib/Contacts/ContactAnalyticsService.php';
     $svc = new \Punto\Api\Contacts\ContactAnalyticsService();
     $data = $svc->compute($id, $aType, COMPANY_ID);
@@ -137,6 +194,7 @@ if ($id !== null && $resource === 'statement') {
     if (!in_array($sType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
         $sType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
     }
+    contactsRequire($sType, 'view');
     // Confirma pertenencia al tenant antes de calcular (mismo guard que el detalle por id).
     if ($service->getById($id, COMPANY_ID) === null) {
         apiError('Contacto no encontrado', 404);
@@ -176,9 +234,14 @@ switch ($method) {
             // de que el alta no se había guardado.
             $contact = $service->getById($id, COMPANY_ID);
             if ($contact === null) apiError('Contacto no encontrado', 404);
+            // El type sale de la FILA, no del ?type= del caller: el detalle
+            // por id no filtra por type, así que el permiso tiene que
+            // corresponder al contacto que realmente se está devolviendo.
+            contactsRequire((int) ($contact['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER), 'view');
             apiOk($contact);
         }
 
+        contactsRequire($type, 'view');
         apiOk($service->listByType($type, COMPANY_ID, [
             'q'      => $_GET['q']      ?? null,
             'status' => $_GET['status'] ?? null,
@@ -188,6 +251,13 @@ switch ($method) {
         break;
 
     case 'POST':
+        // Mismo clamp que ContactService::create() — el gate tiene que
+        // evaluar el type que REALMENTE se va a insertar, no el crudo.
+        $newType = (int) ($_POST['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+        if (!in_array($newType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
+            $newType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
+        }
+        contactsRequire($newType, 'create');
         try {
             $newId = $service->create(COMPANY_ID, $_POST);
         } catch (\InvalidArgumentException $e) {
@@ -202,6 +272,7 @@ switch ($method) {
 
     case 'PUT':
         if ($id === null) apiError('id es requerido para PUT', 422);
+        contactsRequire(contactsTypeOf($service, $id), 'edit');
 
         $patch = $_POST;
         unset($patch['id'], $patch['contactId'], $patch['companyId'], $patch['type']);
@@ -223,6 +294,14 @@ switch ($method) {
 
     case 'DELETE':
         if ($id === null) apiError('id es requerido para DELETE', 422);
+        // Archivar un contacto no es una operación de mostrador: el POS no
+        // tiene UI de borrado y su token es eterno. Restringido al panel,
+        // donde el rol del operador es real (en pos-app el gate de abajo
+        // pasaría siempre por el roleId='1' del device).
+        if (($ctx['realm'] ?? '') !== 'panel') {
+            apiError('Archivar contactos solo está disponible desde el panel', 403);
+        }
+        contactsRequire(contactsTypeOf($service, $id), 'delete');
         if (!$service->archive($id, COMPANY_ID)) {
             apiError('Archive falló', 500);
         }
