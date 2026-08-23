@@ -57,7 +57,8 @@ function markReloadAttempted(): void {
  * NO toca `pos-bootstrap` ni `pos-items` (datos que sostienen el modo offline)
  * ni IndexedDB, donde vive la cola de ventas sin sincronizar.
  */
-const SHELL_CACHE_PATTERN = /precache|pages-|next-static|static-js|static-style|^others$/
+const SHELL_CACHE_PATTERN =
+  /precache|pages-|next-static|static-js|static-style|^others$|^pos-pages$/
 
 async function purgeStaleAppShell(): Promise<void> {
   try {
@@ -79,15 +80,34 @@ async function purgeStaleAppShell(): Promise<void> {
 }
 
 /**
+ * Sin red, purgar el shell es suicida: el precache es lo ÚNICO que tiene el
+ * documento y los chunks del POS, y no hay servidor del que traerlos de
+ * vuelta. Borrarlo y recargar garantiza la pantalla de error del navegador —
+ * el mismo cuadro que el precache existe para evitar.
+ *
+ * Offline la purga tampoco tiene sentido conceptual: la hipótesis que la
+ * justifica es "hay una versión nueva en el servidor", y sin servidor no hay
+ * versión nueva. Recargamos pelado (el precache vuelve a servir el shell) y,
+ * si el error persiste, que lo muestre el error boundary.
+ */
+function isOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false
+}
+
+/**
  * Reload único: si ya se intentó en esta sesión de tab, no vuelve a recargar
  * (deja que el error boundary muestre el estado, en vez de loopear).
  *
- * Antes de recargar purga el shell cacheado — recargar sin eso reproduce el
- * mismo error.
+ * Con red, antes de recargar purga el shell cacheado — recargar sin eso
+ * reproduce el mismo error.
  */
 export function reloadOnceForChunkError(): boolean {
   if (alreadyAttemptedReload()) return false
   markReloadAttempted()
+  if (isOffline()) {
+    window.location.reload()
+    return true
+  }
   void purgeStaleAppShell().finally(() => window.location.reload())
   return true
 }
@@ -98,5 +118,9 @@ export function reloadOnceForChunkError(): boolean {
  * alguna chance de traer la versión nueva.
  */
 export function reloadNowForChunkError(): void {
+  if (isOffline()) {
+    window.location.reload()
+    return
+  }
   void purgeStaleAppShell().finally(() => window.location.reload())
 }
