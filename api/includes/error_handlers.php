@@ -56,6 +56,27 @@ function puntoRegisterErrorHandlers(): void
         if (function_exists('\\Sentry\\captureException')) {
             \Sentry\captureException($e);
         }
+        // ── CLI: la excepción NO puede terminar en exit code 0 ──────────────
+        // Un `set_exception_handler` que retorna normalmente CONSUME la
+        // excepción: PHP ya no aplica su exit code 255 y el proceso muere en 0.
+        // Sirviendo HTTP eso es exactamente lo que queremos (un JSON 500 limpio
+        // en vez de una respuesta vacía), pero en CLI convierte cualquier
+        // explosión en un "verde": es la causa raíz de los arneses de
+        // `api/tests/` que imprimían "TODO OK" sin evaluar una sola aserción.
+        // El realm HTTP no cambia en nada — este branch es inalcanzable ahí.
+        if (PHP_SAPI === 'cli') {
+            $detail = '  ' . get_class($e) . ': ' . $e->getMessage()
+                . "\n  @ " . $e->getFile() . ':' . $e->getLine()
+                . "\n" . $e->getTraceAsString();
+            // Si corre bajo el guard de arneses (api/tests/_harness.php), que
+            // el reporte salga con su formato y sin duplicarse.
+            if (function_exists('harnessReportAbort')) {
+                harnessReportAbort('excepción no atrapada', $detail);
+            } else {
+                fwrite(STDERR, "\n*** EXCEPCIÓN NO ATRAPADA (CLI) ***\n" . $detail . "\n");
+            }
+            exit(70);
+        }
         if (!headers_sent()) {
             // Guard de cierre de período (mig 157, context/48 D7): endpoints que
             // no atrapan \Throwable ellos mismos llegan hasta acá. Se responde
@@ -95,6 +116,16 @@ function puntoRegisterErrorHandlers(): void
                 '[fatal] ' . $err['message'] . ' @ ' . $err['file'] . ':' . $err['line'],
                 \Sentry\Severity::fatal()
             );
+        }
+        // CLI: mismo criterio que el exception handler de arriba — un fatal
+        // jamás debe poder salir con código 0. (Los arneses cargan además
+        // `api/tests/_harness.php`, cuyo shutdown se registra ANTES que este y
+        // por lo tanto corre primero; este branch cubre al resto de los
+        // scripts CLI — workers, migrate.php, one-shots.)
+        if (PHP_SAPI === 'cli') {
+            fwrite(STDERR, "\n*** ERROR FATAL (CLI) ***\n  " . $err['message']
+                . "\n  @ " . $err['file'] . ':' . $err['line'] . "\n");
+            exit(70);
         }
         if (!headers_sent()) {
             http_response_code(500);

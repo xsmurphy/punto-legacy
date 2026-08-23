@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
 /**
  * Test de integración (DB real) del fail-closed de `apiAuthTenant()`
  * (api/bootstrap.php) para el realm `pos-app` cuando el device pareado ya no
@@ -177,5 +180,4 @@ try {
     }
 }
 
-echo $failures === 0 ? "\nTODOS LOS CASOS PASARON\n" : "\n$failures CASO(S) FALLARON\n";
-exit($failures === 0 ? 0 : 1);
+harnessFinish($failures);

@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
 /**
  * Test de integración (DB real) de `CreditPaymentService::void()` — anulación
  * de un recibo de pago/cobro (context/41, plan cerrado 2026-08-16 en
@@ -185,9 +188,4 @@ check(
     $failures
 );
 
-if ($failures > 0) {
-    echo "\n$failures caso(s) fallido(s).\n";
-    exit(1);
-}
-echo "\nTodos los casos OK.\n";
-exit(0);
+harnessFinish($failures);

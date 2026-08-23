@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
 /**
  * Test de integración (Postgres real) del CONTRATO DE ERRORES del wrapper
  * PDO (`api/includes/lib/DB.php`).
@@ -334,9 +337,4 @@ check(
 ini_set('error_log', $errLogBackup === false ? '' : (string) $errLogBackup);
 @unlink($errLogTmp);
 
-if ($failures > 0) {
-    echo "\n$failures caso(s) fallido(s).\n";
-    exit(1);
-}
-echo "\nTodos los casos OK.\n";
-exit(0);
+harnessFinish($failures);
