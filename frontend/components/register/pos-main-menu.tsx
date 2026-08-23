@@ -93,6 +93,7 @@ import {
   useDrawerStatus,
   useDrawerSummary,
   useDrawerHourlyStats,
+  useLocalShiftTotals,
   useOpenDrawer,
   useCloseDrawer,
   useDrawerExpense,
@@ -100,6 +101,13 @@ import {
   type DrawerSummary,
   type DrawerHourlyRow,
 } from "@/hooks/use-drawer"
+import { gapMessages } from "@/lib/pos/local-shift-total"
+import {
+  clearShiftCloseReport,
+  closeTotalsMatch,
+  readShiftCloseReport,
+  type ShiftCloseReport,
+} from "@/lib/pos/shift-close-reconciliation"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1099,17 +1107,28 @@ function buildCloseRegTicket(
 /**
  * Lo que Control de Caja muestra cuando la caja está operando sin servidor.
  *
- * Ocupa el lugar del resumen del turno, que sin conexión no existe — ver el
- * comentario largo en el call-site sobre por qué NO se estima un total.
+ * Ocupa el lugar del resumen del turno. Sin conexión ese resumen no existe,
+ * pero el total SÍ: es la suma de lo que este dispositivo registró, con los
+ * huecos que no puede cubrir escritos al lado. Ver `local-shift-total.ts` para
+ * el cálculo y para por qué la tenencia exclusiva de caja es lo que lo vuelve
+ * defendible.
+ *
+ * Lo que este bloque no puede hacer nunca es parecerse al cierre. De ahí que
+ * cada fila diga "según este dispositivo" en vez de "Total", que las
+ * advertencias vayan pegadas al número y no escondidas abajo, y que el texto
+ * final repita quién calcula el arqueo de verdad.
  */
 function OfflineDrawerNotice({
   isOpen,
   openDate,
+  blind,
 }: {
   isOpen: boolean
   openDate: string | null
+  blind: boolean
 }) {
   const config = useCatalogStore((s) => s.config)
+  const { data: totals } = useLocalShiftTotals(openDate)
   const [queued, setQueued] = React.useState<{ count: number; total: number } | null>(null)
 
   React.useEffect(() => {
@@ -1131,24 +1150,222 @@ function OfflineDrawerNotice({
     }
   }, [])
 
+  // Con la caja cerrada no hay turno del que hablar: el bloque queda en una
+  // sola línea y las posiciones no se mueven cuando el turno se abra.
+  if (!isOpen) {
+    return (
+      <div className="mx-auto max-w-sm space-y-3 text-center">
+        <p className="text-sm text-muted-foreground">
+          Sin conexión: podés abrir la caja igual. La apertura se envía sola al
+          recuperar la conexión.
+        </p>
+      </div>
+    )
+  }
+
   return (
-    <div className="mx-auto max-w-sm space-y-3 text-center">
-      {isOpen && openDate && (
-        <p className="text-sm font-medium capitalize text-muted-foreground">
+    <div className="mx-auto max-w-sm space-y-3">
+      {openDate && (
+        <p className="text-center text-sm font-medium capitalize text-muted-foreground">
           Abierta desde {formatDateTime(openDate)}
         </p>
       )}
-      <p className="text-sm text-muted-foreground">
-        {isOpen
-          ? "Sin conexión: el total del turno lo calcula el servidor y todavía no se puede consultar. Contá el efectivo y cerrá con el monto contado — el arqueo se completa solo cuando vuelva la conexión."
-          : "Sin conexión: podés abrir la caja igual. La apertura se envía sola al recuperar la conexión."}
+
+      {/* Control de caja a ciegas: la regla no se cae con la red. El cálculo
+          devuelve `null` con `blindControl` prendido (la decisión vive en
+          `computeLocalShiftTotals`, no acá) y esta rama es lo que se ve. */}
+      {blind || !totals ? (
+        <p className="text-center text-sm text-muted-foreground">
+          {blind
+            ? "Control de caja a ciegas: contá el efectivo y cerrá la caja con el monto contado. El resumen del turno se ve desde el panel."
+            : "Sin conexión: el arqueo lo calcula el servidor cuando vuelva la conexión. Contá el efectivo y cerrá con el monto contado."}
+        </p>
+      ) : (
+        <>
+          <p className="text-center text-sm text-muted-foreground">
+            Sin conexión. Esto es lo que registró este dispositivo en el turno.
+          </p>
+
+          <div className="divide-y divide-border">
+            {!totals.gaps.includes("no-open-entry") && (
+              <div className="flex items-center justify-between px-1 py-2.5 text-sm">
+                <span className="text-muted-foreground">Caja Inicial</span>
+                <span className="tabular-nums font-medium">
+                  {formatMoney(totals.openAmount, config)}
+                </span>
+              </div>
+            )}
+            {totals.byMethod.map(({ name, amount }) => (
+              <div
+                key={name}
+                className="flex items-center justify-between px-1 py-2.5 text-sm"
+              >
+                <span className="text-muted-foreground">{name}</span>
+                <span className="tabular-nums font-medium">
+                  {formatMoney(amount, config)}
+                </span>
+              </div>
+            ))}
+            {totals.cashOut > 0 && (
+              <div className="flex items-center justify-between px-1 py-2.5 text-sm">
+                <span className="text-muted-foreground">Extracciones (Efectivo)</span>
+                <span className="tabular-nums font-medium">
+                  {formatMoney(totals.cashOut, config)}
+                </span>
+              </div>
+            )}
+            {totals.cashIn > 0 && (
+              <div className="flex items-center justify-between px-1 py-2.5 text-sm">
+                <span className="text-muted-foreground">Ingresos (Efectivo)</span>
+                <span className="tabular-nums font-medium">
+                  {formatMoney(totals.cashIn, config)}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg bg-muted/30 px-3 py-2.5">
+            <span className="text-sm font-bold uppercase">Efectivo en esta caja</span>
+            <span className="tabular-nums font-semibold">
+              {formatMoney(totals.cashTotal, config)}
+            </span>
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg bg-accent px-3 py-3">
+            <span className="text-base font-bold uppercase">Registrado acá</span>
+            <span className="text-2xl font-black tabular-nums">
+              {formatMoney(totals.total, config)}
+            </span>
+          </div>
+
+          <p className="text-xs font-medium text-muted-foreground">
+            No es el cierre del turno: es lo que registró este dispositivo. El
+            arqueo definitivo lo calcula el servidor con el monto contado, cuando
+            el cierre se sincronice.
+          </p>
+
+          <ul className="space-y-1">
+            {gapMessages(totals.gaps).map((msg) => (
+              <li key={msg} className="text-xs text-muted-foreground">
+                {msg}
+              </li>
+            ))}
+          </ul>
+
+          <p className="text-xs text-muted-foreground">
+            {totals.salesCount} venta{totals.salesCount !== 1 ? "s" : ""} registrada
+            {totals.salesCount !== 1 ? "s" : ""}
+            {queued && queued.count > 0
+              ? `, ${queued.count} sin enviar por ${formatMoney(queued.total, config)}.`
+              : "."}
+          </p>
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Cómo terminó el cierre que se hizo sin red.
+ *
+ * El cajero cerró mirando el total que este dispositivo había registrado, con
+ * sus advertencias. Horas después la cola drenó y el servidor calculó el
+ * arqueo real, con todo lo que el device no podía ver. Este bloque es la otra
+ * mitad de esa conversación: los dos números, uno al lado del otro, y la
+ * diferencia dicha con todas las letras.
+ *
+ * Se muestra coincidan o no, y se queda hasta que alguien lo descarta. Lo que
+ * NO se muestra nunca es el arqueo de una caja con `blindControl`: ahí no hay
+ * informe, porque el dueño decidió que este cajero no ve acumulados. Cuando NO coinciden se pinta en
+ * destructivo: puede ser un faltante, o puede ser una extracción hecha desde
+ * el panel que este aparato nunca vio, y las dos posibilidades necesitan que
+ * alguien las mire.
+ *
+ * Vive al final del cuerpo scrolleable, arriba de la barra de acciones, que
+ * está fija: no desplaza ningún botón.
+ */
+function ShiftCloseReportNotice({ blind }: { blind: boolean }) {
+  const config = useCatalogStore((s) => s.config)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const pendingOpsCount = useOfflineSyncStore((s) => s.pendingOpsCount)
+  const [report, setReport] = React.useState<ShiftCloseReport | null>(null)
+
+  React.useEffect(() => {
+    let alive = true
+    async function load() {
+      const row = await readShiftCloseReport(activeRegisterId)
+      if (alive) setReport(row)
+    }
+    void load()
+    return () => {
+      alive = false
+    }
+    // Se relee cuando la cola de operaciones se mueve: el informe nace justo
+    // cuando el cierre sale de esa cola.
+  }, [activeRegisterId, pendingOpsCount])
+
+  // Defensa en profundidad: el informe ni siquiera se crea para un cierre a
+  // ciegas (`reconcileAppliedOp` corta sin total local), pero si el dueño
+  // prendió `blindControl` DESPUÉS de que quedara uno guardado, esta pantalla
+  // no es quien se lo va a mostrar.
+  if (!report || blind) return null
+
+  const matches = closeTotalsMatch(report.local, report.server)
+  const diff = report.diff
+
+  return (
+    <div
+      className={cn(
+        "mt-6 rounded-lg border p-3",
+        matches ? "border-border" : "border-destructive/30 bg-destructive/10",
+      )}
+    >
+      <p className={cn("text-sm font-medium", !matches && "text-destructive")}>
+        {matches
+          ? "El cierre sin conexión se registró en el servidor"
+          : "El arqueo del servidor no coincide con lo que había registrado esta caja"}
       </p>
-      {queued && queued.count > 0 && (
-        <p className="text-xs text-muted-foreground">
-          Este dispositivo tiene {queued.count} venta{queued.count !== 1 ? "s" : ""} sin
-          enviar por {formatMoney(queued.total, config)}. No es el total del turno.
+      <div className="mt-2 space-y-0.5">
+        {report.local && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Registrado en este dispositivo</span>
+            <span className="tabular-nums">{formatMoney(report.local.total, config)}</span>
+          </div>
+        )}
+        {report.server && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Arqueo del servidor</span>
+            <span className="tabular-nums">{formatMoney(report.server.total, config)}</span>
+          </div>
+        )}
+        {diff !== null && diff !== 0 && (
+          <div className="flex items-center justify-between text-xs font-medium">
+            <span>Diferencia</span>
+            <span className="tabular-nums">{formatMoney(diff, config)}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between text-xs">
+          <span className="text-muted-foreground">Monto contado al cerrar</span>
+          <span className="tabular-nums">{formatMoney(report.counted, config)}</span>
+        </div>
+      </div>
+      {!matches && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          La diferencia puede ser plata faltante o una operación que este
+          dispositivo no vio (una extracción hecha desde el panel, ventas de
+          antes de que tomara la caja). El detalle del turno está en el panel.
         </p>
       )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-2"
+        onClick={() => {
+          void clearShiftCloseReport(activeRegisterId).then(() => setReport(null))
+        }}
+      >
+        Entendido
+      </Button>
     </div>
   )
 }
@@ -1336,21 +1553,31 @@ function ControlDeCajaPanel() {
           </p>
         )}
 
-        {/* Sin conexión el cierre es a ciegas, y es a ciegas A PROPÓSITO.
-            El total del turno lo calcula el servidor sumando TODAS las ventas
-            de la sesión; el device solo conoce con certeza las que él mismo
-            tiene sin enviar. Entre esas dos cosas hay un hueco real —las
-            ventas que sí llegaron al servidor después de la última lectura del
-            resumen— y un total corto mostrado en una pantalla de arqueo es
-            peor que ninguno: hace que un faltante parezca cuadrar.
+        {/* Sin conexión el turno se muestra con lo que ESTE dispositivo
+            registró (`shift-journal.ts` + `local-shift-total.ts`), no con un
+            cache del resumen del servidor.
 
-            Así que no se muestra ningún "esperado". Lo que sí se muestra es
-            cuánto hay en la cola de este aparato, que es un dato sobre la cola
-            (y sobre cuánta plata está en riesgo si el aparato se pierde), no
-            sobre el turno. El arqueo real lo hace el servidor con el monto
-            contado cuando el cierre sincroniza, exactamente igual que online. */}
+            La primera versión de esto no mostraba ningún total, con el
+            argumento de que el device no ve las ventas que llegaron al
+            servidor por otro camino. Ese argumento suponía que otro aparato
+            podía estar vendiendo en la misma caja — y la tenencia exclusiva
+            (`register_lease`, mig 141/143, + el grant local con TTL) ya lo
+            impide: mientras la caja es de este device, sus ventas son el
+            turno. Los huecos que quedan son acotados, se detectan donde se
+            puede y se escriben en la pantalla; el resto de la advertencia es
+            permanente. Un total con la salvedad escrita le sirve más al cajero
+            que un total mudo.
+
+            Lo que no cambia: el arqueo definitivo lo calcula el servidor con
+            el monto contado cuando el cierre sincroniza, y si difiere del que
+            este aparato mostró, eso se avisa y queda escrito
+            (`ShiftCloseReportNotice`). */}
         {offline && (
-          <OfflineDrawerNotice isOpen={isOpen} openDate={status?.openDate ?? null} />
+          <OfflineDrawerNotice
+            isOpen={isOpen}
+            openDate={status?.openDate ?? null}
+            blind={blind}
+          />
         )}
 
         {/* Modo ciego: el arqueo se hace sin ver lo esperado. Nada del
@@ -1438,6 +1665,7 @@ function ControlDeCajaPanel() {
           </div>
         )}
 
+        <ShiftCloseReportNotice blind={blind} />
         <FailedDrawerOpsNotice />
       </div>
 

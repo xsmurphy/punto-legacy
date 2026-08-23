@@ -61,7 +61,7 @@ beforeEach(async () => {
   useOfflineSyncStore.setState({ catalogFromCache: false, catalogCachedAt: null })
 })
 
-describe("migración de la base v1 → v4", () => {
+describe("migración de la base v1 → v5", () => {
   it("conserva las ventas encoladas de un device que ya venía con la v1", async () => {
     // Un device en la calle: base v1, solo `pendingSales`, con una venta
     // emitida e impresa esperando conexión.
@@ -83,10 +83,11 @@ describe("migración de la base v1 → v4", () => {
     // Abrirla con el schema nuevo NO puede perder esa venta: es un documento
     // fiscal que existe en papel y en ningún otro lado.
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(4)
+    expect(db.version).toBe(5)
     expect([...db.objectStoreNames].sort()).toEqual([
       "pendingOps",
       "pendingSales",
+      "shiftJournal",
       "snapshots",
       "tenancy",
     ])
@@ -122,7 +123,7 @@ describe("migración de la base v1 → v4", () => {
     v2.close()
 
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(4)
+    expect(db.version).toBe(5)
     expect(db.objectStoreNames.contains("tenancy")).toBe(true)
     // Store nuevo: arranca vacío, o sea sin tenencia confirmada — y sin
     // tenencia confirmada el POS no emite. El device tiene que hacer un claim
@@ -168,13 +169,58 @@ describe("migración de la base v1 → v4", () => {
     v3.close()
 
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(4)
+    expect(db.version).toBe(5)
     expect(db.objectStoreNames.contains("pendingOps")).toBe(true)
     expect(await db.count("pendingOps")).toBe(0)
 
     // Lo que ya estaba sigue estando: la venta y la tenencia confirmada.
     expect((await db.get("pendingSales", "uid-3"))?.invoiceNo).toBe(99)
     expect((await db.get("tenancy", "current"))?.status).toBe("held")
+  })
+
+  it("v4 → v5 agrega `shiftJournal` sin tocar lo que ya había", async () => {
+    // El salto que introduce el registro propio del turno (el total local sin
+    // conexión). Un device que actualiza a mitad de turno arranca con el
+    // journal vacío — por eso el cálculo declara el hueco `journal-mid-shift`
+    // en vez de presentar una suma incompleta como si fuera el turno entero.
+    const v4 = await openDB(DB_NAME, 4, {
+      upgrade(db) {
+        db.createObjectStore("pendingSales", { keyPath: "clientTempId" })
+        db.createObjectStore("snapshots", { keyPath: "key" })
+        db.createObjectStore("tenancy", { keyPath: "key" })
+        db.createObjectStore("pendingOps", { keyPath: "opId" })
+      },
+    })
+    await v4.put("pendingSales", {
+      clientTempId: "uid-4",
+      invoiceNo: 123,
+      sale: {},
+      status: "pending",
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+    })
+    await v4.put("pendingOps", {
+      opId: "op-1",
+      stream: "drawer",
+      kind: "drawerClose",
+      seq: 1,
+      registerId: "reg-1",
+      payload: { amount: 1000, date: "2026-08-23 20:00:00" },
+      label: "Cerrar caja",
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      attempts: 0,
+    })
+    v4.close()
+
+    const db = await getPosOfflineDB()
+    expect(db.version).toBe(5)
+    expect(db.objectStoreNames.contains("shiftJournal")).toBe(true)
+    expect(await db.count("shiftJournal")).toBe(0)
+
+    // El cierre encolado sobrevive al update: adentro hay plata contada.
+    expect((await db.get("pendingOps", "op-1"))?.kind).toBe("drawerClose")
+    expect((await db.get("pendingSales", "uid-4"))?.invoiceNo).toBe(123)
   })
 })
 

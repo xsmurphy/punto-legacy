@@ -25,6 +25,19 @@
  *                            impresoras, apertura y cierre de caja. Es la
  *                            generalización de `pendingSales` (que sabe de
  *                            ventas y solo de ventas). Ver `pending-ops.ts`.
+ *   - `shiftJournal`  (v5) — lo que ESTE dispositivo registró en el turno:
+ *                            cada venta que emitió y cada movimiento de caja
+ *                            que hizo, con o sin red. No es una cola (no se
+ *                            envía nada) ni un cache del servidor: es la
+ *                            memoria propia del device, y es lo único con lo
+ *                            que puede mostrar un total sin preguntarle a
+ *                            nadie. Ver `shift-journal.ts`.
+ *
+ * Por qué `shiftJournal` es un store y no se deriva de las colas: una venta
+ * SALE de `pendingSales` en cuanto sincroniza, y una venta hecha con red nunca
+ * pasa por ahí. Un total calculado desde la cola solo vería lo que todavía no
+ * se envió — o sea que iría bajando a medida que la conexión vuelve, que es la
+ * peor forma posible de mostrar plata.
  *
  * Purga (PII): el snapshot contiene la lista de clientes del comercio. Al
  * desvincular el device hay que borrarlo — ver `purgeOfflineSnapshots()` y
@@ -35,7 +48,7 @@ import { openDB, deleteDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { CreateSalePayload } from '@/lib/commands/create-sale'
 
 export const DB_NAME = 'punto-pos-offline'
-export const DB_VERSION = 4
+export const DB_VERSION = 5
 
 // ── Filas ─────────────────────────────────────────────────────────────────────
 
@@ -93,6 +106,19 @@ export interface TenancyGrantRow {
   status: 'held' | 'denied'
   /** ISO — cuándo el servidor confirmó/denegó esto (reloj del device). */
   confirmedAt: string
+  /**
+   * Desde cuándo este device tiene ESTA tenencia (hora local del tenant,
+   * naive), o `null` si nunca la tuvo o el dato es de antes de que existiera
+   * el campo.
+   *
+   * No es lo mismo que `confirmedAt`, que se renueva en cada latido: esto se
+   * fija UNA vez, cuando aparece un `registerLeaseId` nuevo, y no se mueve
+   * mientras la tenencia sea la misma. Existe para poder comparar contra la
+   * apertura del turno: si el device tomó la caja DESPUÉS de que el turno se
+   * abriera, hubo un rato del turno que no vio, y el total que muestra sin red
+   * tiene que decirlo. Ver `local-shift-total.ts`.
+   */
+  heldSince?: string | null
   registerLeaseId: string | null
   denyReason: TenancyDenyReason | null
   holderDeviceId: string | null
@@ -169,6 +195,60 @@ export interface PendingOpRow {
   lastAttemptAt?: string // ISO
 }
 
+/**
+ * Qué clase de hecho registró el device. Los cuatro movimientos de caja son
+ * los mismos que la cola de operaciones transporta, pero acá se anotan haya
+ * habido red o no: el journal no distingue por dónde salió la operación, solo
+ * por si ocurrió en esta caja y en este aparato.
+ */
+export type ShiftJournalKind =
+  | 'sale'
+  | 'drawerOpen'
+  | 'drawerClose'
+  | 'drawerExpense'
+  | 'drawerIncome'
+
+/** Un medio de pago aplicado en una venta, tal como se mandó/mandará al servidor. */
+export interface ShiftJournalPayment {
+  /** Nombre legible — el mismo que persiste `transactionPaymentType.name`. */
+  name: string
+  /** Slug/id del medio ('efectivo', 'tcredito', taxonomyId…). */
+  type?: string
+  total: number
+}
+
+/**
+ * Fila del store `shiftJournal` — un hecho del turno registrado por ESTE
+ * dispositivo.
+ *
+ * `date` es hora LOCAL del tenant, naive, del momento en que se operó: la
+ * misma convención que `transactionDate` y que las fechas de caja. Es lo que
+ * permite compararla con la apertura del turno sin convertir nada, y lo que
+ * hace que un reloj de tablet corrido produzca un total mal recortado en vez
+ * de un total mal sumado.
+ */
+export interface ShiftJournalRow {
+  /**
+   * Identidad del hecho, provista por quien lo registra: el `uid` de la venta
+   * (el mismo que deduplica server-side) o el `opId`/uuid del movimiento. Es
+   * la clave del store, así que anotar dos veces la misma venta —un reintento,
+   * un re-render— no la suma dos veces.
+   */
+  entryId: string
+  registerId: string
+  kind: ShiftJournalKind
+  /** Hora local del tenant, naive ('2026-08-23 14:32:07'). */
+  date: string
+  /** Monto de la operación: total cobrado (venta) o monto del movimiento. */
+  amount: number
+  /** Desglose por medio de pago. Solo en ventas. */
+  payments?: ShiftJournalPayment[]
+  /** Venta interna (consumo propio): no entra al arqueo, igual que server-side. */
+  internal?: boolean
+  /** ISO del reloj del device — solo para poder podar por antigüedad. */
+  createdAt: string
+}
+
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 export interface PosOfflineDB extends DBSchema {
@@ -187,6 +267,10 @@ export interface PosOfflineDB extends DBSchema {
   tenancy: {
     key: string
     value: TenancyGrantRow
+  }
+  shiftJournal: {
+    key: string
+    value: ShiftJournalRow
   }
 }
 
@@ -214,6 +298,9 @@ export function getPosOfflineDB(): Promise<IDBPDatabase<PosOfflineDB>> {
         }
         if (!db.objectStoreNames.contains('pendingOps')) {
           db.createObjectStore('pendingOps', { keyPath: 'opId' })
+        }
+        if (!db.objectStoreNames.contains('shiftJournal')) {
+          db.createObjectStore('shiftJournal', { keyPath: 'entryId' })
         }
       },
     })
@@ -244,6 +331,13 @@ export function getPosOfflineDB(): Promise<IDBPDatabase<PosOfflineDB>> {
  * pero tampoco hay razón para tirarlo. Si al re-parear el device quedó en OTRA
  * caja, el cerco por `registerId` de `pending-ops-sync.ts` frena la operación y
  * la muestra, en vez de aplicarla sobre la caja equivocada.
+ *
+ * `shiftJournal` tampoco se toca, y por la misma familia de razones: es el
+ * registro de lo que este aparato emitió en el turno —con qué medios de pago y
+ * por cuánto—, o sea la única base con la que puede mostrar un total sin red.
+ * No contiene PII (montos y nombres de medios de pago, ningún cliente), así que
+ * no hay nada que sacar de encima del device, y borrarlo dejaría al cajero
+ * arqueando a ciegas después de un logout a mitad de turno.
  *
  * Para el borrado total y explícito ver `purgeAllOfflineData()`.
  */

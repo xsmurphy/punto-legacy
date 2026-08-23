@@ -49,8 +49,30 @@ export class PendingOpError extends Error {
   }
 }
 
-/** Manda una operación al servidor. Resuelve en éxito, tira `PendingOpError` si no. */
-export type OpSender = (row: PendingOpRow) => Promise<void>
+/**
+ * Manda una operación al servidor. Resuelve en éxito, tira `PendingOpError` si
+ * no. Lo que resuelva se le pasa tal cual a `onApplied` — es como el cierre de
+ * caja recupera el arqueo que el servidor calculó.
+ */
+export type OpSender = (row: PendingOpRow) => Promise<unknown>
+
+/**
+ * ¿Se puede mandar ESTA operación ahora? Distinta pregunta que "¿falló?".
+ *
+ * Existe por un caso concreto y de plata: el cierre de caja no puede aplicarse
+ * antes de que las ventas del turno hayan sincronizado. Si se aplica primero,
+ * el servidor cierra el turno sin esas ventas y el arqueo que devuelve está
+ * corto — no por un error de nadie, sino por el orden en que drenaron dos colas
+ * independientes.
+ *
+ * Es una ESPERA, no un fallo: frena el canal sin contar un intento y sin dejar
+ * marca de error. Contarlo como intento agotaría los reintentos de un cierre
+ * que nunca salió a la red y lo dejaría terminal por haber esperado.
+ */
+export type OpGate = (row: PendingOpRow) => Promise<string | null>
+
+/** Se llama DESPUÉS de que la operación se aplicó, con lo que respondió el servidor. */
+export type OpAppliedHook = (row: PendingOpRow, result: unknown) => Promise<void> | void
 
 export interface SyncPendingOpsOptions {
   send: OpSender
@@ -61,6 +83,10 @@ export interface SyncPendingOpsOptions {
    * `project_pos_contexto_obligatorio`: nunca inventar la dimensión que falta).
    */
   activeRegisterId: string
+  /** Ver `OpGate`. Sin gate, todo lo que esté en cola sale. */
+  canSend?: OpGate
+  /** Ver `OpAppliedHook`. Lo que tire acá adentro no revierte la operación. */
+  onApplied?: OpAppliedHook
   /** Inyectable para los tests. Por defecto, el reloj real. */
   now?: () => number
 }
@@ -71,12 +97,15 @@ export interface SyncPendingOpsResult {
   retried: number
   /** Canales que quedaron frenados en esta pasada, con el motivo. */
   halted: { stream: PendingOpStream; reason: HaltReason }[]
+  /** Motivos de espera, por operación, para poder decirlos en pantalla. */
+  waiting: { opId: string; reason: string }[]
 }
 
 export type HaltReason =
   | 'failed-head' // adelante hay una operación terminal sin resolver
   | 'backoff' // la próxima todavía está esperando su turno de reintento
   | 'register-changed' // la operación es de otra caja
+  | 'waiting' // todavía no corresponde mandarla (ver `OpGate`)
   | 'error' // la operación de esta pasada falló
 
 /**
@@ -90,7 +119,13 @@ export async function syncPendingOps(
   opts: SyncPendingOpsOptions,
 ): Promise<SyncPendingOpsResult> {
   const now = opts.now ?? (() => Date.now())
-  const result: SyncPendingOpsResult = { synced: 0, failed: 0, retried: 0, halted: [] }
+  const result: SyncPendingOpsResult = {
+    synced: 0,
+    failed: 0,
+    retried: 0,
+    halted: [],
+    waiting: [],
+  }
 
   if (opts.activeRegisterId === '') return result
 
@@ -135,11 +170,31 @@ export async function syncPendingOps(
         break
       }
 
+      // ── Espera ──────────────────────────────────────────────────────────
+      // No es un fallo: la operación está bien y todavía no le toca. No se
+      // cuentan intentos ni se escribe error — solo se frena el canal, que es
+      // lo correcto porque lo que viene detrás depende de esto.
+      if (opts.canSend) {
+        const wait = await opts.canSend(row)
+        if (wait !== null) {
+          result.waiting.push({ opId: row.opId, reason: wait })
+          result.halted.push({ stream, reason: 'waiting' })
+          break
+        }
+      }
+
       await markOpSyncing(row.opId)
       try {
-        await opts.send(row)
+        const sendResult = await opts.send(row)
         await markOpSynced(row.opId)
         result.synced += 1
+        try {
+          await opts.onApplied?.(row, sendResult)
+        } catch {
+          // La operación YA se aplicó en el servidor y ya salió de la cola.
+          // Un problema al anotar su resultado no puede revertir ninguna de
+          // las dos cosas ni frenar el canal.
+        }
       } catch (err) {
         const opErr =
           err instanceof PendingOpError

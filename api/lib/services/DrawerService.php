@@ -872,6 +872,50 @@ final class DrawerService
     }
 
     /**
+     * Totales del turno TAL COMO ESTÁN, sin productos ni estadísticas.
+     *
+     * Existe para una sola cosa: que el cierre pueda devolver el arqueo que el
+     * servidor calculó, y que el POS pueda compararlo contra el total que
+     * había mostrado sin conexión. Un cierre hecho offline se decide mirando
+     * lo que ese aparato registró; si el servidor termina con otro número,
+     * alguien tiene que enterarse (ver `shift-close-reconciliation.ts` del
+     * front).
+     *
+     * No usa `getSummary()` porque no necesita lo caro: los productos vendidos
+     * y las estadísticas de la sesión son dos queries con JOIN a `itemSold` que
+     * nadie va a mirar en esta respuesta. Las piezas que sí importan son las
+     * mismas, y el rollup lo hace `composeSummary()` — o sea que la fórmula
+     * sigue estando escrita en un solo lugar.
+     *
+     * @return array{date:string,total:float,subtotal:float,salesTotal:float,returns:float}|null
+     *         null si la caja ya está cerrada.
+     */
+    public function getClosingTotals(string $registerId, string $outletId, string $companyId): ?array
+    {
+        $open = $this->getOpen($registerId, $outletId, $companyId);
+        if ($open === null) {
+            return null;
+        }
+        $since    = $open['drawerOpenDate'];
+        $drawerId = $open['drawerId'] ?? null;
+
+        $summary = self::composeSummary(
+            $open,
+            $this->getExpenses($registerId, $since),
+            $this->getIncome($registerId, $since),
+            $this->getPaymentBreakdown($registerId, $since, $drawerId)
+        );
+
+        return [
+            'date'       => (string) $summary['date'],
+            'total'      => (float) $summary['total'],
+            'subtotal'   => (float) $summary['subtotal'],
+            'salesTotal' => (float) $summary['salesTotal'],
+            'returns'    => (float) $summary['returns'],
+        ];
+    }
+
+    /**
      * Rollup del cierre de caja a partir de las piezas granulares. Pura (sin DB) →
      * reusable por getSummary() (API) y por el BFF (que arma las piezas en paralelo).
      * MANTENER EN SYNC si cambia la fórmula (la usa app/bff/drawer.php).

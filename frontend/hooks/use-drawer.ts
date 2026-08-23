@@ -26,6 +26,15 @@ import {
   saveLocalDrawerState,
   type LocalDrawerState,
 } from "@/lib/pos/local-register-state"
+import { journalSince, readShiftJournal, recordDrawerOp } from "@/lib/pos/shift-journal"
+import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
+import { tenancyHeldSince } from "@/lib/pos/register-tenancy"
+import {
+  computeLocalShiftTotals,
+  type LocalShiftTotals,
+} from "@/lib/pos/local-shift-total"
+import { usePosRegisterConfig } from "@/hooks/use-pos-config"
+import type { LocalCloseTotals } from "@/lib/pos/shift-close-reconciliation"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -253,6 +262,83 @@ export function useDrawerHourlyStats(enabled = true) {
   })
 }
 
+// ── Total del turno según este dispositivo ────────────────────────────────────
+
+/**
+ * Junta las tres piezas que el cálculo necesita —lo que el device anotó, desde
+ * cuándo tiene la caja, desde cuándo viene anotando— y las pasa por la función
+ * pura. Vive acá y no en el componente para que el CIERRE (que necesita el
+ * mismo número para poder compararlo después) y la PANTALLA usen exactamente
+ * el mismo cálculo, y no dos que se parecen.
+ */
+export async function loadLocalShiftTotals(input: {
+  registerId: string
+  shiftOpenDate: string | null
+  blindControl: boolean
+}): Promise<LocalShiftTotals | null> {
+  if (input.registerId === "") return null
+  const [entries, heldSince, since] = await Promise.all([
+    readShiftJournal(input.registerId),
+    tenancyHeldSince(input.registerId),
+    journalSince(input.registerId),
+  ])
+  return computeLocalShiftTotals({
+    entries,
+    shiftOpenDate: input.shiftOpenDate,
+    heldSince,
+    journalSince: since,
+    blindControl: input.blindControl,
+  })
+}
+
+export const LOCAL_SHIFT_TOTALS_KEY = ["drawer", "localShiftTotals"] as const
+
+/**
+ * ¿Esta caja arquea a ciegas? Fail-CLOSED: mientras no se pueda afirmar que
+ * NO, la respuesta es que sí.
+ *
+ * `blindControl` lo administra el dueño desde el panel y significa "el cajero
+ * no ve los acumulados". Si la config no se pudo resolver —query en vuelo,
+ * device que nunca la leyó y encima está sin red— el default optimista
+ * (`?? false`) mostraría el total del turno en una caja que quizás está
+ * configurada justamente para no mostrarlo. El costo de equivocarse para el
+ * otro lado es una línea de texto en vez de un número; el de este, romper una
+ * decisión del dueño.
+ */
+function useBlindControl(registerId: string): boolean {
+  const { data } = usePosRegisterConfig(registerId)
+  return data?.config?.blindControl ?? true
+}
+
+/**
+ * El total del turno que este dispositivo puede sostener sin preguntarle al
+ * servidor.
+ *
+ * Se recalcula cuando cambian las colas (una venta encolada, una operación
+ * sincronizada) porque son las señales baratas de que pasó algo; el journal en
+ * sí no notifica. Con `blindControl` prendido devuelve `null` y no hay nada que
+ * pintar — la regla se aplica dentro de `computeLocalShiftTotals`, no acá.
+ */
+export function useLocalShiftTotals(shiftOpenDate: string | null) {
+  const registerId = useCatalogStore((s) => s.activeRegisterId)
+  const blindControl = useBlindControl(registerId)
+  const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
+  const pendingOpsCount = useOfflineSyncStore((s) => s.pendingOpsCount)
+  return useQuery<LocalShiftTotals | null>({
+    queryKey: [
+      ...LOCAL_SHIFT_TOTALS_KEY,
+      registerId,
+      shiftOpenDate,
+      blindControl,
+      pendingCount,
+      pendingOpsCount,
+    ],
+    queryFn: () => loadLocalShiftTotals({ registerId, shiftOpenDate, blindControl }),
+    staleTime: 0,
+    retry: false,
+  })
+}
+
 // ── Mutaciones ────────────────────────────────────────────────────────────────
 
 /**
@@ -276,10 +362,19 @@ const DRAWER_OP_KIND: Record<string, PendingOpKind> = {
   income: "drawerIncome",
 }
 
+/** Acción del endpoint → hecho del journal del turno. */
+const DRAWER_JOURNAL_KIND = {
+  open: "drawerOpen",
+  close: "drawerClose",
+  expense: "drawerExpense",
+  income: "drawerIncome",
+} as const
+
 function useDrawerMutation(action: string, onMutated?: () => void) {
   const qc = useQueryClient()
   const registerId = useCatalogStore((s) => s.activeRegisterId)
   const fmtConfig = useCatalogStore((s) => s.config)
+  const blindControl = useBlindControl(registerId)
   // TZ del tenant (PosConfig.timezone). Convención de storage: las fechas de
   // caja se guardan en hora LOCAL del tenant, naive — la misma que las ventas
   // (`transactionDate`). Si se usaran toISOString()/hora del device en otra TZ,
@@ -296,19 +391,64 @@ function useDrawerMutation(action: string, onMutated?: () => void) {
       // que empieza tres horas tarde y deja medio arqueo afuera.
       const date = vars.date ?? tenantNow(timezone)
 
+      // El CIERRE se lleva puesto el total que este dispositivo tenía en ese
+      // momento. Se calcula ANTES de aplicar nada (después, la apertura del
+      // turno ya no está) y se guarda en la operación para poder compararlo
+      // contra el arqueo del servidor cuando la cola drene. Ver
+      // `shift-close-reconciliation.ts`.
+      let localTotals: LocalCloseTotals | undefined
+      if (action === "close") {
+        const status = qc.getQueryData<DrawerStatus>([...DRAWER_KEYS.status, registerId])
+        const totals = await loadLocalShiftTotals({
+          registerId,
+          shiftOpenDate: status?.openDate ?? null,
+          blindControl,
+        })
+        if (totals) {
+          localTotals = {
+            total: totals.total,
+            cash: totals.cashTotal,
+            salesCount: totals.salesCount,
+            gaps: totals.gaps,
+          }
+        }
+      }
+
+      // El journal se anota SIEMPRE que la operación se dé por hecha, con red
+      // o sin ella: para el arqueo son el mismo hecho, y si solo se anotara la
+      // rama offline el total del turno perdería todo lo que se hizo con
+      // conexión. Es best-effort por dentro — anotar nunca puede voltear la
+      // operación que se está anotando.
+      const journal = async (entryId: string): Promise<void> => {
+        await recordDrawerOp({
+          registerId,
+          entryId,
+          kind: DRAWER_JOURNAL_KIND[action as keyof typeof DRAWER_JOURNAL_KIND],
+          date,
+          amount,
+        })
+        // La apertura, además, deja el monto inicial en el estado local: sin
+        // esto una apertura hecha CON red no se recordaba, y al caerse la
+        // conexión más tarde el efectivo esperado salía sin la caja inicial.
+        if (action === "open") {
+          await saveLocalDrawerState(registerId, { isOpen: true, openDate: date, openAmount: amount })
+        }
+      }
+
       const enqueueOffline = async (): Promise<void> => {
-        await enqueueOp({
+        const row = await enqueueOp({
           kind: DRAWER_OP_KIND[action],
           // Canal propio y estrictamente ordenado: aplicar un cierre antes de
           // la apertura que lo precede no es un desorden cosmético, es un
           // arqueo mal armado.
           stream: "drawer",
           registerId,
-          payload: { amount, date, note },
+          payload: { amount, date, note, localTotals },
           label: DRAWER_OP_LABEL[action](amount, fmtConfig),
           // Sin `mergePayload`: dos aperturas o dos extracciones son DOS
           // hechos distintos del turno, no una corrección de la anterior.
         })
+        await journal(row.opId)
       }
 
       if (typeof navigator !== "undefined" && !navigator.onLine) return enqueueOffline()
@@ -321,12 +461,17 @@ function useDrawerMutation(action: string, onMutated?: () => void) {
         if (err instanceof TypeError) return enqueueOffline()
         throw err
       }
+      // Identidad estable para la operación online: (caja, acción, momento).
+      // Con segundos y la caja adentro alcanza para que un doble envío del
+      // mismo hecho no se cuente dos veces en el total.
+      await journal(`${registerId}:${action}:${date}`)
     },
     onSuccess: () => {
       // Refrescar estado y resumen después de cualquier acción
       qc.invalidateQueries({ queryKey: DRAWER_KEYS.status })
       qc.invalidateQueries({ queryKey: DRAWER_KEYS.summary })
       qc.invalidateQueries({ queryKey: DRAWER_KEYS.hourly })
+      qc.invalidateQueries({ queryKey: LOCAL_SHIFT_TOTALS_KEY })
       onMutated?.()
     },
   })

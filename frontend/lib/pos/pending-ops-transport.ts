@@ -38,6 +38,7 @@
  */
 
 import { posFetch } from '@/lib/api/pos-fetch'
+import { peekAll } from '@/lib/pos/offline-queue'
 import { posApi } from '@/lib/api/pos-client'
 import { ApiError } from '@/lib/api-client'
 import { PendingOpError } from '@/lib/pos/pending-ops-sync'
@@ -94,8 +95,40 @@ async function posBff(path: string, init: RequestInit): Promise<unknown> {
   return json?.data
 }
 
-/** Manda una operación al servidor. Resuelve en éxito, tira `PendingOpError` si no. */
-export async function sendPendingOp(row: PendingOpRow): Promise<void> {
+/**
+ * ¿Ya se puede mandar esta operación?
+ *
+ * Un solo caso, y es de plata: el CIERRE de caja no sale mientras queden
+ * ventas del turno sin sincronizar. Las dos colas son independientes (la de
+ * ventas drena en `use-offline-sync.ts`, esta en `use-pending-ops-sync.ts`), así
+ * que sin este freno el cierre puede llegar primero: el servidor cerraría el
+ * turno sin esas ventas y el arqueo que devuelve saldría corto justo en el
+ * número que el cajero está mirando.
+ *
+ * Solo esperan las ventas que todavía pueden sincronizar. Una venta TERMINAL
+ * (`failed` — la caja se la llevó otro device, por ejemplo) no se resuelve
+ * sola, y hacer que trabe el cierre para siempre sería cambiar un problema
+ * visible por uno peor: el cierre nunca llegaría. Esa venta ya grita por su
+ * cuenta en la lista de pendientes.
+ *
+ * @returns `null` si puede salir, o el motivo de la espera.
+ */
+export async function canSendPendingOp(row: PendingOpRow): Promise<string | null> {
+  if (row.kind !== 'drawerClose') return null
+  const sales = await peekAll()
+  const unsent = sales.filter((s) => s.status !== 'failed')
+  if (unsent.length === 0) return null
+  return unsent.length === 1
+    ? 'Esperando que se envíe 1 venta del turno'
+    : `Esperando que se envíen ${unsent.length} ventas del turno`
+}
+
+/**
+ * Manda una operación al servidor. Resuelve en éxito, tira `PendingOpError` si
+ * no. Lo que resuelve es lo que respondió el servidor: hoy solo lo usa el
+ * cierre de caja, que devuelve el arqueo con el que se compara el total local.
+ */
+export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
   try {
     switch (row.kind) {
       case 'posConfig': {
@@ -134,7 +167,11 @@ export async function sendPendingOp(row: PendingOpRow): Promise<void> {
         // arqueo correcto (`transactionDate > drawerOpenDate`). Mandar la hora
         // del sync movería la apertura horas adelante y dejaría afuera medio
         // turno.
-        await posBff('/api/pos/drawer', {
+        // El body lleva SOLO lo que el servidor necesita para aplicar la
+        // operación. `payload.localTotals` (el total que este device tenía al
+        // cerrar) se queda acá: es para comparar contra la respuesta, no un
+        // dato que el servidor deba creer.
+        return await posBff('/api/pos/drawer', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Punto-Op-Id': row.opId },
           body: JSON.stringify({
@@ -144,7 +181,6 @@ export async function sendPendingOp(row: PendingOpRow): Promise<void> {
             note: payload.note ?? '',
           }),
         })
-        return
       }
 
       case 'printerBindingCreate': {

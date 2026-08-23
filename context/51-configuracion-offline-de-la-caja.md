@@ -1,6 +1,9 @@
 # 51 — Configuración offline de la caja (cola de operaciones)
 
 **Estado:** implementado 2026-08-23 (branch `frontend/pos-config-offline`).
+**Corrección del owner, mismo día:** *"si hay forma de mostrar el total mucho
+mejor"* — el cierre offline SÍ muestra el total de lo que este dispositivo
+registró, con los huecos declarados en pantalla. Ver §4.
 **Pedido del owner:** "La caja debe funcionar como una app en modo offline.
 Yo debo poder cambiar la configuración que afecte la caja, hotkeys, etc., y que
 funcione offline; luego al recuperar la conexión se sincroniza. Lo que NO se
@@ -19,7 +22,7 @@ total vendido."
 | Apariencia (tema) | Sí | ya era local — `next-themes`, nunca tocó la red |
 | Impresoras (alta/edición/baja de bindings) | Sí | canal `printer-bindings` |
 | Abrir caja | Sí | canal `drawer` |
-| Cerrar caja | Sí, **a ciegas** | canal `drawer` — ver §4 |
+| Cerrar caja | Sí, con el total de este dispositivo | canal `drawer` — ver §4 |
 | Extracción / ingreso de efectivo | Sí | canal `drawer` |
 | **Cambiar de sucursal o de caja** | **No** | selectores deshabilitados con el motivo a la vista |
 
@@ -36,8 +39,8 @@ escrito debajo en una línea de altura constante.
 ## 2. Arquitectura — cola de operaciones
 
 Generalización de la cola de ventas (`lib/pos/offline-queue.ts`) a todo lo
-demás. Store `pendingOps` en la MISMA IndexedDB (`offline-db.ts` v4, único
-dueño del schema).
+demás. Store `pendingOps` en la MISMA IndexedDB (`offline-db.ts` v5, único
+dueño del schema — v5 agrega `shiftJournal`, ver §4).
 
 | Archivo | Rol |
 |---|---|
@@ -46,6 +49,9 @@ dueño del schema).
 | `lib/pos/pending-ops-transport.ts` | de una fila a su request HTTP |
 | `lib/pos/local-register-state.ts` | la vista local = servidor + lo que falta mandar |
 | `hooks/use-pending-ops-sync.ts` | ciclo de vida (rescate, intervalo, evento `online`) |
+| `lib/pos/shift-journal.ts` | lo que este device registró del turno (§4) |
+| `lib/pos/local-shift-total.ts` | el total local, puro, con sus huecos (§4) |
+| `lib/pos/shift-close-reconciliation.ts` | local vs. servidor al sincronizar el cierre (§4) |
 
 Tres invariantes:
 
@@ -95,31 +101,91 @@ Postgres real; verificado que se pone rojo).
 
 ---
 
-## 4. Decisión de producto — el cierre a ciegas NO estima el total
+## 4. Decisión de producto — el total del turno según este dispositivo
 
 Sin red el servidor no puede dar el total del turno. La pregunta era si mostrar
 en su lugar el total *conocido por este dispositivo*.
 
-**Decisión: no se muestra ningún total esperado.** El cierre offline es a
-ciegas, igual que `blindControl`.
+**Primera decisión (2026-08-23, revertida el mismo día): no mostrar ninguno.**
+El argumento: el device conoce sus ventas en cola, pero las que llegaron al
+servidor después de la última lectura del resumen no están ni en el resumen
+viejo ni en la cola; un total corto en una pantalla de arqueo no es un dato
+incompleto sino uno engañoso, porque hace que un faltante parezca cuadrar.
 
-Por qué. El device conoce con certeza las ventas que tiene en cola, y hasta
-podría sumarles el último resumen que alcanzó a leer. Pero entre esas dos cosas
-hay un hueco real: las ventas que **sí** llegaron al servidor después de esa
-última lectura no están ni en el resumen viejo ni en la cola. Un total corto en
-una pantalla de arqueo no es un dato incompleto, es un dato **engañoso** — hace
-que un faltante parezca cuadrar. Y el arqueo es plata.
+**Decisión vigente (owner): se muestra el total, con los huecos escritos al
+lado.** El argumento anterior suponía que otro aparato podía estar vendiendo en
+la misma caja sin que este se enterara — y eso ya no puede pasar: la tenencia
+de caja es EXCLUSIVA y está implementada (`register_lease`, migs 141/143,
+context/29 §4) y el device la conoce sin red por el grant local con TTL
+(`register-tenancy.ts`). Mientras la caja es de este device, **sus ventas son
+el turno**.
 
-Lo que sí se muestra, deliberadamente fuera del marco del arqueo: *"Este
-dispositivo tiene N ventas sin enviar por X. No es el total del turno."* Es
-información sobre la cola (y sobre cuánta plata está en riesgo si el aparato se
-pierde), no sobre el turno.
+### De dónde sale el número
 
-El monto contado se registra igual y **el arqueo lo calcula el servidor cuando
-el cierre sincroniza**, exactamente como si hubiera sido online. Lo único
-degradado es lo que se ve mientras tanto. Tampoco se imprime el ticket de
-cierre sin conexión: lista montos del turno que no existen; cuando sincroniza,
-el reporte sale del panel.
+De un registro propio, no de un cache del servidor: el store `shiftJournal`
+(IndexedDB v5, `lib/pos/shift-journal.ts`) anota cada venta que esta caja
+emitió y cada movimiento que hizo, **con red o sin ella**, en el momento en que
+ocurre. Una venta que ya sincronizó pesa lo mismo que una en cola — si el total
+se leyera de `pendingSales` iría *bajando* a medida que vuelve la conexión, que
+es lo peor que puede hacer un número de arqueo.
+
+El cálculo es puro (`lib/pos/local-shift-total.ts`) y usa la misma fórmula que
+`DrawerService::composeSummary()`: inicial + ventas + ingresos − extracciones,
+con el efectivo separado para el conteo del cajón.
+
+### Los huecos, y qué se hace con cada uno
+
+| Hueco | Detectable | Qué se hace |
+|---|---|---|
+| Ventas del turno anteriores a la tenencia de este device | Sí (`heldSince` > apertura) | Se muestra el total con la advertencia |
+| El turno no lo abrió este device (no conoce el inicial) | Sí (no hay `drawerOpen` en el journal) | Se omite la fila "Caja Inicial" y se avisa |
+| El journal arrancó con el turno empezado (app actualizada) | Sí (`journalSince` > apertura) | Se avisa |
+| Movimientos de efectivo hechos desde el panel | No | Advertencia PERMANENTE, siempre visible |
+| Cobros de crédito y operaciones de otras cajas | No | Misma advertencia permanente |
+
+`heldSince` es nuevo en el grant de tenencia: se fija cuando aparece un
+`registerLeaseId` distinto y no se mueve con los latidos. Si el grant se perdió
+(base limpiada, re-pareo) se re-estampa en el presente, o sea que el device se
+declara con MENOS cobertura de la que tiene y advierte de más — el lado seguro
+del error.
+
+### Lo que NO cambia
+
+- **`blindControl` manda.** Con el control a ciegas prendido no hay total, y
+  que se caiga la red no es una excusa. La regla vive dentro de
+  `computeLocalShiftTotals()` (devuelve `null`), no en el JSX: ninguna pantalla
+  futura puede olvidarse de respetarla.
+- **El arqueo definitivo lo calcula el servidor** con el monto contado cuando
+  el cierre sincroniza. El bloque de la pantalla lo repite con todas las
+  letras y cada fila dice "según este dispositivo".
+- **No se imprime el ticket de cierre sin conexión**: lista montos del turno
+  que el device no puede sostener.
+
+### Si el total local no coincide con el del servidor
+
+No puede pasar desapercibido, así que el cierre ahora **devuelve el arqueo**:
+`POST /v1/drawer.php` con `action=close` responde `closing` con
+total/subtotal/salesTotal/date, leídos ANTES del UPDATE (después no hay turno
+abierto que sumar). El cierre encolado viaja con el total que el device tenía
+(`localTotals`, se guarda y no se manda), y al aplicarse se comparan:
+
+- **Coinciden** → toast de éxito y el informe queda en Control de Caja.
+- **No coinciden** → toast de advertencia (15 s) y el informe se pinta en
+  destructivo, con los dos números y la diferencia, hasta que alguien lo
+  descarta. La diferencia puede ser un faltante o una operación que el device
+  no vio; las dos posibilidades necesitan que alguien las mire.
+
+Para que esa comparación signifique algo, el motor **no manda el cierre hasta
+que las ventas del turno sincronizaron** (`canSendPendingOp`): son dos colas
+independientes y sin ese freno el servidor cerraría el arqueo sin las ventas
+que todavía están en vuelo, y toda diferencia sería un falso positivo. Es una
+espera, no un fallo: no cuenta intentos ni marca error, y `SyncQueueDialog` la
+explica en la fila del cierre.
+
+Verificación server-side: `api/tests/drawer_closing_totals_test.php` (14 checks
+contra Postgres real — incluye el caso de la extracción hecha desde el panel,
+que es el hueco #2 convertido en número). Comprobado que se pone rojo
+revirtiendo la conducta, en las dos mitades.
 
 ---
 

@@ -54,6 +54,10 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   // Tenencia vigente de este device — habilita el reintento de las ventas que
   // el servidor rechazó por caja tomada, en cuanto la caja vuelve a ser suya.
   const tenancyOk = useTenancyStore((s) => s.verdict?.canIssue === true)
+  // Ventas que todavía pueden sincronizar. Es la condición exacta que frena el
+  // cierre de caja en `canSendPendingOp` — las terminales no lo frenan, así que
+  // tampoco cuentan acá.
+  const unsentSalesCount = rows.filter((r) => r.status !== 'failed').length
 
   async function loadRows() {
     const all = await peekAll()
@@ -232,6 +236,16 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
                       <p className="text-xs text-muted-foreground">
                         {formatDate(op.createdAt)}
                         {op.status === 'failed' && op.error ? ` · ${op.error.message}` : ''}
+                        {/* Un cierre "En cola" que no sale puede leerse como
+                            un cierre trabado. No lo está: espera a que las
+                            ventas del turno lleguen primero, porque si no el
+                            servidor cerraría el arqueo sin ellas. Se dice, en
+                            vez de dejar al operador adivinando. */}
+                        {op.kind === 'drawerClose' &&
+                        op.status === 'pending' &&
+                        unsentSalesCount > 0
+                          ? ` · Se envía cuando terminen de enviarse ${unsentSalesCount} venta${unsentSalesCount !== 1 ? 's' : ''} del turno`
+                          : ''}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">

@@ -32,6 +32,7 @@
 import { getPosOfflineDB } from '@/lib/pos/offline-db'
 import { pendingOpsOfKind } from '@/lib/pos/pending-ops'
 import type { PendingOpRow } from '@/lib/pos/pending-ops'
+import type { LocalCloseTotals } from '@/lib/pos/shift-close-reconciliation'
 import type { PosRegisterConfig } from '@/hooks/use-pos-config'
 import type { Hotkey } from '@/lib/hotkeys/store'
 import type { PrinterBinding } from '@/lib/hardware/printers/binding'
@@ -59,6 +60,14 @@ export interface DrawerOpPayload {
   /** Hora LOCAL del tenant, naive, del momento en que el cajero operó. */
   date: string
   note?: string
+  /**
+   * Solo en el CIERRE: el total que este dispositivo tenía cuando el cajero
+   * cerró. NO se manda al servidor —el transporte arma el body con `amount`,
+   * `date` y `note` y nada más—; viaja en la cola para poder compararlo contra
+   * el arqueo que el servidor devuelva al aplicarse. Ver
+   * `shift-close-reconciliation.ts`.
+   */
+  localTotals?: LocalCloseTotals
 }
 
 export interface PrinterBindingCreatePayload {
