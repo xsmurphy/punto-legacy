@@ -448,12 +448,12 @@ final class SpaceSessionService
                 throw new \InvalidArgumentException('La mesa destino es la misma que la de origen');
             }
 
-            $target = $this->assertUsableTarget($companyId, $targetSpaceId, $outletForPublish);
+            $targetTableId = $this->assertUsableTarget($companyId, $targetSpaceId, $outletForPublish);
 
             $ok = $this->db->Execute(
                 "UPDATE space_session SET tableid = ?
                   WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
-                [$target['tableid'], $sessionId, $companyId]
+                [$targetTableId, $sessionId, $companyId]
             );
             if ($ok === false) {
                 throw new \RuntimeException('No se pudo mover la mesa');
@@ -745,9 +745,14 @@ final class SpaceSessionService
      * `open()` exige sobre el espacio, más "en la misma sucursal": una mesa no
      * se muda de local.
      *
-     * @return array<string,mixed>
+     * Devuelve el `tableid` y no la fila: `ncmExecute()` no devuelve un `array`
+     * sino un `CaseInsensitiveArray` (el wrapper de BD del proyecto — resuelve
+     * el nombre de columna sin importar el casing), así que tipar el retorno
+     * como `array` explota en runtime. Devolver el único campo que el caller
+     * necesita evita el problema de raíz en vez de aflojar el tipo, y de paso
+     * no filtra el tipo del wrapper de BD fuera de este método.
      */
-    private function assertUsableTarget(string $companyId, string $targetSpaceId, string $expectedOutletId): array
+    private function assertUsableTarget(string $companyId, string $targetSpaceId, string $expectedOutletId): string
     {
         $target = ncmExecute(
             'SELECT tableid, outletid, status, shape FROM space WHERE tableid = ? AND companyid = ? LIMIT 1',
@@ -773,7 +778,7 @@ final class SpaceSessionService
         if ($busy) {
             throw new \InvalidArgumentException('El espacio destino ya está ocupado');
         }
-        return $target;
+        return (string) $target['tableid'];
     }
 
     /**

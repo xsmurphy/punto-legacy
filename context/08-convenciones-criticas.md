@@ -700,3 +700,75 @@ cookies de sesión del lado servidor.
 - IP del cliente → `Punto\Api\Http\ClientIp::resolve()`
   (`api/lib/Http/ClientIp.php`), nunca `REMOTE_ADDR` pelado: detrás de
   Traefik `REMOTE_ADDR` es siempre la IP del proxy, no la del cliente real.
+
+## §56 — El realm `pos-app` NO identifica personas: la identidad del operador es `X-Operator-Token` (2026-08-23)
+
+Bajo realm `pos-app` el token autentica una **terminal**, no a alguien. Se
+emite al parear el dispositivo, es eterno, y `apiAuthTenant()` resuelve su
+`userId` como el contacto que hizo el pareo (`api/bootstrap.php:169-171`) y su
+rol como el rol `device` del tenant. Los tres mozos que comparten esa tablet
+mandan requests idénticas.
+
+Consecuencias que hay que tener presentes SIEMPRE que se escriba código
+`pos-app`:
+
+- **`AUTHED_USER_ID` no es "quién hizo esto"** en el POS: es quien pareó el
+  dispositivo hace meses. Usarlo para atribuir una acción a una persona es un
+  bug silencioso.
+- **`hasPermission()` responde por el DEVICE**, no por el operador. Sirve para
+  "¿puede una terminal hacer esto?"; no sirve para distinguir a un encargado de
+  un cajero parados frente a la misma caja. Darle una clave al rol `device`
+  para habilitar a una persona se la da a **todas** las personas de **todas**
+  las tablets.
+
+Cuando una regla es sobre PERSONAS, la identidad se resuelve con
+`Punto\Api\Auth\OperatorContext::resolve($ctx)`:
+
+- Realm `panel` → la credencial ES la persona (`AUTHED_USER_ID` + `ROLE_ID`).
+- Realm `pos-app` → sale de `X-Operator-Token`, una afirmación firmada con
+  HMAC (`Punto\Api\Auth\OperatorAssertion`) que emite **solo**
+  `/v1/unlock-pin.php` tras validar el PIN contra `contact.pinhash`. Es la
+  única fuente legítima: emitirla en otro lado la convierte en un dato que el
+  cliente elige, que es exactamente lo que no autoriza nada.
+- Los permisos de esa persona se evalúan con `OperatorContext::can()`, que
+  resuelve contra `contact.role` — NO con el `hasPermission()` global.
+- Sin token → `identified: false`. **Fail-closed**: "no sé quién sos" nunca se
+  resuelve a favor, porque no mandar el header sería el bypass trivial.
+
+El front lo adjunta en `lib/api/pos-fetch.ts` (wrapper compartido, igual que el
+Bearer) — nunca en el call-site. El BFF lo reenvía solo porque copia todos los
+headers no hop-by-hop.
+
+**No es una sesión** y no reemplaza al token del device: no hay fila en
+`auth_session`, no se revoca de a una, y sin Bearer válido no vale nada
+(`apiAuthTenant()` corta antes). La sesión de operador real es el rewrite de
+`context/21-auth-rewrite.md`.
+
+## §57 — Exclusividad de mesa: `space_session.waiterid` es autorización, no una etiqueta (2026-08-23)
+
+Asignarle un mozo a una mesa **restringe quién puede operarla**. No es un campo
+informativo.
+
+- Regla: si `space_session.waiterid` no es NULL, solo ese operador puede
+  cancelar, editar (alias/comensales/mozo), mover, unir, pedir la cuenta y
+  agregarle órdenes. Cualquier otro recibe **403**.
+- Válvula de escape: la clave `pos.space.override` (seed de `manager`),
+  evaluada contra el rol del OPERADOR (§56), nunca del device.
+- `waiterid` NULL = mesa de todos. Es lo que hace el cambio retrocompatible:
+  todo lo abierto sin mozo sigue funcionando igual.
+- **Cobrar y cerrar quedan FUERA de la regla, a propósito**: quien cobra es la
+  caja, no el mozo. Bloquear `close()` dejaría al cajero sin poder cerrar la
+  cuenta de una mesa ajena, que es su trabajo (y `close()` ya tiene su propio
+  invariante duro: no cierra con saldo pendiente).
+- El enforcement vive en el **service** (`SpaceOwnershipGuard`, llamado desde
+  `SpaceSessionService` y `OrderCoreService::create`), no en el endpoint:
+  `SpaceSessionService` tiene tres callers y agregar una orden es otra puerta a
+  la misma mesa. Un guard por endpoint deja las otras abiertas.
+- `SpaceOwnershipException` tiene archivo propio porque el autoloader resuelve
+  una clase por archivo, y un `instanceof` contra una clase no cargada devuelve
+  `false` en silencio — degradaría el 403 a 422 justo en el camino de
+  autorización.
+
+Arnés: `api/tests/space_exclusivity_test.php` (403 contra el endpoint real, con
+device token real, incluidos los bypass: sin header, token de otra empresa,
+firma manipulada).
