@@ -635,6 +635,10 @@ function getCurrentOutletName($id=false){
 }
 
 /**
+ * Devuelve UNA sucursal (la de `$id`, o la del contexto). El nombre en plural
+ * es histórico y NO significa "todas": ver el docblock de `Store` para el bug
+ * de agregación multi-sucursal que esa lectura provocó.
+ *
  * @deprecated Slice 8 (PSR-4). Usar `\Punto\App\Domain\Store::getAllOutletData()`. ~2 callers.
  */
 function getAllOutletData($id=false){
@@ -1705,7 +1709,15 @@ function getItemMainStock($itemId,$outletId){
 	}
 }*/
 /**
- * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getAllItemStock()`. ~8 callers.
+ * El "~8 callers" del Slice 13 quedó obsoleto: hoy NO hay ni un caller vivo de
+ * `getAllItemStock` en todo el repo — ni por este wrapper ni por la clase. Los
+ * que había vivían en el panel legacy que se eliminó. Se deja anotado porque el
+ * dato importa para evaluar el riesgo de tocar la función: el fail-closed que
+ * `Inventory::getAllItemStock()` agregó (RuntimeException sin `COMPANY_ID`) no
+ * puede dispararse en ningún camino de producción por la simple razón de que no
+ * hay camino. El primer consumidor real será el rollup de inventario.
+ *
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getAllItemStock()`. 0 callers vivos.
  */
 function getAllItemStock($outlet=false,$all=false){
     return \Punto\App\Domain\Inventory::getAllItemStock($outlet, (bool) $all);
