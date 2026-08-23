@@ -149,6 +149,11 @@ Los dos problemas que ocupaban este lugar desde 2026-08-17 ya están cerrados:
 Las 5 filas que seguían ⬜ en `context/29-numeracion-y-exclusividad-de-caja.md`
 §7 también están todas resueltas — ver ese doc.
 
+**Residuo histórico — decisión del owner (2026-08-23): NO se backfillean.**
+Las 257 ventas emitidas antes del fix (previas a 2026-08-19) que quedaron
+persistidas con `invoiceNo = NULL` quedan como están. Cerrado como "no se
+hace", no como pendiente — no volver a proponerlo.
+
 ## POS — bugs y mejoras reportados por el owner (2026-08-18) ✅ RESUELTOS (2026-08-22)
 
 Las 6 quedaron cerradas, verificado contra código:
@@ -1043,12 +1048,20 @@ están en `_feature-requests.md` §2026-07-31. Bugs nuevos verificados contra c�
 - **Producción v1** ✅ — plan `context/23-production-module-plan.md`. F0 recetas canónicas en `item_compound` (mig 75), F1 `production_order`+`waste_event` (migs 76/77, permiso `production.manage`), F2 UI `/produccion`. Pendiente: v2 (parcial/co-productos/reversa).
 - **Órdenes** ✅ (O0-O2) — plan `context/24-orders-module-plan.md`. O0 core (`pos_order`/`order_station`, correlativo advisory-lock, canal realtime `kds`), O1 modal POS (Pagar↔Ordenar, comandas), O2 KDS+display device-paired WS. Pendiente: O3 reservas, O4 ecommerce/agenda.
 - **Espacios v1** ✅ (ex Mesas, rename migs 81/82) — plan `context/15-espacios-module-plan.md`. F0/F1 schema+editor (react-rnd), F2 operación POS (mapa, sesión, cobro multi-orden). **F3 split de cuenta ✅ (2026-07-27)**: mig 90 (`space_session_payment`+`settledpaymentid`) + mig 91 (índice único anti doble-cobro) + `SpaceSettlementService`, UI 4 modos (total/por ítems/monto libre/partes iguales), no se mezclan familias de modo en una misma mesa.
-  **Hecho 2026-08-21**: toggle pantalla completa en `/pos/espacios` y `/pos/ordenes` (oculta el carrito) — `lib/pos/workspace-store.ts` (zustand+localStorage, preferencia de dispositivo), botón `FullscreenToggle` en ambas barras flotantes. Pendiente sin planificar: asignar mesas a usuarios específicos — otros operadores no pueden modificar ni añadir nada en esas mesas (pedido del owner 2026-08-21).
+  **Hecho 2026-08-21**: toggle pantalla completa en `/pos/espacios` y `/pos/ordenes` (oculta el carrito) — `lib/pos/workspace-store.ts` (zustand+localStorage, preferencia de dispositivo), botón `FullscreenToggle` en ambas barras flotantes. Pendientes sin planificar (owner 2026-08-21, ampliado 2026-08-23) — ver
+  `context/_feature-requests.md` § POS/Espacios y § Producción/Cocina para el
+  detalle de cada uno: selector de mozo al abrir mesa (falta UI, backend
+  listo), unir/cambiar/renombrar/etiquetar espacio desde el POS (**marcado
+  importante por el owner**), asignación exclusiva de mesa a un mozo (otros
+  operadores no pueden modificarla — cruza con el enforcement de permisos de
+  hoy, `hasPermission`/rol `device`, `context/08`), y comanda unificada por
+  cantidad (orden de producción para cocina, agrega por ítem y por
+  ingrediente — cruza con recetas/`RecipeCosting` y el KDS).
 - **Estación de Impresión (pool)** — plan propio `context/26-print-station-plan.md` (cerrado 2026-07-19: estación router tonto device-paired + cola durable `print_job` + opt-in por binding). P0 backend + P1 pantalla ✅. Pendiente P2 (panel + rama pool del pipeline) y P3 (formatos inkjet/matricial). ⚠ Impresoras de RED no alcanzables desde el browser — ver hallazgo en el doc.
 - **SLA de tiempo por orden + Delivery (O4)** — plan `context/27-delivery-sla-plan.md` (2026-07-19). **Historial de transiciones F-EVT-0 ✅ (2026-07-27)**: migs 85/86, tabla `pos_order_event` (scope order|item, actor, station snapshoteado), `recordEvent()` en los 6 caminos que tocan status, misma TX — base del SLA. SLA target = máximo por estación (trabajo paralelo entre estaciones). Delivery con `fulfillment`/`out_for_delivery` **✅ completo (2026-07-29)**: F-D-0 (mig 94, snapshot de dirección, selector Mostrador/Retiro/Envío, mapa filtrado) + F-D-1 (mig 96 estado "En camino", mig 97 `courierid`/asignación de repartidor). Fiscalidad del `deliveryfee` resuelta: ítem del catálogo, cascada zona→banda. Abierto: app propia del repartidor (decisión cerrada — entra como usuario con permiso acotado, no device pareado — falta implementar).
 - **KDS — rediseño de flujo horizontal (2026-07-27)**: de columnas por estado a comandas en fila única, estado = color (la tarjeta nunca se mueve), pin local, teclado completo, recall (terminadas salen del board, "devolver a preparación" las trae de vuelta). El KDS nunca está desatendido — TV siempre con teclado/mouse detrás.
 - **Libreta de direcciones (2026-07-27)**: extendida sobre `customerAddress` existente (mig 87: `reference`+soft-delete), parser de coords centralizado en `lib/geo/parse-coordinates.ts`.
-- **Facturación electrónica (SIFEN/Paraguay)** — plan `context/28-facturacion-electronica-plan.md` (2026-07-27/30). Proveedor real: **Factomate** (no Automate). F0/F1/F2/F3/F4/F6/F7 ✅ Hechas (ya figuran así en el propio plan — este doc estaba desincronizado). Verificado contra API real de DEV (2 facturas emitidas). F5 (emisión diferida offline) bloqueada hasta que Factomate responda sobre la fecha de emisión diferida. Pendiente real: `APP_ENCRYPTION_KEY` sin configurar en Coolify (las migs 92/93/95 SÍ corrieron; sin la env var `CredentialVault` aborta y `einvoice_account` tiene 0 filas en prod) — acción del owner.
+- **Facturación electrónica (SIFEN/Paraguay)** — plan `context/28-facturacion-electronica-plan.md` (2026-07-27/30). Proveedor real: **Factomate** (no Automate). F0/F1/F2/F3/F4/F6/F7 ✅ Hechas (ya figuran así en el propio plan — este doc estaba desincronizado). Verificado contra API real de DEV (2 facturas emitidas). F5 (emisión diferida offline) bloqueada hasta que Factomate responda sobre la fecha de emisión diferida. **`APP_ENCRYPTION_KEY` — ✅ CERRADO (2026-08-23).** Ya está cargada en producción desde hace días — verificado por el owner en el contenedor correcto de la API. El item nació de haber mirado el contenedor equivocado (`api-asqhqb…`, que NO es de Punto). **Timbrado de cajas — deja de ser bloqueante (2026-08-23).** Las cajas de la cuenta de prueba ya lo tienen cargado (3 de 12); las otras 9 son cuentas dummy y se ignoran. Recordar `context/08-convenciones-criticas.md` §51: el timbrado NO bloquea operar, solo es obligatorio con facturación electrónica activa.
 
 ---
 
