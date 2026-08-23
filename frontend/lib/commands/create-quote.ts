@@ -13,6 +13,7 @@
 import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
 import { allocateLineDiscounts, type SaleDiscountInput } from "@/lib/cart/allocate-discounts"
+import { withLineTax } from "@/lib/cart/line-tax"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 
 export interface CreateQuoteInput {
@@ -54,7 +55,10 @@ export async function createQuote(input: CreateQuoteInput): Promise<CreateQuoteR
   // líneas descontadas se guardaba e imprimía por el bruto.
   // Sin `ivaRemoved`: una cotización se emite a precio de lista. El toggle de
   // quitar IVA es de la venta, no del presupuesto.
-  const allocations = allocateLineDiscounts(lines, saleDiscount)
+  // `withLineTax` igual que la venta: la cotización no netea (no hay
+  // `ivaRemoved` acá), pero el impuesto por línea es parte del tipo — así no
+  // existe forma de armar un cálculo de descuentos sin él.
+  const allocations = allocateLineDiscounts(withLineTax(lines), saleDiscount)
 
   const saleItems = lines.map((line, i) => ({
     itemId: line.itemId,

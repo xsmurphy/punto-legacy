@@ -30,7 +30,8 @@
 // device (`apiAuthPosContext`), nunca la cookie del panel.
 import { posApi as api } from "@/lib/api/pos-client"
 import type { CartLine } from "@/lib/cart/store"
-import { allocateLineDiscounts, TAX_RATE, type SaleDiscountInput } from "@/lib/cart/allocate-discounts"
+import { allocateLineDiscounts, lineGross, type SaleDiscountInput } from "@/lib/cart/allocate-discounts"
+import { withLineTax } from "@/lib/cart/line-tax"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { tenantNow } from "@/lib/format-date"
 
@@ -342,15 +343,22 @@ export function buildSalePayload(input: BuildSaleInput): CreateSalePayload {
   // propio de cada una. `total` sigue siendo el BRUTO — es la semántica de
   // `itemSold.itemSoldTotal`, que los reportes suman aparte de
   // `itemSoldDiscount` — y el neto sale de restarlos.
-  const allocations = allocateLineDiscounts(lines, saleDiscount, ivaRemoved)
+  // Impuesto congelado por línea (catálogo del tenant) ANTES de cualquier
+  // cálculo: el neteo de `ivaRemoved` usa la tasa DE CADA LÍNEA, no una
+  // constante. Es el mismo resolver que usa el carrito (`lineSubtotal`), así
+  // que el bruto del payload es exactamente el que vio y cobró el cajero.
+  const taxedLines = withLineTax(lines)
+  const allocations = allocateLineDiscounts(taxedLines, saleDiscount, ivaRemoved)
 
-  const saleItems: SaleItem[] = lines.map((line, i) => ({
+  const saleItems: SaleItem[] = taxedLines.map((line, i) => ({
     itemId: line.itemId,
     name: line.name,
     count: line.qty,
-    // Precio unitario efectivamente cobrado: con IVA quitado, el neto. El
-    // importe de autoridad es `total` (el bruto de la línea, ya ajustado).
-    price: ivaRemoved ? Math.round(line.unitPrice / (1 + TAX_RATE)) : line.unitPrice,
+    // Precio unitario efectivamente cobrado: con IVA quitado, el neto según
+    // la tasa de ESA línea (misma función que el bruto, así no hay dos
+    // redondeos). El importe de autoridad sigue siendo `total` — el bruto de
+    // la línea, ya ajustado, y lo que el backend usa como base del impuesto.
+    price: lineGross(line.unitPrice, ivaRemoved, line.tax),
     total: allocations[i].gross,
     // Porcentaje EFECTIVO de la línea: su descuento propio más la parte del
     // descuento de venta que le tocó.

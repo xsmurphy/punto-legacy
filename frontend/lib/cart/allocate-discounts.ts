@@ -22,21 +22,52 @@
  * convención que el resto del POS (guaraníes, sin decimales).
  */
 
+import type { TaxKind } from "@/lib/tax/engine"
+
 /**
- * Tasa de IVA del modelo paraguayo (10% incluido en el precio de lista).
- * Vive acá porque la fórmula del bruto es compartida — ver `lineGross`.
+ * Impuesto EFECTIVO de una línea, en el mismo vocabulario que congela el motor
+ * (`lib/tax/engine.ts`) y su espejo PHP (`SaleService::enrichWithTaxes`):
+ * tasa + naturaleza (`rate`/`exempt`) + si viene DENTRO del precio de lista.
+ *
+ * Es la dimensión que le faltaba a `lineGross`: hasta 2026-08-22 el neteo de
+ * "quitar IVA" dividía TODA línea por 1.10 (una constante `TAX_RATE` que vivía
+ * acá), así que un ítem al 5% o al 3% —de los que hay vendidos en producción—
+ * se neteaba de más, y uno exento se neteaba sin tener nada que netear.
  */
-export const TAX_RATE = 0.10
+export interface LineTax {
+  /** Porcentaje: 10, 5, 3, 21… Irrelevante cuando `kind === "exempt"`. */
+  rate: number
+  /** `exempt` no es lo mismo que tasa 0% — es una dimensión fiscal aparte. */
+  kind: TaxKind
+  /** true = el impuesto ya está DENTRO de `unitPrice` (precio de lista final). */
+  included: boolean
+}
+
+/**
+ * Fallback fiscal seguro: sin tasa resoluble, la línea es exenta y `ivaRemoved`
+ * no le toca el precio. NUNCA se inventa una tasa — mismo criterio que
+ * `SaleService::deriveTaxRateKindFromName` y que `selectCartIva`.
+ */
+export const EXEMPT_LINE_TAX: LineTax = { rate: 0, kind: "exempt", included: true }
 
 /**
  * Importe de una línea, ajustado por `ivaRemoved`. FUENTE ÚNICA de la fórmula:
- * la usa el carrito (`lineSubtotal` en lib/cart/store.ts) y el payload de la
- * venta. Si cada lado redondeara por su cuenta, lo que se cobra y lo que se
- * registra diferirían por unos guaraníes — y con "quitar IVA" activo, por el
- * 10% entero.
+ * la usa el carrito (`lineSubtotal` en lib/cart/store.ts), el precio unitario y
+ * el bruto del payload de la venta (`lib/commands/create-sale.ts`). Si cada
+ * lado redondeara por su cuenta, lo que se cobra y lo que se registra
+ * diferirían por unos guaraníes — y con "quitar IVA" activo, por el impuesto
+ * entero.
+ *
+ * El neteo solo ocurre cuando hay algo que netear:
+ *   - línea exenta o de tasa 0 → no se puede quitar un impuesto que no está;
+ *   - impuesto NO incluido (`included: false`) → el precio de lista YA es neto;
+ *   - impuesto incluido → se divide por (1 + tasa/100), con la tasa DE ESA
+ *     LÍNEA (la que `lib/cart/line-tax.ts` resolvió del catálogo del tenant).
  */
-export function lineGross(raw: number, ivaRemoved = false): number {
-  return ivaRemoved ? Math.round(raw / (1 + TAX_RATE)) : raw
+export function lineGross(raw: number, ivaRemoved = false, tax: LineTax = EXEMPT_LINE_TAX): number {
+  if (!ivaRemoved) return raw
+  if (tax.kind !== "rate" || tax.rate <= 0 || !tax.included) return raw
+  return Math.round(raw / (1 + tax.rate / 100))
 }
 
 export interface DiscountableLine {
@@ -46,6 +77,13 @@ export interface DiscountableLine {
   unitPrice: number
   /** Descuento propio de la línea, en porcentaje 0-100. */
   discount?: number | null
+  /**
+   * Impuesto congelado de la línea. REQUERIDO a propósito: es lo que hace
+   * imposible netear "quitar IVA" con una tasa que no es la del ítem. Se
+   * resuelve con `withLineTax()` (lib/cart/line-tax.ts) — el único lugar que
+   * lee el catálogo — así el carrito y el payload usan exactamente la misma.
+   */
+  tax: LineTax
 }
 
 export interface LineDiscountAllocation {
@@ -86,9 +124,9 @@ export function allocateLineDiscounts(
   // el descuento propio de la línea sale de la diferencia entre los dos, no de
   // un redondeo aparte. Así `subtotal - discount` del payload es exactamente el
   // total que vio y cobró el cajero.
-  const gross = lines.map((l) => lineGross(l.qty * l.unitPrice, ivaRemoved))
+  const gross = lines.map((l) => lineGross(l.qty * l.unitPrice, ivaRemoved, l.tax))
   const net = lines.map((l) =>
-    lineGross(l.qty * l.unitPrice * (1 - Math.min(100, Math.max(0, l.discount ?? 0)) / 100), ivaRemoved),
+    lineGross(l.qty * l.unitPrice * (1 - Math.min(100, Math.max(0, l.discount ?? 0)) / 100), ivaRemoved, l.tax),
   )
   const lineDiscount = gross.map((g, i) => g - net[i])
 

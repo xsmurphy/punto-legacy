@@ -294,8 +294,9 @@ export interface PosBrand {
 
 /**
  * Tasa de impuesto del comercio, tal como vive en la tabla `tax` (F0). El
- * carrito la busca por `PosItem.taxId` para armar la línea que consume
- * `lib/tax/engine.ts::computeTaxes` — reemplaza el `TAX_RATE` hardcodeado.
+ * carrito la busca por `PosItem.taxId` (vía `lib/cart/line-tax.ts`) para el
+ * IVA que muestra y para el neteo de "quitar IVA" que cobra. Reemplazó al
+ * `TAX_RATE = 0.10` hardcodeado, eliminado el 2026-08-22.
  */
 export interface PosTaxRate {
   id: string

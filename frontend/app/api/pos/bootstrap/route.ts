@@ -716,8 +716,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     paymentMethods,
     users: reshapeUsers(usersRes.data, usersRes.status),
     activeRegisterId: bs.activeRegisterId ?? "",
-    // F2b (context/38): tasas del tenant + default de la sucursal, para que
-    // el carrito calcule el IVA con el motor en vez del TAX_RATE hardcodeado.
+    // F2b (context/38): tasas del tenant + default de la sucursal. Sin esto
+    // el carrito no puede resolver la tasa de una línea, y el neteo de
+    // "quitar IVA" no tiene con qué dividir (ver lib/cart/line-tax.ts).
     // `taxesRes.data` null (fetch degradado arriba) → [] — el carrito trata
     // toda línea sin match de tasa como exenta, nunca inventa una.
     taxes: (taxesRes.data?.taxes ?? []).map(reshapeTax),

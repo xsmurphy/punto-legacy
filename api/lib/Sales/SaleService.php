@@ -2785,14 +2785,34 @@ final class SaleService
             $saleDetail[$i]['taxKind']     = $kind;
             $saleDetail[$i]['taxIncluded'] = $taxIncluded;
 
-            // qty/unitPrice/discount: mismos campos que persistScheduledSessions
-            // y el loop de itemSold ya usan (`count`/`price`/`totalDiscount`,
-            // ver frontend/lib/commands/create-sale.ts:296-307). `total` NO se
-            // usa acá — es el bruto sin descontar calculado client-side con la
-            // fórmula vieja hardcodeada a 10%; el motor recalcula desde cero.
+            // La base del motor es `total` — el bruto DE LA LÍNEA, el mismo
+            // número que se persiste en `itemSold.itemSoldTotal` y que suma
+            // `transaction.transactionTotal` — con `qty = 1`, no
+            // `count × price`.
+            //
+            // Por qué (2026-08-22): `count × price` NO es igual a `total`
+            // cuando el unitario se redondeó. El caso real es "quitar IVA":
+            // el front manda `price = round(unitPrice / (1 + tasa))` y
+            // `total = round(count × unitPrice / (1 + tasa))` — para
+            // count = 3 y 25.000 al 10% eso es 3 × 22.727 = 68.181 contra
+            // 68.182. La misma grieta se abre con cantidades fraccionarias
+            // (balanza). El motor terminaba calculando el impuesto sobre una
+            // base que difería en guaraníes del importe registrado, así que
+            // `toTaxObj` (base por tasa, RG90/Libro Ventas) no cerraba contra
+            // la suma de `itemSoldTotal`.
+            //
+            // La TASA sigue siendo server-side (resuelta del catálogo arriba,
+            // nunca del payload): el cliente no puede elegir con cuánto se le
+            // grava. Solo aporta el importe, que ya era suyo — `total` y
+            // `subtotal` se persisten verbatim desde el payload.
+            //
+            // Antes de F2a el comentario acá decía que `total` venía de "la
+            // fórmula vieja hardcodeada a 10%". Eso se arregló: el front
+            // netea con la tasa de cada línea (`lib/cart/line-tax.ts`), así
+            // que `total` ya es el bruto correcto y multi-tasa.
             $lines[] = [
-                'qty'         => (float) ($sD['count'] ?? 0),
-                'unitPrice'   => (float) ($sD['price'] ?? 0),
+                'qty'         => 1.0,
+                'unitPrice'   => (float) ($sD['total'] ?? 0),
                 'discount'    => (float) ($sD['totalDiscount'] ?? 0),
                 'taxRate'     => $rate,
                 'taxKind'     => $kind,

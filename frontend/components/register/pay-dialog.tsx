@@ -30,7 +30,8 @@ import { DatePicker } from "@/components/date-picker"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { useCartStore, selectCartTotal } from "@/lib/cart/store"
-import { allocateLineDiscounts } from "@/lib/cart/allocate-discounts"
+import { allocateLineDiscounts, lineGross } from "@/lib/cart/allocate-discounts"
+import { withLineTax } from "@/lib/cart/line-tax"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { formatMoney, formatCurrencyAmount } from "@/lib/format-money"
 import { formatDateTime } from "@/lib/format-date"
@@ -987,15 +988,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     // Rebuild minimal payload for reprint — real payload is local to handleConfirm.
     // Los descuentos se reparten igual que en la venta original (misma función):
     // con `discount: 0` fijo, el ticket reimpreso no mostraba ningún descuento.
-    const reprAllocations = allocateLineDiscounts(lines, saleDiscount, ivaRemoved)
+    const reprLines = withLineTax(lines)
+    const reprAllocations = allocateLineDiscounts(reprLines, saleDiscount, ivaRemoved)
     const reprPayload = {
       uid: "",
       type: credito ? 3 : 0,
-      sale: lines.map((line, i) => ({
+      sale: reprLines.map((line, i) => ({
         itemId: line.itemId,
         name: line.name,
         count: line.qty,
-        price: line.unitPrice,
+        // Mismo neteo que la venta original: con `ivaRemoved` el total de la
+        // línea va sin IVA, así que el unitario también — si no, el ticket
+        // reimpreso muestra un precio con IVA y un total sin él.
+        price: lineGross(line.unitPrice, ivaRemoved, line.tax),
         total: reprAllocations[i].gross,
         discount: reprAllocations[i].effectivePercent,
         totalDiscount: reprAllocations[i].totalDiscount,
