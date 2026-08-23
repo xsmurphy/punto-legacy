@@ -75,12 +75,37 @@ if (!$pdo) {
 
 // Solo definiciones de clase (RoleService.php requiere PermissionCatalog.php y
 // nada más) — no toca la DB ni depende del bootstrap de la API.
-require_once dirname(__DIR__, 3) . '/lib/Auth/PermissionCatalog.php';
-require_once dirname(__DIR__, 3) . '/lib/Auth/RoleService.php';
+//
+// La ruta a `lib/` NO se puede derivar con un solo `dirname(__DIR__, N)`: el
+// layout del repo y el del container difieren. En el repo estas migraciones
+// viven en `<repo>/api/database/migrations/postgres` (y `lib/` es
+// `<repo>/api/lib`), pero el Dockerfile copia `database/` a `/var/www/database`
+// (ver api/Dockerfile: la ruta está hardcodeada en el entrypoint), así que en
+// producción son `/var/www/database/migrations/postgres` y `/var/www/api/lib`.
+// `dirname(__DIR__, 3) . '/lib/...'` acertaba en el repo y apuntaba a
+// `/var/www/lib/...` en el container — un fatal que, con el entrypoint
+// fail-fast, deja el deploy entero sin arrancar. Se prueban ambos candidatos.
+$migRoleLibDirs = [
+    dirname(__DIR__, 3) . '/lib/Auth',        // repo: <repo>/api/lib/Auth
+    dirname(__DIR__, 3) . '/api/lib/Auth',    // container: /var/www/api/lib/Auth
+];
+$migRoleLib = null;
+foreach ($migRoleLibDirs as $dir) {
+    if (is_file($dir . '/PermissionCatalog.php') && is_file($dir . '/RoleService.php')) {
+        $migRoleLib = $dir;
+        break;
+    }
+}
+if ($migRoleLib === null) {
+    fwrite(STDERR, "[migrate] ERROR 161: no encontré lib/Auth (probé: " . implode(', ', $migRoleLibDirs) . ")\n");
+    return;
+}
+require_once $migRoleLib . '/PermissionCatalog.php';
+require_once $migRoleLib . '/RoleService.php';
 
 $seedPermissions = (new ReflectionClass('RoleService'))->getConstants()['SEED_PERMISSIONS'] ?? null;
 if (!is_array($seedPermissions)) {
-    fwrite(STDERR, "[migrate] ERROR 160: no pude leer RoleService::SEED_PERMISSIONS\n");
+    fwrite(STDERR, "[migrate] ERROR 161: no pude leer RoleService::SEED_PERMISSIONS\n");
     return;
 }
 
