@@ -73,6 +73,7 @@ const MODULO_PREVIEWS: Record<string, { src?: string; text: string }> = {
     text: "El salón y la cocina, en la misma página.",
   },
   "Pantalla de cocina": {
+    src: "/site/kds.png",
     text: "Cada estación ve lo suyo, en orden de llegada.",
   },
   "Producción y recetas": {

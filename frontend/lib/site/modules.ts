@@ -203,6 +203,13 @@ export const FEATURE_CARDS: FeatureCard[] = [
     description: "Ticket, factura y comanda con tu logo, tal como los querés.",
   },
   {
+    key: "customer-display",
+    image: "/site/customer-display.png",
+    title: "Pantalla para el cliente",
+    description:
+      "El que espera ve su cuenta armarse y el total, sin pedir el detalle.",
+  },
+  {
     key: "dispositivos",
     image: "/site/pos-retail.png",
     title: "Dispositivos y cajas",

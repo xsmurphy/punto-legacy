@@ -70,10 +70,6 @@ const SPOTLIGHTS: Spotlight[] = [
         src: "/site/panel-screenshot-dark.png",
         alt: "Panel de administración de Punto en modo oscuro",
       },
-      {
-        src: "/site/reportes-stats.png",
-        alt: "Reportes de Punto: margen, ingresos y egresos del período",
-      },
     ],
   },
   {

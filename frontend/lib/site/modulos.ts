@@ -15,7 +15,14 @@ export type ModuloSection = {
   title: string
   paragraphs: string[]
   linkLabel: string
+  /** Mockup compuesto con tokens. Se ignora si la sección trae `image`. */
   mockup: RubroMockup
+  /**
+   * Captura real para ilustrar la sección. Pensada para recortes de
+   * pantalla (un gráfico, un panel), no para capturas completas — esas van
+   * al hero o al spotlight.
+   */
+  image?: { src: string; alt: string }
 }
 
 export type Modulo = {
@@ -97,6 +104,29 @@ export const MODULOS: Modulo[] = [
             { left: "Vuelto", right: "{money:0}" },
           ],
           footer: { left: "Total cobrado", right: "{money:59000}" },
+        },
+      },
+      {
+        kicker: "Del lado del cliente",
+        title: "Una pantalla que muestra lo que se está cobrando",
+        paragraphs: [
+          "Un segundo monitor mirando al cliente le muestra lo que el cajero va cargando y el total a pagar, línea por línea. El que espera ve su cuenta armarse en vivo, sin tener que pedir el detalle.",
+          "Sirve además como cartel del negocio entre venta y venta, y evita la discusión más común del mostrador: qué se cobró y por cuánto.",
+        ],
+        linkLabel: "Ver la pantalla del cliente",
+        image: {
+          src: "/site/customer-display.png",
+          alt: "Pantalla del cliente de Punto mostrando el total y los artículos",
+        },
+        mockup: {
+          label: "Pantalla del cliente",
+          title: "Total a pagar",
+          rows: [
+            { left: "1× Pizza 4 quesos", right: "{money:70000}" },
+            { left: "2× Pizza peperoni", right: "{money:150000}" },
+            { left: "1× Café americano", right: "{money:13000}" },
+          ],
+          footer: { left: "Total", right: "{money:233000}" },
         },
       },
       {
@@ -242,6 +272,10 @@ export const MODULOS: Modulo[] = [
           "Ventas por hora, ranking de productos, márgenes, medios de pago, cuentas por cobrar y los libros que pide el contador. Todo sale del mismo dato que generó la caja, sin exportar ni cruzar planillas.",
         ],
         linkLabel: "Ver los reportes",
+        image: {
+          src: "/site/reportes-stats.png",
+          alt: "Reportes de Punto: margen, ingresos y egresos del período",
+        },
         mockup: {
           label: "Este mes",
           title: "Lo más vendido",
@@ -549,7 +583,7 @@ export const MODULOS: Modulo[] = [
     heroDescription:
       "Cada estación ve en su pantalla lo que le toca preparar, en orden de llegada y con el tiempo de espera corriendo. Sin impresora que se quede sin papel, sin tickets que se pierden entre la barra y la plancha.",
     heroImage: {
-      src: "/site/pos-screenshot.png",
+      src: "/site/kds.png",
       alt: "Pantalla de cocina de Punto con las comandas en preparación",
     },
     essentials: [

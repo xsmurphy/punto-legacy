@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import Image from "next/image"
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { ArrowRight } from "lucide-react"
@@ -156,11 +157,23 @@ export default async function ModuloPage({
               </div>
               <div
                 className={cn(
-                  "flex items-center justify-center rounded-3xl border bg-gradient-to-br from-chart-1/15 via-transparent to-muted/60 p-8 md:p-12",
+                  "flex items-center justify-center overflow-hidden rounded-3xl border bg-gradient-to-br from-chart-1/15 via-transparent to-muted/60",
+                  section.image ? "p-3 md:p-4" : "p-8 md:p-12",
                   reversed && "md:order-1"
                 )}
               >
-                <DataMockup {...section.mockup} />
+                {section.image ? (
+                  <Image
+                    src={section.image.src}
+                    alt={section.image.alt}
+                    width={1948}
+                    height={1312}
+                    sizes="(max-width: 768px) 100vw, 560px"
+                    className="w-full rounded-2xl border"
+                  />
+                ) : (
+                  <DataMockup {...section.mockup} />
+                )}
               </div>
             </div>
           </section>
