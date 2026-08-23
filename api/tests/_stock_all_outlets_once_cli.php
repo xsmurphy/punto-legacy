@@ -22,10 +22,18 @@ declare(strict_types=1);
  * Uso:
  *   php _stock_all_outlets_once_cli.php <companyId> <outletId> <modo>
  *
- *   modo = all     → getAllItemStock(false, true)   (agregado multi-sucursal)
- *          single  → getAllItemStock(false, false)  (sucursal del contexto)
- *          legacy  → réplica VERBATIM de la implementación previa al fix,
- *                    para el antes/después contra datos reales
+ *   modo = all           → getAllItemStock(false, true)   (agregado multi-sucursal)
+ *          single        → getAllItemStock(false, false)  (sucursal del contexto)
+ *          legacy        → réplica VERBATIM de la rama `$all` previa al fix
+ *          legacy-single → réplica VERBATIM de la rama no-`$all` previa al fix
+ *
+ * Los dos modos `legacy*` existen para el antes/después contra datos reales. El
+ * `legacy-single` es el que sostiene la afirmación fuerte del fix: la rama
+ * no-`$all` NO se movió ni un centavo. Esa rama sí funcionaba antes, así que
+ * cualquier diferencia contra `single` es una regresión introducida por el fix
+ * — y el fix la toca de verdad (agrega el fence por `companyId`, envuelve las
+ * columnas en `SUM`/`CASE` y castea `cogs` a `numeric(15,2)`), así que
+ * afirmarlo sin medirlo sería un acto de fe.
  *
  * Salida (stdout, una línea JSON):
  *   {"ok":true,"rows":{"<itemId>":{"onHand":"…","cogs":"…"}, …}}
@@ -34,7 +42,7 @@ declare(strict_types=1);
 
 $argvSafe = $_SERVER['argv'] ?? [];
 if (count($argvSafe) < 4) {
-    fwrite(STDERR, "uso: _stock_all_outlets_once_cli.php <companyId> <outletId> <all|single|legacy>\n");
+    fwrite(STDERR, "uso: _stock_all_outlets_once_cli.php <companyId> <outletId> <all|single|legacy|legacy-single>\n");
     exit(2);
 }
 
@@ -109,10 +117,11 @@ function normalizeRows(mixed $rows): array
 
 try {
     $rows = match ($mode) {
-        'all'    => Inventory::getAllItemStock(false, true),
-        'single' => Inventory::getAllItemStock(false, false),
-        'legacy' => legacyGetAllItemStock(false, true),
-        default  => throw new InvalidArgumentException("modo desconocido: $mode"),
+        'all'           => Inventory::getAllItemStock(false, true),
+        'single'        => Inventory::getAllItemStock(false, false),
+        'legacy'        => legacyGetAllItemStock(false, true),
+        'legacy-single' => legacyGetAllItemStock(false, false),
+        default         => throw new InvalidArgumentException("modo desconocido: $mode"),
     };
 
     echo json_encode(['ok' => true, 'rows' => normalizeRows($rows)], JSON_UNESCAPED_SLASHES);

@@ -34,6 +34,14 @@ require_once __DIR__ . '/_harness.php';
  *   (g) La implementación VIEJA no producía este resultado (documenta que la
  *       regresión era real, no un matiz).
  *
+ * Y dos que no son sobre `$all` pero sí sobre el riesgo del fix:
+ *
+ *   - La rama no-`$all` NO se movió: contra la réplica verbatim de la versión
+ *     previa, sucursal por sucursal. Esa rama funcionaba, y el fix igual la
+ *     toca (fence por `companyId`, `SUM`/`CASE`, cast a `numeric(15,2)`); es
+ *     donde una regresión es más probable y menos visible.
+ *   - Sin `COMPANY_ID` en el contexto, las dos ramas fallan CERRADAS.
+ *
  * Las invocaciones de la función corren en SUBPROCESOS
  * (`_stock_all_outlets_once_cli.php`): `COMPANY_ID`/`OUTLET_ID` son constantes
  * y los casos (d) y (e) exigen variarlas.
@@ -359,6 +367,59 @@ check(
     $checks
 );
 
+echo "\n=== la rama no-\$all NO se movió (regresión más probable del fix) ===\n";
+
+// La rama no-`$all` YA funcionaba antes: cualquier diferencia acá es una
+// regresión que introdujo el fix, no un bug que arregló. Y el fix la toca de
+// verdad — le agrega el fence `o.companyId = ?`, envuelve las columnas en
+// `SUM(...)`/`CASE` y castea `cogs` a `numeric(15,2)` —, así que "con una sola
+// sucursal da lo mismo" hay que MEDIRLO, no deducirlo del álgebra.
+foreach ([['A1', OUTLET_A1], ['A2', OUTLET_A2], ['A3', OUTLET_A3]] as [$label, $outletId]) {
+    $nuevo = runOnce(COMPANY_A, $outletId, 'single');
+    $viejo = runOnce(COMPANY_A, $outletId, 'legacy-single');
+
+    check(
+        "no-\$all desde $label: la implementación nueva devuelve lo MISMO que la vieja",
+        ($nuevo['ok'] ?? false) === true
+            && ($viejo['ok'] ?? false) === true
+            && diffMaps($viejo['rows'], $nuevo['rows']) === '',
+        ($nuevo['ok'] ?? false) === true && ($viejo['ok'] ?? false) === true
+            ? diffMaps($viejo['rows'], $nuevo['rows'])
+            : ('nuevo=' . json_encode($nuevo) . ' viejo=' . json_encode($viejo)),
+        $failures,
+        $checks
+    );
+}
+
+// Y el complemento: la suma de las tres sucursales por separado (rama no-`$all`,
+// la que nunca estuvo rota) tiene que reconstruir el agregado de `$all`. Es el
+// mismo número por un camino que no comparte una sola línea de SQL con él.
+$sumaPorSucursal = [];
+foreach ([OUTLET_A1, OUTLET_A2, OUTLET_A3] as $outletId) {
+    $r = runOnce(COMPANY_A, $outletId, 'single');
+    foreach (($r['rows'] ?? []) as $itemId => $row) {
+        $sumaPorSucursal[$itemId] ??= ['onHand' => 0.0, 'peso' => 0.0, 'cogsSimple' => [], 'cogs' => null];
+        $sumaPorSucursal[$itemId]['onHand']      += (float) $row['onHand'];
+        $sumaPorSucursal[$itemId]['peso']        += (float) $row['onHand'] * (float) $row['cogs'];
+        $sumaPorSucursal[$itemId]['cogsSimple'][] = (float) $row['cogs'];
+    }
+}
+foreach ($sumaPorSucursal as $itemId => $acc) {
+    $sumaPorSucursal[$itemId]['cogs'] = $acc['onHand'] != 0.0
+        ? round($acc['peso'] / $acc['onHand'], 2)
+        : round(array_sum($acc['cogsSimple']) / count($acc['cogsSimple']), 2);
+    unset($sumaPorSucursal[$itemId]['peso'], $sumaPorSucursal[$itemId]['cogsSimple']);
+}
+ksort($sumaPorSucursal);
+
+check(
+    'sumar las 3 sucursales una por una (rama no-$all) reconstruye el agregado de $all',
+    diffMaps($sumaPorSucursal, $rowsA) === '',
+    diffMaps($sumaPorSucursal, $rowsA),
+    $failures,
+    $checks
+);
+
 echo "\n=== (c) tenant de una sola sucursal ===\n";
 
 $allB    = runOnce(COMPANY_B, OUTLET_B1, 'all');
@@ -419,6 +480,24 @@ check(
     $failures,
     $checks
 );
+
+echo "\n=== fail-closed sin compañía en el contexto ===\n";
+
+// Sin `COMPANY_ID` no hay alcance que resolver. La alternativa —"la primera
+// compañía activa"— es exactamente la clase de invento que produce el bug de
+// tenant cruzado, así que la función tiene que negarse. Se verifica que el
+// mensaje sea el del guard y no un error de PG por un parámetro vacío.
+foreach (['all', 'single'] as $modo) {
+    $sinCompany = runOnce('', OUTLET_A1, $modo);
+    check(
+        "sin COMPANY_ID, el modo '$modo' falla cerrado (RuntimeException del guard)",
+        ($sinCompany['ok'] ?? true) === false
+            && str_contains((string) ($sinCompany['error'] ?? ''), 'COMPANY_ID no está en el contexto'),
+        'resultado: ' . json_encode($sinCompany),
+        $failures,
+        $checks
+    );
+}
 
 echo "\n=== (g) la implementación vieja no daba esto ===\n";
 
