@@ -73,6 +73,12 @@ export interface SettingsGeneral {
   // abierta de cierre de período (mes en curso + N meses anteriores).
   // Clampeado 1..12 server-side (default 1).
   settingPeriodCloseMonths: number
+  /**
+   * Tolerancia de cuadre del arqueo, en moneda del comercio. 0 = arquear
+   * exacto (default). El backend nunca clasifica por debajo de una unidad
+   * mínima de la moneda, así que 0 no significa "todo es faltante".
+   */
+  settingDrawerTolerance: number
 
   // Asistente IA (por empresa)
   /** Nombre del asistente. Vacío = default "Asistente". Máx 40 caracteres. */

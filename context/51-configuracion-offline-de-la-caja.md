@@ -235,9 +235,13 @@ del carrito). Las operaciones entran ahí, no en una banda nueva — la banda
 
 - Sin conexión: *"Sin conexión · 2 ventas y 1 cambio en cola"*.
 - Algo rechazado (venta u operación): pill destructivo, *"N pendientes con
-  error — tocá para revisar"* → abre `SyncQueueDialog`, que ahora lista las
-  operaciones ARRIBA de las ventas, con su etiqueta congelada al encolar
-  ("Cerrar caja — 1.250.000 Gs"), reintentar y descartar.
+  error — tocá para revisar"* → navega a **Menú → Pendientes**
+  (`SyncQueueList`), que lista las operaciones ARRIBA de las ventas, con su
+  etiqueta congelada al encolar ("Cerrar caja — 1.250.000 Gs"), reintentar y
+  descartar. El `SyncQueueDialog` que antes mostraba esta misma tabla se
+  eliminó en 2026-08-23: la sección ES el lugar donde se ven, no la antesala.
+  La sección se llama "Pendientes" y ya no "Ventas pendientes" porque acá
+  adentro puede haber un cierre de caja, y nadie lo buscaría bajo "Ventas".
 - Con conexión y sin nada roto las operaciones en cola no se avisan: se
   sincronizan solas en segundos.
 

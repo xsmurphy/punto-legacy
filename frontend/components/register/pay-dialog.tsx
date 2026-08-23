@@ -46,6 +46,7 @@ import { getNextInvoiceNo } from "@/lib/pos/invoice-numbering"
 import {
   extractRegisterConflictInfo,
   registerConflictMessage,
+  tenancyBlock,
   type RegisterConflictInfo,
 } from "@/lib/pos/register-conflict"
 import { enqueue, getCount } from "@/lib/pos/offline-queue"
@@ -308,6 +309,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   // tomé esta caja" de "la confirmación venció" — el 409 no puede decir eso
   // porque no hubo 409.
   const [registerTakenKind, setRegisterTakenKind] = React.useState<TenancyVerdictKind | null>(null)
+  // `true` cuando el diálogo ABRIÓ ya bloqueado (el cajero tocó un CTA de
+  // cobro que no puede emitir), distinto de bloquearse al confirmar una venta
+  // ya cargada. Cambia qué hace el CTA de reintento: en el primer caso no hay
+  // pagos que reconfirmar, solo hay que devolverlo al teclado de cobro.
+  const [blockedBeforePay, setBlockedBeforePay] = React.useState(false)
   // Snapshot para el botón manual "Ordenar" del modal de éxito (ordenEnVenta).
   // Capturado ANTES del clearCart (que solo corre en handleClose) — lines/
   // customer siguen siendo los de la venta recién facturada mientras el
@@ -336,10 +342,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setChange(0)
       setPendingIdentifier(null)
       setDueDate(defaultDueDate())
-      setPhase("pay")
       setSaleResult(null)
       setErrorMsg(null)
-      setRegisterTakenInfo(null)
+      // Gate de tenencia AL ABRIR, no solo al confirmar: el botón de cobrar
+      // ya se muestra deshabilitado con el motivo (`PayCta` en
+      // `cart-panel.tsx`), y quien igual lo toca tiene que aterrizar en la
+      // explicación —con el CTA para volver a tomar la caja— en vez de en un
+      // teclado que va a rechazarle la venta al final. Mismo veredicto, mismo
+      // fail-closed que el gate de `handleConfirm`.
+      const block = tenancyBlock(useTenancyStore.getState().verdict)
+      setRegisterTakenInfo(block?.info ?? null)
+      setRegisterTakenKind(block?.kind ?? null)
+      setBlockedBeforePay(block !== null)
+      setPhase(block ? "register-taken" : "pay")
       saleUidRef.current = crypto.randomUUID()
       // autofocus al visor
       setTimeout(() => displayRef.current?.focus(), 50)
@@ -540,15 +555,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // Fail-closed: `verdict === null` (todavía no hidratado) tampoco emite.
       // El costo de equivocarse hacia el otro lado es un comprobante duplicado
       // que el sistema después repudia.
-      const tenancy = useTenancyStore.getState().verdict
-      if (!tenancy || !tenancy.canIssue) {
-        setRegisterTakenInfo({
-          holderDeviceId: tenancy?.holderDeviceId ?? null,
-          holderDeviceName: tenancy?.holderDeviceName ?? null,
-          expiresAt: null,
-          reason: tenancy?.denyReason ?? null,
-        })
-        setRegisterTakenKind(tenancy?.kind ?? "never")
+      const block = tenancyBlock(useTenancyStore.getState().verdict)
+      if (block) {
+        setRegisterTakenInfo(block.info)
+        setRegisterTakenKind(block.kind)
+        setBlockedBeforePay(false)
         setPhase("register-taken")
         return
       }
@@ -1249,6 +1260,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
                 setPhase("pay")
                 setRegisterTakenInfo(null)
                 setRegisterTakenKind(null)
+                // Abrió bloqueado: no hay pagos cargados todavía, así que el
+                // reintento es simplemente entrar al teclado de cobro.
+                // Confirmar acá emitiría una venta sin pagos.
+                if (blockedBeforePay) {
+                  setBlockedBeforePay(false)
+                  return
+                }
                 void handleConfirm(applied, change)
               }}
               onCancel={handleClose}

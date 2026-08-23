@@ -76,14 +76,34 @@ export interface DrawerRow {
   isClosed: boolean
   /** Componentes de venta del período de la caja (calculados server-side). */
   sold: number | string
+  /** Parte de `sold` cobrada en efectivo — la única que entra al cajón. */
+  cashSold: number | string
   expense: number | string
   income: number | string
   return: number | string
+
+  // ── Cuadre del arqueo (mig 164) ───────────────────────────────────────────
+  // El backend resuelve el veredicto porque es el único que conoce la
+  // tolerancia del comercio; el front no recalcula nada.
+  /** Efectivo que debía haber en el cajón. `null` si no se pudo determinar. */
+  expectedAmount: number | string | null
+  /**
+   * `frozen`    — congelado al cerrar: el número que el cajero tenía delante.
+   * `estimated` — cierre anterior a la mig 164, recalculado ahora (se marca en la UI).
+   * `live`      — caja todavía abierta: el "debería haber" del momento.
+   */
+  expectedSource: "frozen" | "estimated" | "live" | null
+  /** `closeAmount − expectedAmount`. Negativo = falta plata. */
+  difference: number | string | null
+  /** Veredicto de `Reports\CashCountStatus`. */
+  cashStatus: "ok" | "short" | "over" | "unknown"
 }
 
 /** Respuesta del endpoint /v1/reports/drawers (lista). */
 export interface DrawersReportResponse {
   rows: DrawerRow[]
+  /** Margen con el que se clasificó el cuadre, en moneda del tenant. */
+  tolerance: number
 }
 
 /**

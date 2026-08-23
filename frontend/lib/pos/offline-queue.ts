@@ -18,7 +18,7 @@
 import { getPosOfflineDB as getDB } from '@/lib/pos/offline-db'
 
 // Los tipos de la fila viven con el schema, pero se re-exportan acá porque
-// los call-sites (`use-offline-sync`, `sync-queue-dialog`) los importan de
+// los call-sites (`use-offline-sync`, `sync-queue-list`) los importan de
 // este módulo desde antes de que existiera `offline-db.ts`.
 export type {
   OfflineError,
@@ -187,7 +187,7 @@ export async function getCount(): Promise<number> {
  * reintentan solas (ver `markFailed`). Es la señal de "esto necesita que
  * alguien lo mire": a diferencia de 'pending'/'syncing', que se resuelven
  * solas al volver la conexión, una fallida se queda ahí para siempre si
- * nadie abre `SyncQueueDialog` y decide reintentar o descartar.
+ * nadie entra a Menú → Ventas pendientes y decide reintentar o descartar.
  */
 export async function getFailedCount(): Promise<number> {
   const db = await getDB()

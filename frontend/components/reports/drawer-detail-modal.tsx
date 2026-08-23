@@ -19,15 +19,18 @@ import { type DrawerRow, useCloseDrawerPanel } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
+import { CashCountBadge } from "@/components/reports/cash-count-badge"
 
 interface DrawerDetailModalProps {
   drawer: DrawerRow | null
+  /** Margen de cuadre del comercio, para explicar un "Cuadra" con diferencia. */
+  tolerance?: number
   onClose: () => void
   /** Llamado después de un cierre exitoso (además de onClose). */
   onClosed: () => void
 }
 
-export function DrawerDetailModal({ drawer, onClose, onClosed }: DrawerDetailModalProps) {
+export function DrawerDetailModal({ drawer, tolerance, onClose, onClosed }: DrawerDetailModalProps) {
   const { data: bootstrap } = useBootstrap()
   const closeDrawer = useCloseDrawerPanel()
 
@@ -60,10 +63,19 @@ export function DrawerDetailModal({ drawer, onClose, onClosed }: DrawerDetailMod
     )
   }
 
-  const theoretical = drawer ? computeTheoretical(drawer) : 0
-  const diff = drawer?.isClosed
-    ? parseNum(drawer.closeAmount) - theoretical
-    : null
+  // Esperado y diferencia vienen RESUELTOS del backend (mig 164): congelados
+  // al cerrar cuando el cierre es posterior a la migración, estimados y
+  // marcados como tales cuando es anterior. El modal no recalcula — si lo
+  // hiciera volvería el bug que el reporte tenía: sumar todos los medios de
+  // pago contra un monto contado que es solo efectivo.
+  const expected = drawer?.expectedAmount != null ? parseNum(drawer.expectedAmount) : null
+  const diff = drawer?.difference != null ? parseNum(drawer.difference) : null
+
+  // El cuadre en vivo del formulario de cierre usa el MISMO esperado que
+  // después queda congelado, para que lo que el dueño ve antes de confirmar
+  // sea lo que va a leer en el reporte.
+  const liveDiff =
+    countedAmount !== null && expected !== null ? countedAmount - expected : null
 
   return (
     <Dialog
@@ -110,6 +122,10 @@ export function DrawerDetailModal({ drawer, onClose, onClosed }: DrawerDetailMod
                 Movimientos
               </p>
               <MovRow label="Ventas" value={parseNum(drawer.sold)} bootstrap={bootstrap} />
+              {/* Cuánto de esas ventas entró en billetes. Es el componente que
+                  explica el esperado: sin esta fila, un turno con tarjeta
+                  parece que "debería" tener mucho más en el cajón. */}
+              <MovRow label="…de eso, en efectivo" value={parseNum(drawer.cashSold)} bootstrap={bootstrap} />
               <MovRow label="Ingresos" value={parseNum(drawer.income)} bootstrap={bootstrap} />
               <MovRow
                 label="Egresos"
@@ -125,10 +141,13 @@ export function DrawerDetailModal({ drawer, onClose, onClosed }: DrawerDetailMod
 
             <Separator />
 
-            {/* Monto esperado */}
+            {/* Efectivo esperado — solo la parte cobrada en billetes: es contra
+                eso que se cuenta el cajón, no contra el total del turno. */}
             <div className="flex justify-between font-medium">
-              <span>Monto esperado</span>
-              <span className="tabular-nums">{formatMoney(theoretical, bootstrap)}</span>
+              <span>Efectivo esperado</span>
+              <span className="tabular-nums">
+                {expected !== null ? formatMoney(expected, bootstrap) : "—"}
+              </span>
             </div>
 
             {/* Sección cierre (solo si está cerrada) */}
@@ -150,22 +169,16 @@ export function DrawerDetailModal({ drawer, onClose, onClosed }: DrawerDetailMod
                     <span className="tabular-nums text-right">
                       {formatMoney(parseNum(drawer.closeAmount), bootstrap)}
                     </span>
-                    <span className="text-muted-foreground">Diferencia</span>
-                    <span
-                      className={cn(
-                        "tabular-nums text-right font-medium",
-                        diff !== null && Math.abs(diff) < 1
-                          ? "text-emerald-600"
-                          : diff !== null && diff < 0
-                            ? "text-destructive"
-                            : "text-amber-600",
-                      )}
-                    >
-                      {diff !== null
-                        ? Math.abs(diff) < 1
-                          ? "OK"
-                          : `${diff > 0 ? "+" : ""}${formatMoney(diff, bootstrap)}`
-                        : "—"}
+                    <span className="text-muted-foreground">Cuadre</span>
+                    <span className="flex justify-end">
+                      <CashCountBadge
+                        status={drawer.cashStatus}
+                        difference={diff}
+                        expectedSource={drawer.expectedSource}
+                        tolerance={tolerance}
+                        bootstrap={bootstrap}
+                        size="md"
+                      />
                     </span>
                   </div>
                 </section>
@@ -193,22 +206,27 @@ export function DrawerDetailModal({ drawer, onClose, onClosed }: DrawerDetailMod
                       onChange={setCountedAmount}
                       placeholder="0"
                     />
-                    {countedAmount !== null && (
+                    {liveDiff !== null && (
                       <p
                         className={cn(
                           "text-xs tabular-nums",
-                          Math.abs(countedAmount - theoretical) < 1
+                          // Mismo umbral que el backend (`CashCountStatus`):
+                          // el piso de redondeo es una unidad mínima de la
+                          // moneda. Acá no se conoce la tolerancia del
+                          // comercio con certeza, así que se usa la que llega
+                          // por prop y, si no llegó, el piso.
+                          Math.abs(liveDiff) <= (tolerance ?? 1)
                             ? "text-emerald-600"
-                            : countedAmount - theoretical < 0
+                            : liveDiff < 0
                               ? "text-destructive"
                               : "text-amber-600",
                         )}
                       >
-                        {Math.abs(countedAmount - theoretical) < 1
+                        {Math.abs(liveDiff) <= (tolerance ?? 1)
                           ? "Sin diferencia"
-                          : countedAmount - theoretical < 0
-                            ? `Faltante: ${formatMoney(Math.abs(countedAmount - theoretical), bootstrap)}`
-                            : `Sobrante: ${formatMoney(countedAmount - theoretical, bootstrap)}`}
+                          : liveDiff < 0
+                            ? `Faltante: ${formatMoney(Math.abs(liveDiff), bootstrap)}`
+                            : `Sobrante: ${formatMoney(liveDiff, bootstrap)}`}
                       </p>
                     )}
                   </div>
@@ -241,14 +259,6 @@ function parseNum(v: unknown): number {
   return 0
 }
 
-function computeTheoretical(r: DrawerRow): number {
-  const open    = parseNum(r.openAmount)
-  const sold    = parseNum(r.sold)
-  const expense = parseNum(r.expense)
-  const income  = parseNum(r.income)
-  const ret     = parseNum(r.return)
-  return open + sold + income - expense - Math.abs(ret)
-}
 
 function niceDateTime(iso: string): string {
   if (!iso) return "—"
