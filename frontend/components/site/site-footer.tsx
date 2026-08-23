@@ -1,7 +1,8 @@
 import Link from "next/link"
 
 import { PuntoLogo } from "@/components/layout/punto-logo"
-import { FEATURE_CARDS, HOME_RUBROS } from "@/lib/site/modules"
+import { FEATURE_CARDS } from "@/lib/site/modules"
+import { RUBROS, RUBRO_GRUPOS } from "@/lib/site/rubros"
 import { MODULOS } from "@/lib/site/modulos"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
 
@@ -50,7 +51,7 @@ export function SiteFooter() {
     // Cierre oscuro del sitio: arranca en <CtaFinal> y termina acá.
     <footer className="bg-neutral-950 text-white">
       <div className="mx-auto w-full max-w-6xl px-4 py-14 md:px-6">
-        <div className="grid grid-cols-2 gap-10 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-10 md:grid-cols-6">
           <div className="col-span-2 flex flex-col gap-4 md:col-span-1">
             <PuntoLogo scheme="on-dark" className="h-6 w-[88px]" />
             <p className="text-sm text-white/65">
@@ -94,13 +95,16 @@ export function SiteFooter() {
               href: "#",
             }))}
           />
-          <FooterColumn
-            title="Soluciones"
-            links={HOME_RUBROS.map((r) => ({
-              label: r.label,
-              href: `/para/${r.slug}`,
-            }))}
-          />
+          {RUBRO_GRUPOS.map((grupo) => (
+            <FooterColumn
+              key={grupo.key}
+              title={grupo.label}
+              links={RUBROS.filter((r) => r.grupo === grupo.key).map((r) => ({
+                label: r.label,
+                href: `/para/${r.slug}`,
+              }))}
+            />
+          ))}
           <div className="flex flex-col gap-8">
             <FooterColumn title="Recursos" links={RECURSOS} />
             <FooterColumn title="Legal" links={LEGAL} />

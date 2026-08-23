@@ -7,6 +7,7 @@ import { ArrowRight } from "lucide-react"
 
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { MODULO_GROUPS } from "@/lib/site/modulos"
+import { RUBROS, RUBRO_GRUPOS } from "@/lib/site/rubros"
 import { cn } from "@/lib/utils"
 
 /*
@@ -25,91 +26,50 @@ export type MenuEntry = {
   previewText?: string
 }
 
-export const RUBROS_MENU: MenuEntry[] = [
-  {
-    label: "Restaurantes",
-    description: "Mesas, comandas y cuenta dividida",
-    href: "/para/restaurantes",
-    preview: { src: "/site/rubro-restaurantes.jpg", alt: "" },
-    previewText: "El salón, la cocina y la caja, en sintonía.",
-  },
-  {
-    label: "Minimarkets",
-    description: "Escanear, cobrar y reponer a tiempo",
-    href: "/para/minimarkets",
-    preview: { src: "/site/rubro-retail.jpg", alt: "" },
-    previewText: "La fila avanza y el stock se cuida solo.",
-  },
-  {
-    label: "Farmacias",
-    description: "Vencimientos y cuenta corriente al día",
-    href: "/para/farmacias",
-    preview: { src: "/site/rubro-salud-y-belleza.jpg", alt: "" },
-    previewText: "Recetas, vencimientos y crédito bajo control.",
-  },
-  {
-    label: "Ferreterías",
-    description: "Miles de códigos sin dudar en el mostrador",
-    href: "/para/ferreterias",
-    previewText: "Miles de artículos y un mostrador que no duda.",
-  },
-  {
-    label: "Bares y pubs",
-    description: "Barra, comandas y cuenta dividida",
-    href: "/para/bares-y-pubs",
-    preview: { src: "/site/rubro-restaurantes.jpg", alt: "" },
-    previewText: "La barra no para y la cuenta no se pierde.",
-  },
-  {
-    label: "Cafeterías",
-    description: "Mostrador rápido y clientela que vuelve",
-    href: "/para/cafeterias",
-    preview: { src: "/site/hero.jpg", alt: "" },
-    previewText: "El mostrador rápido y la clientela que vuelve.",
-  },
-  {
-    label: "Panaderías",
-    description: "Recetas, producción y venta al peso",
-    href: "/para/panaderias",
-    previewText: "Producción de madrugada, caja sin fila.",
-  },
-  {
-    label: "Heladerías",
-    description: "Venta por peso, bochas y combos",
-    href: "/para/heladerias",
-    previewText: "El pico del fin de semana, servido sin fila.",
-  },
-  {
-    label: "Tiendas de ropa",
-    description: "Talles, colores y temporadas en orden",
-    href: "/para/tiendas-de-ropa",
-    preview: { src: "/site/rubro-retail.jpg", alt: "" },
-    previewText: "Talles, colores y temporadas en orden.",
-  },
-]
+/** Fotos y bajada del preview, por rubro. Sin foto, cae al degradado. */
+const RUBRO_PREVIEWS: Record<string, { src?: string; text?: string }> = {
+  restaurantes: { src: "/site/rubro-restaurantes.jpg" },
+  "bares-y-cafes": { src: "/site/hero.jpg" },
+  minimarkets: { src: "/site/rubro-retail.jpg" },
+  farmacias: { src: "/site/rubro-salud-y-belleza.jpg" },
+  "ropa-y-accesorios": { src: "/site/rubro-retail.jpg" },
+  barberias: { src: "/site/mockup-barber.jpg" },
+  peluquerias: { src: "/site/rubro-salud-y-belleza.jpg" },
+  "estetica-y-cosmetologia": { src: "/site/rubro-salud-y-belleza.jpg" },
+}
 
+export const RUBROS_MENU: MenuEntry[] = RUBROS.map((r) => ({
+  label: r.label,
+  description: r.eyebrow
+    .replace(/^Para /, "")
+    .replace(/^\w/, (c) => c.toUpperCase()),
+  href: `/para/${r.slug}`,
+  preview: RUBRO_PREVIEWS[r.slug]?.src
+    ? { src: RUBRO_PREVIEWS[r.slug].src as string, alt: "" }
+    : undefined,
+  previewText: RUBRO_PREVIEWS[r.slug]?.text ?? r.heroTitle,
+}))
+
+/** Captura y bajada del preview, por módulo. Sin captura, cae al degradado. */
 const MODULO_PREVIEWS: Record<string, { src?: string; text: string }> = {
   "Punto de Venta": {
-    src: "/site/pos-screenshot.png",
+    src: "/site/pos-gastro-light.png",
     text: "Catálogo con fotos, cobro en dos toques y comprobante al cerrar.",
   },
   "Panel de administración": {
     src: "/site/panel-screenshot.png",
     text: "El negocio entero en una pantalla, sucursal por sucursal.",
   },
-  Reportes: {
-    src: "/site/reportes-stats.png",
-    text: "Margen, ingresos y egresos del período, sin armar una planilla.",
-  },
   "Punto AI": {
     src: "/site/ai-screenshot.png",
     text: "Preguntale por tus números y responde con los datos del negocio.",
   },
   "Facturación electrónica": {
+    src: "/site/pos-success.png",
     text: "Todos los documentos que necesites, sin costo por comprobante.",
   },
   "Mesas y órdenes": {
-    src: "/site/pos-screenshot.png",
+    src: "/site/pos-gastronomia.png",
     text: "El salón y la cocina, en la misma página.",
   },
   "Pantalla de cocina": {
@@ -123,7 +83,12 @@ const MODULO_PREVIEWS: Record<string, { src?: string; text: string }> = {
     text: "Sacale una foto a la factura del proveedor y la carga sale sola.",
   },
   "Clientes y crédito": {
+    src: "/site/cliente-comportamiento.png",
     text: "Quién compró, cuánto debe y qué se cobró, con su recibo.",
+  },
+  Reportes: {
+    src: "/site/reportes-stats.png",
+    text: "Margen, ingresos y egresos del período, sin armar una planilla.",
   },
   "Gift cards y vales": {
     text: "Plata a favor del cliente o productos ya pagos, con un código.",
@@ -273,13 +238,40 @@ export function RubrosMenu() {
   const entry = RUBROS_MENU[active]
 
   return (
-    <div className="flex md:w-[52rem]">
-      <EntryList
-        title="Rubros"
-        entries={RUBROS_MENU}
-        active={active}
-        onHover={setActive}
-      />
+    <div className="flex md:w-[54rem]">
+      <div className="flex-1 p-4 md:p-5">
+        <div className="grid gap-x-4 gap-y-4 md:grid-cols-3">
+          {RUBRO_GRUPOS.map((grupo) => (
+            <div key={grupo.key} className="flex flex-col">
+              <p className="mb-1.5 px-2.5 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+                {grupo.label}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {RUBROS.map((r, i) =>
+                  r.grupo === grupo.key ? (
+                    <DropdownMenuItem
+                      key={r.slug}
+                      asChild
+                      className={cn(
+                        "items-start rounded-lg px-3 py-2",
+                        i === active && "bg-accent"
+                      )}
+                    >
+                      <Link
+                        href={`/para/${r.slug}`}
+                        onMouseEnter={() => setActive(i)}
+                        onFocus={() => setActive(i)}
+                      >
+                        <span className="text-sm font-medium">{r.label}</span>
+                      </Link>
+                    </DropdownMenuItem>
+                  ) : null
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
       {/* La foto cubre todo el bloque; el texto va encima, abajo. */}
       <div className="relative hidden w-72 shrink-0 overflow-hidden rounded-r-2xl bg-neutral-900 md:block">
         {entry.preview ? (

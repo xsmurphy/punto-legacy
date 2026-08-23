@@ -28,7 +28,11 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       { source: "/pos/mesas", destination: "/pos/espacios", permanent: true },
-      { source: "/settings/tables", destination: "/settings/espacios", permanent: true },
+      {
+        source: "/settings/tables",
+        destination: "/settings/espacios",
+        permanent: true,
+      },
     ]
   },
 }

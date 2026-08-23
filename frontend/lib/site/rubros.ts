@@ -461,6 +461,771 @@ export const RUBROS: Rubro[] = [
       },
     ],
   },
+  {
+    slug: "bares-y-cafes",
+    grupo: "gastronomia",
+    label: "Bares y cafés",
+    posesivo: "tu bar",
+    eyebrow: "Para bares y cafés",
+    heroTitle: "La barra no para y la cuenta no se pierde",
+    heroDescription:
+      "Sirve para bares, cafeterías, heladerías, panaderías y confiterías: la cuenta queda abierta por mesa o por cliente, los agregados bajan claros a la barra o al mostrador, y la noche fuerte cierra en un arqueo que no deja dudas.",
+    thirtySeconds: [
+      "La cuenta se abre por mesa o por cliente y queda ahí hasta que alguien pide cerrarla.",
+      "Un café con leche de almendra, un helado con dos toppings o una docena mixta de facturas: el agregado baja claro a la barra o al mostrador.",
+      "Vender por peso, por unidad o por docena — el helado al kilo, la factura por unidad — desde la misma pantalla.",
+      "El gift card se vende, se carga y se descuenta como un medio de pago más.",
+    ],
+    sections: [
+      {
+        kicker: "La barra en hora pico",
+        title: "Cada mesa con su cuenta, cada pedido en orden",
+        paragraphs: [
+          "El sábado a la noche la barra recibe pedidos de diez mesas a la vez, más los que piden parado. Cada mesa tiene su cuenta abierta desde el primer pedido, y sumar un café más o una porción de torta no obliga a recontar toda la mesa desde cero.",
+          "Lo mismo para el cliente que se sienta solo en la barra: su cuenta se abre a su nombre y se cobra cuando él lo pide, sin mezclarla con la mesa de al lado.",
+        ],
+        linkLabel: "Ver la barra en hora pico",
+        mockup: {
+          label: "Sábado 22:15",
+          title: "Mesa 6 · cuenta abierta",
+          caption: "Abierta hace 40 minutos.",
+          rows: [
+            { left: "2× Café con leche", right: "{money:24000}" },
+            { left: "1× Torta de chocolate", right: "{money:18000}" },
+            { left: "1× Helado 1/4 kg · 2 gustos", right: "{money:22000}" },
+          ],
+          footer: { left: "Acumulado", right: "{money:64000}" },
+        },
+      },
+      {
+        kicker: "El agregado que cambia todo",
+        title: "Leche, toppings o docena: el pedido baja claro",
+        paragraphs: [
+          "En la cafetería el agregado es la leche o el shot de más; en la heladería, el segundo topping o la crema; en la panadería, si la docena es surtida o de un solo tipo. Cada rubro tiene su propio agregado y Punto lo deja elegir sin inventar un artículo nuevo por cada combinación.",
+          "El mostrador vende por unidad, por kilo o por docena según el producto — la facturería no se pesa, el helado sí, y el sistema sabe la diferencia sin que el vendedor tenga que acordarse.",
+        ],
+        linkLabel: "Ver los agregados por producto",
+        mockup: {
+          label: "Mostrador",
+          title: "Helado · 1/2 kg",
+          rows: [
+            { left: "Gusto 1: Dulce de leche", right: "" },
+            { left: "Gusto 2: Chocolate amargo", right: "" },
+            { left: "Topping: Chips de chocolate", right: "{money:5000}" },
+          ],
+          footer: { left: "Total", right: "{money:35000}" },
+        },
+      },
+      {
+        kicker: "La noche fuerte cierra en números",
+        title: "Dividir la cuenta, cobrar con gift card, arquear al final",
+        paragraphs: [
+          "Cuando el grupo pide dividir la cuenta, cada uno paga lo suyo desde la misma pantalla — en efectivo, QR, tarjeta o con un gift card que ya tiene cargado. El gift card se vende como cualquier producto y se descuenta solo cuando el cliente lo usa.",
+          "Al cerrar la noche, el arqueo compara lo esperado contra lo contado sin depender de que alguien se acuerde de cada movimiento. La noche más fuerte del mes queda tan clara como cualquier martes tranquilo.",
+        ],
+        linkLabel: "Ver el arqueo de la noche",
+        mockup: {
+          label: "Cierre 01:30",
+          title: "Arqueo de caja",
+          rows: [
+            { left: "Apertura", right: "{money:400000}" },
+            { left: "Ventas totales", right: "{money:3180000}" },
+            { left: "Gift cards vendidos", right: "{money:250000}" },
+          ],
+          footer: { left: "Esperado en caja", right: "{money:2850000}" },
+        },
+      },
+    ],
+  },
+  {
+    slug: "comida-rapida",
+    grupo: "gastronomia",
+    label: "Comida rápida",
+    posesivo: "tu local",
+    eyebrow: "Para comida rápida",
+    heroTitle: "El mostrador no frena y la comanda llega clara",
+    heroDescription:
+      "El pedido se arma en segundos con sus combos y agregados, la pantalla de cocina lo reparte por estación y cada cliente sabe si es para el salón o para llevar. El pico de la noche no descontrola nada.",
+    thirtySeconds: [
+      "El combo se arma con un toque y el agregado — doble carne, sin cebolla, extra queso — baja literal a la plancha.",
+      "La pantalla de cocina separa el pedido por estación: plancha, freidora, armado.",
+      "Cada pedido queda marcado como para el salón o para llevar, sin confundirse en el mostrador.",
+      "En el pico de la noche el mostrador sigue cobrando al mismo ritmo, con el teclado alcanzando para todo.",
+    ],
+    sections: [
+      {
+        kicker: "El mostrador no puede frenar",
+        title: "Combos y agregados que bajan claros a la plancha",
+        paragraphs: [
+          "El cliente pide una hamburguesa doble, sin cebolla, con papas grandes y una gaseosa — todo en un combo armado con un toque. El pedido baja a la plancha exactamente así, sin que el cocinero tenga que adivinar qué significa 'la de siempre pero distinta'.",
+          "Cada agregado tiene su precio propio, así que el combo se cobra completo sin que el cajero tenga que sumar a mano lo que cambia respecto al de la carta.",
+        ],
+        linkLabel: "Ver un combo armado",
+        mockup: {
+          label: "Mostrador",
+          title: "Combo doble",
+          rows: [
+            { left: "1× Hamburguesa doble · sin cebolla", right: "" },
+            { left: "1× Papas grandes", right: "" },
+            { left: "1× Gaseosa 500ml", right: "" },
+          ],
+          footer: { left: "Total combo", right: "{money:42000}" },
+        },
+      },
+      {
+        kicker: "Cada estación con lo suyo",
+        title: "La pantalla de cocina reparte el pedido, no lo amontona",
+        paragraphs: [
+          "En vez de un solo papel con todo mezclado, la pantalla de cocina muestra a la plancha lo que le toca a la plancha y a la freidora lo que le toca a la freidora. Cada estación ve su parte del pedido y lo marca listo cuando termina.",
+          "El pedido completo se arma solo cuando todas las estaciones terminaron la suya — así nada sale a medias ni se enfría esperando la papa.",
+        ],
+        linkLabel: "Ver la pantalla de cocina",
+        mockup: {
+          label: "Cocina · plancha",
+          title: "Pedido #114",
+          rows: [
+            { left: "1× Hamburguesa doble · sin cebolla", right: "en curso" },
+            { left: "1× Lomito completo", right: "pendiente" },
+          ],
+        },
+      },
+      {
+        kicker: "Salón o para llevar",
+        title: "El pico de la noche sin perder el hilo",
+        paragraphs: [
+          "Cada pedido queda marcado desde que se toma: para el salón, con su número de mesa, o para llevar, con el nombre de quien lo espera. En el pico de la noche eso evita que un pedido para llevar se sirva en una bandeja o que uno de salón se quede armado en el mostrador.",
+          "El cierre del turno junta todo lo cobrado — salón y para llevar — en un solo arqueo, sin planillas separadas por tipo de pedido.",
+        ],
+        linkLabel: "Ver el pico de la noche",
+        mockup: {
+          label: "Viernes 21:00",
+          title: "Pedidos en curso",
+          rows: [
+            { left: "Mesa 4", right: "en cocina" },
+            { left: "Para llevar · Iván", right: "listo" },
+            { left: "Para llevar · Noelia", right: "en cocina" },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    slug: "dark-kitchen",
+    grupo: "gastronomia",
+    label: "Dark kitchen",
+    posesivo: "tu cocina",
+    eyebrow: "Para dark kitchens",
+    heroTitle: "Una cocina, varias marcas, un solo control",
+    heroDescription:
+      "Sin salón que atender, todo pasa por la comanda: varias marcas operando desde la misma cocina, cada pedido por estación, el tiempo de preparación medido y el costo de cada plato bajo control.",
+    thirtySeconds: [
+      "Cada marca que opera desde la cocina tiene su propio menú y su propia numeración, aunque compartan el mismo espacio.",
+      "La comanda llega por estación: armado, plancha, frituras, cada una ve solo lo suyo.",
+      "El tiempo entre que entra el pedido y sale listo queda medido, plato por plato.",
+      "La receta de cada plato fija el costo real, y el margen se ve sin recalcular a mano.",
+    ],
+    sections: [
+      {
+        kicker: "Varias marcas, una sola cocina",
+        title: "Cada marca con su menú, todas con la misma comanda",
+        paragraphs: [
+          "Una cocina puede operar dos o tres marcas distintas al mismo tiempo — cada una con su propio menú, sus propios precios y su propia numeración de pedidos — sin que eso signifique manejar tres sistemas separados.",
+          "El pedido entra identificado con su marca desde el primer momento, así la cocina sabe para cuál de las tres está armando cada plato.",
+        ],
+        linkLabel: "Ver el pedido por marca",
+        mockup: {
+          label: "Cocina central",
+          title: "Pedidos en curso",
+          rows: [
+            { left: "Pedido #041 · Marca Wok Go", right: "en cocina" },
+            { left: "Pedido #042 · Marca Burger Lab", right: "armado" },
+            { left: "Pedido #043 · Marca Wok Go", right: "en cocina" },
+          ],
+        },
+      },
+      {
+        kicker: "Sin salón, con orden",
+        title: "La comanda por estación, sin amontonar",
+        paragraphs: [
+          "Sin mozos ni mesas, todo el ritmo de la cocina depende de la comanda: cada estación — armado, plancha, frituras — ve solo los pasos que le tocan, y el pedido completo se arma cuando todas terminaron.",
+          "El tiempo entre que el pedido entra y sale listo queda registrado por plato, así se ve qué preparación se está atrasando antes de que se acumulen diez pedidos esperando lo mismo.",
+        ],
+        linkLabel: "Ver el tiempo de preparación",
+        mockup: {
+          label: "Últimos 30 minutos",
+          title: "Tiempo de preparación",
+          rows: [
+            { left: "Wok de pollo", right: "6 min prom." },
+            { left: "Burger doble", right: "9 min prom." },
+            { left: "Papas fritas", right: "4 min prom." },
+          ],
+        },
+      },
+      {
+        kicker: "El costo, plato por plato",
+        title: "La receta dice cuánto cuesta cada plato",
+        paragraphs: [
+          "Cada plato tiene su receta cargada con los insumos exactos que lleva, y el costo se recalcula solo cuando cambia el precio de un ingrediente. Así el margen de cada plato de cada marca se ve al toque, sin planilla aparte.",
+          "El reporte del día junta lo que vendió cada marca y a qué costo, para saber cuál plato conviene empujar y cuál está perdiendo margen sin que nadie lo note.",
+        ],
+        linkLabel: "Ver el costo por plato",
+        mockup: {
+          label: "Marca Wok Go",
+          title: "Costo · Wok de pollo",
+          rows: [
+            { left: "Precio de venta", right: "{money:38000}" },
+            { left: "Costo de insumos", right: "{money:14200}" },
+          ],
+          footer: { left: "Margen", right: "{money:23800}" },
+        },
+      },
+    ],
+  },
+  {
+    slug: "decoracion-y-hogar",
+    grupo: "retail",
+    label: "Decoración y hogar",
+    posesivo: "tu tienda",
+    eyebrow: "Para decoración y hogar",
+    heroTitle: "Del catálogo a la entrega, sin perder el hilo",
+    heroDescription:
+      "Un catálogo grande con fotos, variantes de color y medida, cotizaciones para amueblar un ambiente entero y entregas que se pactan para más adelante con una seña. El stock se lleva por depósito, no de memoria.",
+    thirtySeconds: [
+      "Cada artículo puede tener foto, y sus variantes de color o medida se buscan sin duplicar el catálogo.",
+      "Los artículos de bajo movimiento y alto valor — un sillón, una mesa de diseño — se controlan igual que los de rotación diaria.",
+      "Una cotización para amueblar un ambiente se arma en un documento y se convierte en venta cuando el cliente confirma.",
+      "La entrega diferida se pacta con seña, y el saldo se cobra el día que el mueble sale del depósito.",
+    ],
+    sections: [
+      {
+        kicker: "El catálogo se ve, no se adivina",
+        title: "Fotos, variantes y stock por depósito",
+        paragraphs: [
+          "Un sillón de tres cuerpos en tres colores no son tres artículos distintos: es un modelo con sus variantes, cada una con su foto y su stock propio. El vendedor busca el modelo y muestra al cliente lo que hay en cada color sin ir hasta el depósito a confirmar.",
+          "El stock se lleva por depósito — lo que está en el local de exhibición no es lo mismo que lo que espera en el galpón — y cada venta descuenta del lugar correcto.",
+        ],
+        linkLabel: "Ver el catálogo con variantes",
+        mockup: {
+          label: "Catálogo",
+          title: "Sillón Milán 3 cuerpos",
+          rows: [
+            { left: "Color Gris", right: "quedan 2", sub: ["exhibición"] },
+            { left: "Color Beige", right: "quedan 5", sub: ["depósito"] },
+            { left: "Color Verde", right: "quedan 0", sub: ["agotado"] },
+          ],
+        },
+      },
+      {
+        kicker: "Lo que se vende poco pero vale mucho",
+        title: "Alto valor, bajo movimiento, mismo control",
+        paragraphs: [
+          "Una lámpara de diseño o una mesa importada no se venden todos los días, pero cuando se venden el margen importa. Cada unidad queda identificada, así no hay que confiar en la memoria de quién la vio pasar por el depósito la semana pasada.",
+          "El reporte de rotación separa lo que se mueve rápido de lo que espera meses, para no recomprar por reflejo lo que ya sobra en el depósito.",
+        ],
+        linkLabel: "Ver la rotación por artículo",
+        mockup: {
+          label: "Este trimestre",
+          title: "Rotación de stock",
+          rows: [
+            { left: "Set de vasos 6u", right: "48 unidades" },
+            { left: "Mesa ratona roble", right: "3 unidades" },
+            {
+              left: "Espejo redondo XL",
+              right: "1 unidad",
+              sub: ["hace 4 meses"],
+            },
+          ],
+        },
+      },
+      {
+        kicker: "El proyecto entero, en un documento",
+        title: "Cotizar el ambiente, entregar cuando esté listo",
+        paragraphs: [
+          "Cuando el cliente quiere amueblar un living completo, la cotización junta sillón, mesa, lámpara y alfombra en un solo documento con un total — y si el cliente confirma, se convierte en venta sin cargar todo de nuevo.",
+          "Si la entrega es para dentro de tres semanas porque el mueble llega de otra sucursal, se cobra una seña ahora y el saldo el día que sale del depósito, con la fecha de entrega pactada quedando escrita, no prometida de palabra.",
+        ],
+        linkLabel: "Ver una cotización con entrega diferida",
+        mockup: {
+          label: "Cotización #212",
+          title: "Living completo",
+          rows: [
+            { left: "1× Sillón Milán · Beige", right: "{money:2400000}" },
+            { left: "1× Mesa ratona roble", right: "{money:680000}" },
+            { left: "Seña recibida", right: "{money:1000000}" },
+          ],
+          footer: { left: "Saldo a la entrega", right: "{money:2080000}" },
+        },
+      },
+    ],
+  },
+  {
+    slug: "barberias",
+    grupo: "salud-y-belleza",
+    label: "Barberías",
+    posesivo: "tu barbería",
+    eyebrow: "Para barberías",
+    heroTitle: "Turnos cortos, sillones llenos, nadie esperando de más",
+    heroDescription:
+      "La agenda encadena los turnos de cada barbero sin espacios muertos, el cliente recibe su recordatorio antes de venir y el cobro se hace en el mismo turno, con lo que compró de producto sumado al servicio.",
+    thirtySeconds: [
+      "La agenda muestra los sillones en simultáneo, con cada turno encadenado al siguiente sin espacios muertos.",
+      "El cliente recibe la confirmación y el recordatorio del turno antes de venir, sin llamada de por medio.",
+      "Cada turno pasa por sus estados — confirmado, atendido, ausente — así se ve quién no vino sin revisar la agenda entera.",
+      "El corte se cobra en el momento, con la cera o el aceite que el cliente se lleva sumado al mismo ticket.",
+    ],
+    sections: [
+      {
+        kicker: "El sillón no puede quedar vacío",
+        title: "Turnos encadenados, sillón por sillón",
+        paragraphs: [
+          "Un corte dura veinte minutos y el siguiente cliente ya está sentado esperando: la agenda muestra los sillones en simultáneo, uno por barbero, y cada turno nuevo se encadena al anterior sin dejar huecos que nadie llena.",
+          "Si un barbero atiende corte y barba en el mismo turno, el tiempo se ajusta solo — la agenda no trata todos los servicios como si duraran lo mismo.",
+        ],
+        linkLabel: "Ver la agenda de sillones",
+        mockup: {
+          label: "Sábado · mañana",
+          title: "Agenda por sillón",
+          rows: [
+            {
+              left: "Sillón 1 · Braulio",
+              right: "09:00 – 09:20",
+              sub: ["Corte clásico"],
+            },
+            {
+              left: "Sillón 2 · Nilo",
+              right: "09:00 – 09:35",
+              sub: ["Corte + barba"],
+            },
+            {
+              left: "Sillón 1 · Braulio",
+              right: "09:20 – 09:40",
+              sub: ["Corte clásico"],
+            },
+          ],
+        },
+      },
+      {
+        kicker: "El cliente no se olvida",
+        title: "Confirmación y recordatorio, sin llamar a nadie",
+        paragraphs: [
+          "Apenas se agenda el turno, el cliente recibe la confirmación; el día anterior, el recordatorio. Nadie de la barbería tiene que llamar uno por uno para asegurarse de que se acuerden.",
+          "Cada turno queda marcado como confirmado, atendido o ausente, así al final del día se ve de un vistazo cuántos turnos se perdieron y de quién — sin repasar la agenda completa buscando huecos.",
+        ],
+        linkLabel: "Ver los estados del turno",
+        mockup: {
+          label: "Hoy",
+          title: "Turnos del día",
+          rows: [
+            { left: "10:00 · Marcelo Duarte", right: "confirmado" },
+            { left: "10:20 · Hugo Benítez", right: "atendido" },
+            { left: "10:40 · Ariel Cabrera", right: "ausente" },
+          ],
+        },
+      },
+      {
+        kicker: "El corte y el producto, un solo cobro",
+        title: "Cobrar desde el turno, con lo que se lleva sumado",
+        paragraphs: [
+          "Cuando el cliente termina, el cobro se hace desde el mismo turno: el corte, la barba y la cera que se lleva quedan en un solo ticket, sin pasar por una caja aparte a recalcular todo.",
+          "La ficha del cliente guarda su historial de cortes, así el próximo barbero que lo atienda sabe qué le hicieron la última vez sin tener que preguntar.",
+        ],
+        linkLabel: "Ver el cobro desde el turno",
+        mockup: {
+          label: "Turno 10:20 · Hugo Benítez",
+          title: "Cobrar turno",
+          rows: [
+            { left: "Corte + barba", right: "{money:65000}" },
+            { left: "1× Cera modeladora", right: "{money:35000}" },
+          ],
+          footer: { left: "Total", right: "{money:100000}" },
+        },
+      },
+    ],
+  },
+  {
+    slug: "peluquerias",
+    grupo: "salud-y-belleza",
+    label: "Peluquerías",
+    posesivo: "tu peluquería",
+    eyebrow: "Para peluquerías",
+    heroTitle: "Cada servicio con su tiempo real, cada clienta con su historia",
+    heroDescription:
+      "Un corte no dura lo mismo que una coloración: la agenda respeta el tiempo real de cada servicio, la ficha de la clienta guarda qué tono se usó la última vez, y el producto que se lleva se suma al cobro del día.",
+    thirtySeconds: [
+      "La agenda respeta el tiempo real de cada servicio: un corte no ocupa lo mismo que una coloración o un tratamiento.",
+      "La confirmación y el recordatorio llegan solos antes del turno, sin que nadie tenga que llamar.",
+      "La ficha de la clienta guarda el color, la marca y el tono usados la última vez.",
+      "El shampoo o la crema que se lleva la clienta se cobra en el mismo ticket que el servicio.",
+    ],
+    sections: [
+      {
+        kicker: "Ningún servicio dura lo mismo",
+        title: "La agenda respeta el tiempo real de cada uno",
+        paragraphs: [
+          "Un corte lleva media hora, una coloración con tiempo de pausa lleva dos horas, y un tratamiento capilar otra cosa distinta. La agenda arma cada turno con la duración real del servicio elegido, así no se agenda un color en el mismo espacio que un corte.",
+          "Cuando la coloración necesita tiempo de pausa, ese hueco queda reservado en la agenda del box, sin que otra clienta se agende encima sin querer.",
+        ],
+        linkLabel: "Ver la agenda por servicio",
+        mockup: {
+          label: "Miércoles · tarde",
+          title: "Agenda · Box 2",
+          rows: [
+            {
+              left: "14:00 – 16:00",
+              right: "Coloración completa",
+              sub: ["Marisol Ayala"],
+            },
+            {
+              left: "16:00 – 16:40",
+              right: "Corte y peinado",
+              sub: ["Yolanda Insfrán"],
+            },
+          ],
+        },
+      },
+      {
+        kicker: "El tono de la última vez",
+        title: "La ficha de la clienta no se olvida de nada",
+        paragraphs: [
+          "Cada clienta tiene su ficha con el historial de servicios: qué tono de color se usó, qué marca, qué tratamiento pidió la última vez. La próxima visita empieza sabiendo eso, no reinventando la fórmula a ojo.",
+          "La confirmación del turno y el recordatorio del día anterior salen solos, así la clienta no se olvida y el box no queda vacío por una cita que nadie confirmó.",
+        ],
+        linkLabel: "Ver la ficha de la clienta",
+        mockup: {
+          label: "Ficha · Marisol Ayala",
+          title: "Historial de servicios",
+          rows: [
+            { left: "Coloración · rubio ceniza", right: "hace 6 semanas" },
+            { left: "Corte + brushing", right: "hace 3 semanas" },
+          ],
+        },
+      },
+      {
+        kicker: "El servicio y el producto, juntos",
+        title: "Cobrar el turno con lo que la clienta se lleva",
+        paragraphs: [
+          "Al terminar el servicio, el cobro junta la coloración, el brushing y el shampoo que la clienta compra para su casa en un solo ticket, sin pasar por una caja aparte para el producto de reventa.",
+          "Si la clienta prefiere un paquete de sesiones de tratamiento capilar, se vende una vez y se descuenta sesión por sesión en cada visita, sin volver a cobrar cada vez.",
+        ],
+        linkLabel: "Ver el cobro con producto",
+        mockup: {
+          label: "Turno 16:00 · Marisol Ayala",
+          title: "Cobrar turno",
+          rows: [
+            { left: "Coloración completa", right: "{money:280000}" },
+            { left: "1× Shampoo reparador", right: "{money:65000}" },
+          ],
+          footer: { left: "Total", right: "{money:345000}" },
+        },
+      },
+    ],
+  },
+  {
+    slug: "consultorios-medicos",
+    grupo: "salud-y-belleza",
+    label: "Consultorios médicos",
+    posesivo: "tu consultorio",
+    eyebrow: "Para consultorios médicos",
+    heroTitle: "La agenda de cada profesional, la historia de cada paciente",
+    heroDescription:
+      "Cada profesional tiene su propia agenda, el paciente recibe recordatorio antes de la consulta y su ficha guarda el historial de visitas. La consulta se cobra como particular o como obra social, sin planilla aparte.",
+    thirtySeconds: [
+      "Cada profesional tiene su propia agenda, con su duración de consulta y sus días de atención.",
+      "El paciente recibe confirmación y recordatorio del turno antes de venir.",
+      "Cada turno queda marcado como confirmado, atendido o ausente, para no perder el rastro de quién faltó.",
+      "La ficha del paciente guarda sus visitas anteriores, y el cobro distingue particular de obra social.",
+    ],
+    sections: [
+      {
+        kicker: "Un consultorio, varios profesionales",
+        title: "Cada agenda con sus propios tiempos",
+        paragraphs: [
+          "Si el consultorio atiende con dos o tres profesionales, cada uno tiene su propia agenda: sus días, sus horarios y la duración real de su consulta, sin mezclar los turnos de uno con los del otro en una sola grilla confusa.",
+          "La recepción ve todas las agendas juntas para coordinar la sala de espera, pero cada profesional gestiona la suya sin pisar la del compañero.",
+        ],
+        linkLabel: "Ver la agenda por profesional",
+        mockup: {
+          label: "Martes · mañana",
+          title: "Agenda del consultorio",
+          rows: [
+            {
+              left: "09:00 · Dra. Servín",
+              right: "Consulta clínica",
+              sub: ["Rubén Acosta"],
+            },
+            {
+              left: "09:30 · Dr. Bogado",
+              right: "Control",
+              sub: ["Liliana Ferreira"],
+            },
+          ],
+        },
+      },
+      {
+        kicker: "El paciente no repite su historia",
+        title: "La ficha guarda cada consulta anterior",
+        paragraphs: [
+          "Cada paciente tiene su ficha con el historial de visitas: motivo de consulta, fecha y profesional que lo atendió. El médico llega a la consulta sabiendo qué pasó la última vez, sin que el paciente tenga que repetir todo desde cero.",
+          "La confirmación del turno y el recordatorio del día anterior salen solos, y si el paciente falta, el turno queda marcado como ausente en vez de perderse en la agenda sin explicación.",
+        ],
+        linkLabel: "Ver la ficha del paciente",
+        mockup: {
+          label: "Ficha · Rubén Acosta",
+          title: "Historial de consultas",
+          rows: [
+            {
+              left: "Consulta clínica",
+              right: "hace 2 meses",
+              sub: ["Dra. Servín"],
+            },
+            {
+              left: "Control de presión",
+              right: "hace 3 semanas",
+              sub: ["Dra. Servín"],
+            },
+          ],
+        },
+      },
+      {
+        kicker: "Particular o con cobertura",
+        title: "El cobro distingue quién paga qué",
+        paragraphs: [
+          "Al terminar la consulta, el cobro se hace desde el mismo turno: si el paciente paga particular, sale el {docFiscal} en el momento; si tiene obra social, la consulta queda registrada para la liquidación correspondiente sin mezclarse con las particulares del día.",
+          "El reporte del día separa las consultas por profesional y por tipo de cobertura, para que cerrar el mes no dependa de repasar la agenda entera a mano.",
+        ],
+        linkLabel: "Ver el cobro de la consulta",
+        mockup: {
+          label: "Turno 09:00 · Rubén Acosta",
+          title: "Cobrar consulta",
+          rows: [
+            { left: "Consulta clínica", right: "{money:180000}" },
+            { left: "Modalidad", right: "Particular" },
+          ],
+          footer: { left: "Total", right: "{money:180000}" },
+        },
+      },
+    ],
+  },
+  {
+    slug: "odontologia",
+    grupo: "salud-y-belleza",
+    label: "Odontología",
+    posesivo: "tu consultorio",
+    eyebrow: "Para consultorios odontológicos",
+    heroTitle: "El tratamiento entero, sesión por sesión, bajo control",
+    heroDescription:
+      "Un tratamiento de varias sesiones se presupuesta una vez y se sigue sesión por sesión, la agenda de cada profesional se arma sola con recordatorio para el paciente, y su ficha guarda el plan completo, no solo la última visita.",
+    thirtySeconds: [
+      "Un tratamiento de varias sesiones se presupuesta entero, y cada sesión se descuenta de ese plan sin recotizar cada vez.",
+      "La agenda del profesional muestra el turno con confirmación y recordatorio automático para el paciente.",
+      "Cada turno pasa por sus estados — confirmado, atendido, ausente — para hacer seguimiento del plan sin perder sesiones en el camino.",
+      "La ficha del paciente guarda el plan de tratamiento completo, con lo hecho y lo que falta.",
+    ],
+    sections: [
+      {
+        kicker: "El plan, no la sesión suelta",
+        title: "Presupuestar el tratamiento entero, una sola vez",
+        paragraphs: [
+          "Un tratamiento de conducto o una ortodoncia no se resuelven en una visita: el presupuesto se arma por el plan completo, con sus sesiones estimadas, y el paciente sabe desde el principio cuánto va a costar todo, no solo la sesión de hoy.",
+          "Cada sesión que se cumple se descuenta de ese plan, así nadie tiene que recordar a mano cuántas quedan pendientes ni recotizar cada vez que el paciente vuelve.",
+        ],
+        linkLabel: "Ver un presupuesto de tratamiento",
+        mockup: {
+          label: "Presupuesto · Ortodoncia",
+          title: "Plan de tratamiento",
+          rows: [
+            { left: "Sesión 1 de 8 · Colocación", right: "realizada" },
+            { left: "Sesión 2 de 8 · Control", right: "realizada" },
+            { left: "Sesión 3 de 8 · Control", right: "pendiente" },
+          ],
+          footer: { left: "Total del plan", right: "{money:4200000}" },
+        },
+      },
+      {
+        kicker: "El paciente no se pierde una sesión",
+        title: "Agenda, recordatorio y seguimiento del plan",
+        paragraphs: [
+          "Cada sesión del plan se agenda con su propio turno, y el paciente recibe confirmación y recordatorio antes de venir, igual que para cualquier consulta — el tratamiento largo no depende de que se acuerde solo.",
+          "Si el paciente falta a una sesión, el turno queda marcado como ausente y el plan sigue esperando esa sesión pendiente, en vez de perderse entre las demás consultas del consultorio.",
+        ],
+        linkLabel: "Ver el seguimiento del plan",
+        mockup: {
+          label: "Ficha · Norma Villalba",
+          title: "Seguimiento de ortodoncia",
+          rows: [
+            { left: "Sesión 3 de 8", right: "ausente", sub: ["reprogramada"] },
+            { left: "Sesión 3 de 8 (nueva fecha)", right: "confirmado" },
+          ],
+        },
+      },
+      {
+        kicker: "Lo que se cobra en cada visita",
+        title: "El cobro sigue al plan, no a la memoria",
+        paragraphs: [
+          "Si el plan se paga en cuotas por sesión, cada cobro queda asociado al tratamiento y al paciente, así al final se ve cuánto se cobró del plan y cuánto falta sin reconstruirlo de las boletas sueltas.",
+          "La ficha del paciente muestra el plan completo — hecho, pendiente y cobrado — en un solo lugar, listo para la próxima consulta de seguimiento.",
+        ],
+        linkLabel: "Ver el cobro por sesión",
+        mockup: {
+          label: "Sesión 2 de 8 · Norma Villalba",
+          title: "Cobrar sesión",
+          rows: [
+            { left: "Cuota del plan", right: "{money:525000}" },
+            { left: "Pagado hasta hoy", right: "{money:1050000}" },
+          ],
+          footer: { left: "Saldo del plan", right: "{money:3150000}" },
+        },
+      },
+    ],
+  },
+  {
+    slug: "veterinarias",
+    grupo: "salud-y-belleza",
+    label: "Veterinarias",
+    posesivo: "tu veterinaria",
+    eyebrow: "Para veterinarias",
+    heroTitle: "Cada mascota con su ficha, cada dueño con su historia",
+    heroDescription:
+      "La ficha va por mascota y por dueño, las vacunas y controles se agendan con recordatorio, y el alimento o los accesorios que se llevan se suman a la consulta en el mismo ticket.",
+    thirtySeconds: [
+      "Cada mascota tiene su propia ficha, y cada dueño puede tener varias, todas enlazadas a su nombre.",
+      "El turno de vacuna o control se agenda con confirmación y recordatorio para que el dueño no se olvide.",
+      "La ficha guarda el historial de vacunas, controles y tratamientos de cada mascota.",
+      "El alimento o los accesorios que el dueño compra se cobran en el mismo ticket que la consulta.",
+    ],
+    sections: [
+      {
+        kicker: "Una ficha por mascota, no por dueño",
+        title: "Firulais y Michi, cada uno con su historia",
+        paragraphs: [
+          "Un mismo dueño puede tener perro y gato, y cada mascota tiene su propia ficha con su peso, su raza y su historial — todas enlazadas al mismo dueño para no cargar sus datos de contacto dos veces.",
+          "Cuando el dueño llama para consultar por 'el perro', la recepción encuentra la ficha exacta sin confundirla con la del gato de la misma familia.",
+        ],
+        linkLabel: "Ver la ficha de la mascota",
+        mockup: {
+          label: "Dueño · Familia Aquino",
+          title: "Mascotas registradas",
+          rows: [
+            { left: "Firulais · Labrador", right: "4 años" },
+            { left: "Michi · Siamés", right: "2 años" },
+          ],
+        },
+      },
+      {
+        kicker: "Ninguna vacuna se pasa de fecha",
+        title: "Controles y vacunas con recordatorio",
+        paragraphs: [
+          "Cada vacuna aplicada queda registrada en la ficha con la fecha de la próxima dosis, y el turno de control se agenda con su recordatorio para que el dueño no deje pasar la fecha sin darse cuenta.",
+          "El estado del turno — confirmado, atendido, ausente — permite hacer seguimiento de los controles que quedaron pendientes, en vez de esperar a que el dueño se acuerde solo.",
+        ],
+        linkLabel: "Ver el calendario de vacunas",
+        mockup: {
+          label: "Ficha · Firulais",
+          title: "Historial de vacunas",
+          rows: [
+            {
+              left: "Antirrábica",
+              right: "aplicada",
+              sub: ["próxima: en 11 meses"],
+            },
+            { left: "Séxtuple", right: "vence en 2 semanas" },
+          ],
+        },
+      },
+      {
+        kicker: "La consulta y lo que se lleva",
+        title: "Alimento y accesorios en el mismo ticket",
+        paragraphs: [
+          "Cuando el dueño retira a su mascota después de la consulta, el cobro junta el control, la vacuna aplicada y la bolsa de alimento que se lleva en un solo ticket, sin pasar por una caja aparte para el producto.",
+          "El stock de alimentos y accesorios se descuenta igual que en cualquier mostrador, así la veterinaria sabe cuándo reponer sin esperar a que falte en la góndola.",
+        ],
+        linkLabel: "Ver el cobro con producto",
+        mockup: {
+          label: "Consulta · Firulais",
+          title: "Cobrar visita",
+          rows: [
+            { left: "Control + vacuna séxtuple", right: "{money:150000}" },
+            { left: "1× Alimento 15kg", right: "{money:280000}" },
+          ],
+          footer: { left: "Total", right: "{money:430000}" },
+        },
+      },
+    ],
+  },
+  {
+    slug: "estetica-y-cosmetologia",
+    grupo: "salud-y-belleza",
+    label: "Estética y cosmetología",
+    posesivo: "tu centro",
+    eyebrow: "Para centros de estética y cosmetología",
+    heroTitle: "El paquete de sesiones, seguido de principio a fin",
+    heroDescription:
+      "Un tratamiento de varias sesiones se vende como paquete y se descuenta sesión por sesión, cada una con su turno y su recordatorio, mientras la ficha del cliente sigue el progreso y el insumo usado en cada visita.",
+    thirtySeconds: [
+      "Un paquete de sesiones se vende una vez y se descuenta sesión por sesión en cada visita.",
+      "Cada sesión se agenda con confirmación y recordatorio, sin que el cliente tenga que acordarse solo.",
+      "El estado del turno — confirmado, atendido, ausente — hace seguimiento del paquete sin perder sesiones.",
+      "La ficha del cliente guarda qué tratamiento e insumo se usó en cada sesión anterior.",
+    ],
+    sections: [
+      {
+        kicker: "El paquete, no la sesión suelta",
+        title: "Vender el tratamiento completo, descontar sesión por sesión",
+        paragraphs: [
+          "Un tratamiento de depilación láser o de limpieza facial rara vez se resuelve en una visita: el paquete de sesiones se vende una sola vez, con su precio total, y cada sesión que el cliente cumple se descuenta de ahí, sin recobrar ni recontar a mano.",
+          "El cliente ve cuántas sesiones le quedan del paquete que compró, y el centro sabe qué paquetes están por vencerse antes de que el cliente se olvide de usarlos.",
+        ],
+        linkLabel: "Ver un paquete de sesiones",
+        mockup: {
+          label: "Paquete · Depilación láser",
+          title: "Piernas completas · 6 sesiones",
+          rows: [
+            { left: "Sesión 1", right: "realizada" },
+            { left: "Sesión 2", right: "realizada" },
+            { left: "Sesión 3", right: "pendiente" },
+          ],
+          footer: { left: "Pagado", right: "{money:900000}" },
+        },
+      },
+      {
+        kicker: "Cada sesión, su turno",
+        title: "Agenda y recordatorio para no perder el ritmo",
+        paragraphs: [
+          "Cada sesión del paquete se agenda con su propio turno, y el cliente recibe confirmación y recordatorio antes de venir — el tratamiento de varias semanas no depende de que se acuerde solo entre sesión y sesión.",
+          "Si falta a una sesión, el turno queda marcado como ausente y el paquete sigue mostrando esa sesión como pendiente, para reprogramarla sin perderla de vista.",
+        ],
+        linkLabel: "Ver la agenda del paquete",
+        mockup: {
+          label: "Ficha · Carla Bogarín",
+          title: "Próxima sesión",
+          rows: [
+            {
+              left: "Sesión 3 · Piernas completas",
+              right: "confirmado",
+              sub: ["Jueves 16:00"],
+            },
+          ],
+        },
+      },
+      {
+        kicker: "El insumo también se cuenta",
+        title: "Seguimiento del cliente y del insumo por sesión",
+        paragraphs: [
+          "Cada sesión registra qué producto o insumo se usó — la ampolla, la crema, el gel — así el centro conoce el costo real del tratamiento y no solo el precio de venta del paquete.",
+          "La ficha del cliente junta todo: qué tratamientos hizo, con qué resultado y qué insumo se le aplicó cada vez, lista para la próxima sesión sin preguntar de nuevo.",
+        ],
+        linkLabel: "Ver el insumo por sesión",
+        mockup: {
+          label: "Sesión 2 · Carla Bogarín",
+          title: "Insumos usados",
+          rows: [
+            { left: "Gel conductor", right: "{money:8000}" },
+            { left: "Costo de la sesión", right: "{money:8000}" },
+          ],
+        },
+      },
+    ],
+  },
 ]
 
 export function getRubro(slug: string): Rubro | undefined {

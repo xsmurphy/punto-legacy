@@ -211,15 +211,8 @@ export const FEATURE_CARDS: FeatureCard[] = [
   },
 ]
 
-/** Rubros listados en el home (sección "Hecho para tu tipo de negocio"). */
-export const HOME_RUBROS: { slug: string; label: string }[] = [
-  { slug: "restaurantes", label: "Restaurantes" },
-  { slug: "bares-y-pubs", label: "Bares y pubs" },
-  { slug: "minimarkets", label: "Minimarkets" },
-  { slug: "farmacias", label: "Farmacias" },
-  { slug: "ferreterias", label: "Ferreterías" },
-  { slug: "cafeterias", label: "Cafeterías" },
-  { slug: "panaderias", label: "Panaderías" },
-  { slug: "heladerias", label: "Heladerías" },
-  { slug: "tiendas-de-ropa", label: "Tiendas de ropa" },
-]
+/**
+ * Los rubros del home salen de `rubros.ts` — mantener una segunda lista acá
+ * garantizaba que se desincronizaran.
+ */
+export { RUBROS as HOME_RUBROS } from "@/lib/site/rubros"
