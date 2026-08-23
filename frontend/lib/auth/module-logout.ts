@@ -3,6 +3,7 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useLockStore } from "@/lib/pos/lock-store"
+import { purgeOfflineSnapshots } from "@/lib/pos/offline-db"
 import type { QueryClient } from "@tanstack/react-query"
 
 /**
@@ -11,8 +12,19 @@ import type { QueryClient } from "@tanstack/react-query"
  * expirado, sin auth. Garantía: después de llamar esto, el browser NO retiene
  * ningún dato sensible en memoria ni storage.
  *
+ * Limpia TAMBIÉN el snapshot offline del bootstrap (IndexedDB): ahí vive la
+ * lista de clientes del comercio (PII) y el catálogo con el que la caja
+ * arranca sin red. Si la sesión murió, ese snapshot no puede quedar en el
+ * device — y sin él, un re-arranque offline cae correctamente en la pantalla
+ * de reconexión en vez de dejar operar a un device desvinculado.
+ *
  * NO limpia:
- * - Cola offline de ventas no sincronizadas (vive en IndexedDB, sobrevive re-pair)
+ * - Cola offline de ventas no sincronizadas (vive en IndexedDB, sobrevive
+ *   re-pair). Son ventas YA EMITIDAS E IMPRESAS que el backend todavía no
+ *   recibió: borrarlas destruiría documentos fiscales que existen en papel y
+ *   en ningún otro lado. El borrado total es una acción explícita y avisada
+ *   del operador — ver `purgeAllOfflineData()` y el flujo "Eliminar
+ *   dispositivo del comercio" en `pos-main-menu.tsx`.
  * - browserLocalId (identifica el browser para idempotencia del device-flow)
  *
  * @param queryClient Cliente React Query — se invoca clear() para vaciar
@@ -27,6 +39,9 @@ export function moduleLogout(queryClient: QueryClient): void {
   useHotkeysStore.getState().reset()
   useLockStore.getState().reset()
   queryClient.clear()
+  // Async y sin await: `moduleLogout` es sincrónico por contrato (lo llaman
+  // interceptores no-React) y el borrado no puede demorar el cleanup del resto.
+  void purgeOfflineSnapshots()
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("module:logged-out"))
   }

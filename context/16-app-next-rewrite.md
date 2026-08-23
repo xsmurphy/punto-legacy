@@ -75,8 +75,10 @@ datos. Ver `context/14 §2`.
      respetando layout, no inventar.
 2. **Velocidad de caja primero.** Catálogo en memoria + búsqueda síncrona +
    teclado-first. Cero round-trips para buscar un producto o un cliente.
-3. **Online-first con frontera offline explícita** (§5). Hoy todo online; mañana
-   solo venta contado/crédito + alta cliente offline.
+3. **Frontera offline explícita** (§5, implementada 2026-08-23). La caja
+   arranca y opera sin red: venta contado/crédito, alta de cliente e impresión.
+   Lo que necesita estado compartido entre cajas (espacios, órdenes) sigue
+   exigiendo conexión y avisa localmente.
 4. **Backend ya hecho.** Reusar `/api` vía BFF propio (§4); no reescribir backend
    salvo gaps puntuales.
 5. **Mismas reglas que frontend** (§9): shadcn-first, `MoneyInput`, teléfonos
@@ -158,34 +160,115 @@ app-next/  (Next 15 PWA — separada de frontend, comparte /api y UI shadcn)
 
 ---
 
-## 5. La frontera offline (diseñada ahora, activada después)
+## 5. La frontera offline (IMPLEMENTADA — 2026-08-23)
 
-**Hoy: todo online.** Pero la capa de datos se diseña para que el día de mañana
-**solo** estas operaciones funcionen offline (regla `project_offline_scope`):
+> Esta sección decía "diseñada ahora, activada después". Ya está activada: el
+> POS **arranca y opera sin internet**. Lo que sigue describe lo implementado.
 
-| Operación | Offline-eligible (futuro) |
+### 5.1 Qué funciona sin red y qué no
+
+| Operación | Sin conexión |
 |---|---|
-| Venta **contado** (type 0) | ✅ |
-| Venta **crédito** (type 3) | ✅ |
+| **Arranque de la caja** (catálogo, cajas, impuestos, plantillas) | ✅ desde snapshot en IndexedDB |
+| Venta **contado** (type 0) y **crédito** (type 3) | ✅ emite, imprime y encola |
+| Búsqueda de productos/clientes | ✅ store en memoria |
 | **Alta/edición de cliente** | ✅ |
-| Búsqueda de productos/clientes (lectura) | ✅ (catálogo en memoria) |
-| Todo lo demás (mesas, órdenes, reservas, arqueo, reportes, gift cards, devoluciones, cotizaciones, transferencias, settings…) | ❌ online obligatorio |
+| Impresión (ticket/factura) | ✅ plantillas cacheadas en el bootstrap |
+| Espacios/mesas, órdenes, cobro de órdenes ajenas | ❌ **estado compartido entre cajas** |
+| Arqueo, reportes, devoluciones, cotizaciones, transferencias, settings | ❌ online |
 
-**Cómo se diseña para eso desde el día 1 (sin construir el offline todavía):**
-- **Capa de comandos** (`lib/commands/`): toda mutación pasa por un comando con
-  payload idempotente (UUID v7 client-side, que el `SaleService` ya deduplica).
-  Un `registry` marca `{createSale, createCustomer}` como offline-eligible. Hoy
-  todos ejecutan online; mañana, un interceptor encola SOLO los eligibles cuando
-  no hay conexión, y los demás fallan duro con "requiere conexión".
-- **Catálogo desacoplado de la red**: productos/clientes/impuestos/config viven en
-  un store en memoria (`lib/catalog/`) con búsqueda local. Hoy se hidrata por
-  fetch; mañana se persiste en IndexedDB (Dexie) + delta-sync. La UI lee del
-  store, no de la red → cambiar la fuente no toca la UI.
-- **Numeración**: cuando se active offline, las ventas usan el **lease +
-  incremento estricto** de `context/14 §9` (online-only para el resto). Hoy,
-  número server-side atómico.
-- **No** construir SW/IndexedDB/cola ahora. Solo respetar estas costuras para que
-  agregarlo sea una fase, no un re-rewrite.
+La frontera no es "lo que se puede", es **lo que se puede decidir solo**: dos
+cajas resolviendo offline sobre la misma mesa producen un conflicto que después
+no se reconcilia. Lo que se EMITE nunca necesita ponerse de acuerdo con nadie.
+
+Los módulos de estado compartido avisan **localmente** con
+`ConnectionRequiredNotice` (`components/pos/connection-required.tsx`), nunca con
+una pantalla global. Detectan el corte con `isPaused` y no con `isError`: con el
+`networkMode: "online"` default de TanStack Query, una query sin red no falla —
+queda `paused` en `pending` para siempre. Sin eso, `/pos/ordenes` mostraba "Sin
+órdenes activas", afirmando algo que no podía saber.
+
+### 5.2 Arranque en frío: red / cache / nada
+
+`lib/pos/bootstrap-source.ts` concentra la política, aislada de React:
+
+1. **Red OK** → se sirve, y se persiste el snapshot para el próximo arranque.
+2. **Red caída o 5xx** → se sirve el snapshot de IndexedDB y se marca
+   `catalogFromCache` en `offline-sync-store`.
+3. **401 / 4xx** → NO degrada. El server opinó sobre esta sesión; servir el
+   snapshot dejaría operando a un device revocado.
+4. **Sin red y sin snapshot** → única pantalla bloqueante que queda
+   (`PosAuthGuard`). Un device que jamás sincronizó no tiene catálogo, ni cajas,
+   ni correlativo: no hay nada que dejar operar.
+
+`networkMode: "always"` en `usePosBootstrap` es **obligatorio**: con el default,
+offline el `queryFn` ni siquiera corre y el fallback nunca se alcanzaría.
+
+### 5.3 Dónde vive lo persistido
+
+Todo en **IndexedDB `punto-pos-offline`** (vía `idb`), con un solo dueño del
+schema: `lib/pos/offline-db.ts`.
+
+| Store | Contenido |
+|---|---|
+| `pendingSales` (v1) | Cola de ventas emitidas sin conexión |
+| `snapshots` (v2) | Snapshot del bootstrap completo — catálogo, clientes, cajas, impuestos, plantillas |
+
+Se persiste **la respuesta del BFF tal cual**, no un espejo del state shape del
+`useCatalogStore`: un solo formato que migrar. El store sigue siendo memoria
+pura y se hidrata igual sin enterarse de la fuente.
+
+**Por qué no el Service Worker.** Había una ruta `NetworkFirst` para
+`/api/pos/bootstrap` en `app/sw.ts` con esta intención, y **nunca funcionó**:
+serwist evalúa los matchers RegExp con `regExp.exec(url.href)` — contra el href
+completo, no el pathname — así que `/^\/api\/pos\/bootstrap/` no matcheaba
+nunca. Ruta muerta en silencio desde que se escribió. Corregir el patrón habría
+alcanzado para cachear, pero la Cache API es la storage equivocada acá: el
+bootstrap trae la lista de clientes (PII) y no participa del `moduleLogout()`
+del device. Se eliminó la ruta; IndexedDB es el único dueño del bootstrap
+offline. **Cuidado al agregar rutas nuevas al SW: usar matchers de función sobre
+`url.pathname`, no RegExp anclados.**
+
+### 5.4 Purga (PII)
+
+| Evento | Snapshot | Cola de ventas |
+|---|---|---|
+| `moduleLogout()` (sesión muerta, revocación remota) | borrado | **se conserva** |
+| "Eliminar dispositivo del comercio" (explícito) | borrado | borrado + caches `pos-*` |
+
+La cola sobrevive al logout a propósito: son ventas **ya emitidas e impresas**
+que el backend todavía no recibió — documentos fiscales que existen en papel y
+en ningún otro lado. El borrado total es solo la acción explícita del operador,
+y avisa antes si hay pendientes (`components/pos/remove-device-dialog.tsx`).
+
+### 5.5 Indicador de estado
+
+`OfflineStatusPill` flota sobre el workspace (`absolute`, esquina inferior
+izquierda): aparecer y desaparecer **no mueve ningún botón**, que es regla dura
+del POS. La banda full-width (`OfflineBanner`) quedó acotada al único estado
+terminal —ventas que no se van a sincronizar solas— donde el desplazamiento del
+layout es el precio correcto.
+
+### 5.6 Un bootstrap por realm
+
+El POS ya no consume `/v1/bootstrap` (realm panel) en ningún punto. Lo hacía el
+layout —con el Bearer del device— y **gateaba todo el render con
+`if (!bootstrap)`**: sin red ese fetch no volvía nunca y la caja quedaba clavada
+en el loading screen aunque el catálogo estuviera cacheado. Era el segundo
+bloqueo del arranque offline. El auto-lock usa `users.length` y el price-context
+lee `outlet.id`, ambos del catalog store.
+
+También desapareció la query duplicada `["pos-bootstrap-auth"]` del guard: era
+una segunda request al endpoint más caro del POS y un segundo camino hacia el
+mismo dato, del cual solo uno podía aprender a degradar.
+
+### 5.7 Capa de comandos (sin cambios)
+
+Toda mutación pasa por un comando con payload idempotente (UUID client-side que
+el `SaleService` deduplica). El `registry` marca `{createSale, createCustomer}`
+como offline-eligible; el resto falla duro con "requiere conexión". La
+numeración la resuelve el device localmente (`lib/pos/invoice-numbering.ts`,
+context/29) — el arriendo de bloques fue rechazado.
 
 ---
 
@@ -342,9 +425,10 @@ Módulo de mesas nuevo (`context/15`): sectores, sesiones, órdenes, split, rese
 Settings, lock/login, tutorial. Smoke test E2E vs legacy. Flip de subdominio,
 borrar `/app` legacy.
 
-**Fase offline (diferida, post-base)**
-SW + IndexedDB + cola de sync + lease de numeración (`context/14 §9`) — SOLO para
-`createSale` + `createCustomer`. Activar la frontera ya diseñada en §5.
+**Fase offline — HECHA**
+Cola de ventas en IndexedDB (2026-06-25), numeración local del device
+(context/29 — el lease fue rechazado), y arranque en frío sin red con snapshot
+del bootstrap (2026-08-23). Ver §5, que describe lo implementado.
 
 ---
 

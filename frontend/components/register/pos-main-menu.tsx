@@ -34,11 +34,14 @@ import {
   Component,
   Bell,
   X,
-  type LucideIcon,
+  type LucideIcon, 
+  CloudOff,
 } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts"
 
 import { cn } from "@/lib/utils"
+import { EmptyState } from "@/components/empty-state"
+import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -111,10 +114,9 @@ import {
 import { toast } from "sonner"
 import { usePosOutlets, usePosRegisters } from "@/hooks/use-pos-outlets"
 import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
-import { posFetch } from "@/lib/api/pos-fetch"
-import { getDeviceClaims } from "@/lib/auth/device-claims"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
 import { PrintersManager } from "@/components/settings/printers-manager"
+import { RemoveDeviceDialog } from "@/components/pos/remove-device-dialog"
 import {
   usePosRegisterConfig,
   useUpdatePosRegisterConfig,
@@ -207,6 +209,16 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     label: "Transacciones",
     icon: ReceiptText,
     CustomContent: TransactionsPreview,
+  },
+  {
+    // Ventas emitidas que todavía no llegaron al servidor. Vive acá y no en
+    // una banda del carrito: no requiere atención del cajero (se sincronizan
+    // solas) y las bandas apiladas le comían alto a la lista de ítems. El
+    // punto del trigger avisa que hay algo; el detalle está a un toque.
+    key: "sync-queue",
+    label: "Ventas pendientes",
+    icon: CloudOff,
+    CustomContent: SyncQueuePanel,
   },
   // Agenda, Órdenes y Módulos ocultos por ahora — se rehabilitan cuando
   // construyamos esas secciones reales (hoy son previews). 2026-06-28.
@@ -305,6 +317,9 @@ export function PosMainMenu() {
   }
 
   // Leer config para gatear la sección de caja según controlCaja.
+  // Cola de sincronización: alimenta el punto del trigger (ver más abajo).
+  const pendingCount = useOfflineSyncStore((st) => st.pendingCount)
+  const failedCount  = useOfflineSyncStore((st) => st.failedCount)
   const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
   const controlCaja = registerConfigData?.config?.controlCaja ?? true
   const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
@@ -323,15 +338,36 @@ export function PosMainMenu() {
 
   return (
     <MenuContentCtx.Provider value={{ setOpen, router }}>
-      {/* Trigger ≡ — se mantiene idéntico al original para no romper el cart-panel */}
+      {/* Trigger ≡ — se mantiene idéntico al original para no romper el cart-panel.
+          El punto indica ventas en cola: antes eso era una banda propia arriba
+          de la toolbar del carrito y, junto al aviso de sin conexión, apilaba
+          dos franjas que empujaban los iconos y le comían alto a la lista de
+          ítems. Una venta encolada no necesita la atención del cajero (se
+          sincroniza sola), así que se degrada a señal pasiva acá; el detalle
+          sigue estando a un toque, en Menú → Ventas pendientes. Rojo solo
+          cuando hay ventas FALLIDAS, que sí son terminales y piden acción
+          (context/08 §53). */}
       <Button
         variant="ghost"
         size="icon"
-        className="size-9"
-        aria-label="Menú del POS"
+        className="relative size-9"
+        aria-label={
+          pendingCount > 0
+            ? `Menú del POS — ${pendingCount} venta${pendingCount !== 1 ? "s" : ""} sin sincronizar`
+            : "Menú del POS"
+        }
         onClick={() => setOpen(true)}
       >
         <AppWindowMac className="size-5" />
+        {pendingCount > 0 && (
+          <span
+            aria-hidden
+            className={cn(
+              "absolute top-1 right-1 size-2 rounded-full ring-2 ring-background",
+              failedCount > 0 ? "bg-destructive" : "bg-amber-500",
+            )}
+          />
+        )}
       </Button>
 
       <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -1333,6 +1369,47 @@ function ControlDeCajaPanel() {
 // ── Transacciones ────────────────────────────────────────────────────────────
 
 /** Últimas transacciones del turno con CTA para ir al listado completo. */
+function SyncQueuePanel() {
+  const { setOpen } = useMenuCtx()
+  const pendingCount = useOfflineSyncStore((st) => st.pendingCount)
+  const failedCount = useOfflineSyncStore((st) => st.failedCount)
+  const setQueueDialogOpen = useOfflineSyncStore((st) => st.setQueueDialogOpen)
+
+  if (pendingCount === 0 && failedCount === 0) {
+    return (
+      <div className="p-6">
+        <EmptyState
+          icon={CloudOff}
+          title="No hay ventas pendientes"
+          description="Todo lo emitido en esta caja ya llegó al servidor."
+        />
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-4 p-6">
+      <p className="text-sm text-muted-foreground">
+        {failedCount > 0
+          ? `${failedCount} venta${failedCount !== 1 ? "s" : ""} no se pudo sincronizar y necesita que la revises. `
+          : ""}
+        {pendingCount > 0
+          ? `${pendingCount} venta${pendingCount !== 1 ? "s" : ""} en cola: se envía${pendingCount !== 1 ? "n" : ""} sola${pendingCount !== 1 ? "s" : ""} al volver la conexión.`
+          : ""}
+      </p>
+      <Button
+        className="self-start"
+        onClick={() => {
+          setOpen(false)
+          setQueueDialogOpen(true)
+        }}
+      >
+        Ver el detalle
+      </Button>
+    </div>
+  )
+}
+
 function TransactionsPreview() {
   const { setOpen, router } = useMenuCtx()
 
@@ -1979,52 +2056,7 @@ function AjustesPanel() {
             <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Zona de peligro
             </p>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="ghost"
-                  className="text-destructive hover:text-destructive"
-                >
-                  Eliminar dispositivo del comercio
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Eliminar dispositivo del comercio</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Esta acción desvinculará este dispositivo de la caja. Tendrás que volver a parearlo para usar el POS.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction
-                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                    onClick={async () => {
-                      try {
-                        const deviceId = getDeviceClaims("pos")?.deviceId ?? null
-                        const res = await posFetch("/api/pos/revoke-this-device", {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({ deviceId }),
-                        })
-                        if (!res.ok) {
-                          const data = await res.json().catch(() => ({}))
-                          toast.error((data as { error?: { message?: string } }).error?.message ?? "Error al eliminar el dispositivo")
-                          return
-                        }
-                        // El device fue revocado server-side; recargar /pos hace que
-                        // PosAuthGuard re-evalúe y muestre DeviceNotConnected.
-                        window.location.href = "/pos"
-                      } catch {
-                        toast.error("Error al eliminar el dispositivo")
-                      }
-                    }}
-                  >
-                    Eliminar
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <RemoveDeviceDialog />
           </div>
 
         </div>

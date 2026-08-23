@@ -95,7 +95,7 @@ import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
-import { OfflineBanner } from "@/components/pos/offline-banner"
+import { OfflineStatusPill } from "@/components/pos/offline-status-pill"
 import { useCreateOrder, type Order, type Fulfillment } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { useOutsidePointerDown } from "@/hooks/use-outside-pointerdown"
@@ -402,8 +402,8 @@ export function CartPanel() {
       {/* Sin banda de modo (removida 2026-07-19 por decisión del owner): la
           identificación del tipo de transacción la da el CTA de cobro/orden
           (CartBottom) — un solo canal de color, sin slot extra arriba del
-          toolbar. */}
-      <OfflineBanner />
+          toolbar. El estado de sincronización tampoco va acá: es UN solo
+          aviso, arriba de la toolbar (`OfflineStatusPill`). */}
       {/* ── Modales ── */}
       <ProductSearchDialog open={searchOpen} onOpenChange={setSearchOpen} />
       <CustomerDialog open={customerOpen} onOpenChange={setCustomerOpen} />
@@ -554,39 +554,16 @@ export function CartPanel() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {pendingCount > 0 && (
-        // failedCount > 0: TERMINAL, no se resuelve solo (context/08 §53) —
-        // se escala a estilo destructivo para que no se confunda con el
-        // amber "está sincronizando, ya se resuelve" de abajo.
-        <button
-          onClick={() => setSyncQueueOpen(true)}
-          className={cn(
-            "flex shrink-0 items-center justify-center gap-1.5 border-b px-3 py-1.5 text-xs font-medium transition-colors",
-            failedCount > 0
-              ? "border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20"
-              : "border-border bg-muted/40 text-foreground hover:bg-muted",
-          )}
-        >
-          <span
-            className={cn(
-              "flex size-4 items-center justify-center rounded-full text-[10px] font-bold text-white tabular-nums",
-              failedCount > 0 ? "bg-destructive" : "bg-amber-500",
-            )}
-          >
-            {pendingCount > 9 ? '9+' : pendingCount}
-          </span>
-          <span>
-            {failedCount > 0
-              ? `${failedCount} venta${failedCount !== 1 ? 's' : ''} con error — revisar`
-              : `${pendingCount} venta${pendingCount !== 1 ? 's' : ''} pendiente${pendingCount !== 1 ? 's' : ''}`}
-          </span>
-        </button>
-      )}
-
       {editingHotkeys ? (
         <HotkeyEditGuide />
       ) : (
         <>
+      {/* Estado de conexión: SIEMPRE acá, pegado arriba de la toolbar del
+          carrito (pedido del owner 2026-08-23). Antes flotaba abajo a la
+          izquierda del workspace y además se montaba una segunda vez en el
+          layout: dos avisos del mismo estado en pantalla. Un solo lugar, el
+          que el cajero ya mira para cobrar. */}
+      <OfflineStatusPill />
       {/* ── Toolbar propia de la caja (buscar / cliente / acciones) ── */}
       <CartToolbar
         onSearch={() => setSearchOpen(true)}

@@ -7,6 +7,7 @@ import { queueCatalogSync } from "@/lib/catalog/realtime-catalog-sync"
 import { runDeltaSync } from "@/lib/catalog/delta-sync"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { usePosUIStore } from "@/lib/ui/store"
+import { refreshTenancy } from "@/lib/pos/register-tenancy"
 
 /**
  * Mapeo cerrado entity→queryKeys de TanStack Query. Cuando el server
@@ -197,6 +198,24 @@ export function useRealtimeSync(clientScope: "panel" | "pos" = "panel") {
         // pasa) → cae al comportamiento genérico de abajo, con
         // pos-bootstrap incluido — mejor la recarga cara que quedarse sin
         // invalidar nada.
+      }
+
+      // Tenencia de caja (context/29 §4). `/v1/register-lease` (el "Liberar
+      // caja" del panel) publica esta entity por el default de bootstrap.php,
+      // pero no estaba en el mapa de abajo: el POS la descartaba en silencio y
+      // un device online al que le acababan de quitar la caja seguía creyendo
+      // que la tenía hasta el próximo latido. Ahora se entera EN EL MOMENTO —
+      // `refreshTenancy()` reconfirma contra `claim.php` y el 409 resultante
+      // queda persistido como grant denegado, así que si la red se cae justo
+      // después, el device ya sabe que no puede emitir.
+      //
+      // No filtra por caja: el evento no trae el registerId y reconfirmar es
+      // una request chica. Cualquier movimiento de tenencia en el comercio
+      // hace que este device revalide la suya.
+      if (clientScope === "pos" && ev.entity === "register-lease") {
+        const registerId = useCatalogStore.getState().activeRegisterId
+        if (registerId) void refreshTenancy(registerId)
+        return
       }
 
       const keys = ENTITY_TO_QUERY_KEYS[ev.entity]

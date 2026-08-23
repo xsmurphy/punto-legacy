@@ -58,7 +58,14 @@ export async function posFetch(
       // el cajero necesita un mensaje distinto ("te desconectaron" no es lo
       // mismo que "este dispositivo nunca terminó de configurarse") — por eso
       // el flag guarda el code crudo en vez de un booleano.
-      if (code === "session_revoked" || code === "device_incomplete") {
+      // Idempotencia: si el token de este módulo YA no está, el cleanup ya
+      // corrió y esta 401 es el eco del refetch que él mismo disparó. Sin este
+      // corte hay bucle: `moduleLogout()` invalida `["pos-bootstrap"]` → la
+      // query activa del guard refetchea → 401 → `moduleLogout()` → invalida…
+      // Un bucle de red, que es justo lo que el resto de este módulo se cuida
+      // de no generar (ver el auto-DDoS de la cola offline en `use-offline-sync`).
+      const stillPaired = getDeviceToken(module) !== null
+      if (stillPaired && (code === "session_revoked" || code === "device_incomplete")) {
         // Flag efímero para que `PosAuthGuard` sepa POR QUÉ no hay token —
         // sin esto, no hay forma de distinguir el motivo una vez que el token
         // ya se limpió, y el guard mostraría el copy equivocado ("pedí un
@@ -76,7 +83,7 @@ export async function posFetch(
           // ante 401 que nada tenían que ver con el device (ver api-client.ts).
           moduleLogout(qc)
           // Empuja al guard a re-chequear ya, sin esperar el poll de 60s.
-          qc.invalidateQueries({ queryKey: ["pos-bootstrap-auth"] })
+          qc.invalidateQueries({ queryKey: ["pos-bootstrap"] })
         } else {
           clearDeviceToken(module)
         }

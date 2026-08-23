@@ -23,6 +23,10 @@ import { cn } from "@/lib/utils"
 import { LayoutGrid, Map } from "lucide-react"
 import { EmptyState } from "@/components/empty-state"
 import { FullscreenToggle } from "@/components/pos/fullscreen-toggle"
+import {
+  ConnectionRequiredNotice,
+  isConnectionBlocked,
+} from "@/components/pos/connection-required"
 import { PosSpaceTile } from "@/components/spaces/pos-space-tile"
 import { OpenSpaceDialog } from "@/components/spaces/open-space-dialog"
 import { SpaceSessionDialog } from "@/components/spaces/space-session-dialog"
@@ -50,10 +54,10 @@ const SPACE_VIEWS = ["grid", "map"] as const
 
 export default function EspaciosPage() {
   const router = useRouter()
-  const { data: tablesData } = usePosSpacesState()
-  const { data: sectorsData } = usePosSpaceSectors()
-  const tables = tablesData?.spaces ?? []
-  const sectors = sectorsData?.sectors ?? []
+  const spacesQuery = usePosSpacesState()
+  const sectorsQuery = usePosSpaceSectors()
+  const tables = spacesQuery.data?.spaces ?? []
+  const sectors = sectorsQuery.data?.sectors ?? []
 
   const [activeSector, setActiveSector] = React.useState<string>(ALL_SECTORS)
   // Vista persistida por dispositivo (localStorage). Default: grilla.
@@ -169,6 +173,22 @@ export default function EspaciosPage() {
     if (!sessionTable?.session) return
     setSplitTarget({ sessionId: sessionTable.session.id, spaceName: sessionTable.name })
     setSessionTable(null)
+  }
+
+  // Frontera offline (context/16 §5): el mapa de espacios es estado COMPARTIDO
+  // entre las cajas del comercio. Sin conexión no se puede saber qué mesa está
+  // ocupada, y adivinarlo produce dos cajas cobrando la misma sesión. Se avisa
+  // acá, local al módulo — la venta directa del carrito sigue andando.
+  if (isConnectionBlocked([spacesQuery, sectorsQuery])) {
+    return (
+      <ConnectionRequiredNotice
+        what="los espacios"
+        onRetry={() => {
+          void spacesQuery.refetch()
+          void sectorsQuery.refetch()
+        }}
+      />
+    )
   }
 
   return (

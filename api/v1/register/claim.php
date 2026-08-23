@@ -22,7 +22,13 @@ declare(strict_types=1);
  *
  * La tenencia YA NO vence por fecha/TTL (context/29 §4, 2026-08-17) — se
  * libera solo al cerrar la caja o por revocación de admin (panel, "Liberar
- * caja", F4 — no implementado todavía).
+ * caja", `api/v1/register-lease.php`, F4 — YA implementada, context/29 §7).
+ *
+ * Del lado del device, la respuesta de este endpoint se PERSISTE en IndexedDB
+ * con su hora (`frontend/lib/pos/register-tenancy.ts`): es lo que le permite
+ * al POS saber SIN RED si tiene derecho a emitir. Hasta 2026-08-23 el 409 de
+ * acá se descartaba en silencio y sin conexión no quedaba ningún gate — el
+ * cajero vendía, imprimía, y el rechazo llegaba al sincronizar.
  */
 
 require_once dirname(__DIR__, 2) . '/bootstrap.php';
@@ -107,11 +113,23 @@ if ($activeLease !== false && $activeLease !== 0 && (string) $activeLease['devic
     $db->CompleteTrans();
 
     $holderHasRow = $holderRow !== false && $holderRow !== 0;
-    apiConflict('Esta caja está tomada por otro dispositivo', [
+    // `reason` en el shape de `holderConflict()` — el POS persiste este 409
+    // como "tenencia DENEGADA" en su grant local (`lib/pos/register-tenancy.ts`)
+    // y lo usa para bloquear el cobro ANTES de numerar, también sin conexión.
+    // Un claim solo puede fallar por esta causa: si la caja estuviera libre,
+    // este endpoint la habría tomado en vez de devolver 409.
+    $conflictDetails = [
         'holderDeviceId'   => (string) $activeLease['deviceId'],
         'holderDeviceName' => $holderHasRow ? (string) ($holderRow['deviceName'] ?? '') : '',
         'expiresAt'        => null,
-    ]);
+        'reason'           => 'taken_by_other',
+        'releasedBy'       => null,
+        'releasedAt'       => null,
+    ];
+    // `conflictCode` en `details`, igual que `sales.php` — ver el comentario
+    // de ese call-site: `error.code` es el status HTTP, no la causa.
+    [$conflictCode, $conflictMessage] = \Punto\Api\Services\RegisterLeaseService::conflictMessage($conflictDetails);
+    apiConflict($conflictMessage, $conflictDetails + ['conflictCode' => $conflictCode]);
 }
 
 if ($activeLease === false || $activeLease === 0) {
@@ -158,6 +176,13 @@ if ($activeLease === false || $activeLease === 0) {
 
 $db->CompleteTrans();
 
+// `registerId` viaja en la respuesta para que el device guarde el grant contra
+// la caja que el SERVIDOR le confirmó, no contra la que él cree tener. Las dos
+// salen hoy de la misma fila `device`, pero si divergen (device reasignado y
+// bootstrap viejo en memoria), guardar la del cliente crearía un grant que
+// dice "tengo la caja X" cuando lo confirmado fue la Y — exactamente el tipo
+// de afirmación sin respaldo que este cambio existe para eliminar.
 apiOk([
     'registerLeaseId' => $registerLeaseId,
+    'registerId'      => $regId,
 ]);

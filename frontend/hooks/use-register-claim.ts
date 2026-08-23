@@ -1,48 +1,117 @@
 "use client"
 
-import { useQuery } from "@tanstack/react-query"
-import { posApi } from "@/lib/api/pos-client"
+import * as React from "react"
+import {
+  HEARTBEAT_MS,
+  hydrateTenancy,
+  refreshTenancy,
+} from "@/lib/pos/register-tenancy"
+import { useTenancyStore } from "@/lib/pos/tenancy-store"
 
 /**
- * Toma la tenencia de esta caja para este dispositivo — F2 de
- * context/29-numeracion-y-exclusividad-de-caja.md §4
- * (`api/v1/register/claim.php`).
+ * Mantiene viva la tenencia de esta caja (context/29 §4,
+ * `api/v1/register/claim.php`) y su copia local con vigencia
+ * (`lib/pos/register-tenancy.ts`).
  *
- * BUG REAL detectado 2026-08-19: `claim.php` existía en el backend desde F2,
- * pero NADA en el POS lo llamaba — `register_lease` quedaba vacía para
- * SIEMPRE en cualquier caja de cualquier tenant, y `RegisterLeaseService::
- * holderConflict()` (que `sales.php`/`offline-sync.php` corren antes de
- * cada venta) trata "sin tenencia" como conflicto igual que "tomada por
- * otro" — así que TODA venta rechazaba con 409, sin que ninguna acción del
- * operador o del admin pudiera arreglarlo (no hay tenedor que liberar: nunca
- * hubo tenedor). Este hook es el caller que faltaba.
+ * Qué cambió y por qué (incidente 2026-08-23)
+ * ───────────────────────────────────────────
+ * Antes esto era un `useQuery` disparado UNA sola vez al entrar al workspace,
+ * cuyo resultado nadie leía: el 409 quedaba en el cache de react-query y el
+ * POS seguía como si nada. Con conexión el gate igual funcionaba, porque
+ * `sales.php` devolvía su propio 409 al cobrar; SIN conexión no había gate
+ * ninguno, así que el cajero vendía, imprimía, y el rechazo llegaba recién al
+ * sincronizar — con el cliente ya afuera.
  *
- * Se llama UNA vez al entrar al workspace del POS
- * (`PosWorkspaceLayoutInner`, después de que el bootstrap resuelve
- * outletId/registerId/deviceId) — antes de que el operador intente vender,
- * no recién cuando falla el cobro. Idempotente: si este device ya es el
- * tenedor, el backend devuelve 200 sin tocar nada (confirmación, no
- * re-toma). Si otro device la tiene tomada de verdad, devuelve 409 con
- * `{holderDeviceId, holderDeviceName}`.
+ * Ahora el claim no es una query cacheada: es la fuente que ESCRIBE el grant
+ * persistido que el device consulta para decidir si puede emitir, con o sin
+ * red. Tres disparadores:
  *
- * Corrección de producto del owner (2026-08-20): un 409 acá YA NO bloquea el
- * workspace — la tenencia solo importa para emitir un documento con
- * numeración fiscal (factura). El layout (`app/(pos)/pos/layout.tsx`) llama
- * este hook best-effort y no lee su resultado; el gate real vive en
- * `PayDialog` (`RegisterTakenPhase`) al momento de cobrar, acotado al
- * diálogo de pago.
+ *   1. Al montar — primero hidrata el grant guardado (así un arranque offline
+ *      tiene veredicto en el primer frame, sin esperar a ninguna request) y
+ *      recién después intenta confirmarlo contra el servidor.
+ *   2. Latido cada `HEARTBEAT_MS` — renueva `confirmedAt` para que el TTL de
+ *      12 h solo empiece a correr cuando la red se cae de verdad. Sin red, el
+ *      latido re-evalúa el grant guardado contra el reloj, que es lo que hace
+ *      que la caja pase a `stale` sola al cruzar el TTL.
+ *   3. Evento `online` — recuperar la conexión reconfirma en el acto, sin
+ *      esperar hasta 5 minutos al próximo latido.
  *
- * `retry:false` — un 409 es una respuesta real (alguien la tiene, o recién
- * se liberó), no un error transitorio de red para reintentar solo.
- * `refetchOnWindowFocus:false` — recuperar el foco de la pestaña no debe
- * re-disparar una toma de caja.
+ * La pérdida de tenencia estando ONLINE no depende de este latido:
+ * `use-realtime-sync.ts` reacciona a la entity `register-lease` y llama
+ * `refreshTenancy()` en el momento en que el admin libera la caja.
+ *
+ * La corrección de producto del owner (2026-08-20) sigue en pie: la tenencia
+ * NO bloquea el workspace. Este hook no gatea ningún render — catálogo,
+ * carrito, cotizaciones, órdenes y clientes funcionan igual sin tenencia. Lo
+ * único que se bloquea es EMITIR un documento con numeración fiscal, y ese
+ * gate vive en `PayDialog`.
  */
-export function useRegisterClaim() {
-  return useQuery<{ registerLeaseId: string }>({
-    queryKey: ["register-claim"],
-    queryFn: () => posApi.post<{ registerLeaseId: string }>("/v1/register/claim", {}),
-    staleTime: Infinity,
-    retry: false,
-    refetchOnWindowFocus: false,
-  })
+export function useRegisterClaim(registerId: string | null | undefined) {
+  const setRefreshing = useTenancyStore((s) => s.setRefreshing)
+
+  // Ref y no dependencia del efecto: `registerId` no cambia en la vida de un
+  // workspace montado, y leerlo por ref evita reinstalar el intervalo si la
+  // identidad del string cambiara por un refetch del bootstrap.
+  const registerIdRef = React.useRef(registerId)
+  registerIdRef.current = registerId
+
+  const confirm = React.useCallback(
+    async (opts?: { forceNetwork?: boolean }) => {
+      const id = registerIdRef.current
+      if (!id) return
+      // Sin red no se pregunta: se re-evalúa lo guardado contra el reloj, que
+      // es exactamente lo que puede cambiar el veredicto offline (cruzar el
+      // TTL). Pedirlo igual solo generaría un fetch fallido por latido.
+      const online = typeof navigator === "undefined" || navigator.onLine
+      if (!online && !opts?.forceNetwork) {
+        await hydrateTenancy(id)
+        return
+      }
+      setRefreshing(true)
+      try {
+        await refreshTenancy(id)
+      } finally {
+        setRefreshing(false)
+      }
+    },
+    [setRefreshing],
+  )
+
+  React.useEffect(() => {
+    if (!registerId) return
+    let cancelled = false
+
+    async function boot() {
+      // Hidratar SIEMPRE primero: el veredicto del grant guardado tiene que
+      // estar en el store antes de que el cajero pueda abrir el cobro, aunque
+      // el claim de red tarde o no vuelva nunca.
+      await hydrateTenancy(registerId as string)
+      if (cancelled) return
+      await confirm()
+    }
+    void boot()
+
+    return () => {
+      cancelled = true
+    }
+  }, [registerId, confirm])
+
+  React.useEffect(() => {
+    if (!registerId) return
+    const interval = setInterval(() => {
+      void confirm()
+    }, HEARTBEAT_MS)
+    return () => clearInterval(interval)
+  }, [registerId, confirm])
+
+  React.useEffect(() => {
+    if (!registerId) return
+    const handler = () => {
+      void confirm({ forceNetwork: true })
+    }
+    window.addEventListener("online", handler)
+    return () => window.removeEventListener("online", handler)
+  }, [registerId, confirm])
+
+  return { confirm }
 }

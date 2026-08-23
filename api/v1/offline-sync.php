@@ -97,12 +97,23 @@ foreach ($sales as $item) {
         continue;
     }
     if ($conflict !== null) {
+        // Un código POR CAUSA, no el `REGISTER_NOT_HELD` único de antes
+        // ("liberada, tomada por otro, o cerrada" — tres causas con tres
+        // remedios distintos en una sola frase). Ver
+        // `RegisterLeaseService::conflictMessage()`: `REGISTER_TAKEN` es el
+        // único terminal; `REGISTER_RELEASED`/`REGISTER_NEVER_HELD` dejan la
+        // caja LIBRE y el POS los resuelve solo tomándola de nuevo y
+        // reintentando esta misma venta con el MISMO número (si ese número ya
+        // no estuviera libre, `uq_transaction_expedition_invoiceno` de mig 145
+        // lo ataja abajo como NUMBER_TAKEN — nunca se duplica un comprobante
+        // por reintentar acá).
+        [$code, $message] = RegisterLeaseService::conflictMessage($conflict);
         $results[] = [
             'clientTempId' => $tempId,
             'ok'           => false,
             'error'        => [
-                'code'    => 'REGISTER_NOT_HELD',
-                'message' => 'La caja fue liberada, tomada por otro dispositivo, o cerrada mientras esta venta esperaba conexión.',
+                'code'    => $code,
+                'message' => $message,
                 'details' => $conflict,
             ],
         ];

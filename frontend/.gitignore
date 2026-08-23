@@ -18,6 +18,9 @@
 # service worker compilado por @serwist/next desde app/sw.ts (next.config.ts)
 # — se regenera en cada build, no debe versionarse
 /public/sw.js
+# worker auxiliar de `cacheOnNavigation` (hoy apagado). También es output del
+# build: estuvo versionado por accidente hasta 2026-08-23.
+/public/swe-worker-*.js
 
 # production
 /build

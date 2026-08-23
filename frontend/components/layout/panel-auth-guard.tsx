@@ -253,7 +253,6 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       new Set([
         "bootstrap",
         "pos-bootstrap",
-        "pos-bootstrap-auth",
         "pos-config",
         "pos-hotkeys",
         "settings",

@@ -40,9 +40,15 @@ namespace Punto\Api\Services;
  * La tenencia YA NO vence por fecha/TTL (context/29 §4, corrección del
  * 2026-08-17 — antes vencía a fin de la fecha del outlet para que un bloque
  * de números no sobreviviera a un cambio de día; sin bloques, no aplica).
- * Se libera SOLO al cerrar la caja o por revocación explícita de admin
- * (panel, "Liberar caja", F4 — no implementado todavía, `close('forced',
- * ...)` queda listo y sin caller hasta que exista ese endpoint).
+ * Se libera SOLO al cerrar la caja o por revocación explícita de admin.
+ * `close('forced', ...)` YA tiene dos callers reales (el comentario que decía
+ * "sin caller hasta que exista ese endpoint" quedó viejo y llegó a inducir una
+ * conclusión equivocada en un review): `api/v1/register-lease.php` (panel,
+ * "Liberar caja", F4 — implementada, ver context/29 §7) y `api/v1/devices.php`
+ * (el admin revoca el dispositivo). Los dos producen `status='forced'`, que es
+ * lo que `holderConflict()` lee para distinguir "me la revocaron" de "la cerré
+ * yo" — o sea que es el camino del incidente offline del 2026-08-23, no un
+ * caso hipotético.
  */
 final class RegisterLeaseService
 {
@@ -192,12 +198,48 @@ final class RegisterLeaseService
      *
      * Devuelve `null` si `$deviceId` es el tenedor válido. Si NO, devuelve
      * el detalle del tenedor REAL ahora mismo (`{holderDeviceId,
-     * holderDeviceName, expiresAt}` — `expiresAt` siempre `null` desde que
-     * la tenencia dejó de vencer por fecha, se mantiene en el shape por
-     * compatibilidad con el 409 que el POS ya sabe leer) — puede no haber
-     * tenedor (`holderDeviceId: null`, caja libre).
+     * holderDeviceName, expiresAt, reason, releasedBy, releasedAt}` —
+     * `expiresAt` siempre `null` desde que la tenencia dejó de vencer por
+     * fecha, se mantiene en el shape por compatibilidad con el 409 que el POS
+     * ya sabe leer) — puede no haber tenedor (`holderDeviceId: null`, caja
+     * libre).
      *
-     * @return array{holderDeviceId:?string,holderDeviceName:?string,expiresAt:?string}|null
+     * `reason` — POR QUÉ no es el tenedor. Hasta 2026-08-23 el POS recibía un
+     * solo `REGISTER_NOT_HELD` con el texto "la caja fue liberada, tomada por
+     * otro dispositivo, o cerrada": tres causas con tres remedios DISTINTOS
+     * mezcladas en un mensaje que no le dice al cajero qué hacer. Peor: dos de
+     * ellas (`released`/`never_held`) dejan la caja LIBRE, o sea que la venta
+     * encolada se puede recuperar sola con un claim + reintento, y el POS la
+     * estaba marcando terminal igual que el caso irrecuperable. Los cuatro
+     * valores:
+     *
+     *   - `taken_by_other` — otro device tiene la caja tomada AHORA. Único
+     *     caso NO recuperable por el device solo: hace falta que un admin la
+     *     libere (`/v1/register-lease`, "Liberar caja") o que el otro device
+     *     cierre. `holderDeviceId`/`holderDeviceName` dicen quién.
+     *   - `revoked` — nadie la tiene, y la última tenencia de ESTE device
+     *     sobre ESTA caja se cerró `forced`: un admin la liberó desde el
+     *     panel, o el device fue revocado/despareado/reasignado. Es EL caso
+     *     inevitable del incidente offline (context/29 §4): mientras el device
+     *     estaba sin red le sacaron la caja. Recuperable: la caja está libre,
+     *     el device la vuelve a tomar y el número que imprimió sigue siendo el
+     *     correcto para esa rama de numeración (y si no lo fuera,
+     *     `uq_transaction_expedition_invoiceno` de mig 145 lo ataja con
+     *     NUMBER_TAKEN, que ya es un código propio).
+     *   - `released` — nadie la tiene, y la última tenencia de este device se
+     *     cerró `released`/`expired`: cierre normal de caja, o cambio de caja
+     *     del propio device. Recuperable igual que `revoked`, pero el mensaje
+     *     tiene que decir otra cosa — acá no intervino nadie más.
+     *   - `never_held` — nadie la tiene y este device NUNCA tomó esta caja.
+     *     Es el arranque offline sin claim previo (el device booteó del
+     *     snapshot de IndexedDB, `claim.php` nunca corrió) y también el
+     *     device recién pareado. Recuperable con un claim.
+     *
+     * `releasedBy` (TEXT libre, `'admin:{contactId}'` | `'device:...'` | ...)
+     * viaja para que el POS pueda decir "un administrador" en vez de un
+     * genérico; `releasedAt` para poder fechar el evento en la cola de ventas.
+     *
+     * @return array{holderDeviceId:?string,holderDeviceName:?string,expiresAt:?string,reason:string,releasedBy:?string,releasedAt:?string}|null
      */
     public static function holderConflict(
         string $registerId,
@@ -215,7 +257,31 @@ final class RegisterLeaseService
         }
 
         if ($activeLease === false || $activeLease === 0) {
-            return ['holderDeviceId' => null, 'holderDeviceName' => null, 'expiresAt' => null];
+            // Caja LIBRE. Distinguir "me la sacaron" de "la cerré yo" de
+            // "nunca la tuve" mirando la última tenencia de este device sobre
+            // esta caja — `close()` hace UPDATE, no DELETE, así que la
+            // historia está toda ahí (idx_register_lease_register /
+            // idx_register_lease_device, mig 141).
+            $last = ncmExecute(
+                'SELECT "status", releasedby, releasedat
+                   FROM "register_lease"
+                  WHERE registerid = ? AND deviceid = ? AND companyid = ?
+                  ORDER BY takenat DESC
+                  LIMIT 1',
+                [$registerId, $deviceId, $companyId]
+            );
+            $hasLast = $last !== false && $last !== 0;
+
+            return [
+                'holderDeviceId'   => null,
+                'holderDeviceName' => null,
+                'expiresAt'        => null,
+                'reason'           => !$hasLast
+                    ? 'never_held'
+                    : ((string) $last['status'] === 'forced' ? 'revoked' : 'released'),
+                'releasedBy'       => $hasLast ? (($last['releasedBy'] ?? null) !== null ? (string) $last['releasedBy'] : null) : null,
+                'releasedAt'       => $hasLast ? (($last['releasedAt'] ?? null) !== null ? (string) $last['releasedAt'] : null) : null,
+            ];
         }
 
         $holderDeviceId = (string) $activeLease['deviceId'];
@@ -229,6 +295,60 @@ final class RegisterLeaseService
             'holderDeviceId'   => $holderDeviceId,
             'holderDeviceName' => $holderHasRow ? (string) ($holderRow['deviceName'] ?? '') : '',
             'expiresAt'        => null,
+            'reason'           => 'taken_by_other',
+            'releasedBy'       => null,
+            'releasedAt'       => null,
+        ];
+    }
+
+    /**
+     * Traduce el `reason` de `holderConflict()` al par (código, mensaje) que
+     * viaja al POS — una sola fuente para el 409 online (`sales.php`) y para
+     * el resultado por-venta del sync offline (`offline-sync.php`), así los
+     * dos caminos le dicen exactamente lo mismo al cajero.
+     *
+     * El CÓDIGO gobierna el comportamiento del front, el MENSAJE la
+     * comprensión. Solo `REGISTER_TAKEN` es terminal — los otros tres dejan la
+     * caja libre y se resuelven con un claim + reintento, que el POS hace
+     * solo (`ensureTenancy()` en `lib/pos/register-tenancy.ts`).
+     *
+     * @param array{holderDeviceId:?string,holderDeviceName:?string,reason?:string,releasedBy?:?string} $conflict
+     * @return array{0:string,1:string}
+     */
+    public static function conflictMessage(array $conflict): array
+    {
+        $reason = (string) ($conflict['reason'] ?? 'taken_by_other');
+
+        if ($reason === 'taken_by_other') {
+            $holder = (string) ($conflict['holderDeviceName'] ?? '');
+            return [
+                'REGISTER_TAKEN',
+                $holder !== ''
+                    ? 'Esta caja la tiene tomada ' . $holder . '. Pedí que la liberen desde Ajustes → Sucursales → Cajas y reintentá.'
+                    : 'Esta caja la tiene tomada otro dispositivo. Pedí que la liberen desde Ajustes → Sucursales → Cajas y reintentá.',
+            ];
+        }
+
+        if ($reason === 'revoked') {
+            $by = (string) ($conflict['releasedBy'] ?? '');
+            return [
+                'REGISTER_RELEASED',
+                str_starts_with($by, 'admin:')
+                    ? 'Un administrador liberó esta caja mientras este dispositivo estaba sin conexión. La caja está libre: volvé a tomarla y la venta se sincroniza sola.'
+                    : 'Esta caja se liberó mientras este dispositivo estaba sin conexión. La caja está libre: volvé a tomarla y la venta se sincroniza sola.',
+            ];
+        }
+
+        if ($reason === 'released') {
+            return [
+                'REGISTER_RELEASED',
+                'Esta caja se cerró desde este dispositivo mientras la venta esperaba conexión. La caja está libre: volvé a tomarla y la venta se sincroniza sola.',
+            ];
+        }
+
+        return [
+            'REGISTER_NEVER_HELD',
+            'Este dispositivo todavía no tomó esta caja. La caja está libre: tomala y la venta se sincroniza sola.',
         ];
     }
 }

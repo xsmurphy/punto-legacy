@@ -80,16 +80,14 @@ import { useCatalogSeed } from "@/hooks/use-catalog-seed"
 import { useHotkeys } from "@/hooks/use-hotkeys"
 import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
 import { usePriceContext } from "@/hooks/use-price-context"
-import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useRegisterClaim } from "@/hooks/use-register-claim"
-import { posApi } from "@/lib/api/pos-client"
+import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useWorkspaceStore, supportsFullscreen } from "@/lib/pos/workspace-store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
 import { useOfflineSync } from "@/hooks/use-offline-sync"
-import { OfflineBanner } from "@/components/pos/offline-banner"
 
 function OfflineSyncRunner() {
   useOfflineSync()
@@ -192,50 +190,55 @@ function PosWorkspaceLayoutInner({
   // remounts del layout — Next puede invalidar la cache al navegar entre
   // rutas hijas (/pos → /pos/guardadas) y un useRef se resetearía, volviendo
   // a lockear cada vez. Incidente 2026-06-28.
-  // Bootstrap del layout del POS: multi-realm en backend, pero este layout
-  // SIEMPRE corre en contexto de device — inyecta posApi (Bearer) en vez
-  // del default `api` (cookie panel), ver invariante en lib/api-client.ts.
-  const { data: bootstrap } = useBootstrap({ client: posApi })
-  if (bootstrap && !useLockStore.getState().autoLockDone) {
+  //
+  // La cuenta de operadores sale del catalog store (`users`, que baja en el
+  // bootstrap del POS), NO de `/v1/bootstrap.userCount`. Hasta 2026-08-23
+  // este layout pedía ADEMÁS el bootstrap del PANEL con el Bearer del device
+  // y gateaba todo el render con `if (!bootstrap) return <PosLoadingScreen/>`:
+  // sin internet ese fetch no volvía nunca y la caja se quedaba clavada en el
+  // loading para siempre, aunque el catálogo estuviera cacheado. Era el
+  // segundo bloqueo del arranque offline, después del `PosAuthGuard`.
+  //
+  // El POS no necesita el bootstrap del panel para nada: el suyo ya trae
+  // `users`. Un bootstrap por realm, y el del POS sabe operar offline.
+  const catalogStatus = useCatalogStore((s) => s.status)
+  const operatorCount = useCatalogStore((s) => s.users.length)
+  const catalogReady = catalogStatus === "ready"
+  if (catalogReady && !useLockStore.getState().autoLockDone) {
     useLockStore.getState().markAutoLockDone()
-    const userCount = bootstrap.userCount
-    if (typeof userCount === "number" && userCount > 1) {
+    if (operatorCount > 1) {
       useLockStore.getState().lock()
     }
   }
 
-  // Toma la tenencia de esta caja (context/29 §4, F2) apenas entra al
-  // workspace, best-effort — así un device que llega solo a una caja libre ya
-  // tiene tenencia establecida antes de intentar cobrar, en vez de descubrir
-  // el conflicto recién en `PayDialog`.
+  // Toma y MANTIENE la tenencia de esta caja (context/29 §4), y persiste el
+  // resultado en el device (`lib/pos/register-tenancy.ts`) para que el POS
+  // sepa sin red si tiene derecho a emitir. Hasta 2026-08-23 este hook era un
+  // disparo único cuyo resultado nadie leía, y sin conexión no quedaba ningún
+  // gate: se vendía, se imprimía, y el rechazo aparecía al sincronizar.
   //
-  // Corrección de producto del owner (2026-08-20): la tenencia de caja
+  // Corrección de producto del owner (2026-08-20), intacta: la tenencia
   // bloquea SOLO la emisión de un documento con numeración fiscal (factura —
   // ver `context/29-numeracion-y-exclusividad-de-caja.md` §4 y
   // `context/modules/17-numeracion.md` §3), NUNCA el acceso al workspace.
-  // Sin tenencia, el POS tiene que seguir funcionando igual: catálogo,
-  // carrito, cotizaciones, órdenes/comandas, clientes, transacciones. Por eso
-  // este hook ya NO gatea el render — un 409 acá (otro device tiene la caja,
-  // o este device recién la perdió) queda silencioso; el único gate real e
-  // ineludible es el que ya hace `PayDialog` al cobrar (`RegisterTakenPhase`,
-  // acotado al diálogo de pago, no al workspace entero) — ahí es donde
-  // importa (evitar que dos dispositivos dupliquen una numeración fiscal), y
-  // ahí es donde el backend (`sales.php`/`offline-sync.php`,
-  // `RegisterLeaseService::holderConflict`) también lo hace cumplir
-  // server-side.
-  useRegisterClaim()
+  // Sin tenencia, el POS sigue funcionando igual: catálogo, carrito,
+  // cotizaciones, órdenes/comandas, clientes, transacciones. Por eso este hook
+  // no gatea ningún render; el gate real vive en `PayDialog`
+  // (`RegisterTakenPhase`, acotado al diálogo de pago), que ahora consulta el
+  // grant local y por eso también bloquea offline. El backend
+  // (`sales.php`/`offline-sync.php`, `RegisterLeaseService::holderConflict`)
+  // sigue siendo la última palabra server-side.
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  useRegisterClaim(activeRegisterId || null)
 
-  if (!bootstrap) {
+  // Gate del arranque: el catálogo hidratado (de red o del snapshot offline —
+  // ver `hooks/use-pos-bootstrap.ts`). Nunca una request en vuelo.
+  if (!catalogReady) {
     return <PosLoadingScreen />
   }
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden">
-      {/* Banner full-width ARRIBA. Antes era hijo directo del flex-row de
-          paneles → se renderizaba como una franja vertical (toda la altura)
-          entre el contenido y el carrito, parpadeando en cada ciclo de sync.
-          Ahora el tope es flex-col: banner arriba, paneles en una fila debajo. */}
-      <OfflineBanner />
       <BeforeUnloadGuard />
       <HotkeysEditScope />
       <OfflineSyncRunner />
