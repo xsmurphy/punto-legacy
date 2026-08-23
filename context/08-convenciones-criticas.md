@@ -487,6 +487,31 @@ Del mismo modo, `getSingle` de payments acepta dos shapes: `{type, price, extra,
 
 ---
 
+## §51 — El timbrado NO es obligatorio para operar; sí lo es con facturación electrónica
+
+Una caja puede vender sin timbrado cargado. Hay comercios que facturan con
+talonario manual o con preimpresos, y el POS tiene que dejarlos operar: nunca
+se bloquea una venta por falta de configuración fiscal.
+
+En cambio, **si el módulo de facturación electrónica está activo, el timbrado y
+toda la configuración fiscal de la caja pasan a ser obligatorios** — sin eso no
+se puede emitir un documento válido ante la SET.
+
+Estado del código (verificado 2026-08-22, es el comportamiento correcto — no
+"arreglarlo"):
+
+- `SaleService::resolveFrozenInvoiceAuth()` devuelve `[null, null, null]` cuando
+  la caja no tiene timbrado y la venta sigue su curso.
+- El form de cajas no marca el timbrado como campo requerido.
+- `EInvoiceProvisioningService` aborta si ninguna caja activa tiene el timbrado
+  completo, y `SaleToInvoiceMapper` exige timbrado vigente cacheado.
+
+Regla del owner (2026-08-22). Si alguna vez aparece un pedido de "validar
+timbrado al abrir caja" o "no dejar vender sin timbrado", va contra esto salvo
+que el tenant tenga facturación electrónica activa.
+
+---
+
 ## §50 — El formato de impresión se configura en Ajustes, nunca se elige en Caja
 
 Tamaño de papel (A4, oficio, rollo 80mm), márgenes y posicionamiento son
