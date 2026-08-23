@@ -352,7 +352,7 @@ export function ContactDetailView({
         {/* Header */}
         <header className={cn(
           "flex items-start justify-between gap-3 shrink-0",
-          isPos ? "px-4 pt-4 pb-2" : "pb-2",
+          isPos ? "px-6 pt-6 pb-2" : "pb-2",
         )}>
           <div className="flex items-center gap-2.5 min-w-0">
             <Avatar className="size-9 shrink-0">
@@ -491,7 +491,7 @@ export function ContactDetailView({
 
         {/* Footer fijo — solo variant="pos" */}
         {isPos && onSelectForSale && (
-          <div className="shrink-0 border-t p-4 flex justify-end">
+          <div className="shrink-0 border-t px-6 py-4 flex justify-end">
             <Button
               type="button"
               size="lg"

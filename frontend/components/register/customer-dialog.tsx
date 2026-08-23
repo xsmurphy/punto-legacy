@@ -243,7 +243,7 @@ function CustomerResultRow({
       <button
         onClick={onSelect}
         className={cn(
-          "flex min-w-0 flex-1 items-center gap-3 px-4 py-2.5 text-left",
+          "flex min-w-0 flex-1 items-center gap-3 px-6 py-2.5 text-left",
           "transition-colors hover:bg-muted/50 active:bg-muted",
           "focus-visible:outline-none focus-visible:bg-muted/50",
         )}
@@ -385,7 +385,7 @@ function CreateCustomerForm({
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
       {/* ── Barra de acciones ARRIBA — guardar sin scrollear ── */}
-      <div className="flex shrink-0 items-center justify-between border-b border-border bg-background px-4 py-3">
+      <div className="flex shrink-0 items-center justify-between border-b border-border bg-background px-6 py-3">
         <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
           Crear cliente
         </p>
@@ -408,7 +408,7 @@ function CreateCustomerForm({
       {/* ── Campos (scrolleables) ── */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         {/* ── Sección DATOS DE FACTURACIÓN ── */}
-        <div className="px-4 pb-4 pt-4">
+        <div className="px-6 pb-4 pt-4">
           <p className="mb-3 text-[10px] font-bold tracking-widest text-muted-foreground uppercase">
             Datos de Facturación
           </p>
@@ -466,7 +466,7 @@ function CreateCustomerForm({
 
         {/* ── Sección DATOS PERSONALES — colapsada por default ── */}
         <Collapsible defaultOpen={false}>
-          <div className="px-4 pt-4 pb-4">
+          <div className="px-6 pt-4 pb-4">
             <CollapsibleTrigger asChild>
               <button
                 type="button"
@@ -479,7 +479,7 @@ function CreateCustomerForm({
           </div>
 
           <CollapsibleContent>
-            <div className="px-4 pb-4">
+            <div className="px-6 pb-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {/* Nombre */}
                 <div className="flex flex-col gap-1">

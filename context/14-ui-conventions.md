@@ -210,6 +210,7 @@ Antes de mergear (o de cerrar el brief de un sub-agente):
 - [ ] EmptyState component, no `<p>` pelado
 - [ ] DataTable para listados grandes
 - [ ] DialogContent sin `max-w-[Xvw]` hardcoded — usar `sm:max-w-2xl|3xl|4xl|5xl|6xl`
+- [ ] DialogContent sin `p-0` a mano — si el modal tiene header fijo + cuerpo scrolleable + footer, va `sectioned` + `<DialogBody>` (gutter 24px, ver `context/20` §4 "Modales — padding y secciones")
 - [ ] Sin hex colors hardcoded (excepto pedidos explícitos del owner)
 - [ ] Sin emojis
 - [ ] Formatos pasan por helpers (`formatAmount`, `niceDateTimeFull`, etc.)

@@ -62,7 +62,7 @@ export function LineNoteDialog({
 
   return (
     <ResponsiveDialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <ResponsiveDialogContent className="sm:max-w-md p-0 gap-0">
+      <ResponsiveDialogContent sectioned className="sm:max-w-md">
         {/* Header — mismo chrome que NumericPadDialog (línea hermana). */}
         <div className="border-b px-6 py-4">
           <h2 className="text-lg font-semibold">Comentario</h2>

@@ -100,7 +100,7 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="flex max-h-[80vh] flex-col gap-0 p-0 sm:max-w-lg">
+      <DialogContent sectioned className="max-h-[80vh] sm:max-w-lg">
         <DialogHeader className="sr-only">
           <DialogTitle>Asignar hotkey</DialogTitle>
           <DialogDescription>
@@ -110,7 +110,7 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
 
         <Tabs defaultValue="item" className="flex h-full flex-col overflow-hidden">
           {/* Tabs + buscador en el header */}
-          <div className="space-y-3 px-5 pb-3 pt-5">
+          <div className="space-y-3 px-6 pb-3 pt-6">
             <TabsList className="w-full">
               <TabsTrigger value="item" className="flex-1">
                 Artículo
@@ -168,7 +168,7 @@ export function HotkeyAssignDialog({ position, onClose }: HotkeyAssignDialogProp
                         disabled={assigned}
                         onClick={() => handleSelectCategory(cat.id)}
                         className={cn(
-                          "flex h-auto w-full items-center justify-start gap-3 rounded-none px-4 py-2.5",
+                          "flex h-auto w-full items-center justify-start gap-3 rounded-none px-6 py-2.5",
                           "font-normal hover:bg-muted/50",
                           assigned && "opacity-50",
                         )}
@@ -215,7 +215,7 @@ function ItemRow({
         disabled={assigned}
         onClick={onSelect}
         className={cn(
-          "flex w-full items-center gap-3 px-4 py-2.5 text-left",
+          "flex w-full items-center gap-3 px-6 py-2.5 text-left",
           "transition-colors hover:bg-muted/50 active:bg-muted",
           "focus-visible:outline-none focus-visible:bg-muted/50",
           assigned && "cursor-not-allowed opacity-50 hover:bg-transparent",

@@ -9,6 +9,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogBody,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -42,8 +43,8 @@ export function NewItemKindDialog() {
           Nuevo artículo
         </Button>
       </DialogTrigger>
-      <DialogContent className="flex max-h-[85vh] w-[min(90vw,720px)] max-w-none flex-col gap-0 p-0 sm:max-w-none">
-        <DialogHeader className="border-b px-6 py-4">
+      <DialogContent sectioned className="max-h-[85vh] w-[min(90vw,720px)] max-w-none sm:max-w-none">
+        <DialogHeader className="border-b py-4">
           <DialogTitle>¿Qué tipo de artículo querés crear?</DialogTitle>
           <DialogDescription>
             Elegí la categoría que mejor describa el artículo. Podés editar los
@@ -51,7 +52,7 @@ export function NewItemKindDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <DialogBody>
           <div className="flex flex-col gap-5">
             {GROUPS.map((g) => (
               <div key={g.key} className="flex flex-col gap-2">
@@ -85,7 +86,7 @@ export function NewItemKindDialog() {
               </div>
             ))}
           </div>
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

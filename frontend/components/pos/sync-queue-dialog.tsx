@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
@@ -145,8 +145,8 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="shrink-0 px-5 pb-3 pt-5">
+      <DialogContent sectioned className="max-h-[85vh] sm:max-w-2xl">
+        <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">
             Ventas pendientes de sincronizar
           </DialogTitle>
@@ -154,7 +154,9 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
 
         <Separator />
 
-        <div className="flex-1 overflow-y-auto">
+        {/* `flush`: el separador de cada fila cruza de lado a lado, pero la
+            primera/última celda respetan el gutter de 24px del header. */}
+        <DialogBody flush>
           {rows.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
               <p className="text-sm">No hay ventas pendientes de sincronizar</p>
@@ -229,12 +231,12 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
               </tbody>
             </table>
           )}
-        </div>
+        </DialogBody>
 
         {hasFailed && (
           <>
             <Separator />
-            <DialogFooter className="shrink-0 px-5 py-4">
+            <DialogFooter>
               <Button
                 variant="outline"
                 disabled={syncing}

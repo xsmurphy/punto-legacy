@@ -46,6 +46,7 @@ import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import {
   Dialog,
+  DialogBody,
   DialogClose,
   DialogContent,
   DialogDescription,
@@ -116,6 +117,7 @@ function ResponsiveDialogContent({
   className,
   drawerClassName,
   showCloseButton = true,
+  sectioned = false,
   children,
   ...props
 }: React.ComponentProps<typeof DialogContent> & {
@@ -133,7 +135,24 @@ function ResponsiveDialogContent({
         className={cn("mx-auto max-w-lg", drawerClassName)}
         {...props}
       >
-        {children}
+        {/* GUTTER DE LA RAMA DRAWER (2026-08-23).
+            `DrawerContent` trae `p-4`, pero el panel visible se dibuja con
+            `before:inset-2` — o sea que esos 16px arrancan 8px afuera del
+            borde que ve el usuario y el contenido queda a 8px del borde. Los
+            16px de este wrapper completan los 24px visibles: el MISMO gutter
+            que la rama Dialog. Va acá y no en cada slot porque el cuerpo de
+            estos modales son children pelados, sin componente propio.
+
+            `sectioned` lo saltea: ese call-site declara que administra su
+            propio padding (ej. NumericPadDialog, con header/body/footer
+            `px-6` propios) y sumarle el wrapper lo dejaría con doble aire. */}
+        {sectioned ? (
+          children
+        ) : (
+          <div className="flex min-h-0 flex-1 flex-col px-4 pb-4">
+            {children}
+          </div>
+        )}
       </DrawerContent>
     )
   }
@@ -143,11 +162,36 @@ function ResponsiveDialogContent({
       data-slot="responsive-dialog-content"
       className={className}
       showCloseButton={showCloseButton}
+      sectioned={sectioned}
       {...props}
     >
       {children}
     </DialogContent>
   )
+}
+
+/**
+ * Cuerpo del modal. En la rama Dialog delega en `<DialogBody>` (que solo pone
+ * padding si el content es `sectioned`); en la rama drawer no hace falta
+ * padding lateral porque lo puso el wrapper de `ResponsiveDialogContent`.
+ */
+function ResponsiveDialogBody({
+  className,
+  flush,
+  ...props
+}: React.ComponentProps<typeof DialogBody>) {
+  const isDrawer = useIsDrawerBranch()
+
+  if (isDrawer) {
+    return (
+      <div
+        data-slot="responsive-dialog-body"
+        className={cn("min-h-0 flex-1 overflow-y-auto", className)}
+        {...props}
+      />
+    )
+  }
+  return <DialogBody className={className} flush={flush} {...props} />
 }
 
 function ResponsiveDialogHeader({
@@ -202,6 +246,7 @@ function ResponsiveDialogDescription(
 
 export {
   ResponsiveDialog,
+  ResponsiveDialogBody,
   ResponsiveDialogClose,
   ResponsiveDialogContent,
   ResponsiveDialogDescription,
