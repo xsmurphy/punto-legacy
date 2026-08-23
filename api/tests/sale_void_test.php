@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
 /**
  * Test de integración (DB real) de `SaleVoidService::void()` — anulación de
  * ventas (F1+F2, context/40-anulacion-y-nota-credito.md). Mismo patrón que
@@ -339,9 +342,4 @@ check(
     $failures
 );
 
-if ($failures > 0) {
-    echo "\n$failures caso(s) fallido(s).\n";
-    exit(1);
-}
-echo "\nTodos los casos OK.\n";
-exit(0);
+harnessFinish($failures);

@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
 /**
  * Test de integración (Redis real) del rate limiter con store en Redis
  * (`Punto\Api\RateLimit\RateLimiter`) y del resolutor de IP de cliente
@@ -267,5 +270,5 @@ if ($redis !== null) {
     }
 }
 
-echo "\n=== resultado: {$passes} OK, {$failures} FAIL ===\n\n";
-exit($failures === 0 ? 0 : 1);
+echo "\n=== resultado: {$passes} OK, {$failures} FAIL ===\n";
+harnessFinish($failures, $passes + $failures);

@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
 /**
  * Test de humo (DB real) del "row movement" del particionado mensual de
  * `transaction`/`itemSold` (E1, mig 156 —
@@ -209,9 +212,4 @@ $db->Execute('DELETE FROM vPayments WHERE id = ?', [$vPaymentsId]);
 $db->Execute('DELETE FROM itemSold  WHERE itemsoldid = ?', [$itemSoldId]);
 $db->Execute('DELETE FROM transaction WHERE transactionid = ?', [$transactionId]);
 
-if ($failures > 0) {
-    echo "\n$failures caso(s) fallido(s).\n";
-    exit(1);
-}
-echo "\nTodos los casos OK.\n";
-exit(0);
+harnessFinish($failures);

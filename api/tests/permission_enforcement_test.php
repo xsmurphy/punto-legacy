@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
 /**
  * Arnés de enforcement de permisos.
  *
@@ -879,10 +882,4 @@ ncmExecute('DELETE FROM contact WHERE contactid = ?::uuid', [$selfId], true);
 
 // ═══════════════════════════════════════════════════════════════════════════
 echo "\n";
-echo "checks: $checks   fallas: $failures\n";
-if ($failures > 0) {
-    echo "PERMISSION ENFORCEMENT TEST: FALLÓ\n";
-    exit(1);
-}
-echo "PERMISSION ENFORCEMENT TEST: OK\n";
-exit(0);
+harnessFinish($failures, $checks);

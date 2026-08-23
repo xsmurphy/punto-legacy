@@ -21,6 +21,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Wrapper compartido: exige la linea canonica de resumen, no solo exit 0.
+# shellcheck source=_harness_lib.sh
+source "$SCRIPT_DIR/_harness_lib.sh"
 
 OWN_DOCKER=0
 CONTAINER_NAME="punto_rate_limiter_test_$$"
@@ -72,8 +75,7 @@ else
 fi
 
 # ── 2. Test del rate limiter ───────────────────────────────────────────────
-php -d variables_order=EGPCS -d 'error_reporting=E_ALL & ~E_DEPRECATED' \
-  "$SCRIPT_DIR/rate_limiter_test.php"
+harness_run "$SCRIPT_DIR/rate_limiter_test.php"
 
 echo ""
 echo "[run_rate_limiter_test.sh] TODO OK."

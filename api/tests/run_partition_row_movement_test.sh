@@ -23,6 +23,9 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Wrapper compartido: exige la linea canonica de resumen, no solo exit 0.
+# shellcheck source=_harness_lib.sh
+source "$SCRIPT_DIR/_harness_lib.sh"
 API_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$API_DIR/.." && pwd)"
 VERIFY_CHAIN_DIR="$API_DIR/lib/Sales/verify_chain"
@@ -101,8 +104,7 @@ fi
 echo ""
 echo "[run_partition_row_movement_test.sh] === row movement del particionado (E1, mig 156) ==="
 export POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
-php -d variables_order=EGPCS -d 'error_reporting=E_ALL & ~E_DEPRECATED & ~E_WARNING' \
-  "$SCRIPT_DIR/partition_row_movement_test.php"
+harness_run "$SCRIPT_DIR/partition_row_movement_test.php"
 
 echo ""
 echo "[run_partition_row_movement_test.sh] TODO OK."

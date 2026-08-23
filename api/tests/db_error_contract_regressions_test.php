@@ -1,6 +1,9 @@
 <?php
 declare(strict_types=1);
 
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
 /**
  * Test de integración (Postgres real) de las 4 REGRESIONES que provocó el
  * cambio de contrato de `api/includes/lib/DB.php` (2026-08-22: el wrapper
@@ -436,7 +439,13 @@ $serverPort  = 8100 + random_int(0, 4000);
 $serverLog   = sys_get_temp_dir() . '/offline_sync_db_error_server_' . getmypid() . '.log';
 $serverPidFile = sys_get_temp_dir() . '/offline_sync_db_error_server_' . getmypid() . '.pid';
 
-$startCmd = 'nohup ' . escapeshellarg($phpBin) . ' -S 127.0.0.1:' . $serverPort . ' -t ' . escapeshellarg($docroot)
+// `-d variables_order=EGPCS` NO es opcional: sin la `E`, el servidor embebido
+// arranca con `$_ENV` VACÍO y `simple.config.php` no ve ninguna POSTGRES_*, así
+// que se conecta al default `localhost:5432` — donde no hay nada escuchando.
+// Los 4 checks del caso (c) fallaban por "Connection refused" del subproceso,
+// no por el comportamiento que este caso quiere medir. El arnés padre ya corre
+// con este flag; el hijo lo necesita igual.
+$startCmd = 'nohup ' . escapeshellarg($phpBin) . ' -d variables_order=EGPCS -S 127.0.0.1:' . $serverPort . ' -t ' . escapeshellarg($docroot)
     . ' > ' . escapeshellarg($serverLog) . ' 2>&1 & echo $! > ' . escapeshellarg($serverPidFile);
 shell_exec($startCmd);
 
@@ -568,9 +577,4 @@ check(
 ini_set('error_log', $errLogBackup === false ? '' : (string) $errLogBackup);
 @unlink($errLogTmp);
 
-if ($failures > 0) {
-    echo "\n$failures caso(s) fallido(s).\n";
-    exit(1);
-}
-echo "\nTodos los casos OK.\n";
-exit(0);
+harnessFinish($failures);
