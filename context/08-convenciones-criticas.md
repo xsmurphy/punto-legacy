@@ -487,6 +487,28 @@ Del mismo modo, `getSingle` de payments acepta dos shapes: `{type, price, extra,
 
 ---
 
+## §50 — El formato de impresión se configura en Ajustes, nunca se elige en Caja
+
+Tamaño de papel (A4, oficio, rollo 80mm), márgenes y posicionamiento son
+configuración de la **plantilla**, y se definen en Ajustes. En Caja se imprime
+y nada más: no hay selector de formato antes de imprimir.
+
+Decisión del owner (2026-08-22), al rechazar el pedido "formatos A4 y Oficio
+elegibles en Caja" (`10-roadmap.md`, tanda 2026-08-18 punto 5). Dos razones que
+ya son invariantes del proyecto:
+
+- **Lo que se imprime lo decide la plantilla.** Si el bloque está en la
+  plantilla sale; si no, no. Nada de decidir el documento en el momento de
+  imprimir.
+- **El POS tiene posiciones estables.** Un paso extra en el camino de impresión
+  rompe la memoria muscular del cajero, que es el criterio con el que se diseña
+  la caja.
+
+Lo que sí es trabajo válido es el editor de layout para hoja completa
+(distinto del ticket de 80mm) — pero vive en Ajustes, no en Caja.
+
+---
+
 ## §49 — Print previews: hoja blanca hardcoded (excepción al design system)
 
 Los previews de impresión (cotización, factura, recibo) usan `background: #ffffff` y texto oscuro **hardcoded**, no tokens del design system. Esto es una excepción válida documentada en `context/20-design-system.md §4.12`:

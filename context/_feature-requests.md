@@ -101,7 +101,9 @@ facturación electrónica (en curso, `context/28`).
   docs traen formatos de referencia de recibo y factura (ver los .docx).
 - **Plantillas: columna de IVA por ítem + total IVA** — `S` (template editor).
 - **Formatos A4 / preimpresos con posicionamiento** — `L`. Editor de layout
-  para hoja completa, distinto del ticket 80mm.
+  para hoja completa, distinto del ticket 80mm. Vive en Ajustes: el tamaño de
+  papel es configuración de la plantilla, NO se elige en Caja (decisión del
+  owner 2026-08-22, ver `10-roadmap.md` punto 5 de la tanda 2026-08-18).
 
 ## 2026-07-30 — testers (2 documentos)
 

@@ -175,7 +175,13 @@ contra el código.
    **RESUELTO**: hoy ambos renderizan el mismo componente sobre la misma
    query (`OpenInvoicesService::contactStatement()`).
 4. **Contactos**: consolidar/unificar clientes duplicados desde panel y contactos.
-5. **Impresión**: formatos A4 y Oficio, elegibles en Caja antes de imprimir.
+5. **Impresión**: formatos A4 y Oficio elegibles en Caja — **RECHAZADO por el
+   owner (2026-08-22)**. El tamaño de papel es configuración de la plantilla y
+   se define en Ajustes; en Caja se imprime y nada más, sin selector. Coherente
+   con el invariante "lo que se imprime lo decide la plantilla" y con la regla
+   de posiciones estables del POS. Lo que SÍ sigue vigente es el editor de
+   layout para hoja completa (`_feature-requests.md`, "A4 / preimpresos con
+   posicionamiento"), que vive en Ajustes, no en Caja.
 6. **Cuentas por cobrar (resto del punto verde)** — **RESUELTO**: pago por el
    total de la deuda con reparto FIFO
    (`CreditPaymentService::createDistributed()`).
