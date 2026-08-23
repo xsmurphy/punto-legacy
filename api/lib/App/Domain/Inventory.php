@@ -657,44 +657,123 @@ final class Inventory
     }
 
     /**
-     * Stock de todos los ítems para una o todas las sucursales.
-     * Equivalente legacy: `getAllItemStock($outlet, $all)`.
+     * Stock de todos los ítems: de UNA sucursal, o agregado sobre TODAS las
+     * sucursales de la compañía del contexto (`$all = true`).
+     *
+     * Devuelve un mapa `itemId => ['itemId' =>…, 'onHand' =>…, 'cogs' =>…]`
+     * (forma de `GetAssoc`: clave = primera columna). Equivalente legacy:
+     * `getAllItemStock($outlet, $all)`.
+     *
+     * ── El defecto que cierra: `$all` nunca agregó nada ─────────────────────
+     *
+     * La rama `$all` hacía `getAllOutletData()` sin argumento, creyendo el
+     * docblock de esa función ("sin $id, mapa id → datos"). Ese mapa no existe:
+     * `getAllOutletData()` cae a `OUTLET_ID` y devuelve UNA fila (ver el
+     * docblock de `Store::getAllOutletData`, donde el branch muerto ya se
+     * eliminó). El `foreach` no iteraba sucursales: iteraba los CAMPOS de una
+     * sucursal — `id`, `name`, `status`, `phone`… — y metía cada NOMBRE DE
+     * CAMPO en `WHERE outletId = ?`. Como `outlet.outletId` es UUID, PG ni
+     * siquiera devolvía vacío: tiraba "invalid input syntax for type uuid", que
+     * con `DB_THROW_ON_ERROR` encendido es una `DbQueryException` — un 500. La
+     * agregación multi-sucursal estuvo rota desde siempre.
+     *
+     * De yapa, `$result[$itemId]['onHand'] += …` sumaba sobre una clave que
+     * todavía no existía (la línea anterior sólo creaba `['itemId']`), o sea un
+     * "Undefined array key onHand" por ítem y por sucursal. Al pasar la suma al
+     * SQL el warning desaparece por construcción, no por un `?? 0`.
+     *
+     * ── Una sola query, no N+1 ──────────────────────────────────────────────
+     *
+     * La forma anterior era un `SELECT` por sucursal dentro de un `foreach`.
+     * Con `stock` creciendo (y `transaction`/`itemSold` ya particionadas) eso
+     * escala con la cantidad de sucursales del tenant. Ahora el conjunto de
+     * sucursales se resuelve DENTRO del SQL y la agregación la hace PG: una
+     * sola ida a la base, con o sin `$all`.
+     *
+     * ── Semántica del dato: NO cambia ───────────────────────────────────────
+     *
+     * "Stock actual" sigue siendo la fila de `stock` MÁS RECIENTE por
+     * (sucursal, ítem). El legacy usaba `max(stockId)` (MySQL: PK
+     * autoincrement → max = última). En PG `stockId` es UUID v4 random
+     * (`gen_random_uuid()`), NO ordenable por tiempo, así que
+     * `max(stockId)`/`ORDER BY stockId` darían una fila ARBITRARIA. La recencia
+     * la da `stockDate` (TIMESTAMPTZ); `stockId DESC` sólo desempata para
+     * determinismo. `array_agg(...)[1]` reemplaza `max(uuid)` (inexistente en
+     * PG). Lo único que cambia es el `GROUP BY` del subquery: `(outletId,
+     * itemId)` en vez de `itemId`, para que "la última fila" se calcule por
+     * sucursal y no se pisen entre sí al agregar.
+     *
+     * Tampoco se filtra por `outletStatus`: se agregan TODAS las sucursales de
+     * la compañía, activas o no, que es lo que la rama `$all` pretendía hacer.
+     * Una sucursal cerrada con mercadería sigue teniendo esa mercadería.
+     *
+     * ── `cogs` es un costo UNITARIO: promedio PONDERADO, no la última ───────
+     *
+     * `stockOnHandCOGS` es el costo promedio POR UNIDAD del saldo (ver
+     * `manageStock`), no un costo total. El código viejo sumaba `onHand` pero
+     * ASIGNABA `cogs` — se quedaba con el de la última sucursal que hubiera
+     * iterado el `foreach`, un valor arbitrario. Sumarlos sería peor todavía:
+     * sumar dos costos unitarios no da un costo unitario.
+     *
+     * La agregación correcta de un promedio por unidad es el promedio ponderado
+     * por unidades: `Σ(onHand × cogs) / Σ(onHand)`. Es la única que conserva el
+     * invariante que consume un reporte de inventario — `onHand × cogs` = valor
+     * total del stock de ese ítem — sumando las sucursales. Cuando `Σ(onHand)`
+     * es 0 (ítem agotado, o saldos que se cancelan entre sucursales) no hay
+     * ponderación posible y se cae al promedio simple de las sucursales que
+     * tienen fila, para no reportar un costo unitario 0 en un ítem que sí tiene
+     * costo. El resultado se castea a `numeric(15,2)`, la escala de la columna:
+     * con una sola sucursal la fórmula devuelve el valor de la fila TAL CUAL
+     * (`onHand × c / onHand = c`), así que la rama no-`$all` no se mueve ni un
+     * centavo respecto de antes.
+     *
+     * ── Aislamiento multi-tenant ────────────────────────────────────────────
+     *
+     * El conjunto de sucursales sale de `outlet` filtrado por `companyId`, y el
+     * JOIN con `stock` es por `outletId`. No hay forma de que entre una fila de
+     * otro tenant: toda fila de `stock` cuelga de una sucursal (FK NOT NULL) y
+     * toda sucursal cuelga de una compañía (FK NOT NULL). No se usa
+     * `stock.companyId` como fence — es una columna denormalizada que la
+     * escribe la aplicación, mientras que la pertenencia sucursal → compañía es
+     * la del modelo. La rama no-`$all` pasa por el MISMO filtro: antes
+     * consultaba `outletId` a secas, sin ninguna verificación de que esa
+     * sucursal fuera del tenant del contexto.
      */
     public static function getAllItemStock(mixed $outlet = false, bool $all = false): array
     {
-        // "Stock actual" = la fila de stock MÁS RECIENTE por item. El legacy usaba
-        // max(stockId) (MySQL: PK autoincrement → max = última). En PG stockId es
-        // UUID v4 random (DEFAULT gen_random_uuid()), NO ordenable por tiempo, así
-        // que max(stockId)/ORDER BY stockId devolverían una fila ARBITRARIA. La
-        // recencia real la da stockDate (TIMESTAMPTZ DEFAULT now()); stockId DESC
-        // sólo desempata para determinismo. array_agg(...)[1] reemplaza max(uuid)
-        // (inexistente en PG) sin cambiar la estructura del JOIN.
-        $sql = 'SELECT t1.itemId as itemId, t1.stockOnHand as onHand, t1.stockOnHandCOGS as cogs
+        // Fail-closed: sin compañía en el contexto no se resuelve el alcance.
+        // Inventarla ("la primera compañía activa") es exactamente lo que no se
+        // hace en este codebase.
+        if (!defined('COMPANY_ID') || !validity(COMPANY_ID)) {
+            throw new \RuntimeException('getAllItemStock: COMPANY_ID no está en el contexto');
+        }
+
+        $scope  = 'o.companyId = ?';
+        $params = [COMPANY_ID];
+
+        if (!$all) {
+            $scope   .= ' AND s.outletId = ?';
+            $params[] = iftn($outlet, OUTLET_ID);
+        }
+
+        $sql = 'SELECT t1.itemId AS itemId,
+                       SUM(t1.stockOnHand) AS onHand,
+                       (CASE WHEN SUM(t1.stockOnHand) <> 0
+                             THEN SUM(t1.stockOnHand * COALESCE(t1.stockOnHandCOGS, 0))
+                                  / SUM(t1.stockOnHand)
+                             ELSE AVG(t1.stockOnHandCOGS)
+                        END)::numeric(15,2) AS cogs
                 FROM stock t1
                 JOIN (
-                    SELECT (array_agg(stockId ORDER BY stockDate DESC, stockId DESC))[1] AS stockId
-                    FROM stock
-                    WHERE outletId = ?
-                    GROUP BY itemId
-                ) t2 ON t1.stockId = t2.stockId AND t1.outletId = ?';
+                    SELECT (array_agg(s.stockId ORDER BY s.stockDate DESC, s.stockId DESC))[1] AS stockId
+                    FROM stock s
+                    JOIN outlet o ON o.outletId = s.outletId
+                    WHERE ' . $scope . '
+                    GROUP BY s.outletId, s.itemId
+                ) t2 ON t2.stockId = t1.stockId
+                GROUP BY t1.itemId';
 
-        if ($all) {
-            $allOutletsArray = getAllOutletData();
-            $result          = [];
-            foreach ($allOutletsArray as $outletKey => $val) {
-                $item = ncmExecute($sql, [$outletKey, $outletKey], false, true, true);
-                if ($item) {
-                    foreach ($item as $itemId => $values) {
-                        $result[$itemId]['itemId']   = $values['itemId'];
-                        $result[$itemId]['onHand'] += $values['onHand'];
-                        $result[$itemId]['cogs']     = $values['cogs'];
-                    }
-                }
-            }
-        } else {
-            $outlet = iftn($outlet, OUTLET_ID);
-            $result = ncmExecute($sql, [$outlet, $outlet], false, true, true);
-        }
+        $result = ncmExecute($sql, $params, false, true, true);
 
         return validity($result) ? $result : [];
     }

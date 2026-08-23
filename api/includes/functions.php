@@ -635,6 +635,10 @@ function getCurrentOutletName($id=false){
 }
 
 /**
+ * Devuelve UNA sucursal (la de `$id`, o la del contexto). El nombre en plural
+ * es histórico y NO significa "todas": ver el docblock de `Store` para el bug
+ * de agregación multi-sucursal que esa lectura provocó.
+ *
  * @deprecated Slice 8 (PSR-4). Usar `\Punto\App\Domain\Store::getAllOutletData()`. ~2 callers.
  */
 function getAllOutletData($id=false){

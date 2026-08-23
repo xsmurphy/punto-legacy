@@ -44,9 +44,34 @@ final class Store
     }
 
     /**
-     * Datos de una sucursal indexados con claves sin prefijo "outlet".
-     * Con $id devuelve los datos de esa sucursal; sin $id, mapa id → datos.
+     * Datos de UNA sucursal, indexados con claves sin prefijo "outlet".
+     * Sin `$id` devuelve la sucursal del contexto (`OUTLET_ID`).
      * Equivalente legacy: `getAllOutletData($id)`.
+     *
+     * ── El nombre miente y ya costó un bug: NO devuelve "todas" ─────────────
+     *
+     * El docblock decía "sin $id, mapa id → datos", y el cuerpo tenía un
+     * `return $data` (el mapa) al final. Ese branch era INALCANZABLE: la
+     * primera línea hace `$id = $id ?: OUTLET_ID`, así que para cuando se
+     * evalúa `if ($id)` la variable siempre es truthy y el retorno siempre es
+     * la fila única. La promesa del nombre + la del docblock no existían en
+     * ninguna ejecución posible.
+     *
+     * `Inventory::getAllItemStock($outlet, $all = true)` le creyó: llamaba a
+     * `getAllOutletData()` sin argumento esperando el mapa de sucursales y
+     * hacía `foreach` sobre el resultado. Como lo que recibía era UNA fila, el
+     * `foreach` iteraba los CAMPOS de esa fila (`id`, `name`, `status`,
+     * `phone`, …) y usaba cada NOMBRE DE CAMPO como si fuera un outletId en un
+     * `WHERE outletId = ?`. Contra PG eso ni siquiera devuelve vacío:
+     * `outletId` es UUID y el literal `'name'` revienta con "invalid input
+     * syntax for type uuid". La agregación multi-sucursal nunca funcionó.
+     *
+     * Por eso el branch muerto se ELIMINA en vez de "arreglarse": quien
+     * necesita agregar sobre varias sucursales no quiere un mapa de filas en
+     * PHP — quiere acotar la consulta a las sucursales de la compañía DENTRO
+     * del SQL (así lo resuelve ahora `getAllItemStock`, con un solo query).
+     * Dejar acá un modo "devolveme todas" sería reinstalar la misma trampa con
+     * mejor documentación.
      *
      * ── Por qué pasa por `Query::flattenJsonb()` ─────────────────────────────
      *
@@ -92,7 +117,7 @@ final class Store
      * así que `outletRUC` queda como `rUC`. Se mantiene tal cual para no romper
      * a nadie que lo lea así — con la CIA, `['ruc']` también funciona.
      */
-    public static function getAllOutletData(mixed $id = false): mixed
+    public static function getAllOutletData(mixed $id = false): \CaseInsensitiveArray
     {
         global $db;
 
@@ -123,14 +148,10 @@ final class Store
             $result->Close();
         }
 
-        if ($id) {
-            // Sucursal inexistente: CIA vacía en vez de "Undefined array key".
-            // Los callers hacen `$row['name']` sin chequear y una CIA vacía
-            // devuelve null en cada lookup, que es lo que ya asumían.
-            return $data[$id] ?? new \CaseInsensitiveArray([]);
-        }
-
-        return $data;
+        // Sucursal inexistente: CIA vacía en vez de "Undefined array key".
+        // Los callers hacen `$row['name']` sin chequear y una CIA vacía
+        // devuelve null en cada lookup, que es lo que ya asumían.
+        return $data[$id] ?? new \CaseInsensitiveArray([]);
     }
 
     /**
