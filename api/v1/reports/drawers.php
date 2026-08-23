@@ -96,7 +96,10 @@ if ($id !== '') {
     if ($detail === null) {
         apiError('Caja no encontrada', 404);
     }
-    apiOk(['detail' => $detail]);
+    // `tolerance`: margen con el que se clasificó el cuadre (mig 164 +
+    // CashCountStatus). Viaja con la respuesta para que la UI pueda explicar
+    // por qué un cierre con diferencia figura como "cuadra".
+    apiOk(['detail' => $detail, 'tolerance' => $svc->tolerance((string) COMPANY_ID)]);
 }
 
 // Lista por período.
@@ -108,4 +111,7 @@ if (!preg_match($dateRe, $from) || !preg_match($dateRe, $to)) {
     apiError('Formato de fecha inválido', 422);
 }
 
-apiOk(['rows' => $svc->listMovements($from, $to, $roc, (string) COMPANY_ID)]);
+apiOk([
+    'rows'      => $svc->listMovements($from, $to, $roc, (string) COMPANY_ID),
+    'tolerance' => $svc->tolerance((string) COMPANY_ID),
+]);

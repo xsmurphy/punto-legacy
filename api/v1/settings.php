@@ -187,6 +187,16 @@ if ($method === 'POST') {
         $fields['settingPeriodCloseMonths'] = max(1, min(12, (int) $s('settingPeriodCloseMonths')));
     }
 
+    // Tolerancia de cuadre del arqueo (mig 164). Clampeada server-side igual
+    // que las de arriba: el veredicto verde/rojo/amarillo del reporte de cajas
+    // se calcula en el backend, así que el margen se valida en el backend.
+    if ($present('settingDrawerTolerance')) {
+        $fields['settingDrawerTolerance'] = max(0.0, min(
+            \Punto\Api\Reports\CashCountStatus::MAX_TOLERANCE,
+            (float) $s('settingDrawerTolerance')
+        ));
+    }
+
     try {
         if (!$svc->updateGeneral(COMPANY_ID, $fields)) {
             apiError('No se pudo guardar', 500);

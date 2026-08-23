@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { FormSection } from "@/components/forms/form-section"
 import { Input } from "@/components/ui/input"
+import { MoneyInput } from "@/components/ui/money-input"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -153,6 +154,7 @@ const settingsSchema = z.object({
   // el schema porque el form hidrata desde el GET; ninguna sección de este
   // modal lo manda (el merge parcial del backend lo deja intacto).
   settingPeriodCloseMonths: z.number(),
+  settingDrawerTolerance: z.number(),
   // Asistente IA — editable desde AgentSettingsDialog (chat), no desde este
   // modal. Viven en el schema porque el form los hidrata desde el GET, pero
   // ninguna seccion de este modal los manda: el merge parcial del backend los
@@ -251,7 +253,8 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
   ],
   pos: [
     "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
-    "drawerEmail", "drawerBlind", "blockUsedDocNo", "autoSendDocs",
+    "drawerEmail", "drawerBlind", "settingDrawerTolerance",
+    "blockUsedDocNo", "autoSendDocs",
     "stockCountBlind", "itemSerialized", "deletedItemsHistory",
     "creditLine", "storeCredit", "paymentId", "ignoreInternal",
   ],
@@ -374,6 +377,7 @@ export default function SettingsPage() {
       itemSerialized: !!data.itemSerialized,
       drawerEmail: !!data.drawerEmail,
       drawerBlind: !!data.drawerBlind,
+      settingDrawerTolerance: Number(data.settingDrawerTolerance ?? 0) || 0,
       settingRemoveTaxes: !!data.settingRemoveTaxes,
       paymentId: !!data.paymentId,
       creditLine: !!data.creditLine,
@@ -959,6 +963,32 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           label="Cierre ciego"
           desc="El cajero ingresa el efectivo contado sin ver el sistema."
         />
+        <FormField
+          control={form.control}
+          name="settingDrawerTolerance"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Tolerancia de cuadre</FormLabel>
+              <FormControl>
+                {/* MoneyInput y no Input type=number: es un monto en la moneda
+                    del comercio y respeta sus separadores (memoria
+                    `feedback_money_inputs_convention`). */}
+                <MoneyInput
+                  value={field.value ?? 0}
+                  onChange={(v) => field.onChange(v ?? 0)}
+                  placeholder="0"
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                Diferencia que el reporte de Control de Cajas todavía considera
+                &quot;cuadra&quot;. En 0 el arqueo tiene que dar exacto; el
+                redondeo de la moneda nunca se marca como faltante. Subila si el
+                vuelto se redondea a 50 o 100.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
         <ToggleField
           form={form}
           name="blockUsedDocNo"
@@ -1357,6 +1387,7 @@ function emptyValues(): SettingsFormValues {
     itemSerialized: false,
     drawerEmail: false,
     drawerBlind: false,
+    settingDrawerTolerance: 0,
     settingRemoveTaxes: false,
     paymentId: false,
     creditLine: false,

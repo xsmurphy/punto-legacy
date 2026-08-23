@@ -126,6 +126,15 @@ final class SettingsService
             // en SQL (1..12, default 1) para que panel y job de mantenimiento
             // coincidan siempre.
             'settingPeriodCloseMonths' => max(1, min(12, (int) ($r['settingPeriodCloseMonths'] ?? 1))),
+            // Tolerancia de cuadre del arqueo (context/08 §58 — toda regla que
+            // clasifica es configurable). Default 0: el comercio que no la tocó
+            // arquea exacto. El piso de redondeo (1 unidad mínima de la moneda)
+            // NO se aplica acá sino en CashCountStatus::effectiveTolerance() —
+            // este valor es lo que el dueño escribió, no lo que rige.
+            'settingDrawerTolerance' => max(0.0, min(
+                \Punto\Api\Reports\CashCountStatus::MAX_TOLERANCE,
+                (float) ($r['settingDrawerTolerance'] ?? 0)
+            )),
             // Toggles (settingObj / _fullSettings)
             'ignoreInternal'      => $this->truthy($obj['ignoreInternal'] ?? null),
             'stockCountBlind'     => $this->truthy($obj['stockCountBlind'] ?? null),
@@ -237,6 +246,15 @@ final class SettingsService
         // que period_close_due() en SQL.
         if (array_key_exists('settingPeriodCloseMonths', $f)) {
             $record['settingPeriodCloseMonths'] = max(1, min(12, (int) $f['settingPeriodCloseMonths']));
+        }
+        // Tolerancia de cuadre del arqueo — mismo clamp que la lectura de
+        // general() y que CashCountStatus, para que no haya forma de guardar un
+        // valor que el clasificador después reinterprete.
+        if (array_key_exists('settingDrawerTolerance', $f)) {
+            $record['settingDrawerTolerance'] = max(0.0, min(
+                \Punto\Api\Reports\CashCountStatus::MAX_TOLERANCE,
+                (float) $f['settingDrawerTolerance']
+            ));
         }
         $tinyBoolMap = [
             'itemSerialized'     => 'settingItemSerialized',
