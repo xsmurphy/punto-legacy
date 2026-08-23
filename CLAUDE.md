@@ -59,7 +59,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Sync incremental del POS (reconexión/arranque, lápidas de borrado)** | `43-sync-incremental.md` (implementado 2026-08-16; arranque en frío usa bootstrap completo por decisión explícita, no es un pendiente) |
 | **Listas de precio offline (motor espejo + bajada al bootstrap)** | `44-listas-de-precio-offline.md` (plan sin implementar, D0-D6) |
 | **Ítem/contacto como raíces de sync (trigger genérico de satélites)** | `45-satelites-item-contact-sync.md` (implementado 2026-08-17, mig 139; generalizó el D1 de 44) |
-| **Reportes personalizados, export y dashboards** | `47-reportes-personalizados-y-export.md` (plan sin implementar, D1-D9 cerradas por el owner; F0 catálogo+ejecutor es el primer trabajo) |
+| **Reportes personalizados, export y dashboards** | `47-reportes-personalizados-y-export.md` (plan sin implementar, D1-D10 cerradas por el owner — D10: Metabase solo interno; F0 catálogo+ejecutor es el primer trabajo) |
 | **Escalamiento de datos (particionado, réplica, cierre de período)** | `48-escalamiento-de-datos.md` (plan, D1-D7 cerradas por el owner; E1 particionado, E1b cierre de período y D8 grano del rollup implementados 2026-08-22, migs 156/157/160) |
 | **Cómo funciona cada módulo (y qué asume de los otros)** | `modules/_index.md` + un doc por módulo — LEER el del módulo que vas a tocar ANTES de integrarte con él |
 | **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
