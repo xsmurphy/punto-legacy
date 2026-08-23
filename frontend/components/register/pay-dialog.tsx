@@ -1162,10 +1162,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       {pickerDialog}
       <Dialog open={open} onOpenChange={(o) => { if (!o) handleClose() }}>
         <DialogContent
+          sectioned
           className={cn(
             // max-w-lg también en la fase de pago: la grilla de métodos es de
             // 3 columnas (2026-08-08) y con max-w-md los nombres se truncaban.
-            "flex max-h-[90vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg",
+            "max-h-[90vh] sm:max-w-lg",
           )}
         >
           {phase === "pay" ? (
@@ -1370,7 +1371,7 @@ function PayPhase({
   return (
     <>
       {/* Header — label + badge de modo */}
-      <DialogHeader className="shrink-0 px-5 pb-3 pt-5">
+      <DialogHeader className="pb-3">
         <DialogTitle className="sr-only">Cobro</DialogTitle>
 
         <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -1423,7 +1424,7 @@ function PayPhase({
           Cuando el cajero no tipeó nada, el placeholder muestra el remaining
           formateado. Al tipear, el visor cambia al monto ingresado en tiempo real.
           Autofocus garantiza que el teclado físico funcione desde el primer gesto. */}
-      <div className="shrink-0 px-5 py-4">
+      <div className="shrink-0 px-6 py-4">
         <input
           ref={displayRef}
           type="text"
@@ -1457,7 +1458,7 @@ function PayPhase({
       <Separator />
 
       {/* Cuerpo scrolleable */}
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
 
         {/* Pagos ya aplicados */}
         {applied.length > 0 && (
@@ -1567,7 +1568,7 @@ function PayPhase({
       {/* Footer — solo Cancelar para contado (auto-confirm elimina el segundo click)
           Para crédito, se mantiene "Confirmar venta" porque no hay auto-confirm
           (el cajero puede querer registrar sin cobro inicial). */}
-      <div className="shrink-0 flex gap-2 px-5 py-4">
+      <div className="shrink-0 flex gap-2 px-6 py-4">
         <Button
           variant="outline"
           className={cn("flex-1", credito ? "flex-1" : "flex-[1]")}

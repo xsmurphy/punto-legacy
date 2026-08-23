@@ -80,7 +80,7 @@ export function PreviewDialog({ open, config, mm, data, onClose }: Props) {
         showCloseButton
         className="w-[95vw] h-[95vh] max-w-none sm:max-w-none p-0 gap-0 overflow-hidden flex flex-col"
       >
-        <DialogHeader className="flex-row items-center justify-between border-b px-4 py-3 pr-12">
+        <DialogHeader className="flex-row items-center justify-between border-b px-6 py-4 pr-12">
           <div>
             <DialogTitle>Vista previa</DialogTitle>
             <DialogDescription>

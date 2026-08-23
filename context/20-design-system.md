@@ -362,6 +362,65 @@ Alto: dejar al contenido; `max-h-[Xvh] overflow-y-auto` solo si puede exceder
 viewport (ej. split 2-col: `max-h-[80vh]`). Prohibido `max-w-[95vw]
 w-[95vw] h-[90vh]` hardcodeado.
 
+### Modales — padding y secciones
+
+**Gutter canónico: 24px (`px-6`) en TODO modal, siempre.** Es el `p-6` que
+`DialogContent` ya trae por default. Un modal que administra su propio layout
+no puede verse más apretado que uno normal.
+
+Dos formas legítimas, ninguna más:
+
+**1. Modal simple** — `<DialogContent>` sin tocar el padding. El `p-6 gap-6`
+del primitive alcanza. Es el caso del 85% de los diálogos del repo.
+
+**2. Modal seccionado** — header fijo + cuerpo scrolleable + footer fijo.
+Se declara con la prop `sectioned`, NO con `className="p-0"`:
+
+```tsx
+<DialogContent sectioned className="max-h-[85vh] sm:max-w-2xl">
+  <DialogHeader>…</DialogHeader>       {/* px-6 pt-6 pb-4 automático */}
+  <Separator />
+  <DialogBody>…</DialogBody>            {/* px-6 py-4 + flex-1 overflow-y-auto */}
+  <DialogFooter>…</DialogFooter>        {/* px-6 pt-4 pb-6 automático */}
+</DialogContent>
+```
+
+`sectioned` pone `flex flex-col gap-0 overflow-hidden p-0` en el content y —lo
+que importa— hace que los tres slots repongan el gutter solos. El call-site no
+escribe padding nunca.
+
+**Tablas y listados a ancho completo.** Decisión: el CONTENEDOR va sin padding
+lateral (`<DialogBody flush>`) para que el separador, el `border-b` del header
+de la tabla y el hover de la fila crucen de lado a lado; el CONTENIDO de la
+fila igual respeta los 24px. Lo resuelve el primitive con selectores
+descendentes que ganan por especificidad sobre el `px-4` de las celdas — en
+una tabla sale solo, y en un listado de `<li>`/`<div>` se marca cada fila con
+`data-slot="dialog-row"`. Nunca al revés (contenedor con padding y separador
+corto): un listado con el `divide-y` recortado a los costados se lee como una
+tabla flotando adentro de una caja.
+
+**Mobile / bottom drawer.** `ResponsiveDialogContent` repone el gutter en la
+rama drawer con un wrapper `px-4 pb-4`: `DrawerContent` trae `p-4`, pero el
+panel visible se dibuja con `before:inset-2`, así que esos 16px arrancan 8px
+afuera del borde que ve el usuario. Los dos padding sumados dan los mismos
+24px visibles que en desktop. Un call-site `sectioned` saltea el wrapper —
+declara que administra su propio padding.
+
+**Anti-patrones:**
+
+| Prohibido | Correcto |
+|---|---|
+| `<DialogContent className="flex flex-col gap-0 overflow-hidden p-0">` | `<DialogContent sectioned>` |
+| Reponer el padding a ojo en el call-site (`px-3`/`px-4`/`px-5`) | `DialogHeader`/`DialogBody`/`DialogFooter` con `sectioned` |
+| `<div className="flex-1 overflow-y-auto">` como cuerpo | `<DialogBody>` |
+| Gutter distinto entre el header y el cuerpo del mismo modal | 24px en los dos |
+
+**Excepciones documentadas** (siguen con `p-0` a mano, NO usan `sectioned`):
+command palettes (`components/ui/command.tsx`, buscador de productos/clientes
+— el gutter lo pone cmdk), shells fullscreen que montan un módulo entero
+adentro del modal (`app/(pos)/pos/layout.tsx`, `pos-main-menu`,
+`settings/page.tsx`) y el canvas de `print-templates/preview-dialog`.
+
 ### Otros patrones de componente (detalle completo en §14/§4 legacy)
 
 Ver `context/14-ui-conventions.md` Regla #2 (botones/badges/tamaños) y el
@@ -692,6 +751,7 @@ del sistema):
 
 | Fecha | Decisión | Commit | Razón |
 |---|---|---|---|
+| 2026-08-23 | **Gutter de 24px (`px-6`) canónico en todo modal, y prop `sectioned` en `DialogContent` + nuevo `<DialogBody>`** (§4 "Modales — padding y secciones"). Causa raíz del reporte: `p-0` en el content mueve el contrato de padding al call-site, y cada diálogo lo reponía a ojo (`px-3`/`px-4`/`px-5`) o se lo olvidaba. Ahora el padding vive en el primitive: `sectioned` pone `flex flex-col gap-0 overflow-hidden p-0` y header/body/footer reponen `px-6` solos. Tablas a ancho completo → `<DialogBody flush>`: contenedor sin padding (separador de lado a lado) y gutter en la primera/última celda vía selectores descendentes. Mobile: `ResponsiveDialogContent` repone el gutter en la rama drawer con un wrapper `px-4 pb-4` (los `p-4` de `DrawerContent` arrancan 8px afuera del panel por el `before:inset-2`, así que solos dejaban el contenido a 8px del borde). Excepciones que siguen con `p-0` a mano: command palettes, shells fullscreen de módulo y el canvas de preview de plantillas | — | Owner: "muchos modales del POS tienen el texto o los listados muy pegados al borde" (ejemplo: "Ventas pendientes de sincronizar"), mismo síntoma en crear cliente y crear producto |
 | 2026-08-09 | Sidebar del POS ordenado por naturaleza del item: arriba NAVEGACIÓN (HotKeys, Órdenes, Espacios, Guardadas), en el footer los CONTROLES DE ESTADO de la caja (Modo, Bloquear). Los MODOS del POS (Venta/Orden/Cotización/Remisión/Cita) salieron del drawer de Opciones a un selector propio (`PosModeDialog`, cards con el color de `MODE_VISUALS`); el drawer queda SOLO con acciones, filtradas por el modo en curso vía `modes` por opción | `2fce3313`, `c42aaccf` | Owner: un modo cambia el POS entero, una acción opera sobre la transacción en curso — mezclarlos hacía ilegible el menú y mostraba opciones que no aplican (descuento en una orden) |
 | 2026-08-09 | PROHIBIDO setear `font-size` en un `<Input>` bajo `.pos-scope` (§7): el selector de `globals.css` gana por especificidad y la clase es código muerto. El alto sí se ajusta — `h-10` para inputs que comparten fila con un botón | `c42aaccf` | `h-14 text-2xl` copiado en los diálogos de Vale y Giftcard: campo 20px más alto que el botón de al lado, y el `text-2xl` nunca se aplicaba |
 | 2026-08-08 | Menú de acciones de fila (`RowActions`): ítems TEXTO SOLO — sin iconos dentro del dropdown (el `icon` del `RowAction` queda solo para el colapso a botón suelto, donde el icono ES el botón) y sin prefijos redundantes tipo "Marcar como X" — el label es la acción a secas ("Cobrado/Debitado", no "Marcar como Cobrado/Debitado"). Aplicado en el wrapper `components/data-table/row-actions.tsx`, alcanza los 14 consumidores | — | Owner: en un menú de acciones el contexto ya es obvio; el prefijo y los iconos son ruido |

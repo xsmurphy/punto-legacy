@@ -8,6 +8,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogBody,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -65,8 +66,8 @@ export function KdsRecallDialog({
           <span className="hidden sm:inline">Recall</span>
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] gap-0 overflow-hidden p-0 sm:max-w-2xl">
-        <DialogHeader className="border-b p-6 pb-4">
+      <DialogContent sectioned className="max-h-[85vh] sm:max-w-2xl">
+        <DialogHeader className="border-b pb-4">
           <DialogTitle>Comandas que ya salieron</DialogTitle>
           <DialogDescription>
             Las últimas {RECALL_LIMIT}, la más reciente primero. Devolverla a preparación la hace
@@ -74,7 +75,7 @@ export function KdsRecallDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[60vh] overflow-y-auto p-6">
+        <DialogBody className="max-h-[60vh] py-6">
           {orders.length === 0 ? (
             <p className="py-8 text-center text-muted-foreground">
               Todavía no salió ninguna comanda.
@@ -165,7 +166,7 @@ export function KdsRecallDialog({
               })}
             </ul>
           )}
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

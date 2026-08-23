@@ -63,7 +63,7 @@ export function NumericPadDialog({
 
   return (
     <ResponsiveDialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <ResponsiveDialogContent className="sm:max-w-md p-0 gap-0">
+      <ResponsiveDialogContent sectioned className="sm:max-w-md">
         {/* Header: title izquierda + mode label top-right */}
         <div className="flex items-center justify-between border-b px-6 py-4">
           <h2 className="text-lg font-semibold">{title}</h2>

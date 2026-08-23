@@ -271,7 +271,7 @@ function TransactionList({
   return (
     <div className="flex flex-col h-full min-h-0 border-r overflow-hidden">
       {/* Filtros sticky — el título principal está en DialogHeader */}
-      <div className="shrink-0 bg-background border-b px-4 pt-3 pb-3 flex flex-col gap-2">
+      <div className="shrink-0 bg-background border-b px-6 pt-3 pb-3 flex flex-col gap-2">
         <div className="flex gap-2">
           <Input
             placeholder="Buscar por cliente, RUC/CI, comprobante o ID"
@@ -333,11 +333,11 @@ function TransactionList({
       {/* Lista scrollable */}
       <div className="flex-1 overflow-y-auto">
         {error && (
-          <p className="text-destructive text-sm text-center py-8 px-4">{error.message}</p>
+          <p className="text-destructive text-sm text-center py-8 px-6">{error.message}</p>
         )}
 
         {isFetching && items.length === 0 && (
-          <div className="flex flex-col gap-1 px-4 py-3">
+          <div className="flex flex-col gap-1 px-6 py-3">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex flex-col gap-1.5 py-2 border-b">
                 <Skeleton className="h-4 w-3/4" />
@@ -375,7 +375,7 @@ function TransactionList({
         ))}
 
         {hasMore && (
-          <div className="px-4 py-3 border-t">
+          <div className="px-6 py-3 border-t">
             <Button
               variant="outline"
               className="w-full"
@@ -420,7 +420,7 @@ function TransactionRow({
     <button
       type="button"
       className={cn(
-        "w-full text-left px-4 py-2.5 border-b transition-colors hover:bg-accent",
+        "w-full text-left px-6 py-2.5 border-b transition-colors hover:bg-accent",
         selected && "bg-accent",
       )}
       onClick={() => onSelect(item.id)}
@@ -665,7 +665,7 @@ export function TransactionDetail({
             </Button>
           </div>
         )}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-6">
 
           {/* ── Header: cliente + monto top-right + split button ─────────── */}
           <div className="flex items-start justify-between gap-3">

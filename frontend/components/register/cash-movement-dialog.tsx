@@ -52,7 +52,7 @@ export function CashMovementDialog({
 
   return (
     <ResponsiveDialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <ResponsiveDialogContent className="sm:max-w-md p-0 gap-0">
+      <ResponsiveDialogContent sectioned className="sm:max-w-md">
         {/* Header */}
         <div className="border-b px-6 py-4">
           <h2 className="text-lg font-semibold">{title}</h2>
