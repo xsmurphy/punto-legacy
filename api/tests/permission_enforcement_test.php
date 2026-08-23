@@ -42,6 +42,7 @@ require_once dirname(__DIR__) . '/bootstrap.php';
 require_once dirname(__DIR__) . '/includes/auth_session.php';
 require_once dirname(__DIR__) . '/lib/Auth/RoleService.php';
 require_once dirname(__DIR__) . '/lib/Auth/PermissionCatalog.php';
+require_once dirname(__DIR__) . '/lib/Auth/RoleEscalation.php';
 
 // ── Tenant fixture "Verify PY" (api/lib/Sales/verify_chain/seed.sql) ───────
 $companyId  = '0ea6c5d8-57e5-4226-8140-ec914deec024';
@@ -343,7 +344,17 @@ $devDraw  = deviceSession(
 );
 $devOwner = deviceSession($roleOwner, $companyId, $outletId, $registerId, $adminId, $deviceId);
 
-foreach ([['pos.drawer.open', 'open'], ['pos.drawer.close', 'close']] as [$perm, $accion]) {
+$devFin = deviceSession(
+    makeRole('permtest-caja-finanzas', ['finance.manage'], $companyId, $adminId),
+    $companyId, $outletId, $registerId, $adminId, $deviceId
+);
+
+foreach ([
+    ['pos.drawer.open',  'open',    $devDraw],
+    ['pos.drawer.close', 'close',   $devDraw],
+    ['finance.manage',   'expense', $devFin],
+    ['finance.manage',   'income',  $devFin],
+] as [$perm, $accion, $tokConPermiso]) {
     $body = ['action' => $accion, 'amount' => 0];
 
     $sin = hitEndpoint('v1/drawer.php', 'POST', '', $body, '', $devNone);
@@ -352,7 +363,7 @@ foreach ([['pos.drawer.open', 'open'], ['pos.drawer.close', 'close']] as [$perm,
         "status={$sin['status']} body=" . substr(trim($sin['body']), 0, 240),
         $failures, $checks);
 
-    $con = hitEndpoint('v1/drawer.php', 'POST', '', $body, '', $devDraw);
+    $con = hitEndpoint('v1/drawer.php', 'POST', '', $body, '', $tokConPermiso);
     check("[$perm] drawer POST $accion — rol CON la clave → pasa el gate",
         !esGateDePermiso($con, $perm),
         "status={$con['status']} body=" . substr(trim($con['body']), 0, 240),
@@ -446,6 +457,51 @@ check('escalación: el owner SÍ puede asignar el rol owner',
     !($res['status'] === 403),
     "status={$res['status']} body=" . substr(trim($res['body']), 0, 240),
     $failures, $checks);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// (E) La regla anti-escalación es COMPARTIDA, no de /v1/users
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// El equipo del tenant se muta por dos puertas: /v1/users y la acción
+// `create_user` del agente IA. La segunda resolvía el rol POR NOMBRE contra
+// una lista negra de tres strings que NO incluye "Dueño" (el nombre del seed
+// owner), así que pedirle al agente un usuario con rol Dueño salteaba el
+// guard entero. La regla vive ahora en RoleEscalation y las dos puertas la
+// usan; acá se prueba la regla y que la segunda puerta la invoque.
+echo "\n=== (E) regla anti-escalación compartida ===\n";
+
+$extra = RoleEscalation::extraPermissions($roleOwner, $roleManagerish, $companyId);
+check('RoleEscalation: owner tiene permisos que el gestor no → diff no vacío',
+    !empty($extra),
+    'el diff tiene que listar lo que le falta al caller', $failures, $checks);
+
+check('RoleEscalation: el mismo rol contra sí mismo → diff vacío',
+    empty(RoleEscalation::extraPermissions($roleManagerish, $roleManagerish, $companyId)),
+    'asignar el rol propio no escala', $failures, $checks);
+
+check('RoleEscalation: el owner puede asignar cualquier rol → diff vacío',
+    empty(RoleEscalation::extraPermissions($roleOwner, $roleOwner, $companyId)),
+    'el owner tiene el catálogo completo', $failures, $checks);
+
+check('RoleEscalation: rol inexistente → diff vacío (no puede escalar)',
+    empty(RoleEscalation::extraPermissions('00000000-0000-0000-0000-0000000000ff', $roleManagerish, $companyId)),
+    'un rol que no existe no otorga nada', $failures, $checks);
+
+$lanzo = false;
+try {
+    // caller explícito: en el proceso del arnés ROLE_ID es el owner del fixture.
+    RoleEscalation::guardOrThrow($roleOwner, $companyId, 'crear un usuario con', $roleManagerish);
+} catch (\InvalidArgumentException $e) {
+    $lanzo = str_contains($e->getMessage(), 'más permisos que el tuyo');
+}
+check('RoleEscalation::guardOrThrow lanza en vez de cortar la response',
+    $lanzo,
+    'el ejecutor del agente corre en un loop con try/catch y no puede hacer exit', $failures, $checks);
+
+$aiSrc = file_get_contents(dirname(__DIR__) . '/v1/ai/execute.php');
+check('ai/execute.php create_user pasa por RoleEscalation',
+    str_contains($aiSrc, 'RoleEscalation::guardOrThrow'),
+    'la acción create_user del agente asigna un rol y tiene que aplicar la MISMA regla que /v1/users', $failures, $checks);
 
 // ── Limpieza de lo que creó el arnés ──────────────────────────────────────
 ncmExecute('DELETE FROM auth_session WHERE companyid = ?::uuid AND useragent = ?', [$companyId, 'permission-enforcement-test'], true);

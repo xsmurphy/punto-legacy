@@ -221,6 +221,16 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
                 throw new \InvalidArgumentException("Role '$roleName' no existe en el tenant");
             }
 
+            // MISMA regla anti-escalación que /v1/users (RoleEscalation, lib/Auth).
+            // La lista negra de nombres de arriba no alcanza y nunca alcanzó:
+            // bloquea 'super admin'/'admin'/'administrador' pero NO "Dueño",
+            // que es el nombre del seed owner — o sea que pedirle al agente un
+            // usuario con rol Dueño fabricaba un co-dueño del comercio. El
+            // guard compara SETS de permisos contra el rol del operador, así
+            // que no depende de acertarle a ningún nombre.
+            require_once dirname(__DIR__, 2) . '/lib/Auth/RoleEscalation.php';
+            RoleEscalation::guardOrThrow((string) $roleId, $companyId, 'crear un usuario con');
+
             // Contraseña temporal server-side: 16 chars hex = 64 bits de entropy.
             // Se devuelve al operador (sesión autenticada del propio admin) en la
             // response para que pueda dictarla al nuevo usuario. NO se loguea ni

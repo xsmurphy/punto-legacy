@@ -128,9 +128,12 @@ if ($method === 'POST') {
     $userId = $ctx['userId'] ?? '';
 
     // ── Gate de autorización por acción ────────────────────────────────────
-    // `expense`/`income` NO se gatean: no existe clave propia en
-    // PermissionCatalog para movimientos de caja y colgarlos de
-    // pos.drawer.close cambiaría su semántica. Queda reportado como hueco.
+    // `expense`/`income` (extracción e ingreso de efectivo) van con
+    // finance.manage: no tienen clave propia en el catálogo y son movimientos
+    // de plata, no la apertura/cierre del turno — colgarlos de
+    // pos.drawer.close le cambiaría el significado a esa clave. finance.manage
+    // ya es la clave de todo lo que mueve caja (finance/movements.php,
+    // pago a proveedor en credit-payments.php) y está en el seed de manager.
     //
     // Realm `pos-app`: la sesión del device se emite con roleId='1'
     // (DeviceAuth::buildToken), que RoleService resuelve al seed `owner` —
@@ -139,7 +142,12 @@ if ($method === 'POST') {
     // efectivo para el realm `panel`, donde el rol es el del operador real.
     // El día que el POS tenga sesión de operador propia, este mismo gate
     // empieza a discriminar sin tocar el call-site.
-    $drawerPerm = ['open' => 'pos.drawer.open', 'close' => 'pos.drawer.close'][$action] ?? null;
+    $drawerPerm = [
+        'open'    => 'pos.drawer.open',
+        'close'   => 'pos.drawer.close',
+        'expense' => 'finance.manage',
+        'income'  => 'finance.manage',
+    ][$action] ?? null;
     if ($drawerPerm !== null && !hasPermission($drawerPerm)) {
         apiError("No tenés permiso para esta acción (requiere: $drawerPerm)", 403);
     }

@@ -133,10 +133,10 @@ if ($resource === 'bulk-get') {
     if (!in_array($bulkType, [\Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER], true)) {
         $bulkType = \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER;
     }
+    contactsRequire($bulkType, 'view');
     if (empty($ids)) {
         apiOk(['contacts' => []]);
     }
-    contactsRequire($bulkType, 'view');
     // Techo de borde — ver mismo comentario en /v1/items?resource=bulk-get.
     $ids = array_slice($ids, 0, 2000);
     apiOk(['contacts' => $service->getManyByIds($ids, COMPANY_ID, $bulkType)]);

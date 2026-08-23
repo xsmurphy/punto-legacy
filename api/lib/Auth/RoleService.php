@@ -391,26 +391,52 @@ final class RoleService
     /**
      * El rol existe pero su fila `roleData` no.
      *
-     * Pasa de verdad: en producción hay tenants con las 3 filas `role`
-     * sembradas y CERO `roleData`. seedCompanyRoles() crea el rol y sus
-     * permisos en dos escrituras separadas sin una transacción que las
-     * abarque, así que un fallo entre medio deja exactamente este estado. El
-     * síntoma es mudo: _loadPermissions devolvía [] y el rol quedaba
-     * indistinguible de uno al que el admin le sacó todos los permisos a
-     * propósito — o sea que el usuario no puede hacer NADA y no hay nada en
-     * la UI que explique por qué.
+     * Complemento en RUNTIME de la migración
+     * `160_repair_missing_roledata.php`, que reparó los huérfanos que ya
+     * estaban en la base. Sigue existiendo porque la CAUSA no se cerró:
+     * seedCompanyRoles() inserta el rol y llama a _savePermissions() en dos
+     * escrituras separadas, sin una transacción que las abarque, así que un
+     * fallo entre medio vuelve a producir el mismo estado. La migración es de
+     * una sola pasada; esto atrapa los que nazcan después.
      *
-     * Para un rol seed la respuesta correcta no es [] sino el default de su
-     * slug: es lo que seedCompanyRoles() habría escrito. Se persiste (mismo
-     * patrón lazy e idempotente que _reconcileSeedGaps) para que la próxima
-     * lectura ya no pase por acá.
+     * MISMA política que la migración, y por la misma razón — una fila
+     * `roleData` faltante tiene dos orígenes y solo uno es seguro de
+     * reconstruir:
      *
-     * Un rol custom sin roleData sí se queda en []: no hay default del cual
-     * reconstruirlo, e inventarle permisos es peor que no darle ninguno.
+     *   (A) seedCompanyRoles() nunca logró escribirla → el rol NUNCA tuvo
+     *       permisos. Re-crear el default es exacto, no una adivinanza.
+     *   (B) updateRole() la borró y no la reescribió (el upsert es DELETE +
+     *       INSERT) → el rol SÍ tenía permisos y falta justamente porque un
+     *       admin la estaba editando, típicamente para QUITAR permisos.
+     *       Escribirle el default completo le devolvería todo lo que acababa
+     *       de revocar: revivir una revocación deliberada es exactamente el
+     *       incidente que el mecanismo de `catalogVersion` existe para evitar.
+     *
+     * Rol por rol los dos casos son indistinguibles. Por COMPANY sí: si la
+     * company no tiene NINGUNA fila `roleData`, nunca se persistió una lista
+     * ahí, no pudo haber revocación, y todos sus roles seed son caso (A). Esa
+     * es la única condición que se considera probada y la única que se repara.
+     *
+     * Todo lo demás se queda en [] — fail-closed. Sin permisos el usuario no
+     * puede operar, que es recuperable re-guardando el rol desde el panel; un
+     * permiso revivido no lo es.
      */
     private static function _repairMissingRoleData(string $roleId, string $companyId, ?string $slug): array
     {
         if ($slug === null || !array_key_exists($slug, self::SEED_PERMISSIONS)) {
+            return []; // rol custom: no hay default del cual reconstruirlo
+        }
+
+        // ¿La company tiene ALGUNA fila roleData? Si sí, este faltante puede
+        // ser el caso (B) y no se toca.
+        $any = ncmExecute(
+            "SELECT 1 AS x FROM taxonomy WHERE taxonomytype = 'roleData' AND companyid = ? LIMIT 1",
+            [$companyId]
+        );
+        if ($any) {
+            error_log("[RoleService] rol seed '$slug' ($roleId, company $companyId) sin fila roleData, "
+                . 'pero la company tiene otras — puede ser una edición interrumpida. No se repara (fail-closed); '
+                . 're-guardá el rol desde el panel.');
             return [];
         }
 
@@ -418,7 +444,7 @@ final class RoleService
             ? PermissionCatalog::ids()
             : (self::SEED_PERMISSIONS[$slug] ?? []);
 
-        error_log("[RoleService] rol seed '$slug' ($roleId, company $companyId) sin fila roleData — resembrando el default");
+        error_log("[RoleService] company $companyId sin ninguna fila roleData — resembrando el default de '$slug' ($roleId)");
 
         try {
             self::_savePermissions($roleId, $perms, $companyId, $slug);
