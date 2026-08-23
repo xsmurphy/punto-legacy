@@ -7,6 +7,16 @@ import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { peekAll, discard, markFailed, markSynced, getFailedCount } from '@/lib/pos/offline-queue'
 import type { OfflineSaleRow } from '@/lib/pos/offline-queue'
+import {
+  discardOp,
+  getFailedOpsCount,
+  getOpsCount,
+  peekAllOps,
+  retryOp,
+} from '@/lib/pos/pending-ops'
+import type { PendingOpRow } from '@/lib/pos/pending-ops'
+import { syncPendingOps } from '@/lib/pos/pending-ops-sync'
+import { sendPendingOp } from '@/lib/pos/pending-ops-transport'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
 import { posApi as api } from '@/lib/api/pos-client'
 import { formatMoney } from '@/lib/format-money'
@@ -33,10 +43,14 @@ const PERMANENT_ERROR_CODES = ['STOCK_OUT', 'NUMBER_TAKEN', 'INVALID_INPUT']
 
 export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   const [rows, setRows] = React.useState<OfflineSaleRow[]>([])
+  const [ops, setOps] = React.useState<PendingOpRow[]>([])
   const [syncing, setSyncing] = React.useState(false)
   const setPendingCount = useOfflineSyncStore((s) => s.setPendingCount)
   const setFailedCount = useOfflineSyncStore((s) => s.setFailedCount)
+  const setPendingOpsCount = useOfflineSyncStore((s) => s.setPendingOpsCount)
+  const setFailedOpsCount = useOfflineSyncStore((s) => s.setFailedOpsCount)
   const config = useCatalogStore((s) => s.config)
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   // Tenencia vigente de este device — habilita el reintento de las ventas que
   // el servidor rechazó por caja tomada, en cuanto la caja vuelve a ser suya.
   const tenancyOk = useTenancyStore((s) => s.verdict?.canIssue === true)
@@ -46,6 +60,33 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
     setRows(all)
     setPendingCount(all.length)
     setFailedCount(await getFailedCount())
+
+    const allOps = await peekAllOps()
+    setOps(allOps)
+    setPendingOpsCount(await getOpsCount())
+    setFailedOpsCount(await getFailedOpsCount())
+  }
+
+  /**
+   * Reintento manual de una operación. Vuelve a `pending` con el contador de
+   * intentos en cero y dispara una pasada del motor — que respeta el orden del
+   * canal, así que reintentar el cierre de caja también destraba lo que quedó
+   * detrás de él.
+   */
+  async function handleRetryOp(opId: string) {
+    setSyncing(true)
+    try {
+      await retryOp(opId)
+      await syncPendingOps({ send: sendPendingOp, activeRegisterId })
+    } finally {
+      setSyncing(false)
+      await loadRows()
+    }
+  }
+
+  async function handleDiscardOp(opId: string) {
+    await discardOp(opId)
+    await loadRows()
   }
 
   React.useEffect(() => {
@@ -163,7 +204,7 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
       <DialogContent sectioned className="max-h-[85vh] sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">
-            Ventas pendientes de sincronizar
+            Pendientes de sincronizar
           </DialogTitle>
         </DialogHeader>
 
@@ -172,11 +213,71 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
         {/* `flush`: el separador de cada fila cruza de lado a lado, pero la
             primera/última celda respetan el gutter de 24px del header. */}
         <DialogBody flush>
-          {rows.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
-              <p className="text-sm">No hay ventas pendientes de sincronizar</p>
+          {/* Operaciones de configuración y de caja. Van ARRIBA de las ventas
+              a propósito: acá adentro puede haber un cierre de caja, y eso es
+              lo primero que alguien tiene que ver al abrir este diálogo. */}
+          {ops.length > 0 && (
+            <div className="mb-2">
+              <p className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Cambios y operaciones de caja
+              </p>
+              <div className="divide-y divide-border border-y border-border">
+                {ops.map((op) => (
+                  <div
+                    key={op.opId}
+                    className="flex items-center justify-between gap-3 px-4 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm">{op.label}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(op.createdAt)}
+                        {op.status === 'failed' && op.error ? ` · ${op.error.message}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {op.status === 'pending' && <Badge variant="secondary">En cola</Badge>}
+                      {op.status === 'syncing' && (
+                        <Badge variant="secondary">Sincronizando...</Badge>
+                      )}
+                      {op.status === 'failed' && (
+                        <>
+                          <Badge variant="destructive">Error</Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 px-2 text-xs"
+                            disabled={syncing}
+                            onClick={() => void handleRetryOp(op.opId)}
+                          >
+                            Reintentar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                            disabled={syncing}
+                            onClick={() => void handleDiscardOp(op.opId)}
+                          >
+                            Descartar
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          ) : (
+          )}
+
+          {rows.length === 0 && ops.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-16 text-center text-muted-foreground">
+              <p className="text-sm">No hay nada pendiente de sincronizar</p>
+            </div>
+          ) : rows.length === 0 ? null : (
+            <>
+            <p className="px-4 py-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Ventas emitidas
+            </p>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-xs text-muted-foreground">
@@ -245,6 +346,7 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
                 ))}
               </tbody>
             </table>
+            </>
           )}
         </DialogBody>
 

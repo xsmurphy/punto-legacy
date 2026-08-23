@@ -69,6 +69,32 @@ class PrinterBindingService {
             throw new \RuntimeException('registerId no pertenece al tenant', 403);
         }
         $validated = $this->validate($data, true, $registerId);
+
+        // ── Idempotencia del alta ────────────────────────────────────────────
+        // El `id` lo puede mandar el cliente. Suena raro y no lo es: el POS
+        // crea impresoras SIN CONEXIÓN y encola el alta, así que necesita darle
+        // una identidad a esa impresora en el momento (para poder editarla o
+        // borrarla antes de que el alta sincronice) y necesita que reenviar el
+        // alta —porque la respuesta se perdió, no porque no haya llegado— no
+        // cree una segunda impresora idéntica. Con el id del cliente y el
+        // `ON CONFLICT DO NOTHING` de abajo, el reenvío es un no-op que
+        // devuelve la MISMA fila.
+        //
+        // Sigue siendo un UUID validado y el `RETURNING`/re-SELECT está
+        // scopeado por companyId, así que un id de otro tenant no devuelve
+        // nada: da 409, nunca la fila ajena.
+        $clientId = trim((string) ($data['id'] ?? ''));
+        if ($clientId !== '' && !preg_match('/^[0-9a-fA-F-]{36}$/', $clientId)) {
+            throw new \RuntimeException('id inválido (se espera UUID)', 422);
+        }
+        // Sin id del cliente (panel viejo, otros call-sites) el servidor lo
+        // genera como siempre.
+        $idExpr = $clientId !== '' ? '?' : 'gen_random_uuid()';
+
+        $params = [];
+        if ($clientId !== '') {
+            $params[] = $clientId;
+        }
         $rs = ncmExecute(
             'INSERT INTO "printer_binding"
                ("id",companyid,outletid,registerid,"name","color","transport",
@@ -76,9 +102,10 @@ class PrinterBindingService {
                 "copies",opendrawer,autoprint,printdelay,categoryids,doctypes,
                 bluetoothdeviceid,networkhost,networkport,stationprinterid)
              VALUES
-               (gen_random_uuid(),?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?,?,?,?)
+               (' . $idExpr . ',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?::jsonb,?::jsonb,?,?,?,?)
+             ON CONFLICT ("id") DO NOTHING
              RETURNING *',
-            [
+            array_merge($params, [
                 $this->companyId,
                 $this->outletId,
                 $registerId,
@@ -101,13 +128,39 @@ class PrinterBindingService {
                 $validated['networkHost'] ?? null,
                 $validated['networkPort'] ?? null,
                 $validated['stationPrinterId'] ?? null,
-            ],
+            ]),
             false, true
         );
-        if (!$rs || $rs->EOF) throw new \RuntimeException('Error al crear binding', 500);
-        $row = $this->normalize($rs->fields);
-        $rs->Close();
-        return $row;
+
+        if ($rs && !$rs->EOF) {
+            $row = $this->normalize($rs->fields);
+            $rs->Close();
+            return $row;
+        }
+        if ($rs) $rs->Close();
+
+        // Sin fila devuelta con un id del cliente = `ON CONFLICT` disparó: ese
+        // id ya existe. Si es de ESTE tenant, el alta ya se había aplicado (un
+        // reenvío tras una respuesta perdida) y se devuelve la fila existente
+        // — eso es la idempotencia funcionando, no un error. Si no aparece
+        // scopeada por companyId, el id es de otro comercio: 409, y jamás la
+        // fila ajena.
+        if ($clientId !== '') {
+            $existing = ncmExecute(
+                'SELECT * FROM "printer_binding" WHERE "id" = ? AND companyid = ? LIMIT 1',
+                [$clientId, $this->companyId],
+                false, true
+            );
+            if ($existing && !$existing->EOF) {
+                $row = $this->normalize($existing->fields);
+                $existing->Close();
+                return $row;
+            }
+            if ($existing) $existing->Close();
+            throw new \RuntimeException('El id de la impresora ya está en uso', 409);
+        }
+
+        throw new \RuntimeException('Error al crear binding', 500);
     }
 
     public function update(string $id, array $data): array {

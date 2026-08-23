@@ -10,8 +10,11 @@
  *      bloqueante. Va primero porque es lo único que se puede avisar ANTES de
  *      que el cajero arme un carrito y se lo encuentre en el cobro; los otros
  *      tres describen algo que ya pasó;
- *   2. ventas FALLIDAS (destructivo) — terminal, no se resuelve al volver la
- *      conexión y exige que alguien la mire (context/08 §53);
+ *   2. pendientes FALLIDOS (destructivo) — terminal, no se resuelve al volver
+ *      la conexión y exige que alguien lo mire (context/08 §53). Cuenta tanto
+ *      ventas como operaciones de configuración y de caja: un cierre de caja
+ *      que el servidor rechazó es plata contada que quedó en el aire, y no hay
+ *      motivo para que grite menos fuerte que una venta;
  *   3. sin conexión (ámbar), con la cola pendiente si la hay;
  *   4. sincronizando.
  *
@@ -85,6 +88,12 @@ export function OfflineStatusPill() {
   )
   const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
   const failedCount = useOfflineSyncStore((s) => s.failedCount)
+  // Operaciones de configuración y de caja (`lib/pos/pending-ops.ts`). Entran
+  // en ESTE indicador y no en uno propio: el owner pidió un solo aviso de
+  // estado en la caja (2026-08-23) y un cartel más repetiría el error que se
+  // acaba de arreglar.
+  const pendingOpsCount = useOfflineSyncStore((s) => s.pendingOpsCount)
+  const failedOpsCount = useOfflineSyncStore((s) => s.failedOpsCount)
   const isSyncing = useOfflineSyncStore((s) => s.isSyncing)
   const fromCache = useOfflineSyncStore((s) => s.catalogFromCache)
   const cachedAt = useOfflineSyncStore((s) => s.catalogCachedAt)
@@ -111,17 +120,38 @@ export function OfflineStatusPill() {
   // sobre sincronizando. Antes esto se repartía entre este pill y una banda
   // `OfflineBanner` montada en otro punto del carrito, así que con dos estados
   // simultáneos se apilaban dos franjas y empujaban la toolbar hacia abajo.
-  if (!blocked && failedCount === 0 && !degraded && !syncing) return null
+  if (
+    !blocked &&
+    failedCount === 0 &&
+    failedOpsCount === 0 &&
+    !degraded &&
+    !syncing
+  )
+    return null
 
-  const queueLabel =
-    pendingCount > 0
-      ? ` · ${pendingCount} venta${pendingCount !== 1 ? "s" : ""} en cola`
-      : ""
+  // Con conexión y sin nada roto, las operaciones en cola NO se avisan acá: se
+  // sincronizan solas en segundos. Sin conexión sí, porque ahí el cajero
+  // necesita saber que su cierre de caja todavía no salió del aparato.
+  const queueParts: string[] = []
+  if (pendingCount > 0) {
+    queueParts.push(`${pendingCount} venta${pendingCount !== 1 ? "s" : ""}`)
+  }
+  if (pendingOpsCount > 0) {
+    queueParts.push(`${pendingOpsCount} cambio${pendingOpsCount !== 1 ? "s" : ""}`)
+  }
+  const queueLabel = queueParts.length > 0 ? ` · ${queueParts.join(" y ")} en cola` : ""
   const snapshotAge = degraded && cachedAt ? formatSnapshotAge(cachedAt) : null
 
   // Terminal: no se resuelve al volver la conexión, exige que alguien la mire
   // (context/08 §53). Por eso es el único estado que se pinta en destructivo.
-  const failed = failedCount > 0
+  //
+  // Una OPERACIÓN fallida escala igual que una venta fallida, y con más razón
+  // cuando lo que falló es un cierre de caja: eso es plata contada esperando a
+  // que alguien la mire. Un ajuste rechazado usa el mismo canal porque no hay
+  // forma de saber cuál de los dos es desde acá, y errar hacia "avisar de más"
+  // es el lado correcto.
+  const failed = failedCount > 0 || failedOpsCount > 0
+  const failedTotal = failedCount + failedOpsCount
 
   const content = (
     <>
@@ -136,7 +166,7 @@ export function OfflineStatusPill() {
         {blocked
           ? blockedLabel
           : failed
-            ? `${failedCount} venta${failedCount !== 1 ? "s" : ""} con error — tocá para revisar`
+            ? `${failedTotal} pendiente${failedTotal !== 1 ? "s" : ""} con error — tocá para revisar`
             : degraded
               ? `Sin conexión${queueLabel}`
               : `Sincronizando ${pendingCount}`}
@@ -159,7 +189,7 @@ export function OfflineStatusPill() {
     // pidió un único aviso y en ese lugar. `shrink-0` para que la columna del
     // carrito no lo comprima cuando la lista de ítems crece.
     <div className="flex shrink-0 justify-center px-2 pt-2">
-      {pendingCount > 0 || failed ? (
+      {pendingCount > 0 || pendingOpsCount > 0 || failed ? (
         <button
           type="button"
           onClick={() => setQueueDialogOpen(true)}

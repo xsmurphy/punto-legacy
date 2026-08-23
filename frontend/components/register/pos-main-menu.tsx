@@ -112,6 +112,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
+import { useOnlineStatus } from "@/hooks/use-online-status"
+import { peekAll } from "@/lib/pos/offline-queue"
+import { getOpsCount, peekAllOps, type PendingOpRow } from "@/lib/pos/pending-ops"
+import { syncPendingOps } from "@/lib/pos/pending-ops-sync"
+import { sendPendingOp } from "@/lib/pos/pending-ops-transport"
 import { usePosOutlets, usePosRegisters } from "@/hooks/use-pos-outlets"
 import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
 import { PosTransactionsDialog } from "@/components/register/pos-transactions-dialog"
@@ -1091,6 +1096,127 @@ function buildCloseRegTicket(
  *
  * Datos: hook use-drawer → BFF /api/pos/drawer → api/v1/drawer.php
  */
+/**
+ * Lo que Control de Caja muestra cuando la caja está operando sin servidor.
+ *
+ * Ocupa el lugar del resumen del turno, que sin conexión no existe — ver el
+ * comentario largo en el call-site sobre por qué NO se estima un total.
+ */
+function OfflineDrawerNotice({
+  isOpen,
+  openDate,
+}: {
+  isOpen: boolean
+  openDate: string | null
+}) {
+  const config = useCatalogStore((s) => s.config)
+  const [queued, setQueued] = React.useState<{ count: number; total: number } | null>(null)
+
+  React.useEffect(() => {
+    let alive = true
+    async function load() {
+      const rows = await peekAll()
+      if (!alive) return
+      setQueued({
+        count: rows.length,
+        total: rows.reduce(
+          (sum, r) => sum + r.sale.payment.reduce((s, p) => s + (p.total ?? 0), 0),
+          0,
+        ),
+      })
+    }
+    void load()
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  return (
+    <div className="mx-auto max-w-sm space-y-3 text-center">
+      {isOpen && openDate && (
+        <p className="text-sm font-medium capitalize text-muted-foreground">
+          Abierta desde {formatDateTime(openDate)}
+        </p>
+      )}
+      <p className="text-sm text-muted-foreground">
+        {isOpen
+          ? "Sin conexión: el total del turno lo calcula el servidor y todavía no se puede consultar. Contá el efectivo y cerrá con el monto contado — el arqueo se completa solo cuando vuelva la conexión."
+          : "Sin conexión: podés abrir la caja igual. La apertura se envía sola al recuperar la conexión."}
+      </p>
+      {queued && queued.count > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Este dispositivo tiene {queued.count} venta{queued.count !== 1 ? "s" : ""} sin
+          enviar por {formatMoney(queued.total, config)}. No es el total del turno.
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Aviso de operaciones de caja que el servidor RECHAZÓ.
+ *
+ * Un cierre encolado que falla no puede desaparecer en silencio: es plata
+ * contada. El indicador de la caja ya lo pinta en destructivo, pero este es el
+ * lugar donde está parada la persona responsable del arqueo, así que también
+ * se dice acá, con el detalle y la salida a mano.
+ *
+ * No desplaza nada: vive al final del cuerpo scrolleable del panel, arriba de
+ * la barra de acciones, que está fija.
+ */
+function FailedDrawerOpsNotice() {
+  const failedOpsCount = useOfflineSyncStore((s) => s.failedOpsCount)
+  const setQueueDialogOpen = useOfflineSyncStore((s) => s.setQueueDialogOpen)
+  const { setOpen } = useMenuCtx()
+  const [drawerFailed, setDrawerFailed] = React.useState<PendingOpRow[]>([])
+
+  React.useEffect(() => {
+    let alive = true
+    async function load() {
+      const all = await peekAllOps()
+      if (!alive) return
+      setDrawerFailed(all.filter((o) => o.stream === "drawer" && o.status === "failed"))
+    }
+    void load()
+    return () => {
+      alive = false
+    }
+    // Se relee cuando cambia el contador global de fallidas — que es lo que
+    // mueve el loop de sync.
+  }, [failedOpsCount])
+
+  if (drawerFailed.length === 0) return null
+
+  return (
+    <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+      <p className="text-sm font-medium text-destructive">
+        {drawerFailed.length === 1
+          ? "Una operación de caja no se pudo registrar"
+          : `${drawerFailed.length} operaciones de caja no se pudieron registrar`}
+      </p>
+      <ul className="mt-1 space-y-0.5">
+        {drawerFailed.map((op) => (
+          <li key={op.opId} className="text-xs text-muted-foreground">
+            {op.label}
+            {op.error ? ` — ${op.error.message}` : ""}
+          </li>
+        ))}
+      </ul>
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-2"
+        onClick={() => {
+          setOpen(false)
+          setQueueDialogOpen(true)
+        }}
+      >
+        Revisar
+      </Button>
+    </div>
+  )
+}
+
 function ControlDeCajaPanel() {
   // En el POS usamos el config del catalog store (ya hidratado por useCatalogSeed).
   // useBootstrap no se necesita en el POS — el config viene del PosBootstrap.
@@ -1098,6 +1224,10 @@ function ControlDeCajaPanel() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   const { data: status, isLoading: statusLoading } = useDrawerStatus()
   const { data: summary, isLoading: summaryLoading } = useDrawerSummary()
+  // `fromCache` = el estado de la caja salió del device, no del servidor. Es
+  // la señal DURA de que no hay servidor del otro lado — más confiable que
+  // `navigator.onLine`, que dice `true` con un router sin salida.
+  const offline = status?.fromCache ?? false
   const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
   const { requestPrint, pickerDialog } = usePrintWithPicker()
@@ -1206,6 +1336,23 @@ function ControlDeCajaPanel() {
           </p>
         )}
 
+        {/* Sin conexión el cierre es a ciegas, y es a ciegas A PROPÓSITO.
+            El total del turno lo calcula el servidor sumando TODAS las ventas
+            de la sesión; el device solo conoce con certeza las que él mismo
+            tiene sin enviar. Entre esas dos cosas hay un hueco real —las
+            ventas que sí llegaron al servidor después de la última lectura del
+            resumen— y un total corto mostrado en una pantalla de arqueo es
+            peor que ninguno: hace que un faltante parezca cuadrar.
+
+            Así que no se muestra ningún "esperado". Lo que sí se muestra es
+            cuánto hay en la cola de este aparato, que es un dato sobre la cola
+            (y sobre cuánta plata está en riesgo si el aparato se pierde), no
+            sobre el turno. El arqueo real lo hace el servidor con el monto
+            contado cuando el cierre sincroniza, exactamente igual que online. */}
+        {offline && (
+          <OfflineDrawerNotice isOpen={isOpen} openDate={status?.openDate ?? null} />
+        )}
+
         {/* Modo ciego: el arqueo se hace sin ver lo esperado. Nada del
             resumen (montos por concepto, productos, totales) se renderiza. */}
         {summary && blind && (
@@ -1281,14 +1428,17 @@ function ControlDeCajaPanel() {
           </>
         )}
 
-        {/* Caja cerrada: prompt para abrir */}
-        {!loading && !isOpen && !summary && (
+        {/* Caja cerrada: prompt para abrir. Sin conexión no se pinta porque
+            `OfflineDrawerNotice` ya explica el estado y por qué. */}
+        {!loading && !isOpen && !summary && !offline && (
           <div className="mt-8 flex flex-col items-center gap-3 text-center">
             <p className="text-sm text-muted-foreground">
               La caja está cerrada. Abrila para empezar a cobrar.
             </p>
           </div>
         )}
+
+        <FailedDrawerOpsNotice />
       </div>
 
       {/* Barra de acciones */}
@@ -1311,8 +1461,11 @@ function ControlDeCajaPanel() {
               Ingresar
             </Button>
             {/* El ticket de cierre lista todos los montos del turno — en modo
-                ciego no hay botón de imprimir (ni auto-print al cerrar). */}
-            {!blind && (
+                ciego no hay botón de imprimir (ni auto-print al cerrar). Sin
+                conexión tampoco: no hay resumen que imprimir, y un ticket de
+                cierre con los montos en blanco es peor que no imprimirlo.
+                Cuando el cierre sincronice, el reporte sale del panel. */}
+            {!blind && !offline && (
               <Button
                 variant="outline"
                 size="sm"
@@ -1667,6 +1820,7 @@ function OrdersPreview() {
 
 function PrintersPanel() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const activeOutletId = useCatalogStore((s) => s.outlet?.id)
   if (!activeRegisterId) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
@@ -1676,7 +1830,17 @@ function PrintersPanel() {
   }
   return (
     <div className="h-full overflow-y-auto px-6 py-6">
-      <PrintersManager registerId={activeRegisterId} />
+      {/* `client={posApi}`: acá el que opera es el DEVICE, no el panel. Con el
+          cliente del panel las escrituras salían con la cookie `_jwt_panel` y
+          el scope equivocado, y sin red no salían en absoluto. Con el cliente
+          del device, además, los cambios de impresora se encolan offline.
+          `outletId` del snapshot, para no depender del listado de cajas del
+          panel — que en un device no responde. */}
+      <PrintersManager
+        registerId={activeRegisterId}
+        outletId={activeOutletId}
+        client={posApi}
+      />
     </div>
   )
 }
@@ -1804,10 +1968,34 @@ const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; descriptio
  * cajero puede moverse entre cajas del tenant desde Ajustes sin pedir un link
  * nuevo. UPDATE en la fila device → invalidate del bootstrap → catalog store
  * se re-hidrata con el contexto nuevo.
+ *
+ * Sin conexión (bug reportado 2026-08-23)
+ * ───────────────────────────────────────
+ * Las dos listas venían de la red (`usePosOutlets` / `usePosRegisters`) y sin
+ * red quedaban vacías. Un `<Select>` cuyo `value` no matchea ningún `<SelectItem>`
+ * pinta el placeholder, así que el cajero veía "Sin seleccionar" en la
+ * sucursal y la caja donde está parado y facturando. La caja no estaba
+ * desconfigurada: la pantalla no tenía con qué dibujarla.
+ *
+ * El arreglo tiene dos mitades y las dos importan:
+ *
+ * 1. **Mostrar el valor real.** La sucursal y la caja activas están en el
+ *    snapshot del bootstrap (`catalog store`), que es justamente lo que
+ *    sobrevive sin red — con eso alcanza para dibujar la opción actual aunque
+ *    el listado completo del tenant no se pueda pedir.
+ * 2. **Deshabilitar con el motivo a la vista.** Cambiar de sucursal o de caja
+ *    sin conexión no se puede y no es un capricho: son las dimensiones que
+ *    definen la numeración fiscal y la exclusividad de la caja
+ *    (`context/29`), y el bootstrap offline solo conoce la sucursal actual,
+ *    así que ni siquiera hay a dónde mudarse. Un control deshabilitado con el
+ *    motivo escrito es preferible a uno que parece disponible y falla raro.
  */
 function DeviceContextSelectors() {
-  const activeOutletId = useCatalogStore((s) => s.outlet?.id ?? "")
+  const activeOutlet = useCatalogStore((s) => s.outlet)
+  const activeOutletId = activeOutlet?.id ?? ""
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const snapshotRegisters = useCatalogStore((s) => s.registers)
+  const isOnline = useOnlineStatus()
 
   const { data: outletsData } = usePosOutlets()
   const { data: registersData } = usePosRegisters()
@@ -1816,10 +2004,26 @@ function DeviceContextSelectors() {
   const [pendingOutletId, setPendingOutletId] = React.useState<string>("")
   const effectiveOutletId = pendingOutletId || activeOutletId
 
-  const outlets = outletsData?.rows ?? []
-  const registersOfOutlet = (registersData?.registers ?? []).filter(
-    (r) => r.outletId === effectiveOutletId && r.status,
-  )
+  // Listado del tenant si se pudo pedir; si no, al menos la sucursal actual
+  // sacada del snapshot, para que el selector tenga la opción que va a mostrar.
+  const outletsFromServer = outletsData?.rows ?? []
+  const outlets: { id: string; name: string }[] =
+    outletsFromServer.length > 0
+      ? outletsFromServer
+      : activeOutlet
+        ? [{ id: activeOutlet.id, name: activeOutlet.name }]
+        : []
+
+  const registersFromServer = registersData?.registers ?? []
+  const registersOfOutlet: { id: string; name: string }[] =
+    registersFromServer.length > 0
+      ? registersFromServer.filter((r) => r.outletId === effectiveOutletId && r.status)
+      : snapshotRegisters.filter((r) => r.outletId === effectiveOutletId)
+
+  // Con las listas del snapshot no se puede ofrecer un cambio: el bootstrap
+  // trae la sucursal actual y sus cajas, no el mapa del tenant. Y aunque lo
+  // trajera, mover la caja es una escritura contra el servidor.
+  const contextLocked = !isOnline || outletsFromServer.length === 0
 
   function handleOutletChange(newOutletId: string) {
     if (newOutletId === activeOutletId) {
@@ -1831,10 +2035,35 @@ function DeviceContextSelectors() {
     setPendingOutletId(newOutletId)
   }
 
-  function handleRegisterChange(newRegisterId: string) {
+  async function handleRegisterChange(newRegisterId: string) {
     const targetOutletId = pendingOutletId || activeOutletId
     if (!targetOutletId) return
     if (newRegisterId === activeRegisterId && !pendingOutletId) return
+
+    // Antes de mudar el device, vaciar lo que quedó pendiente de la caja
+    // ACTUAL. Las operaciones en cola están selladas con su `registerId` y el
+    // motor no las aplica sobre otra caja (el cerco de `pending-ops-sync`), así
+    // que mudarse con la cola llena no corrompe nada — pero deja al cajero con
+    // operaciones que solo se pueden enviar volviendo a la caja anterior, y eso
+    // hay que decirlo en el momento, no descubrirlo después.
+    //
+    // No se BLOQUEA el cambio: §58 pide que las reglas que traban sean
+    // opcionales, y acá no hace falta trabar nada — el cerco ya garantiza la
+    // integridad y el aviso cubre la sorpresa.
+    try {
+      if (typeof navigator === "undefined" || navigator.onLine) {
+        await syncPendingOps({ send: sendPendingOp, activeRegisterId })
+      }
+      const left = await getOpsCount()
+      if (left > 0) {
+        toast.warning(
+          `Quedan ${left} cambio${left !== 1 ? "s" : ""} sin enviar de esta caja. Se van a poder enviar solo desde ella.`,
+        )
+      }
+    } catch {
+      // El vaciado es una cortesía; que falle no puede impedir el cambio de
+      // caja, que es una operación del servidor y no depende de la cola.
+    }
 
     updateContext.mutate(
       pendingOutletId
@@ -1850,7 +2079,7 @@ function DeviceContextSelectors() {
     )
   }
 
-  const disabled = updateContext.isPending
+  const disabled = updateContext.isPending || contextLocked
 
   return (
     <>
@@ -1882,7 +2111,7 @@ function DeviceContextSelectors() {
         </label>
         <Select
           value={pendingOutletId ? "" : activeRegisterId}
-          onValueChange={handleRegisterChange}
+          onValueChange={(v) => void handleRegisterChange(v)}
           disabled={disabled || registersOfOutlet.length === 0}
         >
           <SelectTrigger className="flex-1">
@@ -1896,6 +2125,19 @@ function DeviceContextSelectors() {
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      {/* Altura constante: el texto CAMBIA, no aparece. Un bloque que se
+          inserta al perder la conexión empujaría todo lo de abajo, y la regla
+          del POS es que nada se mueva de lugar según el estado (context/14
+          §10). */}
+      <div className="flex items-start gap-3">
+        <div className="w-48 shrink-0" aria-hidden />
+        <p className="flex-1 text-xs text-muted-foreground">
+          {contextLocked
+            ? "Sin conexión: la sucursal y la caja no se pueden cambiar. Se muestran las actuales."
+            : "La caja se puede mover entre sucursales sin pedir un link de invitación nuevo."}
+        </p>
       </div>
     </>
   )

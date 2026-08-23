@@ -20,6 +20,11 @@
  *                            servidor, con su hora. Es lo que le permite al
  *                            device saber sin red si tiene derecho a emitir.
  *                            Ver `register-tenancy.ts`.
+ *   - `pendingOps`    (v4) — cola GENÉRICA de mutaciones hechas sin red que no
+ *                            son ventas: ajustes de la caja, hotkeys,
+ *                            impresoras, apertura y cierre de caja. Es la
+ *                            generalización de `pendingSales` (que sabe de
+ *                            ventas y solo de ventas). Ver `pending-ops.ts`.
  *
  * Purga (PII): el snapshot contiene la lista de clientes del comercio. Al
  * desvincular el device hay que borrarlo — ver `purgeOfflineSnapshots()` y
@@ -30,7 +35,7 @@ import { openDB, deleteDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { CreateSalePayload } from '@/lib/commands/create-sale'
 
 export const DB_NAME = 'punto-pos-offline'
-export const DB_VERSION = 3
+export const DB_VERSION = 4
 
 // ── Filas ─────────────────────────────────────────────────────────────────────
 
@@ -94,12 +99,86 @@ export interface TenancyGrantRow {
   holderDeviceName: string | null
 }
 
+/**
+ * Canal FIFO de una operación pendiente. Las operaciones de un MISMO canal se
+ * aplican en el orden en que el cajero las hizo y una a la vez; las de canales
+ * distintos son independientes entre sí.
+ *
+ * El canal no es un adorno: `drawer` transporta apertura y cierre de caja, y
+ * aplicar un cierre antes que la apertura que lo precede no es "un poco
+ * desordenado", es un arqueo mal armado. Los ajustes, en cambio, no dependen de
+ * las impresoras, así que meterlos en la misma fila haría que un ajuste
+ * rechazado frenara un cambio de impresora que no tiene nada que ver.
+ */
+export type PendingOpStream = 'pos-config' | 'hotkeys' | 'drawer' | 'printer-bindings'
+
+/** Qué operación es. Determina el transporte (ver `pending-ops-transport.ts`). */
+export type PendingOpKind =
+  | 'posConfig'
+  | 'hotkeys'
+  | 'drawerOpen'
+  | 'drawerClose'
+  | 'drawerExpense'
+  | 'drawerIncome'
+  | 'printerBindingCreate'
+  | 'printerBindingUpdate'
+  | 'printerBindingDelete'
+
+export type PendingOpStatus = 'pending' | 'syncing' | 'failed'
+
+/**
+ * Fila del store `pendingOps` — una mutación que el cajero YA vio aplicada en
+ * pantalla y que el servidor todavía no recibió.
+ */
+export interface PendingOpRow {
+  /**
+   * Identidad de la operación, generada por el cliente. Es la clave de
+   * idempotencia: el mismo `opId` reenviado tras un timeout tiene que producir
+   * el mismo efecto que la primera vez, no un segundo efecto.
+   */
+  opId: string
+  stream: PendingOpStream
+  kind: PendingOpKind
+  /**
+   * Orden de encolado dentro de la base. Se calcula como `max(seq) + 1` dentro
+   * de la misma transacción del `put`, así que no hay empates ni depende del
+   * reloj del device (que en estas cajas es justamente lo que no se puede dar
+   * por bueno). Al vaciarse la cola vuelve a arrancar en 1: el orden solo
+   * importa entre operaciones que coexisten.
+   */
+  seq: number
+  /**
+   * Caja para la que vale la operación. Una operación encolada para la caja A
+   * NO se aplica si el device ahora es la caja B — ver el cerco de
+   * `pending-ops-sync.ts`. Sin esto, un cambio de caja convertiría un ajuste
+   * pendiente en un ajuste silencioso sobre la caja equivocada.
+   */
+  registerId: string
+  /** Cuerpo de la mutación. El shape lo conoce el transporte, no la base. */
+  payload: unknown
+  /**
+   * Texto para el cajero ("Cerrar caja — 1.250.000 Gs"). Se congela al
+   * encolar: cuando la operación falla, tres días después, el estado del que
+   * se derivaría el texto ya no existe.
+   */
+  label: string
+  status: PendingOpStatus
+  error?: OfflineError
+  createdAt: string // ISO
+  attempts: number
+  lastAttemptAt?: string // ISO
+}
+
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 export interface PosOfflineDB extends DBSchema {
   pendingSales: {
     key: string
     value: OfflineSaleRow
+  }
+  pendingOps: {
+    key: string
+    value: PendingOpRow
   }
   snapshots: {
     key: string
@@ -133,6 +212,9 @@ export function getPosOfflineDB(): Promise<IDBPDatabase<PosOfflineDB>> {
         if (!db.objectStoreNames.contains('tenancy')) {
           db.createObjectStore('tenancy', { keyPath: 'key' })
         }
+        if (!db.objectStoreNames.contains('pendingOps')) {
+          db.createObjectStore('pendingOps', { keyPath: 'opId' })
+        }
       },
     })
   }
@@ -153,6 +235,15 @@ export function getPosOfflineDB(): Promise<IDBPDatabase<PosOfflineDB>> {
  * Borrarlas sería destruir documentos fiscales que existen en papel y no
  * existen en ningún otro lado (el invariante que `module-logout.ts` ya
  * declaraba). Sobreviven al re-pareo y el loop de sync las drena.
+ *
+ * `pendingOps` sobrevive por el MISMO motivo, y no por simetría: ahí adentro
+ * puede haber un CIERRE DE CAJA. El cajero contó la plata, cerró y se fue; que
+ * la sesión se muera después no deshace nada de eso, y borrarlo dejaría el
+ * turno abierto para siempre en la BD con su arqueo perdido. Lo que la cola
+ * transporta de config (ajustes, hotkeys) es intrascendente al lado de eso,
+ * pero tampoco hay razón para tirarlo. Si al re-parear el device quedó en OTRA
+ * caja, el cerco por `registerId` de `pending-ops-sync.ts` frena la operación y
+ * la muestra, en vez de aplicarla sobre la caja equivocada.
  *
  * Para el borrado total y explícito ver `purgeAllOfflineData()`.
  */

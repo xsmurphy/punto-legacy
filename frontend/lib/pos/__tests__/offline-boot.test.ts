@@ -61,7 +61,7 @@ beforeEach(async () => {
   useOfflineSyncStore.setState({ catalogFromCache: false, catalogCachedAt: null })
 })
 
-describe("migración de la base v1 → v3", () => {
+describe("migración de la base v1 → v4", () => {
   it("conserva las ventas encoladas de un device que ya venía con la v1", async () => {
     // Un device en la calle: base v1, solo `pendingSales`, con una venta
     // emitida e impresa esperando conexión.
@@ -83,8 +83,9 @@ describe("migración de la base v1 → v3", () => {
     // Abrirla con el schema nuevo NO puede perder esa venta: es un documento
     // fiscal que existe en papel y en ningún otro lado.
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(3)
+    expect(db.version).toBe(4)
     expect([...db.objectStoreNames].sort()).toEqual([
+      "pendingOps",
       "pendingSales",
       "snapshots",
       "tenancy",
@@ -121,7 +122,7 @@ describe("migración de la base v1 → v3", () => {
     v2.close()
 
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(3)
+    expect(db.version).toBe(4)
     expect(db.objectStoreNames.contains("tenancy")).toBe(true)
     // Store nuevo: arranca vacío, o sea sin tenencia confirmada — y sin
     // tenencia confirmada el POS no emite. El device tiene que hacer un claim
@@ -132,6 +133,48 @@ describe("migración de la base v1 → v3", () => {
     const row = await db.get("pendingSales", "uid-2")
     expect(row?.invoiceNo).toBe(77)
     expect(await db.get("snapshots", "pos-bootstrap")).toBeTruthy()
+  })
+
+  it("v3 → v4 agrega `pendingOps` sin tocar lo que ya había", async () => {
+    // El salto que introduce la cola de operaciones (config y caja offline).
+    // Mismo compromiso que los anteriores: el upgrade AGREGA un store, nunca
+    // migra ni borra. Un device con una venta encolada que actualiza la app en
+    // medio de un turno no puede perderla.
+    const v3 = await openDB(DB_NAME, 3, {
+      upgrade(db) {
+        db.createObjectStore("pendingSales", { keyPath: "clientTempId" })
+        db.createObjectStore("snapshots", { keyPath: "key" })
+        db.createObjectStore("tenancy", { keyPath: "key" })
+      },
+    })
+    await v3.put("pendingSales", {
+      clientTempId: "uid-3",
+      invoiceNo: 99,
+      sale: {},
+      status: "pending",
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+    })
+    await v3.put("tenancy", {
+      key: "current",
+      registerId: "reg-1",
+      status: "held",
+      confirmedAt: new Date().toISOString(),
+      registerLeaseId: "lease-1",
+      denyReason: null,
+      holderDeviceId: null,
+      holderDeviceName: null,
+    })
+    v3.close()
+
+    const db = await getPosOfflineDB()
+    expect(db.version).toBe(4)
+    expect(db.objectStoreNames.contains("pendingOps")).toBe(true)
+    expect(await db.count("pendingOps")).toBe(0)
+
+    // Lo que ya estaba sigue estando: la venta y la tenencia confirmada.
+    expect((await db.get("pendingSales", "uid-3"))?.invoiceNo).toBe(99)
+    expect((await db.get("tenancy", "current"))?.status).toBe("held")
   })
 })
 

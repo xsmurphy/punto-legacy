@@ -51,6 +51,7 @@ import { ColorPicker } from "@/components/ui/color-picker"
 import { PALETTE_COLORS, resolveColorBg } from "@/lib/ui/color-palette"
 import { cn } from "@/lib/utils"
 
+import type { HttpClient } from "@/lib/api-client"
 import { useDocumentTemplates } from "@/hooks/use-document-templates"
 import { useCategories } from "@/hooks/use-categories"
 import { useRegistersAdmin } from "@/hooks/use-registers-admin"
@@ -678,24 +679,47 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
 
 interface PrintersManagerProps {
   registerId?: string
+  /**
+   * Cliente HTTP con el que hablar con la API. El panel usa el default
+   * (cookie); el POS pasa `posApi` (Bearer del device) — un cliente por realm,
+   * también en las escrituras. Es además lo que habilita que las impresoras se
+   * configuren sin conexión: la cola de operaciones solo existe del lado del
+   * device.
+   */
+  client?: HttpClient
+  /**
+   * Sucursal de la caja, para el caso en que `registerId` viene forzado (POS).
+   * El listado de cajas del tenant sale de `useRegistersAdmin`, que es del
+   * panel y no responde en un device sin sesión de panel — y encima no
+   * responde nunca sin red. Con la caja ya elegida, la sucursal la sabe el
+   * llamador y no hay por qué salir a buscarla.
+   */
+  outletId?: string
 }
 
-export function PrintersManager({ registerId: forcedRegisterId }: PrintersManagerProps = {}) {
-  const { data: registersData } = useRegistersAdmin()
+export function PrintersManager({
+  registerId: forcedRegisterId,
+  client,
+  outletId: forcedOutletId,
+}: PrintersManagerProps = {}) {
+  const showRegisterSelector = forcedRegisterId === undefined
+  // Solo se pide el listado de cajas cuando hay selector que llenar.
+  const { data: registersData } = useRegistersAdmin({ enabled: showRegisterSelector })
   const registers = registersData?.registers ?? []
 
   const [internalRegisterId, setInternalRegisterId] = React.useState<string>("")
   const selectedRegisterId = forcedRegisterId ?? internalRegisterId
   const setSelectedRegisterId = setInternalRegisterId
-  const showRegisterSelector = forcedRegisterId === undefined
-  const selectedOutletId = registers.find((r) => r.id === selectedRegisterId)?.outletId
+  const selectedOutletId =
+    forcedOutletId ?? registers.find((r) => r.id === selectedRegisterId)?.outletId
 
   const { data: bindingsData, isLoading: bindingsLoading } = usePrinterBindings(
     selectedRegisterId || undefined,
+    { client },
   )
-  const createMutation = useCreatePrinterBinding(selectedRegisterId || undefined)
-  const updateMutation = useUpdatePrinterBinding(selectedRegisterId || undefined)
-  const deleteMutation = useDeletePrinterBinding(selectedRegisterId || undefined)
+  const createMutation = useCreatePrinterBinding(selectedRegisterId || undefined, { client })
+  const updateMutation = useUpdatePrinterBinding(selectedRegisterId || undefined, { client })
+  const deleteMutation = useDeletePrinterBinding(selectedRegisterId || undefined, { client })
 
   const bindings = bindingsData?.bindings ?? []
 

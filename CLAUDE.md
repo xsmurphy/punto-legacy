@@ -62,6 +62,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Ítem/contacto como raíces de sync (trigger genérico de satélites)** | `45-satelites-item-contact-sync.md` (implementado 2026-08-17, mig 139; generalizó el D1 de 44) |
 | **Reportes personalizados, export y dashboards** | `47-reportes-personalizados-y-export.md` (plan sin implementar, D1-D10 cerradas por el owner — D10: Metabase solo interno; F0 catálogo+ejecutor es el primer trabajo) |
 | **Escalamiento de datos (particionado, réplica, cierre de período)** | `48-escalamiento-de-datos.md` (plan, D1-D7 cerradas por el owner; E1 particionado, E1b cierre de período y D8 grano del rollup implementados 2026-08-22, migs 156/157/160) |
+| **Configuración offline de la caja (cola de operaciones)** | `51-configuracion-offline-de-la-caja.md` (implementado 2026-08-23 — ajustes/hotkeys/impresoras/apertura y cierre sin red; regla de conflicto caja-vs-panel en §5, cierre a ciegas en §4) |
 | **Cómo funciona cada módulo (y qué asume de los otros)** | `modules/_index.md` + un doc por módulo — LEER el del módulo que vas a tocar ANTES de integrarte con él |
 | **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
 | Bitácora de sesiones | `_session-log.md` (índice histórico, append) |
