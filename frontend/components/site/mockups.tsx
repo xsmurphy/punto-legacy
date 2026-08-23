@@ -27,7 +27,10 @@ function MockFrame({
     <div
       aria-hidden
       className={cn(
-        "w-full max-w-sm rounded-2xl border bg-background p-5 text-left select-none",
+        // El color propio es obligatorio: el mockup se usa dentro de escenas
+        // oscuras (tabs, spotlight) y sin él hereda el blanco del contenedor
+        // y queda invisible sobre su fondo claro.
+        "w-full max-w-sm rounded-2xl border bg-background p-5 text-left text-foreground select-none",
         className
       )}
     >
@@ -99,7 +102,9 @@ export function MockupTicket() {
         sub={["Sin cebolla · Extra queso"]}
       />
       <MockRow left="2× Jugo de mburucuyá" right="{money:24000}" />
-      <MockTotal left="Cobrar" right="{money:59000}" />
+      <MockRow left="1× Papas rústicas" right="{money:18000}" />
+      <MockRow left="Descuento cliente frecuente" right="{money:-8000}" />
+      <MockTotal left="Cobrar" right="{money:69000}" />
     </MockFrame>
   )
 }
@@ -122,11 +127,10 @@ export function MockupFactura() {
         left="González e Hijos S.A."
         sub={[`${getMarket().terminos.docFiscal} 80012345-6`]}
       />
-      <MockRow
-        left="Total"
-        right="{money:495000}"
-        sub={["IVA 10% incluido: {money:45000}"]}
-      />
+      <MockRow left="12× Café en grano 1kg" right="{money:450000}" />
+      <MockRow left="Gravadas 10%" right="{money:450000}" />
+      <MockRow left="IVA 10%" right="{money:45000}" />
+      <MockRow left="Total" right="{money:495000}" />
       <div className="flex items-center gap-2">
         <Badge variant="secondary" className="gap-1">
           <BadgeCheck className="size-3.5" />
@@ -203,6 +207,12 @@ export function MockupMesas() {
       total: "{money:96000}",
       busy: true,
     },
+    {
+      name: "Mesa 9",
+      state: "Pidió la cuenta",
+      total: "{money:215000}",
+      busy: true,
+    },
     { name: "Mesa 12", state: "Libre", total: "—", busy: false },
   ]
   return (
@@ -224,7 +234,9 @@ export function MockupMesas() {
               <span className="text-xs text-muted-foreground">{m.state}</span>
             </span>
           </span>
-          <span className="text-sm font-semibold tabular-nums">{m.total}</span>
+          <span className="text-sm font-semibold tabular-nums">
+            {applyMarketTerms(m.total)}
+          </span>
         </div>
       ))}
     </MockFrame>

@@ -24,7 +24,7 @@ export function ModulesTabs() {
       </div>
 
       <Tabs defaultValue={MODULE_TABS[0].key} className="mt-12">
-        <TabsList className="mx-auto flex h-auto w-fit max-w-full flex-wrap justify-center gap-1 rounded-full bg-muted p-1.5">
+        <TabsList className="mx-auto flex h-auto w-fit max-w-full flex-wrap justify-center gap-1 rounded-full bg-muted p-2">
           {MODULE_TABS.map((tab) => (
             <TabsTrigger
               key={tab.key}
@@ -32,7 +32,7 @@ export function ModulesTabs() {
               // razón: pill activo en gris oscuro — el blanco del primitive
               // no se distingue del track claro. El verde de marca NUNCA va
               // en botones, CTA ni pills (context/14 §5)
-              className="rounded-full px-4 py-2 text-sm font-medium data-[state=active]:bg-foreground data-[state=active]:text-background"
+              className="rounded-full px-5 py-2.5 text-sm font-medium data-[state=active]:bg-foreground data-[state=active]:text-background"
             >
               {tab.label}
             </TabsTrigger>
