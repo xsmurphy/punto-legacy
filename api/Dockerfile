@@ -95,7 +95,7 @@ RUN cd api && composer dump-autoload --no-dev --optimize --classmap-authoritativ
 ENV PHP_CLI_SERVER_WORKERS=28 \
     APP_ENV=production
 
-# Entrypoint: configura PHP sessions en Redis al boot y corre auto-migrate.
+# Entrypoint: corre auto-migrate, seedea el admin y levanta crond.
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 

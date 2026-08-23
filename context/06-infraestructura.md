@@ -25,10 +25,10 @@ Container Node.js (ws-server) — recurso separado en Coolify
     └── Redis (managed o container)
 
 PostgreSQL 16 — base de datos (managed o container)
-Redis 7       — sessions + Pub/Sub (managed o container)
+Redis 7       — rate limiting + Pub/Sub (managed o container)
 ```
 
-**Entrypoint de producción:** `docker-entrypoint.sh` (raíz) configura `session.save_handler=redis` parseando `REDIS_URL` y luego lanza `php -S 0.0.0.0:3000 router.php`.
+**Entrypoint de producción:** `docker-entrypoint.sh` (raíz) lanza `php -S 0.0.0.0:3000 router.php`. La API es stateless (2026-08-22): no hay sesiones PHP (`session_start()`/`$_SESSION` eliminados de `api/bootstrap.php`), así que el entrypoint ya NO configura `session.save_handler=redis`. `REDIS_URL` la consume `Punto\Api\Cache\RedisClient` (`api/lib/Cache/RedisClient.php`), usado por el rate limiter (`api/lib/RateLimit/RateLimiter.php`) — no se agregó ninguna env var nueva.
 
 **Nota importante:** el puerto expuesto es **3000** (commit 347aa88) — Coolify lo usa como upstream de Traefik por default. Si se cambia, actualizar en la config de Coolify también.
 

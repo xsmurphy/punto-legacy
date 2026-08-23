@@ -18,7 +18,11 @@
 require_once __DIR__ . '/includes/error_handlers.php';
 puntoRegisterErrorHandlers();
 
-session_start();
+// NO hay session_start(): la API es stateless. El auth son tokens opacos en
+// `auth_session` (context/21-auth-rewrite.md), no la sesión de PHP. El
+// `session_start()` que vivía acá era el último resto de la era pre-JWT y no
+// quedaba nadie leyendo `$_SESSION` — el rate limiter, que era su único
+// consumidor real, ahora usa Redis (lib/RateLimit/RateLimiter.php).
 
 // API_APP_DIR apunta a api/ (antes apuntaba a api/core; api/core fue disuelto 2026-06-29).
 // La constante se mantiene para compatibilidad con los endpoints v1/ que la usan directamente.
@@ -75,7 +79,11 @@ spl_autoload_register(static function (string $class): void {
     }
 });
 
-$rateLimiterId = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+// Key del rate limiter global (lo aplica head.php). ClientIp resuelve la IP
+// REAL del cliente: detrás de Traefik, REMOTE_ADDR es siempre la IP del proxy
+// (172.18.0.2), así que usarla directo pondría a toda la plataforma en un solo
+// contador de 80 req/min. Ver lib/Http/ClientIp.php.
+$rateLimiterId = \Punto\Api\Http\ClientIp::resolve() ?: 'unknown';
 require_once __DIR__ . '/head.php'; // db, functions (ncm*, sendPush, checkCompanyStatus), config, enc/dec
 require_once __DIR__ . '/lib/Auth/hasPermission.php';
 
