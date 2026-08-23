@@ -93,9 +93,15 @@ import { useCartPublisher } from "@/hooks/use-cart-publisher"
 import { useDrawerStatus } from "@/hooks/use-drawer"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { DrawerOpenDialog } from "@/components/register/drawer-open-dialog"
-import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
-import { SyncQueueDialog } from "@/components/pos/sync-queue-dialog"
 import { OfflineStatusPill } from "@/components/pos/offline-status-pill"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
+import { useTenancyStore } from "@/lib/pos/tenancy-store"
+import { registerBlockShortReason } from "@/lib/pos/register-conflict"
 import { useCreateOrder, type Order, type Fulfillment } from "@/hooks/use-orders"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { useOutsidePointerDown } from "@/hooks/use-outside-pointerdown"
@@ -221,11 +227,6 @@ export function CartPanel() {
     if (customer) setDeliveryDialogOpen(true)
   }, [customerOpen, pendingDeliveryFlow, customer])
 
-  const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
-  const failedCount = useOfflineSyncStore((s) => s.failedCount)
-  const syncQueueOpen = useOfflineSyncStore((s) => s.queueDialogOpen)
-  const setSyncQueueOpen = useOfflineSyncStore((s) => s.setQueueDialogOpen)
-
   // Barcode scanner keyboard-wedge. Pausado cuando: lock activo, PayDialog
   // abierto, SearchDialog abierto (el cajero está tipeando ahí).
   // El scanner ignora teclas cuando el foco está en un input (ver hook),
@@ -295,13 +296,25 @@ export function CartPanel() {
   // de abrir el flujo de pago. Si drawerStatus es undefined (cargando o error),
   // dejamos pasar — el modal de pago tiene su propio guard interno.
   // Cuando controlCaja === false: el guard no aplica y se abre el pago directo.
+  // Motivo por el que esta caja NO puede emitir, si lo hay. Se lee acá y en
+  // `CartBottom` (el control que lo muestra) del mismo veredicto en memoria.
+  const payBlockedReason = useTenancyStore((s) => registerBlockShortReason(s.verdict))
+
   const handlePayClick = React.useCallback(() => {
+    // Sin derecho a emitir, el gate de tenencia manda sobre el de apertura de
+    // caja: no tiene sentido pedirle al cajero que abra el cajón para una
+    // venta que después no va a poder numerar. `PayDialog` abre directo en la
+    // pantalla que explica el motivo y ofrece volver a tomar la caja.
+    if (payBlockedReason) {
+      setPayOpen(true)
+      return
+    }
     if (controlCaja && drawerStatus !== undefined && !drawerStatus.isOpen) {
       setDrawerOpenDialogOpen(true)
     } else {
       setPayOpen(true)
     }
-  }, [controlCaja, drawerStatus, setPayOpen])
+  }, [controlCaja, drawerStatus, payBlockedReason, setPayOpen])
 
   // Modo orden (O1): "Ordenar" envía a cocina — sin caja/stock, sin gate de
   // drawer. Crea la orden con sendNow=true (status "sent" directo) y, si
@@ -462,7 +475,6 @@ export function CartPanel() {
           edición de una línea existente. Montado acá por el mismo motivo que
           GiftcardIssueDialog: el carrito vive montado en todo el workspace. */}
       <AddonPickerDialog />
-      <SyncQueueDialog open={syncQueueOpen} onOpenChange={setSyncQueueOpen} />
       <DrawerOpenDialog
         open={drawerOpenDialogOpen}
         onOpenChange={setDrawerOpenDialogOpen}
@@ -644,6 +656,7 @@ export function CartPanel() {
         spaceName={spaceName}
         savingQuote={savingQuote}
         onPayClick={handlePayClick}
+        payBlockedReason={payBlockedReason}
         onOrderClick={handleOrderClick}
         orderSubmitting={submittingOrder}
         fulfillment={fulfillment}
@@ -1511,6 +1524,7 @@ function CartBottom({
   spaceName,
   savingQuote,
   onPayClick,
+  payBlockedReason,
   onOrderClick,
   orderSubmitting,
   fulfillment,
@@ -1531,6 +1545,8 @@ function CartBottom({
   spaceName: string | null
   savingQuote: boolean
   onPayClick: () => void
+  /** Motivo por el que esta caja no puede emitir, o `null` si puede. */
+  payBlockedReason: string | null
   onOrderClick: () => void
   orderSubmitting: boolean
   fulfillment: Fulfillment
@@ -1555,6 +1571,12 @@ function CartBottom({
   let ctaLabel: React.ReactNode
   let ctaAction: (() => void) | undefined
   let ctaAriaLabel: string
+  // El impedimento se pinta en ESTE control y en ningún otro lado (owner,
+  // 2026-08-23): el cajero descubre que no puede cobrar cuando va a cobrar, y
+  // ahí tiene que estar la explicación. Solo aplica al CTA de venta —
+  // "Ordenar" no emite comprobante ni consume numeración, así que la tenencia
+  // de caja no lo bloquea (mismo criterio que el gate de `PayDialog`).
+  let ctaBlockedReason: string | null = null
   if (savingQuote) {
     ctaLabel = "Guardando cotización..."
     ctaAction = undefined
@@ -1592,6 +1614,7 @@ function CartBottom({
     ctaLabel = totalFormatted
     ctaAction = onPayClick
     ctaAriaLabel = `Cobrar ${totalFormatted}`
+    ctaBlockedReason = payBlockedReason
   }
 
   return (
@@ -1667,19 +1690,80 @@ function CartBottom({
           tinte, orden = emerald, cotización (en vuelo) = amber. Modo orden
           (O1): "Ordenar" envía a cocina, no cobra — sin gate de caja/stock,
           mismo lugar que Pagar en modo venta. */}
-      <Button
-        disabled={lineCount === 0 || (isOrderMode && orderSubmitting) || savingQuote}
+      <PayCta
+        label={ctaLabel}
+        ariaLabel={ctaAriaLabel}
         onClick={lineCount > 0 ? ctaAction : undefined}
-        className={cn(
-          "h-auto w-full rounded-full px-4 py-3 text-3xl font-bold active:scale-[0.98]",
-          visual.color && "text-black hover:text-black",
-        )}
-        style={visual.color ? { backgroundColor: visual.color } : undefined}
-        aria-label={ctaAriaLabel}
-      >
-        {ctaLabel}
-      </Button>
+        disabled={lineCount === 0 || (isOrderMode && orderSubmitting) || savingQuote}
+        blockedReason={ctaBlockedReason}
+        color={visual.color}
+      />
     </div>
+  )
+}
+
+/**
+ * CTA de cobro/orden del carrito.
+ *
+ * Cuando la caja NO puede emitir, el botón se muestra deshabilitado y el
+ * tooltip dice por qué ("Caja tomada por Jose Benitez"). Antes eso era una
+ * banda arriba de la toolbar; el owner la rechazó tres veces (2026-08-23) y la
+ * regla quedó escrita: un impedimento se informa en el control que impide, no
+ * en un cartel que además empuja el layout.
+ *
+ * `aria-disabled` y no `disabled`: un botón realmente deshabilitado no recibe
+ * eventos de puntero, así que ni dispararía el tooltip ni dejaría "intentar
+ * pagar" — y el cajero se quedaría sin la pantalla que explica el motivo y
+ * ofrece volver a tomar la caja (`RegisterTakenPhase` en `pay-dialog.tsx`, a
+ * donde lleva este click). Queda inerte para lo que importa: no cobra.
+ *
+ * El tooltip cubre el desktop; en tablet —donde no hay hover— el mismo texto
+ * llega por el toque, que abre el diálogo con el motivo completo.
+ */
+function PayCta({
+  label,
+  ariaLabel,
+  onClick,
+  disabled,
+  blockedReason,
+  color,
+}: {
+  label: React.ReactNode
+  ariaLabel: string
+  onClick: (() => void) | undefined
+  disabled: boolean
+  blockedReason: string | null
+  color: string | null
+}) {
+  const button = (
+    <Button
+      disabled={disabled}
+      aria-disabled={blockedReason ? true : undefined}
+      onClick={onClick}
+      className={cn(
+        "h-auto w-full rounded-full px-4 py-3 text-3xl font-bold active:scale-[0.98]",
+        color && "text-black hover:text-black",
+        // Mismo alto y mismo lugar que el CTA habilitado (Regla #10): el
+        // bloqueo cambia el color, nunca la geometría.
+        blockedReason &&
+          "bg-muted text-muted-foreground hover:bg-muted hover:text-muted-foreground active:scale-100",
+      )}
+      style={color && !blockedReason ? { backgroundColor: color } : undefined}
+      aria-label={blockedReason ? `${ariaLabel} — ${blockedReason}` : ariaLabel}
+    >
+      {label}
+    </Button>
+  )
+
+  if (!blockedReason) return button
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent side="top">{blockedReason}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
 

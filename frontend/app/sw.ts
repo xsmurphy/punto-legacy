@@ -2,7 +2,14 @@
 
 import { defaultCache } from "@serwist/next/worker"
 import type { PrecacheEntry, SerwistGlobalConfig } from "serwist"
-import { ExpirationPlugin, NetworkFirst, Serwist, StaleWhileRevalidate } from "serwist"
+import {
+  CacheableResponsePlugin,
+  CacheFirst,
+  ExpirationPlugin,
+  NetworkFirst,
+  Serwist,
+  StaleWhileRevalidate,
+} from "serwist"
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -17,6 +24,14 @@ const POS_HOME = "/pos"
 
 const isPosPath = (pathname: string) =>
   pathname === POS_HOME || pathname.startsWith(`${POS_HOME}/`)
+
+/**
+ * Hosts de las fotos del catálogo — el bucket de DO Spaces (o S3) donde
+ * `ItemImageService` sube cada imagen. Mismos hosts que `remotePatterns` en
+ * `next.config.ts`: si se agrega uno allá, va acá también.
+ */
+const MEDIA_HOST = /(?:^|\.)(?:digitaloceanspaces\.com|amazonaws\.com)$/i
+const IMAGE_EXT = /\.(?:jpe?g|png|webp|avif|gif)$/i
 
 /**
  * Cuidado con los `matcher` de tipo RegExp: serwist los evalúa con
@@ -101,6 +116,51 @@ const serwist: Serwist = new Serwist({
               return undefined
             },
           },
+        ],
+      }),
+    },
+    {
+      /**
+       * Fotos del catálogo (S3 / DO Spaces).
+       *
+       * CacheFirst y no SWR porque estas URLs son INMUTABLES: la clave es
+       * `items/<companyId>/<itemId>/<imageId>.jpg` y cambiar la foto de un
+       * ítem genera un `imageId` nuevo, o sea otra URL. Revalidar no puede
+       * traer nada distinto — solo gastaría datos y latencia por cada tile de
+       * la grilla, en cada arranque de la caja.
+       *
+       * Sin esta ruta las fotos igual caían en `static-image-assets` de
+       * `defaultCache` (su matcher es `/\.(jpg|…)$/` contra el href completo,
+       * así que sí matchea un host ajeno), pero con `maxEntries: 64`
+       * compartidos con TODAS las imágenes de la app: un catálogo de más de
+       * 64 fotos se desalojaba a sí mismo y sin conexión el tile quedaba con
+       * el ícono roto. Al ir ANTES de `...defaultCache`, esta gana.
+       *
+       * `CacheableResponsePlugin([0, 200])` es obligatorio: los `<img>` del
+       * catálogo son cross-origin sin CORS, así que la respuesta es OPACA
+       * (status 0) y el `cacheWillUpdate` por defecto de CacheFirst la
+       * descartaría en silencio. (SWR y NetworkFirst la aceptan solos; este
+       * no.)
+       *
+       * Presupuesto: 300 fotos, 30 días. Las imágenes se suben normalizadas a
+       * 1024px JPEG q85 (`ItemImageService`), ~100-200 KB cada una, así que el
+       * techo real ronda los 30-60 MB para un catálogo grande — dentro de la
+       * cuota típica de un origen, y `purgeOnQuotaError` deja que el
+       * navegador la recupere entera antes que romper una escritura de la
+       * cola de ventas, que sí es dato que no se puede perder.
+       */
+      matcher: ({ url, sameOrigin }) =>
+        !sameOrigin && MEDIA_HOST.test(url.hostname) && IMAGE_EXT.test(url.pathname),
+      handler: new CacheFirst({
+        cacheName: "pos-catalog-images",
+        plugins: [
+          new CacheableResponsePlugin({ statuses: [0, 200] }),
+          new ExpirationPlugin({
+            maxEntries: 300,
+            maxAgeSeconds: 30 * 24 * 60 * 60,
+            maxAgeFrom: "last-used",
+            purgeOnQuotaError: true,
+          }),
         ],
       }),
     },

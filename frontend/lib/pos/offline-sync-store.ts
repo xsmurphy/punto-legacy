@@ -15,15 +15,13 @@ interface OfflineSyncState {
    * `offline-queue.ts` `markFailed`). No se reintenta solo: si `failedCount`
    * > 0, hay una venta que ya se emitió e imprimió pero el backend la
    * rechazó (o hubo un error de datos), y se queda ahí hasta que alguien
-   * abre `SyncQueueDialog` y decide reintentar o descartar. Es la señal
-   * "esto no se va a resolver solo" — `OfflineBanner` y el indicador del
-   * carrito la usan para no dejarla morir en silencio (context/08 §53).
+   * entra a Menú → Ventas pendientes y decide reintentar o descartar. Es la
+   * señal "esto no se va a resolver solo" — el indicador de estado del
+   * carrito la usa para no dejarla morir en silencio (context/08 §53).
    */
   failedCount: number
   isSyncing: boolean
   lastSyncAt: string | null
-  /** Controla `SyncQueueDialog` desde cualquier punto de entrada (banner, indicador del carrito). */
-  queueDialogOpen: boolean
   /**
    * `true` cuando el catálogo con el que la caja está operando salió del
    * snapshot de IndexedDB (`lib/pos/bootstrap-cache.ts`) y no de la red.
@@ -44,7 +42,6 @@ interface OfflineSyncState {
   setFailedCount: (count: number) => void
   setIsSyncing: (syncing: boolean) => void
   setLastSyncAt: (at: string | null) => void
-  setQueueDialogOpen: (open: boolean) => void
   setCatalogSource: (fromCache: boolean, cachedAt: string | null) => void
 }
 
@@ -53,14 +50,12 @@ export const useOfflineSyncStore = create<OfflineSyncState>()((set) => ({
   failedCount: 0,
   isSyncing: false,
   lastSyncAt: null,
-  queueDialogOpen: false,
   catalogFromCache: false,
   catalogCachedAt: null,
   setPendingCount: (count) => set({ pendingCount: count }),
   setFailedCount: (count) => set({ failedCount: count }),
   setIsSyncing: (syncing) => set({ isSyncing: syncing }),
   setLastSyncAt: (at) => set({ lastSyncAt: at }),
-  setQueueDialogOpen: (open) => set({ queueDialogOpen: open }),
   setCatalogSource: (fromCache, cachedAt) =>
     set({ catalogFromCache: fromCache, catalogCachedAt: fromCache ? cachedAt : null }),
 }))

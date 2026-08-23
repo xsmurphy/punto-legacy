@@ -1,47 +1,38 @@
 "use client"
 
 /**
- * EL indicador de estado de sincronización de la caja. Uno solo, y vive
- * arriba de la toolbar del carrito (montado en `cart-panel.tsx`).
+ * EL indicador de ESTADO de la caja. Uno solo, y vive arriba de la toolbar
+ * del carrito (montado en `cart-panel.tsx`).
  *
- * Cubre los cuatro estados, con prioridad explícita:
- *   1. SIN DERECHO A EMITIR (destructivo) — este device no tiene la tenencia
- *      de la caja, así que el próximo cobro va a chocar contra la pantalla
- *      bloqueante. Va primero porque es lo único que se puede avisar ANTES de
- *      que el cajero arme un carrito y se lo encuentre en el cobro; los otros
- *      tres describen algo que ya pasó;
- *   2. ventas FALLIDAS (destructivo) — terminal, no se resuelve al volver la
+ * Cubre tres estados, con prioridad explícita:
+ *   1. ventas FALLIDAS (destructivo) — terminal, no se resuelve al volver la
  *      conexión y exige que alguien la mire (context/08 §53);
- *   3. sin conexión (ámbar), con la cola pendiente si la hay;
- *   4. sincronizando.
+ *   2. sin conexión (ámbar), con la cola pendiente si la hay;
+ *   3. sincronizando.
  *
- * Por qué la tenencia se avisa acá y no con una banda propia: el owner pidió
- * UN solo aviso de estado en la caja (2026-08-23). Un cartel nuevo repetiría
- * el error que se acaba de arreglar. Y encaja: el pill ya es el lugar donde el
- * cajero mira para saber si la caja está sana.
+ * Lo que NO va acá: los IMPEDIMENTOS. La tenencia de caja se avisó un rato en
+ * este pill ("Caja tomada por X — no se puede facturar") y estuvo mal por dos
+ * razones (owner, 2026-08-23): un impedimento se informa en el control que
+ * impide —el botón de cobrar, ver `CartBottom` en `cart-panel.tsx`—, no en un
+ * cartel arriba del carrito; y como el bloqueo tenía prioridad sobre todo lo
+ * demás, tapaba el aviso de "sin conexión" justo en el escenario donde los dos
+ * pasan juntos. Estado y impedimento son cosas distintas y viven en lugares
+ * distintos; ninguna de las dos se muestra dos veces.
  *
- * Por qué uno solo (2026-08-23, pedido del owner con screenshot): antes esto
- * se repartía entre este componente, flotando abajo a la izquierda del
- * workspace, y una banda `OfflineBanner` montada en otros DOS puntos (el
- * layout del POS y el tope del carrito). Con dos estados simultáneos el
- * cajero veía la misma información hasta tres veces, y las bandas apiladas
- * empujaban los iconos de la toolbar hacia abajo, comiéndole alto a la lista
- * de ítems. `OfflineBanner` fue eliminado.
- *
- * Las ventas EN COLA no se avisan acá con una banda: no requieren atención
- * (se sincronizan solas). Su señal es el punto en el icono del menú del POS
- * (`pos-main-menu.tsx`), y el detalle vive en Menú → Ventas pendientes.
+ * Las ventas EN COLA no se avisan con una banda: no requieren atención (se
+ * sincronizan solas). Su señal es el punto en el icono del menú del POS
+ * (`pos-main-menu.tsx`), y el detalle vive en Menú → Ventas pendientes —
+ * adonde lleva este pill cuando hay algo que revisar.
  *
  * Regla del POS que gobierna todo esto: las señales de estado no pueden mover
  * de lugar lo que ya está en pantalla — la memoria muscular del cajero es
  * parte de la interfaz.
  */
-
 import * as React from "react"
-import { CloudOff, Lock, RefreshCw } from "lucide-react"
+import { CloudOff, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
-import { useTenancyStore } from "@/lib/pos/tenancy-store"
+import { usePosUIStore } from "@/lib/ui/store"
 
 /**
  * `savedAt` es un instante real en UTC (`new Date().toISOString()`), no un
@@ -88,7 +79,7 @@ export function OfflineStatusPill() {
   const isSyncing = useOfflineSyncStore((s) => s.isSyncing)
   const fromCache = useOfflineSyncStore((s) => s.catalogFromCache)
   const cachedAt = useOfflineSyncStore((s) => s.catalogCachedAt)
-  const setQueueDialogOpen = useOfflineSyncStore((s) => s.setQueueDialogOpen)
+  const openMenuSection = usePosUIStore((s) => s.openMenuSection)
 
   // `fromCache` además de `!isOnline`: `navigator.onLine` miente seguido (dice
   // `true` con un cable conectado a un router sin salida, o con el server
@@ -97,21 +88,12 @@ export function OfflineStatusPill() {
   const degraded = !isOnline || fromCache
   const syncing = isSyncing && pendingCount > 0
 
-  // `verdict === null` es "todavía no hidratado", no "sin tenencia" — avisar
-  // ahí pintaría el aviso en cada arranque durante un instante. Solo se avisa
-  // cuando hay un veredicto REAL y dice que no.
-  const tenancy = useTenancyStore((s) => s.verdict)
-  const blocked = tenancy != null && !tenancy.canIssue
-  const blockedLabel = tenancy?.holderDeviceName
-    ? `Caja tomada por ${tenancy.holderDeviceName} — no se puede facturar`
-    : "Caja sin confirmar — no se puede facturar"
-
   // UN solo aviso de estado en toda la caja, con prioridad explícita
   // (2026-08-23): las ventas fallidas ganan sobre sin-conexión, y sin-conexión
   // sobre sincronizando. Antes esto se repartía entre este pill y una banda
   // `OfflineBanner` montada en otro punto del carrito, así que con dos estados
   // simultáneos se apilaban dos franjas y empujaban la toolbar hacia abajo.
-  if (!blocked && failedCount === 0 && !degraded && !syncing) return null
+  if (failedCount === 0 && !degraded && !syncing) return null
 
   const queueLabel =
     pendingCount > 0
@@ -125,28 +107,24 @@ export function OfflineStatusPill() {
 
   const content = (
     <>
-      {blocked ? (
-        <Lock className="size-3.5 shrink-0" />
-      ) : failed || degraded ? (
+      {failed || degraded ? (
         <CloudOff className="size-3.5 shrink-0" />
       ) : (
         <RefreshCw className="size-3.5 shrink-0 animate-spin" />
       )}
       <span className="truncate">
-        {blocked
-          ? blockedLabel
-          : failed
-            ? `${failedCount} venta${failedCount !== 1 ? "s" : ""} con error — tocá para revisar`
-            : degraded
-              ? `Sin conexión${queueLabel}`
-              : `Sincronizando ${pendingCount}`}
+        {failed
+          ? `${failedCount} venta${failedCount !== 1 ? "s" : ""} con error — tocá para revisar`
+          : degraded
+            ? `Sin conexión${queueLabel}`
+            : `Sincronizando ${pendingCount}`}
       </span>
     </>
   )
 
   const className = cn(
     "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
-    blocked || failed
+    failed
       ? "border-destructive/30 bg-destructive/10 text-destructive"
       : degraded
         ? "border-amber-500/30 bg-amber-500/15 text-amber-900 backdrop-blur dark:text-amber-100"
@@ -162,7 +140,7 @@ export function OfflineStatusPill() {
       {pendingCount > 0 || failed ? (
         <button
           type="button"
-          onClick={() => setQueueDialogOpen(true)}
+          onClick={() => openMenuSection("sync-queue")}
           className={cn(className, "transition-colors hover:brightness-95")}
           title={snapshotAge ? `Catálogo local del ${snapshotAge}` : undefined}
         >

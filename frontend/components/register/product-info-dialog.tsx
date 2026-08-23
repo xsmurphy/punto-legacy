@@ -28,7 +28,8 @@
  */
 
 import * as React from "react"
-import { AlertTriangle, PackageSearch, RefreshCw, WifiOff } from "lucide-react"
+import { AlertTriangle, ImageOff, PackageSearch, RefreshCw, WifiOff } from "lucide-react"
+import { ItemImage } from "@/components/pos/item-image"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -569,8 +570,18 @@ function ProductGallery({ images, name }: { images: PosItemImage[]; name: string
   return (
     <div className="flex flex-col gap-2">
       <div className="relative mx-auto aspect-square w-full max-w-64 overflow-hidden rounded-lg border border-border bg-muted">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={current.url} alt={name} className="h-full w-full object-cover" />
+        {/* Sin conexión la foto puede no estar cacheada: el fallback es el
+            marco vacío (`bg-muted` + ícono), nunca el ícono roto del navegador. */}
+        <ItemImage
+          src={current.url}
+          alt={name}
+          className="h-full w-full object-cover"
+          fallback={
+            <div className="flex h-full w-full items-center justify-center">
+              <ImageOff className="size-8 text-muted-foreground" />
+            </div>
+          }
+        />
       </div>
 
       {images.length > 1 && (
@@ -589,8 +600,16 @@ function ProductGallery({ images, name }: { images: PosItemImage[]; name: string
                   : "border-transparent opacity-70 hover:opacity-100",
               )}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={img.url} alt="" className="h-full w-full object-cover" />
+              <ItemImage
+                src={img.url}
+                alt=""
+                className="h-full w-full object-cover"
+                fallback={
+                  <div className="flex h-full w-full items-center justify-center bg-muted">
+                    <ImageOff className="size-4 text-muted-foreground" />
+                  </div>
+                }
+              />
             </button>
           ))}
         </div>

@@ -40,8 +40,8 @@ import {
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts"
 
 import { cn } from "@/lib/utils"
-import { EmptyState } from "@/components/empty-state"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
+import { SyncQueueList } from "@/components/pos/sync-queue-list"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
@@ -290,7 +290,11 @@ export function PosMainMenu() {
   const setOpen = usePosUIStore((s) => s.setMenuOpen)
 
   // Sección activa en el sidebar. null = pantalla de bienvenida vacía.
-  const [activeKey, setActiveKey] = React.useState<string | null>(null)
+  // Vive en el store (y no en estado local) porque es un destino de
+  // navegación: el indicador de estado del carrito abre el menú directamente
+  // en "Ventas pendientes" (`openMenuSection`), sin diálogo intermedio.
+  const activeKey = usePosUIStore((s) => s.menuSection)
+  const setActiveKey = usePosUIStore((s) => s.setMenuSection)
 
   // Stores de dominio para los handlers de secciones.
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
@@ -300,11 +304,9 @@ export function PosMainMenu() {
   // Estado para el Dialog de transacciones
   const [transactionsOpen, setTransactionsOpen] = React.useState(false)
 
-  // Resetear la sección al cerrar el modal para la próxima apertura.
-  const handleOpenChange = (v: boolean) => {
-    setOpen(v)
-    if (!v) setActiveKey(null)
-  }
+  // `setMenuOpen(false)` ya resetea la sección en el store — la próxima
+  // apertura arranca en la bienvenida.
+  const handleOpenChange = (v: boolean) => setOpen(v)
 
   // Handler para el CTA del item edit-hotkeys (único item sin CustomContent
   // que necesita lógica propia en lugar de navegación).
@@ -1368,44 +1370,16 @@ function ControlDeCajaPanel() {
 
 // ── Transacciones ────────────────────────────────────────────────────────────
 
-/** Últimas transacciones del turno con CTA para ir al listado completo. */
+/**
+ * Ventas emitidas que todavía no llegaron al servidor. La sección LISTA las
+ * ventas — antes mostraba un párrafo con el conteo y un botón que abría la
+ * lista en otro diálogo (`SyncQueueDialog`, eliminado 2026-08-23): la sección
+ * ES el lugar donde se ven, no la antesala.
+ */
 function SyncQueuePanel() {
-  const { setOpen } = useMenuCtx()
-  const pendingCount = useOfflineSyncStore((st) => st.pendingCount)
-  const failedCount = useOfflineSyncStore((st) => st.failedCount)
-  const setQueueDialogOpen = useOfflineSyncStore((st) => st.setQueueDialogOpen)
-
-  if (pendingCount === 0 && failedCount === 0) {
-    return (
-      <div className="p-6">
-        <EmptyState
-          icon={CloudOff}
-          title="No hay ventas pendientes"
-          description="Todo lo emitido en esta caja ya llegó al servidor."
-        />
-      </div>
-    )
-  }
-
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <p className="text-sm text-muted-foreground">
-        {failedCount > 0
-          ? `${failedCount} venta${failedCount !== 1 ? "s" : ""} no se pudo sincronizar y necesita que la revises. `
-          : ""}
-        {pendingCount > 0
-          ? `${pendingCount} venta${pendingCount !== 1 ? "s" : ""} en cola: se envía${pendingCount !== 1 ? "n" : ""} sola${pendingCount !== 1 ? "s" : ""} al volver la conexión.`
-          : ""}
-      </p>
-      <Button
-        className="self-start"
-        onClick={() => {
-          setOpen(false)
-          setQueueDialogOpen(true)
-        }}
-      >
-        Ver el detalle
-      </Button>
+    <div className="p-6">
+      <SyncQueueList />
     </div>
   )
 }

@@ -24,7 +24,7 @@
 // módulo (`extractRegisterConflictInfo`), así que un import de VALOR cerraría
 // un ciclo en runtime. Los tipos se borran al compilar — no hay ciclo real.
 import type { TenancyDenyReason } from "@/lib/pos/offline-db"
-import type { TenancyVerdictKind } from "@/lib/pos/register-tenancy"
+import type { TenancyVerdict, TenancyVerdictKind } from "@/lib/pos/register-tenancy"
 
 export interface RegisterConflictInfo {
   holderDeviceId: string | null
@@ -142,5 +142,55 @@ export function registerConflictMessage(
   return {
     title: "Caja sin tenencia confirmada",
     body: "Este dispositivo todavía no tomó esta caja, así que no puede emitir comprobantes con su numeración. Conectate a internet para tomarla — si el problema sigue, pedile a un admin que la revise desde Ajustes → Sucursales → Cajas.",
+  }
+}
+
+/**
+ * Motivo CORTO del bloqueo, para el CONTROL que impide la acción — hoy el
+ * tooltip del botón de cobrar (`CartBottom`, cart-panel.tsx).
+ *
+ * Existe separado de `registerConflictMessage` porque el lugar y el largo son
+ * otros: título + cuerpo son para la pantalla bloqueante que explica qué
+ * hacer; esto es una línea que contesta "¿por qué no puedo cobrar?" sin
+ * sacarle el foco al carrito. La copia vive acá, con el resto de los textos de
+ * tenencia, para que no se bifurque en el JSX.
+ *
+ * `verdict === null` es "todavía no se hidrató", no "sin tenencia": devuelve
+ * el motivo genérico igual (el gate es fail-closed en los dos casos), pero sin
+ * afirmar que alguien la tomó.
+ */
+export function registerBlockShortReason(verdict: TenancyVerdict | null): string | null {
+  if (verdict?.canIssue) return null
+  if (verdict?.holderDeviceName) return `Caja tomada por ${verdict.holderDeviceName}`
+  if (verdict?.denyReason === "revoked" || verdict?.denyReason === "released") {
+    return "Esta caja está libre — hay que volver a tomarla"
+  }
+  if (verdict?.kind === "stale") return "Hace más de 12 horas que no se confirma esta caja"
+  if (verdict?.kind === "other-register") return "La tenencia confirmada es de otra caja"
+  return "Caja sin tenencia confirmada"
+}
+
+/**
+ * Traduce un veredicto de tenencia al par `{info, kind}` que consume la
+ * pantalla bloqueante (`RegisterTakenPhase`), o `null` si la caja puede
+ * emitir.
+ *
+ * Una sola función porque el bloqueo se evalúa en DOS momentos —al abrir el
+ * diálogo de cobro y al confirmar la venta— y las dos veces tiene que decir
+ * exactamente lo mismo. Fail-closed: `verdict === null` (todavía sin hidratar)
+ * bloquea, con `kind: 'never'`.
+ */
+export function tenancyBlock(
+  verdict: TenancyVerdict | null,
+): { info: RegisterConflictInfo; kind: TenancyVerdictKind } | null {
+  if (verdict?.canIssue) return null
+  return {
+    info: {
+      holderDeviceId: verdict?.holderDeviceId ?? null,
+      holderDeviceName: verdict?.holderDeviceName ?? null,
+      expiresAt: null,
+      reason: verdict?.denyReason ?? null,
+    },
+    kind: verdict?.kind ?? "never",
   }
 }
