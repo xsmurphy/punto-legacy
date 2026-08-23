@@ -252,6 +252,44 @@ delta, no necesita un ciclo completo antes.
 `realtime-catalog-sync.ts` para el sync quirúrgico. Nunca deja al POS
 "medio sincronizado" en silencio.
 
+## Arranque SIN RED (2026-08-23)
+
+Lo de arriba describe el arranque **con** conexión. Desde 2026-08-23 el POS
+también arranca sin ella: `usePosBootstrap()` sirve un snapshot del bootstrap
+persistido en IndexedDB cuando la red no responde
+(`frontend/lib/pos/bootstrap-source.ts` → `bootstrap-cache.ts`). La caja abre,
+busca, cobra e imprime con datos que pueden estar viejos — se muestran, no se
+esconden. Detalle completo en `context/16-app-next-rewrite.md` §5.
+
+Tres cosas que este documento necesita saber de eso:
+
+1. **Las marcas de agua NO se priman con datos cacheados.** `useCatalogSeed`
+   llama `primeWatermarks()` solo cuando el bootstrap vino de la RED
+   (`catalogFromCache === false` en `offline-sync-store`). Primarlas con un
+   snapshot sería afirmar "ya tengo todo lo que el server tenía hasta este
+   instante" sobre una sincronización que nunca ocurrió: el device se saltearía
+   **para siempre** todos los cambios ocurridos entre el guardado del snapshot y
+   la reconexión.
+
+2. **Al volver la red, el catálogo se pone al día por el camino de siempre.** El
+   poll de sesión de `usePosBootstrap` (60s) y `refetchOnReconnect` traen el
+   bootstrap fresco; la reconexión del WS dispara `runDeltaSync` con la marca de
+   agua que haya. Nada nuevo en este mecanismo.
+
+3. **Desde el snapshot se hidrata UNA sola vez.** Offline la query se re-resuelve
+   cada 60s devolviendo el mismo snapshot con un `dataUpdatedAt` nuevo. Sin un
+   corte explícito, la guarda de frescura de `useCatalogSeed` lo tomaría por
+   "más fresco que el último patch" y volcaría el snapshot sobre el store cada
+   minuto — borrando los descuentos de stock optimistas de cada venta offline y
+   cualquier ítem/cliente tocado durante el corte. Datos viejos pisando datos
+   nuevos. Por eso `if (fromCache && status !== "idle") return`.
+
+El pendiente que sigue abierto es el del bloque de abajo: pedir un **delta** en
+el arranque en frío en vez del bootstrap completo. El snapshot offline no lo
+resuelve — lo hace menos urgente, porque el arranque ya no depende de que la
+request salga bien.
+
+
 ## Qué quedó afuera (decisión explícita, no olvido)
 
 - **Delta en el arranque en frío.** "Al arrancar el POS" (cold start: app
@@ -306,6 +344,10 @@ delta, no necesita un ciclo completo antes.
 - Frontend: `frontend/lib/catalog/sync-watermarks.ts`,
   `frontend/lib/catalog/delta-sync.ts`, `frontend/app/api/pos/sync/route.ts`,
   wiring en `hooks/use-realtime-sync.ts` y `hooks/use-catalog-seed.ts`.
+- Arranque sin red: `frontend/lib/pos/offline-db.ts` (dueño del schema
+  IndexedDB), `bootstrap-cache.ts` (snapshot), `bootstrap-source.ts` (política
+  red/cache/nada), `hooks/use-pos-bootstrap.ts`. Tests en
+  `frontend/lib/pos/__tests__/offline-boot.test.ts` (`npm test`).
 - Arnés: `api/lib/Sales/verify_chain/verify_sync.php` (paso 3.6 de
   `run.sh`) — modifica un item y pide el delta desde una fecha anterior
   (trae solo ese item), archiva+hard-delete otro (aparece en

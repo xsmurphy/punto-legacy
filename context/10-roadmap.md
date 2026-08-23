@@ -149,6 +149,39 @@ Los dos problemas que ocupaban este lugar desde 2026-08-17 ya están cerrados:
 Las 5 filas que seguían ⬜ en `context/29-numeracion-y-exclusividad-de-caja.md`
 §7 también están todas resueltas — ver ese doc.
 
+## POS — arranque y operación sin internet ✅ RESUELTO (2026-08-23)
+
+El item "persistir el catálogo en IndexedDB" (TODO histórico en
+`lib/catalog/store.ts`, §5 de `context/16`) queda **cerrado**, y con él el
+bloqueo que lo hacía urgente: **el POS no arrancaba sin red aunque tuviera todo
+lo necesario para vender**.
+
+Eran dos bloqueos en serie, no uno:
+
+1. `PosAuthGuard` pintaba un `fixed inset-0` sobre la caja entera ante cualquier
+   fallo no-401 — el comentario decía "para no bloquear la caja".
+2. El layout del POS pedía además `/v1/bootstrap` (realm **panel**, con el
+   Bearer del device) y gateaba todo el render con `if (!bootstrap)`. Sin red
+   ese fetch no volvía nunca: `PosLoadingScreen` para siempre.
+
+Y no había de dónde sacar los datos: la ruta `NetworkFirst` del Service Worker
+para `/api/pos/bootstrap` **nunca matcheó**. serwist evalúa los matchers RegExp
+con `regExp.exec(url.href)` —contra el href completo, no el pathname— así que
+`/^\/api\/pos\/bootstrap/` no matcheaba nunca. Ruta muerta en silencio desde
+que se escribió. Lección transferible: **matchers de función sobre
+`url.pathname`, nunca RegExp anclados con `^/`**.
+
+Resuelto con snapshot del bootstrap en IndexedDB (`punto-pos-offline`, store
+`snapshots`, junto a la cola de ventas que ya vivía ahí), política
+red → cache → fallar en `lib/pos/bootstrap-source.ts`, y purga de la PII al
+desvincular el device. La única pantalla bloqueante que queda es el device que
+JAMÁS sincronizó. Detalle completo en `context/16-app-next-rewrite.md` §5 y
+`context/43-sync-incremental.md` §Arranque sin red.
+
+Entró también la primera suite de tests del frontend (vitest + fake-indexeddb,
+`npm test`), acotada a la migración de la base y al árbol de decisión del
+bootstrap — lo que no se puede verificar leyendo.
+
 ## POS — bugs y mejoras reportados por el owner (2026-08-18) ✅ RESUELTOS (2026-08-22)
 
 Las 6 quedaron cerradas, verificado contra código:
