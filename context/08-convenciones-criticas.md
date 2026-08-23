@@ -626,3 +626,18 @@ NO "arreglar" el transport `station` para que funcione offline sin pedido explí
 - Detección de duplicados/FK en el catch: usar `$e->sqlState()` (getter, string SQLSTATE), no leer `ErrorMsg()` después de un `false`.
 - `PeriodClosedException` no cambió: `handleQueryFailure()` la chequea PRIMERO (`period_closed`/PC001) y siempre la lanza → HTTP 409, antes de considerar `DbQueryException`.
 - Kill-switch transitorio `DB_THROW_ON_ERROR` (ver `context/06-infraestructura.md`) — apagar solo para incendio en prod, no para vivir apagado.
+
+## §55 — La API es stateless: prohibido `session_start()`/`$_SESSION` (2026-08-22)
+
+`api/bootstrap.php` ya no arranca sesión PHP. La API es 100% stateless — auth
+son tokens opacos resueltos contra `auth_session` (`context/21`), nunca
+cookies de sesión del lado servidor.
+
+- Prohibido introducir `session_start()`/`$_SESSION` en código nuevo de `/api`.
+- Contadores o estado efímero compartido entre requests (rate limiting,
+  locks cortos, etc.) → `Punto\Api\Cache\RedisClient`
+  (`api/lib/Cache/RedisClient.php`), no `$_SESSION` (que además no compartía
+  nada entre requests sin cookie — era estado decorativo).
+- IP del cliente → `Punto\Api\Http\ClientIp::resolve()`
+  (`api/lib/Http/ClientIp.php`), nunca `REMOTE_ADDR` pelado: detrás de
+  Traefik `REMOTE_ADDR` es siempre la IP del proxy, no la del cliente real.

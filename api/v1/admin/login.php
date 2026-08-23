@@ -26,17 +26,36 @@ if (empty($_POST)) {
 $email = trim((string) ($_POST['email'] ?? ''));
 $pass  = (string) ($_POST['password'] ?? '');
 
-// Rate-limit básico (1ª capa) por email+IP. RateLimiter guarda contadores en $_SESSION → requiere
-// session activa (este endpoint no pasa por apiMiddleware, que es quien la abre). Throttle robusto
-// respaldado por store compartido (DB/Redis) keyed solo por email+IP queda para F6 (hardening): el
-// approach por sesión no frena a un atacante scripteado que no porta la cookie de sesión.
-if (session_status() === PHP_SESSION_NONE) { @session_start(); }
-include_once __DIR__ . '/../../libraries/rateLimiter.php';
-$rl = new RateLimiter('adminlogin:' . strtolower($email) . ':' . ($_SERVER['REMOTE_ADDR'] ?? ''));
+// Rate-limit por email + IP real del cliente, con contadores en Redis
+// (lib/RateLimit/RateLimiter.php). Antes vivían en $_SESSION, lo que lo hacía
+// decorativo: sin cookie cada request estrenaba sesión, o sea contador en 0, así
+// que el atacante scripteado —el único que importa acá— nunca era frenado.
+//
+// FAIL-CLOSED (a diferencia del límite global de head.php, que es fail-open):
+// este throttle es lo ÚNICO que se interpone entre internet y un chequeo bcrypt
+// sin autenticar contra la tabla de superusuarios de la plataforma. Si Redis no
+// responde no podemos contar intentos, y fail-open dejaría credential stuffing
+// ilimitado contra /admin justo durante una caída (que un atacante puede
+// provocar o simplemente esperar). El costo de fail-closed es que el login de
+// /admin no anda mientras Redis esté caído: es una consola interna de un puñado
+// de usuarios, y el tráfico de tenants no se ve afectado. Indisponibilidad
+// acotada y breve contra exposición de credenciales sin techo — cierra.
+require_once __DIR__ . '/../../lib/RateLimit/RateLimiter.php';
+require_once __DIR__ . '/../../lib/Http/ClientIp.php';
+require_once __DIR__ . '/../../lib/Cache/RedisClient.php';
+
+use Punto\Api\Http\ClientIp;
+use Punto\Api\RateLimit\RateExceededException;
+use Punto\Api\RateLimit\RateLimiter;
+use Punto\Api\RateLimit\RateLimiterUnavailableException;
+
+$rl = new RateLimiter(strtolower($email) . '|' . ClientIp::resolve(), 'adminlogin');
 try {
-    $rl->limitRequestsInMinutes(10, 1);
+    $rl->limit(10, 60, RateLimiter::FAIL_CLOSED);
 } catch (RateExceededException $e) {
     apiError('Demasiados intentos, esperá un minuto', 429);
+} catch (RateLimiterUnavailableException $e) {
+    apiError('Servicio no disponible temporalmente, reintentá en unos minutos', 503);
 }
 
 $admin = adminVerifyPassword($email, $pass);

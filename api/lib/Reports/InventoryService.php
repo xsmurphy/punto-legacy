@@ -18,7 +18,7 @@ use Punto\Api\Contacts\ContactDisplayName;
  * Cambios vs el original:
  *  - namespace + `final`
  *  - el ROC se recibe por PARÁMETRO (no `getROC(1)` interno).
- *  - `getAllUsers()` (sólo en panel, lee `$_SESSION`) → reemplazado por `userNames()` lookup
+ *  - `getAllUsers()` (sólo en panel, cacheaba en la sesión de PHP) → reemplazado por `userNames()` lookup
  *    batch parametrizado (mejor higiene multi-tenant + sin session).
  *  - `getLocationName($id)` (sólo en panel) → reemplazado por `locationNames()` lookup batch.
  *  - `getCurrentOutletName($id)` (existe en /app) → resuelve por global.
@@ -162,7 +162,7 @@ final class InventoryService
 
     /**
      * Lookup batch contactId → nombre de display, scopeado por companyId.
-     * Reemplaza getAllUsers() del panel (que cachea en $_SESSION y devuelve todos los
+     * Reemplaza getAllUsers() del panel (que cacheaba en la sesión de PHP y devolvía todos los
      * contactos type=0). Acá sólo traemos los que aparecen en las rows.
      */
     private function userNames(array $ids, $companyId): array

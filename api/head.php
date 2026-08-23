@@ -1,15 +1,26 @@
 <?php
-include_once(__DIR__ . "/libraries/rateLimiter.php");
+use Punto\Api\RateLimit\RateExceededException;
+use Punto\Api\RateLimit\RateLimiter;
 
-$rateLimiter  = new RateLimiter($rateLimiterId);
-$limit        = 80;//240       //  number of connections to limit a user per $minutes
-$minutes      = 1;        //  number of $minutes to check for.
-$seconds      = floor($minutes * 60); //  retry after $minutes in seconds.
+require_once(__DIR__ . "/lib/RateLimit/RateLimiter.php");
+
+// Rate limit global por IP del cliente. $rateLimiterId lo resuelve bootstrap.php
+// vía Punto\Api\Http\ClientIp — NO con REMOTE_ADDR pelado: detrás de Traefik eso
+// es la IP del proxy, y meteria a toda la plataforma en un unico contador.
+//
+// FAIL-OPEN a proposito: si Redis no responde, el request PASA. Este limite es
+// anti-abuso, no un control de seguridad; hacerlo fail-closed convertiria una
+// caida del cache en una caida total de la API. El fallo queda logeado y
+// reportado a GlitchTip desde RedisClient.
+$rateLimiter  = new RateLimiter($rateLimiterId, 'http');
+$limit        = 80;       //  requests permitidos por ventana
+$minutes      = 1;        //  largo de la ventana, en minutos
+$seconds      = (int) floor($minutes * 60);
 
 try {
-	$rateLimiter->limitRequestsInMinutes($limit, $minutes);
+	$rateLimiter->limit($limit, $seconds, RateLimiter::FAIL_OPEN);
 } catch (RateExceededException $e) {
-	//header(sprintf("Retry-After: %d", $seconds));
+	header(sprintf("Retry-After: %d", $seconds));
 	http_response_code(429);
 	header('Content-Type: application/json');
 	die(json_encode(['error'=>'Rate Limit Exceeded']));

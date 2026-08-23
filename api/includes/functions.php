@@ -1832,53 +1832,6 @@ function insertEmptySchedule($data){
 	return $insertTransaction;
 }
 
-function loginPart($result){
-	global $db;
-	$fields 	= $result->fields;
-	$company 	= ncmExecute("SELECT
-										status,
-										plan
-									FROM company
-									WHERE
-										companyId = ? LIMIT 1", [$fields['companyId']]);
-
-	if($company['status'] !== 'active'){
-		return 'Cuenta inhabilitada, por favor contactenos al correo <?= EMAIL_FROM ?>';
-	}
-
-	$outlet 	= ncmExecute("SELECT
-									outletId
-								FROM outlet
-								WHERE
-									companyId = ? LIMIT 1",[$fields['companyId']]);
-
-	$register 	= ncmExecute("SELECT
-									registerId
-								FROM register
-								WHERE
-									outletId = ? LIMIT 1",[$outlet['outletId']]);
-
-	
-	// Here I am preparing to store the $row array into the $_SESSION by
-	// removing the salt and password values from it.  Although $_SESSION is
-	// stored on the server-side, there is no reason to store sensitive values
-	// in it unless you have to.  Thus, it is best practice to remove these
-	// sensitive values first.
-	unset($fields['salt'],$fields['userPassword']);
-
-	$_SESSION['last_activity'] 			= time();
-	$_SESSION['user']['companyId']  	= enc($fields['companyId']);
-	$_SESSION['user']['companyStatus']  = $company['status'];
-	$_SESSION['user']['userId']  		= enc($fields['userId']);
-	$_SESSION['user']['userName']  		= $fields['userName'];
-	$_SESSION['user']['role']  			= enc($fields['role']);
-	$_SESSION['user']['outletId'] 		= ($fields['role'] > 1) ? enc($fields['outletId']) : enc('1');
-	$_SESSION['user']['registerId'] 	= ($fields['role'] > 1) ? enc($fields['registerId']) : enc('1');
-	$_SESSION['user']['plan'] 			= enc($company['plan']);
-
-	return 'true';
-}
-
 function getRolePermissions($roleId,$companyId){
 	global $_ROLES_DATA;
 
@@ -2250,19 +2203,15 @@ function getValidPhone($phone,$country=COUNTRY_CODE,$format=false){
 }
 
 
-function getUserIpAddr(){
-    if(!empty($_SERVER['HTTP_CLIENT_IP'])){
-        //ip from share internet
-        $ip = $_SERVER['HTTP_CLIENT_IP'];
-    }elseif(!empty($_SERVER['HTTP_X_FORWARDED_FOR'])){
-        //ip pass from proxy
-        $ip = $_SERVER['HTTP_X_FORWARDED_FOR'];
-    }else{
-        $ip = $_SERVER['REMOTE_ADDR'];
-    }
-    return $ip;
-}
+// getUserIpAddr() se eliminó (2026-08-22). No tenía callers y era inseguro:
+// confiaba en HTTP_CLIENT_IP y en el extremo IZQUIERDO de X-Forwarded-For, los
+// dos escribibles por el cliente, así que devolvía la IP que el atacante
+// quisiera. El resolutor canónico es \Punto\Api\Http\ClientIp::resolve(), que
+// sólo lee XFF cuando el peer es un proxy confiable y toma la entrada derecha.
 
+// NOTA: signUp() es legacy MUERTO — no tiene un solo caller. El registro real
+// entra por /v1/signup → Punto\Api\Auth\SignupService::create(). Se conserva
+// como referencia del port (SignupService lo cita) hasta que se retire.
 function signUp($post,$login = true){
 	global $db,$countries;
 
@@ -2408,22 +2357,13 @@ function signUp($post,$login = true){
 				
 				if(!$failedTransaction){
 					//sendEmail($post['email'],'Su registro en Income Register',$userregistertemplate,'');
-					
-					if($login){
-						$result = $db->Execute("SELECT
-													*
-												FROM contact
-												WHERE
-												type = 0
-												AND
-													contactEmail = ? LIMIT 1",array($email));
-						return loginPart($result);
 
-					}else{
-						return 'true';
-					}
-					
-					
+					// El parametro $login era un vestigio: llamaba a loginPart(), que solo
+					// escribia la sesion de PHP — un login que nadie leia nunca, porque la
+					// API es stateless y autentica con tokens opacos. Se elimino junto con
+					// el resto de $_SESSION; el registro solo reporta si creo la cuenta.
+					// Emitir la sesion es del endpoint (/v1/signup -> PanelAuth).
+					return 'true';
 				}else{
 					return $db->ErrorMsg();
 					return 'false';

@@ -10,7 +10,7 @@
  *
  * Port FIEL de panel/login.php (líneas 117-156). Cambios:
  *   - Acepta JSON body en vez de form-encoded.
- *   - No setea $_SESSION (el front no lo lee; la cookie JWT es suficiente).
+ *   - No abre sesión de PHP: la API es stateless (ya no existe $_SESSION en /api).
  *   - Devuelve JSON envelope canónico (apiOk / apiError).
  *   - Cookie con scope `.punto.la` para compartir sesión con frontend.
  *

@@ -946,20 +946,46 @@ están en `_feature-requests.md` §2026-07-31. Bugs nuevos verificados contra c�
 
 ---
 
-## `$_SESSION` — la premisa original quedó obsoleta, pero sigue vivo (actualizado 2026-08-22)
+## `$_SESSION` — RESUELTO (2026-08-22)
 
-**La premisa de este item murió**: `/app` y `/panel` ya NO existen (eliminados
-en `dbaf0989`, `05aefff4`, `939bcfbb`) — no hay F-auth-jwt-only que correr
-sobre esas rutas. Pero `$_SESSION` **sigue vivo** en `/api`:
-`api/bootstrap.php:67` hace `session_start()` en cada request y `RateLimiter`
-lo usa como store (`api/head.php`, `api/v1/admin/login.php`). `loginPart()` es
-código muerto.
+**La premisa original de este item ya había muerto**: `/app` y `/panel` ya NO
+existen (eliminados en `dbaf0989`, `05aefff4`, `939bcfbb`) — nunca hubo un
+F-auth-jwt-only real que correr sobre esas rutas. Lo que realmente seguía vivo
+era: (1) `session_start()` incondicional en `api/bootstrap.php` en CADA
+request, (2) `RateLimiter` (`api/libraries/rateLimiter.php`) usando
+`$_SESSION` como store de contadores, y (3) `loginPart()`
+(`api/includes/functions.php`), código muerto que escribía
+`$_SESSION['user'][...]` (su único caller vivía dentro de `signUp()`, que a su
+vez no tiene callers — el registro real entra por `/v1/signup` →
+`SignupService::create()`).
 
-**Hallazgo de seguridad (2026-08-22)**: el `RateLimiter` del login de
-`/admin` frena por IP+email vía `$_SESSION` — el propio comentario del código
-(`rateLimiter.php:29-32`) admite que no frena a un atacante sin cookie. Es una
-debilidad real, no solo deuda arquitectónica: conviene mover el rate-limit a
-un store compartido (Redis) que no dependa de que el cliente mantenga sesión.
+**Hallazgo de seguridad que motivó resolverlo ahora**: el `RateLimiter` de
+`/admin` frenaba por IP+email vía `$_SESSION` — sin cookie, cada request
+scripteado estrenaba sesión con el contador en 0, así que un atacante nunca
+era frenado. Era seguridad decorativa, no solo deuda. Además, detrás de
+Traefik TODO request llega con `REMOTE_ADDR = 172.18.0.2` (IP del proxy) —
+un store real con key `REMOTE_ADDR` hubiera compartido el límite de
+`head.php` (80 req/min) entre TODA la plataforma.
+
+**Resuelto**: `session_start()` sacado de `bootstrap.php` (la API es
+stateless — auth son tokens opacos en `auth_session`, ver `context/21`).
+`rateLimiter.php` eliminado, reemplazado por:
+- `api/lib/Cache/RedisClient.php` (`Punto\Api\Cache\RedisClient`) — conector
+  Redis canónico (phpredis), parsea `REDIS_URL`.
+- `api/lib/RateLimit/RateLimiter.php` (`Punto\Api\RateLimit\RateLimiter`) —
+  ventana fija, `INCR`+`EXPIRE` atómicos vía Lua. Política ante Redis caído
+  configurable por caller: `FAIL_OPEN` (`head.php`, no puede tumbar toda la
+  API) o `FAIL_CLOSED` (`api/v1/admin/login.php`, 503 antes que dejar pasar
+  sin throttle contra bcrypt).
+- `api/lib/Http/ClientIp.php` (`Punto\Api\Http\ClientIp`) — resuelve la IP
+  real del cliente; solo lee `X-Forwarded-For` si el peer es un proxy
+  confiable (loopback/RFC1918), y toma la entrada DERECHA (la izquierda es
+  spoofeable).
+
+`loginPart()` y `getUserIpAddr()` eliminadas de `api/includes/functions.php`
+(sin callers vivos, la segunda además insegura por confiar en
+`HTTP_CLIENT_IP`/extremo izquierdo de XFF). `docker-entrypoint.sh` ya no
+escribe `session-redis.ini` (config muerta).
 
 **DB.php y helpers JSONB duplicados app/panel** — **RESUELTO** por la
 eliminación de `/app` y `/panel` (mismos commits de arriba): la duplicación

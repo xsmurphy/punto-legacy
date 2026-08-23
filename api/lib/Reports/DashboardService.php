@@ -13,7 +13,7 @@ namespace Punto\Api\Reports;
  *  - `lessInternalTotals`, `getSalesByPayment`, `getPreviousPeriod` (panel-only / rotos en
  *    /app) → `NonAddingSales::*` (helper compartido, expuestos public static en batches
  *    previos: lessInternalTotals y previousPeriod en batch 14, salesByPayment en batch 8).
- *  - `getAllToPayTransactions` (en /app pero lee `$_SESSION` y `COMPANY_ID` interpolado en
+ *  - `getAllToPayTransactions` (en /app pero cacheaba en la sesión de PHP y `COMPANY_ID` interpolado en
  *    el SQL) → `payedByParent()` private inline parametrizado.
  *  - `getItemData` (panel-only) → `itemData()` private inline.
  *  - `getCustomersRate` (panel-only, contiene `COMPANY_ID` interpolado sin comillas →
@@ -507,7 +507,8 @@ final class DashboardService
 
     /**
      * Port inline de getAllToPayTransactions del panel: SUM(ABS) por transactionParentId.
-     * (El global lee `COMPANY_ID` interpolado + cache `$_SESSION` — incompatible con /api).
+     * (El global leía `COMPANY_ID` interpolado + cacheaba en la sesión de PHP — incompatible con /api,
+     * que es stateless: no hay `session_start()` desde 2026-08-22.)
      *
      * FIX (encontrado 2026-08-16, auditoría del bug latente de anulación de
      * recibos — ver `context/40-anulacion-y-nota-credito.md`): esta query
