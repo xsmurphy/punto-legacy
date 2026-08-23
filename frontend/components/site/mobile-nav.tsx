@@ -6,7 +6,7 @@ import { usePathname } from "next/navigation"
 import { ChevronDown, ChevronLeft, Menu, X } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import { RUBROS_MENU } from "@/components/site/nav-menus"
+import { RUBROS, RUBRO_GRUPOS } from "@/lib/site/rubros"
 import { WHATSAPP_URL } from "@/lib/site/contacto"
 import { LOGIN_URL, SIGNUP_URL } from "@/lib/site/links"
 import { MODULO_GROUPS } from "@/lib/site/modulos"
@@ -144,13 +144,24 @@ export function MobileNav({
                     ))}
                   </nav>
                 ) : (
-                  <nav className="flex flex-col pb-2">
-                    {RUBROS_MENU.map((entry) => (
-                      <Fila
-                        key={entry.label}
-                        label={entry.label}
-                        href={entry.href}
-                      />
+                  /* En mobile la lista es vertical: entran los quince
+                     agrupados por familia, no solo los destacados. */
+                  <nav className="flex flex-col gap-6 pb-2">
+                    {RUBRO_GRUPOS.map((grupo) => (
+                      <div key={grupo.key} className="flex flex-col">
+                        <p className="pb-1 text-xs font-semibold tracking-wider text-white/45 uppercase">
+                          {grupo.label}
+                        </p>
+                        {RUBROS.filter((r) => r.grupo === grupo.key).map(
+                          (r) => (
+                            <Fila
+                              key={r.slug}
+                              label={r.label}
+                              href={`/para/${r.slug}`}
+                            />
+                          )
+                        )}
+                      </div>
                     ))}
                   </nav>
                 )}

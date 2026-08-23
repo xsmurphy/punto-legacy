@@ -42,6 +42,12 @@ export const RUBRO_GRUPOS: { key: RubroGrupo; label: string }[] = [
 export type Rubro = {
   slug: string
   grupo: RubroGrupo
+  /**
+   * Aparece en el menú principal. Se destacan CUATRO por grupo para que las
+   * columnas queden parejas; el resto vive en el pie y en el bloque de
+   * "otros rubros" de cada página.
+   */
+  destacado?: boolean
   /** Nombre para listas ("Restaurantes"). */
   label: string
   /** Con artículo, para frases ("tu restaurante"). */
@@ -58,6 +64,7 @@ export type Rubro = {
 export const RUBROS: Rubro[] = [
   {
     slug: "restaurantes",
+    destacado: true,
     grupo: "gastronomia",
     label: "Restaurantes",
     posesivo: "tu restaurante",
@@ -140,6 +147,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "minimarkets",
+    destacado: true,
     grupo: "retail",
     label: "Minimarkets",
     posesivo: "tu minimarket",
@@ -212,6 +220,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "farmacias",
+    destacado: true,
     grupo: "retail",
     label: "Farmacias",
     posesivo: "tu farmacia",
@@ -389,6 +398,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "ropa-y-accesorios",
+    destacado: true,
     grupo: "retail",
     label: "Ropa y accesorios",
     posesivo: "tu tienda",
@@ -463,6 +473,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "bares-y-cafes",
+    destacado: true,
     grupo: "gastronomia",
     label: "Bares y cafés",
     posesivo: "tu bar",
@@ -539,6 +550,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "comida-rapida",
+    destacado: true,
     grupo: "gastronomia",
     label: "Comida rápida",
     posesivo: "tu local",
@@ -611,6 +623,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "dark-kitchen",
+    destacado: true,
     grupo: "gastronomia",
     label: "Dark kitchen",
     posesivo: "tu cocina",
@@ -683,6 +696,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "decoracion-y-hogar",
+    destacado: true,
     grupo: "retail",
     label: "Decoración y hogar",
     posesivo: "tu tienda",
@@ -760,6 +774,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "barberias",
+    destacado: true,
     grupo: "salud-y-belleza",
     label: "Barberías",
     posesivo: "tu barbería",
@@ -844,6 +859,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "peluquerias",
+    destacado: true,
     grupo: "salud-y-belleza",
     label: "Peluquerías",
     posesivo: "tu peluquería",
@@ -922,6 +938,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "consultorios-medicos",
+    destacado: true,
     grupo: "salud-y-belleza",
     label: "Consultorios médicos",
     posesivo: "tu consultorio",
@@ -1154,6 +1171,7 @@ export const RUBROS: Rubro[] = [
   },
   {
     slug: "estetica-y-cosmetologia",
+    destacado: true,
     grupo: "salud-y-belleza",
     label: "Estética y cosmetología",
     posesivo: "tu centro",
@@ -1227,6 +1245,11 @@ export const RUBROS: Rubro[] = [
     ],
   },
 ]
+
+/** Los que van al menú principal: cuatro por grupo. */
+export function rubrosDestacados(): Rubro[] {
+  return RUBROS.filter((r) => r.destacado)
+}
 
 export function getRubro(slug: string): Rubro | undefined {
   return RUBROS.find((r) => r.slug === slug)

@@ -7,7 +7,7 @@ import { ArrowRight } from "lucide-react"
 
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu"
 import { MODULO_GROUPS } from "@/lib/site/modulos"
-import { RUBROS, RUBRO_GRUPOS } from "@/lib/site/rubros"
+import { RUBRO_GRUPOS, rubrosDestacados } from "@/lib/site/rubros"
 import { cn } from "@/lib/utils"
 
 /*
@@ -38,7 +38,7 @@ const RUBRO_PREVIEWS: Record<string, { src?: string; text?: string }> = {
   "estetica-y-cosmetologia": { src: "/site/rubro-salud-y-belleza.jpg" },
 }
 
-export const RUBROS_MENU: MenuEntry[] = RUBROS.map((r) => ({
+export const RUBROS_MENU: MenuEntry[] = rubrosDestacados().map((r) => ({
   label: r.label,
   description: r.eyebrow
     .replace(/^Para /, "")
@@ -247,7 +247,7 @@ export function RubrosMenu() {
                 {grupo.label}
               </p>
               <div className="flex flex-col gap-0.5">
-                {RUBROS.map((r, i) =>
+                {rubrosDestacados().map((r, i) =>
                   r.grupo === grupo.key ? (
                     <DropdownMenuItem
                       key={r.slug}
