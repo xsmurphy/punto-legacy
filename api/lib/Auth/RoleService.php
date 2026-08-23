@@ -68,6 +68,11 @@ final class RoleService
         'manager' => [
             'pos.sale.create','pos.sale.void','pos.sale.refund','pos.sale.creditPayment',
             'pos.drawer.open','pos.drawer.close','pos.discount.apply',
+            // El encargado interviene mesas ajenas (mozo que se fue, mesa que
+            // hay que mover/unir a media noche). Sin esto la exclusividad de
+            // context/15 no tendría válvula de escape y se evadiría
+            // compartiendo el PIN del dueño.
+            'pos.space.override',
             'inventory.item.view','inventory.item.create','inventory.item.edit','inventory.item.delete',
             'inventory.stock.adjust','inventory.transfer',
             'contacts.customer.view','contacts.customer.create','contacts.customer.edit','contacts.customer.delete',

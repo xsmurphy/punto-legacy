@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 4;
+    public const CURRENT_VERSION = 5;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -40,6 +40,20 @@ final class PermissionCatalog
             ['id' => 'pos.drawer.open',         'label' => 'Abrir caja',               'group' => 'POS'],
             ['id' => 'pos.drawer.close',        'label' => 'Cerrar caja',              'group' => 'POS'],
             ['id' => 'pos.discount.apply',      'label' => 'Aplicar descuentos',       'group' => 'POS'],
+            // Exclusividad de mesas (context/15, owner 2026-08-23): una mesa
+            // con mozo asignado solo la opera ese mozo. Esta clave es la
+            // válvula de escape del encargado — intervenir la mesa de otro
+            // (cancelarla, moverla, unirla, reasignarla).
+            //
+            // `since` = 5 y clave NUEVA: el caso seguro del backfill (nunca
+            // existió, así que no puede estar revocada a propósito en ningún
+            // tenant — ver la advertencia del docblock de since()).
+            //
+            // NO está en el seed del rol `device`, y no debe estarlo: bajo
+            // `pos-app` ese rol es el mismo para todos los que usan la tablet,
+            // así que dárselo ahí anularía la regla para todo el mundo. Se
+            // evalúa contra el rol del OPERADOR (Punto\Api\Auth\OperatorContext).
+            ['id' => 'pos.space.override',      'label' => 'Intervenir mesas de otro mozo', 'group' => 'POS', 'since' => 5],
 
             ['id' => 'inventory.item.view',    'label' => 'Ver catálogo',             'group' => 'Inventario'],
             ['id' => 'inventory.item.create',  'label' => 'Crear artículos',          'group' => 'Inventario'],

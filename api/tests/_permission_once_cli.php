@@ -10,7 +10,13 @@ declare(strict_types=1);
  * `_pos_auth_once_cli.php` / `_void_once_cli.php`.
  *
  * Uso:
- *   php _permission_once_cli.php <endpointRelPath> <METHOD> <queryString> <bodyJson> <cookieToken> [bearerToken]
+ *   php _permission_once_cli.php <endpointRelPath> <METHOD> <queryString> <bodyJson> <cookieToken> [bearerToken] [operatorToken]
+ *
+ * `operatorToken` es la afirmación de operador (`X-Operator-Token`,
+ * api/lib/Auth/OperatorAssertion.php): bajo realm `pos-app` es lo ÚNICO que le
+ * dice al backend qué PERSONA está operando la caja, y sin ella no se puede
+ * probar la exclusividad de mesas. Opcional — su AUSENCIA también es un caso
+ * de prueba ("operador no identificado no toca mesa ajena").
  *
  * El body llega por argv Y por stdin (ver abajo por qué las dos).
  *
@@ -35,8 +41,9 @@ $endpointRel = $argv[1] ?? '';
 $method      = strtoupper($argv[2] ?? 'GET');
 $queryString = $argv[3] ?? '';
 $bodyJson    = $argv[4] ?? '';
-$cookieToken = $argv[5] ?? '';
-$bearerToken = $argv[6] ?? '';
+$cookieToken   = $argv[5] ?? '';
+$bearerToken   = $argv[6] ?? '';
+$operatorToken = $argv[7] ?? '';
 
 if ($endpointRel === '') {
     fwrite(STDERR, "uso: _permission_once_cli.php <endpointRelPath> <METHOD> <query> <bodyJson> <cookieToken> [bearer]\n");
@@ -123,6 +130,11 @@ if ($cookieToken !== '') {
 }
 if ($bearerToken !== '') {
     $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $bearerToken;
+}
+if ($operatorToken !== '') {
+    // Mismo nombre que produce PHP para el header `X-Operator-Token` en una
+    // request real (OperatorAssertion::fromRequest lo lee de acá).
+    $_SERVER['HTTP_X_OPERATOR_TOKEN'] = $operatorToken;
 }
 
 $_GET = [];

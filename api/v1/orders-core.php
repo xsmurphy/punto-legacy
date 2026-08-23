@@ -48,7 +48,13 @@ $resource  = $_GET['resource'] ?? null;
 $action    = $_GET['action'] ?? null;
 
 global $db;
-$svc = new \Punto\Api\Orders\OrderCoreService($db);
+
+// El operador (la PERSONA, no la terminal) hace falta para la exclusividad de
+// mesa: crear una orden contra un espacio ajeno se rechaza igual que tocarlo
+// desde el diálogo de la mesa. Ver Punto\Api\Auth\OperatorContext.
+require_once __DIR__ . '/../lib/Auth/OperatorContext.php';
+$operator = \Punto\Api\Auth\OperatorContext::resolve($ctx);
+$svc      = new \Punto\Api\Orders\OrderCoreService($db, $operator);
 
 // pos-app: TODA operación queda scopeada al outlet del device (un POS/KDS de
 // la sucursal A no ve ni opera órdenes de la sucursal B del mismo tenant).
@@ -215,6 +221,11 @@ switch ($method) {
             }
             $newId = $svc->create($companyId, $data);
             apiOk($svc->find($companyId, $newId), 201);
+        } catch (\Punto\Api\Spaces\SpaceOwnershipException $e) {
+            // Exclusividad de mesa: es autorización, no datos inválidos. 403
+            // para que el front pueda distinguirlo (mismo criterio que
+            // space-sessions.php).
+            apiError($e->getMessage(), 403);
         } catch (\Throwable $e) {
             apiError($e->getMessage(), 422);
         }

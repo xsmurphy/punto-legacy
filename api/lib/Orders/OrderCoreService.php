@@ -123,11 +123,29 @@ final class OrderCoreService
     private TransactionLinkService $links;
     private AddonService $addons;
 
-    public function __construct($db)
+    /**
+     * Operador de la request (ver Punto\Api\Auth\OperatorContext). Solo se usa
+     * para la exclusividad de mesa al crear una orden CONTRA UN ESPACIO: sin
+     * él, "agregar una ronda" sería el agujero por el que se modifica la mesa
+     * de otro mozo sin pasar por SpaceSessionService.
+     *
+     * Default = no identificado. Los callers internos (SpaceSessionService,
+     * SpaceSettlementService) no crean órdenes de mesa — cancelan y cobran las
+     * que ya existen — así que no necesitan pasarlo.
+     *
+     * @var array{userId: ?string, roleId: ?string, identified: bool}|null
+     */
+    private ?array $operator;
+
+    /**
+     * @param array{userId: ?string, roleId: ?string, identified: bool}|null $operator
+     */
+    public function __construct($db, ?array $operator = null)
     {
-        $this->db     = $db;
-        $this->links  = new TransactionLinkService();
-        $this->addons = new AddonService();
+        $this->db       = $db;
+        $this->links    = new TransactionLinkService();
+        $this->addons   = new AddonService();
+        $this->operator = $operator;
     }
 
     // ------------------------------------------------------------------
@@ -316,12 +334,35 @@ final class OrderCoreService
             // hasta que esta orden termine de crearse — o, si ya corrieron
             // antes de este SELECT, el status ya no es 'open' y abortamos acá.
             $lockedSession = $db->Execute(
-                "SELECT status FROM space_session WHERE sessionid = ? AND companyid = ? FOR UPDATE",
+                "SELECT status, waiterid FROM space_session WHERE sessionid = ? AND companyid = ? FOR UPDATE",
                 [$spaceSessionId, $companyId]
             );
             $lockedStatus = ($lockedSession !== false && !$lockedSession->EOF)
                 ? (string) $lockedSession->fields['status']
                 : null;
+
+            // Exclusividad de mesa (context/15, owner 2026-08-23). Va acá y no
+            // solo en SpaceSessionService porque "agregar una ronda" ES
+            // modificar la mesa, y es el camino más transitado de todos: sin
+            // este guard, la regla se saltea simplemente mandando una orden en
+            // vez de usar el diálogo de la mesa.
+            //
+            // Aprovecha el FOR UPDATE que ya se tomó arriba: la asignación de
+            // mozo no puede cambiar entre el chequeo y el INSERT.
+            if ($lockedSession !== false && !$lockedSession->EOF && $this->operator !== null) {
+                try {
+                    \Punto\Api\Spaces\SpaceOwnershipGuard::assert(
+                        ['waiterid' => $lockedSession->fields['waiterid'] ?? null],
+                        $this->operator,
+                        $companyId,
+                        'agregarle órdenes'
+                    );
+                } catch (\Throwable $e) {
+                    $db->FailTrans();
+                    $db->CompleteTrans();
+                    throw $e;
+                }
+            }
             // `bill_requested` NO bloquea: pedir la cuenta es una señal para
             // la caja, no un cierre — que la mesa sume "un café más" después
             // de pedirla es flujo normal de gastronomía. Se acepta la orden y

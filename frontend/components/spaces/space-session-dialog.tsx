@@ -19,7 +19,17 @@
  */
 
 import * as React from "react"
-import { Loader2, Plus, Receipt, Ban, CreditCard, ClipboardList } from "lucide-react"
+import {
+  Loader2,
+  Plus,
+  Receipt,
+  Ban,
+  CreditCard,
+  ClipboardList,
+  Pencil,
+  ArrowRightLeft,
+  Merge,
+} from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -66,6 +76,9 @@ interface Props {
   onRequestBill: () => void
   onCharge: () => void
   onCancelSession: () => void
+  onEdit: () => void
+  onMove: () => void
+  onMerge: () => void
   requestBillPending: boolean
   cancelPending: boolean
 }
@@ -77,10 +90,14 @@ export function SpaceSessionDialog({
   onRequestBill,
   onCharge,
   onCancelSession,
+  onEdit,
+  onMove,
+  onMerge,
   requestBillPending,
   cancelPending,
 }: Props) {
   const config = useCatalogStore((s) => s.config)
+  const users = useCatalogStore((s) => s.users)
   const sessionId = table?.session?.id ?? null
   const { data, isLoading } = useOrdersBySession(sessionId)
   const orders = data?.orders ?? []
@@ -93,16 +110,40 @@ export function SpaceSessionDialog({
     .filter((o) => o.status !== "cancelled")
     .reduce((s, o) => s + orderTotal(o), 0)
 
+  // Subtítulo: comensales y mozo, lo que haya. El mozo se resuelve contra los
+  // usuarios ya precacheados en el bootstrap — sin request extra, y funciona
+  // igual con el catálogo en frío.
+  const waiterName = React.useMemo(() => {
+    const id = table?.session?.waiterId
+    if (!id) return null
+    return users.find((u) => u.id === id)?.name ?? null
+  }, [table, users])
+
+  const sessionSummary = React.useMemo(() => {
+    const parts: string[] = []
+    if (table?.session?.guests) parts.push(`${table.session.guests} comensales`)
+    if (waiterName) parts.push(`Mozo: ${waiterName}`)
+    return parts.length > 0 ? parts.join(" · ") : "Órdenes de la sesión activa"
+  }, [table, waiterName])
+
   return (
     <Dialog open={table !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-semibold">{table?.name}</DialogTitle>
-          <DialogDescription>
-            {table?.session?.guests
-              ? `${table.session.guests} comensales`
-              : "Órdenes de la sesión activa"}
-          </DialogDescription>
+          <DialogTitle className="text-2xl font-semibold">
+            {/* El alias, cuando existe, ES cómo el mozo llama a esta mesa —
+                va primero y el nombre fijo del espacio queda de referencia al
+                lado. Sin alias, el título es el de siempre. */}
+            {table?.session?.alias ? (
+              <span className="flex flex-wrap items-baseline gap-2">
+                <span>{table.session.alias}</span>
+                <span className="text-base font-medium text-muted-foreground">{table.name}</span>
+              </span>
+            ) : (
+              table?.name
+            )}
+          </DialogTitle>
+          <DialogDescription>{sessionSummary}</DialogDescription>
         </DialogHeader>
 
         <div className="max-h-[45vh] flex-1 overflow-y-auto">
@@ -204,6 +245,28 @@ export function SpaceSessionDialog({
             >
               <CreditCard className="size-4" />
               Cobrar
+            </Button>
+          </div>
+          {/* Segunda fila — gestión de la mesa (owner 2026-08-23). Separada de
+              la de arriba a propósito: esas tres son el flujo de servicio que
+              el mozo usa en cada ronda y no se mueven de lugar (Regla #10);
+              estas son ocasionales. La fila EXISTE SIEMPRE, con los tres
+              botones, aunque no haya destinos válidos — el backend rechaza lo
+              que no corresponda y los diálogos muestran su propio vacío.
+              Ocultarlos condicionalmente movería "Cancelar sesión" de lugar
+              según el estado del salón. */}
+          <div className="grid w-full gap-2 sm:grid-cols-3">
+            <Button size="lg" variant="outline" onClick={onEdit} className="w-full gap-1.5">
+              <Pencil className="size-4" />
+              Editar
+            </Button>
+            <Button size="lg" variant="outline" onClick={onMove} className="w-full gap-1.5">
+              <ArrowRightLeft className="size-4" />
+              Mover
+            </Button>
+            <Button size="lg" variant="outline" onClick={onMerge} className="w-full gap-1.5">
+              <Merge className="size-4" />
+              Unir
             </Button>
           </div>
           <Button

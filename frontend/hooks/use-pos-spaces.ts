@@ -43,10 +43,14 @@ export interface SpaceSession {
   status: "open" | "bill_requested" | "closed" | "cancelled"
   guests: number | null
   waiterId: string | null
+  /** Nombre libre de la OCUPACIÓN ("los del cumpleaños") — mig 163. */
+  alias: string | null
   openedAt: string | null
   closedAt: string | null
   saleTransactionId: string | null
   note: string | null
+  /** Sesión que absorbió a esta al unir cuentas. Solo en la origen de una fusión. */
+  mergedInto: string | null
 }
 
 async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
@@ -83,7 +87,11 @@ export function usePosSpacesState() {
 
 export function useOpenSpaceSession() {
   const qc = useQueryClient()
-  return useMutation<SpaceSession, Error, { tableId: string; guests?: number; waiterId?: string }>({
+  return useMutation<
+    SpaceSession,
+    Error,
+    { tableId: string; guests?: number; waiterId?: string; alias?: string }
+  >({
     mutationFn: (data) =>
       posJson<SpaceSession>("/api/pos/space-sessions", {
         method: "POST",
@@ -134,6 +142,72 @@ export function useCloseSpaceSession() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
+    },
+  })
+}
+
+/**
+ * Edita la ocupación en curso: alias, comensales, mozo.
+ *
+ * El contrato con el backend es por PRESENCIA de la clave (`alias: ""` borra
+ * el alias, no mandarlo lo deja como está), así que el payload se arma en el
+ * caller y acá se reenvía tal cual — filtrar undefined con un spread perdería
+ * justamente la diferencia entre "borralo" y "no lo toques".
+ */
+export function useUpdateSpaceSession() {
+  const qc = useQueryClient()
+  return useMutation<
+    SpaceSession,
+    Error,
+    { sessionId: string; alias?: string | null; guests?: number | null; waiterId?: string | null }
+  >({
+    mutationFn: ({ sessionId, ...fields }) =>
+      posJson<SpaceSession>(`/api/pos/space-sessions?id=${sessionId}&action=update`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(fields),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
+    },
+  })
+}
+
+/** Mueve la ocupación a otro espacio libre (los clientes se cambiaron de mesa). */
+export function useMoveSpaceSession() {
+  const qc = useQueryClient()
+  return useMutation<SpaceSession, Error, { sessionId: string; targetSpaceId: string }>({
+    mutationFn: ({ sessionId, targetSpaceId }) =>
+      posJson<SpaceSession>(`/api/pos/space-sessions?id=${sessionId}&action=move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetSpaceId }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
+      // Las órdenes cambiaron de mesa: la comanda del KDS y el listado de
+      // órdenes muestran el nombre del espacio, que acaba de cambiar.
+      void qc.invalidateQueries({ queryKey: ["orders"] })
+    },
+  })
+}
+
+/**
+ * Une dos cuentas. `sessionId` es la sesión ORIGEN — la que se absorbe y deja
+ * su espacio libre; `targetSessionId` es la cuenta que sobrevive con todo.
+ */
+export function useMergeSpaceSessions() {
+  const qc = useQueryClient()
+  return useMutation<SpaceSession, Error, { sessionId: string; targetSessionId: string }>({
+    mutationFn: ({ sessionId, targetSessionId }) =>
+      posJson<SpaceSession>(`/api/pos/space-sessions?id=${sessionId}&action=merge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetSessionId }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
+      void qc.invalidateQueries({ queryKey: ["orders"] })
     },
   })
 }

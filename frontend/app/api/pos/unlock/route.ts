@@ -27,7 +27,17 @@ const HOST_OVERRIDE = process.env.PUNTO_SHARED_API_HOST
 
 interface UpstreamEnvelope {
   ok?: boolean
-  data?: { user?: { id: string; name: string } }
+  data?: {
+    user?: { id: string; name: string }
+    /**
+     * Afirmación de operador firmada por la API (HMAC, ver
+     * `api/lib/Auth/OperatorAssertion.php`). Es la ÚNICA prueba que tiene el
+     * backend de qué persona está operando esta caja: el token del device
+     * identifica la tablet, no al mozo. Se emite acá porque este es el único
+     * punto donde el PIN se valida contra la BD.
+     */
+    operatorToken?: string
+  }
   error?: { message?: string }
 }
 
@@ -84,7 +94,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
         { status: 502 },
       )
     }
-    return NextResponse.json({ ok: true, user: envelope.data.user })
+    return NextResponse.json({
+      ok: true,
+      user: envelope.data.user,
+      operatorToken: envelope.data.operatorToken ?? null,
+    })
   } catch {
     return NextResponse.json(
       { ok: false, error: { message: "No se pudo contactar la API" } },
