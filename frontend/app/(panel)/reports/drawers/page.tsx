@@ -8,9 +8,20 @@
  * que abre y cierra. Date range arriba; DataTable abajo.
  *
  * El backend (`/v1/reports/drawers`) ya devuelve los nombres resueltos
- * (outletName, registerName, openUserName, closeUserName) y los componentes
- * de venta (`sold`, `expense`, `income`, `return`) para el cálculo de la
- * diferencia entre caja teórica y caja contada.
+ * (outletName, registerName, openUserName, closeUserName), los componentes de
+ * venta (`sold`, `cashSold`, `expense`, `income`, `return`) y —desde la mig
+ * 164— el CUADRE ya resuelto: `expectedAmount`, `difference` y `cashStatus`.
+ *
+ * El cuadre NO se calcula acá. Antes sí, y estaba mal de dos maneras: sumaba
+ * TODOS los medios de pago contra un monto contado que es solo efectivo (todo
+ * turno con tarjeta salía con un faltante inventado), y recomputaba el
+ * esperado con datos de hoy, así que el veredicto de un cierre viejo cambiaba
+ * solo. Ahora el esperado se congela al cerrar y el veredicto lo emite
+ * `Reports\CashCountStatus`, que es donde vive la tolerancia del comercio.
+ *
+ * Este semáforo es del PANEL, no de la caja: el cajero no ve la diferencia
+ * (y con `blindControl` encendido ni siquiera ve el esperado — esa es toda la
+ * gracia de la modalidad). El dueño la ve acá.
  *
  * Corregir el arqueo (fechas y montos de apertura/cierre) se hace desde el
  * menú de la fila — el cierre se carga a mano en el POS y se equivoca. Cerrar
@@ -20,7 +31,7 @@
 import * as React from "react"
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, ArrowDown, ArrowUp, Pencil, Wallet } from "lucide-react"
+import { AlertCircle, ArrowLeft, Pencil, Wallet } from "lucide-react"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -36,7 +47,7 @@ import { useReport, type DrawerRow, type DrawersReportResponse } from "@/hooks/u
 import { formatMoney } from "@/lib/format"
 import { DrawerDetailModal } from "@/components/reports/drawer-detail-modal"
 import { DrawerCorrectDialog } from "@/components/reports/drawer-correct-dialog"
-import { cn } from "@/lib/utils"
+import { CashCountBadge } from "@/components/reports/cash-count-badge"
 import { EmptyState } from "@/components/empty-state"
 import { formatDateTime } from "@/lib/format-date"
 
@@ -50,27 +61,7 @@ export default function DrawersReportPage() {
   const { data, isLoading, error } = useReport<DrawersReportResponse>("drawers", opts)
 
   const rows = data?.rows ?? []
-
-  /** Caja teórica = openAmount + ventas en efectivo + ingresos − extracciones.
-   *  Este cálculo lo hace el legacy en cliente porque combina varios campos
-   *  agregados que el endpoint devuelve crudos. La diferencia con `closeAmount`
-   *  es lo que detecta faltantes o sobrantes en arqueo. */
-  const computeTheoretical = React.useCallback((r: DrawerRow): number => {
-    const open    = parseNum(r.openAmount)
-    const sold    = parseNum(r.sold)
-    const expense = parseNum(r.expense)
-    const income  = parseNum(r.income)
-    const ret     = parseNum(r.return)
-    // Aproximación: solo cash impacta el cajón pero acá no tenemos el split por
-    // método de pago — el legacy lo recomputa en el detail. Para el listado, el
-    // cálculo agregado es: openAmount + sold + income − expense − return.
-    return open + sold + income - expense - Math.abs(ret)
-  }, [])
-
-  const computeDiff = React.useCallback(
-    (r: DrawerRow): number => parseNum(r.closeAmount) - computeTheoretical(r),
-    [computeTheoretical],
-  )
+  const tolerance = data?.tolerance
 
   const columns = React.useMemo<ColumnDef<DrawerRow>[]>(
     () => [
@@ -145,39 +136,40 @@ export default function DrawersReportPage() {
         meta: { label: "Monto cierre", className: "tabular-nums text-right" },
       },
       {
-        id: "diff",
-        header: "Diferencia",
+        accessorKey: "expectedAmount",
+        header: "Esperado",
         cell: ({ row }) => {
           const r = row.original
-          if (!r.isClosed) return <span className="text-muted-foreground">—</span>
-          const d = computeDiff(r)
-          if (Math.abs(d) < 1) {
-            // Considerado "ok" — el legacy usaba tolerancia <1 unidad.
-            return (
-              <span className="inline-flex items-center gap-1 text-emerald-600">
-                <Wallet className="size-3.5" />
-                OK
-              </span>
-            )
+          const exp = r.expectedAmount
+          if (exp === null || exp === undefined) {
+            return <span className="text-muted-foreground">—</span>
           }
-          const isShort = d < 0
           return (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 tabular-nums",
-                isShort ? "text-destructive" : "text-amber-600",
-              )}
-            >
-              {isShort ? (
-                <ArrowDown className="size-3.5" />
-              ) : (
-                <ArrowUp className="size-3.5" />
-              )}
-              {formatMoney(Math.abs(d), bootstrap)}
-            </span>
+            <span className="tabular-nums">{formatMoney(parseNum(exp), bootstrap)}</span>
           )
         },
-        meta: { label: "Diferencia", className: "tabular-nums" },
+        meta: { label: "Esperado", className: "tabular-nums text-right" },
+      },
+      {
+        // `accessorKey` (y no una columna `id` calculada) para que el sort de
+        // la tabla agrupe los estados: ordenando por esta columna, todos los
+        // faltantes quedan juntos. Escanear la columna es el pedido concreto
+        // del owner ("ver de un vistazo dónde hubo diferencias").
+        accessorKey: "cashStatus",
+        header: "Cuadre",
+        cell: ({ row }) => {
+          const r = row.original
+          return (
+            <CashCountBadge
+              status={r.cashStatus}
+              difference={r.difference === null ? null : parseNum(r.difference)}
+              expectedSource={r.expectedSource}
+              tolerance={tolerance}
+              bootstrap={bootstrap}
+            />
+          )
+        },
+        meta: { label: "Cuadre" },
       },
       {
         id: "actions",
@@ -200,7 +192,7 @@ export default function DrawersReportPage() {
         meta: { className: "w-12" },
       },
     ],
-    [bootstrap, computeDiff],
+    [bootstrap, tolerance],
   )
 
   return (
@@ -247,6 +239,7 @@ export default function DrawersReportPage() {
 
       <DrawerDetailModal
         drawer={selectedDrawer}
+        tolerance={tolerance}
         onClose={() => setSelectedDrawer(null)}
         onClosed={() => {
           // El hook ya invalida la query — solo cerramos el modal.

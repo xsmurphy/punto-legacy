@@ -525,10 +525,35 @@ final class DrawerService
             }
         }
 
+        // Efectivo ESPERADO, congelado en el mismo UPDATE que cierra la caja
+        // (mig 164). Se lee ANTES del UPDATE porque después la fila ya no está
+        // abierta y `getOpen()` no la encuentra.
+        //
+        // Es `subtotal` y no `total`: lo que el cajero cuenta son billetes, y
+        // `total` incluye tarjetas y crédito, que no están en el cajón. Es
+        // además EXACTAMENTE el número que la caja rotula "Total efectivo" en
+        // pantalla (`pos-main-menu.tsx`) — el arqueo se audita contra lo que el
+        // cajero tenía delante, no contra un número mejor calculado después.
+        //
+        // Best-effort: la caja SIEMPRE cierra. El POS es offline-first y un
+        // cierre es irreversible del lado del cajero — que falle una lectura
+        // de reporte no puede dejarlo con el turno abierto. Sin esperado, el
+        // reporte muestra el cierre como estimado, que es lo mismo que le pasa
+        // a los cierres anteriores a esta migración.
+        $expectedCash = null;
+        try {
+            $summary = $this->getSummary($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
+            if ($summary !== null) {
+                $expectedCash = (float) $summary['subtotal'];
+            }
+        } catch (\Throwable $e) {
+            error_log("[DrawerService::close] no se pudo congelar el esperado (drawerId={$row['drawerId']}): " . $e->getMessage());
+        }
+
         try {
             $ok = ncmExecute(
-                'UPDATE drawer SET drawerCloseDate = ?, drawerCloseAmount = ?, drawerUserClose = ? WHERE drawerId = ?',
-                [$date, $amount, $userIdForClose, $row['drawerId']]
+                'UPDATE drawer SET drawerCloseDate = ?, drawerCloseAmount = ?, drawerUserClose = ?, drawerExpectedAmount = ? WHERE drawerId = ?',
+                [$date, $amount, $userIdForClose, $expectedCash, $row['drawerId']]
             );
         } catch (\Throwable $e) {
             error_log("[DrawerService::close] UPDATE excepción drawerId={$row['drawerId']} userId={$userId}: " . $e->getMessage());
@@ -884,6 +909,27 @@ final class DrawerService
      * @param array{salesCount:int,customersCount:int} $stats Default 0/0 — opcional para
      *   tolerar callers viejos (ej. BFF legacy) que todavía no pasan `getSaleStats()`.
      */
+    /**
+     * ¿Este medio de pago entra al cajón físico?
+     *
+     * Única definición de "efectivo" del arqueo. Estaba inline en
+     * `composeSummary()` y el reporte del panel no tenía forma de reusarla, así
+     * que recomputaba el esperado con TODOS los medios de pago y marcaba
+     * faltantes fantasma en cualquier turno con tarjeta. Ahora la comparten el
+     * cierre (que congela el número) y `Reports\DrawersService` (que lo estima
+     * para los cierres anteriores a la mig 164) — si mañana aparece otro medio
+     * que mueve billetes, se agrega acá y las dos mitades quedan de acuerdo.
+     *
+     * `getSalesByPayment()` reclasifica las devoluciones (transactionType 6)
+     * como tipo 'return', así que nunca llegan como efectivo — por eso el
+     * esperado no las resta. No es un olvido: es la fórmula que el cajero ve
+     * en pantalla, y el número congelado tiene que ser EXACTAMENTE ese.
+     */
+    public static function isCashPaymentType(string $type): bool
+    {
+        return in_array(strtolower($type), ['cash', 'efectivo'], true);
+    }
+
     public static function composeSummary(array $open, array $expenses, array $income, array $payments, array $products = [], array $stats = []): array
     {
         $cajaInicial   = (float) $open['drawerOpenAmount'];
@@ -903,7 +949,7 @@ final class DrawerService
 
         foreach ($payments as $p) {
             $price = (float) $p['price'];
-            if (in_array(strtolower((string) $p['type']), ['cash', 'efectivo'], true)) {
+            if (self::isCashPaymentType((string) $p['type'])) {
                 $cashPrice = $price;
             }
             if ($p['type'] === 'return') {

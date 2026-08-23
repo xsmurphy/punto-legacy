@@ -110,6 +110,7 @@ const SERIALIZE_STRING_FIELDS: (keyof SettingsFormValues)[] = [
 // SERIALIZE_STRING_FIELDS (el backend castea con (int) + clamp 1..12).
 const SERIALIZE_NUMBER_FIELDS: (keyof SettingsFormValues)[] = [
   "settingPeriodCloseMonths",
+  "settingDrawerTolerance",
 ]
 
 const SERIALIZE_BOOL_FIELDS: (keyof SettingsFormValues)[] = [
