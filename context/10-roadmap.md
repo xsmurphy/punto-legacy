@@ -10,7 +10,7 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-22 (auditoría del backlog contra código real: numeración fiscal resuelta, 3 P0 nuevos — vale infacturable, stock de add-ons en orden/mesa, permisos sin gate)
+> **Última actualización:** 2026-08-22 (P0 de permisos sin gate RESUELTO — 45/47 claves gateadas + anti-escalación en /v1/users + arnés de 144 checks; quedan los P0 de vale infacturable y stock de add-ons en orden/mesa)
 
 ---
 
@@ -31,10 +31,35 @@ ver abajo) — los tres son plata o seguridad, no UX.
    `parentorderitemid IS NULL`, así que `expandAddonSelections` nunca corre.
    La plata sale bien (el `unitPrice` ya incluye el delta); el inventario no.
    Detalle completo: `context/modules/02-combos-y-addons.md`.
-3. **20 de 47 permisos del catálogo no tienen enforcement**, con
-   `api/v1/users.php` como peor caso: POST/PUT/DELETE sin ningún gate —
-   cualquier autenticado crea/edita/borra usuarios y roles. Lista completa y
-   orden de gravedad en `context/_feature-requests.md` § Roles y permisos.
+3. ~~**20 de 47 permisos del catálogo no tienen enforcement**~~ ✅ **RESUELTO
+   (2026-08-22, branch `api/permisos-enforcement`).** Eran 25, no 20. Hoy 45
+   de 47 gateadas; las 2 restantes (`pos.sale.create`, `pos.discount.apply`)
+   quedan fuera a propósito por offline-first —el back no rechaza una venta
+   ya emitida— y están declaradas como excepción en el arnés.
+
+   Evidencia: `api/tests/permission_enforcement_test.php` + runner, 144
+   checks en verde (cobertura del catálogo, matriz endpoint × rol
+   end-to-end con sesiones reales, gates de caja con rol real en realm
+   pos-app, y escalación de privilegios). Suite existente sin regresiones:
+   `sale_chain` (venta end-to-end desde el realm POS), `sale_void`,
+   `return_d2_d3`, `credit_payment_void`, `db_error_visibility`,
+   `pos_device_revoked`, `role_permission_backfill`, `register_lease`.
+
+   Además del gate, se cerraron tres agujeros que el enforcement destapó:
+   escalación de privilegios en `/v1/users` (un Encargado podía asignarse
+   Dueño), bypass del gate de empleados vía `/v1/contacts` (que no filtra
+   por `type`), y el 404-antes-del-403 de contactos que servía de oráculo de
+   existencia. `ai.agent.elevated`, que no correspondía a ninguna operación
+   real, se cableó a `create_user` del agente en vez de borrarse.
+
+   **Queda abierto (P1, no lo cierra este trabajo):** el token de dispositivo
+   se emite con `roleId='1'` → seed `owner`, así que en el realm `pos-app`
+   todo gate pasa. No es una regresión (es así desde que existe el pareo) ni
+   se puede cambiar sin romper la caja: el rol del que pareó el device no es
+   el del cajero que está operando, y el POS no tiene hoy identidad de
+   operador server-side (el PIN de la pantalla de bloqueo es cosmético,
+   `lock-store.ts`). Cerrarlo es un trabajo propio: sesión de operador real
+   emitida por el desbloqueo. Detalle en `context/08` §12.2.
 
 ## P0 FISCAL — numeración de comprobantes ✅ RESUELTO (2026-08-22)
 
