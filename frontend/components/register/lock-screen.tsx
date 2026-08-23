@@ -34,6 +34,7 @@ export function LockScreen() {
   const locked = useLockStore((s) => s.locked)
   const unlock = useLockStore((s) => s.unlock)
   const setActiveUser = useLockStore((s) => s.setActiveUser)
+  const setOperatorToken = useLockStore((s) => s.setOperatorToken)
   const outletName = useCatalogStore((s) => s.outlet?.name)
   const users = useCatalogStore((s) => s.users)
   const catalogStatus = useCatalogStore((s) => s.status)
@@ -114,6 +115,35 @@ export function LockScreen() {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ contactId: matched.id }),
         }).catch(() => undefined)
+
+        // Afirmación de operador: el match de arriba es LOCAL y le sirve al
+        // front (saber a quién saludar, a quién atribuir la venta), pero el
+        // backend no puede creerle a un dato que el browser calculó. Este POST
+        // revalida el PIN server-side y devuelve un token firmado que prueba
+        // la identidad en las requests siguientes — es lo que hace cumplible
+        // la exclusividad de mesas (ver lib/pos/lock-store.ts).
+        //
+        // Best-effort deliberado, igual que el audit: el lockscreen tiene que
+        // seguir desbloqueando SIN RED (el POS es offline-first y el PIN ya se
+        // verificó localmente). Sin token el mozo opera normal; solo pierde
+        // acceso a las mesas asignadas a otro, que son online-only igual.
+        setOperatorToken(null)
+        posFetch("/api/pos/unlock", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pin }),
+        })
+          .then(async (res) => {
+            if (!res.ok) return
+            const json = (await res.json().catch(() => null)) as
+              | { ok?: boolean; operatorToken?: string | null }
+              | null
+            if (json?.ok && typeof json.operatorToken === "string") {
+              setOperatorToken(json.operatorToken)
+            }
+          })
+          .catch(() => undefined)
+
         setActiveUser({ id: matched.id, name: matched.name })
         toast.success(`Bienvenido, ${matched.name}`)
         unlock()
@@ -128,7 +158,7 @@ export function LockScreen() {
       }
     }, 160)
     return () => clearTimeout(id)
-  }, [pin, unlock, users])
+  }, [pin, unlock, users, setActiveUser, setOperatorToken])
 
   // Escape hatch (P1): si ningún user tiene pinhash configurado, el lock screen
   // se convierte en un deadlock permanente (no hay PIN que comparar). Solo aplica

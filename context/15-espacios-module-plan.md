@@ -584,3 +584,55 @@ de servicio) antes de cerrar; no permitir cerrar con saldo descubierto.
 - `context/04-modelo-de-dominio.md` — convenciones de schema (UUID, JSONB, tenant).
 - Memoria `project_jerarquia_dominio` — company > outlet > depósito > caja; regla
   fiscal de punto de expedición.
+
+---
+
+## 12. Entregado 2026-08-23 — mozo, alias, mover/unir, exclusividad
+
+Cierra cuatro pedidos del owner y parte de F1/F2/F5 de la §10.
+
+| Pedido | Estado | Dónde |
+|---|---|---|
+| Selector de mozo al abrir mesa | Hecho | `open-space-dialog.tsx`, `edit-space-session-dialog.tsx` |
+| Nombre libre de la mesa (alias de la SESIÓN) | Hecho | mig 163 `space_session.alias` |
+| Mover / unir espacios desde el POS | Hecho | `SpaceSessionService::move()/merge()` |
+| Mesas asignadas con exclusividad | Hecho | `SpaceOwnershipGuard` + `pos.space.override` |
+
+**Lo que hubo que resolver antes de poder hacer el 4.º** — el realm `pos-app`
+no tenía identidad de persona: el token es de la TABLET, `AUTHED_USER_ID` es
+quien la pareó y `hasPermission()` resuelve el rol `device`, idéntico para
+todos los que la usan. Mandar el `userId` en el body habría sido el botón
+escondido que el owner pidió no hacer, con un `if` en el server.
+
+Solución mínima que no toca el modelo de auth: `OperatorAssertion` — un token
+HMAC que emite **solo** `/v1/unlock-pin.php` (que ya validaba el PIN
+server-side) y viaja en `X-Operator-Token`, adjuntado por `posFetch`. No es una
+sesión, no se revoca de a una y sin Bearer válido no vale nada; es una
+afirmación acotada de "quien manda esto conocía el PIN de este contacto". La
+sesión de operador de verdad sigue siendo `context/21-auth-rewrite.md`.
+Detalle en `context/08-convenciones-criticas.md §56`.
+
+**Decisiones de los casos borde de mover/unir** (razonadas en
+`context/modules/12-espacios.md` regla 13):
+
+- Pedidos ya en cocina: **ni se cancelan ni se re-emiten**. Cuelgan de la
+  sesión, no del espacio; el nombre de la mesa sale de un JOIN vivo, así que
+  alcanza con republicar las órdenes para que el KDS repinte.
+- Pagos parciales: las filas del ledger **se mudan con su `transactionid`
+  intacto**. Cada una es una venta real ya impresa — borrarlas falsea la caja,
+  re-emitirlas duplica el documento fiscal.
+- Unir sesiones con familias de cobro incompatibles (`items` vs
+  `amount`/`share`): **se rechaza**. Produciría el estado que el módulo prohíbe
+  por drift de stock (regla 2), y nadie lo pidió explícitamente.
+- Numeración: ninguna de las dos operaciones emite documento, no consume
+  correlativos.
+- `mergedinto` (mig 163) distingue "se unió a otra mesa" de "se cerró vacía",
+  que en BD eran el mismo estado.
+
+**Fuera de la exclusividad a propósito**: `close()` y todo el camino de cobro.
+Quien cobra es la caja, no el mozo; bloquearlos dejaría al cajero sin poder
+cerrar la cuenta de una mesa ajena.
+
+**Abierto (decisión de producto, no asumida)**: la exclusividad se activa sola
+al asignar mozo, sin interruptor por comercio. Ver la pregunta en
+`context/_feature-requests.md` § "Mesas asignadas a meseros".

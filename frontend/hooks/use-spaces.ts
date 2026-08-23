@@ -47,6 +47,12 @@ export interface SpaceWithState extends Space {
     status: string
     guests: number | null
     waiterId: string | null
+    /**
+     * Nombre libre que el mozo le puso a ESTA ocupación ("los del
+     * cumpleaños") — mig 163. No confundir con `name` del espacio, que es el
+     * nombre fijo de la mesa y vive en el nivel de arriba de este objeto.
+     */
+    alias: string | null
     openedAt: string | null
     orderCount: number
   } | null

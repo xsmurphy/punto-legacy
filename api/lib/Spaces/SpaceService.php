@@ -368,6 +368,7 @@ final class SpaceService
                     ts.status             AS session_status,
                     ts.guests             AS session_guests,
                     ts.waiterid           AS session_waiterid,
+                    ts.alias              AS session_alias,
                     ts.opened_at          AS session_opened_at,
                     COALESCE(oc.ordercount, 0) AS order_count
                FROM space t
@@ -408,6 +409,10 @@ final class SpaceService
                 'status'    => (string) $row['session_status'],
                 'guests'    => isset($row['session_guests']) ? (int) $row['session_guests'] : null,
                 'waiterId'  => $row['session_waiterid'] ?? null,
+                // El alias viaja en el payload del MAPA (no solo en el detalle)
+                // porque su razón de ser es que el mozo reconozca la mesa de un
+                // vistazo — si hay que abrir el diálogo para leerlo, no sirve.
+                'alias'     => $row['session_alias'] ?? null,
                 'openedAt'  => $row['session_opened_at'] ?? null,
                 'orderCount' => (int) ($row['order_count'] ?? 0),
             ] : null;

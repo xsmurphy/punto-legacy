@@ -1,6 +1,10 @@
 import { getDeviceToken, clearDeviceToken, type DeviceModule } from "@/lib/auth/device-token"
 import { getSharedQueryClient } from "@/lib/auth/query-client-singleton"
 import { moduleLogout } from "@/lib/auth/module-logout"
+import { useLockStore } from "@/lib/pos/lock-store"
+
+/** Header de la afirmación de operador. Espejo de `OperatorAssertion::HEADER`. */
+const OPERATOR_TOKEN_HEADER = "X-Operator-Token"
 
 /**
  * Fetch autenticado para los BFF routes `/api/pos/*`.
@@ -42,6 +46,24 @@ export async function posFetch(
   const token = getDeviceToken(module)
   if (token && !headers.has("Authorization")) {
     headers.set("Authorization", `Bearer ${token}`)
+  }
+
+  // Afirmación de operador (`X-Operator-Token`): QUIÉN está usando la caja, en
+  // contraposición al Bearer de arriba, que dice QUÉ terminal es. Van juntas y
+  // son distintas — el Bearer autentica, esta solo identifica a la persona, y
+  // el backend nunca acepta la segunda sin la primera.
+  //
+  // Se adjunta acá, en el wrapper compartido, y no en los call-sites que hoy
+  // la necesitan (Espacios): el mismo criterio por el que el Bearer vive acá.
+  // Un header de identidad que cada llamada decide si manda termina ausente
+  // justo en la llamada nueva que alguien agregó sin saber que existía, y el
+  // síntoma sería un 403 incomprensible en vez de un bug visible.
+  //
+  // Solo para el módulo `pos`: la Estación de Impresión y las pantallas de
+  // cliente no tienen operador humano detrás.
+  if (module === "pos" && !headers.has(OPERATOR_TOKEN_HEADER)) {
+    const operatorToken = useLockStore.getState().operatorToken
+    if (operatorToken) headers.set(OPERATOR_TOKEN_HEADER, operatorToken)
   }
   const res = await fetch(input, { ...init, credentials: "include", headers })
 

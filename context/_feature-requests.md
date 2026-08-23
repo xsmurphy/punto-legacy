@@ -80,18 +80,21 @@ facturación electrónica (en curso, `context/28`).
 
 ### POS / Espacios
 
-- **Selector de mozo al abrir mesa** — parcial, reiterado por el owner
-  2026-08-23: backend completo (`space_session.waiterid`;
-  `SpaceSessionService.php:35,57,403`) y el tipo ya viaja en
-  `use-pos-spaces.ts:86`, pero **falta toda la UI** — ningún componente lo
-  setea al abrir mesa. Es trabajo solo de frontend. Sin esto tampoco se puede
-  contar personas atendidas por mesero (pedido relacionado más abajo).
-- **Unir/cambiar espacio, renombrar y etiquetar desde el POS** — **marcado
-  IMPORTANTE por el owner (2026-08-23)**. Incluye que el mozo pueda ponerle
-  un nombre a la mesa para identificarla más fácil (ej. "los del
-  cumpleaños"). Confirmado abierto por ausencia (auditoría 2026-08-22): hoy
-  no hay forma de renombrar/etiquetar ni de unir/cambiar de espacio desde el
-  POS.
+- **Selector de mozo al abrir mesa** — **CERRADO 2026-08-23**
+  (`open-space-dialog.tsx` + `edit-space-session-dialog.tsx`). Se elige al
+  abrir y se puede reasignar después; el mozo se ve en el tile (HoverCard) y
+  en el diálogo de sesión. OJO: asignar mozo ahora **activa la exclusividad**
+  de la mesa (ver abajo) — no es un campo informativo.
+- **Unir/cambiar espacio, renombrar y etiquetar desde el POS** — **CERRADO
+  2026-08-23**. Alias de la SESIÓN (mig 163, `space_session.alias`) editable
+  desde el POS y visible en el tile; `move()` y `merge()` en
+  `SpaceSessionService` + diálogos `move-space-dialog.tsx` /
+  `merge-space-dialog.tsx`. Casos borde resueltos en
+  `context/modules/12-espacios.md` regla 13 (pedidos en cocina, pagos
+  parciales, numeración). **Lo que quedó explícitamente afuera**: unir dos
+  mesas cuyos cobros parciales usan familias distintas (`items` vs
+  `amount`/`share`) se RECHAZA — mezclarlas produce el drift de stock que
+  prohíbe la regla 2 del módulo.
 - **Shortcut de teclado "O" para pantalla de órdenes** — CERRADO
   (`use-pos-hotkeys.ts:99-101`).
 - **Cobro por ítems individuales** — YA EXISTE (split `kind='items'`,
@@ -634,20 +637,31 @@ calcula y descarta `detail[]` **en cada request** — costo de query pagado sin 
   `api/lib/Contacts/*.php`). Ese pedido simple podría resolverse sin tocar
   el modelo por-producto de este ítem; no bloquear uno esperando al otro.
 
-**Mesas asignadas a meseros, con exclusividad** — `M`
-> Restricción de acceso por mesa. Cada mesero solo ve y opera sus mesas.
+**Mesas asignadas a meseros, con exclusividad** — **CERRADO 2026-08-23**
+> Las mesas asignadas a un mozo no pueden ser modificadas por otros.
 
-- Nueva relación `table → userId` (asignación). Filtro en el listado de mesas + permission check al abrir orden.
-- **Reiterado por el owner (2026-08-23) con precisión: es exclusividad, no
-  solo visibilidad** — las mesas asignadas a un mozo **no pueden ser
-  modificadas por otros**. No es solo UI: necesita enforcement en el
-  backend (rechazar la escritura, no solo ocultar en el front). Se cruza
-  con el trabajo de permisos que entró el 2026-08-22 (`hasPermission`, rol
-  `device`, gates documentados en `context/08-convenciones-criticas.md`) —
-  antes de implementar, decidir si la exclusividad es un permiso más del
-  catálogo o una regla de datos aparte (dueño de la sesión de mesa).
-  Mismo pedido ya anotado en `context/10-roadmap.md` § Espacios v1 (owner
-  2026-08-21) — no duplicar el diseño, converger acá.
+Implementado como **regla de datos + un permiso de escape**, no como filtro de
+visibilidad (todos siguen VIENDO el salón entero — un mozo necesita saber qué
+mesas están ocupadas):
+
+- `space_session.waiterid` no NULL ⇒ solo ese operador opera la mesa. 403 desde
+  el backend en cancelar/editar/mover/unir/pedir cuenta/agregar orden.
+- Escape: clave nueva `pos.space.override` (catálogo v5, seed de `manager`).
+- **El problema de fondo que hubo que resolver primero**: bajo realm `pos-app`
+  no había identidad de persona (el token es de la tablet y `hasPermission()`
+  resuelve el rol `device`, igual para todos). Se agregó
+  `OperatorAssertion`/`OperatorContext`: `/v1/unlock-pin.php` ya validaba el
+  PIN server-side y ahora emite un token HMAC que viaja en `X-Operator-Token`.
+  Ver `context/08-convenciones-criticas.md §56 y §57`.
+- Cobrar y cerrar quedan fuera de la regla: quien cobra es la caja, no el mozo.
+- Arnés: `api/tests/space_exclusivity_test.php` (26 casos, incluidos los
+  bypass).
+
+**Pregunta abierta para el owner**: hoy la exclusividad se activa *sola* al
+asignar mozo, sin interruptor por comercio. Un local que quiera usar el campo
+solo para reportes (saber quién atendió) se come el bloqueo. Si molesta, la
+salida es un flag de empresa `spaces.waiterExclusivity` — decisión de producto,
+no se asumió.
 
 **Contar personas atendidas por mesero** — `S`
 > Capturar # de comensales al abrir una mesa, agregar al reporte de staff.

@@ -2,68 +2,154 @@
 
 /**
  * Dialog rápido para abrir un espacio libre (context/15-espacios-module-plan.md
- * F2). Comensales/ocupantes opcional — el owner lo pidió explícitamente
- * opcional, así que confirma sin bloquear si queda vacío.
+ * F2). Los TRES campos son opcionales — el owner lo pidió explícitamente así
+ * para comensales y vale igual para el resto: abrir una mesa tiene que ser un
+ * tap, y todo lo demás se puede completar después desde el diálogo de la mesa.
+ *
+ * ── Mozo ────────────────────────────────────────────────────────────────────
+ * El backend soporta `waiterId` desde la mig 80 pero ningún componente lo
+ * seteaba, así que la columna estaba siempre en NULL. Además de atribuir la
+ * mesa, asignar el mozo ACTIVA LA EXCLUSIVIDAD: una mesa con mozo solo la
+ * opera él (o quien tenga `pos.space.override`). Por eso el copy del campo lo
+ * dice — que un desplegable opcional cambie quién puede tocar la mesa no puede
+ * ser un efecto secundario invisible.
+ *
+ * `Select` y no el `SellerPickerDialog` del POS: ese es un Dialog con búsqueda,
+ * y anidar un Dialog dentro de otro para elegir entre los pocos mozos de un
+ * turno es más pesado de operar (dos capas de modal en una tablet) que un
+ * desplegable.
+ *
+ * ── Alias ───────────────────────────────────────────────────────────────────
+ * Nombre libre de la OCUPACIÓN ("los del cumpleaños"), no de la mesa. Es
+ * efímero: muere cuando la mesa se cierra. Ver mig 163.
  */
 
 import * as React from "react"
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
+  ResponsiveDialog,
+  ResponsiveDialogContent,
+  ResponsiveDialogHeader,
+  ResponsiveDialogTitle,
+  ResponsiveDialogFooter,
+} from "@/components/ui/responsive-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { useCatalogStore } from "@/lib/catalog/store"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
+
+/** Valor centinela del Select — Radix no admite `value=""` en un SelectItem. */
+const NO_WAITER = "__none__"
+
+export interface OpenSpaceValues {
+  guests: number | undefined
+  waiterId: string | undefined
+  alias: string | undefined
+}
 
 interface Props {
   table: SpaceWithState | null
   onOpenChange: (open: boolean) => void
-  onConfirm: (guests: number | undefined) => void
+  onConfirm: (values: OpenSpaceValues) => void
   submitting: boolean
 }
 
 export function OpenSpaceDialog({ table, onOpenChange, onConfirm, submitting }: Props) {
+  const users = useCatalogStore((s) => s.users)
   const [guests, setGuests] = React.useState("")
+  const [alias, setAlias] = React.useState("")
+  const [waiterId, setWaiterId] = React.useState<string>(NO_WAITER)
 
   React.useEffect(() => {
-    if (table) setGuests("")
+    if (table) {
+      setGuests("")
+      setAlias("")
+      setWaiterId(NO_WAITER)
+    }
   }, [table])
 
+  const confirm = () =>
+    onConfirm({
+      guests: guests.trim() === "" ? undefined : Number(guests),
+      waiterId: waiterId === NO_WAITER ? undefined : waiterId,
+      alias: alias.trim() === "" ? undefined : alias.trim(),
+    })
+
   return (
-    <Dialog open={table !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
-      <DialogContent className="sm:max-w-sm">
-        <DialogHeader>
-          <DialogTitle>Abrir {table?.name}</DialogTitle>
-        </DialogHeader>
-        <div className="grid gap-2 py-2">
-          <Label htmlFor="table-guests">Comensales (opcional)</Label>
-          <Input
-            id="table-guests"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            placeholder="Cantidad de personas"
-            value={guests}
-            onChange={(e) => setGuests(e.target.value)}
-            autoFocus
-          />
+    <ResponsiveDialog open={table !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
+      <ResponsiveDialogContent className="sm:max-w-md">
+        <ResponsiveDialogHeader>
+          <ResponsiveDialogTitle>Abrir {table?.name}</ResponsiveDialogTitle>
+        </ResponsiveDialogHeader>
+
+        <div className="grid gap-4 py-2">
+          <div className="grid gap-2">
+            <Label htmlFor="space-guests">Comensales (opcional)</Label>
+            <Input
+              id="space-guests"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              placeholder="Cantidad de personas"
+              value={guests}
+              onChange={(e) => setGuests(e.target.value)}
+              autoFocus
+            />
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="space-alias">Nombre de la mesa (opcional)</Label>
+            <Input
+              id="space-alias"
+              placeholder="Los del cumpleaños"
+              maxLength={60}
+              value={alias}
+              onChange={(e) => setAlias(e.target.value)}
+            />
+            <p className="text-sm text-muted-foreground">
+              Para reconocerla de un vistazo. Se borra al cerrar la mesa.
+            </p>
+          </div>
+
+          <div className="grid gap-2">
+            <Label htmlFor="space-waiter">Mozo (opcional)</Label>
+            <Select value={waiterId} onValueChange={setWaiterId}>
+              <SelectTrigger id="space-waiter">
+                <SelectValue placeholder="Sin asignar" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_WAITER}>Sin asignar</SelectItem>
+                {users.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-sm text-muted-foreground">
+              {waiterId === NO_WAITER
+                ? "Sin mozo asignado, cualquiera puede operar la mesa."
+                : "Solo ese mozo va a poder operar la mesa (un encargado puede intervenir)."}
+            </p>
+          </div>
         </div>
-        <DialogFooter>
+
+        <ResponsiveDialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>
             Cancelar
           </Button>
-          <Button
-            onClick={() => onConfirm(guests.trim() === "" ? undefined : Number(guests))}
-            disabled={submitting}
-          >
+          <Button onClick={confirm} disabled={submitting}>
             {submitting ? "Abriendo..." : "Abrir espacio"}
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </ResponsiveDialogFooter>
+      </ResponsiveDialogContent>
+    </ResponsiveDialog>
   )
 }

@@ -92,9 +92,19 @@ if (!$found) {
     apiError('PIN incorrecto', 401);
 }
 
+// Afirmación de operador: este es el ÚNICO punto del sistema donde el backend
+// verifica, contra la BD, qué persona está parada frente a la caja. El token
+// convierte ese hecho en algo que las requests siguientes pueden probar — sin
+// él, el realm `pos-app` no distingue a los tres mozos que comparten la tablet
+// y la exclusividad de mesas (context/15) sería un `if` sobre un dato que el
+// cliente elige. Ver el docblock de OperatorAssertion.
+require_once __DIR__ . '/../lib/Auth/OperatorAssertion.php';
+$operatorId = (string) ($found['contactid'] ?? '');
+
 apiOk([
     'user' => [
-        'id'   => (string) ($found['contactid']   ?? ''),
+        'id'   => $operatorId,
         'name' => (string) ($found['contactname'] ?? ''),
     ],
+    'operatorToken' => \Punto\Api\Auth\OperatorAssertion::issue(COMPANY_ID, $operatorId),
 ]);

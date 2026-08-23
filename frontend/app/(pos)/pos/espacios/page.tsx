@@ -28,8 +28,14 @@ import {
   isConnectionBlocked,
 } from "@/components/pos/connection-required"
 import { PosSpaceTile } from "@/components/spaces/pos-space-tile"
-import { OpenSpaceDialog } from "@/components/spaces/open-space-dialog"
+import { OpenSpaceDialog, type OpenSpaceValues } from "@/components/spaces/open-space-dialog"
 import { SpaceSessionDialog } from "@/components/spaces/space-session-dialog"
+import {
+  EditSpaceSessionDialog,
+  type EditSessionValues,
+} from "@/components/spaces/edit-space-session-dialog"
+import { MoveSpaceDialog } from "@/components/spaces/move-space-dialog"
+import { MergeSpaceDialog } from "@/components/spaces/merge-space-dialog"
 import { defaultSize } from "@/components/spaces/canvas-space-block"
 import {
   usePosSpacesState,
@@ -37,6 +43,9 @@ import {
   useOpenSpaceSession,
   useRequestBill,
   useCancelSpaceSession,
+  useUpdateSpaceSession,
+  useMoveSpaceSession,
+  useMergeSpaceSessions,
   type SpaceWithState,
 } from "@/hooks/use-pos-spaces"
 import { useCartStore } from "@/lib/cart/store"
@@ -93,10 +102,19 @@ export default function EspaciosPage() {
 
   const [openingTable, setOpeningTable] = React.useState<SpaceWithState | null>(null)
   const [sessionTable, setSessionTable] = React.useState<SpaceWithState | null>(null)
+  // Gestión de la mesa (editar / mover / unir). Cada uno guarda SU propia mesa
+  // en vez de un `mode` compartido: los tres se abren desde el diálogo de
+  // sesión, que se cierra al hacerlo, y necesitan recordar sobre cuál operan.
+  const [editingTable, setEditingTable] = React.useState<SpaceWithState | null>(null)
+  const [movingTable, setMovingTable] = React.useState<SpaceWithState | null>(null)
+  const [mergingTable, setMergingTable] = React.useState<SpaceWithState | null>(null)
 
   const openSession = useOpenSpaceSession()
   const requestBill = useRequestBill()
   const cancelSession = useCancelSpaceSession()
+  const updateSession = useUpdateSpaceSession()
+  const moveSession = useMoveSpaceSession()
+  const mergeSessions = useMergeSpaceSessions()
 
   const setSelectedSpace = useCartStore((s) => s.setSelectedSpace)
   // El diálogo de split (elección de modo de cobro), su carga del carrito y
@@ -116,15 +134,61 @@ export default function EspaciosPage() {
     }
   }
 
-  async function confirmOpenTable(guests: number | undefined) {
+  async function confirmOpenTable(values: OpenSpaceValues) {
     if (!openingTable) return
     try {
-      const session = await openSession.mutateAsync({ tableId: openingTable.id, guests })
+      const session = await openSession.mutateAsync({
+        tableId: openingTable.id,
+        guests: values.guests,
+        waiterId: values.waiterId,
+        alias: values.alias,
+      })
       setSelectedSpace(session.id, openingTable.name)
       setOpeningTable(null)
       router.push("/pos")
     } catch (err) {
       toast.error("No se pudo abrir el espacio", {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  async function confirmEditSession(values: EditSessionValues) {
+    if (!editingTable?.session) return
+    try {
+      await updateSession.mutateAsync({ sessionId: editingTable.session.id, ...values })
+      toast.success(`${editingTable.name} actualizada`)
+      setEditingTable(null)
+    } catch (err) {
+      toast.error("No se pudo actualizar la mesa", {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  async function confirmMove(targetSpaceId: string) {
+    if (!movingTable?.session) return
+    const target = tables.find((t) => t.id === targetSpaceId)
+    try {
+      await moveSession.mutateAsync({ sessionId: movingTable.session.id, targetSpaceId })
+      toast.success(`${movingTable.name} se movió a ${target?.name ?? "la mesa destino"}`)
+      setMovingTable(null)
+    } catch (err) {
+      toast.error("No se pudo mover la mesa", {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  async function confirmMerge(targetSessionId: string) {
+    if (!mergingTable?.session) return
+    const target = tables.find((t) => t.session?.id === targetSessionId)
+    try {
+      await mergeSessions.mutateAsync({ sessionId: mergingTable.session.id, targetSessionId })
+      toast.success(`${mergingTable.name} se unió a ${target?.name ?? "la otra mesa"}`)
+      setMergingTable(null)
+    } catch (err) {
+      toast.error("No se pudieron unir las mesas", {
         description: err instanceof Error ? err.message : String(err),
       })
     }
@@ -206,8 +270,43 @@ export default function EspaciosPage() {
         onRequestBill={handleRequestBill}
         onCharge={handleCharge}
         onCancelSession={handleCancelSession}
+        // Los tres cierran el diálogo de sesión y abren el suyo: dos modales
+        // apilados en una tablet tapan la pantalla entera y dejan al cajero
+        // sin saber cuál está operando.
+        onEdit={() => {
+          setEditingTable(sessionTable)
+          setSessionTable(null)
+        }}
+        onMove={() => {
+          setMovingTable(sessionTable)
+          setSessionTable(null)
+        }}
+        onMerge={() => {
+          setMergingTable(sessionTable)
+          setSessionTable(null)
+        }}
         requestBillPending={requestBill.isPending}
         cancelPending={cancelSession.isPending}
+      />
+      <EditSpaceSessionDialog
+        table={editingTable}
+        onOpenChange={(v) => !v && setEditingTable(null)}
+        onConfirm={confirmEditSession}
+        submitting={updateSession.isPending}
+      />
+      <MoveSpaceDialog
+        table={movingTable}
+        spaces={tables}
+        onOpenChange={(v) => !v && setMovingTable(null)}
+        onConfirm={confirmMove}
+        submitting={moveSession.isPending}
+      />
+      <MergeSpaceDialog
+        table={mergingTable}
+        spaces={tables}
+        onOpenChange={(v) => !v && setMergingTable(null)}
+        onConfirm={confirmMerge}
+        submitting={mergeSessions.isPending}
       />
 
       {/* pb-16: deja espacio para que la barra flotante no tape los tiles. */}

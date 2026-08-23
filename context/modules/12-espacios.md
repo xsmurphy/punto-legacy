@@ -16,7 +16,7 @@ qué dispositivo se mire.
 | Tabla | Qué guarda | Invariantes / trampas |
 |---|---|---|
 | `space` | La mesa física: `sectorId`, `outletId`, `shape`. | Estado derivado, NO columna propia — `SpaceService::listWithState()` lo calcula de la sesión activa: sin sesión → `free`; sesión `open` → `occupied`; sesión `bill_requested` → `bill_requested` (`SpaceService.php:356-400`). |
-| `space_session` | Una ocupación de la mesa: `status` (`open`/`bill_requested`/`closed`/`cancelled`). | `bill_requested` NO bloquea nuevas órdenes — pedir la cuenta es una señal para caja, no un cierre; una orden nueva revierte la sesión a `open` (`OrderCoreService.php:325-330`). Cierre EXCLUSIVO vía `SpaceSessionService::close()`, con el invariante "solo cierra con saldo ≤ 0" (`SpaceBalanceService::isCovered`). |
+| `space_session` | Una ocupación de la mesa: `status` (`open`/`bill_requested`/`closed`/`cancelled`), `waiterid`, `alias`, `mergedinto` (mig 163). | `bill_requested` NO bloquea nuevas órdenes — pedir la cuenta es una señal para caja, no un cierre; una orden nueva revierte la sesión a `open` (`OrderCoreService.php:325-330`). Cierre EXCLUSIVO vía `SpaceSessionService::close()`, con el invariante "solo cierra con saldo ≤ 0" (`SpaceBalanceService::isCovered`). |
 | `space_session_payment` (mig 90) | Ledger de pagos parciales: `transactionid`, `amount`, `kind` (`items`/`amount`/`share`), `sharecount`. | Cada fila es un pago YA vinculado a una `transaction` real (su propio comprobante) — el service NO crea transacciones, solo lleva el ledger (`SpaceSettlementService.php:24-28`). Índice único por `transactionid` (mig 91) es el respaldo estructural de la idempotencia. |
 | `pos_order_item.settledpaymentid` | Marca qué ítems ya se cobraron — SOLO se usa con `kind='items'`. | Es un CAS: el `UPDATE ... WHERE settledpaymentid IS NULL RETURNING` es la única garantía real contra el doble cobro por ítems — no un lock ni una validación previa (`SpaceSettlementService.php:160-187`). Las líneas hijas de add-on (`parentorderitemid` no null) quedan EXCLUIDAS del cálculo de saldo — no son unidades cobrables por separado (`SpaceBalanceService.php:75-81`). |
 
@@ -85,6 +85,45 @@ qué dispositivo se mire.
    CAS; `amount`/`share` no tenían protección contra un reintento
    duplicando el pago. Ahora es no-op idempotente si el `transactionId` ya
    está en el ledger (`SpaceSettlementService.php:128-147`).
+
+10. **`waiterid` es autorización, no una etiqueta** (owner 2026-08-23). Una
+    mesa con mozo asignado solo la opera ese mozo; el resto recibe 403 al
+    cancelar, editar, mover, unir, pedir la cuenta o agregarle órdenes.
+    Enforcement en el SERVICE (`SpaceOwnershipGuard`, llamado desde
+    `SpaceSessionService` y `OrderCoreService::create`), no en el endpoint —
+    `SpaceSessionService` tiene tres callers y la orden es otra puerta a la
+    misma mesa. Escape: `pos.space.override` (seed `manager`). **Cobrar y
+    cerrar quedan afuera a propósito**: quien cobra es la caja, no el mozo.
+    `waiterid` NULL = mesa de todos (retrocompatible). Ver
+    `context/08-convenciones-criticas.md §57`.
+
+11. **La persona que opera NO sale del token bajo `pos-app`.** El Bearer
+    identifica la tablet; los tres mozos del turno mandan el mismo. La
+    identidad viaja en `X-Operator-Token` (HMAC firmado por
+    `/v1/unlock-pin.php` tras validar el PIN) y se resuelve con
+    `OperatorContext`. El permiso de override se evalúa contra el rol del
+    OPERADOR, nunca con `hasPermission()` (que bajo `pos-app` mira el rol
+    `device`, igual para todos). Ver §56 de convenciones.
+
+12. **`alias` es de la SESIÓN, no del espacio** (mig 163). El nombre libre que
+    el mozo le pone a la mesa abierta ("los del cumpleaños"); muere al
+    cerrarla. `space.name` (Mesa 1, Barra 3) no se toca nunca desde el POS.
+    Viaja en el payload del mapa (`listWithState`) y no solo en el detalle,
+    porque su razón de ser es reconocer la mesa sin abrirla.
+
+13. **Mover no migra nada; unir sí, y tiene un guard.** Órdenes y pagos
+    parciales cuelgan de `spacesessionid`/`sessionid`, nunca de `tableid`, así
+    que `move()` es un UPDATE de una columna y todo lo sigue. Los pedidos ya en
+    cocina no se cancelan ni se re-emiten: el nombre del espacio sale de un
+    JOIN vivo (`OrderCoreService.php:1170`) y basta republicar las órdenes para
+    que el KDS repinte. `merge()` muda las filas del ledger con su
+    `transactionid` intacto (cada una es una venta real con comprobante
+    emitido: borrarlas falsearía la caja, re-emitirlas duplicaría el documento)
+    y **rechaza unir sesiones con familias de cobro incompatibles** (`items` vs
+    `amount`/`share`) porque produciría el estado que prohíbe la regla 2, con
+    su drift de stock. Ninguna de las dos operaciones emite documento fiscal.
+    La sesión origen queda `closed` con `mergedinto` — sin esa columna era
+    indistinguible de una mesa cerrada vacía.
 
 ## 4. Flujos principales
 

@@ -117,6 +117,12 @@ const GATES_INDIRECTOS = [
     // billing.php — la clave sale del método
     "'billing.view'"                                        => ['billing.view'],
     "'billing.manage'"                                      => ['billing.manage'],
+    // SpaceOwnershipGuard — exclusividad de mesa (context/15). NO pasa por
+    // hasPermission() a propósito: bajo realm `pos-app` ese helper resuelve
+    // contra el rol del DEVICE, que es el mismo para todos los que usan esa
+    // tablet, y la regla es sobre PERSONAS. Se evalúa contra el rol del
+    // operador que probó su PIN (Punto\Api\Auth\OperatorContext).
+    'OperatorContext::can($operator, self::OVERRIDE_PERMISSION, $companyId)' => ['pos.space.override'],
 ];
 
 const EXCEPCIONES_CONOCIDAS = [
@@ -148,7 +154,14 @@ foreach ($it as $f) {
     if (str_contains($path, '/tests/')) continue;
 
     $src = file_get_contents($path);
-    if (!str_contains($src, 'hasPermission(') && !str_contains($src, 'contactsRequire(')) continue;
+    // `OperatorContext::can(` es la tercera puerta de autorización del sistema
+    // (además de hasPermission/contactsRequire): la que evalúa el permiso
+    // contra el rol de la PERSONA que opera la caja y no contra el del device.
+    // Sin incluirla acá, un archivo que solo use esa vía se saltea el scan
+    // entero y sus claves figuran como no gateadas.
+    if (!str_contains($src, 'hasPermission(')
+        && !str_contains($src, 'contactsRequire(')
+        && !str_contains($src, 'OperatorContext::can(')) continue;
     $rel = str_replace($apiDir . '/', '', $path);
 
     // La clave cuenta como gateada solo si aparece como ARGUMENTO LITERAL de

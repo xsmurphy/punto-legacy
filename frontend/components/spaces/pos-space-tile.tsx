@@ -32,6 +32,7 @@ import { useElapsed } from "@/hooks/use-elapsed"
 import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/hover-card"
 import { SPACE_STATE_VISUALS, spaceTintBg } from "@/lib/pos/space-state-visuals"
 import { resolveColorBg } from "@/lib/ui/color-palette"
+import { useCatalogStore } from "@/lib/catalog/store"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 const DECOR_SHAPES = ["decor_wall", "decor_plant", "bar"]
@@ -73,6 +74,16 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
         : null
   const session = table.session
 
+  // Nombre del mozo desde los usuarios ya precacheados en el bootstrap — el
+  // payload del mapa trae el `waiterId` crudo y resolverlo con una request por
+  // tile sería un N+1 sobre una pantalla que se repinta con cada evento de
+  // realtime.
+  const users = useCatalogStore((s) => s.users)
+  const waiterName = React.useMemo(() => {
+    if (!session?.waiterId) return null
+    return users.find((u) => u.id === session.waiterId)?.name ?? null
+  }, [session, users])
+
   const neutralClasses =
     table.state === "disabled"
       ? "border-border bg-muted text-muted-foreground/60 cursor-not-allowed"
@@ -111,6 +122,18 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
           >
             {table.name}
           </span>
+          {/* Alias de la ocupación ("los del cumpleaños", mig 163). Solo en la
+              grilla: en el mapa los tiles bajan a 70px y una tercera línea de
+              texto no se lee. El propósito del alias es reconocer la mesa SIN
+              abrirla, así que tiene que estar en el tile y no solo en el
+              HoverCard (que además no dispara en tablet, que es donde se opera).
+              `truncate` acota siempre a una línea: un alias largo no puede
+              cambiar la altura del tile ni empujar el pill del tiempo. */}
+          {session?.alias && !position && (
+            <span className="w-full truncate text-[10px] leading-tight font-medium opacity-80">
+              {session.alias}
+            </span>
+          )}
           {/* Timer solo en la grilla (position ausente): la señal completa
               vive en el HoverCard al pasar el mouse — el mapa queda visualmente
               limpio y el número/estado ya son suficiente identificación.
@@ -153,8 +176,20 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
             style={accent ? { backgroundColor: accent } : undefined}
           />
           <div className="space-y-2 p-3">
+            {session?.alias && (
+              <p className="truncate text-sm font-semibold">{session.alias}</p>
+            )}
             <div className="flex items-center justify-between gap-2">
-              <span className="truncate text-sm font-semibold">{table.name}</span>
+              <span
+                className={cn(
+                  "truncate text-sm font-semibold",
+                  // Con alias, el nombre del espacio pasa a ser la referencia
+                  // secundaria — el alias de arriba es cómo la llama el mozo.
+                  session?.alias && "font-normal text-muted-foreground",
+                )}
+              >
+                {table.name}
+              </span>
               <span
                 className={cn("shrink-0 text-xs font-medium", !accent && "text-muted-foreground")}
                 style={accent ? { color: accent } : undefined}
@@ -167,6 +202,12 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
               <dd className="text-right tabular-nums">{table.seats}</dd>
               {session && (
                 <>
+                  {waiterName && (
+                    <>
+                      <dt className="text-muted-foreground">Mozo</dt>
+                      <dd className="truncate text-right">{waiterName}</dd>
+                    </>
+                  )}
                   <dt className="text-muted-foreground">Órdenes</dt>
                   <dd className="text-right tabular-nums">{session.orderCount}</dd>
                   <dt className="text-muted-foreground">Abierta hace</dt>
