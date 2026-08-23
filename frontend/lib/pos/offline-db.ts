@@ -16,6 +16,10 @@
  *                            `offline-queue.ts`.
  *   - `snapshots`     (v2) — snapshot del bootstrap/catálogo para que la caja
  *                            ARRANQUE sin red. Ver `bootstrap-cache.ts`.
+ *   - `tenancy`       (v3) — última tenencia de caja CONFIRMADA por el
+ *                            servidor, con su hora. Es lo que le permite al
+ *                            device saber sin red si tiene derecho a emitir.
+ *                            Ver `register-tenancy.ts`.
  *
  * Purga (PII): el snapshot contiene la lista de clientes del comercio. Al
  * desvincular el device hay que borrarlo — ver `purgeOfflineSnapshots()` y
@@ -26,7 +30,7 @@ import { openDB, deleteDB, type DBSchema, type IDBPDatabase } from 'idb'
 import type { CreateSalePayload } from '@/lib/commands/create-sale'
 
 export const DB_NAME = 'punto-pos-offline'
-export const DB_VERSION = 2
+export const DB_VERSION = 3
 
 // ── Filas ─────────────────────────────────────────────────────────────────────
 
@@ -60,6 +64,36 @@ export interface SnapshotRow {
   payload: unknown
 }
 
+/**
+ * Por qué el motivo de una tenencia DENEGADA importa: `taken_by_other` es el
+ * único que el device no puede resolver solo. Espejo exacto del `reason` que
+ * devuelve `RegisterLeaseService::holderConflict()` (api/lib/services).
+ */
+export type TenancyDenyReason =
+  | 'taken_by_other'
+  | 'revoked'
+  | 'released'
+  | 'never_held'
+
+/**
+ * Fila del store `tenancy` — la ÚLTIMA respuesta del servidor sobre "¿tengo
+ * yo esta caja?", con la hora en que la dio. El tipado concreto y las reglas
+ * de vigencia viven en `register-tenancy.ts`; acá está solo el shape que la
+ * base guarda.
+ */
+export interface TenancyGrantRow {
+  key: string
+  /** Caja a la que se refiere el grant. Un grant de OTRA caja no vale. */
+  registerId: string
+  status: 'held' | 'denied'
+  /** ISO — cuándo el servidor confirmó/denegó esto (reloj del device). */
+  confirmedAt: string
+  registerLeaseId: string | null
+  denyReason: TenancyDenyReason | null
+  holderDeviceId: string | null
+  holderDeviceName: string | null
+}
+
 // ── Schema ────────────────────────────────────────────────────────────────────
 
 export interface PosOfflineDB extends DBSchema {
@@ -70,6 +104,10 @@ export interface PosOfflineDB extends DBSchema {
   snapshots: {
     key: string
     value: SnapshotRow
+  }
+  tenancy: {
+    key: string
+    value: TenancyGrantRow
   }
 }
 
@@ -91,6 +129,9 @@ export function getPosOfflineDB(): Promise<IDBPDatabase<PosOfflineDB>> {
         }
         if (!db.objectStoreNames.contains('snapshots')) {
           db.createObjectStore('snapshots', { keyPath: 'key' })
+        }
+        if (!db.objectStoreNames.contains('tenancy')) {
+          db.createObjectStore('tenancy', { keyPath: 'key' })
         }
       },
     })
@@ -123,6 +164,13 @@ export async function purgeOfflineSnapshots(): Promise<void> {
   try {
     const db = await getPosOfflineDB()
     await db.clear('snapshots')
+    // El grant de tenencia se va con el snapshot, no con la cola: es una
+    // afirmación sobre la SESIÓN de este device ("el servidor me confirmó que
+    // esta caja es mía"), y una sesión muerta o revocada no puede seguir
+    // autorizando la emisión de comprobantes sin red. Las ventas ya emitidas
+    // (`pendingSales`) sobreviven igual — el grant no hace falta para
+    // sincronizarlas, el próximo claim tras el re-pareo lo reconstruye.
+    await db.clear('tenancy')
   } catch {
     // Base inaccesible (modo privado, cuota, corrupción): no hay nada que
     // purgar que podamos alcanzar, y esto corre dentro de un logout que NO

@@ -100,6 +100,68 @@ export async function markRetry(
   })
 }
 
+/**
+ * Rechazos de tenencia que dejan la caja LIBRE — recuperables sin que nadie
+ * intervenga (incidente 2026-08-23).
+ *
+ * Antes existía un solo `REGISTER_NOT_HELD`, terminal para todas las causas,
+ * así que una venta ya emitida e impresa quedaba muerta en la cola incluso con
+ * la caja libre y el device pudiendo retomarla. Ahora el backend distingue la
+ * causa (`RegisterLeaseService::conflictMessage()`) y estos dos códigos
+ * significan "nadie tiene la caja": el device la vuelve a tomar y la MISMA
+ * venta, con el MISMO número, sincroniza sola. Si ese número ya no estuviera
+ * libre, `uq_transaction_expedition_invoiceno` (mig 145) lo frena como
+ * NUMBER_TAKEN — nunca se duplica un comprobante por reintentar.
+ *
+ * `REGISTER_TAKEN` NO está acá: otro device tiene la caja y eso no se destraba
+ * solo. Esa venta queda 'failed', con el nombre de quién la tiene y qué hacer,
+ * para que el operador la resuelva — nunca se descarta sola.
+ *
+ * Vive en este módulo (dueño de la cola) y no en el hook, porque tanto el loop
+ * de sync como el diálogo de la cola necesitan la misma lista.
+ */
+export const TENANCY_RECOVERABLE_CODES = new Set(['REGISTER_RELEASED', 'REGISTER_NEVER_HELD'])
+
+/**
+ * Devuelve a la cola las ventas que fallaron por una tenencia que YA se
+ * recuperó — el rescate del caso inevitable (incidente 2026-08-23).
+ *
+ * Escenario: el device tenía la caja, se fue sin red, un admin se la liberó
+ * mientras tanto, el cajero vendió e imprimió, y al sincronizar el servidor
+ * rechazó la venta. La caja quedó LIBRE, así que apenas el device la vuelve a
+ * tomar (`ensureTenancy()` en el loop de sync) esa venta es perfectamente
+ * válida otra vez, con su mismo número. Sin esto se quedaba en 'failed' para
+ * siempre, esperando que alguien abriera el diálogo y apretara reintentar —
+ * una venta ya cobrada e impresa dependiendo de que un humano se acuerde.
+ *
+ * `attempts`/`lastAttemptAt` se resetean: el backoff exponencial mide fallas
+ * transitorias de red, y acá lo que cambió es una CONDICIÓN del mundo, no un
+ * reintento más de lo mismo. Sin el reset, una venta con varios intentos
+ * encima esperaría hasta 30 minutos para reintentar algo que ya funciona.
+ *
+ * No toca `REGISTER_TAKEN` (otro device tiene la caja: no se destraba solo) ni
+ * ningún otro error de negocio.
+ *
+ * @returns cuántas ventas volvieron a 'pending'.
+ */
+export async function revivePendingAfterTenancy(): Promise<number> {
+  const db = await getDB()
+  const all = await db.getAll('pendingSales')
+  const revivable = all.filter(
+    (r) => r.status === 'failed' && r.error != null && TENANCY_RECOVERABLE_CODES.has(r.error.code),
+  )
+  for (const row of revivable) {
+    await db.put('pendingSales', {
+      ...row,
+      status: 'pending',
+      error: undefined,
+      attempts: 0,
+      lastAttemptAt: undefined,
+    })
+  }
+  return revivable.length
+}
+
 /** Marca una venta como en proceso de sincronización. */
 export async function markSyncing(clientTempId: string): Promise<void> {
   const db = await getDB()

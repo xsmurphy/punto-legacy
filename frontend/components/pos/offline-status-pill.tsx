@@ -4,11 +4,21 @@
  * EL indicador de estado de sincronización de la caja. Uno solo, y vive
  * arriba de la toolbar del carrito (montado en `cart-panel.tsx`).
  *
- * Cubre los tres estados, con prioridad explícita:
- *   1. ventas FALLIDAS (destructivo) — terminal, no se resuelve al volver la
+ * Cubre los cuatro estados, con prioridad explícita:
+ *   1. SIN DERECHO A EMITIR (destructivo) — este device no tiene la tenencia
+ *      de la caja, así que el próximo cobro va a chocar contra la pantalla
+ *      bloqueante. Va primero porque es lo único que se puede avisar ANTES de
+ *      que el cajero arme un carrito y se lo encuentre en el cobro; los otros
+ *      tres describen algo que ya pasó;
+ *   2. ventas FALLIDAS (destructivo) — terminal, no se resuelve al volver la
  *      conexión y exige que alguien la mire (context/08 §53);
- *   2. sin conexión (ámbar), con la cola pendiente si la hay;
- *   3. sincronizando.
+ *   3. sin conexión (ámbar), con la cola pendiente si la hay;
+ *   4. sincronizando.
+ *
+ * Por qué la tenencia se avisa acá y no con una banda propia: el owner pidió
+ * UN solo aviso de estado en la caja (2026-08-23). Un cartel nuevo repetiría
+ * el error que se acaba de arreglar. Y encaja: el pill ya es el lugar donde el
+ * cajero mira para saber si la caja está sana.
  *
  * Por qué uno solo (2026-08-23, pedido del owner con screenshot): antes esto
  * se repartía entre este componente, flotando abajo a la izquierda del
@@ -28,9 +38,10 @@
  */
 
 import * as React from "react"
-import { CloudOff, RefreshCw } from "lucide-react"
+import { CloudOff, Lock, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
+import { useTenancyStore } from "@/lib/pos/tenancy-store"
 
 /**
  * `savedAt` es un instante real en UTC (`new Date().toISOString()`), no un
@@ -86,12 +97,21 @@ export function OfflineStatusPill() {
   const degraded = !isOnline || fromCache
   const syncing = isSyncing && pendingCount > 0
 
+  // `verdict === null` es "todavía no hidratado", no "sin tenencia" — avisar
+  // ahí pintaría el aviso en cada arranque durante un instante. Solo se avisa
+  // cuando hay un veredicto REAL y dice que no.
+  const tenancy = useTenancyStore((s) => s.verdict)
+  const blocked = tenancy != null && !tenancy.canIssue
+  const blockedLabel = tenancy?.holderDeviceName
+    ? `Caja tomada por ${tenancy.holderDeviceName} — no se puede facturar`
+    : "Caja sin confirmar — no se puede facturar"
+
   // UN solo aviso de estado en toda la caja, con prioridad explícita
   // (2026-08-23): las ventas fallidas ganan sobre sin-conexión, y sin-conexión
   // sobre sincronizando. Antes esto se repartía entre este pill y una banda
   // `OfflineBanner` montada en otro punto del carrito, así que con dos estados
   // simultáneos se apilaban dos franjas y empujaban la toolbar hacia abajo.
-  if (failedCount === 0 && !degraded && !syncing) return null
+  if (!blocked && failedCount === 0 && !degraded && !syncing) return null
 
   const queueLabel =
     pendingCount > 0
@@ -105,26 +125,28 @@ export function OfflineStatusPill() {
 
   const content = (
     <>
-      {failed ? (
-        <CloudOff className="size-3.5 shrink-0" />
-      ) : degraded ? (
+      {blocked ? (
+        <Lock className="size-3.5 shrink-0" />
+      ) : failed || degraded ? (
         <CloudOff className="size-3.5 shrink-0" />
       ) : (
         <RefreshCw className="size-3.5 shrink-0 animate-spin" />
       )}
       <span className="truncate">
-        {failed
-          ? `${failedCount} venta${failedCount !== 1 ? "s" : ""} con error — tocá para revisar`
-          : degraded
-            ? `Sin conexión${queueLabel}`
-            : `Sincronizando ${pendingCount}`}
+        {blocked
+          ? blockedLabel
+          : failed
+            ? `${failedCount} venta${failedCount !== 1 ? "s" : ""} con error — tocá para revisar`
+            : degraded
+              ? `Sin conexión${queueLabel}`
+              : `Sincronizando ${pendingCount}`}
       </span>
     </>
   )
 
   const className = cn(
     "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
-    failed
+    blocked || failed
       ? "border-destructive/30 bg-destructive/10 text-destructive"
       : degraded
         ? "border-amber-500/30 bg-amber-500/15 text-amber-900 backdrop-blur dark:text-amber-100"

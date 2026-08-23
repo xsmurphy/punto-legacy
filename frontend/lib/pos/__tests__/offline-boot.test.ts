@@ -61,7 +61,7 @@ beforeEach(async () => {
   useOfflineSyncStore.setState({ catalogFromCache: false, catalogCachedAt: null })
 })
 
-describe("migración de la base v1 → v2", () => {
+describe("migración de la base v1 → v3", () => {
   it("conserva las ventas encoladas de un device que ya venía con la v1", async () => {
     // Un device en la calle: base v1, solo `pendingSales`, con una venta
     // emitida e impresa esperando conexión.
@@ -83,11 +83,55 @@ describe("migración de la base v1 → v2", () => {
     // Abrirla con el schema nuevo NO puede perder esa venta: es un documento
     // fiscal que existe en papel y en ningún otro lado.
     const db = await getPosOfflineDB()
-    expect(db.version).toBe(2)
-    expect([...db.objectStoreNames].sort()).toEqual(["pendingSales", "snapshots"])
+    expect(db.version).toBe(3)
+    expect([...db.objectStoreNames].sort()).toEqual([
+      "pendingSales",
+      "snapshots",
+      "tenancy",
+    ])
 
     const row = await db.get("pendingSales", "uid-1")
     expect(row?.invoiceNo).toBe(42)
+  })
+
+  it("v2 → v3 agrega `tenancy` sin tocar lo que ya había", async () => {
+    // El salto que introduce el grant de tenencia (incidente 2026-08-23). Un
+    // device que hoy está en la calle con la v2 puede tener ventas encoladas Y
+    // un snapshot del catálogo: el upgrade solo agrega un store, no migra ni
+    // borra datos, y esto lo fija para que nadie lo convierta en destructivo.
+    const v2 = await openDB(DB_NAME, 2, {
+      upgrade(db) {
+        db.createObjectStore("pendingSales", { keyPath: "clientTempId" })
+        db.createObjectStore("snapshots", { keyPath: "key" })
+      },
+    })
+    await v2.put("pendingSales", {
+      clientTempId: "uid-2",
+      invoiceNo: 77,
+      sale: {},
+      status: "pending",
+      attempts: 0,
+      createdAt: new Date().toISOString(),
+    })
+    await v2.put("snapshots", {
+      key: "pos-bootstrap",
+      savedAt: new Date().toISOString(),
+      payload: { config: {}, activeRegisterId: "reg-1" },
+    })
+    v2.close()
+
+    const db = await getPosOfflineDB()
+    expect(db.version).toBe(3)
+    expect(db.objectStoreNames.contains("tenancy")).toBe(true)
+    // Store nuevo: arranca vacío, o sea sin tenencia confirmada — y sin
+    // tenencia confirmada el POS no emite. El device tiene que hacer un claim
+    // con red antes de volver a facturar, que es el comportamiento correcto
+    // tras un update.
+    expect(await db.count("tenancy")).toBe(0)
+
+    const row = await db.get("pendingSales", "uid-2")
+    expect(row?.invoiceNo).toBe(77)
+    expect(await db.get("snapshots", "pos-bootstrap")).toBeTruthy()
   })
 })
 

@@ -11,19 +11,25 @@ import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
 import { posApi as api } from '@/lib/api/pos-client'
 import { formatMoney } from '@/lib/format-money'
 import { useCatalogStore } from '@/lib/catalog/store'
+import { useTenancyStore } from '@/lib/pos/tenancy-store'
 
 interface SyncQueueDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-// Errores permanentes que no se pueden reintentar. REGISTER_NOT_HELD
-// (api/v1/offline-sync.php — context/29-numeracion-y-exclusividad-de-caja.md
-// §4): la caja se liberó, la tomó otro dispositivo, o se cerró mientras esta
-// venta esperaba conexión — no hay forma de reintentar CON el mismo número
-// sin arriesgar un duplicado. El mensaje real (`row.error.message`, ya se
-// renderiza abajo) le dice al cajero qué pasó.
-const PERMANENT_ERROR_CODES = ['STOCK_OUT', 'NUMBER_TAKEN', 'INVALID_INPUT', 'REGISTER_NOT_HELD']
+// Errores permanentes: reintentar el mismo payload vuelve a fallar siempre.
+//
+// `REGISTER_TAKEN` (otro dispositivo tiene la caja) NO está acá, aunque el
+// viejo `REGISTER_NOT_HELD` sí lo estaba. La diferencia es real: mientras el
+// otro device la tenga no se puede reintentar, pero eso CAMBIA en cuanto un
+// admin la libera — y esa venta ya está impresa y cobrada. Marcarla permanente
+// dejaba al cajero con un botón gris y ninguna salida salvo descartar un
+// comprobante emitido. Ahora el reintento se habilita cuando este device
+// recupera la tenencia (ver `canRetry`), y las causas que dejan la caja libre
+// (`REGISTER_RELEASED`/`REGISTER_NEVER_HELD`) ni siquiera llegan acá: el loop
+// de sync las revive solo (`revivePendingAfterTenancy`).
+const PERMANENT_ERROR_CODES = ['STOCK_OUT', 'NUMBER_TAKEN', 'INVALID_INPUT']
 
 export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   const [rows, setRows] = React.useState<OfflineSaleRow[]>([])
@@ -31,6 +37,9 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   const setPendingCount = useOfflineSyncStore((s) => s.setPendingCount)
   const setFailedCount = useOfflineSyncStore((s) => s.setFailedCount)
   const config = useCatalogStore((s) => s.config)
+  // Tenencia vigente de este device — habilita el reintento de las ventas que
+  // el servidor rechazó por caja tomada, en cuanto la caja vuelve a ser suya.
+  const tenancyOk = useTenancyStore((s) => s.verdict?.canIssue === true)
 
   async function loadRows() {
     const all = await peekAll()
@@ -140,7 +149,13 @@ export function SyncQueueDialog({ open, onOpenChange }: SyncQueueDialogProps) {
   function canRetry(row: OfflineSaleRow) {
     if (row.status !== 'failed') return false
     if (!row.error) return true
-    return !PERMANENT_ERROR_CODES.includes(row.error.code)
+    if (PERMANENT_ERROR_CODES.includes(row.error.code)) return false
+    // Rechazo por tenencia: reintentar solo tiene sentido si este device
+    // recuperó la caja. Si no, el botón quedaría disponible para fallar otra
+    // vez con el mismo mensaje. El texto del error ya dice qué hacer (pedir
+    // que la liberen), y el botón se habilita solo cuando eso pasó.
+    if (row.error.code === 'REGISTER_TAKEN') return tenancyOk
+    return true
   }
 
   return (

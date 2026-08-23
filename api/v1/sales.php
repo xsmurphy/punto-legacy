@@ -139,12 +139,18 @@ if ($input->invoiceNo === null) {
 // usa, para que el POS muestre quién tiene la caja tomada.
 $conflict = \Punto\Api\Services\RegisterLeaseService::holderConflict($regId, $compId, $deviceId);
 if ($conflict !== null) {
-    apiConflict(
-        $conflict['holderDeviceId'] !== null
-            ? 'Esta caja está tomada por otro dispositivo'
-            : 'Esta caja no tiene tenencia activa — abrí sesión en el POS e intentá de nuevo',
-        $conflict,
-    );
+    // Mismo texto por causa que el sync offline — una sola fuente
+    // (`RegisterLeaseService::conflictMessage()`), así el cajero lee lo mismo
+    // le pase online al cobrar o al sincronizar una venta encolada.
+    //
+    // El código de causa viaja DENTRO de `details` (`conflictCode`), no en
+    // `error.code`: ese campo es el status HTTP (409) que pone `apiConflict()`
+    // para todos los conflictos del sistema, y pisarlo con un string rompería
+    // a cualquier cliente que lo lea como número. Así los dos caminos —este
+    // 409 y el resultado por-venta de `offline-sync.php`— exponen la misma
+    // clasificación, y ninguno obliga a re-derivarla del texto.
+    [$conflictCode, $conflictMessage] = \Punto\Api\Services\RegisterLeaseService::conflictMessage($conflict);
+    apiConflict($conflictMessage, $conflict + ['conflictCode' => $conflictCode]);
 }
 
 $service = new SaleService(

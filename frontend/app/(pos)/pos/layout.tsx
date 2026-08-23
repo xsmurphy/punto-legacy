@@ -211,26 +211,25 @@ function PosWorkspaceLayoutInner({
     }
   }
 
-  // Toma la tenencia de esta caja (context/29 §4, F2) apenas entra al
-  // workspace, best-effort — así un device que llega solo a una caja libre ya
-  // tiene tenencia establecida antes de intentar cobrar, en vez de descubrir
-  // el conflicto recién en `PayDialog`.
+  // Toma y MANTIENE la tenencia de esta caja (context/29 §4), y persiste el
+  // resultado en el device (`lib/pos/register-tenancy.ts`) para que el POS
+  // sepa sin red si tiene derecho a emitir. Hasta 2026-08-23 este hook era un
+  // disparo único cuyo resultado nadie leía, y sin conexión no quedaba ningún
+  // gate: se vendía, se imprimía, y el rechazo aparecía al sincronizar.
   //
-  // Corrección de producto del owner (2026-08-20): la tenencia de caja
+  // Corrección de producto del owner (2026-08-20), intacta: la tenencia
   // bloquea SOLO la emisión de un documento con numeración fiscal (factura —
   // ver `context/29-numeracion-y-exclusividad-de-caja.md` §4 y
   // `context/modules/17-numeracion.md` §3), NUNCA el acceso al workspace.
-  // Sin tenencia, el POS tiene que seguir funcionando igual: catálogo,
-  // carrito, cotizaciones, órdenes/comandas, clientes, transacciones. Por eso
-  // este hook ya NO gatea el render — un 409 acá (otro device tiene la caja,
-  // o este device recién la perdió) queda silencioso; el único gate real e
-  // ineludible es el que ya hace `PayDialog` al cobrar (`RegisterTakenPhase`,
-  // acotado al diálogo de pago, no al workspace entero) — ahí es donde
-  // importa (evitar que dos dispositivos dupliquen una numeración fiscal), y
-  // ahí es donde el backend (`sales.php`/`offline-sync.php`,
-  // `RegisterLeaseService::holderConflict`) también lo hace cumplir
-  // server-side.
-  useRegisterClaim()
+  // Sin tenencia, el POS sigue funcionando igual: catálogo, carrito,
+  // cotizaciones, órdenes/comandas, clientes, transacciones. Por eso este hook
+  // no gatea ningún render; el gate real vive en `PayDialog`
+  // (`RegisterTakenPhase`, acotado al diálogo de pago), que ahora consulta el
+  // grant local y por eso también bloquea offline. El backend
+  // (`sales.php`/`offline-sync.php`, `RegisterLeaseService::holderConflict`)
+  // sigue siendo la última palabra server-side.
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  useRegisterClaim(activeRegisterId || null)
 
   // Gate del arranque: el catálogo hidratado (de red o del snapshot offline —
   // ver `hooks/use-pos-bootstrap.ts`). Nunca una request en vuelo.

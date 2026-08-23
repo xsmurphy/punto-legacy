@@ -46,6 +46,8 @@ import {
 } from "@/lib/pos/register-conflict"
 import { enqueue, getCount } from "@/lib/pos/offline-queue"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
+import { refreshTenancy, type TenancyVerdictKind } from "@/lib/pos/register-tenancy"
+import { useTenancyStore } from "@/lib/pos/tenancy-store"
 import { useDrawerStatus } from "@/hooks/use-drawer"
 import type { PaymentMethodConfig } from "@/lib/types/pos-bootstrap"
 import { resolveColorBg } from "@/lib/ui/color-palette"
@@ -260,6 +262,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
   // F5 — 409 de tenencia de caja (register_lease). Ver DialogPhase arriba.
   const [registerTakenInfo, setRegisterTakenInfo] = React.useState<RegisterConflictInfo | null>(null)
+  // Veredicto LOCAL que disparó el bloqueo, cuando el bloqueo no vino de un
+  // 409 sino del grant persistido (caso offline). Es lo que distingue "nunca
+  // tomé esta caja" de "la confirmación venció" — el 409 no puede decir eso
+  // porque no hubo 409.
+  const [registerTakenKind, setRegisterTakenKind] = React.useState<TenancyVerdictKind | null>(null)
   // Snapshot para el botón manual "Ordenar" del modal de éxito (ordenEnVenta).
   // Capturado ANTES del clearCart (que solo corre en handleClose) — lines/
   // customer siguen siendo los de la venta recién facturada mientras el
@@ -476,6 +483,35 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // (pedir el número recién si el POST fuera a tener éxito) no es
       // posible: hace falta MANDARLO en el payload para que el backend
       // valide tenencia.
+      // ── Gate de tenencia, ANTES de numerar ──────────────────────────────
+      // El fix del incidente 2026-08-23. Hasta acá el único gate de tenencia
+      // era el 409 de `sales.php`, o sea que existía SOLO online: sin red no
+      // había POST, el POS numeraba, imprimía y el rechazo llegaba al
+      // sincronizar, con el ticket ya en la mano del cliente. Ahora el device
+      // decide con lo último que el servidor le confirmó (grant persistido,
+      // `lib/pos/register-tenancy.ts`) — que es la única información que puede
+      // tener sin conexión.
+      //
+      // Va ANTES de `getNextInvoiceNo()` a propósito: consumir el número es el
+      // punto de no retorno de la numeración (deja un hueco aunque la venta no
+      // salga). Sin derecho a emitir, no se toca el contador.
+      //
+      // Fail-closed: `verdict === null` (todavía no hidratado) tampoco emite.
+      // El costo de equivocarse hacia el otro lado es un comprobante duplicado
+      // que el sistema después repudia.
+      const tenancy = useTenancyStore.getState().verdict
+      if (!tenancy || !tenancy.canIssue) {
+        setRegisterTakenInfo({
+          holderDeviceId: tenancy?.holderDeviceId ?? null,
+          holderDeviceName: tenancy?.holderDeviceName ?? null,
+          expiresAt: null,
+          reason: tenancy?.denyReason ?? null,
+        })
+        setRegisterTakenKind(tenancy?.kind ?? "never")
+        setPhase("register-taken")
+        return
+      }
+
       let invoiceNo: number
       try {
         invoiceNo = getNextInvoiceNo(activeRegisterId)
@@ -771,8 +807,15 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // la caja y CUÁNDO se libera, con un CTA de reintentar — no solo el
       // texto plano de `errorMsg`.
       if (err instanceof ApiError && err.status === 409) {
-        setRegisterTakenInfo(extractRegisterConflictInfo(err))
+        // El 409 es información MÁS fresca que el grant local: persistirlo
+        // deja al device sabiendo que perdió la caja aunque la red se corte
+        // el segundo siguiente. Sin esto, el próximo intento (ya offline)
+        // volvería a dejar vender.
+        const info = extractRegisterConflictInfo(err)
+        setRegisterTakenInfo(info)
+        setRegisterTakenKind(null)
         setPhase("register-taken")
+        if (activeRegisterId) void refreshTenancy(activeRegisterId)
       } else {
         setErrorMsg(
           err instanceof Error ? err.message : "Error al confirmar la venta",
@@ -1138,9 +1181,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           ) : phase === "register-taken" ? (
             <RegisterTakenPhase
               info={registerTakenInfo}
+              kind={registerTakenKind}
+              registerId={activeRegisterId}
               onRetry={() => {
                 setPhase("pay")
                 setRegisterTakenInfo(null)
+                setRegisterTakenKind(null)
                 void handleConfirm(applied, change)
               }}
               onCancel={handleClose}
@@ -1524,17 +1570,40 @@ function PayPhase({
 
 interface RegisterTakenPhaseProps {
   info: RegisterConflictInfo | null
+  /** Veredicto local cuando el bloqueo no vino de un 409 (caso offline). */
+  kind: TenancyVerdictKind | null
+  registerId: string
   onRetry: () => void
   onCancel: () => void
 }
 
-function RegisterTakenPhase({ info, onRetry, onCancel }: RegisterTakenPhaseProps) {
+function RegisterTakenPhase({ info, kind, registerId, onRetry, onCancel }: RegisterTakenPhaseProps) {
   const expiresLabel = info?.expiresAt ? formatDateTime(info.expiresAt) : null
-  // holderDeviceId es la señal real de "hay alguien" — holderDeviceName puede
-  // venir vacío (device sin nombre) sin que eso signifique "libre", y cuando
-  // NO hay tenedor (holderDeviceId null) el mensaje tiene que decir eso, no
-  // inventar "otro dispositivo" (ver lib/pos/register-conflict.ts).
-  const { title, body } = registerConflictMessage(info, expiresLabel)
+  // Una causa, un mensaje: "tomada por otro" / "la liberaron" / "se cerró" /
+  // "sin confirmar" son cuatro situaciones con remedios distintos, y el cajero
+  // necesita saber cuál le tocó (ver lib/pos/register-conflict.ts).
+  const { title, body } = registerConflictMessage(info, expiresLabel, kind ?? undefined)
+  const refreshing = useTenancyStore((s) => s.refreshing)
+
+  const isOnline = React.useSyncExternalStore(
+    subscribeOnlineStatus,
+    () => navigator.onLine,
+    () => true,
+  )
+
+  // "Tomada por otro" es el único caso que el device no puede resolver solo:
+  // no hay nada que reintentar hasta que alguien la libere. Los demás se
+  // arreglan reconfirmando la tenencia, así que el CTA primero la reconfirma y
+  // recién entonces reintenta el cobro — y sin conexión ni eso es posible.
+  const takenByOther = Boolean(info?.holderDeviceId) || info?.reason === "taken_by_other"
+  const canRetry = !takenByOther && isOnline
+
+  async function handleRetry() {
+    // Reconfirmar ANTES de reintentar: el gate lee el grant local, así que sin
+    // esto el reintento chocaría contra el mismo veredicto viejo.
+    await refreshTenancy(registerId)
+    onRetry()
+  }
 
   return (
     <div className="flex flex-col items-center gap-5 px-6 py-8 text-center">
@@ -1543,16 +1612,38 @@ function RegisterTakenPhase({ info, onRetry, onCancel }: RegisterTakenPhaseProps
       <div className="flex flex-col items-center gap-2">
         <h2 className="text-xl font-bold text-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">{body}</p>
+        {!isOnline && !takenByOther && (
+          <p className="text-sm text-muted-foreground">
+            Este dispositivo está sin conexión, así que no puede confirmar la
+            caja ahora. El carrito queda como está.
+          </p>
+        )}
       </div>
       <div className="flex w-full gap-3">
         <Button variant="outline" className="flex-1" onClick={onCancel}>
           Cancelar
         </Button>
-        <Button className="flex-1 font-bold" onClick={onRetry}>
-          Reintentar
+        <Button
+          className="flex-1 font-bold"
+          onClick={() => void handleRetry()}
+          disabled={!canRetry || refreshing}
+        >
+          {refreshing ? "Confirmando..." : "Tomar caja y reintentar"}
         </Button>
       </div>
     </div>
   )
+}
+
+/** `navigator.onLine` como external store — misma primitiva que usa
+ *  `OfflineStatusPill`: el valor vive afuera de React y suscribirse da el
+ *  estado real en el primer paint, sin un frame intermedio en "online". */
+function subscribeOnlineStatus(onChange: () => void): () => void {
+  window.addEventListener("online", onChange)
+  window.addEventListener("offline", onChange)
+  return () => {
+    window.removeEventListener("online", onChange)
+    window.removeEventListener("offline", onChange)
+  }
 }
 
