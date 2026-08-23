@@ -47,7 +47,7 @@ export const MODULOS: Modulo[] = [
     heroDescription:
       "La pantalla donde pasa el día: buscar, cobrar y entregar el comprobante sin que la fila se entere. Funciona con dedo en tablet o entera por teclado, y no se detiene cuando se corta internet.",
     heroImage: {
-      src: "/site/pos-screenshot.png",
+      src: "/site/pos-gastro-light.png",
       alt: "Punto de Venta de Punto: catálogo con fotos, carrito y total de la venta",
     },
     essentials: [
@@ -630,8 +630,8 @@ export const MODULOS: Modulo[] = [
     heroDescription:
       "Emitís todos los documentos electrónicos que tu negocio necesite y no te cobramos ni uno. Sin paquetes de comprobantes, sin cupos mensuales y sin sorpresas cuando el mes viene bueno: la factura sale de la misma venta y viaja sola a SIFEN.",
     heroImage: {
-      src: "/site/pos-screenshot.png",
-      alt: "Punto emitiendo una factura electrónica desde la venta",
+      src: "/site/pos-success.png",
+      alt: "Punto confirmando el cobro de una venta",
     },
     essentials: [
       "Documentos electrónicos ilimitados, sin costo por comprobante.",
@@ -724,6 +724,260 @@ export const MODULOS: Modulo[] = [
       },
     ],
   },
+  {
+    slug: "stock-y-compras",
+    label: "Stock y compras",
+    eyebrow: "Stock y compras",
+    heroTitle: "Saber qué hay, antes de que falte",
+    heroDescription:
+      "Cada venta descuenta, cada compra repone y el costo se actualiza con lo que realmente pagaste. Existencias por depósito y por sucursal, mínimos que avisan y ajustes que quedan con nombre, fecha y motivo.",
+    heroImage: {
+      src: "/site/item-profile.png",
+      alt: "Ficha de un artículo en Punto, con su precio, IVA y stock por sucursal",
+    },
+    essentials: [
+      "Saldo por depósito y por sucursal, actualizado con cada movimiento.",
+      "La compra ingresa la mercadería con el costo real y deja la deuda al proveedor.",
+      "Mínimos con aviso, para reponer antes del quiebre y no después.",
+      "Conteos, ajustes y transferencias con su historia completa.",
+    ],
+    sections: [
+      {
+        kicker: "Una sola aritmética",
+        title: "Venta, compra, producción y ajuste tocan el mismo saldo",
+        paragraphs: [
+          "Vender, comprar, producir, transferir entre sucursales, registrar una merma o cerrar un conteo modifican el inventario por el mismo camino. Por eso el número no diverge según por dónde entró el movimiento — y el costo de lo vendido tampoco.",
+          "Cada movimiento queda registrado con su motivo, su usuario y su hora. Cuando el saldo no cuadra, se puede ver exactamente qué pasó en vez de suponerlo.",
+        ],
+        linkLabel: "Ver el historial de un artículo",
+        mockup: {
+          label: "Café en grano 1kg",
+          title: "Últimos movimientos",
+          rows: [
+            {
+              left: "Compra",
+              right: "+24",
+              sub: ["hoy · costo {money:52000}"],
+            },
+            { left: "Ventas del día", right: "-9" },
+            { left: "Ajuste por rotura", right: "-1", sub: ["Elvira · 14:20"] },
+          ],
+          footer: { left: "Saldo", right: "38" },
+        },
+      },
+      {
+        kicker: "Comprar sin doble tipeo",
+        title: "La factura del proveedor carga el stock y el costo",
+        paragraphs: [
+          "Se registra la compra, entra la mercadería y el costo del artículo queda actualizado con lo que pagaste esta vez. Si fue a crédito, la deuda con el proveedor aparece sola en cuentas por pagar.",
+          "Para no cargar línea por línea, se puede subir la foto o el PDF de la factura: el sistema arma el borrador y vos aprobás antes de que impacte en el inventario.",
+        ],
+        linkLabel: "Ver una compra",
+        mockup: {
+          label: "Compra 0012-4487",
+          title: "Distribuidora del Este",
+          rows: [
+            { left: "24× Café en grano 1kg", right: "{money:1248000}" },
+            { left: "12× Azúcar 1kg", right: "{money:96000}" },
+            { left: "Condición", right: "Crédito 30 días" },
+          ],
+          footer: { left: "Total", right: "{money:1344000}" },
+        },
+      },
+      {
+        kicker: "Antes del quiebre",
+        title: "El mínimo avisa mientras todavía hay tiempo",
+        paragraphs: [
+          "Cada artículo puede tener su mínimo por depósito. Cuando lo toca, aparece en la lista de reposición — no cuando ya se acabó y el cliente se fue con las manos vacías.",
+          "La misma lista sirve para armar el pedido al proveedor, así reponer deja de depender de que alguien se acuerde de mirar la góndola.",
+        ],
+        linkLabel: "Ver la reposición",
+        mockup: {
+          label: "Depósito central",
+          title: "Por reponer",
+          rows: [
+            { left: "Aceite 900ml", right: "quedan 4", sub: ["mínimo 12"] },
+            { left: "Arroz 1kg", right: "quedan 7", sub: ["mínimo 20"] },
+            { left: "Azúcar 1kg", right: "quedan 2", sub: ["mínimo 15"] },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    slug: "clientes-y-credito",
+    label: "Clientes y crédito",
+    eyebrow: "Clientes y crédito",
+    heroTitle: "La libreta del mostrador, jubilada",
+    heroDescription:
+      "Quién compró, qué se llevó y cuánto debe, con su límite y sus recibos. Un pago puede saldar varias facturas de una vez, y el saldo sale siempre de los movimientos reales, no de un número escrito a mano.",
+    heroImage: {
+      src: "/site/cliente-comportamiento.png",
+      alt: "Perfil de un cliente en Punto, con sus horarios, medios de pago y sucursales",
+    },
+    essentials: [
+      "Cuenta corriente con límite por cliente y aviso al superarlo.",
+      "Un cobro se reparte entre varias facturas pendientes de una sola vez.",
+      "Cada cobro deja su recibo, y uno mal cargado se revierte sin romper el saldo.",
+      "El perfil del cliente muestra qué compra, cuándo y en qué sucursal.",
+    ],
+    sections: [
+      {
+        kicker: "El saldo no se escribe, se calcula",
+        title: "Lo que debe un cliente sale de sus movimientos",
+        paragraphs: [
+          "El pendiente de cada factura se recalcula sumando lo que se cobró contra ella, en vez de guardarse en una columna que alguien puede tocar. Por eso el saldo del cliente y el de la factura nunca se contradicen.",
+          "Si un cobro se cargó mal, se revierte y todo vuelve a su lugar solo — sin ajustes manuales que después nadie sabe explicar.",
+        ],
+        linkLabel: "Ver un estado de cuenta",
+        mockup: {
+          label: "Cuenta corriente",
+          title: "Elvira Ruiz",
+          rows: [
+            {
+              left: "Factura 001-0000482",
+              right: "{money:180000}",
+              sub: ["vence en 6 días"],
+            },
+            {
+              left: "Factura 001-0000501",
+              right: "{money:95000}",
+              sub: ["vence en 21 días"],
+            },
+            { left: "Límite", right: "{money:500000}" },
+          ],
+          footer: { left: "Saldo", right: "{money:275000}" },
+        },
+      },
+      {
+        kicker: "Cobrar de una vez",
+        title: "Un pago, todas las facturas que alcance",
+        paragraphs: [
+          "El cliente que viene a saldar tres facturas no obliga a cargar tres cobros: se ingresa el monto y el sistema lo reparte entre las pendientes, empezando por las más viejas.",
+          "También se puede cobrar parcialmente una factura puntual. En los dos casos sale el recibo, y lo cobrado impacta en la caja del turno como cualquier otro ingreso.",
+        ],
+        linkLabel: "Ver un cobro",
+        mockup: {
+          label: "Cobro",
+          title: "Recibo 0000-0311",
+          rows: [
+            {
+              left: "Factura 001-0000482",
+              right: "{money:180000}",
+              sub: ["saldada"],
+            },
+            {
+              left: "Factura 001-0000501",
+              right: "{money:70000}",
+              sub: ["parcial · quedan {money:25000}"],
+            },
+          ],
+          footer: { left: "Total cobrado", right: "{money:250000}" },
+        },
+      },
+      {
+        kicker: "Conocer al que vuelve",
+        title: "Qué compra cada cliente, cuándo y dónde",
+        paragraphs: [
+          "El perfil de cada cliente muestra su historia: qué se lleva, a qué hora suele venir, con qué paga y en qué sucursal compra. Sirve para decidir qué reponer, cuándo abrir y a quién conviene llamar.",
+          "Los datos son del negocio, no de una plataforma: si el cliente dejó de venir, el sistema puede mostrarlo antes de que sea tarde.",
+        ],
+        linkLabel: "Ver el perfil de un cliente",
+        mockup: {
+          label: "Comportamiento",
+          title: "Albert Estanislao",
+          rows: [
+            { left: "Compras", right: "21", sub: ["última hace 3 días"] },
+            { left: "Sucursal preferida", right: "Centro", sub: ["14 de 21"] },
+            { left: "Suele venir", right: "martes 18:00" },
+          ],
+        },
+      },
+    ],
+  },
+  {
+    slug: "produccion-y-recetas",
+    label: "Producción y recetas",
+    eyebrow: "Producción y recetas",
+    heroTitle: "Lo que se produce descuenta lo que se usa",
+    heroDescription:
+      "Cargás la receta una vez y cada plato, torta o combo descuenta sus insumos al producirse o al venderse. El costo sale del insumo real, así sabés cuánto te deja cada cosa antes de fijar el precio.",
+    heroImage: {
+      src: "/site/item-profile.png",
+      alt: "Ficha de un artículo compuesto en Punto, con sus componentes",
+    },
+    essentials: [
+      "La receta define qué insumos y en qué cantidad lleva cada producto.",
+      "Producción directa o previa: descontar al vender, o armar tandas y stockear.",
+      "El costo del producto se calcula con el costo real de sus insumos.",
+      "La merma se registra con su motivo, en vez de desaparecer del inventario.",
+    ],
+    sections: [
+      {
+        kicker: "Dos formas de producir",
+        title: "Armar la tanda de madrugada o al momento de vender",
+        paragraphs: [
+          "Una panadería hornea a las cuatro de la mañana y stockea lo producido; una cocina arma el plato recién cuando lo piden. Punto soporta las dos: producción previa, donde la tanda entra al inventario como un artículo más, y directa, donde vender descuenta los insumos en ese mismo momento.",
+          "Cada artículo elige su modelo y no se mezclan, así el inventario de insumos nunca se descuenta dos veces por lo mismo.",
+        ],
+        linkLabel: "Ver una orden de producción",
+        mockup: {
+          label: "Producción de hoy",
+          title: "Tanda de las 04:00",
+          rows: [
+            {
+              left: "Pan francés × 80",
+              right: "{money:96000}",
+              sub: ["Harina 12kg · Levadura 200g"],
+            },
+            {
+              left: "Facturas surtidas × 60",
+              right: "{money:84000}",
+              sub: ["Harina 6kg · Manteca 1.5kg"],
+            },
+          ],
+          footer: { left: "Costo de la tanda", right: "{money:180000}" },
+        },
+      },
+      {
+        kicker: "El margen, antes de vender",
+        title: "Cuánto cuesta cada plato, con números y no a ojo",
+        paragraphs: [
+          "El costo del producto se arma sumando sus insumos al costo con el que entraron. Cuando sube la harina, el costo del pan sube solo — y el margen que veías deja de ser el de hace tres meses.",
+          "Con eso a la vista, subir un precio o cambiar una receta deja de ser una corazonada.",
+        ],
+        linkLabel: "Ver el costo de un producto",
+        mockup: {
+          label: "Milanesa napolitana",
+          title: "Costo por porción",
+          rows: [
+            { left: "Precio de venta", right: "{money:45000}" },
+            { left: "Costo de insumos", right: "{money:18500}" },
+            { left: "Margen", right: "59%" },
+          ],
+        },
+      },
+      {
+        kicker: "Lo que se pierde también cuenta",
+        title: "La merma se registra, no se descuenta en silencio",
+        paragraphs: [
+          "El pan que sobró, la fruta que se pasó, la botella que se rompió: la merma entra con su motivo y su responsable, y sale del inventario como un movimiento más.",
+          "Al final del mes se puede mirar cuánto se perdió y por qué, en vez de descubrir el faltante recién en el conteo.",
+        ],
+        linkLabel: "Ver la merma del mes",
+        mockup: {
+          label: "Este mes",
+          title: "Merma registrada",
+          rows: [
+            { left: "Pan del día anterior", right: "{money:210000}" },
+            { left: "Fruta vencida", right: "{money:84000}" },
+            { left: "Roturas", right: "{money:35000}" },
+          ],
+          footer: { left: "Total", right: "{money:329000}" },
+        },
+      },
+    ],
+  },
 ]
 
 /** Módulos visibles en el mercado activo. */
@@ -789,7 +1043,7 @@ export const MODULO_GROUPS: ModuloGroup[] = [
       {
         label: "Producción y recetas",
         description: "La receta descuenta insumos y calcula el costo",
-        href: "#",
+        href: "/modulos/produccion-y-recetas",
       },
     ],
   },
@@ -800,12 +1054,12 @@ export const MODULO_GROUPS: ModuloGroup[] = [
       {
         label: "Stock y compras",
         description: "Existencias por depósito y costos al día",
-        href: "#",
+        href: "/modulos/stock-y-compras",
       },
       {
         label: "Clientes y crédito",
         description: "Cuenta corriente con límite y cobranzas",
-        href: "#",
+        href: "/modulos/clientes-y-credito",
       },
       {
         label: "Gift cards y vales",

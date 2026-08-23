@@ -43,8 +43,12 @@ const SPOTLIGHTS: Spotlight[] = [
     secondary: { label: "Ver precios", href: "/precios" },
     images: [
       {
-        src: "/site/pos-screenshot.png",
+        src: "/site/pos-gastro-light.png",
         alt: "Punto de Venta: catálogo con fotos, carrito y total de la venta",
+      },
+      {
+        src: "/site/pos-gastro-dark.png",
+        alt: "Punto de Venta en modo oscuro",
       },
     ],
   },
