@@ -400,9 +400,9 @@ export const fixtureItems: PosItem[] = [
 ]
 
 // ── Impuestos (F2b, context/38) ──────────────────────────────────────────────
-// Todos los items del fixture usan "tax-1" (IVA 10%, incluido) — matchea el
-// modelo paraguayo que ya asumía el TAX_RATE hardcodeado que este fixture
-// reemplaza.
+// Todos los items del fixture usan "tax-1" (IVA 10%, incluido) — el caso
+// paraguayo típico. Ya no hay tasa hardcodeada a la que igualarse: el carrito
+// resuelve la de cada línea desde esta lista (`lib/cart/line-tax.ts`).
 
 export const fixtureTaxes: PosTaxRate[] = [
   { id: "tax-1", rate: 10, kind: "rate" },

@@ -228,7 +228,8 @@ Pero el backend de compras confía en el `taxValue` del payload.
 
 ### D. Consumidores
 
-- **POS**: IVA por línea y total salen del motor TS. Muere `TAX_RATE`.
+- **POS**: IVA por línea y total salen del motor TS. **`TAX_RATE` murió
+  (2026-08-22) — camino CERRADO, ver más abajo.**
 - **EInvoice**: lee el desglose congelado de la venta; fallback a
   `resolveTaxRatesForItems` solo para ventas anteriores al cambio. Muere el
   hardcode `{10,5,0}` — valida contra las tasas del comercio.
@@ -287,6 +288,38 @@ viejas quedan con tax=0 — ver D3.
   renderers (ESC/POS y HTML) — para no duplicar el mapa. El backend
   (`DocumentTemplateService::present()`) no interpreta `block.type`, solo
   pasa el JSON `config` opaco, así que no necesita el alias.
+- **D6 — Neteo de "quitar IVA" con la tasa de la línea (cerrada 2026-08-22,
+  implementada).** Último resto del `TAX_RATE = 0.10` hardcodeado: el toggle
+  "quitar IVA" del POS neteaba TODA línea dividiendo por 1.10, así que un
+  ítem al 5% o al 3% (los hay vendidos en producción: 17 y 1 líneas
+  respectivamente) se descontaba de más, y uno exento se descontaba sin tener
+  nada que quitar. Implementado:
+  - `lineGross(raw, ivaRemoved, tax)` recibe el impuesto congelado de la
+    línea; netea SOLO cuando `kind === 'rate'`, `rate > 0` y el impuesto está
+    INCLUIDO en el precio de lista. Exento, tasa 0 o impuesto añadido → el
+    precio no cambia. Nunca se inventa una tasa (mismo fallback fiscal que
+    `SaleService::deriveTaxRateKindFromName`).
+  - `frontend/lib/cart/line-tax.ts` es el ÚNICO resolver del front: traduce
+    `taxId` + `taxIncluded` a la tasa del catálogo, con las mismas reglas de
+    fallback que `enrichWithTaxes`. Lo usan el carrito (`lineSubtotal`,
+    `selectCartIva`), el payload de la venta (`create-sale`), la cotización y
+    la reimpresión — una sola fórmula y un solo redondeo, como exige que lo
+    cobrado y lo registrado no diverjan.
+  - `DiscountableLine.tax` es REQUERIDO: el compilador impide armar un
+    cálculo de descuentos sin la tasa de la línea. Los `export const
+    TAX_RATE` / `ALLOC_TAX_RATE` ya no existen.
+  - **Backend**: `enrichWithTaxes` alimentaba el motor con
+    `qty = count, unitPrice = price`. Con el unitario redondeado eso no vuelve
+    a dar `total` (2 × 12.000 al 5% con "quitar IVA": 2 × 11.429 = 22.858
+    contra un `total` de 22.857), y `total` es lo que se persiste en
+    `itemSold.itemSoldTotal` y suma `transactionTotal`. La base gravada de
+    `toTaxObj` quedaba desalineada de la plata registrada. Ahora el motor
+    recibe `qty = 1, unitPrice = total`. La TASA sigue resolviéndose
+    server-side desde el catálogo — el cliente aporta el importe (que ya
+    persistía verbatim), nunca con cuánto se lo grava.
+  - Casos de regresión: `frontend/lib/cart/verify-quitar-iva.mjs` (Node
+    pelado, mismo patrón que `lib/tax/verify-engine.mjs`).
+
 - **D5 — IVA en canje de voucher (cerrada 2026-08-08).** El canje va EXENTO:
   el vale se vende en caja como ítem normal y su IVA se devenga íntegro en la
   venta de emisión; la línea de canje no aporta al `transactionTotal`

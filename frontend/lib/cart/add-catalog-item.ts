@@ -56,8 +56,9 @@ export function addCatalogItem(item: PosItem): void {
     price: item.price,
     kind: item.kind,
     discountPercent: item.discountPercent,
-    // F2b (context/38): impuesto real del ítem, para que selectCartIva lo
-    // calcule con el motor en vez del TAX_RATE hardcodeado.
+    // F2b (context/38): impuesto real del ítem. `lib/cart/line-tax.ts` lo
+    // resuelve desde acá tanto para el IVA que muestra el carrito como para
+    // el neteo de "quitar IVA" — ya no hay ninguna tasa hardcodeada.
     taxId: item.taxId,
     taxIncluded: item.taxIncluded,
   })

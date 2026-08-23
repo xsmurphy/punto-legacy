@@ -23,8 +23,9 @@ import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { isAddonChild, type Order, type Fulfillment } from "@/hooks/use-orders"
 import type { CustomerAddress } from "@/lib/types/contact"
-import { allocateLineDiscounts, lineGross, TAX_RATE as ALLOC_TAX_RATE } from "@/lib/cart/allocate-discounts"
-import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
+import { allocateLineDiscounts, lineGross } from "@/lib/cart/allocate-discounts"
+import { resolveLineTax, withLineTax } from "@/lib/cart/line-tax"
+import { computeTaxes } from "@/lib/tax/engine"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -219,31 +220,17 @@ export type SettlementIntent =
   | { sessionId: string; kind: "share"; shareCount: number; shareIndex: number }
 
 /**
- * Tasa de IVA hardcodeada (10%, modelo paraguayo) — reexportada desde
- * `lib/cart/allocate-discounts.ts`. F2b (context/38) migró el IVA
- * INFORMATIVO del carrito (`selectCartIva`) al motor real
- * (`lib/tax/engine.ts`, por ítem/tasa del catálogo) — esta constante ya NO
- * se usa para eso.
- *
- * Sigue viva para dos usos que NO tocamos en este slice porque afectan lo
- * que se COBRA, no lo que se muestra (ver `lineGross` arriba y
- * `create-sale.ts:299`): el neteo cuando el cajero activa "quitar IVA"
- * (`ivaRemoved`). Ambos asumen precio de LISTA con impuesto incluido al
- * 10% — mueren recién cuando el modo "impuesto añadido"/multi-tasa llegue al
- * PRECIO del carrito, no solo a su display (F3+, fuera de alcance acá).
- */
-const TAX_RATE = ALLOC_TAX_RATE
-
-/**
  * Subtotal de una línea ajustado por el flag `ivaRemoved`. El cálculo vive
  * acá (no en el componente) para que el listado de líneas y el total siempre
  * usen la misma regla — si están desincronizados, la suma de líneas no
  * coincide con el total.
  *
  * - ivaRemoved = false → qty * unitPrice * (1 - discount/100).
- * - ivaRemoved = true  → round(raw / 1.10) — precio sin IVA.
- *   Ej: 25.000 → 22.727, 10.000 → 9.091, 32.000 → 29.091. Suma = 60.909
- *   (coincide con selectCartTotal).
+ * - ivaRemoved = true  → round(raw / (1 + tasa/100)) con la tasa REAL de la
+ *   línea (`resolveLineTax`, del catálogo del tenant), y solo si el impuesto
+ *   viene incluido en el precio de lista. Ej. al 10%: 25.000 → 22.727,
+ *   10.000 → 9.091, 32.000 → 29.091. Una línea exenta, de tasa 0 o con el
+ *   impuesto AÑADIDO al precio no cambia: no hay IVA adentro que quitar.
  * - discount (0–100): porcentaje de descuento por línea. Aplica antes del IVA.
  * - voucher: SIEMPRE 0, sin mirar precio/descuento — el vale ya se cobró al
  *   emitirse (context/36, decisión 5). Explícito y primero en la función para
@@ -253,9 +240,10 @@ const TAX_RATE = ALLOC_TAX_RATE
 export function lineSubtotal(line: CartLine, ivaRemoved: boolean): number {
   if (line.voucher) return 0
   const discountFactor = 1 - (line.discount ?? 0) / 100
-  // Misma función que usa el payload (allocate-discounts.lineGross) — si los
-  // dos lados redondearan por separado, lo cobrado y lo registrado divergirían.
-  return lineGross(line.qty * line.unitPrice * discountFactor, ivaRemoved)
+  // Misma función Y misma tasa por línea que usa el payload
+  // (allocate-discounts.lineGross + line-tax.resolveLineTax) — si los dos
+  // lados redondearan por separado, lo cobrado y lo registrado divergirían.
+  return lineGross(line.qty * line.unitPrice * discountFactor, ivaRemoved, resolveLineTax(line))
 }
 
 /**
@@ -334,12 +322,11 @@ export const selectCartTotal = (s: CartState): number => {
 
 /**
  * IVA contenido en la venta (informativo del chip "Gs <iva>"). F2b
- * (context/38 §Arquitectura→D): muere el TAX_RATE hardcodeado — cada línea
- * se calcula con SU tasa real (`useCatalogStore.taxes`, buscada por
- * `line.taxId`) y SU modo incluido/añadido (`line.taxIncluded` o el default
- * de la sucursal), vía el mismo motor (`lib/tax/engine.ts`) que el backend
- * usa para congelar el impuesto al confirmar la venta — el chip deja de
- * divergir del monto que realmente persiste.
+ * (context/38 §Arquitectura→D): cada línea se calcula con SU tasa real y SU
+ * modo incluido/añadido — resueltos por `lib/cart/line-tax.ts`, el mismo
+ * resolver que usa el neteo de "quitar IVA" y el payload de la venta — vía
+ * el mismo motor (`lib/tax/engine.ts`) que el backend usa para congelar el
+ * impuesto al confirmar. El chip no diverge del monto que persiste.
  *
  * Lee el catálogo con `getState()` (no un hook): mismo patrón síncrono que
  * `loadFromOrder` más abajo. NO es un fetch — es memoria ya hidratada por
@@ -358,34 +345,35 @@ export const selectCartTotal = (s: CartState): number => {
 export const selectCartIva = (s: CartState): number => {
   if (s.ivaRemoved) return 0
 
-  const { taxes, outletTaxIncluded, config } = useCatalogStore.getState()
-  const taxesById = new Map(taxes.map((t) => [t.id, t]))
+  const { config } = useCatalogStore.getState()
   // PY: 0 decimales: MX y demás LATAM con centavos: 2 — mismo criterio que
   // SaleService::currencyDecimals() (D1, context/38).
   const decimals = config?.decimal === "yes" ? 2 : 0
+
+  // Impuesto por línea resuelto UNA vez, con el mismo resolver que usan
+  // `lineSubtotal` y el payload de la venta (`lib/cart/line-tax.ts`). Antes
+  // esta resolución estaba duplicada acá adentro y podía divergir del neteo.
+  const taxed = withLineTax(s.lines)
 
   // Reusa la MISMA función que arma el payload de venta (create-sale.ts) para
   // el descuento por línea (propio + prorrateo del descuento de venta) — así
   // el `discount` que ve el motor acá es EXACTAMENTE el `totalDiscount` que
   // el backend va a recibir y congelar, no una aproximación aparte que
   // pudiera desviarse del monto real cobrado.
-  const allocations = allocateLineDiscounts(s.lines, s.saleDiscount, false)
+  const allocations = allocateLineDiscounts(taxed, s.saleDiscount, false)
 
-  const engineLines = s.lines.map((line, i) => {
-    const tax = line.taxId ? taxesById.get(line.taxId) : undefined
-    // Canje de voucher: exenta, igual que SaleService::enrichWithTaxes — la
-    // línea no aporta al total (lineSubtotal=0) y su IVA ya se devengó en la
-    // venta que emitió el vale; mostrarlo acá duplicaría el impuesto del chip.
-    const exempt = Boolean(line.voucher)
-    return {
-      qty: line.qty,
-      unitPrice: line.unitPrice,
-      discount: allocations[i].totalDiscount,
-      taxRate: exempt ? 0 : (tax?.rate ?? 0),
-      taxKind: (exempt ? "exempt" : (tax?.kind ?? "exempt")) as TaxKind,
-      taxIncluded: line.taxIncluded ?? outletTaxIncluded,
-    }
-  })
+  // Canje de voucher y línea sin tasa resoluble ya salen exentas de
+  // `withLineTax` (mismas reglas que SaleService::enrichWithTaxes): la línea
+  // de vale no aporta al total (lineSubtotal=0) y su IVA ya se devengó en la
+  // venta que lo emitió; computarlo acá duplicaría el impuesto del chip.
+  const engineLines = taxed.map((line, i) => ({
+    qty: line.qty,
+    unitPrice: line.unitPrice,
+    discount: allocations[i].totalDiscount,
+    taxRate: line.tax.rate,
+    taxKind: line.tax.kind,
+    taxIncluded: line.tax.included,
+  }))
 
   return computeTaxes(engineLines, { decimals }).totals.tax
 }
