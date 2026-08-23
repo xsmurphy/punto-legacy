@@ -80,13 +80,18 @@ facturación electrónica (en curso, `context/28`).
 
 ### POS / Espacios
 
-- **Asignar mozo a espacio/mesa** — parcial (verificado 2026-08-22): backend
-  completo (`space_session.waiterid`; `SpaceSessionService.php:35,57,403`) y
-  el tipo del hook ya lo trae, pero **falta toda la UI** — ningún componente
-  lo pasa al abrir mesa. Sin esto tampoco se puede contar personas atendidas
-  por mesero (pedido relacionado más abajo).
-- **Renombrar/etiquetar espacios** — confirmado abierto por ausencia
-  (auditoría 2026-08-22), "desde el POS" en particular.
+- **Selector de mozo al abrir mesa** — parcial, reiterado por el owner
+  2026-08-23: backend completo (`space_session.waiterid`;
+  `SpaceSessionService.php:35,57,403`) y el tipo ya viaja en
+  `use-pos-spaces.ts:86`, pero **falta toda la UI** — ningún componente lo
+  setea al abrir mesa. Es trabajo solo de frontend. Sin esto tampoco se puede
+  contar personas atendidas por mesero (pedido relacionado más abajo).
+- **Unir/cambiar espacio, renombrar y etiquetar desde el POS** — **marcado
+  IMPORTANTE por el owner (2026-08-23)**. Incluye que el mozo pueda ponerle
+  un nombre a la mesa para identificarla más fácil (ej. "los del
+  cumpleaños"). Confirmado abierto por ausencia (auditoría 2026-08-22): hoy
+  no hay forma de renombrar/etiquetar ni de unir/cambiar de espacio desde el
+  POS.
 - **Shortcut de teclado "O" para pantalla de órdenes** — CERRADO
   (`use-pos-hotkeys.ts:99-101`).
 - **Cobro por ítems individuales** — YA EXISTE (split `kind='items'`,
@@ -133,6 +138,16 @@ pedido nuevo.
 - Implica: query que agrupe `pos_order_item`/`itemSold` de órdenes en estado
   abierto por `itemId`, sumando cantidades — candidato natural para una
   pantalla nueva en Producción o una vista alternativa del KDS.
+- **Reiterado y ampliado por el owner (2026-08-23)**, textual: *"una especie
+  de orden de producción, donde de todos los pedidos activos se pueda ver
+  qué cantidad se necesita de cada plato, ingrediente, etc., para no
+  preparar de a uno sino hacer ya todos los mismos ítems para distintos
+  platos de una vez."* Agrega una segunda dimensión a la agregación de
+  arriba: no solo por ítem vendido, también **por ingrediente** — cruza con
+  recetas (`RecipeCosting`, `explodeRecipe`) para explotar cada plato
+  pedido en sus insumos y sumar cantidad total de ingrediente necesaria
+  entre todos los pedidos abiertos. No planificar en detalle todavía —
+  queda como feature descripta, pendiente de diseño.
 
 ### Ventas — canal / tipo de venta
 
@@ -619,17 +634,27 @@ calcula y descarta `detail[]` **en cada request** — costo de query pagado sin 
   `api/lib/Contacts/*.php`). Ese pedido simple podría resolverse sin tocar
   el modelo por-producto de este ítem; no bloquear uno esperando al otro.
 
-**Mesas asignadas a meseros (mesero solo ve sus mesas)** — `M`
+**Mesas asignadas a meseros, con exclusividad** — `M`
 > Restricción de acceso por mesa. Cada mesero solo ve y opera sus mesas.
 
 - Nueva relación `table → userId` (asignación). Filtro en el listado de mesas + permission check al abrir orden.
+- **Reiterado por el owner (2026-08-23) con precisión: es exclusividad, no
+  solo visibilidad** — las mesas asignadas a un mozo **no pueden ser
+  modificadas por otros**. No es solo UI: necesita enforcement en el
+  backend (rechazar la escritura, no solo ocultar en el front). Se cruza
+  con el trabajo de permisos que entró el 2026-08-22 (`hasPermission`, rol
+  `device`, gates documentados en `context/08-convenciones-criticas.md`) —
+  antes de implementar, decidir si la exclusividad es un permiso más del
+  catálogo o una regla de datos aparte (dueño de la sesión de mesa).
+  Mismo pedido ya anotado en `context/10-roadmap.md` § Espacios v1 (owner
+  2026-08-21) — no duplicar el diseño, converger acá.
 
 **Contar personas atendidas por mesero** — `S`
 > Capturar # de comensales al abrir una mesa, agregar al reporte de staff.
 
 - Campo `partySize` o `guests` en la transacción de mesa. Reporte ya tiene la dimensión userId; solo agregar suma.
-- Depende de "Asignar mozo a espacio/mesa" (arriba, § POS/Espacios) — sin esa
-  UI tampoco hay quién contar.
+- Depende de "Selector de mozo al abrir mesa" (arriba, § POS/Espacios) — sin
+  esa UI tampoco hay quién contar.
 
 **Último costo de compra en producción (fix cálculo COGS)** — `M`
 > Bug en el cálculo de utilidad cuando se compra mercadería específicamente para producción: el sistema descuenta antes de calcular el costo de la producción, lo que mete ruido en el cálculo de precio final cuando se usa "% sobre costo".
