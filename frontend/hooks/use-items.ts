@@ -17,14 +17,40 @@ import {
   type Taxonomy,
 } from "@/lib/types/item"
 
-export function useItems(opts?: { q?: string; archived?: boolean; parentId?: string; includeVariants?: boolean }) {
+export function useItems(opts?: {
+  q?: string
+  archived?: boolean
+  parentId?: string
+  includeVariants?: boolean
+  /**
+   * Opt-in explícito al view-scope de sucursal (selector del dropdown del
+   * logo, header `X-Outlet-Id` resuelto por bootstrap.php en
+   * VIEW_OUTLET_ID). Default `false`: `/v1/items` es compartido por más que
+   * el listado de Artículos — `compounds-editor.tsx` y
+   * `purchase-form-fields.tsx` también llaman `useItems()` para elegir
+   * ítems al armar una receta o una compra, y esos flujos necesitan ver el
+   * catálogo COMPLETO del tenant sin importar qué sucursal esté mirando el
+   * operador en ese momento (armar una compra para reponer stock de OTRA
+   * sucursal es un caso legítimo). Solo `app/(panel)/items/page.tsx` pasa
+   * `respectViewScope: true` — ver api/v1/items.php para el detalle del
+   * porqué es opt-in y no ambiente.
+   */
+  respectViewScope?: boolean
+}) {
   return useQuery<{
     items: ItemListItem[]
     total: number
     limit: number
     offset: number
   }>({
-    queryKey: ["items", opts?.q ?? "", opts?.archived ?? false, opts?.parentId ?? "", opts?.includeVariants ?? false],
+    queryKey: [
+      "items",
+      opts?.q ?? "",
+      opts?.archived ?? false,
+      opts?.parentId ?? "",
+      opts?.includeVariants ?? false,
+      opts?.respectViewScope ?? false,
+    ],
     queryFn: () => {
       const params = new URLSearchParams({ limit: "200" })
       if (opts?.q) params.set("q", opts.q)
@@ -32,6 +58,7 @@ export function useItems(opts?: { q?: string; archived?: boolean; parentId?: str
       // parentId vacío → top-level (default). Con id explícito → hijos del grupo.
       if (opts?.parentId) params.set("parentId", opts.parentId)
       if (opts?.includeVariants) params.set("includeVariants", "true")
+      if (opts?.respectViewScope) params.set("respectViewScope", "1")
       return api.get(`/v1/items?${params.toString()}`)
     },
     staleTime: 30 * 1000,

@@ -152,8 +152,42 @@ $companyId = $ctx['companyId'];
 
 // Visibilidad por sucursal: solo pos-app queda restringido a su outlet
 // (device.outletId, resuelto por apiAuthTenant — nunca de query/body). El
-// panel ve el catálogo completo del tenant (ver outletVisibilityClause()).
+// panel ve el catálogo completo del tenant salvo que el selector global de
+// sucursal (dropdown del logo) tenga elegida una puntual (ver
+// $panelViewOutletId abajo) — ver outletVisibilityClause().
 $deviceOutletId = (($ctx['realm'] ?? '') === 'pos-app') ? (string) ($ctx['outletId'] ?? '') : null;
+
+// View-scope del panel (decisión owner 2026-08-22, context/25 §3/§5): si el
+// browser mandó X-Outlet-Id con una sucursal puntual, bootstrap.php ya lo
+// validó contra el tenant y lo dejó en VIEW_OUTLET_ID. 'all' (o el header
+// ausente porque el usuario no tocó el selector todavía) deja VIEW_OUTLET_ID
+// en '' / sin definir → catálogo completo del tenant, comportamiento
+// histórico sin cambios.
+//
+// OPT-IN vía `?respectViewScope=1`, NO ambiente/automático — a propósito:
+// `X-Outlet-Id` lo manda `api-client.ts` en TODAS las requests del panel una
+// vez que el operador eligió sucursal en el dropdown del logo, y `/v1/items`
+// es un endpoint compartido por MÁS que la página de Artículos — el mismo
+// `useItems()` alimenta selectores de ítem dentro de Compras
+// (`purchase-form-fields.tsx`) y de recetas de combos (`compounds-editor.tsx`).
+// Esos pickers necesitan ver el catálogo COMPLETO del tenant siempre (se
+// puede comprar/recetar con ítems de cualquier sucursal, no solo la que el
+// operador está mirando en ese momento) — si el filtro fuera ambiente por el
+// solo hecho de haber un header, esos selectores se quedarían cortos de
+// opciones como efecto colateral apenas alguien fijara una sucursal en el
+// dropdown. Solo `app/(panel)/items/page.tsx` (la página de Artículos) manda
+// el flag. Solo aplica a realm panel: pos-app nunca manda este header
+// (bootstrap.php lo restringe) y sigue resolviendo su outlet desde el device
+// ($deviceOutletId arriba), no desde el selector del panel.
+$panelViewOutletId = null;
+if (
+    ($ctx['realm'] ?? '') === 'panel'
+    && !empty($_GET['respectViewScope'])
+    && defined('VIEW_OUTLET_ID')
+    && VIEW_OUTLET_ID !== ''
+) {
+    $panelViewOutletId = (string) VIEW_OUTLET_ID;
+}
 
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
@@ -780,8 +814,19 @@ switch ($method) {
         // sucursal (+ ítems globales, outletId NULL). Es el filtro central
         // del bug "el POS ofrece artículos de otras sucursales" — antes no
         // existía acá, así que el bootstrap bajaba el catálogo del tenant
-        // entero. El panel no se restringe (administra todas las sucursales).
-        [$outletClause, $outletParams] = outletVisibilityClause($deviceOutletId);
+        // entero.
+        //
+        // Panel: por default administra el catálogo completo del tenant
+        // (Scope=Tenant), pero si el selector global de sucursal tiene
+        // elegida una puntual ($panelViewOutletId), el listado de Artículos
+        // respeta ese scope con el MISMO criterio de visibilidad que pos-app
+        // — asignado a esa sucursal o global (outletId NULL) — decisión
+        // owner 2026-08-22 (context/25 §3/§5). `$deviceOutletId` y
+        // `$panelViewOutletId` son mutuamente excluyentes (uno por realm),
+        // así que reusar `outletVisibilityClause()` con cualquiera de los
+        // dos que esté seteado no cambia el comportamiento de pos-app.
+        $effectiveViewOutletId = $deviceOutletId ?? $panelViewOutletId;
+        [$outletClause, $outletParams] = outletVisibilityClause($effectiveViewOutletId);
         if ($outletClause !== '') {
             $whereSql .= " AND {$outletClause}";
             $params = array_merge($params, $outletParams);
