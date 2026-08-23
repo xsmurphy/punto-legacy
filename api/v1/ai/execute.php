@@ -74,6 +74,15 @@ function aiExecuteRequiredPermission(string $action, array $payload): ?string
         'create_tag'        => 'inventory.item.edit',
     ];
 
+    // `create_user` es la única acción del agente que toca el equipo del
+    // comercio, o sea la puerta a más accesos. Exige la clave elevada ADEMÁS
+    // de contacts.user.manage — sin esto `ai.agent.elevated` era una clave
+    // decorativa del catálogo, mostrada en el panel y chequeada en ningún
+    // lado. Seed: manager y owner la tienen; cashier no.
+    if ($action === 'create_user' && !hasPermission('ai.agent.elevated')) {
+        return 'ai.agent.elevated';
+    }
+
     if ($action === 'tabular_import') {
         $importKind = (string) ($payload['kind'] ?? '');
         return $importKind === 'contacts'

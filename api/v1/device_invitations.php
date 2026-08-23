@@ -72,6 +72,15 @@ $ctx       = apiAuthTenant(['panel']);
 $companyId = $ctx['companyId'];
 $userId    = $ctx['userId'];
 
+// Gate de autorización. Aprobar una invitación emite un token de dispositivo
+// ETERNO con acceso al tenant: es la operación más sensible de este archivo y
+// no tiene vuelta atrás salvo revocando el device. Las ramas públicas
+// (`open`/`status`, arriba) quedan fuera a propósito — las ejecuta el
+// dispositivo que todavía no está pareado, su control es el userCode.
+if (!hasPermission('settings.device.pair')) {
+    apiError('No tenés permiso para esta acción (requiere: settings.device.pair)', 403);
+}
+
 // GET ?resource=list
 if ($method === 'GET' && $resource === 'list') {
     apiOk(['invitations' => $svc->list($companyId)]);

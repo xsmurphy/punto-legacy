@@ -49,6 +49,12 @@ if ($method === 'POST') {
         apiError('No autorizado', 403);
     }
 
+    // Alta/edición/baja de cajas: la caja es el punto de expedición fiscal
+    // (context/29), su timbrado y su numeración salen de acá.
+    if (!hasPermission('settings.register.manage')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.register.manage)', 403);
+    }
+
     $adminSvc = new RegisterAdminService($companyId);
 
     if ($action === 'create') {
@@ -154,6 +160,12 @@ if ($method === 'GET' && $resource === 'hotkeys') {
 // PUT ?resource=hotkeys = persistir la grilla de accesos directos en register.data.hotkeys.
 // registerId/companyId SIEMPRE del JWT. Valida + normaliza el shape server-side antes de guardar.
 if ($method === 'PUT' && $resource === 'hotkeys') {
+    // Realm `pos-app`: la sesión del device se emite con roleId='1' → seed
+    // `owner` (DeviceAuth::buildToken), así que la caja pasa siempre y esto no
+    // puede romper el mostrador. Es efectivo para el realm `panel`.
+    if (!hasPermission('settings.register.manage')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.register.manage)', 403);
+    }
     if ($registerId === '') {
         apiError('Sin caja activa', 422);
     }
@@ -230,6 +242,12 @@ if ($method === 'GET' && $resource === 'config') {
 }
 
 if ($method === 'PUT' && $resource === 'config') {
+    // Realm `pos-app`: la sesión del device se emite con roleId='1' → seed
+    // `owner` (DeviceAuth::buildToken), así que la caja pasa siempre y esto no
+    // puede romper el mostrador. Es efectivo para el realm `panel`.
+    if (!hasPermission('settings.register.manage')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.register.manage)', 403);
+    }
     if ($registerId === '') {
         apiError('Sin caja activa', 422);
     }

@@ -34,6 +34,17 @@ $ctx       = apiAuthTenant($method === 'GET' ? ['panel', 'pos-app'] : ['panel'])
 $companyId = $ctx['companyId'];
 $id        = $_GET['id'] ?? null;
 
+// Gate de autorización: la LECTURA queda abierta a cualquier sesión del
+// tenant (el carrito del POS y el panel necesitan las tasas para calcular el
+// IVA mostrado — el catálogo no tiene una clave `settings.tax.view`).
+// Cambiar una tasa reescribe el IVA de todo lo que se venda después, así que
+// las mutaciones sí van detrás de settings.tax.manage. Los verbos mutantes ya
+// están restringidos al realm `panel` por el apiAuthTenant() de arriba, o sea
+// que acá el rol siempre es el del operador real.
+if ($method !== 'GET' && !hasPermission('settings.tax.manage')) {
+    apiError('No tenés permiso para esta acción (requiere: settings.tax.manage)', 403);
+}
+
 global $db;
 $svc = new \Punto\Api\Taxes\TaxService($db);
 

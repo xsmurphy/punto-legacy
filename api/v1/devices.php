@@ -18,6 +18,14 @@ $__ctx = apiAuthTenant(['panel']);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+// Gate de autorización. El catálogo no separa ver de administrar dispositivos
+// y la lista no es material de consulta: expone el parque de cajas del tenant
+// y es la pantalla desde la que se revoca una. Una sola clave para todo el
+// endpoint. Realm `panel` únicamente, así que el rol es el del operador real.
+if (!hasPermission('settings.device.manage')) {
+    apiError('No tenés permiso para esta acción (requiere: settings.device.manage)', 403);
+}
+
 if ($method === 'DELETE') {
     $deviceId = trim((string) ($_GET['id'] ?? $_POST['deviceId'] ?? ''));
     $hard     = ($_GET['hard'] ?? '') === '1';
