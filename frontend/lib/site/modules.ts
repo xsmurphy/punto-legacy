@@ -22,7 +22,7 @@ export const MODULE_TABS: ModuleTab[] = [
     title: "La venta, en segundos",
     description:
       "La venta se arma tocando el catálogo o escaneando, y el total sale solo. Contado, crédito o mixto, en la misma pantalla.",
-    idealFor: "minimarkets · restaurantes · tiendas",
+    idealFor: "minimarkets · tiendas · farmacias · barberías",
     mockup: "ticket",
   },
   {
@@ -33,15 +33,6 @@ export const MODULE_TABS: ModuleTab[] = [
       "Apertura, movimientos y arqueo por turno y por caja. Lo esperado contra lo contado, y cada diferencia con nombre y hora.",
     idealFor: "locales con turnos · más de un cajero",
     mockup: "arqueo",
-  },
-  {
-    key: "mesas",
-    label: "Mesas",
-    title: "El salón, mesa por mesa",
-    description:
-      "Cada mesa con su cuenta abierta y su pedido en cocina. Se agrega, se une, se divide o se cobra desde cualquier caja del local.",
-    idealFor: "restaurantes · bares · patios de comida",
-    mockup: "mesas",
   },
   {
     key: "facturacion",
@@ -67,8 +58,17 @@ export const MODULE_TABS: ModuleTab[] = [
     title: "Saber quién te compra",
     description:
       "Quién compró, qué compró y cuánto debe. Crédito con límite, cobranzas al día y la historia completa de cada cliente.",
-    idealFor: "almacenes · farmacias · locales de barrio",
+    idealFor: "farmacias · ferreterías · consultorios · locales de barrio",
     mockup: "clientes",
+  },
+  {
+    key: "mesas",
+    label: "Mesas",
+    title: "El salón, mesa por mesa",
+    description:
+      "Cada mesa con su cuenta abierta y su pedido en cocina. Se agrega, se une, se divide o se cobra desde cualquier caja del local.",
+    idealFor: "restaurantes · bares · comida rápida",
+    mockup: "mesas",
   },
   {
     key: "reportes",
@@ -120,7 +120,7 @@ export const FEATURE_CARDS: FeatureCard[] = [
     image: "/site/pos-gastronomia.png",
     title: "Órdenes y mesas",
     description:
-      "El pedido viaja a cocina sin papeles y cada mesa muestra su cuenta abierta.",
+      "La comanda entra sola a su estación y cada mesa muestra su cuenta abierta.",
   },
   {
     key: "cotizaciones",
@@ -159,13 +159,13 @@ export const FEATURE_CARDS: FeatureCard[] = [
     image: "/site/hero.jpg",
     title: "Producción y recetas",
     description:
-      "La receta descuenta insumos y calcula el costo del plato sola.",
+      "La receta descuenta insumos y calcula el costo real de lo que producís.",
   },
   {
     key: "combos",
     title: "Combos y agregados",
     description:
-      "Mitades, adicionales y combos que bajan literales a la comanda.",
+      "Medias medidas, adicionales y combos que bajan claros a cada línea.",
   },
   {
     key: "precios",
@@ -200,7 +200,8 @@ export const FEATURE_CARDS: FeatureCard[] = [
   {
     key: "impresion",
     title: "Plantillas de impresión",
-    description: "Ticket, factura y comanda con tu logo, tal como los querés.",
+    description:
+      "Ticket, factura, comanda o remito con tu logo, tal como los querés.",
   },
   {
     key: "customer-display",

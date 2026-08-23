@@ -96,15 +96,11 @@ function MockTotal({ left, right }: { left: string; right: string }) {
 export function MockupTicket() {
   return (
     <MockFrame label="Caja 1" title="Venta en curso">
-      <MockRow
-        left="1× Lomito árabe"
-        right="{money:35000}"
-        sub={["Sin cebolla · Extra queso"]}
-      />
-      <MockRow left="2× Jugo de mburucuyá" right="{money:24000}" />
-      <MockRow left="1× Papas rústicas" right="{money:18000}" />
-      <MockRow left="Descuento cliente frecuente" right="{money:-8000}" />
-      <MockTotal left="Cobrar" right="{money:69000}" />
+      <MockRow left="2× Yerba compuesta 1kg" right="{money:56000}" />
+      <MockRow left="1× Shampoo 400ml" right="{money:38000}" />
+      <MockRow left="3× Jabón de tocador" right="{money:21000}" />
+      <MockRow left="Descuento cliente frecuente" right="{money:-6000}" />
+      <MockTotal left="Cobrar" right="{money:109000}" />
     </MockFrame>
   )
 }

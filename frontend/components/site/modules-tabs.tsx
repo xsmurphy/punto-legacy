@@ -18,8 +18,8 @@ export function ModulesTabs() {
           El sistema no termina en el Punto de Venta
         </h2>
         <p className="mt-4 text-base text-muted-foreground md:text-lg">
-          Facturación, stock, clientes y reportes trabajando juntos, sin
-          planillas al costado.
+          Facturación, stock, clientes y reportes trabajando juntos — en un
+          mostrador, un salón o un consultorio.
         </p>
       </div>
 
