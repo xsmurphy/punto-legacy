@@ -71,6 +71,7 @@ import {
 } from "@/lib/types/item"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useViewScope } from "@/hooks/use-view-scope"
 
 export default function ItemsPage() {
   // useSearchParams() requiere Suspense boundary durante prerender (Next 15+
@@ -105,8 +106,21 @@ function ItemsPageInner() {
     archived: showArchived,
     parentId: parentId ?? undefined,
     includeVariants: showVariants,
+    // Única página que respeta el selector global de sucursal (decisión
+    // owner 2026-08-22) — ver el comentario largo en `useItems()` sobre por
+    // qué es opt-in y no ambiente para todo consumer de /v1/items.
+    respectViewScope: true,
   })
   const { data: bootstrap } = useBootstrap()
+  // View-scope global (selector de sucursal del dropdown del logo). El
+  // listado ya llega filtrado por el backend (api/v1/items.php respeta
+  // VIEW_OUTLET_ID vía outletVisibilityClause() — context/25 §3/§5); acá
+  // solo lo leemos para explicar el empty state cuando la sucursal elegida
+  // no tiene artículos asignados. `useItems` no depende de `viewScope`
+  // directamente: `panel-auth-guard.tsx` invalida la query key "items" al
+  // cambiar el selector (no está en `NON_SCOPED_ROOTS`), así que el refetch
+  // ya ocurre solo — no hace falta pasarlo a `useItems`.
+  const { scope: viewScope } = useViewScope()
   const archive = useArchiveItem()
   const hardDelete = useDeleteItem()
   const group = useGroupItems()
@@ -145,6 +159,58 @@ function ItemsPageInner() {
     }
     return rows
   }, [data, kindFilter, outletFilter, categoryFilter])
+
+  // Empty state: distingue "no hay resultados con estos filtros" de "esta
+  // sucursal no tiene artículos asignados" de "el catálogo está vacío" — un
+  // "Sin artículos todavía" seco cuando en realidad el tenant SÍ tiene
+  // catálogo (solo que ninguno está asignado a la sucursal elegida en el
+  // selector global) hace pensar que hay que cargar el catálogo de cero.
+  // `data.total` es el conteo server-side (ya filtrado por
+  // `outletVisibilityClause()` — ver api/v1/items.php): 0 ahí significa
+  // "0 en el backend", no un recorte del filtro client-side de la tabla.
+  const hasLocalFilters =
+    kindFilter !== "all" || categoryFilter !== "all" || outletFilter !== "all" || !!debouncedSearch
+  const isOutletScoped = typeof viewScope === "string" && viewScope !== "all"
+  const emptyState = React.useMemo(() => {
+    if (hasLocalFilters) {
+      return (
+        <EmptyState
+          icon={Package}
+          title="Sin resultados"
+          description="Ningún artículo coincide con los filtros aplicados."
+        />
+      )
+    }
+    if (isOutletScoped && !isViewingGroup && (data?.total ?? 0) === 0) {
+      const outletName =
+        bootstrap?.outlets?.find((o) => o.id === viewScope)?.name ?? "esta sucursal"
+      return (
+        <EmptyState
+          icon={Package}
+          title={`Sin artículos asignados a ${outletName}`}
+          description={
+            <>
+              El catálogo del negocio no está vacío: elegí{" "}
+              <strong>Todas las sucursales</strong> en el selector de arriba para
+              verlo completo, o asigná artículos a esta sucursal desde su ficha.
+            </>
+          }
+        />
+      )
+    }
+    return (
+      <EmptyState
+        icon={Package}
+        title="Sin artículos todavía"
+        description={
+          <>
+            Creá el primero con el botón <strong>Nuevo artículo</strong>{" "}
+            arriba a la derecha.
+          </>
+        }
+      />
+    )
+  }, [hasLocalFilters, isOutletScoped, isViewingGroup, data?.total, bootstrap, viewScope])
 
   useAgentPageSnapshot(
     {
@@ -716,18 +782,7 @@ function ItemsPageInner() {
                 )}
               </>
             )}
-            emptyMessage={
-              <EmptyState
-                icon={Package}
-                title="Sin artículos todavía"
-                description={
-                  <>
-                    Creá el primero con el botón <strong>Nuevo artículo</strong>{" "}
-                    arriba a la derecha.
-                  </>
-                }
-              />
-            }
+            emptyMessage={emptyState}
             toolbarSlot={
               <>
                 <Select

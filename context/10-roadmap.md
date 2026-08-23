@@ -926,11 +926,17 @@ están en `_feature-requests.md` §2026-07-31. Bugs nuevos verificados contra c�
   aparece el síntoma. `preflightPayment` no elimina la carrera:
   `SpaceSettlementService.php:258-277` documenta que el POS crea la venta
   ANTES de la validación definitiva del pago parcial. Falta repro real.
-- **Productos de ambas sucursales mezclados en el catálogo** — parcial: el
-  POS ya NO mezcla (`outletVisibilityClause()`, `ItemsQuery.php:319`, commit
-  `a48c8555`). El panel sigue mostrando el catálogo completo por diseño
-  declarado (`api/v1/items.php:155`) — decisión de producto pendiente del
-  owner, no bug de código.
+- **Productos de ambas sucursales mezclados en el catálogo** — ✅ RESUELTO
+  2026-08-22 (decisión owner). El POS ya no mezclaba (`outletVisibilityClause()`,
+  `ItemsQuery.php:319`, commit `a48c8555`). El listado de Artículos del panel
+  (`app/(panel)/items/page.tsx`) ahora también respeta el view-scope global:
+  "Todas las sucursales" ve el catálogo completo (comportamiento histórico),
+  una sucursal puntual ve solo lo asignado a ella + lo global (`outletId IS
+  NULL`), reusando la misma `outletVisibilityClause()`. Opt-in por
+  `?respectViewScope=1` en `api/v1/items.php` — el resto de los consumers de
+  `/v1/items` (picker de Compras, receta de combos, agente IA) siguen viendo
+  el catálogo completo a propósito (ver `context/25-sucursales-y-scopes.md`
+  §3/§5).
 
 ## Módulos nuevos ✅ (cierre 2026-07-19 / 2026-07-27)
 

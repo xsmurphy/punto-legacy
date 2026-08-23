@@ -74,7 +74,7 @@ que estaba desactualizada — ver §6).
 | Dato | Scope | Cómo filtra |
 |---|---|---|
 | Contactos | Tenant (no filtra por outlet) | — |
-| Items / catálogo | Tenant | — |
+| Items / catálogo | **Híbrida** (decisión owner 2026-08-22): la página de Artículos (`app/(panel)/items/page.tsx`) respeta el view-scope — "Todas" ve el tenant completo, una sucursal puntual ve solo lo asignado a ella + lo global (`outletId IS NULL`). El resto de los consumers de `/v1/items` (picker de Compras, receta de combos, agente IA) siguen viendo el catálogo COMPLETO siempre — ver §5 "Endpoint compartido" | `outletVisibilityClause()` en `api/lib/Items/ItemsQuery.php:319`, mismo criterio que ya usaba `pos-app`. Opt-in por query param `?respectViewScope=1` (`api/v1/items.php`), NO ambiente por el header — ver el comentario largo ahí para el porqué |
 | Settings (taxonomías, empresa) | Tenant | — |
 | Transacciones / ventas | Sucursal | `Roc::build` (panel) / `outletScope` (pos-app) |
 | Stock / inventario | Sucursal | `Roc::build` / `outletScope` |
@@ -123,6 +123,20 @@ que estaba desactualizada — ver §6).
       explícito.
 - [ ] Nunca confiar en `outletId` del body para un device — validar o
       ignorar, igual que `spaces.php`/`orders-core.php`.
+
+**Endpoint compartido por una página "vista por sucursal" Y por pickers
+cross-outlet (caso `/v1/items`, 2026-08-22):**
+- [ ] Si el mismo endpoint alimenta tanto una página que debe obedecer el
+      view-scope (ej. listado de Artículos) como selectores usados en OTROS
+      flujos que necesitan ver el catálogo/dato completo sin importar la
+      sucursal elegida (ej. picker de ítems en Compras o en la receta de un
+      combo), el filtro de view-scope va **opt-in por query param explícito**
+      (`?respectViewScope=1` en `/v1/items`), nunca ambiente solo porque
+      `api-client.ts` ya manda `X-Outlet-Id` en TODAS las requests del panel.
+      Ambiente rompe los pickers cross-outlet como efecto colateral apenas
+      alguien fija una sucursal en el dropdown del logo.
+- [ ] Solo la página/hook que debe obedecer el scope pasa el flag; el resto
+      de los call-sites del mismo hook se quedan en el default (sin scope).
 
 ## 6. Drift encontrado vs `10-roadmap.md` §294-334
 
