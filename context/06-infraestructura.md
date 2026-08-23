@@ -3,6 +3,32 @@
 
 # 06 — Infraestructura
 
+## Cómo identificar los contenedores de Punto en el servidor
+
+En el droplet corren varias apps. **Nombrar el contenedor equivocado ya produjo
+dos diagnósticos falsos** (2026-08-21 y 2026-08-22): se concluyó "no hay env
+vars de facturación electrónica en prod" y "`APP_ENCRYPTION_KEY` no está
+cargada" mirando `api-asqhqb6vb5yerc532ls0vql9`, que **no es Punto** — es otra
+app (Node/Prisma). Los nombres llevan hash y cambian en cada deploy, así que no
+se memorizan: se identifican.
+
+| Servicio | Cómo encontrarlo | Al 2026-08-23 |
+|---|---|---|
+| API + front de Punto | El único con PHP: `for c in $(docker ps --format '{{.Names}}'); do docker exec $c sh -c 'command -v php' >/dev/null 2>&1 && echo $c; done` | `z645wx54kwtcciczaeoldwvc-*` |
+| Postgres de Punto | `w6rtfxm2n6l45r4r9melj3hl` (NO `postgres-asqhqb*`, es de la otra app) | igual |
+
+Dentro del contenedor de la API el layout **no** espeja el repo: el código vive
+en `/var/www/api`, pero el Dockerfile copia `database/` aparte y las
+migraciones quedan en `/var/www/database/migrations/postgres`. Una migración
+PHP que resuelva rutas contando niveles con `dirname(__DIR__, N)` acierta en el
+repo y falla en el contenedor — pasó con `161_repair_missing_roledata.php` y,
+como el entrypoint es fail-fast, **tiró el deploy entero** (2026-08-22).
+
+Antes de afirmar "en producción no está X", verificá contra el contenedor
+correcto. Es la trampa que más veces mordió en este proyecto.
+
+---
+
 ## Arquitectura de deploy (actualizada 2026-06-09 — Coolify single-container)
 
 ```
