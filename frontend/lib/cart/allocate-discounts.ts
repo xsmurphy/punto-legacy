@@ -48,7 +48,10 @@ export interface LineTax {
  * no le toca el precio. NUNCA se inventa una tasa — mismo criterio que
  * `SaleService::deriveTaxRateKindFromName` y que `selectCartIva`.
  */
-export const EXEMPT_LINE_TAX: LineTax = { rate: 0, kind: "exempt", included: true }
+// Congelado: `withLineTax` devuelve ESTA misma referencia para todas las
+// líneas exentas de una venta, así que una mutación accidental las tocaría a
+// todas de golpe.
+export const EXEMPT_LINE_TAX: LineTax = Object.freeze({ rate: 0, kind: "exempt", included: true })
 
 /**
  * Importe de una línea, ajustado por `ivaRemoved`. FUENTE ÚNICA de la fórmula:
