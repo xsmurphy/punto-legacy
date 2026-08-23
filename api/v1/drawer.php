@@ -127,6 +127,37 @@ if ($method === 'POST') {
     // userId del JWT tiene precedencia; $user del body es solo para auditoría/email del legacy
     $userId = $ctx['userId'] ?? '';
 
+    // ── Gate de autorización por acción ────────────────────────────────────
+    // `expense`/`income` (extracción e ingreso de efectivo) van con
+    // finance.manage: no tienen clave propia en el catálogo y son movimientos
+    // de plata, no la apertura/cierre del turno — colgarlos de
+    // pos.drawer.close le cambiaría el significado a esa clave. finance.manage
+    // ya es la clave de todo lo que mueve caja (finance/movements.php,
+    // pago a proveedor en credit-payments.php) y está en el seed de manager.
+    //
+    // Realm `pos-app`: la sesión del device se emite con el rol seed `device`,
+    // cuyo piso incluye pos.drawer.open/close y finance.manage — abrir, cerrar
+    // y mover efectivo son operaciones de mostrador y la caja nunca se queda
+    // sin poder hacerlas (offline-first). El gate discrimina de verdad para
+    // cualquier rol más chico y para el realm `panel`.
+    $drawerPerm = [
+        'open'    => 'pos.drawer.open',
+        'close'   => 'pos.drawer.close',
+        'expense' => 'finance.manage',
+        'income'  => 'finance.manage',
+    ][$action] ?? null;
+    // Fail-CLOSED: una acción que no está en el mapa no tiene permiso
+    // asignado, y `$drawerPerm !== null &&` la dejaba pasar el gate entero
+    // para que el `default:` del switch de abajo la rechazara — o sea que la
+    // próxima acción que alguien agregue al switch sin agregarla al mapa nace
+    // sin gate. El 400 sale acá, antes de cualquier efecto.
+    if ($drawerPerm === null) {
+        apiError("Acción '$action' no soportada", 400);
+    }
+    if (!hasPermission($drawerPerm)) {
+        apiError("No tenés permiso para esta acción (requiere: $drawerPerm)", 403);
+    }
+
     try {
         switch ($action) {
             case 'open':

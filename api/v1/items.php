@@ -206,6 +206,54 @@ if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET' && ($_GET['resource
 
 $resource = (string) ($_GET['resource'] ?? '');
 
+// ── Gate de autorización ────────────────────────────────────────────────────
+// UN solo gate para todo el endpoint, resuelto por (método, sub-recurso), en
+// vez de repetir el `if (!hasPermission(...))` en cada una de las ~20 ramas
+// de abajo. Este archivo despacha por sub-recurso a lo largo de 800 líneas:
+// un gate por rama garantiza que la próxima rama que alguien agregue nazca
+// sin gate. Acá arriba, una rama nueva queda cubierta por default.
+//
+// Realm `pos-app`: el guard de arriba ya lo dejó en GET + bulk-get, y la
+// sesión del device se emite con el rol seed `device`, cuyo piso incluye
+// `inventory.item.view` y nada más de inventario — o sea que el gate es
+// efectivo en los dos realms.
+function itemsRequiredPermission(string $method, string $resource): string
+{
+    // Toda lectura del catálogo — incluido `bulk-get`, que es POST solo por
+    // el tamaño del body (ver comentario de la rama).
+    if ($method === 'GET' || $resource === 'bulk-get') {
+        return 'inventory.item.view';
+    }
+    // Movimientos de inventario no son "editar el ítem": mueven stock, y esa
+    // operación ya tiene clave propia (misma que stock_adjustment.php).
+    if ($resource === 'inventory-movements') {
+        return 'inventory.stock.adjust';
+    }
+    if ($method === 'DELETE') {
+        // Borrar un SUB-recurso (una imagen, una receta, un grupo de combo) es
+        // editar el ítem. `inventory.item.delete` es archivar/borrar el ÍTEM.
+        return $resource === '' ? 'inventory.item.delete' : 'inventory.item.edit';
+    }
+    // `import` con mode=update NO es un alta: es un UPDATE masivo de precios,
+    // costos y datos de TODO el catálogo por CSV. Pedirle `inventory.item.create`
+    // dejaba que un rol de solo alta reescribiera el catálogo entero.
+    if ($resource === 'import') {
+        return (($_POST['mode'] ?? 'insert') === 'update')
+            ? 'inventory.item.edit'
+            : 'inventory.item.create';
+    }
+    if ($method === 'POST' && in_array($resource, ['', 'group', 'variants'], true)) {
+        return 'inventory.item.create';
+    }
+    // Resto de POST sobre sub-recursos, PUT/PATCH y cualquier verbo mutante.
+    return 'inventory.item.edit';
+}
+
+$itemsPerm = itemsRequiredPermission($method, $resource);
+if (!hasPermission($itemsPerm)) {
+    apiError("No tenés permiso para esta acción (requiere: $itemsPerm)", 403);
+}
+
 global $db;
 
 // ── Bulk-get quirúrgico (sync realtime, context/15) ────────────────────────

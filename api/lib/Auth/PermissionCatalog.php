@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 3;
+    public const CURRENT_VERSION = 4;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -86,7 +86,15 @@ final class PermissionCatalog
             // settings.company.edit.
             ['id' => 'settings.periodClose',     'label' => 'Cerrar períodos contables','group' => 'Configuración', 'since' => 3],
 
-            ['id' => 'billing.view',             'label' => 'Ver facturación',         'group' => 'Facturación'],
+            // `since` = 4 no significa "la clave nació en la v4" (existe desde
+            // el baseline): significa "a partir de la v4 tiene que propagarse
+            // a los roles seed que no la tengan". Es lo único que el campo
+            // maneja — ver el docblock de since() y _reconcileSeedGaps().
+            // Se agregó al default de `manager` cuando billing.php pasó a
+            // estar gateado: el encargado ya veía la pantalla de plan y
+            // consumo y la necesita (saber que se acabaron los créditos de IA
+            // es operativo). billing.manage NO — gastar plata es del dueño.
+            ['id' => 'billing.view',             'label' => 'Ver facturación',         'group' => 'Facturación', 'since' => 4],
             ['id' => 'billing.manage',           'label' => 'Gestionar plan y pagos',  'group' => 'Facturación'],
             ['id' => 'einvoice.manage',          'label' => 'Gestionar facturación electrónica', 'group' => 'Facturación'],
 
@@ -119,7 +127,38 @@ final class PermissionCatalog
         return $ids;
     }
 
-    /** Versión del catálogo en la que se introdujo `$id`. BASELINE_VERSION si no declara `since`. */
+    /**
+     * Versión a partir de la cual `$id` debe propagarse a los roles seed que
+     * no lo tengan (ver RoleService::_reconcileSeedGaps). Normalmente coincide
+     * con la versión en la que la clave se introdujo, pero lo que el campo
+     * gobierna es la PROPAGACIÓN: agregar una clave preexistente al default de
+     * un seed también requiere subirle el `since` y bumpear CURRENT_VERSION,
+     * porque si no los roles ya guardados nunca la reciben.
+     *
+     * ⚠ SUBIR EL `since` DE UNA CLAVE PREEXISTENTE REVIVE REVOCACIONES
+     * MANUALES, y no hay forma de distinguirlas. `_reconcileSeedGaps()` decide
+     * "esto le falta y hay que dárselo" comparando `since` contra el
+     * `catalogVersion` con el que el rol fue guardado por última vez; no tiene
+     * registro de por qué la clave no está. Los dos casos son indistinguibles:
+     *
+     *   (A) el rol se guardó antes de que la clave entrara al default del seed
+     *       → nunca la tuvo, y dársela es el backfill que se quiere;
+     *   (B) un admin se la SACÓ a mano al rol desde el panel → dársela es
+     *       deshacer su decisión, en silencio y en TODOS los tenants a la vez.
+     *
+     * Ya pasó: `billing.view` existía desde el baseline y se le subió el
+     * `since` a 4 al agregarla al default de `manager`. Cualquier `manager`
+     * al que un admin le hubiera quitado "ver facturación" la recupera sola
+     * en la primera lectura de permisos post-deploy.
+     *
+     * O sea: subir el `since` de una clave que ya existía es un cambio que
+     * PISA configuración del tenant, no un backfill inocuo. Vale la pena
+     * cuando la clave es de lectura y su ausencia rompe una pantalla; para
+     * cualquier clave de escritura, o de radio de impacto alto, la opción
+     * correcta es dejar el `since` como está y que cada admin la agregue.
+     *
+     * BASELINE_VERSION si no declara `since`.
+     */
     public static function since(string $id): int
     {
         static $map = null;

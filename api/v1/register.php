@@ -49,6 +49,12 @@ if ($method === 'POST') {
         apiError('No autorizado', 403);
     }
 
+    // Alta/edición/baja de cajas: la caja es el punto de expedición fiscal
+    // (context/29), su timbrado y su numeración salen de acá.
+    if (!hasPermission('settings.register.manage')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.register.manage)', 403);
+    }
+
     $adminSvc = new RegisterAdminService($companyId);
 
     if ($action === 'create') {
@@ -154,6 +160,14 @@ if ($method === 'GET' && $resource === 'hotkeys') {
 // PUT ?resource=hotkeys = persistir la grilla de accesos directos en register.data.hotkeys.
 // registerId/companyId SIEMPRE del JWT. Valida + normaliza el shape server-side antes de guardar.
 if ($method === 'PUT' && $resource === 'hotkeys') {
+    // Realm `pos-app`: el piso del rol seed `device` incluye
+    // settings.register.manage justamente por estas dos ramas — hotkeys y
+    // toggles de SU PROPIA caja se editan desde el mostrador (registerId sale
+    // del token, no del body). El alta/baja de cajas, que es lo que esa clave
+    // significa en el panel, está cerrada al realm `panel` más arriba.
+    if (!hasPermission('settings.register.manage')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.register.manage)', 403);
+    }
     if ($registerId === '') {
         apiError('Sin caja activa', 422);
     }
@@ -230,6 +244,14 @@ if ($method === 'GET' && $resource === 'config') {
 }
 
 if ($method === 'PUT' && $resource === 'config') {
+    // Realm `pos-app`: el piso del rol seed `device` incluye
+    // settings.register.manage justamente por estas dos ramas — hotkeys y
+    // toggles de SU PROPIA caja se editan desde el mostrador (registerId sale
+    // del token, no del body). El alta/baja de cajas, que es lo que esa clave
+    // significa en el panel, está cerrada al realm `panel` más arriba.
+    if (!hasPermission('settings.register.manage')) {
+        apiError('No tenés permiso para esta acción (requiere: settings.register.manage)', 403);
+    }
     if ($registerId === '') {
         apiError('Sin caja activa', 422);
     }

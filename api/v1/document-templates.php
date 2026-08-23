@@ -32,6 +32,16 @@ if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET') {
     apiError('El dispositivo POS solo puede leer las plantillas', 403);
 }
 
+// Gate de autorización: leer las plantillas lo necesita cualquier sesión que
+// imprima (el POS las baja en el bootstrap) y el catálogo no tiene clave
+// `.view` para esto. Crear/editar/borrar una plantilla cambia lo que sale
+// impreso en TODOS los documentos del comercio — eso sí va detrás de
+// settings.template.manage. El guard de arriba ya dejó los verbos mutantes
+// en realm `panel`, así que acá el rol es el del operador real.
+if ($method !== 'GET' && !hasPermission('settings.template.manage')) {
+    apiError('No tenés permiso para esta acción (requiere: settings.template.manage)', 403);
+}
+
 global $db;
 $svc = new \Punto\Api\Settings\DocumentTemplateService($db);
 

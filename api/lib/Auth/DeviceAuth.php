@@ -155,15 +155,22 @@ final class DeviceAuth
         string $module = 'pos',
     ): string {
         require_once dirname(__DIR__, 2) . '/includes/auth_session.php';
+        require_once __DIR__ . '/RoleService.php';
         // Device = sesión opaca eterna (expiresAt null), revocable por sesión o por device.status.
         // oid/rid/module se guardan info-only; el backend resuelve scope desde la fila device.
+        //
+        // roleId = el rol seed `device`, NO '1'. Con '1' la sesión resolvía a
+        // `owner` vía RoleService::LEGACY_MAP y `hasPermission()` le devolvía
+        // true a todo: el Bearer de una tablet del mostrador era, a efectos de
+        // autorización, el token del Dueño del comercio. Ver el comentario del
+        // slug 'device' en RoleService::SEED_PERMISSIONS.
         return authSessionCreate('pos-app', [
             'companyId'  => $companyId,
             'userId'     => $pairedByContactId,
             'deviceId'   => $deviceId,
             'outletId'   => $outletId,
             'registerId' => $registerId,
-            'roleId'     => '1',
+            'roleId'     => \RoleService::deviceRoleId($companyId),
             'module'     => $module,
             'expiresAt'  => null,
         ]);
@@ -355,14 +362,22 @@ final class DeviceAuth
             // best-effort
         }
 
-        $module = (string) ($device['module'] ?? $s['module'] ?? 'pos');
+        $module   = (string) ($device['module'] ?? $s['module'] ?? 'pos');
+        $tenantId = (string) ($device['companyid'] ?? '');
+        require_once __DIR__ . '/RoleService.php';
         return [
-            'companyId'  => (string) ($device['companyid']  ?? ''),
+            'companyId'  => $tenantId,
             'outletId'   => (string) ($device['outletid']   ?? ''),
             'registerId' => (string) ($device['registerid'] ?? ''),
             'deviceId'   => $deviceId,
             'userId'     => (string) ($device['userid']     ?? ''),
-            'roleId'     => '1',
+            // Se RESUELVE, no se lee de la sesión: igual que outlet/register,
+            // el rol del dispositivo es una propiedad del tenant, no un dato
+            // congelado en un token eterno. Así las sesiones emitidas antes de
+            // que existiera el rol `device` (roleId='1' → owner) tampoco operan
+            // con permisos de Dueño, sin depender de que la mig 161 las haya
+            // alcanzado.
+            'roleId'     => \RoleService::deviceRoleId($tenantId),
             'isDevice'   => true,
             'module'     => $module,
         ];

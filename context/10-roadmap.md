@@ -10,7 +10,82 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-22 (auditoría del backlog contra código real: numeración fiscal resuelta, 3 P0 nuevos — vale infacturable, stock de add-ons en orden/mesa, permisos sin gate)
+> **Última actualización:** 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
+
+---
+
+## Permisos del POS — sesión de operador sobre el token del dispositivo (abierto)
+
+Fase siguiente del trabajo de enforcement de permisos. La parte (a) —darle al
+dispositivo un rol propio— **ya está implementada** (branch
+`api/permisos-enforcement`, mig 161). Falta la (b).
+
+### Qué quedó hecho (contexto para retomar)
+
+El token del POS se emitía con `roleId='1'`, que `RoleService::LEGACY_MAP`
+resuelve a `owner`, y `hasPermission()` le devuelve `true` a todo cuando el rol
+es owner. Los `hasPermission()` de los 7 endpoints que aceptan el realm
+`pos-app` eran, por lo tanto, letra muerta en la caja. El camino explotable
+completo estaba en `/v1/contacts`: PUT sobre un contacto `type=0` resolvía
+`contacts.user.manage`, el device pasaba, `ContactService` mapea `phone` a
+`contactPhone`, y `/v1/login.php` autentica por `contactPhone AND type=0` — un
+device le cambiaba el teléfono de login al Dueño y se quedaba con el comercio.
+
+Lo implementado:
+
+- Rol seed `device` (`RoleService::SEED_PERMISSIONS['device']`) con el piso de
+  capacidades de una terminal, derivado endpoint por endpoint del inventario
+  real de llamadas del POS con Bearer. Nada de empleados, catálogo de
+  escritura, config del comercio ni plantillas de escritura.
+- `DeviceAuth::buildToken()` emite con ese rol; `bootstrap.php` (apiAuthTenant)
+  y `DeviceAuth::resolveDeviceToken()` lo **resuelven contra el tenant en cada
+  request** en vez de leer el `roleid` de la sesión, así una sesión vieja
+  tampoco opera como owner.
+- Guard de realm en `contactsRequire()`: los contactos `type=0` solo se tocan
+  desde el panel, para view/edit/delete (antes el guard existía solo en DELETE).
+- Mig 161: siembra el rol en los tenants existentes y re-apunta las sesiones
+  `pos-app` vivas. No revoca nada, no hace falta re-parear.
+
+### (b) — lo que falta: `perms(device) ∩ perms(operador)`
+
+Hoy todas las cajas de un tenant tienen exactamente el mismo piso, sin importar
+quién esté parado adelante. Un cajero y un encargado en la misma terminal
+pueden lo mismo. El objetivo es que, cuando el operador se identifica en la
+pantalla de bloqueo, los permisos efectivos sean la **intersección** de los del
+dispositivo y los de esa persona: el device pone el techo (una terminal nunca
+puede más que una terminal) y el operador lo recorta.
+
+**No se re-emite el token del device por operador.** Es eterno, se emite al
+parear —mucho antes de que haya alguien en la caja— y atarlo al turno rompe
+offline-first y revive la confusión device/operador del incidente 2026-07-19.
+
+Lo que hay que construir:
+
+1. **Sesión de operador.** `POST /v1/unlock-pin` hoy valida el PIN y devuelve
+   `{ user: { id, name } }` y nada más — no crea ninguna sesión. Tiene que
+   emitir una sesión corta (realm propio, TTL del turno) con el `roleId` real
+   del contacto, y el POS guardarla junto al Bearer del device.
+2. **Transporte.** El POS manda las dos credenciales: `Authorization: Bearer`
+   (device) + la sesión del operador en un header propio. `posFetch` es el
+   único punto donde se inyecta el Bearer, así que es el único que hay que
+   tocar del lado del cliente.
+3. **Resolución.** Un solo lugar decide los permisos efectivos —el mismo que
+   hoy resuelve el rol del device en `bootstrap.php`— y devuelve la
+   intersección. Sin sesión de operador (o con una vencida) se cae al piso del
+   device, que es exactamente el comportamiento actual: **sin red, la caja
+   sigue operando igual que hoy**, que es el requisito no negociable.
+4. **Cierre de turno.** La sesión del operador muere con el bloqueo de
+   pantalla / cierre de caja.
+
+Riesgo principal a vigilar al implementarlo: que un `403` nuevo aparezca en
+medio de una venta ya emitida. `pos.sale.create` y `pos.discount.apply` están a
+propósito FUERA de todo gate por eso mismo (ver `EXCEPCIONES_CONOCIDAS` en
+`api/tests/permission_enforcement_test.php`); el control de descuentos por
+operador es del cliente (deshabilitar el campo), nunca rechazar el documento.
+
+Guard de regresión ya escrito: la sección (C) del arnés de permisos fija el
+piso del rol `device` clave por clave, con el endpoint que cada una habilita.
+Recortarlo sin querer se pone rojo antes de romper una caja.
 
 ---
 
@@ -31,10 +106,35 @@ ver abajo) — los tres son plata o seguridad, no UX.
    `parentorderitemid IS NULL`, así que `expandAddonSelections` nunca corre.
    La plata sale bien (el `unitPrice` ya incluye el delta); el inventario no.
    Detalle completo: `context/modules/02-combos-y-addons.md`.
-3. **20 de 47 permisos del catálogo no tienen enforcement**, con
-   `api/v1/users.php` como peor caso: POST/PUT/DELETE sin ningún gate —
-   cualquier autenticado crea/edita/borra usuarios y roles. Lista completa y
-   orden de gravedad en `context/_feature-requests.md` § Roles y permisos.
+3. ~~**20 de 47 permisos del catálogo no tienen enforcement**~~ ✅ **RESUELTO
+   (2026-08-22, branch `api/permisos-enforcement`).** Eran 25, no 20. Hoy 45
+   de 47 gateadas; las 2 restantes (`pos.sale.create`, `pos.discount.apply`)
+   quedan fuera a propósito por offline-first —el back no rechaza una venta
+   ya emitida— y están declaradas como excepción en el arnés.
+
+   Evidencia: `api/tests/permission_enforcement_test.php` + runner, 144
+   checks en verde (cobertura del catálogo, matriz endpoint × rol
+   end-to-end con sesiones reales, gates de caja con rol real en realm
+   pos-app, y escalación de privilegios). Suite existente sin regresiones:
+   `sale_chain` (venta end-to-end desde el realm POS), `sale_void`,
+   `return_d2_d3`, `credit_payment_void`, `db_error_visibility`,
+   `pos_device_revoked`, `role_permission_backfill`, `register_lease`.
+
+   Además del gate, se cerraron tres agujeros que el enforcement destapó:
+   escalación de privilegios en `/v1/users` (un Encargado podía asignarse
+   Dueño), bypass del gate de empleados vía `/v1/contacts` (que no filtra
+   por `type`), y el 404-antes-del-403 de contactos que servía de oráculo de
+   existencia. `ai.agent.elevated`, que no correspondía a ninguna operación
+   real, se cableó a `create_user` del agente en vez de borrarse.
+
+   **Queda abierto (P1, no lo cierra este trabajo):** el token de dispositivo
+   se emite con `roleId='1'` → seed `owner`, así que en el realm `pos-app`
+   todo gate pasa. No es una regresión (es así desde que existe el pareo) ni
+   se puede cambiar sin romper la caja: el rol del que pareó el device no es
+   el del cajero que está operando, y el POS no tiene hoy identidad de
+   operador server-side (el PIN de la pantalla de bloqueo es cosmético,
+   `lock-store.ts`). Cerrarlo es un trabajo propio: sesión de operador real
+   emitida por el desbloqueo. Detalle en `context/08` §12.2.
 
 ## P0 FISCAL — numeración de comprobantes ✅ RESUELTO (2026-08-22)
 

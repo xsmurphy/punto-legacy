@@ -169,6 +169,17 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         if ($userId === '') {
             $userId = (string) ($dev['userid'] ?? '');
         }
+        // Rol del realm pos-app: el del DISPOSITIVO, resuelto contra el tenant
+        // — nunca el `roleid` guardado en la fila `auth_session`. Mismo criterio
+        // que outlet/register unas líneas arriba, y por la misma razón: el token
+        // del device es eterno, así que cualquier cosa congelada en él queda
+        // desactualizada. Las sesiones emitidas antes del rol `device` llevan
+        // roleId='1', que LEGACY_MAP resuelve a `owner`: leerlas le daría a una
+        // tablet del mostrador los permisos del Dueño hasta que alguien la
+        // re-parease. `DeviceAuth::resolveDeviceToken()` hace lo mismo para el
+        // otro resolver de contexto pos-app (apiAuthPosContext).
+        require_once __DIR__ . '/lib/Auth/RoleService.php';
+        $roleId = \RoleService::deviceRoleId($companyId);
     } else {
         // Realm panel: la sucursal activa viene del claim `oid` del token (persistida
         // por active-outlet.php). El registerId del POS ya NO vive en el token panel

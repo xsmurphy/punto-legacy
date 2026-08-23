@@ -80,6 +80,15 @@ if ($method === 'DELETE') {
         apiError('Recibo no encontrado', 404);
     }
     $isCustomerPayment = !empty($row['customerId'] ?? null);
+    // Simétrico al alta (más abajo): el POS no le paga a proveedores, así que
+    // tampoco anula esos recibos. El guard de realm importa más desde que el
+    // dispositivo tiene un rol propio: su piso incluye finance.manage —
+    // extracción e ingreso de efectivo de la caja pasan por esa clave— y sin
+    // este corte esa clave le alcanzaría también para anular un pago a
+    // proveedor desde el mostrador.
+    if (!$isCustomerPayment && ($ctx['realm'] ?? '') === 'pos-app') {
+        apiError('La anulación de un pago a proveedor solo está disponible desde el panel', 403);
+    }
     $voidPerm = $isCustomerPayment ? 'pos.sale.void' : 'finance.manage';
     if (!hasPermission($voidPerm)) {
         apiError("No tenés permiso para esta acción (requiere: $voidPerm)", 403);

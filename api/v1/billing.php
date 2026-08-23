@@ -21,6 +21,16 @@ $svc    = new \Punto\Api\Billing\BillingService();
 $pay    = new \Punto\Api\Billing\PaymentsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+// Gate de autorización: leer el plan, el consumo y las facturas del comercio
+// va con billing.view; comprar créditos o pedir un cambio de plan (mueve
+// plata real contra el medio de pago del tenant) va con billing.manage.
+// Ninguno de los dos está en el seed de `manager`/`cashier`: la facturación
+// del SaaS es del dueño. Realm `panel` únicamente.
+$billingPerm = $method === 'GET' ? 'billing.view' : 'billing.manage';
+if (!hasPermission($billingPerm)) {
+    apiError("No tenés permiso para esta acción (requiere: $billingPerm)", 403);
+}
+
 if ($method === 'GET') {
     $resource = (string) (validateHttp('resource') ?: '');
 

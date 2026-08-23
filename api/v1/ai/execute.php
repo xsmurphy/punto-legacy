@@ -74,6 +74,15 @@ function aiExecuteRequiredPermission(string $action, array $payload): ?string
         'create_tag'        => 'inventory.item.edit',
     ];
 
+    // `create_user` es la única acción del agente que toca el equipo del
+    // comercio, o sea la puerta a más accesos. Exige la clave elevada ADEMÁS
+    // de contacts.user.manage — sin esto `ai.agent.elevated` era una clave
+    // decorativa del catálogo, mostrada en el panel y chequeada en ningún
+    // lado. Seed: manager y owner la tienen; cashier no.
+    if ($action === 'create_user' && !hasPermission('ai.agent.elevated')) {
+        return 'ai.agent.elevated';
+    }
+
     if ($action === 'tabular_import') {
         $importKind = (string) ($payload['kind'] ?? '');
         return $importKind === 'contacts'
@@ -211,6 +220,16 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
                 // que el agente pueda informar y reintentar con un role válido.
                 throw new \InvalidArgumentException("Role '$roleName' no existe en el tenant");
             }
+
+            // MISMA regla anti-escalación que /v1/users (RoleEscalation, lib/Auth).
+            // La lista negra de nombres de arriba no alcanza y nunca alcanzó:
+            // bloquea 'super admin'/'admin'/'administrador' pero NO "Dueño",
+            // que es el nombre del seed owner — o sea que pedirle al agente un
+            // usuario con rol Dueño fabricaba un co-dueño del comercio. El
+            // guard compara SETS de permisos contra el rol del operador, así
+            // que no depende de acertarle a ningún nombre.
+            require_once dirname(__DIR__, 2) . '/lib/Auth/RoleEscalation.php';
+            RoleEscalation::guardOrThrow((string) $roleId, $companyId, 'crear un usuario con');
 
             // Contraseña temporal server-side: 16 chars hex = 64 bits de entropy.
             // Se devuelve al operador (sesión autenticada del propio admin) en la

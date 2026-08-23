@@ -49,6 +49,65 @@ Reglas activas:
 - JWT: HttpOnly cookies, no localStorage.
 - SQL: queries parametrizadas SIEMPRE. Concatenación directa = bug de seguridad.
 
+### §12.2 — Toda mutación del tenant se gatea con `hasPermission()` (REGLA ABSOLUTA)
+
+**Una clave en `PermissionCatalog` sin gate es un bug de seguridad**, no una
+feature pendiente. El panel muestra el catálogo completo en la pantalla de
+roles: una clave sin enforcement le miente al admin — cree que revocó algo y
+no revocó nada.
+
+Todo endpoint de `/v1` que MUTE datos del tenant chequea permiso antes de
+mutar. Las lecturas se gatean con la clave `.view` de su familia cuando
+existe; cuando no existe (impuestos, plantillas, cajas) la lectura queda
+abierta a cualquier sesión del tenant y se documenta en el archivo por qué.
+
+Forma canónica, idéntica en todos lados — mismo texto, mismo código:
+
+```php
+if (!hasPermission('x.y.z')) {
+    apiError('No tenés permiso para esta acción (requiere: x.y.z)', 403);
+}
+```
+
+Cuatro cosas que se aprendieron cerrando el agujero de 25 claves sin gate
+(2026-08-22) y que valen para el próximo endpoint:
+
+1. **El gate va ANTES de todo lo demás, incluido el 404.** Si el "no existe"
+   sale primero, el endpoint es un oráculo de existencia: sin permiso, un id
+   real devuelve 404 y uno inventado 403. Cuando el permiso depende de la
+   fila (ej. `/v1/contacts`, donde la clave sale del `type` del contacto), se
+   resuelve el type, se gatea con el default si no hay fila, y recién
+   después se responde 404.
+2. **Un endpoint que despacha por sub-recurso gatea arriba, una sola vez**,
+   con un resolver `(método, recurso) → clave` — no con un `if` por rama.
+   `items.php` tiene ~20 ramas en 800 líneas: con un gate por rama, la
+   próxima rama nace sin gate. Ver `itemsRequiredPermission()`.
+3. **El permiso pertenece al RECURSO, no al endpoint.** Si dos endpoints
+   tocan la misma fila, exigen la misma clave. `/v1/contacts` no filtra por
+   `type` en `getById`/`update`/`archive`, así que edita empleados igual que
+   clientes: sin exigir `contacts.user.*` para `type=0` era un bypass del
+   gate de `/v1/users`.
+4. **Gestionar usuarios no es poder escalar.** Un permiso de gestión de
+   equipo sin regla anti-escalación no significa nada: el que lo tiene se
+   asigna el rol de arriba. La regla es comparar SETS de permisos (no
+   nombres ni slugs, así vale para roles custom): nadie crea, asigna, edita
+   ni desactiva un rol con permisos que él no tiene, y nadie cambia su
+   propio rol.
+
+**Realm `pos-app`:** hoy la sesión del device se emite con `roleId = '1'`
+(`DeviceAuth::buildToken`), que `RoleService` resuelve al seed `owner` — o
+sea que en ese realm `hasPermission()` devuelve true para TODO. Los gates de
+endpoints multi-realm son por eso efectivos solo para el realm `panel`.
+Ponerlos igual es correcto y no rompe la caja; empiezan a discriminar solos
+cuando el POS tenga sesión de operador. Lo que NO se gatea nunca es la venta
+emitida (`pos.sale.create`, `pos.discount.apply`): offline-first manda y el
+back no rechaza un documento que la caja ya imprimió.
+
+El arnés `api/tests/permission_enforcement_test.php` falla si aparece una
+clave del catálogo sin gate, así que esto se sostiene solo.
+
+---
+
 ### §12.1 — JWT: claim `iss` obligatorio
 
 Todo JWT emitido DEBE incluir `iss` (issuer) con uno de los tres valores canónicos. Es la barrera contra privilege-confusion entre realms que comparten `JWT_SECRET`.
