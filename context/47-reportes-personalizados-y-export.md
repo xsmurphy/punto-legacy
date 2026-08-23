@@ -3,7 +3,7 @@
 > Estado (2026-08-21): **plan, sin implementar.** Pedido del owner el mismo
 > día: unificar exportación puntual, reportes personalizados guardados y
 > dashboards sobre un catálogo semántico único, con generación asistida por
-> el agente IA existente (`context/17`). D1-D9 cerradas por el owner, NO
+> el agente IA existente (`context/17`). D1-D10 cerradas por el owner, NO
 > relitigar. Falta: F0 (catálogo + ejecutor) es el primer trabajo real —
 > nada de esto tiene sentido picar sin eso primero.
 
@@ -73,7 +73,7 @@ default, con personalización opcional encima?" y no al revés.
   tenant" sea siempre un JSON legible y reproducible, no una query opaca que
   el modelo improvisó.
 
-## Decisiones cerradas (D1-D9)
+## Decisiones cerradas (D1-D10)
 
 **D1 — Un solo catálogo de datasets, tres consumidores.** UNA capa
 semántica (catálogo: ventas, ítems vendidos, stock, cuentas por
@@ -146,6 +146,33 @@ cuándo. Datos del negocio saliendo del sistema.
 `ai_credit_ledger` (`context/09`), igual que el resto del agente. Ejecutar
 un reporte ya guardado NO consume IA (es el motor, no el modelo) — solo
 crearlo o modificarlo consume.
+
+**D10 — Metabase SÍ, pero solo puertas adentro (decisión del owner,
+2026-08-23).** Metabase se adopta como herramienta INTERNA de Punto —
+exploración ad-hoc del negocio, salud de tenants, detección de anomalías —
+apuntando a Postgres con un usuario de **solo lectura** y, cuando exista la
+réplica (E3 de `context/48`), contra la réplica y no contra la primaria: una
+consulta analítica pesada no puede competir con el checkout de una caja.
+
+**NO se expone a los comercios.** Dos motivos, y el segundo es el que decide:
+
+- **Aislamiento multi-tenant.** El sandboxing por fila es de la edición paga y
+  hay que configurarlo tabla por tabla. Hoy el aislamiento vive en el código
+  (cada query filtra por `companyId`, y los gates de permisos que entraron el
+  2026-08-23 lo refuerzan); mover esa garantía a la configuración de una
+  herramienta externa cambia un invariante verificable por un checklist que
+  alguien puede olvidar. El costo de un error es que un comercio vea las
+  ventas de otro.
+- **Rompe D1.** Metabase calculando sobre las tablas crudas es un SEGUNDO
+  motor: cuando su número no coincida con el del panel, nadie va a saber cuál
+  está bien. Es exactamente el problema que D1 previene. Los comercios ven sus
+  datos por el catálogo de este doc, que además ya se apoya en el rollup
+  diario (D8 de `context/48`, mig 160).
+
+Corolario operativo: si una pregunta se responde seguido en Metabase y el
+owner la quiere para los comercios, el camino es **agregarla al catálogo**
+como dataset, no abrirles Metabase. Metabase sirve para descubrir qué vale la
+pena construir; no es el producto.
 
 ## Anatomía del catálogo de datasets
 
