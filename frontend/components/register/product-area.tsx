@@ -42,6 +42,7 @@ import { useIsMobile } from "@/hooks/use-mobile"
 import { HotkeyAssignDialog } from "@/components/register/hotkey-assign-dialog"
 import { GroupItemsDialog } from "@/components/register/group-items-dialog"
 import { ProductInfoDialog } from "@/components/register/product-info-dialog"
+import { useImageFallback } from "@/components/pos/item-image"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 
 // Grilla 6 columnas × 50 filas (300 slots), scroll vertical.
@@ -432,7 +433,12 @@ function HotkeyTile({
   onDragOver: (e: React.DragEvent) => void
   onDrop: () => void
 }) {
-  const hasImage = !hotkey.isCategory && item?.imageUrl
+  // `imageOk` y no solo "hay url": sin conexión la foto puede no estar en la
+  // cache del SW, y entonces el tile tiene que caer al layout de tabla
+  // periódica (abreviatura sobre el color de la tecla) en vez de mostrar el
+  // ícono de imagen rota del navegador.
+  const [imageOk, onImageError] = useImageFallback(hotkey.isCategory ? null : item?.imageUrl)
+  const hasImage = imageOk
   const bg = hotkeyColorBg(hotkey.color) ?? DEFAULT_TILE
 
   return (
@@ -458,6 +464,7 @@ function HotkeyTile({
             <img
               src={item.imageUrl}
               alt={label}
+              onError={onImageError}
               className="absolute inset-0 h-full w-full object-cover"
             />
             <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
@@ -524,6 +531,10 @@ function ProductTile({
   onClick: () => void
   onInfo: (item: PosItem) => void
 }) {
+  // Igual que en HotkeyTile: si la foto no está (sin conexión y sin cache), el
+  // tile vuelve al color por defecto de la grilla — nunca al ícono roto.
+  const [imageOk, onImageError] = useImageFallback(item.imageUrl)
+
   return (
     // El tile pasó de ser un <button> a un <div> con el botón adentro: el ícono
     // de la ficha es otro botón y anidarlos es HTML inválido (el click interno
@@ -533,13 +544,14 @@ function ProductTile({
         onClick={onClick}
         aria-label={item.name}
         className="relative flex h-full w-full flex-col overflow-hidden rounded-xl transition-all active:scale-95"
-        style={item.imageUrl ? undefined : { backgroundColor: DEFAULT_TILE }}
+        style={imageOk ? undefined : { backgroundColor: DEFAULT_TILE }}
       >
-        {item.imageUrl && (
+        {imageOk && item.imageUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={item.imageUrl}
             alt={item.name}
+            onError={onImageError}
             className="absolute inset-0 h-full w-full object-cover"
           />
         )}

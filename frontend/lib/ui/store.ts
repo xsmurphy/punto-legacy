@@ -14,6 +14,17 @@ interface PosUIState {
   customerOpen: boolean
   payOpen: boolean
   menuOpen: boolean
+  /**
+   * Sección abierta dentro del menú del POS (`pos-main-menu.tsx`), por `key`.
+   * `null` = pantalla de bienvenida.
+   *
+   * Vive en el store y no como estado local del menú porque es un destino de
+   * NAVEGACIÓN: el indicador de estado del carrito manda al cajero derecho a
+   * "Ventas pendientes" (2026-08-23). Antes ese salto abría un diálogo aparte
+   * (`SyncQueueDialog`) con una copia de la misma lista que la sección — dos
+   * lugares para lo mismo, y la sección no listaba nada.
+   */
+  menuSection: string | null
   optionsOpen: boolean
   /**
    * Selector de MODO del POS (venta / orden / cotización / …). Vive en el
@@ -31,6 +42,9 @@ interface PosUIState {
   setCustomerOpen: (v: boolean) => void
   setPayOpen: (v: boolean) => void
   setMenuOpen: (v: boolean) => void
+  setMenuSection: (key: string | null) => void
+  /** Abre el menú directamente en una sección (deep-link desde el carrito). */
+  openMenuSection: (key: string) => void
   setOptionsOpen: (v: boolean) => void
   setModeDialogOpen: (v: boolean) => void
   setItemSearchQuery: (q: string) => void
@@ -80,6 +94,7 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   customerOpen: false,
   payOpen: false,
   menuOpen: false,
+  menuSection: null,
   optionsOpen: false,
   modeDialogOpen: false,
   itemSearchQuery: "",
@@ -88,7 +103,11 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   setSearchOpen: (v) => set({ searchOpen: v }),
   setCustomerOpen: (v) => set({ customerOpen: v }),
   setPayOpen: (v) => set({ payOpen: v }),
-  setMenuOpen: (v) => set({ menuOpen: v }),
+  // Cerrar el menú también olvida la sección: la próxima apertura arranca en
+  // la bienvenida, como cuando `activeKey` era estado local del menú.
+  setMenuOpen: (v) => set(v ? { menuOpen: true } : { menuOpen: false, menuSection: null }),
+  setMenuSection: (key) => set({ menuSection: key }),
+  openMenuSection: (key) => set({ menuOpen: true, menuSection: key }),
   setOptionsOpen: (v) => set({ optionsOpen: v }),
   setModeDialogOpen: (v) => set({ modeDialogOpen: v }),
   setItemSearchQuery: (q) => set({ itemSearchQuery: q }),

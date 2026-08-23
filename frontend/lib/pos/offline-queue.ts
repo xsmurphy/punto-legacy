@@ -187,7 +187,7 @@ export async function getCount(): Promise<number> {
  * reintentan solas (ver `markFailed`). Es la señal de "esto necesita que
  * alguien lo mire": a diferencia de 'pending'/'syncing', que se resuelven
  * solas al volver la conexión, una fallida se queda ahí para siempre si
- * nadie abre `SyncQueueDialog` y decide reintentar o descartar.
+ * nadie entra a Menú → Ventas pendientes y decide reintentar o descartar.
  */
 export async function getFailedCount(): Promise<number> {
   const db = await getDB()
