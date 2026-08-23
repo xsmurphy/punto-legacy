@@ -74,6 +74,7 @@ final class RoleService
             'settings.outlet.manage','settings.register.manage','settings.register.release','settings.tax.manage',
             'settings.template.manage','settings.device.pair','settings.device.manage',
             'settings.company.edit',
+            'billing.view',
             'ai.agent.use','ai.agent.elevated',
             'finance.manage',
             'production.manage',
@@ -354,26 +355,82 @@ final class RoleService
         // default de seed contra el cual reconciliar. Ambos lados filtrados
         // por companyid — nunca cruza tenants aunque sourceid/taxonomyid
         // colisionaran entre compañías.
+        // LEFT JOIN, no JOIN: hay que poder distinguir "el rol no existe" de
+        // "el rol existe pero le falta la fila roleData" — el INNER las
+        // colapsaba en el mismo `null` y la segunda terminaba resuelta como
+        // "rol sin ningún permiso" (ver _repairMissingRoleData).
         $row = ncmExecute(
             "SELECT rd.taxonomyextra AS roledataextra, r.taxonomyextra AS roleextra
              FROM taxonomy r
-             JOIN taxonomy rd ON rd.sourceid = r.taxonomyid AND rd.taxonomytype = 'roleData' AND rd.companyid = r.companyid
+             LEFT JOIN taxonomy rd ON rd.sourceid = r.taxonomyid AND rd.taxonomytype = 'roleData' AND rd.companyid = r.companyid
              WHERE r.taxonomyid = ?::uuid AND r.taxonomytype = 'role' AND r.companyid = ?",
             [$roleId, $companyId]
         );
 
         $perms = [];
         if ($row) {
-            $roleDataExtra = json_decode((string)($row['roledataextra'] ?? '{}'), true) ?? [];
-            $roleExtra     = json_decode((string)($row['roleextra'] ?? '{}'), true) ?? [];
-            $perms         = $roleDataExtra['permissions'] ?? [];
-            $slug          = $roleDataExtra['slug'] ?? ($roleExtra['slug'] ?? null);
-            $storedVersion = (int)($roleDataExtra['catalogVersion'] ?? PermissionCatalog::BASELINE_VERSION);
+            $roleExtra   = json_decode((string)($row['roleextra'] ?? '{}'), true) ?? [];
+            $rawRoleData = $row['roledataextra'] ?? null;
 
-            $perms = self::_reconcileSeedGaps($roleId, $companyId, $slug, $perms, $storedVersion);
+            if ($rawRoleData === null) {
+                $perms = self::_repairMissingRoleData($roleId, $companyId, $roleExtra['slug'] ?? null);
+            } else {
+                $roleDataExtra = json_decode((string)$rawRoleData, true) ?? [];
+                $perms         = $roleDataExtra['permissions'] ?? [];
+                $slug          = $roleDataExtra['slug'] ?? ($roleExtra['slug'] ?? null);
+                $storedVersion = (int)($roleDataExtra['catalogVersion'] ?? PermissionCatalog::BASELINE_VERSION);
+
+                $perms = self::_reconcileSeedGaps($roleId, $companyId, $slug, $perms, $storedVersion);
+            }
         }
 
         self::$cache[$companyId][$roleId] = $perms;
+        return $perms;
+    }
+
+    /**
+     * El rol existe pero su fila `roleData` no.
+     *
+     * Pasa de verdad: en producción hay tenants con las 3 filas `role`
+     * sembradas y CERO `roleData`. seedCompanyRoles() crea el rol y sus
+     * permisos en dos escrituras separadas sin una transacción que las
+     * abarque, así que un fallo entre medio deja exactamente este estado. El
+     * síntoma es mudo: _loadPermissions devolvía [] y el rol quedaba
+     * indistinguible de uno al que el admin le sacó todos los permisos a
+     * propósito — o sea que el usuario no puede hacer NADA y no hay nada en
+     * la UI que explique por qué.
+     *
+     * Para un rol seed la respuesta correcta no es [] sino el default de su
+     * slug: es lo que seedCompanyRoles() habría escrito. Se persiste (mismo
+     * patrón lazy e idempotente que _reconcileSeedGaps) para que la próxima
+     * lectura ya no pase por acá.
+     *
+     * Un rol custom sin roleData sí se queda en []: no hay default del cual
+     * reconstruirlo, e inventarle permisos es peor que no darle ninguno.
+     */
+    private static function _repairMissingRoleData(string $roleId, string $companyId, ?string $slug): array
+    {
+        if ($slug === null || !array_key_exists($slug, self::SEED_PERMISSIONS)) {
+            return [];
+        }
+
+        $perms = $slug === 'owner'
+            ? PermissionCatalog::ids()
+            : (self::SEED_PERMISSIONS[$slug] ?? []);
+
+        error_log("[RoleService] rol seed '$slug' ($roleId, company $companyId) sin fila roleData — resembrando el default");
+
+        try {
+            self::_savePermissions($roleId, $perms, $companyId, $slug);
+        } catch (\Throwable $e) {
+            // Misma razón que en _reconcileSeedGaps: esto corre dentro de una
+            // LECTURA de permisos. Si la escritura falla se sigue con el
+            // default en memoria, que es la respuesta correcta para ESTA
+            // request; la próxima lectura vuelve a intentar.
+            error_log('[RoleService] _repairMissingRoleData: no se pudo persistir el reseed de '
+                . $roleId . ': ' . $e->getMessage());
+        }
+
         return $perms;
     }
 
