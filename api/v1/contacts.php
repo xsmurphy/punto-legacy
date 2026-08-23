@@ -77,14 +77,33 @@ function contactsRequire(int $type, string $op): void
     }
 }
 
-/** type del contacto ya existente. 404 si no pertenece al tenant. */
-function contactsTypeOf(\Punto\Api\Contacts\ContactService $service, string $id): int
+/**
+ * type del contacto existente, o null si no existe / no es del tenant.
+ *
+ * Devuelve null en vez de cortar 404 a propósito: el gate tiene que correr
+ * ANTES de admitir que el id existe o no. Si el 404 saliera primero, este
+ * endpoint sería un oráculo de existencia — cualquiera sin permiso podría
+ * distinguir un id real (404) de uno inventado (403) y enumerar la cartera de
+ * clientes del comercio. El caller gatea con el type resuelto (o el default) y
+ * recién después responde 404.
+ */
+function contactsTypeOrNull(\Punto\Api\Contacts\ContactService $service, string $id): ?int
 {
     $row = $service->getById($id, COMPANY_ID);
     if ($row === null) {
-        apiError('Contacto no encontrado', 404);
+        return null;
     }
     return (int) ($row['type'] ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER);
+}
+
+/** Gatea por el type del contacto (default cliente si no existe) y luego 404. */
+function contactsRequireExisting(\Punto\Api\Contacts\ContactService $service, string $id, string $op): void
+{
+    $type = contactsTypeOrNull($service, $id);
+    contactsRequire($type ?? \Punto\Api\Contacts\ContactService::TYPE_CUSTOMER, $op);
+    if ($type === null) {
+        apiError('Contacto no encontrado', 404);
+    }
 }
 
 // ── Bulk-get quirúrgico (sync realtime, context/15) ────────────────────────
@@ -126,7 +145,7 @@ if ($resource === 'bulk-get') {
 // ── Sub-recurso: direcciones ───────────────────────────────────────────────
 if ($id !== null && $resource === 'addresses') {
     if ($method === 'GET') {
-        contactsRequire(contactsTypeOf($service, $id), 'view');
+        contactsRequireExisting($service, $id, 'view');
         apiOk(['addresses' => $service->addresses($id, COMPANY_ID)]);
     }
     apiError('Method not allowed for /contacts/addresses', 405);
@@ -272,7 +291,7 @@ switch ($method) {
 
     case 'PUT':
         if ($id === null) apiError('id es requerido para PUT', 422);
-        contactsRequire(contactsTypeOf($service, $id), 'edit');
+        contactsRequireExisting($service, $id, 'edit');
 
         $patch = $_POST;
         unset($patch['id'], $patch['contactId'], $patch['companyId'], $patch['type']);
@@ -301,7 +320,7 @@ switch ($method) {
         if (($ctx['realm'] ?? '') !== 'panel') {
             apiError('Archivar contactos solo está disponible desde el panel', 403);
         }
-        contactsRequire(contactsTypeOf($service, $id), 'delete');
+        contactsRequireExisting($service, $id, 'delete');
         if (!$service->archive($id, COMPANY_ID)) {
             apiError('Archive falló', 500);
         }
