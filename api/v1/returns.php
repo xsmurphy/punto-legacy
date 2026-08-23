@@ -50,6 +50,19 @@ if ($method === 'POST') {
         apiError('action desconocida', 400);
     }
 
+    // ── Gate de autorización ───────────────────────────────────────────────
+    // Una devolución devuelve plata del cajón y revierte stock: es la
+    // contracara de la venta, no una operación más del mostrador.
+    //
+    // Realm `pos-app`: la sesión del device se emite con roleId='1'
+    // (DeviceAuth::buildToken) → seed `owner` → este gate SIEMPRE pasa en la
+    // caja. No puede romper el mostrador. Es efectivo hoy para el realm
+    // `panel` (rol real del operador) y lo será para el POS cuando exista
+    // sesión de operador, sin tocar este call-site.
+    if (!hasPermission('pos.sale.refund')) {
+        apiError('No tenés permiso para esta acción (requiere: pos.sale.refund)', 403);
+    }
+
     $parentTransactionId = trim((string) ($body['parentTransactionId'] ?? ''));
     $items               = $body['items'] ?? [];
     $refundMode          = trim((string) ($body['refundMode'] ?? ''));
@@ -129,6 +142,14 @@ if ($method === 'GET') {
 
     if (!isValidUuidReturn($parentId)) {
         apiError('parentId inválido', 400);
+    }
+
+    // Lectura del historial de devoluciones de una venta: mismo material que
+    // el detalle de la transacción padre, gateado con el permiso de lectura
+    // de ventas (no con pos.sale.refund, que autoriza a EJECUTAR la
+    // devolución — ver reports/transactions.php, misma clave).
+    if (!hasPermission('reports.sales.view')) {
+        apiError('No tenés permiso para esta acción (requiere: reports.sales.view)', 403);
     }
 
     if ($action === 'listForParent') {

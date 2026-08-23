@@ -127,6 +127,23 @@ if ($method === 'POST') {
     // userId del JWT tiene precedencia; $user del body es solo para auditoría/email del legacy
     $userId = $ctx['userId'] ?? '';
 
+    // ── Gate de autorización por acción ────────────────────────────────────
+    // `expense`/`income` NO se gatean: no existe clave propia en
+    // PermissionCatalog para movimientos de caja y colgarlos de
+    // pos.drawer.close cambiaría su semántica. Queda reportado como hueco.
+    //
+    // Realm `pos-app`: la sesión del device se emite con roleId='1'
+    // (DeviceAuth::buildToken), que RoleService resuelve al seed `owner` —
+    // en la caja este gate SIEMPRE pasa y no puede romper la operación
+    // (offline-first: la caja nunca se queda sin poder abrir/cerrar). Es
+    // efectivo para el realm `panel`, donde el rol es el del operador real.
+    // El día que el POS tenga sesión de operador propia, este mismo gate
+    // empieza a discriminar sin tocar el call-site.
+    $drawerPerm = ['open' => 'pos.drawer.open', 'close' => 'pos.drawer.close'][$action] ?? null;
+    if ($drawerPerm !== null && !hasPermission($drawerPerm)) {
+        apiError("No tenés permiso para esta acción (requiere: $drawerPerm)", 403);
+    }
+
     try {
         switch ($action) {
             case 'open':
