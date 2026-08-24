@@ -473,14 +473,20 @@ final class PurchaseCreditNoteService
 
         $stockReverted = 0;
         if ($movedItemIds !== []) {
-            $lines = ncmExecute(
-                'SELECT itemid, itemsoldunits, itemsoldtotal FROM itemSold WHERE transactionid = ?',
-                [$id],
-                false,
-                false,
-                true
+            // Una LÍNEA por fila, no una por ítem: la PK de itemSold es
+            // `itemSoldId` y NADA impide que el mismo ítem aparezca en dos
+            // líneas de la misma NC (distinto precio, distinto lote, o
+            // simplemente cargado dos veces). Esto se leía con `getAssoc`,
+            // que indexa por la primera columna proyectada (`itemid`) y pisa
+            // las repetidas: de dos líneas del mismo ítem sobrevivía UNA y el
+            // void reponía solo esa cantidad. No es un reporte que sale mal —
+            // es stock que queda corto en la BD, en silencio y sin forma de
+            // detectarlo después. Ver `DB::GetAssoc()`.
+            $lines = ncmRows(
+                'SELECT itemsoldid, itemid, itemsoldunits, itemsoldtotal FROM itemSold WHERE transactionid = ?',
+                [$id]
             );
-            foreach ((is_array($lines) ? $lines : []) as $l) {
+            foreach ($lines as $l) {
                 $itemId = (string) $l['itemid'];
                 if (!isset($movedItemIds[$itemId])) {
                     continue;
