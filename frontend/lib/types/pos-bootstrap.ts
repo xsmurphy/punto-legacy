@@ -351,8 +351,14 @@ export interface PosCustomer {
   isCreditable: boolean
 }
 
-// ── Empleado del outlet (para asignación por línea) ──────────────────────────
+// ── Empleado del outlet (roster del lock screen) ─────────────────────────────
 
+/**
+ * Operador habilitado en la sucursal del device. Proyección MÍNIMA a propósito:
+ * el bootstrap del POS termina persistido en el device, así que cada campo que
+ * se sume acá es superficie expuesta en la tablet del mostrador. El backend
+ * (`UsersService::rosterForOutlet()`) devuelve exactamente estos tres campos.
+ */
 export interface PosUser {
   id: string
   name: string
@@ -361,12 +367,11 @@ export interface PosUser {
    * Decision del owner (2026-06-25): SHA-256 es más simple, rápido en browser, matchea legacy.
    * Hash visible en localStorage es suficiente para identificacion — el PIN no es una
    * contrasena critica, protege contra peeking casual, no contra atacantes con acceso al device.
+   *
+   * `null` = ese usuario no tiene PIN cargado y por lo tanto no puede
+   * desbloquear la caja (el lock screen lo saltea).
    */
   pinhash?: string | null
-  /**
-   * @deprecated Hash bcrypt anterior. Mantener por compatibilidad hasta que el front lo deje de usar.
-   */
-  lockpasshash?: string | null
 }
 
 // ── Bootstrap completo ────────────────────────────────────────────────────────

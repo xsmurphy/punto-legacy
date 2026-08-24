@@ -22,6 +22,7 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../lib/Auth/RoleService.php';
+require_once __DIR__ . '/../lib/Users/UsersService.php';
 
 $ctx = apiAuthTenant(['panel', 'pos-app']);
 
@@ -160,6 +161,19 @@ if ($outletsRs && is_object($outletsRs)) {
 
 $userPermissions = RoleService::getPermissions((string)$ctx['roleId'], (string)COMPANY_ID);
 
+// ── Roster de la pantalla de bloqueo del POS ────────────────────────────────
+// Proyección MÍNIMA (id/name/pinhash) de los usuarios activos habilitados en la
+// sucursal del contexto. Ver el docblock de `UsersService::rosterForOutlet()`:
+// es dato OPERATIVO de la caja, autorizado por el realm + el scope de sucursal
+// — NO pasa por `contacts.user.view`, que es el permiso de gestión de equipo y
+// que el rol `device` no tiene (ni debe tener, mig 162).
+//
+// Sucursal efectiva: `VIEW_OUTLET_ID` si el panel mandó `X-Outlet-Id` (mismo
+// patrón que reports/stock.php y reports/dashboard.php), si no la del token.
+// '' = scope "Todas" → sin filtro de sucursal.
+$rosterOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
+$roster = (new \Punto\Api\Users\UsersService())->rosterForOutlet((string) COMPANY_ID, $rosterOutletId);
+
 // Logo: decodear settingObj y resolver la URL con la MISMA lógica que
 // SettingsService::general() (hasLogo + logoUrl + cache-bust por timestamp).
 $settingObj = json_decode((string) ($row['settingobj'] ?? ''), true);
@@ -280,9 +294,17 @@ apiOk([
     // producción directa/combo que no llegó a prepararse. Default false —
     // mismo criterio 'yes'/'no' que el resto de los settingX booleanos.
     'settingReturnAllowIngredientReversal' => ((string) ($row['returnallowingredientreversal'] ?? '')) === 'yes',
-    // Cantidad de usuarios (type=0) activos del tenant — usado por el POS
-    // para auto-activar el lock screen al entrar cuando hay > 1 usuario
-    // (regla de owner: comercio con varios cajeros se inicia bloqueado).
+    // Roster de la pantalla de bloqueo del POS — SOLO id/name/pinhash de los
+    // usuarios activos habilitados en la sucursal del contexto. El POS lo baja
+    // acá (y no por `/v1/users`, que exige `contacts.user.view` y le da 403 al
+    // device) y lo persiste en el snapshot offline: el lock screen valida el
+    // PIN sin red. Ver `UsersService::rosterForOutlet()`.
+    'users'            => $roster,
+    // Cantidad de usuarios (type=0) activos del tenant. YA NO gobierna el
+    // auto-lock del POS: desde 2026-08-24 el lock screen es siempre lo primero,
+    // sin importar cuántos operadores haya (pedido del owner — ver
+    // `frontend/lib/pos/lock-store.ts`). Se conserva como dato informativo del
+    // tenant para clientes ya desplegados que lo lean.
     'userCount'        => (int) (ncmExecute(
         'SELECT COUNT(*) AS c FROM contact WHERE companyId = ? AND type = 0 AND contactStatus > 0',
         [COMPANY_ID],

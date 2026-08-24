@@ -107,6 +107,101 @@ final class UsersService
         return $rows;
     }
 
+    /**
+     * Roster de la PANTALLA DE BLOQUEO del POS — proyección mínima, por sucursal.
+     *
+     * Devuelve SOLO `id`, `name`, `pinhash`. Nada más: ni email, ni teléfono, ni
+     * `lockPass`/`lockPassHash`, ni rol, ni sucursales. Cada campo extra sería
+     * superficie filtrada a un token de device que vive para siempre en el
+     * localStorage de una tablet del mostrador, así que la proyección es la
+     * frontera de seguridad — no un detalle de performance.
+     *
+     * ── Por qué NO hay gate `contacts.user.view` ────────────────────────────
+     * Este dato NO es gestión de equipo: es dato OPERATIVO de la caja (¿qué
+     * PIN abre esta caja?). Lo autoriza el realm + el scope de sucursal, igual
+     * que el resto de `/v1/bootstrap`, que es su único caller.
+     *
+     * El rol `device` (mig 162) NO tiene `contacts.user.*` A PROPÓSITO: ese
+     * permiso abre `/v1/contacts` y `/v1/users` completos — el vector de toma
+     * del tenant que la mig 162 cerró. Pedirle al device la lista de equipo
+     * por `/v1/users` daba 403 y dejaba el lock screen sin roster (lockout
+     * reportado 2026-08-24). La solución NO es devolverle el permiso: es esta
+     * proyección de tres campos, servida por el bootstrap del realm.
+     *
+     * ── Alcance por sucursal (decisión del owner 2026-08-24) ────────────────
+     * La fuente de verdad es `contact_outlet` (tabla canónica desde la mig 66),
+     * NUNCA la columna legacy `contact.outletid` (que sigue existiendo sin drop
+     * y quedó como back-compat: la mig 66 la usó para el backfill).
+     *
+     *   - Usuario con ≥1 fila en `contact_outlet` → aparece solo si una de esas
+     *     filas es `$outletId`.
+     *   - Usuario con CERO filas → es GLOBAL, aparece en todas las sucursales.
+     *     Misma semántica que `fin_account.outletid IS NULL` (ver
+     *     `context/25-sucursales-y-scopes.md`).
+     *   - `$outletId === ''` (scope "Todas" del panel, `VIEW_OUTLET_ID`) →
+     *     sin filtro de sucursal.
+     *
+     * @return list<array{id:string,name:string,pinhash:?string}>
+     */
+    public function rosterForOutlet(string $companyId, string $outletId): array
+    {
+        // Solo activos: `contactStatus = 1`. Un usuario dado de baja no puede
+        // abrir la caja aunque su PIN siga en la fila.
+        $sql = "
+            SELECT c.contactId   AS id,
+                   c.contactName AS name,
+                   c.pinhash     AS pinhash
+              FROM contact c
+             WHERE c.companyId = ?
+               AND c.type = ?
+               AND c.contactStatus = 1
+        ";
+        $params = [$companyId, self::TYPE_USER];
+
+        if ($outletId !== '') {
+            // `contact_outlet` es TODO lowercase (mig 66) — a diferencia de
+            // `contact`, que se escribe camelCase sin comillas (PG lo pliega a
+            // lowercase igual).
+            $sql .= "
+               AND (
+                     NOT EXISTS (
+                       SELECT 1 FROM contact_outlet co
+                        WHERE co.contactid = c.contactId
+                          AND co.companyid = c.companyId
+                     )
+                     OR EXISTS (
+                       SELECT 1 FROM contact_outlet co
+                        WHERE co.contactid = c.contactId
+                          AND co.companyid = c.companyId
+                          AND co.outletid  = ?
+                     )
+                   )
+            ";
+            $params[] = $outletId;
+        }
+
+        $sql .= ' ORDER BY c.contactName ASC';
+
+        // `forceObj=true` (4to arg) → recordset multi-row, se itera con
+        // `while (!$rs->EOF)`. Tratarlo como array devuelve [] siempre.
+        $res  = ncmExecute($sql, $params, false, true);
+        $rows = [];
+        if ($res && is_object($res)) {
+            while (!$res->EOF) {
+                $f      = $res->fields;
+                $pin    = $f['pinhash'] ?? null;
+                $rows[] = [
+                    'id'      => (string) ($f['id'] ?? ''),
+                    'name'    => (string) ($f['name'] ?? ''),
+                    'pinhash' => ($pin === null || $pin === '') ? null : (string) $pin,
+                ];
+                $res->MoveNext();
+            }
+            $res->Close();
+        }
+        return $rows;
+    }
+
     /** Un empleado por ID, con datos completos. NULL si no existe / no es del tenant. */
     public function get(string $id, string $companyId): ?array
     {
