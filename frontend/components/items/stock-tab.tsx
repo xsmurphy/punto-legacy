@@ -159,40 +159,66 @@ export function ItemStockTab({
             />
           ) : (
             <>
+              {/* Extracto bancario (pedido del owner, ver context/52 F6):
+                  saldo anterior, movimiento, saldo resultante y costo
+                  promedio resultante — el costo real del inventario es el
+                  promedio, no el del último movimiento. Sucursal y nota
+                  bajan como subtexto de "Fuente / motivo" en vez de columnas
+                  propias, para que entren las columnas de saldo/costo sin
+                  duplicar ancho. El primitive <Table> ya trae
+                  overflow-x-auto (components/ui/table.tsx). */}
               <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Fecha</TableHead>
-                    <TableHead>Origen</TableHead>
-                    <TableHead>Sucursal</TableHead>
-                    <TableHead className="text-right">Cantidad</TableHead>
-                    <TableHead className="text-right">Saldo</TableHead>
-                    <TableHead>Nota</TableHead>
+                    <TableHead>Fuente / motivo</TableHead>
+                    <TableHead className="text-right">Movimiento</TableHead>
+                    <TableHead className="text-right">Saldo anterior</TableHead>
+                    <TableHead className="text-right">Saldo resultante</TableHead>
+                    <TableHead className="text-right">Costo mov.</TableHead>
+                    <TableHead className="text-right">Costo prom. resultante</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {items.map((m) => (
-                    <TableRow key={m.id}>
-                      <TableCell className="whitespace-nowrap text-sm">
-                        {m.date ? formatDateTime(m.date, "d MMM yyyy HH:mm") : "—"}
-                      </TableCell>
-                      <TableCell className="text-sm">{sourceLabel(m.source)}</TableCell>
-                      <TableCell className="text-sm">
-                        {m.outletName}
-                        {m.locationName ? ` · ${m.locationName}` : ""}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right tabular-nums ${m.delta >= 0 ? "text-emerald-600" : "text-destructive"}`}
-                      >
-                        {m.delta >= 0 ? "+" : ""}
-                        {m.delta}
-                      </TableCell>
-                      <TableCell className="text-right tabular-nums">{m.stockOnHand}</TableCell>
-                      <TableCell className="max-w-56 truncate text-sm text-muted-foreground">
-                        {m.note || "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {items.map((m) => {
+                    // stockOnHand ya llega con el saldo DESPUÉS del
+                    // movimiento (StockMovementsService::movements) — el
+                    // anterior se deriva restando el delta con signo.
+                    const previousBalance = m.stockOnHand - m.delta
+                    return (
+                      <TableRow key={m.id}>
+                        <TableCell className="whitespace-nowrap text-sm">
+                          {m.date ? formatDateTime(m.date, "d MMM yyyy HH:mm") : "—"}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          <div>{sourceLabel(m.source)}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {m.outletName}
+                            {m.locationName ? ` · ${m.locationName}` : ""}
+                            {m.note ? ` · ${m.note}` : ""}
+                          </div>
+                        </TableCell>
+                        <TableCell
+                          className={`text-right tabular-nums ${m.delta >= 0 ? "text-emerald-600" : "text-destructive"}`}
+                        >
+                          {m.delta >= 0 ? "+" : ""}
+                          {m.delta}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums text-muted-foreground">
+                          {previousBalance}
+                        </TableCell>
+                        <TableCell className="text-right font-medium tabular-nums">
+                          {m.stockOnHand}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(m.deltaCogs, bootstrap)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {formatMoney(m.stockOnHandCogs, bootstrap)}
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
 
