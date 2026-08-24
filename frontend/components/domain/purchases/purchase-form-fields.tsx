@@ -238,7 +238,7 @@ export function LineRow({
             <ProductPicker
               value={line.itemId ?? ""}
               displayName={line.itemName ?? ""}
-              onChange={(id, name, defaultCost, expenseCategoryId) =>
+              onChange={(id, name, defaultCost, expenseCategoryId, lastTaxId) =>
                 onChange({
                   itemId: id,
                   itemName: name,
@@ -249,6 +249,12 @@ export function LineRow({
                   ...(line.expenseCategoryTouched
                     ? {}
                     : { expenseCategoryId: expenseCategoryId ?? "" }),
+                  // El IVA hereda de la última compra DEL ÍTEM (no de la
+                  // línea anterior del form) — igual que el precio. Sin
+                  // histórico (taxId null) se conserva lo que la línea ya
+                  // tenía: herencia de línea anterior o el default del
+                  // efecto de firstTaxId.
+                  ...(lastTaxId ? { taxId: lastTaxId } : {}),
                 })
               }
               triggerRef={registerFirstField}
@@ -505,7 +511,13 @@ export function ProductPicker({
 }: {
   value: string
   displayName: string
-  onChange: (id: string, name: string, defaultCost?: number, expenseCategoryId?: string | null) => void
+  onChange: (
+    id: string,
+    name: string,
+    defaultCost?: number,
+    expenseCategoryId?: string | null,
+    lastTaxId?: string | null,
+  ) => void
   triggerRef?: (el: HTMLElement | null) => void
 }) {
   const [open, setOpen] = React.useState(false)
@@ -560,10 +572,13 @@ export function ProductPicker({
                     // cambiar sin que eso afecte la configuración del ítem.
                     onChange(r.itemId, r.itemName, 0, r.expenseCategoryId)
                     try {
-                      const { price } = await api.get<{ price: number }>(
-                        `/v1/items?id=${r.itemId}&resource=last-purchase-price`,
-                      )
-                      onChange(r.itemId, r.itemName, price || 0, r.expenseCategoryId)
+                      // Precio E IVA heredan de la última compra del ítem
+                      // (owner 2026-08-24) — mismo lookup, un solo fetch.
+                      const { price, taxId } = await api.get<{
+                        price: number
+                        taxId: string | null
+                      }>(`/v1/items?id=${r.itemId}&resource=last-purchase-price`)
+                      onChange(r.itemId, r.itemName, price || 0, r.expenseCategoryId, taxId)
                     } catch {
                       // Si falla el lookup, queda en 0 (estado seteado arriba).
                     }

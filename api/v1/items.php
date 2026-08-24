@@ -345,9 +345,11 @@ if (in_array($resource, ['core', 'inventory', 'info'], true)) {
 
 // ── Último precio de compra del item ───────────────────────────────────────
 // GET /v1/items?id=<itemId>&resource=last-purchase-price
-//   → { price: number }   (0 si nunca se compró)
-// Usado en el form de /purchase para autorrellenar el precio cuando el
-// cajero selecciona un ítem.
+//   → { price: number, taxId: string|null }   (0/null si nunca se compró)
+// Usado en el form de /purchase para autorrellenar precio E IVA cuando el
+// cajero selecciona un ítem — los dos heredan de la última compra del ítem
+// (pedido del owner 2026-08-24: "el IVA siempre hereda del histórico como
+// el precio de costo").
 if ($resource === 'last-purchase-price') {
     if ($method !== 'GET') {
         apiError('Method not allowed for /items resource=last-purchase-price', 405);
@@ -359,7 +361,8 @@ if ($resource === 'last-purchase-price') {
     // transactionType = 1 → compras (ver PurchasesService).
     // Precio unitario = total / units. NULLIF evita división por cero.
     $row = ncmExecute(
-        "SELECT (s.itemSoldTotal / NULLIF(s.itemSoldUnits, 0)) AS price
+        "SELECT (s.itemSoldTotal / NULLIF(s.itemSoldUnits, 0)) AS price,
+                s.taxId
            FROM itemSold s
            JOIN transaction t ON s.transactionId = t.transactionId
           WHERE t.companyId = ?
@@ -371,7 +374,8 @@ if ($resource === 'last-purchase-price') {
         [$companyId, $itemId]
     );
     $price = ($row && isset($row['price'])) ? (float) $row['price'] : 0.0;
-    apiOk(['price' => $price]);
+    $taxId = ($row && !empty($row['taxId'])) ? (string) $row['taxId'] : null;
+    apiOk(['price' => $price, 'taxId' => $taxId]);
 }
 
 // ── Rama Panel CRUD ───────────────────────────────────────────────────────
