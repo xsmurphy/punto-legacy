@@ -161,14 +161,23 @@ final class StockReversalPolicy
      */
     private static function isCompoundChildRow(array|\ArrayAccess $f): bool
     {
+        // OJO con el wrapper: `ncmExecute`/`ncmRow` APLANAN la columna `meta`
+        // — mezclan sus keys al nivel de la fila y la sacan del array
+        // (Query::flattenJsonb, el mismo patrón que costó cuatro features en
+        // 2026-07-30). O sea que la fila puede llegar de DOS formas:
+        //   a) `meta` como string JSON intacto (recordset crudo), o
+        //   b) SIN `meta`, con `compound` mezclado directo en la fila.
+        // Mirar solo (a) hacía que la hija se clasificara `ownStock` y la
+        // anulación repusiera stock nunca descontado — lo destapó el arnés
+        // stock_ledger_test (casos 1a/1b).
         $meta = $f['meta'] ?? null;
-        if ($meta === null || $meta === '') {
-            return false;
-        }
-        if (is_string($meta)) {
+        if (is_string($meta) && $meta !== '') {
             $meta = json_decode($meta, true);
         }
-        return is_array($meta) && array_key_exists('compound', $meta);
+        if (is_array($meta) && array_key_exists('compound', $meta)) {
+            return true;
+        }
+        return isset($f['compound']);
     }
 
     /**

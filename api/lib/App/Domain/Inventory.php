@@ -855,7 +855,17 @@ final class Inventory
         $oldStock = self::onHand($itemId, $outlet);
 
         if (!validity($COGS)) {
-            $COGS = ($hasStock && isset($stock['stockCOGS'])) ? $stock['stockCOGS'] : '';
+            // 0.0, nunca '' — stockCOGS es NUMERIC y el string vacío revienta
+            // el INSERT en Postgres. Antes de context/52 ese fallo era el
+            // `false` silencioso de G11 (el movimiento se PERDÍA sin aviso en
+            // el primer ingreso de un ítem sin costo); el arnés
+            // stock_ledger_test lo destapó en cuanto manageStock pasó a
+            // lanzar. Sin costo conocido, el movimiento vale 0 y el promedio
+            // lo corrige hacia adelante — mismo criterio que la mig 130 con
+            // el COGS histórico.
+            $COGS = ($hasStock && isset($stock['stockCOGS']) && is_numeric($stock['stockCOGS']))
+                ? (float) $stock['stockCOGS']
+                : 0.0;
         }
 
         // ── Costeo: promedio ponderado móvil ────────────────────────────────
