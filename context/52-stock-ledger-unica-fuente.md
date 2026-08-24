@@ -16,7 +16,9 @@
 > combo reponía doble.
 > **D8 — depósito por defecto por sucursal IMPLEMENTADO** (2026-08-24, mig
 > 165): ver §"Depósito por defecto". El histórico del ledger (`locationid
-> IS NULL`) NO se migró — es decisión explícita del owner, no un olvido.
+> IS NULL`) NO se migró ni se va a migrar — son datos de la cuenta de prueba
+> (owner, 2026-08-24). No es deuda pendiente; lo que sigue abierto es que el
+> schema acepta NULL y los demás escritores pueden producirlo.
 > Origen: conversación con el owner — "la tabla stock es el ledger como el de
 > un banco: no puede existir un solo movimiento que no quede registrado ahí, y
 > cada línea posee el stock real al momento del registro". El modelo pedido
@@ -143,18 +145,26 @@ prohíbe el segundo default.
 El owner eligió explícitamente **no tocar el histórico** (2026-08-24). Queda
 así a propósito:
 
-1. **~678 filas de `stock` con `locationid IS NULL` no se migraron.** Siguen en
-   NULL. Se consolidan en la LECTURA, no en los datos.
+1. **~678 filas de `stock` con `locationid IS NULL` no se migraron, y NO se van
+   a migrar nunca.** Son de la cuenta de prueba: por qué quedaron en NULL no
+   importa y no hay backfill pendiente (owner, 2026-08-24). Se consolidan en la
+   LECTURA. **No lo anotes de nuevo como pendiente**: está cerrado.
 2. **`stock.locationid` sigue siendo NULLABLE.** No se puso `NOT NULL`.
 3. **Los escritores del ledger (venta POS, compra, producción, devolución,
    transferencia, conteo) siguen pudiendo escribir NULL.** Solo el ajuste
    manual desde la ficha del ítem exige depósito hoy.
 
-Consecuencia a tener presente: mientras (1)-(3) sigan vigentes, **cualquier
-lector nuevo que agrupe por `locationid` crudo vuelve a partir el saldo**. Usar
-siempre `Inventory::ledgerLocationId()`. Cerrar la deuda = migrar el histórico
-al default de su sucursal + `NOT NULL` + exigir depósito en todos los
-escritores; es un trabajo aparte que el owner todavía no pidió.
+Lo único vivo de esta lista es (2)+(3), y no depende del histórico: mientras el
+schema acepte NULL y los escritores puedan producirlo, **un tenant real puede
+volver a generar stock sin depósito**, y cualquier lector nuevo que agrupe por
+`locationid` crudo vuelve a partir el saldo. Usar siempre
+`Inventory::ledgerLocationId()`.
+
+Cerrarlo del todo = exigir depósito en todos los escritores + `NOT NULL`. Como
+el histórico ya no hay que preservarlo, el paso a `NOT NULL` es barato (las
+filas viejas se pueden apuntar al default de su sucursal sin cuidado, o
+descartarse); el trabajo real es el de los escritores. El owner todavía no lo
+pidió.
 
 ## Crecimiento del ledger (preocupación del owner)
 
