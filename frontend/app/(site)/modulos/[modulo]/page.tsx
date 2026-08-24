@@ -147,13 +147,15 @@ export default async function ModuloPage({
                     {applyMarketTerms(p)}
                   </p>
                 ))}
-                <Link
-                  href="#"
-                  className="group mt-1 inline-flex w-fit items-center gap-2 text-base font-medium"
-                >
-                  {section.linkLabel}
-                  <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-                </Link>
+                {section.linkHref ? (
+                  <Link
+                    href={section.linkHref}
+                    className="group mt-1 inline-flex w-fit items-center gap-2 text-base font-medium"
+                  >
+                    {section.linkLabel}
+                    <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                  </Link>
+                ) : null}
               </div>
               <div
                 className={cn(

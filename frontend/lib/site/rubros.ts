@@ -25,8 +25,10 @@ export type RubroSection = {
   kicker: string
   title: string
   paragraphs: string[]
-  /** Link-flecha al final del texto. */
+  /** Link-flecha al final del texto. Sin `linkHref` no se dibuja. */
   linkLabel: string
+  /** Módulo del que habla la sección. */
+  linkHref?: string
   mockup: RubroMockup
 }
 
@@ -88,6 +90,7 @@ export const RUBROS: Rubro[] = [
           "La cocina arma las tandas por orden de llegada, no por quién reclamó más fuerte. Y cuando el plato cambia — sin cebolla, punto jugoso, para llevar — eso baja literal, no interpretado.",
         ],
         linkLabel: "Ver cómo trabaja la cocina",
+        linkHref: "/modulos/pantalla-de-cocina",
         mockup: {
           label: "Viernes 21:40",
           title: "Cocina · cola de comandas",
@@ -114,6 +117,7 @@ export const RUBROS: Rubro[] = [
           "Nada de reconstruir la mesa desde tres papeles: la cuenta vivió en el sistema desde el primer pedido.",
         ],
         linkLabel: "Ver el cobro de una mesa",
+        linkHref: "/modulos/mesas-y-ordenes",
         mockup: {
           label: "Mesa 12 · 3 personas",
           title: "Dividir la cuenta",
@@ -132,6 +136,7 @@ export const RUBROS: Rubro[] = [
           "Cada turno abre y cierra su caja: lo esperado contra lo contado, con cada movimiento anotado. El dueño ve el día por sucursal — qué se vendió, a qué hora, con qué margen — sin esperar a que alguien pase todo a una planilla el lunes.",
         ],
         linkLabel: "Ver el arqueo del turno",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Turno noche",
           title: "Arqueo de caja",
@@ -170,6 +175,7 @@ export const RUBROS: Rubro[] = [
           "El teclado alcanza para todo el flujo — la caja de alto volumen no depende del mouse ni de menús escondidos.",
         ],
         linkLabel: "Ver la caja rápida",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Caja 1",
           title: "Ticket en curso",
@@ -189,6 +195,7 @@ export const RUBROS: Rubro[] = [
           "El inventario deja de ser un fin de semana de conteo: los ajustes quedan con fecha, usuario y motivo.",
         ],
         linkLabel: "Ver la reposición",
+        linkHref: "/modulos/stock-y-compras",
         mockup: {
           label: "Depósito central",
           title: "Por reponer",
@@ -206,6 +213,7 @@ export const RUBROS: Rubro[] = [
           "Cada cajero abre su turno y lo cierra con arqueo: lo que el sistema esperaba contra lo que se contó. Los retiros y gastos del día quedan anotados en el momento, no reconstruidos de memoria a las diez de la noche.",
         ],
         linkLabel: "Ver el cierre de turno",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Turno mañana",
           title: "Cierre de caja",
@@ -242,6 +250,7 @@ export const RUBROS: Rubro[] = [
           "Por marca, por droga o escaneando la caja: el buscador responde al primer intento y muestra existencia por sucursal. Si en esta sucursal no hay, se ve dónde sí — y la venta no se pierde por no saber.",
         ],
         linkLabel: "Ver la búsqueda",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Mostrador",
           title: "Buscar: ibuprofeno",
@@ -266,6 +275,7 @@ export const RUBROS: Rubro[] = [
           "Cada lote entra con su vencimiento y el reporte de próximos a vencer ordena la góndola antes de que sea pérdida. Lo vencido no se vende: la caja lo frena, no el ojo del cajero.",
         ],
         linkLabel: "Ver próximos a vencer",
+        linkHref: "/modulos/stock-y-compras",
         mockup: {
           label: "Este mes",
           title: "Próximos a vencer",
@@ -290,6 +300,7 @@ export const RUBROS: Rubro[] = [
           "El cliente de siempre compra a crédito con un límite definido, y cada pago queda con su recibo. La cobranza del mes sale de un listado, no de una libreta que solo entiende quien la escribió.",
         ],
         linkLabel: "Ver cuentas corrientes",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Cuentas corrientes",
           title: "Saldos al día",
@@ -333,6 +344,7 @@ export const RUBROS: Rubro[] = [
           "Si en el depósito de esta sucursal no queda, se ve al toque dónde sí hay stock, antes de mandar al cliente a buscar en otro lado.",
         ],
         linkLabel: "Ver el buscador de artículos",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Mostrador",
           title: "Buscar: caño PVC",
@@ -358,6 +370,7 @@ export const RUBROS: Rubro[] = [
           "La cotización para una obra junta materiales de rubros distintos — caños, cables, cemento — y cuando el cliente confirma, se convierte en venta con un solo toque, sin recargar cada ítem de nuevo.",
         ],
         linkLabel: "Ver una cotización de obra",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Cotización #084",
           title: "Obra Sosa · baño",
@@ -421,6 +434,7 @@ export const RUBROS: Rubro[] = [
           "Cuando un talle se agota, se ve al instante — y el vendedor puede ofrecer el color que sí queda antes de perder la venta.",
         ],
         linkLabel: "Ver las variantes de un modelo",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Mostrador",
           title: "Vestido floreado corto",
@@ -438,6 +452,7 @@ export const RUBROS: Rubro[] = [
           "Cuando la clienta vuelve con la prenda porque no le entró el talle, el cambio se resuelve con nota de crédito: la prenda vuelve al stock y el saldo queda a favor para la próxima compra, sin que el cierre de caja del día quede descuadrado.",
         ],
         linkLabel: "Ver una nota de crédito",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Nota de crédito NC-0231",
           title: "Cambio de talle",
@@ -455,6 +470,7 @@ export const RUBROS: Rubro[] = [
           "El reporte de ventas por temporada dice qué modelos y talles se movieron y cuáles quedaron colgados, para no recomprar de nuevo lo que no salió. Y el mostrador vende a un precio mientras el cliente mayorista compra a otro, desde la misma lista de precios sin duplicar catálogo.",
         ],
         linkLabel: "Ver lo más vendido de la temporada",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Temporada invierno",
           title: "Más vendido",
@@ -496,6 +512,7 @@ export const RUBROS: Rubro[] = [
           "Lo mismo para el cliente que se sienta solo en la barra: su cuenta se abre a su nombre y se cobra cuando él lo pide, sin mezclarla con la mesa de al lado.",
         ],
         linkLabel: "Ver la barra en hora pico",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Sábado 22:15",
           title: "Mesa 6 · cuenta abierta",
@@ -516,6 +533,7 @@ export const RUBROS: Rubro[] = [
           "El mostrador vende por unidad, por kilo o por docena según el producto — la facturería no se pesa, el helado sí, y el sistema sabe la diferencia sin que el vendedor tenga que acordarse.",
         ],
         linkLabel: "Ver los agregados por producto",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Mostrador",
           title: "Helado · 1/2 kg",
@@ -535,6 +553,7 @@ export const RUBROS: Rubro[] = [
           "Al cerrar la noche, el arqueo compara lo esperado contra lo contado sin depender de que alguien se acuerde de cada movimiento. La noche más fuerte del mes queda tan clara como cualquier martes tranquilo.",
         ],
         linkLabel: "Ver el arqueo de la noche",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Cierre 01:30",
           title: "Arqueo de caja",
@@ -573,6 +592,7 @@ export const RUBROS: Rubro[] = [
           "Cada agregado tiene su precio propio, así que el combo se cobra completo sin que el cajero tenga que sumar a mano lo que cambia respecto al de la carta.",
         ],
         linkLabel: "Ver un combo armado",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Mostrador",
           title: "Combo doble",
@@ -592,6 +612,7 @@ export const RUBROS: Rubro[] = [
           "El pedido completo se arma solo cuando todas las estaciones terminaron la suya — así nada sale a medias ni se enfría esperando la papa.",
         ],
         linkLabel: "Ver la pantalla de cocina",
+        linkHref: "/modulos/pantalla-de-cocina",
         mockup: {
           label: "Cocina · plancha",
           title: "Pedido #114",
@@ -609,6 +630,7 @@ export const RUBROS: Rubro[] = [
           "El cierre del turno junta todo lo cobrado — salón y para llevar — en un solo arqueo, sin planillas separadas por tipo de pedido.",
         ],
         linkLabel: "Ver el pico de la noche",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Viernes 21:00",
           title: "Pedidos en curso",
@@ -646,6 +668,7 @@ export const RUBROS: Rubro[] = [
           "El pedido entra identificado con su marca desde el primer momento, así la cocina sabe para cuál de las tres está armando cada plato.",
         ],
         linkLabel: "Ver el pedido por marca",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Cocina central",
           title: "Pedidos en curso",
@@ -664,6 +687,7 @@ export const RUBROS: Rubro[] = [
           "El tiempo entre que el pedido entra y sale listo queda registrado por plato, así se ve qué preparación se está atrasando antes de que se acumulen diez pedidos esperando lo mismo.",
         ],
         linkLabel: "Ver el tiempo de preparación",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Últimos 30 minutos",
           title: "Tiempo de preparación",
@@ -682,6 +706,7 @@ export const RUBROS: Rubro[] = [
           "El reporte del día junta lo que vendió cada marca y a qué costo, para saber cuál plato conviene empujar y cuál está perdiendo margen sin que nadie lo note.",
         ],
         linkLabel: "Ver el costo por plato",
+        linkHref: "/modulos/produccion-y-recetas",
         mockup: {
           label: "Marca Wok Go",
           title: "Costo · Wok de pollo",
@@ -719,6 +744,7 @@ export const RUBROS: Rubro[] = [
           "El stock se lleva por depósito — lo que está en el local de exhibición no es lo mismo que lo que espera en el galpón — y cada venta descuenta del lugar correcto.",
         ],
         linkLabel: "Ver el catálogo con variantes",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Catálogo",
           title: "Sillón Milán 3 cuerpos",
@@ -737,6 +763,7 @@ export const RUBROS: Rubro[] = [
           "El reporte de rotación separa lo que se mueve rápido de lo que espera meses, para no recomprar por reflejo lo que ya sobra en el depósito.",
         ],
         linkLabel: "Ver la rotación por artículo",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Este trimestre",
           title: "Rotación de stock",
@@ -759,6 +786,7 @@ export const RUBROS: Rubro[] = [
           "Si la entrega es para dentro de tres semanas porque el mueble llega de otra sucursal, se cobra una seña ahora y el saldo el día que sale del depósito, con la fecha de entrega pactada quedando escrita, no prometida de palabra.",
         ],
         linkLabel: "Ver una cotización con entrega diferida",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Cotización #212",
           title: "Living completo",
@@ -797,6 +825,7 @@ export const RUBROS: Rubro[] = [
           "Si un barbero atiende corte y barba en el mismo turno, el tiempo se ajusta solo — la agenda no trata todos los servicios como si duraran lo mismo.",
         ],
         linkLabel: "Ver la agenda de sillones",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Sábado · mañana",
           title: "Agenda por sillón",
@@ -827,6 +856,7 @@ export const RUBROS: Rubro[] = [
           "Cada turno queda marcado como confirmado, atendido o ausente, así al final del día se ve de un vistazo cuántos turnos se perdieron y de quién — sin repasar la agenda completa buscando huecos.",
         ],
         linkLabel: "Ver los estados del turno",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Hoy",
           title: "Turnos del día",
@@ -845,6 +875,7 @@ export const RUBROS: Rubro[] = [
           "La ficha del cliente guarda su historial de cortes, así el próximo barbero que lo atienda sabe qué le hicieron la última vez sin tener que preguntar.",
         ],
         linkLabel: "Ver el cobro desde el turno",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Turno 10:20 · Hugo Benítez",
           title: "Cobrar turno",
@@ -882,6 +913,7 @@ export const RUBROS: Rubro[] = [
           "Cuando la coloración necesita tiempo de pausa, ese hueco queda reservado en la agenda del box, sin que otra clienta se agende encima sin querer.",
         ],
         linkLabel: "Ver la agenda por servicio",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Miércoles · tarde",
           title: "Agenda · Box 2",
@@ -907,6 +939,7 @@ export const RUBROS: Rubro[] = [
           "La confirmación del turno y el recordatorio del día anterior salen solos, así la clienta no se olvida y el box no queda vacío por una cita que nadie confirmó.",
         ],
         linkLabel: "Ver la ficha de la clienta",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Ficha · Marisol Ayala",
           title: "Historial de servicios",
@@ -924,6 +957,7 @@ export const RUBROS: Rubro[] = [
           "Si la clienta prefiere un paquete de sesiones de tratamiento capilar, se vende una vez y se descuenta sesión por sesión en cada visita, sin volver a cobrar cada vez.",
         ],
         linkLabel: "Ver el cobro con producto",
+        linkHref: "/modulos/gift-cards",
         mockup: {
           label: "Turno 16:00 · Marisol Ayala",
           title: "Cobrar turno",
@@ -961,6 +995,7 @@ export const RUBROS: Rubro[] = [
           "La recepción ve todas las agendas juntas para coordinar la sala de espera, pero cada profesional gestiona la suya sin pisar la del compañero.",
         ],
         linkLabel: "Ver la agenda por profesional",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Martes · mañana",
           title: "Agenda del consultorio",
@@ -986,6 +1021,7 @@ export const RUBROS: Rubro[] = [
           "La confirmación del turno y el recordatorio del día anterior salen solos, y si el paciente falta, el turno queda marcado como ausente en vez de perderse en la agenda sin explicación.",
         ],
         linkLabel: "Ver la ficha del paciente",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Ficha · Rubén Acosta",
           title: "Historial de consultas",
@@ -1011,6 +1047,7 @@ export const RUBROS: Rubro[] = [
           "El reporte del día separa las consultas por profesional y por tipo de cobertura, para que cerrar el mes no dependa de repasar la agenda entera a mano.",
         ],
         linkLabel: "Ver el cobro de la consulta",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Turno 09:00 · Rubén Acosta",
           title: "Cobrar consulta",
@@ -1047,6 +1084,7 @@ export const RUBROS: Rubro[] = [
           "Cada sesión que se cumple se descuenta de ese plan, así nadie tiene que recordar a mano cuántas quedan pendientes ni recotizar cada vez que el paciente vuelve.",
         ],
         linkLabel: "Ver un presupuesto de tratamiento",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Presupuesto · Ortodoncia",
           title: "Plan de tratamiento",
@@ -1066,6 +1104,7 @@ export const RUBROS: Rubro[] = [
           "Si el paciente falta a una sesión, el turno queda marcado como ausente y el plan sigue esperando esa sesión pendiente, en vez de perderse entre las demás consultas del consultorio.",
         ],
         linkLabel: "Ver el seguimiento del plan",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Ficha · Norma Villalba",
           title: "Seguimiento de ortodoncia",
@@ -1083,6 +1122,7 @@ export const RUBROS: Rubro[] = [
           "La ficha del paciente muestra el plan completo — hecho, pendiente y cobrado — en un solo lugar, listo para la próxima consulta de seguimiento.",
         ],
         linkLabel: "Ver el cobro por sesión",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Sesión 2 de 8 · Norma Villalba",
           title: "Cobrar sesión",
@@ -1119,6 +1159,7 @@ export const RUBROS: Rubro[] = [
           "Cuando el dueño llama para consultar por 'el perro', la recepción encuentra la ficha exacta sin confundirla con la del gato de la misma familia.",
         ],
         linkLabel: "Ver la ficha de la mascota",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Dueño · Familia Aquino",
           title: "Mascotas registradas",
@@ -1136,6 +1177,7 @@ export const RUBROS: Rubro[] = [
           "El estado del turno — confirmado, atendido, ausente — permite hacer seguimiento de los controles que quedaron pendientes, en vez de esperar a que el dueño se acuerde solo.",
         ],
         linkLabel: "Ver el calendario de vacunas",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Ficha · Firulais",
           title: "Historial de vacunas",
@@ -1194,6 +1236,7 @@ export const RUBROS: Rubro[] = [
           "El cliente ve cuántas sesiones le quedan del paquete que compró, y el centro sabe qué paquetes están por vencerse antes de que el cliente se olvide de usarlos.",
         ],
         linkLabel: "Ver un paquete de sesiones",
+        linkHref: "/modulos/gift-cards",
         mockup: {
           label: "Paquete · Depilación láser",
           title: "Piernas completas · 6 sesiones",
@@ -1213,6 +1256,7 @@ export const RUBROS: Rubro[] = [
           "Si falta a una sesión, el turno queda marcado como ausente y el paquete sigue mostrando esa sesión como pendiente, para reprogramarla sin perderla de vista.",
         ],
         linkLabel: "Ver la agenda del paquete",
+        linkHref: "/modulos/gift-cards",
         mockup: {
           label: "Ficha · Carla Bogarín",
           title: "Próxima sesión",
@@ -1233,6 +1277,7 @@ export const RUBROS: Rubro[] = [
           "La ficha del cliente junta todo: qué tratamientos hizo, con qué resultado y qué insumo se le aplicó cada vez, lista para la próxima sesión sin preguntar de nuevo.",
         ],
         linkLabel: "Ver el insumo por sesión",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Sesión 2 · Carla Bogarín",
           title: "Insumos usados",

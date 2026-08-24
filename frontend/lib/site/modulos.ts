@@ -23,6 +23,12 @@ export type ModuloSection = {
    * al hero o al spotlight.
    */
   image?: { src: string; alt: string }
+  /**
+   * Destino del link de cierre. Cuando la sección habla de otro módulo,
+   * apunta a su página; sin destino, el link no se dibuja (nada de flechas
+   * que no llevan a ningún lado).
+   */
+  linkHref?: string
 }
 
 export type Modulo = {
@@ -72,6 +78,7 @@ export const MODULOS: Modulo[] = [
           "En tablet la lógica es la misma pero con targets grandes: el cajero opera con el pulgar y los elementos no cambian de lugar según el estado, así la memoria muscular no se rompe.",
         ],
         linkLabel: "Ver cómo se cobra",
+        linkHref: "/modulos/facturacion-electronica",
         mockup: {
           label: "Caja 1",
           title: "Venta en curso",
@@ -95,6 +102,7 @@ export const MODULOS: Modulo[] = [
           "El comprobante sale al cerrar: ticket para el que no pide nada, factura electrónica para el que da sus datos. La numeración la controla el sistema, no el cajero.",
         ],
         linkLabel: "Ver el comprobante",
+        linkHref: "/modulos/facturacion-electronica",
         mockup: {
           label: "Cobro",
           title: "Medios de pago",
@@ -114,6 +122,7 @@ export const MODULOS: Modulo[] = [
           "Sirve además como cartel del negocio entre venta y venta, y evita la discusión más común del mostrador: qué se cobró y por cuánto.",
         ],
         linkLabel: "Ver la pantalla del cliente",
+        linkHref: "/modulos/punto-de-venta",
         image: {
           src: "/site/customer-display.png",
           alt: "Pantalla del cliente de Punto mostrando el total y los artículos",
@@ -137,6 +146,7 @@ export const MODULOS: Modulo[] = [
           "Cuando la conexión vuelve, las ventas suben solas y aparecen en el panel con su hora real — la del momento en que se vendió, no la de la sincronización.",
         ],
         linkLabel: "Ver la sincronización",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Sin conexión",
           title: "Ventas en espera",
@@ -168,6 +178,7 @@ export const MODULOS: Modulo[] = [
           "Al cerrar, el arqueo compara lo que el sistema esperaba contra lo que se contó. La diferencia, si la hay, aparece sola: nadie tiene que reconstruir el día de memoria.",
         ],
         linkLabel: "Ver el cierre de turno",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Turno noche · Caja 2",
           title: "Arqueo de caja",
@@ -207,6 +218,7 @@ export const MODULOS: Modulo[] = [
           "Los permisos siguen la misma lógica: el encargado ve lo suyo, la administración ve todo, y cada quien entra con su usuario.",
         ],
         linkLabel: "Ver el resumen por sucursal",
+        linkHref: "/modulos/punto-ai",
         mockup: {
           label: "Hoy",
           title: "Ventas por sucursal",
@@ -234,6 +246,7 @@ export const MODULOS: Modulo[] = [
           "Las listas de precio conviven: mostrador, mayorista y delivery pueden tener el suyo sin duplicar el artículo ni llevar una planilla aparte.",
         ],
         linkLabel: "Ver listas de precio",
+        linkHref: "/modulos/stock-y-compras",
         mockup: {
           label: "Artículo",
           title: "Café en grano 1kg",
@@ -255,6 +268,7 @@ export const MODULOS: Modulo[] = [
           "Cada venta descuenta stock en su depósito, cada compra lo repone y actualiza el costo. Los mínimos avisan antes del quiebre y los ajustes quedan con fecha, usuario y motivo — el inventario deja de ser un misterio de fin de mes.",
         ],
         linkLabel: "Ver la reposición",
+        linkHref: "/modulos/stock-y-compras",
         mockup: {
           label: "Depósito central",
           title: "Por reponer",
@@ -272,6 +286,7 @@ export const MODULOS: Modulo[] = [
           "Ventas por hora, ranking de productos, márgenes, medios de pago, cuentas por cobrar y los libros que pide el contador. Todo sale del mismo dato que generó la caja, sin exportar ni cruzar planillas.",
         ],
         linkLabel: "Ver los reportes",
+        linkHref: "/modulos/punto-ai",
         image: {
           src: "/site/reportes-stats.png",
           alt: "Reportes de Punto: margen, ingresos y egresos del período",
@@ -326,6 +341,7 @@ export const MODULOS: Modulo[] = [
           "No hay que aprender dónde vive cada reporte ni qué filtro combinar: la conversación reemplaza el recorrido por los menús.",
         ],
         linkLabel: "Ver una respuesta",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Punto AI",
           title: "¿Cómo viene la semana?",
@@ -348,6 +364,7 @@ export const MODULOS: Modulo[] = [
           "Y como trabaja sobre los datos de tu negocio, las conclusiones son tuyas: nada de promedios de industria ni consejos genéricos.",
         ],
         linkLabel: "Ver el análisis",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Hallazgos",
           title: "Qué mirar esta semana",
@@ -378,6 +395,7 @@ export const MODULOS: Modulo[] = [
           "Lo sensible queda fuera por diseño: no toca ventas, ni caja, ni permisos, ni borra nada en masa. Ordena el catálogo, no la contabilidad.",
         ],
         linkLabel: "Ver una acción confirmada",
+        linkHref: "/modulos/stock-y-compras",
         mockup: {
           label: "Confirmación",
           title: "Crear artículo",
@@ -417,6 +435,7 @@ export const MODULOS: Modulo[] = [
           "Cuando el cliente pide la cuenta, la mesa lo señala sin bloquearse — si alguien suma un postre después, entra igual y la cuenta se actualiza.",
         ],
         linkLabel: "Ver el salón",
+        linkHref: "/modulos/pantalla-de-cocina",
         mockup: {
           label: "Salón",
           title: "Mesas abiertas",
@@ -443,6 +462,7 @@ export const MODULOS: Modulo[] = [
           "Los agregados y las aclaraciones bajan literales — sin cebolla, punto jugoso, para llevar — y cada línea se marca como lista cuando sale.",
         ],
         linkLabel: "Ver la pantalla de cocina",
+        linkHref: "/modulos/pantalla-de-cocina",
         mockup: {
           label: "Cocina · en preparación",
           title: "Cola de comandas",
@@ -473,6 +493,7 @@ export const MODULOS: Modulo[] = [
           "La mesa se cierra recién cuando el saldo llega a cero. No hay forma de dejarla abierta con plata pendiente por descuido.",
         ],
         linkLabel: "Ver el cobro dividido",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Mesa 3 · 3 personas",
           title: "Dividir la cuenta",
@@ -515,6 +536,7 @@ export const MODULOS: Modulo[] = [
           "Se puede usar en una compra o en varias: el sistema lleva el saldo restante y lo aplica como un medio de pago más, combinable con efectivo o tarjeta.",
         ],
         linkLabel: "Ver el canje",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Cobro",
           title: "Gift card aplicada",
@@ -537,6 +559,7 @@ export const MODULOS: Modulo[] = [
           "Si el precio subió en el medio, no importa: lo que se vendió fue el producto, y el sistema lo respeta.",
         ],
         linkLabel: "Ver un vale",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Vale V-1042",
           title: "Productos incluidos",
@@ -555,6 +578,7 @@ export const MODULOS: Modulo[] = [
           "Y cada código guarda su rastro — quién lo vendió, en qué sucursal se usó y qué saldo queda — así el reclamo del mostrador se resuelve mirando la pantalla.",
         ],
         linkLabel: "Ver el historial",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "GC-4821",
           title: "Historial del código",
@@ -594,6 +618,25 @@ export const MODULOS: Modulo[] = [
     ],
     sections: [
       {
+        kicker: "De dónde entra",
+        title: "Mostrador, mesa o envío, todo llega al mismo tablero",
+        paragraphs: [
+          "La comanda puede nacer en la caja del mostrador, en una mesa del salón o en un pedido para envío. Sea cual sea el origen, entra a la pantalla con su número, su hora y de dónde viene — la cocina no necesita preguntar para qué es cada cosa.",
+          "El que toma el pedido no manda nada aparte: al confirmar la orden, la comanda ya está en cocina. Nadie transcribe, nadie camina hasta la plancha con un papel.",
+        ],
+        linkLabel: "Ver mesas y órdenes",
+        linkHref: "/modulos/mesas-y-ordenes",
+        mockup: {
+          label: "Entradas de hoy",
+          title: "Origen de las comandas",
+          rows: [
+            { left: "Mostrador", right: "64", sub: ["caja 1 y caja 2"] },
+            { left: "Mesas del salón", right: "38", sub: ["12 espacios"] },
+            { left: "Para envío", right: "17" },
+          ],
+        },
+      },
+      {
         kicker: "Cada estación, su tablero",
         title: "La cocina ve platos; la barra, tragos",
         paragraphs: [
@@ -601,6 +644,7 @@ export const MODULOS: Modulo[] = [
           "El orden lo pone la hora de entrada, no quién grita más fuerte: la tanda se arma por antigüedad y el tiempo de espera de cada comanda está a la vista.",
         ],
         linkLabel: "Ver el tablero",
+        linkHref: "/modulos/mesas-y-ordenes",
         mockup: {
           label: "Cocina · en preparación",
           title: "Tablero por estación",
@@ -636,6 +680,7 @@ export const MODULOS: Modulo[] = [
           "La comanda muestra todo lo que hay que preparar, cobre o no cobre. El que cocina no tiene que saber qué se facturó — solo qué sale.",
         ],
         linkLabel: "Ver una comanda",
+        linkHref: "/modulos/mesas-y-ordenes",
         mockup: {
           label: "#47 · Mesa 3",
           title: "Comanda completa",
@@ -647,6 +692,28 @@ export const MODULOS: Modulo[] = [
         },
       },
       {
+        kicker: "La salida",
+        title: "La pantalla de despacho arma el pedido completo",
+        paragraphs: [
+          "Cocina prepara por estación, pero el cliente se lleva el pedido entero. La pantalla de despacho muestra cada orden con todo lo que la compone y en qué anda: en espera, en proceso o lista para salir.",
+          "Quien entrega mira una sola columna y sabe qué está pronto y qué falta, sin ir a preguntar a la barra si el trago ya salió. El mostrador entrega completo o no entrega.",
+        ],
+        linkLabel: "Ver el despacho",
+        image: {
+          src: "/site/despacho.png",
+          alt: "Pantalla de despacho de Punto con las órdenes en espera, en proceso y listas",
+        },
+        mockup: {
+          label: "Despacho",
+          title: "Órdenes por estado",
+          rows: [
+            { left: "En espera", right: "7" },
+            { left: "En proceso", right: "3" },
+            { left: "Listas para entregar", right: "2", sub: ["#27 y #28"] },
+          ],
+        },
+      },
+      {
         kicker: "Marcar y deshacer",
         title: "El plato avanza — y también puede volver",
         paragraphs: [
@@ -654,6 +721,7 @@ export const MODULOS: Modulo[] = [
           "Cada cambio queda registrado con su hora, así el encargado puede mirar después cuánto tardó realmente cada comanda en salir.",
         ],
         linkLabel: "Ver los tiempos",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Turno noche",
           title: "Tiempos de preparación",
@@ -698,6 +766,7 @@ export const MODULOS: Modulo[] = [
           "En Punto no funciona así. Emitir un documento electrónico no nos cuesta, y por eso no te lo cobramos: facturás lo que vendas, todos los meses, sin contar comprobantes ni renovar nada.",
         ],
         linkLabel: "Ver el plan completo",
+        linkHref: "/precios",
         mockup: {
           label: "Este mes",
           title: "Documentos emitidos",
@@ -717,6 +786,7 @@ export const MODULOS: Modulo[] = [
           "Punto declara la tasa que se aplicó en el momento de vender, no la que figura hoy en el catálogo. Si cambiás un precio o una tasa después, los documentos ya emitidos siguen contando la verdad de esa venta.",
         ],
         linkLabel: "Ver la venta facturada",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Factura electrónica",
           title: "001-001-0000482",
@@ -736,6 +806,7 @@ export const MODULOS: Modulo[] = [
           "Si el envío falla — se cayó la conexión, el servicio no responde — el documento se reintenta solo. La venta nunca queda trabada esperando al fisco: se cobra igual y el comprobante se acomoda después.",
         ],
         linkLabel: "Ver los documentos",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Documentos electrónicos",
           title: "Estado de hoy",
@@ -762,6 +833,7 @@ export const MODULOS: Modulo[] = [
           "Y si un documento tiene que anularse ante SIFEN, se cancela desde el panel indicando el motivo — con permiso propio, para que no lo haga cualquiera desde la caja.",
         ],
         linkLabel: "Ver una nota de crédito",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Nota de crédito",
           title: "Sobre 001-001-0000482",
@@ -801,6 +873,7 @@ export const MODULOS: Modulo[] = [
           "Cada movimiento queda registrado con su motivo, su usuario y su hora. Cuando el saldo no cuadra, se puede ver exactamente qué pasó en vez de suponerlo.",
         ],
         linkLabel: "Ver el historial de un artículo",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Café en grano 1kg",
           title: "Últimos movimientos",
@@ -824,6 +897,7 @@ export const MODULOS: Modulo[] = [
           "Lo que sale es un borrador para revisar, no un movimiento hecho: corregís lo que haga falta y recién al aprobarlo entra la mercadería al stock. La IA nunca toca el inventario ni la caja por su cuenta.",
         ],
         linkLabel: "Ver el borrador de una factura",
+        linkHref: "/modulos/punto-ai",
         mockup: {
           label: "Borrador · extraído de la foto",
           title: "Distribuidora del Este",
@@ -843,6 +917,7 @@ export const MODULOS: Modulo[] = [
           "El alta manual sigue disponible y termina en el mismo lugar: haya venido de una foto o de la carga a mano, la compra es una sola cosa en el sistema.",
         ],
         linkLabel: "Ver cuentas por pagar",
+        linkHref: "/modulos/clientes-y-credito",
         mockup: {
           label: "Cuentas por pagar",
           title: "Vencimientos próximos",
@@ -874,6 +949,7 @@ export const MODULOS: Modulo[] = [
           "La misma lista sirve para armar el pedido al proveedor, así reponer deja de depender de que alguien se acuerde de mirar la góndola.",
         ],
         linkLabel: "Ver la reposición",
+        linkHref: "/modulos/stock-y-compras",
         mockup: {
           label: "Depósito central",
           title: "Por reponer",
@@ -912,6 +988,7 @@ export const MODULOS: Modulo[] = [
           "Si un cobro se cargó mal, se revierte y todo vuelve a su lugar solo — sin ajustes manuales que después nadie sabe explicar.",
         ],
         linkLabel: "Ver un estado de cuenta",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Cuenta corriente",
           title: "Elvira Ruiz",
@@ -939,6 +1016,7 @@ export const MODULOS: Modulo[] = [
           "También se puede cobrar parcialmente una factura puntual. En los dos casos sale el recibo, y lo cobrado impacta en la caja del turno como cualquier otro ingreso.",
         ],
         linkLabel: "Ver un cobro",
+        linkHref: "/modulos/punto-de-venta",
         mockup: {
           label: "Cobro",
           title: "Recibo 0000-0311",
@@ -966,6 +1044,7 @@ export const MODULOS: Modulo[] = [
           "Los datos son del negocio, no de una plataforma: si el cliente dejó de venir, el sistema puede mostrarlo antes de que sea tarde.",
         ],
         linkLabel: "Ver el perfil de un cliente",
+        linkHref: "/modulos/punto-ai",
         mockup: {
           label: "Comportamiento",
           title: "Albert Estanislao",
@@ -1004,6 +1083,7 @@ export const MODULOS: Modulo[] = [
           "Cada artículo elige su modelo y no se mezclan, así el inventario de insumos nunca se descuenta dos veces por lo mismo.",
         ],
         linkLabel: "Ver una orden de producción",
+        linkHref: "/modulos/stock-y-compras",
         mockup: {
           label: "Producción de hoy",
           title: "Tanda de las 04:00",
@@ -1035,6 +1115,7 @@ export const MODULOS: Modulo[] = [
           "Con eso a la vista, subir un precio o cambiar una receta deja de ser una corazonada.",
         ],
         linkLabel: "Ver el costo de un producto",
+        linkHref: "/modulos/panel",
         mockup: {
           label: "Milanesa napolitana",
           title: "Costo por porción",
@@ -1053,6 +1134,7 @@ export const MODULOS: Modulo[] = [
           "Al final del mes se puede mirar cuánto se perdió y por qué, en vez de descubrir el faltante recién en el conteo.",
         ],
         linkLabel: "Ver la merma del mes",
+        linkHref: "/modulos/stock-y-compras",
         mockup: {
           label: "Este mes",
           title: "Merma registrada",

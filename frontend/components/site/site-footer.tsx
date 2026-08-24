@@ -31,14 +31,20 @@ function FooterColumn({
         {title}
       </p>
       <ul className="flex flex-col gap-2">
+        {/* Sin destino real se lista como texto: una flecha o un link que
+            no lleva a ningún lado es peor que no ofrecerlo. */}
         {links.map((link) => (
           <li key={link.label}>
-            <Link
-              href={link.href}
-              className="text-sm text-white/65 transition-colors hover:text-white"
-            >
-              {link.label}
-            </Link>
+            {link.href === "#" ? (
+              <span className="text-sm text-white/45">{link.label}</span>
+            ) : (
+              <Link
+                href={link.href}
+                className="text-sm text-white/65 transition-colors hover:text-white"
+              >
+                {link.label}
+              </Link>
+            )}
           </li>
         ))}
       </ul>
