@@ -12,6 +12,7 @@ import {
   ticketItemName,
 } from "./blocks"
 import type { LineGeometry } from "./blocks"
+import { buildRollGrid, rollGeometry, type RollGraphic, type RollGrid } from "./roll-grid"
 
 function esc(s: string): string {
   return s
@@ -72,32 +73,11 @@ function renderBlockHtml(block: PrintBlock, data: TicketData): string {
   const styleAttr = blockStyleAttr(block)
   const align = blockAlign(block)
 
+  // `hor_line`/`ver_line` NO llegan acá: los dos caminos las interceptan
+  // antes (la hoja con `positionedLine`, el rollo con la grilla de caracteres
+  // de roll-grid.ts). Un `case` para ellas acá sería código muerto que miente
+  // sobre quién dibuja una línea.
   switch (block.type) {
-    // hor_line/ver_line acá son SOLO el camino de ROLLO (flujo lineal):
-    // `renderSheetBody` intercepta las líneas antes de que lleguen a esta
-    // función, porque en hoja necesitan posicionarse solas sin el wrapper
-    // que recorta (ver `positionedLine`). El grosor/largo salen del MISMO
-    // helper que usan el editor y el ESC/POS (`lineGeometry`, blocks.ts).
-    case "hor_line": {
-      const geo = lineGeometry(block)!
-      // Div de alto fijo y ancho automático: en el rollo la línea ocupa el
-      // ancho de la columna, que es lo que el editor ya fuerza para todo
-      // bloque de una plantilla de ticket (`applyReceiptWidthRule`). Antes
-      // era un `<hr>` PUNTEADO — el único de los tres renderers que dibujaba
-      // puntitos (el canvas y ESC/POS la hacen sólida).
-      return `<div style="height:${geo.thickness}px;background:#000;margin:4px 0"></div>`
-    }
-
-    case "ver_line": {
-      // A diferencia de ESC/POS (no-op), en HTML sí tiene sentido dibujar
-      // una línea vertical real (el fallback de navegador no está limitado
-      // a un rollo monocolumna). El alto sale del bloque, no de `1em`: antes
-      // medía siempre una línea de texto, sin relación con el alto que el
-      // operador le dio en el editor.
-      const geo = lineGeometry(block)!
-      return `<div style="display:inline-block;width:${geo.thickness}px;height:${geo.length}px;background:#000;margin:0 4px"></div>`
-    }
-
     case "company_name":
       return `<div style="${align};font-weight:bold">${esc(data.companyName)}</div>`
 
@@ -137,46 +117,75 @@ function renderItemFieldHtml(block: PrintBlock, item: TicketData["items"][number
   return `<div>${esc(value ?? "")}</div>`
 }
 
-/** Banner de comanda ("COMANDA #12 · MESA 3") — mismo forzado que
- *  render-template.ts (ESC/POS): el destino de la comanda no depende de que
- *  la plantilla del binding tenga un bloque para eso. Es contenido sintético
- *  sin coordenadas de canvas, así que en AMBOS layouts (rollo y hoja) va en
- *  flujo normal, antes del cuerpo de la plantilla — nunca como bloque
- *  posicionado. */
-function renderOrderBanner(data: TicketData): string {
-  if (!(data.docType === "order" && data.orderDestination)) return ""
-  return `<div style="text-align:center;font-weight:bold">COMANDA #${esc(data.ticketNo ?? "—")} · ${esc(data.orderDestination.toUpperCase())}</div>`
+/** Gráfico del rollo (logo / código de barras / QR) — no cabe en la grilla de
+ *  caracteres, se emite entre filas. Ver docblock de roll-grid.ts. */
+function renderRollGraphicHtml(g: RollGraphic): string {
+  const align = `text-align:${g.align === "center" ? "center" : g.align === "right" ? "right" : "left"}`
+  if (g.kind === "logo") {
+    return g.value
+      ? `<div style="${align}"><img src="${esc(g.value)}" alt="" style="max-width:100%"/></div>`
+      : `<div style="${align}">[Logo]</div>`
+  }
+  if (g.kind === "barcode") {
+    return `<div style="${align}">${esc(g.value)}</div>`
+  }
+  // El QR real lo dibuja la térmica; en pantalla se muestra el destino y su
+  // rótulo, que es la información que el operador necesita verificar.
+  const caption = g.caption ? `<div style="${align}">${esc(g.caption)}</div>` : ""
+  return `<div style="${align}">[QR] ${esc(g.value)}</div>${caption}`
 }
 
 /**
- * Cuerpo de TICKET (rollo 57/76/80mm) — flujo lineal, un `<div>` por bloque
- * en orden de lectura (`sortBlocksForRender`). Un rollo no tiene columnas
- * reales: `ver_line` es no-op explícito del lado ESC/POS
- * (`render-template.ts:63-67`) y acá se sigue el mismo criterio de "una
- * línea, un dato" — SIN cambios respecto de antes de F(hoja posicional).
+ * Cuerpo de ROLLO (57/76/80mm) — las MISMAS filas de caracteres que se le
+ * mandan a la impresora térmica (`buildRollGrid`, roll-grid.ts), pintadas en
+ * un `<pre>` monoespaciado.
+ *
+ * Antes esto era un flujo lineal que DESCARTABA `top`/`left` del canvas: el
+ * editor mostraba un layout posicional y ni la vista previa ni el papel se le
+ * parecían. Ahora la posición del canvas manda (decisión owner 2026-08-24) y,
+ * más importante, el corte de línea NO se calcula acá: viene ya resuelto en la
+ * grilla. Por construcción es imposible que la vista previa wrapee distinto
+ * que la impresora — que era el bug de origen replicado en otra superficie.
+ *
+ * La tipografía solo afecta cuánto LLENA el ancho del papel, nunca dónde
+ * corta: los saltos ya vienen decididos por columnas.
  */
-function renderTicketBody(blocks: PrintBlock[], data: TicketData): string {
-  const banner = renderOrderBanner(data)
-  const parts: string[] = banner ? [banner] : []
+function renderRollBody(grid: RollGrid): string {
+  const byRow = new Map<number, RollGraphic[]>()
+  for (const g of grid.graphics) {
+    const list = byRow.get(g.row)
+    if (list) list.push(g)
+    else byRow.set(g.row, [g])
+  }
 
-  let i = 0
-  while (i < blocks.length) {
-    const block = blocks[i]
-    if (ITEM_LINE_TYPES.has(block.type)) {
-      const groupStart = i
-      while (i < blocks.length && ITEM_LINE_TYPES.has(blocks[i].type)) {
-        i++
-      }
-      const itemBlocks = blocks.slice(groupStart, i)
-      for (const item of data.items) {
-        for (const ib of itemBlocks) {
-          parts.push(renderItemFieldHtml(ib, item, data))
-        }
-      }
-    } else {
-      parts.push(renderBlockHtml(block, data))
-      i++
+  const parts: string[] = []
+  let buffer: string[] = []
+  const flush = () => {
+    if (!buffer.length) return
+    parts.push(`<pre style="margin:0;font:inherit;white-space:pre">${buffer.join("\n")}</pre>`)
+    buffer = []
+  }
+
+  for (let r = 0; r < grid.rows.length; r++) {
+    const graphics = byRow.get(r)
+    if (graphics) {
+      flush()
+      for (const g of graphics) parts.push(renderRollGraphicHtml(g))
+      byRow.delete(r)
     }
+    // La negrita viaja por tramos (`RollRun`) — el mismo atributo que ESC/POS
+    // le pasa al encoder, así que el preview la muestra donde el papel la va
+    // a tener.
+    buffer.push(
+      grid.rows[r].runs.map((run) => (run.bold ? `<b>${esc(run.text)}</b>` : esc(run.text))).join(""),
+    )
+  }
+  flush()
+
+  // Gráficos anclados más abajo de la última fila con texto (el operador los
+  // puso al final del canvas): van al cierre, en orden de fila.
+  for (const row of [...byRow.keys()].sort((a, b) => a - b)) {
+    for (const g of byRow.get(row)!) parts.push(renderRollGraphicHtml(g))
   }
 
   return parts.join("\n")
@@ -337,15 +346,7 @@ function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number
     i++
   }
 
-  // El banner (cuando aplica) va EN FLUJO, arriba del canvas absoluto — su
-  // propia altura corre el canvas hacia abajo esa misma cantidad respecto de
-  // lo que el owner vio en el editor (que no conoce el banner, es contenido
-  // sintético). Edge case aceptado: una comanda normalmente imprime a
-  // rollo/impresora de cocina, no a una plantilla de hoja — no se resuelve
-  // acá para no inventar un offset "mágico" sin un caso real que lo pida.
-  const banner = renderOrderBanner(data)
-  const canvas = `<div style="position:relative;width:100%;height:100%">${parts.join("\n")}</div>`
-  return banner ? `${banner}\n${canvas}` : canvas
+  return `<div style="position:relative;width:100%;height:100%">${parts.join("\n")}</div>`
 }
 
 export interface RenderTemplateToHtmlOptions {
@@ -369,10 +370,16 @@ export function renderTemplateToHtml(
   const blocks = sortBlocksForRender(template.data ?? [])
   const fontFamily = template.page_font_family ?? "monospace"
   const fontSize = template.page_font_size ?? "8pt"
+  // `page_font_case` se aplicaba en el canvas del editor y en NINGÚN renderer:
+  // una plantilla en mayúsculas se veía en mayúsculas y salía impresa normal.
+  // Misma clase de mentira que la geometría del rollo (2026-08-24).
+  const fontCase =
+    template.page_font_case === "uppercase" ? "text-transform: uppercase;" : ""
 
-  // Rollo (57/76/80mm): flujo lineal SIN cambios — ver docblock de
-  // `renderTicketBody`. Hoja (A4/Legal/Carta): layout posicional — ver
-  // docblock de `renderSheetBody`. `isReceipt`/`PAPER_DIMENSIONS`:
+  // Los DOS caminos respetan la geometría del canvas; cambia la unidad en la
+  // que se proyecta. Hoja (A4/Legal/Carta): milímetros absolutos, ver
+  // `renderSheetBody`. Rollo (57/76/80mm): grilla de caracteres, ver
+  // `renderRollBody` + roll-grid.ts. `isReceipt`/`PAPER_DIMENSIONS`:
   // lib/types/print-template.ts, mismo criterio que ya usa el editor
   // (canvas-block.tsx) y la Vista Previa (preview-dialog.tsx) para distinguir
   // ambos mundos.
@@ -390,7 +397,7 @@ export function renderTemplateToHtml(
 <style>
   @page { size: ${dim.widthMm}mm ${dim.heightMm}mm; margin: 0; }
   html, body { margin: 0; padding: 0; }
-  body { font-family: '${fontFamily}', monospace; font-size: ${fontSize}; width: ${dim.widthMm}mm; height: ${dim.heightMm}mm; position: relative; }
+  body { font-family: '${fontFamily}', monospace; font-size: ${fontSize}; ${fontCase} width: ${dim.widthMm}mm; height: ${dim.heightMm}mm; position: relative; }
   @media print { body { margin: 0; } }
   table { width: 100%; border-collapse: collapse; }
   th, td { padding: 1px 2px; }
@@ -402,21 +409,34 @@ ${body}
 </html>`
   }
 
-  const body = renderTicketBody(blocks, data)
-  const widthMm = options.paperWidthMm
-  const widthCss = widthMm ? `width: ${widthMm}mm; margin: 0 auto;` : "margin: 20px;"
-  const pageCss = widthMm ? `@page { size: ${widthMm}mm auto; margin: 0; }` : ""
+  // ── Rollo ────────────────────────────────────────────────────────────────
+  // La grilla se construye con las columnas del DISPOSITIVO cuando el binding
+  // las conoce (`paperWidthMm`), no con las del papel de diseño: una plantilla
+  // de 57mm mandada a una térmica de 80mm se reparte sobre 48 columnas.
+  const rollMm = template.mm && template.mm > 0 ? template.mm : 3.78
+  const geo = rollGeometry(template.page_size, rollMm, options.paperWidthMm)
+  const grid = buildRollGrid(template, data, geo)
+  const body = renderRollBody(grid)
+
+  const widthMm = options.paperWidthMm ?? PAPER_DIMENSIONS[template.page_size].widthMm
+  // Tamaño de fuente para que `columns` caracteres llenen el ancho del papel.
+  // 0.6em es el avance típico de un carácter monoespaciado; es una
+  // aproximación VISUAL y nada más — los cortes de línea ya vienen decididos
+  // por la grilla (roll-grid.ts), así que una métrica de fuente distinta
+  // cambia cuánto se llena el ancho, nunca dónde corta el texto.
+  const charEmRatio = 0.6
+  const rollFontSize = `${(widthMm / geo.columns / charEmRatio).toFixed(3)}mm`
 
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
 <style>
-  ${pageCss}
-  body { font-family: '${fontFamily}', monospace; font-size: ${fontSize}; ${widthCss} }
+  @page { size: ${widthMm}mm auto; margin: 0; }
+  html, body { margin: 0; padding: 0; }
+  body { font-family: '${fontFamily}', monospace; font-size: ${rollFontSize}; width: ${widthMm}mm; margin: 0 auto; }
+  pre { font-family: inherit; }
   @media print { body { margin: 0; } }
-  table { width: 100%; border-collapse: collapse; }
-  th, td { padding: 1px 2px; }
 </style>
 </head>
 <body>

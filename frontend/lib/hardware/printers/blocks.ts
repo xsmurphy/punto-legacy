@@ -333,6 +333,13 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // No es un campo dedicado de mesa; documentado como aproximación.
   table_number: (data) => (data.docType === "order" ? data.orderDestination ?? null : null),
 
+  // Comanda — reemplazan el banner que los renderers inyectaban solos cuando
+  // `docType === "order"` (ver BlockType en lib/types/print-template.ts). Como
+  // cualquier otro bloque: si el dato no aplica resuelve `null` y el bloque
+  // sale en blanco, sin gating por tipo de documento.
+  order_number: (data) => (data.docType === "order" ? data.ticketNo ?? null : null),
+  order_destination: (data) => (data.docType === "order" ? data.orderDestination ?? null : null),
+
   // Transacción
   document_number: (data) => data.documentNumber ?? null,
   document_prefix: (data) => data.documentPrefix ?? null,

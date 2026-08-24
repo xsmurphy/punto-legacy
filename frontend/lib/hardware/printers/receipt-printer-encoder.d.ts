@@ -10,8 +10,13 @@ declare module "@point-of-sale/receipt-printer-encoder" {
     initialize(): this
     align(value: AlignValue): this
     bold(value: boolean): this
+    /** Escribe SIN salto — `render-template.ts` arma cada fila de la grilla
+     *  por tramos (negrita on/off) y cierra con `newline()`. */
+    text(value: string): this
     line(text: string): this
     newline(): this
+    /** Pulso del cajón de dinero: dispositivo, ms encendido, ms apagado. */
+    pulse(device: number, on: number, off: number): this
     /** `width` en CARACTERES de la grilla monoespaciada; default = columns. */
     rule(opts?: { style?: "single" | "double"; width?: number }): this
     barcode(value: string, symbology: string, opts?: { height?: number }): this
