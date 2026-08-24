@@ -55,6 +55,32 @@ import { formatMoney } from '@/lib/format-money'
 import { useCatalogStore } from '@/lib/catalog/store'
 import { useTenancyStore } from '@/lib/pos/tenancy-store'
 
+/**
+ * Mensaje de error de la cola, en la celda de Estado.
+ *
+ * El tope de ancho NO es cosmético: una celda de tabla se ensancha con su
+ * contenido, y el `<Table>` de shadcn scrollea horizontal. Un mensaje largo
+ * ("La caja fue liberada, tomada por otro dispositivo, o cerrada mientras esta
+ * venta esperaba conexión") empujaba la columna Acciones fuera del viewport y
+ * dejaba "Reintentar" invisible — el cajero veía el problema pero no el
+ * remedio, justo lo contrario de la convención del POS: la acción y su
+ * impedimento van juntos, nunca separados por un scroll.
+ *
+ * `max-w` va sobre el `<span>` y no sobre la celda porque un `max-width` en un
+ * `<td>` lo ignora el algoritmo de tabla automático; el elemento de adentro sí
+ * lo respeta y deja de empujar. `break-words` corta URLs o ids que no tengan
+ * espacios.
+ */
+const ERROR_MESSAGE_CLASS =
+  'max-w-[38ch] whitespace-normal break-words text-xs text-muted-foreground'
+
+/**
+ * Celda de acciones: nunca se parte en dos renglones ni cede ancho. `w-0` con
+ * `whitespace-nowrap` es el idiom para "ocupá exactamente lo que miden los
+ * botones" — el resto del ancho se lo reparten las columnas de contenido.
+ */
+const ACTIONS_CELL_CLASS = 'w-0 whitespace-nowrap'
+
 // Errores permanentes: reintentar el mismo payload vuelve a fallar siempre.
 //
 // `REGISTER_TAKEN` (otro dispositivo tiene la caja) NO está acá, aunque el
@@ -316,7 +342,11 @@ export function SyncQueueList() {
                 return (
                   <TableRow key={op.opId}>
                     <TableCell>
-                      <div className="flex min-w-0 flex-col gap-0.5">
+                      {/* Mismo motivo que ERROR_MESSAGE_CLASS: `truncate` no
+                          alcanza dentro de un `<td>` —la celda se ensancha con
+                          el texto antes de que el overflow entre en juego— así
+                          que el tope va acá, en el bloque de adentro. */}
+                      <div className="flex min-w-0 max-w-[40ch] flex-col gap-0.5">
                         <span className="truncate">{op.label}</span>
                         <span className="text-xs text-muted-foreground">
                           {formatDate(op.createdAt)}
@@ -331,14 +361,12 @@ export function SyncQueueList() {
                         <div className="flex flex-col items-start gap-1">
                           <Badge variant="destructive">Error</Badge>
                           {op.error && (
-                            <span className="text-xs text-muted-foreground">
-                              {op.error.message}
-                            </span>
+                            <span className={ERROR_MESSAGE_CLASS}>{op.error.message}</span>
                           )}
                         </div>
                       )}
                     </TableCell>
-                    <TableCell>
+                    <TableCell className={ACTIONS_CELL_CLASS}>
                       <div className="flex justify-end gap-2">
                         {op.status === 'failed' && (
                           <>
@@ -407,12 +435,12 @@ export function SyncQueueList() {
                       <div className="flex flex-col items-start gap-1">
                         <Badge variant="destructive">Error</Badge>
                         {row.error && (
-                          <span className="text-xs text-muted-foreground">{row.error.message}</span>
+                          <span className={ERROR_MESSAGE_CLASS}>{row.error.message}</span>
                         )}
                       </div>
                     )}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className={ACTIONS_CELL_CLASS}>
                     <div className="flex justify-end gap-2">
                       {canRetry(row) && (
                         <Button

@@ -19,9 +19,9 @@
  */
 
 import { create } from "zustand"
-import type { PosCustomer } from "@/lib/types/pos-bootstrap"
+import type { PosAddonOption, PosCustomer, PosItem } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { isAddonChild, type Order, type Fulfillment } from "@/hooks/use-orders"
+import { isAddonChild, type Order, type OrderItem, type Fulfillment } from "@/hooks/use-orders"
 import type { CustomerAddress } from "@/lib/types/contact"
 import { allocateLineDiscounts, lineGross } from "@/lib/cart/allocate-discounts"
 import { resolveLineTax, withLineTax } from "@/lib/cart/line-tax"
@@ -185,6 +185,97 @@ export function selectionsKey(selections: CartLineAddon[] | undefined): string {
     .map((s) => `${s.optionId}:${s.qty}`)
     .sort()
     .join(",")
+}
+
+/**
+ * Reconstruye las `selections` de una línea de carrito a partir de las hijas
+ * de add-on que la ORDEN persistió (context/41, mig 140). Es el puente entre
+ * las dos formas en que el add-on existe en el sistema:
+ *
+ * - **Orden** (`pos_order_item`): la orden es la INTENCIÓN, no un documento de
+ *   plata — toda la plata vive en el `price` del padre y la hija va con
+ *   `price = 0` + `priceDelta` congelado, para que la comanda de cocina sepa
+ *   qué preparar.
+ * - **Venta** (`itemSold`): el padre lleva el precio base y cada hija su
+ *   propio importe, porque ahí el add-on ES un ítem — descuenta stock, paga
+ *   su IVA y aparece en el ticket (`SaleService::expandAddonSelections`).
+ *
+ * Sin este puente, cobrar una mesa emitía una venta SIN `selections`: la plata
+ * salía bien (ya estaba adentro del padre) pero `expandAddonSelections` nunca
+ * corría, así que el add-on no descontaba stock, no salía en el ticket y era
+ * invisible para los reportes por opción (F6). El queso extra se regalaba del
+ * inventario en todas las ventas que pasaban por orden o mesa.
+ *
+ * **`qty` vuelve a ser POR UNIDAD DEL PADRE.** La orden persiste
+ * `childQty = optQty × parentQty` (2 hamburguesas con queso extra son 2
+ * quesos), y `CartLineAddon.qty` es la qty de la OPCIÓN, que el server vuelve
+ * a multiplicar por las unidades del padre. Sin dividir, cobrar 2 hamburguesas
+ * descontaría 4 quesos.
+ *
+ * **De dónde sale cada precio.** El `priceDelta` CONGELADO en la orden se usa
+ * solo para despejar el precio base del padre (es lo que se le sumó cuando se
+ * ordenó, así que es lo único que lo recupera exacto). El `priceDelta` que
+ * viaja en la selección sale del CATÁLOGO vigente — el mismo que
+ * `AddonService::validateSelections` va a re-cotizar server-side. Así el
+ * número que el cajero ve antes de cobrar es el que se factura, incluso si el
+ * add-on cambió de precio con la mesa abierta.
+ *
+ * Devuelve `undefined` —línea sin add-ons, exactamente el comportamiento
+ * previo— si algo no se puede reconstruir con confianza: hija sin
+ * `addonOptionId` (orden anterior a la mig 140), opción que ya no existe en el
+ * catálogo (`AddonService::replaceForItem` borra y reinserta las opciones con
+ * ids nuevos al editar la ficha), qty que no divide exacto, o precio base que
+ * daría negativo. El fail-safe es deliberado: una selección mal reconstruida
+ * la rechaza `validateSelections` con 422 y deja la mesa INCOBRABLE, que es
+ * mucho peor que cobrarla como se cobraba hasta ahora.
+ */
+export function rebuildSelectionsFromOrder(
+  parent: OrderItem,
+  children: OrderItem[] | undefined,
+  catalogItem: PosItem | undefined,
+): { selections: CartLineAddon[]; basePrice: number } | undefined {
+  if (!children || children.length === 0) return undefined
+
+  const parentQty = parent.qty
+  if (!(parentQty > 0)) return undefined
+
+  // Opciones vigentes del ítem, aplanadas de todos sus grupos.
+  const byOptionId = new Map<string, PosAddonOption>()
+  for (const group of catalogItem?.addonGroups ?? []) {
+    for (const option of group.options) byOptionId.set(option.id, option)
+  }
+
+  const selections: CartLineAddon[] = []
+  let frozenDelta = 0
+
+  for (const child of children) {
+    const optionId = child.addonOptionId
+    if (!optionId) return undefined
+
+    const option = byOptionId.get(optionId)
+    if (!option) return undefined
+
+    // `childQty = optQty × parentQty`. Debe dar un entero ≥ 1 — es lo que el
+    // contrato de `SaleInput` exige por selección.
+    const optQty = child.qty / parentQty
+    if (!Number.isInteger(optQty) || optQty < 1) return undefined
+
+    // El recargo con el que se ORDENÓ, por unidad del padre.
+    frozenDelta += (child.priceDelta ?? 0) * optQty
+
+    selections.push({
+      optionId,
+      qty: optQty,
+      itemId: child.itemId ?? option.itemId,
+      name: child.name || option.itemName,
+      priceDelta: option.priceDelta,
+    })
+  }
+
+  const basePrice = (parent.price ?? 0) - frozenDelta
+  if (basePrice < 0) return undefined
+
+  return { selections, basePrice }
 }
 
 /** Un ítem del vale, tal como lo devuelve `POST /v1/vouchers?resource=validate`. */
@@ -1169,21 +1260,24 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       ? (customers.find((c) => c.id === order.customerId) ?? null)
       : null
 
-    const newLines: CartLine[] = (order.items ?? [])
-      .filter((oi) => oi.status !== "cancelled")
-      // Las líneas hijas de add-ons (context/41, mig 139) NO vuelven al
-      // carrito: su plata ya está adentro del `price` del padre, así que
-      // cargarlas sería agregar líneas de $0 que el cajero tendría que borrar
-      // a mano. Cobrar una orden sigue moviendo exactamente la misma plata que
-      // antes de que la orden persistiera add-ons.
-      //
-      // Tampoco se re-hidratan como `selections` del padre: hoy la venta suma
-      // el recargo DOS veces en su detalle (el POS manda `unitPrice` con el
-      // delta incluido y `SaleService::expandAddonSelections` vuelve a
-      // agregarlo como línea hija). Mientras esa asimetría siga en pie,
-      // re-hidratar acá metería ese doble conteo en el cobro de mesas, que hoy
-      // no lo tiene. Ver el reporte del gap 1 y el docblock de
-      // `CartLine.selections`.
+    const live = (order.items ?? []).filter((oi) => oi.status !== "cancelled")
+
+    // Índice de hijas de add-on por línea padre (context/41, mig 140). Las
+    // hijas NO vuelven al carrito como líneas propias —una hamburguesa con
+    // queso extra es UNA línea del carrito, no dos— pero su plata y su stock
+    // SÍ vuelven: se re-hidratan como `selections` del padre, que es
+    // exactamente la forma con la que `<AddonPickerDialog>` arma una línea
+    // nueva (F4). Ver `rebuildSelectionsFromOrder`.
+    const childrenByParent = new Map<string, OrderItem[]>()
+    for (const oi of live) {
+      if (!isAddonChild(oi)) continue
+      const parentId = oi.parentOrderItemId as string
+      const siblings = childrenByParent.get(parentId)
+      if (siblings) siblings.push(oi)
+      else childrenByParent.set(parentId, [oi])
+    }
+
+    const newLines: CartLine[] = live
       .filter((oi) => !isAddonChild(oi))
       .map((oi) => {
         // `OrderItem` no viaja con datos de impuesto: se re-resuelven del
@@ -1192,21 +1286,33 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         // línea sin taxId como exenta). Solo afecta el display — el backend
         // congela el impuesto real al persistir igual (enrichWithTaxes).
         const cat = oi.itemId ? catalogItems.find((ci) => ci.id === oi.itemId) : undefined
+
+        // La orden congela QUÉ se pidió; el MONTO se resuelve recién acá, al
+        // pasar al cobro. `basePrice` sale de descontarle al precio congelado
+        // del padre los recargos con los que se ordenó, y el precio a cobrar
+        // se rearma con el `priceDelta` VIGENTE del catálogo — el mismo que el
+        // server va a re-cotizar en `validateSelections`. Así el cajero ve
+        // antes de cobrar el mismo número que se va a facturar.
+        const rebuilt = rebuildSelectionsFromOrder(oi, childrenByParent.get(oi.id), cat)
+        const basePrice = rebuilt ? rebuilt.basePrice : (oi.price ?? 0)
+        const selections = rebuilt?.selections
+
         return {
           lineId: crypto.randomUUID(),
           itemId: oi.itemId ?? "",
           name: oi.name,
           qty: oi.qty,
-          unitPrice: oi.price ?? 0,
+          unitPrice: basePrice + addonsDelta(selections),
           // INVARIANTE: toda línea nace con `basePrice`. Sin él, `usePriceContext`
           // cae a `unitPrice` como base y el precio ya resuelto se realimenta:
           // resolver → unitPrice baja → cambia el lineKey → vuelve a resolver
           // sobre el precio YA descontado. Ver applyResolvedPrices.
-          basePrice: oi.price ?? 0,
+          basePrice,
           note: oi.note ?? undefined,
           tags: oi.tags ?? undefined,
           taxId: cat?.taxId ?? null,
           taxIncluded: cat?.taxIncluded ?? null,
+          ...(selections ? { selections } : {}),
         }
       })
 

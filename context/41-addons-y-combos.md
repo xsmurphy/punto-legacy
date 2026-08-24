@@ -160,16 +160,62 @@ de copiar, cada producto edita lo suyo sin efecto dominó.
   líneas hijas, la variante completa no tiene add-ons que listar en una
   comanda. Implementar las variantes antes que eso es pintar una opción vacía.
 
+## El add-on cruza el flujo de orden — cerrado 2026-08-23
+
+Regla del owner, que fija el reparto de responsabilidades entre los dos
+documentos: **la orden no lleva montos** — es qué y cuánto, más notas y
+etiquetas. **Los montos se cargan al cobrarla, para facturar.** El add-on no es
+un texto ni un comentario: a la hora de facturar es un ítem más, con su precio
+y su stock, igual que cualquier otro renglón.
+
+De ahí que el add-on exista con dos formas y no sea una inconsistencia:
+
+| | Orden (`pos_order_item`) | Venta (`itemSold`) |
+|---|---|---|
+| Padre | `price` con el recargo adentro | `price` = precio base pelado |
+| Hija | `price = 0` + `pricedelta` congelado | `price` = su propio recargo |
+| Para qué | qué preparar (comanda de cocina) | plata, stock, IVA, ticket, reportes |
+
+El puente entre las dos formas es `rebuildSelectionsFromOrder()`
+(`frontend/lib/cart/store.ts`), que corre en `loadFromOrder` al pasar una orden
+o mesa al cobro: agrupa las hijas por `parentOrderItemId` y las devuelve al
+carrito como `CartLine.selections` del padre — la MISMA forma con la que
+`<AddonPickerDialog>` arma una línea nueva. De ahí en adelante el cobro es
+indistinguible de una venta directa: `create-sale.ts` manda `selections`,
+`SaleService::expandAddonSelections` las revalida y persiste las líneas hijas,
+y el stock del add-on se descuenta.
+
+Tres detalles que importan si se toca:
+
+- **`qty` vuelve a ser por unidad del padre.** La orden persiste
+  `childQty = optQty × parentQty`; `CartLineAddon.qty` es la qty de la OPCIÓN,
+  que el server vuelve a multiplicar. Sin dividir, cobrar 2 hamburguesas
+  descontaría 4 quesos.
+- **Dos precios con dos roles.** El `pricedelta` CONGELADO de la orden se usa
+  solo para despejar el precio base del padre (es lo único que lo recupera
+  exacto). El `priceDelta` que viaja en la selección sale del catálogo VIGENTE
+  — el mismo que `validateSelections` re-cotiza server-side. Es la regla del
+  owner aplicada: el monto se fija al facturar, no al ordenar.
+- **Fail-safe explícito.** Si algo no reconstruye con confianza (hija sin
+  `addonOptionId`, opción que ya no existe porque `replaceForItem` la borró y
+  reinsertó con id nuevo, qty que no divide exacto, base negativa), devuelve
+  `undefined` y la línea se cobra como antes. Una selección mal reconstruida la
+  rechaza `validateSelections` con 422 y deja la mesa INCOBRABLE — mucho peor
+  que perder el descuento de stock de esa línea.
+
+Antes de esto, cobrar una mesa emitía la venta SIN `selections`: la plata salía
+bien (ya estaba en el padre) pero `expandAddonSelections` nunca corría, así que
+el add-on se regalaba del inventario, no aparecía en el ticket y era invisible
+para los reportes por opción (F6) en TODAS las ventas que pasaban por orden o
+mesa — el flujo normal en gastronomía.
+
+Lo que NO cambió, a propósito: `SpaceBalanceService` y `SpaceSettlementService`
+siguen filtrando las hijas (`parentorderitemid IS NULL`). Una hija no es una
+unidad cobrable por separado — el queso extra se paga con la hamburguesa, no en
+otra parte del split.
+
 ## Gaps abiertos (destapados en F5, no bloquean el uso)
 
-- **Comanda de cocina sin add-ons.** Existe builder de comanda
-  (`frontend/lib/orders/print-comandas.ts`) pero arma desde `Order.items`
-  (`pos_order_item`), que NO lleva líneas hijas: F3 solo tocó `SaleService`
-  (venta directa), no el flujo de órdenes. La regla D3 del ticket FISCAL está
-  viva; la de cocina ("lista todo") queda cableada (`includeFreeAddons`,
-  `ticketItemName()`) pero sin datos que mostrar hasta que la ORDEN persista
-  add-ons. Es trabajo del módulo de órdenes, no de este plan — pero es el caso
-  de uso principal de los add-ons en gastronomía, así que va primero en la cola.
 - **Detalle de transacción del panel sin padre/hijo.** `TxDetailFull` no expone
   `meta.addon`, así que `buildTicketDataFromTxDetail` (reimpresión desde el
   panel) no puede indentar hijas ni aplicar D3. Se resuelve en context/39
