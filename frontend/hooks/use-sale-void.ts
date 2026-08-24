@@ -25,8 +25,8 @@ export interface VoidLine {
   qty: number
   unitPrice: number
   unitCogs: number
-  /** 'ownStock' (repone el ítem) | 'ingredientReversal' (repone insumos, solo si nunca se preparó) | 'service' (nada que reponer). */
-  kind: "ownStock" | "ingredientReversal" | "service"
+  /** 'ownStock' (repone el ítem) | 'ingredientReversal' (repone insumos, solo si nunca se preparó) | 'service' (nada que reponer) | 'compoundChild' (hija de combo fijo: nunca descontó stock, jamás repone — context/52 G4). */
+  kind: "ownStock" | "ingredientReversal" | "service" | "compoundChild"
   canRestock: boolean
   defaultRestock: boolean
   hadStockImpact: boolean

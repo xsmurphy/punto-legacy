@@ -47,9 +47,10 @@ export interface ReturnLine {
    * 'ownStock' (repone el ítem/producción previa) | 'ingredientReversal'
    * (repone insumos de producción directa/combo, solo si el tenant activó
    * `settingReturnAllowIngredientReversal` Y nunca se preparó) | 'service'
-   * (nada que reponer).
+   * (nada que reponer) | 'compoundChild' (hija de combo fijo: nunca
+   * descontó stock, jamás repone — context/52 G4).
    */
-  kind: "ownStock" | "ingredientReversal" | "service"
+  kind: "ownStock" | "ingredientReversal" | "service" | "compoundChild"
 }
 
 export interface ReturnItem {

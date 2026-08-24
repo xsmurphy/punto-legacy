@@ -1,6 +1,15 @@
 # 52 — Stock: el ledger como única fuente de verdad
 
-> Estado: **PLAN CERRADO CON EL OWNER, EN EJECUCIÓN** (sesión 2026-08-24).
+> Estado: **F1-F4 y F6 IMPLEMENTADAS** (2026-08-24, merge `4f95ba50`) —
+> lector único (`onHand`/`onHandBulk`/`onHandByLocation`, todo SUM), fuentes
+> espurias retiradas (`toLocation` ya no se escribe, `stockTrigger`/`inventory`
+> sin lectores), 5 bugs del escritor cerrados (VariantService, doble
+> reposición de combos vía `kind='compoundChild'`, void recursivo, manageStock
+> lanza en fallo real, guard de tenant), historial formato extracto en la
+> ficha. **F5 (apertura por período + particionado) espera señal de volumen**
+> (decisión owner). Arnés `api/tests/stock_ledger_test.php` listo, corre con
+> `bash api/tests/run_stock_ledger_test.sh` (pendiente de primera corrida —
+> requiere Docker/contenedor).
 > Origen: conversación con el owner — "la tabla stock es el ledger como el de
 > un banco: no puede existir un solo movimiento que no quede registrado ahí, y
 > cada línea posee el stock real al momento del registro". El modelo pedido
