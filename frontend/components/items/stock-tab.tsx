@@ -33,10 +33,11 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { EmptyState } from "@/components/empty-state"
 
 import { useOutlets } from "@/hooks/use-outlets"
-import { useOutletLocations } from "@/hooks/use-outlet-locations"
+import { defaultLocationOf, useOutletLocations } from "@/hooks/use-outlet-locations"
 import {
   useAdjustItemStock,
   useItemStockMovements,
@@ -389,6 +390,25 @@ function AdjustStockDialog({
   const effectiveOutletId = outletId || outlets[0]?.id || ""
 
   const { data: locations } = useOutletLocations(effectiveOutletId || null)
+  const defaultLocation = defaultLocationOf(locations)
+
+  // El depósito por defecto viene PRESELECCIONADO (regla del owner
+  // 2026-08-24: "ya tiene que estar preseleccionado el principal"). Efecto y
+  // no valor derivado porque `locations` llega async y el usuario tiene que
+  // poder pisar la preselección: un derivado `locationId || default` le
+  // impediría... nada, pero volvería a "vacío" un estado que el usuario ya
+  // tocó al cambiar de sucursal. Acá el reset es EXPLÍCITO y solo ocurre
+  // cuando cambia la sucursal o cuando todavía no hay nada elegido.
+  // `open` va en las deps a propósito: el diálogo está SIEMPRE montado, así que
+  // sin él la preselección se perdía para siempre después del primer ajuste
+  // exitoso (reset() dejaba el select vacío y el efecto no volvía a correr
+  // porque react-query preserva la referencia de `locations`).
+  React.useEffect(() => {
+    if (!open || !defaultLocation) return
+    setLocationId((actual) =>
+      actual && locations?.some((l) => l.id === actual) ? actual : defaultLocation.id,
+    )
+  }, [open, defaultLocation, locations])
 
   function reset() {
     setLocationId("")
@@ -398,26 +418,31 @@ function AdjustStockDialog({
     setReason("")
   }
 
+  // Impedimentos para guardar. Se muestran como botón deshabilitado + tooltip
+  // que explica POR QUÉ, no como toast después de apretar: convención del
+  // proyecto (context/14 §"Alertas del POS: en el control de la acción").
+  // Aplica a las tres validaciones del diálogo y no solo al depósito —
+  // partirlo (una bloqueante, dos por toast) dejaría el mismo botón con dos
+  // comportamientos distintos según qué falte.
+  const qtyNum = Number(qty)
+  const blockReason: string | null = !effectiveOutletId
+    ? "Elegí una sucursal"
+    : !locationId
+      ? "Elegí el depósito donde se ajusta el stock"
+      : !qtyNum || qtyNum <= 0
+        ? "Ingresá una cantidad mayor a 0"
+        : !reason.trim()
+          ? "Ingresá el motivo del ajuste"
+          : null
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    const qtyNum = Number(qty)
-    if (!effectiveOutletId) {
-      toast.error("Elegí una sucursal")
-      return
-    }
-    if (!qtyNum || qtyNum <= 0) {
-      toast.error("Ingresá una cantidad mayor a 0")
-      return
-    }
-    if (!reason.trim()) {
-      toast.error("Ingresá el motivo del ajuste")
-      return
-    }
+    if (blockReason) return
 
     adjust.mutate(
       {
         outletId: effectiveOutletId,
-        locationId: locationId || null,
+        locationId,
         type,
         qty: qtyNum,
         unitCost,
@@ -458,10 +483,10 @@ function AdjustStockDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="adjust-location">Depósito (opcional)</Label>
+              <Label htmlFor="adjust-location">Depósito</Label>
               <Select value={locationId} onValueChange={setLocationId} disabled={!effectiveOutletId}>
                 <SelectTrigger id="adjust-location">
-                  <SelectValue placeholder="Depósito principal" />
+                  <SelectValue placeholder="Elegí un depósito" />
                 </SelectTrigger>
                 <SelectContent>
                   {(locations ?? []).map((l) => (
@@ -520,10 +545,20 @@ function AdjustStockDialog({
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
             </Button>
-            <Button type="submit" disabled={adjust.isPending}>
-              {adjust.isPending && <Loader2 className="size-4 animate-spin" />}
-              Guardar ajuste
-            </Button>
+            {/* El botón deshabilitado no emite eventos de puntero, así que el
+                tooltip cuelga de un <span> envolvente — si no, el motivo del
+                bloqueo sería justamente lo único que no se puede leer. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={blockReason ? 0 : -1}>
+                  <Button type="submit" disabled={!!blockReason || adjust.isPending}>
+                    {adjust.isPending && <Loader2 className="size-4 animate-spin" />}
+                    Guardar ajuste
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {blockReason && <TooltipContent>{blockReason}</TooltipContent>}
+            </Tooltip>
           </DialogFooter>
         </form>
       </DialogContent>

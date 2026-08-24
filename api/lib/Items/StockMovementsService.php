@@ -80,14 +80,23 @@ final class StockMovementsService
      */
     public function breakdown(string $itemId, string $companyId): array
     {
+        // `locationId` efectivo: las filas históricas con NULL pertenecen al
+        // depósito por defecto de su sucursal y se consolidan con él, en vez
+        // de aparecer como un segundo depósito "principal" con el saldo
+        // partido en dos. La regla vive en el lector del ledger
+        // (`Inventory::ledgerLocationJoin`), una sola vez para todos los
+        // consumidores — ver context/52.
+        $locId = \Punto\App\Domain\Inventory::ledgerLocationId();
         $rs = ncmExecute(
-            "SELECT s.outletId, o.outletName, s.locationId, l.taxonomyName AS locationName,
+            "SELECT s.outletId, o.outletName, {$locId} AS locationId,
+                    l.taxonomyName AS locationName,
                     SUM(s.stockCount) AS qty
                FROM stock s
-               JOIN outlet o ON o.outletId = s.outletId
-          LEFT JOIN taxonomy l ON l.taxonomyId = s.locationId
+               JOIN outlet o ON o.outletId = s.outletId"
+          . \Punto\App\Domain\Inventory::ledgerLocationJoin() .
+         "LEFT JOIN taxonomy l ON l.taxonomyId = {$locId}
               WHERE s.itemId = ? AND s.companyId = ?
-              GROUP BY s.outletId, o.outletName, s.locationId, l.taxonomyName
+              GROUP BY s.outletId, o.outletName, {$locId}, l.taxonomyName
               ORDER BY o.outletName ASC, l.taxonomyName ASC NULLS FIRST",
             [$itemId, $companyId],
             false,

@@ -201,20 +201,29 @@ final class OutletsService
             );
         }
 
-        // Depósito por defecto — toda sucursal necesita al menos uno (jerarquía
-        // Company → Outlet → Depósito → Caja). Es una taxonomy type 'location'
-        // scopeada al outlet (mismo shape que LocationTaxonomyService::create).
-        $depRes = $db->Execute(
-            "INSERT INTO taxonomy (taxonomyid, companyid, taxonomytype, outletid, taxonomyname)
-             VALUES (gen_random_uuid(), ?, 'location', ?, ?)",
-            [$companyId, $outletId, 'Depósito Principal']
-        );
-        if ($depRes === false) {
-            $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+        // Depósito por defecto — toda sucursal necesita SÍ O SÍ uno (jerarquía
+        // Company → Outlet → Depósito → Caja; regla del owner 2026-08-24: "el
+        // stock tiene que estar en un lugar físico, no puede estar en el
+        // aire"). Va dentro de la MISMA transacción que la sucursal: si el
+        // depósito falla, no queda una sucursal sin él.
+        //
+        // El INSERT inline que había acá tenía un bug latente: nombraba
+        // siempre 'Depósito Principal', y `uq_taxonomy_company_type_name`
+        // (mig 38) es UNIQUE sobre (companyid, taxonomytype, lower(name)) →
+        // la SEGUNDA sucursal de una misma company reventaba por unicidad y,
+        // como el fallo aborta la transacción, la sucursal entera no se
+        // creaba. `ensureDefault()` resuelve un nombre libre y es el único
+        // creador del depósito por defecto en todo el sistema.
+        try {
+            (new \Punto\Api\Taxonomies\LocationTaxonomyService($db))
+                ->ensureDefault($companyId, $outletId, $name);
+        } catch (\Throwable $e) {
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \RuntimeException(
-                'No se pudo crear el depósito inicial: ' . ($errMsg !== '' ? $errMsg : 'sin detalle del driver')
+                'No se pudo crear el depósito inicial: ' . $e->getMessage(),
+                0,
+                $e
             );
         }
 

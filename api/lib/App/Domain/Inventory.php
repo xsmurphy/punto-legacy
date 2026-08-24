@@ -540,6 +540,42 @@ final class Inventory
     }
 
     /**
+     * JOIN canónico al depósito POR DEFECTO de la sucursal de cada fila del
+     * ledger. Se compone con `ledgerLocationId()`.
+     *
+     * POR QUÉ EXISTE (context/52, regla del owner 2026-08-24): desde la mig
+     * 165 toda sucursal tiene un depósito por defecto y los movimientos NUEVOS
+     * lo escriben en `stock.locationid`. Pero el histórico NO se migró —
+     * decisión explícita del owner— así que las filas viejas del MISMO lugar
+     * físico siguen con `locationid IS NULL`. Sin esto, un desglose por
+     * depósito agrupando por `locationid` crudo mostraría el mismo depósito
+     * DOS veces con el saldo partido: una fila "Depósito principal" (las
+     * históricas en NULL) y otra con el nombre real (las nuevas).
+     *
+     * La consolidación se paga UNA vez acá, en el lector, y no en cada
+     * consumidor (D2 de context/52: un solo lector). `locationid IS NULL` se
+     * resuelve al depósito por defecto de su propia sucursal.
+     *
+     * El LEFT JOIN no puede duplicar filas del ledger: el índice único
+     * `uq_taxonomy_location_default` (mig 165) prohíbe un segundo depósito por
+     * defecto por sucursal. Si una sucursal todavía no tuviera ninguno, el
+     * COALESCE cae a NULL y el comportamiento es el de antes (degrada, no
+     * rompe).
+     */
+    public static function ledgerLocationJoin(string $stockAlias = 's', string $defAlias = 'dl'): string
+    {
+        return " LEFT JOIN taxonomy {$defAlias}
+                        ON {$defAlias}.outletId = {$stockAlias}.outletId
+                       AND fn_taxonomy_is_default_location({$defAlias}.taxonomyType, {$defAlias}.taxonomyExtra) ";
+    }
+
+    /** Depósito EFECTIVO de una fila del ledger (NULL histórico → el default). */
+    public static function ledgerLocationId(string $stockAlias = 's', string $defAlias = 'dl'): string
+    {
+        return "COALESCE({$stockAlias}.locationId, {$defAlias}.taxonomyId)";
+    }
+
+    /**
      * Saldo por DEPÓSITO de un ítem en una sucursal, derivado del ledger.
      *
      * D4 de context/52: `toLocation` era una tabla espejo que había que
@@ -561,11 +597,15 @@ final class Inventory
             return [];
         }
 
+        // El depósito efectivo consolida el histórico en NULL con el depósito
+        // por defecto de la sucursal — ver ledgerLocationJoin().
+        $locId = self::ledgerLocationId();
         $rs = ncmExecute(
-            'SELECT locationId, COALESCE(SUM(stockCount), 0) AS onhand
-               FROM stock
-              WHERE itemId = ? AND outletId = ?
-              GROUP BY locationId',
+            "SELECT {$locId} AS locationId, COALESCE(SUM(s.stockCount), 0) AS onhand
+               FROM stock s"
+            . self::ledgerLocationJoin() .
+             "WHERE s.itemId = ? AND s.outletId = ?
+              GROUP BY {$locId}",
             [$itemId, $outletId],
             false,
             true

@@ -172,11 +172,17 @@ final class StockService
             // `Inventory::onHandBulk()`, para que las dos mitades de la fila
             // (saldo y desglose) no puedan discrepar por una denormalización
             // mal escrita.
-            'SELECT s.itemId, s.locationId, COALESCE(SUM(s.stockCount), 0) AS qty
+            // El depósito efectivo consolida las filas históricas con
+            // `locationId IS NULL` en el depósito por defecto de la sucursal
+            // (context/52): sin esto el mismo depósito salía dos veces con el
+            // saldo partido. Definición única en Inventory::ledgerLocationId().
+            "SELECT s.itemId, " . \Punto\App\Domain\Inventory::ledgerLocationId() . " AS locationId,
+                    COALESCE(SUM(s.stockCount), 0) AS qty
                FROM stock s
-               JOIN outlet o ON o.outletId = s.outletId
-              WHERE o.companyId = ? AND s.outletId = ?
-              GROUP BY s.itemId, s.locationId',
+               JOIN outlet o ON o.outletId = s.outletId"
+            . \Punto\App\Domain\Inventory::ledgerLocationJoin() .
+             "WHERE o.companyId = ? AND s.outletId = ?
+              GROUP BY s.itemId, " . \Punto\App\Domain\Inventory::ledgerLocationId(),
             [$companyId, $outletId],
             false,
             true
