@@ -146,11 +146,17 @@ Tres problemas nuevos, destapados al auditar el backlog contra el código real.
 Ocupan el lugar de prioridad que dejó libre la numeración fiscal (resuelta,
 ver abajo) — los tres son plata o seguridad, no UX.
 
-1. **Venta con vale canjeado no se puede facturar electrónicamente.**
-   `SaleToInvoiceMapper.php:174-190`: el guard de cuadratura compara la suma
-   de `item['total']` (bruto, incluye la línea del vale) contra `sale.total`
-   (que lo excluye, `context/36-vouchers-plan.md:50-53`) y aborta. Toda venta
-   con vale es hoy infacturable.
+1. ~~**Venta con vale canjeado no se puede facturar electrónicamente**~~
+   ✅ **RESUELTO (2026-08-24).** La raíz no era el guard del mapper sino el
+   filtro de líneas facturables: `EInvoiceService::buildSaleArrayForMapper`
+   incluía la línea del vale (bruto sin plata en `transactionTotal`) en
+   `$items` y en Σ(total). Ahora se excluye con el mismo criterio que el
+   motor de impuestos (exenta y fuera de los buckets del Libro Ventas): el
+   DE de la venta que CANJEA no declara lo que se cobró en la venta que
+   EMITIÓ el vale. Pendiente menor anotado: la NC de una devolución que
+   incluya líneas de vale no tiene exclusión equivalente (itemSold no lleva
+   marca de vale) — la política correcta es que la devolución no reintegre
+   plata de una línea que no se cobró; decidir en context/36.
 2. ~~**El stock de add-ons no se descuenta cuando la venta nace de una orden o
    mesa**~~ ✅ **RESUELTO (2026-08-23).** `loadFromOrder` ya no descarta las
    hijas: `rebuildSelectionsFromOrder()` (`frontend/lib/cart/store.ts`) las

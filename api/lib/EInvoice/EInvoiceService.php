@@ -1529,6 +1529,18 @@ final class EInvoiceService
             if (empty($sD['itemId']) || ($sD['type'] ?? '') === 'giftcard') {
                 continue;
             }
+            // Canje de voucher (context/36, decisión 5): la línea lleva el
+            // total BRUTO como registro de lo entregado, pero esa plata NO
+            // está en transactionTotal — el vale ya se cobró (y devengó su
+            // IVA) en la venta que lo emitió. Mismo criterio que el motor de
+            // impuestos (enrichWithTaxes la fuerza exenta y la excluye de los
+            // buckets del Libro Ventas): el DE de ESTA venta no la declara.
+            // Sin este filtro, la línea entraba a $items y a Σ(total) y el
+            // documento declaraba ingresos que nunca se cobraron — toda venta
+            // con vale quedaba infacturable o, peor, facturada de más.
+            if (is_array($sD['voucher'] ?? null)) {
+                continue;
+            }
             $count = (float) ($sD['count'] ?? 0);
             $lineNet = self::lineNetForSale($sD);
             if ($count <= 0 || $lineNet == 0.0) {
