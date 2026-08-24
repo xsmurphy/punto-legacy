@@ -116,10 +116,9 @@ final class UsersService
      * localStorage de una tablet del mostrador, así que la proyección es la
      * frontera de seguridad — no un detalle de performance.
      *
-     * ── Por qué NO hay gate `contacts.user.view` ────────────────────────────
+     * ── Por qué NO hay gate `contacts.user.view`, y qué lo reemplaza ────────
      * Este dato NO es gestión de equipo: es dato OPERATIVO de la caja (¿qué
-     * PIN abre esta caja?). Lo autoriza el realm + el scope de sucursal, igual
-     * que el resto de `/v1/bootstrap`, que es su único caller.
+     * PIN abre esta caja?). Lo autoriza el REALM + el scope de sucursal.
      *
      * El rol `device` (mig 162) NO tiene `contacts.user.*` A PROPÓSITO: ese
      * permiso abre `/v1/contacts` y `/v1/users` completos — el vector de toma
@@ -127,6 +126,15 @@ final class UsersService
      * por `/v1/users` daba 403 y dejaba el lock screen sin roster (lockout
      * reportado 2026-08-24). La solución NO es devolverle el permiso: es esta
      * proyección de tres campos, servida por el bootstrap del realm.
+     *
+     * Pero "lo autoriza el realm" es una obligación, no una descripción: el
+     * ÚNICO caller (`api/v1/bootstrap.php`) llama a este método SOLO cuando el
+     * realm es `pos-app`, y omite la clave `users` de la respuesta para
+     * `panel`. `pinhash` es un SHA-256 sin sal de 4 dígitos (10.000
+     * combinaciones): entregárselo a un rol de panel sin `contacts.user.view`
+     * sería regalarle el PIN del encargado y, con él, su identidad en la caja.
+     * Si sumás un caller nuevo, replicá ese gate — este método NO lo aplica por
+     * su cuenta, solo proyecta y scopea.
      *
      * ── Alcance por sucursal (decisión del owner 2026-08-24) ────────────────
      * La fuente de verdad es `contact_outlet` (tabla canónica desde la mig 66),
@@ -138,8 +146,10 @@ final class UsersService
      *   - Usuario con CERO filas → es GLOBAL, aparece en todas las sucursales.
      *     Misma semántica que `fin_account.outletid IS NULL` (ver
      *     `context/25-sucursales-y-scopes.md`).
-     *   - `$outletId === ''` (scope "Todas" del panel, `VIEW_OUTLET_ID`) →
-     *     sin filtro de sucursal.
+     *   - `$outletId === ''` → sin filtro de sucursal (todos los del tenant).
+     *     Contrato del método para un caller futuro; el único caller de hoy
+     *     (`/v1/bootstrap` en realm `pos-app`) nunca lo usa, porque el device
+     *     opera siempre con la sucursal fija de su pairing.
      *
      * @return list<array{id:string,name:string,pinhash:?string}>
      */

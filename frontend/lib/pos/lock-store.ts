@@ -98,12 +98,20 @@ export const useLockStore = create<LockState>()(
       /** Solo el estado — las acciones no se serializan. */
       partialize: (s) => ({
         activeUser: s.activeUser,
-        // Se persiste: sobrevive un F5 igual que `activeUser`, y sin él el mozo
-        // perdería el acceso a SU propia mesa tras una recarga aunque vuelva a
-        // tipear el PIN offline. sessionStorage (no localStorage) le pone el
-        // techo correcto: cerrar la app lo tira, como a la identidad que
-        // afirma. Mientras la caja está bloqueada no se emite ninguna request,
-        // así que un token persistido no habilita nada por sí solo.
+        // El token sobrevive a la RECARGA pero no al BLOQUEO manual. No es una
+        // inconsistencia, son dos eventos distintos:
+        //
+        //   - Recarga (F5, service worker, ChunkLoadError): la caja sigue
+        //     atendida por la misma persona. Se persiste porque sin él el mozo
+        //     perdería el acceso a SU propia mesa aunque vuelva a tipear el PIN
+        //     offline (el `/api/pos/unlock` que lo re-emite necesita red).
+        //   - Bloqueo manual (`lock()`): el operador se fue de la caja. Ahí el
+        //     token se tira en el acto — ver la acción `lock` arriba.
+        //
+        // En ambos casos la pantalla queda bloqueada y no se emite ninguna
+        // request, así que el token persistido no habilita nada por sí solo.
+        // sessionStorage (no localStorage) le pone el techo correcto: cerrar la
+        // app lo tira, como a la identidad que afirma.
         operatorToken: s.operatorToken,
       }),
       /**

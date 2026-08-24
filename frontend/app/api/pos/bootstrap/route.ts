@@ -178,8 +178,10 @@ interface UpstreamBootstrap {
    * 162. El 403 resultante degradaba a `[]` sin ruido y el lock screen quedaba
    * sin PINs contra los que validar: lockout de la caja.
    *
-   * Ausente = `/api` desplegado anterior a este cambio (deploy no coordinado).
-   * El handler lo loguea explícitamente en vez de tragárselo.
+   * Se sirve SOLO al realm `pos-app`: el `pinhash` es un SHA-256 sin sal de 4
+   * dígitos y no puede viajar a una sesión de panel (ver el gate en
+   * `api/v1/bootstrap.php`). Ausente = `/api` viejo, o la request no llevaba el
+   * Bearer del device. El handler lo loguea explícitamente en vez de tragárselo.
    */
   users?: UpstreamRosterUser[]
 }
@@ -645,12 +647,18 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // El roster del lock screen viaja DENTRO del bootstrap (ya no se pide a
-  // `/v1/users`). Si llega ausente, el `/api` desplegado es anterior a este
-  // cambio: la caja arrancaría sin PINs contra los que validar, así que se
-  // loguea en vez de degradar en silencio.
+  // `/v1/users`). Si llega ausente, la caja arrancaría sin PINs contra los que
+  // validar, así que se loguea en vez de degradar en silencio. Dos causas
+  // posibles, ambas accionables y ninguna silenciosa:
+  //   - el `/api` desplegado es anterior a este cambio (deploy no coordinado);
+  //   - la request se autenticó como realm `panel` y no como device, y
+  //     `/v1/bootstrap` sirve el roster SOLO a `pos-app` (el `pinhash` es
+  //     forzable, ver el gate en `api/v1/bootstrap.php`). Eso significa que
+  //     este device no mandó su Bearer: el arranque correcto es parear, no
+  //     abrir el lock screen.
   if (bsRes.data !== null && !Array.isArray(bsRes.data.users)) {
     console.warn(
-      "[bff /api/pos/bootstrap] /v1/bootstrap no devolvió `users` (roster del lock screen) — /api desactualizado",
+      "[bff /api/pos/bootstrap] /v1/bootstrap no devolvió `users` (roster del lock screen) — /api desactualizado, o la sesión no es la del device (realm pos-app)",
     )
   }
 
