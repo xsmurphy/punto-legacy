@@ -12,9 +12,9 @@ namespace Punto\App\Domain;
  *   - getProductionCapacity($compounds, $inv, $waste) → Inventory::getProductionCapacity(...)
  *   - getProductionCOGS($itemId, $wasted)             → Inventory::getProductionCOGS(...)
  *   - getComboCOGS($parent)                           → Inventory::getComboCOGS($parent)
- *   - getItemStock($itemId, $outlet, $inLocation)     → Inventory::getItemStock(...)
- *   - getItemMainStock($itemId, $outletId)            → Inventory::getItemMainStock(...)
- *   - getAllItemStock($outlet, $all)                   → Inventory::getAllItemStock(...)
+ *   - getItemStock($itemId, $outlet)                   → Inventory::getItemStock(...)
+ *   - (getItemMainStock / getAllItemStock: ELIMINADAS en context/52 — derivaban
+ *     el saldo de snapshot + toLocation; usar onHand/onHandBulk/onHandByLocation)
  *   - manageStock($ops)                               → Inventory::manageStock($ops)
  *   - getAllWasteValue($id, $cache)                   → Inventory::getAllWasteValue(...)
  *   - getNeedWithWaste($need, $wasteP)                → Inventory::getNeedWithWaste(...)
@@ -479,21 +479,24 @@ final class Inventory
     }
 
     /**
-     * Stock de un ítem en una sucursal (o en una ubicación específica).
-     * Equivalente legacy: `getItemStock($itemId, $outlet, $inLocation)`.
+     * ÚLTIMA FILA del ledger de un ítem en una sucursal — el SNAPSHOT
+     * cacheado (`stockOnHand` / `stockOnHandCOGS` / `stockCOGS`), no el saldo.
+     *
+     * NO es la fuente de verdad del saldo (D1 de context/52): para eso está
+     * `onHand()` (SUM con signo), que es lo único inmune a un movimiento con
+     * fecha retroactiva. Esta función queda para lo que SÍ vive en la fila:
+     * el costo promedio vigente y la fecha del último movimiento — que es para
+     * lo que la usa `manageStock()`.
+     *
+     * context/52 — se retiró el parámetro `$inLocation`: leía `toLocation`
+     * (tabla espejo que ya no se escribe) y encima con los binds INVERTIDOS
+     * (`locationId = $itemId`), así que jamás devolvió un número correcto. No
+     * tenía callers. El desglose por depósito sale de `onHandByLocation()`.
      */
-    public static function getItemStock(mixed $itemId, mixed $outlet = false, mixed $inLocation = false): mixed
+    public static function getItemStock(mixed $itemId, mixed $outlet = false): mixed
     {
         if (!validity($itemId)) {
             return false;
-        }
-
-        if ($inLocation) {
-            $location = ncmExecute(
-                'SELECT * FROM toLocation WHERE locationId = ? AND itemId = ? LIMIT 1',
-                [$itemId, $inLocation]
-            );
-            return ($location) ? $location['toLocationCount'] : 0;
         }
 
         $outletId = $outlet ?: OUTLET_ID;
@@ -534,6 +537,146 @@ final class Inventory
         );
 
         return $row ? (float) ($row['onhand'] ?? 0) : 0.0;
+    }
+
+    /**
+     * Saldo por DEPÓSITO de un ítem en una sucursal, derivado del ledger.
+     *
+     * D4 de context/52: `toLocation` era una tabla espejo que había que
+     * mantener sincronizada a mano (y derivaba a negativo porque los ingresos
+     * entraban con `locationId=null`). El ledger ya guarda `locationId` en
+     * cada fila, así que el desglose ES el mismo `SUM(stockCount)` del saldo,
+     * agrupado. Invariante gratis por construcción: la suma de las ubicaciones
+     * da exactamente `onHand()`, porque son las mismas filas.
+     *
+     * La clave `''` (string vacío) es el stock PRINCIPAL — las filas sin
+     * depósito asignado (`locationId IS NULL`). Se usa `''` y no `null` porque
+     * las claves de array de PHP no pueden ser null.
+     *
+     * @return array<string,float> locationId ('' = principal) => saldo
+     */
+    public static function onHandByLocation(mixed $itemId, mixed $outletId): array
+    {
+        if (!validity($itemId) || !$outletId) {
+            return [];
+        }
+
+        $rs = ncmExecute(
+            'SELECT locationId, COALESCE(SUM(stockCount), 0) AS onhand
+               FROM stock
+              WHERE itemId = ? AND outletId = ?
+              GROUP BY locationId',
+            [$itemId, $outletId],
+            false,
+            true
+        );
+
+        $out = [];
+        if ($rs !== false && is_object($rs)) {
+            while (!$rs->EOF) {
+                $loc = $rs->fields['locationid'] ?? $rs->fields['locationId'] ?? null;
+                $out[(string) ($loc ?? '')] = (float) ($rs->fields['onhand'] ?? 0);
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        return $out;
+    }
+
+    /**
+     * Saldo de TODOS los ítems de una sucursal en UNA sola query — misma
+     * definición que `onHand()` (SUM con signo), en forma de mapa.
+     *
+     * Existe para que los reportes no hagan un N+1 (una query de saldo por
+     * ítem) ahora que el saldo se calcula y no se lee de un snapshot. Devuelve
+     * también el costo promedio vigente (`stockOnHandCOGS` de la fila más
+     * reciente por ítem: `stockDate DESC, stockId DESC` — el desempate por
+     * `stockId` importa porque una misma venta escribe varias filas con la
+     * misma fecha, y sin él PG elige una fila arbitraria).
+     *
+     * `$outletId` vacío = TODAS las sucursales de la compañía (modo "Todas"
+     * del selector de sucursal). Ahí el saldo se agrega company-wide y el
+     * costo promedio se pondera por unidades entre sucursales: sumar dos
+     * costos UNITARIOS no da un costo unitario, y quedarse con el de una
+     * sucursal arbitraria es lo que hacía el `getAllItemStock` que se retiró.
+     *
+     * @param ?string $sinceDate Corte inclusivo `YYYY-MM-DD` (saldo AL cierre
+     *        de ese día). null = saldo actual.
+     * @return array<string,array{onHand:float,cogs:float}> itemId => saldo
+     */
+    public static function onHandBulk(string $companyId, string $outletId = '', ?string $sinceDate = null): array
+    {
+        if ($companyId === '') {
+            return [];
+        }
+
+        // El fence de tenant es el MODELO, no la columna denormalizada
+        // `stock.companyId`: toda fila del ledger cuelga de una sucursal (FK
+        // NOT NULL) y toda sucursal cuelga de una compañía (FK NOT NULL), así
+        // que el JOIN con `outlet` no puede dejar entrar una fila ajena ni
+        // dejar afuera una propia con el `companyId` denormalizado mal escrito
+        // — mismo criterio que ya usaba el `getAllItemStock` que se retiró.
+        $outletCut = $outletId !== '' ? ' AND s.outletId = ?' : '';
+        $dateCut   = $sinceDate !== null ? ' AND s.stockDate::date <= ?::date' : '';
+
+        $params = [$companyId];
+        if ($outletId !== '') {
+            $params[] = $outletId;
+        }
+        if ($sinceDate !== null) {
+            $params[] = $sinceDate;
+        }
+        // El costo promedio sale de la fila VIGENTE por (sucursal, ítem) con
+        // DISTINCT ON — en PG resuelve "la primera fila de cada grupo según el
+        // ORDER BY" sin subconsulta correlacionada. El desempate `stockId DESC`
+        // importa: una misma venta escribe varias filas con idéntica
+        // `stockDate` y sin él PG elegiría una arbitraria.
+        $params2 = $params;
+
+        $sql = 'WITH saldo AS (
+                    SELECT s.itemId, COALESCE(SUM(s.stockCount), 0) AS onhand
+                      FROM stock s
+                      JOIN outlet o ON o.outletId = s.outletId
+                     WHERE o.companyId = ?' . $outletCut . $dateCut . '
+                     GROUP BY s.itemId
+                ), vigente_por_outlet AS (
+                    SELECT DISTINCT ON (s.itemId, s.outletId)
+                           s.itemId, s.outletId,
+                           COALESCE(s.stockOnHandCOGS, 0) AS cogs,
+                           COALESCE(s.stockOnHand, 0)     AS qty
+                      FROM stock s
+                      JOIN outlet o ON o.outletId = s.outletId
+                     WHERE o.companyId = ?' . $outletCut . $dateCut . '
+                     ORDER BY s.itemId, s.outletId, s.stockDate DESC, s.stockId DESC
+                ), vigente AS (
+                    SELECT itemId,
+                           (CASE WHEN SUM(qty) <> 0
+                                 THEN SUM(qty * cogs) / SUM(qty)
+                                 ELSE AVG(cogs)
+                            END) AS cogs
+                      FROM vigente_por_outlet
+                     GROUP BY itemId
+                )
+                SELECT saldo.itemId AS itemid, saldo.onhand AS onhand, COALESCE(vigente.cogs, 0) AS cogs
+                  FROM saldo
+             LEFT JOIN vigente ON vigente.itemId = saldo.itemId';
+
+        $rs = ncmExecute($sql, array_merge($params, $params2), false, true);
+
+        $out = [];
+        if ($rs !== false && is_object($rs)) {
+            while (!$rs->EOF) {
+                $out[(string) ($rs->fields['itemid'] ?? '')] = [
+                    'onHand' => (float) ($rs->fields['onhand'] ?? 0),
+                    'cogs'   => (float) ($rs->fields['cogs'] ?? 0),
+                ];
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        return $out;
     }
 
     /**
@@ -618,170 +761,27 @@ final class Inventory
     }
 
     /**
-     * Stock principal de un ítem (descontando ubicaciones de depósito).
-     * Equivalente legacy: `getItemMainStock($itemId, $outletId)`.
-     */
-    public static function getItemMainStock(mixed $itemId, mixed $outletId): mixed
-    {
-        $inventory = self::getItemStock($itemId, $outletId);
-        $count     = formatQty($inventory['stockOnHand']);
-
-        $depo = ncmExecute(
-            "SELECT * FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName ASC",
-            [$outletId],
-            false,
-            true
-        );
-
-        if ($depo) {
-            $dTotal = 0;
-            while (!$depo->EOF) {
-                $dCount   = 0;
-                $depCount = ncmExecute(
-                    'SELECT * FROM toLocation WHERE locationId = ? AND itemId = ? LIMIT 1',
-                    [$depo->fields['taxonomyId'], $itemId]
-                );
-
-                if ($depCount) {
-                    $dCount = $depCount['toLocationCount'];
-                }
-
-                $dTotal += $dCount;
-                $count   = $count - $dTotal;
-
-                $depo->MoveNext();
-            }
-        }
-
-        return $count;
-    }
-
-    /**
-     * Stock de todos los ítems: de UNA sucursal, o agregado sobre TODAS las
-     * sucursales de la compañía del contexto (`$all = true`).
-     *
-     * Devuelve un mapa `itemId => ['itemId' =>…, 'onHand' =>…, 'cogs' =>…]`
-     * (forma de `GetAssoc`: clave = primera columna). Equivalente legacy:
-     * `getAllItemStock($outlet, $all)`.
-     *
-     * ── El defecto que cierra: `$all` nunca agregó nada ─────────────────────
-     *
-     * La rama `$all` hacía `getAllOutletData()` sin argumento, creyendo el
-     * docblock de esa función ("sin $id, mapa id → datos"). Ese mapa no existe:
-     * `getAllOutletData()` cae a `OUTLET_ID` y devuelve UNA fila (ver el
-     * docblock de `Store::getAllOutletData`, donde el branch muerto ya se
-     * eliminó). El `foreach` no iteraba sucursales: iteraba los CAMPOS de una
-     * sucursal — `id`, `name`, `status`, `phone`… — y metía cada NOMBRE DE
-     * CAMPO en `WHERE outletId = ?`. Como `outlet.outletId` es UUID, PG ni
-     * siquiera devolvía vacío: tiraba "invalid input syntax for type uuid", que
-     * con `DB_THROW_ON_ERROR` encendido es una `DbQueryException` — un 500. La
-     * agregación multi-sucursal estuvo rota desde siempre.
-     *
-     * De yapa, `$result[$itemId]['onHand'] += …` sumaba sobre una clave que
-     * todavía no existía (la línea anterior sólo creaba `['itemId']`), o sea un
-     * "Undefined array key onHand" por ítem y por sucursal. Al pasar la suma al
-     * SQL el warning desaparece por construcción, no por un `?? 0`.
-     *
-     * ── Una sola query, no N+1 ──────────────────────────────────────────────
-     *
-     * La forma anterior era un `SELECT` por sucursal dentro de un `foreach`.
-     * Con `stock` creciendo (y `transaction`/`itemSold` ya particionadas) eso
-     * escala con la cantidad de sucursales del tenant. Ahora el conjunto de
-     * sucursales se resuelve DENTRO del SQL y la agregación la hace PG: una
-     * sola ida a la base, con o sin `$all`.
-     *
-     * ── Semántica del dato: NO cambia ───────────────────────────────────────
-     *
-     * "Stock actual" sigue siendo la fila de `stock` MÁS RECIENTE por
-     * (sucursal, ítem). El legacy usaba `max(stockId)` (MySQL: PK
-     * autoincrement → max = última). En PG `stockId` es UUID v4 random
-     * (`gen_random_uuid()`), NO ordenable por tiempo, así que
-     * `max(stockId)`/`ORDER BY stockId` darían una fila ARBITRARIA. La recencia
-     * la da `stockDate` (TIMESTAMPTZ); `stockId DESC` sólo desempata para
-     * determinismo. `array_agg(...)[1]` reemplaza `max(uuid)` (inexistente en
-     * PG). Lo único que cambia es el `GROUP BY` del subquery: `(outletId,
-     * itemId)` en vez de `itemId`, para que "la última fila" se calcule por
-     * sucursal y no se pisen entre sí al agregar.
-     *
-     * Tampoco se filtra por `outletStatus`: se agregan TODAS las sucursales de
-     * la compañía, activas o no, que es lo que la rama `$all` pretendía hacer.
-     * Una sucursal cerrada con mercadería sigue teniendo esa mercadería.
-     *
-     * ── `cogs` es un costo UNITARIO: promedio PONDERADO, no la última ───────
-     *
-     * `stockOnHandCOGS` es el costo promedio POR UNIDAD del saldo (ver
-     * `manageStock`), no un costo total. El código viejo sumaba `onHand` pero
-     * ASIGNABA `cogs` — se quedaba con el de la última sucursal que hubiera
-     * iterado el `foreach`, un valor arbitrario. Sumarlos sería peor todavía:
-     * sumar dos costos unitarios no da un costo unitario.
-     *
-     * La agregación correcta de un promedio por unidad es el promedio ponderado
-     * por unidades: `Σ(onHand × cogs) / Σ(onHand)`. Es la única que conserva el
-     * invariante que consume un reporte de inventario — `onHand × cogs` = valor
-     * total del stock de ese ítem — sumando las sucursales. Cuando `Σ(onHand)`
-     * es 0 (ítem agotado, o saldos que se cancelan entre sucursales) no hay
-     * ponderación posible y se cae al promedio simple de las sucursales que
-     * tienen fila, para no reportar un costo unitario 0 en un ítem que sí tiene
-     * costo. El resultado se castea a `numeric(15,2)`, la escala de la columna:
-     * con una sola sucursal la fórmula devuelve el valor de la fila TAL CUAL
-     * (`onHand × c / onHand = c`), así que la rama no-`$all` no se mueve ni un
-     * centavo respecto de antes.
-     *
-     * ── Aislamiento multi-tenant ────────────────────────────────────────────
-     *
-     * El conjunto de sucursales sale de `outlet` filtrado por `companyId`, y el
-     * JOIN con `stock` es por `outletId`. No hay forma de que entre una fila de
-     * otro tenant: toda fila de `stock` cuelga de una sucursal (FK NOT NULL) y
-     * toda sucursal cuelga de una compañía (FK NOT NULL). No se usa
-     * `stock.companyId` como fence — es una columna denormalizada que la
-     * escribe la aplicación, mientras que la pertenencia sucursal → compañía es
-     * la del modelo. La rama no-`$all` pasa por el MISMO filtro: antes
-     * consultaba `outletId` a secas, sin ninguna verificación de que esa
-     * sucursal fuera del tenant del contexto.
-     */
-    public static function getAllItemStock(mixed $outlet = false, bool $all = false): array
-    {
-        // Fail-closed: sin compañía en el contexto no se resuelve el alcance.
-        // Inventarla ("la primera compañía activa") es exactamente lo que no se
-        // hace en este codebase.
-        if (!defined('COMPANY_ID') || !validity(COMPANY_ID)) {
-            throw new \RuntimeException('getAllItemStock: COMPANY_ID no está en el contexto');
-        }
-
-        $scope  = 'o.companyId = ?';
-        $params = [COMPANY_ID];
-
-        if (!$all) {
-            $scope   .= ' AND s.outletId = ?';
-            $params[] = iftn($outlet, OUTLET_ID);
-        }
-
-        $sql = 'SELECT t1.itemId AS itemId,
-                       SUM(t1.stockOnHand) AS onHand,
-                       (CASE WHEN SUM(t1.stockOnHand) <> 0
-                             THEN SUM(t1.stockOnHand * COALESCE(t1.stockOnHandCOGS, 0))
-                                  / SUM(t1.stockOnHand)
-                             ELSE AVG(t1.stockOnHandCOGS)
-                        END)::numeric(15,2) AS cogs
-                FROM stock t1
-                JOIN (
-                    SELECT (array_agg(s.stockId ORDER BY s.stockDate DESC, s.stockId DESC))[1] AS stockId
-                    FROM stock s
-                    JOIN outlet o ON o.outletId = s.outletId
-                    WHERE ' . $scope . '
-                    GROUP BY s.outletId, s.itemId
-                ) t2 ON t2.stockId = t1.stockId
-                GROUP BY t1.itemId';
-
-        $result = ncmExecute($sql, $params, false, true, true);
-
-        return validity($result) ? $result : [];
-    }
-
-    /**
      * Registra un movimiento de stock (entrada/salida) con auditoría.
      * CRÍTICO — money path: afecta costeo (COGS) de ventas.
      * Equivalente legacy: `manageStock($ops)`.
+     *
+     * ÚNICO escritor del ledger `stock` (D1/D6 de context/52) — no existe otro
+     * INSERT a esa tabla en el repo, y no debe existir.
+     *
+     * CONTRATO DE RETORNO (context/52, G11):
+     *   - `true`  → el movimiento quedó registrado en el ledger.
+     *   - `false` → NO-OP LEGÍTIMO, y nada más que eso: el ítem no existe para
+     *     ese tenant, está inactivo, no trackea inventario, o el `count` es
+     *     inválido. No hay nada que registrar y no hubo error.
+     *   - excepción → la escritura falló. `DbQueryException` del wrapper con
+     *     `DB_THROW_ON_ERROR` encendido (default), `RuntimeException` si el
+     *     kill-switch está apagado. NUNCA se degrada a `false`: un movimiento
+     *     perdido en silencio es stock perdido, y el ledger es la única fuente
+     *     de verdad del saldo.
+     *
+     * Un caller que quiera tolerar el fallo lo hace con try/catch explícito.
+     * Chequear `=== false` para detectar errores es un anti-patrón: solo
+     * detecta el no-op.
      *
      * Quirks preservados verbatim:
      * - $transaction/$supplierId/$locationId usan ?: null (NO iftn) para UUIDs vacíos.
@@ -810,11 +810,24 @@ final class Inventory
             return false;
         }
 
+        // context/52 (G12) — el guard multi-tenant valida contra `$company`
+        // (el companyId RESUELTO del caller, arriba), NO contra la constante
+        // global COMPANY_ID. Con la global, un caller que opera sobre otro
+        // tenant —jobs, sync, /admin, cualquier contexto donde COMPANY_ID no
+        // sea el de la operación— no encontraba el ítem y manageStock salía
+        // por el `return false` de "no trackea": el movimiento se perdía en
+        // silencio en vez de fallar. Ahora el ítem se valida contra la misma
+        // empresa que va a quedar escrita en la fila del ledger.
         $isStockeable = ncmExecute(
             'SELECT itemTrackInventory FROM item WHERE itemStatus = 1 AND itemId = ? AND companyId = ? LIMIT 1',
-            [$itemId, COMPANY_ID]
+            [$itemId, $company]
         );
 
+        // NO-OP LEGÍTIMO (context/52, G11): el ítem no existe para este
+        // tenant, está inactivo o no trackea inventario (servicios, insumos
+        // tipo agua/sal). No hay movimiento que registrar y NO es un error —
+        // este es el ÚNICO caso en que manageStock() devuelve `false`.
+        // Cualquier fallo REAL de escritura lanza (ver el INSERT más abajo).
         if (!$isStockeable || $isStockeable['itemTrackInventory'] < 1) {
             return false;
         }
@@ -909,8 +922,20 @@ final class Inventory
 
         $insert = $db->AutoExecute('stock', $row, 'INSERT');
 
+        // context/52 (G11) — un INSERT fallido NO puede devolver lo mismo que
+        // un no-op legítimo. El ledger es la única fuente de verdad del saldo
+        // (D1): perder una fila en silencio es perder stock, y casi ningún
+        // caller miraba el retorno. Con `DB_THROW_ON_ERROR` encendido (default)
+        // el wrapper ya lanzó `DbQueryException` y no llegamos acá; este
+        // `throw` cubre el kill-switch apagado, donde AutoExecute devuelve
+        // `false` sin lanzar. Los callers que quieran tolerar el fallo lo
+        // hacen con try/catch explícito, no leyendo un booleano ambiguo.
         if ($insert !== true) {
-            return false;
+            $dbError = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
+            throw new \RuntimeException(
+                'No se pudo registrar el movimiento de stock del item ' . $itemId
+                . ($dbError !== '' ? ': ' . $dbError : '')
+            );
         }
 
         // Insertado en el medio: las filas posteriores quedaron con su saldo y
@@ -945,23 +970,16 @@ final class Inventory
             register_shutdown_function([self::class, 'flushRealtimeStockEvents']);
         }
 
-        if ($location) {
-            $isLocation = ncmExecute(
-                'SELECT toLocationId FROM toLocation WHERE locationId = ? AND itemId = ? LIMIT 1',
-                [$location, $itemId]
-            );
-            if ($isLocation) {
-                $db->Execute(
-                    "UPDATE toLocation SET toLocationCount = toLocationCount" . $type . $count . " WHERE toLocationId = '" . $isLocation['toLocationId'] . "'"
-                );
-            } else {
-                $db->AutoExecute('toLocation', [
-                    'locationId'       => $location,
-                    'toLocationCount'  => $type . $count,
-                    'itemId'           => $itemId,
-                ], 'INSERT');
-            }
-        }
+        // context/52 (D4/G7/G8) — `toLocation` YA NO SE ESCRIBE. El ledger
+        // guarda `locationId` en cada fila, así que el desglose por depósito
+        // es `SUM(stockCount) ... GROUP BY locationId` sobre la misma fuente
+        // de verdad que el saldo (`StockMovementsService::breakdown()`,
+        // `Inventory::onHandByLocation()`). La tabla espejo no tenía scope de
+        // outlet ni de company, no tenía UNIQUE, y los INGRESOS entraban con
+        // locationId=null: solo bajaba, nunca subía, así que derivaba a
+        // negativo sola. Mantener dos saldos sincronizados "por disciplina de
+        // código" es justamente lo que el ledger vino a eliminar. Los lectores
+        // ya migraron; el DROP de la tabla va en una mig posterior.
 
         try {
             $userName     = getValue('contact',  'contactName',  "WHERE contactId = '" . USER_ID . "'");

@@ -1040,6 +1040,13 @@ final class TransactionService
     ): bool {
         $this->db->StartTrans();
 
+        // La TX se cierra SIEMPRE, también si algo lanza: la reposición de
+        // stock pasa por `Inventory::manageStock()`, que propaga los fallos
+        // reales de escritura del ledger (context/52 G11). Sin este catch la
+        // transacción quedaría abierta y envenenada para el resto del
+        // request.
+        try {
+
         // 1. Leer métodos de pago para reponer balances de cliente/giftcard.
         $tx = ncmExecute(
             'SELECT customerId, transactionPaymentType, outletId FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
@@ -1072,8 +1079,17 @@ final class TransactionService
         }
 
         // 4. Reponer inventario por cada itemSold.
+        // context/52 (G4) — las hijas de combo fijo (`meta.compound`, F6 de
+        // context/41) se EXCLUYEN: son trazabilidad de reportes, la venta
+        // nunca descontó stock por ellas (`SaleService::persistItemsAndStock()`
+        // las saltea) y el ingrediente ya lo repone la explosión de receta del
+        // padre, unas líneas más abajo. Incluirlas repone dos veces.
+        // `jsonb_exists()` en vez del operador `?` de jsonb: el `?` colisiona
+        // con el placeholder de PDO (memoria del repo, migs 74/77).
         $items = ncmExecute(
-            'SELECT itemId, itemSoldUnits FROM itemSold WHERE transactionId = ?',
+            'SELECT itemId, itemSoldUnits FROM itemSold
+              WHERE transactionId = ?
+                AND NOT (meta IS NOT NULL AND jsonb_exists(meta, \'compound\'))',
             [$transactionId],
             false,
             true
@@ -1088,33 +1104,48 @@ final class TransactionService
                 // venta (Inventory::saleExplodesRecipe). Sin esto, anular la
                 // venta de un terminado de producción previa repone insumos
                 // que esa venta nunca consumió (inflaba el stock de insumos).
-                $compound = getCompoundsArray($itemId);
-                if (is_array($compound) && $compound !== []
-                    && \Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId)) {
-                    foreach ($compound as $comr) {
-                        $comId  = $comr['compoundId'];
+                //
+                // context/52 (G5) — la explosión es RECURSIVA, igual que la de
+                // la venta (`SaleService::persistItemsAndStock()` usa
+                // `Inventory::explodeRecipe`). Con `getCompoundsArray()` esto
+                // recorría UN SOLO nivel: en "Combo 30 Piezas" (combo → 3
+                // rolls → insumos) la venta descontaba los insumos de los tres
+                // rolls y la anulación reponía únicamente los rolls que
+                // trackean stock. La reversa tiene que devolver exactamente lo
+                // que el movimiento original sacó, hoja por hoja, con la misma
+                // merma por nivel que `explodeRecipe` acumula.
+                if (\Punto\App\Domain\Inventory::saleExplodesRecipe($itemId, $companyId)) {
+                    $leaves = \Punto\App\Domain\Inventory::explodeRecipe($itemId, $companyId, abs($units));
+                    foreach ((array) $leaves as $comId => $comUnits) {
+                        if ((float) $comUnits <= 0) {
+                            continue;
+                        }
                         $locRow = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$comId, $companyId]);
-                        manageStock([
+                        \Punto\App\Domain\Inventory::manageStock([
                             'itemId'        => $comId,
                             'outletId'      => $outletId,
                             'date'          => TODAY,
-                            'count'         => abs((float) $comr['toCompoundQty'] * $units),
+                            'count'         => abs((float) $comUnits),
+                            'type'          => '+',
                             'source'        => 'void',
                             'locationId'    => $locRow['locationId'] ?? null,
                             'transactionId' => $transactionId,
+                            'companyId'     => $companyId,
                         ]);
                     }
                 }
 
                 $locRow = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$itemId, $companyId]);
-                manageStock([
+                \Punto\App\Domain\Inventory::manageStock([
                     'itemId'        => $itemId,
                     'outletId'      => $outletId,
                     'date'          => TODAY,
                     'locationId'    => $locRow['locationId'] ?? null,
                     'count'         => abs($units),
+                    'type'          => '+',
                     'source'        => 'void',
                     'transactionId' => $transactionId,
+                    'companyId'     => $companyId,
                 ]);
 
                 $items->MoveNext();
@@ -1125,6 +1156,12 @@ final class TransactionService
         // 5. Eliminar itemSold y giftCardSold vinculados.
         $this->db->Execute('DELETE FROM itemSold WHERE transactionId = ?', [$transactionId]);
         $this->db->Execute('DELETE FROM giftCardSold WHERE transactionId = ?', [$transactionId]);
+
+        } catch (\Throwable $e) {
+            $this->db->FailTrans();
+            $this->db->CompleteTrans();
+            throw $e;
+        }
 
         $failed = $this->db->HasFailedTrans();
         $this->db->CompleteTrans();

@@ -83,9 +83,22 @@ final class ItemService
     }
 
     /**
-     * Inventario de un ítem: stock por outlet y depósito. Sólo computa si el ítem
-     * trackea inventario; devuelve `[]` si no, si no existe, o si no es del tenant.
-     * Self-contained: re-lee el ítem (PK lookup barato) para ser un recurso suelto.
+     * Inventario de un ítem: stock por sucursal y depósito. Sólo computa si el
+     * ítem trackea inventario; devuelve `[]` si no, si no existe, o si no es
+     * del tenant.
+     *
+     * F1 de context/52 — reimplementado sobre el LEDGER (D1). Antes mezclaba
+     * el snapshot `stockOnHand` (total de la sucursal) con la tabla espejo
+     * `toLocation` (los depósitos) y derivaba el principal restando, con un
+     * `$dTotal` ACUMULATIVO que restaba de más: con 3 depósitos de 10 unidades
+     * cada uno el principal salía 60 unidades por debajo del real (restaba 10,
+     * después 20, después 30). Encima `toLocation` ya no se escribe.
+     *
+     * Ahora el total y el desglose salen de las MISMAS filas
+     * (`SUM(stockCount)` agrupado por `locationId`, vía
+     * `Inventory::onHandByLocation()`), así que "Principal" es el grupo sin
+     * depósito asignado y la suma de los depósitos más el principal da el
+     * total por construcción — no hay resta que pueda desalinearse.
      *
      * @return array `[]` | `['outlets' => [...]]` — exactamente lo que va en la clave `inventory`.
      */
@@ -109,50 +122,49 @@ final class ItemService
 
         if ($outlet) {
             while (!$outlet->EOF) {
-                $deposits = [];
+                $outletId = (string) $outlet->fields['outletId'];
 
-                $oStock = getItemStock($item['itemId'], $outlet->fields['outletId']);
-                $oCount = $oStock['stockOnHand'] ?? 0;
-                $mCount = $oCount;
+                // Una sola pasada al ledger por sucursal: saldo por depósito,
+                // clave '' = principal (locationId IS NULL).
+                $byLocation = \Punto\App\Domain\Inventory::onHandByLocation($item['itemId'], $outletId);
+                $total      = array_sum($byLocation);
 
-                // Bug PG corregido: comillas dobles → 'location' (literal de string)
                 $depo = ncmExecute(
                     "SELECT * FROM taxonomy WHERE taxonomyType = 'location' AND outletId = ? ORDER BY taxonomyName ASC",
-                    [$outlet->fields['outletId']],
+                    [$outletId],
                     false,
                     true
                 );
 
+                $deposits  = [];
+                $listedSum = 0.0;
                 if ($depo) {
-                    $dTotal = 0;
                     while (!$depo->EOF) {
-                        $dCount   = 0;
-                        $depCount = ncmExecute(
-                            'SELECT * FROM toLocation WHERE locationId = ? AND itemId = ? LIMIT 1',
-                            [$depo->fields['taxonomyId'], $item['itemId']]
-                        );
-                        if ($depCount) {
-                            $dCount = $depCount['toLocationCount'];
-                        }
-                        $dTotal += $dCount;
+                        $locId      = (string) $depo->fields['taxonomyId'];
+                        $qty        = (float) ($byLocation[$locId] ?? 0);
+                        $listedSum += $qty;
                         $deposits[] = [
                             'depositName' => $depo->fields['taxonomyName'],
-                            'qty'         => formatQty($dCount),
+                            'qty'         => formatQty($qty),
                         ];
-                        $mCount = $mCount - $dTotal;
                         $depo->MoveNext();
                     }
+                    $depo->Close();
                 }
 
+                // "Principal" absorbe todo lo que no cayó en un depósito
+                // listado: el grupo `locationId IS NULL` MÁS cualquier grupo
+                // cuyo depósito ya no exista. Así la suma de las filas siempre
+                // da el total y no hay stock que se evapore de la vista.
                 $deposits[] = [
                     'depositName' => 'Principal',
-                    'qty'         => formatQty($mCount),
+                    'qty'         => formatQty($total - $listedSum),
                 ];
 
                 $inventory['outlets'][] = [
                     'outletName' => $outlet->fields['outletName'],
                     'deposits'   => $deposits,
-                    'total'      => formatQty($oCount),
+                    'total'      => formatQty($total),
                 ];
 
                 $outlet->MoveNext();

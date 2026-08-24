@@ -8,6 +8,12 @@ namespace Punto\Api\Services;
  * Los movimientos se aplican via \Punto\App\Domain\Inventory::manageStock().
  * NUNCA se escribe directamente en la tabla stock.
  *
+ * context/52 (G11): `manageStock()` LANZA si la escritura del ledger falla de
+ * verdad — la excepción sale de esta clase y revierte la TX. Su `false` quedó
+ * reservado para el no-op legítimo (ítem sin `itemTrackInventory`), que acá ni
+ * puede pasar: `$stockableItems` viene pre-filtrado. Por eso ya no hay
+ * chequeos `=== false` + FailTrans: convertían ese no-op en un error.
+ *
  * Decisión de cancelación: al revertir una transferencia se permite overdraft
  * en el outlet destino porque el stock puede haber sido consumido (vendido)
  * entre la transferencia y la cancelación. Forzar stock >= 0 bloquearía
@@ -133,6 +139,16 @@ final class StockTransferService
         // --- TX ---
         $db->StartTrans();
 
+        // La TX se cierra SIEMPRE, también si algo lanza: `manageStock()`
+        // propaga los fallos reales de escritura (context/52 G11) y
+        // `DocumentNumber::allocate()` también puede tirar. Sin este catch la
+        // transacción quedaría abierta y envenenada para el resto del request.
+        // Los rechazos de negocio de más abajo conservan su
+        // FailTrans+CompleteTrans explícito (salen por `throw`, así que este
+        // catch los ve con la TX ya cerrada: `CompleteTrans()` sobre una
+        // transacción ya completada es no-op, ver el wrapper).
+        try {
+
         // Correlativo del documento (F3, context/37). Se numera por la sucursal
         // que la EMITE — la de destino recibe el documento, no lo emite.
         // Dentro de la TX: si la transferencia falla, el rollback devuelve el
@@ -178,7 +194,7 @@ final class StockTransferService
             );
 
             // Egreso del outlet origen
-            $result = \Punto\App\Domain\Inventory::manageStock([
+            \Punto\App\Domain\Inventory::manageStock([
                 'itemId'     => $itemId,
                 'source'     => 'transfer',
                 'count'      => $qty,
@@ -192,14 +208,9 @@ final class StockTransferService
                 'companyId'  => $companyId,
             ]);
 
-            if ($result === false) {
-                $db->FailTrans();
-                $db->CompleteTrans();
-                throw new \RuntimeException('Error al aplicar egreso para item ' . $itemId);
-            }
 
             // Ingreso en outlet destino
-            $result = \Punto\App\Domain\Inventory::manageStock([
+            \Punto\App\Domain\Inventory::manageStock([
                 'itemId'     => $itemId,
                 'source'     => 'transfer',
                 'count'      => $qty,
@@ -213,11 +224,12 @@ final class StockTransferService
                 'companyId'  => $companyId,
             ]);
 
-            if ($result === false) {
-                $db->FailTrans();
-                $db->CompleteTrans();
-                throw new \RuntimeException('Error al aplicar ingreso para item ' . $itemId);
-            }
+        }
+
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
         }
 
         $db->CompleteTrans();
@@ -405,6 +417,10 @@ final class StockTransferService
 
         $db->StartTrans();
 
+        // Mismo motivo que en create(): la reversa mueve stock y
+        // `manageStock()` lanza ante un fallo real de escritura.
+        try {
+
         $header = ncmExecute(
             'SELECT * FROM stock_transfer WHERE stocktransferid = ? AND companyid = ? FOR UPDATE',
             [$id, $companyId]
@@ -437,7 +453,7 @@ final class StockTransferService
                 $unitCost = (float) $row['unitCost'];
 
                 // Reversa: egreso en destino (puede quedar negativo si el stock ya fue vendido — permitido)
-                $result = \Punto\App\Domain\Inventory::manageStock([
+                \Punto\App\Domain\Inventory::manageStock([
                     'itemId'     => $itemId,
                     'source'     => 'transfer-cancel',
                     'count'      => $qty,
@@ -450,14 +466,9 @@ final class StockTransferService
                     'date'       => date('Y-m-d H:i:s'),
                     'companyId'  => $companyId,
                 ]);
-                if ($result === false) {
-                    $db->FailTrans();
-                    $db->CompleteTrans();
-                    throw new \RuntimeException("Error al revertir egreso en destino para item {$itemId}");
-                }
 
                 // Reversa: ingreso en origen
-                $result = \Punto\App\Domain\Inventory::manageStock([
+                \Punto\App\Domain\Inventory::manageStock([
                     'itemId'     => $itemId,
                     'source'     => 'transfer-cancel',
                     'count'      => $qty,
@@ -470,11 +481,6 @@ final class StockTransferService
                     'date'       => date('Y-m-d H:i:s'),
                     'companyId'  => $companyId,
                 ]);
-                if ($result === false) {
-                    $db->FailTrans();
-                    $db->CompleteTrans();
-                    throw new \RuntimeException("Error al revertir ingreso en origen para item {$itemId}");
-                }
 
                 $itemsRs->MoveNext();
             }
@@ -484,6 +490,12 @@ final class StockTransferService
             'UPDATE stock_transfer SET "status" = 0 WHERE stocktransferid = ? AND companyid = ?',
             [$id, $companyId]
         );
+
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
+        }
 
         $db->CompleteTrans();
 

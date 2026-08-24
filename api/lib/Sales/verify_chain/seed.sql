@@ -178,6 +178,26 @@ INSERT INTO item_compound (parentItemId, childItemId, quantity, sort, companyId)
     ('b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6e', 'b4a1e5f2-6c3d-4e21-9a8b-1f2e3d4c5b6d', 1, 1, '0ea6c5d8-57e5-4226-8140-ec914deec024')
 ON CONFLICT (parentItemId, childItemId) DO UPDATE SET quantity = EXCLUDED.quantity;
 
+-- Combo FIJO (context/52-stock-ledger-unica-fuente.md, stock_ledger_test.php).
+-- `itemtype='combo'` es lo que dispara `SaleService::expandCompoundSelections()`:
+-- la venta persiste una linea HIJA por componente (`meta.compound`), pura
+-- trazabilidad de reportes, y el stock fisico lo descuenta el PADRE explotando
+-- la receta. La reversa (anulacion/devolucion) NO debe reponer esas hijas: si
+-- lo hiciera acreditaria unidades que nunca se restaron, encima del insumo que
+-- ya repone el padre -- doble reposicion (G4 de context/52).
+--
+-- Receta: 2 x VERIFY-STOCK-TRACK. itemtrackinventory=FALSE + itemproduction=
+-- FALSE => `Inventory::saleExplodesRecipe()` da true, que es el predicado real
+-- que usa la venta para decidir si explota la receta.
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemcost, itemtype, itemstatus, itemcansale, itemtrackinventory, itemproduction, data, companyid, itemkind) VALUES
+    ('c0b1a5f2-6c3d-4e21-9a8b-1f2e3d4c5b70', 'Verify combo fijo', 'VERIFY-COMBO-FIJO', 25000, 0, 'combo', 1, TRUE, FALSE, FALSE, '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'combo_fijo')
+ON CONFLICT (itemid) DO UPDATE SET itemtype = EXCLUDED.itemtype, itemkind = EXCLUDED.itemkind,
+    itemtrackinventory = EXCLUDED.itemtrackinventory, itemproduction = EXCLUDED.itemproduction;
+
+INSERT INTO item_compound (parentItemId, childItemId, quantity, sort, companyId) VALUES
+    ('c0b1a5f2-6c3d-4e21-9a8b-1f2e3d4c5b70', '7a1c1a9e-3b1a-4e7b-8f7a-9a2b8c1d4e5f', 2, 0, '0ea6c5d8-57e5-4226-8140-ec914deec024')
+ON CONFLICT (parentItemId, childItemId) DO UPDATE SET quantity = EXCLUDED.quantity;
+
 -- Plantilla de impresión (context/08 §53, verify_offline_resolution.php):
 -- prueba que el device (`pos-app`) puede leer `document_template` — antes
 -- `apiAuthTenant(['panel'])` la bloqueaba para cualquier token que no fuera
