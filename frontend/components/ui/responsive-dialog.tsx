@@ -35,6 +35,12 @@
  *   que ocupa el ancho completo y administra su propio layout. Para tocar la
  *   rama drawer existe `drawerClassName`.
  *
+ * SUBMIT AISLADO
+ *   Las dos ramas lo heredan de sus primitives (`DialogContent` /
+ *   `DrawerContent`), que cortan la propagación del `submit` hacia el form de
+ *   la página — ver `lib/overlay-form-isolation.ts`. No hace falta repetirlo
+ *   acá ni en los call-sites.
+ *
  * TECLADO VIRTUAL
  *   vaul reposiciona el drawer solo cuando el teclado se abre. No agregar
  *   hacks de `visualViewport` acá ni en los call-sites.

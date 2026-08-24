@@ -4,6 +4,7 @@ import * as React from "react"
 import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
+import { isolateOverlaySubmit } from "@/lib/overlay-form-isolation"
 
 function Drawer({
   ...props
@@ -45,9 +46,16 @@ function DrawerOverlay({
   )
 }
 
+/**
+ * El `submit` de cualquier `<form>` que se monte adentro NO sale del content:
+ * ver `lib/overlay-form-isolation.ts`. Mismo motivo que en `dialog.tsx` —
+ * React propaga por su árbol, no por el del DOM, así que el portal del drawer
+ * no impide que el form de la página que quedó atrás reciba el submit.
+ */
 function DrawerContent({
   className,
   children,
+  onSubmit,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content>) {
   return (
@@ -60,6 +68,7 @@ function DrawerContent({
           className
         )}
         {...props}
+        onSubmit={isolateOverlaySubmit(onSubmit)}
       >
         {/* Grabber REAL (`DrawerPrimitive.Handle`), no un div decorativo: vaul
             necesita el `data-vaul-handle` que emite este componente para saber
