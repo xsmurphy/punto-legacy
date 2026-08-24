@@ -31,7 +31,7 @@ import { fixtureBootstrap, fixtureHotkeys } from "@/lib/catalog/fixtures"
 import { usePosBootstrap } from "@/hooks/use-pos-bootstrap"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { primeWatermarks } from "@/lib/catalog/delta-sync"
-import { primeInvoiceNumbering } from "@/lib/pos/invoice-numbering"
+import { primeInvoiceNumbering, primeInvoiceRange } from "@/lib/pos/invoice-numbering"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 
 const USE_FIXTURES = process.env.NEXT_PUBLIC_USE_FIXTURES === "1"
@@ -147,6 +147,11 @@ export function useCatalogSeed() {
         // para que un cambio de caja o una corrección server-side se reflejen.
         if (bootstrap.activeRegisterId) {
           primeInvoiceNumbering(bootstrap.activeRegisterId, bootstrap.nextInvoiceNo)
+          // Techo del timbrado (D5, context/37) — se persiste junto al
+          // contador para que el preaviso "quedan N números" funcione
+          // offline. `?? null` y no un skip: si el panel QUITÓ el rango,
+          // hay que borrar el techo guardado, no dejar el viejo avisando.
+          primeInvoiceRange(bootstrap.activeRegisterId, bootstrap.invoiceRangeTo ?? null)
         }
       }
     }

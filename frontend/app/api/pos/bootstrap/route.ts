@@ -257,6 +257,8 @@ interface UpstreamDocNumbers {
   invoiceNo: number
   /** Ancho de impresión del correlativo de factura (`document_sequence.padwidth`, mig 159). */
   invoicePadWidth?: number
+  /** Techo del rango autorizado del timbrado (`document_sequence.rangeto`, D5 context/37). */
+  invoiceRangeTo?: number | null
 }
 
 // Shape real de /v1/items rows y /v1/contacts rows — ver
@@ -804,6 +806,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     invoicePadWidth:
       typeof docNumbersRes.data?.invoicePadWidth === "number"
         ? docNumbersRes.data.invoicePadWidth
+        : null,
+    // D5 (context/37): techo del timbrado — el POS avisa "quedan N números"
+    // comparando su contador local contra esto, también sin red.
+    invoiceRangeTo:
+      typeof docNumbersRes.data?.invoiceRangeTo === "number"
+        ? docNumbersRes.data.invoiceRangeTo
         : null,
   }
 

@@ -227,11 +227,17 @@ huecos y pasa a alimentarse del asignador en vez de `MAX()`.
   tipeado es la intención expresada, no se descarta en silencio. `padWidth`
   explícito (el `<Select>` del form) siempre gana.
 
-- **D5 — Fin de rango del timbrado.** PENDIENTE, pero ya no bloquea nada:
-  el corte duro en `rangeTo` está implementado (es el mínimo legal). Lo que
-  falta decidir es el PREAVISO: a cuántos números del techo avisar y dónde
-  (badge en el listado de cajas, aviso en el POS al abrir turno, ambos).
-  Sin esto la caja se entera al intentar cobrar.
+- **D5 — Fin de rango del timbrado. IMPLEMENTADA (2026-08-24).** El corte
+  duro en `rangeTo` ya existía; ahora hay PREAVISO en los dos lados, con
+  umbrales compartidos (`frontend/lib/documents/timbrado-warning.ts`: ámbar
+  ≤200 números restantes, rojo ≤50 — absolutos, no % del rango):
+  - **Panel**: badge "Quedan N" en la columna Próxima factura del tab Cajas.
+  - **POS**: cuarto estado del pill único de la caja
+    (`offline-status-pill.tsx`), prioridad debajo de fallidos/offline/sync.
+    Funciona OFFLINE: compara el contador local contra el techo persistido
+    (`primeInvoiceRange`/`peekInvoiceRemaining` en `invoice-numbering.ts`);
+    el techo baja en el bootstrap (`PosBootstrap.invoiceRangeTo`, vía
+    `RegisterService::docNumbers` → `DocumentNumber::sequenceMeta`).
 
 ## Fases
 

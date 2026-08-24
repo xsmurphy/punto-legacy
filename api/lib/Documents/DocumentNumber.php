@@ -300,7 +300,7 @@ final class DocumentNumber
         string $companyId,
     ): array {
         $row = ncmExecute(
-            'SELECT prefix, padwidth FROM document_sequence
+            'SELECT prefix, padwidth, rangeto FROM document_sequence
               WHERE companyid = ? AND doctype = ? AND scopetype = ? AND scopeid = ?
               LIMIT 1',
             [$companyId, $docType, $scopeType, $scopeId]
@@ -309,6 +309,11 @@ final class DocumentNumber
         return [
             'prefix'   => (string) ($row['prefix'] ?? ''),
             'padWidth' => self::normalizePadWidth($row ? ($row['padwidth'] ?? null) : null),
+            // Techo autorizado del timbrado (D5, context/37). null = sin rango
+            // cargado — el preaviso de "se agota el timbrado" no aplica.
+            'rangeTo'  => ($row && $row['rangeto'] !== null && $row['rangeto'] !== '')
+                ? (int) $row['rangeto']
+                : null,
         ];
     }
 

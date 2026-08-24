@@ -84,6 +84,11 @@ final class RegisterService
             // context/37): son las dos que tienen emisor migrado, así que leer
             // los contadores legacy acá devolvería un número viejo — el emisor
             // dejó de escribirlos. `peek` NO reserva: esto es solo pantalla.
+            // Techo del rango autorizado del timbrado (D5, context/37) — baja
+            // al POS junto con el correlativo para que el preaviso de
+            // "quedan N números" funcione también OFFLINE (el device compara
+            // su contador local contra este techo, sin red).
+            'invoiceRangeTo' => $facturaMeta['rangeTo'],
             'invoiceNo'  => \Punto\Api\Documents\DocumentNumber::peek(
                 'factura', \Punto\Api\Documents\DocumentNumber::SCOPE_REGISTER, $registerId, $companyId
             ),

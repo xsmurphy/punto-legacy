@@ -9,6 +9,7 @@ import { DataTable } from "@/components/data-table/data-table"
 import { RowActions } from "@/components/data-table/row-actions"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { timbradoLevel } from "@/lib/documents/timbrado-warning"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Switch } from "@/components/ui/switch"
@@ -243,11 +244,27 @@ export function RegistersTab({ outletId }: { outletId: string }) {
           reg.fiscal.invoicePrefix,
           reg.padWidth?.factura,
         )
+        // Preaviso de timbrado (D5, context/37): mismos umbrales que el pill
+        // del POS (timbrado-warning.ts) — el panel y la caja cambian de color
+        // en el MISMO número.
+        const nextNo = Number(reg.numbering.factura)
+        const remaining = to != null && Number.isFinite(nextNo) ? to - nextNo + 1 : null
+        const level = timbradoLevel(remaining)
         return (
-          <span className="text-sm tabular-nums">
-            {next || "—"}
-            {to != null && (
-              <span className="text-muted-foreground"> / {to}</span>
+          <span className="flex items-center gap-2 text-sm tabular-nums">
+            <span>
+              {next || "—"}
+              {to != null && (
+                <span className="text-muted-foreground"> / {to}</span>
+              )}
+            </span>
+            {level === "crit" && (
+              <Badge variant="destructive">Quedan {remaining}</Badge>
+            )}
+            {level === "warn" && (
+              <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">
+                Quedan {remaining}
+              </Badge>
             )}
           </span>
         )

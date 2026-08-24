@@ -449,4 +449,12 @@ export interface PosBootstrap {
    * `lib/documents/format-document-number.ts`; `null` → default legal.
    */
   invoicePadWidth: number | null
+  /**
+   * Techo del rango autorizado del timbrado de la caja activa
+   * (`document_sequence.rangeto` — D5, context/37). El POS lo persiste junto
+   * al contador local (`primeInvoiceRange`) y avisa "quedan N números"
+   * ANTES de que el corte duro server-side deje a la caja sin poder
+   * facturar. `null` = sin rango cargado, sin preaviso.
+   */
+  invoiceRangeTo: number | null
 }

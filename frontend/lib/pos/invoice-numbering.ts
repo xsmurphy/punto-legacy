@@ -21,9 +21,14 @@
  */
 
 const KEY_PREFIX = 'pos_invoice_next_no:'
+const RANGE_KEY_PREFIX = 'pos_invoice_range_to:'
 
 function storageKey(registerId: string): string {
   return KEY_PREFIX + registerId
+}
+
+function rangeKey(registerId: string): string {
+  return RANGE_KEY_PREFIX + registerId
 }
 
 function loadNext(registerId: string): number | null {
@@ -92,4 +97,50 @@ export function getNextInvoiceNo(registerId: string): number {
   }
   saveNext(registerId, current + 1)
   return current
+}
+
+/**
+ * Persiste el techo del rango autorizado del timbrado (D5, context/37) junto
+ * al contador — misma vida y mismo scope por caja. `null` explícito BORRA el
+ * valor guardado: si el panel quitó el rango, el preaviso deja de aplicar (no
+ * puede quedar un techo viejo avisando de un timbrado que ya no rige).
+ */
+export function primeInvoiceRange(registerId: string, rangeTo: number | null): void {
+  if (!registerId) return
+  try {
+    if (rangeTo === null || !Number.isFinite(rangeTo) || rangeTo < 1) {
+      localStorage.removeItem(rangeKey(registerId))
+    } else {
+      localStorage.setItem(rangeKey(registerId), String(rangeTo))
+    }
+  } catch {
+    // best-effort, mismo criterio que saveNext().
+  }
+}
+
+/**
+ * Cuántos números autorizados le quedan a la caja, contando el próximo a
+ * emitir — `techo - próximo + 1`. Usa el contador LOCAL (el que numera de
+ * verdad, incluidas las ventas offline que el server todavía no vio), así el
+ * preaviso no se queda atrás justo cuando más importa: emitiendo sin red.
+ *
+ * `null` = no se puede saber (sin rango cargado, o el device nunca conoció el
+ * correlativo de esta caja) → el caller no avisa nada.
+ */
+export function peekInvoiceRemaining(registerId: string): number | null {
+  if (!registerId) return null
+  const next = loadNext(registerId)
+  if (next === null) return null
+  let rangeTo: number | null = null
+  try {
+    const raw = localStorage.getItem(rangeKey(registerId))
+    if (raw) {
+      const n = Number(raw)
+      rangeTo = Number.isFinite(n) && n >= 1 ? n : null
+    }
+  } catch {
+    return null
+  }
+  if (rangeTo === null) return null
+  return rangeTo - next + 1
 }

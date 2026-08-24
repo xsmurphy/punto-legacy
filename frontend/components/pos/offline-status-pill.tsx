@@ -32,10 +32,13 @@
  * parte de la interfaz.
  */
 import * as React from "react"
-import { CloudOff, RefreshCw } from "lucide-react"
+import { AlertTriangle, CloudOff, RefreshCw } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { usePosUIStore } from "@/lib/ui/store"
+import { useCatalogStore } from "@/lib/catalog/store"
+import { peekInvoiceRemaining } from "@/lib/pos/invoice-numbering"
+import { timbradoLevel } from "@/lib/documents/timbrado-warning"
 
 /**
  * `savedAt` es un instante real en UTC (`new Date().toISOString()`), no un
@@ -97,12 +100,23 @@ export function OfflineStatusPill() {
   const degraded = !isOnline || fromCache
   const syncing = isSyncing && pendingCount > 0
 
+  // Timbrado por agotarse (D5, context/37): remaining sale del contador
+  // LOCAL contra el techo persistido — funciona offline, que es cuando más
+  // importa. Se recalcula en cada render: el pill re-renderiza con cada
+  // venta (el store de sync cambia), así el número no se queda viejo.
+  const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  const remaining = activeRegisterId ? peekInvoiceRemaining(activeRegisterId) : null
+  const timbrado = timbradoLevel(remaining)
+
   // UN solo aviso de estado en toda la caja, con prioridad explícita
-  // (2026-08-23): las ventas fallidas ganan sobre sin-conexión, y sin-conexión
-  // sobre sincronizando. Antes esto se repartía entre este pill y una banda
-  // `OfflineBanner` montada en otro punto del carrito, así que con dos estados
-  // simultáneos se apilaban dos franjas y empujaban la toolbar hacia abajo.
-  if (failedCount === 0 && failedOpsCount === 0 && !degraded && !syncing) return null
+  // (2026-08-23): las ventas fallidas ganan sobre sin-conexión, sin-conexión
+  // sobre sincronizando, y el timbrado por agotarse es el último — es un
+  // estado que da días de margen, nunca puede tapar uno que exige acción
+  // ahora. Antes esto se repartía entre este pill y una banda `OfflineBanner`
+  // montada en otro punto del carrito, así que con dos estados simultáneos se
+  // apilaban dos franjas y empujaban la toolbar hacia abajo.
+  if (failedCount === 0 && failedOpsCount === 0 && !degraded && !syncing && timbrado === "ok")
+    return null
 
   // Con conexión y sin nada roto, las operaciones en cola NO se avisan acá: se
   // sincronizan solas en segundos. Sin conexión sí, porque ahí el cajero
@@ -128,9 +142,15 @@ export function OfflineStatusPill() {
   const failed = failedCount > 0 || failedOpsCount > 0
   const failedTotal = failedCount + failedOpsCount
 
+  // Cuarto estado: solo timbrado (nada de sync que mostrar). "Crítico" va en
+  // destructivo — quedan tan pocos números que es cuestión de horas.
+  const timbradoOnly = !failed && !degraded && !syncing
+
   const content = (
     <>
-      {failed || degraded ? (
+      {timbradoOnly ? (
+        <AlertTriangle className="size-3.5 shrink-0" />
+      ) : failed || degraded ? (
         <CloudOff className="size-3.5 shrink-0" />
       ) : (
         <RefreshCw className="size-3.5 shrink-0 animate-spin" />
@@ -140,16 +160,20 @@ export function OfflineStatusPill() {
           ? `${failedTotal} pendiente${failedTotal !== 1 ? "s" : ""} con error — tocá para revisar`
           : degraded
             ? `Sin conexión${queueLabel}`
-            : `Sincronizando ${pendingCount}`}
+            : syncing
+              ? `Sincronizando ${pendingCount}`
+              : timbrado === "crit"
+                ? `Timbrado por agotarse: quedan ${remaining} números`
+                : `Timbrado: quedan ${remaining} números`}
       </span>
     </>
   )
 
   const className = cn(
     "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm",
-    failed
+    failed || (timbradoOnly && timbrado === "crit")
       ? "border-destructive/30 bg-destructive/10 text-destructive"
-      : degraded
+      : degraded || (timbradoOnly && timbrado === "warn")
         ? "border-amber-500/30 bg-amber-500/15 text-amber-900 backdrop-blur dark:text-amber-100"
         : "border-border bg-background/90 text-muted-foreground backdrop-blur",
   )
