@@ -6,6 +6,8 @@
  *                                                    del período, agrupados
  *                                                    por categoría (default).
  *   GET /v1/finance/reports?by=account&from=&to=  → ídem, agrupado por cuenta.
+ *   GET /v1/finance/reports?by=costcenter&from=&to= → ídem, agrupado por
+ *                                                    centro de costo (mig 167).
  *
  *       from/to default: mes calendario actual (tenant-local, naive — §51),
  *       mismo default que /v1/finance/summary. Este router mapea 1 archivo
@@ -53,6 +55,10 @@ $movementSvc = new \Punto\Api\Finance\MovementService();
 
 if ($by === 'account') {
     apiOk(['rows' => $movementSvc->totalsByAccount($companyId, $from, $to), 'period' => ['from' => $from, 'to' => $to]]);
+}
+
+if ($by === 'costcenter') {
+    apiOk(['rows' => $movementSvc->totalsByCostCenter($companyId, $from, $to), 'period' => ['from' => $from, 'to' => $to]]);
 }
 
 // Default: category.

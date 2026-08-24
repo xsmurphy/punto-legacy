@@ -61,7 +61,7 @@ final class CategoryService
         return $row ? $this->shape($row) : null;
     }
 
-    /** @param array{name:string,kind:string,sortorder?:int,parentId?:?string} $data */
+    /** @param array{name:string,kind:string,code?:?string,sortorder?:int,parentId?:?string} $data */
     public function create(string $companyId, array $data): array
     {
         $name = trim((string) ($data['name'] ?? ''));
@@ -75,18 +75,19 @@ final class CategoryService
 
         $parentId = $this->resolveParentId($companyId, $kind, $data['parentId'] ?? null, null);
 
-        $id = ncmInsert([
+        $id = $this->guardUniqueCode(fn() => ncmInsert([
             'records' => [
                 'companyid' => $companyId,
                 'name'      => $name,
                 'kind'      => $kind,
+                'code'      => AccountingCode::normalize($data['code'] ?? null),
                 'parentid'  => $parentId,
                 'sortorder' => (int) ($data['sortorder'] ?? 99),
                 'issystem'  => false,
                 'status'    => 1,
             ],
             'table' => 'fin_category',
-        ]);
+        ]));
 
         if (!$id) {
             throw new \RuntimeException('No se pudo crear la categoría');
@@ -99,8 +100,13 @@ final class CategoryService
     }
 
     /**
-     * Permite renombrar y reasignar `parentId` (kind fijo tras creación —
-     * cambiar de income↔expense rompe el histórico).
+     * Permite renombrar, reasignar `parentId` y cargar/cambiar el `code`
+     * contable externo (kind fijo tras creación — cambiar de income↔expense
+     * rompe el histórico).
+     *
+     * Las categorías `issystem` SÍ aceptan código: "Proveedores" o "Ventas"
+     * son justamente las que el contador necesita mapear. Lo que no se puede
+     * de una default es borrarla (ver `archive()`).
      */
     public function update(string $id, string $companyId, array $data): array
     {
@@ -117,6 +123,12 @@ final class CategoryService
         }
 
         $records = ['categoryid' => $id, 'name' => $name];
+
+        // `code` solo se toca si la clave viene en el payload — un PUT que
+        // solo renombra no debe borrar el código contable ya cargado.
+        if (array_key_exists('code', $data)) {
+            $records['code'] = AccountingCode::normalize($data['code']);
+        }
 
         if (array_key_exists('parentId', $data)) {
             if ($this->hasChildren($id, $companyId)) {
@@ -136,12 +148,12 @@ final class CategoryService
             }
         }
 
-        ncmUpdate([
+        $this->guardUniqueCode(fn() => ncmUpdate([
             'records'     => $records,
             'table'       => 'fin_category',
             'where'       => 'categoryid = ? AND companyid = ?',
             'whereParams' => [$id, $companyId],
-        ]);
+        ]));
 
         $row = $this->find($id, $companyId);
         if (!$row) {
@@ -410,12 +422,27 @@ final class CategoryService
         return $row ? (string) $row['categoryid'] : '';
     }
 
+    /** Ver `AccountingCode::guardUnique()` — el índice es de la mig 167. */
+    private function guardUniqueCode(callable $fn)
+    {
+        return AccountingCode::guardUnique(
+            $fn,
+            ['uq_fin_category_code' => 'Ya existe una categoría con ese código'],
+            'Ya existe una categoría con ese código',
+        );
+    }
+
     private function shape($f): array
     {
         return [
             'id'        => (string) $f['categoryid'],
             'name'      => (string) $f['name'],
             'kind'      => (string) $f['kind'],
+            // Código contable EXTERNO (mig 167) — el que matchea contra el
+            // plan de cuentas del contador. Opcional.
+            'code'      => isset($f['code']) && $f['code'] !== null && (string) $f['code'] !== ''
+                ? (string) $f['code']
+                : null,
             'parentId'  => $f['parentid'] !== null ? (string) $f['parentid'] : null,
             'sortOrder' => (int) $f['sortorder'],
             'isSystem'  => (bool) $f['issystem'],
