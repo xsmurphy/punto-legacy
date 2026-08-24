@@ -288,6 +288,22 @@ final class TransactionLinkService
      * otra vía (`mapSumDerivedAmounts`, sin tocar acá) — este método es solo
      * el detalle de display.
      *
+     * `COALESCE(t.invoiceNo::text, '')` — el `::text` NO es cosmético.
+     * `invoiceNo` es `bigint`, y el fallback de un COALESCE tiene que ser del
+     * mismo tipo que la columna: con `COALESCE(t.invoiceNo, '')` Postgres
+     * intenta parsear la cadena vacía como bigint AL PLANIFICAR y aborta la
+     * query entera con `22P02 invalid input syntax for type bigint`, sin
+     * importar cuántas filas devuelva (no es un error por fila — no hace
+     * falta que exista ningún vínculo para que reviente). Mientras el wrapper
+     * se tragaba los errores de SQL esto devolvía `false` y el estado de
+     * cuenta mostraba la lista de pagos vacía; desde que `DB::Execute()`
+     * lanza `DbQueryException` (2026-08-22) es un 500 duro, y como
+     * `OpenInvoicesService::contactStatement()` es su único consumidor, el
+     * estado de cuenta del contacto reventaba para CUALQUIER contacto,
+     * cliente o proveedor. El caller consume el valor como texto (concatena
+     * `prefix . invoiceNo` para armar el número mostrado), así que castear es
+     * además lo semánticamente correcto.
+     *
      * @param list<string> $originIds
      * @return array<string, list<array{derivedId:string,date:?string,invoiceNo:string,amount:float,status:int}>> originId → detalle
      */
@@ -303,7 +319,7 @@ final class TransactionLinkService
                        COALESCE(tl.amount, t.transactionTotal) AS amount,
                        t.transactionDate AS date,
                        COALESCE(t.invoicePrefix, '') AS prefix,
-                       COALESCE(t.invoiceNo, '') AS invoiceno,
+                       COALESCE(t.invoiceNo::text, '') AS invoiceno,
                        COALESCE(t.transactionStatus, 1) AS status
                   FROM transaction_link tl
                   JOIN transaction t ON t.transactionId = tl.derivedid AND t.companyId = tl.companyid
