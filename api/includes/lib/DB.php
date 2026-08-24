@@ -619,6 +619,25 @@ class DB
     /**
      * Retorna array asociativo keyed por la primera columna.
      *
+     * ⚠ LA PRIMERA COLUMNA DEL SELECT TIENE QUE SER ÚNICA POR FILA.
+     * Este método keyea por `reset($row)`, así que dos filas que compartan el
+     * valor de la primera columna se PISAN: la última gana y las anteriores
+     * desaparecen sin error, sin warning y sin nada en los logs. No es un
+     * "agrupá por", es un "quedate con una".
+     *
+     * Si la primera columna es un FK, una fecha, un `kind`, un nombre o
+     * cualquier cosa que se repita, esto NO es la función que querés: usá
+     * `ncmExecute($sql, $params, false, true)` (forceObj → recordset, se
+     * itera con `while (!$rs->EOF)`) y armá el índice vos.
+     *
+     * Caso testigo (2026-08-24): `Reports\OpenInvoicesService::general()`
+     * proyectaba `customerId as cid` como primera columna, así que todas las
+     * facturas a crédito abiertas de un mismo contacto colapsaban en una
+     * sola. Cuentas por Cobrar/Pagar mostraba "1 factura" por contacto y un
+     * saldo mucho menor al real — un cliente con 9 facturas abiertas por
+     * 1.616.100 figuraba debiendo 52.000. Se arregló extrayendo el fetch a
+     * `openCreditInvoices()` con recordset; ver el docblock de ese método.
+     *
      * Acepta `false` en $params igual que Execute(): el default documentado de
      * `ncmExecute($sql, $array = false, ...)` es false, así que una query SIN
      * parámetros que pide assoc — `ncmExecute($sql, false, false, false, true)`
@@ -635,9 +654,25 @@ class DB
             return false;
         }
         $assoc = [];
+        $seen  = 0;
         foreach ($result->GetRows() as $row) {
             $key         = reset($row);
             $assoc[$key] = $row;
+            $seen++;
+        }
+        // El colapso silencioso es el bug que este contador hace visible: si
+        // entraron más filas de las que salieron, la primera columna NO era
+        // única y el caller está perdiendo datos creyendo que los tiene. No
+        // se lanza excepción —hay call-sites legítimos que deduplican a
+        // propósito— pero queda en el log con el SQL para poder encontrarlo.
+        if ($seen > count($assoc)) {
+            error_log(sprintf(
+                '[DB] GetAssoc colapsó %d filas en %d claves — la primera columna del SELECT no es única, ' .
+                'el caller está perdiendo filas (usá forceObj + recordset si no querés deduplicar) | SQL: %s',
+                $seen,
+                count($assoc),
+                preg_replace('/\s+/', ' ', trim($sql))
+            ));
         }
         return $assoc;
     }

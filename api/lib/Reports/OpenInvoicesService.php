@@ -33,53 +33,29 @@ final class OpenInvoicesService
     public function general($state, $companyId, ?string $contactId = null)
     {
         $isToPay    = ($state === 'outcome');
-        $type       = $isToPay ? 4 : 3;
-        $contactCol = $isToPay ? 'supplierId' : 'customerId';
+        $isCustomer = !$isToPay;
 
-        $params = [$type, $companyId];
-        $contactFilter = '';
-        if ($contactId !== null && $contactId !== '') {
-            $contactFilter = " AND $contactCol = ?";
-            $params[] = $contactId;
-        }
-
-        $sql = "SELECT $contactCol as cid, transactionId as saleId, transactionDate as date,
-                       transactionDueDate as dueDate, invoiceNo as invoice, invoicePrefix as prefix,
-                       transactionTotal as total, transactionDiscount as discount,
-                       transactionComplete as complete
-                FROM transaction
-                WHERE transactionComplete = false AND transactionType = ? AND companyId = ?$contactFilter
-                ORDER BY transactionDueDate DESC LIMIT 5000";
-        $res = ncmExecute($sql, $params, false, false, true);
-        $res = is_array($res) ? $res : [];
-        if (!$res) {
+        $invoices = $this->openCreditInvoices($companyId, $isCustomer, $contactId);
+        if ($invoices === []) {
             return ['rows' => [], 'kpi' => ['totalDebt' => 0, 'accounts' => 0, 'expired' => 0, 'toExpire' => 0]];
         }
 
         $byContact = [];
-        $saleIds = [];
-        foreach ($res as $f) {
-            $cid = (string) $f['cid'];
-            $total = $isToPay ? (float) $f['total'] : ((float) $f['total'] - (float) $f['discount']);
-            $byContact[$cid][] = [
-                'invoiceNo' => (string) ($f['prefix'] ?? '') . (string) ($f['invoice'] ?? ''),
-                'saleId'    => (string) $f['saleId'],
-                'date'      => (string) ($f['date'] ?? ''),
-                'dueDate'   => (string) ($f['dueDate'] ?? ''),
-                'total'     => $total,
-            ];
-            $saleIds[] = (string) $f['saleId'];
+        $saleIds   = [];
+        foreach ($invoices as $inv) {
+            $byContact[$inv['cid']][] = $inv;
+            $saleIds[] = $inv['saleId'];
         }
-        $payedMap = $this->payedByParent($saleIds, $companyId, !$isToPay);
+        $payedMap = $this->payedByParent($saleIds, $companyId, $isCustomer);
 
         $today  = strtotime(date('Y-m-d 00:00:00'));
         $rows = [];
         $kTotalDebt = 0.0; $kAccounts = 0; $kExpired = 0; $kToExpire = 0;
 
-        foreach ($byContact as $cid => $invoices) {
+        foreach ($byContact as $cid => $contactInvoices) {
             $contact = getContactData($cid, $isToPay ? 'id' : 'uid', true);
             $name = $contact ? getCustomerName($contact) : 'Sin Contacto Asociado';
-            $balance = $this->contactBalance($invoices, $payedMap);
+            $balance = $this->contactBalance($contactInvoices, $payedMap);
 
             // El conteo de cuentas/vencidas/por-vencer corre sobre TODAS las
             // facturas del contacto, gated o no (réplica fiel del legacy: un
@@ -140,31 +116,12 @@ final class OpenInvoicesService
      */
     public function forContact(string $contactId, string $companyId, bool $isCustomer): float
     {
-        $type       = $isCustomer ? 3 : 4;
-        $contactCol = $isCustomer ? 'customerId' : 'supplierId';
-
-        $sql = "SELECT transactionId as saleId, transactionTotal as total, transactionDiscount as discount
-                FROM transaction
-                WHERE transactionComplete = false AND transactionType = ? AND companyId = ? AND $contactCol = ?";
-        $res = ncmExecute($sql, [$type, $companyId, $contactId], false, false, true);
-        $res = is_array($res) ? $res : [];
-        if (!$res) {
+        $invoices = $this->openCreditInvoices($companyId, $isCustomer, $contactId);
+        if ($invoices === []) {
             return 0.0;
         }
 
-        $invoices = [];
-        $saleIds  = [];
-        foreach ($res as $f) {
-            $saleId = (string) $f['saleId'];
-            // Proveedor: total crudo. Cliente: total menos descuento (misma regla que general()).
-            $total = $isCustomer
-                ? ((float) $f['total'] - (float) $f['discount'])
-                : (float) $f['total'];
-            $invoices[] = ['saleId' => $saleId, 'total' => $total];
-            $saleIds[]  = $saleId;
-        }
-
-        $payedMap = $this->payedByParent($saleIds, $companyId, $isCustomer);
+        $payedMap = $this->payedByParent(array_column($invoices, 'saleId'), $companyId, $isCustomer);
         $balance  = $this->contactBalance($invoices, $payedMap);
 
         return $balance['needsTopay'] ? $balance['totalDebt'] : 0.0;
@@ -189,40 +146,13 @@ final class OpenInvoicesService
      */
     public function contactStatement(string $contactId, string $companyId, bool $isCustomer): array
     {
-        $type       = $isCustomer ? 3 : 4;
-        $contactCol = $isCustomer ? 'customerId' : 'supplierId';
-
-        $sql = "SELECT transactionId as saleId, transactionDate as date, transactionDueDate as dueDate,
-                       invoiceNo as invoice, invoicePrefix as prefix,
-                       transactionTotal as total, transactionDiscount as discount
-                FROM transaction
-                WHERE transactionComplete = false AND transactionType = ? AND companyId = ? AND $contactCol = ?
-                ORDER BY transactionDate DESC";
-        $res = ncmExecute($sql, [$type, $companyId, $contactId], false, false, true);
-        $res = is_array($res) ? $res : [];
-
         $empty = ['summary' => ['totalDebt' => 0.0, 'totalCredited' => 0.0, 'totalPaid' => 0.0], 'invoices' => []];
-        if (!$res) {
+
+        $invoices = $this->openCreditInvoices($companyId, $isCustomer, $contactId);
+        if ($invoices === []) {
             return $empty;
         }
-
-        $invoices = [];
-        $saleIds  = [];
-        foreach ($res as $f) {
-            $saleId = (string) $f['saleId'];
-            // Proveedor: total crudo. Cliente: total menos descuento (misma regla que general()/forContact()).
-            $total = $isCustomer
-                ? ((float) $f['total'] - (float) $f['discount'])
-                : (float) $f['total'];
-            $invoices[] = [
-                'saleId'    => $saleId,
-                'invoiceNo' => (string) ($f['prefix'] ?? '') . (string) ($f['invoice'] ?? ''),
-                'date'      => (string) ($f['date'] ?? ''),
-                'dueDate'   => (string) ($f['dueDate'] ?? ''),
-                'total'     => $total,
-            ];
-            $saleIds[] = $saleId;
-        }
+        $saleIds = array_column($invoices, 'saleId');
 
         $payedMap = $this->payedByParent($saleIds, $companyId, $isCustomer);
         $balance  = $this->contactBalance($invoices, $payedMap);
@@ -273,6 +203,91 @@ final class OpenInvoicesService
             ],
             'invoices' => $out,
         ];
+    }
+
+    /**
+     * Fetch ÚNICO de "facturas a crédito abiertas" — la única query de la
+     * clase que decide QUÉ entra en la deuda, igual que `contactBalance()` es
+     * la única que decide CUÁNTO. `general()` (reporte de todos los
+     * contactos), `forContact()` (saldo agregado de uno) y
+     * `contactStatement()` (estado de cuenta detallado) pasan las tres por
+     * acá: antes cada una repetía su propio SELECT y podían divergir sin que
+     * nada lo delatara.
+     *
+     * POR QUÉ NO `getAssoc=true` (el bug que motivó la extracción)
+     * -----------------------------------------------------------
+     * Las tres versiones anteriores usaban `ncmExecute(..., false, false,
+     * true)`. Ese 5º parámetro es `$getAssoc`, que delega en
+     * `DB::GetAssoc()`, y GetAssoc keyea el resultado por el valor de la
+     * PRIMERA columna proyectada (`$assoc[reset($row)] = $row`) PISANDO las
+     * filas que repiten esa clave.
+     *
+     * `forContact()`/`contactStatement()` proyectaban `transactionId as
+     * saleId` primero — único por fila, así que sobrevivían. Pero
+     * `general()` proyectaba `$contactCol as cid` (customerId/supplierId)
+     * primero, que se repite una vez por cada factura del mismo contacto:
+     * TODAS las facturas de un contacto colapsaban en UNA sola, la última
+     * del `ORDER BY`. El reporte de Cuentas por Cobrar/Pagar mostraba
+     * "1 factura" para todo el mundo y un saldo arbitrariamente menor al
+     * real (verificado en prod 2026-08-24: un cliente con 9 facturas
+     * abiertas por 1.616.100 figuraba con una sola de 52.000). El diálogo
+     * de cobro/pago multi-factura del panel consume ESTE mismo endpoint
+     * (`MultiInvoicePaymentDialog`), así que también listaba una sola
+     * factura por contacto.
+     *
+     * Se lee con `forceObj=true` (recordset, `while (!$rs->EOF)`): iteración
+     * fila por fila, sin ninguna clave que pueda colisionar. Es la razón por
+     * la que este método existe en vez de arreglar el SELECT de `general()`
+     * en su lugar — mientras las tres consultas convivan, cualquiera puede
+     * volver a nacer con la primera columna equivocada.
+     *
+     * También desaparece el `LIMIT 5000` que tenía `general()`: truncar en
+     * silencio el listado de facturas abiertas es la misma clase de bug que
+     * el colapso — un total de deuda que miente sin avisar. El universo está
+     * acotado por `transactionComplete = false` (lo saldado sale solo).
+     *
+     * Cliente: total NETO de descuento. Proveedor: total crudo. Es la regla
+     * que ya aplicaban las tres, y la MISMA que usa el camino de escritura
+     * (`CreditPaymentService::create()`) para validar sobrepago.
+     *
+     * @return list<array{saleId:string,cid:string,invoiceNo:string,date:string,dueDate:string,total:float}>
+     */
+    private function openCreditInvoices(string $companyId, bool $isCustomer, ?string $contactId = null): array
+    {
+        $type       = $isCustomer ? 3 : 4;
+        $contactCol = $isCustomer ? 'customerId' : 'supplierId';
+
+        $sql = "SELECT transactionId as saleId, $contactCol as cid, transactionDate as date,
+                       transactionDueDate as dueDate, invoiceNo as invoice, invoicePrefix as prefix,
+                       transactionTotal as total, transactionDiscount as discount
+                FROM transaction
+                WHERE transactionComplete = false AND transactionType = ? AND companyId = ?";
+        $params = [$type, $companyId];
+        if ($contactId !== null && $contactId !== '') {
+            $sql .= " AND $contactCol = ?";
+            $params[] = $contactId;
+        }
+        $sql .= ' ORDER BY transactionDate DESC';
+
+        $rs  = ncmExecute($sql, $params, false, true);
+        $out = [];
+        while ($rs && !$rs->EOF) {
+            $f     = $rs->fields;
+            $total = $isCustomer
+                ? ((float) ($f['total'] ?? 0) - (float) ($f['discount'] ?? 0))
+                : (float) ($f['total'] ?? 0);
+            $out[] = [
+                'saleId'    => (string) ($f['saleId'] ?? ''),
+                'cid'       => (string) ($f['cid'] ?? ''),
+                'invoiceNo' => (string) ($f['prefix'] ?? '') . (string) ($f['invoice'] ?? ''),
+                'date'      => (string) ($f['date'] ?? ''),
+                'dueDate'   => (string) ($f['dueDate'] ?? ''),
+                'total'     => $total,
+            ];
+            $rs->MoveNext();
+        }
+
+        return $out;
     }
 
     /**
