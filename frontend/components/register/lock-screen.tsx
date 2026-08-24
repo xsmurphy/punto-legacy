@@ -5,6 +5,16 @@
  * (4 dígitos) para reanudar. No hay input visible: captura las teclas a
  * nivel window y muestra 4 círculos que se llenan a medida que se tipea.
  *
+ * Se muestra SIEMPRE al abrir la app y ante cualquier recarga (owner
+ * 2026-08-24) — ver `lib/pos/lock-store.ts`. También lo dispara el item
+ * "Bloquear" del menú de usuario.
+ *
+ * Roster: los operadores contra los que se valida bajan DENTRO del bootstrap
+ * del POS (`/v1/bootstrap` → `users`, proyección id/name/pinhash de los
+ * habilitados en la sucursal del device) y quedan en el snapshot offline, así
+ * que el PIN se valida sin red. NO se pide a `/v1/users`: ese endpoint exige
+ * `contacts.user.view`, permiso que el rol `device` no tiene desde la mig 162.
+ *
  * PIN: validado localmente con SHA-256 (Web Crypto API) contra los hashes del catalog store.
  * Decision del owner (2026-06-25): SHA-256 (más simple, más rápido en browser, matchea legacy).
  * POST best-effort a /api/pos/audit-unlock solo para logging — si falla (offline),
@@ -20,12 +30,15 @@
  */
 
 import * as React from "react"
-import { Lock } from "lucide-react"
+import { Lock, KeyRound, CloudAlert } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/empty-state"
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { posFetch } from "@/lib/api/pos-fetch"
 
 const PIN_LENGTH = 4
@@ -38,6 +51,10 @@ export function LockScreen() {
   const outletName = useCatalogStore((s) => s.outlet?.name)
   const users = useCatalogStore((s) => s.users)
   const catalogStatus = useCatalogStore((s) => s.status)
+  // El roster puede venir del snapshot offline. Importa para el aviso de abajo:
+  // un roster vacío traído de la cache no prueba que el comercio no tenga PINs,
+  // solo que este device no los tiene todavía.
+  const catalogFromCache = useOfflineSyncStore((s) => s.catalogFromCache)
 
   const [pin, setPin] = React.useState("")
   const [shake, setShake] = React.useState(false)
@@ -160,13 +177,31 @@ export function LockScreen() {
     return () => clearTimeout(id)
   }, [pin, unlock, users, setActiveUser, setOperatorToken])
 
-  // Escape hatch (P1): si ningún user tiene pinhash configurado, el lock screen
-  // se convierte en un deadlock permanente (no hay PIN que comparar). Solo aplica
-  // cuando el catálogo ya terminó de hidratar (`ready` o `error`); mientras
-  // `idle`/`loading`, users=[] es transitorio y mostrar el aviso seria un falso
-  // positivo (el bootstrap aun no llego).
+  // Escape hatch (P1): si ningún operador del roster tiene PIN, el lock screen
+  // se convierte en un deadlock permanente (no hay hash contra el que comparar).
+  // Solo aplica cuando el catálogo ya terminó de hidratar (`ready` o `error`);
+  // mientras `idle`/`loading`, users=[] es transitorio y mostrar el aviso sería
+  // un falso positivo (el bootstrap aún no llegó).
+  //
+  // Se distinguen DOS causas, porque el cartel único mentía: hasta 2026-08-24
+  // un 403 de `/v1/users` (el device perdió `contacts.user.view` en la mig 162)
+  // degradaba a lista vacía y se pintaba como "no hay PINs configurados" —
+  // dato falso, y encima apuntaba al lugar equivocado para arreglarlo.
+  //
+  //   - Roster traído de RED y vacío: es la verdad del comercio — ningún
+  //     usuario habilitado en esta sucursal tiene código POS cargado.
+  //   - Roster traído del SNAPSHOT offline y vacío: no prueba nada sobre el
+  //     comercio, solo que este device todavía no bajó un roster bueno. Es la
+  //     situación exacta de los devices envenenados por este bug, que se cura
+  //     sola en el próximo arranque con red.
+  //
+  // No hay un tercer estado de "no se pudo cargar": un fallo de red o de
+  // AUTORIZACIÓN ya no puede llegar hasta acá disfrazado de lista vacía. El
+  // roster viaja dentro del bootstrap, así que un 401/403 upstream hace que el
+  // BFF devuelva 401/502 y el arranque ni siquiera monta este componente (el
+  // layout gatea en `catalogReady`). Ese era, justamente, el bug.
   const catalogSettled = catalogStatus === "ready" || catalogStatus === "error"
-  const noPinsConfigured = catalogSettled && (users.length === 0 || users.every((u) => !u.pinhash))
+  const noPinsConfigured = catalogSettled && users.every((u) => !u.pinhash)
 
   if (!locked) return null
 
@@ -185,26 +220,35 @@ export function LockScreen() {
     )
   }
 
-  // Si no hay hashes: mostrar aviso + botón de recarga en vez del lock real.
+  // Sin hashes contra los que validar: explicar la causa real en vez del lock.
   if (noPinsConfigured) {
     return (
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Pantalla bloqueada"
-        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-background"
+        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-background p-6"
       >
         <PuntoLogo variant="mark" className="size-[35px]" />
-        <p className="text-sm text-muted-foreground">
-          No hay PINs configurados para este dispositivo.
-        </p>
-        <button
-          type="button"
-          onClick={() => window.location.reload()}
-          className="text-xs underline text-muted-foreground hover:text-foreground"
-        >
-          Recargar
-        </button>
+        <EmptyState
+          ghost={false}
+          icon={catalogFromCache ? CloudAlert : KeyRound}
+          title={
+            catalogFromCache
+              ? "La caja no tiene todavía la lista de operadores"
+              : "Ningún usuario de esta sucursal tiene código POS"
+          }
+          description={
+            catalogFromCache
+              ? "Está operando con los datos guardados de la última conexión, y ahí no hay ningún operador con código POS. Conectala a internet y reintentá para traer el listado al día."
+              : `Para desbloquear ${outletName ? `${outletName} ` : ""}hace falta que al menos un usuario habilitado en la sucursal tenga su código POS de 4 dígitos cargado, desde Ajustes → Equipo en el panel.`
+          }
+          actions={
+            <Button size="lg" onClick={() => window.location.reload()}>
+              Reintentar
+            </Button>
+          }
+        />
       </div>
     )
   }

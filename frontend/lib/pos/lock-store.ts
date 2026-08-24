@@ -7,28 +7,39 @@
  *
  * Lo dispara el item "Bloquear" del menú de usuario en /pos.
  *
- * ── Por qué persiste en sessionStorage ──────────────────────────────────
- * El estado vivía SOLO en memoria, así que CUALQUIER recarga de la página lo
- * perdía y el POS volvía a pedir el PIN: F5, la actualización del service
- * worker, o el reload automático por ChunkLoadError tras un deploy (ver
- * `lib/pos/chunk-error-reload.ts` — el caso reportado: navegar a
- * /pos/guardadas con el shell viejo). Para un cajero en hora pico eso es
- * fricción pura y sin ganancia de seguridad: el dispositivo YA está pareado
- * y autenticado con su propio token (`_jwt`); el lock existe para saber QUÉ
- * operador está trabajando, no para autenticar la caja.
+ * ── El lock screen es SIEMPRE lo primero (owner, 2026-08-24) ─────────────
+ * Al abrir la app y ante CUALQUIER recarga, lo primero que se ve es el lock
+ * screen. Sin excepciones: ni por cantidad de operadores, ni por "ya se
+ * desbloqueó antes en esta pestaña". Por eso `locked` arranca en `true` y NO
+ * se persiste — un estado rehidratado no puede dejar la caja abierta.
  *
- * `sessionStorage` y no `localStorage` es la semántica correcta: sobrevive
- * recargas de ESA pestaña, pero cerrar la app vuelve a pedir el PIN — un
- * operador no queda desbloqueado para siempre.
+ * Esto REVIERTE la decisión anterior (2026-06-28), que persistía `locked` en
+ * sessionStorage justamente para que un F5 no volviera a pedir el PIN: el
+ * caso doloroso era el reload automático por ChunkLoadError tras un deploy
+ * (`lib/pos/chunk-error-reload.ts`), que relockeaba al cajero en hora pico.
+ * El owner la revirtió a sabiendas, y el dato que la hace barata es que el
+ * carrito NO persiste (no hay `persist()` en `lib/cart/store.ts`): una
+ * recarga ya pierde la venta en curso, así que volver a pedir el PIN no
+ * agrega ninguna pérdida nueva.
  *
- * `locked` también se persiste: si el operador bloqueó a propósito y la
- * página se recarga, tiene que seguir bloqueada.
+ * Corolario: `autoLockDone` (el flag de "ya auto-lockeé una vez por sesión")
+ * dejó de existir. Su única razón de ser era no relockear tras un remount o
+ * un F5, que es exactamente el comportamiento que ahora se busca.
+ *
+ * `sessionStorage` sigue siendo la storage correcta para lo que SÍ persiste
+ * (`activeUser`, `operatorToken`): sobrevive recargas de ESA pestaña, pero
+ * cerrar la app lo tira.
  */
 
 import { create } from "zustand"
 import { persist, createJSONStorage } from "zustand/middleware"
 
 interface LockState {
+  /**
+   * Arranca en `true` y NO se persiste: abrir la app o recargarla muestra el
+   * lock screen, siempre (ver docblock). Solo `unlock()` lo baja, y solo hasta
+   * la próxima carga de la página.
+   */
   locked: boolean
   activeUser: { id: string; name: string } | null
   /**
@@ -51,16 +62,10 @@ interface LockState {
    * online-only de todos modos.
    */
   operatorToken: string | null
-  /** True después del primer auto-lock por sesión, para que el layout no
-   * vuelva a lockear si se remonta (Next puede invalidar la cache del layout
-   * al navegar entre rutas hijas — un useRef local se resetea, este flag no)
-   * ni tras una recarga de la página. Reset en logout/re-pair. */
-  autoLockDone: boolean
   lock: () => void
   unlock: () => void
   setActiveUser: (user: { id: string; name: string } | null) => void
   setOperatorToken: (token: string | null) => void
-  markAutoLockDone: () => void
   /** Reset completo (logout / re-pair). */
   reset: () => void
 }
@@ -68,32 +73,61 @@ interface LockState {
 export const useLockStore = create<LockState>()(
   persist(
     (set) => ({
-      locked: false,
+      locked: true,
       activeUser: null,
       operatorToken: null,
-      autoLockDone: false,
-      lock: () => set({ locked: true }),
+      // Bloquear TIRA la afirmación firmada del operador: es una prueba de
+      // identidad de alguien que acaba de irse de la caja, y no hay ninguna
+      // operación que deba poder ejecutar en su nombre mientras no vuelva a
+      // tipear su PIN. El desbloqueo pide una nueva (`/api/pos/unlock`), así
+      // que no se pierde nada más que la ventana de riesgo. `activeUser`, en
+      // cambio, se conserva: es solo a quién saludar y a quién atribuir, y el
+      // próximo PIN lo sobrescribe.
+      lock: () => set({ locked: true, operatorToken: null }),
       unlock: () => set({ locked: false }),
       setActiveUser: (user) => set({ activeUser: user }),
       setOperatorToken: (token) => set({ operatorToken: token }),
-      markAutoLockDone: () => set({ autoLockDone: true }),
-      reset: () =>
-        set({ locked: false, activeUser: null, operatorToken: null, autoLockDone: false }),
+      reset: () => set({ locked: true, activeUser: null, operatorToken: null }),
     }),
     {
       name: "punto.pos.lock",
       storage: createJSONStorage(() => sessionStorage),
+      // v1 persistía `locked` y `autoLockDone`. Subir la versión descarta esas
+      // entradas viejas en vez de arrastrarlas.
+      version: 2,
       /** Solo el estado — las acciones no se serializan. */
       partialize: (s) => ({
-        locked: s.locked,
         activeUser: s.activeUser,
-        // Se persiste con el resto: sobrevive un F5 igual que `activeUser`, y
-        // sin él el mozo perdería el acceso a SU propia mesa tras una recarga
-        // sin volver a tipear el PIN. sessionStorage (no localStorage) le pone
-        // el techo correcto: cerrar la app lo tira, como a la identidad que
-        // afirma.
+        // El token sobrevive a la RECARGA pero no al BLOQUEO manual. No es una
+        // inconsistencia, son dos eventos distintos:
+        //
+        //   - Recarga (F5, service worker, ChunkLoadError): la caja sigue
+        //     atendida por la misma persona. Se persiste porque sin él el mozo
+        //     perdería el acceso a SU propia mesa aunque vuelva a tipear el PIN
+        //     offline (el `/api/pos/unlock` que lo re-emite necesita red).
+        //   - Bloqueo manual (`lock()`): el operador se fue de la caja. Ahí el
+        //     token se tira en el acto — ver la acción `lock` arriba.
+        //
+        // En ambos casos la pantalla queda bloqueada y no se emite ninguna
+        // request, así que el token persistido no habilita nada por sí solo.
+        // sessionStorage (no localStorage) le pone el techo correcto: cerrar la
+        // app lo tira, como a la identidad que afirma.
         operatorToken: s.operatorToken,
-        autoLockDone: s.autoLockDone,
+      }),
+      /**
+       * `locked: true` tiene que GANARLE a cualquier cosa que venga de la
+       * storage. El merge default de zustand es un shallow `{...current,
+       * ...persisted}`: bastaría con que una entrada vieja (v1) trajera
+       * `locked: false` para reabrir la caja sin PIN. Se fuerza explícito.
+       *
+       * La rehidratación de `createJSONStorage(() => sessionStorage)` es
+       * SÍNCRONA y ocurre al crear el store, así que no hay ventana de paint
+       * con la caja desbloqueada: el primer render ya ve `locked: true`.
+       */
+      merge: (persisted, current) => ({
+        ...current,
+        ...(persisted as Partial<LockState> | undefined),
+        locked: true,
       }),
     },
   ),

@@ -82,7 +82,6 @@ import { usePosHotkeys } from "@/hooks/use-pos-hotkeys"
 import { usePriceContext } from "@/hooks/use-price-context"
 import { useRegisterClaim } from "@/hooks/use-register-claim"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { useLockStore } from "@/lib/pos/lock-store"
 import { useWorkspaceStore, supportsFullscreen } from "@/lib/pos/workspace-store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useCartStore } from "@/lib/cart/store"
@@ -190,31 +189,25 @@ function PosWorkspaceLayoutInner({
   const modulesFullscreen = useWorkspaceStore((s) => s.modulesFullscreen)
   const cartHidden = !isMobile && !moduleAsDialog && supportsFullscreen(pathname) && modulesFullscreen
 
-  // Auto-lock al arrancar si hay >1 operador (sin flash entre paints).
-  // El flag vive en el lock-store (no en un useRef local) para sobrevivir
-  // remounts del layout — Next puede invalidar la cache al navegar entre
-  // rutas hijas (/pos → /pos/guardadas) y un useRef se resetearía, volviendo
-  // a lockear cada vez. Incidente 2026-06-28.
+  // Auto-lock: ya NO vive acá.
   //
-  // La cuenta de operadores sale del catalog store (`users`, que baja en el
-  // bootstrap del POS), NO de `/v1/bootstrap.userCount`. Hasta 2026-08-23
-  // este layout pedía ADEMÁS el bootstrap del PANEL con el Bearer del device
-  // y gateaba todo el render con `if (!bootstrap) return <PosLoadingScreen/>`:
-  // sin internet ese fetch no volvía nunca y la caja se quedaba clavada en el
-  // loading para siempre, aunque el catálogo estuviera cacheado. Era el
-  // segundo bloqueo del arranque offline, después del `PosAuthGuard`.
+  // Hasta 2026-08-23 este layout auto-lockeaba solo `if (operatorCount > 1)` y
+  // solo una vez por sesión (flag `autoLockDone` persistido). Desde 2026-08-24
+  // (pedido del owner) el lock screen es SIEMPRE lo primero: abrir la app o
+  // recargarla muestra el PIN, sin importar cuántos operadores haya. Eso ya no
+  // necesita ninguna condición del layout — el lock-store arranca en
+  // `locked: true` y no persiste ese campo, así que el overlay está montado
+  // desde el primer paint. Ver `lib/pos/lock-store.ts` (incluye por qué esto
+  // revierte la decisión del incidente 2026-06-28).
   //
-  // El POS no necesita el bootstrap del panel para nada: el suyo ya trae
-  // `users`. Un bootstrap por realm, y el del POS sabe operar offline.
+  // Lo que SÍ sigue siendo cierto: el POS no pide el bootstrap del PANEL para
+  // nada. Hasta 2026-08-23 lo hacía con el Bearer del device y gateaba todo el
+  // render con `if (!bootstrap) return <PosLoadingScreen/>`: sin internet ese
+  // fetch no volvía nunca y la caja quedaba clavada en el loading aunque el
+  // catálogo estuviera cacheado. Un bootstrap por realm, y el del POS sabe
+  // operar offline.
   const catalogStatus = useCatalogStore((s) => s.status)
-  const operatorCount = useCatalogStore((s) => s.users.length)
   const catalogReady = catalogStatus === "ready"
-  if (catalogReady && !useLockStore.getState().autoLockDone) {
-    useLockStore.getState().markAutoLockDone()
-    if (operatorCount > 1) {
-      useLockStore.getState().lock()
-    }
-  }
 
   // Toma y MANTIENE la tenencia de esta caja (context/29 §4), y persiste el
   // resultado en el device (`lib/pos/register-tenancy.ts`) para que el POS

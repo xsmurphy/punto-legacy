@@ -22,6 +22,7 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../lib/Auth/RoleService.php';
+require_once __DIR__ . '/../lib/Users/UsersService.php';
 
 $ctx = apiAuthTenant(['panel', 'pos-app']);
 
@@ -160,6 +161,42 @@ if ($outletsRs && is_object($outletsRs)) {
 
 $userPermissions = RoleService::getPermissions((string)$ctx['roleId'], (string)COMPANY_ID);
 
+// ── Roster de la pantalla de bloqueo del POS (SOLO realm `pos-app`) ─────────
+// Proyección MÍNIMA (id/name/pinhash) de los usuarios activos habilitados en la
+// sucursal del contexto. Ver el docblock de `UsersService::rosterForOutlet()`:
+// es dato OPERATIVO de la caja, autorizado por el REALM + el scope de sucursal
+// — NO pasa por `contacts.user.view`, que es el permiso de gestión de equipo y
+// que el rol `device` no tiene (ni debe tener, mig 162).
+//
+// El realm es justamente lo que hace defendible NO tener ese gate, así que el
+// gate por realm NO es opcional: para `panel` la clave `users` ni siquiera se
+// incluye en la respuesta. `pinhash` es un SHA-256 sin sal de 4 dígitos —
+// 10.000 combinaciones, forzable en un pestañeo. Devolvérselo a un rol de panel
+// sin `contacts.user.view` le regalaría el PIN del encargado y con él su
+// identidad en la caja (atribución de ventas, `pos.space.override`).
+//
+// Y no reintroduce el lockout que este cambio arregla: el POS SIEMPRE autentica
+// con el Bearer del device (ver `frontend/lib/api/pos-fetch.ts` — sin Bearer la
+// API resuelve realm `panel` con `registerId=''`, lo que rompe toda mutación de
+// caja). Un `/pos` sin device pareado no llega al lock screen: pide parear.
+//
+// Si alguien viene a "simplificar" esto devolviendo el roster para todos:
+// no. Leer los tres párrafos de arriba primero.
+//
+// Sucursal: la del token, y punto. NO se consulta `VIEW_OUTLET_ID` (el
+// override del selector `X-Outlet-Id`) como hacen reports/stock.php y
+// compañía: ese header solo se acepta en realm `panel` (ver
+// `api/bootstrap.php`), así que acá adentro la constante nunca está definida.
+// Consultarla sería código muerto sugiriendo un scope "Todas" que este camino
+// no puede alcanzar. El device opera SIEMPRE con la sucursal fija de su
+// pairing — `rosterForOutlet()` igual documenta el caso '' para otros callers.
+$isPosAppRealm = ($ctx['realm'] ?? '') === 'pos-app';
+$roster = [];
+if ($isPosAppRealm) {
+    $roster = (new \Punto\Api\Users\UsersService())
+        ->rosterForOutlet((string) COMPANY_ID, (string) OUTLET_ID);
+}
+
 // Logo: decodear settingObj y resolver la URL con la MISMA lógica que
 // SettingsService::general() (hasLogo + logoUrl + cache-bust por timestamp).
 $settingObj = json_decode((string) ($row['settingobj'] ?? ''), true);
@@ -205,7 +242,7 @@ $bancardQr  = (bool) ($pspQr['bancard'] ?? false);
 $bancardPos = $moduleOn('bancard')
     && (!array_key_exists('pos', $bancardCfg) || filter_var($bancardCfg['pos'], FILTER_VALIDATE_BOOLEAN));
 
-apiOk([
+$payload = [
     'currency'    => $row['currency'] ?? '',
     // settingDecimal es 'yes'/'no' (usar decimales o no), NO un conteo de dígitos.
     'decimal'     => $row['decimal'] ?? 'no',
@@ -280,12 +317,30 @@ apiOk([
     // producción directa/combo que no llegó a prepararse. Default false —
     // mismo criterio 'yes'/'no' que el resto de los settingX booleanos.
     'settingReturnAllowIngredientReversal' => ((string) ($row['returnallowingredientreversal'] ?? '')) === 'yes',
-    // Cantidad de usuarios (type=0) activos del tenant — usado por el POS
-    // para auto-activar el lock screen al entrar cuando hay > 1 usuario
-    // (regla de owner: comercio con varios cajeros se inicia bloqueado).
+    // OJO: `users` (el roster del lock screen) NO va acá. Se agrega DESPUÉS del
+    // literal y solo para el realm `pos-app` — ver el bloque del roster arriba.
+    // Que la clave esté ausente por default es a propósito: si algún día este
+    // literal se reordena o se copia, el default es no filtrar los `pinhash`.
+    //
+    // Cantidad de usuarios (type=0) activos del tenant. YA NO gobierna el
+    // auto-lock del POS: desde 2026-08-24 el lock screen es siempre lo primero,
+    // sin importar cuántos operadores haya (pedido del owner — ver
+    // `frontend/lib/pos/lock-store.ts`). Se conserva como dato informativo del
+    // tenant para clientes ya desplegados que lo lean.
     'userCount'        => (int) (ncmExecute(
         'SELECT COUNT(*) AS c FROM contact WHERE companyId = ? AND type = 0 AND contactStatus > 0',
         [COMPANY_ID],
         false
     )['c'] ?? 0),
-]);
+];
+
+// Roster del lock screen: solo para la caja. El realm es el gate — ver el
+// bloque del roster arriba del todo. Para `panel` la clave queda AUSENTE (y no
+// en `null` ni con `pinhash => null`): ningún consumidor del panel la lee
+// (`frontend/lib/types/bootstrap.ts` ni siquiera la declara), así que mandarla
+// vacía solo serviría para que alguien la empiece a leer y la reintroduzca.
+if ($isPosAppRealm) {
+    $payload['users'] = $roster;
+}
+
+apiOk($payload);

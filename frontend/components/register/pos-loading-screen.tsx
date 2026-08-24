@@ -9,9 +9,11 @@
  * del POS antes de que se decida si bloquear o no. Lo único distinto es
  * que en vez de PIN hay una barra de progreso animada (indeterminada).
  *
- * Una vez el bootstrap llega, el layout decide entre:
- *   - LockScreen (si userCount > 1)
- *   - Contenido del POS (si userCount <= 1)
+ * Una vez el bootstrap llega, lo que aparece es SIEMPRE el LockScreen (owner
+ * 2026-08-24 — ver `lib/pos/lock-store.ts`). Ya no hay decisión por cantidad
+ * de operadores: el POS entra bloqueado y el contenido de la caja se ve recién
+ * después del PIN. Por eso esta pantalla comparte apariencia con el lock — la
+ * transición de una a la otra no debe parpadear.
  */
 
 import { PuntoLogo } from "@/components/layout/punto-logo"

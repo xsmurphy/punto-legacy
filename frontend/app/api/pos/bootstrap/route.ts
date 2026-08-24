@@ -2,12 +2,21 @@
  * BFF — POS Bootstrap (Slice A6).
  *
  * Punto de entrada del catálogo del POS. Compone en UNA sola respuesta todo
- * lo que el store de catálogo necesita para hidratar en memoria. Hace 3
- * fetches en paralelo al backend `/api/v1/*` con loopback in-container:
+ * lo que el store de catálogo necesita para hidratar en memoria. Hace un
+ * fan-out en paralelo al backend `/api/v1/*` con loopback in-container:
  *
- *   GET /v1/bootstrap          → config tenant + user + outlet activo
+ *   GET /v1/bootstrap          → config tenant + user + outlet activo + roster
+ *                                del lock screen (`users`)
  *   GET /v1/items?limit=500    → items vendibles (filtra itemCanSale+status)
  *   GET /v1/contacts?type=1    → clientes
+ *   … + register, payment-methods, taxes, categories, brands,
+ *     document-templates
+ *
+ * El roster del lock screen NO tiene fetch propio: hasta 2026-08-24 se pedía a
+ * `/v1/users?status=1`, que exige `contacts.user.view` — permiso que el rol
+ * `device` no tiene desde la mig 162 y que NO debe recuperar (abre el equipo
+ * entero, con emails y teléfonos, a un token eterno guardado en la tablet del
+ * mostrador). Ahora baja como proyección de tres campos dentro del bootstrap.
  *
  * Auth: requiere cookie `_jwt` (realm `pos-app`). Si falta o expira → 401.
  *
@@ -159,6 +168,29 @@ interface UpstreamBootstrap {
    */
   settingReturnRefund?: "cash" | "credit" | "ask"
   settingReturnAllowIngredientReversal?: boolean
+  /**
+   * Roster de la pantalla de bloqueo — proyección MÍNIMA (id/name/pinhash) de
+   * los usuarios activos habilitados en la sucursal del contexto, servida por
+   * `/v1/bootstrap` (ver `UsersService::rosterForOutlet()`).
+   *
+   * Hasta 2026-08-24 el POS lo pedía por `/v1/users?status=1`, que exige
+   * `contacts.user.view` — permiso que el rol `device` no tiene desde la mig
+   * 162. El 403 resultante degradaba a `[]` sin ruido y el lock screen quedaba
+   * sin PINs contra los que validar: lockout de la caja.
+   *
+   * Se sirve SOLO al realm `pos-app`: el `pinhash` es un SHA-256 sin sal de 4
+   * dígitos y no puede viajar a una sesión de panel (ver el gate en
+   * `api/v1/bootstrap.php`). Ausente = `/api` viejo, o la request no llevaba el
+   * Bearer del device. El handler lo loguea explícitamente en vez de tragárselo.
+   */
+  users?: UpstreamRosterUser[]
+}
+
+/** Fila del roster del lock screen. Tres campos, a propósito — ver arriba. */
+interface UpstreamRosterUser {
+  id: string
+  name: string
+  pinhash?: string | null
 }
 
 // Fila de /v1/taxes — ver TaxService::present() (F0, tabla `tax`).
@@ -259,19 +291,6 @@ interface UpstreamPaymentMethodRow {
 
 interface UpstreamPaymentMethodsList {
   paymentMethods: UpstreamPaymentMethodRow[]
-}
-
-interface UpstreamUserRow {
-  id: string
-  name: string
-  lockPass?: string | null
-  lockPassHash?: string | null
-  pinhash?: string | null
-  status: number
-}
-
-interface UpstreamUsersList {
-  users: UpstreamUserRow[]
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -388,20 +407,20 @@ function reshapePaymentMethod(row: UpstreamPaymentMethodRow): PaymentMethodConfi
   }
 }
 
-function reshapeUsers(
-  data: UpstreamUsersList | null,
-  httpStatus: number,
-): PosUser[] {
-  // 5xx o null → lista vacía (degradación controlada, ya logueado).
-  if (httpStatus >= 500 || data === null) return []
-  return data.users
-    .filter((u) => u.status === 1)
-    .map((u) => ({
-      id: u.id,
-      name: u.name,
-      pinhash: u.pinhash ?? null,
-      lockpasshash: u.lockPassHash ?? null,
-    }))
+/**
+ * Roster del lock screen. Ya viene filtrado y proyectado por el backend
+ * (activos + habilitados en la sucursal, tres campos) — acá solo se normaliza
+ * el `pinhash` ausente a `null`. Sin filtro por `status`: la lista que llega YA
+ * es la de los habilitados, y volver a filtrar acá sobre un campo que el
+ * backend deliberadamente no manda vaciaría el roster entero.
+ */
+function reshapeRoster(rows: UpstreamRosterUser[] | undefined): PosUser[] {
+  if (!Array.isArray(rows)) return []
+  return rows.map((u) => ({
+    id: u.id,
+    name: u.name,
+    pinhash: u.pinhash ?? null,
+  }))
 }
 
 // ── Handler ───────────────────────────────────────────────────────────────────
@@ -434,7 +453,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let itemsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamItemsList>>>
   let customersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamContactsList>>>
   let registersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamRegisterList>>>
-  let usersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamUsersList>>>
   let paymentMethodsRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamPaymentMethodsList>>>
   let taxesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamTaxesList>>>
   let categoriesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamCategoriesList>>>
@@ -442,7 +460,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   let printTemplatesRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamPrintTemplatesList>>>
   let docNumbersRes: Awaited<ReturnType<typeof fetchUpstream<UpstreamDocNumbers>>>
   try {
-    ;[bsRes, itemsRes, customersRes, registersRes, usersRes, paymentMethodsRes, taxesRes, categoriesRes, brandsRes, printTemplatesRes, docNumbersRes] = await Promise.all([
+    ;[bsRes, itemsRes, customersRes, registersRes, paymentMethodsRes, taxesRes, categoriesRes, brandsRes, printTemplatesRes, docNumbersRes] = await Promise.all([
       fetchUpstream<UpstreamBootstrap>(base, "/v1/bootstrap", headers),
       fetchUpstream<UpstreamItemsList>(
         base,
@@ -457,11 +475,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       fetchUpstream<UpstreamRegisterList>(
         base,
         "/v1/register?resource=list",
-        headers,
-      ),
-      fetchUpstream<UpstreamUsersList>(
-        base,
-        "/v1/users?status=1&limit=200",
         headers,
       ),
       // .catch() propio: un fallo acá (red/timeout/DNS) NO debe reventar el
@@ -559,7 +572,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     itemsRes,
     customersRes,
     registersRes,
-    usersRes,
     paymentMethodsRes,
   ].find((r) => r.status === 401)
   if (unauthorizedRes) {
@@ -604,16 +616,50 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // users: si falla con 5xx, degradar a lista vacía (no bloquea el bootstrap).
-  if (usersRes.status >= 500) {
-    const snippet =
-      usersRes.rawText.length > 500
-        ? usersRes.rawText.slice(0, 500) + "…"
-        : usersRes.rawText
-    console.warn("[bff /api/pos/bootstrap] upstream 5xx users (degradando a [])", {
-      status: usersRes.status,
-      body: snippet,
-    })
+  // Un fallo de AUTORIZACIÓN no puede disfrazarse de dataset vacío.
+  //
+  // `fetchUpstream` colapsa "no autorizado" y "respuesta sin data" en el mismo
+  // `data: null`, y todos los reshapers de abajo lo degradan a `[]`. Para un
+  // 5xx o un timeout eso es correcto y deliberado (el POS tiene que arrancar
+  // igual). Para un 401/403 NO: significa que este realm no puede leer ese
+  // endpoint, y la lista vacía resultante se lee río abajo como "el tenant no
+  // tiene nada" — que fue exactamente cómo un 403 de `/v1/users` terminó
+  // pintándose como "no hay PINs configurados" y dejó cajas bloqueadas
+  // (2026-08-24).
+  //
+  // El 401 de los core ya se propaga arriba (sesión muerta). Acá quedan los
+  // degradables: se loguea explícito para que la causa aparezca en el log en
+  // vez de desaparecer. NO se cambia la política de degradación —ni la de 5xx
+  // ni la de payment-methods, ambas razonadas— solo se hace DISTINGUIBLE.
+  for (const [label, r] of [
+    ["taxes", taxesRes],
+    ["categories", categoriesRes],
+    ["brands", brandsRes],
+    ["document-templates", printTemplatesRes],
+    ["register (docNumbers)", docNumbersRes],
+  ] as const) {
+    if (r.status === 401 || r.status === 403) {
+      console.warn(
+        "[bff /api/pos/bootstrap] upstream NO AUTORIZADO (degradando a vacío — NO es un dataset vacío)",
+        { label, status: r.status },
+      )
+    }
+  }
+
+  // El roster del lock screen viaja DENTRO del bootstrap (ya no se pide a
+  // `/v1/users`). Si llega ausente, la caja arrancaría sin PINs contra los que
+  // validar, así que se loguea en vez de degradar en silencio. Dos causas
+  // posibles, ambas accionables y ninguna silenciosa:
+  //   - el `/api` desplegado es anterior a este cambio (deploy no coordinado);
+  //   - la request se autenticó como realm `panel` y no como device, y
+  //     `/v1/bootstrap` sirve el roster SOLO a `pos-app` (el `pinhash` es
+  //     forzable, ver el gate en `api/v1/bootstrap.php`). Eso significa que
+  //     este device no mandó su Bearer: el arranque correcto es parear, no
+  //     abrir el lock screen.
+  if (bsRes.data !== null && !Array.isArray(bsRes.data.users)) {
+    console.warn(
+      "[bff /api/pos/bootstrap] /v1/bootstrap no devolvió `users` (roster del lock screen) — /api desactualizado, o la sesión no es la del device (realm pos-app)",
+    )
   }
 
   // payment-methods: una falla de INFRAESTRUCTURA (5xx, red, respuesta vacía)
@@ -728,7 +774,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     items,
     customers,
     paymentMethods,
-    users: reshapeUsers(usersRes.data, usersRes.status),
+    // Roster del lock screen (id/name/pinhash), servido por `/v1/bootstrap`.
+    // Al viajar dentro del bootstrap queda además en el snapshot de IndexedDB,
+    // así que el PIN se valida sin red en el arranque en frío.
+    users: reshapeRoster(bs.users),
     activeRegisterId: bs.activeRegisterId ?? "",
     // F2b (context/38): tasas del tenant + default de la sucursal. Sin esto
     // el carrito no puede resolver la tasa de una línea, y el neteo de
