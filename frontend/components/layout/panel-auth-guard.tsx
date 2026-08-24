@@ -2,41 +2,15 @@
 
 import * as React from "react"
 import { useRouter, usePathname } from "next/navigation"
-import {
-  ShoppingBasket,
-  Contact,
-  ChartPie,
-  ScanBarcode,
-  LayoutDashboard,
-  MessageCircle,
-  Flame,
-  LayoutGrid,
-  CalendarDays,
-  SquareKanban,
-  Bookmark,
-  Boxes,
-  ClipboardEdit,
-  ArrowLeftRight,
-  Factory,
-  LayoutTemplate,
-  RotateCcw,
-  Users,
-  Truck,
-  UserCog,
-  ScrollText,
-  HandCoins,
-  Gift,
-  RefreshCw,
-  Package,
-  ClipboardList,
-  Wallet,
-  Banknote,
-  Landmark,
-  Route,
-} from "lucide-react"
 import { toast } from "sonner"
 
-import { AppSidebar, type NavEntry, type NavItem, type NavGroup } from "@/components/layout/app-sidebar"
+import { AppSidebar } from "@/components/layout/app-sidebar"
+import { PANEL_ROUTES, POS_ROUTES } from "@/lib/navigation/routes"
+import {
+  buildPaletteSections,
+  buildSidebarNav,
+  type NavContext,
+} from "@/lib/navigation/build"
 import { usePermissions } from "@/hooks/use-permissions"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { useParkedSales } from "@/hooks/use-parked-sales"
@@ -49,95 +23,6 @@ import { useQueryClient } from "@tanstack/react-query"
 import { useModules } from "@/hooks/use-modules"
 import type { ModulesMap } from "@/lib/types/module"
 import { AuthSentinel } from "@/components/auth/auth-sentinel"
-
-// Menú lateral. Definido acá (client) porque los iconos son componentes
-// función y no pueden cruzar la frontera server → client como props.
-// Dashboard como item explícito (UX: el logo no era enough).
-// Iconos: el set elegido por owner (2026-06-13) — más afines a la categoría
-// que el set genérico anterior (Package/Users/BarChart3).
-const panelNav: NavEntry[] = [
-  { title: "Dashboard", to: "/", icon: LayoutDashboard },
-  { title: "Asistente", to: "/chat", icon: MessageCircle, hideOnMobile: true },
-  {
-    title: "Ventas",
-    icon: HandCoins,
-    items: [
-      { title: "Transacciones", to: "/reports/transactions", icon: ScrollText, requires: "reports.sales.view" },
-      { title: "Cuentas por cobrar", to: "/reports/open-invoices", icon: HandCoins, requires: "reports.sales.view" },
-      { title: "Gift cards", to: "/reports/giftcards", icon: Gift, requires: "reports.giftcards.view" },
-      { title: "Facturas recurrentes", to: "/reports/recurring", icon: RefreshCw, requires: "reports.recurring.view" },
-    ],
-  },
-  {
-    title: "Artículos",
-    icon: LayoutTemplate,
-    items: [
-      { title: "Catálogo", to: "/items", icon: ShoppingBasket, requires: "inventory.item.view" },
-      { title: "Inventario", to: "/inventory-count", icon: Boxes, requires: "inventory.stock.adjust" },
-      { title: "Ajustes de stock", to: "/stock-adjustment", icon: ClipboardEdit, requires: "inventory.stock.adjust" },
-      { title: "Transferencias", to: "/stock-transfer", icon: ArrowLeftRight, requires: "inventory.transfer" },
-      // Remisión (context/42) — cubre motivos que NO son traslado entre
-      // depósitos propios (ese es "Transferencias" arriba): venta,
-      // devolución a proveedor, consignación, exposición, compra. Mismo
-      // permiso que Transferencias — es el mismo dominio de traslado de
-      // mercadería, no hay una permission key dedicada todavía.
-      { title: "Remisiones", to: "/remisiones", icon: Route, requires: "inventory.transfer" },
-      { title: "Producción", to: "/produccion", icon: Factory, requires: "production.manage" },
-    ],
-  },
-  {
-    title: "Compras y Gastos",
-    icon: ShoppingBasket,
-    items: [
-      { title: "Registro de compras", to: "/purchase", icon: Package },
-      { title: "Compras y gastos", to: "/reports/purchases", icon: ClipboardList, requires: "reports.purchases.view" },
-      { title: "Cuentas por pagar", to: "/reports/open-invoices?state=outcome", icon: Wallet, requires: "reports.sales.view" },
-      { title: "Movimientos de caja", to: "/reports/expenses", icon: Banknote, requires: "reports.expenses.view" },
-    ],
-  },
-  {
-    title: "Contactos",
-    icon: Contact,
-    items: [
-      { title: "Clientes", to: "/contacts?type=1", icon: Users, requires: "contacts.customer.view" },
-      { title: "Proveedores", to: "/contacts?type=2", icon: Truck, requires: "contacts.supplier.view" },
-      { title: "Equipo", to: "/contacts?type=0", icon: UserCog, requires: "contacts.user.view" },
-    ],
-  },
-  { title: "Finanzas", to: "/finanzas", icon: Landmark, requires: "finance.manage" },
-  { title: "Reportes", to: "/reports", icon: ChartPie, requires: "reports.sales.view" },
-  { title: "Caja", to: "/pos", icon: ScanBarcode }, // Caja = POS dentro del propio panel...
-]
-
-/**
- * Filtra entries por permisos. Si `permsLoaded=false` (bootstrap aún cargando),
- * retorna TODO sin filtrar — durante loading se muestran todos los items y
- * cuando llegan los perms, se filtran. Evita:
- *  1. Hidratación mismatch (React #418): SSR/primer-client tienen
- *     perms=[] → filtro oculta todo. Tras llegada del bootstrap → perms
- *     llenos → re-render con árbol distinto → mismatch.
- *  2. Flicker de sidebar vacío durante el load inicial.
- */
-function filterByPermissions(entries: NavEntry[], perms: string[], permsLoaded: boolean): NavEntry[] {
-  if (!permsLoaded) return entries
-  return entries.reduce<NavEntry[]>((acc, entry) => {
-    const asGroup = entry as NavGroup
-    if (asGroup.items !== undefined) {
-      const filteredItems = asGroup.items.filter(
-        (item: NavItem) => !item.requires || perms.includes(item.requires),
-      )
-      if (filteredItems.length > 0) {
-        acc.push({ ...asGroup, items: filteredItems })
-      }
-    } else {
-      const item = entry as NavItem
-      if (!item.requires || perms.includes(item.requires)) {
-        acc.push(entry)
-      }
-    }
-    return acc
-  }, [])
-}
 
 /**
  * Wrapper client-side del panel. Gate de auth (bootstrap → 401 → /login) y
@@ -163,30 +48,28 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   function moduleEnabled(m: ModulesMap | undefined, key: string): boolean {
     return !modulesLoading && m?.[key]?.enabled === true
   }
-  // Nav del POS — construido dentro del componente porque el badge y los módulos son dinámicos.
-  // La vuelta al panel es por el logo (linkea al dashboard).
-  const posNav: NavEntry[] = [
-    { title: "Hotkeys", to: "/pos", icon: Flame },
-    ...(moduleEnabled(modules, "tables")
-      ? [{ title: "Espacios", to: "/pos/espacios", icon: LayoutGrid }]
-      : []),
-    ...(moduleEnabled(modules, "calendar")
-      ? [{ title: "Calendario", to: "/pos/calendario", icon: CalendarDays }]
-      : []),
-    ...(moduleEnabled(modules, "ordersPanel")
-      ? [{ title: "Órdenes", to: "/pos/ordenes", icon: SquareKanban }]
-      : []),
-    {
-      title: "Guardadas",
-      to: "/pos/guardadas",
-      icon: Bookmark,
-      badge: parkedSales?.length ? String(parkedSales.length) : undefined,
-    },
-  ]
   const { data: bootstrap, isLoading } = useBootstrap()
-  // permsLoaded: solo filtrar cuando el bootstrap llegó. Si no, mostrar TODO
-  // (mejor UX + evita hidratación mismatch — ver filterByPermissions).
-  const nav = isPos ? posNav : filterByPermissions(panelNav, permissions, !!bootstrap)
+
+  // Contexto de navegación: lo que el registro de rutas necesita para decidir
+  // qué se muestra. `permsLoaded` solo es true cuando llegó el bootstrap — si
+  // no, se muestra TODO sin filtrar (mejor UX + evita hidratación mismatch;
+  // ver `isVisible` en lib/navigation/build.ts).
+  const navContext: NavContext = {
+    perms: permissions,
+    permsLoaded: !!bootstrap,
+    moduleEnabled: (key) => moduleEnabled(modules, key),
+    badges: {
+      parkedSales: parkedSales?.length ? String(parkedSales.length) : undefined,
+    },
+  }
+
+  // Las dos superficies salen del MISMO registro (`lib/navigation/routes.ts`)
+  // y del mismo filtro de permisos. Ninguna mantiene su propia lista.
+  // El sidebar es contextual: dentro de /pos muestra los módulos de la caja.
+  const nav = buildSidebarNav(isPos ? POS_ROUTES : PANEL_ROUTES, navContext)
+  // El palette es del panel. En /pos está desactivado (la caja tiene su
+  // propia búsqueda), así que no se arma el índice.
+  const paletteSections = isPos ? undefined : buildPaletteSections(PANEL_ROUTES, navContext)
   // El logo de la empresa lo trae /v1/settings (no /v1/bootstrap). Se
   // muestra en el avatar del menu user del footer. staleTime 60s del hook
   // evita el refetch en cada navegación. null si la empresa aún no subió.
@@ -330,6 +213,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       <AppSidebar
         scope="Panel"
         items={nav}
+        paletteSections={paletteSections}
         user={user}
         companyLogo={settings?.hasLogo ? settings.logo : null}
         outlets={outlets}

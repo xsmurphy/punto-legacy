@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { useState, type ComponentType } from "react"
+import { useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -46,30 +46,12 @@ import { NotificationsMenuItem, NotificationUnreadDot } from "@/components/layou
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import type { NavEntry, NavGroup, NavItem, PaletteSection } from "@/lib/navigation/types"
 
-export interface NavItem {
-  title: string
-  to: string
-  icon: ComponentType<{ className?: string }>
-  badge?: string
-  /** Permiso requerido para mostrar este item. Si no se provee, siempre visible. */
-  requires?: string
-  /** Oculta el item en mobile (≤sm). Útil cuando hay otra entrada equivalente
-   *  para mobile (ej. el FAB del Asistente IA reemplaza al item del sidebar). */
-  hideOnMobile?: boolean
-}
-
-export interface NavGroup {
-  title: string
-  icon: ComponentType<{ className?: string }>
-  items: NavItem[]
-  /** Si se provee, el header del grupo actúa como link directo Y el chevron
-   *  es un botón separado (split-click). Sin `to`, se mantiene el modo legacy
-   *  donde click en cualquier parte del header sólo hace toggle. */
-  to?: string
-}
-
-export type NavEntry = NavItem | NavGroup
+// Los tipos del nav viven en `lib/navigation/types.ts` (el registro de rutas
+// es la fuente de verdad y no puede depender de un componente client). Se
+// re-exportan acá para no romper los imports existentes.
+export type { NavEntry, NavGroup, NavItem }
 
 function isGroup(entry: NavEntry): entry is NavGroup {
   return (entry as NavGroup).items !== undefined
@@ -78,6 +60,12 @@ function isGroup(entry: NavEntry): entry is NavGroup {
 interface AppSidebarProps {
   scope: "Admin" | "Panel"
   items: NavEntry[]
+  /**
+   * Índice del command palette, ya derivado del registro de rutas y filtrado
+   * por permisos por quien monta el sidebar. Sin esto el palette solo ofrece
+   * los items del menú — que es lo correcto para realms sin registro propio.
+   */
+  paletteSections?: PaletteSection[]
   user: { name: string; subtitle: string }
   isImpersonating?: boolean
   onExitImpersonation?: () => void
@@ -103,6 +91,7 @@ interface AppSidebarProps {
 export function AppSidebar({
   scope,
   items,
+  paletteSections,
   user,
   isImpersonating = false,
   onExitImpersonation,
@@ -423,6 +412,7 @@ export function AppSidebar({
         open={commandOpen}
         onOpenChange={setCommandOpen}
         nav={items}
+        sections={paletteSections}
       />
     </Sidebar>
   )
