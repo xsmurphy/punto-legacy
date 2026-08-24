@@ -20,6 +20,7 @@ Diseñado para PostgreSQL 16+. Archivo fuente: `db-schema-postgres.sql` (54KB).
 company (tenant)
 ├── users (empleados del tenant)
 ├── outlets (sucursales)
+│   ├── locations (depósitos — taxonomy.taxonomytype='location')
 │   └── registers (cajas/terminales)
 ├── contacts (clientes + proveedores)
 ├── items (productos/servicios)
@@ -34,6 +35,25 @@ company (tenant)
 franchiser_to_tenant (acceso N→N franquiciador→tenant — NO propiedad/billing)
 └── franchiserId, tenantId  → ambos FK a company(companyId)
 ```
+
+### La cadena de alta es OBLIGATORIA (owner, 2026-08-24)
+
+**El depósito y la caja son hermanos, ambos hijos directos de la sucursal, y
+ninguno es opcional.** El signup crea `Company > Sucursal ("Central") >
+Depósito > Caja` encadenados; el alta de una sucursal nueva crea
+`Sucursal > Depósito > Caja` igual. Ninguna sucursal puede existir sin su
+depósito Y su caja, y ningún camino de alta puede saltearse un eslabón — todos
+se escriben en la misma transacción.
+
+- Depósitos: son filas de `taxonomy` con `taxonomytype='location'` atadas por
+  `taxonomy.outletid`. Exactamente uno lleva `taxonomyextra {"isDefault": true}`
+  (mig 165, índice `uq_taxonomy_location_default`). Creador único:
+  `LocationTaxonomyService::ensureDefault()`.
+- Cajas: `register` (mig 166 backfilleó las faltantes). La caja por defecto nace
+  SIN timbrado ni punto de expedición — crear la caja no es asignarle talonario.
+
+Detalle del invariante, guards de borrado y arnés: `08-convenciones-criticas.md`
+§58.
 
 ### Columnas JSONB por tabla
 

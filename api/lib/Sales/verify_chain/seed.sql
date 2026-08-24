@@ -52,6 +52,24 @@ INSERT INTO register (
     '1a282724-6073-49c3-8bc3-0114a132e349', '0ea6c5d8-57e5-4226-8140-ec914deec024'
 ) ON CONFLICT (registerid) DO UPDATE SET registername = EXCLUDED.registername;
 
+-- Depósito por defecto — la cadena Company > Sucursal > (Depósito | Caja) es
+-- OBLIGATORIA (context/08). Este seed carga DESPUÉS de las migraciones, así
+-- que el backfill de la mig 165 no lo alcanza: si la sucursal no trae su
+-- depósito acá, `outlet_chain_invariant_test.php` la marca como rota.
+-- `WHERE NOT EXISTS` para no chocar con `uq_taxonomy_location_default`.
+INSERT INTO taxonomy (taxonomyId, companyId, taxonomyType, outletId, taxonomyName, taxonomyExtra)
+SELECT 'b41a2f30-7c5d-4e18-9a26-1d3f5b7c9e02',
+       '0ea6c5d8-57e5-4226-8140-ec914deec024',
+       'location',
+       '1a282724-6073-49c3-8bc3-0114a132e349',
+       'Verify PY - Depósito',
+       '{"isDefault": true}'
+ WHERE NOT EXISTS (
+     SELECT 1 FROM taxonomy
+      WHERE outletId = '1a282724-6073-49c3-8bc3-0114a132e349'
+        AND taxonomyType = 'location'
+ );
+
 INSERT INTO contact (
     contactId, contactName, contactPhone, contactEmail, contactStatus, type, main, role, outletId, companyId
 ) VALUES (
@@ -239,6 +257,20 @@ INSERT INTO register (
     1, 1, 1, 1, 1, 1,
     '6d3cab3a-c040-4428-8090-6790469de3bd', 'fa8cf679-9003-417e-8726-5b772d3b6e88'
 ) ON CONFLICT (registerid) DO UPDATE SET registername = EXCLUDED.registername;
+
+-- Depósito por defecto de la sucursal MX (ver comentario del tenant PY arriba).
+INSERT INTO taxonomy (taxonomyId, companyId, taxonomyType, outletId, taxonomyName, taxonomyExtra)
+SELECT 'd82b4c16-9e07-4a35-8b41-6c2e0f9d7a13',
+       'fa8cf679-9003-417e-8726-5b772d3b6e88',
+       'location',
+       '6d3cab3a-c040-4428-8090-6790469de3bd',
+       'Verify MX - Depósito',
+       '{"isDefault": true}'
+ WHERE NOT EXISTS (
+     SELECT 1 FROM taxonomy
+      WHERE outletId = '6d3cab3a-c040-4428-8090-6790469de3bd'
+        AND taxonomyType = 'location'
+ );
 
 INSERT INTO contact (
     contactId, contactName, contactPhone, contactEmail, contactStatus, type, main, role, outletId, companyId

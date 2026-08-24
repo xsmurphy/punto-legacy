@@ -342,9 +342,23 @@ final class RegisterAdminService
             $params[]   = $name;
         }
 
+        // Desactivar la última caja activa deja la sucursal sin ninguna,
+        // exactamente igual que borrarla: sin caja no se abre turno ni se emite
+        // un documento. Es el MISMO guard que `delete()` — por eso vive en un
+        // método compartido y no copiado acá: un invariante con dos
+        // implementaciones es un invariante con una sola vigente.
+        //
+        // El chequeo NO se hace acá sino junto a la mutación, más abajo: el
+        // guard bloquea una fila y ese lock solo sirve si cubre la ventana
+        // entre el chequeo y la escritura. Entre este punto y el UPDATE quedan
+        // decenas de validaciones que responden con `apiError()`, y abrir la
+        // transacción antes de ellas las haría salir con la TX abierta.
+        $desactivando = false;
         if (array_key_exists('status', $fields)) {
-            $setParts[] = 'registerStatus = ?';
-            $params[]   = (bool) $fields['status'];
+            $nuevoStatus  = (bool) $fields['status'];
+            $desactivando = $currentStatus && !$nuevoStatus;
+            $setParts[]   = 'registerStatus = ?';
+            $params[]     = $nuevoStatus;
         }
 
         // Timbrado de la caja — merge sobre `data` JSONB (mig 26). La caja es
@@ -582,6 +596,23 @@ final class RegisterAdminService
         }
 
         global $db;
+
+        // De acá en adelante solo hay escrituras: ninguna validación más que
+        // pueda salir con `apiError()`. Recién ahora se abre la transacción,
+        // que además vuelve atómico el par de UPDATEs + las secuencias.
+        $db->StartTrans();
+
+        // Guard de la cadena — corre DENTRO de la TX para que su `FOR UPDATE`
+        // cubra la ventana hasta el UPDATE de abajo. Si corta, revierte y
+        // responde 409.
+        if ($desactivando) {
+            $this->assertNoEsLaUltimaCajaActiva(
+                (string) ($reg['outletId'] ?? $reg['outletid'] ?? ''),
+                $id,
+                'desactivar'
+            );
+        }
+
         if (!empty($setParts)) {
             $colParams   = $params;
             $colParams[] = $id;
@@ -641,6 +672,10 @@ final class RegisterAdminService
             );
         }
 
+        $db->CompleteTrans();
+
+        // Después del commit: anunciar un cambio que todavía puede revertirse
+        // desincroniza a los dispositivos.
         realtimePublish('register', 'update', $id);
         return ['ok' => true];
     }
@@ -751,22 +786,119 @@ final class RegisterAdminService
     }
 
     /**
+     * Guard de la CADENA DE ALTA: una sucursal no puede quedarse sin caja.
+     *
+     * La cadena Company > Sucursal > (Depósito | Caja) es OBLIGATORIA (regla
+     * del owner 2026-08-24, context/08 §58): depósito y caja son hermanos,
+     * hijos directos del outlet, y ninguno es opcional. Sin caja no se abre
+     * turno ni se emite un solo documento — la sucursal queda muerta sin que
+     * nada avise.
+     *
+     * Es el gemelo del guard que ya tiene el depósito
+     * (`LocationTaxonomyService::delete()` bloquea SIEMPRE el default), y vive
+     * en UN solo método porque hay DOS caminos capaces de romper la cadena:
+     *
+     *   - `delete()`   → hard delete (borra la fila) o soft delete
+     *                    (registerStatus = FALSE si la caja tiene transacciones).
+     *   - `update()`   → `status: false`, el toggle del panel.
+     *
+     * El segundo es el que se escapa si el guard se escribe en el call-site: es
+     * literalmente el mismo efecto (cero cajas operables) por otra puerta.
+     *
+     * Se cuentan las ACTIVAS y no el total: una caja dada de baja conserva su
+     * historial fiscal pero no emite (context/29 §1), así que no es el eslabón.
+     *
+     * Fail-CLOSED por construcción: el wrapper de DB LANZA ante error SQL
+     * (context/08 §54), así que una consulta que no responde aborta el request
+     * en vez de dejar pasar el borrado. `SELECT COUNT(*)` siempre trae una fila
+     * cuando la consulta corre, de modo que `cnt` nunca queda indefinido en el
+     * camino feliz.
+     *
+     * ── Por qué bloquea la fila del OUTLET (y no cuenta y ya) ───────────────
+     *
+     * Contar sin bloquear es un TOCTOU: dos bajas concurrentes sobre una
+     * sucursal de DOS cajas leen "queda otra" al mismo tiempo, las dos pasan el
+     * guard y la sucursal termina con CERO. El invariante se rompe sin que
+     * ningún request haya visto nada raro.
+     *
+     * Se toma `FOR UPDATE` sobre la fila de `outlet`, no sobre las de
+     * `register`. Bloquear las cajas hermanas parece más directo pero se
+     * deadlockea: con dos cajas A y B, la baja de A bloquea B y la de B bloquea
+     * A, y Postgres mata una con 40P01. La fila del outlet es UNA sola y
+     * siempre la misma para cualquier baja de esa sucursal, así que las
+     * operaciones se serializan en orden de llegada y no hay ciclo posible. La
+     * contención es nula en la práctica: nada del camino de venta actualiza la
+     * fila de `outlet`.
+     *
+     * EXIGE estar dentro de una transacción — `FOR UPDATE` fuera de una TX
+     * suelta el lock apenas termina el statement y no serializa nada. Los dos
+     * llamadores (`delete()` y `update()`) abren la suya y la cierran después
+     * de la mutación, de modo que el lock cubre la ventana entera entre el
+     * chequeo y la escritura. Si el guard corta, deja la transacción revertida
+     * antes de responder.
+     *
+     * @param string $accion Verbo para el mensaje de error ('eliminar' | 'desactivar').
+     */
+    private function assertNoEsLaUltimaCajaActiva(string $outletId, string $registerId, string $accion): void
+    {
+        global $db;
+
+        // Serializa las bajas concurrentes de cajas de esta sucursal. El
+        // resultado no se usa: lo que importa es el lock.
+        $db->Execute(
+            'SELECT outletId FROM outlet WHERE outletId = ? AND companyId = ? FOR UPDATE',
+            [$outletId, $this->companyId]
+        );
+
+        $activasRow = ncmExecute(
+            'SELECT COUNT(*)::int AS cnt
+               FROM register
+              WHERE outletId = ? AND companyId = ? AND registerStatus = TRUE AND registerId <> ?',
+            [$outletId, $this->companyId, $registerId]
+        );
+
+        if ((int) ($activasRow['cnt'] ?? 0) === 0) {
+            // La transacción se revierte ANTES de responder: `apiError()` hace
+            // exit, y salir con la TX abierta deja la conexión envenenada para
+            // lo que quede del request (mismo motivo que el catch de
+            // SignupService).
+            $db->FailTrans();
+            $db->CompleteTrans();
+            apiError(
+                "No se puede {$accion} la última caja de la sucursal. Toda sucursal tiene sí o sí una caja: creá otra primero, o eliminá la sucursal entera.",
+                409
+            );
+        }
+    }
+
+    /**
      * Elimina una caja.
+     * - Bloquea si es la ÚLTIMA caja activa de su sucursal.
      * - Bloquea si hay devices activos apuntando a esta caja.
      * - Soft delete si tiene transacciones; hard delete si no.
      */
     public function delete(string $id): array
     {
-        // Guard: caja existe y pertenece al tenant
+        global $db;
+
+        // Guard: caja existe y pertenece al tenant.
+        // Se traen `outletId` y `registerStatus` porque el guard de "última
+        // caja" de abajo necesita los dos, y una segunda consulta sería una
+        // carrera gratis.
         $reg = ncmExecute(
-            'SELECT registerId FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
+            'SELECT registerId, outletId, registerStatus FROM register
+              WHERE registerId = ? AND companyId = ? LIMIT 1',
             [$id, $this->companyId]
         );
         if (!$reg) {
             apiError('Caja no encontrada', 404);
         }
+        $estaActiva = (bool) ($reg['registerStatus'] ?? $reg['registerstatus'] ?? false);
 
-        // Guard: devices activos — status=1 en tabla device
+        // Guard: devices activos — status=1 en tabla device.
+        // Va ANTES de abrir la transacción a propósito: responde con `exit`
+        // directo (necesita un payload que `apiError()` no sabe mandar), y
+        // salir con una TX abierta deja la conexión envenenada.
         $devRow = ncmExecute(
             'SELECT COUNT(*)::int AS cnt FROM device WHERE registerId = ? AND status = 1',
             [$id]
@@ -779,6 +911,20 @@ final class RegisterAdminService
             exit;
         }
 
+        // La transacción abarca el guard Y la mutación: es lo que hace que el
+        // `FOR UPDATE` del guard sirva para algo (ver su docblock).
+        $db->StartTrans();
+
+        // Solo se defiende la cadena cuando esta caja ES un eslabón vigente.
+        // Una caja YA inactiva no sostiene nada: exigirle que quede otra activa
+        // dejaba encerrada a la sucursal cuyas cajas están todas dadas de baja
+        // — 409 perpetuo, sin forma de limpiarlas nunca. Ese es justamente el
+        // estado que la mig 166 deja "para decisión humana", así que tiene que
+        // poder resolverse desde el panel.
+        if ($estaActiva) {
+            $this->assertNoEsLaUltimaCajaActiva((string) ($reg['outletId'] ?? ''), $id, 'eliminar');
+        }
+
         // ¿Tiene transacciones?
         $txRow = ncmExecute(
             'SELECT 1 FROM transaction WHERE registerId = ? AND companyId = ? LIMIT 1',
@@ -787,21 +933,23 @@ final class RegisterAdminService
 
         if ($txRow) {
             // Soft delete: preserva históricos
-            global $db;
             $db->Execute(
                 'UPDATE register SET registerStatus = FALSE WHERE registerId = ? AND companyId = ?',
                 [$id, $this->companyId]
             );
+            $db->CompleteTrans();
+            // El evento se publica DESPUÉS del commit: anunciar un cambio que
+            // todavía puede revertirse desincroniza a los dispositivos.
             realtimePublish('register', 'update', $id);
             return ['deleted' => 'soft', 'reason' => 'has_transactions'];
         }
 
         // Hard delete
-        global $db;
         $db->Execute(
             'DELETE FROM register WHERE registerId = ? AND companyId = ?',
             [$id, $this->companyId]
         );
+        $db->CompleteTrans();
         realtimePublish('register', 'delete', $id);
         return ['deleted' => 'hard'];
     }
