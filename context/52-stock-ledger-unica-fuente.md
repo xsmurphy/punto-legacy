@@ -7,9 +7,13 @@
 > reposición de combos vía `kind='compoundChild'`, void recursivo, manageStock
 > lanza en fallo real, guard de tenant), historial formato extracto en la
 > ficha. **F5 (apertura por período + particionado) espera señal de volumen**
-> (decisión owner). Arnés `api/tests/stock_ledger_test.php` listo, corre con
-> `bash api/tests/run_stock_ledger_test.sh` (pendiente de primera corrida —
-> requiere Docker/contenedor).
+> (decisión owner). Arnés `api/tests/stock_ledger_test.php` corrido
+> 2026-08-24: **12/12 verde** (`bash api/tests/run_stock_ledger_test.sh`).
+> La primera corrida destapó 2 bugs, ya corregidos (`b11819cf`): COGS vacío
+> reventaba el INSERT del primer movimiento de un ítem sin costo (antes se
+> perdía en silencio, G11), y el discriminante `meta.compound` no contemplaba
+> que el wrapper APLANA la columna `meta` (flattenJsonb) — la anulación de un
+> combo reponía doble.
 > Origen: conversación con el owner — "la tabla stock es el ledger como el de
 > un banco: no puede existir un solo movimiento que no quede registrado ahí, y
 > cada línea posee el stock real al momento del registro". El modelo pedido
