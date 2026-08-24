@@ -823,3 +823,84 @@ informativo.
 Arnés: `api/tests/space_exclusivity_test.php` (403 contra el endpoint real, con
 device token real, incluidos los bypass: sin header, token de otra empresa,
 firma manipulada).
+
+---
+
+## §58 — Cadena de alta obligatoria: Company > Sucursal > (Depósito | Caja) (owner, 2026-08-24)
+
+Palabras del owner:
+
+> "Cuando un tenant crea una nueva cuenta en el sistema (signup), se crea
+> automáticamente por defecto la empresa > una sucursal (Central) > un depósito
+> > una caja. Estos van encadenados obligatoriamente. Cuando creo una sucursal
+> nueva también se crea la Sucursal > depósito > caja. El depósito y la caja
+> están al mismo nivel, ambos son hijos directos de la sucursal."
+
+```
+Company
+└── Outlet (sucursal)          ← el signup crea una llamada "Central"
+    ├── Location (depósito)    ← hermanos, hijos DIRECTOS del outlet
+    └── Register (caja)
+```
+
+**Ninguna sucursal puede existir sin su depósito Y su caja.** No es "se crean
+si el usuario quiere": es una cadena obligatoria, y ningún camino de alta puede
+saltearse un eslabón. Todo eslabón se crea en la MISMA transacción que la
+sucursal — si falla uno, no queda una sucursal a medias.
+
+### Los creadores canónicos
+
+| Eslabón | Único creador | Lo llaman |
+|---|---|---|
+| Depósito | `LocationTaxonomyService::ensureDefault()` | `SignupService`, `OutletsService::create()` |
+| Caja | `ncmInsert(table: 'register')` dentro de la transacción del outlet | idem |
+
+Un camino de alta de sucursal NUEVO obliga a llamar a los dos. El escaneo del
+arnés (abajo) es lo que lo hace visible, no la disciplina.
+
+### No se puede romper por borrado
+
+- `LocationTaxonomyService::delete()` bloquea SIEMPRE el depósito por defecto.
+- `RegisterAdminService::assertNoEsLaUltimaCajaActiva()` bloquea la ÚLTIMA caja
+  activa de la sucursal (409). Cuenta activas y no totales: una caja dada de
+  baja conserva su historial fiscal pero no emite, así que no es el eslabón.
+
+**El guard de la caja vive en un método compartido, no en el call-site**, porque
+hay DOS puertas al mismo estado y la segunda se escapa siempre:
+
+- `delete()` → hard delete, o soft delete (`registerStatus = FALSE`) si la caja
+  tiene transacciones.
+- `update(['status' => false])` → el toggle del panel (`/v1/register.php`
+  action=update). Mismo efecto exacto: cero cajas operables.
+
+Ambos guards son fail-CLOSED: el wrapper de DB lanza ante error SQL (§54), así
+que una verificación que no responde aborta el request en vez de dejar pasar la
+baja.
+
+### Crear una caja NO es asignar un punto de expedición
+
+La caja por defecto nace con `data = '{}'`: sin timbrado y sin `EEE-PPP`. El
+índice `uq_register_expedition_point_by_auth` (mig 143) es PARCIAL y exige
+ambos NOT NULL, así que una caja sin talonario queda fuera y no puede colisionar
+con nada. El invariante fiscal de `context/29` §2 ("por timbrado, punto de
+expedición + correlativo es único") queda intacto: esa caja no emite un solo
+documento fiscal hasta que un humano le asigne timbrado y prefix desde
+Sucursal › Cajas, que es lo único que escribe esos campos
+(`RegisterAdminService::assertExpeditionPointFree()`).
+
+### Historial de roturas (las dos por el mismo motivo)
+
+- `Auth\SignupService` nunca creó depósito: TODO tenant nacía sin uno. Backfill
+  mig 165.
+- `01_master_admin.sql` crea la sucursal master con SQL crudo y nunca insertó
+  caja: única sucursal sin caja en producción. Backfill mig 166.
+
+Los seeds son caminos de alta y cuentan: `01_master_admin.sql`,
+`02_sample_company.sql` y `verify_chain/seed.sql` ya traen su cadena completa.
+
+Arnés: `api/tests/outlet_chain_invariant_test.php` — escanea TODA la base
+(ninguna sucursal de ningún tenant sin depósito, sin default o sin caja activa)
+y además ejercita `OutletsService::create()` con payload, el camino legacy blank
+(`$fields = null`), los dos lados del guard de borrado, y el toggle
+`update(status:false)`. Correr con
+`bash api/tests/run_outlet_chain_invariant_test.sh`.

@@ -34,6 +34,41 @@ INSERT INTO outlet (
 ) ON CONFLICT (outletId) DO UPDATE
     SET outletName = EXCLUDED.outletName;
 
+-- Depósito y caja de la sucursal master.
+--
+-- La cadena Company > Sucursal > (Depósito | Caja) es OBLIGATORIA (regla del
+-- owner 2026-08-24, context/08). Este seed la rompía: creaba la empresa y
+-- "Master Outlet" y ahí terminaba, así que la sucursal master nacía sin
+-- depósito (backfilleado después por la mig 165) y sin caja (mig 166) — era la
+-- ÚNICA sucursal sin caja en producción.
+--
+-- `WHERE NOT EXISTS` en vez de `ON CONFLICT (id)` a propósito: en una base que
+-- ya corrió las migs 165/166 el depósito y la caja existen con UUID aleatorio,
+-- y un INSERT con id fijo agregaría un SEGUNDO depósito por defecto — que
+-- `uq_taxonomy_location_default` (mig 165) rechaza y tumbaría el seed entero.
+INSERT INTO taxonomy (taxonomyId, companyId, taxonomyType, outletId, taxonomyName, taxonomyExtra)
+SELECT '00000000-0000-0000-0000-000000000004',
+       '00000000-0000-0000-0000-000000000001',
+       'location',
+       '00000000-0000-0000-0000-000000000002',
+       'Depósito Master Outlet',
+       '{"isDefault": true}'
+ WHERE NOT EXISTS (
+     SELECT 1 FROM taxonomy
+      WHERE outletId = '00000000-0000-0000-0000-000000000002'
+        AND taxonomyType = 'location'
+ );
+
+INSERT INTO register (registerId, registerName, registerStatus, outletId, companyId)
+SELECT '00000000-0000-0000-0000-000000000005',
+       'Caja Principal',
+       TRUE,
+       '00000000-0000-0000-0000-000000000002',
+       '00000000-0000-0000-0000-000000000001'
+ WHERE NOT EXISTS (
+     SELECT 1 FROM register WHERE outletId = '00000000-0000-0000-0000-000000000002'
+ );
+
 -- Usuario super admin
 -- Contraseña: admin123 (mismo hash que admin@local.test)
 INSERT INTO contact (

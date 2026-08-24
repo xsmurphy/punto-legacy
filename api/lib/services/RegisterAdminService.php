@@ -343,8 +343,21 @@ final class RegisterAdminService
         }
 
         if (array_key_exists('status', $fields)) {
+            $nuevoStatus = (bool) $fields['status'];
+            // Desactivar la última caja activa deja la sucursal sin ninguna,
+            // exactamente igual que borrarla: sin caja no se abre turno ni se
+            // emite un documento. Es el MISMO guard que `delete()` — por eso
+            // vive en un método compartido y no copiado acá: un invariante con
+            // dos implementaciones es un invariante con una sola vigente.
+            if ($currentStatus && !$nuevoStatus) {
+                $this->assertNoEsLaUltimaCajaActiva(
+                    (string) ($reg['outletId'] ?? $reg['outletid'] ?? ''),
+                    $id,
+                    'desactivar'
+                );
+            }
             $setParts[] = 'registerStatus = ?';
-            $params[]   = (bool) $fields['status'];
+            $params[]   = $nuevoStatus;
         }
 
         // Timbrado de la caja — merge sobre `data` JSONB (mig 26). La caja es
@@ -751,20 +764,73 @@ final class RegisterAdminService
     }
 
     /**
+     * Guard de la CADENA DE ALTA: una sucursal no puede quedarse sin caja.
+     *
+     * La cadena Company > Sucursal > (Depósito | Caja) es OBLIGATORIA (regla
+     * del owner 2026-08-24, context/08 §58): depósito y caja son hermanos,
+     * hijos directos del outlet, y ninguno es opcional. Sin caja no se abre
+     * turno ni se emite un solo documento — la sucursal queda muerta sin que
+     * nada avise.
+     *
+     * Es el gemelo del guard que ya tiene el depósito
+     * (`LocationTaxonomyService::delete()` bloquea SIEMPRE el default), y vive
+     * en UN solo método porque hay DOS caminos capaces de romper la cadena:
+     *
+     *   - `delete()`   → hard delete (borra la fila) o soft delete
+     *                    (registerStatus = FALSE si la caja tiene transacciones).
+     *   - `update()`   → `status: false`, el toggle del panel.
+     *
+     * El segundo es el que se escapa si el guard se escribe en el call-site: es
+     * literalmente el mismo efecto (cero cajas operables) por otra puerta.
+     *
+     * Se cuentan las ACTIVAS y no el total: una caja dada de baja conserva su
+     * historial fiscal pero no emite (context/29 §1), así que no es el eslabón.
+     *
+     * Fail-CLOSED por construcción: el wrapper de DB LANZA ante error SQL
+     * (context/08 §54), así que una consulta que no responde aborta el request
+     * en vez de dejar pasar el borrado. `SELECT COUNT(*)` siempre trae una fila
+     * cuando la consulta corre, de modo que `cnt` nunca queda indefinido en el
+     * camino feliz.
+     *
+     * @param string $accion Verbo para el mensaje de error ('eliminar' | 'desactivar').
+     */
+    private function assertNoEsLaUltimaCajaActiva(string $outletId, string $registerId, string $accion): void
+    {
+        $activasRow = ncmExecute(
+            'SELECT COUNT(*)::int AS cnt
+               FROM register
+              WHERE outletId = ? AND companyId = ? AND registerStatus = TRUE AND registerId <> ?',
+            [$outletId, $this->companyId, $registerId]
+        );
+
+        if ((int) ($activasRow['cnt'] ?? 0) === 0) {
+            apiError(
+                "No se puede {$accion} la última caja de la sucursal. Toda sucursal tiene sí o sí una caja: creá otra primero, o eliminá la sucursal entera.",
+                409
+            );
+        }
+    }
+
+    /**
      * Elimina una caja.
+     * - Bloquea si es la ÚLTIMA caja activa de su sucursal.
      * - Bloquea si hay devices activos apuntando a esta caja.
      * - Soft delete si tiene transacciones; hard delete si no.
      */
     public function delete(string $id): array
     {
-        // Guard: caja existe y pertenece al tenant
+        // Guard: caja existe y pertenece al tenant.
+        // Se trae también `outletId` porque el guard de "última caja" de abajo
+        // lo necesita, y una segunda consulta sería una carrera gratis.
         $reg = ncmExecute(
-            'SELECT registerId FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
+            'SELECT registerId, outletId FROM register WHERE registerId = ? AND companyId = ? LIMIT 1',
             [$id, $this->companyId]
         );
         if (!$reg) {
             apiError('Caja no encontrada', 404);
         }
+
+        $this->assertNoEsLaUltimaCajaActiva((string) ($reg['outletId'] ?? ''), $id, 'eliminar');
 
         // Guard: devices activos — status=1 en tabla device
         $devRow = ncmExecute(
