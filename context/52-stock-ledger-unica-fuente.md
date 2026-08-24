@@ -51,14 +51,21 @@ lectores: ver §Auditoría al final (agentes 2026-08-24).
   en `Inventory`) que TODOS los consumidores usan: panel, POS bootstrap,
   reportes, conteo físico, alertas. Prohibido leer saldo de
   `stockTrigger`/`inventory`/`toLocation` para responder "cuánto hay".
-- **D3 — `stockTrigger` vuelve a ser solo el umbral mínimo.** Ningún lector
-  lo trata como saldo. Renombrarlo queda para después (rename = coordinación).
+- **D3 — `stockTrigger` se RETIRA** (revisada tras la auditoría: no tiene
+  writer vivo, siempre devuelve 0). El único mínimo es `item.itemMinStock`;
+  `Reports/StockService` migra a leerlo como ya hacen listado/tab/POS. La
+  tabla queda sin lectores; drop en una mig posterior.
 - **D4 — `toLocation` es derivada con invariante.** `SUM(toLocationCount)`
   por (item, outlet) == saldo del ledger, garantizado por trigger PG o por
-  función atómica de transferencia — no por disciplina de código.
-- **D5 — `inventory` (batches) queda solo para lote/vencimiento/FEFO.**
-  No responde "cuánto hay". Reconciliación batch↔ledger es problema aparte y
-  NO bloquea este plan.
+  función atómica de transferencia — no por disciplina de código. El ledger
+  ya lleva `locationId` por fila, así que el desglose por depósito puede
+  salir del propio ledger (`SUM ... GROUP BY locationId`, como ya hace
+  `StockMovementsService::breakdown`) — `toLocation` puede seguir el camino
+  de `stockTrigger` si la invariante confirma redundancia.
+- **D5 — `inventory` (batches) se DEPRECA** (revisada tras la auditoría:
+  cero lectores en todo el repo, write-only muerta; el FEFO/lotes nunca se
+  implementó). Si algún día se hace vencimiento/lotes, se diseña de cero
+  sobre el ledger. Se retiran sus escritores residuales.
 - **D6 — `manageStock` una sola copia** (`Inventory::manageStock`). La copia
   legacy de `api/includes/functions.php` delega o muere. Todo movimiento pasa
   por ahí: es el único punto que escribe el ledger.
@@ -118,7 +125,81 @@ acotan el rango.
 
 ## Auditoría (2026-08-24)
 
-> Los reportes de los dos agentes (escritores del ledger + lectores de saldo)
-> se integran acá al terminar. Gaps numerados → F3.
+### Lectores (agente 1 — completo)
 
-(pendiente de los agentes — completar en esta misma sesión)
+Hallazgos que CAMBIAN el plan:
+
+- **`inventory` (fuente C) está MUERTA**: cero lectores en todo el repo; solo
+  un INSERT de backfill con count=0 al crear sucursal y DELETEs de limpieza.
+  No hay FEFO/lotes implementado. → D5 se reescribe: `inventory` se DEPRECA
+  (no "queda para lotes" — no hay nada que quede). Si algún día se hace
+  vencimiento/lotes, se diseña de cero.
+- **`stockTrigger` (fuente B) no tiene writer vivo**: `applyTriggers()` no se
+  instancia en ningún lado → siempre 0. El mínimo real es `item.itemMinStock`.
+  → D3 se reescribe: `stockTrigger` se RETIRA; `Reports/StockService` pasa a
+  leer `itemMinStock` como el resto (listado, tab Stock, POS).
+- **El ledger se lee de DOS maneras que divergen**: A-snapshot (`stockOnHand`
+  de la última fila) vs A-ledger (`SUM(stockCount)`). Divergen justo con la
+  compra retroactiva (bug del salmón). Canónico: **SUM** (D1).
+
+Ocho inconsistencias concretas (pares que muestran números distintos para el
+mismo item/outlet):
+
+1. Listado de ítems (`ItemsQuery.php:290` — SUM **sin filtro de outlet**,
+   company-wide) vs cualquier lector por sucursal.
+2. Reporte de Stock (`Reports/StockService.php:44`, snapshot) vs tab Stock /
+   ficha POS (`StockMovementsService`, SUM).
+3. **MONEY PATH** — Conteo de inventario: `expectedQty` sale del snapshot
+   (`InventoryCountScope.php:176`), el ajuste que genera usa esa base; el tab
+   muestra SUM. Esperado equivocado → ajuste equivocado.
+4. Capacidad de producción (`ProductionService.php:192`, snapshot outlet) vs
+   tab Stock (SUM company).
+5. "Principal" del reporte (`stockOnHand − Σ toLocation`) vs breakdown
+   (`SUM WHERE locationId IS NULL`) — dos definiciones incompatibles; la
+   resta cuenta doble si el movimiento se escribió en ambos lados.
+6. `ItemService::getInventory()` (snapshot + toLocation, con bug de `$dTotal`
+   acumulativo que resta de más) vs breakdown (SUM) — endpoint sin consumidor
+   front, pero expuesto.
+7. `ORDER BY stockDate DESC` SIN desempate por `stockId` en
+   `Reports/StockService` y `StockDayService` → fila arbitraria cuando dos
+   movimientos comparten fecha (típico: una misma venta).
+8. Mínimo: reporte lee `stockTrigger` (siempre 0) vs resto lee
+   `itemMinStock` — el semáforo solo existe en la segunda familia.
+
+Además:
+- **POS offline sin stock**: `reshape.ts:96` hardcodea `stock: null` (TODO
+  vivo) → el badge de stock del buscador y el patch optimista post-cobro son
+  no-ops. El único stock que ve el POS es online (breakdown).
+- Código muerto: `getItemMainStock`, `getAllItemStock` (solo tests),
+  `Admin\ReportInventoryService` (llama función inexistente), rama depósito
+  de `getItemStock` con **binds invertidos** (cero callers).
+
+### Escritores (agente 2 — completo)
+
+Lo sano: **un solo INSERT en `stock`** (`Inventory.php:910`, dentro de
+`manageStock`); el espejo de `functions.php:1729` solo delega (D6 casi
+cumplida). La venta offline sincroniza por el MISMO `SaleService::save` →
+mismo `manageStock` — sin ruta paralela. Venta, receta/producción directa,
+add-ons, producción previa, merma, compras y sus reversas, void/return,
+transferencias, conteo, ajustes e importación: todos pasan por `manageStock`.
+
+**Gaps del escritor, triados:**
+
+| # | Gap | Veredicto |
+|---|---|---|
+| G2 | `VariantService.php:197` llama `\Inventory::manageStock` — clase inexistente; crear variantes con stock inicial revienta y rollbackea toda la matriz | **BUG P0 — fix ya** |
+| G4 | Void/devolución reponen stock de hijas `type='compound'` que nunca descontaron (la venta las saltea en `SaleService:2234`; la reversa no filtra `itemsoldparent`) | **BUG P0 money — fix ya** |
+| G5 | Void legacy (`TransactionService:1093`) repone solo nivel 1 de la receta; la venta explota recursivo | **BUG — fix ya** |
+| G11 | `manageStock` devuelve `false` igual para "no trackea" (no-op legítimo) y "el INSERT falló"; venta/compra/void/conteo ignoran el retorno → movimiento perdido en silencio | **BUG — fix ya**: lanzar en fallo real, `false` solo para no-op |
+| G12 | Guard multi-tenant valida contra `COMPANY_ID` global en vez del `companyId` del caller | **BUG — fix ya** |
+| G7/G8 | `toLocation`: los ingresos van con `locationId=null` (solo baja, nunca sube → deriva a negativo), sin scope de outlet/company, sin UNIQUE | **Se RETIRA como tabla escrita** (D4 revisada): el ledger ya lleva `locationId` por fila; el desglose sale de `SUM ... GROUP BY locationId` (breakdown), que ya existe |
+| G9/G10 | `stockTrigger` e `inventory` sin escritores/lectores vivos | Retirar escritores residuales (INSERT blanco de OutletsService, clase muerta `Items\StockService`); drop de tablas en mig posterior |
+| G1 | Combo dinámico viejo (`combo_group`) no mueve stock | **NO es gap vivo**: deprecado en F5 de context/41 (mig 136); la venta real usa addon groups, que SÍ descuentan |
+| G3 | Canje de pack (`sold_pack_usage`) no descuenta componentes físicos | Gap real, módulo aparte — **backlog** (decidir con owner) |
+| G6 | Producción completada no tiene reversa (solo ajuste manual) | Feature — backlog |
+| G13 | Insumos sin `itemTrackInventory` no dejan fila (agua/sal) | Intencional — solo COGS; documentado como excepción |
+| G14 | Remisión no mueve stock | Por diseño (context/42): el motivo que mueve stock tiene su propio documento |
+| G15 | Borrar sucursal/company hace `DELETE FROM stock` — destruye ledger | Backlog (soft-delete/archivo); el cierre de período ya protege lo cerrado |
+| G16 | Apagar `itemTrackInventory` deja históricas huérfanas + manageStock no-op silencioso | Menor — backlog |
+| G17 | = inconsistencia snapshot vs SUM de los lectores | F1 (lector único, SUM) |
+| — | Código muerto: `voidSale()` legacy, `Items\StockService`, `Admin\ReportInventoryService`, `getItemMainStock`, `getAllItemStock`, rama depósito de `getItemStock` (binds invertidos) | Se elimina en F2 |
