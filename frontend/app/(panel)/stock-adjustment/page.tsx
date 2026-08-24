@@ -51,7 +51,8 @@ import {
 import { MoneyInput } from "@/components/ui/money-input"
 import { useItems } from "@/hooks/use-items"
 import { useOutlets } from "@/hooks/use-outlets"
-import { useOutletLocations } from "@/hooks/use-outlet-locations"
+import { defaultLocationOf, useOutletLocations } from "@/hooks/use-outlet-locations"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useCreateStockAdjustment } from "@/hooks/use-stock-adjustment"
 
 const REASON_OPTIONS = [
@@ -76,7 +77,10 @@ interface AdjustItem {
 
 export default function StockAdjustmentPage() {
   const [outletId, setOutletId] = React.useState("")
-  const [locationId, setLocationId] = React.useState<string>("__none__")
+  // Sin centinela "__none__": el depósito dejó de ser opcional (regla del
+  // owner 2026-08-24 — el stock tiene que estar en un lugar físico). Arranca
+  // vacío y el efecto de abajo lo preselecciona con el depósito por defecto.
+  const [locationId, setLocationId] = React.useState<string>("")
   const [reasonOption, setReasonOption] = React.useState("")
   const [customReason, setCustomReason] = React.useState("")
   const [detail, setDetail] = React.useState("")
@@ -89,6 +93,16 @@ export default function StockAdjustmentPage() {
   const outlets = outletsData?.rows ?? []
 
   const { data: locations } = useOutletLocations(outletId || null)
+  const defaultLocation = defaultLocationOf(locations)
+
+  // El depósito por defecto viene preseleccionado, y se vuelve a preseleccionar
+  // al cambiar de sucursal (la selección previa ya no pertenece a la nueva).
+  React.useEffect(() => {
+    if (!defaultLocation) return
+    setLocationId((actual) =>
+      actual && locations?.some((l) => l.id === actual) ? actual : defaultLocation.id,
+    )
+  }, [defaultLocation, locations])
 
   const { data: itemsData } = useItems({ q: searchQuery })
   const searchResults = itemsData?.items ?? []
@@ -130,27 +144,25 @@ export default function StockAdjustmentPage() {
     )
   }
 
+  // Impedimentos para aplicar: botón deshabilitado + tooltip con el motivo, no
+  // toast después de apretar (convención del proyecto, context/14 §"Alertas
+  // del POS: en el control de la acción, no en bandas").
+  const blockReason: string | null = !outletId
+    ? "Seleccioná una sucursal"
+    : !locationId
+      ? "Elegí el depósito donde se ajusta el stock"
+      : !reasonOption
+        ? "Seleccioná un motivo"
+        : reasonOption === "Otro" && !customReason.trim()
+          ? "Ingresá el motivo personalizado"
+          : lineItems.length === 0
+            ? "Agregá al menos un item"
+            : lineItems.some((l) => l.qty <= 0)
+              ? "Todos los items deben tener cantidad mayor a 0"
+              : null
+
   function handleSubmit() {
-    if (!outletId) {
-      toast.error("Seleccioná una sucursal")
-      return
-    }
-    if (!reasonOption) {
-      toast.error("Seleccioná un motivo")
-      return
-    }
-    if (reasonOption === "Otro" && !customReason.trim()) {
-      toast.error("Ingresá el motivo personalizado")
-      return
-    }
-    if (lineItems.length === 0) {
-      toast.error("Agregá al menos un item")
-      return
-    }
-    if (lineItems.some((l) => l.qty <= 0)) {
-      toast.error("Todos los items deben tener cantidad mayor a 0")
-      return
-    }
+    if (blockReason) return
     setConfirmOpen(true)
   }
 
@@ -159,7 +171,7 @@ export default function StockAdjustmentPage() {
     try {
       const result = await adjust.mutateAsync({
         outletId,
-        locationId: (locationId && locationId !== "__none__") ? locationId : null,
+        locationId,
         reason: reasonWithDetail,
         items: lineItems.map((l) => ({
           itemId: l.itemId,
@@ -173,7 +185,7 @@ export default function StockAdjustmentPage() {
       const skipped = result.skippedItems.length
       toast.success(msg + (skipped > 0 ? ` — ${skipped} item(s) sin trazabilidad omitido(s)` : ""))
       setOutletId("")
-      setLocationId("__none__")
+      setLocationId("")
       setReasonOption("")
       setCustomReason("")
       setDetail("")
@@ -199,7 +211,7 @@ export default function StockAdjustmentPage() {
         <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label>Sucursal</Label>
-            <Select value={outletId} onValueChange={(v) => { setOutletId(v); setLocationId("__none__") }}>
+            <Select value={outletId} onValueChange={(v) => { setOutletId(v); setLocationId("") }}>
               <SelectTrigger><SelectValue placeholder="Seleccionar sucursal" /></SelectTrigger>
               <SelectContent>
                 {outlets.map((o) => (
@@ -210,13 +222,13 @@ export default function StockAdjustmentPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Depósito (opcional)</Label>
+            <Label>Depósito</Label>
             <Select
               value={locationId}
               onValueChange={setLocationId}
               disabled={!outletId}
             >
-              <SelectTrigger><SelectValue placeholder="Sin depósito específico" /></SelectTrigger>
+              <SelectTrigger><SelectValue placeholder="Elegí un depósito" /></SelectTrigger>
               <SelectContent>
                 {(locations ?? []).map((l) => (
                   <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
@@ -405,9 +417,18 @@ export default function StockAdjustmentPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
-        <Button onClick={handleSubmit} disabled={adjust.isPending}>
-          {adjust.isPending ? "Aplicando..." : "Aplicar ajustes"}
-        </Button>
+        {/* El botón deshabilitado no emite eventos de puntero: el tooltip
+            cuelga de un <span> envolvente para que el motivo se pueda leer. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span tabIndex={blockReason ? 0 : -1}>
+              <Button onClick={handleSubmit} disabled={!!blockReason || adjust.isPending}>
+                {adjust.isPending ? "Aplicando..." : "Aplicar ajustes"}
+              </Button>
+            </span>
+          </TooltipTrigger>
+          {blockReason && <TooltipContent>{blockReason}</TooltipContent>}
+        </Tooltip>
       </div>
     </div>
   )

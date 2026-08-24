@@ -6,13 +6,14 @@ import Link from "next/link"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { ArrowLeft, Boxes, Calculator, Loader2, Pencil, Store, Trash2 } from "lucide-react"
+import { ArrowLeft, Boxes, Calculator, Loader2, Pencil, Star, Store, Trash2 } from "lucide-react"
 import { isValidPhoneNumber } from "libphonenumber-js"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import type { CountryCode } from "libphonenumber-js"
 import { toast } from "sonner"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { EmptyState } from "@/components/empty-state"
@@ -82,6 +83,7 @@ import {
   useCreateLocation,
   useUpdateLocation,
   useDeleteLocation,
+  useSetDefaultLocation,
   type OutletLocation,
 } from "@/hooks/use-outlet-locations"
 import type { OutletFormValues } from "@/lib/types/outlet"
@@ -720,6 +722,16 @@ function LocationsSection({ outletId }: { outletId: string }) {
   const create = useCreateLocation(outletId)
   const update = useUpdateLocation(outletId)
   const remove = useDeleteLocation(outletId)
+  const setDefault = useSetDefaultLocation(outletId)
+
+  async function handleSetDefault(loc: OutletLocation) {
+    try {
+      await setDefault.mutateAsync(loc.id)
+      toast.success(`"${loc.name}" es el depósito por defecto`)
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "No se pudo cambiar el depósito por defecto")
+    }
+  }
 
   const [dialogOpen, setDialogOpen] = React.useState(false)
   const [editing, setEditing] = React.useState<OutletLocation | null>(null)
@@ -799,7 +811,15 @@ function LocationsSection({ outletId }: { outletId: string }) {
             <TableBody>
               {locations.map((loc) => (
                 <TableRow key={loc.id}>
-                  <TableCell>{loc.name}</TableCell>
+                  <TableCell>
+                    <span className="inline-flex items-center gap-2">
+                      {loc.name}
+                      {/* El depósito por defecto es donde cae el stock que no
+                          eligió otro lugar — se marca para que se sepa cuál es
+                          sin abrir el diálogo de ajuste. */}
+                      {loc.isDefault && <Badge variant="secondary">Por defecto</Badge>}
+                    </span>
+                  </TableCell>
                   <TableCell className="text-right">
                     {/* Menú de fila en vez de dos iconos sueltos: es la única
                         forma válida de renderizar acciones de fila y deja el
@@ -807,12 +827,25 @@ function LocationsSection({ outletId }: { outletId: string }) {
                     <RowActions
                       actions={[
                         { label: "Editar", icon: Pencil, onSelect: () => openEdit(loc) },
-                        {
-                          label: "Eliminar",
-                          icon: Trash2,
-                          variant: "destructive",
-                          onSelect: () => setDeleteTarget(loc),
-                        },
+                        // El default no se puede borrar (la sucursal quedaría
+                        // sin depósito): en vez de ofrecer el borrado y fallar
+                        // con un 409, se ofrece mover la marca a otro.
+                        ...(loc.isDefault
+                          ? []
+                          : [
+                              {
+                                // `icon` es requerido por el tipo RowAction.
+                                label: "Predeterminado",
+                                icon: Star,
+                                onSelect: () => handleSetDefault(loc),
+                              },
+                              {
+                                label: "Eliminar",
+                                icon: Trash2,
+                                variant: "destructive" as const,
+                                onSelect: () => setDeleteTarget(loc),
+                              },
+                            ]),
                       ]}
                     />
                   </TableCell>

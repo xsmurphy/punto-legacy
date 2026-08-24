@@ -26,7 +26,7 @@ if ($method === 'POST') {
     if ($type !== 'location') {
         apiError('Solo type=location es editable desde este endpoint', 422);
     }
-    if (!in_array($action, ['create', 'update', 'delete'], true)) {
+    if (!in_array($action, ['create', 'update', 'delete', 'setDefault'], true)) {
         apiError('Acción inválida', 422);
     }
     global $db;
@@ -61,11 +61,27 @@ if ($method === 'POST') {
         apiOk(['ok' => true]);
     }
 
+    if ($action === 'setDefault') {
+        $id = trim((string) ($_POST['id'] ?? ''));
+        if ($id === '') { apiError('id es requerido', 422); }
+        $ok = $svc->setDefault(COMPANY_ID, $id);
+        if (!$ok) { apiError('Depósito no encontrado', 404); }
+        realtimePublish('location', 'update', $id);
+        apiOk(['ok' => true]);
+    }
+
     if ($action === 'delete') {
         $id = trim((string) ($_POST['id'] ?? ''));
         if ($id === '') { apiError('id es requerido', 422); }
         $result = $svc->delete(COMPANY_ID, $id);
         if ($result['blocked']) {
+            if (($result['reason'] ?? '') === 'default') {
+                apiError(
+                    'No se puede eliminar el depósito por defecto de la sucursal. '
+                    . 'Marcá otro como predeterminado primero.',
+                    409
+                );
+            }
             apiError(
                 'No se puede eliminar: hay ' . $result['items'] . ' artículos asignados a este depósito',
                 409
@@ -89,7 +105,33 @@ if ($type !== '') {
     $params[] = $type;
 }
 
-$sql = "SELECT taxonomyId, taxonomyName, taxonomyType, taxonomyExtra, outletId
+// Filtro por sucursal (aplica a type='location'). Antes el front se traía
+// TODAS las taxonomías del tenant y filtraba por `outletId` en el cliente —
+// un filtro que le corresponde a la BD, que además ya tiene el índice
+// `idx_taxonomy_type_outlet` para resolverlo.
+$outletFilter = trim((string) ($_GET['outletId'] ?? ''));
+if ($outletFilter !== '') {
+    // Validar la forma ANTES de mandarlo a PG: un valor no-UUID hace que
+    // Postgres tire 22P02, el wrapper lanza DbQueryException y el request
+    // termina en un 500 sin JSON en vez de un 422 legible.
+    if (!preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $outletFilter)) {
+        apiError('outletId inválido', 422);
+    }
+    $where[]  = 'outletId = ?';
+    $params[] = $outletFilter;
+}
+
+// `isDefault` sale de la MISMA función que usa el índice único y los lectores
+// del ledger (mig 165) — no de un `->> 'isDefault'` inline acá, para que
+// "cuál es el depósito por defecto" tenga una sola definición en todo el
+// sistema. Aplica solo a type='location'; para el resto es siempre false.
+// Se emite 1/0 y no un boolean de PG a propósito: PDO_PGSQL devuelve las
+// columnas booleanas como los strings 't'/'f', y 't' NO está en la lista que
+// FILTER_VALIDATE_BOOLEAN considera verdadera ("1"/"true"/"on"/"yes") → el
+// flag habría llegado siempre en false al front.
+$sql = "SELECT taxonomyId, taxonomyName, taxonomyType, taxonomyExtra, outletId,
+               CASE WHEN fn_taxonomy_is_default_location(taxonomyType, taxonomyExtra)
+                    THEN 1 ELSE 0 END AS isdefault
           FROM taxonomy
          WHERE " . implode(' AND ', $where) . "
          ORDER BY taxonomyType ASC, taxonomyName ASC";
@@ -111,6 +153,9 @@ foreach ($rs->GetRows() as $row) {
         'type'     => (string) ($row['taxonomytype'] ?? ''),
         'extra'    => $row['taxonomyextra'] ?? null,
         'outletId' => $row['outletid'] ?? null,
+        // Solo tiene sentido para type='location': marca el depósito
+        // preseleccionado de esa sucursal.
+        'isDefault' => (bool) (int) ($row['isdefault'] ?? 0),
     ];
 }
 

@@ -14,6 +14,9 @@
 > perdía en silencio, G11), y el discriminante `meta.compound` no contemplaba
 > que el wrapper APLANA la columna `meta` (flattenJsonb) — la anulación de un
 > combo reponía doble.
+> **D8 — depósito por defecto por sucursal IMPLEMENTADO** (2026-08-24, mig
+> 165): ver §"Depósito por defecto". El histórico del ledger (`locationid
+> IS NULL`) NO se migró — es decisión explícita del owner, no un olvido.
 > Origen: conversación con el owner — "la tabla stock es el ledger como el de
 > un banco: no puede existir un solo movimiento que no quede registrado ahí, y
 > cada línea posee el stock real al momento del registro". El modelo pedido
@@ -85,6 +88,73 @@ lectores: ver §Auditoría al final (agentes 2026-08-24).
 - **D7 — Todo movimiento deja fila en el ledger** (pedido explícito del
   owner). Los gaps que la auditoría encuentre se cierran haciendo que el
   camino pase por `manageStock`, nunca con INSERT directo paralelo.
+- **D8 — El stock siempre está en un depósito, y hay uno POR DEFECTO por
+  sucursal** (regla del owner 2026-08-24, mig 165). Ver §"Depósito por
+  defecto" abajo.
+
+## Depósito por defecto (D8 — implementado 2026-08-24, mig 165)
+
+Palabras del owner: *"Cada sucursal sí o sí, por defecto, tiene que tener un
+depósito. [...] el stock tiene que estar en un lugar físico, no puede estar en
+el aire. [...] el depósito no puede ser opcional, sí o sí tiene que haber uno y
+sí o sí se tiene que seleccionar uno. Por ende, ya tiene que estar
+preseleccionado el principal."*
+
+**Modelo.** Un depósito es una fila de `taxonomy` con `taxonomytype='location'`
+atada a la sucursal por `taxonomy.outletid`. El POR DEFECTO se marca con
+`taxonomyextra = {"isDefault": true}` — mismo patrón que los roles seed de
+`RoleService`. `taxonomyextra` es **TEXT, no JSONB**: todo acceso lleva cast
+explícito, y se usa `->>`, nunca el operador `?` de jsonb (colisiona con el
+placeholder de PDO y tumba el boot — migs 74/77).
+
+**Invariante.** Como máximo un default por sucursal, garantizado por el motor:
+índice único parcial `uq_taxonomy_location_default ON taxonomy (outletid)
+WHERE fn_taxonomy_is_default_location(taxonomytype, taxonomyextra)`. La función
+es `IMMUTABLE` (requisito para el predicado) y devuelve `false` ante
+`taxonomyextra` no parseable en vez de lanzar — un predicado de índice no
+garantiza orden de evaluación de sus `AND`, así que anteponer
+`taxonomytype='location'` NO protegía del cast.
+
+**Quién lo crea.** `LocationTaxonomyService::ensureDefault()` es el ÚNICO
+creador, idempotente, y lo llaman los dos caminos de producción que dan de alta
+una sucursal: `OutletsService::create()` y `Auth\SignupService` (este último lo
+saltaba: todo tenant nacía con "Central" sin ningún depósito). **Un camino
+nuevo de alta de sucursal debe llamarlo también.**
+
+> Bug latente que esto cerró: el INSERT inline anterior nombraba siempre
+> "Depósito Principal", y `uq_taxonomy_company_type_name` (mig 38) es UNIQUE
+> sobre `(companyid, taxonomytype, lower(taxonomyname))` → la SEGUNDA sucursal
+> de una misma company reventaba por unicidad y, como el fallo aborta la
+> transacción, **la sucursal entera no se creaba**. Por eso el nombre por
+> defecto es "Depósito &lt;nombre de la sucursal&gt;".
+
+**Lectura — por qué `NULL` se consolida.** `Inventory::ledgerLocationJoin()` +
+`ledgerLocationId()` resuelven `stock.locationid IS NULL` al depósito por
+defecto de la sucursal de esa fila. Lo usan los tres lectores que agrupan por
+depósito: `Inventory::onHandByLocation()`, `StockMovementsService::breakdown()`
+y `Reports\StockService::breakdownByLocation()`. Sin esto, el mismo depósito
+físico aparecía DOS veces con el saldo partido (verificado en prod: un ítem
+mostraba `Almacenamiento de Materia Prima 200` + `(sin depósito) -26` en vez de
+`174`). El LEFT JOIN no puede duplicar filas del ledger porque el índice único
+prohíbe el segundo default.
+
+### Deuda abierta — DECISIÓN del owner, no olvido
+
+El owner eligió explícitamente **no tocar el histórico** (2026-08-24). Queda
+así a propósito:
+
+1. **~678 filas de `stock` con `locationid IS NULL` no se migraron.** Siguen en
+   NULL. Se consolidan en la LECTURA, no en los datos.
+2. **`stock.locationid` sigue siendo NULLABLE.** No se puso `NOT NULL`.
+3. **Los escritores del ledger (venta POS, compra, producción, devolución,
+   transferencia, conteo) siguen pudiendo escribir NULL.** Solo el ajuste
+   manual desde la ficha del ítem exige depósito hoy.
+
+Consecuencia a tener presente: mientras (1)-(3) sigan vigentes, **cualquier
+lector nuevo que agrupe por `locationid` crudo vuelve a partir el saldo**. Usar
+siempre `Inventory::ledgerLocationId()`. Cerrar la deuda = migrar el histórico
+al default de su sucursal + `NOT NULL` + exigir depósito en todos los
+escritores; es un trabajo aparte que el owner todavía no pidió.
 
 ## Crecimiento del ledger (preocupación del owner)
 

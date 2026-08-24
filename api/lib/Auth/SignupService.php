@@ -95,6 +95,23 @@ final class SignupService
             'companyId'    => $companyInsert,
         ], 'table' => 'outlet']);
 
+        // Depósito por defecto de la sucursal inicial. Toda sucursal tiene sí o
+        // sí uno (regla del owner 2026-08-24) y este camino de alta lo estaba
+        // salteando: el tenant nacía con "Central" sin ningún depósito, así
+        // que el stock no tenía lugar físico donde estar. Va dentro de la
+        // transacción del signup, ya abierta arriba.
+        try {
+            (new \Punto\Api\Taxonomies\LocationTaxonomyService($db))
+                ->ensureDefault((string) $companyInsert, (string) $outletInsert, 'Central');
+        } catch (\Throwable $e) {
+            // Sin este catch la excepción sale con la transacción del signup
+            // ABIERTA: el endpoint responde 500 y la conexión queda envenenada
+            // para el resto del request.
+            $db->FailTrans();
+            $db->CompleteTrans();
+            return ['ok' => false, 'error' => 'No se pudo crear el depósito de la sucursal inicial'];
+        }
+
         $registerInsert = ncmInsert(['records' => [
             'registerName'   => 'Caja Principal',
             'registerStatus' => 1,
