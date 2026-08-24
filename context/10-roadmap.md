@@ -10,13 +10,20 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-23 (uPay/ueno bank: plan en `context/50-upay.md` — doc de la API detrás de login, F0 es conseguir acceso; el refactor `ensurePspMethod` + `<PspQrDialog>` es lo único desbloqueado hoy)
+> **Última actualización:** 2026-08-23 (add-ons: el stock ya se descuenta al cobrar una orden o mesa, ver P0 #2; uPay pasa a standby por decisión del owner)
 >
 > 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
 
 ---
 
-## uPay (ueno bank) — cobro desde el POS (2026-08-23, plan sin implementar)
+## uPay (ueno bank) — cobro desde el POS ⏸ EN STANDBY
+
+**Decisión del owner (2026-08-23): standby, no es urgente.** Queda anotado en
+el roadmap y nada más — no se retoma hasta que lleguen las credenciales de
+Ueno. Lo único que se podía hacer sin ellas (F1a, la pasarela genérica
+`ensurePspMethod` + `<PspQrDialog>`) ya está implementado, así que no hay
+trabajo desbloqueado esperando. No tratarlo como bloqueo prioritario ni
+proponer sus fases mientras siga así.
 
 Plan completo en **`context/50-upay.md`**. Va acá y no en
 `_feature-requests.md` porque ese archivo es la pila de pedidos **de clientes**

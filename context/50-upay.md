@@ -1,5 +1,11 @@
 # uPay (ueno bank) — cobro con QR / link / terminal desde el POS
 
+> ⏸ **EN STANDBY** (owner, 2026-08-23) — no es urgente. Nada de uPay se
+> retoma hasta que lleguen las credenciales de Ueno; mientras tanto el doc
+> queda como plan archivado vivo, no como trabajo en cola. No proponer fases
+> de uPay ni tratarlo como bloqueo prioritario: lo que había para hacer sin
+> credenciales (F1a, la pasarela genérica) ya está hecho.
+
 > Estado: **F1a IMPLEMENTADA** (2026-08-23, branch `frontend/psp-generico`) —
 > el refactor de raíz que desbloquea la integración: medio de pago POR
 > pasarela (`ensurePspMethod` + `PspCatalog`) y ciclo de cobro genérico
