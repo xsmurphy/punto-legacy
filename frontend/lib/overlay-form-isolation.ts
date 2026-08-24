@@ -32,12 +32,22 @@ import type { FormEvent, FormEventHandler } from "react"
  *
  * Compone en vez de reemplazar: si el call-site le pasó su propio `onSubmit`
  * al content, se ejecuta antes del corte.
+ *
+ * EL CORTE VA EN `finally`: si el handler del call-site lanza de forma
+ * SÍNCRONA, un `stopPropagation()` en la línea siguiente nunca corre y el
+ * submit sigue viaje hasta el form de la página — o sea, el bug original
+ * vuelve exactamente en el caso donde el modal falló. Que hoy ningún
+ * call-site lance no es una garantía: el `finally` la convierte en una
+ * propiedad del contenedor, que es lo que este módulo promete.
  */
 export function isolateOverlaySubmit<T extends HTMLElement>(
   onSubmit?: FormEventHandler<T>
 ): FormEventHandler<T> {
   return (event: FormEvent<T>) => {
-    onSubmit?.(event)
-    event.stopPropagation()
+    try {
+      onSubmit?.(event)
+    } finally {
+      event.stopPropagation()
+    }
   }
 }

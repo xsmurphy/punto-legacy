@@ -7,11 +7,17 @@
  *   GET /v1/taxonomies?type=<type>    → filtrado por type (category, brand,
  *                                        tax, location, supplier, ...)
  *
- * Read-only por ahora; las taxonomías se crean en el panel legacy. Cuando
- * frontend implemente CRUD de categorías/marcas, se agregan POST/PUT/DELETE.
+ *   POST /v1/taxonomies (action=create|update|setDefault|delete)
+ *                                     → SOLO type=location (depósitos). El
+ *                                        resto de las taxonomías se sigue
+ *                                        creando en el panel legacy.
  *
  * Auth: realm panel (apiAuthTenant(['panel'])). Multi-tenant scoping via
  * companyId del JWT.
+ *
+ * Autorización de escritura: por TIPO, vía `$taxonomyWritePermission` más
+ * abajo. Autenticar no es autorizar — sin ese gate cualquier sesión de panel
+ * (un cajero, por ejemplo) podía borrar depósitos del tenant.
  */
 
 require_once __DIR__ . '/../bootstrap.php';
@@ -20,11 +26,41 @@ $ctx = apiAuthTenant(['panel']);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+/**
+ * Permiso de ESCRITURA por tipo de taxonomía.
+ *
+ * Hasta acá el POST no chequeaba ningún permiso: bastaba una sesión de panel
+ * —la de un cajero incluida— para crear, renombrar, marcar por defecto o
+ * borrar depósitos del tenant. `apiAuthTenant(['panel'])` autentica, no
+ * autoriza.
+ *
+ * `settings.outlet.manage` y no `settings.tax.manage`: el depósito NO es una
+ * tasa de impuesto, es parte de la configuración de la SUCURSAL que lo
+ * contiene (`taxonomy.outletId`, y `LocationTaxonomyService` valida que el
+ * outlet sea del tenant). Se administra desde la pantalla de sucursales y su
+ * borrado mueve la asignación de artículos, así que le corresponde el MISMO
+ * permiso con el que ya se crea o se borra la sucursal entera en
+ * `/v1/outlets` (outlets.php:45). El rol seed `manager` lo tiene
+ * (`RoleService::SEED_PERMISSIONS`); `cashier` no.
+ *
+ * Mapa y no un `if` suelto: hoy solo `location` es editable por acá, pero
+ * cuando se abra otro tipo (categorías, marcas) el default fail-closed lo
+ * rechaza hasta que alguien le asigne su propio permiso — un gate único
+ * heredaría en silencio el permiso equivocado.
+ */
+$taxonomyWritePermission = [
+    'location' => 'settings.outlet.manage',
+];
+
 if ($method === 'POST') {
     $action = trim((string) ($_POST['action'] ?? ''));
     $type   = trim((string) ($_POST['type'] ?? ''));
-    if ($type !== 'location') {
+    $perm   = $taxonomyWritePermission[$type] ?? null;
+    if ($perm === null) {
         apiError('Solo type=location es editable desde este endpoint', 422);
+    }
+    if (!hasPermission($perm)) {
+        apiError("No tenés permiso para esta acción (requiere: {$perm})", 403);
     }
     if (!in_array($action, ['create', 'update', 'delete', 'setDefault'], true)) {
         apiError('Acción inválida', 422);

@@ -161,19 +161,37 @@ if ($outletsRs && is_object($outletsRs)) {
 
 $userPermissions = RoleService::getPermissions((string)$ctx['roleId'], (string)COMPANY_ID);
 
-// ── Roster de la pantalla de bloqueo del POS (SOLO realm `pos-app`) ─────────
+// ── Roster de la pantalla de bloqueo del POS (SOLO la CAJA) ────────────────
 // Proyección MÍNIMA (id/name/pinhash) de los usuarios activos habilitados en la
 // sucursal del contexto. Ver el docblock de `UsersService::rosterForOutlet()`:
-// es dato OPERATIVO de la caja, autorizado por el REALM + el scope de sucursal
-// — NO pasa por `contacts.user.view`, que es el permiso de gestión de equipo y
-// que el rol `device` no tiene (ni debe tener, mig 162).
+// es dato OPERATIVO de la caja, autorizado por el TIPO DE DISPOSITIVO + el
+// scope de sucursal — NO pasa por `contacts.user.view`, que es el permiso de
+// gestión de equipo y que el rol `device` no tiene (ni debe tener, mig 162).
 //
-// El realm es justamente lo que hace defendible NO tener ese gate, así que el
-// gate por realm NO es opcional: para `panel` la clave `users` ni siquiera se
-// incluye en la respuesta. `pinhash` es un SHA-256 sin sal de 4 dígitos —
-// 10.000 combinaciones, forzable en un pestañeo. Devolvérselo a un rol de panel
-// sin `contacts.user.view` le regalaría el PIN del encargado y con él su
-// identidad en la caja (atribución de ventas, `pos.space.override`).
+// Eso es lo que hace defendible NO tener ese gate, así que el gate de acá NO es
+// opcional: para `panel` la clave `users` ni siquiera se incluye en la
+// respuesta. `pinhash` es un SHA-256 sin sal de 4 dígitos — 10.000
+// combinaciones, forzable en un pestañeo. Devolvérselo a un rol de panel sin
+// `contacts.user.view` le regalaría el PIN del encargado y con él su identidad
+// en la caja (atribución de ventas, `pos.space.override`).
+//
+// EL REALM SOLO NO ALCANZA: `pos-app` no significa "caja". Los dispositivos
+// `screen`, `kds`, `display` y `print` autentican con ESE MISMO realm y token
+// eterno (`device.module`, ver `apiAuthTenant()` en `api/bootstrap.php`), y el
+// `display` es literalmente una pantalla que mira el CLIENTE del comercio. El
+// discriminante es el `module`, igual que en `unlock-pin.php` (que rechaza con
+// 403 a todo `module !== 'pos'` justamente para que una pantalla de cliente no
+// pueda desbloquear operadores): solo el dispositivo que ES una caja recibe los
+// `pinhash`. Para el resto la clave `users` queda AUSENTE, igual que para el
+// panel — mismo patrón fail-closed.
+//
+// No rompe el lock screen: el flujo real de la caja siempre viaja con el Bearer
+// del slot `pos` (`frontend/lib/api/pos-fetch.ts`, `module` default `"pos"`, y
+// `pos-client.ts` nunca pasa otro), y el BFF `/api/pos/bootstrap` reenvía ese
+// header tal cual. La Estación de Impresión (module `print`) usa los BFF
+// `/api/pos/*` pero NO el bootstrap: su cliente propio
+// (`frontend/lib/print-station/api.ts`) solo pega a `/v1/station-printers`,
+// `/v1/print-jobs` y `/v1/screens`. No tiene lock screen ni roster que mostrar.
 //
 // Y no reintroduce el lockout que este cambio arregla: el POS SIEMPRE autentica
 // con el Bearer del device (ver `frontend/lib/api/pos-fetch.ts` — sin Bearer la
@@ -190,9 +208,15 @@ $userPermissions = RoleService::getPermissions((string)$ctx['roleId'], (string)C
 // Consultarla sería código muerto sugiriendo un scope "Todas" que este camino
 // no puede alcanzar. El device opera SIEMPRE con la sucursal fija de su
 // pairing — `rosterForOutlet()` igual documenta el caso '' para otros callers.
-$isPosAppRealm = ($ctx['realm'] ?? '') === 'pos-app';
+// Las DOS condiciones, explícitas. `apiAuthTenant()` deja `module` en '' para
+// realm `panel`, así que hoy el segundo check ya alcanzaría — pero eso es un
+// detalle de ESE resolver, no una garantía de este endpoint: si algún día el
+// panel resolviera un module, un check suelto lo dejaría entrar con el default
+// `'pos'` del `??`. El realm sigue siendo la primera puerta.
+$isRegisterDevice = ($ctx['realm'] ?? '') === 'pos-app'
+    && ($ctx['module'] ?? 'pos') === 'pos';
 $roster = [];
-if ($isPosAppRealm) {
+if ($isRegisterDevice) {
     $roster = (new \Punto\Api\Users\UsersService())
         ->rosterForOutlet((string) COMPANY_ID, (string) OUTLET_ID);
 }
@@ -318,7 +342,8 @@ $payload = [
     // mismo criterio 'yes'/'no' que el resto de los settingX booleanos.
     'settingReturnAllowIngredientReversal' => ((string) ($row['returnallowingredientreversal'] ?? '')) === 'yes',
     // OJO: `users` (el roster del lock screen) NO va acá. Se agrega DESPUÉS del
-    // literal y solo para el realm `pos-app` — ver el bloque del roster arriba.
+    // literal y solo para un device que ES una caja (`pos-app` + module `pos`)
+    // — ver el bloque del roster arriba.
     // Que la clave esté ausente por default es a propósito: si algún día este
     // literal se reordena o se copia, el default es no filtrar los `pinhash`.
     //
@@ -334,12 +359,13 @@ $payload = [
     )['c'] ?? 0),
 ];
 
-// Roster del lock screen: solo para la caja. El realm es el gate — ver el
-// bloque del roster arriba del todo. Para `panel` la clave queda AUSENTE (y no
-// en `null` ni con `pinhash => null`): ningún consumidor del panel la lee
+// Roster del lock screen: solo para la caja. Realm `pos-app` + module `pos` es
+// el gate — ver el bloque del roster arriba del todo. Para el panel y para los
+// devices que no son caja (screen/kds/display/print) la clave queda AUSENTE (y
+// no en `null` ni con `pinhash => null`): ningún consumidor del panel la lee
 // (`frontend/lib/types/bootstrap.ts` ni siquiera la declara), así que mandarla
 // vacía solo serviría para que alguien la empiece a leer y la reintroduzca.
-if ($isPosAppRealm) {
+if ($isRegisterDevice) {
     $payload['users'] = $roster;
 }
 

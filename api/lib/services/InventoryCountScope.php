@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 
+use Punto\App\Domain\Inventory;
+
 /**
  * InventoryCountScope — alcance de una toma física (mig 158).
  *
@@ -156,7 +158,17 @@ final class InventoryCountScope
      *
      * El conteo POR DEPÓSITO tampoco lee ya `tolocation` (tabla espejo que no
      * se escribe más, context/52 D4): el ledger guarda `locationid` por fila,
-     * así que el esperado del depósito es el mismo SUM filtrado. Ahí sí hay
+     * así que el esperado del depósito es el mismo SUM filtrado — pero filtrado
+     * por el depósito EFECTIVO (`Inventory::ledgerLocationId()`), no por la
+     * columna cruda. Desde la mig 165 toda sucursal tiene depósito por defecto
+     * y las filas históricas quedaron con `locationid IS NULL`: el tab Stock
+     * las consolida en ese depósito y el conteo, filtrando por la columna, las
+     * dejaba afuera. El esperado arrancaba en 0 contra mercadería que existe y
+     * el ajuste del conteo la "corregía" moviendo stock real — exactamente la
+     * diferencia fantasma que este docblock advierte arriba. La consolidación
+     * es la MISMA definición que usan `StockMovementsService::breakdown()` y
+     * `Reports\StockService`: vive una sola vez, en el lector del ledger.
+     * Ahí sí hay
      * costo unitario disponible (el promedio de la fila vigente), pero se
      * mantiene en 0 a propósito para no cambiar la valorización del conteo por
      * depósito en esta pasada.
@@ -172,16 +184,21 @@ final class InventoryCountScope
         [$where, $params] = $this->filter();
 
         if ($this->locationId !== null) {
+            // Depósito EFECTIVO, no `s2.locationid` crudo — ver el docblock de
+            // `filter()`. Filtrar por la columna dejaría afuera el histórico en
+            // NULL que el tab Stock ya muestra dentro del depósito por defecto.
+            $effLoc = Inventory::ledgerLocationId('s2', 'dl2');
             $sql = "SELECT i.itemid,
                            COALESCE(saldo.qty, 0) AS expectedqty,
                            0::numeric             AS unitcost
                       FROM item i
                       LEFT JOIN LATERAL (
                            SELECT COALESCE(SUM(s2.stockcount), 0) AS qty
-                             FROM stock s2
-                            WHERE s2.itemid = i.itemid
+                             FROM stock s2"
+                           . Inventory::ledgerLocationJoin('s2', 'dl2') .
+                           "WHERE s2.itemid = i.itemid
                               AND s2.outletid = ?
-                              AND s2.locationid = ?
+                              AND {$effLoc} = ?
                       ) saldo ON true
                      WHERE {$where}
                      ORDER BY i.itemname ASC";
@@ -242,8 +259,11 @@ final class InventoryCountScope
                 // ya no se escribe, así que preguntarle habría dejado el
                 // conteo por depósito vacío. Mismo predicado que la rama de
                 // sucursal, un filtro más abajo.
-                $where[]  = 'EXISTS (SELECT 1 FROM stock sx
-                                      WHERE sx.outletid = ? AND sx.locationid = ? AND sx.itemid = i.itemid)';
+                $where[]  = 'EXISTS (SELECT 1 FROM stock sx'
+                          . Inventory::ledgerLocationJoin('sx', 'dlx')
+                          . 'WHERE sx.outletid = ? AND '
+                          . Inventory::ledgerLocationId('sx', 'dlx')
+                          . ' = ? AND sx.itemid = i.itemid)';
                 $params[] = $this->outletId;
                 $params[] = $this->locationId;
             } else {

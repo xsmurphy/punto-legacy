@@ -31,6 +31,21 @@ describe("isolateOverlaySubmit", () => {
     expect(order).toEqual(["call-site", "stop"])
   })
 
+  it("corta la propagación aunque el handler del call-site lance", () => {
+    // El caso donde MÁS importa cortar: el modal falló, y sin el corte el
+    // submit llegaría igual al form de la página, que se guardaría sola.
+    const event = fakeSubmitEvent()
+    const boom = new Error("el guardado del modal falló")
+
+    expect(() =>
+      isolateOverlaySubmit(() => {
+        throw boom
+      })(event)
+    ).toThrow(boom)
+
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1)
+  })
+
   it("le pasa el mismo evento al handler del call-site", () => {
     const event = fakeSubmitEvent()
     const onSubmit = vi.fn()
