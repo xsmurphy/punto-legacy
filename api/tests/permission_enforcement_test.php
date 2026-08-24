@@ -105,6 +105,10 @@ const GATES_INDIRECTOS = [
     "'contacts.supplier.view' : 'contacts.supplier.manage'" => ['contacts.supplier.view', 'contacts.supplier.manage'],
     // drawer.php — mapa acción → clave
     "'open'    => 'pos.drawer.open',"                       => ['pos.drawer.open', 'pos.drawer.close', 'finance.manage'],
+    // taxonomies.php — mapa TIPO de taxonomía → clave ($taxonomyWritePermission).
+    // El depósito es configuración de la sucursal que lo contiene, así que su
+    // escritura pide el mismo permiso que la sucursal (ver el docblock ahí).
+    "'location' => 'settings.outlet.manage',"               => ['settings.outlet.manage'],
     // items.php — itemsRequiredPermission()
     "return 'inventory.item.view';"                         => ['inventory.item.view'],
     "return 'inventory.stock.adjust';"                      => ['inventory.stock.adjust'],
