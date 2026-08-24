@@ -144,12 +144,20 @@ ver abajo) — los tres son plata o seguridad, no UX.
    de `item['total']` (bruto, incluye la línea del vale) contra `sale.total`
    (que lo excluye, `context/36-vouchers-plan.md:50-53`) y aborta. Toda venta
    con vale es hoy infacturable.
-2. **El stock de add-ons no se descuenta cuando la venta nace de una orden o
-   mesa.** `store.ts:1178-1199` y `:1278-1284` filtran `!isAddonChild()`, y
-   `SpaceBalanceService.php:81` / `SpaceSettlementService.php:393` filtran
-   `parentorderitemid IS NULL`, así que `expandAddonSelections` nunca corre.
-   La plata sale bien (el `unitPrice` ya incluye el delta); el inventario no.
-   Detalle completo: `context/modules/02-combos-y-addons.md`.
+2. ~~**El stock de add-ons no se descuenta cuando la venta nace de una orden o
+   mesa**~~ ✅ **RESUELTO (2026-08-23).** `loadFromOrder` ya no descarta las
+   hijas: `rebuildSelectionsFromOrder()` (`frontend/lib/cart/store.ts`) las
+   devuelve al carrito como `CartLine.selections` del padre, y de ahí el cobro
+   es indistinguible de una venta directa — `expandAddonSelections` corre,
+   persiste las líneas hijas y descuenta el stock.
+
+   Regla del owner que fijó el diseño: la orden no lleva montos (qué y cuánto,
+   notas y etiquetas); los montos se cargan al cobrarla, para facturar. Por eso
+   el `pricedelta` congelado de la orden solo despeja el precio base del padre,
+   y el recargo que se cobra sale del catálogo vigente. `SpaceBalanceService` /
+   `SpaceSettlementService` NO cambian: una hija no es una unidad cobrable por
+   separado. Detalle completo: `context/41-addons-y-combos.md` §"El add-on
+   cruza el flujo de orden".
 3. ~~**20 de 47 permisos del catálogo no tienen enforcement**~~ ✅ **RESUELTO
    (2026-08-22, branch `api/permisos-enforcement`).** Eran 25, no 20. Hoy 45
    de 47 gateadas; las 2 restantes (`pos.sale.create`, `pos.discount.apply`)
@@ -442,14 +450,12 @@ dos siguen abiertos.
    los flags reales + `EXISTS item_compound` (los flags solos no alcanzan:
    servicio / insumo_sin_stock / descuento comparten la misma combinación).
    Arnés: `verify_production_cogs.php` casos 3/3b.
-3. **Una orden/mesa con add-ons no descuenta el stock del add-on** — promovido
-   a P0, ver el ítem 2 de "P0 — hallazgos de la auditoría del backlog" al
-   principio de este doc. Corrección de framing: la plata SÍ sale bien y el
-   desglose SÍ llega a la comanda/KDS (`OrderCoreService.php:286-300`); lo que
-   falta es el descuento de stock y la línea hija en la venta, porque
-   `loadFromOrder` (`store.ts:1178-1199`) descarta las `selections` a
-   propósito (rehidratarlas duplicaría el recargo, que ya está en
-   `unitPrice`).
+3. ~~**Una orden/mesa con add-ons no descuenta el stock del add-on**~~
+   ✅ **RESUELTO (2026-08-23)** — ver el ítem 2 de "P0 — hallazgos de la
+   auditoría del backlog" al principio de este doc. El miedo al doble conteo
+   que justificaba descartar las `selections` ya no aplicaba:
+   `expandAddonSelections` le RESTA al padre la suma de los deltas antes de
+   repartirlos a las hijas, así que padre + hijas = exactamente lo cobrado.
 4. **`$sD['type']` en `SaleService.php:1807`** — **no es un bug vivo**: es
    rama muerta. Verificado que los usos restantes son un discriminador
    interno del backend (`'type' => 'compound'`, línea 1893), no un valor que
