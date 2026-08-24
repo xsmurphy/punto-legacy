@@ -100,7 +100,9 @@ function chipStyle(item: PosTransactionListItem): string {
  * Formato compacto para filas de lista: "22 jun 12:59"
  */
 function niceDateTime(iso: string): string {
-  if (!iso) return "—"
+  // "" y no "—": es un segmento más de la línea de metadata de la fila, y los
+  // segmentos vacíos se omiten junto con su separador (owner 2026-08-24).
+  if (!iso) return ""
   return formatDateTime(iso)
 }
 
@@ -108,26 +110,27 @@ function niceDateTime(iso: string): string {
  * Número de comprobante para la fila de lista — "#0001-0000123" (mismo
  * formato con guion que `docLabel` del panel de detalle, aprobado por el
  * owner). Ventas emitidas antes del fix del P0 de numeración (invoiceNo
- * NULL, ver context/29) o cotizaciones sin invoiceNo muestran "—", nunca
- * "#null"/"#undefined" — mismo criterio que la columna "Documento" del
- * panel (`transactions-list.tsx`: `docNo || "—"`).
+ * NULL, ver context/29) o cotizaciones sin invoiceNo devuelven "" — el
+ * segmento se OMITE de la línea de metadata en vez de pintar un "—" suelto
+ * (owner 2026-08-24). Nunca "#null"/"#undefined".
  */
 function invoiceLabel(item: PosTransactionListItem, padWidth: number | null): string {
-  if (!item.invoiceNo) return "—"
+  if (!item.invoiceNo) return ""
   // mig 158: mismo formateador que el ticket. Antes el número salía pelado
   // acá y con ceros en la factura impresa — el cajero veía dos números
   // distintos para la misma venta.
   const formatted = formatDocumentNumber(item.invoiceNo, item.invoicePrefix, padWidth)
-  return formatted ? `#${formatted}` : "—"
+  return formatted ? `#${formatted}` : ""
 }
 
 /**
  * RUC (si tiene) o CI del cliente — `customerDoc` ya resuelve esa prioridad
- * server-side (getMainList). "—" cuando el cliente no tiene ninguno cargado
- * (consumidor final o contacto sin documento).
+ * server-side (getMainList). "" cuando el cliente no tiene ninguno cargado
+ * (consumidor final o contacto sin documento): el segmento se omite y la
+ * línea arranca en la fecha, sin hueco ni guion (owner 2026-08-24).
  */
 function customerDocLabel(item: PosTransactionListItem): string {
-  return item.customerDoc || "—"
+  return item.customerDoc || ""
 }
 
 
@@ -413,14 +416,24 @@ function TransactionRow({
   const invoicePadWidth = useCatalogStore((s) => s.invoicePadWidth)
   const hasName = Boolean(item.customerName)
 
+  // Metadata de la fila en UNA línea horizontal: documento · fecha · nro de
+  // comprobante (owner 2026-08-24). Los segmentos vacíos se omiten CON su
+  // separador — un cliente sin RUC/CI hace que la línea arranque en la fecha,
+  // sin "—" de relleno ni hueco. La altura de la fila no depende de qué
+  // segmentos haya (§10: posiciones estables), porque siempre es una línea.
+  const metaSegments = [
+    { key: "doc", text: customerDocLabel(item), grow: true },
+    { key: "date", text: niceDateTime(item.rawDate || item.date), grow: false },
+    { key: "invoice", text: invoiceLabel(item, invoicePadWidth), grow: false },
+  ].filter((s) => s.text !== "")
+
   return (
-    // Touch target ≥44px (§7 POS específico): 3 líneas de texto + py-2.5 dan
-    // ~68px de alto — más denso que antes (py-3, 2 líneas) pero con 2 datos
-    // más por fila (RUC/CI + nro de comprobante), sin bajar del mínimo táctil.
+    // Touch target ≥44px (§7 POS específico): 2 líneas de texto + py-3 dan
+    // ~56px de alto, con los mismos 5 datos que antes ocupaban 3 líneas.
     <button
       type="button"
       className={cn(
-        "w-full text-left px-6 py-2.5 border-b transition-colors hover:bg-accent",
+        "w-full text-left px-6 py-3 border-b transition-colors hover:bg-accent",
         selected && "bg-accent",
       )}
       onClick={() => onSelect(item.id)}
@@ -434,20 +447,25 @@ function TransactionRow({
           {formatMoney(item.rawTotal, config)}
         </span>
       </div>
-      {/* Secundario: RUC/CI + tipo */}
-      <div className="flex items-center justify-between gap-2 mt-1">
-        <span className="text-xs text-muted-foreground tabular-nums truncate">
-          {customerDocLabel(item)}
-        </span>
+      {/* Secundario: documento · fecha · nro de comprobante + tipo */}
+      <div className="flex items-center justify-between gap-3 mt-1">
+        <div className="flex min-w-0 items-center gap-3 text-xs text-muted-foreground">
+          {metaSegments.map((seg, i) => (
+            <React.Fragment key={seg.key}>
+              {i > 0 && (
+                <span className="text-muted-foreground/50 shrink-0" aria-hidden>
+                  ·
+                </span>
+              )}
+              <span className={cn("tabular-nums", seg.grow ? "min-w-0 truncate" : "shrink-0")}>
+                {seg.text}
+              </span>
+            </React.Fragment>
+          ))}
+        </div>
         <Badge variant="secondary" className={cn("shrink-0", chipStyle(item))}>
           {txLabel(item.type)}
         </Badge>
-      </div>
-      {/* Terciario: fecha + nro de comprobante */}
-      <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
-        <span className="tabular-nums shrink-0">{niceDateTime(item.rawDate || item.date)}</span>
-        <span className="text-muted-foreground/50" aria-hidden>·</span>
-        <span className="tabular-nums truncate">{invoiceLabel(item, invoicePadWidth)}</span>
       </div>
     </button>
   )
