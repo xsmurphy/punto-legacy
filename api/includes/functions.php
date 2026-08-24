@@ -1674,54 +1674,25 @@ function sumProperties($arr, $property) {
 }
 
 /**
- * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getItemStock()`. ~16 callers.
- */
-function getItemStock($itemId,$outlet=false,$inLocation=false){
-    return \Punto\App\Domain\Inventory::getItemStock($itemId, $outlet, $inLocation);
-}
-
-/**
- * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getItemMainStock()`. ~1 caller.
- */
-function getItemMainStock($itemId,$outletId){
-    return \Punto\App\Domain\Inventory::getItemMainStock($itemId, $outletId);
-}
-
-/*function getAllItemStock($outlet=OUTLET_ID){
-	global $db;
-
-	$sql 	= '	SELECT t1.itemId as itemId, t1.stockOnHand as onHand, t1.stockOnHandCOGS as cogs
-				FROM stock t1
-				JOIN
-				(
-				  SELECT max(stockId) AS stockId
-				  FROM stock
-				  WHERE outletId = ' . $outlet . '
-				  GROUP BY itemId
-				) t2 ON t1.stockId = t2.stockId AND t1.outletId = ' . $outlet;
-
-	$result = $db->GetAssoc($sql);
-
-	if(validity($result)){
-		return $result;
-	}else{
-		return [];
-	}
-}*/
-/**
- * El "~8 callers" del Slice 13 quedó obsoleto: hoy NO hay ni un caller vivo de
- * `getAllItemStock` en todo el repo — ni por este wrapper ni por la clase. Los
- * que había vivían en el panel legacy que se eliminó. Se deja anotado porque el
- * dato importa para evaluar el riesgo de tocar la función: el fail-closed que
- * `Inventory::getAllItemStock()` agregó (RuntimeException sin `COMPANY_ID`) no
- * puede dispararse en ningún camino de producción por la simple razón de que no
- * hay camino. El primer consumidor real será el rollup de inventario.
+ * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getItemStock()`.
  *
- * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::getAllItemStock()`. 0 callers vivos.
+ * context/52 — se fue el 3er parámetro `$inLocation`: leía `toLocation` (tabla
+ * espejo que ya no se escribe) con los binds invertidos. El desglose por
+ * depósito sale de `Inventory::onHandByLocation()`.
  */
-function getAllItemStock($outlet=false,$all=false){
-    return \Punto\App\Domain\Inventory::getAllItemStock($outlet, (bool) $all);
+function getItemStock($itemId,$outlet=false){
+    return \Punto\App\Domain\Inventory::getItemStock($itemId, $outlet);
 }
+
+/*
+ * context/52 (F2) — ELIMINADAS: `getItemMainStock()` y `getAllItemStock()`.
+ *
+ * Las dos derivaban el saldo restando `toLocation` de un snapshot
+ * (`stockOnHand` de la última fila): las dos fuentes espurias que el ledger
+ * reemplaza. `getItemMainStock` encima acumulaba mal ($dTotal sumaba de más en
+ * cada vuelta). Cero callers vivos en el repo cuando se borraron. El saldo se
+ * pide a `Inventory::onHand()` / `onHandBulk()` / `onHandByLocation()`.
+ */
 
 /**
  * @deprecated Slice 13 (PSR-4). Usar `\Punto\App\Domain\Inventory::manageStock()`. ~27 callers. CRÍTICO.
@@ -2624,166 +2595,21 @@ function flipOnReturn($type,$number){
 	}
 }
 
-function voidSale($trId,$motive=''){
-	global $db,$compId,$outId;
-	$compId 	= iftn($compId,COMPANY_ID);
-	$outId 		= iftn($outId,OUTLET_ID);
-	$db->StartTrans(); //Esto hace que verifique si mas de una transaccion fallo, en el caso de que solo una falle, todas fallan
-
-    ///Recordarme que tengo que ver como actualizar los lotes cuando elimino una transaccion en el panel y ver que pasa con una transaccion anulada o devuelta, puedo eliminarlas? porque hay que reponer el inventario de forma invertida y es quilombo
-
-    // UUID crudo (no $db->Prepare, que lo qstr-quotea → al pasarlo como bind param
-    // quedaría con comillas literales y no matchearía la columna UUID).
-    $trId         = dec($trId);
-
-    //veo si tiene cliente la venta y si se uso loyalty obtengo el monto para reponer
-    $customer = ncmExecute("SELECT
-                                 customerId,
-                                 transactionPaymentType,
-                                 outletId
-                            FROM transaction
-                            WHERE
-                              transactionId = ? LIMIT 1",[$trId]);
-
-    if($customer){
-    	$group 		= [];
-    	$payments 	= json_decode($customer['transactionPaymentType'],true);
-    	$group 		= groupByPaymentMethod($payments,$group);
-
-    	if($group){
-			foreach($group as $dat){
-				if(validity($customer['customerId'])){
-					if($dat['type'] == 'points'){//devuelvo loyalties
-						$db->Execute('UPDATE contact SET contactLoyaltyAmount = contactLoyaltyAmount+'.$dat['price'].' WHERE contactId = ?',array($customer['customerId']));
-					}else if($dat['type'] == 'storeCredit'){//devuelvo credito interno
-						$db->Execute('UPDATE contact SET contactStoreCredit = contactStoreCredit+'.$dat['price'].' WHERE contactId = ?',array($customer['customerId']));
-					} 
-				}
-
-				if($dat['type'] == 'giftcard' && $dat['price'] > 0){//si es giftcard devuelvo
-					$db->Execute('UPDATE giftCardSold SET giftCardSoldValue = giftCardSoldValue + ' . $dat['price'] . ' WHERE (giftCardSoldCode = ? OR timestamp = ?) AND outletId = ',array($dat['extra'],$dat['extra'],$customer['outletId']));
-				}
-			}
-		}
-    }
-
-    //
-
-    //flagueo la transaccion anulada
-    $record['transactionType'] 	= '7';
-    $record['transactionNote'] 	= $motive;
-    $record['responsibleId'] 	= USER_ID;
-    //$db->AutoExecute('transaction', $record, 'UPDATE', 'transactionId = ' . $trId);
-    // PG: UUID quoteado en el where-string de ncmUpdate (§22.5).
-    ncmUpdate(['records' => $record, 'table' => 'transaction', 'where' => "transactionId = '" . $trId . "'"]);//records (arr), table (str), where (str)
-    //elimino pagos si hay — mig 115: transactionParentId dropeada, los
-    // derivados viven en transaction_link. Hay que borrar el link ANTES que
-    // la transacción derivada (FK a transaction(transactionId)).
-    $voidLinkSvc = new \Punto\Api\Services\TransactionLinkService();
-    $voidDerivedIds = $voidLinkSvc->listDerivedIds($compId, $trId);
-    if ($voidDerivedIds !== []) {
-        $voidPh = implode(',', array_fill(0, count($voidDerivedIds), '?'));
-        ncmExecute("DELETE FROM transaction_link WHERE companyid = ? AND derivedid IN ($voidPh)", array_merge([$compId], $voidDerivedIds));
-        ncmExecute("DELETE FROM transaction WHERE transactionId IN ($voidPh) AND companyId = ?", array_merge($voidDerivedIds, [$compId]));
-    }
-
-    //inventario
-    $items = ncmExecute("SELECT
-                                 itemId, itemSoldUnits
-                            FROM itemSold
-                            WHERE
-                              transactionId = ?",[$trId],false,true);
-
-    if($items){
-	    while(!$items->EOF) {
-	    	$fields 	= $items->fields;
-	    	$compound   = getCompoundsArray($fields['itemId']);
-
-			if(validity($compound,'array')){
-				foreach ($compound as $comr){
-					$itmData = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',[$comr['compoundId'],COMPANY_ID]);
-			        manageStock([
-			                      'itemId'    		=> $comr['compoundId'],
-			                      'outletId'  		=> OUTLET_ID,
-			                      'date'          	=> TODAY,
-			                      'count'     		=> abs($comr['toCompoundQty'] * $fields['itemSoldUnits']),
-			                      'source'    		=> 'void',
-			                      'locationId' 		=> $itmData['locationId'],
-			                      'transactionId' 	=> $trId
-			                    ]);
-				    
-				}
-			}
-
-			$itmData = ncmExecute('SELECT locationId FROM item WHERE itemId = ? AND companyId = ? LIMIT 1',[$fields['itemId'],COMPANY_ID]);
-			manageStock([
-				              'itemId'    		=> $fields['itemId'],
-				              'outletId'  		=> OUTLET_ID,
-				              'date'          	=> TODAY,
-				              'locationId' 		=> $itmData['locationId'],
-				              'count'     		=> abs($fields['itemSoldUnits']),
-				              'source'    		=> 'void',
-				              'transactionId' 	=> $trId
-			            ]);
-
-			$items->MoveNext();
-	    }
-	    $items->Close();
-	}
-    
-    //inventario//
-
-    //Elimino item solds poruqe voy a usar los que quedan guardados en la transaccion en json
-    $db->Execute("DELETE FROM itemSold WHERE transactionId = ?", [$trId]);
-    $db->Execute("DELETE FROM giftCardSold WHERE transactionId = ?", [$trId]);
-
-    $failedTransaction = $db->HasFailedTrans();
-    $db->CompleteTrans();
-
-    if($failedTransaction){
-      jsonDieMsg($db->ErrorMsg());
-    }else{
-      updateLastTimeEdit($compId,'item');
-
-	  try {
-		$transaction = ncmExecute('SELECT * FROM transaction WHERE transactionId = ? LIMIT 1',[$trId]);
-	  	$userName = getValue('contact', 'contactName', 'WHERE contactId = ' . USER_ID);
-      	$registerName = getValue('register', 'registerName', 'WHERE registerId = ' . REGISTER_ID);
-      	$companyName = getValue('setting', 'settingName', 'WHERE companyId = ' . COMPANY_ID);
-      	$outletName = getCurrentOutletName(OUTLET_ID);
-
-      	$auditoriaData = [
-      	  'date'        => TODAY,
-      	  'user'      => $userName,
-      	  'module'       => 'FACTURACION',
-      	  'origin'       => 'CAJA',
-      	  'company_id'       => COMPANY_ID,
-      	  'data'       => [
-      	    'action' => "El usuario $userName anuló una factura desde la caja ". $registerName,
-      	    'userId' => USER_ID,
-      	    'userName' => $userName,
-      	    'operationData' => $transaction,
-      	    'registerId' => REGISTER_ID,
-      	    'registerName' => $registerName,
-      	    'companyID' => COMPANY_ID,
-      	    'companyName' => $companyName,
-      	    'outletId' => OUTLET_ID,
-      	    'outletName' => $outletName,
-      	    'timestamp' => $transaction['timestamp']
-      	  ]
-      	];
-      	sendAuditoria($auditoriaData, AUDITORIA_TOKEN);
-	  } catch (\Throwable $th) {
-		//throw $th;
-		error_log("Error al enviar registro de auditoría de anulación de factura: \n", 3, './error_log');
-		error_log(print_r($th, true), 3, './error_log');
-		error_log("transaction: \n", 3, './error_log');
-		error_log(print_r($transaction, true), 3, './error_log');
-	  }
-
-      jsonDieMsg('true',200,'success');
-    }
-}
+/*
+ * context/52 (F2) — ELIMINADA: `voidSale($trId, $motive)`.
+ *
+ * Anulación legacy de caja, sin un solo caller vivo en el repo (su endpoint se
+ * fue con el panel legacy). El camino vigente es
+ * `Punto\Api\Services\SaleVoidService::void()` (context/40) y, para el
+ * legacy de transacciones no-venta, `TransactionService::voidTransaction()`.
+ *
+ * Se borra en vez de arreglarse porque arrastraba las dos fallas de reversa que
+ * context/52 vino a cerrar y que ya se corrigieron en los caminos vivos:
+ * reponía la receta recorriendo UN SOLO nivel (`getCompoundsArray`) mientras la
+ * venta descuenta recursivamente, y repartía stock sobre TODAS las filas de
+ * `itemSold` — incluidas las hijas de combo, que nunca descontaron nada. Dejar
+ * una copia rota "por las dudas" es exactamente cómo vuelve a producción.
+ */
 
 //other
 

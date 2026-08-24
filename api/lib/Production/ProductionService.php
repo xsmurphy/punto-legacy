@@ -44,6 +44,12 @@ use Punto\App\Domain\RecipeCosting;
  *   respecto del código que ya tenía debajo; corregido 2026-08-22, era un
  *   hallazgo de `context/modules/06-produccion.md` §3.3.)
  *
+ * context/52 (G11): `Inventory::manageStock()` LANZA si el INSERT en el ledger
+ * falla; `false` quedó reservado para el no-op legítimo (insumo sin
+ * `itemTrackInventory`: agua, sal, condimentos). Los guards `$tracked` de esta
+ * clase ya evitan llamarlo en ese caso, así que los viejos `=== false` +
+ * FailTrans se retiraron — solo podían disparar sobre un no-op.
+ *
  * Costeo: la valuación de cada insumo (promedio ponderado del ledger de la
  * sucursal, fallback a `item.itemCost`) NO se implementa acá — sale de
  * `RecipeCosting`, la única fórmula de costo de receta del sistema, así que
@@ -189,8 +195,13 @@ final class ProductionService
                 continue;
             }
 
-            $stock  = Inventory::getItemStock($childId, $outletId);
-            $onHand = ($stock && isset($stock['stockOnHand']) && is_numeric($stock['stockOnHand'])) ? (float) $stock['stockOnHand'] : 0.0;
+            // F1 de context/52 — el saldo sale del LEDGER (`SUM(stockCount)`),
+            // no del snapshot `stockOnHand` de la última fila: con un insumo
+            // comprado con fecha retroactiva el snapshot queda viejo y la
+            // capacidad se calculaba contra un stock que no existía (o se
+            // negaba a producir teniendo insumos). El tab Stock ya mostraba el
+            // SUM — la capacidad decía otra cosa para el mismo insumo.
+            $onHand = Inventory::onHand($childId, $outletId);
             $inventory[$childId] = ['onHand' => $onHand];
             $waste[$childId]     = $wasteP;
             $trackedRecipe[]     = $ing;
@@ -349,6 +360,16 @@ final class ProductionService
         global $db;
 
         $db->StartTrans();
+
+        // La TX se cierra SIEMPRE, también si algo lanza: `manageStock()`
+        // propaga los fallos reales de escritura (context/52 G11) y
+        // `DocumentNumber::allocate()` también puede tirar. Sin este catch la
+        // transacción quedaría abierta y envenenada para el resto del
+        // request. Los rechazos de negocio de abajo conservan su
+        // FailTrans+CompleteTrans explícito: salen por `throw`, y un
+        // `CompleteTrans()` sobre una transacción ya cerrada es no-op
+        // (transDepth === 0, ver el wrapper).
+        try {
 
         // Lock de fila: evita que dos requests concurrentes completen la
         // misma orden dos veces (doble stock).
@@ -544,7 +565,7 @@ final class ProductionService
                         continue;
                     }
 
-                    $result = Inventory::manageStock([
+                    Inventory::manageStock([
                         'itemId'        => $leafId,
                         'source'        => 'production',
                         'count'         => $leafQty,
@@ -557,15 +578,10 @@ final class ProductionService
                         'date'          => $now,
                         'companyId'     => $companyId,
                     ]);
-                    if ($result === false) {
-                        $db->FailTrans();
-                        $db->CompleteTrans();
-                        throw new \RuntimeException('No se pudo descontar stock del insumo ' . $leafId);
-                    }
                 }
             } else {
                 if ($tracked) {
-                    $result = Inventory::manageStock([
+                    Inventory::manageStock([
                         'itemId'        => $childId,
                         'source'        => 'production',
                         'count'         => $need,
@@ -578,11 +594,6 @@ final class ProductionService
                         'date'          => $now,
                         'companyId'     => $companyId,
                     ]);
-                    if ($result === false) {
-                        $db->FailTrans();
-                        $db->CompleteTrans();
-                        throw new \RuntimeException('No se pudo descontar stock del insumo ' . $childId);
-                    }
                 }
                 $lineCost = $cost * $need;
             }
@@ -610,7 +621,7 @@ final class ProductionService
 
         // Las unidades FALLADAS (wasteUnits) NO entran al stock — solo se
         // acreditan las qtyProduced (netas, ya "buenas"). Ver docblock.
-        $result = Inventory::manageStock([
+        Inventory::manageStock([
             'itemId'        => $order['itemid'],
             'source'        => 'production',
             'count'         => $qtyProduced,
@@ -624,11 +635,6 @@ final class ProductionService
             'date'          => $now,
             'companyId'     => $companyId,
         ]);
-        if ($result === false) {
-            $db->FailTrans();
-            $db->CompleteTrans();
-            throw new \RuntimeException('No se pudo acreditar stock del producto terminado');
-        }
 
         if ($wasteUnits > 0) {
             $wasteCost = $wasteUnits * $unitCogs;
@@ -664,6 +670,12 @@ final class ProductionService
             $db->FailTrans();
             $db->CompleteTrans();
             throw new \RuntimeException('No se pudo actualizar la orden de producción a completed');
+        }
+
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
         }
 
         $failed = $db->HasFailedTrans();
@@ -750,12 +762,22 @@ final class ProductionService
 
         $db->StartTrans();
 
+        // La TX se cierra SIEMPRE, también si algo lanza: `manageStock()`
+        // propaga los fallos reales de escritura (context/52 G11) y
+        // `DocumentNumber::allocate()` también puede tirar. Sin este catch la
+        // transacción quedaría abierta y envenenada para el resto del
+        // request. Los rechazos de negocio de abajo conservan su
+        // FailTrans+CompleteTrans explícito: salen por `throw`, y un
+        // `CompleteTrans()` sobre una transacción ya cerrada es no-op
+        // (transDepth === 0, ver el wrapper).
+        try {
+
         $stock = Inventory::getItemStock($itemId, $outletId);
         $cost  = ($stock && isset($stock['stockOnHandCOGS']) && is_numeric($stock['stockOnHandCOGS']))
             ? (float) $stock['stockOnHandCOGS']
             : 0.0;
 
-        $result = Inventory::manageStock([
+        Inventory::manageStock([
             'itemId'        => $itemId,
             'source'        => 'waste',
             'count'         => $qty,
@@ -768,11 +790,6 @@ final class ProductionService
             'date'          => date('Y-m-d H:i:s'),
             'companyId'     => $companyId,
         ]);
-        if ($result === false) {
-            $db->FailTrans();
-            $db->CompleteTrans();
-            throw new \RuntimeException('No se pudo descontar el stock para la merma');
-        }
 
         $docNumber = DocumentNumber::allocate(
             'merma',
@@ -794,6 +811,12 @@ final class ProductionService
             throw new \RuntimeException('No se pudo registrar el evento de merma');
         }
         $wasteId = (string) ($rs->fields['wasteid'] ?? '');
+
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
+        }
 
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();

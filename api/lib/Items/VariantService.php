@@ -194,7 +194,7 @@ final class VariantService
                     }
                     // Stock inicial via Inventory::manageStock si stock > 0.
                     if ($stockInit > 0) {
-                        \Inventory::manageStock([
+                        \Punto\App\Domain\Inventory::manageStock([
                             'itemId'        => $newId,
                             'source'        => 'adjustment',
                             'type'          => '+',

@@ -20,7 +20,7 @@ namespace Punto\Api\Services;
  *     El catálogo de Punto es tenant-scoped (context/25): ningún ítem tiene
  *     columna que lo ate a una sucursal. La pertenencia se INFIERE de que
  *     exista movimiento del ítem en `stock` para ese `outletid` — o fila en
- *     `tolocation` para ese `locationid` cuando el conteo es de un depósito
+ *     el ledger filtrado por ese `locationid` cuando el conteo es de un depósito
  *     puntual. Es EXISTS, no JOIN: `stock` es un ledger (N filas por ítem) y
  *     un JOIN duplicaría líneas del conteo.
  *     `includeZeroStock = true` salta este filtro: sirve para el primer
@@ -142,15 +142,28 @@ final class InventoryCountScope
      * Ítems del conteo CON su cantidad esperada y costo unitario resueltos en
      * una sola pasada.
      *
-     * Los LATERAL reemplazan el N+1 que hacía `create()` (una consulta a
-     * `stock`/`tolocation` por cada ítem del tenant). Replican exactamente el
-     * criterio que ya usaba — y que usa `Inventory::manageStock()`
-     * (`api/lib/App/Domain/Inventory.php:424`) — para elegir la fila vigente
-     * del ledger: `ORDER BY stockdate DESC, stockid DESC LIMIT 1`.
+     * MONEY PATH — `expectedqty` congela la BASE del ajuste que el conteo
+     * genera: si el esperado está mal, el ajuste está mal, y el ajuste escribe
+     * el ledger.
      *
-     * `tolocation` no lleva costo: en conteo por depósito el costo unitario
-     * queda en 0, igual que antes. Ese 0 solo afecta la VALORIZACIÓN de la
-     * diferencia, nunca la cantidad ajustada.
+     * F1 de context/52: el esperado es `SUM(stockcount)`, la definición del
+     * saldo (D1). Antes salía del SNAPSHOT `stockonhand` de la fila vigente —
+     * un acumulado cacheado al INSERT que un movimiento con fecha retroactiva
+     * deja desactualizado, mientras el tab Stock que el operador mira al
+     * contar ya mostraba el SUM. Contar contra un esperado distinto del que
+     * muestra la pantalla produce una diferencia fantasma y un ajuste que la
+     * "corrige" moviendo stock real.
+     *
+     * El conteo POR DEPÓSITO tampoco lee ya `tolocation` (tabla espejo que no
+     * se escribe más, context/52 D4): el ledger guarda `locationid` por fila,
+     * así que el esperado del depósito es el mismo SUM filtrado. Ahí sí hay
+     * costo unitario disponible (el promedio de la fila vigente), pero se
+     * mantiene en 0 a propósito para no cambiar la valorización del conteo por
+     * depósito en esta pasada.
+     *
+     * El costo unitario sigue saliendo de la fila VIGENTE del ledger
+     * (`ORDER BY stockdate DESC, stockid DESC LIMIT 1`): `stockonhandcogs` es
+     * un promedio ponderado móvil, no un acumulado sumable.
      *
      * @return array{0: string, 1: array<int, mixed>} [sql, params]
      */
@@ -160,33 +173,39 @@ final class InventoryCountScope
 
         if ($this->locationId !== null) {
             $sql = "SELECT i.itemid,
-                           COALESCE(tl.tolocationcount, 0) AS expectedqty,
-                           0::numeric                      AS unitcost
+                           COALESCE(saldo.qty, 0) AS expectedqty,
+                           0::numeric             AS unitcost
                       FROM item i
                       LEFT JOIN LATERAL (
-                           SELECT tl2.tolocationcount
-                             FROM tolocation tl2
-                            WHERE tl2.locationid = ? AND tl2.itemid = i.itemid
-                            LIMIT 1
-                      ) tl ON true
+                           SELECT COALESCE(SUM(s2.stockcount), 0) AS qty
+                             FROM stock s2
+                            WHERE s2.itemid = i.itemid
+                              AND s2.outletid = ?
+                              AND s2.locationid = ?
+                      ) saldo ON true
                      WHERE {$where}
                      ORDER BY i.itemname ASC";
-            $params = array_merge([$this->locationId], $params);
+            $params = array_merge([$this->outletId, $this->locationId], $params);
         } else {
             $sql = "SELECT i.itemid,
-                           COALESCE(s.stockonhand, 0)     AS expectedqty,
+                           COALESCE(saldo.qty, 0)         AS expectedqty,
                            COALESCE(s.stockonhandcogs, 0) AS unitcost
                       FROM item i
                       LEFT JOIN LATERAL (
-                           SELECT s2.stockonhand, s2.stockonhandcogs
+                           SELECT COALESCE(SUM(s2.stockcount), 0) AS qty
                              FROM stock s2
                             WHERE s2.itemid = i.itemid AND s2.outletid = ?
-                            ORDER BY s2.stockdate DESC, s2.stockid DESC
+                      ) saldo ON true
+                      LEFT JOIN LATERAL (
+                           SELECT s3.stockonhandcogs
+                             FROM stock s3
+                            WHERE s3.itemid = i.itemid AND s3.outletid = ?
+                            ORDER BY s3.stockdate DESC, s3.stockid DESC
                             LIMIT 1
                       ) s ON true
                      WHERE {$where}
                      ORDER BY i.itemname ASC";
-            $params = array_merge([$this->outletId], $params);
+            $params = array_merge([$this->outletId, $this->outletId], $params);
         }
 
         return [$sql, $params];
@@ -218,8 +237,14 @@ final class InventoryCountScope
 
         if (!$this->includeZeroStock) {
             if ($this->locationId !== null) {
-                $where[]  = 'EXISTS (SELECT 1 FROM tolocation tlx
-                                      WHERE tlx.locationid = ? AND tlx.itemid = i.itemid)';
+                // context/52 (D4) — "tiene movimientos en ESTE depósito" sale
+                // del ledger, que ya lleva `locationid` por fila; `tolocation`
+                // ya no se escribe, así que preguntarle habría dejado el
+                // conteo por depósito vacío. Mismo predicado que la rama de
+                // sucursal, un filtro más abajo.
+                $where[]  = 'EXISTS (SELECT 1 FROM stock sx
+                                      WHERE sx.outletid = ? AND sx.locationid = ? AND sx.itemid = i.itemid)';
+                $params[] = $this->outletId;
                 $params[] = $this->locationId;
             } else {
                 $where[]  = 'EXISTS (SELECT 1 FROM stock sx

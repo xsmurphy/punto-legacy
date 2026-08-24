@@ -18,8 +18,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 
 // Outlet efectivo: si el browser eligió scope (VIEW_OUTLET_ID definida vía
 // header X-Outlet-Id), prevalece sobre OUTLET_ID del JWT. Tanto el gate como
-// el service necesitan ver el efectivo, no el raw — sino queries internas del
-// service (stockTrigger) leen el outlet equivocado en modo "Todas" o switch.
+// el service necesitan ver el efectivo, no el raw — si no, el agregado del
+// ledger (SUM por sucursal) sale de la sucursal equivocada en modo "Todas" o
+// al switchear.
 $effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
 
 // Gate: requiere una sucursal válida (UUID) — el reporte agrupa stock por outlet.
@@ -30,10 +31,11 @@ if (!preg_match($uuidRe, $effectiveOutletId)) {
     apiOk(['needsOutlet' => true, 'rows' => []]);
 }
 
-try {
-    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, $effectiveOutletId);
-} catch (\RuntimeException $e) {
-    apiError($e->getMessage(), 500);
+// El service ya no recibe fragmentos SQL interpolados (context/52): el scope
+// viaja bindeado. Lo que hacía falta conservar de `Roc::build` es su guard de
+// contexto — que COMPANY_ID sea un UUID real antes de consultar.
+if (!preg_match($uuidRe, (string) COMPANY_ID)) {
+    apiError('Contexto de empresa inválido (companyId no es UUID)', 500);
 }
 
-apiOk(['needsOutlet' => false, 'rows' => $svc->levels($roc, COMPANY_ID, $effectiveOutletId)]);
+apiOk(['needsOutlet' => false, 'rows' => $svc->levels(COMPANY_ID, $effectiveOutletId)]);

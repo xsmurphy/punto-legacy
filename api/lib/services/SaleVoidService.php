@@ -153,7 +153,10 @@ final class SaleVoidService
         $allowIngredientReversal = $this->stockPolicy()->settingAllowIngredientReversal($companyId);
 
         $rs = ncmExecute(
-            'SELECT is1.itemsoldid, is1.itemid, is1.itemsoldunits, is1.itemsoldtotal, is1.itemsoldcogs, i.itemname
+            // `is1.meta`: mismo motivo que en void() — sin ella las hijas de
+            // combo fijo se clasificarían como 'ownStock' y la UI le ofrecería
+            // al cajero reponer stock que nunca se descontó (context/52, G4).
+            'SELECT is1.itemsoldid, is1.itemid, is1.itemsoldunits, is1.itemsoldtotal, is1.itemsoldcogs, is1.meta, i.itemname
                FROM itemsold is1
                JOIN item i ON i.itemid = is1.itemid
               WHERE is1.transactionid = ?',
@@ -280,7 +283,13 @@ final class SaleVoidService
             $policy = $this->stockPolicy();
             $allowIngredientReversal = $policy->settingAllowIngredientReversal($companyId);
             $itemRows = ncmExecute(
-                'SELECT is1.itemsoldid, is1.itemid, is1.itemsoldunits, is1.itemsoldtotal, is1.itemsoldcogs, i.itemname
+                // `is1.meta` es OBLIGATORIA acá: es el único discriminante
+                // persistido de las hijas de combo fijo (`meta.compound`),
+                // que nunca descontaron stock y por lo tanto no se reponen
+                // (context/52 G4 — sin esto, anular un combo repone el
+                // ingrediente dos veces). Lo decide
+                // `StockReversalPolicy::classifyLine()`, no este caller.
+                'SELECT is1.itemsoldid, is1.itemid, is1.itemsoldunits, is1.itemsoldtotal, is1.itemsoldcogs, is1.meta, i.itemname
                    FROM itemsold is1
                    JOIN item i ON i.itemid = is1.itemid
                   WHERE is1.transactionid = ?',

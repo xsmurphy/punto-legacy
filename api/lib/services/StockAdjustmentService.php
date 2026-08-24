@@ -64,8 +64,21 @@ final class StockAdjustmentService
         if (!empty($toProcess)) {
             $db->StartTrans();
 
+            // La transacción se cierra SIEMPRE, también cuando algo lanza:
+            // `manageStock()` ahora propaga los fallos reales de escritura
+            // (context/52 G11) y sin este catch la TX quedaría abierta y
+            // envenenada para el resto del request. Una sola vez por método,
+            // no un guard por call-site.
+            try {
             foreach ($toProcess as $item) {
-                $result = \Punto\App\Domain\Inventory::manageStock([
+                // context/52 (G11) — manageStock() ya no devuelve un booleano
+                // ambiguo: un fallo REAL de escritura lanza (y revierte la
+                // transacción); `false` quedó reservado para el no-op legítimo
+                // "el ítem no trackea inventario", que acá no puede pasar
+                // porque `$toProcess` ya viene filtrado por
+                // itemtrackinventory. Por eso desapareció el `=== false` →
+                // FailTrans: trataba ese no-op como error.
+                \Punto\App\Domain\Inventory::manageStock([
                     'itemId'     => $item['itemId'],
                     'source'     => 'adjustment',
                     'count'      => $item['qty'],
@@ -79,16 +92,15 @@ final class StockAdjustmentService
                     'companyId'  => $companyId,
                 ]);
 
-                if ($result === false) {
-                    $db->FailTrans();
-                    $db->CompleteTrans();
-                    throw new \RuntimeException('Error al aplicar ajuste para item ' . $item['itemId']);
-                }
-
                 $unitCost = isset($item['unitCost']) && is_numeric($item['unitCost']) ? (float) $item['unitCost'] : 0.0;
                 $delta    = (float) $item['qty'] * $unitCost * ($item['type'] === '+' ? 1 : -1);
                 $totalCostDelta   += $delta;
                 $adjustmentsCount++;
+            }
+            } catch (\Throwable $e) {
+                $db->FailTrans();
+                $db->CompleteTrans();
+                throw $e;
             }
 
             $db->CompleteTrans();

@@ -91,6 +91,17 @@ final class ReturnService
      * documentado en `EInvoiceService.php:1767`, sigue roto ahí, fuera de
      * alcance).
      *
+     * context/52 (G4) — las HIJAS de combo fijo (`meta.compound`, F6 de
+     * context/41) quedan FUERA de la agregación: son pura trazabilidad de
+     * reportes, la venta las saltea al descontar stock
+     * (`SaleService::persistItemsAndStock()`) y su importe es 0. Si entraran:
+     * (a) la devolución las ofrecería como línea propia y repondría stock que
+     * nunca se restó, encima del ingrediente que ya repone el padre — doble
+     * reposición; (b) su `itemsoldcogs` NULL diluía hacia abajo el COGS
+     * promedio del ítem cuando ese mismo ítem también se vendió suelto en el
+     * ticket. `jsonb_exists()` y no el operador `?`: el `?` de jsonb colisiona
+     * con el placeholder de PDO (memoria del repo, migs 74/77).
+     *
      * @return array<string,array> itemId => fila agregada (itemsoldid
      *         representativo — MIN, no identifica una fila física puntual
      *         cuando hay 2+ filas del mismo itemId; la clasificación D2 y el
@@ -121,6 +132,7 @@ final class ReturnService
                FROM itemSold is1
                JOIN item i ON i.itemid = is1.itemid
               WHERE is1.transactionid = ?
+                AND NOT (is1.meta IS NOT NULL AND jsonb_exists(is1.meta, \'compound\'))
               GROUP BY is1.itemid',
             [$parentTransactionId],
             false,

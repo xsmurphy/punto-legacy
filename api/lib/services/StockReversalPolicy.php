@@ -36,6 +36,9 @@ use Punto\Api\Waste\WasteReasonService;
  *     INSUMOS (multi-nivel, `Inventory::explodeRecipe`), nunca el ítem.
  *   - Servicio / sin stock → kind='service'. `canRestock` siempre false,
  *     no hubo nada que descontar.
+ *   - Hija de combo fijo (`meta.compound`) → kind='compoundChild'.
+ *     `canRestock` y `hadStockImpact` siempre false: la venta NUNCA movió
+ *     stock por esa línea (context/52, G4).
  *
  * Lo que no se repone y tuvo impacto real de stock (`hadStockImpact`) genera
  * `waste_event` con el COGS de la línea — la pérdida queda registrada en vez
@@ -82,6 +85,36 @@ final class StockReversalPolicy
         $total  = abs((float) ($f['itemsoldtotal'] ?? 0));
         $unitCogs = abs((float) ($f['itemsoldcogs'] ?? 0));
 
+        // context/52 (G4) — hija de combo FIJO: NUNCA descontó stock.
+        // `SaleService::persistItemsAndStock()` saltea estas líneas con
+        // `continue` (son pura trazabilidad de reportes, F6 de context/41); el
+        // stock físico lo descontó el PADRE explotando la receta. Si la
+        // reversa las clasificara como 'ownStock' acreditaría unidades que
+        // nunca se restaron Y ADEMÁS repondría los mismos insumos vía el
+        // padre: doble reposición del inventario en cada anulación/devolución
+        // de un combo. El discriminante persistido es `itemSold.meta`
+        // (`meta.compound`, ver `SaleService::resolveItemSoldMeta()`) — NO
+        // `itemSoldParent`, que las hijas de ADD-ON también llevan y esas SÍ
+        // descontaron su propio stock (entran al loop de la venta como
+        // cualquier otra línea).
+        if (self::isCompoundChildRow($f)) {
+            return [
+                'itemSoldId'     => (string) ($f['itemsoldid'] ?? ''),
+                'itemId'         => $itemId,
+                'name'           => (string) ($f['itemname'] ?? ''),
+                'qty'            => $units,
+                'unitPrice'      => $units > 0 ? round($total / $units, 2) : 0.0,
+                'unitCogs'       => round($unitCogs, 4),
+                'kind'           => 'compoundChild',
+                'canRestock'     => false,
+                'defaultRestock' => false,
+                // Sin impacto de stock propio => tampoco genera waste_event:
+                // la merma del combo la registra la línea del PADRE con su
+                // COGS completo (el de la hija es NULL a propósito).
+                'hadStockImpact' => false,
+            ];
+        }
+
         $explodes = Inventory::saleExplodesRecipe($itemId, $companyId);
         $leaves   = $explodes ? Inventory::explodeRecipe($itemId, $companyId, $units) : [];
 
@@ -114,6 +147,28 @@ final class StockReversalPolicy
             'defaultRestock' => $default,
             'hadStockImpact' => $hadStockImpact,
         ];
+    }
+
+    /**
+     * ¿La fila de `itemSold` es una hija de combo fijo (`meta.compound`)?
+     *
+     * El marcador vive en la columna JSONB `itemSold.meta`. El caller debe
+     * traerla en su SELECT; si no viene, se asume que NO es hija de compound
+     * (las ventas anteriores a F6 de context/41 directamente no tienen estas
+     * líneas, así que el default preserva su comportamiento).
+     *
+     * @param array|\ArrayAccess $f
+     */
+    private static function isCompoundChildRow(array|\ArrayAccess $f): bool
+    {
+        $meta = $f['meta'] ?? null;
+        if ($meta === null || $meta === '') {
+            return false;
+        }
+        if (is_string($meta)) {
+            $meta = json_decode($meta, true);
+        }
+        return is_array($meta) && array_key_exists('compound', $meta);
     }
 
     /**
@@ -216,6 +271,13 @@ final class StockReversalPolicy
         string $userId,
         string $source
     ): void {
+        if ($d['kind'] === 'compoundChild') {
+            // No debería llegar acá (canRestock=false lo clampea antes), pero
+            // el guard es explícito: reponer una hija de combo ES la doble
+            // reposición que context/52 vino a cerrar.
+            return;
+        }
+
         if ($d['kind'] === 'ownStock') {
             $locRow = ncmExecute('SELECT locationid FROM item WHERE itemid = ? AND companyid = ? LIMIT 1', [$d['itemId'], $companyId]);
             Inventory::manageStock([

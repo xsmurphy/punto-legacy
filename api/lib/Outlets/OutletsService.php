@@ -218,51 +218,17 @@ final class OutletsService
             );
         }
 
-        // Inventory blank-rows: solo si el plan de la company incluye `inventory`.
-        // `inventory` vive en el JSONB `features` (db-schema-postgres.sql:78) como
-        // BOOLEAN (`true`/`false`), no integer — el seed `plans` serializa PHP
-        // bool→json bool. `(features->>'inventory')::int` tira 22P02
-        // "invalid input syntax for type integer: \"true\"" y aborta la TX → el
-        // INSERT inicial se rollbackea silente. Comparamos jsonb directo y
-        // emitimos 0/1 (NULL/key ausente → 0).
-        $planRow = ncmExecute(
-            "SELECT CASE WHEN p.features->'inventory' = 'true'::jsonb THEN 1 ELSE 0 END AS inventory
-               FROM company c JOIN plans p ON p.plan_code = c.plan
-              WHERE c.companyId = ? LIMIT 1",
-            [$companyId]
-        );
-        $allowsInventory = (int) ($planRow['inventory'] ?? 0);
-
-        if ($allowsInventory > 0) {
-            // SAVEPOINT defensivo: el comentario original prometía "log y seguimos"
-            // si el backfill falla, pero en PG cualquier error dentro de una TX la
-            // pone en estado *aborted* — el siguiente query (UPDATE outlet del
-            // update() de abajo) cae con 25P02 "current transaction is aborted".
-            // Con SAVEPOINT podemos rollbackear SOLO el INSERT y mantener la TX
-            // viva, cumpliendo el contrato del comentario.
-            //
-            // itemTrackInventory pasó a BOOLEAN en la Migración 15 (item_kind) —
-            // `> 0` tira 42883 "operator does not exist: boolean > integer". Usar
-            // `IS TRUE` matchea el patrón ya aplicado en la propia Migración 15.
-            // itemStatus sigue siendo smallint, `= 1` es correcto.
-            $db->Execute('SAVEPOINT inventory_backfill');
-            $invRes = $db->Execute(
-                "INSERT INTO inventory (inventoryCount, itemId, inventorySource, companyId, outletId)
-                 SELECT 0, itemId, 'new_outlet', ?, ?
-                 FROM item
-                 WHERE companyId = ? AND itemTrackInventory IS TRUE AND itemStatus = 1",
-                [$companyId, $outletId, $companyId]
-            );
-            if ($invRes === false) {
-                // hay tenants con miles de items y un timeout acá no debe
-                // perder la sucursal recién creada. Log y seguimos.
-                $errMsg = method_exists($db, 'ErrorMsg') ? (string) $db->ErrorMsg() : '';
-                $db->Execute('ROLLBACK TO SAVEPOINT inventory_backfill');
-                error_log('[outlets.create] inventory backfill failed for outlet ' . $outletId . ': ' . $errMsg);
-            } else {
-                $db->Execute('RELEASE SAVEPOINT inventory_backfill');
-            }
-        }
+        // context/52 (D5/G9) — RETIRADO el backfill de filas en blanco a
+        // `inventory`. Esa tabla se pensó para batches FIFO/FEFO (lote,
+        // vencimiento) y nunca se implementó: no tiene UN SOLO lector en todo
+        // el repo, así que insertar una fila con count=0 por cada ítem del
+        // tenant al crear una sucursal era escribir miles de filas que nadie
+        // consulta jamás. El saldo por sucursal sale del ledger `stock`, que
+        // no necesita filas de inicialización: un ítem sin movimientos tiene
+        // saldo 0 por definición (`SUM` de cero filas). Si algún día se hace
+        // vencimiento/lotes se diseña de cero sobre el ledger. El DROP de la
+        // tabla va en una mig posterior; los DELETE de limpieza al borrar
+        // sucursal/company se conservan mientras la tabla exista.
 
         // Si el caller mandó campos del form, aplicamos el resto via update() para
         // no duplicar la lógica de routing JSONB (address/phone/etc) ni de
