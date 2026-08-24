@@ -48,6 +48,9 @@ require_once __DIR__ . '/_harness.php';
  *      dejarla sin caja. Es la SEGUNDA puerta al mismo estado (cero cajas
  *      operables) y se escapa de cualquier guard escrito en el call-site de
  *      `delete()`; de ahí que el guard viva en un método compartido.
+ *   G. …pero una caja YA inactiva sí se borra: el guard defiende la cadena, no
+ *      la existencia de filas. Sin esto, la sucursal con todas las cajas dadas
+ *      de baja quedaba en 409 perpetuo, sin forma de limpiarla.
  *
  * `Auth\SignupService` no se ejercita acá (necesita el request completo del
  * alta: teléfono, roles, ítems demo, país). Su cadena queda cubierta por el
@@ -262,8 +265,23 @@ if ($outletC) {
     // El depósito de la segunda sucursal NO puede chocar con el de la primera:
     // `uq_taxonomy_company_type_name` (mig 38) es UNIQUE sobre
     // (companyid, taxonomytype, lower(name)) y un nombre fijo reventaría acá.
-    // Este check es la regresión de ese bug, que abortaba el alta ENTERA.
-    check('C: dos altas seguidas en la misma company conviven', true, true, $failures, $checks);
+    // Este check es la regresión de ese bug, que abortaba el alta ENTERA — así
+    // que compara los nombres REALES de los dos depósitos, no una tautología:
+    // si `ensureDefault()` volviera a un literal fijo, acá saldrían iguales.
+    $nombreB = ncmExecute(
+        "SELECT taxonomyname FROM taxonomy WHERE outletid = ? AND taxonomytype = 'location' LIMIT 1",
+        [(string) $outletB]
+    );
+    $nombreC = ncmExecute(
+        "SELECT taxonomyname FROM taxonomy WHERE outletid = ? AND taxonomytype = 'location' LIMIT 1",
+        [(string) $outletC]
+    );
+    $nB = (string) ($nombreB['taxonomyname'] ?? '');
+    $nC = (string) ($nombreC['taxonomyname'] ?? '');
+
+    check('C: el depósito de B tiene nombre',            $nB !== '',                       true, $failures, $checks);
+    check('C: el depósito de C tiene nombre',            $nC !== '',                       true, $failures, $checks);
+    check('C: los dos depósitos NO comparten nombre',    strtolower($nB) !== strtolower($nC), true, $failures, $checks);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -370,6 +388,51 @@ if ($outletC) {
         $cadF = cadenaDe((string) $outletC);
         check('F: la sucursal conserva su caja activa', $cadF['cajas'], 1, $failures, $checks);
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// G. Una caja YA inactiva sí se puede borrar (no hay 409 perpetuo)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// El guard defiende la cadena, no la existencia de filas. Una caja ya dada de
+// baja no es un eslabón vigente: si igual se le exigiera que quede otra activa,
+// la sucursal cuyas cajas están TODAS inactivas — el estado que la mig 166 deja
+// explícitamente para decisión humana — no podría limpiarse nunca desde el
+// panel.
+//
+// El fixture se arma con SQL directo justamente porque el guard impide llegar a
+// ese estado por la API.
+
+echo "\n=== G. La caja ya inactiva se puede borrar ===\n\n";
+
+$outletG = $svc->create($companyId, ['name' => 'Arnés Cadena G ' . bin2hex(random_bytes(3))]);
+if ($outletG) { $creados[] = (string) $outletG; }
+
+check('G: se creó la sucursal del caso', is_string($outletG) && $outletG !== '', true, $failures, $checks);
+
+if ($outletG) {
+    $rG = ncmExecute(
+        'SELECT registerId FROM register WHERE outletId = ? LIMIT 1',
+        [(string) $outletG]
+    );
+    $cajaG = $rG ? (string) $rG['registerId'] : null;
+
+    // Baja "a mano" — deja la sucursal con cero cajas activas, que es
+    // exactamente el estado heredado que hay que poder resolver.
+    $db->Execute('UPDATE register SET registerStatus = FALSE WHERE registerId = ?', [$cajaG]);
+
+    $cadGPrevia = cadenaDe((string) $outletG);
+    check('G: la sucursal quedó sin cajas activas', $cadGPrevia['cajas'], 0, $failures, $checks);
+
+    $json = bajaCajaEnSubproceso($companyId, (string) $cajaG, 'delete');
+
+    check('G: delete() de la caja inactiva devolvió ok', ($json['ok'] ?? null) === true, true, $failures, $checks);
+
+    $quedan = ncmExecute(
+        'SELECT COUNT(*)::int AS cnt FROM register WHERE outletId = ?',
+        [(string) $outletG]
+    );
+    check('G: la caja se borró de verdad', (int) ($quedan['cnt'] ?? -1), 0, $failures, $checks);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

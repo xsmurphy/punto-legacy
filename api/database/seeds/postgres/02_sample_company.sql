@@ -85,6 +85,27 @@ SELECT 'c0a8d1f2-3b4c-4d5e-9f60-718293a4b5c6',
         AND taxonomyType = 'location'
  );
 
+-- Caja de la sucursal demo — el otro hermano de la cadena.
+--
+-- El registerId es EL MISMO que usa `04_dev_register_and_items.sql`, a
+-- propósito: ese seed hace `ON CONFLICT (registerid) DO UPDATE` y le agrega los
+-- hotkeys precargados que saltean el wizard de primer arranque del POS. Con el
+-- id compartido, el 04 enriquece ESTA fila en vez de crear una segunda caja, y
+-- sigue siendo el dueño de los hotkeys.
+--
+-- Va acá y no solo en el 04 porque los seeds se corren también sueltos: con
+-- 01+02 nada más, la sucursal demo quedaba sin caja y violaba el invariante de
+-- context/08 §58 (que el arnés `outlet_chain_invariant_test.php` marca en rojo).
+INSERT INTO register (registerId, registerName, registerStatus, outletId, companyId)
+SELECT '51169383-9306-4f56-a293-037dbadea2d9',
+       'Caja Principal',
+       TRUE,
+       'ff8470f8-5952-4297-9ce0-fda08c701c21',
+       '2cffe736-f5dc-4876-9752-ea5f0db24757'
+ WHERE NOT EXISTS (
+     SELECT 1 FROM register WHERE outletId = 'ff8470f8-5952-4297-9ce0-fda08c701c21'
+ );
+
 -- Usuario admin de la empresa demo (login: +5950991234567 / admin123)
 -- Tenants login SOLO por teléfono (E.164). Email queda como dato opcional del perfil.
 INSERT INTO contact (

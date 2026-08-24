@@ -877,6 +877,18 @@ Ambos guards son fail-CLOSED: el wrapper de DB lanza ante error SQL (§54), así
 que una verificación que no responde aborta el request en vez de dejar pasar la
 baja.
 
+Dos precisiones del guard de la caja:
+
+- **Solo aplica si la caja está ACTIVA.** Una caja ya dada de baja no sostiene
+  la cadena; exigirle que quede otra activa dejaba en 409 perpetuo a la sucursal
+  con todas las cajas inactivas, sin forma de limpiarla.
+- **Bloquea la fila del OUTLET con `FOR UPDATE`, dentro de la transacción de la
+  baja.** Contar sin lock es un TOCTOU: dos bajas concurrentes sobre una
+  sucursal de dos cajas pasan las dos y la dejan en cero. Se bloquea el outlet y
+  no las cajas hermanas porque bloquear hermanas se deadlockea (A espera a B y B
+  a A); la fila del outlet es una sola y siempre la misma, así que serializa sin
+  ciclo posible.
+
 ### Crear una caja NO es asignar un punto de expedición
 
 La caja por defecto nace con `data = '{}'`: sin timbrado y sin `EEE-PPP`. El
@@ -896,7 +908,12 @@ Sucursal › Cajas, que es lo único que escribe esos campos
   caja: única sucursal sin caja en producción. Backfill mig 166.
 
 Los seeds son caminos de alta y cuentan: `01_master_admin.sql`,
-`02_sample_company.sql` y `verify_chain/seed.sql` ya traen su cadena completa.
+`02_sample_company.sql` y `verify_chain/seed.sql` traen su cadena completa cada
+uno POR SEPARADO — correr solo el 01 y el 02 tiene que dejar la base cumpliendo
+el invariante, sin depender de que después venga el 04. El 02 y el
+`04_dev_register_and_items.sql` comparten a propósito el mismo `registerId`: el
+04 hace `ON CONFLICT DO UPDATE` y le agrega los hotkeys a ESA fila en vez de
+crear una segunda caja.
 
 Arnés: `api/tests/outlet_chain_invariant_test.php` — escanea TODA la base
 (ninguna sucursal de ningún tenant sin depósito, sin default o sin caja activa)

@@ -95,6 +95,15 @@ final class SignupService
             'companyId'    => $companyInsert,
         ], 'table' => 'outlet']);
 
+        // Cada eslabón de la cadena se chequea: si la sucursal no se creó, lo
+        // que sigue (depósito, caja, usuario) colgaría de un outletId vacío y
+        // el tenant nacería roto en vez de fallar acá.
+        if (!$outletInsert) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            return ['ok' => false, 'error' => 'No se pudo crear la sucursal inicial'];
+        }
+
         // Depósito por defecto de la sucursal inicial. Toda sucursal tiene sí o
         // sí uno (regla del owner 2026-08-24) y este camino de alta lo estaba
         // salteando: el tenant nacía con "Central" sin ningún depósito, así
@@ -118,6 +127,20 @@ final class SignupService
             'outletId'       => $outletInsert,
             'companyId'      => $companyInsert,
         ], 'table' => 'register']);
+
+        // La caja es el último eslabón de la cadena obligatoria
+        // Company > Sucursal > (Depósito | Caja) (context/08 §58) y hasta acá
+        // era el único que fallaba en silencio: el depósito aborta por su
+        // try/catch y la sucursal por el chequeo de arriba, pero un
+        // `registerInsert` vacío seguía de largo y el tenant terminaba el
+        // signup con una sucursal sin caja — sin poder abrir turno ni emitir un
+        // solo documento, que es exactamente el estado que este invariante
+        // existe para impedir.
+        if (!$registerInsert) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            return ['ok' => false, 'error' => 'No se pudo crear la caja de la sucursal inicial'];
+        }
 
         // Settings derivados del país del usuario.
         $countryCode = strtoupper((string) ($post['country'] ?? 'PY'));
