@@ -44,9 +44,11 @@ import { useTaxes } from "@/hooks/use-taxes"
 import { buildDemoTicketData, buildTemplateTestData } from "@/lib/hardware/printers/build-ticket-data"
 import { simulateTemplatePrint } from "@/lib/hardware/printers"
 import { getBlockPlaceholder, type PaletteItem } from "@/lib/print-template-palette"
+import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard"
 import {
   MIN_BLOCK_SIZE,
   PAPER_DIMENSIONS,
+  canonicalizeTemplateForCompare,
   defaultBlock,
   defaultTemplateConfig,
   isReceipt,
@@ -180,6 +182,43 @@ export function TemplateEditor({ existing }: Props) {
   const widthPx = dim.widthMm * mm
   const heightPx = dim.heightMm * mm
   const ticket = isReceipt(config.page_size)
+
+  // ── Cambios sin guardar ────────────────────────────────────────────────────
+  // El editor es trabajo de precisión y no tiene autoguardado: salir sin
+  // guardar tira todo el posicionamiento (pedido owner 2026-08-24). El
+  // baseline es lo ÚLTIMO que se persistió — arranca en lo que vino del
+  // backend y se re-basa en cada guardado exitoso, no en cada edición.
+  //
+  // La comparación va contra la forma CANÓNICA (`canonicalizeTemplateForCompare`
+  // en lib/types/print-template.ts): el `mm` re-medido al montar y el
+  // auto-clamp de bloques contra el papel mueven el config sin que el usuario
+  // toque nada, y marcar eso como "sin guardar" sería el falso positivo que
+  // hace que el aviso se ignore.
+  // El baseline se guarda CRUDO (no canonicalizado): la canonicalización
+  // depende de `mm`, que se re-mide después del primer render, así que los dos
+  // lados tienen que pasar por la misma escala en el mismo momento. Guardar el
+  // string ya canonicalizado con el `mm` viejo marcaría todo como sucio apenas
+  // el sentinel corrige la medición.
+  //
+  // No hace falta re-basar cuando cambia `existing`: la página monta el editor
+  // con `key={templateId}` (ver app/(panel)/settings/print-templates/page.tsx),
+  // así que cambiar de plantilla es un remount y este state nace de nuevo.
+  const [saved, setSaved] = React.useState(() => ({
+    name: existing?.name ?? "",
+    docType: (existing?.docType ?? "invoice") as DocumentTemplateRow["docType"],
+    config: initialConfig,
+  }))
+
+  const dirty =
+    name !== saved.name ||
+    docType !== saved.docType ||
+    canonicalizeTemplateForCompare(config, mm) !==
+      canonicalizeTemplateForCompare(saved.config, mm)
+
+  // Cubre cerrar/recargar la pestaña y los clicks a links dentro de la app.
+  // La navegación por código (el botón "volver" de acá abajo) se cubre
+  // llamando a `confirmDiscard()` — ver docblock del hook.
+  const guard = useUnsavedChangesGuard(dirty)
 
   // ── Mutadores de config ────────────────────────────────────────────────────
 
@@ -406,11 +445,17 @@ export function TemplateEditor({ existing }: Props) {
       toast.error("Falta el nombre de la plantilla")
       return
     }
+    // `page_name` se sincroniza con el nombre AL GUARDAR — se persiste dentro
+    // del config aunque el input viva aparte. El mismo objeto que se manda es
+    // el que queda como baseline y como state local, así los tres coinciden y
+    // el guard de cambios sin guardar no queda sucio para siempre por un campo
+    // que el usuario nunca ve.
+    const savedConfig: PrintTemplateConfig = { ...config, page_name: trimmedName }
     const payload = {
       name: trimmedName,
       docType,
       pageSize: paperSizeToBackend(config.page_size),
-      config: { ...config, page_name: trimmedName } as unknown as Record<string, unknown>,
+      config: savedConfig as unknown as Record<string, unknown>,
     }
     try {
       if (existing) {
@@ -421,6 +466,11 @@ export function TemplateEditor({ existing }: Props) {
         toast.success("Plantilla creada")
         router.replace(`/settings/print-templates?id=${created.templateId}`)
       }
+      // Guardado OK → esto es lo persistido. Desarma el aviso de cambios sin
+      // guardar hasta la próxima edición.
+      setName(trimmedName)
+      setConfig(savedConfig)
+      setSaved({ name: trimmedName, docType, config: savedConfig })
     } catch (e) {
       // Logueamos a consola con el payload completo para diagnóstico — el toast
       // solo muestra el message del backend, que puede ser corto.
@@ -471,7 +521,19 @@ export function TemplateEditor({ existing }: Props) {
 
       {/* Header */}
       <header className="flex items-center gap-3 border-b px-4 py-2.5">
-        <Button variant="ghost" size="icon" className="size-8" onClick={() => router.push("/settings")}>
+        {/* Navegación por CÓDIGO: el listener de clicks del guard solo ve
+            `<a href>`, así que este call site pregunta por su cuenta (ver
+            docblock de useUnsavedChangesGuard). Sin cambios pendientes
+            `confirmDiscard()` devuelve true sin molestar. */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          aria-label="Volver a Ajustes"
+          onClick={() => {
+            if (guard.confirmDiscard()) router.push("/settings")
+          }}
+        >
           <ChevronLeft className="size-4" />
         </Button>
         <Input

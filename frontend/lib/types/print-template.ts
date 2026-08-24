@@ -293,6 +293,83 @@ export function applyReceiptWidthRule(
   return { left, top, width, height }
 }
 
+/**
+ * Forma canónica de una plantilla para comparar "¿esto cambió?" — la usa el
+ * guard de cambios sin guardar del editor (`useUnsavedChangesGuard`,
+ * hooks/use-unsaved-changes-guard.ts).
+ *
+ * NO se puede comparar el config crudo contra el que vino del backend: al
+ * abrir el editor pasan dos cosas que el usuario no hizo y que igual mueven
+ * el objeto.
+ *
+ *  1. `mm` se re-mide con el sentinel de 1mm del browser actual
+ *     (`template-editor.tsx`), así que casi siempre difiere del valor
+ *     guardado — es una propiedad del DISPOSITIVO que abre el editor, no del
+ *     diseño. Por eso se excluye de la comparación.
+ *
+ *  2. Los bloques se auto-corrigen contra el papel apenas se montan
+ *     (`clampBlockToPaper` / `applyReceiptWidthRule`, disparados desde el
+ *     efecto de `canvas-block.tsx`) — una plantilla vieja diseñada para otro
+ *     tamaño de papel se acomoda sola. Acá se aplican las MISMAS dos reglas a
+ *     los dos lados de la comparación, así que ese acomodo no cuenta como
+ *     edición.
+ *
+ * Sin esto el guard preguntaría "¿hay cambios sin guardar?" al abrir y salir
+ * sin tocar nada, que es justo el falso positivo que entrena al usuario a
+ * ignorar el aviso.
+ *
+ * `mm` entra por parámetro (no se lee de `config.mm`) para que los dos lados
+ * se normalicen con la MISMA escala: si el baseline usara su `mm` guardado y
+ * el actual el medido, los clamps darían anchos distintos por redondeo y todo
+ * volvería a marcarse como sucio.
+ */
+export function canonicalizeTemplateForCompare(config: PrintTemplateConfig, mm: number): string {
+  const dim = PAPER_DIMENSIONS[config.page_size] ?? PAPER_DIMENSIONS.a4page
+  const ratio = mm > 0 ? mm : 3.78
+  const widthPx = dim.widthMm * ratio
+  const heightPx = dim.heightMm * ratio
+  const ticket = isReceipt(config.page_size)
+
+  // Orden de claves FIJO, no spread del bloque original: los bloques del
+  // backend vienen de un JSONB y los recién creados de `defaultBlock`, así que
+  // el orden de claves puede diferir aunque el contenido sea idéntico —
+  // `JSON.stringify` lo notaría y marcaría un "sucio" fantasma.
+  const data = (config.data ?? []).map((b) => {
+    const fix =
+      (ticket ? applyReceiptWidthRule(b, widthPx, heightPx) : clampBlockToPaper(b, widthPx, heightPx)) ?? b
+    return {
+      type: b.type,
+      text: b.text,
+      top: fix.top,
+      left: fix.left,
+      width: fix.width,
+      height: fix.height,
+      size: b.size,
+      family: b.family,
+      align: b.align,
+      bold: b.bold,
+      textwrap: b.textwrap,
+      url: b.url,
+    }
+  })
+
+  // `mm` fuera (es del dispositivo, no del diseño); el resto entra tal cual.
+  // Se enumeran los campos en vez de hacer spread para que la comparación sea
+  // estable: `JSON.stringify` respeta el orden de inserción de las claves, y
+  // dos objetos con las mismas claves en distinto orden darían strings
+  // distintos y un "sucio" fantasma.
+  return JSON.stringify({
+    page_size: config.page_size,
+    page_size_name: config.page_size_name,
+    page_name: config.page_name,
+    page_font_family: config.page_font_family,
+    page_font_size: config.page_font_size,
+    page_font_case: config.page_font_case,
+    receipt_left_margin: config.receipt_left_margin,
+    data,
+  })
+}
+
 // ── Backend row shape (lo que devuelve /v1/document-templates) ──────────────
 
 export interface DocumentTemplateRow {
