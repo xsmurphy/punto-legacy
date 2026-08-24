@@ -4,6 +4,7 @@ import * as React from "react"
 import { Dialog as DialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { isolateOverlaySubmit } from "@/lib/overlay-form-isolation"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
@@ -120,6 +121,10 @@ const DialogSectionedContext = React.createContext(false)
  * pegado al borde (reporte del owner 2026-08-23, diálogo "Ventas pendientes de
  * sincronizar").
  *
+ * El `submit` de cualquier `<form>` que se monte adentro NO sale del content:
+ * ver `lib/overlay-form-isolation.ts` (React propaga por su árbol, no por el
+ * del DOM — el portal no aísla nada). Es default del primitive, no opt-in.
+ *
  * NO uses `sectioned` en command palettes (`components/ui/command.tsx`, el
  * buscador de productos/clientes) ni en los shells fullscreen que montan un
  * módulo entero adentro del modal (`app/(pos)/pos/layout.tsx`,
@@ -132,6 +137,7 @@ function DialogContent({
   showCloseButton = true,
   mobileFullscreen = false,
   sectioned = false,
+  onSubmit,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -153,6 +159,7 @@ function DialogContent({
           className
         )}
         {...props}
+        onSubmit={isolateOverlaySubmit(onSubmit)}
       >
         <DialogSectionedContext.Provider value={sectioned}>
           {children}

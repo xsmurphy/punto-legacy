@@ -4,6 +4,7 @@ import * as React from "react"
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { isolateOverlaySubmit } from "@/lib/overlay-form-isolation"
 import { Button } from "@/components/ui/button"
 
 function AlertDialog({
@@ -44,10 +45,17 @@ function AlertDialogOverlay({
   )
 }
 
+/**
+ * El `submit` de cualquier `<form>` que se monte adentro NO sale del content:
+ * ver `lib/overlay-form-isolation.ts`. Mismo motivo que en `dialog.tsx` —
+ * React propaga por su árbol, no por el del DOM, así que el portal no impide
+ * que el form de la página que quedó atrás reciba el submit.
+ */
 function AlertDialogContent({
   className,
   size = "default",
   onOpenAutoFocus,
+  onSubmit,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
@@ -78,6 +86,7 @@ function AlertDialogContent({
           className
         )}
         {...props}
+        onSubmit={isolateOverlaySubmit(onSubmit)}
       />
     </AlertDialogPortal>
   )

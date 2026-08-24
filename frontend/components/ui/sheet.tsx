@@ -4,6 +4,7 @@ import * as React from "react"
 import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { isolateOverlaySubmit } from "@/lib/overlay-form-isolation"
 import { Button } from "@/components/ui/button"
 import { XIcon } from "lucide-react"
 
@@ -45,12 +46,19 @@ function SheetOverlay({
   )
 }
 
+/**
+ * El `submit` de cualquier `<form>` que se monte adentro NO sale del content:
+ * ver `lib/overlay-form-isolation.ts`. Mismo motivo que en `dialog.tsx` —
+ * React propaga por su árbol, no por el del DOM, así que el portal no impide
+ * que el form de la página que quedó atrás reciba el submit.
+ */
 function SheetContent({
   className,
   children,
   side = "right",
   showCloseButton = true,
   overlay = true,
+  onSubmit,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
@@ -68,6 +76,7 @@ function SheetContent({
           className
         )}
         {...props}
+        onSubmit={isolateOverlaySubmit(onSubmit)}
       >
         {children}
         {showCloseButton && (
