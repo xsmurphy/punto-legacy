@@ -522,14 +522,26 @@ final class TransactionsService
             return [];
         }
         $ph  = implode(',', array_fill(0, count($ids), '?'));
-        $res = ncmExecute(
+        // `ncmRows` y no `getAssoc`: getAssoc indexa por la primera columna
+        // (`transactionid`, que NO es única en einvoice_document — un reintento
+        // o una rectificación agregan filas) y colapsa ANTES de que corra el
+        // loop de abajo. O sea que INVERTÍA el criterio documentado: el
+        // `ORDER BY created_at DESC` + "me quedo con el primero" dice "el más
+        // reciente", pero el que sobrevivía al colapso era el ÚLTIMO iterado,
+        // el más VIEJO. El badge de facturación electrónica podía mostrar el
+        // estado del intento fallido en vez de la rectificación aprobada.
+        // `NULLS LAST` para que una fila sin fecha no se robe el primer
+        // puesto (en DESC el default de PG es NULLS FIRST), y `einvoicedocid`
+        // como desempate estable — los UUID acá son v4 random, no ordenan por
+        // tiempo, pero sirven para que dos filas con el mismo `created_at`
+        // elijan siempre la misma y no una distinta por request.
+        $res = ncmRows(
             "SELECT transactionid, status, cdc, error_message
                FROM einvoice_document
               WHERE companyid = ? AND transactionid IN ($ph)
-              ORDER BY created_at DESC",
-            array_merge([$companyId], $ids), false, false, true
+              ORDER BY created_at DESC NULLS LAST, einvoicedocid DESC",
+            array_merge([$companyId], $ids)
         );
-        $res = is_array($res) ? $res : [];
         $map = [];
         foreach ($res as $d) {
             $txId = (string) ($d['transactionid'] ?? '');
@@ -635,14 +647,21 @@ final class TransactionsService
         // Anchos de TODAS las secuencias de estas cajas en UNA query — el
         // formateo de un listado no puede hacer un SELECT por fila (por eso
         // `DocumentNumber::formatFor()` no se usa acá).
+        //
+        // `ncmRows` y no `getAssoc`: el resultado es una fila POR TALONARIO
+        // (una caja lleva factura + cotización + recibo…), así que `scopeid`
+        // —la primera columna— se repite y getAssoc dejaba una sola por caja.
+        // El mapa docType→ancho terminaba con UN solo docType y el resto de
+        // los documentos de esa caja caía al default genérico de
+        // `DocumentNumber::format()` en vez de usar el ancho configurado.
         $padByRegister = [];
-        $seqRes = ncmExecute(
+        $seqRes = ncmRows(
             "SELECT scopeid, doctype, padwidth
                FROM document_sequence
               WHERE companyid = ? AND scopetype = 'register' AND scopeid IN ($ph)",
-            array_merge([$companyId], $ids), false, false, true
+            array_merge([$companyId], $ids)
         );
-        foreach (is_array($seqRes) ? $seqRes : [] as $s) {
+        foreach ($seqRes as $s) {
             $padByRegister[(string) $s['scopeid']][(string) $s['doctype']] = (int) $s['padwidth'];
         }
 

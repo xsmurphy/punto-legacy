@@ -32,8 +32,14 @@ final class ProductionService
         $sql = "SELECT itemId, productionCount, productionCOGS, productionType
                 FROM production
                 WHERE productionDate BETWEEN ? AND ? AND productionType = true" . $roc;
-        $res = ncmExecute($sql, [$from, $to], false, false, true);
-        foreach (is_array($res) ? $res : [] as $f) {
+        // `ncmRows` y no `getAssoc`: la query NO agrupa —trae un registro por
+        // entrada de producción— y getAssoc indexa por la primera columna
+        // (`itemId`), que se repite en cuanto un ítem se produce dos veces en
+        // el rango. El acumulador de abajo (`+=`) existía justamente para
+        // sumar esas entradas y nunca veía más de una: unidades y COGS del
+        // tab "General" salían subestimados. Ver `DB::GetAssoc()`.
+        $res = ncmRows($sql, [$from, $to]);
+        foreach ($res as $f) {
             $id = (string) $f['itemId'];
             if (isset($items[$id])) {
                 $items[$id]['units'] += (float) $f['productionCount'];
@@ -53,8 +59,13 @@ final class ProductionService
         $sql = "SELECT itemId, qtyProduced, ingredientCost
                 FROM production_order
                 WHERE status = 'completed' AND completed_at BETWEEN ? AND ?" . $roc;
-        $res = ncmExecute($sql, [$from, $to], false, false, true);
-        foreach (is_array($res) ? $res : [] as $f) {
+        // Mismo caso que (1): una fila por ORDEN completada, sin GROUP BY, y
+        // `itemId` como primera columna. Con getAssoc, de las N órdenes del
+        // mismo ítem en el rango sobrevivía una sola (verificado en prod: un
+        // ítem con 5 órdenes completadas, 240 unidades y 1.437.346 de costo,
+        // reportaba lo de UNA).
+        $res = ncmRows($sql, [$from, $to]);
+        foreach ($res as $f) {
             $id = (string) $f['itemId'];
             $units = (float) $f['qtyProduced'];
             $cogs  = (float) $f['ingredientCost'];
@@ -142,10 +153,15 @@ final class ProductionService
                 AND c.itemType NOT IN ('combo', 'precombo')
                 AND EXISTS (SELECT 1 FROM item_compound ic WHERE ic.parentItemId = c.itemId)
                 ORDER BY usold DESC";
-        $res = ncmExecute($sql, [$from, $to], false, false, true);
+        // Este tab promete LÍNEA POR LÍNEA (a diferencia de general(), que sí
+        // agrupa), pero se leía con getAssoc indexando por `a.itemId as id`:
+        // de todas las ventas de un ítem quedaba una sola fila. En prod, 129
+        // líneas de venta colapsaban a 5 — el "Detallado" mostraba menos
+        // información que el "General". `ncmRows` devuelve las 129.
+        $res = ncmRows($sql, [$from, $to]);
 
         $lines = [];
-        foreach (is_array($res) ? $res : [] as $f) {
+        foreach ($res as $f) {
             $lines[] = [
                 'id' => (string) $f['id'], 'units' => (float) $f['usold'], 'cogs' => (float) $f['cogs'],
                 'type' => 'direct_production', 'date' => (string) $f['sdate'],
@@ -164,8 +180,13 @@ final class ProductionService
         // (1) Producción previa: receta JSON.
         $sql = "SELECT itemId, productionDate, productionRecipe FROM production
                 WHERE productionDate BETWEEN ? AND ? AND productionType = true" . $roc;
-        $res = ncmExecute($sql, [$from, $to], false, false, true);
-        foreach (is_array($res) ? $res : [] as $f) {
+        // Una fila por entrada de producción (cada una con su receta JSON y su
+        // fecha), sin GROUP BY y con `itemId` primero: getAssoc dejaba SOLO la
+        // última entrada de cada ítem, así que el tab "Compuestos" perdía
+        // todos los insumos consumidos por las producciones anteriores del
+        // mismo compuesto dentro del rango.
+        $res = ncmRows($sql, [$from, $to]);
+        foreach ($res as $f) {
             $recipe = json_decode((string) ($f['productionRecipe'] ?? ''), true);
             if (!is_array($recipe)) { continue; }
             $date = substr((string) $f['productionDate'], 0, 10);
@@ -179,15 +200,33 @@ final class ProductionService
         // (2) Producción directa: movimientos de stock con stockSource='production'.
         if ($itemIds) {
             $ph = implode(',', array_fill(0, count($itemIds), '?'));
+            // La proyección arranca por las CLAVES del grupo (itemId, y el día
+            // cuando $byDay), no por un agregado. Antes la primera columna era
+            // `SUM(stockCount) as count` y la lectura era getAssoc, que keyea
+            // por esa primera columna: dos grupos distintos con el mismo total
+            // —trivial: dos ítems producidos 1 vez cada uno— colisionaban y uno
+            // desaparecía del reporte. Verificado en prod: en modo $byDay, 7
+            // grupos colapsaban en 3 porque compartían el valor de la suma.
+            // Con `ncmRows` el orden de la proyección ya no decide nada, pero
+            // se deja con las claves adelante para que el próximo lector no
+            // reconstruya el footgun.
+            //
+            // El día se proyecta explícito (`sday`) en vez de derivarlo de
+            // MAX(stockDate): en modo $byDay ES la clave del grupo, y leer la
+            // clave es más honesto que inferirla de un representante.
+            $dayCol = $byDay ? 'DATE(stockDate) as sday, ' : '';
             $grp = $byDay ? "DATE(stockDate), itemId" : "itemId";
-            $sql = "SELECT SUM(stockCount) as count, MAX(stockDate) as sdate, MAX(stockCOGS) as cogs, itemId
+            $sql = "SELECT itemId, {$dayCol}SUM(stockCount) as count, MAX(stockDate) as sdate, MAX(stockCOGS) as cogs
                     FROM stock WHERE itemId IN ($ph) AND stockSource = ? AND stockDate BETWEEN ? AND ?" . $roc . "
                     GROUP BY $grp";
             $params = array_merge($itemIds, ['production', $from, $to]);
-            $res = ncmExecute($sql, $params, false, false, true);
-            foreach (is_array($res) ? $res : [] as $f) {
+            $res = ncmRows($sql, $params);
+            foreach ($res as $f) {
+                // `??` y no array_key_exists(): la fila es un
+                // CaseInsensitiveArray (ArrayAccess), no un array puro.
+                $day = substr((string) ($f['sday'] ?? $f['sdate'] ?? ''), 0, 10);
                 $compounds[(string) $f['itemId']][] = [
-                    'date' => substr((string) $f['sdate'], 0, 10), 'count' => abs((float) $f['count']),
+                    'date' => $day, 'count' => abs((float) $f['count']),
                     'cogs' => (float) $f['cogs'], 'type' => 'direct',
                 ];
             }
@@ -225,8 +264,12 @@ final class ProductionService
                 FROM waste_event we
                 WHERE we.created_at BETWEEN ? AND ?" . $rocW . "
                 ORDER BY we.created_at DESC";
-        $res  = ncmExecute($sql, [$from, $to], false, false, true);
-        $rows = is_array($res) ? $res : [];
+        // Un evento de merma por fila: sin GROUP BY, `we.itemId` primero y
+        // lectura getAssoc, de los N eventos de un mismo ítem sobrevivía uno
+        // solo. No solo faltaban filas en el listado: `tQty`, `tCost` y
+        // `byReason` se calculan sobre este mismo array, así que los totales
+        // de merma salían subestimados sin ninguna señal.
+        $rows = ncmRows($sql, [$from, $to]);
 
         $itemIds   = array_values(array_unique(array_filter(array_map(fn ($r) => (string) ($r['itemId'] ?? ''), $rows))));
         $names     = $this->itemNameSku($itemIds, $companyId);

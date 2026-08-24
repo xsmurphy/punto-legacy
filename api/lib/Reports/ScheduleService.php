@@ -185,8 +185,15 @@ final class ScheduleService
                 GROUP BY a.invoiceNo, a.customerId, contact.contactName, b.itemSoldDate, b.itemId,
                          b.itemSoldId, c.itemName, $sessExpr
                 LIMIT 2000";
-        $res = ncmExecute($sql, [$companyId, $from, $to], false, false, true);
-        $res = is_array($res) ? $res : [];
+        // El grano de esta vista es el PAQUETE (`b.itemSoldId`, que es lo que
+        // el GROUP BY discrimina y lo que `donesByPackage()` consulta), pero
+        // se leía con `getAssoc`, que indexa por la primera columna
+        // proyectada: `a.invoiceNo`. Una venta con dos paquetes-con-sesiones
+        // genera dos filas con el MISMO invoiceNo, así que el segundo paquete
+        // desaparecía del tab "Sesiones" — y con él las sesiones que el
+        // cliente compró y todavía puede reclamar. `ncmRows` trae la fila por
+        // paquete, que es la que el caller siempre creyó estar leyendo.
+        $res = ncmRows($sql, [$companyId, $from, $to]);
         if (!$res) {
             return ['rows' => []];
         }

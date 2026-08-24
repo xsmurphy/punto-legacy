@@ -220,6 +220,37 @@ final class Query
     }
 
     /**
+     * TODAS las filas de un SELECT, en orden, sin ninguna clave que pueda pisar.
+     * Equivalente global: `ncmRows($sql, $params)` (functions.php delega acá).
+     *
+     * Contraparte segura de `execute(..., $getAssoc: true)`, que indexa por la
+     * PRIMERA columna proyectada y pierde en silencio las filas que repiten ese
+     * valor (ver el docblock de `DB::GetAssoc()`). El caller típico de getAssoc
+     * nunca quiso el índice —hacía `foreach` sobre el resultado creyéndolo
+     * completo— y ese caller va acá.
+     *
+     * Cada fila es un `CaseInsensitiveArray` con el JSONB ya aplanado, mismo
+     * shape que las filas de getAssoc: migrar un caller no cambia cómo lee sus
+     * campos, solo cuántas filas ve.
+     *
+     * @param  array|false $params
+     * @return list<\CaseInsensitiveArray>
+     */
+    public static function rows(string $sql, mixed $params = []): array
+    {
+        $rs = self::execute($sql, $params === [] ? false : $params, false, true);
+        if (!$rs) {
+            return [];
+        }
+        $out = [];
+        while (!$rs->EOF) {
+            $out[] = $rs->fields;
+            $rs->MoveNext();
+        }
+        return $out;
+    }
+
+    /**
      * UPDATE via AutoExecute (capa de DB propia, DB.php).
      * Equivalente legacy: `ncmUpdate($options)`.
      *

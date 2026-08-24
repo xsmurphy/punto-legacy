@@ -1366,6 +1366,38 @@ function ncmExecute( $sql, $array = false, $cache = false, $forceObj = false, $g
 }
 
 /**
+ * TODAS las filas de un SELECT, en orden, sin ninguna clave que pueda pisar.
+ *
+ * Es la contraparte segura de `ncmExecute($sql, $params, false, false, true)`
+ * (getAssoc): ese modo indexa por la PRIMERA columna proyectada y las filas
+ * que repiten ese valor DESAPARECEN sin error ni warning — ver el docblock de
+ * `DB::GetAssoc()`, que documenta el footgun y el incidente testigo. La
+ * mayoría de los callers de getAssoc nunca quiso un índice: hacían
+ * `foreach ($res as $row)` sobre lo que creían que era el resultado completo.
+ * Para ese caso —el común— esta función es la respuesta.
+ *
+ *   $rows = ncmRows('SELECT itemId, qty FROM waste_event WHERE companyId = ?', [$cid]);
+ *   foreach ($rows as $r) { ... }   // salen TODAS, aunque itemId se repita
+ *
+ * Usá getAssoc SOLO cuando de verdad querés un mapa clave→fila y la primera
+ * columna es única por construcción (PK, DISTINCT, o GROUP BY por esa misma
+ * columna proyectada primero). Si necesitás "una por clave" con un criterio
+ * (la más reciente, la de mayor monto), traé todo con `ncmRows()` y elegí en
+ * PHP: el orden del `ORDER BY` se respeta y la decisión queda explícita, en
+ * vez de depender de qué fila iteró última el wrapper.
+ *
+ * Cada fila es un `CaseInsensitiveArray` con el JSONB ya aplanado — mismo
+ * shape que devuelve getAssoc, así que un caller migrado no cambia la forma
+ * de leer sus campos.
+ *
+ * @return list<\CaseInsensitiveArray>
+ */
+function ncmRows($sql, $params = []): array
+{
+    return \Punto\App\Database\Query::rows((string) $sql, $params);
+}
+
+/**
  * ncmUpdate con JSONB routing + non-destructive merge.
  * Reemplaza el wrapper que delegaba a Query::update (que NO hacía routing → bug:
  * campos demoted a JSONB caían como columnas inexistentes → 500 silente).
