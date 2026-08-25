@@ -9,10 +9,11 @@ const OPERATOR_TOKEN_HEADER = "X-Operator-Token"
 /**
  * Fetch autenticado para los BFF routes `/api/pos/*`.
  *
- * Inyecta el Bearer token del device POS (localStorage) en cada request, igual
- * que `lib/api-client.ts` hace para `/api/v1/*`. Sin esto, el BFF solo reenvía
- * la cookie `_jwt_panel` y la API autentica como realm `panel` (registerId=''),
- * lo que rompe toda mutación de caja (403) y los devices POS puros (401).
+ * Inyecta el Bearer token del device POS (localStorage) en cada request. Es la
+ * ÚNICA credencial del POS: `/api/pos/*` no acepta cookies ni las reenvía, y
+ * `authResolve()` las ignora cuando hay Bearer (token-only, context/08 §60).
+ * Sin el Bearer la API autenticaría como realm `panel` (registerId=''), lo que
+ * rompe toda mutación de caja (403) y los devices POS puros (401).
  *
  * Devuelve el `Response` crudo — cada caller mantiene su propio parsing de
  * envelope. Preserva cualquier header que el caller ya haya seteado.

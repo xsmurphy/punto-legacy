@@ -312,7 +312,7 @@ describe("árbol de decisión del bootstrap: red / cache / nada", () => {
   // cacheado y persistido como si fuera el bootstrap de este device. El pareo
   // posterior reusaba ese cache y la caja abría sin PINs.
   //
-  // Desde el token-only del POS (2026-08-25, context/08 §59) hay tres cortes
+  // Desde el token-only del POS (2026-08-25, context/08 §60) hay tres cortes
   // en serie para lo mismo, y este test cubre el de más adentro: `posFetch` va
   // con `credentials: "omit"` y devuelve un 401 local sin token, el BFF no
   // reenvía la cookie, y `authResolve()` ignora las cookies cuando hay Bearer.

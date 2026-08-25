@@ -61,16 +61,38 @@ function listRoutes(dir: string): string[] {
  * escrito — el test castigaría documentar la regla.
  */
 function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "")
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    // `//` en cualquier posición, no solo a principio de línea: un comentario
+    // al final de una línea de código que mencione `forwardCookie: true` daría
+    // falso rojo. (Aproximación: no intenta respetar `//` dentro de strings —
+    // en estos handlers no aparece, y errar hacia "borro de más" solo puede
+    // producir un falso ROJO visible, nunca un falso verde.)
+    .replace(/\/\/.*$/gm, "")
 }
 
 const routeFiles = listRoutes(POS_API_DIR)
+
+const API_DIR = path.join(FRONTEND_ROOT, "app", "api")
 
 describe("/api/pos/* es token-only", () => {
   it("encuentra las rutas del POS (el guard no puede quedar vacío)", () => {
     // Sin esto, mover o renombrar el directorio dejaría 0 archivos que escanear
     // y la suite pasaría en verde sin verificar nada.
     expect(routeFiles.length).toBeGreaterThan(0)
+  })
+
+  it("el catch-all del panel es el ÚNICO opt-in de forwardCookie en todo el BFF", () => {
+    // Escanear solo `/api/pos/**` deja un hueco: una ruta NUEVA fuera de ese
+    // directorio podría reenviar la cookie a un endpoint que el POS consume, y
+    // el guard de arriba no la vería. `forwardCookie: true` es la decisión de
+    // "esta puerta es multi-credencial", y hoy solo hay UNA puerta así.
+    const optIns = listRoutes(API_DIR).filter((f) =>
+      /forwardCookie\s*:\s*true/.test(stripComments(readFileSync(f, "utf8"))),
+    )
+    expect(optIns.map((f) => path.relative(FRONTEND_ROOT, f))).toEqual([
+      path.join("app", "api", "v1", "[...path]", "route.ts"),
+    ])
   })
 
   describe.each(routeFiles.map((f) => [path.relative(FRONTEND_ROOT, f), f] as const))(
@@ -81,6 +103,10 @@ describe("/api/pos/* es token-only", () => {
       it("no reenvía el header cookie upstream", () => {
         // A mano: `headers.set("cookie", …)` / `headers.append('cookie', …)`.
         expect(code).not.toMatch(/headers\s*\.\s*(?:set|append)\s*\(\s*["'`]cookie["'`]/i)
+        // Estilo object-literal: `headers: { cookie }` / `{ "Cookie": … }`. Es
+        // una forma viva en este repo (app/api/agent/chat, app/api/ocr-invoice),
+        // así que el guard tiene que verla o se lo esquiva sin querer.
+        expect(code).not.toMatch(/["'`]?[Cc]ookie["'`]?\s*:/)
         // Vía el proxy compartido: `forwardCookie: true` es el opt-in que SOLO
         // le corresponde al catch-all del panel (`app/api/v1/[...path]`).
         expect(code).not.toMatch(/forwardCookie\s*:\s*true/)
@@ -94,19 +120,22 @@ describe("/api/pos/* es token-only", () => {
         const requireBearer = code.match(/requireBearer\s*:\s*true/g)?.length ?? 0
         if (proxyCalls > 0) {
           expect(requireBearer).toBe(proxyCalls)
-          return
         }
-        // Handler artesanal (no usa el proxy): tiene que chequear el header él
-        // mismo. Exigimos que el test del header exista Y que rechace.
-        expect(code).toMatch(/Bearer\\s\+\\S\+/)
-        expect(code).toMatch(/status:\s*401/)
+        // Y SIEMPRE, sin cortar acá: una ruta puede mezclar `bffProxy` con un
+        // `fetch` artesanal en otra rama, y ésa también tiene que exigir Bearer.
+        // Con un `return` temprano esa mitad no se auditaba nunca.
+        if (proxyCalls === 0 || /\bfetch\s*\(/.test(code)) {
+          expect(code).toMatch(/Bearer\\s\+\\S\+/)
+          expect(code).toMatch(/status:\s*401/)
+        }
       })
 
       it("no acepta la cookie del panel como credencial", () => {
         // El anti-patrón concreto de los tres incidentes: tratar la PRESENCIA
-        // de `_jwt_panel=` (o `_jwt=`) como prueba de autenticación.
-        expect(code).not.toMatch(/_jwt_panel/)
-        expect(code).not.toMatch(/_jwt=/)
+        // de `_jwt_panel` (o `_jwt`) como prueba de autenticación. `\b` cubre
+        // tanto el parseo del header (`_jwt=`) como `req.cookies.get("_jwt")`.
+        expect(code).not.toMatch(/_jwt_panel\b/)
+        expect(code).not.toMatch(/_jwt\b/)
       })
     },
   )
