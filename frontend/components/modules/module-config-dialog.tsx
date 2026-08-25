@@ -139,13 +139,14 @@ function ConfigDialogContent({
   )
 
   // ── bancard state ────────────────────────────────────────────────────────
-  // Canales del paraguas Bancard. Default true (mismo criterio que el backend).
+  // Canales del paraguas Bancard. Opt-in explícito: nacen apagados, mismo
+  // criterio que el backend (api/lib/Modules/ModuleChannels.php).
   const bancardDefaults = (currentConfig as BancardConfig | undefined) ?? {
-    qr: true,
-    pos: true,
+    qr: false,
+    pos: false,
   }
-  const [bancardQr, setBancardQr] = React.useState<boolean>(bancardDefaults.qr ?? true)
-  const [bancardPos, setBancardPos] = React.useState<boolean>(bancardDefaults.pos ?? true)
+  const [bancardQr, setBancardQr] = React.useState<boolean>(bancardDefaults.qr ?? false)
+  const [bancardPos, setBancardPos] = React.useState<boolean>(bancardDefaults.pos ?? false)
 
   // Re-sync state when currentConfig changes (e.g. query refetch after save)
   React.useEffect(() => {
@@ -171,8 +172,8 @@ function ConfigDialogContent({
       )
     } else if (configKind === "bancard") {
       const c = currentConfig as BancardConfig | undefined
-      setBancardQr(c?.qr ?? true)
-      setBancardPos(c?.pos ?? true)
+      setBancardQr(c?.qr ?? false)
+      setBancardPos(c?.pos ?? false)
     }
   }, [open, currentConfig, configKind])
 

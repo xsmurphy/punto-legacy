@@ -275,12 +275,13 @@ ninguno es un copy-paste del módulo Bancard:
 
 | # | Dónde | Qué |
 |---|---|---|
-| 1 | `api/lib/PaymentMethods/PspCatalog.php` | Una entrada en `QR_PROVIDERS`: `module`, `channel`, `channelDefault`, `systemKey`, `methodName`, `code`, `color`, `label`. Hay un ejemplo comentado con los valores propuestos para uPay. |
+| 1 | `api/lib/PaymentMethods/PspCatalog.php` | Una entrada en `QR_PROVIDERS`: `module`, `channel`, `systemKey`, `methodName`, `code`, `color`, `label`. Hay un ejemplo comentado con los valores propuestos para uPay. El estado inicial del canal ya no vive acá: lo declara `api/lib/Modules/ModuleChannels.php` (2026-08-24), donde **todo canal nace apagado**. |
 | 2 | `frontend/lib/payments/psp/<provider>.ts` | El adapter: `provider`, `systemKey`, `title` + `create()`, `cancel()`, y opcionalmente `confirm()` (el default lee la fila que el webhook deja en `vPayments`). |
 | 3 | `frontend/lib/payments/psp/index.ts` | Una línea en `ADAPTERS`. |
 
 Más lo del módulo en sí, que ya era el patrón conocido: la key en
-`ModulesService::NATIVE_KEYS` / `CONFIG_KEYS` y su canal en `updateConfig()`.
+`ModulesService::NATIVE_KEYS` / `CONFIG_KEYS` y sus canales en
+`ModuleChannels::CHANNELS` (`updateConfig()` los recorre solo).
 
 Lo que **ya no hay que tocar**, porque dejó de nombrar pasarelas:
 

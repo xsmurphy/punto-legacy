@@ -33,6 +33,7 @@ import {
   Monitor,
   Package,
   Palette,
+  Plug,
   Plus,
   Printer,
   Receipt,
@@ -807,6 +808,27 @@ export const PANEL_ROUTES: RouteEntry[] = [
     surface: "palette",
     paletteGroup: "Configuración",
     keywords: ["modules", "modulos", "activar", "features", "espacios", "calendario"],
+  },
+  {
+    // Mismo catálogo y mismo endpoint que Módulos (`/v1/modules`), filtrado
+    // por `kind: "integration"` — ver `lib/modules-catalog.ts`. Sin `requires`
+    // por la misma razón que Módulos: el endpoint no pide permiso propio.
+    to: "/integraciones",
+    title: "Integraciones",
+    paletteTitle: "Configuración · Integraciones",
+    icon: Plug,
+    surface: "palette",
+    paletteGroup: "Configuración",
+    keywords: [
+      "integraciones",
+      "integrations",
+      "bancard",
+      "upay",
+      "pasarela",
+      "facturacion electronica",
+      "sifen",
+      "terceros",
+    ],
   },
 
   // ── Catálogo (deep-link a cada tab) ────────────────────────────────────

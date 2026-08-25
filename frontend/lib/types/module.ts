@@ -27,8 +27,9 @@ export interface CrmConfig {
 
 /**
  * Canales del módulo Bancard. El módulo es el paraguas; cada canal se
- * habilita por separado. Default true en el backend: prender "Bancard" sin
- * entrar a la config deja los dos usables.
+ * habilita por separado y nace APAGADO (opt-in explícito) — el estado inicial
+ * lo declara `api/lib/Modules/ModuleChannels.php`. Prender "Bancard" sin
+ * entrar a la config no habilita ningún canal.
  */
 export interface BancardConfig {
   /** QR de pago (ePagos/BANCARD_QR_API) — se muestra en la pantalla del cliente. */

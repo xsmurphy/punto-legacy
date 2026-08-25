@@ -281,15 +281,15 @@ check(
     $failures, $checks
 );
 check(
-    'b5 canal QR con default del catálogo si la key no está escrita',
-    PspCatalog::qrChannelOn($bancard, true, []) === true,
-    'qrChannelOn(module=on, sin key) no respetó channelDefault=true',
+    'b5 canal QR apagado si la key no está escrita (opt-in explícito)',
+    PspCatalog::qrChannelOn($bancard, true, []) === false,
+    'qrChannelOn(module=on, sin key) no respetó el default apagado de ModuleChannels',
     $failures, $checks
 );
 check(
-    'b6 canal QR apagado explícito manda sobre el default',
-    PspCatalog::qrChannelOn($bancard, true, ['qr' => false]) === false,
-    'qrChannelOn(module=on, qr=false) devolvió true',
+    'b6 canal QR prendido explícito manda sobre el default',
+    PspCatalog::qrChannelOn($bancard, true, ['qr' => true]) === true,
+    'qrChannelOn(module=on, qr=true) devolvió false',
     $failures, $checks
 );
 

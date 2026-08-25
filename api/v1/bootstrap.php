@@ -211,14 +211,15 @@ $logoUrlResolved = ($logoHas && $logoUrlRaw !== '')
 // ── Pasarelas de pago con QR + terminal físico de Bancard ───────────────────
 // Mismo criterio que ModulesService::list(): el módulo está en el flat key
 // (lo que escribe el toggle) y los canales en moduleData.<module>, con el
-// default que declara el catálogo. Se resuelve acá y NO en el front: el POS
-// recibe booleans y no recombina nada.
+// estado inicial que declara ModuleChannels — un canal nace APAGADO y se
+// enciende a mano en la config del módulo. Se resuelve acá y NO en el front:
+// el POS recibe booleans y no recombina nada.
 //
 // `pspQr` es el mapa genérico { provider: bool } que consume el POS para
 // filtrar el medio de pago de CADA pasarela (ver PspCatalog y
-// frontend/lib/payments/psp/). `bancardQr`/`bancardPos` se mantienen tal cual
-// porque son el contrato que ya leen los clientes desplegados — un POS con
-// config cacheada (offline) seguiría mandando el shape viejo.
+// frontend/lib/payments/psp/). `bancardQr`/`bancardPos` siguen existiendo como
+// claves propias porque una caja con el bootstrap cacheado (offline) todavía
+// lee ese shape hasta su próxima sincronización.
 $moduleDataAll = json_decode((string) ($row['moduledata'] ?? ''), true);
 $moduleDataAll = is_array($moduleDataAll) ? $moduleDataAll : [];
 
@@ -239,8 +240,9 @@ foreach (\Punto\Api\PaymentMethods\PspCatalog::qrProviders() as $provider => $ps
 
 $bancardCfg = is_array($moduleDataAll['bancard'] ?? null) ? $moduleDataAll['bancard'] : [];
 $bancardQr  = (bool) ($pspQr['bancard'] ?? false);
-$bancardPos = $moduleOn('bancard')
-    && (!array_key_exists('pos', $bancardCfg) || filter_var($bancardCfg['pos'], FILTER_VALIDATE_BOOLEAN));
+// El terminal físico no es un canal de QR, así que no sale de PspCatalog —
+// pero el default lo declara el mismo archivo (ModuleChannels), no este.
+$bancardPos = \Punto\Api\Modules\ModuleChannels::on('bancard', 'pos', $moduleOn('bancard'), $bancardCfg);
 
 $payload = [
     'currency'    => $row['currency'] ?? '',

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation"
 import { useForm, type Resolver, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid, Search, Lock } from "lucide-react"
+import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid, Search, Lock, Plug } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -56,7 +56,7 @@ import { DocumentsTab } from "@/components/settings/documents-tab"
 import { CompanyLogo } from "@/components/settings/company-logo"
 import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
-import { ModulesPanel } from "@/components/modules/modules-panel"
+import { ModuleCatalogPanel } from "@/components/modules/module-catalog-panel"
 import { PlanPanel } from "@/components/billing/plan-panel"
 
 // Zonas horarias (IANA) — el usuario elige de una lista en vez de tipear el
@@ -171,10 +171,11 @@ type SettingsSection =
   | "catalog"
   | "apariencia"
   | "modules"
+  | "integraciones"
   | "plan"
 
 // Normaliza acentos para que "impresion" matchee "Impresoras", "modulos"
-// matchee "Módulos", etc. Mismo patrón que components/modules/modules-panel.tsx
+// matchee "Módulos", etc. Mismo patrón que components/modules/module-catalog-panel.tsx
 // y lib/catalog/search.ts — no hay helper compartido en lib/ hoy, así que se
 // repite localmente en vez de crear una dependencia nueva por 3 líneas.
 function normalize(s: string): string {
@@ -206,6 +207,11 @@ const SECTIONS: {
   { id: "price-lists" as unknown as SettingsSection, label: "Listas de precios", icon: ListOrdered, href: "/settings/price-lists" },
   { id: "outlets"     as unknown as SettingsSection, label: "Sucursales",        icon: Building2,   href: "/outlets" },
   { id: "modules",    label: "Módulos",      icon: Component },
+  // Integraciones = puentes con sistemas de terceros. Sección propia (no un
+  // bloque más adentro de Módulos) por el mismo criterio con el que se
+  // separaron las páginas: prenderlas no alcanza, hay credenciales de por
+  // medio. Mismo panel, otro `kind` — ver lib/modules-catalog.ts.
+  { id: "integraciones", label: "Integraciones", icon: Plug },
   // "Mi plan" salió del menú de settings (2026-08-01, owner): vive SOLO en el
   // menú del usuario del sidebar (/history-billing). La sección interna queda
   // por si alguien llega con ?section=plan desde un link viejo.
@@ -549,7 +555,8 @@ export default function SettingsPage() {
                   {section === "documentos" && <DocumentsTab onNavigate={navigateAndClose} />}
                   {section === "catalog"    && <CatalogTab onNavigate={navigateAndClose} />}
                   {section === "apariencia" && <AparienciaTab />}
-                  {section === "modules"    && <ModulesPanel />}
+                  {section === "modules"    && <ModuleCatalogPanel kind="module" />}
+                  {section === "integraciones" && <ModuleCatalogPanel kind="integration" />}
                   {section === "plan"       && <PlanPanel />}
                 </div>
                 {/* Save bar mobile — el header está oculto en mobile (hidden sm:flex)
