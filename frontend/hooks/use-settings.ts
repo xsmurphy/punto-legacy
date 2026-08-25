@@ -115,6 +115,7 @@ const SERIALIZE_NUMBER_FIELDS: (keyof SettingsFormValues)[] = [
 
 const SERIALIZE_BOOL_FIELDS: (keyof SettingsFormValues)[] = [
   "decimal", "sellsoldout", "itemSerialized", "drawerEmail", "drawerBlind",
+  "drawerRequireClosedOrders",
   "settingRemoveTaxes", "paymentId", "creditLine", "storeCredit",
   "ignoreInternal", "stockCountBlind", "blockUsedDocNo", "autoSendDocs",
   "taxPy", "weightBarcodes", "deletedItemsHistory",

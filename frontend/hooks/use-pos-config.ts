@@ -31,6 +31,15 @@ export type PosRegisterConfig = {
    * muestran montos acumulados.
    */
   blindControl: boolean
+  /**
+   * Exigir órdenes y espacios cerrados para cerrar el turno — READ-ONLY en el
+   * POS, igual que `blindControl`, pero es del COMERCIO y no de la caja: sale
+   * de `company.config` (Ajustes → POS → "Cajas y arqueo"). Baja por acá y no
+   * por el bootstrap para que la caché offline de la config lo tenga sin red:
+   * sin conexión el POS no puede consultar qué hay abierto, pero sí tiene que
+   * saber si la regla está prendida para avisar antes de encolar el cierre.
+   */
+  requireClosedOrders: boolean
   controlCaja: boolean
   /** IP/host del terminal Bancard (Caja POS Android) en la LAN de esta caja.
    *  Solo relevante con el módulo `bancardPos` activo (panel → Módulos). */
@@ -50,6 +59,8 @@ export type PosRegisterConfig = {
 
 export const POS_REGISTER_CONFIG_DEFAULTS: PosRegisterConfig = {
   blindControl: false,
+  // Apagado por default: sin activarlo, el cierre se comporta como siempre.
+  requireClosedOrders: false,
   controlCaja: true,
   bancardPosIp: "",
   tecladoVirtual: false,

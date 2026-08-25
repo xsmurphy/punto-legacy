@@ -108,6 +108,10 @@ final class SettingsService
             'itemSerialized'  => $this->truthy($r['settingItemSerialized'] ?? null),
             'drawerEmail'     => $this->truthy($r['settingDrawerEmail'] ?? null),
             'drawerBlind'     => $this->truthy($r['settingDrawerBlind'] ?? null),
+            // Gate de cierre de turno (owner 2026-08-25): con esto prendido la
+            // caja no cierra si la SUCURSAL tiene órdenes o espacios abiertos.
+            // Apagado por default — ver Punto\Api\Services\ShiftCloseGate.
+            'drawerRequireClosedOrders' => $this->truthy($r['settingDrawerRequireClosedOrders'] ?? null),
             'settingRemoveTaxes' => $this->truthy($r['settingRemoveTaxes'] ?? null),
             'paymentId'       => $this->truthy($r['settingPaymentMethodId'] ?? null),
             'creditLine'      => $this->truthy($r['settingForceCreditLine'] ?? null),
@@ -260,6 +264,7 @@ final class SettingsService
             'itemSerialized'     => 'settingItemSerialized',
             'drawerEmail'        => 'settingDrawerEmail',
             'drawerBlind'        => 'settingDrawerBlind',
+            'drawerRequireClosedOrders' => 'settingDrawerRequireClosedOrders',
             'settingRemoveTaxes' => 'settingRemoveTaxes',
             'paymentId'          => 'settingPaymentMethodId',
             'creditLine'         => 'settingForceCreditLine',

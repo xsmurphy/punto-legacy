@@ -365,8 +365,184 @@ sobre un camino online ya torcido.
 
 ---
 
-## 8. Pendiente
+## 8. El turno no cierra con órdenes o espacios abiertos (2026-08-25)
 
+**Estado:** implementado, branch `frontend/cierre-turno-sin-abiertos`.
+**Pedido del owner:** *"para poder cerrar el turno se tienen que cerrar todas
+las órdenes y espacios, no pueden quedar órdenes abiertas. Pero esto tiene que
+ser una función opcional que el comercio pueda activar o no."*
+
+Vive acá y no en un doc propio porque es el mismo interruptor que
+`blindControl` en todo lo que importa —una decisión del dueño que la caja
+obedece y no puede cambiar— y porque su parte difícil es la de este doc: qué
+pasa sin red.
+
+### El interruptor
+
+| | Dónde |
+|---|---|
+| Guardado | `company.config->>'settingDrawerRequireClosedOrders'` (JSONB), **apagado por default** |
+| Se edita en | Panel → Ajustes → POS → "Cajas y arqueo" → *Exigir órdenes y espacios cerrados* |
+| Baja a la caja por | `GET /v1/register?resource=config` → `config.requireClosedOrders` |
+
+Es **por COMERCIO**, no por caja — así lo pidió el owner. Esa es la única
+diferencia con `blindControl` (que vive en `register.data`, por caja); el
+tratamiento en el endpoint de config es idéntico y por el mismo motivo: se
+agrega **después** del `array_intersect_key` contra `POS_CONFIG_DEFAULTS`, así
+que el `PUT` del device físicamente no lo puede tocar (§5). Lo administra el
+panel y la caja solo lo lee.
+
+Baja por la config de la caja y no por el bootstrap a propósito: la config
+está cacheada offline (`local-register-state.ts`), y sin red el POS igual
+tiene que saber si la regla está prendida para avisar antes de encolar.
+
+### Alcance: SUCURSAL, no caja. Lo decidió el schema
+
+El criterio de partida del owner era mirar solo lo que ESA caja tiene abierto
+("el turno es de una caja"), condicionado a verificar si las órdenes están
+atadas a caja o a sucursal. Verificado, y decide lo contrario:
+
+1. **`space_session` no tiene columna de caja** (mig 80/81): `companyid`,
+   `outletid`, `tableid` y nada más. Un espacio es de la sucursal y cualquier
+   caja lo cobra. Un gate por caja no podría mirar espacios — la mitad del
+   pedido.
+2. **`pos_order.registerid` existe pero no lo filtra nadie**: ni
+   `OrderCoreService::list()`, ni el guard de scope, ni la pantalla de órdenes
+   del POS. La orden que abrió una tablet pareada a la caja A la cobra la caja
+   B, y la lista que ve el cajero es la de la SUCURSAL. Gatear por ahí sería
+   estrenar una dimensión que hoy no significa nada, y dejar pasar justo las
+   órdenes de espacio.
+
+**Abierto** = `pos_order.status NOT IN ('closed','cancelled')` (mismo idiom que
+`SpaceService`/`SpaceSettlementService`) y `space_session.status IN
+('open','bill_requested')` (el predicado del índice único parcial
+`uq_space_session_active_per_space`, que es la fuente de verdad de "ocupado").
+Una sesión fusionada queda `closed` por diseño de la mig 163: no necesita
+exclusión propia.
+
+> **A CONFIRMAR CON EL OWNER — una orden ya cobrada puede bloquear el cierre.**
+> El estado de la orden y el cobro son **ortogonales**: en el flujo "Orden en
+> venta" se factura primero y se ordena después
+> (`OrderCoreService.php:71-78`), así que una orden en `delivered` o
+> `out_for_delivery` puede no deber un guaraní y bloquear igual. Hoy bloquea, a
+> propósito: la regla que se pidió es literal ("no pueden quedar órdenes
+> abiertas") y una orden cobrada sin entregar es justo el pendiente operativo
+> que no debería cruzar de un turno al siguiente. Si el criterio es "solo lo que
+> debe plata", el cambio es acotado — sacar `delivered`/`out_for_delivery` de
+> los estados que bloquean, en `ShiftCloseGate::ORDER_CLOSED_STATUSES`.
+
+**La contrapartida está declarada**: una caja no cierra su turno mientras otra
+caja de la misma sucursal tenga algo abierto. Por eso el interruptor nace
+apagado y lo prende el comercio. Lo que **no** es, es un callejón: todo lo que
+bloquea se ve y se cierra desde el MISMO POS, porque órdenes y espacios se
+listan por sucursal.
+
+### Una sola consulta para las dos puntas
+
+`ShiftCloseGate::blockers()` (`api/lib/services/ShiftCloseGate.php`) alimenta
+**las dos**: el `GET /v1/drawer.php?resource=blockers` con el que el POS
+deshabilita el botón, y el `details` del 422 si el cierre se intenta igual. Si
+fueran dos consultas, el cajero podría ver "todo listo" antes de tocar el botón
+y comerse el rechazo después.
+
+El front pinta el impedimento **en el control de la acción**: botón "Cerrar
+caja" deshabilitado + tooltip, nunca un toast post-intento. Y debajo, en el
+cuerpo scrolleable de Control de Caja (arriba de la barra fija, sin desplazar
+nada — `context/14` §10), el aviso con **qué** falta: los espacios por nombre,
+las órdenes por número, y botones a `/pos/ordenes` y `/pos/espacios`. El
+tooltip cumple la convención; el bloque es lo que la hace usable en tablet,
+donde un botón deshabilitado no tiene hover que revele nada.
+
+El rechazo del servidor es **422 con `details`**, no el 500 del
+`catch (\RuntimeException)` de `drawer.php` — que sigue siendo correcto para lo
+que se lanza ahí (errores de DB de `DrawerService`). `apiError()` acepta ahora
+un `details` opcional en el wrapper compartido, para que el próximo error
+estructurado no reinvente el envelope.
+
+### Sin red no hay gate — y es una decisión
+
+**Órdenes y espacios NO están en el snapshot offline.** No los baja el
+bootstrap; son queries de red con refetch. Así que sin conexión el dispositivo
+no tiene ni siquiera un dato viejo que mirar.
+
+Aunque lo tuviera, la decisión sería la misma: **bloquear un cierre con datos
+vencidos es peor que dejarlo pasar.** La orden que el snapshot cree abierta
+puede haberla cerrado otra terminal hace horas, y el cajero quedaría con la
+plata contada, sin poder terminar el turno y sin forma de comprobar nada. Sin
+red el cierre **procede y se encola**, con el aviso a la vista de que la regla
+se valida al sincronizar.
+
+### El cierre encolado que llega y encuentra órdenes abiertas
+
+Tres piezas lo mantienen fuera del limbo. **La segunda es la que hace justo el
+juicio** y la agregó el review — sin ella la feature era un bloqueo de caja
+esperando a pasar:
+
+1. **El gate solo corre con el turno abierto de verdad** (`$svc->isOpen(...)`
+   antes de `assertCanClose`). Un cierre que ya se aplicó y se reenvía pasa
+   derecho por el camino idempotente `'Already Closed'`. Sin esta guarda,
+   órdenes abiertas DESPUÉS de que ese turno terminó rechazarían para siempre
+   una operación que ya no tiene nada que validar — y como el canal `drawer` es
+   FIFO (§2), ese rechazo congelaría además la apertura del turno siguiente.
+
+2. **El gate se juzga contra el momento del cierre, no contra el presente.**
+   `assertCanClose()` recibe el `date` del payload —la hora en que el cajero
+   REALMENTE cerró, la misma con la que se sella `drawerCloseDate`— y acota a
+   `pos_order.created_at < $date` y `space_session.opened_at < $date`.
+
+   El caso que arregla no lo cubre `isOpen`: cierre offline a las 22:00 que
+   sincroniza a las 10:00 del día siguiente **con el turno todavía abierto en el
+   servidor**. Sin el corte lo frenan las órdenes que otra caja abrió a las
+   9:00 — que no tienen nada que ver con el turno que se cerró — y como el 422
+   es terminal y el canal es FIFO, el cajero de la mañana queda trabado por algo
+   ajeno. Exactamente el limbo que `context/08` §53 busca evitar.
+
+   La semántica final es **"existía al cerrar Y sigue abierto ahora"**: una
+   orden de las 21:00 que alguien cerró a las 23:00 ya no aparece, que es el
+   resultado correcto — se resolvió. Online, `date` es *ahora* y el corte no
+   cambia nada.
+
+   Comparar el string naive contra `timestamptz` es válido porque
+   `TenantClock::apply()` deja la sesión de PG en la TZ del comercio
+   (`apiAuthTenant` → `data.php`), que es la convención de storage del proyecto.
+   Un `date` que no parsea se descarta y el gate vuelve a juzgar contra el
+   presente — el lado estricto, nunca uno que deje pasar un cierre por mandar
+   basura.
+
+3. **Cuando el turno sigue abierto y el bloqueo es legítimo, hay salida.**
+   `classify()` manda el 422 a terminal (no es reintentable tal cual), la fila
+   queda en **Pendientes** con su etiqueta congelada y en el aviso de Control de
+   Caja (§6), con **reintentar** y **descartar**. Lo que bloquea son órdenes y
+   espacios de la misma sucursal, visibles y cerrables desde ese mismo POS: se
+   cierran, se toca reintentar, y el cierre entra. Ese es el resultado
+   deseado, no un daño colateral — es exactamente la disciplina que la función
+   existe para imponer.
+
+No contradice la regla dura de `context/08` §53 ("el backend NUNCA rechaza una
+venta ya emitida"): un cierre de turno no es un documento emitido, y las ventas
+del turno ya sincronizaron antes de que el cierre salga (`canSendPendingOp`,
+§4). Lo que se rechaza es el ARQUEO, y se rechaza de forma reversible.
+
+### Verificación
+
+`frontend/lib/pos/__tests__/shift-close-gate.test.ts` — 11 checks sobre la
+parte pura (`lib/pos/shift-close-gate.ts`): normalización del payload,
+singular/plural de los mensajes, etiquetas. Comprobado que se pone rojo
+revirtiendo la guarda de null y la de `enabled`.
+
+**Sin arnés PHP todavía** — no se pudo correr nada contra Postgres en el
+entorno de la sesión. El SQL se verificó contra las migraciones (79, 80, 81,
+163 y las posteriores que tocan esas tablas), pero `ShiftCloseGate` no tiene
+todavía su `api/tests/*.php` como sí lo tienen las migs 164 y 169.
+
+---
+
+## 9. Pendiente
+
+- **Arnés PHP de `ShiftCloseGate`** contra Postgres real: que el gate
+  bloquee con una orden abierta, que NO bloquee con el flag apagado, que un
+  reenvío sobre una caja ya cerrada pase derecho (la guarda anti-limbo), y que
+  una sesión fusionada no cuente.
 - **Bloqueo por inactividad** en Ajustes sigue siendo un input sin backend
   (`TODO (backend)` preexistente, fuera del alcance de este slice).
 - **Alta de `station_printer`** (el servidor de impresión) sigue requiriendo

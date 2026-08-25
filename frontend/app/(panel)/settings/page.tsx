@@ -130,6 +130,7 @@ const settingsSchema = z.object({
   itemSerialized: z.boolean(),
   drawerEmail: z.boolean(),
   drawerBlind: z.boolean(),
+  drawerRequireClosedOrders: z.boolean(),
   settingRemoveTaxes: z.boolean(),
   paymentId: z.boolean(),
   creditLine: z.boolean(),
@@ -251,7 +252,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
   ],
   pos: [
     "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
-    "drawerEmail", "drawerBlind", "settingDrawerTolerance",
+    "drawerEmail", "drawerBlind", "drawerRequireClosedOrders", "settingDrawerTolerance",
     "blockUsedDocNo", "autoSendDocs",
     "stockCountBlind", "itemSerialized", "deletedItemsHistory",
     "creditLine", "storeCredit", "paymentId", "ignoreInternal",
@@ -375,6 +376,7 @@ export default function SettingsPage() {
       itemSerialized: !!data.itemSerialized,
       drawerEmail: !!data.drawerEmail,
       drawerBlind: !!data.drawerBlind,
+      drawerRequireClosedOrders: !!data.drawerRequireClosedOrders,
       settingDrawerTolerance: Number(data.settingDrawerTolerance ?? 0) || 0,
       settingRemoveTaxes: !!data.settingRemoveTaxes,
       paymentId: !!data.paymentId,
@@ -966,6 +968,12 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           label="Cierre ciego"
           desc="El cajero ingresa el efectivo contado sin ver el sistema."
         />
+        <ToggleField
+          form={form}
+          name="drawerRequireClosedOrders"
+          label="Exigir órdenes y espacios cerrados"
+          desc="La caja no cierra el turno mientras la sucursal tenga órdenes o espacios abiertos. Alcanza a toda la sucursal, no solo a esa caja: los espacios no pertenecen a ninguna caja y cualquiera los puede cobrar."
+        />
         <FormField
           control={form.control}
           name="settingDrawerTolerance"
@@ -1387,6 +1395,7 @@ function emptyValues(): SettingsFormValues {
     itemSerialized: false,
     drawerEmail: false,
     drawerBlind: false,
+    drawerRequireClosedOrders: false,
     settingDrawerTolerance: 0,
     settingRemoveTaxes: false,
     paymentId: false,

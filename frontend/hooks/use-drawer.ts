@@ -37,6 +37,11 @@ import {
   type LocalShiftTotals,
   type ShiftMethod,
 } from "@/lib/pos/local-shift-total"
+import {
+  EMPTY_SHIFT_CLOSE_BLOCKERS,
+  parseShiftCloseBlockers,
+  type ShiftCloseBlockers,
+} from "@/lib/pos/shift-close-gate"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import type { LocalCloseTotals } from "@/lib/pos/shift-close-reconciliation"
 import type { CountedMethod } from "@/lib/pos/local-shift-total"
@@ -159,6 +164,7 @@ export const DRAWER_KEYS = {
   status: ["drawer", "status"] as const,
   summary: ["drawer", "summary"] as const,
   hourly: ["drawer", "hourlyStats"] as const,
+  blockers: ["drawer", "closeBlockers"] as const,
 }
 
 // ── Helpers de fetch ──────────────────────────────────────────────────────────
@@ -239,6 +245,57 @@ async function fetchDrawerHourlyStats(): Promise<DrawerHourlyStats> {
 }
 
 /**
+ * Error de una mutación de caja con el mensaje del servidor ya desenvuelto.
+ *
+ * Antes se tiraba `new Error("Drawer action error 422: {json crudo}")`, que en
+ * un toast se lee como un volcado. El envelope de la API
+ * (`{ok:false, error:{message, code, details?}}`) es el mismo para todos los
+ * endpoints, así que desenvolverlo va acá —en el único lugar por el que pasan
+ * las cuatro acciones de caja— y no en cada call-site.
+ */
+export class DrawerActionError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly details: unknown = null,
+  ) {
+    super(message)
+    this.name = "DrawerActionError"
+  }
+
+  static fromResponse(status: number, text: string): DrawerActionError {
+    let message = ""
+    let details: unknown = null
+    try {
+      const json = JSON.parse(text) as { error?: { message?: unknown; details?: unknown } }
+      if (typeof json?.error?.message === "string") message = json.error.message
+      details = json?.error?.details ?? null
+    } catch {
+      // Respuesta no-JSON (proxy caído, HTML de error): cae al genérico.
+    }
+    return new DrawerActionError(
+      message || `No se pudo completar la operación de caja (${status})`,
+      status,
+      details,
+    )
+  }
+
+  /**
+   * Los bloqueadores del gate de cierre, si este error es ese 422.
+   *
+   * `details` es el MISMO payload que devuelve el GET `?resource=blockers`
+   * (los dos salen de `ShiftCloseGate::blockers()`), así que se normaliza con
+   * la misma función. `enabled: true` se fuerza porque llegar acá ya prueba
+   * que la regla está prendida — el servidor no rechaza si no lo está.
+   */
+  shiftCloseBlockers(): ShiftCloseBlockers | null {
+    if (this.status !== 422 || !this.details || typeof this.details !== "object") return null
+    if (typeof (this.details as { total?: unknown }).total !== "number") return null
+    return { ...parseShiftCloseBlockers(this.details), enabled: true }
+  }
+}
+
+/**
  * Devuelve el cuerpo de la respuesta, no `void`: el CIERRE responde con el
  * arqueo del turno (`closing`) y esa es la única oportunidad de mostrárselo al
  * cajero — la caja ya quedó cerrada, así que el resumen no se puede volver a
@@ -254,7 +311,7 @@ async function postDrawerAction(body: Record<string, unknown>): Promise<unknown>
   })
   if (!res.ok) {
     const text = await res.text().catch(() => "")
-    throw new Error(`Drawer action error ${res.status}: ${text.slice(0, 200)}`)
+    throw DrawerActionError.fromResponse(res.status, text)
   }
   return res.json().catch(() => null)
 }
@@ -423,6 +480,60 @@ export function useShiftMethods(shiftOpenDate: string | null): {
 function useBlindControl(registerId: string): boolean {
   const { data } = usePosRegisterConfig(registerId)
   return data?.config?.blindControl ?? true
+}
+
+/**
+ * Qué impide cerrar el turno, según el servidor.
+ *
+ * Solo consulta si el comercio prendió la regla (`requireClosedOrders`, que sí
+ * está cacheada offline): con la regla apagada no hay nada que preguntar y el
+ * POS no gasta un request cada 15 s.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * SIN RED NO HAY GATE. Es una decisión, no una limitación que quedó pendiente.
+ * ─────────────────────────────────────────────────────────────────────────
+ *
+ * Órdenes y espacios NO están en el snapshot offline del POS (el bootstrap no
+ * los baja; son queries de red con refetch). Sin conexión el dispositivo no
+ * tiene ni siquiera un dato viejo que mirar, y aunque lo tuviera, bloquear un
+ * cierre con datos vencidos es peor que dejarlo pasar: la orden que el snapshot
+ * cree abierta puede haberla cerrado otra terminal hace horas, y el cajero
+ * quedaría con la plata contada, sin poder terminar el turno y sin forma de
+ * comprobar nada. Así que sin red el cierre PROCEDE y se encola, con el aviso
+ * a la vista de que la regla se va a validar al sincronizar.
+ *
+ * El servidor valida igual cuando la operación llega (`ShiftCloseGate`), que es
+ * donde el dato sí es cierto. `isError` (típicamente offline) NO bloquea:
+ * `blocking` sale de datos frescos o de nada.
+ */
+export function useShiftCloseBlockers(enabled: boolean) {
+  const query = useQuery<ShiftCloseBlockers>({
+    queryKey: DRAWER_KEYS.blockers,
+    queryFn: fetchShiftCloseBlockers,
+    enabled,
+    // El cajero cierra órdenes en otra pantalla y vuelve acá esperando que el
+    // botón se haya habilitado solo. Sin refetch tendría que salir y entrar.
+    refetchInterval: 15 * 1000,
+    refetchOnWindowFocus: true,
+    staleTime: 5 * 1000,
+    retry: false,
+  })
+  const data = query.data ?? EMPTY_SHIFT_CLOSE_BLOCKERS
+  return {
+    ...query,
+    data,
+    /** Único predicado que la UI debe consultar para deshabilitar el cierre. */
+    blocking: enabled && !query.isError && data.total > 0,
+    /** Sin respuesta fresca del servidor: hay regla, pero no se pudo verificar. */
+    unverified: enabled && query.isError,
+  }
+}
+
+async function fetchShiftCloseBlockers(): Promise<ShiftCloseBlockers> {
+  const res = await posFetch("/api/pos/drawer?resource=blockers", { cache: "no-store" })
+  if (!res.ok) throw new Error(`Drawer blockers error ${res.status}`)
+  const json = (await res.json()) as { data?: unknown }
+  return parseShiftCloseBlockers(json?.data)
 }
 
 /**

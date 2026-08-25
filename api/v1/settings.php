@@ -161,6 +161,7 @@ if ($method === 'POST') {
 
     $boolMap = [
         'decimal', 'sellsoldout', 'itemSerialized', 'drawerEmail', 'drawerBlind',
+        'drawerRequireClosedOrders',
         'settingRemoveTaxes', 'paymentId', 'creditLine', 'storeCredit',
         'ignoreInternal', 'stockCountBlind', 'blockUsedDocNo', 'autoSendDocs',
         'taxPy', 'weightBarcodes', 'deletedItemsHistory',
