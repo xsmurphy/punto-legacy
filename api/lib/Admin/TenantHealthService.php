@@ -1,6 +1,10 @@
 <?php
 
 require_once __DIR__ . '/../Auth/RoleService.php';
+// Requires explícitos (convención del proyecto): este servicio también se usa
+// desde CLI/jobs, donde el autoloader PSR-4 de bootstrap.php puede no estar.
+require_once __DIR__ . '/../App/Database/Query.php';
+require_once __DIR__ . '/../Modules/ModuleState.php';
 
 /**
  * TenantHealthService.php — semáforo de salud/adopción por tenant (F2,
