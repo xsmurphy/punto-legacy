@@ -199,7 +199,7 @@ export function PosVoidSaleDialog({
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   placeholder="Por qué se anula esta factura"
-                  rows={2}
+                  rows={3}
                 />
               </div>
             </div>

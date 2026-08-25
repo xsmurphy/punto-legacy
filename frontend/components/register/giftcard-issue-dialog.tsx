@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/ui/money-input"
 import { DatePicker } from "@/components/date-picker"
@@ -224,7 +225,15 @@ export function GiftcardIssueDialog() {
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="gc-note">Nota (opcional)</Label>
-            <Input id="gc-note" value={note} onChange={(e) => setNote(e.target.value)} />
+            {/* Comentario libre → Textarea, nunca un Input de una línea: en el
+                POS todo campo de nota se escribe con el dedo y se relee antes
+                de emitir (regla del owner 2026-08-25). */}
+            <Textarea
+              id="gc-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              rows={3}
+            />
           </div>
         </div>
 
