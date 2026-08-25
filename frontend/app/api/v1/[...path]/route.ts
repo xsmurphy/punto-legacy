@@ -24,11 +24,25 @@ export const runtime = "nodejs"
 // Dynamic — el path es dinámico per-request; no cacheamos.
 export const dynamic = "force-dynamic"
 
+/**
+ * ÚNICA puerta del BFF que reenvía la cookie (`forwardCookie: true`): es la
+ * puerta del PANEL, cuya credencial ES la cookie `_jwt_panel`. Todo `/api/pos/*`
+ * es token-only y no la reenvía (ver `forwardCookie` en `lib/bff/proxy.ts`).
+ *
+ * Esta puerta es multi-credencial a propósito y no puede dejar de serlo: el POS
+ * también la usa, con Bearer, para los call-sites que no tienen un `/api/pos/*`
+ * dedicado (ventas y cotizaciones vía `lib/api/pos-client.ts`). Por eso NO se
+ * filtra el `authorization` acá — se rompería la venta.
+ *
+ * Lo que resuelve la ambigüedad cuando llegan las dos credenciales juntas es la
+ * precedencia de Bearer de `authResolve()` (`api/includes/auth_session.php`):
+ * con Bearer presente, la cookie se ignora y el realm lo define el Bearer.
+ */
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params
   const tail = (path ?? []).join("/")
   const search = req.nextUrl.search // incluye `?` si hay query
-  return bffProxy(req, { upstreamPath: `/v1/${tail}${search}` })
+  return bffProxy(req, { upstreamPath: `/v1/${tail}${search}`, forwardCookie: true })
 }
 
 export const GET     = proxy

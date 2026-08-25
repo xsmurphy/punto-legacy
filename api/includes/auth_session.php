@@ -107,29 +107,62 @@ function authSessionLookup(string $raw)
 }
 
 /**
- * Resolver ÚNICO. Recorre los tokens candidatos de la request y elige el primero
- * activo, no expirado, del realm permitido. Mata 401 si ninguno sobrevive.
+ * Resolver ÚNICO. Elige la credencial de la request y define las constantes
+ * AUTHED_*. Mata 401 si ninguna sobrevive.
  *
- * Mantiene la robustez multi-candidato (el browser puede llevar cookie _jwt_panel
- * + Bearer device a la vez): un candidato de otro realm/revocado se DESCARTA, no
- * mata el request (incidente 2026-06-26).
+ * ── PRECEDENCIA (invariante, 2026-08-25) ────────────────────────────────────
+ * Si la request trae `Authorization: Bearer`, el Bearer DEFINE el realm y las
+ * credenciales ambientales (cookies `_jwt_panel`/`_jwt_admin`/`_jwt` y los
+ * tokens en $_POST) se IGNORAN POR COMPLETO. La cookie solo cuenta cuando NO
+ * hay Bearer. No hay "primera credencial válida gana": hay una credencial
+ * explícita que manda, y un fallback ambiental que solo aplica en su ausencia.
  *
- * ORDEN Bearer → cookies: correcto para devices puros (POS sin panel) y NO
- * cambia. INVARIANTE que sostiene ese orden: un cliente NUNCA debe mandar
- * credenciales de dos realms a la vez — el panel (`lib/api-client.ts`) es
- * SOLO cookie, el POS (`lib/api/pos-client.ts` / `pos-fetch.ts`) es SOLO
- * Bearer. Si ambas llegan juntas de un mismo cliente bien configurado, es
- * el browser del operador (panel cookie) con una caja pareada en el mismo
- * dispositivo (Bearer del device en localStorage) — dos requests DISTINTAS,
- * cada una con su propia credencial, nunca ambas en una request. Ver bug
- * real que motivó esta invariante: el fallback de Bearer automático que
- * `api-client.ts` tenía (removido) hacía que requests de PANEL viajaran con
- * Bearer de device → autenticaban como DEVICE → outlet scope equivocado
- * (espacios creados en la sucursal del device, no la elegida en el panel).
+ * Consecuencia deliberada: un Bearer revocado/expirado/de otro realm devuelve
+ * 401 aunque la cookie del operador sea válida. Ese 401 es la respuesta
+ * CORRECTA — es lo que dispara el self-healing del device en `pos-fetch.ts`.
+ * Antes, la cookie lo "rescataba" y el POS seguía operando como panel.
+ *
+ * ── Por qué: tres incidentes de la misma clase en dos meses ─────────────────
+ * La raíz común es un browser que lleva las DOS credenciales a la vez (modelo
+ * de doble sesión: el operador usa panel y caja en la misma máquina, cookie
+ * `_jwt_panel` + Bearer del device en localStorage) contra endpoints
+ * multi-realm que aceptaban cualquiera de las dos.
+ *
+ *   1. 2026-07-19 — el Bearer automático de `api-client.ts` (removido) hacía
+ *      que requests del PANEL viajaran con Bearer del device y autenticaran
+ *      como device: espacios creados en la sucursal del device, no en la
+ *      elegida en el panel.
+ *   2. 2026-08-24 — `/v1/users` con Bearer de device → 403 silencioso → lock
+ *      screen sin PINs.
+ *   3. 2026-08-25 — `/api/pos/bootstrap` SIN Bearer resolvía como panel por la
+ *      cookie y respondía 200 sin el roster (que solo se sirve a `pos-app`).
+ *      Ese 200 envenenó el cache y dejó un iPhone recién pareado bloqueado.
+ *
+ * Cada fix anterior fue local (un call-site, un endpoint). Esta precedencia es
+ * la regla compartida que elimina la ambigüedad para TODOS los endpoints.
+ *
+ * El realm sigue siendo columna de `auth_session` y el modelo multi-realm no
+ * cambia (context/21): lo que muere es la ambigüedad de resolución.
+ *
+ * Complemento estructural en el borde: `/api/pos/*` (frontend/lib/bff/proxy.ts)
+ * NO reenvía el header `cookie` upstream, así que por esa puerta llega UNA sola
+ * credencial. Esta precedencia cubre la otra puerta — el catch-all
+ * `/api/v1/[...path]`, que el POS usa con Bearer para ventas y cotizaciones y
+ * el panel con cookie.
+ *
+ * Se mantiene la robustez multi-candidato DENTRO de cada grupo (incidente
+ * 2026-06-26): con varias cookies presentes y sin Bearer, una de realm ajeno o
+ * revocada se descarta y se sigue probando, no mata el request.
  */
 function authResolve(array $allowedRealms = ['pos-app']): bool
 {
-    $candidates = _authExtractTokens();
+    $bearer  = _authBearerToken();
+    $ambient = _authAmbientTokens();
+
+    // El Bearer manda: si está presente, es la ÚNICA credencial considerada.
+    $candidates      = $bearer !== '' ? [$bearer] : $ambient;
+    $ignoredAmbient  = ($bearer !== '' ? count($ambient) : 0);
+
     if (empty($candidates)) {
         return false; // sin token → el caller decide (legacy path / 401 propio)
     }
@@ -151,9 +184,6 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
         if ($exp !== '' && strtotime($exp) < time()) {
             continue; // expirada
         }
-        // Señal de cliente mal configurado: credenciales VÁLIDAS de dos realms
-        // distintos en la MISMA request (ver invariante arriba). No cambia el
-        // resultado — solo lo logueamos para poder auditar/cazar regresiones.
         $seenRealms[(string)$s['realm']] = true;
         if (!in_array((string)$s['realm'], $allowedRealms, true)) {
             $sawWrongRealm = true;
@@ -163,15 +193,16 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
             $session = $s;
         }
         // NO break: seguimos inspeccionando los candidatos restantes SOLO para
-        // poblar $seenRealms (el diagnóstico de credenciales cruzadas de abajo).
-        // Sin esto, el primer match corta el loop y el log jamás ve el segundo
-        // realm — exactamente el caso que queremos cazar (blind-spot, P1 del
-        // code review). El costo extra es ≤2 lookups cacheables por request
-        // y solo cuando hay múltiples credenciales.
+        // poblar $seenRealms (el diagnóstico de abajo). Con Bearer presente hay
+        // un único candidato y el loop corre una vez; sin Bearer el costo extra
+        // es ≤2 lookups cacheables, y solo cuando hay múltiples cookies.
     }
     if (count($seenRealms) > 1) {
+        // Sin Bearer y con cookies válidas de dos realms distintos. Ya no puede
+        // pasar con Bearer (la precedencia lo hace imposible), así que si esto
+        // aparece es un cliente mandando dos cookies de realms distintos.
         error_log(sprintf(
-            '[auth_session] request con credenciales válidas de %d realms distintos (%s) — %s %s',
+            '[auth_session] request con cookies válidas de %d realms distintos (%s) — %s %s',
             count($seenRealms),
             implode(',', array_keys($seenRealms)),
             $_SERVER['REQUEST_METHOD'] ?? '?',
@@ -187,12 +218,18 @@ function authResolve(array $allowedRealms = ['pos-app']): bool
         // como HTTP_AUTHORIZATION), cuántas credenciales traía la request y qué
         // realms se reconocieron. Con esto, el próximo caso se diagnostica
         // leyendo una línea en vez de reproduciendo a ciegas.
+        // `cookiesIgnoradas` es la señal nueva (precedencia 2026-08-25): dice
+        // cuántas credenciales ambientales había cuando el Bearer no resolvió.
+        // Con >0 acá, el modelo VIEJO habría respondido 200 con el realm de la
+        // cookie en vez de este 401 — es exactamente la clase de bug que la
+        // precedencia elimina, y la línea que lo prueba al revisar logs.
         error_log(sprintf(
-            '[auth_session] 401 %s %s — authHeader=%s candidatos=%d realmsVistos=[%s] revocada=%s realmAjeno=%s esperados=[%s]',
+            '[auth_session] 401 %s %s — authHeader=%s candidatos=%d cookiesIgnoradas=%d realmsVistos=[%s] revocada=%s realmAjeno=%s esperados=[%s]',
             $_SERVER['REQUEST_METHOD'] ?? '?',
             $_SERVER['REQUEST_URI'] ?? '?',
             empty($_SERVER['HTTP_AUTHORIZATION']) ? 'no' : 'si',
             count($candidates),
+            $ignoredAmbient,
             implode(',', array_keys($seenRealms)),
             $sawRevoked ? 'si' : 'no',
             $sawWrongRealm ? 'si' : 'no',
@@ -315,16 +352,30 @@ function authSessionRevokeByDevice(string $deviceId, string $companyId, ?string 
 }
 
 /**
- * Devuelve los tokens candidatos de la request (Bearer + cookies + POST), sin filtrar
- * por realm. Tokens opacos (prefix pt_); los JWT viejos simplemente no resuelven.
+ * El token del header `Authorization: Bearer` ('' si no vino).
+ *
+ * Credencial EXPLÍCITA: el cliente la adjunta a propósito en esta request. Por
+ * eso manda sobre las ambientales — ver la precedencia en authResolve().
  */
-function _authExtractTokens(): array
+function _authBearerToken(): string
 {
-    $tokens = [];
     $auth = $_SERVER['HTTP_AUTHORIZATION'] ?? '';
     if (preg_match('/Bearer\s+(\S+)/i', $auth, $m)) {
-        $tokens[] = $m[1];
+        return $m[1];
     }
+    return '';
+}
+
+/**
+ * Credenciales AMBIENTALES: cookies y tokens en $_POST. El browser las adjunta
+ * solo por estar en el mismo origen — el código que hace la request no eligió
+ * mandarlas. Solo cuentan cuando NO hay Bearer (ver authResolve()).
+ *
+ * Tokens opacos (prefix pt_); los JWT viejos simplemente no resuelven.
+ */
+function _authAmbientTokens(): array
+{
+    $tokens = [];
     foreach (['_jwt_panel', '_jwt_admin', '_jwt'] as $c) {
         if (!empty($_COOKIE[$c])) { $tokens[] = $_COOKIE[$c]; }
     }

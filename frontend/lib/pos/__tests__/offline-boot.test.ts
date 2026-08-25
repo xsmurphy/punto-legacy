@@ -305,12 +305,18 @@ describe("árbol de decisión del bootstrap: red / cache / nada", () => {
   // con los PINs cargados en la base.
   //
   // `PosAuthGuard` monta esta query en todo arranque de `/pos`, incluso sin
-  // device pareado (el hook corre antes de su propio early return), y
-  // `posFetch` manda `credentials: "include"`. Sin este guard, esa request
+  // device pareado (el hook corre antes de su propio early return), y `posFetch`
+  // mandaba entonces `credentials: "include"`. Sin este guard, esa request
   // viajaba con la cookie del panel, el BFF la aceptaba y devolvía un
   // bootstrap de realm `panel` —200, pero SIN la clave `users`— que quedaba
   // cacheado y persistido como si fuera el bootstrap de este device. El pareo
   // posterior reusaba ese cache y la caja abría sin PINs.
+  //
+  // Desde el token-only del POS (2026-08-25, context/08 §60) hay tres cortes
+  // en serie para lo mismo, y este test cubre el de más adentro: `posFetch` va
+  // con `credentials: "omit"` y devuelve un 401 local sin token, el BFF no
+  // reenvía la cookie, y `authResolve()` ignora las cookies cuando hay Bearer.
+  // Este guard sigue siendo el que decide qué entra al cache y al snapshot.
   it("SIN TOKEN: no toca la red — una respuesta que no es de este device no puede entrar al cache", async () => {
     deviceToken = null
 

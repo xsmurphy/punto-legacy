@@ -27,6 +27,29 @@ export interface BffProxyOptions {
    * el Bearer (bug clásico que causó incidentes de 401 fantasma).
    */
   requireBearer?: boolean
+  /**
+   * Si true, reenvía el header `cookie` upstream. Default FALSE: el proxy es
+   * TOKEN-ONLY salvo que la puerta declare lo contrario.
+   *
+   * El default es "no" a propósito, y es lo que hace que `/api/pos/*` sea
+   * token-only por construcción: una ruta POS nueva que nadie revisó no puede
+   * filtrar la cookie del panel al backend por olvido. Hoy el ÚNICO opt-in
+   * legítimo es el catch-all `/api/v1/[...path]`, que es la puerta del PANEL.
+   *
+   * Por qué importa (incidente 2026-08-25): el browser del operador lleva la
+   * cookie `_jwt_panel` Y el Bearer del device. Si el BFF reenvía las dos, el
+   * backend recibe dos credenciales y un Bearer revocado queda "rescatado" por
+   * la cookie — el POS sigue operando, pero como panel, y devuelve payloads sin
+   * las claves que solo se sirven al realm `pos-app` (el roster del lock
+   * screen). Con una sola credencial, el backend solo puede responder como
+   * `pos-app` o rechazar.
+   *
+   * La contraparte en el backend es la precedencia de Bearer de `authResolve()`
+   * (`api/includes/auth_session.php`), que cubre la puerta que SÍ es
+   * multi-credencial. Las dos son necesarias: esta corta el problema en el
+   * borde, esa lo cierra donde el borde no llega.
+   */
+  forwardCookie?: boolean
   /** Override del content-type a enviar al upstream. */
   contentType?: string
 }
@@ -45,10 +68,14 @@ export async function bffProxy(req: NextRequest, opts: BffProxyOptions): Promise
     }
   }
 
-  // Headers: copiar todo excepto hop-by-hop. cookie y authorization se copian automáticamente.
+  // Headers: copiar todo excepto hop-by-hop. `authorization` se copia siempre;
+  // `cookie` SOLO si la puerta lo pidió explícitamente (ver `forwardCookie`).
   const headers = new Headers()
   req.headers.forEach((value, key) => {
-    if (!HOP_BY_HOP.has(key.toLowerCase())) headers.set(key, value)
+    const lower = key.toLowerCase()
+    if (HOP_BY_HOP.has(lower)) return
+    if (lower === "cookie" && !opts.forwardCookie) return
+    headers.set(key, value)
   })
   if (HOST_OVERRIDE) headers.set("host", HOST_OVERRIDE)
   if (opts.contentType) headers.set("content-type", opts.contentType)

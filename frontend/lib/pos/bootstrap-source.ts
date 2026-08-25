@@ -52,13 +52,20 @@ export async function fetchPosBootstrap(): Promise<PosBootstrap> {
   //
   // `PosAuthGuard` monta esta query en TODO arranque de `/pos` —también cuando
   // no hay device pareado, porque el hook corre antes de su propio early
-  // return— y `posFetch` va con `credentials: "include"`. En el browser del
-  // operador eso significa que una request SIN Bearer todavía viaja con la
-  // cookie del panel, y hasta hoy el BFF la aceptaba: el POS recibía un 200
+  // return— y `posFetch` iba entonces con `credentials: "include"`. En el
+  // browser del operador eso significaba que una request SIN Bearer todavía
+  // viajaba con la cookie del panel, y el BFF la aceptaba: el POS recibía un 200
   // con forma de panel y sin roster, lo cacheaba en `["pos-bootstrap"]`
   // (staleTime 5 min) y lo persistía como snapshot. Al parear el device, la
   // navegación client-side a `/pos` reusaba ese cache envenenado y el lock
   // screen abría sin PINs (incidente 2026-08-25).
+  //
+  // Hoy `posFetch` va con `credentials: "omit"` y el BFF no reenvía la cookie
+  // (token-only, context/08 §60), así que ese 200 ya no existe. Este guard sigue
+  // siendo necesario igual: es el que decide qué entra al cache y al snapshot, y
+  // su `ApiError(401)` es lo que lleva a `PosAuthGuard` a la pantalla de
+  // reconexión — por eso esta query NO se gatea con `enabled` (ver
+  // `hooks/use-pos-bootstrap.ts`).
   //
   // El BFF ya rechaza ese caso con 401, pero el arreglo tiene que estar
   // TAMBIÉN de este lado: es acá donde se decide qué entra al cache y al

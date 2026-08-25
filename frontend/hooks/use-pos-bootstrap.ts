@@ -36,6 +36,27 @@ export function usePosBootstrap() {
     // único escenario para el que existe —la caja arrancando sin red— y el
     // POS quedaría colgado en su loading screen.
     networkMode: "always",
+    // NO agregar `enabled: getDeviceToken() !== null` acá. Parece la defensa en
+    // profundidad obvia —sin token no pidas nada— y rompe la pantalla de
+    // reconexión:
+    //
+    // cuando el admin revoca el device con la caja abierta, `posFetch` cobra el
+    // 401 `session_revoked` y llama a `moduleLogout()`, que borra el token,
+    // limpia el cache e invalida `["pos-bootstrap"]`. Con el gate puesto, en ese
+    // render `enabled` ya es false: la query queda `pending`/`idle` y el
+    // invalidate no refetchea nunca. `PosAuthGuard` calcula `hasLocalToken` UNA
+    // sola vez (efecto con deps `[]`), así que sigue en `true` y cae en
+    // `status === "pending"` → renderiza el POS con catálogo y carrito vacíos, y
+    // cada acción fallando, en vez de "Dispositivo no conectado". Solo se
+    // recupera con un reload completo.
+    //
+    // Sin el gate, ese camino es el bueno: refetch → `fetchPosBootstrap` tira
+    // `ApiError(401)` sin tocar la red (su propio guard de token) → la query va
+    // a `error` → el guard pinta `<DeviceNotConnected>` con el motivo correcto.
+    //
+    // El fail-closed real no está acá: está en `fetchPosBootstrap` (qué entra al
+    // cache y al snapshot) y en `posFetch` (qué viaja a la red). Esta query tiene
+    // que poder FALLAR — su estado de error es lo que maneja la UI.
     staleTime: 5 * 60 * 1000,
     // Sin reintentos: `fetchPosBootstrap` ya resuelve el fallo sirviendo el
     // snapshot, y un 401 no se reintenta nunca.

@@ -216,6 +216,12 @@ Los tokens POS son **eternos** (device pairing). Si un endpoint de panel no decl
 
 BFF panel → /api: base `'shared'` + `Authorization: Bearer <_jwt_panel>` (no cookie — coexiste con `_jwt` del POS en el mismo browser).
 
+> Regla madre de esto: **§60 — cookie = panel, Bearer = device**. Ojo: el
+> catch-all del BFF hoy reenvía la COOKIE del panel, no un Bearer; el patrón de
+> arriba sobrevive solo en handlers server-side puntuales
+> (`app/api/dashboard/income-chart`), que leen `_jwt_panel` y lo mandan como
+> Bearer — sigue siendo realm panel, así que la precedencia no cambia nada ahí.
+
 Resolución de outlet por realm (view-scope panel vs `outletScope` device) y qué datos son por-sucursal vs por-tenant: doc canónico `context/25-sucursales-y-scopes.md`.
 
 ### §33.2 — PROHIBIDO `$SQLcompanyId` global en services /api
@@ -419,7 +425,7 @@ El browser de un operador logueado lleva **dos** cookies JWT simultáneas con pr
 | `_jwt_panel` | `panel/includes/functions.php` | 24h | `'panel'` | Sesión del operador en el panel React |
 | `_jwt_pos-device` | `app/Api/DeviceAuth.php` (PSR-4) | 10 años | `'pos-app'` + claim `did` | Device pairing de la caja POS (frontend) |
 
-El catch-all BFF (`frontend/app/api/v1/[...path]/route.ts`) forwardea **solo** `_jwt_panel`. Los endpoints `apiAuthTenant(['pos-app'])` leen `_jwt_pos-device`. Un `POST /v1/logout` del panel borra solo `_jwt_panel` (cookie `HttpOnly`, borrado server-side); la sesión POS no se toca. Logout del POS solo desde Ajustes → "Eliminar dispositivo del comercio". Ver §28 y context/16.
+El catch-all BFF (`frontend/app/api/v1/[...path]/route.ts`) forwardea **solo** `_jwt_panel` — y desde 2026-08-25 es la ÚNICA puerta del BFF que reenvía cookie (`forwardCookie: true`); `/api/pos/*` no reenvía ninguna. Regla madre: **§60**. Los endpoints `apiAuthTenant(['pos-app'])` leen `_jwt_pos-device`. Un `POST /v1/logout` del panel borra solo `_jwt_panel` (cookie `HttpOnly`, borrado server-side); la sesión POS no se toca. Logout del POS solo desde Ajustes → "Eliminar dispositivo del comercio". Ver §28 y context/16.
 
 **PIN del cajero (2026-06-25):** el lockscreen del POS usa SHA-256 del PIN en `localStorage`, **no bcrypt**. Razón: el PIN es identificación del cajero (quién vendió qué), no seguridad de acceso — un cajero que piratea su propio hash de PIN tiene acceso físico a la caja de todas formas. `Web Crypto API` (`crypto.subtle.digest("SHA-256", ...)`) en el cliente; comparación local sin roundtrip. No cambiar a bcrypt sin decisión explícita del owner.
 
@@ -921,3 +927,119 @@ y además ejercita `OutletsService::create()` con payload, el camino legacy blan
 (`$fields = null`), los dos lados del guard de borrado, y el toggle
 `update(status:false)`. Correr con
 `bash api/tests/run_outlet_chain_invariant_test.sh`.
+
+---
+
+## §60 — Cookie = panel, Bearer = device: un cliente HTTP habla UN realm (decisión de arquitectura, 2026-07-19; enforcement 2026-08-25)
+
+> **Esta es la regla madre.** El token-only del POS, la precedencia del
+> resolver y el BFF sin cookies son sus CONSECUENCIAS, no reglas separadas.
+> Si venís a tocar auth del POS o del panel, empezá acá.
+
+**La decisión** (tomada el 2026-07-19, tras el bug de espacios): cada cliente
+HTTP autentica con UNA credencial y habla UN realm.
+
+| Cliente | Credencial | Realm | Nunca |
+|---|---|---|---|
+| `lib/api-client.ts` (panel) | cookie `_jwt_panel` | `panel` | manda `Authorization` |
+| `lib/api/pos-fetch.ts` (device) | Bearer del device | `pos-app` | manda cookies (`credentials: "omit"`) |
+
+No es una observación sobre cómo está el código: es la decisión, y el código
+que la contradiga es el que está mal. Hasta 2026-08-25 `api-client.ts` ofrecía
+una opción `jwt` que seteaba `Authorization: Bearer` — sin ningún call-site que
+la usara. Se eliminó, porque una puerta abierta que nadie usa hoy es la que
+alguien cruza mañana.
+
+**Lo que se agregó el 2026-08-25** es el enforcement: hasta entonces la
+decisión dependía de que todos los clientes se portaran bien, y el server
+resolvía "la primera credencial válida gana". Tres incidentes después, la regla
+pasó a estar sostenida por el server y por el borde, no por la disciplina.
+
+**Las dos mitades del enforcement:**
+
+1. **Borde** — ninguna ruta `/api/pos/*` acepta cookies ni las reenvía al
+   backend. La única credencial del POS es el Bearer del device.
+2. **Resolver** — si la request trae `Authorization: Bearer`, el Bearer define
+   el realm y las credenciales ambientales (cookies, tokens en `$_POST`) se
+   ignoran por completo. La cookie solo cuenta cuando NO hay Bearer.
+
+Lo que muere es la **ambigüedad de resolución**, no el modelo: el realm sigue
+siendo columna de `auth_session` y los endpoints multi-realm siguen existiendo
+(context/21).
+
+### Por qué: la misma causa, tres veces
+
+| Fecha | Síntoma | Fix de entonces |
+|---|---|---|
+| 2026-07-19 | El PANEL operaba con el outlet de la caja (espacios en la sucursal equivocada) | Se quitó el Bearer automático de `api-client.ts` |
+| 2026-08-24 | `/v1/users` con Bearer de device → 403 silencioso → lock screen sin PINs | Local, en el call-site |
+| 2026-08-25 | `/api/pos/bootstrap` sin Bearer resolvía como panel por la cookie y devolvía **200 sin el roster**; el cache envenenado dejó un iPhone recién pareado bloqueado | El BFF de bootstrap dejó de aceptar/reenviar la cookie |
+
+La causa común: el browser del operador lleva **las dos credenciales** (modelo
+de doble sesión — cookie `_jwt_panel` del panel + Bearer del device en
+localStorage), y `authResolve()` se quedaba con la **primera credencial válida**.
+Cada fix fue local, así que la clase de bug volvió por otra puerta.
+
+### Dónde vive cada mitad
+
+| Mitad | Archivo | Mecanismo |
+|---|---|---|
+| Borde | `frontend/lib/bff/proxy.ts` | `forwardCookie` default **false**: el proxy no reenvía `cookie` salvo opt-in explícito |
+| Borde | `frontend/lib/api/pos-fetch.ts` | `credentials: "omit"` + 401 local sin token (no viaja la request) |
+| Resolver | `api/includes/auth_session.php` | `authResolve()`: `$candidates = $bearer !== '' ? [$bearer] : $ambient` |
+
+`forwardCookie: true` lo usa **una sola** puerta: el catch-all
+`app/api/v1/[...path]/route.ts`, que es la del PANEL. Esa puerta es
+multi-credencial a propósito y no puede dejar de serlo — el POS también la usa,
+con Bearer, para ventas y cotizaciones (`lib/api/pos-client.ts`). Ahí es donde
+la precedencia del resolver hace el trabajo que el borde no puede hacer.
+
+`credentials: "omit"` no es cosmético: `/api/pos/*` es same-origin y el default
+de `fetch` (`same-origin`) **manda las cookies igual**. Ser token-only no se
+consigue no pidiendo cookies, hay que pedir explícitamente que no vayan.
+
+### Consecuencia deliberada
+
+Un Bearer revocado/expirado/de otro realm da **401 aunque la cookie del operador
+sea válida**. Ese 401 es la respuesta correcta: es lo que dispara el
+self-healing del device en `pos-fetch.ts` (limpia el token, manda a reconexión).
+Antes la cookie lo "rescataba" y el POS seguía operando, pero como panel.
+
+### Los dos guards que lo sostienen
+
+- `frontend/lib/bff/__tests__/pos-token-only.test.ts` — barre
+  `app/api/pos/**/route.ts` y falla si alguna ruta reenvía `cookie`, omite el
+  Bearer, o trata la presencia de `_jwt_panel` como credencial. Corre con
+  `npm test`.
+- `api/tests/pos_token_only_precedence_test.php` — precedencia contra Postgres
+  real, incluido el caso "Bearer revocado + cookie válida → 401" y los dos
+  regression guards del PANEL (sin Bearer, la cookie sigue funcionando).
+  Correr con `bash api/tests/run_pos_token_only_precedence_test.sh`.
+
+### Al sumar una ruta `/api/pos/*`
+
+No hay nada que recordar: el default ya es token-only y el guard falla si la
+ruta se sale de la regla. Lo que NO se puede hacer es agregarle
+`forwardCookie: true` — si una ruta del POS parece necesitar la cookie, lo que
+falta es el Bearer, no la cookie.
+
+### Dónde estaba escrito antes (consolidado acá)
+
+Esta regla vivía en fragmentos, y por eso se pudo violar tres veces sin que
+nadie notara que era la misma regla. Los fragmentos siguen en su lugar con un
+puntero a esta sección; **la fuente de verdad es §60**:
+
+| Fragmento | Qué decía |
+|---|---|
+| §33 de este doc (declarar realm por endpoint) | Qué realm acepta cada endpoint y el ejemplo mixto `price_list` |
+| §42 de este doc (dos tokens en el browser del operador) | Qué cookie es de qué realm y qué forwardea el catch-all |
+| `frontend/lib/api-client.ts` (docblock) | "SOLO panel, NUNCA por Bearer de device" |
+| `frontend/lib/api/pos-fetch.ts` (docblock) | La mitad device del contrato |
+| `context/modules/23-auth-y-permisos.md` reglas 1, 5, 6, 11 | El resolver, el invariante de cliente, el lint y el borde |
+| `context/21-auth-rewrite.md` | El modelo de sesiones opacas donde el realm es columna |
+
+El enforcement automático que la sostiene hoy son TRES cosas, y conviene
+saber que existen antes de "arreglar" un 401: el lint de imports
+(`frontend/eslint.config.mjs`, prohíbe `api-client` en rutas del POS), el guard
+de rutas del BFF (`frontend/lib/bff/__tests__/pos-token-only.test.ts`) y el
+arnés de precedencia (`api/tests/pos_token_only_precedence_test.php`).

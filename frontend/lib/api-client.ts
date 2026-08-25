@@ -11,16 +11,23 @@
  * devuelve `/api` y se concatena → `/api/v1/contacts` que matchea el
  * catch-all del BFF. Same-origin, sin CORS, cookie viaja sola.
  *
- * INVARIANTE DE REALM: este cliente es SOLO panel — autentica por cookie
- * (`credentials: "include"`, `_jwt_panel`), NUNCA por Bearer de device. Un
- * cliente no debe mandar credenciales de dos realms a la vez: el browser del
- * operador suele tener cookie de panel Y token de device (caja pareada), y
- * si este cliente adjuntara el Bearer del device como fallback, el resolver
- * del server prioriza Bearer → la request de PANEL se autentica como DEVICE
- * → outlet scope equivocado (bug real: espacios creados en la sucursal del
- * device, no la elegida en el panel). El POS usa su propio cliente
- * (`lib/api/pos-client.ts` / `lib/api/pos-fetch.ts`), que adjunta el Bearer
- * explícitamente. No reintroducir el fallback acá.
+ * INVARIANTE DE REALM (decisión de arquitectura, 2026-07-19 — `context/08` §60):
+ * **cookie = panel, Bearer = device.** Un cliente HTTP habla UN realm. Este
+ * cliente es SOLO panel: autentica por cookie (`credentials: "include"`,
+ * `_jwt_panel`) y NUNCA manda `Authorization`. El POS usa el suyo
+ * (`lib/api/pos-client.ts` / `lib/api/pos-fetch.ts`), que adjunta el Bearer y
+ * no manda cookies (`credentials: "omit"`).
+ *
+ * Por qué: el browser del operador tiene cookie de panel Y token de device
+ * (caja pareada en la misma máquina). Si este cliente adjuntara el Bearer como
+ * fallback, el resolver del server —que da precedencia al Bearer— autenticaría
+ * la request de PANEL como DEVICE → outlet scope equivocado (bug real: espacios
+ * creados en la sucursal del device, no la elegida en el panel).
+ *
+ * Hasta 2026-08-25 este archivo ofrecía una opción `jwt` que seteaba
+ * `Authorization: Bearer` — contradecía la decisión de arriba y no la usaba
+ * NINGÚN call-site. Se eliminó: la puerta que no debe existir se cierra, no se
+ * deja abierta sin usar. No reintroducirla.
  */
 
 import { VIEW_SCOPE_KEY } from "@/hooks/use-view-scope"
@@ -83,9 +90,9 @@ const baseUrl = () => {
 
 async function request<T>(
   path: string,
-  init: RequestInit & { jwt?: string } = {},
+  init: RequestInit = {},
 ): Promise<T> {
-  const { jwt, headers, ...rest } = init
+  const { headers, ...rest } = init
 
   // Content-Type SOLO cuando hay body. Mandarlo en GET convierte la request
   // en "no-simple" (CORS) y triggea preflight OPTIONS innecesario — si el
@@ -99,9 +106,8 @@ async function request<T>(
     // No setear Content-Type para FormData — fetch lo arma con el boundary correcto.
     baseHeaders["Content-Type"] = "application/json"
   }
-  if (jwt) {
-    baseHeaders.Authorization = `Bearer ${jwt}`
-  }
+  // Acá NO se setea `Authorization`. Este cliente es cookie-pura por decisión
+  // de arquitectura — ver el docblock del módulo y `context/08` §60.
 
   // View-scope override del outlet: si el usuario eligió una sucursal o
   // "Todas" desde el dropdown del logo, mandamos `X-Outlet-Id` para que
@@ -194,49 +200,39 @@ function safeJson(text: string): unknown {
 }
 
 export const api = {
-  get: <T>(path: string, opts?: { jwt?: string }) =>
-    request<T>(path, { method: "GET", ...opts }),
-  post: <T>(path: string, body?: Json, opts?: { jwt?: string }) =>
+  get: <T>(path: string) => request<T>(path, { method: "GET" }),
+  post: <T>(path: string, body?: Json) =>
     request<T>(path, {
       method: "POST",
       body: body ? JSON.stringify(body) : undefined,
-      ...opts,
     }),
   /** POST con FormData — para uploads multipart. NO setea Content-Type (lo hace fetch). */
-  postForm: <T>(path: string, form: FormData, opts?: { jwt?: string }) =>
+  postForm: <T>(path: string, form: FormData) =>
     request<T>(path, {
       method: "POST",
       body: form,
-      ...opts,
     }),
   /**
    * POST a endpoints PHP legacy que leen $_POST['data'][0] con el payload
    * como string JSON (patrón de action.php?action=processData y sales.php).
    * Manda FormData con data[]=<JSON.stringify(payload)>.
    */
-  postLegacy: <T>(
-    path: string,
-    payload: Record<string, unknown>,
-    opts?: { jwt?: string },
-  ) => {
+  postLegacy: <T>(path: string, payload: Record<string, unknown>) => {
     const form = new FormData()
     form.append("data[]", JSON.stringify(payload))
-    return request<T>(path, { method: "POST", body: form, ...opts })
+    return request<T>(path, { method: "POST", body: form })
   },
-  put: <T>(path: string, body?: Json, opts?: { jwt?: string }) =>
+  put: <T>(path: string, body?: Json) =>
     request<T>(path, {
       method: "PUT",
       body: body ? JSON.stringify(body) : undefined,
-      ...opts,
     }),
-  patch: <T>(path: string, body?: Json, opts?: { jwt?: string }) =>
+  patch: <T>(path: string, body?: Json) =>
     request<T>(path, {
       method: "PATCH",
       body: body ? JSON.stringify(body) : undefined,
-      ...opts,
     }),
-  del: <T>(path: string, opts?: { jwt?: string }) =>
-    request<T>(path, { method: "DELETE", ...opts }),
+  del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   /** URL absoluta para descargas directas (CSV/PDF). */
   url: (path: string) => `${baseUrl()}${path}`,
 }
