@@ -158,16 +158,6 @@ export function CartPanel() {
   const ordenAImpresion = configData?.config?.ordenAImpresion ?? false
   const [drawerOpenDialogOpen, setDrawerOpenDialogOpen] = React.useState(false)
 
-  // modoSoloOrdenes: el POS arranca y queda lockeado en modo orden — si el
-  // toggle está prendido y el carrito no está ya en "orden" (arranque, o el
-  // toggle se activó mid-shift), lo forzamos. clear() con el toggle activo ya
-  // re-lockea vía useClearCart — este effect cubre el caso inicial/reactivo.
-  React.useEffect(() => {
-    if (modoSoloOrdenes && posMode !== "orden") {
-      setPosMode("orden")
-    }
-  }, [modoSoloOrdenes, posMode, setPosMode])
-
   const { data: bindingsData } = usePrinterBindings(activeRegisterId || undefined, { client: posApi })
   const allBindings = bindingsData?.bindings ?? []
   const createOrder = useCreateOrder()
@@ -188,6 +178,23 @@ export function CartPanel() {
   // Cotización en vuelo — única ventana en la que ese "modo" existe (no es un
   // posMode sticky, ver lib/pos/mode-visuals.ts). Pinta CTA + banda amber.
   const savingQuote = usePosUIStore((s) => s.savingQuote)
+
+  // modoSoloOrdenes: el POS arranca y queda lockeado en modo orden — si el
+  // toggle está prendido y el carrito no está ya en "orden" (arranque, o el
+  // toggle se activó mid-shift), lo forzamos. clear() con el toggle activo ya
+  // re-lockea vía useClearCart — este effect cubre el caso inicial/reactivo.
+  //
+  // El lock NO pisa un cobro en curso: con el diálogo de pago abierto la caja
+  // está facturando (`beginSale`, lib/cart/store.ts) y el modo tiene que
+  // quedarse en venta hasta que termine. Sin esta condición, cobrar una
+  // comanda con el flag prendido devolvía el carrito a verde con el CTA
+  // "Ordenar" detrás del diálogo. El re-lock vuelve a correr al cerrar el
+  // cobro (o vía useClearCart cuando la venta se confirma).
+  React.useEffect(() => {
+    if (modoSoloOrdenes && posMode !== "orden" && !payOpen) {
+      setPosMode("orden")
+    }
+  }, [modoSoloOrdenes, posMode, setPosMode, payOpen])
 
   const cartMode: CartModeKey = resolveCartMode(posMode, spaceName, savingQuote)
 

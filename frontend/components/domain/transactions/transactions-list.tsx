@@ -1183,6 +1183,11 @@ export function TransactionDetailContent({
       })),
     )
     setQuoteParent(tx.transactionId)
+    // Igual que en el POS: facturar deja la caja en modo venta. `clearCart()`
+    // ya vuelve a venta por `initialState`, salvo cuando `modoSoloOrdenes`
+    // re-lockea a orden — ahí el carrito llegaba al POS en verde con el CTA
+    // "Ordenar" y la cotización no se podía cobrar.
+    useCartStore.getState().beginSale()
     if (tx.customerId) {
       // Buscar en el cache de pos-bootstrap sin trigger de fetch extra.
       // En modo panel (sin pos-bootstrap cargado) getQueryData devuelve undefined → skip.
