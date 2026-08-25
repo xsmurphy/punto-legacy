@@ -27,6 +27,7 @@ import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatDateTime } from "@/lib/format-date"
 import { formatCurrencyAmount } from "@/lib/format-money"
+import { CurrencyFlag } from "@/components/ui/country-flag"
 
 interface PortalDocument {
   status: string
@@ -148,9 +149,21 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
               <Field
                 label="Total"
                 value={
-                  doc.total !== null
-                    ? `${formatCurrencyAmount(doc.total, doc.currency ?? "PYG")} ${doc.currency ?? "PYG"}`
-                    : "—"
+                  doc.total !== null ? (
+                    // Bandera + código: el portal lo abre el cliente final y
+                    // el monto puede venir en una divisa distinta a la del
+                    // comercio. La bandera se lee de un vistazo; el código ISO
+                    // sigue escrito al lado, no la reemplaza.
+                    <span className="inline-flex items-center gap-1.5">
+                      <CurrencyFlag code={doc.currency ?? "PYG"} className="text-base leading-none" />
+                      <span className="tabular-nums">
+                        {formatCurrencyAmount(doc.total, doc.currency ?? "PYG")}
+                      </span>
+                      <span className="text-muted-foreground">{doc.currency ?? "PYG"}</span>
+                    </span>
+                  ) : (
+                    "—"
+                  )
                 }
               />
               <Field

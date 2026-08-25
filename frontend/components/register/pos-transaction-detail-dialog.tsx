@@ -39,7 +39,18 @@ export function PosTransactionDetailDialog({ transactionId, open, onOpenChange }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {/* Bucket l — contenido tabular (items + pagos/recibos), ver Regla #2.1
-          de context/14-ui-conventions.md. */}
+          de context/14-ui-conventions.md.
+
+          `p-0` a mano y NO `sectioned`: éste es el caso de excepción que
+          documenta context/20 §4 — el modal monta un módulo entero
+          (`TransactionDetail` trae su propio header, cuerpo scrolleable y
+          gutter de 24px), no un header/body/footer que el primitive deba
+          espaciar.
+
+          El botón de cerrar se superponía al total (reporte del owner). El
+          arreglo NO vive acá: el gutter derecho lo repone el header de
+          `TransactionDetail`, que es la raíz compartida por este dialog y por
+          el split de `PosTransactionsDialog` — los dos lo tenían. */}
       <DialogContent className="sm:max-w-4xl max-h-[85vh] p-0 gap-0 overflow-hidden">
         <DialogHeader className="sr-only">
           <DialogTitle>Detalle de transacción</DialogTitle>

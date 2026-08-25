@@ -58,6 +58,7 @@ import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
 import { ModuleCatalogPanel } from "@/components/modules/module-catalog-panel"
 import { PlanPanel } from "@/components/billing/plan-panel"
+import { CountryFlag } from "@/components/ui/country-flag"
 
 // Zonas horarias (IANA) — el usuario elige de una lista en vez de tipear el
 // formato exacto. Foco LatAm + las comunes; el value es el IANA tz real.
@@ -1153,7 +1154,9 @@ function MonedasTab() {
                 className="flex items-center justify-between gap-3 rounded-md border p-3"
               >
                 <div className="flex items-center gap-3">
-                  <CountryFlag code={row.ccode} />
+                  {/* text-2xl: la fila de cotizaciones usa la bandera más
+                      grande que el resto de los consumidores. */}
+                  <CountryFlag code={row.ccode} className="text-2xl leading-none" />
                   <div className="flex flex-col">
                     <div className="text-sm font-semibold tracking-wide">
                       {row.code}
@@ -1182,16 +1185,6 @@ function MonedasTab() {
       </CardContent>
     </Card>
   )
-}
-
-function CountryFlag({ code }: { code: string }) {
-  // Emoji bandera desde código ISO 3166-1 alpha-2.
-  const flag = code
-    ? code
-        .toUpperCase()
-        .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
-    : "🌐"
-  return <span className="text-2xl leading-none">{flag}</span>
 }
 
 // ── HELPERS ────────────────────────────────────────────────────────────────

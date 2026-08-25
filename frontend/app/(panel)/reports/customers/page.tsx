@@ -27,6 +27,7 @@ import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type CustomerRow } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
+import { formatPhone } from "@/lib/phone"
 import { EmptyState } from "@/components/empty-state"
 import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
 
@@ -108,7 +109,8 @@ export default function CustomersReportPage() {
         accessorKey: "phone",
         header: "Teléfono",
         cell: ({ getValue }) => {
-          const v = getValue() as string
+          // formatPhone: la BD guarda E.164 sin '+'; la columna lo pintaba crudo.
+          const v = formatPhone(getValue() as string)
           return v ? (
             <span className="tabular-nums text-muted-foreground">{v}</span>
           ) : (

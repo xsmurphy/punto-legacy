@@ -28,6 +28,7 @@
 
 import type { BlockType, PrintBlock } from "@/lib/types/print-template"
 import { formatMoney as formatMoneyShared } from "@/lib/format-money"
+import { formatPhone } from "@/lib/phone"
 import type { TicketData, TicketItem } from "./build-ticket-data"
 
 /**
@@ -50,10 +51,28 @@ import type { TicketData, TicketItem } from "./build-ticket-data"
  */
 export function formatMoney(n: number, data: Pick<TicketData, "currency" | "thousand" | "decimal">): string {
   return formatMoneyShared(n, {
-    currency: data.currency ?? "Gs",
+    // Sin `?? "Gs"` acá: el fallback de la etiqueta vive en
+    // `resolveCurrencyLabel` (lib/format-money.ts), que además cubre el caso
+    // que este `??` NO cubría — el bootstrap manda string VACÍO cuando el
+    // tenant no configuró moneda, y `??` solo dispara con null/undefined.
+    currency: data.currency ?? "",
     thousand: data.thousand ?? "dot",
     decimal: data.decimal ?? "no",
   })
+}
+
+/**
+ * Teléfono para el ticket, en formato nacional.
+ *
+ * Convención del proyecto (context/20 §8): la BD guarda E.164 sin '+' y
+ * TODO lo que ve una persona va en nacional. Los resolvers de teléfono
+ * imprimían el crudo ("595991742353") — se notaba porque los datos de demo
+ * del editor de plantillas (`build-ticket-data.ts`) ya están en nacional, así
+ * que la vista previa mentía respecto del papel. Devuelve `null` y no ""
+ * para que el bloque se omita igual que el resto de los resolvers vacíos.
+ */
+function phoneBlock(value: string | null | undefined): string | null {
+  return formatPhone(value) || null
 }
 
 /**
@@ -280,7 +299,7 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   company_tin: (data) => data.companyTin ?? null,
   company_address: (data) => data.companyAddress ?? null,
   company_email: (data) => data.companyEmail ?? null,
-  company_phone: (data) => data.companyPhone ?? null,
+  company_phone: (data) => phoneBlock(data.companyPhone),
   company_website: (data) => data.companyWebsite ?? null,
 
   // Sucursal
@@ -292,7 +311,7 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   outlet_billing_name: (data) => data.outletBillingName ?? null,
   outlet_tin: (data) => data.outletTin ?? null,
   outlet_address: (data) => data.outletAddress ?? null,
-  outlet_phone: (data) => data.outletPhone ?? null,
+  outlet_phone: (data) => phoneBlock(data.outletPhone),
 
   // Caja / usuario
   register_name: (data) => data.registerName ?? null,
@@ -315,7 +334,7 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   customer_tin: (data) => data.customerTin ?? null,
   customer_ci: (data) => data.customerTin ?? null,
   customer_address: (data) => data.customerAddress ?? null,
-  customer_phone: (data) => data.customerPhone ?? null,
+  customer_phone: (data) => phoneBlock(data.customerPhone),
   // ⚠ PosCustomer (lib/types/pos-bootstrap.ts) solo trae
   // id/name/phone/tin/storeCredit/isCreditable — sin address_2/location/
   // city/country/phone_2/note/loyalty/birthday/email. Ver flag en el reporte.
@@ -323,7 +342,7 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   customer_location: (data) => data.customerLocation ?? null,
   customer_city: (data) => data.customerCity ?? null,
   customer_country: (data) => data.customerCountry ?? null,
-  customer_phone_2: (data) => data.customerPhone2 ?? null,
+  customer_phone_2: (data) => phoneBlock(data.customerPhone2),
   customer_note: (data) => data.customerNote ?? null,
   customer_loyalty: (data) => data.customerLoyalty ?? null,
   customer_birthday: (data) => data.customerBirthday ?? null,

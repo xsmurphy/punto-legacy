@@ -41,6 +41,7 @@ import { usePermission } from "@/hooks/use-permissions"
 import { formatCurrencyAmount } from "@/lib/format-money"
 import { formatDateTime } from "@/lib/format-date"
 import type { EInvoiceDocument, EInvoiceDocumentStatus } from "@/lib/types/einvoice"
+import { CurrencyFlag } from "@/components/ui/country-flag"
 
 const STATUS_LABEL: Record<EInvoiceDocumentStatus, string> = {
   pending: "Pendiente",
@@ -181,9 +182,16 @@ export function EInvoiceDocumentsCard() {
         cell: ({ row }) => {
           const doc = row.original
           if (doc.total === null) return <span className="text-sm text-muted-foreground">—</span>
+          // La columna no decía en qué divisa estaba el monto: dos filas con
+          // el mismo número podían ser PYG y USD. La bandera identifica la
+          // moneda de un vistazo y el código ISO la desambigua.
           return (
-            <span className="text-sm font-medium">
-              {formatCurrencyAmount(doc.total, doc.currency ?? "PYG")}
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+              <CurrencyFlag code={doc.currency ?? "PYG"} className="text-base leading-none" />
+              <span className="tabular-nums">
+                {formatCurrencyAmount(doc.total, doc.currency ?? "PYG")}
+              </span>
+              <span className="font-normal text-muted-foreground">{doc.currency ?? "PYG"}</span>
             </span>
           )
         },

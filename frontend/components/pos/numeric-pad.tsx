@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useIsCoarsePointer } from "@/hooks/use-mobile"
-import { formatAmount } from "@/lib/format-money"
+import { formatAmount, resolveCurrencyLabel } from "@/lib/format-money"
 
 export interface NumericPadProps {
   mode: "int" | "decimal" | "money" | "percent"
@@ -108,13 +108,18 @@ export function NumericPad({
     ourChangeRef.current = false
   }, [value])
 
+  // Etiqueta de la moneda del tenant — misma fuente que el botón de modo de
+  // abajo y que `formatMoney`. Antes el visor hardcodeaba "Gs": un tenant con
+  // otra moneda veía su monto rotulado en guaraníes.
+  const currencyLabel = resolveCurrencyLabel(config)
+
   const displayWithUnit = React.useMemo(() => {
     const formatted =
       mode === "money" ? formatAmount(parseFloat(value) || 0, config) : value
-    if (mode === "money") return `Gs${formatted}` // "Gs55.000"
+    if (mode === "money") return `${currencyLabel}${formatted}` // "Gs55.000"
     if (mode === "percent") return `${value}%` // "20%"
     return formatted // "1" o "1.5"
-  }, [mode, value, config])
+  }, [mode, value, config, currencyLabel])
 
   const handleDigit = React.useCallback(
     (d: string) => {
@@ -207,16 +212,19 @@ export function NumericPad({
   // int↔decimal para cantidades) y pinta cuál está activo.
   const modeChoices = React.useMemo(() => {
     if (mode === "money" || mode === "percent") {
+      // `resolveCurrencyLabel` y no `config?.currency ?? "Gs"`: el bootstrap
+      // manda "" cuando el tenant no configuró moneda y `??` no lo cubre — el
+      // botón salía sin texto (bug reportado en el modal de descuento).
       return [
         { key: "percent", label: "%" },
-        { key: "money", label: config?.currency ?? "Gs" },
+        { key: "money", label: currencyLabel },
       ] as const
     }
     return [
       { key: "int", label: "1" },
       { key: "decimal", label: "1.00" },
     ] as const
-  }, [mode, config])
+  }, [mode, currencyLabel])
 
   return (
     <div className="flex flex-col gap-3">
