@@ -73,10 +73,10 @@ describe("parseShiftCloseBlockers", () => {
 describe("shiftCloseBlockedSummary", () => {
   it("singular y plural, por separado en cada dimensión", () => {
     expect(shiftCloseBlockedSummary(blockers({ orderCount: 1, total: 1 }))).toBe(
-      "No se puede cerrar el turno: la sucursal tiene 1 orden abierta.",
+      "No se puede cerrar el turno: la sucursal tiene 1 orden sin cobrar.",
     )
     expect(shiftCloseBlockedSummary(blockers({ orderCount: 3, total: 3 }))).toBe(
-      "No se puede cerrar el turno: la sucursal tiene 3 órdenes abiertas.",
+      "No se puede cerrar el turno: la sucursal tiene 3 órdenes sin cobrar.",
     )
     expect(shiftCloseBlockedSummary(blockers({ spaceCount: 1, total: 1 }))).toBe(
       "No se puede cerrar el turno: la sucursal tiene 1 espacio abierto.",
@@ -86,7 +86,17 @@ describe("shiftCloseBlockedSummary", () => {
   it("junta las dos dimensiones con 'y'", () => {
     expect(
       shiftCloseBlockedSummary(blockers({ orderCount: 2, spaceCount: 1, total: 3 })),
-    ).toBe("No se puede cerrar el turno: la sucursal tiene 2 órdenes abiertas y 1 espacio abierto.")
+    ).toBe("No se puede cerrar el turno: la sucursal tiene 2 órdenes sin cobrar y 1 espacio abierto.")
+  })
+
+  it("la orden dice 'sin cobrar', no 'abierta' — lo que falta es la plata, no el proceso", () => {
+    // El criterio del gate es el COBRO (owner 2026-08-25): un delivery ya
+    // cobrado que sigue en la calle no aparece acá. Si el copy dijera
+    // "abiertas", el cajero buscaría en la pantalla de órdenes algo que el
+    // servidor no le mandó — las que ve listadas son las que deben plata.
+    const texto = shiftCloseBlockedSummary(blockers({ orderCount: 2, total: 2 }))
+    expect(texto).toContain("sin cobrar")
+    expect(texto).not.toContain("abiertas")
   })
 
   it("sin nada abierto no inventa un motivo", () => {
@@ -101,6 +111,23 @@ describe("etiquetas de la lista", () => {
     expect(
       blockerOrderLabel({ id: "o", number: 14, status: "open", source: "table", space: "Mesa 3" }),
     ).toBe("Orden #14 — Mesa 3")
+  })
+
+  it("una orden de delivery sin cobrar se etiqueta igual que cualquier otra", () => {
+    // El status del proceso ya no decide nada: si el servidor mandó esta
+    // orden es porque no está cobrada, y el cajero la ubica por su número.
+    // La lista no muestra el estado a propósito — "En camino" al lado de un
+    // bloqueo sugeriría que hay que esperar a que llegue, cuando lo que hay
+    // que hacer es cobrarla.
+    expect(
+      blockerOrderLabel({
+        id: "o",
+        number: 21,
+        status: "out_for_delivery",
+        source: "ecommerce",
+        space: null,
+      }),
+    ).toBe("Orden #21")
   })
 
   it("una orden sin número no se muestra como 'Orden #null'", () => {

@@ -1487,7 +1487,7 @@ function ShiftCloseBlockersNotice({
         {shiftCloseBlockedSummary(blockers)}
       </p>
       <p className="mt-1 text-sm text-muted-foreground">
-        Cerralas o cobralas y el botón se habilita solo.
+        Cobralas o cancelalas y el botón se habilita solo.
       </p>
 
       {blockers.spaces.length > 0 && (
