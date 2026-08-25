@@ -7,6 +7,17 @@
 > emitida desde un tenant Punto propio, usuarios admin, modelos/proveedores
 > y llaves de terceros.
 
+> **Estado 2026-08-25**: F1-F6 implementadas, pero las 3 lecturas base
+> (tenants, semáforo F2, planes F4) estuvieron caídas en prod a la vez por
+> copias locales divergentes de los mismos predicados (`role=1` vs
+> `contact.role`, columnas de `company.config` JSONB leídas como propias,
+> `CaseInsensitiveArray` sin normalizar). Unificado en `RoleService`,
+> `ModuleState` y `ncmRow()`; cubierto por `api/tests/
+> admin_tenant_reads_test.php` (44 checks). Impersonación reescrita sobre
+> `PanelAuth::issuePanelSession()` — ver `context/_handoff.md` de esa sesión
+> para el detalle si sigue vigente, si no `context/_session-log.md` entry
+> `2026-08-25 — /admin...`.
+
 ## Base existente (no arrancar de cero)
 
 - Realm admin operativo: `frontend/app/(admin)/admin/*` (dashboard,

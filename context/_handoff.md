@@ -1,90 +1,106 @@
-# Hand-off — 2026-08-25
+# Hand-off — 2026-08-25 (sesión /admin + POS móvil)
 
 ## Objetivo
-Sesión de dos días, multi-eje: arrancó arreglando el roster de PINs del lock
-screen del POS y escaló al mandato del owner "el POS es token-only, sin
-ambigüedad de realms" (tercer incidente de la misma clase). En paralelo:
-auditoría de GetAssoc (bug de colapso de filas), cadena depósito/caja,
-arqueo por medio de pago, ítems multi-sucursal, centros de costo, quitar
-TODOS los hardcodeos de Paraguay, y 13 fixes de POS móvil (safe areas).
+Corría en paralelo a la sesión "POS token-only" (ver entry de arriba en la
+bitácora, que ya cerró). Esta sesión atacó: (1) tres lecturas de `/admin`
+caídas en prod a la vez (tenants, semáforo de salud, planes), (2) el bug
+real de impersonación que las destapó, y (3) un pedido urgente del owner
+de fixes de POS móvil (12 items, 2 agentes Opus en worktrees paralelos).
 
 ## Estado al cerrar
-Todo commiteado y pusheado a `main` (`6896d69b..HEAD`, 108 commits). OJO:
-ese rango está entreverado con una sesión PARALELA del owner (impersonate
-de `/admin`, migs 172/173, tenant master) — no es trabajo de esta sesión,
-no la reabras pensando que quedó a medias.
-
-Migraciones 165-171 todas aplicadas o listas para el deploy automático;
-165/166 ya corridas en prod (depósito y caja default, con backfill: 7
-depósitos creados + 2 marcados).
+Todo commiteado, pusheado a `main` y DEPLOYADO en prod (verificado con
+`curl`: API corre `a792623b`, frontend `33c4dacc` con el resto llegando).
+Los commits de esta sesión están entreverados con los de la sesión paralela
+ya cerrada — no son un rango limpio, ver lista de hashes en el entry de
+bitácora `## 2026-08-25 — /admin...`.
 
 ## Archivos y cambios
-- `context/08-convenciones-criticas.md` §60 — regla madre "cookie=panel,
-  Bearer=device"; `api/.../authResolve` prioriza Bearer sobre cookie;
-  `bffProxy` no reenvía cookies salvo el catch-all del panel
-  (`forwardCookie` default false).
-- `api/database/migrations/postgres/165_*.sql` a `171_*.sql` — depósito
-  default, caja default, centros de costo (`fin_cost_center`), banner
-  comanda, arqueo por medio de pago, `item_outlet` (N-a-N multi-sucursal),
-  pairing single-use (CAS + secreto de sesión).
-- `frontend/lib/tenant-locale.ts`, `api/lib/Support/TenantLocale/
-  CountryDefaults` — resolvers de país/moneda/TZ que reemplazan ~135
-  hardcodeos de Paraguay en 86 archivos; guard test con allowlist.
-- `context/48-escalamiento-de-datos.md` — anotado el pendiente crítico de
-  TZ (ver Trampas).
-- `context/53-orden-y-stock-reserva.md` — nuevo, plan de stock
-  "comprometido" en órdenes (D1-D4 cerradas, sin implementar).
-- POS móvil: safe-areas (squash `6c6e9e83` + cierres `5113cd7c`), teclado
-  nativo en teléfono para descuento/precio/cantidad, drawers al borde.
-- `context/modules/11-*.md`, `context/14-ui-conventions.md`,
-  `context/23-*.md` — actualizados por los agentes de cada slice.
+- `api/lib/Services/RoleService.php` — `ownerRoleSql()` (login, sin `main`)
+  y `ownerContactSql()` (fichas, con `main='true'`), predicado owner
+  unificado, reemplaza 5 copias locales de `role = 1`.
+- `api/lib/Services/TenantHealthService.php`, `ModulesService.php`,
+  `api/lib/Modules/ModuleState.php` (nuevo) — resolver único de
+  `ordersPanel/tables/production/moduleData`, viven en `company.config`
+  JSONB, no como columnas propias. `Query::flattenJsonb` nuevo en el wrapper.
+- `api/lib/Services/PlanAdminService.php` — `rowToPlan()` usa `ncmRow()`
+  en vez de asumir `array` (recibía `CaseInsensitiveArray`).
+- `api/database/migrations/postgres/172_*.sql`, `173_*.sql` — normaliza
+  `contact.main='admin'`→`'true'` (2 filas); marca la empresa master
+  (`00000000-...-0001`) `isInternal=1`. El seed `01_master_admin.sql`
+  también se corrigió (seguía escribiendo `main='admin'`).
+- `api/lib/Auth/PanelAuth.php` — `issuePanelSession()` es el emisor único
+  de sesión de panel; `getEnterToken()` (impersonación) delega ahí; dejó
+  de depender de `ncmExecute()` (global que no existe fuera del bootstrap
+  del panel).
+- `frontend/lib/admin/__tests__/impersonation-contract.test.ts` — fija el
+  contrato de 3 piezas: PHP `{token}` → BFF admin (`app/api/admin/
+  [...path]/route.ts`) convierte a cookie+`{redirectUrl}` → front navega.
+- `frontend/components/app-sidebar.tsx` (o equivalente) + `PanelAuthGuard`
+  — botón "Salir de impersonación" cableado: BFF setea `_imp_panel=1`
+  (no HttpOnly) junto a `_jwt_panel`; el guard lo lee y sale con logout +
+  borrar marca + redirect a `/admin`.
+- `api/tests/admin_tenant_reads_test.php` + `run_admin_tenant_reads_test.sh`
+  — arnés nuevo, 44 checks, Postgres descartable. Incluye caso L7 en
+  subproceso que carga SOLO los includes exactos del endpoint admin (para
+  no repetir el falso-verde de la regresión 2).
+- POS móvil: `components/ui/action-menu.tsx` (nuevo, Dropdown desktop ↔
+  Drawer bottom móvil), `NumericField`→ vuelta a `NumericPad`, Textarea de
+  comentarios (`field-sizing-content` anulaba `rows`), `--kb-inset` medido
+  con `visualViewport` en `dialog.tsx`, `SettingRow` apilado, switches
+  28×48, fullscreen `grid`→`flex flex-col`.
+- `context/14-ui-conventions.md` §11 — regla nueva: pad numérico siempre,
+  nunca input nativo para montos; ActionMenu para menús de fila. (Ya
+  commiteada en `0303b4d9`, no la retoques.)
+- `context/34-admin-saas-plan.md` — evaluar si necesita una línea sobre
+  el estado real (ver Próximo paso).
 
 ## Callejones sin salida
-- El link de pareo por WhatsApp emitía token nuevo en CADA polling de
-  `/status` indefinidamente — era un emisor permanente de credenciales
-  (el owner lo reprodujo pegando el link en dos navegadores). Se resolvió
-  con estado `consumed` vía CAS + secreto de sesión propio (UA/IP no
-  sirven: dos tablets del mismo local los comparten) — mig 171.
-- `/api/pos/bootstrap` sin Bearer resolvía como panel por la cookie y
-  CACHEABA un bootstrap sin roster — bloqueaba un iPhone recién pareado.
-  El parche puntual no alcanzaba: escaló al mandato token-only completo.
-- Colisión de migración 167 (centros de costo vs arqueo) — arqueo se
-  renumeró a 169 con `git mv` + barrido interno. Verificar SIEMPRE
-  `git branch -r` además de `ls migrations/`, no solo main local.
-- El squash-merge de `pos-safe-areas` fue deliberado: los commits
-  intermedios de esa branch no compilaban solos.
-- 5 agentes quedaron en bucle esperando sub-agente/build (turnos
-  perdidos); 1 worktree se borró antes del commit final (se rehizo el
-  trabajo, solo el arnés se perdió de verdad).
-- Un reviewer fabricó un resultado ("el barrido delegado volvió limpio")
-  antes de autocorregirse — el veredicto final que quedó fue real, pero
-  no confiar ciegamente en el primer reporte de un reviewer.
-- La Mac del owner llegó a 92% de disco (7 worktrees × ~2.5GB + builds
-  paralelos) — regla nueva: máx 2-3 worktrees en paralelo, borrar al
-  mergear, un solo build por agente al final.
+- **Impersonación, regresión propia 1**: se vio PHP devolviendo `{token}`
+  y el front leyendo `redirectUrl` y se concluyó "contrato desalineado" —
+  sin ver que el BFF de admin YA hacía esa conversión token→cookie+
+  redirectUrl en el medio. Alinear las puntas rompió con 502 "Backend no
+  devolvió token". Por eso el test de contrato nuevo mira las 3 piezas.
+- **Impersonación, regresión propia 2**: pasar `getEnterToken()` al emisor
+  compartido rompió con 500 "Call to undefined function ncmExecute" — esa
+  global vive en `includes/functions.php`, que solo carga el bootstrap del
+  PANEL; el realm admin arranca con `includes/db.php` solo.
+  `Query::execute()` tampoco servía (arrastra `validateResultFromDB`, otra
+  global del mismo archivo). El arnés daba VERDE con el bug adentro porque
+  cargaba el bootstrap completo — de ahí el caso L7 en subproceso.
+- **`ownerContactSql` con `main`** casi rompe el login: `findPhoneLogin`
+  nunca filtró por `main`, y 2 cuentas de prod tienen `main='admin'`. Por
+  eso son DOS funciones separadas (login sin `main`, fichas con `main`).
+- **Checkout de la sesión paralela pisó ediciones sin commitear** de
+  `PanelAuth.php` y del arnés (git status quedó limpio, se habían
+  revertido) — se rehicieron a mano. Confirma: sesiones paralelas sobre
+  el mismo árbol → worktrees, commit inmediato, no acumular.
+- **Primer `ownerContactSql` sin alias** dejaba `companyid` sin calificar
+  en el EXISTS → se resolvía contra `taxonomy` (tautología silenciosa,
+  aceptaba el rol owner de CUALQUIER tenant). Columnas SIEMPRE calificadas
+  + check de texto A1-A4 en el arnés.
+- **`NumericField` decía en su propio docblock** "decisión del owner
+  2026-08-25" — el owner lo declaró regresión ese mismo día. Los briefs
+  pueden fabricar decisiones que no existieron; regla + guard test en
+  `context/14` §11.
 
 ## Próximo paso
-El owner debe probar la checklist móvil del POS en su iPhone (reinstalar
-la PWA primero — el storage de iOS PWA es separado de Safari, necesita
-re-pareo pegando el link a mano). En paralelo, decidir si revocar las 8
-sesiones de device duplicadas que quedaron en prod tras el fix de pairing
-single-use (revocarlas desconecta cajas activas — no es automático).
+Confirmar con el owner si `context/34-admin-saas-plan.md` necesita una
+línea sobre el estado real (F1-F6 implementadas pero las 3 lecturas
+estuvieron caídas en prod y ahora hay arnés `admin_tenant_reads_test.php`
+cubriéndolas) — si no se hizo en esta sesión, es la única acción de docs
+que quedó pendiente de evaluar.
 
 ## Trampas conocidas
-- Migs 157/160 y `period-close.php` truncan con timezone "Asunción"
-  literal — CRÍTICO migrar a TZ por tenant antes de dar de alta el primer
-  tenant no-paraguayo (contexto en `context/48`).
-- `data.php:98` usa `sha1($company['accountId'])` y la columna `accountid`
-  NO existe — deprecación silenciosa en HTTP, fatal en CLI. Bug ajeno,
-  no tocado esta sesión, solo anotado.
-- Prod corre `php -S` embebido, NO Apache/CGI — cualquier fix que asuma
-  `REDIRECT_HTTP_AUTHORIZATION` no aplica acá.
-- El histórico del ledger de stock con `locationid` NULL NO se migra
-  (decisión del owner, es la cuenta de prueba) — la lectura consolida NULL
-  al depósito default; si un conteo de inventario por depósito da números
-  raros, revisar `Inventory::ledgerLocationJoin` antes de sospechar bug.
-- Mínimo táctil de 44px hoy solo aplica en mobile (corta en 768px) —
-  decisión de si extenderlo a tablet queda pendiente del owner.
-- Quedan 2 residuales menores de plantillas de impresión: separador
-  colgante en comanda sin destino, y filas de QR de reserva dibujadas de
-  más.
+- Las 8 sesiones de device duplicadas en prod (pairing) siguen sin
+  revocar — heredado de la sesión paralela, decisión del owner.
+- Migs 157/160 y `period-close.php` siguen truncando con TZ "Asunción"
+  literal — heredado, crítico antes del primer tenant no-PY.
+- El owner todavía no probó el lote móvil en su iPhone (deploy recién
+  salió; necesita reinstalar la PWA — storage separado de Safari).
+- "Bloquear sesión luego de" en Ajustes POS sigue siendo mock con TODO
+  backend (heredado, no tocado esta sesión).
+- `RowActions` del panel (no-POS) sigue sin rama drawer — a propósito,
+  el pedido era específico del POS.
+- Las sesiones de prueba usadas para verificar impersonación end-to-end
+  en prod (curl) fueron revocadas después — no quedan credenciales vivas
+  de esa verificación.
