@@ -18,12 +18,27 @@
  *
  * ── Por qué hace falta el permiso del operador ──────────────────────────────
  *
- * El guard tiene TRES salidas a favor: la mesa no tiene mozo, la mesa es tuya,
+ * El guard tiene tres salidas a favor: la mesa no tiene mozo, la mesa es tuya,
  * o tenés `pos.space.override`. Las dos primeras el front las puede espejar con
  * datos que ya tiene; la tercera no, porque el rol de la persona no viaja en el
  * roster del bootstrap (proyección deliberada a id/name/pinhash). Por eso los
  * permisos llegan por `/v1/unlock-pin` y viven en el lock store — ver el
  * docblock de `operatorPermissions` en `lib/pos/lock-store.ts`.
+ *
+ * ── Por qué el TOKEN se chequea ANTES que "la mesa es tuya" ─────────────────
+ *
+ * Porque para el backend la identidad del operador ES el token, no el match
+ * local del PIN. `SpaceOwnershipGuard::assert` compara el `waiterId` contra
+ * `$operator['userId']`, que sale de la `OperatorAssertion` firmada; sin token
+ * ese id es `null` y la comparación con el dueño NO puede dar verdadera —
+ * termina en "Identificate con tu PIN". El `activeUser` del front es un dato
+ * que el browser eligió: sirve para saludar y atribuir, jamás para autorizar.
+ *
+ * Espejar el orden al revés (dueño primero) es exactamente el bug que este
+ * archivo tuvo hasta 2026-08-25: si el POST a `/api/pos/unlock` se cae con el
+ * device online, el mozo veía sus acciones HABILITADAS sobre su propia mesa y
+ * se comía un 403 al tocarlas — justo el 403 sorpresa que este espejo existe
+ * para evitar. No reordenar "porque el dueño obviamente puede".
  */
 
 /** Clave del catálogo que destraba la mesa ajena (espejo de la constante PHP). */
@@ -75,21 +90,21 @@ export function evaluateSpaceAccess(input: SpaceAccessInput): SpaceAccess {
     return { allowed: false, reason: "Desbloqueá con tu PIN para operar este espacio." }
   }
 
-  // El dueño de la mesa, siempre.
-  if (waiterId === activeUser.id) return ALLOWED
-
-  // De acá para abajo solo pasa quien tenga el override, y el backend solo se
-  // lo va a reconocer a quien mande la afirmación firmada. Sin token, aunque el
-  // permiso esté en el store, la request terminaría en 403: la excepción se
-  // evalúa contra el rol del OPERADOR probado, no contra lo que diga el
-  // cliente. Cortar acá evita ofrecer una acción que ya sabemos que falla.
+  // Sin token no hay identidad que el backend reconozca, y eso alcanza TAMBIÉN
+  // al dueño de la mesa: el guard compara el `waiterId` contra el id que sale de
+  // la afirmación firmada, así que sin ella ni el propio mozo pasa (ver el
+  // docblock). Cortar acá evita ofrecer acciones que ya sabemos que terminan en
+  // 403 — el caso real es un `/api/pos/unlock` que falló con el device online.
   if (operatorToken === null) {
     return {
       allowed: false,
       reason:
-        "Sin identidad verificada: volvé a desbloquear con conexión para intervenir mesas de otro mozo.",
+        "Sin identidad verificada: volvé a desbloquear con conexión para operar una mesa asignada.",
     }
   }
+
+  // El dueño de la mesa, siempre — ya con identidad probada.
+  if (waiterId === activeUser.id) return ALLOWED
 
   // La válvula de escape del encargado: sin ella la regla se termina evadiendo
   // compartiendo el PIN del dueño.

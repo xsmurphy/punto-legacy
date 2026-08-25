@@ -154,6 +154,21 @@ export function LockScreen() {
         // identidad probada y las acciones que la exigen son online-only.
         setOperatorToken(null)
         setOperatorPermissions([])
+        // De quién es ESTA request. La respuesta llega tarde y el estado pudo
+        // cambiar de dueño mientras viajaba:
+        //
+        //   Ana desbloquea con red lenta → Ana bloquea → Bruno desbloquea →
+        //   llega la respuesta de Ana → Bruno queda operando con el token Y los
+        //   permisos de Ana.
+        //
+        // Con el token era atribución equivocada; con los permisos adentro es
+        // escalación de privilegios (un cajero heredando el override de un
+        // encargado). Por eso se descarta contra el estado FRESCO del store
+        // (`getState()`, no las closures de este render, que son del momento en
+        // que se disparó la request): si desbloqueó otra persona, o si la caja
+        // volvió a bloquearse —`lock()` tira el token a propósito y una
+        // respuesta en vuelo no puede resucitarlo—, la respuesta se tira.
+        const requestedBy = matched.id
         posFetch("/api/pos/unlock", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -164,10 +179,13 @@ export function LockScreen() {
             const json = (await res.json().catch(() => null)) as
               | { ok?: boolean; operatorToken?: string | null; permissions?: unknown }
               | null
-            if (json?.ok && typeof json.operatorToken === "string") {
+            if (!json?.ok) return
+            const now = useLockStore.getState()
+            if (now.locked || now.activeUser?.id !== requestedBy) return
+            if (typeof json.operatorToken === "string") {
               setOperatorToken(json.operatorToken)
             }
-            if (json?.ok && Array.isArray(json.permissions)) {
+            if (Array.isArray(json.permissions)) {
               setOperatorPermissions(json.permissions.filter((p): p is string => typeof p === "string"))
             }
           })
