@@ -149,6 +149,8 @@ final class ItemOutletService
      *
      * @param string[] $outletIds
      * @throws \InvalidArgumentException lista vacía o sucursal ajena al tenant.
+     * @throws \RuntimeException si el DELETE+INSERT no pudo completarse (el
+     *         ítem habría quedado con cero sucursales); la transacción revierte.
      */
     public function replace(string $itemId, string $companyId, array $outletIds): void
     {
@@ -165,10 +167,35 @@ final class ItemOutletService
         }
         $this->assertBelongToTenant($ids, $companyId);
 
-        $this->db->Execute(
+        // ATÓMICO — el DELETE + INSERT es la ventana donde el ítem existe con
+        // CERO sucursales. Como el invariante NO es un constraint de base (ver
+        // §4 de la mig 170: lo haría abortar el borrado de una sucursal), ESTA
+        // ventana *es* el invariante, y no puede quedar sin guarda.
+        //
+        // `$db->Execute()` devuelve `false` ante error, NO lanza: `DB::Execute`
+        // atrapa la PDOException y la convierte en `false` (api/includes/lib/
+        // DB.php). Sin chequear el retorno, un INSERT fallido dejaba el ítem en
+        // cero filas, `replace()` retornaba void, `update()` retornaba true y el
+        // endpoint contestaba 200 — el ítem desaparecía de todas las cajas y
+        // nadie se enteraba.
+        //
+        // `StartTrans()` es anidable (lleva un contador de profundidad), así que
+        // esto funciona igual si el caller ya abrió una transacción: ahí el
+        // `CompleteTrans()` de acá solo decrementa y el rollback lo hace el
+        // nivel externo.
+        $this->db->StartTrans();
+
+        $deleted = $this->db->Execute(
             'DELETE FROM item_outlet WHERE itemid = ? AND companyid = ?',
             [$itemId, $companyId]
         );
+        if ($deleted === false) {
+            $this->db->FailTrans();
+            $this->db->CompleteTrans();
+            throw new \RuntimeException(
+                "No se pudieron actualizar las sucursales del artículo {$itemId} (falló el borrado previo)."
+            );
+        }
 
         $placeholders = implode(', ', array_fill(0, count($ids), '(?, ?, ?)'));
         $params = [];
@@ -177,11 +204,24 @@ final class ItemOutletService
             $params[] = $oid;
             $params[] = $companyId;
         }
-        $this->db->Execute(
+        $inserted = $this->db->Execute(
             "INSERT INTO item_outlet (itemid, outletid, companyid)
              VALUES {$placeholders} ON CONFLICT DO NOTHING",
             $params
         );
+        if ($inserted === false) {
+            $this->db->FailTrans();
+            $this->db->CompleteTrans();
+            throw new \RuntimeException(
+                "No se pudieron asignar las sucursales del artículo {$itemId}."
+            );
+        }
+
+        if (!$this->db->CompleteTrans()) {
+            throw new \RuntimeException(
+                "No se pudieron actualizar las sucursales del artículo {$itemId} (la transacción no confirmó)."
+            );
+        }
     }
 
     /**

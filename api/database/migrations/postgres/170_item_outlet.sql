@@ -13,6 +13,22 @@
 --
 -- Patrón de tabla: `66_contact_outlets.sql` (mismo shape, mismos índices,
 -- misma decisión de NO dropear la columna legacy).
+--
+-- ⚠ NO RE-EJECUTAR A MANO. El DDL es idempotente (IF NOT EXISTS / ON CONFLICT
+-- DO NOTHING / DROP TRIGGER IF EXISTS), pero el BACKFILL **no lo es**, y la
+-- apariencia de idempotencia es justamente la trampa:
+--
+--   El paso (b) reparte "todas las sucursales del tenant" a los ítems con
+--   `item.outletid IS NULL`. ANTES de esta migración eso significaba "ítem
+--   visible en todas". DESPUÉS, la columna queda CONGELADA (nadie la escribe)
+--   y por lo tanto TODO ítem nuevo la tiene en NULL — sin que eso signifique
+--   nada sobre su visibilidad. Un re-run abriría cada ítem creado después de
+--   la migración a TODAS las sucursales, en silencio.
+--
+-- El ledger `schema_migrations` ya evita el re-run en el flujo normal
+-- (`migrate.php` la aplica una sola vez). Esta nota es para el caso manual:
+-- si hay que reparar datos, escribí un backfill nuevo con su propio criterio,
+-- no vuelvas a correr este archivo.
 -- =============================================================================
 
 BEGIN;

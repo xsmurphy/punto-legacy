@@ -148,30 +148,53 @@ final class ItemService
         $outletIds = $this->outlets()->resolveFromPayload($patch, $companyId);
         unset($patch['outletIds'], $patch['outletId']);
 
-        if ($outletIds !== null) {
-            // AISLAMIENTO MULTI-TENANT: `replace()` escribe en `item_outlet`
-            // con el `$itemId` tal cual viene del caller. El UPDATE de columnas
-            // de más abajo se protege solo (su WHERE lleva companyId), pero un
-            // INSERT no tiene dónde filtrar: sin este chequeo, un PUT con el
-            // id de un ítem de OTRA empresa insertaría filas
-            // (itemid ajeno, outletid mío, companyid mío) — y el ítem de la
-            // víctima terminaría mostrando una sucursal que no es suya.
-            //
-            // Devolver false (no una excepción) hace que el endpoint conteste
-            // "Update falló" sin confirmar si el ítem existe: un id ajeno y uno
-            // inexistente son indistinguibles desde afuera.
-            if ($this->repo->find($id, $companyId) === null) {
-                return false;
-            }
-            $this->outlets()->replace($id, $companyId, $outletIds);
+        if ($outletIds === null) {
+            // El patch no habla de sucursales: camino simple, sin transacción
+            // propia (el UPDATE ya es una sola sentencia atómica).
+            $patch['updated_at'] = TODAY;
+            return $this->repo->update($id, $companyId, $patch);
         }
 
-        // El patch puede quedar vacío si SOLO traía sucursales: eso es un
-        // update exitoso, no un no-op fallido.
-        if (empty($patch)) return true;
+        // AISLAMIENTO MULTI-TENANT: `replace()` escribe en `item_outlet` con el
+        // `$itemId` tal cual viene del caller. El UPDATE de columnas se protege
+        // solo (su WHERE lleva companyId), pero un INSERT no tiene dónde
+        // filtrar: sin este chequeo, un PUT con el id de un ítem de OTRA empresa
+        // insertaría filas (itemid ajeno, outletid mío, companyid mío) — y el
+        // ítem de la víctima terminaría mostrando una sucursal que no es suya.
+        //
+        // Devolver false (no una excepción) hace que el endpoint conteste
+        // "Update falló" sin confirmar si el ítem existe: un id ajeno y uno
+        // inexistente son indistinguibles desde afuera.
+        if ($this->repo->find($id, $companyId) === null) {
+            return false;
+        }
 
-        $patch['updated_at'] = TODAY;
-        return $this->repo->update($id, $companyId, $patch);
+        // Sucursales y columnas viajan en UNA transacción: si el UPDATE falla
+        // después de haber reemplazado las sucursales, el endpoint contesta 500
+        // pero el ítem ya habría cambiado de sucursal. O entran los dos cambios
+        // o no entra ninguno.
+        global $db;
+        $db->StartTrans();
+        try {
+            $this->outlets()->replace($id, $companyId, $outletIds);
+
+            // El patch puede quedar vacío si SOLO traía sucursales: eso es un
+            // update exitoso, no un no-op fallido.
+            $ok = true;
+            if (!empty($patch)) {
+                $patch['updated_at'] = TODAY;
+                $ok = $this->repo->update($id, $companyId, $patch);
+            }
+            if (!$ok) {
+                $db->FailTrans();
+            }
+        } catch (\Throwable $e) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw $e;
+        }
+
+        return $db->CompleteTrans() && $ok;
     }
 
     public function archive(string $id, string $companyId): bool

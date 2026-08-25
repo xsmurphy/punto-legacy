@@ -402,10 +402,42 @@ if ($resource === 'group' || $resource === 'ungroup') {
         }
         if ($groupName === '') apiError('Falta el nombre del grupo', 422);
 
+        // Sucursales del grupo: la UNIÓN de las de sus hijos (`item_outlet`,
+        // mig 170), mismo criterio que las variantes en `VariantService`. Sin
+        // esto el grupo caía en el default de `defaultFor()` — la primera
+        // sucursal alfabética — así que agrupar dos artículos de "Norte" creaba
+        // un padre en "Central", invisible en la caja donde viven sus hijos.
+        // Se calcula ANTES de crear el row para poder pasar la preferida al
+        // alta y no depender de un patch posterior.
+        $groupOutletIds = [];
+        foreach ($itemIds as $childId) {
+            if (!is_string($childId) || $childId === '') continue;
+            // `listFor()` filtra por companyId, así que un id de otro tenant
+            // aporta cero sucursales en vez de contaminar el grupo.
+            foreach ($itemOutletService->listFor($childId, $companyId) as $oid) {
+                if (!in_array($oid, $groupOutletIds, true)) $groupOutletIds[] = $oid;
+            }
+        }
+
         // Crear el row del grupo. createBlank usa kind=producto y deja
         // itemStatus=1 (default del schema). Después patchamos name + flags.
-        $groupId = $itemService->createBlank($companyId, null, 'producto');
+        $groupId = $itemService->createBlank(
+            $companyId,
+            null,
+            'producto',
+            $groupOutletIds[0] ?? null
+        );
         if ($groupId === false) apiError('No se pudo crear el grupo', 500);
+
+        // Con hijos en más de una sucursal, el grupo vive en todas ellas.
+        if (count($groupOutletIds) > 1) {
+            try {
+                $itemOutletService->replace($groupId, $companyId, $groupOutletIds);
+            } catch (\Throwable $e) {
+                $itemService->archive($groupId, $companyId);
+                apiError('No se pudieron asignar las sucursales del grupo', 500);
+            }
+        }
 
         // PASS BOOLEAN COMO STRING 'true' — el wrapper de DB.php convierte bool
         // PHP → 'true'/'false' string, pero un int 1 NO se convierte y PG con

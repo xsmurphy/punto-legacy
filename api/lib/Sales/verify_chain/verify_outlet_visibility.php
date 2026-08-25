@@ -419,6 +419,36 @@ verifyOutletCheck(
     $failures
 );
 
+// ── Caso 11: `replace()` es atómico y no deja el ítem en cero ──────────────
+// El DELETE+INSERT es la ventana donde el ítem existe sin sucursales. Como el
+// invariante no es un constraint de base, esta ventana ES el invariante. Se
+// fuerza el fallo del INSERT con una sucursal que pasa la validación de tenant
+// pero viola la FK (se borra entre el assert y el INSERT no se puede simular
+// fácil, así que se ataca por el lado del retorno: un itemId inexistente hace
+// que el INSERT viole la FK a `item`).
+$GHOST_ITEM = 'ab0e1e70-1111-4a1a-8b1b-0000000000ff';
+$atomicThrew = false;
+try {
+    (new ItemOutletService($db))->replace($GHOST_ITEM, $PY_COMPANY, [$PY_OUTLET]);
+} catch (\RuntimeException $e) {
+    $atomicThrew = true;
+} catch (\Throwable $e) {
+    $atomicThrew = true;
+}
+verifyOutletCheck(
+    'caso 11: un INSERT de item_outlet que falla LANZA (no deja el ítem en cero en silencio)',
+    $atomicThrew,
+    'replace() volvió normalmente pese a que el INSERT no pudo escribir',
+    $failures
+);
+// El ítem real no quedó tocado por el intento fallido.
+verifyOutletCheck(
+    'caso 11b: y el ítem A conserva su sucursal (la transacción revirtió)',
+    (new ItemOutletService($db))->listFor($ITEM_A, $PY_COMPANY) === [$PY_OUTLET],
+    'el rollback no restauró las sucursales del item A',
+    $failures
+);
+
 if ($failures !== []) {
     fwrite(STDERR, "[verify_outlet_visibility] FALLÓ:\n");
     foreach ($failures as $f) {

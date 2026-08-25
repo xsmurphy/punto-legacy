@@ -253,9 +253,14 @@ final class ItemService
         if ($itemId === '') {
             return true;
         }
+        // `companyid` no hace falta para que sea seguro (el `outletid` ya viene
+        // del device, o sea tenant-scoped), pero va igual: es el único call-site
+        // de `item_outlet` que quedaría sin él, y un lector futuro no debería
+        // tener que reconstruir por qué este es la excepción.
         $hit = ncmExecute(
-            'SELECT 1 AS ok FROM item_outlet WHERE itemid = ? AND outletid = ? LIMIT 1',
-            [$itemId, $this->ctx->outletId]
+            'SELECT 1 AS ok FROM item_outlet
+              WHERE itemid = ? AND outletid = ? AND companyid = ? LIMIT 1',
+            [$itemId, $this->ctx->outletId, $this->ctx->companyId]
         );
         return empty($hit);
     }
