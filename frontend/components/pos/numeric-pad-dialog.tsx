@@ -5,9 +5,13 @@
  * Layout legacy-style: title izquierda + mode label top-right en header,
  * captura numérica en body, Aceptar full-width en footer.
  *
- * El body monta `<NumericField>`, que en teléfono cambia el pad en pantalla por
- * un campo nativo (teclado del sistema) y en tablet/desktop deja el pad igual
- * que siempre. Los call-sites no ven la diferencia.
+ * El body monta `<NumericPad>` en TODOS los tamaños de pantalla. La captura de
+ * montos, cantidades y porcentajes del POS es SIEMPRE el pad —nunca un input
+ * con el teclado del sistema—, en teléfono también: los inputs quedan para
+ * texto y configuración. La rama nativa que existió el 2026-08-25
+ * (`components/pos/numeric-field.tsx`) fue revertida por el owner el mismo día.
+ * Si el pad queda incómodo en una pantalla chica se ajusta el pad (alto del
+ * visor, tamaño de tecla), no se cambia de superficie.
  *
  * Props:
  * - open, onClose: control del dialog
@@ -26,7 +30,7 @@ import {
   ResponsiveDialogContent,
 } from "@/components/ui/responsive-dialog"
 import { Button } from "@/components/ui/button"
-import { NumericField } from "@/components/pos/numeric-field"
+import { NumericPad } from "@/components/pos/numeric-pad"
 
 export interface NumericPadDialogProps {
   open: boolean
@@ -78,10 +82,9 @@ export function NumericPadDialog({
           )}
         </div>
 
-        {/* Body: la captura numérica — pad en tablet/desktop, campo nativo en
-            teléfono (`NumericField` resuelve la rama). */}
+        {/* Body: la captura numérica — el pad, en todas las pantallas. */}
         <div className="px-6 py-6">
-          <NumericField
+          <NumericPad
             mode={mode}
             value={value}
             onChange={onValueChange}
