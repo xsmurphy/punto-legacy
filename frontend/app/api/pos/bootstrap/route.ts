@@ -18,7 +18,11 @@
  * entero, con emails y teléfonos, a un token eterno guardado en la tablet del
  * mostrador). Ahora baja como proyección de tres campos dentro del bootstrap.
  *
- * Auth: requiere cookie `_jwt` (realm `pos-app`). Si falta o expira → 401.
+ * Auth: SOLO el Bearer del device (realm `pos-app`). Sin él → 401, sin pegarle
+ * al backend — mismo contrato que `requireBearer` de `lib/bff/proxy.ts`, que
+ * ya usan el resto de los `/api/pos/*`. Este endpoint era el único que además
+ * aceptaba la cookie `_jwt_panel` como credencial, y esa excepción es la causa
+ * raíz del lockout del 2026-08-25 (ver el docblock de `buildUpstreamHeaders`).
  *
  * Diferencias vs el catch-all `/api/v1/[...path]`:
  *   - Reshapea cada upstream a `PosBootstrap` (los shapes del backend NO
@@ -297,11 +301,36 @@ interface UpstreamPaymentMethodsList {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * Headers hacia upstream: SOLO el Bearer del device. La cookie NO se reenvía.
+ *
+ * Esto no es limpieza — es la frontera de realm de este endpoint, y su
+ * ausencia causó el lockout del lock screen del 2026-08-25.
+ *
+ * `/v1/bootstrap` es multi-realm (`apiAuthTenant(['panel','pos-app'])`) y
+ * `authResolve()` se queda con la PRIMERA credencial válida cuyo realm esté
+ * permitido. Mientras esta función reenviaba las dos, el browser del operador
+ * —que por el modelo de doble sesión tiene la cookie del panel Y el Bearer del
+ * device— podía resolver como realm `panel` en dos escenarios reales:
+ *
+ *   1. Sin Bearer todavía (device recién despareado / a punto de parearse): la
+ *      cookie quedaba como única candidata. El bootstrap devolvía 200 con
+ *      forma de PANEL y SIN la clave `users` (el roster se sirve solo a
+ *      `pos-app`, ver el gate en `api/v1/bootstrap.php`). Ese 200 se cacheaba
+ *      en `["pos-bootstrap"]` y se persistía en el snapshot de IndexedDB, así
+ *      que sobrevivía al pareo posterior y el lock screen abría con `users:
+ *      []` — acusando al comercio de no tener PINs cargados.
+ *   2. Con un Bearer REVOCADO: `authResolve()` descarta la sesión revocada y
+ *      sigue probando candidatos, así que la cookie lo "rescataba" como panel
+ *      en vez de devolver el 401 `session_revoked` que dispara el cleanup del
+ *      device. Un dispositivo expulsado seguía trayendo catálogo con la sesión
+ *      del operador.
+ *
+ * Con una sola credencial en la request, `/v1/bootstrap` solo puede responder
+ * como `pos-app` o rechazar. No hay tercera opción que el POS deba interpretar.
+ */
 function buildUpstreamHeaders(req: NextRequest): Headers {
   const h = new Headers()
-  // Reenviar cookie (_jwt_panel del panel) y Authorization (Bearer del device POS).
-  const cookie = req.headers.get("cookie")
-  if (cookie) h.set("cookie", cookie)
   const auth = req.headers.get("authorization")
   if (auth) h.set("authorization", auth)
   h.set("accept", "application/json")
@@ -415,9 +444,22 @@ function reshapePaymentMethod(row: UpstreamPaymentMethodRow): PaymentMethodConfi
  * el `pinhash` ausente a `null`. Sin filtro por `status`: la lista que llega YA
  * es la de los habilitados, y volver a filtrar acá sobre un campo que el
  * backend deliberadamente no manda vaciaría el roster entero.
+ *
+ * Devuelve `null` cuando el upstream NO mandó la clave `users` — que NO es lo
+ * mismo que mandarla vacía y no se puede colapsar en `[]`.
+ *
+ *   `[]`   → `/v1/bootstrap` respondió como device y el comercio no tiene
+ *            ningún usuario habilitado en la sucursal. Dato del comercio.
+ *   `null` → la respuesta no traía roster: `/api` más viejo que este front, o
+ *            la sesión no es la del device (realm `panel`, o un device cuyo
+ *            `module` no es `pos`). No dice NADA sobre los PINs del comercio.
+ *
+ * Colapsar los dos en `[]` es exactamente lo que hacía que el lock screen
+ * acusara al comercio de no tener códigos cargados cuando el problema era de
+ * sesión. El front necesita el distingo para elegir el mensaje y la salida.
  */
-function reshapeRoster(rows: UpstreamRosterUser[] | undefined): PosUser[] {
-  if (!Array.isArray(rows)) return []
+function reshapeRoster(rows: UpstreamRosterUser[] | undefined): PosUser[] | null {
+  if (!Array.isArray(rows)) return null
   return rows.map((u) => ({
     id: u.id,
     name: u.name,
@@ -428,19 +470,21 @@ function reshapeRoster(rows: UpstreamRosterUser[] | undefined): PosUser[] {
 // ── Handler ───────────────────────────────────────────────────────────────────
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
-  // El POS puede acceder con:
-  //   Authorization: Bearer <token> — device POS (Bearer en localStorage)
-  //   _jwt_panel cookie             — panel admin (HttpOnly, 24h)
-  // Sin ninguno → 401 sin pegarle al backend.
-  const cookie = req.headers.get("cookie") ?? ""
+  // El bootstrap del POS es un recurso del DEVICE: solo se sirve contra el
+  // Bearer de `pos-app`. La cookie `_jwt_panel` NO es una credencial válida
+  // acá — aceptarla devolvía un bootstrap de realm `panel`, sin el roster del
+  // lock screen, que el POS cacheaba como si fuera suyo (ver el docblock de
+  // `buildUpstreamHeaders`). Mismo guard y misma copy que `requireBearer` en
+  // `lib/bff/proxy.ts`, que ya usan el resto de los `/api/pos/*`.
   const authHeader = req.headers.get("authorization") ?? ""
-  const hasPanel = /(?:^|;)\s*_jwt_panel=/.test(cookie)
-  const hasBearerToken = /^Bearer\s+\S+/i.test(authHeader)
-  if (!hasPanel && !hasBearerToken) {
+  if (!/^Bearer\s+\S+/i.test(authHeader)) {
     return NextResponse.json(
       {
         ok: false,
-        error: { message: "No autenticado", code: 401 },
+        error: {
+          message: "Falta Bearer del device. Re-conectá el dispositivo desde el panel.",
+          code: 401,
+        },
       },
       { status: 401 },
     )

@@ -30,7 +30,7 @@
  */
 
 import * as React from "react"
-import { Lock, KeyRound, CloudAlert } from "lucide-react"
+import { Lock, KeyRound, CloudAlert, MonitorSmartphone } from "lucide-react"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -56,6 +56,9 @@ export function LockScreen() {
   // un roster vacío traído de la cache no prueba que el comercio no tenga PINs,
   // solo que este device no los tiene todavía.
   const catalogFromCache = useOfflineSyncStore((s) => s.catalogFromCache)
+  // El bootstrap que hidrató el catálogo no traía la clave `users` — distinto
+  // de traerla vacía. Ver el bloque de las tres causas más abajo.
+  const rosterMissing = useCatalogStore((s) => s.rosterMissing)
 
   const [pin, setPin] = React.useState("")
   const [shake, setShake] = React.useState(false)
@@ -213,25 +216,40 @@ export function LockScreen() {
   // mientras `idle`/`loading`, users=[] es transitorio y mostrar el aviso sería
   // un falso positivo (el bootstrap aún no llegó).
   //
-  // Se distinguen DOS causas, porque el cartel único mentía: hasta 2026-08-24
-  // un 403 de `/v1/users` (el device perdió `contacts.user.view` en la mig 162)
-  // degradaba a lista vacía y se pintaba como "no hay PINs configurados" —
-  // dato falso, y encima apuntaba al lugar equivocado para arreglarlo.
+  // ── Por qué son TRES carteles y no uno ─────────────────────────────────────
   //
-  //   - Roster traído de RED y vacío: es la verdad del comercio — ningún
-  //     usuario habilitado en esta sucursal tiene código POS cargado.
-  //   - Roster traído del SNAPSHOT offline y vacío: no prueba nada sobre el
-  //     comercio, solo que este device todavía no bajó un roster bueno. Es la
-  //     situación exacta de los devices envenenados por este bug, que se cura
-  //     sola en el próximo arranque con red.
+  // "No tengo PINs contra los que validar" tiene causas distintas, y cada una
+  // se arregla en un lugar distinto. Un cartel único obliga a elegir una y
+  // MIENTE en las otras dos — que es lo que pasó dos veces:
   //
-  // No hay un tercer estado de "no se pudo cargar": un fallo de red o de
-  // AUTORIZACIÓN ya no puede llegar hasta acá disfrazado de lista vacía. El
-  // roster viaja dentro del bootstrap, así que un 401/403 upstream hace que el
-  // BFF devuelva 401/502 y el arranque ni siquiera monta este componente (el
-  // layout gatea en `catalogReady`). Ese era, justamente, el bug.
+  //   2026-08-24: un 403 de `/v1/users` (el device perdió `contacts.user.view`
+  //   en la mig 162) degradaba a lista vacía y se pintaba como "no hay PINs
+  //   configurados". Dato falso, y mandaba a buscar el problema al panel.
+  //
+  //   2026-08-25: el bootstrap contestado con la sesión del PANEL (sin la
+  //   clave `users`, que se sirve solo a `pos-app`) también degradaba a lista
+  //   vacía, y el iPhone recién pareado acusó al comercio de no tener códigos
+  //   cargados cuando los tenía. Causa raíz en `bootstrap-source.ts` y en el
+  //   gate del BFF; este cartel es la última línea, no el arreglo.
+  //
+  // Las tres causas, en orden de prioridad:
+  //
+  //   1. SNAPSHOT offline sin PINs (`catalogFromCache`): no prueba nada sobre
+  //      el comercio, solo que este device todavía no bajó un roster bueno.
+  //      Salida: red.
+  //   2. Roster AUSENTE (`rosterMissing`): la respuesta no vino con la lista de
+  //      operadores de este dispositivo — `/api` más viejo que el front, o una
+  //      sesión que no es la del device. Tampoco dice nada del comercio.
+  //      Salida: recargar y, si insiste, reconectar el dispositivo.
+  //   3. Roster de RED, presente y sin PINs: recién acá es la verdad del
+  //      comercio. Salida: cargar el código en el panel.
+  //
+  // `catalogSettled` incluye `error` por defensa: hoy el layout gatea en
+  // `catalogStatus === 'ready'`, así que este componente no se monta en error
+  // y esa rama es inalcanzable desde `/pos`. Se mantiene para que montarlo en
+  // otro lado no reviva el falso positivo de `[].every() === true`.
   const catalogSettled = catalogStatus === "ready" || catalogStatus === "error"
-  const noPinsConfigured = catalogSettled && users.every((u) => !u.pinhash)
+  const noPinsToValidate = catalogSettled && users.every((u) => !u.pinhash)
 
   if (!locked) return null
 
@@ -250,8 +268,30 @@ export function LockScreen() {
     )
   }
 
-  // Sin hashes contra los que validar: explicar la causa real en vez del lock.
-  if (noPinsConfigured) {
+  // Sin hashes contra los que validar: explicar la causa REAL en vez del lock.
+  // Ver el bloque de arriba — cada causa tiene su mensaje y su salida.
+  if (noPinsToValidate) {
+    const cause = catalogFromCache ? "cache" : rosterMissing ? "missing" : "empty"
+    const copy = {
+      cache: {
+        icon: CloudAlert,
+        title: "La caja no tiene todavía la lista de operadores",
+        description:
+          "Está operando con los datos guardados de la última conexión, y ahí no hay ningún operador con código POS. Conectala a internet y reintentá para traer el listado al día.",
+      },
+      missing: {
+        icon: MonitorSmartphone,
+        title: "Esta caja no recibió la lista de operadores",
+        description:
+          "El servidor respondió, pero sin los operadores de este dispositivo. No es un problema de los códigos del comercio: es esta caja, que no está pidiendo los datos como dispositivo. Reintentá; si vuelve a pasar, reconectá el dispositivo con un link nuevo desde Ajustes → Dispositivos en el panel.",
+      },
+      empty: {
+        icon: KeyRound,
+        title: "Ningún usuario de esta sucursal tiene código POS",
+        description: `Para desbloquear ${outletName ? `${outletName} ` : ""}hace falta que al menos un usuario habilitado en la sucursal tenga su código POS de 4 dígitos cargado, desde Ajustes → Equipo en el panel.`,
+      },
+    }[cause]
+
     return (
       <div
         role="dialog"
@@ -262,17 +302,9 @@ export function LockScreen() {
         <PuntoLogo variant="mark" className="size-[35px]" />
         <EmptyState
           ghost={false}
-          icon={catalogFromCache ? CloudAlert : KeyRound}
-          title={
-            catalogFromCache
-              ? "La caja no tiene todavía la lista de operadores"
-              : "Ningún usuario de esta sucursal tiene código POS"
-          }
-          description={
-            catalogFromCache
-              ? "Está operando con los datos guardados de la última conexión, y ahí no hay ningún operador con código POS. Conectala a internet y reintentá para traer el listado al día."
-              : `Para desbloquear ${outletName ? `${outletName} ` : ""}hace falta que al menos un usuario habilitado en la sucursal tenga su código POS de 4 dígitos cargado, desde Ajustes → Equipo en el panel.`
-          }
+          icon={copy.icon}
+          title={copy.title}
+          description={copy.description}
           actions={
             <Button size="lg" onClick={() => window.location.reload()}>
               Reintentar

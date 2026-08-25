@@ -14,6 +14,7 @@
 
 import { posApi } from "@/lib/api/pos-client"
 import { ApiError } from "@/lib/api-client"
+import { getDeviceToken } from "@/lib/auth/device-token"
 import { saveBootstrapSnapshot, loadBootstrapSnapshot } from "@/lib/pos/bootstrap-cache"
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import type { PosBootstrap } from "@/lib/types/pos-bootstrap"
@@ -45,6 +46,34 @@ export function shouldFallBackToCache(err: unknown): boolean {
  */
 export async function fetchPosBootstrap(): Promise<PosBootstrap> {
   const { setCatalogSource } = useOfflineSyncStore.getState()
+
+  // Sin token del device NO se pide el bootstrap. Fail-closed, y no una
+  // optimización para ahorrar un round-trip.
+  //
+  // `PosAuthGuard` monta esta query en TODO arranque de `/pos` —también cuando
+  // no hay device pareado, porque el hook corre antes de su propio early
+  // return— y `posFetch` va con `credentials: "include"`. En el browser del
+  // operador eso significa que una request SIN Bearer todavía viaja con la
+  // cookie del panel, y hasta hoy el BFF la aceptaba: el POS recibía un 200
+  // con forma de panel y sin roster, lo cacheaba en `["pos-bootstrap"]`
+  // (staleTime 5 min) y lo persistía como snapshot. Al parear el device, la
+  // navegación client-side a `/pos` reusaba ese cache envenenado y el lock
+  // screen abría sin PINs (incidente 2026-08-25).
+  //
+  // El BFF ya rechaza ese caso con 401, pero el arreglo tiene que estar
+  // TAMBIÉN de este lado: es acá donde se decide qué entra al cache y al
+  // snapshot, y una respuesta que no corresponde a este device no debe llegar
+  // a existir como "el bootstrap del POS". El 401 sintético es el mismo que
+  // devolvería el BFF, así que `PosAuthGuard` lo trata igual (device no
+  // conectado) sin ninguna rama nueva.
+  if (getDeviceToken() === null) {
+    throw new ApiError(
+      401,
+      null,
+      "Este dispositivo no está conectado. Pedí un link de conexión desde el panel.",
+    )
+  }
+
   try {
     const data = await posApi.get<PosBootstrap>("/pos/bootstrap")
     setCatalogSource(false, null)

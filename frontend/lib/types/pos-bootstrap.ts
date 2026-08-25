@@ -406,7 +406,19 @@ export interface PosBootstrap {
   items: PosItem[]
   customers: PosCustomer[]
   paymentMethods: PaymentMethodConfig[]
-  users: PosUser[]
+  /**
+   * Roster del lock screen (id/name/pinhash de los habilitados en la sucursal
+   * del device).
+   *
+   * `null` NO es "vacío": significa que la respuesta no traía roster (`/api`
+   * desactualizado, o la sesión que la contestó no era la del device). El lock
+   * screen muestra un mensaje y una salida DISTINTOS para cada caso — ver
+   * `reshapeRoster` en `app/api/pos/bootstrap/route.ts`.
+   *
+   * Opcional además de nullable: un snapshot de IndexedDB guardado por un
+   * build anterior a este campo se rehidrata sin la clave.
+   */
+  users?: PosUser[] | null
   /** UUID de la caja activa en el claim del JWT. '' = sin caja seleccionada. */
   activeRegisterId: string
   /** Tasas de impuesto del tenant (F0, tabla `tax`). Ver `PosTaxRate`. */

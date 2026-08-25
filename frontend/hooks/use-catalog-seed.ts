@@ -116,7 +116,9 @@ export function useCatalogSeed() {
           outlets: bootstrap.outlets,
           registers: bootstrap.registers,
           paymentMethods: bootstrap.paymentMethods,
-          users: bootstrap.users ?? [],
+          // Sin `?? []`: el store distingue "no vino roster" de "roster
+          // vacío" y necesita el null/undefined crudo para hacerlo.
+          users: bootstrap.users,
           activeRegisterId: bootstrap.activeRegisterId,
           taxes: bootstrap.taxes,
           outletTaxIncluded: bootstrap.outletTaxIncluded,

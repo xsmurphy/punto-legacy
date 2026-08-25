@@ -49,6 +49,16 @@ interface CatalogState {
   registers: PosRegister[]
   paymentMethods: PaymentMethodConfig[]
   users: PosUser[]
+  /**
+   * El bootstrap que hidrató este store NO traía la clave `users`.
+   *
+   * Distinto de `users: []`, que es el comercio diciendo "no hay ningún
+   * operador habilitado acá". Esto dice "esta respuesta no vino con el roster
+   * del dispositivo" — `/api` más viejo que el front, o una sesión que no es
+   * la del device. Lo consume el lock screen para no acusar al comercio de un
+   * problema de sesión (lockout 2026-08-25).
+   */
+  rosterMissing: boolean
   /** UUID de la caja activa. '' = sin caja seleccionada (guard la pide). */
   activeRegisterId: string
   /**
@@ -119,7 +129,11 @@ interface CatalogState {
     outlets: Array<{ id: string; name: string }>
     registers: PosRegister[]
     paymentMethods: PaymentMethodConfig[]
-    users: PosUser[]
+    /**
+     * `null`/ausente = el bootstrap no traía roster (ver `rosterMissing`). NO
+     * es lo mismo que `[]` y `hydrate` no los colapsa.
+     */
+    users: PosUser[] | null | undefined
     activeRegisterId: string
     /**
      * Opcionales: un bootstrap cacheado ANTES de F2b (service worker /
@@ -189,6 +203,7 @@ const initialState = {
   registers: [],
   paymentMethods: [] as PaymentMethodConfig[],
   users: [] as PosUser[],
+  rosterMissing: false,
   activeRegisterId: "",
   taxes: [] as PosTaxRate[],
   outletTaxIncluded: true,
@@ -222,7 +237,12 @@ export const useCatalogStore = create<CatalogState>()((set) => ({
       outlets: data.outlets,
       registers: data.registers,
       paymentMethods: data.paymentMethods,
-      users: data.users,
+      // Roster ausente ≠ roster vacío. Los consumidores siguen leyendo un
+      // array (nadie tiene que chequear null), pero el hecho de que no haya
+      // venido queda registrado aparte para que el lock screen pueda decir la
+      // verdad sobre por qué no tiene PINs contra los que validar.
+      users: data.users ?? [],
+      rosterMissing: data.users == null,
       activeRegisterId: data.activeRegisterId,
       // Bootstrap cacheado viejo sin estos campos (ver JSDoc de `hydrate`) →
       // degradación: [] hace que toda línea sin tasa conocida caiga a
