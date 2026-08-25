@@ -24,8 +24,8 @@
  *   POST ?id=<uuid>&action=resolveRequest  body {requestId, approve, resolvedBy?}
  *
  * F3.5 — entrar como empresa (impersonar):
- *   POST ?id=<uuid>&action=enter → abre sesión de panel del propietario
- *                                   (cookie _jwt_panel HttpOnly en la respuesta)
+ *   POST ?id=<uuid>&action=enter → sesión de panel del propietario; devuelve
+ *                                   {token} para que el BFF lo cookie-ice
  *
  * F3 (context/34-admin-saas-plan.md) — ficha completa del tenant:
  *   GET  ?id=<uuid>&modules=1              → estado de módulos nativos (enabled)
@@ -405,11 +405,13 @@ if ($method === 'POST') {
             apiNotFound('Empresa no encontrada o sin propietario activo');
         }
         adminAudit('impersonate', 'company', $id);
-        // La credencial viaja en la cookie `_jwt_panel` (HttpOnly) que emite
-        // `issuePanelSession()`, NO en este body: devolverla en el JSON la dejaba
-        // al alcance de cualquier script de la página sin que nadie la usara.
-        // El front sólo necesita saber que ya puede abrir el panel.
-        apiOk(['ok' => true, 'expiresIn' => $tokenData['expiresIn']]);
+        // El token va en el BODY a propósito: no lo consume el browser sino el
+        // BFF de admin (`frontend/app/api/admin/[...path]/route.ts`), que es el
+        // que lo convierte en cookie `_jwt_panel` HttpOnly con las banderas del
+        // front y responde `{redirectUrl}`. La respuesta NUNCA llega así al
+        // navegador. Cambiar este shape rompe la impersonación con un 502
+        // "Backend no devolvió token" — pasó el 2026-08-25.
+        apiOk(['token' => $tokenData['token'], 'expiresIn' => $tokenData['expiresIn']]);
     }
 
     apiError('Acción no soportada', 422);
