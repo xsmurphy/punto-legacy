@@ -162,7 +162,26 @@ define('EINVOICE_DRAIN_SECRET', $_ENV['EINVOICE_DRAIN_SECRET'] ?? '');
 // (GET {url}/{documento sin DV}). Fallback de Contacts\TaxpayerLookupService
 // cuando el comercio no tiene facturación electrónica conectada. Vacía →
 // el lookup solo responde con la fuente del proveedor de FE.
-define('TAXPAYER_LOOKUP_URL', $_ENV['TAXPAYER_LOOKUP_URL'] ?? 'https://turuc.com.py/api/contribuyente');
+//
+// SOLO OVERRIDE DE DESPLIEGUE — vacío es lo normal y NO desactiva nada.
+//
+// El valor que estaba cableado acá (turuc.com.py) es el padrón PARAGUAYO, y
+// al ser un define global se consultaba para tenants de cualquier país,
+// mandando el documento de un contribuyente extranjero a un servicio de otro
+// país. Pero sacarlo sin más habría matado la búsqueda de RUC de los
+// comercios paraguayos, que hoy son todos los que hay.
+//
+// Solución: el padrón se deriva del PAÍS del comercio
+// (CountryDefaults::taxpayerRegistryUrl), así que Paraguay sigue andando sin
+// configurar nada y cada país nuevo es una fila en ese catálogo. Estas dos
+// variables solo sirven para apuntar a otro padrón desde el entorno (staging,
+// un proveedor alternativo); si se definen, hay que definir LAS DOS.
+define('TAXPAYER_LOOKUP_URL', $_ENV['TAXPAYER_LOOKUP_URL'] ?? '');
+// País al que corresponde el padrón del override (ISO-2). Si no coincide con
+// el país del comercio, el override no se aplica. Vacío = sin override, se usa
+// el catálogo por país. Un default 'PY' acá afirmaría que el padrón
+// configurado es el paraguayo sin que nadie lo haya dicho.
+define('TAXPAYER_LOOKUP_COUNTRY', strtoupper(trim((string) ($_ENV['TAXPAYER_LOOKUP_COUNTRY'] ?? ''))));
 
 define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);

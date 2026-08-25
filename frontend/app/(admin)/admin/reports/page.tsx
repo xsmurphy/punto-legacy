@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useAdminOverview, useAdminPayments } from "@/hooks/use-admin"
+import { formatPuntoSaasDate, formatPuntoSaasNumber } from "@/lib/punto-saas-locale"
 
 const COLORS = ["#22c55e", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#ec4899"]
 
@@ -105,7 +106,7 @@ export default function AdminReportsPage() {
               <Skeleton className="h-8 w-24" />
             ) : (
               <p className="text-3xl font-bold text-emerald-600">
-                {mrr.toLocaleString("es-PY", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                {formatPuntoSaasNumber(mrr, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </p>
             )}
           </CardContent>
@@ -120,7 +121,7 @@ export default function AdminReportsPage() {
               <Skeleton className="h-8 w-24" />
             ) : (
               <p className="text-3xl font-bold text-emerald-700">
-                {arr.toLocaleString("es-PY", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                {formatPuntoSaasNumber(arr, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
               </p>
             )}
           </CardContent>
@@ -248,7 +249,7 @@ export default function AdminReportsPage() {
                     <TableCell className="text-muted-foreground text-sm">{i + 1}</TableCell>
                     <TableCell className="font-medium">{c.name || "(sin nombre)"}</TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {c.balance.toLocaleString("es-PY")}
+                      {formatPuntoSaasNumber(c.balance)}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -288,7 +289,7 @@ export default function AdminReportsPage() {
               <div className="ml-auto text-sm text-muted-foreground">
                 {paymentsData.count} pago(s) — Total:{" "}
                 <span className="font-semibold text-foreground">
-                  {paymentsData.total.toLocaleString("es-PY", {
+                  {formatPuntoSaasNumber(paymentsData.total, {
                     minimumFractionDigits: 0,
                     maximumFractionDigits: 2,
                   })}
@@ -320,14 +321,14 @@ export default function AdminReportsPage() {
                     <TableRow key={i}>
                       <TableCell className="text-sm tabular-nums text-muted-foreground">
                         {row.date
-                          ? new Date(row.date).toLocaleDateString("es-PY")
+                          ? formatPuntoSaasDate(row.date)
                           : "—"}
                       </TableCell>
                       <TableCell className="font-medium">
                         {row.companyName || "(sin nombre)"}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
-                        {row.amount.toLocaleString("es-PY", {
+                        {formatPuntoSaasNumber(row.amount, {
                           minimumFractionDigits: 0,
                           maximumFractionDigits: 2,
                         })}

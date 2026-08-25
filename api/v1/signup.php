@@ -41,11 +41,20 @@ $storename = trim((string) ($_POST['storename'] ?? ''));
 $category  = trim((string) ($_POST['category']  ?? ''));
 $username  = trim((string) ($_POST['username']  ?? ''));
 $password  = (string)        ($_POST['password'] ?? '');
-$country   = strtoupper(trim((string) ($_POST['country'] ?? 'PY')));
+// El país es OBLIGATORIO en el alta, no un default: de él salen la moneda, el
+// IVA, el nombre del identificador tributario, el idioma y la zona horaria del
+// comercio. Cuando caía a 'PY', un comercio de otro país nacía con guaraníes,
+// IVA paraguayo y el reloj de Asunción — y esos valores quedaban como
+// permanentes porque nada volvía a preguntarlos. El form de alta siempre lo
+// manda; si no llega, es un cliente roto y conviene fallar acá.
+$country   = strtoupper(trim((string) ($_POST['country'] ?? '')));
 
 if ($phone === '' || $code === '' || $storename === '' || $category === ''
     || $username === '' || $password === '') {
     apiError('Faltan campos requeridos', 400);
+}
+if (preg_match('/^[A-Z]{2}$/', $country) !== 1) {
+    apiError('País requerido (código ISO de 2 letras)', 400);
 }
 if (strlen($password) < 6) {
     apiError('La contraseña debe tener al menos 6 caracteres', 400);

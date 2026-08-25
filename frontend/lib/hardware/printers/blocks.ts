@@ -49,15 +49,25 @@ import type { TicketData, TicketItem } from "./build-ticket-data"
  * `formatMoney` de `lib/format-money.ts` en el resto de la app, no un
  * hardcode nuevo específico de impresión.
  */
-export function formatMoney(n: number, data: Pick<TicketData, "currency" | "thousand" | "decimal">): string {
+export function formatMoney(
+  n: number,
+  data: Pick<TicketData, "currency" | "thousand" | "decimal" | "country">,
+): string {
   return formatMoneyShared(n, {
     // Sin `?? "Gs"` acá: el fallback de la etiqueta vive en
-    // `resolveCurrencyLabel` (lib/format-money.ts), que además cubre el caso
+    // `resolveCurrencyLabel` (lib/tenant-locale.ts), que además cubre el caso
     // que este `??` NO cubría — el bootstrap manda string VACÍO cuando el
     // tenant no configuró moneda, y `??` solo dispara con null/undefined.
     currency: data.currency ?? "",
-    thousand: data.thousand ?? "dot",
-    decimal: data.decimal ?? "no",
+    // `country` va para que ese resolver pueda caer a la moneda del PAÍS del
+    // tenant antes de rendirse al signo genérico. Sin esto, un comercio que
+    // eligió país pero no tocó el campo moneda imprimía el ticket sin símbolo.
+    country: data.country ?? "",
+    // Sin defaults de formato tampoco: `thousand`/`decimal` ausentes se
+    // resuelven contra el país igual que la moneda. El `?? "dot"` anterior era
+    // correcto para Paraguay y para casi toda LatAm, pero no para MX/US/EC.
+    thousand: data.thousand ?? null,
+    decimal: data.decimal ?? null,
   })
 }
 

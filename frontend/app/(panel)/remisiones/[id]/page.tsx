@@ -31,12 +31,16 @@ import {
 
 import { useRemision, useCancelRemision, REMISION_MOTIVO_LABELS } from "@/hooks/use-remisiones"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
 import { buildTicketDataFromRemision } from "@/lib/hardware/printers/build-ticket-data"
 
-function formatDate(iso: string | null | undefined): string {
+function formatDate(
+  iso: string | null | undefined,
+  config: TenantLocaleConfig | null | undefined,
+): string {
   if (!iso) return "—"
-  return new Date(iso).toLocaleString("es-PY", {
+  return new Date(iso).toLocaleString(resolveDateLocale(config), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -139,7 +143,7 @@ export default function RemisionDetailPage() {
           </div>
           <div className="pl-10 text-sm text-muted-foreground space-y-0.5">
             <p>Motivo: <span className="font-medium text-foreground">{REMISION_MOTIVO_LABELS[remision.motivo] ?? remision.motivo}</span></p>
-            <p>Fecha de traslado: {formatDate(remision.transferDate)}</p>
+            <p>Fecha de traslado: {formatDate(remision.transferDate, bootstrap)}</p>
             <p>Origen: <span className="font-medium text-foreground">{outletLabel(remision.outletName, remision.locationName)}</span></p>
             <p>Destino: <span className="font-medium text-foreground">{destination}</span></p>
             <p>Creada por {remision.createdByName ?? remision.createdBy}</p>

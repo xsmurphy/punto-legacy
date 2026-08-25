@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/select"
 
 import { useAdminRequests, useAdminResolveRequest, type BillingRequest } from "@/hooks/use-admin"
+import { formatPuntoSaasDate } from "@/lib/punto-saas-locale"
 
 function statusBadge(status: string) {
   if (status === "pending") return <Badge variant="outline" className="text-amber-600 border-amber-600">Pendiente</Badge>
@@ -28,7 +29,7 @@ function statusBadge(status: string) {
 
 function fmtDate(v: string | null | undefined): string {
   if (!v) return "—"
-  return new Date(v).toLocaleDateString("es-PY")
+  return formatPuntoSaasDate(v)
 }
 
 export default function AdminRequestsPage() {

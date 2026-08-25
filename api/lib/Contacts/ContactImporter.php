@@ -106,7 +106,12 @@ final class ContactImporter
 
         $phoneE164 = null;
         if ($telefono !== '') {
-            $phoneE164 = function_exists('phoneToE164') ? phoneToE164($telefono) : $telefono;
+            // El CSV trae números en formato local, sin prefijo internacional.
+            // Se parsean con el país del TENANT: esta llamada no pasaba país y
+            // caía al default 'PY' de la firma, así que importar la agenda de
+            // un comercio de otro país generaba teléfonos +595 inexistentes.
+            $iso = \Punto\Api\Support\TenantLocale::country($companyId);
+            $phoneE164 = function_exists('phoneToE164') ? phoneToE164($telefono, $iso) : $telefono;
         }
 
         if ($email !== '' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {

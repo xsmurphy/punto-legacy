@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveCurrencyLabel } from "@/lib/tenant-locale"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { useSettings } from "@/hooks/use-settings"
@@ -56,19 +57,30 @@ interface Suggestion {
 // usarlo; estas piden cruces y rankings que el operador no tiene a mano en
 // ningún listado (pedido del owner, 2026-07-30). Se conserva una de creación
 // con confirmación, que es la otra mitad del alcance.
-const SUGGESTIONS: Suggestion[] = [
-  { icon: Users,      text: "¿Cuáles son nuestros top 5 clientes de este mes?" },
-  { icon: TrendingUp, text: "¿Qué producto tuvo el menor rendimiento este mes?" },
-  { icon: BarChart3,  text: "Compará las ventas de este mes contra el mes pasado" },
-  { icon: Package,    text: "¿Qué productos están por quedarse sin stock?" },
-  { icon: Search,     text: "¿Qué clientes me deben y cuánto?" },
-  { icon: PlusIcon,   text: "Creá el producto Café Espresso a 12.000 Gs, categoría Bebidas" },
-]
+// `currency` = etiqueta de moneda del tenant: la sugerencia de crear un
+// producto lleva un precio de ejemplo, y escrito a mano decía "12.000 Gs" para
+// todos los comercios. Es texto que el usuario CLICKEA y se manda tal cual al
+// agente, así que un comercio brasileño terminaba pidiendo un producto en
+// guaraníes.
+function buildSuggestions(currency: string): Suggestion[] {
+  return [
+    { icon: Users,      text: "¿Cuáles son nuestros top 5 clientes de este mes?" },
+    { icon: TrendingUp, text: "¿Qué producto tuvo el menor rendimiento este mes?" },
+    { icon: BarChart3,  text: "Compará las ventas de este mes contra el mes pasado" },
+    { icon: Package,    text: "¿Qué productos están por quedarse sin stock?" },
+    { icon: Search,     text: "¿Qué clientes me deben y cuánto?" },
+    { icon: PlusIcon,   text: `Creá el producto Café Espresso a 12.000 ${currency}, categoría Bebidas` },
+  ]
+}
 
 export default function ChatPage() {
   const { data: bootstrap } = useBootstrap()
   const { scope: viewScope } = useViewScope()
   const outlets = bootstrap?.outlets ?? []
+  const SUGGESTIONS = React.useMemo(
+    () => buildSuggestions(resolveCurrencyLabel(bootstrap)),
+    [bootstrap],
+  )
   // Mismo cálculo del view-scope que panel-auth-guard: UUID → ese outlet,
   // "all" → todas, null → outlet del JWT (sin override).
   const viewOutletId =

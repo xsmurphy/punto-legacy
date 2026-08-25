@@ -2,6 +2,8 @@ import * as React from "react"
 import Image from "next/image"
 import { Separator } from "@/components/ui/separator"
 import { PuntoLogo } from "@/components/layout/punto-logo"
+import { formatAmount } from "@/lib/format-money"
+import { resolveCurrencyLabel } from "@/lib/tenant-locale"
 import type { CartPayload, ScreenContext } from "./page"
 
 interface Props {
@@ -9,11 +11,17 @@ interface Props {
   ctx: ScreenContext | null
 }
 
-function formatMoney(amount: number): string {
-  return new Intl.NumberFormat("es-PY", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(amount)
+/**
+ * Montos del visor al cliente, con los separadores y decimales del TENANT.
+ *
+ * Antes esto era `Intl.NumberFormat("es-PY", …)` con 0 decimales fijos: un
+ * comercio con `decimal="yes"` perdía los centavos y uno con separador de
+ * miles por coma los veía con punto — en la pantalla que mira el CLIENTE.
+ * `formatAmount` (lib/format-money.ts) resuelve las dos cosas desde la config
+ * que ahora viaja en el contexto de la pantalla.
+ */
+function formatMoney(amount: number, ctx: ScreenContext | null): string {
+  return formatAmount(amount, ctx)
 }
 
 function locationLine(ctx: ScreenContext | null): string {
@@ -40,12 +48,12 @@ export function LiveView({ cart, ctx }: Props) {
           className="font-bold tabular-nums text-foreground leading-none"
           style={{ fontSize: "clamp(3rem, 7vw, 6rem)" }}
         >
-          {formatMoney(cart.total)}
+          {formatMoney(cart.total, ctx)}
         </p>
-        <p className="text-2xl text-muted-foreground mt-3">Total a pagar en Gs</p>
+        <p className="text-2xl text-muted-foreground mt-3">Total a pagar en {resolveCurrencyLabel(ctx)}</p>
         {cart.discount > 0 && (
           <p className="text-lg text-muted-foreground mt-2">
-            Descuento: {formatMoney(cart.discount)}
+            Descuento: {formatMoney(cart.discount, ctx)}
           </p>
         )}
         {cart.customer ? (
@@ -83,7 +91,7 @@ export function LiveView({ cart, ctx }: Props) {
                     </span>
                     <span className="text-lg text-foreground">{line.name}</span>
                     <span className="text-lg tabular-nums text-right text-foreground">
-                      {formatMoney(line.total)}
+                      {formatMoney(line.total, ctx)}
                     </span>
                   </div>
                   {i < cart.lines.length - 1 && <Separator />}

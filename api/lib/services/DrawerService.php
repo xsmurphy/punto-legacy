@@ -337,10 +337,12 @@ final class DrawerService
      *
      * Agrupación horaria: `transaction.transactionDate` es **TIMESTAMPTZ**
      * (db-schema-postgres.sql:319), así que el bucket se calcula con
-     * `date_trunc('hour', transactionDate AT TIME ZONE <tz del tenant>)`. La
-     * sesión de PG ya corre en 'America/Asuncion' (api/includes/db.php:68), pero
-     * el `AT TIME ZONE` explícito con `TenantClock::timezone()` hace el corte
-     * correcto para cualquier tenant sin depender de ese default de conexión.
+     * `date_trunc('hour', transactionDate AT TIME ZONE <tz del tenant>)`. El
+     * `AT TIME ZONE` explícito con `TenantClock::timezone()` hace el corte
+     * correcto para cualquier tenant sin depender de la TZ de la conexión.
+     * (Ese `AT TIME ZONE` explícito era ya lo correcto y ahora además es lo
+     * único correcto: la conexión NO arranca más en 'America/Asuncion' — abre
+     * con la TZ de la plataforma y recién `data.php` le aplica la del tenant.)
      *
      * @return array{timezone:string,shift:array<int,array{hour:string,salesTotal:float,salesCount:int}>,today:array<int,array{hour:string,salesTotal:float,salesCount:int}>,yesterday:array<int,array{hour:string,salesTotal:float,salesCount:int}>}
      */

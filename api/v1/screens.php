@@ -44,7 +44,18 @@ if ($method === 'POST' && $resource === 'heartbeat') {
 
 // ── GET ?resource=context — auth device Bearer (module pantalla) ─────────────
 // Devuelve datos para que la pantalla cliente arme su UI sin esperar al
-// primer cart-update del POS: companyName, registerName, outletName, logoUrl.
+// primer cart-update del POS: companyName, registerName, outletName, logoUrl
+// y la config de LOCALE del tenant (moneda/país/separadores/decimales).
+//
+// El locale entró acá el 2026-08-25: la pantalla del cliente formateaba los
+// montos con `Intl.NumberFormat("es-PY", { currency: "PYG" })` hardcodeado,
+// así que el cliente de un comercio NO paraguayo veía su total en guaraníes.
+// Es la superficie más visible del sistema — la mira el consumidor final, no
+// el cajero — y no falla ruidosamente: simplemente muestra el símbolo
+// equivocado. La pantalla no tiene bootstrap propio (se autentica con el
+// Bearer del device, no con el del operador), así que el dato tiene que
+// viajar por acá; los nombres de campo son los MISMOS que expone
+// `/v1/bootstrap` para que el front use un solo resolver (lib/tenant-locale.ts).
 
 if ($method === 'GET' && $resource === 'context') {
     $ctx = apiAuthPosContext();
@@ -86,6 +97,17 @@ if ($method === 'GET' && $resource === 'context') {
         'registerName' => (string) ($reg['registername'] ?? ''),
         'outletName'   => (string) ($out['outletname'] ?? ''),
         'logoUrl'      => $logo,
+        // Locale del tenant — mismo shape/nombres que `/v1/bootstrap` para que
+        // la pantalla reuse los resolvers del front sin traducir campos.
+        // Se mandan crudos (string vacío si el tenant no los configuró): la
+        // cadena de fallbacks —moneda configurada → moneda del país → signo
+        // genérico— vive en `frontend/lib/tenant-locale.ts`, en UN solo lugar.
+        // Poner un default acá volvería a esconder la falta de configuración.
+        'currency'     => (string) ($company['settingCurrency'] ?? ''),
+        'decimal'      => (string) ($company['settingDecimal'] ?? 'no'),
+        'thousand'     => ((string) ($company['settingThousandSeparator'] ?? '')) === 'comma' ? 'comma' : 'dot',
+        'country'      => (string) ($company['settingCountry'] ?? ''),
+        'timezone'     => (string) ($company['settingTimeZone'] ?? ''),
     ]);
     exit;
 }

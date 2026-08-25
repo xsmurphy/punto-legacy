@@ -109,7 +109,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useModules } from "@/hooks/use-modules"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import { ApiError } from "@/lib/api-client"
-import { DEFAULT_COUNTRY } from "@/lib/countries"
+import { useTenantPhoneCountry } from "@/hooks/use-tenant-phone-country"
 import { CONTACT_ID_TYPES, ciFieldCopyForIdType } from "@/lib/contact-id-types"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
@@ -193,7 +193,12 @@ export function ContactDetailView({
   const { data, isLoading, error } = useContact(customerId)
   const update = useUpdateContact()
   const archive = useArchiveContact()
-  const [country, setCountry] = React.useState<CountryCode>(DEFAULT_COUNTRY)
+  // Ver nota en `app/(panel)/contacts/[id]/page.tsx`: el estado guarda `null`
+  // hasta que el usuario elige, así el selector sigue al país del tenant
+  // cuando el bootstrap llega después del primer render.
+  const tenantPhoneCountry = useTenantPhoneCountry()
+  const [pickedCountry, setCountry] = React.useState<CountryCode | null>(null)
+  const country = pickedCountry ?? tenantPhoneCountry
 
   const form = useForm<ContactFormValues>({
     resolver: zodResolver(contactSchema),

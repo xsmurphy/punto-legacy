@@ -110,9 +110,20 @@ function toISO(d: Date): string {
   return `${yyyy}-${mm}-${dd}`
 }
 
-/** Label legible "DD MMM YYYY" en español, para el trigger del picker. */
+/**
+ * Label legible "DD MMM YYYY" para el trigger del picker.
+ *
+ * Locale del ENTORNO (primer argumento `undefined`), no el del tenant: este
+ * picker se monta en los dos realms — panel (`useBootstrap`, cookie) y caja
+ * (`components/register/*`, Bearer del device) — así que no puede leer la
+ * config de ninguno de los dos sin atarse a un realm y disparar un fetch
+ * cruzado. Antes decía "es-PY", que además de asumir Paraguay era la TERCERA
+ * fuente de verdad para el mismo dato. `undefined` es el default neutro que
+ * documenta `resolveDateLocale`: puede no ser el ideal, pero no afirma un país.
+ * El día que exista un provider de locale del tenant, este es el call-site.
+ */
 function formatLabel(d: Date): string {
-  return d.toLocaleDateString("es-PY", {
+  return d.toLocaleDateString(undefined, {
     day: "2-digit",
     month: "short",
     year: "numeric",

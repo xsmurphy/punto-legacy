@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { useAdminAudit } from "@/hooks/use-admin"
+import { formatPuntoSaasDateTime } from "@/lib/punto-saas-locale"
 
 const ACTION_LABELS: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   updateCompany:  { label: "Editar empresa",    variant: "secondary" },
@@ -143,7 +144,7 @@ export default function AdminAuditPage() {
                     <TableRow key={row.id}>
                       <TableCell className="text-xs tabular-nums text-muted-foreground whitespace-nowrap">
                         {row.createdAt
-                          ? new Date(row.createdAt).toLocaleString("es-PY", {
+                          ? formatPuntoSaasDateTime(row.createdAt, {
                               day: "2-digit",
                               month: "2-digit",
                               year: "numeric",

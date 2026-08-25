@@ -42,6 +42,8 @@ import {
   type InventoryCountSession,
 } from "@/hooks/use-inventory-counts"
 import { formatMoney as _formatMoney } from "@/lib/format"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
 function formatMoney(v: number): string {
   return _formatMoney(v, undefined)
@@ -59,8 +61,8 @@ const STATUS_VARIANT: Record<number, "default" | "secondary" | "destructive" | "
   2: "secondary",
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("es-PY", {
+function formatDate(iso: string, config: TenantLocaleConfig | null | undefined): string {
+  return new Date(iso).toLocaleString(resolveDateLocale(config), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -276,7 +278,11 @@ function NewSessionDialog() {
   )
 }
 
-const columns: ColumnDef<InventoryCountSession>[] = [
+// Las columnas se arman con la config del tenant (la fecha se formatea con su
+// locale), así que son función del bootstrap y no una constante de módulo.
+const buildColumns = (
+  config: TenantLocaleConfig | null | undefined,
+): ColumnDef<InventoryCountSession>[] => [
   {
     id: "docNumber",
     header: "Nº",
@@ -292,7 +298,7 @@ const columns: ColumnDef<InventoryCountSession>[] = [
   {
     accessorKey: "startedAt",
     header: "Fecha inicio",
-    cell: ({ row }) => formatDate(row.original.startedAt),
+    cell: ({ row }) => formatDate(row.original.startedAt, config),
   },
   {
     accessorKey: "outletName",
@@ -331,7 +337,10 @@ const columns: ColumnDef<InventoryCountSession>[] = [
 export default function InventoryCountPage() {
   const router  = useRouter()
   const { data, isLoading } = useInventoryCounts()
+  const { data: bootstrap } = useBootstrap()
   const rows = data?.rows ?? []
+
+  const columns = React.useMemo(() => buildColumns(bootstrap), [bootstrap])
 
   return (
     <div className="flex flex-col gap-6">

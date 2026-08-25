@@ -1629,7 +1629,15 @@ final class EInvoiceService
 
         $sale = [
             'total'               => $total,
-            'currency'            => (string) ($tx['transactionCurrency'] ?? 'PYG'),
+            // `transactionCurrency` es nullable en el schema. El `?? 'PYG'` que
+            // había acá NO era un default inocente: convertía "no sé en qué
+            // moneda se vendió" en "se vendió en guaraníes", justo antes de
+            // declarar los montos ante el fisco. Ahora un NULL se propaga como
+            // moneda vacía y el mapper corta con un error explícito — que es lo
+            // que corresponde: la moneda de un documento fiscal se sabe o no se
+            // emite. Si el dato falta, se resuelve por el país del comercio,
+            // nunca por un código cableado.
+            'currency'            => self::resolveCurrency($companyId, $tx['transactionCurrency'] ?? null),
             'operationCondition'  => $operationCondition,
             'items'               => $items,
             'client'              => $client,
@@ -1669,6 +1677,33 @@ final class EInvoiceService
      *
      * @return array<string,mixed>
      */
+    /**
+     * Moneda del documento electrónico, sin inventarla.
+     *
+     * `transaction.transactionCurrency` es nullable: las ventas viejas y las
+     * que no declaran moneda llegan acá en NULL. El `?? 'PYG'` que había en los
+     * dos call-sites enmascaraba ese NULL — le ponía "guaraníes" a una venta de
+     * moneda desconocida y seguía de largo hacia el envío a SIFEN.
+     *
+     * Orden correcto: lo que la venta declaró; si no declaró nada, la moneda
+     * que corresponde al PAÍS del comercio; y si eso tampoco se puede resolver,
+     * cadena vacía para que SaleToInvoiceMapper aborte con un mensaje claro.
+     * Nunca un código de moneda cableado.
+     *
+     * (Que SIFEN sea paraguayo no justifica el default: el resto del pipeline
+     * ya está gateado por país. Lo que se corrige acá es el enmascaramiento del
+     * NULL, que también tapaba ventas en moneda extranjera de un tenant PY.)
+     */
+    private static function resolveCurrency(string $companyId, mixed $stored): string
+    {
+        $currency = strtoupper(trim((string) ($stored ?? '')));
+        if ($currency !== '') {
+            return $currency;
+        }
+
+        return (string) (\Punto\Api\Support\TenantLocale::currencyCode($companyId) ?? '');
+    }
+
     private function resolveClient(string $companyId, mixed $clientId): array
     {
         if ($clientId === null || $clientId === '') {
@@ -1873,7 +1908,8 @@ final class EInvoiceService
             'documentType'       => 5, // Nota de crédito (guía §"Enviar DE – Tipo 5/6").
             'associatedCdc'      => $parentCdc,
             'total'              => $total,
-            'currency'           => (string) ($tx['transactionCurrency'] ?? 'PYG'),
+            // Mismo criterio que en la venta: sin inventar 'PYG'. Ver resolveCurrency().
+            'currency'           => self::resolveCurrency($companyId, $tx['transactionCurrency'] ?? null),
             'operationCondition' => 0,
             'items'              => $items,
             'client'             => $this->resolveClient($companyId, $tx['customerId'] ?? null),

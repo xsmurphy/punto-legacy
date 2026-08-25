@@ -40,8 +40,12 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart"
-import { formatInt, formatMoney } from "@/lib/format"
 import { useAdminOverview, useAdminRequests, useAdminHealthList } from "@/hooks/use-admin"
+import {
+  formatPuntoSaasDate,
+  formatPuntoSaasMoney,
+  formatPuntoSaasNumber,
+} from "@/lib/punto-saas-locale"
 
 function healthScoreBadge(level: string, score: number) {
   const cls =
@@ -53,11 +57,11 @@ function healthScoreBadge(level: string, score: number) {
   return <Badge className={`${cls} text-xs tabular-nums`}>{score}</Badge>
 }
 
-/** 'YYYY-MM' → "ene", "feb", ... (es-PY, corto). */
+/** 'YYYY-MM' → "ene", "feb", ... (mes corto, locale de Punto S.A.). */
 function monthLabel(m: string): string {
   if (!/^\d{4}-\d{2}$/.test(m)) return m
   const d = new Date(`${m}-02T00:00:00`)
-  return d.toLocaleDateString("es-PY", { month: "short" }).replace(".", "")
+  return formatPuntoSaasDate(d, { month: "short" }).replace(".", "")
 }
 
 export default function AdminDashboardPage() {
@@ -91,39 +95,39 @@ export default function AdminDashboardPage() {
         <StatTile
           icon={<Building2 className="size-3.5" />}
           label="Total empresas"
-          value={formatInt(companies?.total, undefined)}
+          value={formatPuntoSaasNumber(companies?.total)}
           isLoading={loadingOverview}
         />
         <StatTile
           icon={<TrendingUp className="size-3.5" />}
           label="Activos"
-          value={formatInt(saas?.tenantsGoodStanding, undefined)}
+          value={formatPuntoSaasNumber(saas?.tenantsGoodStanding)}
           tone="positive"
           isLoading={loadingOverview}
         />
         <StatTile
           icon={<Clock className="size-3.5" />}
           label="En trial"
-          value={formatInt(saas?.tenantsTrial, undefined)}
+          value={formatPuntoSaasNumber(saas?.tenantsTrial)}
           isLoading={loadingOverview}
         />
         <StatTile
           icon={<AlertCircle className="size-3.5" />}
           label="Morosos / vencidos"
-          value={formatInt(saas?.tenantsDelinquent, undefined)}
+          value={formatPuntoSaasNumber(saas?.tenantsDelinquent)}
           tone="negative"
           isLoading={loadingOverview}
         />
         <StatTile
           icon={<PlusCircle className="size-3.5" />}
           label="Altas del mes"
-          value={formatInt(newThisMonth, undefined)}
+          value={formatPuntoSaasNumber(newThisMonth)}
           isLoading={loadingOverview}
         />
         <StatTile
           icon={<UserMinus className="size-3.5" />}
           label="Bajas del mes"
-          value={formatInt(saas?.churnedThisMonth, undefined)}
+          value={formatPuntoSaasNumber(saas?.churnedThisMonth)}
           tone={((saas?.churnedThisMonth ?? 0) > 0) ? "negative" : "neutral"}
           isLoading={loadingOverview}
         />
@@ -134,7 +138,7 @@ export default function AdminDashboardPage() {
         <StatTile
           icon={<DollarSign className="size-3.5" />}
           label="MRR"
-          value={formatMoney(mrr, undefined)}
+          value={formatPuntoSaasMoney(mrr)}
           tone="positive"
           emphasis
           isLoading={loadingOverview}
@@ -142,20 +146,20 @@ export default function AdminDashboardPage() {
         <StatTile
           icon={<Zap className="size-3.5" />}
           label="Créditos IA (mes)"
-          value={formatInt(saas?.aiCreditsConsumedThisMonth, undefined)}
+          value={formatPuntoSaasNumber(saas?.aiCreditsConsumedThisMonth)}
           isLoading={loadingOverview}
         />
         <StatTile
           icon={<HeartPulse className="size-3.5" />}
           label="Tenants en rojo"
-          value={formatInt(redCount, undefined)}
+          value={formatPuntoSaasNumber(redCount)}
           tone={redCount > 0 ? "negative" : "neutral"}
           isLoading={loadingHealth}
         />
         <StatTile
           icon={<Users className="size-3.5" />}
           label="Solicitudes pendientes"
-          value={formatInt(pendingCount, undefined)}
+          value={formatPuntoSaasNumber(pendingCount)}
           isLoading={loadingRequests}
         />
       </StatsRow>
@@ -242,7 +246,7 @@ export default function AdminDashboardPage() {
                   >
                     <span className="text-sm font-medium truncate">{c.name || "(sin nombre)"}</span>
                     <Badge variant="secondary" className="text-xs tabular-nums ml-2 shrink-0">
-                      {formatInt(c.balance, undefined)} cr.
+                      {formatPuntoSaasNumber(c.balance)} cr.
                     </Badge>
                   </Link>
                 ))}
@@ -335,7 +339,7 @@ function MrrChart({
               <YAxis
                 fontSize={10}
                 stroke="var(--muted-foreground)"
-                tickFormatter={(v: number) => formatMoney(v, undefined)}
+                tickFormatter={(v: number) => formatPuntoSaasMoney(v)}
                 tickLine={false}
                 axisLine={false}
                 width={64}
@@ -346,7 +350,7 @@ function MrrChart({
                   <ChartTooltipContent
                     labelFormatter={(l) => monthLabel(String(l))}
                     formatter={(value) => (
-                      <span className="font-medium tabular-nums">{formatMoney(Number(value) || 0, undefined)}</span>
+                      <span className="font-medium tabular-nums">{formatPuntoSaasMoney(Number(value) || 0)}</span>
                     )}
                   />
                 }
@@ -534,7 +538,7 @@ function GmvChart({
               <YAxis
                 fontSize={10}
                 stroke="var(--muted-foreground)"
-                tickFormatter={(v: number) => formatMoney(v, undefined)}
+                tickFormatter={(v: number) => formatPuntoSaasMoney(v)}
                 tickLine={false}
                 axisLine={false}
                 width={64}
@@ -545,7 +549,7 @@ function GmvChart({
                   <ChartTooltipContent
                     labelFormatter={(l) => monthLabel(String(l))}
                     formatter={(value) => (
-                      <span className="font-medium tabular-nums">{formatMoney(Number(value) || 0, undefined)}</span>
+                      <span className="font-medium tabular-nums">{formatPuntoSaasMoney(Number(value) || 0)}</span>
                     )}
                   />
                 }

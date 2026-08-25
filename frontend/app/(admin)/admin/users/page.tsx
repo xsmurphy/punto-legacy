@@ -45,6 +45,7 @@ import {
   type AdminUserRow,
   type AdminRole,
 } from "@/hooks/use-admin"
+import { formatPuntoSaasDate } from "@/lib/punto-saas-locale"
 
 // ── Roles ─────────────────────────────────────────────────────────────────────
 
@@ -361,7 +362,7 @@ function AdminUsersPageContent() {
         const v = getValue() as string | null
         return v ? (
           <span className="text-sm tabular-nums text-muted-foreground">
-            {new Date(v).toLocaleDateString("es-PY")}
+            {formatPuntoSaasDate(v)}
           </span>
         ) : (
           <span className="opacity-40 text-sm">—</span>

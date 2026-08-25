@@ -9,7 +9,7 @@ import { z } from "zod"
 import { ArrowLeft, Boxes, Calculator, Loader2, Pencil, Star, Store, Trash2 } from "lucide-react"
 import { isValidPhoneNumber } from "libphonenumber-js"
 import { PhoneInput } from "@/components/forms/phone-input"
-import { DEFAULT_COUNTRY } from "@/lib/countries"
+import { useTenantPhoneCountry } from "@/hooks/use-tenant-phone-country"
 import type { CountryCode } from "libphonenumber-js"
 import { toast } from "sonner"
 
@@ -558,6 +558,9 @@ function FiscalTab({
 }
 
 function ContactoTab({ form }: FormProp) {
+  // Los teléfonos de la sucursal son del mismo país que el comercio, no
+  // siempre de Paraguay.
+  const tenantPhoneCountry = useTenantPhoneCountry()
   return (
     <Section title="Contacto">
       <FormField
@@ -582,7 +585,7 @@ function ContactoTab({ form }: FormProp) {
             <FormControl>
               <PhoneInput
                 value={field.value}
-                country={DEFAULT_COUNTRY as CountryCode}
+                country={tenantPhoneCountry}
                 onChange={(v) => field.onChange(v.e164 ?? v.value)}
                 onBlur={field.onBlur}
                 aria-invalid={!!fieldState.error}
@@ -601,7 +604,7 @@ function ContactoTab({ form }: FormProp) {
             <FormControl>
               <PhoneInput
                 value={field.value}
-                country={DEFAULT_COUNTRY as CountryCode}
+                country={tenantPhoneCountry}
                 onChange={(v) => field.onChange(v.e164 ?? v.value)}
                 onBlur={field.onBlur}
                 aria-invalid={!!fieldState.error}

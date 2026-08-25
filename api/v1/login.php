@@ -37,7 +37,12 @@ if ($raw !== '' && $raw !== false) {
 
 $phoneInput = trim((string) ($_POST['phone'] ?? ''));
 $password   = (string) ($_POST['password'] ?? '');
-$iso        = strtoupper(trim((string) ($_POST['country'] ?? 'PY')));
+// Sin default de país: en el login todavía no hay tenant del cual sacarlo, y
+// asumir 'PY' hacía que el número de un comercio de otro país se normalizara
+// como paraguayo y no matcheara nunca contra el guardado. Si el cliente no
+// manda `country`, el teléfono tiene que venir en E.164 — que es exactamente
+// lo que manda el frontend (ver comentario de phoneToE164 más abajo).
+$iso        = strtoupper(trim((string) ($_POST['country'] ?? ''))) ?: null;
 
 if ($phoneInput === '' || $password === '') {
     apiError('Teléfono y contraseña requeridos', 400);

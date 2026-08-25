@@ -10,7 +10,7 @@ import type { ScreenContext } from "./page"
  * nombre debajo. Nada más.
  *
  * Qué se sacó y por qué: antes el idle repetía el layout del `LiveView` con
- * un total en "0", "Total a pagar en Gs", "Sin cliente" y la línea
+ * un total en "0", "Total a pagar en <moneda>", "Sin cliente" y la línea
  * sucursal - caja. Esta pantalla la mira EL CLIENTE del comercio, no el
  * cajero: un "0" gigante y un "Sin cliente" son ruido operativo, y el nombre
  * de la caja es dato interno que no le aporta nada a quien está del otro

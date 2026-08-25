@@ -59,6 +59,7 @@ import type { SettingsFormValues } from "@/lib/types/settings"
 import { ModuleCatalogPanel } from "@/components/modules/module-catalog-panel"
 import { PlanPanel } from "@/components/billing/plan-panel"
 import { CountryFlag } from "@/components/ui/country-flag"
+import { COUNTRY_LOCALE as TENANT_COUNTRY_LOCALE } from "@/lib/tenant-locale"
 
 // Zonas horarias (IANA) — el usuario elige de una lista en vez de tipear el
 // formato exacto. Foco LatAm + las comunes; el value es el IANA tz real.
@@ -86,24 +87,14 @@ const TIME_ZONES: { value: string; label: string }[] = [
 
 // Al elegir País se autocompletan moneda/zona horaria/impuesto/decimales/separador
 // con los defaults de ese país (el usuario puede ajustarlos después).
-const COUNTRY_LOCALE: Record<
-  string,
-  { currency: string; timeZone: string; taxName: string; decimal: boolean; thousandSeparator: string; language: string }
-> = {
-  PY: { currency: "Gs", timeZone: "America/Asuncion", taxName: "IVA", decimal: false, thousandSeparator: ".", language: "es" },
-  AR: { currency: "$", timeZone: "America/Argentina/Buenos_Aires", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
-  UY: { currency: "$", timeZone: "America/Montevideo", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
-  BR: { currency: "R$", timeZone: "America/Sao_Paulo", taxName: "ICMS", decimal: true, thousandSeparator: ".", language: "es" },
-  CL: { currency: "$", timeZone: "America/Santiago", taxName: "IVA", decimal: false, thousandSeparator: ".", language: "es" },
-  BO: { currency: "Bs", timeZone: "America/La_Paz", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
-  PE: { currency: "S/", timeZone: "America/Lima", taxName: "IGV", decimal: true, thousandSeparator: ".", language: "es" },
-  CO: { currency: "$", timeZone: "America/Bogota", taxName: "IVA", decimal: false, thousandSeparator: ".", language: "es" },
-  EC: { currency: "$", timeZone: "America/Guayaquil", taxName: "IVA", decimal: true, thousandSeparator: ",", language: "es" },
-  VE: { currency: "Bs", timeZone: "America/Caracas", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
-  MX: { currency: "$", timeZone: "America/Mexico_City", taxName: "IVA", decimal: true, thousandSeparator: ",", language: "es" },
-  ES: { currency: "€", timeZone: "Europe/Madrid", taxName: "IVA", decimal: true, thousandSeparator: ".", language: "es" },
-  US: { currency: "$", timeZone: "America/New_York", taxName: "Sales Tax", decimal: true, thousandSeparator: ",", language: "es" },
-}
+//
+// La tabla ya no vive acá: se movió a `lib/tenant-locale.ts` porque no es un
+// detalle de este formulario, es la ÚNICA fuente que sabe qué moneda / TZ /
+// impuesto le corresponde a cada país — y por lo tanto lo que hay que
+// consultar en cualquier parte del sistema donde el tenant todavía no
+// configuró alguno de esos campos. Mientras estuvo encerrada acá, el resto
+// del código resolvía esos huecos inventando Paraguay.
+const COUNTRY_LOCALE = TENANT_COUNTRY_LOCALE
 
 const settingsSchema = z.object({
   name: z.string(),
@@ -766,6 +757,10 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
                       form.setValue("currency", loc.currency, { shouldDirty: true })
                       form.setValue("timeZone", loc.timeZone, { shouldDirty: true })
                       form.setValue("taxName", loc.taxName, { shouldDirty: true })
+                      // La etiqueta del documento fiscal del cliente también
+                      // es del país (RUC/CNPJ/CUIT/RFC): antes quedaba en
+                      // "RUC" aunque el tenant eligiera Brasil.
+                      form.setValue("tin", loc.tinName, { shouldDirty: true })
                       form.setValue("decimal", loc.decimal, { shouldDirty: true })
                       form.setValue("thousandSeparator", loc.thousandSeparator, { shouldDirty: true })
                       form.setValue("language", loc.language, { shouldDirty: true })
@@ -1376,11 +1371,16 @@ function emptyValues(): SettingsFormValues {
     city: "",
     country: "",
     language: "es",
-    timeZone: "America/Asuncion",
-    currency: "₲",
+    // Vacíos a propósito. Esto es el shape del formulario ANTES de que llegue
+    // la config real del tenant; pre-llenarlo con "America/Asuncion" / "₲" /
+    // "RUC" significaba que un tenant sin esos campos guardados terminaba
+    // guardando Paraguay sin haberlo elegido nunca. Los completa el país que
+    // el usuario seleccione (COUNTRY_LOCALE) o la respuesta del backend.
+    timeZone: "",
+    currency: "",
     thousandSeparator: "dot",
-    taxName: "IVA",
-    tin: "RUC",
+    taxName: "",
+    tin: "",
     itemsSaleLimit: "",
     decimal: false,
     sellsoldout: false,

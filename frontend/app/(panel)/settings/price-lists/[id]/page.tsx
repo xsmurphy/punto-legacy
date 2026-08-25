@@ -54,6 +54,7 @@ import {
 } from "@/hooks/use-price-lists"
 import { useItems } from "@/hooks/use-items"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 import { formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { PriceListItem, PriceListItemInput } from "@/lib/types/price-list"
@@ -66,11 +67,11 @@ function formatAdjSign(adj: number): string {
   return adj > 0 ? `+${adj}%` : `−${Math.abs(adj)}%`
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, config: TenantLocaleConfig | null | undefined): string {
   if (!iso) return "Sin fecha"
   const d = new Date(iso)
   if (isNaN(d.getTime())) return "—"
-  return d.toLocaleDateString("es-PY", { day: "2-digit", month: "2-digit", year: "2-digit" })
+  return d.toLocaleDateString(resolveDateLocale(config), { day: "2-digit", month: "2-digit", year: "2-digit" })
 }
 
 // ── Item selector (Combobox) ──────────────────────────────────────────────────
@@ -612,7 +613,7 @@ export default function PriceListDetailPage() {
                   <>
                     <span>·</span>
                     <span>
-                      {formatDate(data.validFrom)} – {formatDate(data.validTo)}
+                      {formatDate(data.validFrom, bootstrap)} – {formatDate(data.validTo, bootstrap)}
                     </span>
                   </>
                 )}

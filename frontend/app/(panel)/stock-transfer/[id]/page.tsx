@@ -31,6 +31,7 @@ import {
 
 import { useStockTransfer, useCancelStockTransfer } from "@/hooks/use-stock-transfers"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
 import { buildTicketDataFromStockTransfer } from "@/lib/hardware/printers/build-ticket-data"
 import { formatMoney as _formatMoney } from "@/lib/format"
@@ -39,9 +40,12 @@ function formatMoney(v: number): string {
   return _formatMoney(v, undefined)
 }
 
-function formatDate(iso: string | null | undefined): string {
+function formatDate(
+  iso: string | null | undefined,
+  config: TenantLocaleConfig | null | undefined,
+): string {
   if (!iso) return "—"
-  return new Date(iso).toLocaleString("es-PY", {
+  return new Date(iso).toLocaleString(resolveDateLocale(config), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -138,7 +142,7 @@ export default function StockTransferDetailPage() {
             </Badge>
           </div>
           <div className="pl-10 text-sm text-muted-foreground space-y-0.5">
-            <p>Creada: {formatDate(transfer.createdAt)} por {transfer.createdByName ?? transfer.createdBy}</p>
+            <p>Creada: {formatDate(transfer.createdAt, bootstrap)} por {transfer.createdByName ?? transfer.createdBy}</p>
             <p>Origen: <span className="font-medium text-foreground">{outletLabel(transfer.fromOutletName, transfer.fromLocationName)}</span></p>
             <p>Destino: <span className="font-medium text-foreground">{outletLabel(transfer.toOutletName, transfer.toLocationName)}</span></p>
             {transfer.note && <p>Nota: {transfer.note}</p>}

@@ -12,7 +12,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { formatPhone } from "@/lib/phone"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 import { ColorPicker } from "@/components/ui/color-picker"
-import { DEFAULT_COUNTRY } from "@/lib/countries"
+import { useTenantPhoneCountry } from "@/hooks/use-tenant-phone-country"
 import { PhoneInput } from "@/components/forms/phone-input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -260,6 +260,7 @@ function TeamForm({
   // Evita perder el dato de tenants que ya tenían usuarios con inCalendar=true.
   const { data: modules, isLoading: modulesLoading } = useModules()
   const calendarEnabled = !modulesLoading && modules?.calendar?.enabled === true
+  const tenantPhoneCountry = useTenantPhoneCountry()
 
   return (
     <Form {...form}>
@@ -307,7 +308,7 @@ function TeamForm({
                 <FormControl>
                   <PhoneInput
                     value={field.value}
-                    country={DEFAULT_COUNTRY as CountryCode}
+                    country={tenantPhoneCountry}
                     onChange={(v) => field.onChange(v.e164 ?? v.value)}
                     onBlur={field.onBlur}
                     aria-invalid={!!fieldState.error}

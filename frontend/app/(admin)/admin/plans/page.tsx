@@ -52,6 +52,7 @@ import {
   type AdminPlanFull,
   type AdminPlanInput,
 } from "@/hooks/use-admin"
+import { formatPuntoSaasMoney } from "@/lib/punto-saas-locale"
 
 // Flags de features conocidas (seed 13_seed_plans_zero_and_trial.sql) — el
 // plan las expone al gating del panel vía plans.features (jsonb).
@@ -393,7 +394,7 @@ function AdminPlansPageContent() {
       header: "Precio",
       cell: ({ row }) => (
         <span className="tabular-nums">
-          {row.original.price.toLocaleString("es-PY", { style: "currency", currency: "PYG", maximumFractionDigits: 0 })}
+          {formatPuntoSaasMoney(row.original.price)}
         </span>
       ),
       meta: { label: "Precio" },

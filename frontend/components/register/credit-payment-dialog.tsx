@@ -89,7 +89,7 @@ export function CreditPaymentDialog({
 
   function handleVisorChange(raw: number) {
     // Sincronizamos el display string formateado a partir del raw
-    const formatted = raw === 0 ? "" : formatDisplayInput(String(raw))
+    const formatted = raw === 0 ? "" : formatDisplayInput(String(raw), config)
     setDisplay(formatted)
   }
 
@@ -158,6 +158,7 @@ export function CreditPaymentDialog({
               ref={visorRef}
               value={display}
               onValueChange={handleVisorChange}
+              config={config}
               placeholder={formatMoney(debt, config)}
               ariaLabel="Monto a cobrar"
               onKeyDown={handleKeyDown}

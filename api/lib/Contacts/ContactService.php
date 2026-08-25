@@ -65,13 +65,22 @@ final class ContactService
 
     private ContactRepository $repo;
 
-    /** Cache in-memory del país del tenant por companyId — un request nunca
-        mezcla tenants, así que 1 lookup por companyId alcanza. Ver isPyTenant(). */
-    private array $countryCache = [];
-
     public function __construct(ContactRepository $repo)
     {
         $this->repo = $repo;
+    }
+
+    /**
+     * País del tenant (ISO-2) o null si no lo tiene configurado.
+     *
+     * Delega en TenantLocale, que es el resolver único de la localización del
+     * comercio y ya cachea por companyId. Antes había un cache propio acá
+     * sobre `ContactRepository::companyCountry()`: dos fuentes para el mismo
+     * dato, y el resto del módulo igual terminaba asumiendo 'PY' por su lado.
+     */
+    private function tenantCountry(string $companyId): ?string
+    {
+        return \Punto\Api\Support\TenantLocale::country($companyId);
     }
 
     /**
@@ -83,10 +92,7 @@ final class ContactService
      */
     private function isPyTenant(string $companyId): bool
     {
-        if (!array_key_exists($companyId, $this->countryCache)) {
-            $this->countryCache[$companyId] = $this->repo->companyCountry($companyId) === 'PY';
-        }
-        return $this->countryCache[$companyId];
+        return $this->tenantCountry($companyId) === 'PY';
     }
 
     /**
@@ -111,8 +117,15 @@ final class ContactService
     /**
      * Mapea el shape público a columnas de `contact`.
      * Solo incluye las claves presentes (para updates parciales).
+     *
+     * @param ?string $tenantIso País del tenant (ISO-2) para parsear el
+     *   teléfono cuando el contacto no trae `country` propio. Es un parámetro
+     *   y no un default cableado porque este mapper es estático y no conoce el
+     *   companyId: antes asumía 'PY' y el teléfono local de un cliente de un
+     *   comercio no paraguayo se rechazaba como inválido. `null` = sin país de
+     *   referencia, el número debe venir en E.164.
      */
-    public static function mapToColumns(array $in): array
+    public static function mapToColumns(array $in, ?string $tenantIso = null): array
     {
         $rec = [];
 
@@ -162,7 +175,9 @@ final class ContactService
         if (isset($in['address2'])) $rec['contactAddress2'] = strip_tags((string) $in['address2']);
         if (isset($in['phone'])) {
             require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
-            $iso = (string)($in['country'] ?? 'PY');
+            // `country` del contacto (puede ser distinto al del comercio: un
+            // cliente extranjero) y, si no vino, el país del tenant.
+            $iso = strtoupper(trim((string)($in['country'] ?? ''))) ?: $tenantIso;
             $rec['contactPhone'] = phoneValidateForStorage($in['phone'], $iso);
         }
         // contactPhone2 ELIMINADO de la tabla (Migración 25). El form ya no lo
@@ -223,7 +238,7 @@ final class ContactService
             throw new InvalidArgumentException('Nombre y apellido o Razón social son obligatorios');
         }
 
-        $rec                  = self::mapToColumns($in);
+        $rec                  = self::mapToColumns($in, $this->tenantCountry($companyId));
         // type viene del input (1=cliente, 2=proveedor). Default cliente para
         // backwards-compat con consumidores que no lo mandan.
         $inputType            = (int) ($in['type'] ?? self::TYPE_CUSTOMER);
@@ -259,7 +274,7 @@ final class ContactService
      */
     public function update(string $id, string $companyId, array $in): bool
     {
-        $rec = self::mapToColumns($in);
+        $rec = self::mapToColumns($in, $this->tenantCountry($companyId));
         $rec['updated_at'] = TODAY;
 
         // Mismo gate que create() — ver comentario ahí.

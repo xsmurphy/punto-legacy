@@ -243,7 +243,11 @@ final class ReconciliationService
         if (abs($difference) > 0.005) {
             if (!$createAdjustment) {
                 $db->CompleteTrans();
-                throw new \RuntimeException('Hay una diferencia de ' . number_format($difference, 2) . '. Conciliá los movimientos faltantes o creá un ajuste.');
+                // number_format() a secas usa los separadores por default de
+                // PHP (formato en-US: "1,234.56"), que no son los de ningún
+                // tenant en particular. Money::formatNumber respeta la config
+                // del comercio.
+                throw new \RuntimeException('Hay una diferencia de ' . \Punto\App\Domain\Money::formatNumber($difference) . '. Conciliá los movimientos faltantes o creá un ajuste.');
             }
 
             $kind = $difference > 0 ? 'income' : 'expense';

@@ -271,6 +271,19 @@ final class UsersService
     }
 
     /**
+     * País de referencia para parsear el teléfono de un empleado: el que venga
+     * en el payload y, si no, el del TENANT (`settingCountry`).
+     *
+     * Antes ambos call-sites cableaban 'PY'. `null` significa "no hay país":
+     * el número debe venir en E.164 o se rechaza — nunca se asume +595.
+     */
+    private static function phoneIso(array $in, string $companyId): ?string
+    {
+        return strtoupper(trim((string) ($in['country'] ?? '')))
+            ?: \Punto\Api\Support\TenantLocale::country($companyId);
+    }
+
+    /**
      * Crea un empleado. Retorna el nuevo contactId.
      *
      * @throws \InvalidArgumentException si falta algún campo requerido.
@@ -314,9 +327,12 @@ final class UsersService
         $rec = [
             'contactName'              => $name,
             'contactEmail'             => $email !== '' ? $email : null,
-            'contactPhone'             => (function () use ($in) {
+            'contactPhone'             => (function () use ($in, $companyId) {
                 require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
-                return phoneValidateForStorage($in['phone'] ?? null, (string)($in['country'] ?? 'PY'));
+                // País de referencia del tenant, no 'PY': el form de empleados
+                // no manda `country`, así que el teléfono de un empleado de un
+                // comercio no paraguayo se parseaba contra +595.
+                return phoneValidateForStorage($in['phone'] ?? null, self::phoneIso($in, $companyId));
             })(),
             'contactPassword'          => $hash,
             'salt'                     => $salt,
@@ -369,7 +385,7 @@ final class UsersService
         }
         if (array_key_exists('phone', $in)) {
             require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
-            $rec['contactPhone'] = phoneValidateForStorage($in['phone'] ?? null, (string)($in['country'] ?? 'PY'));
+            $rec['contactPhone'] = phoneValidateForStorage($in['phone'] ?? null, self::phoneIso($in, $companyId));
         }
         if (!empty($in['password'])) {
             [$hash, $salt] = self::hashPassword((string) $in['password']);

@@ -11,6 +11,8 @@ import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 
 import { useRemisiones, REMISION_MOTIVO_LABELS, type Remision } from "@/hooks/use-remisiones"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
 const STATUS_LABEL: Record<number, string> = {
   0: "Cancelada",
@@ -22,8 +24,8 @@ const STATUS_VARIANT: Record<number, "default" | "secondary" | "destructive" | "
   1: "default",
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("es-PY", {
+function formatDate(iso: string, config: TenantLocaleConfig | null | undefined): string {
+  return new Date(iso).toLocaleString(resolveDateLocale(config), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -41,7 +43,11 @@ function destinationLabel(r: Remision): string {
   return parts.length > 0 ? parts.join(" — ") : "—"
 }
 
-const columns: ColumnDef<Remision>[] = [
+// Las columnas se arman con la config del tenant (la fecha se formatea con su
+// locale), así que son función del bootstrap y no una constante de módulo.
+const buildColumns = (
+  config: TenantLocaleConfig | null | undefined,
+): ColumnDef<Remision>[] => [
   {
     id: "docNumber",
     header: "Nº",
@@ -55,7 +61,7 @@ const columns: ColumnDef<Remision>[] = [
   {
     accessorKey: "transferDate",
     header: "Fecha",
-    cell: ({ row }) => formatDate(row.original.transferDate),
+    cell: ({ row }) => formatDate(row.original.transferDate, config),
   },
   {
     id: "motivo",
@@ -90,7 +96,10 @@ const columns: ColumnDef<Remision>[] = [
 export default function RemisionesPage() {
   const router = useRouter()
   const { data, isLoading } = useRemisiones()
+  const { data: bootstrap } = useBootstrap()
   const rows = data?.rows ?? []
+
+  const columns = React.useMemo(() => buildColumns(bootstrap), [bootstrap])
 
   return (
     <div className="flex flex-col gap-6">

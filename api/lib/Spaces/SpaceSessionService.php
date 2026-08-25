@@ -283,9 +283,13 @@ final class SpaceSessionService
             if (!$allowPendingBalance) {
                 $balance = (new SpaceBalanceService($this->db))->compute($companyId, $sessionId)['balance'];
                 if (!SpaceBalanceService::isCovered($balance)) {
+                    // El formato de miles/decimales sale de la config del
+                    // comercio (Money::formatNumber), no de separadores es-PY
+                    // cableados: este texto lo lee el cajero y tiene que verse
+                    // como el resto de los montos de su POS.
                     throw new \InvalidArgumentException(
                         'La sesión tiene saldo pendiente y no se puede cerrar (falta cobrar '
-                        . number_format($balance, 2, ',', '.') . ')'
+                        . \Punto\App\Domain\Money::formatNumber($balance) . ')'
                     );
                 }
             }

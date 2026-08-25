@@ -20,8 +20,10 @@ namespace Punto\Api\Contacts;
  *      cuenta de facturación electrónica conectada. Es la autoritativa: es el
  *      padrón que ve el propio emisor, así que si difiere del público, gana
  *      esta — es la que va a validar SIFEN al emitir.
- *   2. **Padrón público** (`TAXPAYER_LOOKUP_URL`, por default turuc.com.py) para
- *      todo comercio sin FE conectada, o cuando Factomate no encuentra el RUC.
+ *   2. **Padrón público** (`TAXPAYER_LOOKUP_URL`) para todo comercio sin FE
+ *      conectada, o cuando Factomate no encuentra el RUC. Solo se consulta si
+ *      el comercio es del MISMO país que ese padrón — un padrón nacional no
+ *      sabe nada de los contribuyentes de otro país.
  *
  * Nunca lanza por un fallo de la fuente: un padrón caído no puede impedir dar
  * de alta un cliente a mano. Devuelve `null` = "no se encontró", y el caller
@@ -47,7 +49,7 @@ final class TaxpayerLookupService
             return $fromProvider;
         }
 
-        return $this->fromPublicRegistry($ruc);
+        return $this->fromPublicRegistry($companyId, $ruc);
     }
 
     /**
@@ -100,10 +102,41 @@ final class TaxpayerLookupService
      *
      * @return array{ruc:string,name:string,status:?string,source:string}|null
      */
-    private function fromPublicRegistry(string $ruc): ?array
+    private function fromPublicRegistry(string $companyId, string $ruc): ?array
     {
-        $baseUrl = defined('TAXPAYER_LOOKUP_URL') ? (string) TAXPAYER_LOOKUP_URL : '';
+        // El padrón sale del PAÍS del comercio, no de una constante global: es
+        // un servicio por país, y el de Paraguay no sabe nada de un RUC
+        // chileno. Antes la URL estaba cableada en `simple.config.php`, así que
+        // el identificador tributario del cliente de un comercio extranjero se
+        // mandaba igual al padrón paraguayo — consulta inútil y una fuga de
+        // dato tributario hacia un servicio de otro país.
+        $tenantCountry = \Punto\Api\Support\TenantLocale::country($companyId);
+        if ($tenantCountry === null) {
+            return null;
+        }
+
+        // Override de despliegue: si el entorno define un padrón, manda sobre
+        // el del catálogo, pero SOLO para el país que ese padrón atiende
+        // (mismo gate que TinService con Marangatu). Sin `TAXPAYER_LOOKUP_URL`
+        // seteada no pasa nada: se usa el del catálogo.
+        $envUrl     = defined('TAXPAYER_LOOKUP_URL') ? trim((string) TAXPAYER_LOOKUP_URL) : '';
+        $envCountry = defined('TAXPAYER_LOOKUP_COUNTRY') ? trim((string) TAXPAYER_LOOKUP_COUNTRY) : '';
+        if ($envUrl !== '' && $envCountry !== '') {
+            $baseUrl = $envCountry === $tenantCountry ? $envUrl : '';
+        } else {
+            $baseUrl = (string) (\Punto\Api\Support\CountryDefaults::taxpayerRegistryUrl($tenantCountry) ?? '');
+        }
+
         if ($baseUrl === '') {
+            // Degradación VISIBLE: el lookup por padrón no existe para este
+            // país, pero la función no muere en silencio — el caller sigue con
+            // la fuente del proveedor de facturación electrónica y acá queda
+            // registrado por qué no hubo consulta pública.
+            error_log(sprintf(
+                '[TaxpayerLookup] sin padrón público para el país "%s" (company %s); se usa solo la fuente de FE',
+                $tenantCountry,
+                $companyId
+            ));
             return null;
         }
 

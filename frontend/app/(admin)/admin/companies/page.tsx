@@ -29,6 +29,7 @@ import {
   type AdminCompanyRow,
   type TenantHealthLevel,
 } from "@/hooks/use-admin"
+import { formatPuntoSaasDate } from "@/lib/punto-saas-locale"
 
 function statusBadge(status: string, blocked: number, suspended: number) {
   if (blocked) return <Badge variant="destructive">Bloqueada</Badge>
@@ -268,7 +269,7 @@ export default function AdminCompaniesPage() {
                   <TableCell>
                     {c.createdAt ? (
                       <span className="text-sm tabular-nums text-muted-foreground">
-                        {new Date(c.createdAt).toLocaleDateString("es-PY")}
+                        {formatPuntoSaasDate(c.createdAt)}
                       </span>
                     ) : (
                       <span className="opacity-40">—</span>

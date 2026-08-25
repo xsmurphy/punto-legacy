@@ -140,14 +140,16 @@ final class PaymentsService
         $name   = (string) ($pack['name'] ?? 'Créditos');
         $credits = (int) ($pack['credits'] ?? 0);
 
-        // País del tenant (ISO-2) para dLocal — default PY.
-        $co = ncmExecute(
-            "SELECT config->>'settingCountry' AS country FROM company WHERE companyId = ? LIMIT 1",
-            [$companyId]
-        );
-        $country = strtoupper(trim((string) ($co['country'] ?? '')));
-        if (strlen($country) !== 2) {
-            $country = 'PY';
+        // País del tenant (ISO-2) para dLocal. Sin default 'PY': dLocal usa el
+        // país para elegir métodos de pago, moneda local e impuestos, así que
+        // cobrarle a un comercio de otro país como si fuera paraguayo produce
+        // un cobro mal armado, no un detalle cosmético. Si el tenant no tiene
+        // país configurado, se corta acá en vez de inventarlo.
+        $country = \Punto\Api\Support\TenantLocale::country($companyId);
+        if ($country === null) {
+            throw new \RuntimeException(
+                'El comercio no tiene país configurado (Ajustes > Empresa) — no se puede iniciar el cobro.'
+            );
         }
 
         // Invoice pending (RETURNING id).

@@ -40,6 +40,8 @@ import {
   useDeletePriceList,
 } from "@/hooks/use-price-lists"
 import type { PriceList } from "@/lib/types/price-list"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -58,11 +60,11 @@ function adjustmentLabel(adj: number): { text: string; variant: "default" | "sec
   return { text: "Base", variant: "outline" }
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null, config: TenantLocaleConfig | null | undefined): string {
   if (!iso) return "—"
   const d = new Date(iso)
   if (isNaN(d.getTime())) return "—"
-  return d.toLocaleDateString("es-PY", { day: "2-digit", month: "2-digit", year: "2-digit" })
+  return d.toLocaleDateString(resolveDateLocale(config), { day: "2-digit", month: "2-digit", year: "2-digit" })
 }
 
 // ── Form de lista ─────────────────────────────────────────────────────────────
@@ -255,6 +257,7 @@ function PriceListSheet({ open, onClose, editing }: PriceListSheetProps) {
 export default function PriceListsPage() {
   const router = useRouter()
   const { data, isLoading, error } = usePriceLists()
+  const { data: bootstrap } = useBootstrap()
   const deleteMut = useDeletePriceList()
 
   const [sheetOpen,    setSheetOpen]    = React.useState(false)
@@ -336,7 +339,7 @@ export default function PriceListsPage() {
           if (!from && !to) return <span className="text-muted-foreground">Sin límite</span>
           return (
             <span className="tabular-nums text-sm text-muted-foreground">
-              {formatDate(from)} – {formatDate(to)}
+              {formatDate(from, bootstrap)} – {formatDate(to, bootstrap)}
             </span>
           )
         },
@@ -383,7 +386,7 @@ export default function PriceListsPage() {
         enableHiding: false,
       },
     ],
-    [router]
+    [router, bootstrap]
   )
 
   return (

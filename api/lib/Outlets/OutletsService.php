@@ -79,7 +79,12 @@ final class OutletsService
         // un único path de write sin el UPDATE explícito anterior.
 
         require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
-        $iso = (string)($f['country'] ?? 'PY');
+        // El país de referencia para parsear el teléfono sale del TENANT, no de
+        // 'PY': el form de sucursal no manda `country`, así que antes TODA
+        // sucursal —de cualquier comercio— validaba su teléfono contra +595 y
+        // un número local de otro país se rechazaba como inválido.
+        $iso = strtoupper(trim((string)($f['country'] ?? '')))
+            ?: \Punto\Api\Support\TenantLocale::country($companyId);
         $record = [
             'outletName'            => $f['name'],
             'outletStatus'          => (int) $f['status'],

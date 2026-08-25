@@ -49,6 +49,8 @@ import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { usePermission } from "@/hooks/use-permissions"
 import { useRegistersAdmin } from "@/hooks/use-registers-admin"
 import { useSettings } from "@/hooks/use-settings"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 import type { EInvoiceConfig, EInvoiceFiscalForm, EInvoiceStatus } from "@/lib/types/einvoice"
 import Link from "next/link"
 
@@ -59,13 +61,16 @@ function StatusBadge({ status }: { status: EInvoiceStatus }) {
   return <Badge variant="secondary">Sin configurar</Badge>
 }
 
-function formatSyncedAt(iso: string | null): string | null {
+function formatSyncedAt(
+  iso: string | null,
+  config: TenantLocaleConfig | null | undefined,
+): string | null {
   if (!iso) return null
   // stamp_synced_at es TIMESTAMPTZ genuino (now() del servidor) — se parsea
   // directo, sin el stripeo de offset de lib/format-date.ts (ver ese archivo).
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return null
-  return d.toLocaleString("es-PY", {
+  return d.toLocaleString(resolveDateLocale(config), {
     day: "2-digit",
     month: "short",
     year: "numeric",
@@ -405,7 +410,10 @@ function ProvisionedView({
   }
 
   const fiscal = account.fiscal
-  const syncedAt = formatSyncedAt(account.stampSyncedAt)
+  // El bootstrap ya está en cache (lo pide el layout del panel) — leerlo acá
+  // no agrega request, y es el único lugar con el país/idioma del tenant.
+  const { data: bootstrap } = useBootstrap()
+  const syncedAt = formatSyncedAt(account.stampSyncedAt, bootstrap)
 
   return (
     <div className="flex flex-col gap-6">

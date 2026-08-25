@@ -6,14 +6,32 @@
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-function phoneToE164(string $input, string $defaultIso = 'PY'): ?string
+/**
+ * `$defaultIso` es OBLIGATORIO a propósito: antes era `= 'PY'` y cualquier
+ * caller que se olvidara de pasarlo interpretaba el número como paraguayo en
+ * silencio (un '0991 234567' de un comercio argentino se guardaba como
+ * +595...). Ahora cada call-site tiene que decir de qué país es el número —
+ * normalmente el `settingCountry` del tenant, vía TenantLocale::country().
+ *
+ * `null` es un valor válido y significa "no hay país de referencia": el
+ * número TIENE que venir ya en E.164 (con '+'), y si no, se rechaza. Es la
+ * opción correcta en los endpoints pre-login (no hay tenant del cual sacar
+ * el país) donde el frontend ya manda E.164.
+ */
+function phoneParseRegion(?string $defaultIso): ?string
+{
+    $iso = strtoupper(trim((string) $defaultIso));
+    return $iso !== '' ? $iso : null;
+}
+
+function phoneToE164(string $input, ?string $defaultIso): ?string
 {
     $input = trim($input);
     if ($input === '') return null;
 
     try {
         $util  = \libphonenumber\PhoneNumberUtil::getInstance();
-        $proto = $util->parse($input, strtoupper($defaultIso));
+        $proto = $util->parse($input, phoneParseRegion($defaultIso));
         if (!$util->isValidNumber($proto)) return null;
         return $util->format($proto, \libphonenumber\PhoneNumberFormat::E164);
     } catch (\libphonenumber\NumberParseException $e) {
@@ -54,7 +72,7 @@ function normalizePhoneForStorage(?string $phone): ?string
  * (sin '+'). Retorna null si el input es vacío; throw RuntimeException
  * con mensaje custom si el número es inválido.
  */
-function phoneValidateForStorage(?string $input, string $defaultIso = 'PY', string $errorMsg = 'Teléfono inválido'): ?string
+function phoneValidateForStorage(?string $input, ?string $defaultIso, string $errorMsg = 'Teléfono inválido'): ?string
 {
     if ($input === null) return null;
     $input = trim($input);
@@ -64,11 +82,11 @@ function phoneValidateForStorage(?string $input, string $defaultIso = 'PY', stri
     return normalizePhoneForStorage($e164);
 }
 
-function phoneIsMobile(string $input, string $defaultIso = 'PY'): bool
+function phoneIsMobile(string $input, ?string $defaultIso): bool
 {
     try {
         $util  = \libphonenumber\PhoneNumberUtil::getInstance();
-        $proto = $util->parse(trim($input), strtoupper($defaultIso));
+        $proto = $util->parse(trim($input), phoneParseRegion($defaultIso));
         if (!$util->isValidNumber($proto)) return false;
         $type = $util->getNumberType($proto);
         return $type === \libphonenumber\PhoneNumberType::MOBILE

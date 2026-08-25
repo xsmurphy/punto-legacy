@@ -92,9 +92,19 @@ const ExtractionSchema = z.object({
  * el borrador lo aprueba un humano; un default inventado (timbrado
  * "11111111", descripción "SERVICIOS PRESTADOS", etc.) se cuela como si
  * fuera un dato real leído de la factura. Para Punto eso es inaceptable —
- * campo ilegible SIEMPRE es `null`, nunca un placeholder. El único default
- * real que existe es `currency` = "PYG" cuando no se detecta (es la moneda
- * del tenant, no un dato inventado de la factura).
+ * campo ilegible SIEMPRE es `null`, nunca un placeholder. Ya no hay ninguna
+ * excepción: `currency` también queda `null` cuando no se detecta. Existía
+ * como excepción ("es la moneda del tenant"), pero eso asumía que el tenant
+ * era paraguayo — y la moneda del tenant tampoco se puede derivar acá,
+ * porque la config guarda el símbolo, no el código ISO.
+ *
+ * ALCANCE: el prompt de abajo está escrito para facturas PARAGUAYAS (pide
+ * timbrado, RUC con dígito verificador, tasas de IVA 0/5/10, formato de
+ * número XXX-XXX-XXXXXXX). Eso es una decisión de producto, no un descuido,
+ * pero HOY NO ESTÁ GATEADA por país: un tenant de otro país que suba una
+ * factura local va a recibir una extracción mala. Antes de habilitar el
+ * módulo fuera de Paraguay hay que gatearlo por `settingCountry` o escribir
+ * variantes del prompt por país.
  */
 function buildExtractionPrompt(todayISO: string, tenantRuc: string | null, isPdf: boolean): string {
   const pdfSection = isPdf
@@ -196,9 +206,9 @@ ${receiverSection}
   que indique la línea; null si no se puede determinar.
 - "totals": subtotal, exentas, descuento, IVA discriminado (5% y 10%) y
   total general, tal como figuran impresos.
-- "currency": código de moneda si se detecta algo distinto a guaraníes (ej.
-  "USD"); null si no se especifica ninguna (el sistema asume PYG por
-  defecto — vos no completes ese default, dejalo null).
+- "currency": código ISO de la moneda de la factura si figura (ej. "USD",
+  "PYG", "BRL"); null si el documento no la especifica. No adivines: si no
+  está escrita, dejalo null.
 - "confidence": tu confianza global en la lectura completa, de 0 (nada
   legible) a 1 (perfectamente legible).
 
@@ -364,13 +374,19 @@ export async function POST(req: Request) {
     })
     extracted = result.object
     // `currency` y `receiverMatchesTenant` finales: código, no el LLM.
-    // - currency: default PYG es la moneda del tenant, no un dato de la
-    //   factura — corresponde aplicarlo acá, no pedírselo al modelo.
+    // - currency: si el modelo no detectó divisa en la factura, queda `null`
+    //   = "no se sabe". Antes se rellenaba con "PYG", con el argumento de que
+    //   era "la moneda del tenant" — pero eso solo vale si el tenant es
+    //   paraguayo, y la moneda del tenant NO se puede derivar acá: la config
+    //   guarda el SÍMBOLO ("Gs", "R$"), no el código ISO que este campo
+    //   necesita. Rellenar con PYG le cargaba guaraníes a la compra de un
+    //   comercio brasileño sin que nadie lo notara. Con `null`, quien arma el
+    //   borrador de compra usa la moneda del tenant o se la pide al usuario.
     // - receiverMatchesTenant: recalculado siempre con `rucsMatch` (fuente
     //   única), pisa lo que haya puesto el modelo.
     extracted = {
       ...extracted,
-      currency: extracted.currency && extracted.currency.trim() !== "" ? extracted.currency : "PYG",
+      currency: extracted.currency && extracted.currency.trim() !== "" ? extracted.currency : null,
       receiverMatchesTenant: rucsMatch(extracted.receiver?.ruc ?? null, tenantRuc),
     }
     tokensIn = Number(result.usage?.inputTokens ?? 0)

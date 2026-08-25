@@ -30,6 +30,8 @@ import type { ContactListItem } from "@/lib/types/contact"
 import { EmptyState } from "@/components/empty-state"
 import { TeamSection } from "@/components/domain/contacts/team-section"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, resolveNumberLocale } from "@/lib/tenant-locale"
 
 type ActiveTab = "1" | "2" | "team"
 
@@ -57,6 +59,7 @@ function ContactsPage() {
   const contactType: ContactType = activeTab === "2" ? 2 : 1
 
   const { data, isLoading, error } = useContacts({ type: contactType })
+  const { data: bootstrap } = useBootstrap()
   const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "archived">("all")
   const isSupplier = activeTab === "2"
   const teamOpenCreateRef = React.useRef<(() => void) | null>(null)
@@ -187,7 +190,9 @@ function ContactsPage() {
           const n = typeof v === "string" ? Number(v) : (v ?? 0)
           if (!n) return <span className="opacity-40">—</span>
           return (
-            <span className="tabular-nums text-muted-foreground">{n.toLocaleString("es-PY")}</span>
+            <span className="tabular-nums text-muted-foreground">
+              {n.toLocaleString(resolveNumberLocale(bootstrap))}
+            </span>
           )
         },
         meta: { label: "Loyalty", className: "tabular-nums text-right" },
@@ -227,12 +232,12 @@ function ContactsPage() {
         enableSorting: true,
         cell: ({ getValue }) => {
           const v = getValue() as string | null
-          return v ? new Intl.DateTimeFormat("es-PY", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(v)) : <span className="opacity-40">—</span>
+          return v ? new Intl.DateTimeFormat(resolveDateLocale(bootstrap), { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(v)) : <span className="opacity-40">—</span>
         },
         meta: { label: "Fecha", className: "tabular-nums whitespace-nowrap" },
       },
     ],
-    [],
+    [bootstrap],
   )
 
   // Columnas opcionales arrancan ocultas — disponibles desde el column-toggle.

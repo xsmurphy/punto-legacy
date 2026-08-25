@@ -42,6 +42,7 @@ import {
 } from "@/hooks/use-document-templates"
 import { useTaxes } from "@/hooks/use-taxes"
 import { buildDemoTicketData, buildTemplateTestData } from "@/lib/hardware/printers/build-ticket-data"
+import { useBootstrap } from "@/hooks/use-bootstrap"
 import { simulateTemplatePrint } from "@/lib/hardware/printers"
 import { getBlockPlaceholder, type PaletteItem } from "@/lib/print-template-palette"
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard"
@@ -103,9 +104,13 @@ export function TemplateEditor({ existing }: Props) {
   // catálogo de bloques que usan los renderers reales (blocks.ts). Antes cada
   // superficie tenía su propio diccionario de texto hardcodeado — ver
   // buildDemoTicketData (build-ticket-data.ts) para el porqué.
+  // La moneda/separadores del demo salen del tenant REAL: el comercio está
+  // diseñando el ticket que va a imprimir y tiene que verlo con su propio
+  // símbolo, no con uno de otro país (antes era "Gs" fijo).
+  const bootstrapQuery = useBootstrap()
   const demoData = React.useMemo(
-    () => buildDemoTicketData(taxesQuery.data?.taxes ?? []),
-    [taxesQuery.data],
+    () => buildDemoTicketData(taxesQuery.data?.taxes ?? [], bootstrapQuery.data),
+    [taxesQuery.data, bootstrapQuery.data],
   )
 
   const initialConfig: PrintTemplateConfig = React.useMemo(() => {

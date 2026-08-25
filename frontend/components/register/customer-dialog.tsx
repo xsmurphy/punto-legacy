@@ -49,6 +49,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { PhoneInput } from "@/components/forms/phone-input"
+import { DEFAULT_COUNTRY } from "@/lib/countries"
+import type { CountryCode } from "libphonenumber-js"
 import { DatePicker } from "@/components/date-picker"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
@@ -284,6 +286,8 @@ function CreateCustomerForm({
   // (PosConfig.country), ya hidratado en el store del POS (sin round-trip
   // adicional). Ver ContactService::isPyTenant() del lado del backend.
   const tenantCountry = useCatalogStore((s) => s.config?.country)
+  // Mismo dato, tipado como CountryCode para el selector de teléfono.
+  const tenantPhoneCountry = (tenantCountry || DEFAULT_COUNTRY) as CountryCode
   const isPyTenant = tenantCountry === "PY"
 
   const {
@@ -310,7 +314,11 @@ function CreateCustomerForm({
       email: "",
       phoneValue: "",
       phoneE164: null,
-      phoneCountry: "PY",
+      // País del selector de teléfono: el del TENANT (viaja en el snapshot del
+      // bootstrap del POS, así que no agrega ni un fetch al alta offline).
+      // Antes era "PY" fijo — un comercio brasileño daba de alta clientes con
+      // el prefijo paraguayo preseleccionado.
+      phoneCountry: tenantCountry || DEFAULT_COUNTRY,
       birthdate: "",
     },
   })
@@ -582,7 +590,7 @@ function CreateCustomerForm({
                       <PhoneInput
                         id="phone"
                         value={field.value ?? ""}
-                        country="PY"
+                        country={tenantPhoneCountry}
                         onChange={(v) => {
                           field.onChange(v.value)
                           setValue("phoneE164", v.e164)

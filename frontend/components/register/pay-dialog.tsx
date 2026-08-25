@@ -88,6 +88,7 @@ import { TransactionSuccessView } from "./transaction-success-dialog"
 import { useClearCart } from "@/hooks/use-clear-cart"
 import { useCloseSpaceSession } from "@/hooks/use-pos-spaces"
 import { useRegisterSessionPayment, validateSessionPayment } from "@/hooks/use-space-settlement"
+import { parseDisplay, formatDisplayInput } from "./money-visor"
 
 // ── Fallback local (mismos datos que el BFF, por si el store aún no hidrata) ──
 
@@ -152,22 +153,12 @@ interface AppliedPayment {
 }
 
 // ── Helpers de display numérico ───────────────────────────────────────────────
-
-function parseDisplay(s: string): number {
-  if (!s) return 0
-  const digits = s.replace(/\D/g, "")
-  return digits ? Number(digits) : 0
-}
-
-/**
- * Formatea el raw string del visor como número con separador de miles (PY: punto).
- * Solo opera sobre los dígitos — descarta cualquier otro carácter previo.
- */
-function formatDisplayInput(raw: string): string {
-  const digits = raw.replace(/\D/g, "")
-  if (!digits) return ""
-  return Number(digits).toLocaleString("es-PY")
-}
+//
+// `parseDisplay` y `formatDisplayInput` viven en `money-visor.tsx` (el visor
+// que los usa). Acá había una copia literal de los dos, con el separador de
+// miles clavado en "es-PY": el mismo bug había que arreglarlo en dos lugares y
+// el visor del PayDialog podía divergir del de CreditPaymentDialog. Se importan
+// del módulo del visor, que es el dueño del formato del display.
 
 /**
  * Default de vencimiento para venta a crédito: hoy + 30 días, "YYYY-MM-DD".
@@ -1123,7 +1114,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // Dígito → append al display
       if (/^[0-9]$/.test(e.key)) {
         e.preventDefault()
-        setDisplay((prev) => formatDisplayInput(prev + e.key))
+        setDisplay((prev) => formatDisplayInput(prev + e.key, config))
         return
       }
 
@@ -1134,7 +1125,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         if (display === "") {
           setApplied((prev) => prev.slice(0, -1))
         } else {
-          setDisplay((prev) => formatDisplayInput(prev.slice(0, -1)))
+          setDisplay((prev) => formatDisplayInput(prev.slice(0, -1), config))
         }
         return
       }
@@ -1153,11 +1144,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     window.addEventListener("keydown", handleGlobalKey)
     return () => window.removeEventListener("keydown", handleGlobalKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, phase, display, paymentMethods])
+  }, [open, phase, display, paymentMethods, config])
 
   // ── Input del visor ───────────────────────────────────────────────────────
   function handleDisplayChange(raw: string) {
-    setDisplay(formatDisplayInput(raw))
+    setDisplay(formatDisplayInput(raw, config))
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
