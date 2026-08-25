@@ -152,6 +152,32 @@ INSERT INTO "addon_group_option" (optionid, groupid, itemid, pricedelta, isdefau
     ('9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7c', '9b2e6a1c-4f3d-4a5b-8c6d-1e2f3a4b5c7b', '61230b1e-90e8-4018-ac59-865ca957b293', 2000, TRUE, FALSE, 1, 0)
 ON CONFLICT (optionid) DO UPDATE SET pricedelta = EXCLUDED.pricedelta;
 
+-- Add-on que DESCUENTA STOCK (verify_addon_stock.php). Fixtures propias, no
+-- se reusa el par de arriba: aquella opción apunta a un ítem sin control de
+-- inventario y su grupo es obligatorio con maxQty=1, así que no sirve para
+-- probar ni el descuento ni una opción repetida. Acá:
+--
+--   VERIFY-ADDON-STOCK-PARENT (15.000, sin stock propio)
+--     └── grupo OPCIONAL (minSelect=0, maxSelect=2)
+--           └── opción → VERIFY-ADDON-STOCK-OPT (trackeable, maxQty=3, +2.000)
+--
+-- El ítem de la opción es `itemtrackinventory=TRUE` porque el punto del
+-- arnés es justamente ese: que vender el padre con la opción mueva el ledger
+-- de stock de la OPCIÓN. Un ítem propio (y no VERIFY-STOCK-TRACK) para que
+-- los movimientos no se mezclen con los de verify_realtime.php.
+INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid, itemkind) VALUES
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601', 'Verify addon padre con stock', 'VERIFY-ADDON-STOCK-PARENT', 15000, 'product', 1, TRUE, FALSE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto'),
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f602', 'Verify addon opción trackeable', 'VERIFY-ADDON-STOCK-OPT', 2000, 'product', 1, TRUE, TRUE, '3cf780bb-51d6-4b41-b52d-1e77bfb60969', '{}'::jsonb, '0ea6c5d8-57e5-4226-8140-ec914deec024', 'producto')
+ON CONFLICT (itemid) DO UPDATE SET itemtrackinventory = EXCLUDED.itemtrackinventory, itemprice = EXCLUDED.itemprice;
+
+INSERT INTO "addon_group" (groupid, companyid, itemid, "name", minselect, maxselect, "sort", "status") VALUES
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f603', '0ea6c5d8-57e5-4226-8140-ec914deec024', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f601', 'Extras (opcional)', 0, 2, 0, TRUE)
+ON CONFLICT (groupid) DO UPDATE SET minselect = EXCLUDED.minselect, maxselect = EXCLUDED.maxselect;
+
+INSERT INTO "addon_group_option" (optionid, groupid, itemid, pricedelta, isdefault, islocked, maxqty, "sort") VALUES
+    ('c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f604', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f603', 'c1a2b3c4-d5e6-4f70-8a91-b2c3d4e5f602', 2000, FALSE, FALSE, 3, 0)
+ON CONFLICT (optionid) DO UPDATE SET pricedelta = EXCLUDED.pricedelta, maxqty = EXCLUDED.maxqty;
+
 -- Producción directa (verify_production_cogs.php, fix 2026-08-19): un
 -- insumo trackeable (su costo real lo pone el script vía manageStock(), acá
 -- solo se seedea el item) y un ítem de producción directa (itemtrackinventory

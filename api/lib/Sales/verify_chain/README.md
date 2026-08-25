@@ -49,6 +49,12 @@ seteados y no toca Docker.
   del comprobante`) y cuyos montos por tasa coincidan con el desglose
   `toTaxObj` ya verificado en el paso 3 (`verifyRg90()` en
   `run_sale_chain.php`).
+- Add-ons (context/41, `verify_addon_stock.php`): una venta con `selections`
+  persiste la línea hija con `itemSoldParent`, **descuenta el stock de la
+  opción** (optQty × unidades del padre), reparte el recargo sin duplicarlo
+  (padre + hija = lo que cobró la caja) y deja el detalle con `type='addon'`
+  para que el ticket la indente. El recargo sale de `addon_group_option`: un
+  `priceDelta` inventado en el payload se ignora.
 - Aislamiento multi-tenant: una línea que referencia el `itemId` real de
   OTRO tenant no puede heredar su tasa/precio.
 - Realtime (context/15-realtime-sync-plan.md, `verify_realtime.php`): N

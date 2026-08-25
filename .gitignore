@@ -37,3 +37,6 @@ postgres_data/
 # Claude preview launch config (local, per-machine)
 **/.claude/launch.json
 api/core/error_log
+# El arnés verify_chain corre PHP con el repo como cwd: los warnings del
+# runtime (ej. MailgunClient ausente) caen en un error_log en la raíz.
+/error_log

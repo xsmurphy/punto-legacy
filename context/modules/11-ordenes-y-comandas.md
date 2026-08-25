@@ -54,23 +54,39 @@ opcionalmente, termina convergiendo en una venta.
      — a diferencia del ticket fiscal (D3), la comanda lista TODAS, cobren o
      no (comentario `print-comandas.ts:50-56`).
 
-   **Lo que SIGUE roto** (gap más angosto que antes, no cerrado del todo):
-   cuando esa orden se COBRA — `loadFromOrder`/`loadFromSession`
-   (`frontend/lib/cart/store.ts:1184-1199, 1280-1284`) reconstruyen el
-   carrito EXCLUYENDO las líneas hijas y sin re-hidratar `selections` en la
-   línea padre. Consecuencia, con evidencia textual del propio comentario del
-   store: *"hoy la venta suma el recargo DOS VECES en su detalle... mientras
-   esa asimetría siga en pie, re-hidratar acá metería ese doble conteo en el
-   cobro de mesas"*. Efecto real: la venta resultante cobra el monto correcto
-   (el delta ya estaba en `unitPrice` desde que se creó la orden) pero
-   **`expandAddonSelections` nunca corre para esa venta** — no hay línea hija
-   de `itemSold`, no se descuenta el stock específico de la opción elegida
+   **El paso de COBRO quedó cerrado en dos tandas** (2026-08-23 y
+   2026-08-25). Hasta la primera, los loaders del carrito reconstruían la
+   orden excluyendo las hijas y SIN re-hidratar `selections` en el padre: la
+   venta cobraba el monto correcto (el delta ya estaba en `unitPrice` desde
+   que se creó la orden) pero **`expandAddonSelections` nunca corría** — sin
+   línea hija de `itemSold`, sin descuento del stock de la opción elegida
    (`OrderCoreService::create()` no toca stock — ninguna orden lo hace, es
-   consecuencia de la regla 1), y el ticket fiscal de esa venta no puede
-   indentar el add-on porque el dato ya no llega. Plata correcta,
-   inventario/trazabilidad rotos — mismo diagnóstico que
-   `02-combos-y-addons.md` ya tenía, pero ahora el gap es SOLO en el paso de
-   cobro, no en toda la cadena orden→comanda.
+   consecuencia de la regla 1) y sin el dato para indentar el add-on en el
+   ticket. Plata correcta, inventario y trazabilidad rotos.
+
+   `rebuildSelectionsFromOrder` (`frontend/lib/cart/store.ts`) es el puente:
+   despeja el precio base del padre con el `priceDelta` CONGELADO en la orden
+   y devuelve las selecciones re-cotizadas contra el catálogo vigente. La
+   primera tanda la cableó solo en `loadFromOrder`, así que cobrar una MESA
+   siguió regalando el add-on del inventario dos días más. La segunda extrajo
+   `cartLinesFromOrderItems` —una sola definición de "cómo una orden vuelve al
+   carrito", compartida por `loadFromOrder` y `loadFromSession`— y sumó el
+   split por ítems (`buildItemsLines`, `lib/spaces/settlement-lines.ts`), que
+   ancla el precio al PERSISTIDO porque el pago del ledger se calcula desde
+   ahí. **Lo que sigue sin descontar stock: el split por `amount`/`share`** —
+   decisión explícita, con las tres razones en el docblock de
+   `buildProportionalLines` (qty fraccionada vs. `CartLineAddon.qty` entero,
+   recargo que no se prorratea, y N parciales que descontarían N veces). Se
+   cierra con la misma solución de raíz que el hueco del ítem prorrateado en
+   general, no con una reconstrucción a medias.
+
+   Verificado de punta a punta, sin mocks: la mitad de front en
+   `frontend/lib/cart/__tests__/addon-rebuild-paths.test.ts` (los tres
+   caminos, la qty por unidad del padre, los fail-safes) y la mitad de back en
+   `api/lib/Sales/verify_chain/verify_addon_stock.php` (venta real: hija de
+   `itemSold`, ledger de stock movido por optQty × unidades del padre, recargo
+   repartido sin duplicar, detalle con `type='addon'` para que el ticket
+   indente).
 4. **Secundario — la orden "espejo" de `ordenEnVenta` tampoco manda
    `selections`.** `handleOrdenar()` (botón manual "Ordenar" post-venta)
    arma los ítems de la orden espejo desde `orderDraft.lines` sin incluir

@@ -237,6 +237,12 @@ export function buildItemsLines(
 
     const cat = catalogItems.find((ci) => ci.id === source.itemId)
     const rebuilt = rebuildSelectionsFromOrder(source.orderItem, source.children, cat)
+    // De lo que devuelve `rebuilt` se usan SOLO las selecciones: su
+    // `basePrice` está despejado con el recargo CONGELADO (sirve para
+    // re-cotizar, que es lo que hace el cobro de la orden/mesa) y acá el
+    // anclaje es el opuesto — el precio persistido manda, ver el docblock.
+    // Cablear `rebuilt.basePrice` acá rompería en silencio el amarre con el
+    // ledger.
     const selections = rebuilt?.selections
     const basePrice = source.price - addonsDelta(selections)
 
