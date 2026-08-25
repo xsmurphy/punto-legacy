@@ -12,6 +12,7 @@
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/RegisterService.php';
 require_once __DIR__ . '/../lib/services/RegisterAdminService.php';
+require_once __DIR__ . '/../lib/services/ShiftCloseGate.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\RegisterService;
 use Punto\Api\Services\RegisterAdminService;
@@ -240,6 +241,18 @@ if ($method === 'GET' && $resource === 'config') {
         false
     );
     $clean['blindControl'] = ($blindRow['blindcontrol'] ?? 'false') === 'true';
+    // Gate de cierre de turno (owner 2026-08-25). MISMO tratamiento que
+    // blindControl —después del intersect, fuera de POS_CONFIG_DEFAULTS— por
+    // el mismo motivo: es una decisión del COMERCIO, no un ajuste del
+    // mostrador, y el PUT del device no puede poder tocarla. La diferencia es
+    // dónde vive: `blindControl` es por caja (`register.data`), esto es por
+    // comercio (`company.config`), que es como lo pidió el owner.
+    //
+    // Baja al POS por acá y no por el bootstrap para que la caché offline de
+    // la config (`local-register-state.ts`) lo tenga sin red: sin conexión el
+    // POS no puede consultar qué hay abierto, pero SÍ tiene que saber si la
+    // regla está prendida para avisarle al cajero antes de encolar el cierre.
+    $clean['requireClosedOrders'] = \Punto\Api\Services\ShiftCloseGate::isEnabled($companyId);
     apiOk(['config' => $clean]);
 }
 

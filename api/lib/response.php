@@ -3,9 +3,16 @@
  * Envelope canónico de las respuestas de la API de /app (mismo contrato que el panel).
  *
  *   éxito → { "ok": true,  "data": <mixed> }
- *   error → { "ok": false, "error": { "message", "code" } }
+ *   error → { "ok": false, "error": { "message", "code", "details"? } }
  *
  * Ambas funciones terminan la ejecución (never). Ver context/02-arquitectura.md.
+ *
+ * `details` es OPCIONAL y solo aparece cuando el error tiene estructura que el
+ * cliente necesita pintar (no un texto). Primer caso: el gate de cierre de
+ * turno (`ShiftCloseGate`) manda la lista de órdenes y espacios abiertos, para
+ * que el POS diga QUÉ falta cerrar en vez de repetir un mensaje. Va en el
+ * wrapper compartido y no inline en el endpoint a propósito: el segundo error
+ * estructurado que aparezca no tiene que reinventar el envelope.
  */
 
 function apiOk($data, int $code = 200): never
@@ -16,11 +23,15 @@ function apiOk($data, int $code = 200): never
     exit;
 }
 
-function apiError(string $message, int $code = 400): never
+function apiError(string $message, int $code = 400, ?array $details = null): never
 {
     http_response_code($code);
     header('Content-Type: application/json');
-    echo json_encode(['ok' => false, 'error' => ['message' => $message, 'code' => $code]], JSON_UNESCAPED_UNICODE);
+    $error = ['message' => $message, 'code' => $code];
+    if ($details !== null) {
+        $error['details'] = $details;
+    }
+    echo json_encode(['ok' => false, 'error' => $error], JSON_UNESCAPED_UNICODE);
     exit;
 }
 

@@ -4,6 +4,7 @@
  *
  *   GET ?resource=check       → { isOpen: bool }  — ¿cajón abierto?
  *   GET ?resource=hourlyStats → { timezone, shift[], today[], yesterday[] } — ventas por hora
+ *   GET ?resource=blockers    → { enabled, total, orders[], spaces[] } — qué impide cerrar
  *   GET                       → resumen completo — list, date, subtotal, total, tips, returns
  *
  * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7).
@@ -11,8 +12,12 @@
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/DrawerService.php';
+require_once __DIR__ . '/../lib/services/ShiftCloseBlockedException.php';
+require_once __DIR__ . '/../lib/services/ShiftCloseGate.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\DrawerService;
+use Punto\Api\Services\ShiftCloseBlockedException;
+use Punto\Api\Services\ShiftCloseGate;
 use Punto\Api\Support\TenantClock;
 
 $ctx        = apiAuthTenant(['panel', 'pos-app']);
@@ -159,6 +164,23 @@ if ($method === 'GET') {
     apiOk($data);
 }
 
+// GET ?resource=blockers = qué impide cerrar el turno (órdenes y espacios
+// abiertos de la SUCURSAL) + si el comercio prendió la regla.
+//
+// Es el MISMO `ShiftCloseGate::blockers()` que valida el POST. Deliberado: el
+// POS deshabilita el botón "Cerrar caja" con esta respuesta, y si la lista que
+// se muestra antes de tocar el botón saliera de otra consulta que la que
+// rechaza el cierre, el cajero podría ver "todo listo" y comerse un 422.
+//
+// `enabled` viaja siempre para que el POS distinga "no hay nada abierto" de
+// "esta regla no aplica en este comercio": son dos botones habilitados por
+// motivos distintos y el segundo no tiene que mostrar ningún aviso.
+if ($method === 'GET' && $resource === 'blockers') {
+    $payload = ShiftCloseGate::blockers($companyId, $outletId);
+    $payload['enabled'] = ShiftCloseGate::isEnabled($companyId);
+    apiOk($payload);
+}
+
 // --- POST: mutaciones de caja (abrir, cerrar, extracción, ingreso) ----------
 // Body JSON: { action: "open"|"close"|"expense"|"income", amount, date, note?, user? }
 // Portado de app/action.php handlers: openCloseDrawer, expense, drwrIncome.
@@ -239,6 +261,38 @@ if ($method === 'POST') {
     // arqueo no puede impedir que la caja cierre.
     $closingTotals = null;
     if ($action === 'close') {
+        // ── Gate: no se cierra el turno con órdenes o espacios abiertos ────
+        // Opcional por comercio (`settingDrawerRequireClosedOrders`, apagado
+        // por default). El front ya deshabilita el botón con GET
+        // ?resource=blockers; esto es la regla de verdad — un POS con la
+        // config vieja, o un curl al endpoint, chocan igual.
+        //
+        // SOLO si hay un turno abierto de verdad, y ese `isOpen` es la pieza
+        // que evita el limbo del cierre encolado. Un cierre que se hizo sin
+        // red y sincroniza al otro día ya se aplicó (o se aplica por el camino
+        // idempotente `'Already Closed'` de DrawerService::close). Si el gate
+        // corriera igual, órdenes abiertas DESPUÉS de que ese turno terminó
+        // rechazarían para siempre una operación que ya no tiene nada que
+        // validar — y el canal `drawer` es FIFO, así que ese rechazo también
+        // congelaría la apertura del turno siguiente. Con la guarda, el
+        // reenvío pasa derecho y la caja del día siguiente abre.
+        //
+        // Cuando el turno SÍ sigue abierto el rechazo es correcto y tiene
+        // salida: lo que bloquea son órdenes y espacios de la MISMA sucursal,
+        // visibles y cerrables desde ese mismo POS, y la operación queda en
+        // Pendientes para reintentar (o descartar). Nunca es un callejón.
+        if ($svc->isOpen($registerId, $outletId, $companyId)) {
+            try {
+                ShiftCloseGate::assertCanClose($companyId, $outletId);
+            } catch (ShiftCloseBlockedException $e) {
+                // 422 y no 500: es una regla de negocio, y el POS necesita el
+                // detalle para listar QUÉ falta. El catch va ACÁ y no abajo
+                // porque el `catch (\RuntimeException)` del try grande mapea a
+                // 500 — correcto para lo que se lanza ahí (errores de DB de
+                // DrawerService), inservible para esto.
+                apiError($e->getMessage(), 422, $e->blockers());
+            }
+        }
         try {
             $closingTotals = $svc->getClosingTotals($registerId, $outletId, $companyId);
         } catch (\Throwable $e) {
