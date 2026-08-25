@@ -36,11 +36,27 @@ type ScreenState =
   | { kind: "qr"; qr: QrPayload }
   | { kind: "idle" }
 
+/**
+ * Contexto de la pantalla del cliente, servido por
+ * `GET /v1/screens?resource=context`.
+ *
+ * Los campos de locale (`currency`/`decimal`/`thousand`/`country`) usan los
+ * MISMOS nombres que `/v1/bootstrap`, así que el tipo encaja directo en los
+ * resolvers de `lib/tenant-locale.ts` sin traducir nada. Son opcionales
+ * porque la pantalla pinta el carrito apenas llega el primer `cart-update`,
+ * que puede ganarle al fetch del contexto: mientras tanto los resolvers caen
+ * a su cadena de fallbacks en vez de romper.
+ */
 export interface ScreenContext {
   companyName: string
   logoUrl: string
   registerName: string
   outletName: string
+  currency?: string
+  decimal?: string
+  thousand?: "comma" | "dot"
+  country?: string
+  timezone?: string
 }
 
 export default function CheckoutPage() {
@@ -295,7 +311,7 @@ export default function CheckoutPage() {
       </button>
       {state.kind === "live" && <LiveView cart={state.cart} ctx={screenCtx} />}
       {state.kind === "qr" && <QrView qr={state.qr} ctx={screenCtx} />}
-      {state.kind === "confirmed" && <ConfirmedView total={state.total} change={state.change} />}
+      {state.kind === "confirmed" && <ConfirmedView total={state.total} change={state.change} ctx={screenCtx} />}
       {state.kind === "idle" && <IdleView ctx={screenCtx} />}
     </div>
   )

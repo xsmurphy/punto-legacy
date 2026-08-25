@@ -16,10 +16,11 @@ import {
 import { AdminRoleGate } from "@/components/admin/admin-role-gate"
 
 import { useAdminSystemStatus } from "@/hooks/use-admin"
+import { formatPuntoSaasDateTime, formatPuntoSaasNumber } from "@/lib/punto-saas-locale"
 
 function niceDateTime(v: string | null): string {
   if (!v) return "—"
-  return new Date(v).toLocaleString("es-PY", { dateStyle: "medium", timeStyle: "short" })
+  return formatPuntoSaasDateTime(v, { dateStyle: "medium", timeStyle: "short" })
 }
 
 function AdminSystemPageContent() {
@@ -62,16 +63,16 @@ function AdminSystemPageContent() {
             <CardContent className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Tenants</span>
-                <span className="tabular-nums font-medium">{data.counts.tenants.toLocaleString("es-PY")}</span>
+                <span className="tabular-nums font-medium">{formatPuntoSaasNumber(data.counts.tenants)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Usuarios</span>
-                <span className="tabular-nums font-medium">{data.counts.users.toLocaleString("es-PY")}</span>
+                <span className="tabular-nums font-medium">{formatPuntoSaasNumber(data.counts.users)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Transacciones hoy</span>
                 <span className="tabular-nums font-medium">
-                  {data.counts.transactionsToday.toLocaleString("es-PY")}
+                  {formatPuntoSaasNumber(data.counts.transactionsToday)}
                 </span>
               </div>
             </CardContent>

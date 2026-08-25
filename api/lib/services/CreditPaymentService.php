@@ -321,9 +321,11 @@ final class CreditPaymentService
         if (round($amount, 4) > round($totalDebt, 4) + 0.001) {
             $db->FailTrans();
             $db->CompleteTrans();
+            // Mismo criterio que ReconciliationService: los separadores salen
+            // de la config del comercio, no del default en-US de number_format.
             apiError(
-                'El monto (' . number_format($amount, 2) . ') supera la deuda total del contacto (' .
-                number_format($totalDebt, 2) . ')',
+                'El monto (' . \Punto\App\Domain\Money::formatNumber($amount) . ') supera la deuda total del contacto (' .
+                \Punto\App\Domain\Money::formatNumber($totalDebt) . ')',
                 422
             );
         }

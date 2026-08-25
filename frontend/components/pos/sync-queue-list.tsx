@@ -52,6 +52,7 @@ import { sendPendingOp } from '@/lib/pos/pending-ops-transport'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
 import { posApi as api } from '@/lib/api/pos-client'
 import { formatMoney } from '@/lib/format-money'
+import { resolveDateLocale } from '@/lib/tenant-locale'
 import { useCatalogStore } from '@/lib/catalog/store'
 import { useTenancyStore } from '@/lib/pos/tenancy-store'
 
@@ -268,7 +269,7 @@ export function SyncQueueList() {
   const hasFailed = rows.some((r) => r.status === 'failed')
 
   function formatDate(iso: string) {
-    return new Date(iso).toLocaleString('es-PY', {
+    return new Date(iso).toLocaleString(resolveDateLocale(config), {
       hour: '2-digit',
       minute: '2-digit',
       day: '2-digit',

@@ -8,7 +8,22 @@ import { countryFlagEmoji } from "@/lib/country-flag"
  * se agrega cuando aparezca un cliente que lo pida — `libphonenumber-js`
  * soporta los 240 países, solo no le damos UI hasta que haga falta.
  *
- * Default = PY (Paraguay).
+ * País de arranque del selector de teléfono cuando NO se conoce el del
+ * tenant.
+ *
+ * Es el único default de país que sobrevive en el frontend, y es deliberado:
+ * un `<PhoneInput>` necesita SIEMPRE un país seleccionado para poder parsear
+ * lo que se tipea (libphonenumber no puede interpretar "0981 234 567" sin
+ * saber de dónde es), así que acá no existe la opción "ninguno" que sí usan
+ * los demás resolvers.
+ *
+ * La regla es: quien tenga el bootstrap a mano NO debe usar esta constante,
+ * sino `resolvePhoneCountry(config)` (lib/tenant-locale.ts), que devuelve el
+ * país del tenant. Esta constante es el último recurso para los formularios
+ * que se montan sin bootstrap disponible (login y signup, donde todavía no
+ * hay tenant). Sigue siendo PY porque es el mercado donde vive el 100% de
+ * los tenants que se dan de alta hoy, y en esos dos formularios el usuario
+ * puede cambiarlo con el selector antes de escribir.
  */
 export const DEFAULT_COUNTRY: CountryCode = "PY"
 

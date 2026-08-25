@@ -18,6 +18,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useOutlets } from "@/hooks/use-outlets"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale } from "@/lib/tenant-locale"
 import type { OutletListItem } from "@/lib/types/outlet"
 import { formatPhone } from "@/lib/phone"
 import { EmptyState } from "@/components/empty-state"
@@ -26,6 +28,7 @@ import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 export default function OutletsPage() {
   const router = useRouter()
   const { data, isLoading, error } = useOutlets()
+  const { data: bootstrap } = useBootstrap()
   const [statusFilter, setStatusFilter] = React.useState<"all" | "active" | "inactive">("all")
 
   // Filtrado custom por estado (lo aplicamos antes de pasar a DataTable).
@@ -131,12 +134,12 @@ export default function OutletsPage() {
         enableSorting: true,
         cell: ({ getValue }) => {
           const v = getValue() as string | null | undefined
-          return v ? new Intl.DateTimeFormat("es-PY", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(v)) : <span className="opacity-40">—</span>
+          return v ? new Intl.DateTimeFormat(resolveDateLocale(bootstrap), { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(v)) : <span className="opacity-40">—</span>
         },
         meta: { label: "Fecha", className: "tabular-nums whitespace-nowrap" },
       },
     ],
-    [],
+    [bootstrap],
   )
 
   const initialColumnVisibility = React.useMemo(

@@ -20,8 +20,10 @@ namespace Punto\Api\Contacts;
  *      cuenta de facturación electrónica conectada. Es la autoritativa: es el
  *      padrón que ve el propio emisor, así que si difiere del público, gana
  *      esta — es la que va a validar SIFEN al emitir.
- *   2. **Padrón público** (`TAXPAYER_LOOKUP_URL`, por default turuc.com.py) para
- *      todo comercio sin FE conectada, o cuando Factomate no encuentra el RUC.
+ *   2. **Padrón público** (`TAXPAYER_LOOKUP_URL`) para todo comercio sin FE
+ *      conectada, o cuando Factomate no encuentra el RUC. Solo se consulta si
+ *      el comercio es del MISMO país que ese padrón — un padrón nacional no
+ *      sabe nada de los contribuyentes de otro país.
  *
  * Nunca lanza por un fallo de la fuente: un padrón caído no puede impedir dar
  * de alta un cliente a mano. Devuelve `null` = "no se encontró", y el caller
@@ -47,7 +49,7 @@ final class TaxpayerLookupService
             return $fromProvider;
         }
 
-        return $this->fromPublicRegistry($ruc);
+        return $this->fromPublicRegistry($companyId, $ruc);
     }
 
     /**
@@ -100,10 +102,22 @@ final class TaxpayerLookupService
      *
      * @return array{ruc:string,name:string,status:?string,source:string}|null
      */
-    private function fromPublicRegistry(string $ruc): ?array
+    private function fromPublicRegistry(string $companyId, string $ruc): ?array
     {
-        $baseUrl = defined('TAXPAYER_LOOKUP_URL') ? (string) TAXPAYER_LOOKUP_URL : '';
+        $baseUrl = defined('TAXPAYER_LOOKUP_URL') ? trim((string) TAXPAYER_LOOKUP_URL) : '';
         if ($baseUrl === '') {
+            return null;
+        }
+
+        // Gate por país, mismo criterio que TinService con Marangatu: el padrón
+        // configurado es el de UN país y solo sirve para los contribuyentes de
+        // ese país. Sin este gate, el RUC de un comercio chileno o argentino se
+        // mandaba igual al padrón paraguayo (que era además el default cableado
+        // en simple.config.php) — consulta inútil y una fuga del identificador
+        // tributario de un cliente hacia un servicio de otro país.
+        $registryCountry = defined('TAXPAYER_LOOKUP_COUNTRY') ? (string) TAXPAYER_LOOKUP_COUNTRY : '';
+        $tenantCountry   = \Punto\Api\Support\TenantLocale::country($companyId);
+        if ($registryCountry === '' || $tenantCountry === null || $tenantCountry !== $registryCountry) {
             return null;
         }
 

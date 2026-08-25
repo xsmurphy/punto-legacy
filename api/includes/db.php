@@ -72,7 +72,31 @@ if (!$connected) {
 }
 
 // Configuración de sesión PostgreSQL
-$db->Execute("SET TIME ZONE 'America/Asuncion'");
+//
+// TZ: acá TODAVÍA NO SE SABE de qué tenant es la request — este archivo lo
+// carga `head.php` al abrir la conexión, y el tenant recién se resuelve más
+// tarde en `bootstrap.php` → `data.php`. Cablear 'America/Asuncion' ponía a
+// TODOS los comercios, de cualquier país, a leer sus `timestamptz` con el
+// huso de Asunción: fechas de venta corridas hasta un día entero para un
+// tenant fuera de Paraguay, sin ningún error visible.
+//
+// Lo que se setea acá es el baseline de la PLATAFORMA, no el de nadie en
+// particular: sale de env `APP_TIMEZONE` y sin definir es UTC (neutral y
+// explícito — no simula ser la hora local de ningún comercio). Alcanza a lo
+// que corre SIN tenant: realm /admin, login, signup, crons.
+//
+// La TZ REAL del comercio la aplica `TenantClock::apply()` desde `data.php`,
+// sobre esta misma conexión, apenas se sabe quién opera. Todo request de
+// tenant pasa por ahí (apiAuthTenant), así que ningún camino de negocio
+// queda con el baseline.
+//
+// Se valida contra la lista IANA de PHP porque PG no admite parámetros en
+// `SET` y el valor termina interpolado en el SQL.
+$__platformTz = trim((string) ($_ENV['APP_TIMEZONE'] ?? ''));
+if ($__platformTz === '' || !in_array($__platformTz, timezone_identifiers_list(), true)) {
+    $__platformTz = 'UTC';
+}
+$db->Execute("SET TIME ZONE '" . $__platformTz . "'");
 $db->Execute("SET client_encoding = 'UTF8'");
 
 // Helper legacy — con PDO y queries parametrizadas no necesita sanitizar.

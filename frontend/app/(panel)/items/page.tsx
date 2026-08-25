@@ -47,6 +47,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale } from "@/lib/tenant-locale"
 import {
   useArchiveItem,
   useDeleteItem,
@@ -476,7 +477,7 @@ function ItemsPageInner() {
         enableSorting: true,
         cell: ({ row }) => {
           const v = row.original.itemDate
-          return v ? new Intl.DateTimeFormat("es-PY", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(v)) : <span className="opacity-40">—</span>
+          return v ? new Intl.DateTimeFormat(resolveDateLocale(bootstrap), { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(v)) : <span className="opacity-40">—</span>
         },
         meta: { label: "Fecha", className: "tabular-nums whitespace-nowrap" },
       },

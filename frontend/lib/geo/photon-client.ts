@@ -117,13 +117,16 @@ async function fetchPhoton(url: string): Promise<PhotonFeatureCollection> {
 
 export async function photonAutocomplete(
   query: string,
-  countryCode: string,
+  // `null` = no se conoce el país del tenant → búsqueda SIN sesgo geográfico.
+  // Antes el caller mandaba "PY" en ese caso y le proponía calles de Asunción
+  // a cualquier comercio del mundo.
+  countryCode: string | null,
 ): Promise<GeoSuggestion[]> {
-  const key = normalizeQueryKey(query, countryCode)
+  const key = normalizeQueryKey(query, countryCode ?? "")
   const cached = geoAutocompleteCache.get(key) as GeoSuggestion[] | undefined
   if (cached) return cached
 
-  const bias = COUNTRY_BIAS[countryCode.toUpperCase()]
+  const bias = countryCode ? COUNTRY_BIAS[countryCode.toUpperCase()] : undefined
   // Sin `lang`: Photon solo soporta default/de/en/fr — "es" no existe y la
   // API devuelve un objeto de error sin `features` (verificado 2026-07-29 en
   // vivo). El default de Photon ya devuelve los nombres tal cual están en
@@ -138,7 +141,13 @@ export async function photonAutocomplete(
   let suggestions = data.features.map(normalizeFeature).filter((s): s is GeoSuggestion => s !== null)
 
   // Reordenar (no filtrar) para que los resultados del país buscado salgan
-  // primero — best-effort, Photon no da un filtro estricto por país.
+  // primero — best-effort, Photon no da un filtro estricto por país. Sin país
+  // conocido no hay nada que priorizar: se devuelve el orden de relevancia
+  // que ya trae Photon.
+  if (!countryCode) {
+    geoAutocompleteCache.set(key, suggestions)
+    return suggestions
+  }
   const cc = countryCode.toUpperCase()
   const withCountry = data.features
     .map((f, i) => ({ f, s: suggestions[i] }))

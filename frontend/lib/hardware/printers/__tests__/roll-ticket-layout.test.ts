@@ -61,6 +61,13 @@ describe("rollo 80mm — ticket típico", () => {
     transactionId: "tx-1",
     date: "24/08/2026",
     documentNumber: "001-001-0000123",
+    // País del tenant declarado explícitamente. Antes el fixture no traía ni
+    // moneda ni país y el ticket igual salía en "Gs", porque ese era el
+    // default escondido de `formatMoney` — o sea, el test verificaba el
+    // default paraguayo sin decirlo. Ahora la etiqueta sale de que ESTE
+    // comercio es paraguayo (`COUNTRY_LOCALE.PY.currency`), que es lo que el
+    // test quiere afirmar; un fixture con `country: "BR"` imprimiría "R$".
+    country: "PY",
     total: 23000,
     items: [
       { name: "Empanada de carne cortada a cuchillo", qty: 2, unitPrice: 8000, total: 16000 },

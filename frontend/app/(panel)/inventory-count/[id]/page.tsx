@@ -52,6 +52,8 @@ import {
   type InventoryCountItem,
 } from "@/hooks/use-inventory-counts"
 import { formatMoney as _formatMoney } from "@/lib/format"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
 function formatMoney(v: number): string {
   return _formatMoney(v, undefined)
@@ -73,9 +75,12 @@ const STATUS_VARIANT: Record<number, "default" | "secondary" | "destructive" | "
   2: "secondary",
 }
 
-function formatDate(iso: string | null | undefined): string {
+function formatDate(
+  iso: string | null | undefined,
+  config: TenantLocaleConfig | null | undefined,
+): string {
   if (!iso) return "—"
-  return new Date(iso).toLocaleString("es-PY", {
+  return new Date(iso).toLocaleString(resolveDateLocale(config), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -173,6 +178,7 @@ export default function InventoryCountDetailPage() {
   const id      = params.id
 
   const { data, isLoading } = useInventoryCount(id)
+  const { data: bootstrap } = useBootstrap()
   const finish  = useFinishInventoryCount()
   const cancel  = useCancelInventoryCount()
 
@@ -307,9 +313,9 @@ export default function InventoryCountDetailPage() {
             </Badge>
           </div>
           <div className="pl-10 text-sm text-muted-foreground space-y-0.5">
-            <p>Iniciado: {formatDate(session.startedAt)} por {session.startedByName ?? session.startedBy}</p>
+            <p>Iniciado: {formatDate(session.startedAt, bootstrap)} por {session.startedByName ?? session.startedBy}</p>
             {session.finishedAt && (
-              <p>Finalizado: {formatDate(session.finishedAt)} por {session.finishedByName ?? session.finishedBy}</p>
+              <p>Finalizado: {formatDate(session.finishedAt, bootstrap)} por {session.finishedByName ?? session.finishedBy}</p>
             )}
             {scopeSummary && <p>Alcance: {scopeSummary}</p>}
             {session.note && <p>Nota: {session.note}</p>}

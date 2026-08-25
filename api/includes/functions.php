@@ -2312,7 +2312,19 @@ function signUp($post,$login = true){
 		$settingRecord['settingCurrency']       = iftn($cSymbol,'$');
 		$settingRecord['settingCountry']        = $post['country'];
 		$settingRecord['settingLanguage']       = iftn($lang[0],'es');
-		$settingRecord['settingTimeZone']       = 'America/Asuncion';
+		// La TZ sale del país elegido, igual que la moneda/IVA/TIN de arriba.
+		// Estaba cableada a Asunción: el alta leía `$post['country']` para todo
+		// lo demás y después le ponía el huso paraguayo a cualquier comercio,
+		// aunque fuera chileno o mexicano. CountryDefaults la deriva del ISO
+		// (catálogo curado y, si no está ahí, la base IANA de PHP).
+		require_once __DIR__ . '/../lib/Support/CountryDefaults.php';
+		$__signupTz = \Punto\Api\Support\CountryDefaults::timezone($post['country'] ?? null);
+		if ($__signupTz === null) {
+			$db->FailTrans();
+			$db->CompleteTrans();
+			return '{"error":"País inválido: no se pudo determinar la zona horaria"}';
+		}
+		$settingRecord['settingTimeZone']       = $__signupTz;
 		$settingRecord['settingAcceptedTerms']  = 1;
 
 		$settingRecord['settingBillTemplate']   	= 'ticket';

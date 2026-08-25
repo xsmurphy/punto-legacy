@@ -99,6 +99,9 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
 
   const kudeUrl = `/api/v1/einvoice-public?resource=kude&t=${encodeURIComponent(token)}`
   const isPending = doc !== null && !doc.kudeAvailable
+  // `""` cuenta como ausente igual que `null` — el backend normaliza los
+  // campos sin valor a string vacío, así que un `??` solo no alcanza.
+  const docCurrency = doc?.currency?.trim() || null
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-xl flex-col gap-6 px-4 py-8">
@@ -154,12 +157,23 @@ export default function FacturaPortalPage({ params }: { params: Promise<{ token:
                     // el monto puede venir en una divisa distinta a la del
                     // comercio. La bandera se lee de un vistazo; el código ISO
                     // sigue escrito al lado, no la reemplaza.
+                    //
+                    // Sin `?? "PYG"`: `doc.currency` es la moneda DEL
+                    // DOCUMENTO, y antes un documento sin moneda se pintaba
+                    // como guaraníes —bandera paraguaya incluida— en el portal
+                    // que abre el cliente final. Inventar la divisa de un
+                    // comprobante es peor que no mostrarla: si no vino, se
+                    // pinta el importe solo, sin bandera ni código.
                     <span className="inline-flex items-center gap-1.5">
-                      <CurrencyFlag code={doc.currency ?? "PYG"} className="text-base leading-none" />
+                      {docCurrency && (
+                        <CurrencyFlag code={docCurrency} className="text-base leading-none" />
+                      )}
                       <span className="tabular-nums">
-                        {formatCurrencyAmount(doc.total, doc.currency ?? "PYG")}
+                        {formatCurrencyAmount(doc.total, docCurrency)}
                       </span>
-                      <span className="text-muted-foreground">{doc.currency ?? "PYG"}</span>
+                      {docCurrency && (
+                        <span className="text-muted-foreground">{docCurrency}</span>
+                      )}
                     </span>
                   ) : (
                     "—"

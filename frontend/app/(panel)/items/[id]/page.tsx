@@ -85,6 +85,7 @@ import { useOutlets } from "@/hooks/use-outlets"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { useFinanceCategories } from "@/hooks/use-finance-categories"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveCurrencyLabel } from "@/lib/tenant-locale"
 import { useTaxes } from "@/hooks/use-taxes"
 import { formatMoney } from "@/lib/format"
 import {
@@ -1243,6 +1244,8 @@ function ConfigTab({
 }) {
   const { data: categories } = useTaxonomiesByType("category")
   const { data: brands } = useTaxonomiesByType("brand")
+  // Para la etiqueta de moneda del selector de tipo de comisión.
+  const { data: bootstrap } = useBootstrap()
   // Migrado a useTaxes (F0 impuestos multi-país, context/38) — `tax` es la
   // fuente única. El shape difiere (rate/kind numéricos en vez de solo
   // name) pero el render solo usa id/name, sin cambios en el JSX.
@@ -1560,7 +1563,10 @@ function ConfigTab({
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="percent">%</SelectItem>
-                        <SelectItem value="fixed">Gs</SelectItem>
+                        {/* Etiqueta de la moneda del tenant: la opción
+                            significa comisión en monto fijo, y el monto está
+                            en la moneda del comercio, no siempre en guaraníes. */}
+                        <SelectItem value="fixed">{resolveCurrencyLabel(bootstrap)}</SelectItem>
                       </SelectContent>
                     </Select>
                   </FormItem>

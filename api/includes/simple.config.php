@@ -162,7 +162,22 @@ define('EINVOICE_DRAIN_SECRET', $_ENV['EINVOICE_DRAIN_SECRET'] ?? '');
 // (GET {url}/{documento sin DV}). Fallback de Contacts\TaxpayerLookupService
 // cuando el comercio no tiene facturación electrónica conectada. Vacía →
 // el lookup solo responde con la fuente del proveedor de FE.
-define('TAXPAYER_LOOKUP_URL', $_ENV['TAXPAYER_LOOKUP_URL'] ?? 'https://turuc.com.py/api/contribuyente');
+//
+// SIN default: el valor que estaba cableado (turuc.com.py) es el padrón
+// PARAGUAYO, y al ser un define global se consultaba para tenants de
+// cualquier país — mandando el documento de un contribuyente extranjero a un
+// servicio de otro país y devolviendo, en el mejor caso, nada. El padrón es
+// específico de cada país: se configura por entorno y el caller lo gatea por
+// el país del tenant (ver TaxpayerLookupService::fromPublicRegistry).
+define('TAXPAYER_LOOKUP_URL', $_ENV['TAXPAYER_LOOKUP_URL'] ?? '');
+// País al que corresponde ese padrón (ISO-2). Si no coincide con el país del
+// comercio, el lookup público no se usa.
+//
+// SIN default, igual que la URL: se configura junto con ella. Vacío hace que
+// el gate de TaxpayerLookupService falle cerrado (no consulta), que es lo
+// correcto — un default 'PY' acá volvería a afirmar que el padrón configurado
+// es el paraguayo sin que nadie lo haya dicho.
+define('TAXPAYER_LOOKUP_COUNTRY', strtoupper(trim((string) ($_ENV['TAXPAYER_LOOKUP_COUNTRY'] ?? ''))));
 
 define('API_PIX_URL',            $_ENV['API_PIX_URL']           ?? '');
 define('API_PIX_CLIENT_ID', 1);

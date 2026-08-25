@@ -11,6 +11,8 @@ import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 
 import { useStockTransfers, type StockTransfer } from "@/hooks/use-stock-transfers"
+import { useBootstrap } from "@/hooks/use-bootstrap"
+import { resolveDateLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
 const STATUS_LABEL: Record<number, string> = {
   0: "Cancelada",
@@ -22,8 +24,8 @@ const STATUS_VARIANT: Record<number, "default" | "secondary" | "destructive" | "
   1: "default",
 }
 
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString("es-PY", {
+function formatDate(iso: string, config: TenantLocaleConfig | null | undefined): string {
+  return new Date(iso).toLocaleString(resolveDateLocale(config), {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -36,7 +38,11 @@ function outletLabel(outletName: string, locationName: string | null): string {
   return locationName ? `${outletName} → ${locationName}` : outletName
 }
 
-const columns: ColumnDef<StockTransfer>[] = [
+// Las columnas se arman con la config del tenant (la fecha se formatea con su
+// locale), así que son función del bootstrap y no una constante de módulo.
+const buildColumns = (
+  config: TenantLocaleConfig | null | undefined,
+): ColumnDef<StockTransfer>[] => [
   {
     id: "docNumber",
     header: "Nº",
@@ -52,7 +58,7 @@ const columns: ColumnDef<StockTransfer>[] = [
   {
     accessorKey: "createdAt",
     header: "Fecha",
-    cell: ({ row }) => formatDate(row.original.createdAt),
+    cell: ({ row }) => formatDate(row.original.createdAt, config),
   },
   {
     id: "from",
@@ -84,7 +90,10 @@ const columns: ColumnDef<StockTransfer>[] = [
 export default function StockTransferPage() {
   const router = useRouter()
   const { data, isLoading } = useStockTransfers()
+  const { data: bootstrap } = useBootstrap()
   const rows = data?.rows ?? []
+
+  const columns = React.useMemo(() => buildColumns(bootstrap), [bootstrap])
 
   return (
     <div className="flex flex-col gap-6">

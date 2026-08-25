@@ -55,6 +55,7 @@ import {
   type AdminAiPackage,
   type AdminAiConsumptionRow,
 } from "@/hooks/use-admin"
+import { formatPuntoSaasMoney, formatPuntoSaasNumber } from "@/lib/punto-saas-locale"
 
 // ── Modelos por capability ───────────────────────────────────────────────────
 
@@ -307,14 +308,14 @@ function AdminAiPageContent() {
     {
       accessorKey: "credits",
       header: "Créditos",
-      cell: ({ row }) => <span className="tabular-nums">{row.original.credits.toLocaleString("es-PY")}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{formatPuntoSaasNumber(row.original.credits)}</span>,
     },
     {
       accessorKey: "price",
       header: "Precio",
       cell: ({ row }) => (
         <span className="tabular-nums">
-          {row.original.price.toLocaleString("es-PY", { style: "currency", currency: "PYG", maximumFractionDigits: 0 })}
+          {formatPuntoSaasMoney(row.original.price)}
         </span>
       ),
     },
@@ -369,7 +370,7 @@ function AdminAiPageContent() {
     {
       accessorKey: "credits",
       header: "Créditos consumidos",
-      cell: ({ row }) => <span className="tabular-nums">{row.original.credits.toLocaleString("es-PY")}</span>,
+      cell: ({ row }) => <span className="tabular-nums">{formatPuntoSaasNumber(row.original.credits)}</span>,
     },
   ]
 

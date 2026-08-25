@@ -38,7 +38,11 @@ if ($raw !== '' && $raw !== false) {
 }
 
 $phone   = trim((string) ($_POST['phone'] ?? ''));
-$country = strtoupper(trim((string) ($_POST['country'] ?? 'PY')));
+// Sin default de país: es el primer paso del alta y el país es justamente lo
+// que el usuario está eligiendo. Asumir 'PY' mandaba el OTP a un +595
+// inventado cuando el número era de otro país. Sin `country`, el teléfono
+// tiene que venir en E.164 o se rechaza.
+$country = strtoupper(trim((string) ($_POST['country'] ?? ''))) ?: null;
 
 if ($phone === '') {
     apiError('phone requerido', 400);

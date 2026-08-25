@@ -38,7 +38,8 @@ import {
   useRetryEinvoiceDocument,
 } from "@/hooks/use-einvoice"
 import { usePermission } from "@/hooks/use-permissions"
-import { formatCurrencyAmount } from "@/lib/format-money"
+import { formatAmount, formatCurrencyAmount } from "@/lib/format-money"
+import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatDateTime } from "@/lib/format-date"
 import type { EInvoiceDocument, EInvoiceDocumentStatus } from "@/lib/types/einvoice"
 import { CurrencyFlag } from "@/components/ui/country-flag"
@@ -94,6 +95,8 @@ function formatCreatedAt(iso: string | null): string {
  */
 export function EInvoiceDocumentsCard() {
   const canManage = usePermission("einvoice.manage")
+  // Formato numérico del tenant para los montos sin divisa registrada.
+  const { data: bootstrap } = useBootstrap()
 
   const [status, setStatus] = React.useState<string>("all")
   const [from, setFrom] = React.useState("")
@@ -185,13 +188,29 @@ export function EInvoiceDocumentsCard() {
           // La columna no decía en qué divisa estaba el monto: dos filas con
           // el mismo número podían ser PYG y USD. La bandera identifica la
           // moneda de un vistazo y el código ISO la desambigua.
+          //
+          // Sin `doc.currency` no se inventa una: antes caía a "PYG", que en un
+          // comercio no paraguayo pintaba bandera de Paraguay sobre un monto en
+          // otra divisa — un error silencioso y peor que no decir nada. Tampoco
+          // sirve la moneda del tenant como reemplazo: `resolveCurrencyLabel`
+          // devuelve el SÍMBOLO ("Gs", "R$"), no el ISO que piden CurrencyFlag y
+          // formatCurrencyAmount, y afirmar que el documento está en la moneda
+          // local es la misma invención con otro nombre. Se muestra el monto con
+          // el formato numérico del tenant y "—" donde iría el código.
+          const code = doc.currency
+          if (!code) {
+            return (
+              <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+                <span className="tabular-nums">{formatAmount(doc.total, bootstrap ?? null)}</span>
+                <span className="font-normal text-muted-foreground">—</span>
+              </span>
+            )
+          }
           return (
             <span className="inline-flex items-center gap-1.5 text-sm font-medium">
-              <CurrencyFlag code={doc.currency ?? "PYG"} className="text-base leading-none" />
-              <span className="tabular-nums">
-                {formatCurrencyAmount(doc.total, doc.currency ?? "PYG")}
-              </span>
-              <span className="font-normal text-muted-foreground">{doc.currency ?? "PYG"}</span>
+              <CurrencyFlag code={code} className="text-base leading-none" />
+              <span className="tabular-nums">{formatCurrencyAmount(doc.total, code)}</span>
+              <span className="font-normal text-muted-foreground">{code}</span>
             </span>
           )
         },
@@ -244,7 +263,7 @@ export function EInvoiceDocumentsCard() {
       },
     ],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [canManage, retry.isPending],
+    [canManage, retry.isPending, bootstrap],
   )
 
   return (

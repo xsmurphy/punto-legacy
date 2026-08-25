@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { formatMoney } from "@/lib/format-money"
+import { resolveDateLocale } from "@/lib/tenant-locale"
 import { posApi as api } from "@/lib/api/pos-client"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 
@@ -173,7 +174,7 @@ export function GiftcardValidationDialog({
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Vence</span>
                   <span className="tabular-nums">
-                    {new Date(giftcard.expiresAt).toLocaleDateString("es-PY")}
+                    {new Date(giftcard.expiresAt).toLocaleDateString(resolveDateLocale(config))}
                   </span>
                 </div>
               )}

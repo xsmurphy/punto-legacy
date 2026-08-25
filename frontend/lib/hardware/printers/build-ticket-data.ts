@@ -130,6 +130,10 @@ export interface TicketData {
   currency?: string | null
   thousand?: "comma" | "dot" | null
   decimal?: string | null
+  // País del tenant (PosConfig.country). No se imprime: es el que le permite a
+  // `resolveCurrencyLabel` caer a la moneda del PAÍS cuando el tenant no
+  // configuró el símbolo, en vez de asumir guaraníes.
+  country?: string | null
   // pagos
   payments: TicketPayment[]
   // nota
@@ -369,6 +373,7 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     currency: config?.currency ?? null,
     thousand: config?.thousand ?? null,
     decimal: config?.decimal ?? null,
+    country: config?.country ?? null,
   }
 }
 
@@ -586,6 +591,7 @@ export function buildTicketDataFromTransaction(
     currency: config?.currency ?? null,
     thousand: config?.thousand ?? null,
     decimal: config?.decimal ?? null,
+    country: config?.country ?? null,
   }
 }
 
@@ -640,10 +646,11 @@ export function buildTicketDataFromTxDetail(
   detail: TicketableTxDetail,
   companyName: string,
   docType: string,
-  /** Moneda del tenant (Bootstrap.currency/thousand/decimal, panel) — mismo
-   *  shape que PosConfig, opcional para no romper callers existentes. `null`
-   *  cae al default de `formatMoney` (ver TicketData.currency arriba). */
-  moneyConfig?: Pick<PosConfig, "currency" | "thousand" | "decimal"> | null,
+  /** Moneda del tenant (Bootstrap.currency/thousand/decimal/country, panel) —
+   *  mismo shape que PosConfig, opcional para no romper callers existentes.
+   *  `null` cae a la cadena de fallbacks de `resolveCurrencyLabel`, que no
+   *  asume Paraguay (ver TicketData.currency/country arriba). */
+  moneyConfig?: Pick<PosConfig, "currency" | "thousand" | "decimal" | "country"> | null,
 ): TicketData {
   const tx = detail.transaction
   const items: TicketItem[] = detail.items.map((i) => ({
@@ -703,6 +710,7 @@ export function buildTicketDataFromTxDetail(
     currency: moneyConfig?.currency ?? null,
     thousand: moneyConfig?.thousand ?? null,
     decimal: moneyConfig?.decimal ?? null,
+    country: moneyConfig?.country ?? null,
   }
 }
 
@@ -881,7 +889,24 @@ export function buildTicketDataFromRemision(
  */
 type DemoTaxSource = Pick<Tax, "id" | "rate" | "kind">
 
-export function buildDemoTicketData(taxes: DemoTaxSource[]): TicketData {
+/**
+ * Datos de demo del editor de plantillas de impresión.
+ *
+ * `config` es la config REAL del tenant (`Bootstrap`/`PosConfig`). Los datos
+ * ficticios del resto del ticket (nombres, RUCs, direcciones) están bien como
+ * están —son relleno para que el editor tenga algo que dibujar—, pero la
+ * MONEDA no es relleno: el comercio está diseñando el ticket que va a
+ * imprimir, y tiene que verlo con su propio símbolo y sus propios
+ * separadores. Antes esto era `currency: "Gs"` fijo, así que un tenant
+ * brasileño diseñaba su factura mirando guaraníes.
+ *
+ * Es opcional para no romper a los callers que no tienen bootstrap a mano; en
+ * ese caso los resolvers caen a su cadena de fallbacks, que no asume Paraguay.
+ */
+export function buildDemoTicketData(
+  taxes: DemoTaxSource[],
+  config?: Pick<PosConfig, "currency" | "thousand" | "decimal" | "country"> | null,
+): TicketData {
   // Las dos tasas "rate" (no exentas) más altas del tenant — típicamente IVA
   // 10%/5% en Paraguay (TaxService siembra estas por defecto en el signup,
   // context/38 §A). Con una sola tasa cargada, ambos ítems de demo caen en
@@ -984,9 +1009,10 @@ export function buildDemoTicketData(taxes: DemoTaxSource[]): TicketData {
     discount: 0,
     taxTotal,
     total,
-    currency: "Gs",
-    thousand: "dot",
-    decimal: "no",
+    currency: config?.currency ?? null,
+    thousand: config?.thousand ?? null,
+    decimal: config?.decimal ?? null,
+    country: config?.country ?? null,
     payments: [{ method: "Efectivo", amount: total }],
     note: "Gracias por su compra",
     orderDestination: "Mesa 3",

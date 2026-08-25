@@ -75,6 +75,11 @@ function ticket(over: Partial<TicketData> = {}): TicketData {
     companyName: "Almacén Central",
     transactionId: "tx-1",
     date: "24/08/2026",
+    // Tenant paraguayo declarado. Estos tests miden ALINEACIÓN (columnas y
+    // bytes de padding), así que el ancho de la etiqueta de moneda importa:
+    // sin país ni moneda la etiqueta sería el signo genérico y las columnas
+    // se correrían. Antes salía "Gs" por el default escondido de formatMoney.
+    country: "PY",
     total: 23000,
     items: [],
     payments: [],

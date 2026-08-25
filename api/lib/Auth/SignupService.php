@@ -58,7 +58,10 @@ final class SignupService
         } else {
             $isEmail = false;
             // CONVENCIÓN §31: phone storage SIEMPRE E.164 vía libphonenumber.
-            $isoCountry = strtoupper((string) ($post['country'] ?? 'PY'));
+            // Sin default 'PY': el país lo eligió el usuario en el alta. Si no
+            // vino (cliente viejo/roto), el número tiene que estar en E.164 —
+            // no lo interpretamos como paraguayo por descarte.
+            $isoCountry = strtoupper(trim((string) ($post['country'] ?? ''))) ?: null;
             $normalized = phoneToE164($email, $isoCountry);
             if ($normalized === null) {
                 return ['ok' => false, 'error' => 'Número de teléfono inválido'];
@@ -143,15 +146,40 @@ final class SignupService
         }
 
         // Settings derivados del país del usuario.
-        $countryCode = strtoupper((string) ($post['country'] ?? 'PY'));
-        $countryData = $countries[$countryCode] ?? $countries['PY'] ?? [];
+        //
+        // El país NO tiene default y el catálogo NO cae a Paraguay: antes, un
+        // `country` ausente o desconocido aterrizaba en `$countries['PY']` y el
+        // comercio nacía con guaraníes e IVA paraguayo sin que nada lo delatara.
+        // Estos valores se escriben una sola vez y quedan para siempre, así que
+        // acá se falla en vez de adivinar.
+        $countryCode = strtoupper(trim((string) ($post['country'] ?? '')));
+        $countryData = $countries[$countryCode] ?? null;
+        if (!is_array($countryData)) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            return ['ok' => false, 'error' => 'País inválido o no soportado'];
+        }
+
         $cSymbol     = $countryData['currency']['symbol']         ?? '$';
         $decimals    = (int) ($countryData['currency']['decimal_digits'] ?? 0);
         $lang        = explode(',', (string) ($countryData['languages'] ?? 'es'));
         $decim       = ($decimals < 1) ? 'no' : 'yes';
         $taxName     = $countryData['currency']['vat_name']        ?? 'VAT';
         $tin         = $countryData['tin']                         ?? 'TIN';
-        $timezone    = $countryData['timezone']                    ?? 'America/Asuncion';
+
+        // BUG QUE ESTE FIX CIERRA: `$countries` es el catálogo ancho
+        // (`libraries/countries.php`, 273 países) y NO tiene la clave
+        // `timezone` — solo la tiene el curado de LATAM. O sea que el `??` de
+        // antes NO era un caso de borde: se disparaba SIEMPRE, y TODO tenant
+        // nuevo, de cualquier país, nacía con `settingTimeZone` =
+        // 'America/Asuncion'. CountryDefaults resuelve la TZ de verdad (catálogo
+        // curado y, si el país no está, la base IANA que PHP ya trae).
+        $timezone    = \Punto\Api\Support\CountryDefaults::timezone($countryCode);
+        if ($timezone === null) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            return ['ok' => false, 'error' => 'No se pudo determinar la zona horaria del país elegido'];
+        }
 
         // Slug inicial derivado del nombre — misma normalización/unicidad que
         // Settings > Empresa (Slug::class, mig 113_company_slug_unique.sql).

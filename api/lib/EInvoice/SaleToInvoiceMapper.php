@@ -154,7 +154,17 @@ final class SaleToInvoiceMapper
         // fueran guaraníes, y el documento quedaría fiscalmente mal sin que
         // nada lo delate. Facturar en otra moneda requiere exchangeRate > 0 y
         // itemExchangeRate consistente — no está implementado.
-        $currency = strtoupper((string) ($sale['currency'] ?? 'PYG'));
+        // Sin `?? 'PYG'`: una venta que no declara moneda NO es una venta en
+        // guaraníes, es un dato faltante. Asumirlo acá le ponía "PYG" a algo
+        // desconocido y lo dejaba pasar el guard de abajo como si estuviera
+        // todo bien. Se rechaza explícito y el error dice qué falta.
+        $currency = strtoupper(trim((string) ($sale['currency'] ?? '')));
+        if ($currency === '') {
+            throw new \RuntimeException(
+                'La venta no declara moneda y no se pudo determinar la del comercio. ' .
+                'No se emite para no declarar los montos en una moneda supuesta.'
+            );
+        }
         if ($currency !== 'PYG') {
             throw new \RuntimeException(
                 "La venta está en $currency y la facturación electrónica solo está implementada para guaraníes. " .

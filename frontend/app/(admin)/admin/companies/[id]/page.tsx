@@ -126,6 +126,11 @@ import {
 } from "@/hooks/use-admin"
 import { AdminApiError } from "@/lib/api-admin"
 import { formatPhone } from "@/lib/phone"
+import {
+  formatPuntoSaasDate,
+  formatPuntoSaasDateTime,
+  formatPuntoSaasNumber,
+} from "@/lib/punto-saas-locale"
 import { useAdminContext } from "@/components/admin/admin-auth-guard"
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
@@ -171,12 +176,12 @@ function statusBadge(status: string, blocked: number, suspended: number) {
 
 function fmtDate(v: string | null | undefined): string {
   if (!v) return "—"
-  return new Date(v).toLocaleDateString("es-PY")
+  return formatPuntoSaasDate(v)
 }
 
 function fmtDateTime(v: string | null | undefined): string {
   if (!v) return "—"
-  return new Date(v).toLocaleString("es-PY", {
+  return formatPuntoSaasDateTime(v, {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
@@ -185,9 +190,16 @@ function fmtDateTime(v: string | null | undefined): string {
   })
 }
 
+/**
+ * Agrupa el monto SIN etiquetar moneda, a propósito: las facturas de esta
+ * pantalla traen su `currency` desde el backend (`billing.currency`, que
+ * admite USD además de PYG) y ese código se renderiza al lado del número.
+ * Usar el helper de moneda de Punto acá etiquetaría como guaraníes un monto
+ * que el dato dice que es otra cosa.
+ */
 function fmtMoney(n: number | null | undefined): string {
   if (n == null) return "—"
-  return new Intl.NumberFormat("es-PY", { maximumFractionDigits: 2 }).format(n)
+  return formatPuntoSaasNumber(n, { maximumFractionDigits: 2 })
 }
 
 const INVOICE_STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -1395,7 +1407,7 @@ const DIMENSION_LABELS: Record<string, string> = {
 function fmtWeek(week: string): string {
   if (!week) return "—"
   const d = new Date(week + "T00:00:00")
-  return d.toLocaleDateString("es-PY", { day: "2-digit", month: "2-digit" })
+  return formatPuntoSaasDate(d, { day: "2-digit", month: "2-digit" })
 }
 
 function HealthTab({ id }: { id: string }) {

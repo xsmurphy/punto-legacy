@@ -70,19 +70,11 @@ final class ContactRepository
         return _flattenJsonb($rs->fields);
     }
 
-    /**
-     * Código de país del tenant (`company.config->>'settingCountry'`, ej. 'PY').
-     * '' si la company no existe o no lo configuró. Único lector de este dato
-     * dentro de Contacts — ContactService lo usa para gatear `contactIdType`
-     * (feature exclusiva de Paraguay, ver ContactService::isPyTenant()).
-     */
-    public function companyCountry(string $companyId): string
-    {
-        $sql = "SELECT config->>'settingCountry' AS country FROM company WHERE companyId = ?";
-        $rs  = $this->db->Execute($sql, [$companyId]);
-        if ($rs === false || $rs->EOF) return '';
-        return (string) ($rs->fields['country'] ?? '');
-    }
+    // `companyCountry()` se eliminó: el país del tenant lo resuelve
+    // `Punto\Api\Support\TenantLocale::country()`, que es el lector único de
+    // `company.config` para toda la localización (país, moneda, zona horaria)
+    // y cachea por companyId. Tener la query duplicada acá era el segundo
+    // origen del mismo dato — y el resto del módulo igual asumía 'PY'.
 
     /**
      * INSERT vía ncmInsert (genera UUID v7 + JSONB routing).

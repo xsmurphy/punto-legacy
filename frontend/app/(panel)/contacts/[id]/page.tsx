@@ -67,7 +67,7 @@ import {
 } from "@/hooks/use-contacts"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePriceLists } from "@/hooks/use-price-lists"
-import { DEFAULT_COUNTRY } from "@/lib/countries"
+import { useTenantPhoneCountry } from "@/hooks/use-tenant-phone-country"
 import { formatInt, formatMoney } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import type { ContactAnalytics, ContactFormValues, ContactFull, CustomerAddress, SoldPack } from "@/lib/types/contact"
@@ -130,7 +130,14 @@ function ContactEditPageInner() {
   const create = useCreateContact()
   const update = useUpdateContact()
   const archive = useArchiveContact()
-  const [country, setCountry] = React.useState<CountryCode>(DEFAULT_COUNTRY)
+  // País del selector de teléfono. Arranca en el país del TENANT y solo se
+  // fija cuando el usuario elige uno distinto — por eso el estado guarda
+  // `null` en vez de sembrarse con un default: el bootstrap puede no haber
+  // llegado en el primer render, y un `useState(valorInicial)` se quedaría
+  // congelado con el fallback aunque después llegue el país real.
+  const tenantPhoneCountry = useTenantPhoneCountry()
+  const [pickedCountry, setCountry] = React.useState<CountryCode | null>(null)
+  const country = pickedCountry ?? tenantPhoneCountry
 
   useAgentPageSnapshot(
     isNew

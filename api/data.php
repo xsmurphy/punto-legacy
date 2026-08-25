@@ -65,13 +65,23 @@ define('OUTLET_PHONE', $allOutletData['phone']);
 define('OUTLET_ADDRESS', $allOutletData['address']);
 define('OUTLET_WHATS_APP',$allOutletData['whatsapp']);
 
-// Guard: settingTimeZone puede venir vacío o inválido (tenant sin TZ configurada)
-// → date_default_timezone_set('') tira warning/500. Fallback a la TZ del negocio (PY).
-$__tz = (string) ($setting['settingTimeZone'] ?? '');
-if ($__tz === '' || !in_array($__tz, timezone_identifiers_list(), true)) {
-    $__tz = 'America/Asuncion';
-}
-date_default_timezone_set($__tz);
+// Zona horaria del request. Éste es el punto donde el tenant recién queda
+// resuelto, así que es acá —y no en la conexión (`includes/db.php`, que corre
+// antes de saber quién opera)— donde se fija la TZ real del comercio, tanto
+// para PHP como para la sesión de PostgreSQL.
+//
+// `seed()` le pasa a TenantLocale la fila de company que ya leímos arriba,
+// para que resolver el país/TZ no dispare un SELECT extra por request.
+//
+// Ya NO hay fallback a 'America/Asuncion': si `settingTimeZone` viene vacío o
+// inválido, la TZ se deriva del PAÍS del comercio (settingCountry) y recién
+// después de la plataforma. Un tenant paraguayo termina igual que antes; uno
+// argentino deja de operar con el reloj de Asunción.
+require_once __DIR__ . '/lib/Support/CountryDefaults.php';
+require_once __DIR__ . '/lib/Support/TenantLocale.php';
+require_once __DIR__ . '/lib/Support/TenantClock.php';
+\Punto\Api\Support\TenantLocale::seed(COMPANY_ID, $setting);
+$__tz = \Punto\Api\Support\TenantClock::apply(COMPANY_ID);
 define('COUNTRY_CODE', $setting['settingCountry']);
 define('COUNTRY', $setting['settingCountry']);
 define('TODAY', date('Y-m-d H:i:s'));

@@ -7,15 +7,16 @@
  * en una lista de saldos solo agrega ruido.
  */
 
-import type { PosConfig } from "@/lib/types/pos-bootstrap"
+import { resolveNumberLocale, type TenantLocaleConfig } from "@/lib/tenant-locale"
 
 export function formatQty(
   value: number | null | undefined,
-  config: Pick<PosConfig, "thousand"> | null,
+  config: TenantLocaleConfig | null,
 ): string {
   const n = typeof value === "number" && Number.isFinite(value) ? value : 0
-  // 'comma' (miles con ',') = locale anglo; 'dot' = locale es-*. Mismo criterio
-  // que `formatAmount`.
-  const locale = config?.thousand === "comma" ? "en-US" : "es-PY"
-  return new Intl.NumberFormat(locale, { maximumFractionDigits: 3 }).format(n)
+  // El separador de miles sale del resolver único (`config.thousand`, o el
+  // país del tenant). Mismo criterio que `formatAmount`.
+  return new Intl.NumberFormat(resolveNumberLocale(config), {
+    maximumFractionDigits: 3,
+  }).format(n)
 }
