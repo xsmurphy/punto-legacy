@@ -30,6 +30,19 @@ import * as React from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { ChevronLeft, Plus, X, Check, Loader2, Info } from "lucide-react"
 import { toast } from "sonner"
+import {
+  DndContext,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  closestCenter,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core"
+import { CSS } from "@dnd-kit/utilities"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -51,6 +64,18 @@ const ROWS = 50
 const SLOTS = COLS * ROWS
 
 const DEFAULT_TILE = "#3f4651"
+
+// ── Identidad de los nodos de drag & drop ────────────────────────────────────
+// Un mismo slot es arrastrable (si tiene hotkey) y soltable (siempre), y
+// dnd-kit exige ids únicos por rol. El número de slot es la única fuente de
+// verdad de la posición: se codifica en el id y se vuelve a leer al soltar.
+const dragId = (pos: number) => `hk-${pos}`
+const dropId = (pos: number) => `slot-${pos}`
+
+function slotOf(id: string | number): number | null {
+  const m = /^(?:hk|slot)-(\d+)$/.exec(String(id))
+  return m ? Number(m[1]) : null
+}
 
 function abbrev(name: string): string {
   const t = name.trim()
@@ -105,8 +130,45 @@ export function ProductArea() {
   // Ítem cuya ficha está abierta (ícono de info del tile). null = cerrada.
   const [infoItem, setInfoItem] = React.useState<PosItem | null>(null)
 
-  // Drag & drop nativo: posición de origen.
-  const dragFrom = React.useRef<number | null>(null)
+  // ── Drag & drop de la grilla en modo edición ──────────────────────────────
+  //
+  // Antes esto era el drag&drop NATIVO de HTML5 (`draggable` + onDragStart /
+  // onDragOver / onDrop). Esos eventos no existen en touch: ningún navegador
+  // móvil los emite, así que en tablet o celular —el caso de uso principal de
+  // /pos— la grilla directamente no se podía reordenar (reporte del owner
+  // 2026-08-24). No era un bug de estilos ni de hit area: el gesto nunca
+  // llegaba al componente.
+  //
+  // dnd-kit (ya dependencia del proyecto, ver `catalog-manager.tsx`) unifica
+  // mouse, touch y teclado sobre pointer events. Los sensores van con
+  // activación DISTINTA por plataforma, y la diferencia es la que hace que
+  // esto sea usable:
+  //
+  // - Mouse: activa por distancia (4px, igual que el resto del proyecto). El
+  //   arrastre con mouse se siente inmediato, como antes.
+  // - Touch: activa por PRESIÓN SOSTENIDA (250ms). Un umbral de distancia acá
+  //   le robaría el gesto al scroll — la grilla son 300 slots y el dedo la
+  //   recorre deslizando. Con delay los dos gestos conviven: el swipe rápido
+  //   scrollea, el long-press levanta el tile.
+  //
+  // Al activar por delay NO se pone `touch-action: none` en los tiles (lo que
+  // mataría el scroll de la grilla); dnd-kit solo bloquea el scroll una vez
+  // que el drag ya arrancó.
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
+    useSensor(KeyboardSensor),
+  )
+
+  const handleDragEnd = React.useCallback(
+    (e: DragEndEvent) => {
+      const from = slotOf(e.active.id)
+      const to = e.over ? slotOf(e.over.id) : null
+      if (from === null || to === null || from === to) return
+      moveHotkey(from, to)
+    },
+    [moveHotkey],
+  )
 
   // Índices auxiliares.
   const itemById = React.useMemo(() => {
@@ -233,60 +295,55 @@ export function ProductArea() {
       <div className="flex-1 overflow-y-auto p-3 pb-20">
         {categoryId === null ? (
           // ── Grilla de hotkeys ──
-          <div
-            className="grid gap-2"
-            style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
           >
-            {Array.from({ length: SLOTS }).map((_, pos) => {
-              const h = hotkeyAt.get(pos)
-              if (!h || isOrphanHotkey(h)) {
+            <div
+              className="grid gap-2"
+              style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}
+            >
+              {Array.from({ length: SLOTS }).map((_, pos) => {
+                const h = hotkeyAt.get(pos)
+                if (!h || isOrphanHotkey(h)) {
+                  return (
+                    <EditableEmptySlot
+                      key={pos}
+                      pos={pos}
+                      editing={editing}
+                      onAdd={() => {
+                        // Slot huérfano: descartamos la entrada rota antes de
+                        // abrir el asignador — el "+" lo reemplaza por un
+                        // artículo real, no lo apila. Client-side nomás: recién
+                        // se persiste si el cajero llega a "Listo".
+                        if (h) removeHotkey(pos)
+                        setAssigningSlot(pos)
+                      }}
+                    />
+                  )
+                }
                 return (
-                  <EditableEmptySlot
+                  <HotkeyTile
                     key={pos}
+                    pos={pos}
+                    hotkey={h}
+                    item={h.isCategory ? null : itemById.get(h.itemId) ?? null}
+                    label={
+                      h.isCategory
+                        ? resolveCategoryName(h.itemId, categoryMap) ?? "Categoría"
+                        : itemById.get(h.itemId)?.name ?? "—"
+                    }
                     editing={editing}
-                    onAdd={() => {
-                      // Slot huérfano: descartamos la entrada rota antes de
-                      // abrir el asignador — el "+" lo reemplaza por un
-                      // artículo real, no lo apila. Client-side nomás: recién
-                      // se persiste si el cajero llega a "Listo".
-                      if (h) removeHotkey(pos)
-                      setAssigningSlot(pos)
-                    }}
-                    onDragOver={(e) => { if (editing) e.preventDefault() }}
-                    onDrop={() => {
-                      if (!editing || dragFrom.current === null) return
-                      moveHotkey(dragFrom.current, pos)
-                      dragFrom.current = null
-                    }}
+                    onClick={() => handleHotkeyClick(h)}
+                    onInfo={setInfoItem}
+                    onRemove={() => removeHotkey(pos)}
+                    onColorChange={(color) => setColor(pos, color)}
                   />
                 )
-              }
-              return (
-                <HotkeyTile
-                  key={pos}
-                  hotkey={h}
-                  item={h.isCategory ? null : itemById.get(h.itemId) ?? null}
-                  label={
-                    h.isCategory
-                      ? resolveCategoryName(h.itemId, categoryMap) ?? "Categoría"
-                      : itemById.get(h.itemId)?.name ?? "—"
-                  }
-                  editing={editing}
-                  onClick={() => handleHotkeyClick(h)}
-                  onInfo={setInfoItem}
-                  onRemove={() => removeHotkey(pos)}
-                  onColorChange={(color) => setColor(pos, color)}
-                  onDragStart={() => { dragFrom.current = pos }}
-                  onDragOver={(e) => { if (editing) e.preventDefault() }}
-                  onDrop={() => {
-                    if (!editing || dragFrom.current === null) return
-                    moveHotkey(dragFrom.current, pos)
-                    dragFrom.current = null
-                  }}
-                />
-              )
-            })}
-          </div>
+              })}
+            </div>
+          </DndContext>
         ) : (
           // ── Productos de la categoría (drill-in) ──
           <div
@@ -408,6 +465,7 @@ function TileInfoButton({ label, onClick }: { label: string; onClick: () => void
 // ── Tile de hotkey (categoría o item) ─────────────────────────────────────────
 
 function HotkeyTile({
+  pos,
   hotkey,
   item,
   label,
@@ -416,10 +474,9 @@ function HotkeyTile({
   onInfo,
   onRemove,
   onColorChange,
-  onDragStart,
-  onDragOver,
-  onDrop,
 }: {
+  /** Slot que ocupa este tile. Es su identidad para el drag & drop. */
+  pos: number
   hotkey: Hotkey
   item: PosItem | null
   label: string
@@ -429,9 +486,6 @@ function HotkeyTile({
   onInfo: (item: PosItem) => void
   onRemove: () => void
   onColorChange: (color: string) => void
-  onDragStart: () => void
-  onDragOver: (e: React.DragEvent) => void
-  onDrop: () => void
 }) {
   // `imageOk` y no solo "hay url": sin conexión la foto puede no estar en la
   // cache del SW, y entonces el tile tiene que caer al layout de tabla
@@ -441,81 +495,127 @@ function HotkeyTile({
   const hasImage = imageOk
   const bg = hotkeyColorBg(hotkey.color) ?? DEFAULT_TILE
 
+  // Un tile ocupado es las dos cosas: se puede levantar y se puede soltar algo
+  // encima (soltar sobre un slot ocupado = swap, ver `moveHotkey`). Fuera del
+  // modo edición los dos nodos van `disabled`, así que la grilla en modo venta
+  // no paga ningún costo de dnd.
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setDragRef,
+    transform,
+    isDragging,
+  } = useDraggable({ id: dragId(pos), disabled: !editing })
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: dropId(pos),
+    disabled: !editing,
+  })
+
   return (
-    <div
-      className="group relative aspect-square"
-      draggable={editing}
-      onDragStart={onDragStart}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
-    >
-      <button
-        onClick={onClick}
-        aria-label={label}
+    // Dos capas a propósito: la EXTERNA es la celda de la grilla y nunca se
+    // mueve (es el nodo droppable, y mantiene el `aspect-square` que reserva el
+    // lugar); la INTERNA es la que se transforma siguiendo al dedo. Si el
+    // transform viviera en la celda, levantar un tile recalcularía el grid y
+    // toda la grilla se correría — exactamente lo que prohíbe la regla #10 de
+    // context/14 (memoria muscular del cajero).
+    <div ref={setDropRef} className="relative aspect-square">
+      <div
+        ref={setDragRef}
+        style={{
+          transform: CSS.Translate.toString(transform),
+          zIndex: isDragging ? 50 : undefined,
+          opacity: isDragging ? 0.85 : undefined,
+          // Con activación por delay no hace falta `touch-action: none` (que
+          // mataría el scroll de la grilla). `manipulation` solo saca el
+          // retardo del doble-tap para zoom.
+          touchAction: editing ? "manipulation" : undefined,
+        }}
+        {...(editing ? listeners : {})}
+        {...(editing ? attributes : {})}
         className={cn(
-          "relative flex h-full w-full flex-col items-start justify-between overflow-hidden rounded-xl p-2.5 text-left transition-all",
-          editing ? "cursor-grab active:cursor-grabbing" : "active:scale-95",
+          "group relative h-full w-full rounded-xl",
+          // Señal de destino: un ring, que no ocupa lugar en el layout.
+          isOver && !isDragging && "ring-2 ring-primary",
         )}
-        style={hasImage ? undefined : { backgroundColor: bg }}
       >
-        {hasImage && item?.imageUrl ? (
-          <>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={item.imageUrl}
-              alt={label}
-              onError={onImageError}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
-            <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
-          </>
-        ) : (
-          // Modo tabla periódica: abreviatura grande + nombre abajo.
-          <span className="text-2xl font-bold leading-none tracking-tight text-white/90">
-            {abbrev(label)}
-          </span>
-        )}
-        <span
+        <button
+          onClick={onClick}
+          aria-label={label}
+          tabIndex={editing ? -1 : undefined}
           className={cn(
-            "line-clamp-2 text-[11px] font-medium leading-tight",
-            hasImage ? "absolute inset-x-0 bottom-0 z-10 p-2 text-white" : "text-white/85",
+            "relative flex h-full w-full flex-col items-start justify-between overflow-hidden rounded-xl p-2.5 text-left transition-all",
+            editing ? "cursor-grab active:cursor-grabbing" : "active:scale-95",
           )}
+          style={hasImage ? undefined : { backgroundColor: bg }}
         >
-          {label}
-        </span>
-        <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
-      </button>
-
-      {/* Ficha del producto. Fuera del <button> (un botón no puede anidar otro)
-          y oculta en edición: esa esquina la ocupa el botón de quitar. Las
-          categorías no llevan ficha. */}
-      {!editing && item && <TileInfoButton label={label} onClick={() => onInfo(item)} />}
-
-      {/* Overlay de edición (solo en modo edición) */}
-      {editing && (
-        <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-white/30">
-          {/* Botón eliminar (arriba-derecha) */}
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onRemove() }}
-            aria-label="Quitar"
-            className="pointer-events-auto absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-destructive"
-          >
-            <X className="size-3" />
-          </button>
-          {/* Selector de color: pill centrado con fondo oscuro (no pisa el título) */}
-          <div className="pointer-events-auto absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center">
-            <div className="rounded-full bg-black/70 px-2 py-1.5 shadow-lg">
-              <ColorPicker
-                value={hotkey.color}
-                onChange={onColorChange}
-                variant="overlay"
-                stopPropagation
+          {hasImage && item?.imageUrl ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.imageUrl}
+                alt={label}
+                onError={onImageError}
+                className="absolute inset-0 h-full w-full object-cover"
               />
+              <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
+            </>
+          ) : (
+            // Modo tabla periódica: abreviatura grande + nombre abajo.
+            <span className="text-2xl font-bold leading-none tracking-tight text-white/90">
+              {abbrev(label)}
+            </span>
+          )}
+          <span
+            className={cn(
+              "line-clamp-2 text-[11px] font-medium leading-tight",
+              hasImage ? "absolute inset-x-0 bottom-0 z-10 p-2 text-white" : "text-white/85",
+            )}
+          >
+            {label}
+          </span>
+          <div className="absolute inset-0 bg-white/0 transition-colors group-hover:bg-white/10" />
+        </button>
+
+        {/* Ficha del producto. Fuera del <button> (un botón no puede anidar otro)
+            y oculta en edición: esa esquina la ocupa el botón de quitar. Las
+            categorías no llevan ficha. */}
+        {!editing && item && <TileInfoButton label={label} onClick={() => onInfo(item)} />}
+
+        {/* Overlay de edición (solo en modo edición).
+
+            Los controles cortan `pointerdown`: sin eso, mantener apretado el
+            botón de quitar o el selector de color 250ms dispararía el sensor
+            táctil y el tile se empezaría a arrastrar debajo del dedo en vez de
+            responder al control. */}
+        {editing && (
+          <div className="pointer-events-none absolute inset-0 rounded-xl ring-1 ring-white/30">
+            {/* Botón eliminar (arriba-derecha) */}
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onRemove() }}
+              aria-label="Quitar"
+              className="pointer-events-auto absolute right-1 top-1 flex size-5 items-center justify-center rounded-full bg-black/60 text-white hover:bg-destructive"
+            >
+              <X className="size-3" />
+            </button>
+            {/* Selector de color: pill centrado con fondo oscuro (no pisa el título) */}
+            <div
+              className="pointer-events-auto absolute inset-x-0 top-1/2 flex -translate-y-1/2 justify-center"
+              onPointerDown={(e) => e.stopPropagation()}
+            >
+              <div className="rounded-full bg-black/70 px-2 py-1.5 shadow-lg">
+                <ColorPicker
+                  value={hotkey.color}
+                  onChange={onColorChange}
+                  variant="overlay"
+                  stopPropagation
+                />
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
@@ -586,31 +686,35 @@ function ProductTile({
 // ── Slot vacío ────────────────────────────────────────────────────────────────
 
 function EditableEmptySlot({
+  pos,
   editing,
   onAdd,
-  onDragOver,
-  onDrop,
 }: {
+  /** Slot que ocupa. Es su identidad como destino de drop. */
+  pos: number
   editing: boolean
   onAdd: () => void
-  onDragOver: (e: React.DragEvent) => void
-  onDrop: () => void
 }) {
+  // El hook va antes del early return: un slot vacío es destino de drop igual
+  // que uno ocupado (es el caso normal — mover un hotkey a un hueco libre).
+  const { setNodeRef, isOver } = useDroppable({ id: dropId(pos), disabled: !editing })
+
   if (!editing) {
     return <div className="aspect-square rounded-xl bg-sidebar" />
   }
 
   return (
     <button
+      ref={setNodeRef}
       type="button"
       onClick={onAdd}
-      onDragOver={onDragOver}
-      onDrop={onDrop}
       aria-label="Agregar hotkey"
       className={cn(
         "aspect-square rounded-xl border border-dashed border-muted-foreground/30",
         "flex items-center justify-center bg-sidebar transition-colors",
         "hover:border-muted-foreground/60 hover:bg-muted/40",
+        // Señal de destino: solo cambia color, no dimensiones (regla #10).
+        isOver && "border-solid border-primary bg-muted/60",
       )}
     >
       <Plus className="size-4 text-muted-foreground/50" />
