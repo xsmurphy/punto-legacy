@@ -43,6 +43,17 @@ export interface LocalCloseTotals {
   gaps: string[]
 }
 
+/** Una fila del arqueo del servidor: un medio de pago, esperado contra contado. */
+export interface ServerCloseMethodRow {
+  key: string
+  name: string
+  isCash: boolean
+  expected: number | null
+  /** `null` = el cierre no declaró nada de ese medio (cliente sin actualizar). */
+  counted: number | null
+  difference: number | null
+}
+
 /** Lo que devuelve el servidor al cerrar: el arqueo tal como quedó. */
 export interface ServerCloseTotals {
   date: string
@@ -50,6 +61,12 @@ export interface ServerCloseTotals {
   subtotal: number
   salesTotal: number
   returns: number
+  /**
+   * Arqueo por medio de pago (mig 167). `[]` con un backend sin deployar —
+   * nunca filas inventadas: una fila de más acá es un medio que el informe
+   * afirma haber arqueado y no arqueó.
+   */
+  byMethod: ServerCloseMethodRow[]
 }
 
 /**
@@ -166,11 +183,33 @@ export function parseServerCloseTotals(result: unknown): ServerCloseTotals | nul
   const num = (v: unknown) => (typeof v === 'number' ? v : Number(v))
   const total = num(c.total)
   if (!Number.isFinite(total)) return null
+  /** `null` se conserva: es "no se sabe", que no es lo mismo que cero. */
+  const nullableNum = (v: unknown): number | null => {
+    if (v === null || v === undefined) return null
+    const n = num(v)
+    return Number.isFinite(n) ? n : null
+  }
   return {
     date: typeof c.date === 'string' ? c.date : '',
     total,
     subtotal: Number.isFinite(num(c.subtotal)) ? num(c.subtotal) : 0,
     salesTotal: Number.isFinite(num(c.salesTotal)) ? num(c.salesTotal) : 0,
     returns: Number.isFinite(num(c.returns)) ? num(c.returns) : 0,
+    byMethod: Array.isArray(c.byMethod)
+      ? c.byMethod.flatMap((raw): ServerCloseMethodRow[] => {
+          if (!raw || typeof raw !== 'object') return []
+          const r = raw as Record<string, unknown>
+          const key = typeof r.key === 'string' ? r.key : ''
+          if (key === '') return []
+          return [{
+            key,
+            name: typeof r.name === 'string' && r.name !== '' ? r.name : key,
+            isCash: r.isCash === true,
+            expected: nullableNum(r.expected),
+            counted: nullableNum(r.counted),
+            difference: nullableNum(r.difference),
+          }]
+        })
+      : [],
   }
 }

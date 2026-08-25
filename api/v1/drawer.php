@@ -116,6 +116,11 @@ if ($method === 'POST') {
     $date   = trim((string) ($body['date'] ?? ''));
     $note   = trim((string) ($body['note'] ?? ''));
     $user   = trim((string) ($body['user'] ?? ''));
+    // Lo contado MEDIO POR MEDIO (mig 167). Opcional a propósito: un cliente
+    // desplegado antes de este cambio —o un cierre que quedó encolado en una
+    // tablet— manda solo `amount`, y ese cierre tiene que seguir funcionando
+    // exactamente igual. `amount` sigue siendo el efectivo en los dos casos.
+    $counted = isset($body['counted']) && is_array($body['counted']) ? $body['counted'] : [];
 
     if ($date === '') {
         // Tenant-local naive (no UTC del container) — ver TenantClock. Sin esto
@@ -180,7 +185,13 @@ if ($method === 'POST') {
                 $result = $svc->open($amount, $date, $userId);
                 break;
             case 'close':
-                $result = $svc->close($amount, $date, $userId);
+                // `$closingTotals` se pasa a `close()` en vez de dejar que lo
+                // relea: el número que se congela y el que se le devuelve al
+                // cajero tienen que salir de la MISMA lectura. Releerlo abre
+                // una ventana (una venta que entra en el medio) en la que el
+                // arqueo informado y el guardado difieren sin que nadie pueda
+                // explicar por qué.
+                $result = $svc->close($amount, $date, $userId, $counted, $closingTotals);
                 break;
             case 'expense':
                 $result = $svc->addExpense($amount, $note, $date);
@@ -203,6 +214,21 @@ if ($method === 'POST') {
     // informar, y devolver ceros ahí se leería como "el turno fue de 0".
     $payload = ['message' => $result === true ? 'true' : $result];
     if ($closingTotals !== null) {
+        // `byMethod` es el arqueo completo del cierre: esperado, contado y
+        // diferencia POR MEDIO DE PAGO. Es lo que el POS pinta como informe
+        // post-cierre y lo que un cierre hecho sin red compara cuando por fin
+        // sincroniza. `counted` vacío (cliente viejo) devuelve las mismas
+        // filas con `counted: null` salvo la del efectivo — el arqueo se
+        // informa igual, con lo que se sepa.
+        $closingTotals['byMethod'] = DrawerService::composeArqueo(
+            $closingTotals['expectedByMethod'] ?? [],
+            $counted !== [] ? $counted : [[
+                'key'     => DrawerService::paymentGroupKey(DrawerService::CASH_METHOD_NAME),
+                'name'    => DrawerService::CASH_METHOD_NAME,
+                'isCash'  => true,
+                'counted' => $amount,
+            ]],
+        );
         $payload['closing'] = $closingTotals;
     }
     apiOk($payload);

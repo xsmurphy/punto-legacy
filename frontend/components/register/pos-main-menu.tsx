@@ -98,14 +98,21 @@ import {
   useCloseDrawer,
   useDrawerExpense,
   useDrawerIncome,
+  useShiftMethods,
   type DrawerSummary,
   type DrawerHourlyRow,
 } from "@/hooks/use-drawer"
-import { gapMessages } from "@/lib/pos/local-shift-total"
+import { gapMessages, type CountedMethod } from "@/lib/pos/local-shift-total"
+import {
+  DrawerCloseReportDialog,
+  DrawerCountDialog,
+} from "@/components/pos/drawer-count-dialog"
 import {
   clearShiftCloseReport,
   closeTotalsMatch,
+  parseServerCloseTotals,
   readShiftCloseReport,
+  type ServerCloseMethodRow,
   type ShiftCloseReport,
 } from "@/lib/pos/shift-close-reconciliation"
 import {
@@ -1044,7 +1051,7 @@ function AccountOverview({
  * Función pura — reutilizada por el botón "Imprimir" manual (mientras la caja
  * sigue abierta) y por el auto-print al confirmar el cierre (donde el summary
  * se pasa como snapshot tomado ANTES de invalidar la query, ver
- * handleSimpleConfirm más abajo).
+ * handleCloseConfirm más abajo).
  *
  * FLAG: summary.list trae filas (name, amount) pero no hay campo separado de
  * "apertura" vs "ventas por método" — se mapean como payments usando las
@@ -1185,8 +1192,8 @@ function OfflineDrawerNotice({
       {blind || !totals ? (
         <p className="text-center text-sm text-muted-foreground">
           {blind
-            ? "Control de caja a ciegas: contá el efectivo y cerrá la caja con el monto contado. El resumen del turno se ve desde el panel."
-            : "Sin conexión: el arqueo lo calcula el servidor cuando vuelva la conexión. Contá el efectivo y cerrá con el monto contado."}
+            ? "Control de caja a ciegas: contá el efectivo y cada medio de pago del turno, y declaralos al cerrar. El arqueo se ve desde el panel."
+            : "Sin conexión: contá el efectivo y cada medio de pago del turno y declaralos al cerrar. El arqueo lo calcula el servidor cuando vuelva la conexión."}
         </p>
       ) : (
         <>
@@ -1353,10 +1360,39 @@ function ShiftCloseReportNotice({ blind }: { blind: boolean }) {
           </div>
         )}
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Monto contado al cerrar</span>
+          <span className="text-muted-foreground">Efectivo contado al cerrar</span>
           <span className="tabular-nums">{formatMoney(report.counted, config)}</span>
         </div>
       </div>
+
+      {/* Arqueo medio por medio, tal como quedó en el servidor (mig 167). Un
+          informe guardado antes de ese deploy no lo trae y esta sección
+          simplemente no aparece — no hay filas que inventar. */}
+      {(report.server?.byMethod?.length ?? 0) > 0 && (
+        <div className="mt-3">
+          <p className="mb-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Arqueo por medio de pago
+          </p>
+          <div className="space-y-0.5">
+            {report.server?.byMethod.map((r) => (
+              <div key={r.key} className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">{r.name}</span>
+                <span
+                  className={cn(
+                    "tabular-nums",
+                    r.difference !== null && r.difference !== 0 && "font-medium text-destructive",
+                  )}
+                >
+                  {r.counted === null ? "—" : formatMoney(r.counted, config)}
+                  {r.difference !== null && r.difference !== 0
+                    ? ` (${formatMoney(r.difference, config)})`
+                    : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {!matches && (
         <p className="mt-2 text-xs text-muted-foreground">
           La diferencia puede ser plata faltante o una operación que este
@@ -1472,6 +1508,16 @@ function ControlDeCajaPanel() {
   type ModalMode = "open" | "close" | "expense" | "income" | null
   const [modalMode, setModalMode] = React.useState<ModalMode>(null)
 
+  // Medios de pago a contar en el cierre. Del servidor cuando hay resumen, del
+  // journal de este dispositivo cuando no — y el efectivo siempre.
+  const { methods: countMethods, expected: expectedByMethod } = useShiftMethods(
+    status?.openDate ?? null,
+  )
+
+  // Arqueo que devolvió el servidor al cerrar. Se muestra UNA vez, apenas se
+  // cierra: la caja ya no tiene resumen que volver a pedir. Nunca a ciegas.
+  const [closeReport, setCloseReport] = React.useState<ServerCloseMethodRow[] | null>(null)
+
   const isOpen = status?.isOpen ?? false
   const loading = statusLoading || summaryLoading
 
@@ -1479,27 +1525,61 @@ function ControlDeCajaPanel() {
     setModalMode(mode)
   }
 
-  async function handleSimpleConfirm(amount: number) {
+  async function handleOpenConfirm(amount: number) {
     const date = new Date().toISOString().replace("T", " ").slice(0, 19)
     try {
-      if (modalMode === "open") await openDrawer.mutateAsync({ amount, date })
-      if (modalMode === "close") {
-        // Snapshot del summary ANTES de cerrar: al confirmar el cierre la
-        // query de summary se invalida y los datos desaparecen — sin este
-        // snapshot no habría forma de imprimir el reporte de cierre después.
-        const summarySnapshot = summary
-        await closeDrawer.mutateAsync({ amount, date })
-        if (summarySnapshot && allBindings && !blind) {
-          try {
-            requestPrint("closeReg", buildCloseRegTicket(summarySnapshot, config), allBindings)
-          } catch (printErr) {
-            // Un fallo de impresora no debe afectar el cierre, que ya se confirmó.
-            console.error("[closeReg auto-print]", printErr)
-            toast.warning("La caja cerró pero no se pudo imprimir el cierre")
-          }
+      await openDrawer.mutateAsync({ amount, date })
+      setModalMode(null)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error desconocido")
+    }
+  }
+
+  /**
+   * Cierre con el conteo declarado medio por medio.
+   *
+   * `amount` sigue siendo EL EFECTIVO y no la suma de todo: es lo que se
+   * compara contra el efectivo esperado del cajón (mig 164) y lo que alimenta
+   * el semáforo de cuadre del panel. Mandar ahí el total contado de todos los
+   * medios convertiría cada turno con tarjeta en un sobrante gigante — que es
+   * el bug inverso al que la mig 164 vino a arreglar.
+   */
+  async function handleCloseConfirm(counted: CountedMethod[]) {
+    const date = new Date().toISOString().replace("T", " ").slice(0, 19)
+    // La fila del efectivo SIEMPRE existe (`useShiftMethods` la siembra
+    // primero, con ventas o sin ellas). Si alguna vez no llegara, cerrar con
+    // `amount: 0` declararía el cajón vacío y el arqueo saldría con un
+    // faltante por el fondo inicial entero: mejor no cerrar y decirlo.
+    const cashRow = counted.find((c) => c.isCash)
+    if (!cashRow) {
+      toast.error("No se pudo determinar el efectivo contado. Volvé a intentar el cierre.")
+      return
+    }
+    const cash = cashRow.counted
+    try {
+      // Snapshot del summary ANTES de cerrar: al confirmar el cierre la
+      // query de summary se invalida y los datos desaparecen — sin este
+      // snapshot no habría forma de imprimir el reporte de cierre después.
+      const summarySnapshot = summary
+      const result = await closeDrawer.mutateAsync({ amount: cash, date, counted })
+      setModalMode(null)
+
+      // Arqueo del servidor. `null` cuando el cierre se encoló (sin red): ese
+      // informe llega cuando la cola drene (`ShiftCloseReportNotice`).
+      if (!blind) {
+        const server = parseServerCloseTotals(result)
+        if (server && server.byMethod.length > 0) setCloseReport(server.byMethod)
+      }
+
+      if (summarySnapshot && allBindings && !blind) {
+        try {
+          requestPrint("closeReg", buildCloseRegTicket(summarySnapshot, config), allBindings)
+        } catch (printErr) {
+          // Un fallo de impresora no debe afectar el cierre, que ya se confirmó.
+          console.error("[closeReg auto-print]", printErr)
+          toast.warning("La caja cerró pero no se pudo imprimir el cierre")
         }
       }
-      setModalMode(null)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error desconocido")
     }
@@ -1524,21 +1604,24 @@ function ControlDeCajaPanel() {
 
   const modalLabel: Record<NonNullable<ModalMode>, string> = {
     open:    "Abrir caja — monto inicial",
-    close:   "Cerrar caja — monto contado",
+    close:   "Cerrar caja — conteo por medio de pago",
     expense: "Extracción de efectivo",
     income:  "Ingreso de efectivo",
   }
 
 
-  // ── Modals de monto — NumericPadDialog para open/close, CashMovementDialog para expense/income ──
-  const isSimpleMode = modalMode === "open" || modalMode === "close"
+  // ── Modals de monto ──
+  // La APERTURA sigue siendo un solo monto (el fondo del cajón) → NumericPadDialog.
+  // El CIERRE pasó a declararse medio por medio → DrawerCountDialog.
+  // Extracción/ingreso llevan nota → CashMovementDialog.
+  const isOpenMode = modalMode === "open"
   const isMovementMode = modalMode === "expense" || modalMode === "income"
   const [draftSimple, setDraftSimple] = React.useState("0")
 
-  // Reset draft al abrir un modo simple
+  // Reset draft al abrir la apertura
   React.useEffect(() => {
-    if (isSimpleMode) setDraftSimple("0")
-  }, [isSimpleMode])
+    if (isOpenMode) setDraftSimple("0")
+  }, [isOpenMode])
 
   // ── Vista principal ────────────────────────────────────────────────────────
   return (
@@ -1591,8 +1674,9 @@ function ControlDeCajaPanel() {
             resumen (montos por concepto, productos, totales) se renderiza. */}
         {summary && blind && (
           <p className="mx-auto max-w-sm text-center text-sm text-muted-foreground">
-            Control de caja a ciegas: contá el efectivo y cerrá la caja con el
-            monto contado. El resumen del turno se ve desde el panel.
+            Control de caja a ciegas: contá el efectivo y cada medio de pago que
+            se usó en el turno, y declaralos al cerrar la caja. El arqueo se ve
+            desde el panel.
           </p>
         )}
 
@@ -1724,16 +1808,40 @@ function ControlDeCajaPanel() {
         )}
       </div>
 
-      {/* NumericPadDialog para open/close (sin nota) */}
+      {/* NumericPadDialog para la apertura (un solo monto: el fondo del cajón) */}
       <NumericPadDialog
-        open={isSimpleMode}
+        open={isOpenMode}
         onClose={() => setModalMode(null)}
-        title={modalMode && isSimpleMode ? modalLabel[modalMode] : ""}
+        title={isOpenMode ? modalLabel.open : ""}
         mode="money"
         value={draftSimple}
         onValueChange={setDraftSimple}
-        onConfirm={() => { void handleSimpleConfirm(Number(draftSimple)) }}
+        onConfirm={() => { void handleOpenConfirm(Number(draftSimple)) }}
         confirmLabel="Confirmar"
+      />
+
+      {/* Cierre: se declara lo contado de CADA medio de pago del turno. A
+          ciegas se cuenta igual, sin ver contra qué. */}
+      <DrawerCountDialog
+        open={modalMode === "close"}
+        onClose={() => setModalMode(null)}
+        methods={countMethods}
+        // Defensa en profundidad: a ciegas el esperado NO se le pasa al
+        // diálogo, además de que el diálogo no lo pintaría. Un dato que no
+        // llega no se puede filtrar por un `blind` mal evaluado más adelante.
+        expected={blind ? undefined : expectedByMethod}
+        blind={blind}
+        isPending={closeDrawer.isPending}
+        config={fmtConfig}
+        onConfirm={(counted) => { void handleCloseConfirm(counted) }}
+      />
+
+      {/* Arqueo del servidor, una sola vez, apenas cerró. */}
+      <DrawerCloseReportDialog
+        open={closeReport !== null}
+        onClose={() => setCloseReport(null)}
+        rows={closeReport ?? []}
+        config={fmtConfig}
       />
 
       {/* CashMovementDialog para expense/income (con nota) */}

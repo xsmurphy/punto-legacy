@@ -171,6 +171,11 @@ export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
         // operación. `payload.localTotals` (el total que este device tenía al
         // cerrar) se queda acá: es para comparar contra la respuesta, no un
         // dato que el servidor deba creer.
+        //
+        // `counted` sí va: es lo que el cajero declaró haber contado de cada
+        // medio (mig 167), y es el hecho que el cierre existe para registrar.
+        // Un cierre encolado por una versión anterior no lo trae y se manda
+        // igual, sin el campo — el servidor lo lee como "solo efectivo".
         return await posBff('/api/pos/drawer', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', 'X-Punto-Op-Id': row.opId },
@@ -179,6 +184,9 @@ export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
             amount: payload.amount,
             date: payload.date,
             note: payload.note ?? '',
+            ...(row.kind === 'drawerClose' && payload.counted
+              ? { counted: payload.counted }
+              : {}),
           }),
         })
       }

@@ -33,6 +33,7 @@ import { getPosOfflineDB } from '@/lib/pos/offline-db'
 import { pendingOpsOfKind } from '@/lib/pos/pending-ops'
 import type { PendingOpRow } from '@/lib/pos/pending-ops'
 import type { LocalCloseTotals } from '@/lib/pos/shift-close-reconciliation'
+import type { CountedMethod } from '@/lib/pos/local-shift-total'
 import type { PosRegisterConfig } from '@/hooks/use-pos-config'
 import type { Hotkey } from '@/lib/hotkeys/store'
 import type { PrinterBinding } from '@/lib/hardware/printers/binding'
@@ -56,10 +57,19 @@ export interface HotkeysPayload {
 }
 
 export interface DrawerOpPayload {
+  /** En el cierre: el EFECTIVO contado. Los demás medios van en `counted`. */
   amount: number
   /** Hora LOCAL del tenant, naive, del momento en que el cajero operó. */
   date: string
   note?: string
+  /**
+   * Solo en el CIERRE: lo que el cajero contó de CADA medio de pago (mig 167).
+   * A diferencia de `localTotals`, esto SÍ se manda: es la declaración del
+   * arqueo, no una referencia para comparar. Ausente = cierre encolado por una
+   * versión anterior de la app; el servidor lo trata como "solo se contó el
+   * efectivo" y el cierre queda igual que siempre.
+   */
+  counted?: CountedMethod[]
   /**
    * Solo en el CIERRE: el total que este dispositivo tenía cuando el cajero
    * cerró. NO se manda al servidor —el transporte arma el body con `amount`,

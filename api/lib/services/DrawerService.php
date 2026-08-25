@@ -131,10 +131,16 @@ final class DrawerService
         $out    = [];
         if (validity($detail, 'array')) {
             foreach ($detail as $arr) {
+                $name = str_replace('u00e9', 'é', $arr['name']);
                 $out[] = [
-                    'name'  => str_replace('u00e9', 'é', $arr['name']),
+                    'name'  => $name,
                     'type'  => $arr['type'],
                     'price' => (float) $arr['price'],
+                    // Clave de agrupación tal como la resolvió
+                    // `groupByPaymentMethod()`. Viaja hasta `composeSummary()`
+                    // para que el arqueo por medio use la identidad con la que
+                    // las filas ya se juntaron, no una re-normalización.
+                    'groupKey' => (string) ($arr['groupKey'] ?? self::paymentGroupKey($name)),
                 ];
             }
         }
@@ -492,11 +498,30 @@ final class DrawerService
      * Cierra la caja abierta. Falla si ya está cerrada o si la fecha de cierre
      * es anterior a la de apertura.
      *
+     * @param float $amount Efectivo contado. Sigue siendo EL EFECTIVO y nada
+     *   más: es lo que se compara contra `drawerExpectedAmount` (mig 164) y lo
+     *   que alimenta el semáforo de cuadre del panel. El resto de los medios
+     *   viaja en `$countedByMethod`.
+     * @param array<int,array{key?:string,name?:string,isCash?:bool,counted:float|string}> $countedByMethod
+     *   Lo contado medio por medio (mig 167). Vacío = cliente viejo o cierre
+     *   encolado antes del deploy: se sintetiza la fila del efectivo con
+     *   `$amount` y el cierre queda idéntico al de siempre.
+     * @param array|null $closingTotals Arqueo del turno ya leído por el caller
+     *   (`getClosingTotals()`). Se acepta de afuera porque el endpoint lo
+     *   necesita para la respuesta y leerlo dos veces abre la puerta a que el
+     *   número que se congela y el que se le informa al cajero no sean el
+     *   mismo. `null` = leerlo acá (camino de los callers que no lo tienen).
+     *
      * @return string|true 'Already Closed' / 'Invalid Close Date' / true.
      * @throws \RuntimeException en error de DB.
      */
-    public function close(float $amount, string $date, string $userId): string|true
-    {
+    public function close(
+        float $amount,
+        string $date,
+        string $userId,
+        array $countedByMethod = [],
+        ?array $closingTotals = null,
+    ): string|true {
         global $db;
 
         $row = $this->findOpenRow($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
@@ -551,8 +576,11 @@ final class DrawerService
         // puerta: si mañana cambia la fórmula del arqueo, no hay dos caminos
         // que puedan quedar en desacuerdo.
         $expectedCash = null;
+        $totals       = $closingTotals;
         try {
-            $totals = $this->getClosingTotals($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
+            if ($totals === null) {
+                $totals = $this->getClosingTotals($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
+            }
             if ($totals !== null) {
                 $expectedCash = (float) $totals['subtotal'];
             }
@@ -586,6 +614,27 @@ final class DrawerService
             return 'Already Closed';
         }
 
+        // Arqueo POR MEDIO DE PAGO congelado (mig 167). Va DESPUÉS del UPDATE
+        // porque el cierre es el hecho y esto es su detalle: si el UPDATE no
+        // pasó (caja ya cerrada por otro request), no hay cierre al que
+        // colgarle un arqueo.
+        //
+        // Best-effort por la misma razón que el esperado de la mig 164: la
+        // caja YA quedó cerrada arriba, y un fallo escribiendo el detalle no
+        // puede devolverle un 500 al cajero sobre un cierre que sí ocurrió.
+        // Lo que se pierde es el desglose del informe, no el cierre.
+        try {
+            $this->persistCount(
+                (string) $row['drawerId'],
+                $totals['expectedByMethod'] ?? null,
+                $countedByMethod,
+                $amount,
+                $expectedCash,
+            );
+        } catch (\Throwable $e) {
+            error_log("[DrawerService::close] no se pudo congelar el arqueo por medio (drawerId={$row['drawerId']}): " . $e->getMessage());
+        }
+
         // Cerrar caja libera la tenencia de este MISMO device (context/29 §4.4:
         // "se libera al cerrar caja, o por revocación de admin" — la primera mitad
         // de esa promesa nunca estaba implementada, bug real 2026-08-19). Solo
@@ -615,6 +664,75 @@ final class DrawerService
         }
 
         return true;
+    }
+
+    /**
+     * Congela el arqueo por medio de pago del cierre (`drawer_count`, mig 167).
+     *
+     * `ON CONFLICT (drawerid, methodkey) DO UPDATE`: un cierre encolado que se
+     * reenvía (la cola offline reintentando) tiene que dejar UN arqueo, no dos
+     * juegos de filas. La idempotencia vive en la clave, no en un chequeo
+     * previo que otra conexión puede ganar.
+     *
+     * @param array<int,array{key:string,name:string,isCash:bool,expected:float}>|null $expectedByMethod
+     *   `null` = no se pudo leer el arqueo del servidor. Las filas se escriben
+     *   igual, con esperado NULL: lo que el cajero contó es un hecho y no se
+     *   tira porque el otro lado de la comparación no esté.
+     * @param array<int,array> $countedByMethod Lo declarado por la caja.
+     * @param float $cashAmount Efectivo contado (compat: cliente sin desglose).
+     */
+    private function persistCount(
+        string $drawerId,
+        ?array $expectedByMethod,
+        array $countedByMethod,
+        float $cashAmount,
+        ?float $expectedCash,
+    ): void {
+        // Cliente sin desglose (o cierre encolado de antes del deploy): el
+        // único medio que declaró es el efectivo. Se escribe igual para que el
+        // informe por medio tenga una sola forma, con menos filas.
+        if ($countedByMethod === []) {
+            $countedByMethod = [[
+                'key'     => self::paymentGroupKey(self::CASH_METHOD_NAME),
+                'name'    => self::CASH_METHOD_NAME,
+                'isCash'  => true,
+                'counted' => $cashAmount,
+            ]];
+        }
+
+        $rows = self::composeArqueo($expectedByMethod ?? [], $countedByMethod);
+
+        foreach ($rows as $r) {
+            // Un medio ESPERADO que el cajero no contó no se persiste con
+            // contado 0: sería declarar que contó y no había nada, cuando lo
+            // que pasó es que no lo contó. Sin declaración no hay fila.
+            if ($r['counted'] === null) {
+                continue;
+            }
+            // El esperado del efectivo sale del mismo número que la mig 164
+            // congeló en `drawerExpectedAmount`: dos escrituras, un solo
+            // cálculo, imposible que discrepen.
+            $expected = $r['isCash'] && $expectedCash !== null ? $expectedCash : $r['expected'];
+            ncmExecute(
+                'INSERT INTO drawer_count
+                    (drawerid, companyid, methodkey, methodname, iscash, expectedamount, countedamount)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT (drawerid, methodkey) DO UPDATE SET
+                    methodname     = EXCLUDED.methodname,
+                    iscash         = EXCLUDED.iscash,
+                    expectedamount = EXCLUDED.expectedamount,
+                    countedamount  = EXCLUDED.countedamount',
+                [
+                    $drawerId,
+                    $this->ctx->companyId,
+                    $r['key'],
+                    $r['name'],
+                    $r['isCash'] ? 't' : 'f',
+                    $expected,
+                    $r['counted'],
+                ]
+            );
+        }
     }
 
     /**
@@ -922,7 +1040,7 @@ final class DrawerService
      * mismas, y el rollup lo hace `composeSummary()` — o sea que la fórmula
      * sigue estando escrita en un solo lugar.
      *
-     * @return array{date:string,total:float,subtotal:float,salesTotal:float,returns:float}|null
+     * @return array{date:string,total:float,subtotal:float,salesTotal:float,returns:float,expectedByMethod:array<int,array{key:string,name:string,isCash:bool,expected:float}>}|null
      *         null si la caja ya está cerrada.
      */
     public function getClosingTotals(string $registerId, string $outletId, string $companyId): ?array
@@ -947,6 +1065,10 @@ final class DrawerService
             'subtotal'   => (float) $summary['subtotal'],
             'salesTotal' => (float) $summary['salesTotal'],
             'returns'    => (float) $summary['returns'],
+            // Esperado POR MEDIO DE PAGO — la mitad "servidor" del arqueo que
+            // el cajero completa contando cada medio. Siempre trae al menos la
+            // fila del efectivo.
+            'expectedByMethod' => $summary['expectedByMethod'],
         ];
     }
 
@@ -979,9 +1101,186 @@ final class DrawerService
      * esperado no las resta. No es un olvido: es la fórmula que el cajero ve
      * en pantalla, y el número congelado tiene que ser EXACTAMENTE ese.
      */
+    /**
+     * Nombre con el que se sintetiza la fila del efectivo en los dos casos en
+     * que el servidor no tiene de dónde leer cómo lo llama este comercio:
+     *
+     *   1. El turno no tuvo NINGUNA venta en efectivo (`composeSummary()`).
+     *   2. El cierre llegó SIN desglose —cliente sin actualizar o cierre
+     *      encolado antes del deploy— y hay que armar la fila del cajón con
+     *      `amount` (`persistCount()` y el fallback de la respuesta en
+     *      `api/v1/drawer.php`).
+     *
+     * El emparejamiento con lo que la caja contó no depende de este texto
+     * (`composeArqueo` matchea el efectivo por bandera, no por nombre) — es
+     * solo la etiqueta del informe.
+     */
+    public const CASH_METHOD_NAME = 'Efectivo';
+
     public static function isCashPaymentType(string $type): bool
     {
         return in_array(strtolower($type), ['cash', 'efectivo'], true);
+    }
+
+    /**
+     * Clave de agrupación de un medio de pago dentro del arqueo.
+     *
+     * Es EXACTAMENTE la que ya usa `groupByPaymentMethod()` (functions.php
+     * ~L1015) para juntar en una sola fila el mismo medio guardado con dos
+     * identificadores distintos (el slug viejo y el UUID de taxonomía nuevo):
+     * el nombre resuelto, en minúsculas. Se expone como función porque ahora
+     * hay un segundo lado —el conteo que manda la caja— que tiene que producir
+     * la MISMA clave para que las dos mitades del arqueo se encuentren.
+     * `lib/pos/local-shift-total.ts` (`paymentGroupKey`) es su espejo en el POS.
+     */
+    public static function paymentGroupKey(string $name): string
+    {
+        return mb_strtolower(trim($name));
+    }
+
+    /**
+     * Arqueo POR MEDIO DE PAGO: lo esperado contra lo contado, medio por medio.
+     *
+     * Por qué existe: hasta 2026-08-24 el cierre pedía UN monto (el efectivo) y
+     * el arqueo comparaba solo eso. Pero el turno se cobra por muchas vías, y
+     * el cajero tiene delante los vouchers de tarjeta y los comprobantes de QR
+     * igual que tiene los billetes — contar solo una parte deja el resto sin
+     * control (pedido del owner, 2026-08-24).
+     *
+     * Pura (sin DB) a propósito: la usan el cierre (para congelar las filas en
+     * `drawer_count`) y la respuesta del endpoint (para que el POS muestre el
+     * informe). Una sola fórmula, dos consumidores.
+     *
+     * Reglas de emparejamiento, en orden:
+     *   1. Por CLAVE O POR NOMBRE normalizado. No alcanza con la clave, y esto
+     *      no es cinturón y tiradores: `groupByPaymentMethod()` agrupa por el
+     *      nombre resuelto SOLO cuando lo puede resolver, y cae al `type` crudo
+     *      (el slug `tcredito`, o un UUID de taxonomía) cuando no. La caja, en
+     *      cambio, solo conoce el nombre que le mostró al cliente. Emparejar
+     *      únicamente por clave dejaba sin match a todo medio con la taxonomía
+     *      no resuelta: el esperado quedaba sin contar y lo contado aparecía
+     *      como un sobrante por el monto entero. Lo detectó
+     *      `drawer_count_by_method_test.php` antes de llegar a una caja.
+     *   2. El efectivo, además, matchea por la bandera `isCash`: si el comercio
+     *      renombró el medio ("Contado") y el turno no tuvo ventas en efectivo,
+     *      el servidor no tiene de dónde sacar ese nombre y sintetiza la fila
+     *      con el nombre canónico. Sin este tercer intento, la plata del cajón
+     *      —la única que SIEMPRE hay que contar— sería la que no matchea.
+     *   3. Lo contado sin esperado se agrega igual con esperado 0: un medio que
+     *      el servidor no vio en el turno pero que el cajero contó es un
+     *      sobrante real, no una fila para tirar.
+     *
+     * La fila resultante conserva la clave y el nombre del ESPERADO: es la
+     * identidad con la que el servidor agrupó el turno, y es la que queda
+     * congelada en `drawer_count` para que el reporte pueda agregarla entre
+     * cierres.
+     *
+     * @param array<int,array{key:string,name:string,isCash:bool,expected:float}> $expectedByMethod
+     * @param array<int,array{key?:string,name?:string,isCash?:bool,counted:float|string}> $counted
+     * @return array<int,array{key:string,name:string,isCash:bool,expected:float|null,counted:float|null,difference:float|null}>
+     */
+    /**
+     * Las identidades por las que un medio de pago puede reconocerse en el
+     * arqueo: su clave de agrupación, su nombre normalizado y su slug.
+     *
+     * Son tres y no una porque el mismo medio viaja con nombres distintos
+     * según quién lo mire: `groupByPaymentMethod()` reescribe el nombre al
+     * resolver la taxonomía, así que el que la caja anotó al vender
+     * ("Tarjeta de crédito") y el que el arqueo muestra ("T. Crédito") pueden
+     * no coincidir, y la clave de agrupación cae al slug crudo cuando la
+     * taxonomía no resuelve. El slug es lo único que los dos lados tienen
+     * igual siempre.
+     *
+     * @return array<int,string>
+     */
+    private static function methodIdentities(string $key, string $name, string $code): array
+    {
+        return array_values(array_unique(array_filter([
+            $key !== '' ? self::paymentGroupKey($key) : '',
+            $name !== '' ? self::paymentGroupKey($name) : '',
+            $code !== '' ? self::paymentGroupKey($code) : '',
+        ])));
+    }
+
+    public static function composeArqueo(array $expectedByMethod, array $counted): array
+    {
+        // Normalización del conteo: la clave manda, pero un cliente puede
+        // mandar solo el nombre (o solo la bandera de efectivo).
+        $pending = [];
+        foreach ($counted as $c) {
+            if (!is_array($c)) {
+                continue;
+            }
+            $name = trim((string) ($c['name'] ?? ''));
+            $key  = trim((string) ($c['key'] ?? ''));
+            if ($key === '' && $name !== '') {
+                $key = self::paymentGroupKey($name);
+            }
+            if ($key === '') {
+                continue;
+            }
+            $pending[] = [
+                'key'     => $key,
+                'name'    => $name !== '' ? $name : $key,
+                // Identidades por las que esta fila puede reconocerse: clave,
+                // nombre normalizado y slug del medio. Ver la regla 1.
+                'ids'     => self::methodIdentities($key, $name, (string) ($c['code'] ?? '')),
+                'isCash'  => (bool) ($c['isCash'] ?? self::isCashPaymentType($key)),
+                'counted' => (float) ($c['counted'] ?? 0),
+            ];
+        }
+
+        /** @param array<int,string> $ids identidades aceptables del medio esperado */
+        $takeByIds = function (array $ids) use (&$pending): ?array {
+            foreach ($pending as $i => $row) {
+                if (array_intersect($ids, $row['ids']) !== []) {
+                    unset($pending[$i]);
+                    return $row;
+                }
+            }
+            return null;
+        };
+        $takeCash = function () use (&$pending): ?array {
+            foreach ($pending as $i => $row) {
+                if ($row['isCash']) {
+                    unset($pending[$i]);
+                    return $row;
+                }
+            }
+            return null;
+        };
+
+        $out = [];
+        foreach ($expectedByMethod as $e) {
+            $key      = (string) $e['key'];
+            $name     = (string) $e['name'];
+            $isCash   = (bool) ($e['isCash'] ?? false);
+            $expected = (float) $e['expected'];
+            $ids      = self::methodIdentities($key, $name, (string) ($e['code'] ?? ''));
+            $match    = $takeByIds($ids) ?? ($isCash ? $takeCash() : null);
+            $countedV = $match !== null ? (float) $match['counted'] : null;
+            $out[] = [
+                'key'        => $key,
+                'name'       => $name,
+                'isCash'     => $isCash,
+                'expected'   => $expected,
+                'counted'    => $countedV,
+                'difference' => $countedV === null ? null : round($countedV - $expected, 2),
+            ];
+        }
+
+        foreach ($pending as $row) {
+            $out[] = [
+                'key'        => $row['key'],
+                'name'       => $row['name'],
+                'isCash'     => $row['isCash'],
+                'expected'   => 0.0,
+                'counted'    => $row['counted'],
+                'difference' => round($row['counted'], 2),
+            ];
+        }
+
+        return $out;
     }
 
     public static function composeSummary(array $open, array $expenses, array $income, array $payments, array $products = [], array $stats = []): array
@@ -995,6 +1294,12 @@ final class DrawerService
         $total     = 0.0;
         $return    = 0.0;
         $list      = [['name' => 'Caja Inicial', 'amount' => $cajaInicial]];
+        // Índice del medio de EFECTIVO dentro de `$expectedByMethod`, si el
+        // turno tuvo alguna venta en efectivo. `null` = no la hubo y la fila se
+        // sintetiza al final: el cajón se cuenta SIEMPRE, aunque no haya
+        // entrado un solo billete por ventas — el fondo inicial está ahí.
+        $cashIndex        = null;
+        $expectedByMethod = [];
         // Solo los MÉTODOS DE PAGO reales — sin Caja Inicial / Extracciones /
         // Ingresos, que en `list` conviven con ellos porque esa lista es el
         // arqueo impreso. Se arma acá (donde ya se sabe qué fila es qué) y no
@@ -1002,8 +1307,9 @@ final class DrawerService
         $paymentBreakdown = [];
 
         foreach ($payments as $p) {
-            $price = (float) $p['price'];
-            if (self::isCashPaymentType((string) $p['type'])) {
+            $price  = (float) $p['price'];
+            $isCash = self::isCashPaymentType((string) $p['type']);
+            if ($isCash) {
                 $cashPrice = $price;
             }
             if ($p['type'] === 'return') {
@@ -1012,6 +1318,27 @@ final class DrawerService
                 $total += $price;
                 $list[] = ['name' => $p['name'], 'amount' => $price];
                 $paymentBreakdown[] = ['name' => $p['name'], 'amount' => $price];
+                // `groupKey` es la clave con la que `groupByPaymentMethod()` ya
+                // juntó las filas; se reusa tal cual para que el conteo de la
+                // caja empareje contra la MISMA identidad y no contra una
+                // segunda normalización parecida.
+                $expectedByMethod[] = [
+                    'key'      => (string) ($p['groupKey'] ?? self::paymentGroupKey((string) $p['name'])),
+                    'name'     => (string) $p['name'],
+                    // Slug/id del medio TAL COMO lo guardó la venta
+                    // (`transactionPaymentType.type`). Es la única identidad
+                    // que la caja y el servidor comparten con certeza: el
+                    // nombre lo reescribe `groupByPaymentMethod()` al resolver
+                    // la taxonomía, así que el que la caja anotó al vender y el
+                    // que el arqueo muestra pueden ser dos textos distintos del
+                    // mismo medio.
+                    'code'     => (string) ($p['type'] ?? ''),
+                    'isCash'   => $isCash,
+                    'expected' => $price,
+                ];
+                if ($isCash && $cashIndex === null) {
+                    $cashIndex = count($expectedByMethod) - 1;
+                }
             }
         }
 
@@ -1023,9 +1350,33 @@ final class DrawerService
         $list[] = ['name' => 'Extracciones (Efectivo)', 'amount' => $expenseAmount];
         $list[] = ['name' => 'Ingresos (Efectivo)',     'amount' => $totalIncome];
 
+        // Lo que se espera EN EL CAJÓN no son las ventas en efectivo sino
+        // `subtotal` (inicial + ventas en efectivo + ingresos − extracciones):
+        // es el número contra el que se arqueó siempre (mig 164) y el que el
+        // cajero tiene en billetes delante. Los demás medios se esperan por su
+        // monto de ventas, que es lo que hay en vouchers y comprobantes.
+        $cashExpected = ($cajaInicial + $cashPrice + $totalIncome) - $expenseAmount;
+        if ($cashIndex !== null) {
+            $expectedByMethod[$cashIndex]['expected'] = $cashExpected;
+            // El efectivo va primero: es lo primero que se cuenta.
+            $cashRow = $expectedByMethod[$cashIndex];
+            unset($expectedByMethod[$cashIndex]);
+            array_unshift($expectedByMethod, $cashRow);
+            $expectedByMethod = array_values($expectedByMethod);
+        } else {
+            array_unshift($expectedByMethod, [
+                'key'      => self::paymentGroupKey(self::CASH_METHOD_NAME),
+                'name'     => self::CASH_METHOD_NAME,
+                'code'     => 'cash',
+                'isCash'   => true,
+                'expected' => $cashExpected,
+            ]);
+        }
+
         return [
             'list'             => $list,
             'paymentBreakdown' => $paymentBreakdown,
+            'expectedByMethod' => $expectedByMethod,
             'date'             => $open['drawerOpenDate'],
             'subtotal'        => ($cajaInicial + $cashPrice + $totalIncome) - $expenseAmount,
             'total'           => ($cajaInicial + $total + $totalIncome) - $expenseAmount - $return,

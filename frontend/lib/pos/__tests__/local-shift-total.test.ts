@@ -368,6 +368,7 @@ describe("comparación con el arqueo del servidor", () => {
         subtotal: 0,
         salesTotal: 0,
         returns: 0,
+        byMethod: [],
       }),
     ).toBe(true)
   })
@@ -380,6 +381,7 @@ describe("comparación con el arqueo del servidor", () => {
         subtotal: 0,
         salesTotal: 0,
         returns: 0,
+        byMethod: [],
       }),
     ).toBe(false)
   })
@@ -392,8 +394,10 @@ describe("comparación con el arqueo del servidor", () => {
   it("un backend sin el campo no se lee como un turno de cero", () => {
     expect(parseServerCloseTotals({ message: "true" })).toBeNull()
     expect(parseServerCloseTotals(null)).toBeNull()
+    // `byMethod: []` y no ausente: el arqueo por medio (mig 167) llega vacío
+    // cuando el backend todavía no lo manda, que es distinto de inventar filas.
     expect(parseServerCloseTotals({ closing: { total: "200000", date: SHIFT_OPEN } })).toEqual(
-      { date: SHIFT_OPEN, total: 200_000, subtotal: 0, salesTotal: 0, returns: 0 },
+      { date: SHIFT_OPEN, total: 200_000, subtotal: 0, salesTotal: 0, returns: 0, byMethod: [] },
     )
   })
 })

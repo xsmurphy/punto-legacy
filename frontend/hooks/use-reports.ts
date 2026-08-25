@@ -107,6 +107,54 @@ export interface DrawersReportResponse {
 }
 
 /**
+ * Una fila del arqueo por medio de pago de un cierre (mig 167): lo que se
+ * esperaba de ese medio, lo que el cajero declaró haber contado y el veredicto.
+ */
+export interface DrawerCountRow {
+  key: string
+  name: string
+  isCash: boolean
+  /** `null` = no se pudo congelar el esperado de ese medio. Nunca es cero. */
+  expected: number | string | null
+  counted: number | string
+  difference: number | string | null
+  status: "ok" | "short" | "over" | "unknown"
+  /**
+   * `frozen` = filas escritas por el cierre. `estimated` = el cierre es
+   * anterior a la mig 167 (o lo hizo el panel, que solo pide el efectivo) y lo
+   * único reconstruible es la fila del cajón: los demás medios NO se muestran
+   * en cero, porque nadie los contó.
+   */
+  source: "frozen" | "estimated"
+}
+
+/**
+ * Detalle de UNA caja (`GET /v1/reports/drawers?id=`). Trae lo mismo que la
+ * fila del listado más el desglose por medio de pago: `payments` (lo que se
+ * vendió por cada medio) y `countByMethod` (lo que se arqueó por cada medio).
+ */
+export interface DrawerDetail extends DrawerRow {
+  payments: { type: string; label: string; price: number | string }[]
+  countByMethod: DrawerCountRow[]
+}
+
+/**
+ * El detalle de una caja, pedido solo cuando hay una seleccionada.
+ *
+ * El endpoint existía desde siempre y ningún cliente lo llamaba: el modal de
+ * detalle renderizaba la fila que ya tenía del listado, así que el desglose por
+ * medio de pago que el backend calculaba no se veía en ninguna parte. Con el
+ * arqueo por medio (mig 167) ese desglose es el contenido principal del
+ * informe, así que ahora sí se pide.
+ */
+export function useDrawerDetail(drawerId: string | null) {
+  return useReport<{ detail: DrawerDetail; tolerance: number }>("drawers", {
+    params: drawerId ? { id: drawerId } : undefined,
+    enabled: !!drawerId,
+  })
+}
+
+/**
  * Fila del endpoint /v1/reports/transactions?view=detail. El backend resuelve
  * los IDs a nombres (customerName/userName/outletName/registerName) y agrega
  * los componentes financieros calculados (subtotal/tax/discount/total).
