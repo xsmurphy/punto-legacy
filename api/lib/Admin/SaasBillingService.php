@@ -393,6 +393,18 @@ final class SaasBillingService
         if (!$itemId) {
             throw new \RuntimeException("SaasBillingService: no se pudo crear el ítem de suscripción ({$planCode})");
         }
+
+        // Sucursales del ítem (`item_outlet`, mig 170). Este alta va directo al
+        // repo, sin pasar por `ItemService::createBlank()`, así que el vínculo
+        // hay que crearlo acá: un ítem con CERO sucursales es invisible para
+        // toda caja. Se asigna a TODAS las del emisor — es un ítem de
+        // facturación interna, no un producto de una sucursal en particular.
+        $outletSvc = new \Punto\Api\Items\ItemOutletService($GLOBALS['db']);
+        $issuerOutlets = $outletSvc->allOutletIdsOf($issuerCompanyId);
+        if ($issuerOutlets !== []) {
+            $outletSvc->replace((string) $itemId, $issuerCompanyId, $issuerOutlets);
+        }
+
         return (string) $itemId;
     }
 

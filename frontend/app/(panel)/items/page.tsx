@@ -334,13 +334,20 @@ function ItemsPageInner() {
         meta: { label: "Marca" },
       },
       {
-        accessorKey: "outletName",
-        header: "Sucursal",
+        // Sucursales del artículo (`item_outlet`, mig 170). Antes esta columna
+        // leía el escalar legacy `outletName` y mostraba "Todas" cuando venía
+        // vacío; hoy un artículo está en 1..N sucursales explícitas y "ninguna"
+        // no es un estado válido — el guión indica un dato a corregir, no un
+        // comodín.
+        id: "outlets",
+        accessorFn: (row) =>
+          (row.outlets ?? []).map((o) => o.outletName).join(", "),
+        header: "Sucursales",
         cell: ({ getValue }) => {
-          const v = getValue() as string | null
-          return v ? v : <span className="opacity-40 text-xs">Todas</span>
+          const v = getValue() as string
+          return v ? v : <span className="opacity-40">—</span>
         },
-        meta: { label: "Sucursal" },
+        meta: { label: "Sucursales" },
       },
       {
         accessorKey: "itemUOM",
@@ -482,7 +489,10 @@ function ItemsPageInner() {
   const initialColumnVisibility = React.useMemo(
     () => ({
       brandName: false,
-      outletName: false,
+      // La columna se llama `outlets` desde la mig 170 (antes `outletName`, el
+      // escalar legacy). La clave tiene que matchear el id de la columna o la
+      // preferencia de visibilidad no aplica.
+      outlets: false,
       itemUOM: false,
       itemCost: false,
       itemDate: false,

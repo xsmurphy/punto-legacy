@@ -288,6 +288,19 @@ final class SignupService
                         'companyId'  => $companyInsert,
                     ]
                 ), 'table' => 'item']);
+                // Sucursal del ítem demo (`item_outlet`, mig 170). Este INSERT
+                // va directo a `item` sin pasar por `ItemService`, así que el
+                // vínculo hay que crearlo a mano: un ítem con CERO sucursales
+                // es invisible en toda caja, y sin esto el comercio recién
+                // creado arrancaría con el catálogo demo entero fuera del POS
+                // (y las hotkeys de abajo apuntando a ítems que la caja no ve).
+                if ($itemInsert && $outletInsert) {
+                    ncmInsert(['records' => [
+                        'itemid'    => $itemInsert,
+                        'outletid'  => $outletInsert,
+                        'companyid' => $companyInsert,
+                    ], 'table' => 'item_outlet']);
+                }
                 $hotKeys[] = ['color' => '', 'itemId' => $itemInsert, 'position' => ($i + 1)];
             }
             ncmUpdate(['records' => ['registerHotkeys' => json_encode($hotKeys)],

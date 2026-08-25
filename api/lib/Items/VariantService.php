@@ -121,6 +121,21 @@ final class VariantService
             $parentRow = _flattenJsonb($parentRow);
         }
 
+        // Sucursales del padre (`item_outlet`, mig 170). Una variante vive
+        // exactamente donde vive su padre: es el mismo producto en otra talla o
+        // color, no un artículo con distribución propia.
+        $parentOutletIds = (new ItemOutletService($this->db))->listFor($parentId, $companyId);
+
+        // Sucursal contra la que se imputa el stock inicial. Con el modelo
+        // N-a-N ya no hay "la" sucursal del ítem, así que se toma la primera
+        // del padre (orden estable por nombre). El `outletid` legacy queda de
+        // fallback solo para ítems anteriores a la mig 170 que todavía no
+        // tengan filas en `item_outlet`.
+        $stockOutletId = $parentOutletIds[0]
+            ?? $parentRow['outletid']
+            ?? $parentRow['outletId']
+            ?? null;
+
         $this->db->BeginTrans();
         try {
             foreach ($variants as $v) {
@@ -184,13 +199,30 @@ final class VariantService
                         'updated_at'         => TODAY,
                         'itemTaxIncluded'    => (bool) ($parentRow['itemtaxincluded'] ?? $parentRow['itemTaxIncluded'] ?? true),
                         'taxId'              => $parentRow['taxid'] ?? $parentRow['taxId'] ?? null,
-                        'outletId'           => $parentRow['outletid'] ?? $parentRow['outletId'] ?? null,
+                        // `outletId` (la columna legacy 1:1) NO se copia: quedó
+                        // congelada con la mig 170 — nadie la escribe y la
+                        // visibilidad sale de `item_outlet`. Las sucursales de
+                        // la variante se heredan del padre más abajo.
                         'categoryId'         => $parentRow['categoryid'] ?? $parentRow['categoryId'] ?? null,
                     ];
                     if ($barcode !== null) $record['itemBarcode'] = $barcode;
                     $newId = ncmInsert(['table' => 'item', 'records' => $record]);
                     if ($newId === false) {
                         throw new \RuntimeException('No se pudo insertar la variante', 500);
+                    }
+                    // Heredar las sucursales del padre. Sin esto la variante
+                    // nacería con CERO filas en `item_outlet` — o sea invisible
+                    // en toda caja, que es justo el estado que el modelo
+                    // prohíbe. Copia set-based, sin round-trip por sucursal.
+                    if ($parentOutletIds !== []) {
+                        $this->db->Execute(
+                            'INSERT INTO item_outlet (itemid, outletid, companyid)
+                                  SELECT ?, io.outletid, io.companyid
+                                    FROM item_outlet io
+                                   WHERE io.itemid = ? AND io.companyid = ?
+                             ON CONFLICT DO NOTHING',
+                            [$newId, $parentId, $companyId]
+                        );
                     }
                     // Stock inicial via Inventory::manageStock si stock > 0.
                     if ($stockInit > 0) {
@@ -200,7 +232,7 @@ final class VariantService
                             'type'          => '+',
                             'count'         => $stockInit,
                             'note'          => 'Stock inicial — variante creada',
-                            'outletId'      => $parentRow['outletid'] ?? $parentRow['outletId'] ?? null,
+                            'outletId'      => $stockOutletId,
                             'locationId'    => null,
                             'transactionId' => null,
                             'date'          => TODAY,

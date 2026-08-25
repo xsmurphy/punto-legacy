@@ -98,7 +98,9 @@ export interface BulkEditPatch {
   taxId?: string | null
   categoryId?: string | null
   brandId?: string | null
-  outletId?: string | null
+  /** Reemplaza el set COMPLETO de sucursales del ítem. Lista vacía = 422 del
+   *  backend: un ítem sin sucursal es estado inválido. Omitir para no tocarlas. */
+  outletIds?: string[]
   itemDiscount?: number | null
   itemUOM?: string | null
   itemWaste?: number | null
@@ -579,10 +581,14 @@ function serialize(
     itemCanSale: flags.itemCanSale,
     itemTrackInventory: flags.itemTrackInventory,
     itemProduction: flags.itemProduction,
-    // Configuraciones extendidas — algunas son columnas (outletId, itemSort,
-    // supplierId), el resto rutea al JSONB `data` automáticamente porque no
-    // están en el _getTableSchema['item'] whitelist tras migration 07.
-    outletId: values.outletId || null,
+    // Configuraciones extendidas — algunas son columnas (itemSort, supplierId),
+    // el resto rutea al JSONB `data` automáticamente porque no están en el
+    // _getTableSchema['item'] whitelist tras migration 07.
+    //
+    // `outletIds` NO es columna: el backend sincroniza la tabla `item_outlet`
+    // con esta lista. El `outletId` legacy (1:1, NULL = "todas") ya no se manda
+    // — el ítem vive en N sucursales y nunca en cero.
+    outletIds: values.outletIds,
     supplierId: values.supplierId || null,
     itemSort: values.sort ?? 99999,
     itemWaste: values.waste ?? 0,

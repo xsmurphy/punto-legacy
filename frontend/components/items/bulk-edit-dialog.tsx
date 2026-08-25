@@ -17,6 +17,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { MoneyInput } from "@/components/ui/money-input"
+import { MultiSelect } from "@/components/ui/multi-select"
 import {
   Select,
   SelectContent,
@@ -89,7 +90,13 @@ function BulkEditForm({
   const [clearCategoryId, setClearCategoryId] = React.useState(false)
   const [brandId, setBrandId] = React.useState<string>("")
   const [clearBrandId, setClearBrandId] = React.useState(false)
-  const [outletId, setOutletId] = React.useState<string>("")
+  // Sucursales: reemplazo TOTAL del set, no merge. Por eso arranca vacío y
+  // solo entra al patch si el usuario lo tocó — sin `outletTouched` no habría
+  // forma de distinguir "no cambiar" de "dejarlo sin sucursales", y esto
+  // último es estado inválido (un ítem siempre vive en alguna sucursal).
+  const [outletIds, setOutletIds] = React.useState<string[]>([])
+  const [outletTouched, setOutletTouched] = React.useState(false)
+  const outletsInvalid = outletTouched && outletIds.length === 0
   const [discount, setDiscount] = React.useState<string>("")
   const [uom, setUom] = React.useState<string>("")
   const [waste, setWaste] = React.useState<string>("")
@@ -128,7 +135,7 @@ function BulkEditForm({
     } else if (brandId) {
       patch.brandId = brandId
     }
-    if (outletId) patch.outletId = outletId === "__all__" ? null : outletId
+    if (outletTouched && outletIds.length > 0) patch.outletIds = outletIds
     if (discount.trim() !== "") patch.itemDiscount = Number(discount) || null
     if (uom.trim() !== "") patch.itemUOM = uom.trim()
     if (waste.trim() !== "") patch.itemWaste = Number(waste) || 0
@@ -286,20 +293,44 @@ function BulkEditForm({
           </div>
 
           <div className="space-y-1.5">
-            <Label>Sucursal</Label>
-            <Select value={outletId} onValueChange={setOutletId}>
-              <SelectTrigger>
-                <SelectValue placeholder="No cambiar" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">Todas las sucursales</SelectItem>
-                {(outlets?.rows ?? []).map((o) => (
-                  <SelectItem key={o.id} value={o.id}>
-                    {o.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center justify-between">
+              <Label>Sucursales</Label>
+              {outletTouched && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setOutletTouched(false)
+                    setOutletIds([])
+                  }}
+                >
+                  No cambiar
+                </Button>
+              )}
+            </div>
+            <MultiSelect
+              value={outletIds}
+              onChange={(next) => {
+                setOutletTouched(true)
+                setOutletIds(next)
+              }}
+              options={(outlets?.rows ?? []).map((o) => ({ id: o.id, name: o.name }))}
+              placeholder="No cambiar"
+              searchPlaceholder="Buscar sucursal…"
+              emptyMessage="Sin sucursales."
+              unitLabels={["sucursal", "sucursales"]}
+              aria-invalid={outletsInvalid}
+            />
+            <p
+              className={
+                outletsInvalid ? "text-sm text-destructive" : "text-sm text-muted-foreground"
+              }
+            >
+              {outletsInvalid
+                ? "Elegí al menos una sucursal o volvé a “No cambiar”: un artículo no puede quedar sin sucursal."
+                : "Reemplaza las sucursales de los artículos seleccionados."}
+            </p>
           </div>
 
           <div className="space-y-1.5">
@@ -378,7 +409,7 @@ function BulkEditForm({
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
             Cancelar
           </Button>
-          <Button onClick={handleSubmit} disabled={submitting}>
+          <Button onClick={handleSubmit} disabled={submitting || outletsInvalid}>
             {submitting && <Loader2 className="size-4 animate-spin" />}
             Aplicar a {items.length}
           </Button>

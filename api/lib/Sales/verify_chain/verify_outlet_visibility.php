@@ -8,24 +8,22 @@ declare(strict_types=1);
  * ofrece para vender artículos de otras sucursales", ver context/25-
  * sucursales-y-scopes.md §3 y el reporte del tester que originó este fix).
  *
- * `item.outletId` es una FK nullable 1:1 (`db-schema-postgres.sql`): NULL =
- * disponible en TODAS las sucursales, UUID = exclusivo de esa sucursal.
- * Antes de este fix, `/v1/items` (listado + bulk-get), el delta de
- * `/v1/sync?section=items` y la ficha de producto (`ItemService::getCore/
- * getInventory`) no aplicaban NINGÚN filtro por outlet — el bootstrap de una
- * caja bajaba el catálogo del tenant ENTERO, sin importar la sucursal.
+ * La pertenencia de un ítem a sucursales vive en `item_outlet` (N-a-N, mig
+ * 170): un ítem está en 1..N sucursales, y CERO es un estado inválido. Antes
+ * de la mig 170 era `item.outletId`, una FK nullable 1:1 donde NULL
+ * significaba "disponible en TODAS las sucursales".
  *
  * Fixtures propios (no toca seed.sql — crea su PROPIA sucursal B + 3 items
  * inline, mismo patrón que `verify_register_lease.php::verifyMakeDeviceReal()`):
- *   - ITEM_OUTLET_A → outletId = PY_OUTLET (la sucursal del seed base)
- *   - ITEM_OUTLET_B → outletId = una sucursal B nueva, propia de este arnés
- *   - ITEM_GLOBAL   → outletId = NULL (disponible en todas)
+ *   - ITEM_OUTLET_A → solo PY_OUTLET (la sucursal del seed base)
+ *   - ITEM_OUTLET_B → solo la sucursal B, propia de este arnés
+ *   - ITEM_AMBAS    → las DOS (el equivalente del viejo outletId = NULL)
  *
  * Casos:
  *   1. `outletVisibilityClause()` + `buildItemsSelectSql()` (usado por el
  *      listado paginado y el bulk-get de `items.php`): filtrando por
- *      PY_OUTLET trae ITEM_OUTLET_A + ITEM_GLOBAL, NUNCA ITEM_OUTLET_B.
- *   2. Mismo filtro por la sucursal B: trae ITEM_OUTLET_B + ITEM_GLOBAL,
+ *      PY_OUTLET trae ITEM_OUTLET_A + ITEM_AMBAS, NUNCA ITEM_OUTLET_B.
+ *   2. Mismo filtro por la sucursal B: trae ITEM_OUTLET_B + ITEM_AMBAS,
  *      NUNCA ITEM_OUTLET_A.
  *   3. Sin outletId (panel): trae los TRES — el panel no se restringe,
  *      administra el catálogo completo del tenant.
@@ -40,6 +38,17 @@ declare(strict_types=1);
  *      de ITEM_OUTLET_B devuelve null/[] (tratado como "no existe" — nunca
  *      confirma la existencia de un ítem ajeno). El mismo contexto SIN
  *      deviceId (panel) sí puede leer cualquiera de los tres.
+ *   6. **El caso que la mig 170 hace posible y es el más fácil de romper:**
+ *      a un ítem le SACAN la sucursal de la caja. El ítem no se borró, pero
+ *      para esa caja dejó de existir. El delta tiene que reportarlo en
+ *      `deletedIds` — si solo lo omitiera de `items` (que es lo que hace el
+ *      filtro positivo por sí solo), el device se quedaría con la copia vieja
+ *      en cache, vendible, para siempre. Se verifica además que la OTRA caja
+ *      (la que conserva el ítem) NO lo reciba como borrado.
+ *   7. El invariante de mínimo-una-sucursal: `ItemOutletService::replace()`
+ *      con lista vacía tira InvalidArgumentException (el 422 del endpoint).
+ *   8. Aislamiento multi-tenant: una sucursal de OTRA empresa en la lista
+ *      tira InvalidArgumentException, nunca inserta.
  *
  * Requiere el mismo Postgres migrado+seedeado que run_sale_chain.php (seed.sql
  * ya cargado — usa PY_COMPANY/PY_OUTLET/PY_USER de ahí como base). No
@@ -53,6 +62,7 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 3) . '/bootstrap.php';
 
 use Punto\Api\Context\TenantContext;
+use Punto\Api\Items\ItemOutletService;
 use Punto\Api\Items\ItemRepository;
 use Punto\Api\Items\ItemService as ItemsItemService;
 use Punto\Api\Services\ItemService as PosItemService;
@@ -73,9 +83,9 @@ $PY_USER    = '3e52da17-74a2-49c3-9d07-8d4806671fd5';
 // Fixtures propios de este arnés — UUIDs fijos pero no enumerables, mismo
 // criterio que seed.sql. Idempotente (ON CONFLICT en todo).
 $OUTLET_B    = 'ab0e1e70-1111-4a1a-8b1b-000000000b01';
-$ITEM_A      = 'ab0e1e70-1111-4a1a-8b1b-000000000a01'; // outletId = PY_OUTLET
-$ITEM_B      = 'ab0e1e70-1111-4a1a-8b1b-000000000a02'; // outletId = OUTLET_B
-$ITEM_GLOBAL = 'ab0e1e70-1111-4a1a-8b1b-000000000a03'; // outletId = NULL
+$ITEM_A      = 'ab0e1e70-1111-4a1a-8b1b-000000000a01'; // solo PY_OUTLET
+$ITEM_B      = 'ab0e1e70-1111-4a1a-8b1b-000000000a02'; // solo OUTLET_B
+$ITEM_GLOBAL = 'ab0e1e70-1111-4a1a-8b1b-000000000a03'; // AMBAS sucursales
 $TAX_ID      = '3cf780bb-51d6-4b41-b52d-1e77bfb60969'; // "10% incluido" del seed PY
 
 // Reconstruye lo que apiAuthTenant() hace en un request real, sin JWT —
@@ -107,21 +117,29 @@ $db->Execute(
     [$OUTLET_B, 'Verify PY - Sucursal B (outlet visibility)', $PY_COMPANY]
 );
 
-function verifyUpsertItem(string $itemId, string $companyId, string $name, string $sku, float $price, string $taxId, ?string $outletId): void
+/**
+ * Crea el ítem y le asigna sus sucursales vía `ItemOutletService` — a
+ * propósito el MISMO camino que usa el endpoint, no un INSERT directo a
+ * `item_outlet`: así el arnés también ejercita el write-path real.
+ *
+ * @param string[] $outletIds
+ */
+function verifyUpsertItem(string $itemId, string $companyId, string $name, string $sku, float $price, string $taxId, array $outletIds): void
 {
     global $db;
     $db->Execute(
-        "INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, outletid, companyid)
-              VALUES (?, ?, ?, ?, 'product', 1, TRUE, FALSE, ?, '{}'::jsonb, ?, ?)
+        "INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, itemcansale, itemtrackinventory, taxid, data, companyid)
+              VALUES (?, ?, ?, ?, 'product', 1, TRUE, FALSE, ?, '{}'::jsonb, ?)
          ON CONFLICT (itemid) DO UPDATE SET
-              outletid = EXCLUDED.outletid, itemprice = EXCLUDED.itemprice, itemstatus = 1",
-        [$itemId, $name, $sku, $price, $taxId, $outletId, $companyId]
+              itemprice = EXCLUDED.itemprice, itemstatus = 1",
+        [$itemId, $name, $sku, $price, $taxId, $companyId]
     );
+    (new ItemOutletService($db))->replace($itemId, $companyId, $outletIds);
 }
 
-verifyUpsertItem($ITEM_A, $PY_COMPANY, 'Verify outlet A', 'VERIFY-OUTLET-A', 1000, $TAX_ID, $PY_OUTLET);
-verifyUpsertItem($ITEM_B, $PY_COMPANY, 'Verify outlet B', 'VERIFY-OUTLET-B', 2000, $TAX_ID, $OUTLET_B);
-verifyUpsertItem($ITEM_GLOBAL, $PY_COMPANY, 'Verify outlet global', 'VERIFY-OUTLET-GLOBAL', 3000, $TAX_ID, null);
+verifyUpsertItem($ITEM_A, $PY_COMPANY, 'Verify outlet A', 'VERIFY-OUTLET-A', 1000, $TAX_ID, [$PY_OUTLET]);
+verifyUpsertItem($ITEM_B, $PY_COMPANY, 'Verify outlet B', 'VERIFY-OUTLET-B', 2000, $TAX_ID, [$OUTLET_B]);
+verifyUpsertItem($ITEM_GLOBAL, $PY_COMPANY, 'Verify outlet ambas', 'VERIFY-OUTLET-GLOBAL', 3000, $TAX_ID, [$PY_OUTLET, $OUTLET_B]);
 
 /** Helper: corre `buildItemsSelectSql` con el filtro de outlet y devuelve los itemIds. */
 function verifyFetchIds(array $ids, string $companyId, ?string $outletId): array
@@ -255,6 +273,179 @@ verifyOutletCheck(
     'caso 5e: el panel (sin deviceId) SÍ puede leer la ficha de un item de CUALQUIER sucursal',
     $posSvcPanel->getCore($ITEM_B, $PY_COMPANY) !== null,
     'getCore(ITEM_B) devolvió null para el panel — no debería restringirse',
+    $failures
+);
+
+// ── Caso 6: al ítem le SACAN la sucursal de la caja → lápida en el delta ───
+// Es el caso central de la mig 170 y el más fácil de romper: el ítem NO se
+// borró (sigue vivo para OUTLET_B), pero para la caja de PY_OUTLET dejó de
+// existir. Si el delta solo lo omitiera de `items`, el device se quedaría con
+// la copia vieja en cache — vendible — para siempre.
+$sinceB = date('Y-m-d H:i:s', time() - 1);
+sleep(1); // que el bump del trigger caiga DESPUÉS del watermark, no en el mismo segundo
+
+// ITEM_GLOBAL estaba en las dos sucursales; se lo deja SOLO en OUTLET_B.
+(new ItemOutletService($db))->replace($ITEM_GLOBAL, $PY_COMPANY, [$OUTLET_B]);
+
+$deltaPy = $sync->itemsDelta($PY_COMPANY, $sinceB, $PY_OUTLET);
+verifyOutletCheck(
+    'caso 6a: la caja que PERDIÓ el ítem lo recibe en deletedIds (lápida de visibilidad)',
+    in_array($ITEM_GLOBAL, $deltaPy['deletedIds'], true),
+    'deletedIds no incluye el item que dejó de pertenecer a PY_OUTLET: ' . json_encode($deltaPy['deletedIds']),
+    $failures
+);
+$deltaPyItemIds = array_map(static fn($r) => $r['itemId'] ?? null, $deltaPy['items']);
+verifyOutletCheck(
+    'caso 6b: y NO viene en items (no se re-siembra lo que se acaba de podar)',
+    !in_array($ITEM_GLOBAL, $deltaPyItemIds, true),
+    'el item apareció en items pese a no pertenecer ya a PY_OUTLET',
+    $failures
+);
+
+// La otra caja conserva el ítem: no debe recibirlo como borrado, y sí como
+// actualizado (el trigger de `item_outlet` le bumpeó `updated_at`).
+$deltaB = $sync->itemsDelta($PY_COMPANY, $sinceB, $OUTLET_B);
+verifyOutletCheck(
+    'caso 6c: la caja que CONSERVA el ítem no lo recibe como borrado',
+    !in_array($ITEM_GLOBAL, $deltaB['deletedIds'], true),
+    'OUTLET_B recibió como borrado un item que sigue siendo suyo: ' . json_encode($deltaB['deletedIds']),
+    $failures
+);
+$deltaBItemIds = array_map(static fn($r) => $r['itemId'] ?? null, $deltaB['items']);
+verifyOutletCheck(
+    'caso 6d: el trigger de item_outlet bumpeó updated_at — la caja que conserva el ítem lo ve actualizado',
+    in_array($ITEM_GLOBAL, $deltaBItemIds, true),
+    'OUTLET_B no vio el cambio: el trigger trg_item_outlet_touch_item no bumpeó item.updated_at',
+    $failures
+);
+
+// El ítem ya no se ve desde PY_OUTLET por el filtro positivo tampoco.
+verifyOutletCheck(
+    'caso 6e: el listado de PY_OUTLET ya no muestra el ítem',
+    !in_array($ITEM_GLOBAL, verifyFetchIds($allThree, $PY_COMPANY, $PY_OUTLET), true),
+    'el listado de PY_OUTLET todavía muestra un item que ya no le pertenece',
+    $failures
+);
+
+// ── Caso 7: invariante de mínimo UNA sucursal ──────────────────────────────
+$emptyRejected = false;
+try {
+    (new ItemOutletService($db))->replace($ITEM_A, $PY_COMPANY, []);
+} catch (\InvalidArgumentException $e) {
+    $emptyRejected = true;
+}
+verifyOutletCheck(
+    'caso 7: dejar un ítem sin ninguna sucursal es rechazado (invariante mínimo-una)',
+    $emptyRejected,
+    'replace() aceptó una lista vacía — el ítem quedaría invisible en toda caja',
+    $failures
+);
+verifyOutletCheck(
+    'caso 7b: y el rechazo no dejó el vínculo a medias (sigue en su sucursal)',
+    (new ItemOutletService($db))->listFor($ITEM_A, $PY_COMPANY) === [$PY_OUTLET],
+    'el DELETE corrió antes de validar: el item quedó sin sucursales',
+    $failures
+);
+
+// ── Caso 8: aislamiento multi-tenant ───────────────────────────────────────
+// UUID BIEN FORMADO (si no, el rechazo probaría un error de casteo de
+// Postgres, no el chequeo de tenant) pero que no es sucursal de esta empresa.
+$MX_OUTLET_FAKE = 'ab0e1e70-1111-4a1a-8b1b-000000000c01';
+$foreignRejected = false;
+try {
+    (new ItemOutletService($db))->replace($ITEM_A, $PY_COMPANY, [$PY_OUTLET, $MX_OUTLET_FAKE]);
+} catch (\InvalidArgumentException $e) {
+    $foreignRejected = true;
+}
+verifyOutletCheck(
+    'caso 8: una sucursal ajena al tenant en la lista aborta, nunca inserta',
+    $foreignRejected,
+    'replace() aceptó una sucursal que no pertenece a la empresa',
+    $failures
+);
+
+// ── Caso 9: aislamiento multi-tenant en el WRITE de sucursales ─────────────
+// `ItemService::update()` recibe el itemId del caller. Sin el guard de
+// pertenencia, un PUT con el id de un ítem de OTRA empresa insertaría filas
+// (itemid ajeno, outletid mío, companyid mío) en `item_outlet` — el UPDATE de
+// columnas se protege solo con su WHERE, pero un INSERT no tiene dónde
+// filtrar. Se usa el ítem de la company MX del seed contra la company PY.
+$MX_COMPANY = 'fa8cf679-9003-417e-8726-5b772d3b6e88';
+$MX_ITEM    = '52b6ee53-3702-4127-a5a9-f31c8a75b938'; // 'Verify 16% incluido' (MX)
+
+$outletsBefore = (new ItemOutletService($db))->listFor($MX_ITEM, $MX_COMPANY);
+$crossTenantOk = $itemsItemService->update($MX_ITEM, $PY_COMPANY, ['outletIds' => [$PY_OUTLET]]);
+$outletsAfter  = (new ItemOutletService($db))->listFor($MX_ITEM, $MX_COMPANY);
+
+verifyOutletCheck(
+    'caso 9a: update() de un ítem de OTRO tenant con outletIds devuelve false, no lo toca',
+    $crossTenantOk === false,
+    'update() devolvió true para un ítem que no pertenece a la company del caller',
+    $failures
+);
+verifyOutletCheck(
+    'caso 9b: y NO se insertó ninguna fila de item_outlet cruzada',
+    $outletsAfter === $outletsBefore,
+    'las sucursales del item ajeno cambiaron: antes ' . json_encode($outletsBefore)
+        . ', después ' . json_encode($outletsAfter),
+    $failures
+);
+$crossRows = $db->Execute(
+    'SELECT COUNT(*) AS c FROM item_outlet WHERE itemid = ? AND companyid = ?',
+    [$MX_ITEM, $PY_COMPANY]
+);
+$crossCount = $crossRows === false ? -1 : (int) ($crossRows->fields['c'] ?? -1);
+verifyOutletCheck(
+    'caso 9c: no quedó ninguna fila (itemid ajeno, companyid del atacante) en item_outlet',
+    $crossCount === 0,
+    "se encontraron {$crossCount} filas cruzadas en item_outlet",
+    $failures
+);
+
+// ── Caso 10: el comodín legacy "todas" ya no se acepta ─────────────────────
+// Un cliente viejo que mande `outletId: null` (que es lo que el front mandaba
+// antes de la mig 170) NO debe ensanchar la visibilidad del ítem a todas las
+// sucursales en silencio.
+$wildcardRejected = false;
+try {
+    (new ItemOutletService($db))->resolveFromPayload(['outletId' => null], $PY_COMPANY);
+} catch (\InvalidArgumentException $e) {
+    $wildcardRejected = true;
+}
+verifyOutletCheck(
+    'caso 10: `outletId: null` (comodín "todas" legacy) es rechazado, no traducido a todas las sucursales',
+    $wildcardRejected,
+    'un payload legacy con outletId vacío ensanchó la visibilidad en vez de fallar',
+    $failures
+);
+
+// ── Caso 11: `replace()` es atómico y no deja el ítem en cero ──────────────
+// El DELETE+INSERT es la ventana donde el ítem existe sin sucursales. Como el
+// invariante no es un constraint de base, esta ventana ES el invariante. Se
+// fuerza el fallo del INSERT con una sucursal que pasa la validación de tenant
+// pero viola la FK (se borra entre el assert y el INSERT no se puede simular
+// fácil, así que se ataca por el lado del retorno: un itemId inexistente hace
+// que el INSERT viole la FK a `item`).
+$GHOST_ITEM = 'ab0e1e70-1111-4a1a-8b1b-0000000000ff';
+$atomicThrew = false;
+try {
+    (new ItemOutletService($db))->replace($GHOST_ITEM, $PY_COMPANY, [$PY_OUTLET]);
+} catch (\RuntimeException $e) {
+    $atomicThrew = true;
+} catch (\Throwable $e) {
+    $atomicThrew = true;
+}
+verifyOutletCheck(
+    'caso 11: un INSERT de item_outlet que falla LANZA (no deja el ítem en cero en silencio)',
+    $atomicThrew,
+    'replace() volvió normalmente pese a que el INSERT no pudo escribir',
+    $failures
+);
+// El ítem real no quedó tocado por el intento fallido.
+verifyOutletCheck(
+    'caso 11b: y el ítem A conserva su sucursal (la transacción revirtió)',
+    (new ItemOutletService($db))->listFor($ITEM_A, $PY_COMPANY) === [$PY_OUTLET],
+    'el rollback no restauró las sucursales del item A',
     $failures
 );
 

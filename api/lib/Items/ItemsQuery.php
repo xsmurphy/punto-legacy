@@ -59,6 +59,8 @@ function presentItem(array|\CaseInsensitiveArray $row): array
         'hasaddons'           => 'hasAddons',
         'addongroups'         => 'addonGroups',
         'compounditems'       => 'compoundItems',
+        // `item_outlet` (mig 170) — Postgres devuelve el alias en minúsculas.
+        'outletsjson'         => 'outletsJson',
         // Categoría de GASTO del ítem (Finanzas) — NO es `categoryId` (esa es
         // la comercial, la que agrupa en el POS). Vive en `data.expenseCategoryId`
         // (JSONB, mismo patrón que itemUOM — ver `buildItemsSelectSql()`: no
@@ -143,6 +145,28 @@ function presentItem(array|\CaseInsensitiveArray $row): array
     } else {
         $out['compoundItems'] = [];
     }
+    // Sucursales del ítem (`item_outlet`, mig 170). Mismo trato que addonGroups
+    // arriba: `json_agg(...)` llega como STRING con pdo_pgsql. Se exponen DOS
+    // campos derivados de la misma lista:
+    //   - `outlets`   → [{outletId, outletName}], para pintar sin otra query
+    //   - `outletIds` → [id], que es lo que el form manda de vuelta
+    // El invariante es "≥1 sucursal" (ver ItemOutletService), pero acá NO se
+    // fuerza: si un ítem quedó en cero (tenant sin sucursales, o hard-delete de
+    // la última sucursal — mig 170 §4), el front tiene que poder VERLO para
+    // corregirlo, no recibir un dato inventado.
+    $rawOutlets = $out['outletsJson'] ?? null;
+    unset($out['outletsJson']);
+    if (is_string($rawOutlets) && $rawOutlets !== '') {
+        $decoded    = json_decode($rawOutlets, true);
+        $rawOutlets = is_array($decoded) ? $decoded : [];
+    } elseif (!is_array($rawOutlets)) {
+        $rawOutlets = [];
+    }
+    $out['outlets']   = $rawOutlets;
+    $out['outletIds'] = array_values(array_filter(array_map(
+        static fn($o) => is_array($o) ? ($o['outletId'] ?? null) : null,
+        $rawOutlets
+    )));
     return $out;
 }
 
@@ -214,8 +238,28 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
                    -- vieja (2026-06-23, previa a la convención de quoted
                    -- camelCase): columnas SIN comillas a propósito, quotearlas
                    -- rompería en runtime (no matchean las lowercase reales).
-                   compound.items AS compoundItems
+                   compound.items AS compoundItems,
+                   -- Sucursales del ítem (`item_outlet`, mig 170). Viaja acá y
+                   -- no en un fetch aparte por la misma razón que addonGroups:
+                   -- este SELECT es la ÚNICA fuente de listado, bulk-get y
+                   -- delta de sync, así que los tres shapes no pueden divergir.
+                   -- Se embeben id Y nombre: la ficha del panel pinta los
+                   -- nombres sin una segunda query, y el POS ya trae el dato si
+                   -- alguna vez lo necesita.
+                   outlets.list AS outletsJson
               FROM item i
+         LEFT JOIN LATERAL (
+              SELECT json_agg(
+                       json_build_object(
+                         'outletId', io.outletid,
+                         'outletName', oo.outletName
+                       ) ORDER BY oo.outletName ASC
+                     ) AS list
+                FROM item_outlet io
+                JOIN outlet oo ON oo.outletId = io.outletid
+               WHERE io.itemid = i.itemId
+                 AND io.companyid = i.companyId
+         ) outlets ON true
          LEFT JOIN LATERAL (
               SELECT json_agg(
                        json_build_object(
@@ -298,9 +342,14 @@ function buildItemsSelectSql(string $whereSql, string $tailSql = ''): string
 /**
  * Fragmento de visibilidad por sucursal para `pos-app` (una caja).
  *
- * `item.outletId` es 1:1 nullable (`db-schema-postgres.sql`): NULL = ítem
- * disponible en TODAS las sucursales, UUID = exclusivo de esa sucursal. Una
- * caja solo debe poder vender/consultar lo que le corresponde — antes de
+ * La pertenencia de un ítem a sucursales vive en `item_outlet` (N-a-N, mig
+ * 170): un ítem está en 1..N sucursales y NUNCA en cero — "cero filas" es un
+ * estado inválido, no un comodín de "todas" (OJO: `contact_outlet`, mig 66,
+ * sí usa cero = todas; NO trasladar esa lectura acá). El invariante lo
+ * sostiene el write-path de `ItemService` (422 ante lista vacía); ver la §4
+ * de la mig 170 para por qué no es un constraint de base.
+ *
+ * Una caja solo debe poder vender/consultar lo que le corresponde — antes de
  * esto, `/v1/items`, el bulk-get y el delta de sync no aplicaban ningún
  * filtro de outlet y el POS ofrecía para vender ítems de otras sucursales
  * (context/29 lo documenta como riesgo fiscal de otro tipo; esto es el
@@ -321,5 +370,36 @@ function outletVisibilityClause(?string $outletId): array
     if ($outletId === null || $outletId === '') {
         return ['', []];
     }
-    return ['(i.outletId = ? OR i.outletId IS NULL)', [$outletId]];
+    return [
+        'EXISTS (SELECT 1 FROM item_outlet io WHERE io.itemid = i.itemId AND io.companyid = i.companyId AND io.outletid = ?)',
+        [$outletId],
+    ];
+}
+
+/**
+ * La NEGACIÓN de `outletVisibilityClause()` — ítems que NO pertenecen a esta
+ * sucursal.
+ *
+ * Existe para un solo consumidor: `SyncService::itemsDelta()`. Cuando a un
+ * ítem le sacan la sucursal de una caja, el ítem no se borra — deja de
+ * existir PARA ESA CAJA. Sin este fragmento, el delta simplemente no lo trae
+ * (el filtro positivo lo descarta) y el device se queda con la copia vieja en
+ * cache para siempre, vendible. Con él, el delta lo puede reportar como
+ * removido, que es lo que la caja necesita saber.
+ *
+ * Se define acá, pegado a su contraparte, para que las dos no puedan
+ * divergir: cualquier cambio al criterio de pertenencia se hace en este par
+ * de funciones y en ningún otro lado.
+ *
+ * @return array{0: string, 1: list<string>} [fragmento SQL (o '' si no aplica), params]
+ */
+function outletInvisibilityClause(?string $outletId): array
+{
+    if ($outletId === null || $outletId === '') {
+        return ['', []];
+    }
+    return [
+        'NOT EXISTS (SELECT 1 FROM item_outlet io WHERE io.itemid = i.itemId AND io.companyid = i.companyId AND io.outletid = ?)',
+        [$outletId],
+    ];
 }

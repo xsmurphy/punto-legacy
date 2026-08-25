@@ -80,8 +80,8 @@ final class RegisterAdminService
      * Cuenta, por caja, cuántos hotkeys de artículo (`register.data.hotkeys`,
      * `isCategory=false`) apuntan a un itemId que esa caja NO puede ver hoy —
      * no existe, no está scopeado a su sucursal (mismo criterio que
-     * `outletVisibilityClause()` en ItemsQuery.php: visible si
-     * `item.outletId = register.outletId OR item.outletId IS NULL`), o está
+     * `outletVisibilityClause()` en ItemsQuery.php: visible si el ítem tiene
+     * fila en `item_outlet` para la sucursal de la caja — mig 170), o está
      * archivado (`itemStatus = 0`) — el catálogo activo del POS (`/v1/items`
      * default `itemStatus = 1`) tampoco lo ofrece, así que sería el mismo
      * slot-huérfano aunque exista la fila.
@@ -111,7 +111,12 @@ final class RegisterAdminService
                LEFT JOIN item it
                  ON it.itemId::text = (elems.hotkey->>'itemId')
                 AND it.companyId = r.companyId
-                AND (it.outletId = r.outletId OR it.outletId IS NULL)
+                AND EXISTS (
+                      SELECT 1 FROM item_outlet io
+                       WHERE io.itemid = it.itemId
+                         AND io.companyid = it.companyId
+                         AND io.outletid = r.outletId
+                    )
                 AND it.itemStatus = 1
               WHERE r.companyId = ?
                 AND jsonb_exists(r.data, 'hotkeys')
