@@ -24,7 +24,8 @@
  *   POST ?id=<uuid>&action=resolveRequest  body {requestId, approve, resolvedBy?}
  *
  * F3.5 — entrar como empresa (impersonar):
- *   POST ?id=<uuid>&action=enter → genera JWT _jwt_panel del propietario
+ *   POST ?id=<uuid>&action=enter → abre sesión de panel del propietario
+ *                                   (cookie _jwt_panel HttpOnly en la respuesta)
  *
  * F3 (context/34-admin-saas-plan.md) — ficha completa del tenant:
  *   GET  ?id=<uuid>&modules=1              → estado de módulos nativos (enabled)
@@ -404,7 +405,11 @@ if ($method === 'POST') {
             apiNotFound('Empresa no encontrada o sin propietario activo');
         }
         adminAudit('impersonate', 'company', $id);
-        apiOk(['token' => $tokenData['token'], 'expiresIn' => $tokenData['expiresIn']]);
+        // La credencial viaja en la cookie `_jwt_panel` (HttpOnly) que emite
+        // `issuePanelSession()`, NO en este body: devolverla en el JSON la dejaba
+        // al alcance de cualquier script de la página sin que nadie la usara.
+        // El front sólo necesita saber que ya puede abrir el panel.
+        apiOk(['ok' => true, 'expiresIn' => $tokenData['expiresIn']]);
     }
 
     apiError('Acción no soportada', 422);

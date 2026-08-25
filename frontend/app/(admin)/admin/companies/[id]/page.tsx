@@ -245,9 +245,11 @@ function HeaderActions({ id }: { id: string }) {
 
   const handleEnter = () => {
     enterCompany.mutate(id, {
-      onSuccess: (res) => {
+      onSuccess: () => {
         toast.success("Ingresando como empresa…")
-        window.open(res?.redirectUrl ?? "/", "_blank", "noopener,noreferrer")
+        // La sesión del tenant ya quedó en la cookie `_jwt_panel` que devolvió
+        // el endpoint; la pestaña nueva abre el panel con esa credencial.
+        window.open("/", "_blank", "noopener,noreferrer")
       },
       onError: (err) => {
         toast.error("No se pudo ingresar como empresa", {

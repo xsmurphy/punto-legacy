@@ -53,6 +53,11 @@ require_once __DIR__ . '/_harness.php';
  *   K. La empresa master del seed queda marcada `isInternal = 1` (mig 173): es
  *      la empresa del propio SaaS y las analíticas de /admin la contaban como
  *      un tenant más.
+ *   L. "Entrar como empresa" (impersonación) emite una sesión de panel REAL
+ *      para el dueño: realm `panel`, la company impersonada, y el `roleId`
+ *      textual tal cual. La copia local del emisor lo casteaba a int, así que
+ *      el rol UUID de un tenant post-mig 58 se guardaba como un número
+ *      inventado — la sesión abría con permisos que no son los del dueño.
  *
  * Uso (un comando, desde la raíz del repo):
  *   bash api/tests/run_admin_tenant_reads_test.sh
@@ -293,6 +298,40 @@ check(
     'K2 la empresa master está marcada isInternal (no cuenta como tenant)',
     (bool) $master && !$master->EOF && ((int) ($master->fields['isinternal'] ?? 0)) === 1,
     'isInternal=' . (($master && !$master->EOF) ? ($master->fields['isinternal'] ?? '?') : 'sin fila')
+);
+
+// ── L. Impersonación: sesión de panel del dueño, emitida por PanelAuth ──────
+[$enter, $err] = attempt(fn() => $svc->getEnterToken($modernCo));
+check('L1 getEnterToken no explota', $err === '', $err);
+check('L2 devuelve token y vencimiento', !empty($enter['token']) && ((int) ($enter['expiresIn'] ?? 0)) > 0, json_encode($enter));
+
+$sessionRow = null;
+if (!empty($enter['token'])) {
+    require_once dirname(__DIR__) . '/includes/auth_session.php';
+    $sessionRow = authSessionLookup((string) $enter['token']);
+}
+// authSessionLookup devuelve CaseInsensitiveArray, no array (trap §40.3):
+// `is_array()` sobre esa fila es siempre false.
+check(
+    'L3 la sesión existe y es del realm panel',
+    $sessionRow !== null && ((string) ($sessionRow['realm'] ?? '')) === 'panel',
+    'realm=' . ($sessionRow['realm'] ?? 'sin sesión')
+);
+check(
+    'L4 apunta a la company impersonada y a su dueño',
+    strtolower((string) ($sessionRow['companyId'] ?? $sessionRow['companyid'] ?? '')) === $modernCo
+        && strtolower((string) ($sessionRow['userId'] ?? $sessionRow['userid'] ?? '')) === $modernOwn,
+    json_encode([$sessionRow['companyid'] ?? null, $sessionRow['userid'] ?? null])
+);
+check(
+    'L5 conserva el roleId textual (el int-casteo lo volvía un número inventado)',
+    strtolower((string) ($sessionRow['roleId'] ?? $sessionRow['roleid'] ?? '')) === $modernRole,
+    'roleId=' . ($sessionRow['roleid'] ?? $sessionRow['roleId'] ?? '?') . ' esperado=' . $modernRole
+);
+check(
+    'L6 el tenant sin dueño no habilita impersonar',
+    $svc->getEnterToken('00000000-0000-0000-0000-0000000000ff') === null,
+    'devolvió algo para una company inexistente'
 );
 
 // ── H. Planes ───────────────────────────────────────────────────────────────

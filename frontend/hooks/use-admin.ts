@@ -471,10 +471,18 @@ export function useAdminHardDelete() {
   })
 }
 
+/**
+ * "Entrar como empresa": el endpoint abre una sesión de panel del propietario y
+ * la deja en la cookie `_jwt_panel` (HttpOnly) de la respuesta. No devuelve
+ * ninguna URL — la ruta del panel es cosa del front, y pedirle al backend que
+ * la conozca era lo que dejaba `redirectUrl` en `undefined`: el handler abría
+ * "/" sin credencial y el panel recibía al admin con "tu sesión expiró"
+ * (reporte del owner 2026-08-25).
+ */
 export function useAdminEnterCompany() {
   return useMutation({
     mutationFn: (id: string) =>
-      apiAdmin.post<{ redirectUrl: string }>(
+      apiAdmin.post<{ ok: true; expiresIn: number }>(
         `/companies.php?id=${encodeURIComponent(id)}&action=enter`,
         {},
       ),

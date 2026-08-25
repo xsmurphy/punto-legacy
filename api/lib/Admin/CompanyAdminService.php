@@ -1578,26 +1578,24 @@ class CompanyAdminService
         }
         $cf = $contact->fields;
 
-        // Primer outlet activo.
-        $outlet = $db->Execute(
-            'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
-            [$id]
-        );
-        $outletId = ($outlet && !$outlet->EOF) ? (string) ($outlet->fields['outletid'] ?? '') : '';
+        // Emisor ÚNICO de sesiones del panel. Acá había una copia de
+        // `issuePanelSession()` que divergió en las tres cosas que importan:
+        //   - no seteaba la cookie `_jwt_panel`, así que impersonar dejaba al
+        //     navegador sin credencial del tenant y el panel abría en "tu
+        //     sesión expiró" (reporte del owner 2026-08-25);
+        //   - casteaba `role` a int, y `contact.role` es varchar desde la
+        //     mig 58: el rol UUID de un tenant nuevo quedaba en basura;
+        //   - usaba `JWT_TTL` en vez de `PANEL_JWT_TTL`, o sea otra duración
+        //     que la de un login normal.
+        // Con el emisor compartido, impersonar produce exactamente la misma
+        // sesión que produciría el login del dueño.
+        require_once __DIR__ . '/../Auth/PanelAuth.php';
 
-        require_once __DIR__ . '/../../includes/auth_session.php';
-
-        $ttl = (int) ($_ENV['JWT_TTL'] ?? 28800);
-        $raw = authSessionCreate('panel', [
+        return \Punto\Api\Auth\PanelAuth::issuePanelSession([
             'companyId' => (string) ($cf['companyid'] ?? ''),
-            'userId'    => (string) ($cf['contactid'] ?? ''),
-            'outletId'  => $outletId,
-            'roleId'    => (string) ((int) ($cf['role'] ?? 1)),
-            'module'    => 'panel',
-            'expiresAt' => date('Y-m-d H:i:s', time() + $ttl),
+            'contactId' => (string) ($cf['contactid'] ?? ''),
+            'role'      => (string) ($cf['role'] ?? ''),
         ]);
-
-        return ['token' => $raw, 'expiresIn' => $ttl];
     }
 
     // --- internos -----------------------------------------------------------
