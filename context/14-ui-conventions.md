@@ -199,6 +199,32 @@ neutral en venta.
 
 ---
 
+## Regla #11 — POS: montos, cantidades y porcentajes se capturan con el pad, NUNCA con un input
+
+Todo valor numérico de la operación de caja (precio, monto, descuento —fijo o
+porcentual—, cantidad, apertura/movimiento de caja) se captura con
+`<NumericPad>` (`components/pos/numeric-pad.tsx`): visor grande de solo
+lectura + teclas en pantalla + captura de teclado físico + input `sr-only`
+que abre/oculta el teclado del OS al tocar el visor (mismo mecanismo que el
+PIN del lock screen). Los `<Input>`/`<MoneyInput>` en el POS son SOLO para
+texto y configuración.
+
+Esta regla se decidió hace meses y ya fue violada una vez: el 2026-08-25 un
+slice móvil introdujo `NumericField`, un wrapper que en <768px reemplazaba el
+pad por un input nativo, documentándolo como "decisión del owner". El owner lo
+declaró regresión el mismo día y se revirtió (merge `89d3c6c5`). Si un
+teléfono hace incómodo el pad, se ajusta EL PAD (tamaños responsive de teclas
+y visor — ya lo tiene), no se cambia la superficie de captura. Guard test:
+`frontend/lib/pos/__tests__/numeric-capture.test.ts`.
+
+Corolario (2026-08-25): los menús de acciones contextuales (fila de
+transacción, orden, badge de estado) usan `<ActionMenu>`
+(`components/ui/action-menu.tsx`) — DropdownMenu en desktop, drawer inferior
+en móvil, labels texto solo. Prohibido montar un `DropdownMenu` de acciones
+directo en un call-site del POS.
+
+---
+
 ## Checklist para review de un componente nuevo
 
 Antes de mergear (o de cerrar el brief de un sub-agente):
