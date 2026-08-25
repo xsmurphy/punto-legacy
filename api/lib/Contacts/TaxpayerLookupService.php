@@ -104,20 +104,39 @@ final class TaxpayerLookupService
      */
     private function fromPublicRegistry(string $companyId, string $ruc): ?array
     {
-        $baseUrl = defined('TAXPAYER_LOOKUP_URL') ? trim((string) TAXPAYER_LOOKUP_URL) : '';
-        if ($baseUrl === '') {
+        // El padrón sale del PAÍS del comercio, no de una constante global: es
+        // un servicio por país, y el de Paraguay no sabe nada de un RUC
+        // chileno. Antes la URL estaba cableada en `simple.config.php`, así que
+        // el identificador tributario del cliente de un comercio extranjero se
+        // mandaba igual al padrón paraguayo — consulta inútil y una fuga de
+        // dato tributario hacia un servicio de otro país.
+        $tenantCountry = \Punto\Api\Support\TenantLocale::country($companyId);
+        if ($tenantCountry === null) {
             return null;
         }
 
-        // Gate por país, mismo criterio que TinService con Marangatu: el padrón
-        // configurado es el de UN país y solo sirve para los contribuyentes de
-        // ese país. Sin este gate, el RUC de un comercio chileno o argentino se
-        // mandaba igual al padrón paraguayo (que era además el default cableado
-        // en simple.config.php) — consulta inútil y una fuga del identificador
-        // tributario de un cliente hacia un servicio de otro país.
-        $registryCountry = defined('TAXPAYER_LOOKUP_COUNTRY') ? (string) TAXPAYER_LOOKUP_COUNTRY : '';
-        $tenantCountry   = \Punto\Api\Support\TenantLocale::country($companyId);
-        if ($registryCountry === '' || $tenantCountry === null || $tenantCountry !== $registryCountry) {
+        // Override de despliegue: si el entorno define un padrón, manda sobre
+        // el del catálogo, pero SOLO para el país que ese padrón atiende
+        // (mismo gate que TinService con Marangatu). Sin `TAXPAYER_LOOKUP_URL`
+        // seteada no pasa nada: se usa el del catálogo.
+        $envUrl     = defined('TAXPAYER_LOOKUP_URL') ? trim((string) TAXPAYER_LOOKUP_URL) : '';
+        $envCountry = defined('TAXPAYER_LOOKUP_COUNTRY') ? trim((string) TAXPAYER_LOOKUP_COUNTRY) : '';
+        if ($envUrl !== '' && $envCountry !== '') {
+            $baseUrl = $envCountry === $tenantCountry ? $envUrl : '';
+        } else {
+            $baseUrl = (string) (\Punto\Api\Support\CountryDefaults::taxpayerRegistryUrl($tenantCountry) ?? '');
+        }
+
+        if ($baseUrl === '') {
+            // Degradación VISIBLE: el lookup por padrón no existe para este
+            // país, pero la función no muere en silencio — el caller sigue con
+            // la fuente del proveedor de facturación electrónica y acá queda
+            // registrado por qué no hubo consulta pública.
+            error_log(sprintf(
+                '[TaxpayerLookup] sin padrón público para el país "%s" (company %s); se usa solo la fuente de FE',
+                $tenantCountry,
+                $companyId
+            ));
             return null;
         }
 

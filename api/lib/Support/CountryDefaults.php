@@ -116,6 +116,40 @@ final class CountryDefaults
         return null;
     }
 
+    /**
+     * Padrón público de contribuyentes del país, o null si no conocemos uno.
+     *
+     * Un padrón es un servicio POR PAÍS: el de Paraguay no sabe nada de un RUC
+     * chileno. Por eso la URL se deriva del país del comercio y no de una
+     * constante global — cableada en `simple.config.php`, se consultaba el
+     * padrón paraguayo para cualquier tenant, mandándole el identificador
+     * tributario de un cliente extranjero a un servicio de otro país.
+     *
+     * Vive acá y no en env para que el caso que YA funciona (Paraguay) siga
+     * funcionando sin que nadie tenga que configurar nada: sacarlo a una
+     * variable de entorno sin default mataba la búsqueda de RUC de los
+     * comercios paraguayos apenas deployara. `TAXPAYER_LOOKUP_URL` sigue
+     * existiendo como override de despliegue (ver TaxpayerLookupService).
+     *
+     * Sumar un país es agregar una fila acá, no tocar ningún call-site.
+     */
+    public static function taxpayerRegistryUrl(?string $iso): ?string
+    {
+        $iso = self::normalizeIso($iso);
+        if ($iso === null) {
+            return null;
+        }
+
+        // Padrones públicos conocidos, por país.
+        $registries = [
+            // Paraguay — consulta de contribuyentes de la SET. Espera el
+            // documento SIN dígito verificador y devuelve el RUC completo.
+            'PY' => 'https://turuc.com.py/api/contribuyente',
+        ];
+
+        return $registries[$iso] ?? null;
+    }
+
     /** true si el string es un identificador IANA que PHP reconoce. */
     public static function isValidTimezone(?string $tz): bool
     {

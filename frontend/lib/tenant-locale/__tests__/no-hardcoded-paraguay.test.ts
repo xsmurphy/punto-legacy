@@ -56,6 +56,19 @@ const SCAN_ROOTS = ["frontend", "api"]
  */
 const SCAN_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".php", ".sql", ".json"])
 
+/**
+ * Los dos archivos DEL GUARD, excluidos del barrido.
+ *
+ * Contienen los literales por construcción: uno define los patrones a buscar y
+ * el otro los nombra en cada excepción y los explica en cada motivo. Contarlos
+ * no protege nada —no hay ningún tenant leyendo esto— y haría que agregar una
+ * excepción cambiara el conteo de la excepción misma.
+ */
+const SELF_FILES = new Set([
+  "frontend/lib/tenant-locale/__tests__/no-hardcoded-paraguay.test.ts",
+  "frontend/lib/tenant-locale/allowlist.ts",
+])
+
 /** Archivos generados: enormes y sin valor para este guard. */
 const SKIP_FILES = new Set([
   "package-lock.json",
@@ -86,10 +99,19 @@ const SKIP_DIRS = new Set([
  * regex.
  */
 const PARAGUAY_PATTERNS: { name: string; re: RegExp }[] = [
-  // Símbolo de moneda como literal de string o como texto JSX (`>Gs<`).
-  // Se exige que esté solo o pegado a un punto ("Gs."), para no marcar
-  // palabras que casualmente contengan esas letras.
-  { name: 'símbolo "Gs"', re: /(["'`>])\s*Gs\.?\s*(["'`<])/ },
+  // Símbolo de moneda, EN CUALQUIER POSICIÓN.
+  //
+  // La primera versión exigía un delimitador pegado (`"Gs"`, `>Gs<`) y por eso
+  // NO detectaba el bug que originó todo este trabajo:
+  // `<p>Total a pagar en Gs</p>` en `(screen)/checkout/live-view.tsx` — el
+  // literal iba en medio de una frase, con texto a la izquierda. Tampoco veía
+  // la concatenación (`"Total en " + "Gs"`) ni los templates.
+  //
+  // Ahora es un `\b...\b` puro: alcanza con que "Gs" aparezca como palabra
+  // suelta. Los identificadores no matchean (`formatGs`, `GsRate` no tienen
+  // borde de palabra en el lugar correcto) y los comentarios ya vienen
+  // stripeados, así que el ruido es mínimo.
+  { name: 'símbolo "Gs"', re: /\bGs\b\.?/ },
   { name: 'símbolo "₲"', re: /₲/ },
   // Código ISO 4217 de Paraguay.
   { name: 'código "PYG"', re: /\bPYG\b/ },
@@ -167,6 +189,7 @@ function scan(): Hit[] {
   for (const root of SCAN_ROOTS) {
     for (const file of listFiles(path.join(REPO_ROOT, root))) {
       const rel = path.relative(REPO_ROOT, file)
+      if (SELF_FILES.has(rel)) continue
       let content
       try {
         content = readFileSync(file, "utf8")
@@ -174,7 +197,24 @@ function scan(): Hit[] {
         continue
       }
       const lines = content.split("\n")
+      // Estado de comentario de bloque a través de líneas. Sin esto, un
+      // comentario JSX multilínea (`{/* ... \n ... */}`) se leía como código y
+      // producía falsos positivos — el caso real fue una nota sobre anchos de
+      // columna en `pos-main-menu.tsx` que mencionaba la moneda.
+      let inBlock = false
       for (let i = 0; i < lines.length; i++) {
+        const raw = lines[i]
+        if (inBlock) {
+          const close = raw.indexOf("*/")
+          if (close === -1) continue
+          inBlock = false
+          lines[i] = raw.slice(close + 2)
+        }
+        const opened = lines[i].lastIndexOf("/*")
+        if (opened !== -1 && lines[i].indexOf("*/", opened) === -1) {
+          inBlock = true
+          lines[i] = lines[i].slice(0, opened)
+        }
         const code = stripComments(lines[i])
         if (!code.trim()) continue
         for (const { name, re } of PARAGUAY_PATTERNS) {
@@ -190,7 +230,27 @@ function scan(): Hit[] {
 
 const allHits = scan()
 const allowedFiles = new Set(Object.keys(PARAGUAY_LITERAL_ALLOWLIST))
-const filesWithHits = new Set(allHits.map((h) => h.file))
+
+/** Clave de conteo: un archivo puede tener varios patrones distintos. */
+const key = (file: string, pattern: string) => `${file} ${pattern}`
+
+/** Cuántas líneas matchean cada (archivo, patrón) HOY. */
+const actualCounts = new Map<string, number>()
+for (const h of allHits) {
+  const k = key(h.file, h.pattern)
+  actualCounts.set(k, (actualCounts.get(k) ?? 0) + 1)
+}
+
+/** Cuántas declara la allowlist. */
+const declaredCounts = new Map<string, number>()
+for (const [file, entry] of Object.entries(PARAGUAY_LITERAL_ALLOWLIST)) {
+  for (const [pattern, count] of Object.entries(entry.allow)) {
+    declaredCounts.set(key(file, pattern), count)
+  }
+}
+
+const isPending = (file: string) =>
+  PARAGUAY_LITERAL_ALLOWLIST[file]?.reason.startsWith("PENDIENTE") ?? false
 
 describe("sin hardcodeo de Paraguay", () => {
   it("encuentra archivos para escanear (sanity)", () => {
@@ -202,7 +262,13 @@ describe("sin hardcodeo de Paraguay", () => {
   })
 
   it("no deja ningún literal paraguayo fuera de la allowlist", () => {
-    const offenders = allHits.filter((h) => !allowedFiles.has(h.file))
+    // La excepción es por (archivo, PATRÓN), no por archivo: exceptuar
+    // `format-money.ts` entero porque tiene una lista de códigos ISO dejaba
+    // entrar invisible cualquier "Gs" nuevo en ese mismo archivo. Un patrón no
+    // declarado es un literal nuevo, aunque el archivo ya esté en la lista.
+    const offenders = allHits.filter(
+      (h) => !allowedFiles.has(h.file) || !declaredCounts.has(key(h.file, h.pattern)),
+    )
     const detail = offenders
       .map((h) => `  ${h.file}:${h.line}  [${h.pattern}]  ${h.text}`)
       .join("\n")
@@ -227,6 +293,38 @@ describe("sin hardcodeo de Paraguay", () => {
     ).toBe(0)
   })
 
+  it("cuenta exacta: un literal nuevo en un archivo ya exceptuado también rompe", () => {
+    // Sin este assert, declarar `'símbolo "Gs"': 1` en un archivo permitiría
+    // agregarle un segundo, un tercero y un décimo "Gs" sin que nadie se
+    // entere — que es exactamente el agujero que tenía la allowlist por
+    // archivo. La cantidad es EXACTA en los dos sentidos: si sobra, entró un
+    // literal nuevo; si falta, alguien lo arregló y hay que bajar el número
+    // para que la excepción no quede cubriendo de más.
+    const mismatches: string[] = []
+    for (const [k, declared] of declaredCounts) {
+      const actual = actualCounts.get(k) ?? 0
+      if (actual === declared) continue
+      const [file] = k.split(" ")
+      if (actual === 0 && isPending(file)) continue
+      mismatches.push(
+        `  ${k}: la allowlist declara ${declared}, el código tiene ${actual}` +
+          (actual > declared
+            ? "  ← entró un literal NUEVO"
+            : "  ← se arreglaron; bajá el número"),
+      )
+    }
+    expect(
+      mismatches,
+      mismatches.length === 0
+        ? ""
+        : `\n\nLa cantidad declarada en la allowlist no coincide con el código:\n\n` +
+            `${mismatches.join("\n")}\n\n` +
+            `Si agregaste un literal paraguayo, resolvelo con los resolvers de\n` +
+            `'lib/tenant-locale.ts'. Si lo sacaste, actualizá el número (o borrá\n` +
+            `la entrada) en 'lib/tenant-locale/allowlist.ts'.\n`,
+    ).toEqual([])
+  })
+
   it("no acumula entradas de allowlist para archivos que ya no existen", () => {
     const stale = [...allowedFiles].filter((f) => {
       try {
@@ -242,14 +340,20 @@ describe("sin hardcodeo de Paraguay", () => {
     ).toEqual([])
   })
 
-  it("no acumula entradas de allowlist para archivos que ya no tienen literales", () => {
-    const unnecessary = [...allowedFiles].filter(
-      (f) => !filesWithHits.has(f) && !PARAGUAY_LITERAL_ALLOWLIST[f].startsWith("PENDIENTE"),
-    )
-    expect(
-      unnecessary,
-      `Estos archivos ya no tienen literales paraguayos: la excusa sobrevivió a su\n` +
-        `propio fix. Sacalos de la allowlist para que el guard vuelva a cubrirlos:\n${unnecessary.join("\n")}`,
-    ).toEqual([])
+  it("exige motivo escrito y al menos un patrón declarado por excepción", () => {
+    // Una entrada sin patrones no excepciona nada y solo ensucia la lista; una
+    // sin motivo es la excusa que nadie puede evaluar seis meses después.
+    // (Que la excusa no sobreviva a su propio fix ya lo cubre el assert de
+    // cuenta exacta: declarar N con 0 hits reales falla.)
+    const broken: string[] = []
+    for (const [file, entry] of Object.entries(PARAGUAY_LITERAL_ALLOWLIST)) {
+      if (Object.keys(entry.allow).length === 0) {
+        broken.push(`  ${file}: no declara ningún patrón`)
+      }
+      if (entry.reason.trim().length < 40) {
+        broken.push(`  ${file}: el motivo es demasiado corto para ser un motivo`)
+      }
+    }
+    expect(broken, `Entradas de allowlist mal formadas:\n${broken.join("\n")}`).toEqual([])
   })
 })

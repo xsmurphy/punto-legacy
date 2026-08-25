@@ -338,6 +338,42 @@ específico (misma `PeriodClosedException`, sin mapeo nuevo por endpoint);
 el trigger `fn_period_guard()` los rechazaría igual si el pre-check
 faltara, pero sin él el 409 llegaba después de lockear filas de más.
 
+### BLOQUEANTE — el corte del período está fijo en huso de Asunción
+
+**La migración que corrige esto TIENE QUE ENTRAR ANTES DE DAR DE ALTA EL
+PRIMER TENANT NO PARAGUAYO.** Hoy no bloquea nada porque los 7 tenants de
+producción son paraguayos y para ellos el corte cae en el instante correcto
+(verificado en el review del 2026-08-25: venta, arqueo, rollup y period
+guard cortan el día en el mismo momento, impacto fiscal cero).
+
+Qué pasa: tres funciones de Postgres truncan el mes con
+`AT TIME ZONE 'America/Asuncion'` literal, y `api/v1/period-close.php` hace
+lo mismo del lado PHP. Para un tenant en otro huso, el reporte y el guard de
+inmutabilidad **discrepan**: el endpoint considera abierto un mes que el
+trigger ya rechaza (o al revés), en una franja de horas alrededor del corte.
+
+Por qué no se arregló en el barrido de localización del 2026-08-25 (commit
+`sin-hardcodeo-paraguay`): son migraciones **ya aplicadas**, y editar el
+archivo de una migración aplicada no cambia la base. Hay que escribir una
+migración NUEVA que redefina, leyendo la TZ del tenant:
+
+| Función | Migración donde vive hoy |
+|---|---|
+| `period_is_closed()` | `157_period_close.sql` |
+| `fn_period_guard()` | `157_period_close.sql` |
+| `fn_tenant_wall_clock()` | `139_satelite_touch_parent.sql` |
+| guard del grano diario | `160_rollup_daily_grain.sql` |
+
+Y en el mismo cambio, alinear `api/v1/period-close.php` (4 usos): tocarlo
+solo del lado PHP desalinea PHP y base, que es peor que la desalineación
+actual. La TZ del tenant ya está resuelta y disponible en las dos puntas
+(`TenantClock::apply()` en PHP, `TenantLocale::timezone()` para leerla).
+
+El guard de literales paraguayos
+(`frontend/lib/tenant-locale/__tests__/no-hardcoded-paraguay.test.ts`) tiene
+estos cuatro archivos en su allowlist marcados `PENDIENTE` con este mismo
+motivo, así que la deuda no se pierde de vista.
+
 **D8 — El grano del rollup lo definen los filtros, no las métricas.**
 Observación del owner (2026-08-21), textual en esencia: "si sumo las ventas
 del 2025 puedo tenerlas en 12 registros, pero ¿qué pasa si quiero solo las
