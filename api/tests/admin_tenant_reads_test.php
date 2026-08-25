@@ -50,6 +50,9 @@ require_once __DIR__ . '/_harness.php';
  *   J. La mig 172 normalizó ese `main = 'admin'` legacy a 'true' — con el dato
  *      sano, el dueño de esos comercios también aparece en la ficha. El caso
  *      queda para que no vuelva a colarse el valor basura sin que nadie mire.
+ *   K. La empresa master del seed queda marcada `isInternal = 1` (mig 173): es
+ *      la empresa del propio SaaS y las analíticas de /admin la contaban como
+ *      un tenant más.
  *
  * Uso (un comando, desde la raíz del repo):
  *   bash api/tests/run_admin_tenant_reads_test.sh
@@ -275,6 +278,21 @@ check(
     'J1 ningún dueño real quedó con el main legacy \'admin\' (mig 172)',
     ((int) ($legacyMain->fields['n'] ?? -1)) === 0,
     'quedan ' . ($legacyMain->fields['n'] ?? '?') . ' — la mig 172 no corrió o alguien reintrodujo el valor'
+);
+
+// ── K. La empresa master no cuenta como tenant (mig 173) ────────────────────
+$master = $db->Execute(
+    "SELECT isInternal FROM company WHERE companyId = '00000000-0000-0000-0000-000000000001'"
+);
+check(
+    'K1 la empresa master existe (mig 173 + seed corrieron)',
+    (bool) $master && !$master->EOF,
+    'no está la company 00000000-…-0001'
+);
+check(
+    'K2 la empresa master está marcada isInternal (no cuenta como tenant)',
+    (bool) $master && !$master->EOF && ((int) ($master->fields['isinternal'] ?? 0)) === 1,
+    'isInternal=' . (($master && !$master->EOF) ? ($master->fields['isinternal'] ?? '?') : 'sin fila')
 );
 
 // ── H. Planes ───────────────────────────────────────────────────────────────

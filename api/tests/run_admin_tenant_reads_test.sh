@@ -79,8 +79,25 @@ if [ -z "${POSTGRES_HOST:-}" ]; then
   docker exec -i "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
     < "$REPO_ROOT/db-schema-postgres.sql" >/dev/null
 
+  # Empresa master como la creaban las instalaciones viejas. Va ANTES de
+  # migrate: la columna isInternal la agrega la mig 114 (default 0), que es
+  # exactamente el estado que la mig 173 tiene que corregir. Sembrarla acá es
+  # lo que hace que el caso K pruebe la migración y no el estado inicial.
+  echo "[run_admin_tenant_reads_test.sh] sembrando la empresa master en su estado viejo..."
+  docker exec -i "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 -c \
+    "INSERT INTO company (companyId, status, plan, balance, isParent, config)
+     VALUES ('00000000-0000-0000-0000-000000000001', 'active', 0, 0.00, TRUE,
+             '{\"settingName\":\"Master Admin\"}')
+     ON CONFLICT (companyId) DO NOTHING;" >/dev/null
+
   echo "[run_admin_tenant_reads_test.sh] corriendo migrate.php..."
   php -d variables_order=EGPCS "$API_DIR/database/migrate.php"
+
+  # El seed corre DESPUÉS de la migración, como en un deploy real: su ON
+  # CONFLICT no puede revertir el flag que la 173 acaba de poner.
+  echo "[run_admin_tenant_reads_test.sh] cargando el seed de la empresa master..."
+  docker exec -i "$CONTAINER_NAME" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+    < "$API_DIR/database/seeds/postgres/01_master_admin.sql" >/dev/null
 else
   if [ "${VERIFY_CHAIN_ALLOW_EXISTING_DB:-}" != "1" ]; then
     echo "[run_admin_tenant_reads_test.sh] ERROR: POSTGRES_HOST=$POSTGRES_HOST está seteado, pero" >&2

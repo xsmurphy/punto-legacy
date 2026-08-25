@@ -9,19 +9,24 @@
 --   Usuario master : 00000000-0000-0000-0000-000000000003
 -- =============================================================
 
--- Empresa master (SaaS admin)
+-- Empresa master (SaaS admin).
+-- isInternal = 1: no es un cliente, es la empresa del propio SaaS. El flag lo
+-- leen las analíticas de /admin (AdminReportsService) para no contarla como
+-- tenant — sin él, el conteo de comercios activos y el MRR salen inflados.
 INSERT INTO company (
-    companyId, status, plan, balance, isParent, config
+    companyId, status, plan, balance, isParent, isInternal, config
 ) VALUES (
     '00000000-0000-0000-0000-000000000001',
     'active',
     0,
     0.00,
     TRUE,
+    1,
     '{"settingName":"Master Admin","settingCurrency":"USD","settingLanguage":"es"}'
 ) ON CONFLICT (companyId) DO UPDATE
-    SET status   = EXCLUDED.status,
-        isParent = EXCLUDED.isParent;
+    SET status     = EXCLUDED.status,
+        isParent   = EXCLUDED.isParent,
+        isInternal = EXCLUDED.isInternal;
 
 -- Sucursal para la empresa master
 INSERT INTO outlet (
@@ -82,7 +87,11 @@ INSERT INTO contact (
     'master@local.test',
     'd1e425ce2c0b4f5f4bbead2ab72bba98e5764600864c3cfb54f69491c1625bfa',
     '18d31afc38712036',
-    1, 0, 'admin', 1,
+    -- main = 'true': es el flag del contacto principal del comercio y el único
+    -- valor que entiende el sistema (ver mig 172). El 'admin' que había acá no
+    -- significaba nada — los admins de la plataforma viven en `admin_user` —
+    -- y dejaba a este contacto fuera de las lecturas de /admin.
+    1, 0, 'true', 1,
     '00000000-0000-0000-0000-000000000002',
     '00000000-0000-0000-0000-000000000001',
     '[{"permissions":{"encom":{"companyList":true,"companyListAccess":true,"companyEdit":true,"eposDeleteRecord":true,"eposPayout":true,"eposPayoutMonth":true}}}]'
@@ -91,6 +100,7 @@ INSERT INTO contact (
         contactPassword = EXCLUDED.contactPassword,
         salt            = EXCLUDED.salt,
         contactStatus   = EXCLUDED.contactStatus,
+        main            = EXCLUDED.main,
         role            = EXCLUDED.role,
         data            = EXCLUDED.data;
 
