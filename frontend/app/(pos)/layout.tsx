@@ -7,6 +7,7 @@ import { PosModeDialog } from "@/components/register/pos-mode-dialog"
 import { InstallPrompt } from "@/components/pos/install-prompt"
 import { ChunkErrorListener } from "@/components/pos/chunk-error-listener"
 import { PosTouchScope } from "@/components/pos/pos-touch-scope"
+import { PosKeyboardInset } from "@/components/pos/keyboard-inset"
 import { PosConfigSync } from "@/lib/pos/config-sync"
 
 /**
@@ -23,18 +24,19 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
     <PosSidebarProvider>
       <PosAuthGuard>
         <ChunkErrorListener />
-        {/* Marca `<html>` mientras el POS está montado. `pos-scope` (abajo)
-            solo alcanza al árbol del shell, y TODO lo que se portalea
-            —diálogos, drawers, dropdowns, toasts— cuelga del `<body>`, fuera
-            de él: por eso los controles del cobro o del menú no recibían las
-            reglas táctiles de la caja. La marca va en la raíz para que las
-            alcance a todas. */}
+        {/* Marca `<html>` mientras el POS está montado. De ahí cuelgan TODAS
+            las reglas propias de la caja (typography de los campos y mínimo
+            táctil, en `app/globals.css`): una clase en el shell no alcanzaba
+            porque lo que se portalea —diálogos, drawers, dropdowns, toasts—
+            cuelga del `<body>`, fuera de ese árbol, y justo el cobro y el menú
+            principal quedaban sin las reglas. */}
         <PosTouchScope />
+        {/* Publica `--kb-inset` (lo que tapa el teclado virtual) para que los
+            modales con búsqueda no queden detrás del teclado en el teléfono.
+            Ver el docblock de `components/pos/keyboard-inset.tsx`. */}
+        <PosKeyboardInset />
         <PosConfigSync />
         <PosSidebar />
-        {/* `pos-scope`: globals.css aplica typography táctil (font-size,
-            weight, tracking) a inputs/textareas descendientes. Cajero ve
-            grande sin tocar cada caller individualmente. */}
         {/* Áreas seguras del dispositivo — ver la regla completa en
             `app/globals.css` (§ "Áreas seguras del dispositivo").
 
@@ -59,7 +61,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             alcanza para que el CONTENIDO lo esquive. Donde el inset es 0
             (desktop, tablets sin notch) las tres declaraciones valen 0 y no
             cambia nada. */}
-        <SidebarInset className="pos-scope h-svh overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100svh-1rem)]">
+        <SidebarInset className="h-svh overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100svh-1rem)]">
           {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
               abajo a la derecha. Se movió al extremo izquierdo del toolbar del
               carrito (CartToolbar), junto al botón del menú principal, por

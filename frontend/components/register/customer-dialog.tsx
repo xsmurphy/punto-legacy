@@ -185,8 +185,15 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
       </DialogContent>
     </Dialog>
     <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* Command palette top-aligned: el campo de búsqueda arranca cerca del
+          borde de arriba y la lista cuelga abajo. `max-h` en `dvh` y menos
+          `--kb-inset`: con el teclado abierto la lista se recorta a lo que
+          queda visible en vez de extenderse por detrás del teclado (el `86vh`
+          anterior medía el viewport de layout, que en iOS no se entera de que
+          el teclado subió). El `top` no se toca — el campo tiene que quedar
+          donde el cajero ya lo busca, y el que se achica es el alto. */}
       <DialogContent
-        className="top-[7vh] flex max-h-[86vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl"
+        className="top-[7dvh] flex max-h-[calc(86dvh-var(--kb-inset))] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl"
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
