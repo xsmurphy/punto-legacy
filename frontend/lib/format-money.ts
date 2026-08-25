@@ -29,12 +29,33 @@ export function formatAmount(
   return decPart ? `${withThousand}${decimalSep}${decPart}` : withThousand
 }
 
+/** Fallback cuando el tenant no tiene moneda configurada. */
+const DEFAULT_CURRENCY_LABEL = "Gs"
+
+/**
+ * Etiqueta de la moneda local del tenant, siempre no vacía.
+ *
+ * Por qué existe: el BFF del bootstrap normaliza la moneda ausente a string
+ * VACÍO (`currency: bs.currency ?? ""` en `app/api/pos/bootstrap/route.ts`),
+ * y `config?.currency ?? "Gs"` NO cubre ese caso — `??` solo dispara con
+ * null/undefined. El resultado era una etiqueta vacía: el botón de modo
+ * "moneda" del NumericPad salía SIN texto visible (reporte del owner sobre el
+ * modal de descuento) y `formatMoney` devolvía un espacio de más al principio.
+ * El fallback vive acá, en la única fuente de la etiqueta, y no repetido en
+ * cada call-site — que era justamente cómo se coló el bug.
+ */
+export function resolveCurrencyLabel(
+  config: Pick<PosConfig, "currency"> | null,
+): string {
+  const raw = config?.currency?.trim()
+  return raw ? raw : DEFAULT_CURRENCY_LABEL
+}
+
 export function formatMoney(
   value: number,
   config: Pick<PosConfig, "currency" | "thousand" | "decimal"> | null,
 ): string {
-  const currency = config?.currency ?? "Gs"
-  return `${currency} ${formatAmount(value, config)}`
+  return `${resolveCurrencyLabel(config)} ${formatAmount(value, config)}`
 }
 
 /** ISO 4217 codes with no decimal places. */

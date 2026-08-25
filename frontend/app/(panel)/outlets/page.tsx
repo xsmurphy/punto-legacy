@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select"
 import { useOutlets } from "@/hooks/use-outlets"
 import type { OutletListItem } from "@/lib/types/outlet"
+import { formatPhone } from "@/lib/phone"
 import { EmptyState } from "@/components/empty-state"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 
@@ -85,7 +86,8 @@ export default function OutletsPage() {
         accessorKey: "phone",
         header: "Teléfono",
         cell: ({ getValue }) => {
-          const v = getValue() as string
+          // formatPhone: la BD guarda E.164 sin '+'; la columna lo pintaba crudo.
+          const v = formatPhone(getValue() as string)
           return v ? (
             <span className="text-muted-foreground tabular-nums">{v}</span>
           ) : (

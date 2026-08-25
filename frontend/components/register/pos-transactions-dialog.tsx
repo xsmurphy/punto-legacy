@@ -686,7 +686,17 @@ export function TransactionDetail({
         <div className="flex-1 overflow-y-auto p-6">
 
           {/* ── Header: cliente + monto top-right + split button ─────────── */}
-          <div className="flex items-start justify-between gap-3">
+          {/* pr-8: el botón de cerrar del Dialog es `absolute top-4 right-4
+              size-7` (components/ui/dialog.tsx) y flota SOBRE el contenido —
+              ocupa hasta 44px desde el borde derecho. Los 24px del `p-6` no
+              alcanzan y la X caía encima del total (reporte del owner). El
+              cierre queda donde va (arriba a la derecha); lo que se corrige es
+              el espacio que el header le reserva: 24 + 32 = 56px de gutter
+              derecho, 12px de aire. Vale para los DOS consumidores de
+              TransactionDetail — el split de `PosTransactionsDialog` y el
+              standalone de `PosTransactionDetailDialog` — porque en ambos el
+              panel de detalle va pegado al borde derecho del modal. */}
+          <div className="flex items-start justify-between gap-3 pr-8">
             <div className="min-w-0 flex-1">
               <h2 className="text-xl font-semibold truncate">
                 {detail.customerName || <span className="text-muted-foreground">Sin cliente</span>}

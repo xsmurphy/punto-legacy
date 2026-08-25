@@ -1,4 +1,5 @@
 import { getCountryCallingCode, type CountryCode } from "libphonenumber-js"
+import { countryFlagEmoji } from "@/lib/country-flag"
 
 /**
  * Países soportados en el picker de teléfono.
@@ -35,22 +36,16 @@ const COUNTRY_NAMES: Record<string, string> = {
 }
 
 /**
- * Emoji flag desde código ISO 3166-1 alpha-2.
- * Cada letra A-Z se mapea a un regional indicator symbol (U+1F1E6..U+1F1FF).
- * Render del flag depende del OS (no falla, solo cambia el glyph).
+ * La implementación se movió a `lib/country-flag.tsx` (`countryFlagEmoji`) —
+ * era una de tres copias del mismo algoritmo. Acá queda solo el consumo.
  */
-function flagEmoji(country: string): string {
-  return country
-    .toUpperCase()
-    .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
-}
 
 export const SUPPORTED_COUNTRIES: Country[] = Object.entries(COUNTRY_NAMES).map(
   ([code, name]) => ({
     code: code as CountryCode,
     name,
     dialCode: getCountryCallingCode(code as CountryCode),
-    flag: flagEmoji(code),
+    flag: countryFlagEmoji(code),
   }),
 )
 
@@ -63,6 +58,6 @@ export function getCountry(code: CountryCode): Country {
     code,
     name: code,
     dialCode: getCountryCallingCode(code),
-    flag: flagEmoji(code),
+    flag: countryFlagEmoji(code),
   }
 }

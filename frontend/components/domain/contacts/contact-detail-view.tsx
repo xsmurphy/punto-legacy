@@ -132,6 +132,7 @@ import { KpiCard } from "@/components/domain/contacts/kpi-card"
 import { ContactOrdersCompact } from "@/components/domain/contacts/contact-orders-compact"
 import { ContactScheduleCompact } from "@/components/domain/contacts/contact-schedule-compact"
 import { ContactTransactionsTab } from "@/components/domain/contacts/contact-transactions-tab"
+import { formatPhone } from "@/lib/phone"
 
 // ── Zod schema (igual que el de la page original) ────────────────────────────
 
@@ -370,7 +371,11 @@ export function ContactDetailView({
                 <p className="text-xs text-muted-foreground truncate">
                   {[
                     data?.tin ? `RUC ${data.tin}` : null,
-                    data?.phone ?? null,
+                    // formatPhone: la BD guarda E.164 sin '+' y el subtítulo
+                    // lo pintaba crudo ("595991742353"). Esta vista la monta
+                    // también el POS (customer-dialog.tsx), así que el cajero
+                    // veía el número sin formato en la ficha del cliente.
+                    formatPhone(data?.phone) || null,
                     data?.email ?? null,
                   ].filter(Boolean).join(" · ") || "Sin datos de contacto"}
                 </p>

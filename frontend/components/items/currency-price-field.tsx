@@ -19,6 +19,8 @@ import { EmptyState } from "@/components/empty-state"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCurrencies } from "@/hooks/use-items"
 import type { ItemFormValues } from "@/lib/types/item"
+import { CountryFlag } from "@/components/ui/country-flag"
+import { countryName } from "@/lib/country-flag"
 
 /**
  * Precio del ítem en monedas extranjeras. Vive dentro del bloque de precio
@@ -243,27 +245,7 @@ export function CurrencyPriceField({ form }: { form: UseFormReturn<ItemFormValue
   )
 }
 
-// ── Helpers de país/moneda ─────────────────────────────────────────────────
-//
-// Mismos helpers que viven inline en /settings (CountryFlag/countryName).
-// Repetidos a propósito — si aparece un tercer consumer, mover ambos a
-// `lib/country.tsx`.
-
-function CountryFlag({ code }: { code: string }) {
-  const flag = code
-    ? code
-        .toUpperCase()
-        .replace(/./g, (c) => String.fromCodePoint(127397 + c.charCodeAt(0)))
-    : "🌐"
-  return <span className="text-xl leading-none">{flag}</span>
-}
-
-function countryName(ccode: string): string {
-  if (!ccode) return ""
-  try {
-    const dn = new Intl.DisplayNames(["es"], { type: "region" })
-    return dn.of(ccode.toUpperCase()) || ccode
-  } catch {
-    return ccode
-  }
-}
+// Los helpers de país/moneda que vivían acá (CountryFlag/countryName) se
+// movieron a `lib/country-flag.tsx` — era la tercera copia del mismo
+// algoritmo, que es lo que el comentario anterior pedía como disparador para
+// centralizarlos.

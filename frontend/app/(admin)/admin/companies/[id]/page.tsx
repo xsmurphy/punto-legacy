@@ -125,6 +125,7 @@ import {
   type AdminHealthChecklistItem,
 } from "@/hooks/use-admin"
 import { AdminApiError } from "@/lib/api-admin"
+import { formatPhone } from "@/lib/phone"
 import { useAdminContext } from "@/components/admin/admin-auth-guard"
 
 // ── Schemas ───────────────────────────────────────────────────────────────────
@@ -474,7 +475,8 @@ function ResumenTab({ id }: { id: string }) {
       ? [
           ["Propietario", [company.owner.name, company.owner.secondName].filter(Boolean).join(" ") || "—"] as [string, React.ReactNode],
           ["Email propietario", company.owner.email || "—"] as [string, React.ReactNode],
-          ["Teléfono propietario", company.owner.phone || "—"] as [string, React.ReactNode],
+          // formatPhone: la BD guarda E.164 sin '+'; la ficha lo pintaba crudo.
+          ["Teléfono propietario", formatPhone(company.owner.phone) || "—"] as [string, React.ReactNode],
         ]
       : []),
   ]
