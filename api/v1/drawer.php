@@ -152,18 +152,6 @@ if ($method === 'GET' && in_array($resource, ['expenses', 'income', 'salesByPaym
     apiOk($data);
 }
 
-// --- GET: resumen completo del cajón (composite legacy/backward-compat) ----
-if ($method === 'GET') {
-    $data = $svc->getSummary($registerId, $outletId, $companyId);
-    if ($data === null) {
-        apiOk(['closed' => true]);
-    }
-    if (drawerIsBlind($registerId, $companyId)) {
-        apiOk(drawerBlindSummary($data));
-    }
-    apiOk($data);
-}
-
 // GET ?resource=blockers = qué impide cerrar el turno (órdenes y espacios
 // abiertos de la SUCURSAL) + si el comercio prendió la regla.
 //
@@ -175,10 +163,27 @@ if ($method === 'GET') {
 // `enabled` viaja siempre para que el POS distinga "no hay nada abierto" de
 // "esta regla no aplica en este comercio": son dos botones habilitados por
 // motivos distintos y el segundo no tiene que mostrar ningún aviso.
+//
+// OJO CON EL ORDEN: va ARRIBA del `if ($method === 'GET')` de abajo, que es un
+// catch-all sin `$resource` y termina en `apiOk()`. Abajo, este handler es
+// inalcanzable y `?resource=blockers` devuelve el resumen del turno.
 if ($method === 'GET' && $resource === 'blockers') {
     $payload = ShiftCloseGate::blockers($companyId, $outletId);
     $payload['enabled'] = ShiftCloseGate::isEnabled($companyId);
     apiOk($payload);
+}
+
+// --- GET: resumen completo del cajón (composite legacy/backward-compat) ----
+// CATCH-ALL: cualquier `?resource=` no manejado arriba cae acá.
+if ($method === 'GET') {
+    $data = $svc->getSummary($registerId, $outletId, $companyId);
+    if ($data === null) {
+        apiOk(['closed' => true]);
+    }
+    if (drawerIsBlind($registerId, $companyId)) {
+        apiOk(drawerBlindSummary($data));
+    }
+    apiOk($data);
 }
 
 // --- POST: mutaciones de caja (abrir, cerrar, extracción, ingreso) ----------
