@@ -155,15 +155,10 @@ final class ModulesService
                     break;
 
                 case 'bancard':
-                    // Canales del módulo. Default true: activar "Bancard" sin
-                    // entrar a la config deja los dos canales usables, que es
-                    // lo que espera quien prende el módulo. El apagado es
-                    // explícito por canal.
+                    // Canales del módulo (qr / pos). Los estados iniciales los
+                    // declara ModuleChannels — acá no se repite el default.
                     $bancardData = is_array($moduleData['bancard'] ?? null) ? $moduleData['bancard'] : [];
-                    $entry['config'] = [
-                        'qr'  => !array_key_exists('qr', $bancardData)  || $this->truthy($bancardData['qr']),
-                        'pos' => !array_key_exists('pos', $bancardData) || $this->truthy($bancardData['pos']),
-                    ];
+                    $entry['config'] = ModuleChannels::values('bancard', $bancardData);
                     break;
             }
 
@@ -393,7 +388,7 @@ final class ModulesService
                     $moduleData = [];
                 }
                 $bancardEntry = is_array($moduleData['bancard'] ?? null) ? $moduleData['bancard'] : [];
-                foreach (['qr', 'pos'] as $channel) {
+                foreach (ModuleChannels::names('bancard') as $channel) {
                     if (array_key_exists($channel, $config)) {
                         $bancardEntry[$channel] = (bool) $config[$channel];
                     }

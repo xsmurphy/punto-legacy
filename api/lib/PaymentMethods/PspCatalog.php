@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\PaymentMethods;
 
+use Punto\Api\Modules\ModuleChannels;
+
 /**
  * Catálogo de pasarelas de pago (PSP) que cobran con QR desde la caja.
  *
@@ -22,7 +24,7 @@ namespace Punto\Api\PaymentMethods;
  *
  *   1. Una entrada acá (ver el shape abajo).
  *   2. La key del módulo en `ModulesService::NATIVE_KEYS` (+ `CONFIG_KEYS` si
- *      tiene canales configurables) y su canal en `updateConfig()`.
+ *      tiene canales configurables) y sus canales en `ModuleChannels`.
  *   3. Un adapter en el front — `frontend/lib/payments/psp/<provider>.ts`
  *      registrado en `frontend/lib/payments/psp/index.ts`.
  *
@@ -33,7 +35,7 @@ namespace Punto\Api\PaymentMethods;
  *
  *   module         key del módulo en `company` (flat key + `moduleData[key]`)
  *   channel        sub-key del canal QR dentro de `moduleData[module]`
- *   channelDefault estado del canal cuando la key no está escrita todavía
+ *                  (su estado inicial lo declara `ModuleChannels`, no acá)
  *   systemKey      discriminante del medio de pago (`taxonomyExtra.systemKey`)
  *   methodName     nombre del medio de pago que se provisiona / adopta
  *   code           atajo de teclado en la grilla del POS
@@ -55,15 +57,12 @@ final class PspCatalog
     /**
      * Pasarelas con canal de cobro por QR, indexadas por provider.
      *
-     * @var array<string, array{module:string,channel:string,channelDefault:bool,systemKey:string,methodName:string,code:string,color:string,label:string}>
+     * @var array<string, array{module:string,channel:string,systemKey:string,methodName:string,code:string,color:string,label:string}>
      */
     private const QR_PROVIDERS = [
         'bancard' => [
             'module'         => 'bancard',
             'channel'        => 'qr',
-            // Default ON: prender "Bancard" sin entrar a la config deja los dos
-            // canales usables — comportamiento original del módulo, no se toca.
-            'channelDefault' => true,
             'systemKey'      => 'qr',
             'methodName'     => 'QR',
             'code'           => 'Q',
@@ -76,7 +75,6 @@ final class PspCatalog
         // 'upay' => [
         //     'module'         => 'upay',
         //     'channel'        => 'qr',
-        //     'channelDefault' => false,   // sin credenciales cargadas no opera
         //     'systemKey'      => 'upayQr',
         //     'methodName'     => 'uPay',
         //     'code'           => 'U',
@@ -120,18 +118,19 @@ final class PspCatalog
     /**
      * Resuelve si el canal QR de una pasarela está prendido para un tenant.
      *
+     * Atajo tipado sobre `ModuleChannels::on()` — el estado inicial del canal
+     * lo declara ese archivo, acá no se duplica.
+     *
      * @param bool  $moduleOn  estado del módulo (flat key de `company`)
      * @param array $moduleCfg entry de `moduleData[module]` decodificado
      */
     public static function qrChannelOn(array $psp, bool $moduleOn, array $moduleCfg): bool
     {
-        if (!$moduleOn) {
-            return false;
-        }
-        $channel = (string) $psp['channel'];
-        if (!array_key_exists($channel, $moduleCfg)) {
-            return (bool) $psp['channelDefault'];
-        }
-        return filter_var($moduleCfg[$channel], FILTER_VALIDATE_BOOLEAN);
+        return ModuleChannels::on(
+            (string) $psp['module'],
+            (string) $psp['channel'],
+            $moduleOn,
+            $moduleCfg
+        );
     }
 }
