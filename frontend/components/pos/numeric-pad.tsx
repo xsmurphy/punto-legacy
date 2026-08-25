@@ -290,6 +290,14 @@ export function NumericPad({
       <input
         ref={hiddenInputRef}
         className="sr-only"
+        // tabIndex=-1: Radix Dialog auto-enfoca el PRIMER elemento tabbable al
+        // abrir, y este input era el primero — cada numpad abría con el
+        // teclado del OS encima sin que nadie lo pidiera, e iOS scrolleaba el
+        // documento entero para "revelar" el campo (la app quedaba corrida
+        // hacia arriba aun después de cerrarse el teclado — reporte del owner
+        // 2026-08-25). Fuera del orden de tabs, el teclado solo sube cuando el
+        // cajero TOCA el visor (focus() programático funciona igual).
+        tabIndex={-1}
         type="text"
         inputMode={allowDot ? "decimal" : "numeric"}
         pattern="[0-9]*"

@@ -1,4 +1,5 @@
 import * as React from "react"
+import type { Viewport } from "next"
 import { SidebarInset } from "@/components/ui/sidebar"
 import { PosSidebarProvider } from "@/components/layout/pos-sidebar-provider"
 import { PosAuthGuard } from "@/components/layout/pos-auth-guard"
@@ -19,6 +20,30 @@ import { PosConfigSync } from "@/lib/pos/config-sync"
  * PosSidebar es un sidebar mínimo (Caja / Guardadas / Bloquear) sin los
  * módulos del panel.
  */
+/**
+ * Viewport del POS: pisa el del root layout para FIJAR la escala.
+ *
+ * El root deja `userScalable` en default (zoom permitido) por accesibilidad y
+ * eso es correcto para el panel y el sitio. En la CAJA no: iOS auto-zoomea al
+ * enfocar campos menores a 16px y el pinch accidental deja la pantalla
+ * zoomeada en medio de una venta — el owner lo reportó explícitamente
+ * (2026-08-25, "se queda todo zoomeado"). La caja es una superficie de app,
+ * no un documento: escala fija. La legibilidad se resuelve con los tamaños
+ * táctiles del propio POS (`[data-pos-touch]`), no con zoom del navegador.
+ *
+ * `h-dvh` (no `svh`) en el shell por lo mismo: en Safari con la barra
+ * colapsada, `svh` mide el viewport CHICO y deja ~80px muertos abajo; `dvh`
+ * sigue a la barra. En la PWA instalada son equivalentes.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: "cover",
+  themeColor: "#0a0a0a",
+}
+
 export default function PosLayout({ children }: { children: React.ReactNode }) {
   return (
     <PosSidebarProvider>
@@ -61,7 +86,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             alcanza para que el CONTENIDO lo esquive. Donde el inset es 0
             (desktop, tablets sin notch) las tres declaraciones valen 0 y no
             cambia nada. */}
-        <SidebarInset className="h-svh overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100svh-1rem)]">
+        <SidebarInset className="h-dvh overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem)]">
           {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
               abajo a la derecha. Se movió al extremo izquierdo del toolbar del
               carrito (CartToolbar), junto al botón del menú principal, por

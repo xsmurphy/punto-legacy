@@ -38,6 +38,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible"
 import { Input } from "@/components/ui/input"
+import { useIsCoarsePointer } from "@/hooks/use-mobile"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
@@ -122,14 +123,19 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
   )
   const isSearching = trimmed.length > 0
 
-  // Solo autofocus al abrir — no limpiamos el query para preservar la búsqueda.
+  // Autofocus solo con puntero fino (desktop). En táctil subiría el teclado
+  // del OS sin que nadie lo pida e iOS scrollea el documento para revelar el
+  // campo — la app queda corrida (reporte del owner 2026-08-25). El cajero
+  // toca el buscador cuando quiere tipear.
+  const coarse = useIsCoarsePointer()
   React.useEffect(() => {
     if (open) {
       setDetailCustomerId(null)
+      if (coarse) return
       const id = setTimeout(() => searchInputRef.current?.focus(), 50)
       return () => clearTimeout(id)
     }
-  }, [open])
+  }, [open, coarse])
 
   function handleSelectCustomer(c: PosCustomer) {
     setCustomer(c)

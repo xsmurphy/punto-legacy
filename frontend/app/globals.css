@@ -430,47 +430,32 @@
     padding-right: var(--safe-r);
 }
 
-/* POS — typography de los CAMPOS (inputs, textareas y triggers de select).
-   El cajero tiene que leer de un vistazo lo que tipea y lo que eligió, así que
-   el POS sube el cuerpo de sus campos por encima del `text-sm` del panel. Lo
-   que fija esta regla es que suba PAREJO: un solo tamaño y un solo peso para
-   las tres superficies.
-
-   POR QUÉ 1rem (16px) Y PESO NORMAL (decisión del owner, 2026-08-25). Antes
-   esto valía 1.0625rem + `font-weight: 600` + tracking, y SOLO para
-   inputs/textareas: los `<Select>` se quedaban en su `text-sm` de 14px normal,
-   así que en un formulario del POS el campo tipeado se veía más grande y más
-   negro que el campo elegido de al lado — "demasiado grandes y bold y
-   desalineados" en el reporte. Las opciones eran igualar para abajo (14px, el
-   tamaño del select) o para arriba; se eligió 16px porque es el piso por
-   debajo del cual iOS hace zoom automático al enfocar un campo —bajar a 14
-   traería de vuelta ese zoom en la caja— y porque es exactamente el `text-base`
-   con el que nacen `<Input>` y `<Textarea>` en móvil. El bold se va: era lo que
-   hacía que el texto tipeado se leyera como un título.
-
-   DÓNDE APLICA. Cuelga de `[data-pos-touch]` (el atributo que
-   `components/pos/pos-touch-scope.tsx` pone en `<html>` mientras el POS está
-   montado) y NO de `.pos-scope`, que es el `SidebarInset` del layout: los
-   portales de Radix —diálogos, drawers, selects— se montan colgados del
-   `<body>`, fuera de ese árbol, y el campo del cobro (el que más se tipea)
-   quedaba afuera. Es el mismo criterio que el bloque táctil de más abajo, y
-   por eso la regla vive UNA sola vez, sin media query: el POS se ve igual en
-   el teléfono, en la tablet de caja y en el desktop. Fuera del POS el atributo
-   no existe y el panel conserva su densidad. */
-[data-pos-touch] :is(
-    [data-slot="select-trigger"],
-    input[type="text"],
-    input[type="number"],
-    input[type="tel"],
-    input[type="search"],
-    input[type="email"],
-    input[type="password"],
-    input:not([type]),
-    textarea
-) {
-    font-size: 1rem;
-    font-weight: 400;
+/* POS — el DOCUMENTO no scrollea ni rebota. El workspace administra su propio
+   scroll interno; el documento debajo tiene que ser una lámina fija. Sin esto,
+   iOS scrollea la PÁGINA entera para revelar un campo enfocado cerca del
+   teclado y ese corrimiento SOBREVIVE al cierre del teclado: la app queda
+   desplazada hacia arriba, con un hueco entre el CTA de cobro y el borde
+   (reporte del owner 2026-08-25 — "el problema del espacio abajo es algo del
+   scroll de la pantalla entera"). `overscroll-behavior: none` mata además el
+   rubber-banding. Cuelga del atributo de `pos-touch-scope.tsx`: fuera del POS
+   el documento se comporta normal. */
+html[data-pos-touch],
+html[data-pos-touch] body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
 }
+
+/* POS — typography de los campos: SIN regla global (decisión del owner,
+   2026-08-25, segunda iteración). La regla que vivía acá (antes 17px semibold
+   solo-inputs; después 16px normal para input+select+textarea) tenía más
+   especificidad que las utilities de Tailwind, así que pisaba los tamaños
+   EXPLÍCITOS de los call-sites — el buscador de productos/clientes, que
+   define su propio cuerpo, amaneció más grande sin que nadie lo pidiera.
+   Los primitives ya resuelven bien el móvil (Input/Textarea = text-base 16px
+   ahí, justo el piso del auto-zoom de iOS); si un campo puntual desalinea con
+   su select vecino, se ajusta EN EL CALL-SITE, no con una regla que pisa a
+   todos. */
 
 /* ─── POS móvil — mínimo táctil ──────────────────────────────────────────────
    (reporte del owner, 2026-08-25: "los botones, inputs y dropdowns en móviles

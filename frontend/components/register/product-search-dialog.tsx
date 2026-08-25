@@ -28,6 +28,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { useIsCoarsePointer } from "@/hooks/use-mobile"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -56,6 +57,11 @@ export function ProductSearchDialog({
   onOpenChange,
 }: ProductSearchDialogProps) {
   const inputRef = React.useRef<HTMLInputElement>(null)
+  // En táctil NO se auto-enfoca: subiría el teclado del OS sin que nadie lo
+  // pida e iOS scrollea el documento para revelar el campo (la app queda
+  // corrida). El cajero toca el input cuando quiere tipear. En desktop el
+  // autofocus se queda: ahí es lo que hace útil al buscador.
+  const coarse = useIsCoarsePointer()
 
   const items = useCatalogStore((s) => s.items)
   const config = useCatalogStore((s) => s.config)
@@ -72,6 +78,7 @@ export function ProductSearchDialog({
   // Solo autofocus al abrir — no limpiamos el query para preservar la búsqueda.
   React.useEffect(() => {
     if (open) {
+      if (coarse) return
       const id = setTimeout(() => inputRef.current?.focus(), 50)
       return () => clearTimeout(id)
     }
@@ -99,7 +106,7 @@ export function ProductSearchDialog({
     // No cerramos el modal ni reseteamos la búsqueda: el cajero puede seguir
     // agregando varios productos de la misma lista de resultados. Mantenemos el
     // foco en el input por si quiere refinar o escanear el siguiente.
-    setTimeout(() => inputRef.current?.focus(), 0)
+    if (!coarse) setTimeout(() => inputRef.current?.focus(), 0)
   }
 
   return (
