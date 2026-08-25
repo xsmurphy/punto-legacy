@@ -246,6 +246,56 @@ $arqueo = DrawerService::composeArqueo($expectedByMethod, [
     ['key' => 'efectivo',           'name' => 'Efectivo',           'code' => 'cash',     'isCash' => true,  'counted' => 148000.0],
     ['key' => 'tarjeta de crédito', 'name' => 'Tarjeta de crédito', 'code' => 'tcredito', 'isCash' => false, 'counted' => 70000.0],
 ]);
+// REGRESIÓN (review 2026-08-24): emparejar por una BOLSA de identidades
+// (clave+nombre+slug juntos, cualquier intersección gana) cruzaba dos medios
+// cuando el slug de uno era el nombre del otro. Un turno que cuadraba perfecto
+// salía con dos diferencias inventadas — un arqueo que acusa a un cajero
+// honesto. Las pasadas son ordenadas y por dimensión: clave, slug, nombre.
+$cruce = [
+    ['key' => 'qr',            'name' => 'QR',            'code' => 'transferencia',                        'isCash' => false, 'expected' => 20000.0],
+    ['key' => 'transferencia', 'name' => 'Transferencia', 'code' => '6f1c2b40-1111-4a22-9c33-444455556666', 'isCash' => false, 'expected' => 40000.0],
+];
+$arqueoCruce = DrawerService::composeArqueo($cruce, [
+    ['key' => 'qr',            'name' => 'QR',            'code' => 'transferencia',                        'isCash' => false, 'counted' => 20000.0],
+    ['key' => 'transferencia', 'name' => 'Transferencia', 'code' => '6f1c2b40-1111-4a22-9c33-444455556666', 'isCash' => false, 'counted' => 40000.0],
+]);
+check(
+    'dos medios donde el slug de uno es el nombre del otro NO se cruzan',
+    count($arqueoCruce) === 2
+        && near($arqueoCruce[0]['difference'], 0.0)
+        && near($arqueoCruce[1]['difference'], 0.0),
+    var_export($arqueoCruce, true),
+    $failures, $checks
+);
+// Y no depende del orden en que llegue el conteo.
+$arqueoCruce = DrawerService::composeArqueo($cruce, [
+    ['key' => 'transferencia', 'name' => 'Transferencia', 'code' => '6f1c2b40-1111-4a22-9c33-444455556666', 'isCash' => false, 'counted' => 40000.0],
+    ['key' => 'qr',            'name' => 'QR',            'code' => 'transferencia',                        'isCash' => false, 'counted' => 20000.0],
+]);
+check(
+    'el orden en que llega el conteo no cambia el emparejamiento',
+    near($arqueoCruce[0]['difference'], 0.0) && near($arqueoCruce[1]['difference'], 0.0),
+    var_export($arqueoCruce, true),
+    $failures, $checks
+);
+// La pasada del efectivo (por bandera) va al final: no le gana a un match exacto.
+$arqueoCash = DrawerService::composeArqueo(
+    [
+        ['key' => 'contado', 'name' => 'Contado', 'code' => '',   'isCash' => true,  'expected' => 80000.0],
+        ['key' => 'qr',      'name' => 'QR',      'code' => 'qr', 'isCash' => false, 'expected' => 5000.0],
+    ],
+    [
+        ['key' => 'qr',       'name' => 'QR',       'code' => 'qr', 'isCash' => false, 'counted' => 5000.0],
+        ['key' => 'efectivo', 'name' => 'Efectivo', 'isCash' => true, 'counted' => 80000.0],
+    ]
+);
+check(
+    'la bandera de efectivo no le roba el conteo a un medio con match exacto',
+    near($arqueoCash[0]['difference'], 0.0) && near($arqueoCash[1]['difference'], 0.0),
+    var_export($arqueoCash, true),
+    $failures, $checks
+);
+
 check(
     'empareja por SLUG cuando el nombre del servidor y el de la caja difieren',
     count($arqueo) === 2
@@ -435,6 +485,55 @@ check(
     'el reenvío deja las mismas filas, no un segundo arqueo',
     count($firstRows) === 2 && count($secondRows) === 2,
     'primera=' . count($firstRows) . ' segunda=' . count($secondRows),
+    $failures, $checks
+);
+
+// ── (e2) El reenvío REPARA un desglose perdido ──────────────────────────────
+echo "\n=== (e2) Un cierre ya aplicado sin desglose se repara al reenviarse ===\n";
+
+resetShift($companyId, $registerId, $day);
+$drawerId = openShift($svc, $companyId, $registerId, $day . ' 08:00:00', 10000.0, $userId);
+insertSale($companyId, $outletId, $registerId, $userId, $drawerId, $day . ' 09:00:00', 5000.0, 'efectivo', 'Efectivo');
+
+$closeDate = $day . ' 20:00:00';
+$counted = [
+    ['key' => 'efectivo', 'name' => 'Efectivo', 'code' => 'cash', 'isCash' => true,  'counted' => 15000.0],
+    ['key' => 'qr',       'name' => 'QR',       'code' => 'qr',   'isCash' => false, 'counted' => 3000.0],
+];
+$svc->close(15000.0, $closeDate, $userId, $counted);
+
+// Simula el escenario real: el UPDATE del cierre pasó, el INSERT del detalle
+// no (persistCount es best-effort). Antes del fix, el reenvío cortaba en
+// 'Already Closed' y el desglose se perdía para siempre, en silencio.
+$db->Execute('DELETE FROM drawer_count WHERE drawerid = ?', [$drawerId]);
+check(
+    'precondición: el desglose quedó perdido',
+    count(countRows($drawerId)) === 0,
+    var_export(countRows($drawerId), true),
+    $failures, $checks
+);
+
+$r = $svc->close(15000.0, $closeDate, $userId, $counted);
+$repaired = countRows($drawerId);
+check(
+    'el reenvío repara el desglose (y sigue informando Already Closed)',
+    $r === 'Already Closed' && count($repaired) === 2,
+    'result=' . var_export($r, true) . ' rows=' . var_export($repaired, true),
+    $failures, $checks
+);
+check(
+    'la reparación conserva el efectivo esperado congelado (mig 164), no lo borra',
+    near($repaired['efectivo']['expected'] ?? null, 15000.0),
+    var_export($repaired['efectivo'] ?? null, true),
+    $failures, $checks
+);
+// El esperado de los OTROS medios no se puede recalcular con la caja cerrada:
+// va NULL ("no se sabe"), nunca 0.0 ("no se esperaba nada").
+$qrRepaired = array_values(array_filter($repaired, static fn($r2) => !$r2['isCash']));
+check(
+    'el esperado desconocido se repara como NULL, no como cero',
+    count($qrRepaired) === 1 && $qrRepaired[0]['expected'] === null,
+    var_export($qrRepaired, true),
     $failures, $checks
 );
 

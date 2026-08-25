@@ -526,6 +526,14 @@ final class DrawerService
 
         $row = $this->findOpenRow($this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId);
         if ($row === null) {
+            // La caja ya está cerrada, pero el cierre puede seguir llegando: la
+            // cola offline reintenta hasta que el servidor confirma. Antes esto
+            // cortaba acá y el desglose por medio se perdía en silencio si el
+            // UPDATE del cierre había pasado y el INSERT del detalle no
+            // (`persistCount()` es best-effort). El reenvío ahora REPARA lo que
+            // falte, que es para lo que existe el `ON CONFLICT (drawerid,
+            // methodkey)` — sin este camino, esa cláusula era código muerto.
+            $this->repairCountForClosedDrawer($date, $countedByMethod, $amount);
             return 'Already Closed';
         }
 
@@ -611,6 +619,9 @@ final class DrawerService
         // otro request cerró la misma caja primero) → tratarlo como éxito idempotente,
         // no como 500.
         if ($ok === 0) {
+            // Mismo caso que arriba, ganado por carrera: el cierre existe, el
+            // desglose puede no existir. Se repara igual.
+            $this->repairCountForClosedDrawer($date, $countedByMethod, $amount);
             return 'Already Closed';
         }
 
@@ -667,6 +678,60 @@ final class DrawerService
     }
 
     /**
+     * Repara el desglose de un cierre YA aplicado, cuando el reenvío de la cola
+     * vuelve a llegar.
+     *
+     * El caso que cubre: el `UPDATE` del cierre pasó y el `INSERT` del detalle
+     * no (`persistCount()` es best-effort, igual que el esperado de la mig
+     * 164). Sin esto, el reintento cortaba en `'Already Closed'`, el arqueo por
+     * medio quedaba perdido para siempre y nadie se enteraba — el cierre se ve
+     * bien en la tabla `drawer` y el detalle simplemente no está.
+     *
+     * El drawer se ubica por `drawerCloseDate = $date` y no por "el último
+     * cerrado": `$date` es la hora en que el cajero operó y la cola reenvía el
+     * MISMO payload, así que identifica exactamente ese cierre. Buscar el
+     * último cerrado le colgaría el desglose al turno equivocado si en el medio
+     * se abrió y cerró otro.
+     *
+     * Best-effort y silencioso ante "no lo encuentro": un `'Already Closed'`
+     * también lo produce un cierre viejo y legítimo que ya no tiene nada que
+     * reparar.
+     */
+    private function repairCountForClosedDrawer(string $date, array $countedByMethod, float $amount): void
+    {
+        if ($date === '') {
+            return;
+        }
+        try {
+            $row = ncmExecute(
+                'SELECT drawerId AS "drawerId", drawerExpectedAmount AS "expectedCash"
+                   FROM drawer
+                  WHERE registerId = ? AND outletId = ? AND companyId = ? AND drawerCloseDate = ?
+                  LIMIT 1',
+                [$this->ctx->registerId, $this->ctx->outletId, $this->ctx->companyId, $date]
+            );
+            if (!$row) {
+                return;
+            }
+            $this->persistCount(
+                (string) $row['drawerId'],
+                // El esperado por medio NO se puede recalcular: la caja ya está
+                // cerrada y `getClosingTotals()` solo mira turnos abiertos. Se
+                // pasa `null` —"no se sabe"— y el `COALESCE` del UPSERT deja
+                // intacto cualquier esperado que ya estuviera congelado.
+                null,
+                $countedByMethod,
+                $amount,
+                isset($row['expectedCash']) && $row['expectedCash'] !== null
+                    ? (float) $row['expectedCash']
+                    : null,
+            );
+        } catch (\Throwable $e) {
+            error_log('[DrawerService::close] no se pudo reparar el arqueo por medio de un cierre ya aplicado: ' . $e->getMessage());
+        }
+    }
+
+    /**
      * Congela el arqueo por medio de pago del cierre (`drawer_count`, mig 169).
      *
      * `ON CONFLICT (drawerid, methodkey) DO UPDATE`: un cierre encolado que se
@@ -712,20 +777,42 @@ final class DrawerService
             // El esperado del efectivo sale del mismo número que la mig 164
             // congeló en `drawerExpectedAmount`: dos escrituras, un solo
             // cálculo, imposible que discrepen.
-            $expected = $r['isCash'] && $expectedCash !== null ? $expectedCash : $r['expected'];
+            //
+            // `$expectedByMethod === null` es la reparación de un cierre ya
+            // aplicado: ahí el esperado de los demás medios NO se conoce, y
+            // escribir el 0.0 que `composeArqueo()` le pone a un sobrante sería
+            // afirmar "no se esperaba nada de este medio". Va NULL, que es lo
+            // que la mig 169 define como "no se pudo congelar".
+            if ($r['isCash'] && $expectedCash !== null) {
+                $expected = $expectedCash;
+            } elseif ($expectedByMethod === null) {
+                $expected = null;
+            } else {
+                $expected = $r['expected'];
+            }
             ncmExecute(
+                // `COALESCE(EXCLUDED..., drawer_count...)`: una reparación que
+                // no conoce el esperado NO puede borrar el que ya estaba
+                // congelado. Un NULL entrante es "no sé", nunca "olvidate del
+                // que sabías".
                 'INSERT INTO drawer_count
                     (drawerid, companyid, methodkey, methodname, iscash, expectedamount, countedamount)
                  VALUES (?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT (drawerid, methodkey) DO UPDATE SET
                     methodname     = EXCLUDED.methodname,
                     iscash         = EXCLUDED.iscash,
-                    expectedamount = EXCLUDED.expectedamount,
+                    expectedamount = COALESCE(EXCLUDED.expectedamount, drawer_count.expectedamount),
                     countedamount  = EXCLUDED.countedamount',
                 [
                     $drawerId,
                     $this->ctx->companyId,
-                    $r['key'],
+                    // Normalizada SIEMPRE: `groupByPaymentMethod()` cae al
+                    // `type` crudo cuando la taxonomía no resuelve, y ese slug
+                    // puede venir con mayúsculas o espacios. Sin normalizar, el
+                    // mismo medio se parte en dos filas del índice único entre
+                    // cierres distintos y los agregados del reporte lo cuentan
+                    // como dos medios.
+                    self::paymentGroupKey($r['key']),
                     $r['name'],
                     $r['isCash'] ? 't' : 'f',
                     $expected,
@@ -1152,20 +1239,33 @@ final class DrawerService
      * informe). Una sola fórmula, dos consumidores.
      *
      * Reglas de emparejamiento, en orden:
-     *   1. Por CLAVE O POR NOMBRE normalizado. No alcanza con la clave, y esto
-     *      no es cinturón y tiradores: `groupByPaymentMethod()` agrupa por el
-     *      nombre resuelto SOLO cuando lo puede resolver, y cae al `type` crudo
-     *      (el slug `tcredito`, o un UUID de taxonomía) cuando no. La caja, en
-     *      cambio, solo conoce el nombre que le mostró al cliente. Emparejar
-     *      únicamente por clave dejaba sin match a todo medio con la taxonomía
-     *      no resuelta: el esperado quedaba sin contar y lo contado aparecía
-     *      como un sobrante por el monto entero. Lo detectó
-     *      `drawer_count_by_method_test.php` antes de llegar a una caja.
-     *   2. El efectivo, además, matchea por la bandera `isCash`: si el comercio
-     *      renombró el medio ("Contado") y el turno no tuvo ventas en efectivo,
-     *      el servidor no tiene de dónde sacar ese nombre y sintetiza la fila
-     *      con el nombre canónico. Sin este tercer intento, la plata del cajón
-     *      —la única que SIEMPRE hay que contar— sería la que no matchea.
+     *   1. **Pasadas ORDENADAS y EXCLUYENTES, comparando siempre la MISMA
+     *      dimensión**: primero clave contra clave, después slug contra slug,
+     *      después nombre normalizado contra nombre normalizado. Un medio que
+     *      matchea sale del pool y no se vuelve a ofrecer.
+     *
+     *      Hacen falta las tres porque `groupByPaymentMethod()` agrupa por el
+     *      nombre resuelto SOLO cuando puede resolverlo y cae al `type` crudo
+     *      (el slug `tcredito`, o un UUID de taxonomía) cuando no, mientras que
+     *      la caja solo conoce el nombre que le mostró al cliente. Con la clave
+     *      sola, un medio con la taxonomía sin resolver no matcheaba nunca: el
+     *      esperado quedaba sin contar y lo contado salía como sobrante por el
+     *      monto entero.
+     *
+     *      Y tienen que ser por dimensión, no por bolsa. La primera versión
+     *      juntaba clave+nombre+slug en un solo conjunto y matcheaba por
+     *      CUALQUIER intersección: con dos medios donde el slug de uno es el
+     *      nombre del otro (esperado `QR` con code `transferencia`, más un
+     *      medio `Transferencia`), el primero se quedaba con el conteo del
+     *      segundo y un turno que cuadraba perfecto salía con dos diferencias
+     *      inventadas. Un arqueo que acusa a un cajero honesto es el peor
+     *      resultado posible de esta función.
+     *   2. El efectivo, además, matchea por la bandera `isCash` en una ÚLTIMA
+     *      pasada: si el comercio renombró el medio ("Contado") y el turno no
+     *      tuvo ventas en efectivo, el servidor no tiene de dónde sacar ese
+     *      nombre y sintetiza la fila con el nombre canónico. Va al final, y no
+     *      mezclada con las otras, para que nunca le gane un match exacto a
+     *      otro medio.
      *   3. Lo contado sin esperado se agrega igual con esperado 0: un medio que
      *      el servidor no vio en el turno pero que el cajero contó es un
      *      sobrante real, no una fila para tirar.
@@ -1180,27 +1280,28 @@ final class DrawerService
      * @return array<int,array{key:string,name:string,isCash:bool,expected:float|null,counted:float|null,difference:float|null}>
      */
     /**
-     * Las identidades por las que un medio de pago puede reconocerse en el
-     * arqueo: su clave de agrupación, su nombre normalizado y su slug.
+     * Las tres coordenadas por las que un medio de pago puede reconocerse,
+     * cada una en su casillero: clave de agrupación, nombre normalizado y slug.
      *
-     * Son tres y no una porque el mismo medio viaja con nombres distintos
-     * según quién lo mire: `groupByPaymentMethod()` reescribe el nombre al
-     * resolver la taxonomía, así que el que la caja anotó al vender
-     * ("Tarjeta de crédito") y el que el arqueo muestra ("T. Crédito") pueden
-     * no coincidir, y la clave de agrupación cae al slug crudo cuando la
-     * taxonomía no resuelve. El slug es lo único que los dos lados tienen
-     * igual siempre.
+     * Devuelve un mapa `dimensión => valor` y NO una lista plana, y esa es toda
+     * la diferencia: emparejar exige comparar clave con clave y slug con slug.
+     * Aplanarlas en un conjunto permite que el slug de un medio matchee el
+     * NOMBRE de otro, que es como se fabrican diferencias falsas (ver regla 1
+     * de `composeArqueo()`).
      *
-     * @return array<int,string>
+     * @return array{key:string,name:string,code:string} '' donde no se conoce.
      */
-    private static function methodIdentities(string $key, string $name, string $code): array
+    private static function methodIdentity(string $key, string $name, string $code): array
     {
-        return array_values(array_unique(array_filter([
-            $key !== '' ? self::paymentGroupKey($key) : '',
-            $name !== '' ? self::paymentGroupKey($name) : '',
-            $code !== '' ? self::paymentGroupKey($code) : '',
-        ])));
+        return [
+            'key'  => $key !== ''  ? self::paymentGroupKey($key)  : '',
+            'name' => $name !== '' ? self::paymentGroupKey($name) : '',
+            'code' => $code !== '' ? self::paymentGroupKey($code) : '',
+        ];
     }
+
+    /** Orden de las pasadas de emparejamiento. De más específica a menos. */
+    private const MATCH_DIMENSIONS = ['key', 'code', 'name'];
 
     public static function composeArqueo(array $expectedByMethod, array $counted): array
     {
@@ -1222,50 +1323,77 @@ final class DrawerService
             $pending[] = [
                 'key'     => $key,
                 'name'    => $name !== '' ? $name : $key,
-                // Identidades por las que esta fila puede reconocerse: clave,
-                // nombre normalizado y slug del medio. Ver la regla 1.
-                'ids'     => self::methodIdentities($key, $name, (string) ($c['code'] ?? '')),
+                // Las tres coordenadas, cada una en su casillero. Ver regla 1.
+                'id'      => self::methodIdentity($key, $name, (string) ($c['code'] ?? '')),
                 'isCash'  => (bool) ($c['isCash'] ?? self::isCashPaymentType($key)),
                 'counted' => (float) ($c['counted'] ?? 0),
             ];
         }
 
-        /** @param array<int,string> $ids identidades aceptables del medio esperado */
-        $takeByIds = function (array $ids) use (&$pending): ?array {
-            foreach ($pending as $i => $row) {
-                if (array_intersect($ids, $row['ids']) !== []) {
-                    unset($pending[$i]);
-                    return $row;
+        // Un casillero por medio esperado. Se resuelven en pasadas sobre TODOS
+        // los casilleros —no medio por medio— para que un match exacto de la
+        // pasada 1 nunca pierda contra un match difuso de la pasada 3 que
+        // simplemente estaba antes en la lista.
+        $slots = [];
+        foreach ($expectedByMethod as $e) {
+            $key  = (string) $e['key'];
+            $name = (string) $e['name'];
+            $slots[] = [
+                'key'      => $key,
+                'name'     => $name,
+                'isCash'   => (bool) ($e['isCash'] ?? false),
+                'expected' => (float) $e['expected'],
+                'id'       => self::methodIdentity($key, $name, (string) ($e['code'] ?? '')),
+                'match'    => null,
+            ];
+        }
+
+        // Pasadas ordenadas y EXCLUYENTES, siempre dimensión contra la misma
+        // dimensión. Lo que matchea sale del pool y no se vuelve a ofrecer.
+        foreach (self::MATCH_DIMENSIONS as $dim) {
+            foreach ($slots as $si => $slot) {
+                if ($slot['match'] !== null) {
+                    continue;
+                }
+                $needle = $slot['id'][$dim];
+                if ($needle === '') {
+                    continue;
+                }
+                foreach ($pending as $pi => $row) {
+                    if ($row['id'][$dim] === $needle) {
+                        $slots[$si]['match'] = $row;
+                        unset($pending[$pi]);
+                        break;
+                    }
                 }
             }
-            return null;
-        };
-        $takeCash = function () use (&$pending): ?array {
-            foreach ($pending as $i => $row) {
+        }
+
+        // Última pasada, solo para el cajón: la bandera. Va al final para que
+        // jamás le gane un match exacto a otro medio (regla 2).
+        foreach ($slots as $si => $slot) {
+            if ($slot['match'] !== null || !$slot['isCash']) {
+                continue;
+            }
+            foreach ($pending as $pi => $row) {
                 if ($row['isCash']) {
-                    unset($pending[$i]);
-                    return $row;
+                    $slots[$si]['match'] = $row;
+                    unset($pending[$pi]);
+                    break;
                 }
             }
-            return null;
-        };
+        }
 
         $out = [];
-        foreach ($expectedByMethod as $e) {
-            $key      = (string) $e['key'];
-            $name     = (string) $e['name'];
-            $isCash   = (bool) ($e['isCash'] ?? false);
-            $expected = (float) $e['expected'];
-            $ids      = self::methodIdentities($key, $name, (string) ($e['code'] ?? ''));
-            $match    = $takeByIds($ids) ?? ($isCash ? $takeCash() : null);
-            $countedV = $match !== null ? (float) $match['counted'] : null;
+        foreach ($slots as $slot) {
+            $countedV = $slot['match'] !== null ? (float) $slot['match']['counted'] : null;
             $out[] = [
-                'key'        => $key,
-                'name'       => $name,
-                'isCash'     => $isCash,
-                'expected'   => $expected,
+                'key'        => $slot['key'],
+                'name'       => $slot['name'],
+                'isCash'     => $slot['isCash'],
+                'expected'   => $slot['expected'],
                 'counted'    => $countedV,
-                'difference' => $countedV === null ? null : round($countedV - $expected, 2),
+                'difference' => $countedV === null ? null : round($countedV - $slot['expected'], 2),
             ];
         }
 
@@ -1318,11 +1446,24 @@ final class DrawerService
                 $total += $price;
                 $list[] = ['name' => $p['name'], 'amount' => $price];
                 $paymentBreakdown[] = ['name' => $p['name'], 'amount' => $price];
-                // `groupKey` es la clave con la que `groupByPaymentMethod()` ya
-                // juntó las filas; se reusa tal cual para que el conteo de la
-                // caja empareje contra la MISMA identidad y no contra una
-                // segunda normalización parecida.
+                // El CAJÓN es uno solo, aunque el histórico traiga el efectivo
+                // partido en dos grupos (el slug viejo `cash` sin resolver y el
+                // `Efectivo` resuelto quedan como filas distintas cuando la
+                // taxonomía no resuelve una de las dos). Con dos filas de
+                // efectivo, la caja manda UN conteo, la segunda quedaba sin
+                // match y el medio desaparecía del arqueo congelado. Se colapsa
+                // acá: hay un cajón, se cuenta una vez. `list`,
+                // `paymentBreakdown` y los totales NO se tocan — siguen
+                // mostrando el desglose tal cual, y `subtotal` conserva
+                // exactamente la fórmula que la mig 164 congela.
+                if ($isCash && $cashIndex !== null) {
+                    continue;
+                }
                 $expectedByMethod[] = [
+                    // `groupKey` es la clave con la que `groupByPaymentMethod()`
+                    // ya juntó las filas; se reusa tal cual para que el conteo
+                    // de la caja empareje contra la MISMA identidad y no contra
+                    // una segunda normalización parecida.
                     'key'      => (string) ($p['groupKey'] ?? self::paymentGroupKey((string) $p['name'])),
                     'name'     => (string) $p['name'],
                     // Slug/id del medio TAL COMO lo guardó la venta

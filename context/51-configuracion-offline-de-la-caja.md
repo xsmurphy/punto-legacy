@@ -207,13 +207,41 @@ listo. La cola offline reenvía con `counted` intacto cuando lo tiene, y el
 `ON CONFLICT (drawerid, methodkey)` hace que un reintento deje **un** arqueo, no
 dos.
 
-**Emparejar lo contado con lo esperado no es trivial** y por poco se va a
-producción mal: `groupByPaymentMethod()` agrupa por el nombre *resuelto* por
-taxonomía, y la caja solo conoce el nombre que ella anotó al vender — dos textos
-distintos del mismo medio. Emparejar solo por clave dejaba el esperado sin
-contar y lo contado como un sobrante por el monto entero.
-`DrawerService::methodIdentities()` matchea por **clave, nombre normalizado o
-slug**, y el efectivo además por bandera. Lo encontró el arnés, no una caja.
+**Emparejar lo contado con lo esperado no es trivial** y estuvo mal DOS veces
+antes de quedar bien. `groupByPaymentMethod()` agrupa por el nombre *resuelto*
+por taxonomía y cae al slug crudo cuando no resuelve; la caja solo conoce el
+nombre que ella anotó al vender.
+
+1. Solo por clave → el esperado quedaba sin contar y lo contado salía como
+   sobrante por el monto entero. Lo encontró el arnés.
+2. Por una BOLSA de identidades (clave+nombre+slug juntos, cualquier
+   intersección gana) → con dos medios donde el slug de uno es el nombre del
+   otro (`QR` con code `transferencia`, más `Transferencia`), el primero se
+   quedaba el conteo del segundo y **un turno que cuadraba perfecto salía con
+   dos diferencias inventadas**. Lo encontró el review.
+
+Lo vigente: **pasadas ordenadas y excluyentes, siempre dimensión contra la
+misma dimensión** — clave, después slug, después nombre normalizado; lo que
+matchea sale del pool. El efectivo, además, por bandera en una ÚLTIMA pasada,
+para que nunca le gane a un match exacto. Un arqueo que acusa a un cajero
+honesto es el peor resultado posible de esta función, y es el modo de falla que
+esta forma vuelve imposible.
+
+**Reintento y reparación.** Un cierre reenviado sobre una caja ya cerrada no
+corta en `'Already Closed'`: repara el desglose que falte
+(`repairCountForClosedDrawer()`, ubicando el turno por `drawerCloseDate =
+$date`, no por "el último cerrado"). Sin ese camino, un `UPDATE` que pasó con un
+`INSERT` de detalle que falló perdía el arqueo por medio en silencio, y el
+`ON CONFLICT (drawerid, methodkey)` que la idempotencia promete era código
+muerto. El `COALESCE` del UPSERT impide que una reparación que no conoce el
+esperado borre el que ya estaba congelado: un NULL entrante es "no sé", nunca
+"olvidate del que sabías".
+
+**El modo a ciegas se filtra en el SERVIDOR**, no solo en el JSX: `drawer.php`
+consulta `registerBlindControl` y devuelve el resumen sin totales y el `closing`
+sin `expected` ni `difference`. Sobrevive la lista de medios sin montos — sin
+saber QUÉ contar no hay arqueo. Ver `context/modules/14-caja.md` regla 7, que
+esto corrige.
 
 **Respuesta**: `closing.byMethod` trae `{key, name, isCash, expected, counted,
 difference}` por medio. El POS lo muestra una sola vez apenas cierra (nunca a
@@ -223,8 +251,11 @@ anterior a la mig 169 no tiene filas: se informa solo la del cajón, marcada
 `source='estimated'`. Los demás medios **no** se muestran en cero — un cero ahí
 diría "se contó y no había nada".
 
-Verificación: `api/tests/drawer_count_by_method_test.php` (15 checks contra
-Postgres real) + `frontend/lib/pos/__tests__/drawer-count-by-method.test.ts`.
+Verificación: `api/tests/drawer_count_by_method_test.php` (23 checks contra
+Postgres real — incluye el cruce de medios del review y la reparación del
+reenvío) + `frontend/lib/pos/__tests__/drawer-count-by-method.test.ts`. El
+arnés de la mig 164 (`drawer_cash_count_test.php`, 23 checks) sigue en verde:
+el efectivo no cambió de significado.
 
 ### Si el total local no coincide con el del servidor
 

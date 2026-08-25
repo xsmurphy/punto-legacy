@@ -60,7 +60,12 @@ export interface DrawerExpectedMethod {
    */
   code?: string
   isCash: boolean
-  expected: number
+  /**
+   * AUSENTE cuando la caja arquea a ciegas: el endpoint no lo manda
+   * (`drawerBlindSummary()` en `api/v1/drawer.php`). La fila sigue viniendo
+   * porque el cajero necesita saber QUÉ contar; lo que no viaja es el número.
+   */
+  expected?: number
 }
 
 export interface DrawerSoldProduct {

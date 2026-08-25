@@ -28,6 +28,70 @@ $svc      = new DrawerService(TenantContext::fromAuth($ctx));
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
 
+/**
+ * ¿Esta caja arquea A CIEGAS? (`register.data->>'registerBlindControl'`).
+ *
+ * Hasta ahora el ocultamiento vivía ENTERAMENTE en el frontend
+ * (`context/modules/14-caja.md` regla 7): el backend devolvía los montos
+ * reales y cualquiera con las devtools abiertas veía el resumen del turno que
+ * el dueño había decidido esconderle a ese cajero. El control a ciegas dejaba
+ * de serlo con dos clics.
+ *
+ * El filtro vive acá, en el servidor, porque una regla que solo se aplica en
+ * el cliente no es una regla: es una sugerencia. Fail-CLOSED — si la caja no
+ * se puede resolver, se asume a ciegas: el costo de equivocarse para este lado
+ * es que el cajero no ve un número; para el otro, romper una decisión del
+ * dueño.
+ */
+function drawerIsBlind(string $registerId, string $companyId): bool
+{
+    if ($registerId === '') {
+        return true;
+    }
+    $row = ncmExecute(
+        "SELECT COALESCE(data->>'registerBlindControl', 'false') AS blindcontrol
+           FROM register WHERE registerId = ? AND companyId = ? LIMIT 1",
+        [$registerId, $companyId],
+        false
+    );
+    if (!$row) {
+        return true;
+    }
+    return ($row['blindcontrol'] ?? 'false') === 'true';
+}
+
+/**
+ * El resumen del turno, sin los acumulados, para una caja a ciegas.
+ *
+ * Lo que SOBREVIVE es la lista de medios de pago (sin sus montos): el cajero a
+ * ciegas tiene que saber QUÉ contar — si no, no puede arquear y el modo pierde
+ * sentido. Lo que el dueño decidió ocultar son los números, no la existencia
+ * de las ventas con tarjeta.
+ */
+function drawerBlindSummary(array $data): array
+{
+    $methods = [];
+    foreach ($data['expectedByMethod'] ?? [] as $m) {
+        $methods[] = [
+            'key'    => (string) ($m['key'] ?? ''),
+            'name'   => (string) ($m['name'] ?? ''),
+            'code'   => (string) ($m['code'] ?? ''),
+            'isCash' => (bool) ($m['isCash'] ?? false),
+            // Sin `expected`: es exactamente el número que no se muestra.
+        ];
+    }
+    return [
+        'blind'            => true,
+        'date'             => $data['date'] ?? null,
+        'expectedByMethod' => $methods,
+        // Vacíos y no ausentes: el cliente distingue "caja abierta sin datos
+        // que mostrar" de "caja cerrada" por la presencia de `list`.
+        'list'             => [],
+        'paymentBreakdown' => [],
+        'soldProducts'     => [],
+    ];
+}
+
 // --- GET ?resource=check: ¿cajón abierto? ---------------------------------
 if ($method === 'GET' && $resource === 'check') {
     apiOk(['isOpen' => $svc->isOpen($registerId, $outletId, $companyId)]);
@@ -88,6 +152,9 @@ if ($method === 'GET') {
     $data = $svc->getSummary($registerId, $outletId, $companyId);
     if ($data === null) {
         apiOk(['closed' => true]);
+    }
+    if (drawerIsBlind($registerId, $companyId)) {
+        apiOk(drawerBlindSummary($data));
     }
     apiOk($data);
 }
@@ -229,6 +296,27 @@ if ($method === 'POST') {
                 'counted' => $amount,
             ]],
         );
+        // A ciegas el arqueo NO se le devuelve al cajero. Sobrevive lo que él
+        // mismo declaró (`counted`) — eso no es un acumulado, lo tipeó recién—;
+        // se van el esperado, la diferencia y los totales del turno, que es
+        // justo lo que el dueño decidió que esta caja no ve. El veredicto lo
+        // mira él desde el panel.
+        if (drawerIsBlind($registerId, $companyId)) {
+            $blindRows = [];
+            foreach ($closingTotals['byMethod'] as $r) {
+                $blindRows[] = [
+                    'key'     => $r['key'],
+                    'name'    => $r['name'],
+                    'isCash'  => $r['isCash'],
+                    'counted' => $r['counted'],
+                ];
+            }
+            $closingTotals = [
+                'blind'    => true,
+                'date'     => $closingTotals['date'] ?? null,
+                'byMethod' => $blindRows,
+            ];
+        }
         $payload['closing'] = $closingTotals;
     }
     apiOk($payload);
