@@ -414,12 +414,22 @@ atadas a caja o a sucursal. Verificado, y decide lo contrario:
    órdenes de espacio.
 
 **Abierto** = `pos_order.status NOT IN ('closed','cancelled')` (mismo idiom que
-`SpaceService`/`SpaceSettlementService`; `delivered` y `out_for_delivery`
-siguen debiendo plata, así que bloquean) y `space_session.status IN
+`SpaceService`/`SpaceSettlementService`) y `space_session.status IN
 ('open','bill_requested')` (el predicado del índice único parcial
 `uq_space_session_active_per_space`, que es la fuente de verdad de "ocupado").
 Una sesión fusionada queda `closed` por diseño de la mig 163: no necesita
 exclusión propia.
+
+> **A CONFIRMAR CON EL OWNER — una orden ya cobrada puede bloquear el cierre.**
+> El estado de la orden y el cobro son **ortogonales**: en el flujo "Orden en
+> venta" se factura primero y se ordena después
+> (`OrderCoreService.php:71-78`), así que una orden en `delivered` o
+> `out_for_delivery` puede no deber un guaraní y bloquear igual. Hoy bloquea, a
+> propósito: la regla que se pidió es literal ("no pueden quedar órdenes
+> abiertas") y una orden cobrada sin entregar es justo el pendiente operativo
+> que no debería cruzar de un turno al siguiente. Si el criterio es "solo lo que
+> debe plata", el cambio es acotado — sacar `delivered`/`out_for_delivery` de
+> los estados que bloquean, en `ShiftCloseGate::ORDER_CLOSED_STATUSES`.
 
 **La contrapartida está declarada**: una caja no cierra su turno mientras otra
 caja de la misma sucursal tenga algo abierto. Por eso el interruptor nace
@@ -464,7 +474,9 @@ se valida al sincronizar.
 
 ### El cierre encolado que llega y encuentra órdenes abiertas
 
-Dos piezas lo mantienen fuera del limbo, y la segunda es la que importa:
+Tres piezas lo mantienen fuera del limbo. **La segunda es la que hace justo el
+juicio** y la agregó el review — sin ella la feature era un bloqueo de caja
+esperando a pasar:
 
 1. **El gate solo corre con el turno abierto de verdad** (`$svc->isOpen(...)`
    antes de `assertCanClose`). Un cierre que ya se aplicó y se reenvía pasa
@@ -472,7 +484,32 @@ Dos piezas lo mantienen fuera del limbo, y la segunda es la que importa:
    órdenes abiertas DESPUÉS de que ese turno terminó rechazarían para siempre
    una operación que ya no tiene nada que validar — y como el canal `drawer` es
    FIFO (§2), ese rechazo congelaría además la apertura del turno siguiente.
-2. **Cuando el turno sigue abierto, el rechazo es correcto y tiene salida.**
+
+2. **El gate se juzga contra el momento del cierre, no contra el presente.**
+   `assertCanClose()` recibe el `date` del payload —la hora en que el cajero
+   REALMENTE cerró, la misma con la que se sella `drawerCloseDate`— y acota a
+   `pos_order.created_at < $date` y `space_session.opened_at < $date`.
+
+   El caso que arregla no lo cubre `isOpen`: cierre offline a las 22:00 que
+   sincroniza a las 10:00 del día siguiente **con el turno todavía abierto en el
+   servidor**. Sin el corte lo frenan las órdenes que otra caja abrió a las
+   9:00 — que no tienen nada que ver con el turno que se cerró — y como el 422
+   es terminal y el canal es FIFO, el cajero de la mañana queda trabado por algo
+   ajeno. Exactamente el limbo que `context/08` §53 busca evitar.
+
+   La semántica final es **"existía al cerrar Y sigue abierto ahora"**: una
+   orden de las 21:00 que alguien cerró a las 23:00 ya no aparece, que es el
+   resultado correcto — se resolvió. Online, `date` es *ahora* y el corte no
+   cambia nada.
+
+   Comparar el string naive contra `timestamptz` es válido porque
+   `TenantClock::apply()` deja la sesión de PG en la TZ del comercio
+   (`apiAuthTenant` → `data.php`), que es la convención de storage del proyecto.
+   Un `date` que no parsea se descarta y el gate vuelve a juzgar contra el
+   presente — el lado estricto, nunca uno que deje pasar un cierre por mandar
+   basura.
+
+3. **Cuando el turno sigue abierto y el bloqueo es legítimo, hay salida.**
    `classify()` manda el 422 a terminal (no es reintentable tal cual), la fila
    queda en **Pendientes** con su etiqueta congelada y en el aviso de Control de
    Caja (§6), con **reintentar** y **descartar**. Lo que bloquea son órdenes y

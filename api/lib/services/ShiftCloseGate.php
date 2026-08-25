@@ -53,8 +53,19 @@ final class ShiftCloseGate
     /**
      * Órdenes que cuentan como "abiertas". Mismo idiom que usa el resto del
      * dominio (`SpaceService::listWithState`, `SpaceSettlementService`): todo
-     * lo que no terminó, terminó cobrado (`closed`) o anulado (`cancelled`).
-     * `delivered` y `out_for_delivery` SIGUEN debiendo plata, así que bloquean.
+     * lo que no está `closed` ni `cancelled` sigue vivo operativamente.
+     *
+     * OJO — esto NO es "las que deben plata". El estado de la orden y el cobro
+     * son ORTOGONALES: en el flujo "Orden en venta" se cobra primero y se
+     * ordena después (`OrderCoreService.php:71-78`), así que una orden ya
+     * facturada puede quedar en `delivered` o `out_for_delivery` sin deber un
+     * guaraní — y bloquea el cierre igual.
+     *
+     * Es deliberado, no un descuido: la regla que pidió el owner es literal
+     * ("no pueden quedar órdenes abiertas"), y una orden cobrada pero sin
+     * entregar es exactamente el pendiente operativo que la función existe
+     * para no dejar colgado de un turno al siguiente. Está anotado en
+     * `context/51` §8 para que el owner lo confirme o lo acote.
      */
     private const ORDER_CLOSED_STATUSES = ['closed', 'cancelled'];
 
@@ -77,11 +88,12 @@ final class ShiftCloseGate
      * Ajustes. `SettingsService` persiste los booleanos como 1/0 (`tinyBoolMap`),
      * así que se acepta el mismo abanico que su `truthy()`.
      *
-     * Fail-OPEN a propósito, al revés que `drawerIsBlind()`: si no se puede
-     * leer la config, se deja cerrar. Un cierre de caja bloqueado por una
-     * lectura fallida deja al cajero con la plata contada y sin poder terminar
-     * el turno; el modo a ciegas falla cerrado porque ahí el riesgo es filtrar
-     * un total, que es lo contrario de un bloqueo.
+     * Ante la AUSENCIA del dato (company sin la clave, o sin fila) devuelve
+     * `false` y el cierre procede: la regla no se inventa sola. Eso es lo
+     * único que este método decide — un error de DB **no** se traga acá,
+     * propaga como cualquier otra query y termina en el 500 genérico de
+     * `error_handlers.php`. No es fail-open: es "la clave no está, entonces no
+     * está prendida".
      */
     public static function isEnabled(string $companyId): bool
     {
@@ -99,13 +111,32 @@ final class ShiftCloseGate
     }
 
     /**
-     * Qué hay abierto en la sucursal ahora mismo.
+     * Qué hay abierto en la sucursal y sigue sin resolverse.
      *
      * Devuelve SIEMPRE la foto completa (conteos + detalle acotado), prendido o
      * apagado el flag: es la misma función que alimenta el GET que el POS usa
      * para deshabilitar el botón y el error 422 del POST. Una sola consulta
      * para las dos puntas — si divergieran, el cajero vería una lista antes de
      * tocar el botón y otra distinta después.
+     *
+     * `$openedBefore` (naive tenant-local 'Y-m-d H:i:s') acota a lo que ya
+     * EXISTÍA en ese momento. Es lo que hace justo el juicio de un cierre que
+     * se hizo sin red: se lo evalúa contra el estado que el turno tenía cuando
+     * se cerró, no contra el presente. Sin esto, un cierre de las 22:00 que
+     * sincroniza a las 10:00 del día siguiente choca contra órdenes que abrió
+     * OTRA caja después de que ese turno terminó — el 422 es terminal, el canal
+     * `drawer` es FIFO, y el cajero de la mañana queda trabado por algo que no
+     * tiene nada que ver con el turno que se cerró.
+     *
+     * La semántica final es "existía al cerrar Y sigue abierto ahora": una
+     * orden de las 21:00 que alguien cerró a las 23:00 ya no aparece (su
+     * `status` cambió), que es el resultado correcto — se resolvió.
+     *
+     * Comparar el string naive contra `timestamptz` es válido acá porque
+     * `TenantClock::apply()` deja la sesión de PG en la TZ del comercio
+     * (`apiAuthTenant` → `data.php`), que es la convención de storage del
+     * proyecto. Sin eso, el literal se interpretaría en UTC y el corte se
+     * correría las horas del offset.
      *
      * @return array{
      *   orderCount:int, spaceCount:int, total:int,
@@ -114,7 +145,7 @@ final class ShiftCloseGate
      *   truncated:bool
      * }
      */
-    public static function blockers(string $companyId, string $outletId): array
+    public static function blockers(string $companyId, string $outletId, ?string $openedBefore = null): array
     {
         $empty = [
             'orderCount' => 0, 'spaceCount' => 0, 'total' => 0,
@@ -124,8 +155,9 @@ final class ShiftCloseGate
             return $empty;
         }
 
-        $orders = self::openOrders($companyId, $outletId);
-        $spaces = self::openSpaces($companyId, $outletId);
+        $cutoff = self::normalizeCutoff($openedBefore);
+        $orders = self::openOrders($companyId, $outletId, $cutoff);
+        $spaces = self::openSpaces($companyId, $outletId, $cutoff);
 
         $orderCount = count($orders);
         $spaceCount = count($spaces);
@@ -147,14 +179,19 @@ final class ShiftCloseGate
      * cierre encolado quedaría rechazado para siempre por órdenes que se
      * abrieron DESPUÉS de que ese turno terminó.
      *
+     * `$closeDate` es la fecha del cierre tal como la manda el cliente — la
+     * hora en que el cajero REALMENTE cerró, no la del sync (mismo dato con el
+     * que se sella `drawerCloseDate`). Acota el gate a lo que existía en ese
+     * momento; ver `blockers()`.
+     *
      * @throws ShiftCloseBlockedException
      */
-    public static function assertCanClose(string $companyId, string $outletId): void
+    public static function assertCanClose(string $companyId, string $outletId, ?string $closeDate = null): void
     {
         if (!self::isEnabled($companyId)) {
             return;
         }
-        $blockers = self::blockers($companyId, $outletId);
+        $blockers = self::blockers($companyId, $outletId, $closeDate);
         if ($blockers['total'] === 0) {
             return;
         }
@@ -181,9 +218,33 @@ final class ShiftCloseGate
     // ── Consultas ──────────────────────────────────────────────────────────
 
     /**
+     * Valida el corte antes de que llegue a la query.
+     *
+     * El `date` del cierre viaja en el body, así que puede ser cualquier cosa.
+     * Un string que PG no pueda castear a `timestamptz` aborta la request
+     * entera con un 500 (y, peor, envenena la transacción si alguna vez esto
+     * corriera dentro de una). Lo que no parsea se descarta y el gate vuelve a
+     * juzgar contra el presente — el comportamiento más estricto, nunca uno
+     * que deje pasar un cierre por mandar basura en `date`.
+     */
+    private static function normalizeCutoff(?string $raw): ?string
+    {
+        $raw = trim((string) $raw);
+        if ($raw === '') {
+            return null;
+        }
+        $dt = \DateTimeImmutable::createFromFormat('Y-m-d H:i:s', $raw);
+        if ($dt === false || $dt->format('Y-m-d H:i:s') !== $raw) {
+            error_log('[ShiftCloseGate] date de cierre no parseable, se ignora el corte: ' . $raw);
+            return null;
+        }
+        return $raw;
+    }
+
+    /**
      * @return list<array{id:string,number:?int,status:string,source:string,space:?string}>
      */
-    private static function openOrders(string $companyId, string $outletId): array
+    private static function openOrders(string $companyId, string $outletId, ?string $cutoff): array
     {
         $ph = implode(',', array_fill(0, count(self::ORDER_CLOSED_STATUSES), '?'));
         // LEFT JOIN a la sesión y al espacio para poder decir "Mesa 4" en vez
@@ -198,9 +259,11 @@ final class ShiftCloseGate
                   LEFT JOIN space sp         ON sp.tableid   = ss.tableid
                  WHERE o.companyid = ?
                    AND o.outletid  = ?
-                   AND o.status NOT IN ($ph)
-                 ORDER BY o.ordernumber NULLS LAST, o.created_at";
+                   AND o.status NOT IN ($ph)"
+             . ($cutoff !== null ? " AND o.created_at < ?" : "")
+             . " ORDER BY o.ordernumber NULLS LAST, o.created_at";
         $params = array_merge([$companyId, $outletId], self::ORDER_CLOSED_STATUSES);
+        if ($cutoff !== null) { $params[] = $cutoff; }
 
         // forceObj=true devuelve un RECORDSET, no un array: se itera con
         // `while (!$rs->EOF)`. Tratarlo como array da [] siempre (memoria
@@ -226,7 +289,7 @@ final class ShiftCloseGate
     }
 
     /** @return list<array{id:string,name:string,status:string}> */
-    private static function openSpaces(string $companyId, string $outletId): array
+    private static function openSpaces(string $companyId, string $outletId, ?string $cutoff): array
     {
         $ph = implode(',', array_fill(0, count(self::SPACE_OPEN_STATUSES), '?'));
         $sql = "SELECT ss.sessionid, ss.status, COALESCE(ss.alias, sp.name) AS spacename
@@ -234,9 +297,11 @@ final class ShiftCloseGate
                   JOIN space sp ON sp.tableid = ss.tableid
                  WHERE ss.companyid = ?
                    AND ss.outletid  = ?
-                   AND ss.status IN ($ph)
-                 ORDER BY sp.name";
+                   AND ss.status IN ($ph)"
+             . ($cutoff !== null ? " AND ss.opened_at < ?" : "")
+             . " ORDER BY sp.name";
         $params = array_merge([$companyId, $outletId], self::SPACE_OPEN_STATUSES);
+        if ($cutoff !== null) { $params[] = $cutoff; }
 
         $rs  = ncmExecute($sql, $params, false, true);
         $out = [];

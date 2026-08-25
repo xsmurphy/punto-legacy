@@ -286,9 +286,17 @@ if ($method === 'POST') {
         // salida: lo que bloquea son órdenes y espacios de la MISMA sucursal,
         // visibles y cerrables desde ese mismo POS, y la operación queda en
         // Pendientes para reintentar (o descartar). Nunca es un callejón.
+        //
+        // `$date` acota el gate a lo que existía CUANDO EL CAJERO CERRÓ, no a
+        // lo que hay ahora. Es la otra mitad de la protección contra el limbo,
+        // y la que cubre el caso que `isOpen` no ve: un cierre encolado a las
+        // 22:00 que sincroniza a las 10:00 con el turno todavía abierto en el
+        // servidor: sin el corte lo frenarían las órdenes que abrió OTRA caja
+        // después de que ese turno terminó. Online, `$date` es ahora y el
+        // corte no cambia nada.
         if ($svc->isOpen($registerId, $outletId, $companyId)) {
             try {
-                ShiftCloseGate::assertCanClose($companyId, $outletId);
+                ShiftCloseGate::assertCanClose($companyId, $outletId, $date);
             } catch (ShiftCloseBlockedException $e) {
                 // 422 y no 500: es una regla de negocio, y el POS necesita el
                 // detalle para listar QUÉ falta. El catch va ACÁ y no abajo
