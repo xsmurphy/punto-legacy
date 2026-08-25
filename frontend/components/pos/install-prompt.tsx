@@ -2,7 +2,7 @@
 
 /**
  * Install prompt del POS — muestra un banner en la parte inferior invitando
- * a instalar "Punto Caja" como PWA cuando el navegador emite beforeinstallprompt.
+ * a instalar "Punto" como PWA cuando el navegador emite beforeinstallprompt.
  *
  * Condiciones para mostrar:
  *   - El evento beforeinstallprompt fue diferido (el navegador lo ofrece).
@@ -85,7 +85,7 @@ export function InstallPrompt() {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between gap-2 border-t bg-card p-3 shadow-lg md:bottom-4 md:left-auto md:right-4 md:rounded-lg md:border">
-      <p className="text-sm">Instalar Punto Caja como app</p>
+      <p className="text-sm">Instalar Punto como app</p>
       <div className="flex shrink-0 items-center gap-2">
         <Button variant="outline" size="sm" onClick={handleDismiss}>
           Ahora no
