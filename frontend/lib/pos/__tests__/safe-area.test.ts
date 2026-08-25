@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { readFileSync } from "node:fs"
+import { readdirSync, readFileSync } from "node:fs"
 import path from "node:path"
 
 /**
@@ -38,6 +38,36 @@ function read(rel: string): string {
 /** Consume un área segura: la utilidad compartida o una de las variables. */
 const DECLARES_SAFE_AREA = /safe-area(?:-x)?\b|var\(--safe-[trbl]\)/
 
+/** Comentarios fuera: un `var(--safe-b)` citado en prosa no es una aplicación. */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1")
+}
+
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".next",
+  ".git",
+  "dist",
+  "out",
+  "coverage",
+  "public",
+])
+
+/** Todos los fuentes de `frontend/`, recursivo. */
+function allSourceFiles(dir = ROOT, acc: string[] = []): string[] {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name.startsWith(".") && entry.name !== ".") continue
+    const full = path.join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue
+      allSourceFiles(full, acc)
+    } else if (/\.(tsx?|css)$/.test(entry.name)) {
+      acc.push(path.relative(ROOT, full))
+    }
+  }
+  return acc
+}
+
 describe("fuente única de las áreas seguras", () => {
   it("las cuatro variables se definen una sola vez, en globals.css", () => {
     const css = read("app/globals.css")
@@ -47,31 +77,102 @@ describe("fuente única de las áreas seguras", () => {
     }
   })
 
-  it("ningún componente lee `env(safe-area-inset-*)` por su cuenta", () => {
-    // Si cada call-site vuelve a llamar a `env()` se pierde el único lugar
-    // donde mirar —y donde forzar valores para simular un iPhone en el
-    // browser, que es la única forma de verificar esto sin dispositivo.
-    const offenders = SURFACES.filter((rel) =>
-      /env\(safe-area-inset-/.test(read(rel)),
-    )
-    expect(offenders, `usan env() en vez de var(--safe-*): ${offenders.join(", ")}`)
-      .toEqual([])
+  it("NADIE en frontend/ lee `env(safe-area-inset-*)` salvo globals.css", () => {
+    // El barrido va sobre TODO el árbol y no sobre un inventario: un
+    // inventario solo caza lo que ya sabíamos que existía, y la falla que
+    // importa es la superficie NUEVA que nadie agregó a la lista. La allowlist
+    // es de un solo archivo a propósito — si `env()` aparece en cualquier otro
+    // lado, se perdió el único lugar donde mirar y donde forzar valores para
+    // simular un iPhone en el browser (la única forma de verificar esto sin
+    // dispositivo).
+    const needle = "env(safe-area-" + "inset-"
+    const allowed = new Set([
+      "app/globals.css",
+      // Este archivo nombra el patrón en prosa (docblocks y títulos de test).
+      "lib/pos/__tests__/safe-area.test.ts",
+    ])
+    const offenders = allSourceFiles()
+      .filter((rel) => !allowed.has(rel))
+      .filter((rel) => read(rel).includes(needle))
+    expect(
+      offenders,
+      `usan env() en vez de var(--safe-*): ${offenders.join(", ")}`,
+    ).toEqual([])
   })
 })
 
-/** Superficies que apoyan en algún borde del dispositivo. */
-const SURFACES = [
-  "app/(pos)/layout.tsx",
-  "app/(pos)/pos/layout.tsx",
-  "components/register/cart-panel.tsx",
-  "components/register/lock-screen.tsx",
-  "components/register/pos-loading-screen.tsx",
-  "components/register/pos-main-menu.tsx",
-  "components/register/pos-transactions-dialog.tsx",
-  "components/pos/install-prompt.tsx",
-  "components/ui/dialog.tsx",
-  "components/ui/drawer.tsx",
-]
+/**
+ * Cuántas veces se descuenta CADA eje en un archivo.
+ *
+ * Cuenta las variables directas y también las utilidades: `safe-area` son los
+ * cuatro ejes y `safe-area-x` los dos laterales, así que valen como aplicación
+ * aunque no se escriba ningún `var()`.
+ */
+function insetCounts(rel: string): Record<"t" | "r" | "b" | "l", number> {
+  const src = stripComments(read(rel))
+  const count = (re: RegExp) => src.match(re)?.length ?? 0
+  const fourSided = count(/\bsafe-area(?![-\w])/g)
+  const lateral = count(/\bsafe-area-x\b/g)
+  return {
+    // `safe-area-x` NO suma en los ejes vertical/horizontal-inferior: es
+    // laterales y nada más.
+    t: count(/var\(--safe-t\)/g) + fourSided,
+    b: count(/var\(--safe-b\)/g) + fourSided,
+    r: count(/var\(--safe-r\)/g) + fourSided + lateral,
+    l: count(/var\(--safe-l\)/g) + fourSided + lateral,
+  }
+}
+
+/**
+ * Inventario EXACTO de aplicaciones por eje y por archivo.
+ *
+ * No es "≤ 1": hay archivos con varias superficies excluyentes entre sí (el
+ * lock screen monta tres pantallas distintas, cada una a los cuatro bordes) y
+ * ahí más de una aplicación es correcta. Lo que no puede pasar es que el
+ * número cambie sin que alguien lo decida: sumar un segundo `pb-[var(--safe-b)]`
+ * dentro de una superficie que ya lo tenía es exactamente el bug del CTA
+ * "demasiado arriba", y en un archivo de 1800 líneas no se ve en el diff.
+ *
+ * Si tocás la topología de insets, actualizá el número acá y contá por qué en
+ * el mensaje del commit.
+ */
+const EXPECTED_INSETS: Record<string, Record<"t" | "r" | "b" | "l", number>> = {
+  // Shell del POS: superior y laterales. El inferior es de `CartBottom` —
+  // volver a ponerlo acá es el bug del CTA "demasiado arriba".
+  "app/(pos)/layout.tsx": { t: 1, r: 1, b: 0, l: 1 },
+  // b:2 = la columna izquierda (solo `md`) y el módulo fullscreen (solo
+  // móvil). Nunca conviven en la misma pantalla.
+  "app/(pos)/pos/layout.tsx": { t: 1, r: 0, b: 2, l: 0 },
+  // La ÚNICA aplicación del eje inferior del carrito.
+  "components/register/cart-panel.tsx": { t: 0, r: 0, b: 1, l: 0 },
+  // Tres pantallas excluyentes (spinner, error, lock), cada una a los cuatro
+  // bordes.
+  "components/register/lock-screen.tsx": { t: 3, r: 3, b: 3, l: 3 },
+  "components/register/pos-loading-screen.tsx": { t: 1, r: 1, b: 1, l: 1 },
+  // b:3 = las tres ramas excluyentes del content area (resumen de cuenta,
+  // panel custom, barra de CTA).
+  "components/register/pos-main-menu.tsx": { t: 1, r: 0, b: 3, l: 0 },
+  "components/register/pos-transactions-dialog.tsx": { t: 1, r: 0, b: 1, l: 0 },
+  // El `max-h` acotado al área segura toca los dos ejes verticales.
+  "components/register/pay-dialog.tsx": { t: 1, r: 0, b: 1, l: 0 },
+  "components/domain/contacts/contact-detail-view.tsx": { t: 1, r: 1, b: 1, l: 1 },
+  "components/pos/install-prompt.tsx": { t: 0, r: 0, b: 1, l: 0 },
+  // t:3 = el `max-h` centrado, el padding fullscreen y la X reposicionada.
+  "components/ui/dialog.tsx": { t: 3, r: 2, b: 2, l: 1 },
+  "components/ui/drawer.tsx": { t: 0, r: 1, b: 1, l: 1 },
+  "components/layout/pos-sidebar.tsx": { t: 1, r: 0, b: 1, l: 0 },
+}
+
+/**
+ * Superficies que apoyan en algún borde del dispositivo.
+ *
+ * Es el mismo conjunto que `EXPECTED_INSETS` (más abajo): las que declaran un
+ * inset son exactamente las que tienen que declararlo. La lista NO es lo que
+ * protege contra superficies nuevas que se olviden —para eso está el barrido
+ * de `env()` sobre todo el árbol—, sino contra que a una conocida se le caiga
+ * la declaración en un refactor.
+ */
+const SURFACES = Object.keys(EXPECTED_INSETS)
 
 describe("cada superficie que toca un borde lo descuenta", () => {
   it.each(SURFACES)("%s descuenta las áreas seguras", (rel) => {
@@ -114,6 +215,19 @@ describe("cada superficie que toca un borde lo descuenta", () => {
 })
 
 describe("el inset se descuenta una sola vez por eje", () => {
+  it.each(Object.keys(EXPECTED_INSETS))(
+    "%s aplica cada eje las veces declaradas",
+    (rel) => {
+      const actual = insetCounts(rel)
+      for (const [axis, expected] of Object.entries(EXPECTED_INSETS[rel])) {
+        expect(
+          actual[axis as "t" | "r" | "b" | "l"],
+          `${rel}: el eje "${axis}" se descuenta ${actual[axis as "t"]} veces y se esperaban ${expected}`,
+        ).toBe(expected)
+      }
+    },
+  )
+
   it("el shell del POS NO descuenta el eje inferior", () => {
     // ESTE es el guard del bug "el botón de pagar quedó demasiado arriba". El
     // eje inferior pertenece a `CartBottom`, que es el elemento que realmente

@@ -63,8 +63,9 @@ function wantsHotkeysModule(search: { get(key: string): string | null }): boolea
 
 import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, PanelLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useSidebar } from "@/components/ui/sidebar"
 import {
   Dialog,
   DialogContent,
@@ -184,6 +185,22 @@ function PosWorkspaceLayoutInner({
   const moduleTitle = moduleTitleFor(pathname) ?? (hotkeysAsModule ? "HotKeys" : null)
   const moduleAsDialog = isMobile && moduleTitle !== null
 
+  // Abre el menú de módulos desde ADENTRO de un módulo (barra de arriba del
+  // Dialog).
+  //
+  // Cierra el módulo antes de abrirlo, y no es un capricho de UX: el módulo es
+  // un Dialog MODAL de Radix, que mientras está abierto pone el resto del
+  // documento en `pointer-events: none`. El drawer se portalea al `<body>`,
+  // fuera del Dialog, así que abrirlo sin cerrar el módulo daría un menú
+  // visible pero que no acepta un solo toque. Los dos updates caen en el mismo
+  // batch de React: los cleanups (que devuelven los pointer-events) corren
+  // antes que el efecto que monta el drawer.
+  const { setOpenMobile } = useSidebar()
+  const openModulesMenu = React.useCallback(() => {
+    router.push("/pos")
+    setOpenMobile(true)
+  }, [router, setOpenMobile])
+
   // Toggle "pantalla completa" de módulo (oculta el CartPanel): solo desktop
   // y solo en rutas que lo soportan (/pos/espacios, /pos/ordenes). En /pos
   // (home, venta) el carrito SIEMPRE se ve aunque el flag esté prendido —
@@ -294,7 +311,14 @@ function PosWorkspaceLayoutInner({
             showCloseButton={false}
             className={cn(
               "flex flex-col gap-0 overflow-hidden p-0",
-              "!inset-0 !h-dvh !max-h-dvh !w-auto !max-w-none !translate-x-0 !translate-y-0 !rounded-none",
+              // `!h-auto` y no `!h-dvh`: el alto lo definen `top:0` y
+              // `bottom:0` de `inset-0`, no una unidad de viewport. Es el
+              // mismo motivo por el que `mobileFullscreen` migró en
+              // `ui/dialog.tsx` — con `viewport-fit=cover`, vh/dvh son
+              // justo lo que cambia de valor según el chrome del sistema, y
+              // unos píxeles de diferencia dejan el overlay asomando contra
+              // el borde inferior.
+              "!inset-0 !h-auto !max-h-none !w-auto !max-w-none !translate-x-0 !translate-y-0 !rounded-none",
             )}
           >
             <DialogHeader className="sr-only">
@@ -314,7 +338,7 @@ function PosWorkspaceLayoutInner({
                 El fondo de la barra llega igual hasta el borde físico; lo que
                 se corre hacia abajo es su contenido. Ver `app/globals.css`
                 § "Áreas seguras del dispositivo". */}
-            <div className="flex shrink-0 items-center gap-1 border-b pt-[calc(0.5rem+var(--safe-t))] pr-3 pb-2 pl-1">
+            <div className="flex shrink-0 items-center gap-1 border-b pt-[calc(0.5rem+var(--safe-t))] pr-1 pb-2 pl-1">
               <Button
                 variant="ghost"
                 size="icon"
@@ -324,9 +348,24 @@ function PosWorkspaceLayoutInner({
               >
                 <ArrowLeft className="size-5" />
               </Button>
-              <span className="truncate text-base font-semibold">
+              <span className="min-w-0 flex-1 truncate text-base font-semibold">
                 {moduleTitle}
               </span>
+              {/* El pedido del owner fue poder "volver atrás O ir a otro
+                  módulo". Con solo la flecha, cambiar de módulo eran dos
+                  toques: salir a la caja y recién ahí abrir el menú, que vive
+                  en el carrito y queda tapado por esta pantalla. El mismo
+                  ícono y la misma posición estable que el trigger del carrito,
+                  para que sea el mismo gesto en las dos pantallas. */}
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11"
+                aria-label="Ir a otro módulo"
+                onClick={openModulesMenu}
+              >
+                <PanelLeft className="size-5" />
+              </Button>
             </div>
             {/* `pb`: el módulo apoya en el borde inferior. Su barra de vistas
                 (Órdenes) y sus listas terminan justo arriba del indicador de

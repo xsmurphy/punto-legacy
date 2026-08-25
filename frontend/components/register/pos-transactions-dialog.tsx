@@ -199,20 +199,29 @@ export function PosTransactionsDialog({ open, onOpenChange, onDismiss }: Props) 
           dispositivo". */}
       <DialogContent
         mobileFullscreen
-        className="sm:max-w-6xl p-0 max-sm:p-0 gap-0 overflow-hidden"
+        // `max-sm:flex flex-col`: en fullscreen el alto lo reparte flex —header
+        // fijo, cuerpo tomando lo que sobra— y no el `grid` con filas `auto`
+        // del primitive. Sin esto el cuerpo se quedaba en el `max-h-[90vh]` de
+        // abajo y el 10% restante mostraba una franja de `bg-popover` contra el
+        // borde inferior: el mismo síntoma "no baja hasta el final de la
+        // pantalla" que este commit cierra en el resto de las superficies.
+        className="sm:max-w-6xl p-0 max-sm:p-0 gap-0 overflow-hidden max-sm:flex max-sm:flex-col"
       >
         {/* `pt` con `--safe-t` solo en móvil: acá el header apoya en el borde
             superior del dispositivo. En desktop es un modal centrado y el
             `pt-6` de siempre alcanza. */}
-        <DialogHeader className="px-6 pt-6 pb-3 border-b max-sm:pt-[calc(1.5rem+var(--safe-t))]">
+        <DialogHeader className="px-6 pt-6 pb-3 border-b shrink-0 max-sm:pt-[calc(1.5rem+var(--safe-t))]">
           <DialogTitle className="text-2xl font-semibold">Transacciones</DialogTitle>
         </DialogHeader>
         {/* Mobile: 1 columna, navega entre lista <-> detalle según selectedId.
             Desktop (>=md): split 2-col clásico. */}
-        {/* `pb` con `--safe-b`: en móvil este bloque es lo último del modal,
+        {/* En móvil (fullscreen) este bloque toma el alto que sobra y su fila
+            se estira: sin `max-h` de viewport, que es lo que dejaba la franja
+            contra el borde. `pb` con `--safe-b` porque es lo último del modal,
             así que la última fila del listado termina arriba del indicador de
-            gestos y no debajo. */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_1.2fr] max-h-[90vh] md:max-h-[80vh] min-h-0 max-sm:pb-[var(--safe-b)]">
+            gestos y no debajo. De `sm` para arriba vuelve el modal centrado con
+            su tope de siempre. */}
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1.2fr] max-h-[90dvh] md:max-h-[80dvh] min-h-0 max-sm:max-h-none max-sm:min-h-0 max-sm:flex-1 max-sm:grid-rows-[minmax(0,1fr)] max-sm:pb-[var(--safe-b)]">
           <div className={cn("min-h-0", selectedId ? "hidden md:flex md:flex-col" : "flex flex-col")}>
             <TransactionList
               items={flat}

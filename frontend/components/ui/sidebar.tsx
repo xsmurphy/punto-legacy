@@ -217,7 +217,12 @@ function Sidebar({
           data-slot="sidebar"
           data-mobile="true"
           className={cn(
-            "mx-auto max-w-lg text-sidebar-foreground",
+            // `before:bg-sidebar` y no el `bg-popover` que trae el drawer: la
+            // tarjeta del drawer la pinta un pseudo-elemento, así que un
+            // `bg-*` normal acá no la toca. Sin esto los ítems del sidebar
+            // —cuyo activo y hover están calculados sobre `--sidebar`— quedan
+            // sobre otra superficie y el contraste no es el de la rama Sheet.
+            "mx-auto max-w-lg text-sidebar-foreground before:bg-sidebar",
             className
           )}
           {...props}

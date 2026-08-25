@@ -476,17 +476,35 @@ export function ContactDetailView({
           </Tabs>
         ) : (
           /* nav="sidebar" — paritario con app/(panel)/settings/page.tsx.
-             En móvil la columna de 220px se comía más de la mitad del ancho del
-             teléfono y dejaba ~140px para el contenido (gráficos y formulario
-             quedaban ilegibles, y el `overflow-hidden` del diálogo los recortaba
-             en vez de dejarlos scrollear). Bajo `sm` el aside pasa a ser una
-             tira horizontal scrolleable arriba —el mismo patrón que ya usa la
-             variante `nav="tabs"`— y el contenido se queda con el ancho
-             completo. De `sm` para arriba el layout es idéntico al de siempre. */
-          <div className="grid flex-1 min-h-0 grid-cols-1 grid-rows-[auto_1fr] sm:grid-cols-[220px_1fr] sm:grid-rows-1">
+             En el POS esta vista se monta en un diálogo que en móvil va
+             fullscreen, y ahí la columna de 220px se comía más de la mitad del
+             ancho del teléfono: quedaban ~140px de contenido (gráficos y
+             formulario ilegibles, y el `overflow-hidden` del diálogo los
+             recortaba en vez de dejarlos scrollear). Bajo `sm` el aside pasa a
+             ser una tira horizontal scrolleable arriba, el mismo patrón que ya
+             usa la variante `nav="tabs"`.
+
+             Gateado por `isPos` y NO por el breakpoint solo: el pedido del
+             owner fue sobre la ficha de la CAJA (2026-08-25). La ficha del
+             panel comparte este componente y no tiene por qué cambiar de forma
+             en una ventana angosta — ahí el layout es el de siempre en todos
+             los anchos. */
+          <div
+            className={cn(
+              "grid flex-1 min-h-0",
+              isPos
+                ? "grid-cols-1 grid-rows-[auto_1fr] sm:grid-cols-[220px_1fr] sm:grid-rows-1"
+                : "grid-cols-[220px_1fr]",
+            )}
+          >
             <nav
               aria-label="Secciones del cliente"
-              className="flex shrink-0 gap-0.5 bg-card p-3 max-sm:flex-row max-sm:overflow-x-auto max-sm:border-b max-sm:p-2 sm:flex-col sm:border-r"
+              className={cn(
+                "flex shrink-0 gap-0.5 bg-card p-3",
+                isPos
+                  ? "max-sm:flex-row max-sm:overflow-x-auto max-sm:border-b max-sm:p-2 sm:flex-col sm:border-r"
+                  : "flex-col border-r",
+              )}
             >
               {sections.map((s) => (
                 <button
@@ -495,10 +513,11 @@ export function ContactDetailView({
                   onClick={() => setTab(s.key)}
                   className={cn(
                     "flex w-full shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
-                    // Tira horizontal: cada item se ajusta a su texto (no
-                    // `w-full`), no parte el label en dos líneas y respeta el
-                    // blanco táctil de 44px del POS.
-                    "max-sm:min-h-11 max-sm:w-auto max-sm:whitespace-nowrap max-sm:px-3",
+                    // Tira horizontal (solo POS, ver el gate de arriba): cada
+                    // item se ajusta a su texto (no `w-full`), no parte el
+                    // label en dos líneas y respeta el blanco táctil de 44px.
+                    isPos &&
+                      "max-sm:min-h-11 max-sm:w-auto max-sm:whitespace-nowrap max-sm:px-3",
                     tab === s.key
                       ? "bg-accent font-medium text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
