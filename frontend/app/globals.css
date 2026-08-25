@@ -365,32 +365,63 @@
     background-color: color-mix(in oklab, var(--input) 50%, transparent);
 }
 
-/* Áreas seguras del dispositivo (notch, barra de estado, indicador de gestos).
+/* ─── Áreas seguras del dispositivo ──────────────────────────────────────────
+   (notch, barra de estado, indicador de gestos de iOS, barra de navegación
+   por gestos de Android)
+
    `viewport-fit=cover` + `statusBarStyle: black-translucent` (app/layout.tsx)
    hacen que la app instalada pinte de borde a borde — o sea que TODO lo que
    toque un borde queda tapado por el chrome del sistema si nadie descuenta las
-   áreas seguras. En el POS eso escondía la toolbar del carrito debajo del reloj
-   y la batería en el iPhone (reporte del owner 2026-08-25).
+   áreas seguras.
 
-   Se define una vez acá porque no aplica a un componente sino a cada superficie
-   que llega a los bordes: el shell del workspace y cada overlay fullscreen
-   (módulos, menú principal, lock, loading), que se portalean fuera del shell y
-   por eso no heredan su padding.
+   LA REGLA (owner, 2026-08-25 — tras el reporte de que el botón de cobrar
+   quedaba demasiado ARRIBA):
 
-   `safe-area` da los cuatro lados; `safe-area-x` solo los laterales (landscape
-   con notch). Las superficies que ya tienen padding propio no usan estas
-   utilidades: combinan el suyo con `max(...)` en el call-site, para no perderlo
-   cuando el inset es 0 (desktop, Android sin notch, tablets). */
-@utility safe-area {
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
+     El inset se descuenta UNA SOLA VEZ POR EJE, en el elemento más externo
+     que pinta fondo hasta ese borde. Los elementos internos usan su padding
+     normal y NO vuelven a sumar el inset. Encadenar dos aplicaciones sobre el
+     mismo eje es el bug, no la solución: el primer intento (commit 0d14f91b)
+     puso `padding-bottom: env(...)` en el shell del POS mientras el CTA del
+     carrito conservaba su `p-2`, y el botón terminó flotando 42px sobre el
+     borde en vez de los ~34px del inset.
+
+   COROLARIO (el que explica los modales que "no bajan hasta el final"): el
+   fondo llega SIEMPRE al borde físico; lo que se corre hacia adentro es el
+   CONTENIDO. Por eso NO se pone padding de safe-area en un contenedor cuyos
+   hijos pintan un fondo distinto al suyo — deja una franja del color del
+   contenedor contra el borde y se lee como "la pantalla no llega abajo".
+   En ese caso el inset baja al hijo que apoya en el borde.
+
+   MECÁNICA: los cuatro insets se leen UNA vez acá y se exponen como
+   variables. Todo lo demás las consume (`pt-[var(--safe-t)]`,
+   `pb-[max(0.5rem,var(--safe-b))]`, `top-[calc(1rem+var(--safe-t))]`, …).
+   Ventajas sobre repetir `env()`: un solo lugar donde mirar, y se pueden
+   forzar a un valor fijo para simular un iPhone en cualquier browser
+   (`document.documentElement.style.setProperty('--safe-t','47px')`), que es
+   la única forma de verificar esto sin dispositivo. */
+:root {
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-r: env(safe-area-inset-right, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+    --safe-l: env(safe-area-inset-left, 0px);
 }
 
+/* `safe-area` (cuatro lados) es correcta SOLO en superficies de fondo plano
+   con contenido centrado, donde el padding es invisible: el lock screen y el
+   loading del POS. Cualquier superficie con chrome propio (headers, barras
+   inferiores, listas con fondo) descuenta el inset en ese chrome, no acá —
+   ver el corolario de arriba. */
+@utility safe-area {
+    padding-top: var(--safe-t);
+    padding-bottom: var(--safe-b);
+    padding-left: var(--safe-l);
+    padding-right: var(--safe-r);
+}
+
+/* Solo los laterales — el eje que importa en landscape con notch. */
 @utility safe-area-x {
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
+    padding-left: var(--safe-l);
+    padding-right: var(--safe-r);
 }
 
 /* POS — typography táctil para inputs/textareas. El cajero necesita leer
@@ -408,6 +439,142 @@
     font-weight: 600;
     letter-spacing: 0.025em;
 }
+
+/* ─── POS móvil — mínimo táctil ──────────────────────────────────────────────
+   (reporte del owner, 2026-08-25: "los botones, inputs y dropdowns en móviles
+   se ven muy pequeños o finos, como que queda fácil fallar el tap")
+
+   DÓNDE APLICA. Todo cuelga de `[data-pos-touch]`, el atributo que
+   `components/pos/pos-touch-scope.tsx` pone en `<html>` mientras el POS está
+   montado. NO se usa `.pos-scope` (el `SidebarInset` del layout) porque los
+   portales de Radix —diálogos, drawers, dropdowns, popovers, selects, toasts—
+   se montan colgados del `<body>`, hermanos del shell: justo el cobro y el
+   menú principal quedaban afuera. `<html>` es el único ancestro común de las
+   dos ramas. Y como el atributo desaparece al desmontar el POS, el panel y
+   `/admin` no ven una sola de estas reglas — subirles la densidad les rompería
+   tablas y formularios, y el owner no pidió eso.
+
+   EL CORTE es 768px, el `MOBILE_BREAKPOINT` de `hooks/use-mobile.ts`, no el
+   `sm` de Tailwind: una tablet de caja de 800px opera con dedo pero tiene
+   espacio de sobra y ya está resuelta con sus propios layouts.
+
+   EL CRITERIO (owner): el control SE VE del tamaño que se toca. Por eso se
+   crece la caja visible y no un área táctil invisible por pseudo-elemento —
+   eso queda como excepción para los controles que a propósito son diminutos.
+
+   POR TIER, NO A CIEGAS. Un `min-height` sobre todo `[data-slot="button"]`
+   deforma los botones cuadrados (44 de alto por 36 de ancho) y engorda las
+   filas densas. Los primitives ya publican su tier en `data-size`, así que
+   cada uno recibe lo que le corresponde:
+     · iconos (`icon`, `icon-sm`, `icon-lg`) → crecen en LOS DOS ejes, siguen
+       cuadrados;
+     · texto (`default`, `sm`, `lg`) → crecen solo en alto; el ancho lo sigue
+       marcando el label (tocar `padding-inline` pisaría el padding asimétrico
+       que el primitive aplica cuando el botón lleva icono al principio o al
+       final);
+     · `xs` / `icon-xs` → NO SE TOCAN. Es el tier explícitamente denso: las X
+       de los chips de espacio/cliente/dirección del carrito viven en filas de
+       una línea (`py-1.5`) y llevarlas a 44 duplicaría el alto del chip.
+       Estos son los que se compensan con área táctil por pseudo-elemento.
+
+   VÍA DE ESCAPE. `data-touch="off"` en el call-site exime a cualquier control
+   de todo este bloque. Es para el control que a propósito tiene que quedar
+   chico y NO es del tier `xs` — se pone con un comentario al lado explicando
+   por qué, igual que cualquier override de tamaño (context/14 §"cuándo sí
+   sobreescribir"). No es un escape genérico para no pensar el layout.
+
+   Nota de cascada: esto va sin `@layer`, así que gana sobre las utilities de
+   Tailwind sin depender de especificidad — incluido un `h-*`/`size-*` puesto
+   en el `className` del call-site. Es a propósito (el punto es que un control
+   no pueda quedar por debajo del mínimo táctil por descuido), y es también la
+   razón por la que existe `data-touch="off"`. */
+@media (width < 768px) {
+    [data-pos-touch] {
+        /* 44px = mínimo táctil de las HIG de Apple y del WCAG 2.1 AA
+           (2.5.5 Target Size). Una sola fuente para todo el bloque. */
+        --pos-touch-min: 44px;
+    }
+
+    /* Botones de icono — cuadrados, crecen en los dos ejes. */
+    [data-pos-touch]
+        [data-slot="button"]:is(
+            [data-size="icon"],
+            [data-size="icon-sm"],
+            [data-size="icon-lg"]
+        ):not([data-touch="off"]) {
+        min-width: var(--pos-touch-min);
+        min-height: var(--pos-touch-min);
+    }
+
+    /* Botones con texto — solo alto; el ancho lo marca el label. */
+    [data-pos-touch]
+        [data-slot="button"]:is(
+            [data-size="default"],
+            [data-size="sm"],
+            [data-size="lg"]
+        ):not([data-touch="off"]) {
+        min-height: var(--pos-touch-min);
+    }
+
+    /* Campos de captura. Se incluyen los `<input>`/`<textarea>` nativos que no
+       pasan por el primitive (los diálogos numéricos usan uno nativo para que
+       el teléfono abra el teclado correcto), pero por lista explícita de
+       `type`: un checkbox o un radio no se estiran a 44 de alto. */
+    [data-pos-touch]
+        :is(
+            [data-slot="input"],
+            [data-slot="textarea"],
+            [data-slot="input-group"],
+            [data-slot="select-trigger"],
+            input[type="text"],
+            input[type="number"],
+            input[type="tel"],
+            input[type="search"],
+            input[type="email"],
+            input[type="password"],
+            input[type="date"],
+            input:not([type]),
+            textarea
+        ):not([data-touch="off"]) {
+        min-height: var(--pos-touch-min);
+    }
+
+    /* Typography táctil para los campos PORTALEADOS. El bloque `.pos-scope` de
+       arriba ya la aplica, pero solo dentro del shell — el input del monto en
+       el cobro, que es el que más se tipea, vive en un portal y se veía fino.
+       Acá se replica solo en móvil: en desktop el POS queda exactamente como
+       estaba. */
+    [data-pos-touch]
+        :is(
+            input[type="text"],
+            input[type="number"],
+            input[type="tel"],
+            input[type="search"],
+            input[type="email"],
+            input:not([type]),
+            textarea
+        ) {
+        font-size: 1.0625rem;   /* ~17px — un punto sobre text-sm */
+        font-weight: 600;
+        letter-spacing: 0.025em;
+    }
+
+    /* Ítems de menú y de select — "dropdowns" en el vocabulario del owner.
+       Nacen con `min-h-7` (28px): en una lista de opciones apiladas es donde
+       más fácil se le va el dedo al de al lado. */
+    [data-pos-touch]
+        :is(
+            [data-slot="dropdown-menu-item"],
+            [data-slot="dropdown-menu-checkbox-item"],
+            [data-slot="dropdown-menu-radio-item"],
+            [data-slot="dropdown-menu-sub-trigger"],
+            [data-slot="select-item"],
+            [data-slot="command-item"]
+        ):not([data-touch="off"]) {
+        min-height: var(--pos-touch-min);
+    }
+}
+
 /* MapLibre — popup sin chrome propio.
    El popup de los mapas (hoy /pos/ordenes) renderiza React con componentes
    shadcn adentro (ver components/orders/orders-map-view.tsx). MapLibre pinta

@@ -58,10 +58,26 @@ import { ProductInfoDialog } from "@/components/register/product-info-dialog"
 import { useImageFallback } from "@/components/pos/item-image"
 import type { PosItem } from "@/lib/types/pos-bootstrap"
 
-// Grilla 6 columnas × 50 filas (300 slots), scroll vertical.
+// Grilla de 300 slots (6 columnas × 50 filas), scroll vertical.
+//
+// Las columnas VISIBLES dependen del ancho: 3 en teléfono y 6 desde tablet
+// (pedido del owner 2026-08-25 — con 6 columnas en un teléfono de 360px el
+// tile queda en ~49px, más chico que la yema del dedo). El corte es `md`
+// (768px), el MISMO breakpoint que `useIsMobile`, así que la grilla y el
+// módulo-modal del layout cambian de forma juntos.
+//
+// La CANTIDAD de slots no cambia con el breakpoint a propósito: un hotkey
+// guardado en la posición 250 tiene que seguir existiendo en un teléfono
+// (solo cae en otra fila). Derivar SLOTS de las columnas visibles lo haría
+// desaparecer de la pantalla chica.
 const COLS = 6
 const ROWS = 50
 const SLOTS = COLS * ROWS
+
+// Clases de la grilla — Tailwind y no `style={{gridTemplateColumns}}`: el
+// número de columnas es una decisión de breakpoint, y en CSS no depende de
+// que hidrate el JS (sin flash de 6 columnas en el primer paint del móvil).
+const GRID_COLS = "grid grid-cols-3 gap-2 md:grid-cols-6"
 
 const DEFAULT_TILE = "#3f4651"
 
@@ -300,10 +316,7 @@ export function ProductArea() {
             collisionDetection={closestCenter}
             onDragEnd={handleDragEnd}
           >
-            <div
-              className="grid gap-2"
-              style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}
-            >
+            <div className={GRID_COLS}>
               {Array.from({ length: SLOTS }).map((_, pos) => {
                 const h = hotkeyAt.get(pos)
                 if (!h || isOrphanHotkey(h)) {
@@ -346,10 +359,9 @@ export function ProductArea() {
           </DndContext>
         ) : (
           // ── Productos de la categoría (drill-in) ──
-          <div
-            className="grid gap-2"
-            style={{ gridTemplateColumns: `repeat(${COLS}, minmax(0, 1fr))` }}
-          >
+          // Misma grilla que los hotkeys: el drill-in es la MISMA pantalla un
+          // nivel adentro, y quedaría raro que cambie de columnas al entrar.
+          <div className={GRID_COLS}>
             {categoryItems.map((item) => (
               <ProductTile
                 key={item.id}
@@ -524,13 +536,18 @@ function HotkeyTile({
           </>
         ) : (
           // Modo tabla periódica: abreviatura grande + nombre abajo.
-          <span className="text-2xl font-bold leading-none tracking-tight text-white/90">
+          // Escala con el tile: en teléfono la grilla es de 3 columnas y el
+          // tile mide más del doble, así que la abreviatura sube un paso.
+          <span className="text-3xl font-bold leading-none tracking-tight text-white/90 md:text-2xl">
             {abbrev(label)}
           </span>
         )}
         <span
           className={cn(
-            "line-clamp-2 text-[11px] font-medium leading-tight",
+            // `text-sm` en teléfono por el mismo motivo que la abreviatura: a
+            // 11px el nombre quedaba perdido en un tile de 3 columnas. Sigue
+            // recortando con `line-clamp-2`, nunca desborda.
+            "line-clamp-2 text-sm font-medium leading-tight md:text-[11px]",
             hasImage ? "absolute inset-x-0 bottom-0 z-10 p-2 text-white" : "text-white/85",
           )}
         >
@@ -692,7 +709,9 @@ function ProductTile({
         )}
         <div className="absolute inset-x-0 bottom-0 h-1/2 bg-gradient-to-t from-black/70 to-transparent" />
         <div className="absolute inset-x-0 bottom-0 p-2">
-          <span className="line-clamp-2 text-left text-[11px] font-medium leading-tight text-white">
+          {/* Misma escala que el label del hotkey: text-sm en la grilla de 3
+              columnas del teléfono, 11px desde tablet. */}
+          <span className="line-clamp-2 text-left text-sm font-medium leading-tight text-white md:text-[11px]">
             {item.name}
           </span>
         </div>

@@ -109,7 +109,7 @@ import { usePrinterBindings } from "@/hooks/use-printer-bindings"
 import { posApi } from "@/lib/api/pos-client"
 import { printOrderComandas } from "@/lib/orders/print-comandas"
 import { FulfillmentSelector } from "@/components/register/fulfillment-selector"
-import { ToggleChip } from "@/components/register/toggle-chip"
+import { CHIP_BASE, ToggleChip } from "@/components/register/toggle-chip"
 import { DeliveryAddressDialog } from "@/components/register/delivery-address-dialog"
 
 // ── CartPanel raíz ────────────────────────────────────────────────────────────
@@ -1634,7 +1634,16 @@ function CartBottom({
   }
 
   return (
-    <div className="shrink-0 bg-background p-2 pt-2">
+    // `pb-[max(...)]`: ESTE es el elemento que apoya en el borde inferior del
+    // dispositivo, así que acá —y en ningún otro nivel— se descuenta
+    // `--safe-b`. El shell del POS (`app/(pos)/layout.tsx`) lo hacía hasta el
+    // commit 0d14f91b y se sumaba a este `p-2`: el botón de cobrar quedaba
+    // ~42px sobre el borde en vez de apoyar en el límite del área segura
+    // (reporte del owner 2026-08-25, "demasiado arriba"). Ver la regla
+    // completa en `app/globals.css` § "Áreas seguras del dispositivo".
+    // `max()` y no suma: donde el inset es 0 (desktop, tablet sin notch,
+    // Android con botones) siguen siendo los mismos 8px de siempre.
+    <div className="shrink-0 bg-background px-2 pt-2 pb-[max(0.5rem,var(--safe-b))]">
       {/* Toggles CRÉDITO / INTERNO / IVA — atributos de la VENTA, no de la
           orden: no existe orden a crédito, "interno" es una venta sin valor
           fiscal y el IVA se define recién al cobrar. En modo orden-mostrador
@@ -1643,10 +1652,13 @@ function CartBottom({
           por construcción) no muestra nada acá salvo VACIAR.
           Los tres son el MISMO chip (`ToggleChip`) que los toggles de venta —
           la fila es un patrón cerrado, no admite un control con forma propia.
-          `min-h-6`: conserva su alto aunque quede vacía en cualquier modo, así
+          `min-h-*`: conserva su alto aunque quede vacía en cualquier modo, así
           el CTA de abajo NO se mueve ni un pixel al cambiar de modo — memoria
-          muscular del cajero (Regla #10, context/14-ui-conventions.md). */}
-      <div className="mb-2 flex min-h-6 items-center justify-center gap-2">
+          muscular del cajero (Regla #10, context/14-ui-conventions.md). Son
+          dos valores porque los chips son más grandes en móvil (ver
+          `CHIP_BASE` en toggle-chip.tsx): el alto de la fila acompaña al chip
+          en cada breakpoint, y dentro de cada uno sigue siendo constante. */}
+      <div className="mb-2 flex min-h-7 items-center justify-center gap-2 sm:min-h-6">
         {/* Nav de módulos (HotKeys / Órdenes / Espacios / Guardadas), solo
             mobile — el owner lo pidió acá, a la izquierda de CRÉDITO
             (2026-08-01). Va FUERA del condicional de los toggles: en modo
@@ -1677,7 +1689,7 @@ function CartBottom({
               onClick={onToggleIva}
               aria-label={ivaRemoved ? "Restaurar IVA" : "Eliminar IVA"}
               className={cn(
-                "rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
+                CHIP_BASE,
                 ivaRemoved
                   ? "border-border bg-transparent text-muted-foreground/50"
                   : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground hover:text-foreground",
@@ -1694,7 +1706,10 @@ function CartBottom({
           <button
             onClick={onClear}
             aria-label="Vaciar carrito"
-            className="rounded-full border border-destructive/40 bg-transparent px-2.5 py-0.5 text-[10px] font-bold tracking-wide text-destructive transition-colors hover:bg-destructive/10"
+            className={cn(
+              CHIP_BASE,
+              "border-destructive/40 bg-transparent text-destructive hover:bg-destructive/10",
+            )}
           >
             VACIAR
           </button>

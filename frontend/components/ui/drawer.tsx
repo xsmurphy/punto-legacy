@@ -63,13 +63,32 @@ function DrawerContent({
   // y el último botón del actionsheet se vuelve intocable. El padding inferior
   // se resuelve acá, en el primitive, y no en cada actionsheet — son ~15 y
   // todos comparten el mismo borde. `max()` conserva el p-4 donde no hay inset.
+  //
+  // Esto NO se encadena con el inset del shell del POS: el drawer se portalea
+  // al `<body>`, así que nunca es descendiente del shell y nadie le suma un
+  // segundo `--safe-b`. Es la única aplicación del eje inferior en su árbol.
+  // La regla completa está en `app/globals.css` § "Áreas seguras del
+  // dispositivo".
+  //
+  // El bottom drawer va PEGADO a los bordes (owner, 2026-08-25: "dejan un
+  // espacio entre el borde del smartphone y el drawer"). El margen no venía de
+  // un `mx-*` sino del `before:inset-2`: la tarjeta que pinta el fondo estaba
+  // 8px adentro por los cuatro lados. Abajo y a los costados pasa a inset-0 y
+  // el redondeo queda solo arriba, que es el estándar del bottom sheet. Los
+  // laterales y el `top` de los drawers `left`/`right`/`top` no se tocan: esos
+  // sí son tarjetas flotantes.
+  //
+  // Ojo con la distinción que esto hace fácil de romper: PEGADO es el FONDO
+  // llegando al borde físico. El contenido sigue corriéndose hacia adentro con
+  // los insets (`pb`/`pl`/`pr` de acá abajo) — si al sacar el margen se va
+  // también el inset, el último botón vuelve a caer sobre la barra de gestos.
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay />
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         className={cn(
-          "group/drawer-content fixed z-50 flex h-auto flex-col bg-transparent p-4 text-sm before:absolute before:inset-2 before:-z-10 before:rounded-[min(var(--radius-4xl),24px)] before:border before:border-border before:bg-popover before:shadow-xl data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[80vh] data-[vaul-drawer-direction=bottom]:pb-[max(1rem,env(safe-area-inset-bottom))] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm",
+          "group/drawer-content fixed z-50 flex h-auto flex-col bg-transparent p-4 text-sm before:absolute before:inset-2 before:-z-10 before:rounded-[min(var(--radius-4xl),24px)] before:border before:border-border before:bg-popover before:shadow-xl data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[80vh] data-[vaul-drawer-direction=bottom]:before:inset-x-0 data-[vaul-drawer-direction=bottom]:before:bottom-0 data-[vaul-drawer-direction=bottom]:before:rounded-b-none data-[vaul-drawer-direction=bottom]:pb-[max(1rem,var(--safe-b))] data-[vaul-drawer-direction=bottom]:pl-[max(1rem,var(--safe-l))] data-[vaul-drawer-direction=bottom]:pr-[max(1rem,var(--safe-r))] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm",
           className
         )}
         {...props}

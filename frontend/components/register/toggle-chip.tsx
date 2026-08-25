@@ -14,6 +14,23 @@
 
 import { cn } from "@/lib/utils"
 
+/**
+ * Forma y tamaño del chip — la ÚNICA definición.
+ *
+ * La exporta para los dos chips de la misma fila que no son toggles y por eso
+ * no pasan por `<ToggleChip>`: el de IVA (muestra un monto, no un estado
+ * on/off) y VACIAR (acción destructiva). Antes cada uno repetía la cadena de
+ * clases a mano, así que agrandarlos en móvil habría sido tres ediciones que
+ * se desincronizan a la primera.
+ *
+ * Móvil primero: el owner pidió los pills "un poco más grandes" en el teléfono
+ * (2026-08-25) — `text-xs` con más padding, que además acerca el área táctil a
+ * lo que la caja necesita. Desde `sm` vuelve al tamaño original: en desktop y
+ * tablet la fila convive con el resto del carrito y no se toca con el dedo.
+ */
+export const CHIP_BASE =
+  "rounded-full border px-3 py-1 text-xs font-bold tracking-wide transition-colors sm:px-2.5 sm:py-0.5 sm:text-[10px]"
+
 export function ToggleChip({
   label,
   active,
@@ -27,7 +44,7 @@ export function ToggleChip({
     <button
       onClick={onClick}
       className={cn(
-        "rounded-full border px-2.5 py-0.5 text-[10px] font-bold tracking-wide transition-colors",
+        CHIP_BASE,
         active
           ? "border-brand bg-brand/20 text-brand"
           : "border-border bg-transparent text-muted-foreground hover:border-muted-foreground",

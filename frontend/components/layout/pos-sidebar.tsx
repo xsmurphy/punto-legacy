@@ -22,6 +22,7 @@ import {
   SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { cn } from "@/lib/utils"
 import { PuntoLogo } from "@/components/layout/punto-logo"
@@ -30,7 +31,6 @@ import { useActiveOrders } from "@/hooks/use-orders"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { useIsMobile } from "@/hooks/use-mobile"
 import { usePosModules } from "@/hooks/use-pos-modules"
 import type { ModulesMap } from "@/lib/types/module"
 import { usePosUIStore } from "@/lib/ui/store"
@@ -63,12 +63,29 @@ function moduleEnabled(
   return m?.[key]?.enabled === true
 }
 
+// Alto de fila: `h-12` (48px) en mobile porque el menú se abre como drawer de
+// abajo y el cajero lo toca con el pulgar — sobre el mínimo táctil de 44px
+// (§1 de context/14 habilita sobreescribir el tamaño shadcn cuando lo pide una
+// restricción real, documentándolo). En desktop vuelve al rail de íconos
+// (`md:h-8`), donde se opera con mouse.
+const NAV_ITEM_CLASS =
+  "h-12 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+
+const ACTION_ITEM_CLASS =
+  "h-12 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 [&:hover]:!bg-[#E3E5E9] dark:[&:hover]:!bg-[#1A1D1F]"
+
+// El badge se posiciona absoluto contra la fila; con `h-12` en mobile las
+// reglas del primitive (calibradas para `h-8`) lo dejaban pegado arriba.
+const MENU_BADGE_CLASS = "top-3.5! md:top-1.5!"
+
 /**
  * Sidebar mínimo exclusivo del POS. Muestra SOLO las rutas del workspace
  * de caja — sin links al panel (Artículos, Contactos, Reportes, etc.).
  *
  * Siempre renderizado collapsed/icon en desktop (PosSidebarProvider lo fuerza).
- * En mobile aparece como Sheet al abrirse.
+ * En mobile baja como DRAWER de abajo (`mobileVariant="drawer"`), igual que el
+ * menú "Opciones de venta": la caja se opera con el pulgar y un panel lateral
+ * queda fuera del alcance del dedo (pedido del owner 2026-08-25).
  */
 export function PosSidebar() {
   const pathname = usePathname()
@@ -94,8 +111,18 @@ export function PosSidebar() {
   // dejaba la grilla inalcanzable — reporte del owner 2026-08-01. El param
   // `?view=hotkeys` la abre como módulo-modal, igual que Órdenes/Espacios, y
   // sobrevive un reload porque vive en la URL y no en un store.
-  const isMobile = useIsMobile()
+  // Mismo `isMobile` que usa el primitive para decidir sheet/drawer/rail — se
+  // lee del contexto en vez de suscribirse otra vez a `useIsMobile()`.
+  const { isMobile, setOpenMobile } = useSidebar()
   const hotkeysHref = isMobile ? "/pos?view=hotkeys" : "/pos"
+
+  // El drawer se cierra al tocar cualquier ítem: navegar o disparar la acción y
+  // quedarse con el menú tapando el carrito no sirve de nada. Mismo patrón que
+  // `app-sidebar.tsx` / `admin-sidebar.tsx` — en desktop es no-op porque el rail
+  // es persistente y `openMobile` ni se usa.
+  const closeMobile = React.useCallback(() => {
+    if (isMobile) setOpenMobile(false)
+  }, [isMobile, setOpenMobile])
 
   // El botón de HotKeys del sidebar promete la VISTA POR DEFECTO (grilla de
   // venta), nunca el editor — ese modo se entra solo desde Menú POS → HotKeys
@@ -133,8 +160,15 @@ export function PosSidebar() {
         : null
 
   return (
-    <Sidebar collapsible="icon" variant="inset">
-      <SidebarHeader className="pt-[calc(0.5rem+env(safe-area-inset-top))]">
+    <Sidebar collapsible="icon" variant="inset" mobileVariant="drawer">
+      {/* Los insets del notch solo aplican al rail de desktop, que sí pega
+          contra el borde de la pantalla. El drawer mobile ya descuenta su
+          propio inset inferior en el primitive (`components/ui/drawer.tsx`) y
+          nace lejos del superior — sumar padding acá abriría un hueco muerto
+          arriba del menú. */}
+      <SidebarHeader
+        className={cn(!isMobile && "pt-[calc(0.5rem+var(--safe-t))]")}
+      >
         <div className="flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
           <Link
             href="/"
@@ -161,11 +195,17 @@ export function PosSidebar() {
                   asChild
                   isActive={pathname === "/pos"}
                   tooltip="HotKeys"
-                  className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                  className={NAV_ITEM_CLASS}
                 >
                   {/* `isActive` compara contra `pathname`, que NO incluye la
                       query — se marca igual con o sin `?view=hotkeys`. */}
-                  <Link href={hotkeysHref} onClick={() => setHotkeysEditing(false)}>
+                  <Link
+                    href={hotkeysHref}
+                    onClick={() => {
+                      setHotkeysEditing(false)
+                      closeMobile()
+                    }}
+                  >
                     <Blocks />
                     <span>HotKeys</span>
                   </Link>
@@ -178,15 +218,17 @@ export function PosSidebar() {
                     asChild
                     isActive={pathname.startsWith("/pos/ordenes")}
                     tooltip="Órdenes"
-                    className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                    className={NAV_ITEM_CLASS}
                   >
-                    <Link href="/pos/ordenes">
+                    <Link href="/pos/ordenes" onClick={closeMobile}>
                       <ClipboardList />
                       <span>Órdenes</span>
                     </Link>
                   </SidebarMenuButton>
                   {activeOrdersCount > 0 && (
-                    <SidebarMenuBadge>{activeOrdersCount}</SidebarMenuBadge>
+                    <SidebarMenuBadge className={MENU_BADGE_CLASS}>
+                      {activeOrdersCount}
+                    </SidebarMenuBadge>
                   )}
                 </SidebarMenuItem>
               )}
@@ -197,9 +239,9 @@ export function PosSidebar() {
                     asChild
                     isActive={pathname.startsWith("/pos/espacios")}
                     tooltip="Espacios"
-                    className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                    className={NAV_ITEM_CLASS}
                   >
-                    <Link href="/pos/espacios">
+                    <Link href="/pos/espacios" onClick={closeMobile}>
                       <LayoutGrid />
                       <span>Espacios</span>
                     </Link>
@@ -213,15 +255,17 @@ export function PosSidebar() {
                     asChild
                     isActive={pathname.startsWith("/pos/guardadas")}
                     tooltip="Guardadas"
-                    className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 data-[active=true]:!bg-[#EAEEF1] dark:data-[active=true]:!bg-[oklch(0.16_0_0)] [&:hover:not([data-active=true])]:!bg-[#E3E5E9] dark:[&:hover:not([data-active=true])]:!bg-[#1A1D1F]"
+                    className={NAV_ITEM_CLASS}
                   >
-                    <Link href="/pos/guardadas">
+                    <Link href="/pos/guardadas" onClick={closeMobile}>
                       <Bookmark />
                       <span>Guardadas</span>
                     </Link>
                   </SidebarMenuButton>
                   {parkedCount > 0 && (
-                    <SidebarMenuBadge>{parkedCount}</SidebarMenuBadge>
+                    <SidebarMenuBadge className={MENU_BADGE_CLASS}>
+                      {parkedCount}
+                    </SidebarMenuBadge>
                   )}
                 </SidebarMenuItem>
               )}
@@ -234,14 +278,19 @@ export function PosSidebar() {
           separados de la navegación de arriba — misma distinción que sacó los
           modos del drawer de Opciones: navegar te lleva a un lugar, esto
           cambia cómo está operando la caja. */}
-      <SidebarFooter className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+      <SidebarFooter
+        className={cn(!isMobile && "pb-[calc(0.5rem+var(--safe-b))]")}
+      >
         <SidebarMenu>
           {!modoSoloOrdenes && (
             <SidebarMenuItem>
               <SidebarMenuButton
                 tooltip="Modo del POS"
-                onClick={() => setModeDialogOpen(true)}
-                className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 [&:hover]:!bg-[#E3E5E9] dark:[&:hover]:!bg-[#1A1D1F]"
+                onClick={() => {
+                  closeMobile()
+                  setModeDialogOpen(true)
+                }}
+                className={ACTION_ITEM_CLASS}
               >
                 {/* El tinte del ícono replica la señal de la banda del
                     carrito: modo activo visible sin abrir nada. */}
@@ -253,8 +302,11 @@ export function PosSidebar() {
           <SidebarMenuItem>
             <SidebarMenuButton
               tooltip="Bloquear"
-              onClick={lock}
-              className="h-10 text-base [&>svg]:size-5 md:h-8 md:text-sm md:[&>svg]:size-4 [&:hover]:!bg-[#E3E5E9] dark:[&:hover]:!bg-[#1A1D1F]"
+              onClick={() => {
+                closeMobile()
+                lock()
+              }}
+              className={ACTION_ITEM_CLASS}
             >
               <Lock />
               <span>Bloquear</span>

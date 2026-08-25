@@ -37,6 +37,17 @@ interface MoneyInputProps
   maxIntDigits?: number
   /** Override de decimales — ver comentario arriba. Default: el del tenant. */
   decimals?: number
+  /**
+   * Override de la FUENTE del formato (miles + decimales). Default:
+   * `useBootstrap()`, o sea el endpoint del panel.
+   *
+   * Existe para el POS: ahí la config del tenant no viene del bootstrap del
+   * panel sino del `PosBootstrap` que se baja al catálogo offline
+   * (`useCatalogStore(s => s.config)`), y un POS sin sesión de panel dejaba a
+   * este input formateando con los defaults del componente en vez de con los
+   * del comercio. `PosConfig` satisface este `Pick` tal cual.
+   */
+  format?: Pick<Bootstrap, "thousand" | "decimal">
 }
 
 export function MoneyInput({
@@ -44,13 +55,14 @@ export function MoneyInput({
   onChange,
   maxIntDigits = 12,
   decimals,
+  format,
   className,
   onFocus,
   onBlur,
   ...rest
 }: MoneyInputProps) {
   const { data: bootstrap } = useBootstrap()
-  const fmt = getFormatConfig(bootstrap, decimals)
+  const fmt = getFormatConfig(format ?? bootstrap, decimals)
 
   // Internamente trabajamos con un string de SOLO dígitos (sin separadores).
   // Cuando llegamos a 'decimals' dígitos finales, esos son la fracción;

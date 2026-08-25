@@ -352,13 +352,23 @@ export function ContactDetailView({
         onSubmit={form.handleSubmit(onSubmit)}
         className={cn(
           "flex flex-col",
-          isPos ? "h-full" : "gap-6",
+          // En el POS esta vista se monta dentro de un diálogo que en móvil es
+          // FULLSCREEN (`customer-dialog.tsx`): toca los cuatro bordes físicos
+          // del teléfono. Los insets laterales se descuentan una sola vez acá
+          // —el formulario no pinta fondo, así que el `bg-popover` del diálogo
+          // sigue llegando al borde y solo se corre el contenido— y los insets
+          // vertical arriba/abajo los descuenta cada chrome (header y footer).
+          isPos ? "h-full max-sm:safe-area-x" : "gap-6",
         )}
       >
         {/* Header */}
         <header className={cn(
           "flex items-start justify-between gap-3 shrink-0",
-          isPos ? "px-6 pt-6 pb-2" : "pb-2",
+          // El `pt-6` son 24px desde el borde FÍSICO cuando el diálogo va
+          // fullscreen: el nombre del cliente y —peor— la X de cerrar quedaban
+          // adentro del status bar. Esta X es la ÚNICA salida de la ficha
+          // (`showCloseButton={false}` en el call-site).
+          isPos ? "px-6 pt-6 pb-2 max-sm:pt-[calc(1.5rem+var(--safe-t))]" : "pb-2",
         )}>
           <div className="flex items-center gap-2.5 min-w-0">
             <Avatar className="size-9 shrink-0">
@@ -430,6 +440,9 @@ export function ContactDetailView({
                 size="icon"
                 onClick={onClose}
                 aria-label="Cerrar"
+                // 32px de `size="icon"` no es un blanco táctil en un teléfono
+                // (mínimo 44px), y acá es la única salida de la ficha.
+                className="max-sm:size-11"
               >
                 <X className="size-4" />
               </Button>
@@ -462,11 +475,18 @@ export function ContactDetailView({
             ))}
           </Tabs>
         ) : (
-          /* nav="sidebar" — paritario con app/(panel)/settings/page.tsx */
-          <div className="grid flex-1 min-h-0 grid-cols-[220px_1fr]">
+          /* nav="sidebar" — paritario con app/(panel)/settings/page.tsx.
+             En móvil la columna de 220px se comía más de la mitad del ancho del
+             teléfono y dejaba ~140px para el contenido (gráficos y formulario
+             quedaban ilegibles, y el `overflow-hidden` del diálogo los recortaba
+             en vez de dejarlos scrollear). Bajo `sm` el aside pasa a ser una
+             tira horizontal scrolleable arriba —el mismo patrón que ya usa la
+             variante `nav="tabs"`— y el contenido se queda con el ancho
+             completo. De `sm` para arriba el layout es idéntico al de siempre. */
+          <div className="grid flex-1 min-h-0 grid-cols-1 grid-rows-[auto_1fr] sm:grid-cols-[220px_1fr] sm:grid-rows-1">
             <nav
               aria-label="Secciones del cliente"
-              className="flex shrink-0 flex-col gap-0.5 border-r bg-card p-3"
+              className="flex shrink-0 gap-0.5 bg-card p-3 max-sm:flex-row max-sm:overflow-x-auto max-sm:border-b max-sm:p-2 sm:flex-col sm:border-r"
             >
               {sections.map((s) => (
                 <button
@@ -475,6 +495,10 @@ export function ContactDetailView({
                   onClick={() => setTab(s.key)}
                   className={cn(
                     "flex w-full shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors",
+                    // Tira horizontal: cada item se ajusta a su texto (no
+                    // `w-full`), no parte el label en dos líneas y respeta el
+                    // blanco táctil de 44px del POS.
+                    "max-sm:min-h-11 max-sm:w-auto max-sm:whitespace-nowrap max-sm:px-3",
                     tab === s.key
                       ? "bg-accent font-medium text-accent-foreground"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -501,7 +525,7 @@ export function ContactDetailView({
 
         {/* Footer fijo — solo variant="pos" */}
         {isPos && onSelectForSale && (
-          <div className="shrink-0 border-t px-6 py-4 flex justify-end">
+          <div className="shrink-0 border-t px-6 py-4 flex justify-end max-sm:pb-[calc(1rem+var(--safe-b))]">
             <Button
               type="button"
               size="lg"

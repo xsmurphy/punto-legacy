@@ -63,6 +63,8 @@ function wantsHotkeysModule(search: { get(key: string): string | null }): boolea
 
 import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { ArrowLeft } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import {
   Dialog,
   DialogContent,
@@ -249,7 +251,11 @@ function PosWorkspaceLayoutInner({
         {!moduleAsDialog && (
           <div
             className={cn(
-              "hidden overflow-hidden md:block",
+              // `pb`: en tablet este bloque apoya en el borde inferior igual
+              // que el carrito (que lo descuenta en su `CartBottom`), así que
+              // la última fila de la grilla no queda debajo del indicador de
+              // gestos del iPad. En desktop la variable vale 0.
+              "hidden overflow-hidden pb-[var(--safe-b)] md:block",
               cartHidden ? "flex-1" : "flex-[7]",
             )}
           >
@@ -279,11 +285,16 @@ function PosWorkspaceLayoutInner({
           }}
         >
           <DialogContent
+            // La X del primitive vive en `absolute top-4 right-4`: a pantalla
+            // completa eso cae DENTRO del status bar del teléfono, donde no
+            // recibe el toque. Como en un módulo esa X era la única salida, el
+            // cajero quedaba encerrado — "entro al módulo de órdenes y ya no
+            // puedo volver" (owner, 2026-08-25). La reemplaza la barra de
+            // abajo, que además dice a dónde vuelve.
+            showCloseButton={false}
             className={cn(
               "flex flex-col gap-0 overflow-hidden p-0",
               "!inset-0 !h-dvh !max-h-dvh !w-auto !max-w-none !translate-x-0 !translate-y-0 !rounded-none",
-              // Portaleado fuera del shell del POS: no hereda su `safe-area`.
-              "safe-area",
             )}
           >
             <DialogHeader className="sr-only">
@@ -292,7 +303,37 @@ function PosWorkspaceLayoutInner({
                 Módulo del POS abierto sobre el carrito.
               </DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 flex-1 overflow-hidden">{children}</div>
+            {/* Barra de vuelta a la caja — el módulo tapa la pantalla entera y
+                el trigger de navegación vive en el carrito, que queda debajo.
+                Sin esto la única salida era el gesto del sistema, que en la
+                PWA instalada no existe.
+
+                Acá se descuenta `--safe-t`: esta barra es el elemento que
+                apoya en el borde superior de esta superficie (el diálogo se
+                portalea al `<body>`, no hereda el inset del shell del POS).
+                El fondo de la barra llega igual hasta el borde físico; lo que
+                se corre hacia abajo es su contenido. Ver `app/globals.css`
+                § "Áreas seguras del dispositivo". */}
+            <div className="flex shrink-0 items-center gap-1 border-b pt-[calc(0.5rem+var(--safe-t))] pr-3 pb-2 pl-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-11"
+                aria-label="Volver a la caja"
+                onClick={() => router.push("/pos")}
+              >
+                <ArrowLeft className="size-5" />
+              </Button>
+              <span className="truncate text-base font-semibold">
+                {moduleTitle}
+              </span>
+            </div>
+            {/* `pb`: el módulo apoya en el borde inferior. Su barra de vistas
+                (Órdenes) y sus listas terminan justo arriba del indicador de
+                gestos en vez de debajo. */}
+            <div className="min-h-0 flex-1 overflow-hidden pb-[var(--safe-b)]">
+              {children}
+            </div>
           </DialogContent>
         </Dialog>
       )}

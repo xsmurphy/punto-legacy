@@ -6,67 +6,89 @@ import path from "node:path"
  * Guard de áreas seguras del POS.
  *
  * `viewport-fit=cover` + `statusBarStyle: black-translucent` (app/layout.tsx)
- * hacen que la app instalada pinte de borde a borde. Cualquier superficie que
- * llegue a un borde y no descuente `env(safe-area-inset-*)` queda tapada por el
- * chrome del sistema: en el iPhone, la toolbar del carrito terminó debajo del
- * reloj y la batería, con dos de sus cuatro botones inalcanzables (reporte del
- * owner 2026-08-25).
+ * hacen que la app instalada pinte de borde a borde. Eso trae DOS fallas de
+ * signo opuesto y este archivo cuida las dos:
  *
- * El bug no es de un componente sino de una CLASE de componente — el shell y
- * cada overlay fullscreen, que se portalean fuera del shell y por eso no
- * heredan su padding. Este test enumera esas superficies y exige que declaren
- * las áreas seguras, para que la próxima que se agregue no repita el olvido.
+ *  1. FALTA de inset — la superficie queda debajo del chrome del sistema. Fue
+ *     el primer reporte (2026-08-25): la toolbar del carrito debajo del reloj
+ *     y la batería, y la X de los modales fullscreen dentro del status bar,
+ *     donde no recibe el toque (el cajero quedaba encerrado en el módulo de
+ *     órdenes).
+ *
+ *  2. EXCESO de inset — el mismo eje descontado dos veces. Fue el segundo
+ *     reporte, el mismo día: el shell del POS puso `padding-bottom` y la barra
+ *     del CTA conservó su `p-2`, así que el botón de cobrar quedó flotando
+ *     ~42px sobre el borde en vez de apoyar en el límite del área segura.
+ *
+ * De ahí la regla que estos tests fijan: **el inset se descuenta UNA sola vez
+ * por eje, en el elemento más externo que pinta fondo contra ese borde**. Está
+ * escrita en `app/globals.css` § "Áreas seguras del dispositivo".
  *
  * Es un chequeo de código, no de render: no hay DOM ni browser en esta suite.
- * Lo que garantiza es que la declaración esté; que el valor sea el correcto lo
- * verifica el dispositivo.
+ * Garantiza que la declaración esté y que no esté DOS veces; que el valor se
+ * vea bien lo verifica el dispositivo.
  */
 
 const ROOT = path.resolve(import.meta.dirname, "../../..")
-
-/** Superficies del POS que tocan los bordes del dispositivo. */
-const EDGE_SURFACES = [
-  "app/(pos)/layout.tsx",
-  "app/(pos)/pos/layout.tsx",
-  "components/register/lock-screen.tsx",
-  "components/register/pos-loading-screen.tsx",
-  "components/register/pos-main-menu.tsx",
-  "components/ui/drawer.tsx",
-]
-
-/** Declara área segura: la utilidad compartida o un `env()` explícito. */
-const DECLARES_SAFE_AREA = /safe-area(?:-x)?\b|env\(safe-area-inset-/
 
 function read(rel: string): string {
   return readFileSync(path.join(ROOT, rel), "utf8")
 }
 
-describe("áreas seguras del POS", () => {
-  it.each(EDGE_SURFACES)("%s descuenta las áreas seguras", (rel) => {
+/** Consume un área segura: la utilidad compartida o una de las variables. */
+const DECLARES_SAFE_AREA = /safe-area(?:-x)?\b|var\(--safe-[trbl]\)/
+
+describe("fuente única de las áreas seguras", () => {
+  it("las cuatro variables se definen una sola vez, en globals.css", () => {
+    const css = read("app/globals.css")
+    for (const name of ["--safe-t", "--safe-r", "--safe-b", "--safe-l"]) {
+      const defs = css.match(new RegExp(`${name}:\\s*env\\(safe-area-inset-`, "g"))
+      expect(defs?.length, `${name} definida ${defs?.length ?? 0} veces`).toBe(1)
+    }
+  })
+
+  it("ningún componente lee `env(safe-area-inset-*)` por su cuenta", () => {
+    // Si cada call-site vuelve a llamar a `env()` se pierde el único lugar
+    // donde mirar —y donde forzar valores para simular un iPhone en el
+    // browser, que es la única forma de verificar esto sin dispositivo.
+    const offenders = SURFACES.filter((rel) =>
+      /env\(safe-area-inset-/.test(read(rel)),
+    )
+    expect(offenders, `usan env() en vez de var(--safe-*): ${offenders.join(", ")}`)
+      .toEqual([])
+  })
+})
+
+/** Superficies que apoyan en algún borde del dispositivo. */
+const SURFACES = [
+  "app/(pos)/layout.tsx",
+  "app/(pos)/pos/layout.tsx",
+  "components/register/cart-panel.tsx",
+  "components/register/lock-screen.tsx",
+  "components/register/pos-loading-screen.tsx",
+  "components/register/pos-main-menu.tsx",
+  "components/register/pos-transactions-dialog.tsx",
+  "components/pos/install-prompt.tsx",
+  "components/ui/dialog.tsx",
+  "components/ui/drawer.tsx",
+]
+
+describe("cada superficie que toca un borde lo descuenta", () => {
+  it.each(SURFACES)("%s descuenta las áreas seguras", (rel) => {
     expect(read(rel)).toMatch(DECLARES_SAFE_AREA)
   })
 
-  it("el shell del workspace es el que las aplica (no cada componente)", () => {
-    // Si esto falla porque el shell cambió de forma, moverlo está bien — lo que
-    // NO puede pasar es que el workspace deje de descontarlas en algún lado.
-    const shell = read("app/(pos)/layout.tsx")
-    expect(shell).toMatch(/SidebarInset[^>]*className={?["'][^"']*safe-area/s)
-  })
-
-  it("cada overlay `fixed inset-0` del POS declara las áreas seguras", () => {
-    const overlays = [
+  it("cada overlay `fixed inset-0` del POS trae su propia declaración", () => {
+    // Se portalean fuera del shell: no hay padding que heredar.
+    for (const rel of [
       "components/register/lock-screen.tsx",
       "components/register/pos-loading-screen.tsx",
-    ]
-    for (const rel of overlays) {
-      const src = read(rel)
-      // Cada className que fija un overlay a los cuatro bordes tiene que traer
-      // su propia declaración: son varios por archivo (spinner, error, lock).
-      const fullscreenClassNames = src
+    ]) {
+      const lines = read(rel)
         .split("\n")
         .filter((line) => line.includes("fixed inset-0"))
-      expect(fullscreenClassNames.length).toBeGreaterThan(0)
-      for (const line of fullscreenClassNames) {
+      expect(lines.length).toBeGreaterThan(0)
+      for (const line of lines) {
         expect(line, `${rel}: overlay sin área segura → ${line.trim()}`).toMatch(
           DECLARES_SAFE_AREA,
         )
@@ -74,28 +96,51 @@ describe("áreas seguras del POS", () => {
     }
   })
 
-  it("el drawer bottom no apoya su contenido sobre la barra de gestos", () => {
-    // Es el primitive compartido: ~15 actionsheets del POS y del panel cuelgan
-    // de acá, así que el padding inferior seguro vive una sola vez.
-    expect(read("components/ui/drawer.tsx")).toMatch(
-      /vaul-drawer-direction=bottom\]:pb-\[max\([^\]]*safe-area-inset-bottom/,
+  it("el modal fullscreen reposiciona su X fuera del status bar", () => {
+    // En varios módulos del POS esa X es la ÚNICA salida. Si vuelve a
+    // `top-4` pelado, el cajero queda encerrado en el teléfono.
+    expect(read("components/ui/dialog.tsx")).toMatch(
+      /max-sm:top-\[calc\(1rem\+var\(--safe-t\)\)\]/,
     )
   })
 
-  it("la utilidad safe-area está definida una sola vez, en globals.css", () => {
-    const css = read("app/globals.css")
-    expect(css).toMatch(/@utility safe-area\s*\{/)
-    expect(css.match(/@utility safe-area\s*\{/g)?.length).toBe(1)
+  it("el drawer bottom no apoya su contenido sobre la barra de gestos", () => {
+    // Primitive compartido: ~15 actionsheets del POS y del panel cuelgan de
+    // acá, así que el padding inferior seguro vive una sola vez.
+    expect(read("components/ui/drawer.tsx")).toMatch(
+      /vaul-drawer-direction=bottom\]:pb-\[max\([^\]]*var\(--safe-b\)/,
+    )
+  })
+})
+
+describe("el inset se descuenta una sola vez por eje", () => {
+  it("el shell del POS NO descuenta el eje inferior", () => {
+    // ESTE es el guard del bug "el botón de pagar quedó demasiado arriba". El
+    // eje inferior pertenece a `CartBottom`, que es el elemento que realmente
+    // apoya en ese borde. Si alguien vuelve a poner `safe-area` (cuatro lados)
+    // o un `--safe-b` acá, los dos paddings se suman.
+    const shell = read("app/(pos)/layout.tsx")
+    const inset = shell.match(/<SidebarInset[\s\S]*?\/>|<SidebarInset[\s\S]*?>/)?.[0] ?? ""
+    expect(inset).toMatch(/var\(--safe-t\)/)
+    expect(inset, "el shell volvió a descontar el eje inferior").not.toMatch(
+      /var\(--safe-b\)|safe-area\b/,
+    )
+  })
+
+  it("la barra del CTA del carrito es la que descuenta el eje inferior", () => {
+    expect(read("components/register/cart-panel.tsx")).toMatch(
+      /pb-\[max\(0\.5rem,var\(--safe-b\)\)\]/,
+    )
   })
 })
 
 /**
  * Mínimo táctil de la toolbar del carrito.
  *
- * La caja se opera con el dedo (context: el POS es touch/tablet-first). Los
- * cuatro triggers de la toolbar estaban en `size-9` (36px), por debajo del
- * mínimo de las guías de iOS y Android. El contenedor es `h-14` (56px), así
- * que 44px entra sin mover ningún slot.
+ * La caja se opera con el dedo (el POS es touch/tablet-first). Los cuatro
+ * triggers de la toolbar estaban en `size-9` (36px), por debajo del mínimo de
+ * las guías de iOS y Android. El contenedor es `h-14` (56px), así que 44px
+ * entra sin mover ningún slot.
  */
 describe("área táctil de la toolbar de la caja", () => {
   const TRIGGERS: Array<[string, RegExp]> = [

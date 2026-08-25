@@ -189,13 +189,30 @@ export function PosTransactionsDialog({ open, onOpenChange, onDismiss }: Props) 
     <Dialog open={open} onOpenChange={() => handleClose("dismiss")}>
       {/* Bucket xl — modal split 2-col (lista + detalle) */}
       {/* Listado grande → fullscreen en mobile (opt-in del primitive). */}
-      <DialogContent mobileFullscreen className="sm:max-w-6xl p-0 gap-0 overflow-hidden">
-        <DialogHeader className="px-6 pt-6 pb-3 border-b">
+      {/* `max-sm:p-0` desactiva el padding que `mobileFullscreen` pone por
+          default: este diálogo administra su propio chrome (`p-0` + header con
+          borde + grid a ancho completo), así que el inset superior lo descuenta
+          el header, no el content. La X de cerrar la reposiciona el primitive
+          sola cuando el modal es fullscreen — antes caía dentro del status bar
+          y no había forma de cerrar el diálogo en el teléfono (reporte del
+          owner 2026-08-25). Ver `app/globals.css` § "Áreas seguras del
+          dispositivo". */}
+      <DialogContent
+        mobileFullscreen
+        className="sm:max-w-6xl p-0 max-sm:p-0 gap-0 overflow-hidden"
+      >
+        {/* `pt` con `--safe-t` solo en móvil: acá el header apoya en el borde
+            superior del dispositivo. En desktop es un modal centrado y el
+            `pt-6` de siempre alcanza. */}
+        <DialogHeader className="px-6 pt-6 pb-3 border-b max-sm:pt-[calc(1.5rem+var(--safe-t))]">
           <DialogTitle className="text-2xl font-semibold">Transacciones</DialogTitle>
         </DialogHeader>
         {/* Mobile: 1 columna, navega entre lista <-> detalle según selectedId.
             Desktop (>=md): split 2-col clásico. */}
-        <div className="grid grid-cols-1 md:grid-cols-[1fr_1.2fr] max-h-[90vh] md:max-h-[80vh] min-h-0">
+        {/* `pb` con `--safe-b`: en móvil este bloque es lo último del modal,
+            así que la última fila del listado termina arriba del indicador de
+            gestos y no debajo. */}
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_1.2fr] max-h-[90vh] md:max-h-[80vh] min-h-0 max-sm:pb-[var(--safe-b)]">
           <div className={cn("min-h-0", selectedId ? "hidden md:flex md:flex-col" : "flex flex-col")}>
             <TransactionList
               items={flat}

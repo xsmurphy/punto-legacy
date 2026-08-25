@@ -93,7 +93,7 @@ export function AdminSidebar() {
       {/* Borde superior de acento — diferenciador visual del panel tenant */}
       <div className="absolute inset-x-0 top-0 h-[3px] bg-destructive rounded-t-lg z-10" />
 
-      <SidebarHeader className="pt-[calc(0.75rem+env(safe-area-inset-top))]">
+      <SidebarHeader className="pt-[calc(0.75rem+var(--safe-t))]">
         <div className="flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
           {/* Mark — solo cuando collapsed */}
           <button
@@ -156,7 +156,7 @@ export function AdminSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+      <SidebarFooter className="pb-[calc(0.5rem+var(--safe-b))]">
         <SidebarMenu>
           <SidebarMenuItem>
             <DropdownMenu>

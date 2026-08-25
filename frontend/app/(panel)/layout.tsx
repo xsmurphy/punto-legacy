@@ -35,8 +35,8 @@ export default async function PanelLayout({
     <SidebarProvider defaultOpen={defaultOpen}>
       <PanelAuthGuard>
         <SidebarInset>
-          <SidebarTrigger className="fixed left-[calc(0.75rem+env(safe-area-inset-left))] top-[calc(0.75rem+env(safe-area-inset-top))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
-          <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 pt-[calc(3.5rem+env(safe-area-inset-top))] pb-[calc(1rem+env(safe-area-inset-bottom))] md:p-6 md:pt-6">
+          <SidebarTrigger className="fixed left-[calc(0.75rem+var(--safe-l))] top-[calc(0.75rem+var(--safe-t))] z-50 size-9 rounded-full border bg-card shadow-sm md:hidden" />
+          <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 pt-[calc(3.5rem+var(--safe-t))] pb-[calc(1rem+var(--safe-b))] md:p-6 md:pt-6">
             {children}
           </main>
         </SidebarInset>

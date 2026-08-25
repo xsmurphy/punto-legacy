@@ -180,7 +180,7 @@ export function MobileNav({
               </div>
 
               {/* Zona fija del pulgar */}
-              <div className="flex flex-col gap-2 border-t border-white/10 bg-neutral-950 px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
+              <div className="flex flex-col gap-2 border-t border-white/10 bg-neutral-950 px-4 pt-4 pb-[max(1rem,var(--safe-b))]">
                 <Button
                   asChild
                   size="lg"

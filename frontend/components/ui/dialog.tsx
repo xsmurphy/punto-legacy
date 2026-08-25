@@ -150,12 +150,36 @@ function DialogContent({
       <DialogPrimitive.Content
         data-slot="dialog-content"
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[85dvh] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // `max-h`: el 85dvh de siempre, pero nunca más alto que el área
+          // segura. Un diálogo centrado no se puede recortar contra el status
+          // bar: con `viewport-fit=cover` el 50% del viewport NO es el 50% del
+          // área útil, y los diálogos altos (el de cobro pedía 90vh) se comían
+          // el notch. Donde los insets valen 0 el `min()` devuelve 85dvh y el
+          // desktop queda idéntico.
+          "fixed top-1/2 left-1/2 z-50 grid max-h-[min(85dvh,calc(100dvh-2rem-var(--safe-t)-var(--safe-b)))] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           // El padding se va al header/body/footer; el scroll lo administra el
           // <DialogBody>, no el content.
           sectioned && "flex flex-col gap-0 overflow-hidden p-0",
           mobileFullscreen &&
-            "max-sm:top-0 max-sm:left-0 max-sm:h-dvh max-sm:max-h-dvh max-sm:w-full max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none",
+            cn(
+              // `inset-0` + `h-auto` en vez de `h-dvh`: el alto lo define la
+              // caja (top:0 y bottom:0), no una unidad de viewport. Con
+              // `viewport-fit=cover` las unidades vh/dvh son justo lo que
+              // cambia de valor según el chrome del sistema, y cualquier
+              // diferencia de un par de píxeles deja una franja del overlay
+              // asomando contra el borde inferior — el "no baja hasta el final
+              // de la pantalla" que reportó el owner (2026-08-25).
+              "max-sm:inset-0 max-sm:h-auto max-sm:max-h-none max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none",
+              // Fullscreen = la superficie toca los cuatro bordes del
+              // dispositivo, y además se portalea FUERA del shell del POS, así
+              // que no hereda ningún inset: los descuenta acá, una sola vez,
+              // sumados al gutter de 24px del modal. Un diálogo que reemplaza
+              // este padding (los shells `p-0` que montan un módulo entero con
+              // chrome propio) tiene que resetearlo con `max-sm:p-0` y
+              // descontar los insets en SU chrome — ver `pos-main-menu.tsx` y
+              // `pos-transactions-dialog.tsx`.
+              "max-sm:pt-[calc(1.5rem+var(--safe-t))] max-sm:pr-[calc(1.5rem+var(--safe-r))] max-sm:pb-[calc(1.5rem+var(--safe-b))] max-sm:pl-[calc(1.5rem+var(--safe-l))]",
+            ),
           className
         )}
         {...props}
@@ -168,7 +192,20 @@ function DialogContent({
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
             <Button
               variant="ghost"
-              className="absolute top-4 right-4 bg-secondary"
+              className={cn(
+                "absolute top-4 right-4 bg-secondary",
+                // En un modal fullscreen ese `top-4` son 16px desde el BORDE
+                // FÍSICO del teléfono, o sea adentro de los ~47px del status
+                // bar: la X quedaba tapada por el reloj y, peor, no recibía el
+                // toque. Como en varios módulos del POS la X es la ÚNICA
+                // salida, el cajero quedaba encerrado (reporte del owner
+                // 2026-08-25: "entro al módulo de órdenes y ya no puedo
+                // volver"). En un modal centrado el `top-4` es relativo a la
+                // caja del modal, que nunca toca el borde, y por eso el ajuste
+                // va SOLO en la rama fullscreen.
+                mobileFullscreen &&
+                  "max-sm:top-[calc(1rem+var(--safe-t))] max-sm:right-[calc(1rem+var(--safe-r))]",
+              )}
               size="icon-sm"
             >
               <XIcon

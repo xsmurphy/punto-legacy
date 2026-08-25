@@ -297,7 +297,7 @@ export function LockScreen() {
         role="dialog"
         aria-modal="true"
         aria-label="Pantalla bloqueada"
-        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-background pt-[max(1.5rem,env(safe-area-inset-top))] pr-[max(1.5rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1.5rem,env(safe-area-inset-left))]"
+        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-background pt-[max(1.5rem,var(--safe-t))] pr-[max(1.5rem,var(--safe-r))] pb-[max(1.5rem,var(--safe-b))] pl-[max(1.5rem,var(--safe-l))]"
       >
         <PuntoLogo variant="mark" className="size-[35px]" />
         <EmptyState

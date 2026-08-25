@@ -22,18 +22,39 @@ export function useIsCoarsePointer() {
   return coarse
 }
 
+const MOBILE_QUERY = `(max-width: ${MOBILE_BREAKPOINT - 1}px)`
+
+let mobileMql: MediaQueryList | null = null
+
+function getMobileMql(): MediaQueryList {
+  if (mobileMql === null) mobileMql = window.matchMedia(MOBILE_QUERY)
+  return mobileMql
+}
+
+function subscribeMobile(onStoreChange: () => void) {
+  const mql = getMobileMql()
+  mql.addEventListener("change", onStoreChange)
+  return () => mql.removeEventListener("change", onStoreChange)
+}
+
+/**
+ * ¿El viewport es de teléfono (< 768px)?
+ *
+ * `useSyncExternalStore` y no `useState` + `useEffect`: la versión con effect
+ * devolvía `false` en el PRIMER paint de cada montaje y el valor real recién en
+ * el commit siguiente. Para un componente que se monta junto con la página eso
+ * no se nota, pero TODO lo que se monta tarde —el contenido de un dialog al
+ * abrirse, por ejemplo— pintaba un frame con el layout de desktop y después
+ * saltaba al de teléfono. Con el store externo, un montaje posterior a la
+ * hidratación lee `matchMedia` en el render y acierta desde el primer frame.
+ *
+ * El snapshot de servidor sigue siendo `false` — idéntico a lo que hacía el
+ * `useState(undefined)` durante SSR/hidratación, así que no introduce mismatch.
+ */
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)
-
-  React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT - 1}px)`)
-    const onChange = () => {
-      setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    }
-    mql.addEventListener("change", onChange)
-    setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    return () => mql.removeEventListener("change", onChange)
-  }, [])
-
-  return !!isMobile
+  return React.useSyncExternalStore(
+    subscribeMobile,
+    () => getMobileMql().matches,
+    () => false,
+  )
 }

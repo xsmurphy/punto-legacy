@@ -419,12 +419,25 @@ export function PosMainMenu() {
           // - desktop 64rem clamped (paritario con /settings y el detalle de
           //   cliente — el menú escala mejor con módulos y info del tenant).
           // - reset de gap/padding (el grid interno maneja su layout).
+          mobileFullscreen
           className={cn(
             "gap-0 overflow-hidden p-0",
-            "max-sm:!inset-0 max-sm:!h-dvh max-sm:!max-w-none max-sm:!w-auto max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none",
-            // Fullscreen mobile = toca los bordes del dispositivo, y el diálogo
-            // se portalea fuera del shell del POS: descuenta los insets acá.
-            "max-sm:safe-area",
+            // `max-sm:p-0` desactiva a propósito el padding que
+            // `mobileFullscreen` pone por default (gutter + áreas seguras):
+            // este modal monta un grid con chrome propio —nav arriba, header
+            // con breadcrumb, barra de acción abajo— y ese padding dejaba una
+            // franja del fondo del diálogo contra los bordes. Eso es lo que el
+            // owner vio como "el modal del menú no baja hasta el final de la
+            // pantalla" (2026-08-25): la barra inferior terminaba 34px antes
+            // del borde y debajo asomaba el fondo del popover.
+            //
+            // A cambio, los insets se descuentan donde corresponde: `--safe-t`
+            // en el nav (el elemento que apoya arriba, más abajo en este
+            // archivo) y `--safe-b` en la barra de acción del final. El fondo
+            // de cada uno llega al borde físico; lo que se corre es el
+            // contenido. Ver `app/globals.css` § "Áreas seguras del
+            // dispositivo".
+            "max-sm:p-0",
             "sm:!max-w-[min(64rem,calc(100vw-2rem))] sm:!w-full",
           )}
         >
@@ -454,7 +467,14 @@ export function PosMainMenu() {
 
               <nav
                 aria-label="Secciones del menú del POS"
-                className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 sm:flex-col sm:border-b-0 sm:p-3"
+                // `pt` con `--safe-t`: en móvil este nav es el primer
+                // elemento del modal fullscreen, o sea el que apoya en el
+                // borde superior del teléfono. Su fondo sigue llegando hasta
+                // el borde (queda debajo del status bar translúcido, que es lo
+                // que hace que se vea como app); lo que baja es el contenido.
+                // Desde `sm` arriba tiene el bloque de identidad del comercio
+                // y vuelve al padding normal.
+                className="flex shrink-0 gap-0.5 overflow-x-auto border-b bg-card p-2 pt-[calc(0.5rem+var(--safe-t))] sm:flex-col sm:border-b-0 sm:p-3"
               >
                 {sectionsWithState.map(({ key, label, icon: Icon, onSelect, disabled }) => {
                 const active = activeKey === key
@@ -533,13 +553,21 @@ export function PosMainMenu() {
               </header>
 
               {/* Sin sección seleccionada → resumen de la cuenta logueada */}
+              {/* Las tres ramas terminan contra el borde inferior del
+                  teléfono, así que cada una descuenta `--safe-b` en SU último
+                  elemento: las dos scrolleables en su contenedor, la de abajo
+                  en la barra del CTA. No se puede poner una sola vez en el
+                  content area: dejaría el fondo del diálogo asomando debajo de
+                  la barra. */}
               {!activeSection ? (
-                <AccountOverview setActiveKey={setActiveKey} />
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden pb-[var(--safe-b)]">
+                  <AccountOverview setActiveKey={setActiveKey} />
+                </div>
               ) : activeSection.CustomContent ? (
                 /* Sección con contenido custom — ocupa todo el content area.
                    min-h-0 es crítico para que el flex-child no expanda más allá
                    del contenedor y el panel interno pueda scrollear. */
-                <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+                <div className="flex min-h-0 flex-1 flex-col overflow-hidden pb-[var(--safe-b)]">
                   <activeSection.CustomContent />
                 </div>
               ) : (
@@ -561,8 +589,13 @@ export function PosMainMenu() {
                     </div>
                   </div>
 
-                  {/* Barra inferior con CTA */}
-                  <div className="border-t bg-background px-6 py-4 sm:px-8">
+                  {/* Barra inferior con CTA — apoya en el borde inferior del
+                      teléfono, así que descuenta `--safe-b` sumado a su propio
+                      `py-4`. Su fondo llega hasta el borde: si el inset se
+                      descontara un nivel más arriba quedaría una franja del
+                      popover por debajo de la barra, que es exactamente lo que
+                      se veía como "el modal no baja hasta el final". */}
+                  <div className="border-t bg-background px-6 pt-4 pb-[calc(1rem+var(--safe-b))] sm:px-8">
                     <Button
                       onClick={() => handleDefaultCta(activeSection.key)}
                       disabled={activeSection.disabled}

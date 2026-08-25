@@ -84,7 +84,13 @@ export function InstallPrompt() {
   }
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between gap-2 border-t bg-card p-3 shadow-lg md:bottom-4 md:left-auto md:right-4 md:rounded-lg md:border">
+    // `pb-[max(...)]`: la banda está pegada al borde inferior con `bottom-0`,
+    // o sea sobre la barra de gestos del teléfono — sin descontar `--safe-b`
+    // el botón de instalar queda debajo del indicador y no recibe el toque.
+    // `max()` conserva el `p-3` donde no hay inset. Desde `md` la banda flota
+    // con `bottom-4` y ya no apoya en el borde. Ver `app/globals.css`
+    // § "Áreas seguras del dispositivo".
+    <div className="fixed bottom-0 left-0 right-0 z-50 flex items-center justify-between gap-2 border-t bg-card p-3 pb-[max(0.75rem,var(--safe-b))] shadow-lg md:bottom-4 md:left-auto md:right-4 md:rounded-lg md:border md:pb-3">
       <p className="text-sm">Instalar Punto como app</p>
       <div className="flex shrink-0 items-center gap-2">
         <Button variant="outline" size="sm" onClick={handleDismiss}>

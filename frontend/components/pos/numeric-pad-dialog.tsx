@@ -1,9 +1,13 @@
 "use client"
 
 /**
- * Wrapper único reutilizable para dialogs que usan NumericPad.
+ * Wrapper único reutilizable para dialogs que capturan UN número.
  * Layout legacy-style: title izquierda + mode label top-right en header,
- * numpad en body, Aceptar full-width en footer.
+ * captura numérica en body, Aceptar full-width en footer.
+ *
+ * El body monta `<NumericField>`, que en teléfono cambia el pad en pantalla por
+ * un campo nativo (teclado del sistema) y en tablet/desktop deja el pad igual
+ * que siempre. Los call-sites no ven la diferencia.
  *
  * Props:
  * - open, onClose: control del dialog
@@ -22,7 +26,7 @@ import {
   ResponsiveDialogContent,
 } from "@/components/ui/responsive-dialog"
 import { Button } from "@/components/ui/button"
-import { NumericPad } from "@/components/pos/numeric-pad"
+import { NumericField } from "@/components/pos/numeric-field"
 
 export interface NumericPadDialogProps {
   open: boolean
@@ -74,9 +78,10 @@ export function NumericPadDialog({
           )}
         </div>
 
-        {/* Body: numpad */}
+        {/* Body: la captura numérica — pad en tablet/desktop, campo nativo en
+            teléfono (`NumericField` resuelve la rama). */}
         <div className="px-6 py-6">
-          <NumericPad
+          <NumericField
             mode={mode}
             value={value}
             onChange={onValueChange}

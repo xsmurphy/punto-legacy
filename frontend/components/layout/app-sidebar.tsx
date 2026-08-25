@@ -137,7 +137,7 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon" variant="inset">
       {/* pt safe-area: en PWA iOS el header se superpone con status bar sin esto */}
-      <SidebarHeader className="pt-[calc(0.5rem+env(safe-area-inset-top))]">
+      <SidebarHeader className="pt-[calc(0.5rem+var(--safe-t))]">
         <div className="flex items-center gap-2 px-2 py-1.5 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
           {/* MARK — solo cuando collapsed.
               En /pos el sidebar es siempre collapsed: el logo lleva al
@@ -303,7 +303,7 @@ export function AppSidebar({
         </SidebarGroup>
       </SidebarContent>
 
-      <SidebarFooter className="pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+      <SidebarFooter className="pb-[calc(0.5rem+var(--safe-b))]">
         <SidebarMenu>
           {isImpersonating && onExitImpersonation && (
             <SidebarMenuItem>

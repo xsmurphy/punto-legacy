@@ -71,8 +71,12 @@ export const metadata: Metadata = {
  * `viewportFit: "cover"` es necesario para que el contenido llegue debajo del
  * notch y de la barra de gestos, que es lo que hace que la app instalada se
  * vea como app y no como una página con marcos negros. Va de la mano del
- * `statusBarStyle: "black-translucent"` de arriba. Las áreas seguras se
- * respetan con `env(safe-area-inset-*)`.
+ * `statusBarStyle: "black-translucent"` de arriba. A cambio, cada superficie
+ * que llega a un borde tiene que descontar el área segura: la regla y las
+ * variables `--safe-t/r/b/l` viven en `app/globals.css` § "Áreas seguras del
+ * dispositivo", y `lib/pos/__tests__/safe-area.test.ts` cuida que no se
+ * descuente de menos ni —el bug más difícil de ver— dos veces sobre el mismo
+ * eje.
  *
  * No se toca `userScalable`: la caja es táctil y bloquear el zoom es una
  * barrera de accesibilidad, no una mejora de UX.

@@ -6,6 +6,7 @@ import { PosSidebar } from "@/components/layout/pos-sidebar"
 import { PosModeDialog } from "@/components/register/pos-mode-dialog"
 import { InstallPrompt } from "@/components/pos/install-prompt"
 import { ChunkErrorListener } from "@/components/pos/chunk-error-listener"
+import { PosTouchScope } from "@/components/pos/pos-touch-scope"
 import { PosConfigSync } from "@/lib/pos/config-sync"
 
 /**
@@ -22,20 +23,43 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
     <PosSidebarProvider>
       <PosAuthGuard>
         <ChunkErrorListener />
+        {/* Marca `<html>` mientras el POS está montado. `pos-scope` (abajo)
+            solo alcanza al árbol del shell, y TODO lo que se portalea
+            —diálogos, drawers, dropdowns, toasts— cuelga del `<body>`, fuera
+            de él: por eso los controles del cobro o del menú no recibían las
+            reglas táctiles de la caja. La marca va en la raíz para que las
+            alcance a todas. */}
+        <PosTouchScope />
         <PosConfigSync />
         <PosSidebar />
         {/* `pos-scope`: globals.css aplica typography táctil (font-size,
             weight, tracking) a inputs/textareas descendientes. Cajero ve
             grande sin tocar cada caller individualmente. */}
-        {/* `safe-area`: el workspace llega a los cuatro bordes, así que sin
-            descontar los insets del dispositivo la toolbar del carrito queda
-            debajo del reloj y la batería en un iPhone instalado como PWA, y el
-            CTA de cobro debajo de la barra de gestos (reporte del owner
-            2026-08-25). Va acá, en el shell, y no en cada componente: todo lo
-            que se monta dentro hereda el área útil ya recortada. Los overlays
-            fullscreen se portalean FUERA de este nodo y por eso llevan la
-            utilidad por su cuenta. */}
-        <SidebarInset className="pos-scope safe-area h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
+        {/* Áreas seguras del dispositivo — ver la regla completa en
+            `app/globals.css` (§ "Áreas seguras del dispositivo").
+
+            El shell se queda con el eje SUPERIOR y los LATERALES: es el
+            elemento más externo que pinta fondo contra esos bordes, y sin él
+            la toolbar del carrito queda debajo del reloj y la batería en un
+            iPhone instalado como PWA.
+
+            El eje INFERIOR ya NO se descuenta acá. Lo hacía (commit 0d14f91b,
+            `safe-area` en los cuatro lados) y se sumaba al `p-2` propio de la
+            barra del CTA: el botón de cobrar terminaba flotando ~42px sobre el
+            borde en vez de apoyar en el límite del área segura, que es lo que
+            el owner reportó como "demasiado arriba". El inferior vive ahora en
+            `CartBottom` (`components/register/cart-panel.tsx`), que es el
+            elemento que realmente apoya en ese borde, y lo combina con su
+            propio padding vía `max()` — así en desktop y en tablets sin notch,
+            donde el inset es 0, la geometría no cambia ni un pixel.
+
+            En `md` el shell es una tarjeta flotante (`m-2` del primitive):
+            su FONDO puede quedar debajo del status bar sin problema —
+            justamente eso es lo que se ve como app— y el mismo padding
+            alcanza para que el CONTENIDO lo esquive. Donde el inset es 0
+            (desktop, tablets sin notch) las tres declaraciones valen 0 y no
+            cambia nada. */}
+        <SidebarInset className="pos-scope h-svh overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100svh-1rem)]">
           {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
               abajo a la derecha. Se movió al extremo izquierdo del toolbar del
               carrito (CartToolbar), junto al botón del menú principal, por

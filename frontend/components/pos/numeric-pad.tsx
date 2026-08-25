@@ -8,6 +8,70 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { useIsCoarsePointer } from "@/hooks/use-mobile"
 import { formatAmount, resolveCurrencyLabel } from "@/lib/format-money"
 
+export interface NumericModeToggleProps {
+  mode: NumericPadProps["mode"]
+  onShiftToggle: () => void
+}
+
+/**
+ * Selector de modo táctil (money↔percent para descuentos, int↔decimal para
+ * cantidades). El toggle existía SOLO por la tecla física Shift —
+ * inalcanzable en un teléfono o tablet sin teclado (reporte del owner
+ * 2026-08-01).
+ *
+ * Vive fuera de `NumericPad` porque la captura numérica del POS tiene DOS
+ * superficies (el pad en tablet/desktop, el input nativo en teléfono — ver
+ * `components/pos/numeric-field.tsx`) y el modo es una decisión del dialog,
+ * no de la superficie: las dos lo pintan igual y en la misma posición.
+ *
+ * No usa ToggleChip: ese chip es el patrón cerrado de la fila de atributos del
+ * carrito (text-[10px], py-0.5) y como target táctil es demasiado chico.
+ */
+export function NumericModeToggle({ mode, onShiftToggle }: NumericModeToggleProps) {
+  const config = useCatalogStore((s) => s.config)
+  // `resolveCurrencyLabel` y no `config?.currency ?? "Gs"`: el bootstrap manda
+  // "" cuando el tenant no configuró moneda y `??` no lo cubre — el botón salía
+  // sin texto (bug reportado en el modal de descuento).
+  const currencyLabel = resolveCurrencyLabel(config)
+
+  // El pad no conoce al caller: deriva el par a partir del modo activo y pinta
+  // cuál está activo.
+  const modeChoices = React.useMemo(() => {
+    if (mode === "money" || mode === "percent") {
+      return [
+        { key: "percent", label: "%" },
+        { key: "money", label: currencyLabel },
+      ] as const
+    }
+    return [
+      { key: "int", label: "1" },
+      { key: "decimal", label: "1.00" },
+    ] as const
+  }, [mode, currencyLabel])
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {modeChoices.map((choice) => {
+        const active = choice.key === mode
+        return (
+          <Button
+            key={choice.key}
+            type="button"
+            variant={active ? "default" : "outline"}
+            size="lg"
+            aria-pressed={active}
+            onClick={() => {
+              if (!active) onShiftToggle()
+            }}
+          >
+            {choice.label}
+          </Button>
+        )
+      })}
+    </div>
+  )
+}
+
 export interface NumericPadProps {
   mode: "int" | "decimal" | "money" | "percent"
   value: string
@@ -207,55 +271,11 @@ export function NumericPad({
     return () => window.removeEventListener("keydown", onKeyDown)
   }, [handleDigit, handleDot, handleBackspace, onConfirm, onCancel, onShiftToggle])
 
-  // Par de modos alternables por `onShiftToggle`. El pad no conoce al caller:
-  // deriva el par a partir del modo activo (money↔percent para descuentos,
-  // int↔decimal para cantidades) y pinta cuál está activo.
-  const modeChoices = React.useMemo(() => {
-    if (mode === "money" || mode === "percent") {
-      // `resolveCurrencyLabel` y no `config?.currency ?? "Gs"`: el bootstrap
-      // manda "" cuando el tenant no configuró moneda y `??` no lo cubre — el
-      // botón salía sin texto (bug reportado en el modal de descuento).
-      return [
-        { key: "percent", label: "%" },
-        { key: "money", label: currencyLabel },
-      ] as const
-    }
-    return [
-      { key: "int", label: "1" },
-      { key: "decimal", label: "1.00" },
-    ] as const
-  }, [mode, currencyLabel])
-
   return (
     <div className="flex flex-col gap-3">
-      {/* Selector de modo táctil. El toggle existía SOLO por la tecla física
-          Shift — inalcanzable en un teléfono o tablet sin teclado (reporte del
-          owner 2026-08-01). Bloque nuevo ARRIBA del display: no desplaza
-          ninguna tecla del grid, y su presencia depende de `onShiftToggle`
-          (constante por dialog), no de estado — sin shift condicional (§14 R10).
-          No usa ToggleChip: ese chip es el patrón cerrado de la fila de
-          atributos del carrito (text-[10px], py-0.5) y como target táctil de un
-          pad numérico es demasiado chico. */}
+      {/* Selector de modo táctil — ver `NumericModeToggle` abajo. */}
       {onShiftToggle && (
-        <div className="grid grid-cols-2 gap-2">
-          {modeChoices.map((choice) => {
-            const active = choice.key === mode
-            return (
-              <Button
-                key={choice.key}
-                type="button"
-                variant={active ? "default" : "outline"}
-                size="lg"
-                aria-pressed={active}
-                onClick={() => {
-                  if (!active) onShiftToggle()
-                }}
-              >
-                {choice.label}
-              </Button>
-            )
-          })}
-        </div>
+        <NumericModeToggle mode={mode} onShiftToggle={onShiftToggle} />
       )}
 
       {/*

@@ -1336,7 +1336,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           className={cn(
             // max-w-lg también en la fase de pago: la grilla de métodos es de
             // 3 columnas (2026-08-08) y con max-w-md los nombres se truncaban.
-            "max-h-[90vh] sm:max-w-lg",
+            //
+            // El `max-h` sale de 90dvh PERO acotado al área segura: es un
+            // modal centrado y con `viewport-fit=cover` el 90% del viewport se
+            // come el status bar por arriba. `dvh` y no `vh` por el mismo
+            // motivo que el resto del repo (la barra del navegador). Donde los
+            // insets valen 0 son los mismos 90% de siempre.
+            "max-h-[min(90dvh,calc(100dvh-2rem-var(--safe-t)-var(--safe-b)))] sm:max-w-lg",
           )}
         >
           {phase === "pay" ? (

@@ -10,6 +10,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer"
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -152,6 +159,7 @@ function Sidebar({
   side = "left",
   variant = "sidebar",
   collapsible = "offcanvas",
+  mobileVariant = "sheet",
   className,
   children,
   dir,
@@ -160,6 +168,21 @@ function Sidebar({
   side?: "left" | "right"
   variant?: "sidebar" | "floating" | "inset"
   collapsible?: "offcanvas" | "icon" | "none"
+  /**
+   * Cómo se abre el sidebar bajo el breakpoint mobile.
+   *
+   * - `"sheet"` (default): panel lateral. Es lo que usan el panel y `/admin`.
+   * - `"drawer"`: bottom drawer (vaul), el mismo contenedor que el menú
+   *   "Opciones de venta" del POS.
+   *
+   * Existe porque la CAJA se opera con el pulgar (pedido del owner
+   * 2026-08-25): en un teléfono, un panel lateral nace en el borde superior
+   * izquierdo de la pantalla, fuera del alcance del dedo que sostiene el
+   * equipo, mientras que un drawer de abajo aparece justo donde está la mano.
+   * Es opt-in y NO cambia al panel ni a `/admin`, donde el lateral sigue
+   * siendo correcto (nav larga, con grupos colapsables, que necesita alto).
+   */
+  mobileVariant?: "sheet" | "drawer"
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
 
@@ -175,6 +198,40 @@ function Sidebar({
       >
         {children}
       </div>
+    )
+  }
+
+  // Mobile + `mobileVariant="drawer"`: mismo contenedor que el resto de los
+  // actionsheets del POS (§2.2 #1 de context/14 — bottom drawer mobile). El
+  // estado sigue siendo `openMobile`/`setOpenMobile` del contexto, así que el
+  // `SidebarTrigger` y el atajo ⌘B funcionan sin enterarse del cambio.
+  if (isMobile && mobileVariant === "drawer") {
+    return (
+      <Drawer open={openMobile} onOpenChange={setOpenMobile}>
+        {/* Los props del `<div>` van al content y NO a la raíz de vaul: la
+            raíz tipa `onDrag` como su propio callback de arrastre, no como el
+            handler DOM. */}
+        <DrawerContent
+          dir={dir}
+          data-sidebar="sidebar"
+          data-slot="sidebar"
+          data-mobile="true"
+          className={cn(
+            "mx-auto max-w-lg text-sidebar-foreground",
+            className
+          )}
+          {...props}
+        >
+          {/* Mismo criterio que el Sheet de abajo: el contenido ya trae su
+              propio encabezado visible, pero vaul/Radix exigen un título
+              accesible para el diálogo. */}
+          <DrawerHeader className="sr-only">
+            <DrawerTitle>Menú</DrawerTitle>
+            <DrawerDescription>Navegación del área de trabajo.</DrawerDescription>
+          </DrawerHeader>
+          <div className="flex w-full min-h-0 flex-col">{children}</div>
+        </DrawerContent>
+      </Drawer>
     )
   }
 

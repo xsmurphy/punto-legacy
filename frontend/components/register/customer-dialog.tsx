@@ -151,9 +151,23 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
       open={!!detailCustomerId}
       onOpenChange={(o) => { if (!o) setDetailCustomerId(null) }}
     >
+      {/*
+        Ficha del cliente: contenido DENSO (nav de 9 secciones + gráficos +
+        formulario). En móvil no entra centrada — va fullscreen, que es lo que
+        el primitive ya resuelve. `p-0` porque la ficha trae chrome propio
+        (header, nav, breadcrumb, footer "Añadir"); el `max-sm:p-0` es el reset
+        obligatorio del gutter+insets que `mobileFullscreen` pone por default
+        (ver docblock de `DialogContent`) — los insets los descuenta
+        `ContactDetailView` en SU chrome.
+
+        `sm:h-[85dvh]` sin `max-h`: el `max-h` safe-aware del primitive queda
+        vigente y gana sobre el `height` si el dispositivo tiene notch. Antes el
+        call-site ponía `max-h-[85vh]`, que lo pisaba.
+      */}
       <DialogContent
         showCloseButton={false}
-        className="flex h-[85vh] max-h-[85vh] w-full max-w-5xl flex-col gap-0 overflow-hidden p-0 sm:max-w-5xl"
+        mobileFullscreen
+        className="flex flex-col gap-0 overflow-hidden p-0 max-sm:p-0 sm:h-[85dvh] sm:w-full sm:max-w-5xl"
       >
         {detailCustomerId && (
           <ContactDetailView
