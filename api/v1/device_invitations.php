@@ -4,7 +4,13 @@
  *
  * Endpoints publicos (sin auth tenant):
  *   POST ?resource=open&id={uuid}   -- el dispositivo abre la invitacion y recibe el userCode
- *   GET  ?resource=status&id={uuid} -- polling del dispositivo hasta approved/denied/expired
+ *   GET  ?resource=status&id={uuid} -- polling del dispositivo hasta approved/denied/consumed/expired
+ *
+ * Ambos publicos exigen el SECRETO DE PAIRING (mig 171) salvo en la primerisima
+ * apertura, que es justamente la que lo emite. Viaja en el body form-encoded
+ * (`pairingSecret`) en el POST de open, y en el header `X-Pairing-Secret` en el
+ * GET de status -- NUNCA en la query string: es una credencial y la query
+ * string queda en logs de proxy, historial y Referer.
  *
  * Endpoints autenticados (realm panel):
  *   POST action=create   -- genera una nueva invitacion (admin)
@@ -40,9 +46,11 @@ if ($method === 'POST' && $resource === 'open') {
     $ip = (string) ($_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '');
     // Tomar solo la primera IP si hay cadena de proxies
     $ip = trim(explode(',', $ip)[0]);
+    // Secreto de la sesion de pairing. Ausente = primera apertura.
+    $pairingSecret = trim((string) ($_POST['pairingSecret'] ?? '')) ?: null;
 
     try {
-        $result = $svc->open($id, $ua, $ip);
+        $result = $svc->open($id, $ua, $ip, $pairingSecret);
         apiOk($result);
     } catch (\RuntimeException $e) {
         $code = $e->getCode();
@@ -54,9 +62,11 @@ if ($method === 'GET' && $resource === 'status') {
     if ($id === '' || !preg_match($UUID_RE, $id)) {
         apiError('id invalido', 422);
     }
+    // En header, no en query string (ver el docblock de arriba).
+    $pairingSecret = trim((string) ($_SERVER['HTTP_X_PAIRING_SECRET'] ?? '')) ?: null;
 
     try {
-        $result = $svc->status($id);
+        $result = $svc->status($id, $pairingSecret);
         // El $result incluye `token` cuando status=approved.
         // El client (connect-view.tsx) lee el token del body y lo persiste en localStorage.
         apiOk($result);
