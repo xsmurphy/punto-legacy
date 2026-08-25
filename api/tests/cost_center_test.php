@@ -531,6 +531,71 @@ check(
     $failures, $checks
 );
 
+// ── (i) Colisión de la UNIQUE de la mig 153 al reclasificar ─────────────────
+//
+// Va DESPUÉS de los checks del reporte a propósito: agrega movimientos y
+// movería los totales que (h) verifica contra números exactos.
+//
+// Una compra dividida por categoría deja VARIAS filas con el mismo
+// (companyid, source, sourceid, accountid) que difieren SOLO en `categoryid` —
+// que es justo la clave de `uidx_fin_movement_source` (mig 153). Mover una
+// porción a la categoría de otra del mismo comprobante levanta un 23505.
+//
+// El 23505 tiene que llegar como \RuntimeException, para que el endpoint lo
+// convierta en 422 con mensaje útil. Sin el guard sale como DbQueryException,
+// que extiende \Exception y NO \RuntimeException: ATRAVIESA el
+// `catch (\RuntimeException)` de `api/v1/finance/movements.php` y el operador
+// ve un 500 genérico ante algo perfectamente explicable. No hay corrupción
+// posible —el índice es el que frena— pero el mensaje importa.
+
+$splitSourceId = 'c057ce47-0000-4000-8000-0000000001bb';
+$porcionA = $movements->recordDerivedMovement($companyId, 'purchase', $splitSourceId, [
+    'accountId'   => $accountId,
+    'categoryId'  => (string) $alquiler['id'],
+    'kind'        => 'expense',
+    'amount'      => 60000,
+    'date'        => $day,
+    'description' => 'Compra dividida — porción Alquiler',
+]);
+$porcionB = $movements->recordDerivedMovement($companyId, 'purchase', $splitSourceId, [
+    'accountId'   => $accountId,
+    'categoryId'  => (string) $otraCat['id'],
+    'kind'        => 'expense',
+    'amount'      => 40000,
+    'date'        => $day,
+    'description' => 'Compra dividida — porción Limpieza',
+]);
+check(
+    'una compra dividida por categoría genera DOS filas del mismo origen',
+    $porcionA['inserted'] === true && $porcionB['inserted'] === true
+        && $porcionA['movementId'] !== $porcionB['movementId'],
+    'A=' . var_export($porcionA['movementId'] ?? null, true)
+        . ' B=' . var_export($porcionB['movementId'] ?? null, true),
+    $failures, $checks
+);
+
+$err = expectThrow(fn() => $movements->reclassify((string) $porcionB['movementId'], $companyId, [
+    'categoryId' => (string) $alquiler['id'],
+]));
+check(
+    'reclasificar una porción sobre la categoría de otra da un error legible, no un 500',
+    $err !== null && stripos($err, 'porción') !== false,
+    'error=' . var_export($err, true),
+    $failures, $checks
+);
+
+// Reclasificar el CENTRO de una porción NO colisiona: `costcenterid` quedó
+// FUERA de la clave del índice justamente para que esto funcione.
+$sinChoque = $movements->reclassify((string) $porcionB['movementId'], $companyId, [
+    'costCenterId' => (string) $produccion['id'],
+]);
+check(
+    'cambiar el CENTRO de una porción no colisiona (costcenterid no está en la clave)',
+    $sinChoque['costCenterId'] === $produccion['id'],
+    var_export($sinChoque['costCenterId'] ?? null, true),
+    $failures, $checks
+);
+
 // ── Limpieza ────────────────────────────────────────────────────────────────
 resetFixture($companyId, $accountId);
 

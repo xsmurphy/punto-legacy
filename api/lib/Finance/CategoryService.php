@@ -422,10 +422,10 @@ final class CategoryService
         return $row ? (string) $row['categoryid'] : '';
     }
 
-    /** Ver `AccountingCode::guardUnique()` — el índice es de la mig 167. */
+    /** Ver `Support\UniqueViolation::guard()` — el índice es de la mig 167. */
     private function guardUniqueCode(callable $fn)
     {
-        return AccountingCode::guardUnique(
+        return \Punto\Api\Support\UniqueViolation::guard(
             $fn,
             ['uq_fin_category_code' => 'Ya existe una categoría con ese código'],
             'Ya existe una categoría con ese código',

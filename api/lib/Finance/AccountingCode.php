@@ -3,17 +3,20 @@ declare(strict_types=1);
 
 namespace Punto\Api\Finance;
 
-use Punto\Api\Support\DbQueryException;
-
 /**
  * El código contable EXTERNO que llevan las categorías (`fin_category.code`) y
  * los centros de costo (`fin_cost_center.code`).
  *
  * Existe para matchear la taxonomía interna de Punto contra el plan de cuentas
  * del contador del comercio (un sistema o listado de afuera). Las dos
- * taxonomías lo tratan igual, así que la normalización y el mapeo de la
- * violación de unicidad viven acá una sola vez en vez de duplicarse en
- * `CategoryService` y `CostCenterService`.
+ * taxonomías lo tratan igual, así que la normalización vive acá una sola vez
+ * en vez de duplicarse en `CategoryService` y `CostCenterService`.
+ *
+ * La traducción del 23505 a un mensaje legible NO vive acá: es un problema del
+ * stack de BD, no del código contable — está en `Support\UniqueViolation`, que
+ * cierra el mismo defecto para CUALQUIER índice único alcanzable desde un
+ * formulario (incluido el de la mig 153, que no tiene nada que ver con
+ * códigos).
  *
  * Ver mig 167_centros_de_costo.sql.
  */
@@ -44,32 +47,4 @@ final class AccountingCode
         return $code;
     }
 
-    /**
-     * Corre $fn traduciendo la violación de un UNIQUE de la mig 167 en un
-     * mensaje que el operador entiende.
-     *
-     * La red final es el ÍNDICE, no un pre-check con SELECT: entre la
-     * verificación y la escritura hay una ventana de carrera (mismo criterio
-     * que `SettingsService::updateGeneral()` con el slug de la company).
-     *
-     * @param array<string,string> $byIndex índice → mensaje.
-     * @param string $fallback mensaje ante un 23505 de un índice no listado.
-     */
-    public static function guardUnique(callable $fn, array $byIndex, string $fallback)
-    {
-        try {
-            return $fn();
-        } catch (DbQueryException $e) {
-            $msg = $e->getMessage();
-            foreach ($byIndex as $index => $friendly) {
-                if (stripos($msg, $index) !== false) {
-                    throw new \RuntimeException($friendly);
-                }
-            }
-            if ($e->sqlState() === '23505' || stripos($msg, 'duplicate key') !== false) {
-                throw new \RuntimeException($fallback);
-            }
-            throw $e;
-        }
-    }
 }

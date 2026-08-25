@@ -164,10 +164,10 @@ final class CostCenterService
         return AccountingCode::normalize($code);
     }
 
-    /** Ver `AccountingCode::guardUnique()` — los índices son de la mig 167. */
+    /** Ver `Support\UniqueViolation::guard()` — los índices son de la mig 167. */
     private function guardUnique(callable $fn)
     {
-        return AccountingCode::guardUnique(
+        return \Punto\Api\Support\UniqueViolation::guard(
             $fn,
             [
                 'uq_fin_cost_center_code' => 'Ya existe un centro de costo con ese código',

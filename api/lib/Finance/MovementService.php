@@ -725,12 +725,35 @@ final class MovementService
             throw new \RuntimeException('Nada que reclasificar');
         }
 
-        ncmUpdate([
-            'records'     => $records,
-            'table'       => 'fin_movement',
-            'where'       => 'movementid = ? AND companyid = ?',
-            'whereParams' => [$id, $companyId],
-        ]);
+        // GUARDA DEL UNIQUE DE LA MIG 153, no decoración.
+        //
+        // Una compra dividida por categoría deja N filas que comparten
+        // (companyid, source, sourceid, accountid) y difieren SOLO en
+        // `categoryid` — que es exactamente la clave de
+        // `uidx_fin_movement_source`. Mover una porción a la categoría de otra
+        // porción del mismo origen (o dos porciones a "sin categoría", que
+        // colisionan en el centinela del COALESCE) levanta un 23505.
+        //
+        // Sin este guard el 23505 sale como `DbQueryException`, que extiende
+        // `\Exception` y NO `\RuntimeException` — así que ATRAVIESA el
+        // `catch (\RuntimeException)` de `api/v1/finance/movements.php` y el
+        // operador recibe un 500 genérico ante algo perfectamente explicable.
+        // No hay corrupción posible (el índice es el que frena), pero el
+        // mensaje tiene que decir por qué no se pudo.
+        \Punto\Api\Support\UniqueViolation::guard(
+            fn() => ncmUpdate([
+                'records'     => $records,
+                'table'       => 'fin_movement',
+                'where'       => 'movementid = ? AND companyid = ?',
+                'whereParams' => [$id, $companyId],
+            ]),
+            [
+                'uidx_fin_movement_source' => 'Otra porción de este mismo comprobante ya está en esa categoría. '
+                    . 'Un comprobante dividido no puede tener dos porciones en la misma categoría: '
+                    . 'reclasificá la otra porción primero.',
+            ],
+            'No se pudo reclasificar: la combinación de categoría ya existe para este comprobante',
+        );
 
         $updated = $this->find($id, $companyId);
         if (!$updated) {
