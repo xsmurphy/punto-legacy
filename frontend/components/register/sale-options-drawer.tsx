@@ -418,7 +418,7 @@ export function SaleOptionsDrawer({
           <Button
             variant="ghost"
             size="icon"
-            className="size-9"
+            className="size-11"
             aria-label="Opciones de la transacción"
           >
             <MoreVertical className="size-5" />

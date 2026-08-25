@@ -282,6 +282,8 @@ function PosWorkspaceLayoutInner({
             className={cn(
               "flex flex-col gap-0 overflow-hidden p-0",
               "!inset-0 !h-dvh !max-h-dvh !w-auto !max-w-none !translate-x-0 !translate-y-0 !rounded-none",
+              // Portaleado fuera del shell del POS: no hereda su `safe-area`.
+              "safe-area",
             )}
           >
             <DialogHeader className="sr-only">

@@ -261,7 +261,7 @@ export function LockScreen() {
         role="dialog"
         aria-modal="true"
         aria-label="Cargando"
-        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-background"
+        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-4 bg-background safe-area"
       >
         <PuntoLogo variant="mark" className="size-[35px] animate-pulse" />
       </div>
@@ -297,7 +297,7 @@ export function LockScreen() {
         role="dialog"
         aria-modal="true"
         aria-label="Pantalla bloqueada"
-        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-background p-6"
+        className="fixed inset-0 z-[100] flex flex-col items-center justify-center gap-8 bg-background pt-[max(1.5rem,env(safe-area-inset-top))] pr-[max(1.5rem,env(safe-area-inset-right))] pb-[max(1.5rem,env(safe-area-inset-bottom))] pl-[max(1.5rem,env(safe-area-inset-left))]"
       >
         <PuntoLogo variant="mark" className="size-[35px]" />
         <EmptyState
@@ -320,7 +320,7 @@ export function LockScreen() {
       role="dialog"
       aria-modal="true"
       aria-label="Pantalla bloqueada"
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background safe-area"
     >
       {/*
        * Input invisible — captura el teclado virtual en mobile cuando el

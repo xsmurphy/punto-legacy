@@ -23,7 +23,7 @@ export function PosLoadingScreen() {
     <div
       role="status"
       aria-label="Cargando caja"
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background"
+      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background safe-area"
     >
       <div className="mb-8">
         <PuntoLogo variant="mark" className="size-[35px]" />

@@ -27,7 +27,15 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
         {/* `pos-scope`: globals.css aplica typography táctil (font-size,
             weight, tracking) a inputs/textareas descendientes. Cajero ve
             grande sin tocar cada caller individualmente. */}
-        <SidebarInset className="pos-scope h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
+        {/* `safe-area`: el workspace llega a los cuatro bordes, así que sin
+            descontar los insets del dispositivo la toolbar del carrito queda
+            debajo del reloj y la batería en un iPhone instalado como PWA, y el
+            CTA de cobro debajo de la barra de gestos (reporte del owner
+            2026-08-25). Va acá, en el shell, y no en cada componente: todo lo
+            que se monta dentro hereda el área útil ya recortada. Los overlays
+            fullscreen se portalean FUERA de este nodo y por eso llevan la
+            utilidad por su cuenta. */}
+        <SidebarInset className="pos-scope safe-area h-svh overflow-hidden md:h-[calc(100svh-1rem)]">
           {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
               abajo a la derecha. Se movió al extremo izquierdo del toolbar del
               carrito (CartToolbar), junto al botón del menú principal, por

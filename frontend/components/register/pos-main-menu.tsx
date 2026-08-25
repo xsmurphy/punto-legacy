@@ -388,7 +388,7 @@ export function PosMainMenu() {
       <Button
         variant="ghost"
         size="icon"
-        className="relative size-9"
+        className="relative size-11"
         aria-label={
           pendingCount > 0
             ? `Menú del POS — ${pendingCount} venta${pendingCount !== 1 ? "s" : ""} sin sincronizar`
@@ -422,6 +422,9 @@ export function PosMainMenu() {
           className={cn(
             "gap-0 overflow-hidden p-0",
             "max-sm:!inset-0 max-sm:!h-dvh max-sm:!max-w-none max-sm:!w-auto max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:!rounded-none",
+            // Fullscreen mobile = toca los bordes del dispositivo, y el diálogo
+            // se portalea fuera del shell del POS: descuenta los insets acá.
+            "max-sm:safe-area",
             "sm:!max-w-[min(64rem,calc(100vw-2rem))] sm:!w-full",
           )}
         >

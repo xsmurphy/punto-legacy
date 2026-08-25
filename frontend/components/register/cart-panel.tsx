@@ -741,6 +741,11 @@ function CartToolbar({
 }) {
   // 4 botones distribuidos proporcionalmente a lo largo del toolbar (cada uno
   // ocupa un cuarto, centrado) — espejo del col-xs-3 del legacy.
+  //
+  // `size-11` (44px) y no el `size-9` (36px) del panel: es el mínimo táctil de
+  // las guías de iOS/Android y esta toolbar se usa con el dedo, en una caja de
+  // alto volumen. El slot no se mueve —el contenedor sigue siendo h-14 y cada
+  // botón sigue centrado en su cuarto—, crece solo el área que registra el tap.
   return (
     <div className="flex h-14 shrink-0 items-center px-1">
       <div className="flex flex-1 justify-center">
@@ -750,7 +755,7 @@ function CartToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-9"
+          className="size-11"
           onClick={onSearch}
           aria-label="Buscar producto"
         >
@@ -761,7 +766,7 @@ function CartToolbar({
         <Button
           variant="ghost"
           size="icon"
-          className="size-9"
+          className="size-11"
           onClick={onCustomer}
           aria-label="Cliente"
         >
