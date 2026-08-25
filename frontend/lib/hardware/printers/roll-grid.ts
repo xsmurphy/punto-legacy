@@ -85,16 +85,30 @@ import {
 export const ESC_POS_CELL_ASPECT = 2
 
 /**
- * Columnas por ancho de rollo. 32/48 son los valores que el proyecto ya
- * manejaba para 58/80mm (`render-template.ts`); 76mm (impresoras de 3" de
- * matriz de punto y algunas térmicas industriales) va a 42, el valor estándar
- * para ese ancho. Un rollo NO listado no existe: `PaperSize` solo tiene estos
- * tres tamaños de receipt.
+ * Columnas por ancho REAL de dispositivo. Las térmicas del proyecto son de dos
+ * anchos y nada más (`PrinterBinding.paperWidthMm` es `58 | 80`), así que esta
+ * tabla tiene exactamente dos entradas.
+ *
+ * Antes había una tercera (`receipt76: 42`) indexada por el papel de DISEÑO.
+ * Era inalcanzable: los dos caminos que llegan acá traen un ancho de
+ * dispositivo — el binding en impresión real, y `nearestReceiptPaperWidthMm`
+ * en la vista previa, que ya mapea 76mm a 80. Una constante que nadie puede
+ * alcanzar es documentación falsa sobre lo que el sistema soporta.
  */
-export const ROLL_COLUMNS: Record<"receipt57" | "receipt76" | "receipt80", number> = {
-  receipt57: 32,
-  receipt76: 42,
-  receipt80: 48,
+export const ROLL_COLUMNS: Record<58 | 80, number> = {
+  58: 32,
+  80: 48,
+}
+
+/**
+ * Papel de diseño → ancho de dispositivo. ÚNICA fuente de ese mapeo: la usan
+ * la vista previa del editor (que no está atada a una impresora física, ver
+ * `buildTemplatePreviewHtml` en index.ts) y esta geometría. 76mm no es un
+ * ancho de térmica soportado, así que cae en la de 80 — que es lo que la
+ * vista previa ya hacía por su cuenta.
+ */
+export function nearestReceiptPaperWidthMm(pageSize: PaperSize): 58 | 80 {
+  return pageSize === "receipt57" ? 58 : 80
 }
 
 export interface RollGeometry {
@@ -119,11 +133,8 @@ export function rollGeometry(
   mm: number,
   paperWidthMm?: 58 | 80,
 ): RollGeometry {
-  const columns = paperWidthMm
-    ? paperWidthMm === 58
-      ? ROLL_COLUMNS.receipt57
-      : ROLL_COLUMNS.receipt80
-    : ROLL_COLUMNS[pageSize as keyof typeof ROLL_COLUMNS] ?? ROLL_COLUMNS.receipt80
+  const deviceWidthMm = paperWidthMm ?? nearestReceiptPaperWidthMm(pageSize)
+  const columns = ROLL_COLUMNS[deviceWidthMm]
   const dim = PAPER_DIMENSIONS[pageSize] ?? PAPER_DIMENSIONS.receipt80
   const ratio = mm > 0 ? mm : 3.78
   const canvasWidthPx = dim.widthMm * ratio
@@ -480,9 +491,18 @@ export function buildRollGrid(
             : []
           return { col: rbCol, width: rbWidth, lines, bold: rb.bold === "bold" }
         })
-        const used = Math.max(stepRows, ...cells.map((c) => c.lines.length))
-        for (const cell of cells) place(cursor, cell.col, cell.width, cell.lines, cell.bold)
-        cursor += used
+        // El bloque de listado es DINAMICO: el canvas posiciona su INICIO, y
+        // cada item ocupa las filas que su contenido REALMENTE necesita. El
+        // cursor avanza hasta la fila mas baja que ocupo la fila entera —
+        // usando lo que `place` DEVUELVE, no lo que se le pidio: si una celda
+        // tuvo que bajar para no pisar a otra, ignorar eso dejaba el avance
+        // corto y el item siguiente se montaba encima, en cascada.
+        let bottom = cursor + stepRows
+        for (const cell of cells) {
+          const placed = place(cursor, cell.col, cell.width, cell.lines, cell.bold)
+          if (placed.height > 0) bottom = Math.max(bottom, placed.row + placed.height)
+        }
+        cursor = bottom
       }
       // El canvas reservaba UNA fila para el grupo; con N items (y su wrap)
       // ocupa `cursor - row0`.
@@ -506,7 +526,11 @@ export function buildRollGrid(
     }
     const aligned = lines.map((l) => alignInBox(l, width, block.align))
     const placed = place(row0, col, width, aligned, block.bold === "bold")
-    pendingGrowth = Math.max(pendingGrowth, Math.max(0, placed.height - reserved))
+    // Crecimiento REAL medido contra donde el bloque TERMINO, no contra la
+    // fila que pidio el canvas: `place` pudo haberlo bajado para no pisar a
+    // otro bloque, y medir contra `row0` dejaba el empuje corto.
+    const bottom = placed.height > 0 ? placed.row + placed.height : row0
+    pendingGrowth = Math.max(pendingGrowth, Math.max(0, bottom - (row0 + reserved)))
     i++
   }
 

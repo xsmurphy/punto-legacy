@@ -28,6 +28,37 @@ type Encoder = any
  * térmica no sabe poner un QR en la columna 17.
  */
 
+/**
+ * Emite un texto de la grilla separando ESPACIOS de CONTENIDO.
+ *
+ * Los espacios van por `raw()` (bytes 0x20 crudos) y NUNCA por `text()`.
+ * `text()` pasa por `TextWrap.wrap` de la librería, que descarta un chunk de
+ * espacios mientras la línea todavía está vacía:
+ *
+ *     if (chunk.match(/\s+/) && length == 0) continue
+ *
+ * Con `text("      Gs 23.000")` la térmica imprimía "Gs 23.000" pegado a la
+ * izquierda mientras la vista previa lo mostraba a la derecha — la MISMA
+ * divergencia editor/papel que este trabajo vino a eliminar, reaparecida un
+ * nivel más abajo, en el encoder. Toda fila centrada o alineada a la derecha
+ * salía mal.
+ *
+ * El contenido sí necesita `text()`: es lo que traduce a la codepage de la
+ * impresora ("é" → 0x82 en CP437). Como ningún chunk que llega a `text()`
+ * empieza con espacio, TextWrap no tiene nada que descartar; y como la grilla
+ * ya cortó cada fila al ancho del papel, tampoco tiene nada que wrapear — el
+ * doble-wrap (grilla + librería) deja de ser posible.
+ */
+function emitSegments(encoder: Encoder, text: string): Encoder {
+  let e = encoder
+  for (const segment of text.split(/(\s+)/)) {
+    if (segment === "") continue
+    if (/^\s+$/.test(segment)) e = e.raw(new Array(segment.length).fill(0x20))
+    else e = e.text(segment)
+  }
+  return e
+}
+
 /** Alineación de un gráfico, aplicada y revertida alrededor del comando. */
 function withAlign(encoder: Encoder, align: RollGraphic["align"], fn: (e: Encoder) => Encoder): Encoder {
   const needsAlign = align === "center" || align === "right"
@@ -99,7 +130,7 @@ export function renderTemplateToEscPos(opts: {
     }
     for (const run of row.runs) {
       if (run.bold) encoder = encoder.bold(true)
-      encoder = encoder.text(run.text)
+      encoder = emitSegments(encoder, run.text)
       if (run.bold) encoder = encoder.bold(false)
     }
     encoder = encoder.newline()

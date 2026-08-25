@@ -69,14 +69,14 @@ describe("wrapToWidth", () => {
 })
 
 describe("rollGeometry", () => {
-  it("usa las columnas del papel de diseño cuando no hay binding", () => {
-    expect(rollGeometry("receipt57", MM).columns).toBe(ROLL_COLUMNS.receipt57)
-    expect(rollGeometry("receipt80", MM).columns).toBe(ROLL_COLUMNS.receipt80)
+  it("sin binding, el papel de diseño cae en el ancho de térmica más cercano", () => {
+    expect(rollGeometry("receipt57", MM).columns).toBe(ROLL_COLUMNS[58])
+    expect(rollGeometry("receipt80", MM).columns).toBe(ROLL_COLUMNS[80])
   })
 
   it("el ancho del dispositivo gana sobre el del diseño", () => {
     // Plantilla de 57mm mandada a una térmica de 80mm.
-    expect(rollGeometry("receipt57", MM, 80).columns).toBe(ROLL_COLUMNS.receipt80)
+    expect(rollGeometry("receipt57", MM, 80).columns).toBe(ROLL_COLUMNS[80])
   })
 
   it("el ancho del canvas equivale exactamente a `columns` caracteres", () => {
@@ -133,7 +133,7 @@ describe("buildRollGrid — la posición del canvas manda", () => {
       ticket(),
     )
     expect(rows.length).toBeGreaterThan(1)
-    expect(rows.every((r) => r.length <= ROLL_COLUMNS.receipt80)).toBe(true)
+    expect(rows.every((r) => r.length <= ROLL_COLUMNS[80])).toBe(true)
   })
 
   it("alinea a la derecha dentro de la caja del bloque", () => {
@@ -142,7 +142,7 @@ describe("buildRollGrid — la posición del canvas manda", () => {
       ticket(),
     )
     expect(rows[0].endsWith("24/08/2026")).toBe(true)
-    expect(rows[0].length).toBe(ROLL_COLUMNS.receipt80)
+    expect(rows[0].length).toBe(ROLL_COLUMNS[80])
   })
 
   it("hor_line sale como una fila de guiones del ancho del bloque", () => {
@@ -192,6 +192,29 @@ describe("buildRollGrid — la posición del canvas manda", () => {
     )
     expect(rows.join("\n")).not.toContain("COMANDA")
     expect(rows.join("\n")).not.toContain("Mesa 3")
+  })
+
+  it("el bloque que siembra la mig 168 reproduce el banner viejo", () => {
+    // `custom` con interpolación — EXACTAMENTE el bloque que la migración
+    // 168_comanda_banner_block.php le agrega a las plantillas de comanda ya
+    // existentes, para que el encabezado no desaparezca cuando el renderer
+    // deja de inyectarlo. Si esto se rompe, la comanda sale sin mesa.
+    const rows = rowsOf(
+      tpl([
+        {
+          ...defaultBlock("custom", "COMANDA #{{ticketNo}} · {{orderDestination}}"),
+          top: 0,
+          left: 0,
+          width: 302,
+          height: 13,
+          align: "center",
+          bold: "bold",
+          textwrap: "wrap",
+        },
+      ]),
+      ticket({ docType: "order", orderDestination: "Mesa 3", ticketNo: "12" } as Partial<TicketData>),
+    )
+    expect(rows.join("\n")).toContain("COMANDA #12 · Mesa 3")
   })
 
   it("la comanda imprime destino y número cuando la PLANTILLA los tiene", () => {
