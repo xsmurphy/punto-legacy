@@ -1,5 +1,12 @@
 /**
- * Gate de cierre de turno — "no se cierra con órdenes o espacios abiertos".
+ * Gate de cierre de turno — "no se cierra con órdenes sin cobrar ni espacios
+ * abiertos".
+ *
+ * Lo que bloquea es la PLATA pendiente, no el trabajo pendiente: una orden
+ * cobrada que sigue viva en su proceso (un delivery en la calle) NO frena el
+ * arqueo; una sin cobrar sí, esté en el estado que esté (owner 2026-08-25).
+ * El criterio exacto y el porqué de que los espacios NO lo sigan están en
+ * `api/lib/services/ShiftCloseGate.php`.
  *
  * Regla OPCIONAL del comercio (owner 2026-08-25). Este módulo es la parte PURA:
  * los tipos, la normalización del payload y los textos. Sin React, sin fetch,
@@ -96,7 +103,7 @@ export function parseShiftCloseBlockers(raw: unknown): ShiftCloseBlockers {
 export function shiftCloseBlockedSummary(b: ShiftCloseBlockers): string {
   const partes: string[] = []
   if (b.orderCount > 0) {
-    partes.push(b.orderCount === 1 ? "1 orden abierta" : `${b.orderCount} órdenes abiertas`)
+    partes.push(b.orderCount === 1 ? "1 orden sin cobrar" : `${b.orderCount} órdenes sin cobrar`)
   }
   if (b.spaceCount > 0) {
     partes.push(b.spaceCount === 1 ? "1 espacio abierto" : `${b.spaceCount} espacios abiertos`)

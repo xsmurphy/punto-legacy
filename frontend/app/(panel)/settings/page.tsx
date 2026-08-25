@@ -971,8 +971,8 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
         <ToggleField
           form={form}
           name="drawerRequireClosedOrders"
-          label="Exigir órdenes y espacios cerrados"
-          desc="La caja no cierra el turno mientras la sucursal tenga órdenes o espacios abiertos. Alcanza a toda la sucursal, no solo a esa caja: los espacios no pertenecen a ninguna caja y cualquiera los puede cobrar."
+          label="Exigir órdenes cobradas y espacios cerrados"
+          desc="La caja no cierra el turno mientras la sucursal tenga órdenes sin cobrar o espacios abiertos. Lo que cuenta es el cobro, no el estado del proceso: un pedido ya cobrado que todavía está en camino no frena el cierre. Alcanza a toda la sucursal, no solo a esa caja: los espacios no pertenecen a ninguna caja y cualquiera los puede cobrar."
         />
         <FormField
           control={form.control}

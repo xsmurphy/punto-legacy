@@ -413,23 +413,72 @@ atadas a caja o a sucursal. Verificado, y decide lo contrario:
    estrenar una dimensión que hoy no significa nada, y dejar pasar justo las
    órdenes de espacio.
 
-**Abierto** = `pos_order.status NOT IN ('closed','cancelled')` (mismo idiom que
-`SpaceService`/`SpaceSettlementService`) y `space_session.status IN
-('open','bill_requested')` (el predicado del índice único parcial
-`uq_space_session_active_per_space`, que es la fuente de verdad de "ocupado").
-Una sesión fusionada queda `closed` por diseño de la mig 163: no necesita
-exclusión propia.
+### Qué bloquea: el COBRO en las órdenes, el STATUS en los espacios
 
-> **A CONFIRMAR CON EL OWNER — una orden ya cobrada puede bloquear el cierre.**
-> El estado de la orden y el cobro son **ortogonales**: en el flujo "Orden en
-> venta" se factura primero y se ordena después
-> (`OrderCoreService.php:71-78`), así que una orden en `delivered` o
-> `out_for_delivery` puede no deber un guaraní y bloquear igual. Hoy bloquea, a
-> propósito: la regla que se pidió es literal ("no pueden quedar órdenes
-> abiertas") y una orden cobrada sin entregar es justo el pendiente operativo
-> que no debería cruzar de un turno al siguiente. Si el criterio es "solo lo que
-> debe plata", el cambio es acotado — sacar `delivered`/`out_for_delivery` de
-> los estados que bloquean, en `ShiftCloseGate::ORDER_CLOSED_STATUSES`.
+**CONFIRMADO POR EL OWNER (2026-08-25).** El caso que este doc dejaba abierto
+—una orden ya cobrada pero sin entregar, el delivery en camino— se le preguntó
+y respondió:
+
+> "En ese caso no debe bloquear.. es decir tienen que haber un estado de
+> cobrado para cada orden.. independiente al estado de la orden en su proceso"
+
+Lo que frena el arqueo es la **plata pendiente**, no el trabajo pendiente.
+
+**Órdenes** — bloquea la que está viva y **no tiene cobro**:
+
+```sql
+o.status NOT IN ('closed','cancelled')          -- estados terminales
+AND NOT EXISTS (SELECT 1 FROM order_transaction_link l
+                 WHERE l.orderid = o.orderid
+                   AND l.companyid = o.companyid
+                   AND l.kind = 'order_billed')
+```
+
+Tres cosas que no son obvias:
+
+1. **El rastro de cobro NO es `pos_order.saletransactionid`.** Esa columna la
+   **dropeó la mig 115** y la reemplazó por la tabla puente
+   `order_transaction_link` (que además resuelve "varias órdenes, una sola
+   factura"). El docblock de `OrderCoreService.php:71-78` todavía nombra la
+   columna vieja — es texto desactualizado, no el modelo.
+2. **El cambio no es cosmético.** El flujo "Orden en venta" crea la orden
+   **con el link ya puesto** y status `sent` (`OrderCoreService.php:402` +
+   `:434`), y de ahí recorre `in_progress → ready → out_for_delivery →
+   delivered` cobrada y viva. `closed` ⇒ hay link, pero hay link ⇏ `closed`:
+   esas cinco filas son exactamente las que antes bloqueaban de más.
+3. **Los estados terminales se excluyen aparte, y hace falta.** Un `closed` sin
+   link (fila vieja, backfill sucio) sería un bloqueo **sin salida**:
+   `markPaid()` rechaza una orden ya cerrada, así que no hay pantalla del POS
+   que pueda resolverlo. `cancelled` no bloquea aunque nunca se haya cobrado —
+   una orden cancelada no le debe nada a nadie.
+
+> La salida que este doc proponía antes —"sacar `delivered`/`out_for_delivery`
+> de los estados que bloquean"— **era incorrecta** y quedó descartada: habría
+> dejado pasar el delivery **sin cobrar**, que es justo el que tiene que
+> frenar el cierre. El criterio no era recortar la lista de estados; era dejar
+> de mirar el estado.
+
+**Espacios** — siguen mirando `space_session.status IN ('open','bill_requested')`
+(el predicado del índice único parcial `uq_space_session_active_per_space`, la
+fuente de verdad de "ocupado"). Una sesión fusionada queda `closed` por diseño
+de la mig 163: no necesita exclusión propia. **No se les aplica el criterio de
+cobro**, por tres razones:
+
+1. **No hay nada que corregir.** `SpaceSessionService::close()` se niega a
+   cerrar con saldo pendiente, y `SpaceSettlementService::settleIfCovered()`
+   cierra la sesión sola cuando el saldo llega a cero. Una mesa cobrada del
+   todo **ya está `closed`** y el predicado no la ve. El estado "cobrada pero
+   abierta" no existe en un espacio.
+2. **Aplicárselo lo rompería.** Una mesa recién abierta sin consumo tiene saldo
+   0; leída como "no debe plata" pasaría el gate. La mesa ocupada a la hora del
+   arqueo —el pendiente que el comercio quiere ver— se volvería invisible.
+3. **Una mesa ocupada no es una deuda, es un espacio sin liberar.**
+
+**Cobro parcial**: existe **solo en los espacios** (`space_session_payment`,
+mig 90). Una sesión con parciales sigue `open` hasta cubrir el saldo, así que
+bloquea — correcto, todavía debe. En las **órdenes no existe**: el link de la
+mig 115 es binario y **sin columna `amount` por decisión explícita**, así que
+una orden está cobrada o no lo está. No hay tercer caso que definir.
 
 **La contrapartida está declarada**: una caja no cierra su turno mientras otra
 caja de la misma sucursal tenga algo abierto. Por eso el interruptor nace
