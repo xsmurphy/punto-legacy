@@ -1657,7 +1657,8 @@ function CartBottom({
           muscular del cajero (Regla #10, context/14-ui-conventions.md). Son
           dos valores porque los chips son más grandes en móvil (ver
           `CHIP_BASE` en toggle-chip.tsx): el alto de la fila acompaña al chip
-          en cada breakpoint, y dentro de cada uno sigue siendo constante. */}
+          en cada breakpoint, y dentro de cada uno sigue siendo constante.
+          VACIAR es desktop/tablet only — ver el comentario del chip. */}
       <div className="mb-2 flex min-h-7 items-center justify-center gap-2 sm:min-h-6">
         {/* Nav de módulos (HotKeys / Órdenes / Espacios / Guardadas), solo
             mobile — el owner lo pidió acá, a la izquierda de CRÉDITO
@@ -1702,12 +1703,22 @@ function CartBottom({
         {cartMode === "orden-mostrador" && (
           <FulfillmentSelector value={fulfillment} onSelect={onSelectFulfillment} />
         )}
+        {/* `max-sm:hidden`: en el teléfono la fila la comparten el trigger de
+            módulos, los toggles y el chip de IVA, y VACIAR —la única acción
+            destructiva de las cinco— quedaba a un dedo de distancia del IVA.
+            En móvil la acción vive SOLO en el menú de opciones de la
+            transacción ("Cancelar venta", `sale-options-drawer.tsx`), que es
+            donde ya estaba y donde pide confirmación. En desktop/tablet el
+            chip se queda: ahí se opera con mouse y el atajo es útil.
+            No cambia el alto de la fila (`min-h-7 sm:min-h-6`), así que el CTA
+            de cobro no se mueve entre breakpoints — Regla #10. */}
         {lineCount > 0 && (
           <button
             onClick={onClear}
             aria-label="Vaciar carrito"
             className={cn(
               CHIP_BASE,
+              "max-sm:hidden",
               "border-destructive/40 bg-transparent text-destructive hover:bg-destructive/10",
             )}
           >

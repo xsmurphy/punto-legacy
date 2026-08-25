@@ -18,12 +18,7 @@ import { ChevronDown } from "lucide-react"
 import { toast } from "sonner"
 
 import { Badge } from "@/components/ui/badge"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { ActionMenu } from "@/components/ui/action-menu"
 import { useUpdateOrderStatus, type Order } from "@/hooks/use-orders"
 import {
   STATUS_LABEL,
@@ -72,11 +67,18 @@ export function OrderStatusBadge({
     // dispararía el onClick de la card/fila si no se corta acá, envolviendo
     // trigger y content.
     <span onClick={(e) => e.stopPropagation()}>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          {/* after:-inset-2: agranda el target táctil (~40px) sin tocar el
-              tamaño visual del badge ni mover nada alrededor — mismo patrón
-              que el trigger de módulos en cart-panel.tsx. */}
+      {/* `ActionMenu` y no un `DropdownMenu` pelado: en el teléfono este badge
+          vive dentro de una fila/card del listado de órdenes y el menú anclado
+          salía tapando justo la orden que se está por mover de estado. El
+          wrapper lo baja como drawer bajo el breakpoint y lo deja igual en
+          desktop. */}
+      <ActionMenu
+        align="start"
+        title={`Estado de la orden #${order.orderNumber}`}
+        trigger={
+          /* after:-inset-2: agranda el target táctil (~40px) sin tocar el
+             tamaño visual del badge ni mover nada alrededor — mismo patrón
+             que el trigger de módulos en cart-panel.tsx. */
           <Badge
             variant={STATUS_VARIANT[order.status]}
             className="relative cursor-pointer gap-0.5 pr-1 after:absolute after:-inset-2 after:content-['']"
@@ -84,15 +86,12 @@ export function OrderStatusBadge({
             {statusLabelFor(order)}
             <ChevronDown className="size-3" aria-hidden />
           </Badge>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          {statusOptions.map((s) => (
-            <DropdownMenuItem key={s} onSelect={() => handleStatusChange(s)}>
-              {STATUS_LABEL[s]}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
+        }
+        actions={statusOptions.map((s) => ({
+          label: STATUS_LABEL[s],
+          onSelect: () => handleStatusChange(s),
+        }))}
+      />
     </span>
   )
 }

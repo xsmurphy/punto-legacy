@@ -119,9 +119,11 @@ const DialogSectionedContext = React.createContext(false)
  * alerts) se quedan CENTRADOS como siempre — hacerlos fullscreen fue una
  * regresión reportada el mismo día: no mezclar los dos tipos. Los dialogs
  * tipo command-palette (buscador de productos/clientes, flotantes top-
- * aligned con fondo transparente) tampoco lo usan. `content-start` evita
- * que `align-content: stretch` del grid estire header/footer en el alto
- * completo. Registrado en context/20-design-system.md §10.
+ * aligned con fondo transparente) tampoco lo usan. Bajo `sm` el layout pasa
+ * de `grid` a `flex flex-col`: los slots conservan su alto natural y el
+ * cuerpo toma el resto con `flex-1`, sin la fila content-sized del grid que
+ * dejaba una franja de `bg-popover` contra el borde inferior. Registrado en
+ * context/20-design-system.md §10.
  *
  * `sectioned` (OPT-IN, default false): el diálogo administra su propio layout
  * vertical — header fijo, cuerpo scrolleable, footer fijo. Reemplaza al combo
@@ -186,7 +188,22 @@ function DialogContent({
               // (`--kb-inset`), y en el borde físico cuando no lo hay. Con
               // `inset-0` + un `bottom-*` aparte el resultado dependía del
               // orden en que Tailwind emite las dos utilidades.
-              "max-sm:top-0 max-sm:right-0 max-sm:bottom-[var(--kb-inset)] max-sm:left-0 max-sm:h-auto max-sm:max-h-none max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none",
+              "max-sm:top-0 max-sm:right-0 max-sm:bottom-[var(--kb-inset)] max-sm:left-0 max-sm:h-auto max-sm:max-h-none max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none",
+              // `flex flex-col` y NO el `grid` del modal centrado: un
+              // fullscreen tiene alto definido (top:0 + bottom en el teclado o
+              // el borde), así que el reparto de ese alto es el trabajo del
+              // layout. Con `grid` + `content-start` la fila se dimensiona al
+              // CONTENIDO —un `h-full` o un `flex-1` adentro no tienen contra
+              // qué resolver— y lo que sobra hasta el borde inferior queda
+              // pintado con el `bg-popover` del diálogo: el "no baja hasta el
+              // final de la pantalla" que reportó el owner (2026-08-25) en el
+              // menú del POS. Con `align-content: stretch` el problema es el
+              // inverso: header y footer se estiran. Flex column resuelve los
+              // dos casos —los slots conservan su alto natural y el cuerpo
+              // toma el resto con `flex-1`— y es el mismo layout que ya usaban
+              // a mano el shell de módulos (`app/(pos)/pos/layout.tsx`) y el
+              // diálogo de transacciones.
+              "max-sm:flex max-sm:flex-col",
               // Fullscreen = la superficie toca los cuatro bordes del
               // dispositivo, y además se portalea FUERA del shell del POS, así
               // que no hereda ningún inset: los descuenta acá, una sola vez,

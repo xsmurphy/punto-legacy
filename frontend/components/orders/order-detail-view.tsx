@@ -15,7 +15,7 @@
  */
 
 import * as React from "react"
-import { ChevronRight, DollarSign, MoreHorizontal, Printer, Truck, X } from "lucide-react"
+import { ChevronRight, DollarSign, MoreHorizontal, Truck } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -37,12 +37,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { ActionMenu } from "@/components/ui/action-menu"
 import { formatRelativeShort, formatDateTime } from "@/lib/format-date"
 import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -159,7 +154,11 @@ export function OrderDetailView({
             reserva su lugar en vez de superponerse. */}
         <div className="shrink-0 flex flex-col items-end gap-2 pr-10">
           <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
-          <div className="inline-flex">
+          {/* Split button — misma geometría que el de `TransactionDetail`:
+              `items-stretch` y tier `icon-sm` en el trigger para que en móvil
+              los dos lleguen a los 44px del mínimo táctil sin deformarse. Los
+              ítems van sin icono: menú de acciones = texto solo (owner). */}
+          <div className="inline-flex items-stretch">
             <Button
               size="sm"
               className="rounded-r-none border-r-0 gap-1.5"
@@ -169,26 +168,26 @@ export function OrderDetailView({
               <DollarSign className="size-3.5" />
               {isPaid ? "Pagada" : "Cobrar"}
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" className="rounded-l-none px-2" aria-label="Más acciones">
+            <ActionMenu
+              title="Acciones de la orden"
+              trigger={
+                <Button size="icon-sm" className="rounded-l-none" aria-label="Más acciones">
                   <MoreHorizontal className="size-4" />
                 </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem disabled={!hasItems || printing} onSelect={() => void reprint()}>
-                  <Printer className="size-3.5 shrink-0" />
-                  Reimprimir comanda
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  variant="destructive"
-                  onSelect={() => setCancelOpen(true)}
-                >
-                  <X className="size-3.5 shrink-0" />
-                  Cancelar orden
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+              }
+              actions={[
+                {
+                  label: "Reimprimir comanda",
+                  disabled: !hasItems || printing,
+                  onSelect: () => void reprint(),
+                },
+                {
+                  label: "Cancelar orden",
+                  variant: "destructive",
+                  onSelect: () => setCancelOpen(true),
+                },
+              ]}
+            />
           </div>
         </div>
       </div>
