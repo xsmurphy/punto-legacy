@@ -1619,10 +1619,10 @@ function ControlDeCajaPanel() {
   // terminar el turno. Se avisa (`closeUnverified`) y el servidor valida cuando
   // la operación sincroniza. Ver `useShiftCloseBlockers`.
   const requireClosedOrders = registerConfigData?.config?.requireClosedOrders ?? false
-  const drawerIsOpen = status?.isOpen ?? false
-  const closeGate = useShiftCloseBlockers(requireClosedOrders && drawerIsOpen && !offline)
+  const isOpen = status?.isOpen ?? false
+  const closeGate = useShiftCloseBlockers(requireClosedOrders && isOpen && !offline)
   const closeBlocked = closeGate.blocking
-  const closeUnverified = requireClosedOrders && drawerIsOpen && (offline || closeGate.isError)
+  const closeUnverified = requireClosedOrders && isOpen && (offline || closeGate.isError)
 
   // Estado local del modal de monto (abre/cierra con apertura/cierre/movimiento)
   type ModalMode = "open" | "close" | "expense" | "income" | null
@@ -1638,7 +1638,7 @@ function ControlDeCajaPanel() {
   // cierra: la caja ya no tiene resumen que volver a pedir. Nunca a ciegas.
   const [closeReport, setCloseReport] = React.useState<ServerCloseMethodRow[] | null>(null)
 
-  const isOpen = status?.isOpen ?? false
+  // `isOpen` se declara arriba, junto al gate de cierre que lo necesita.
   const loading = statusLoading || summaryLoading
 
   function openModal(mode: ModalMode) {
