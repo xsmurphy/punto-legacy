@@ -202,6 +202,22 @@ El backfill UPDATE previo al DROP puede correr perfectamente con el usuario `pun
 
 Ejemplo: migración `06_contact_jsonb_demote.sql` (backfill → DROP de 6 columnas) requirió ejecución como usuario owner, no como `punto`.
 
+## Poda del cache de BuildKit (cron en el HOST, 2026-08-25)
+
+Coolify buildea DOS apps (API + frontend) en cada push a `main` y BuildKit no
+poda su cache solo: el 2026-08-25, tras ~12 pushes en el día, el cache llegó a
+81GB / 642 entradas, el disco a 72%, y cada deploy tardaba casi el doble que
+el anterior (de 3-5 min a >20 — BuildKit degrada la gestión del cache a medida
+que el store crece). La poda manual liberó 66GB y el disco volvió a 32%.
+
+Fix permanente: `/etc/cron.weekly/docker-builder-prune` en el HOST del server
+de producción (167.71.165.221) — NO viaja en el repo porque poda el builder
+del host, no algo de la app. `docker builder prune --keep-storage=15GB` (los
+layers calientes se conservan: el build post-poda no arranca en frío) +
+`docker image prune -f`. Se saltea si hay un `coolify-helper` corriendo.
+Si los deploys vuelven a ponerse lentos, mirar `docker system df` ANTES de
+sospechar del código.
+
 ## Jobs de mantenimiento (cron en la imagen del API, 2026-08-21)
 
 **Hallazgo que originó esto**: tres jobs periódicos existían en código pero
