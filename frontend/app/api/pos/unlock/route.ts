@@ -2,12 +2,24 @@
  * BFF — Validación de PIN del lockscreen.
  *
  * Forwarda al endpoint PHP `/v1/unlock-pin`, que hace el match server-side y
- * nunca expone `lockPass`. Acepta cualquiera de las dos cookies del operador:
- *   - `_jwt_panel` (panel, 24h)
- *   - `_jwt`       (pos-app, device pairing, larga duración)
+ * nunca expone `lockPass`.
  *
- * Sin este dual-cookie support, un device paired que llegó a /pos sin pasar
- * por una sesión fresca de panel falla con 401 aunque el PIN sea correcto.
+ * AUTH: token-only (Bearer del device), como todo `/api/pos/*`. La cookie del
+ * operador NO se acepta ni se reenvía upstream.
+ *
+ * Antes esto aceptaba `_jwt_panel` O el Bearer, y reenviaba la cookie. El
+ * argumento era que "un device pareado que llegó a /pos sin sesión fresca de
+ * panel falla con 401 aunque el PIN sea correcto" — pero está al revés: un
+ * device pareado SIEMPRE tiene Bearer (es lo que `PosAuthGuard` exige para
+ * renderizar /pos), así que la rama de la cookie no rescataba a un device
+ * pareado: habilitaba a uno NO pareado, con la sesión de panel de quien
+ * tuviera el browser abierto.
+ *
+ * Además `/v1/unlock-pin` es multi-realm (`['panel','pos-app']`, con guard de
+ * `module==='pos'`), así que reenviar las dos credenciales lo dejaba resolver
+ * como panel. Con Bearer solo, resuelve como `pos-app` y el roster de PINs que
+ * valida es el de ESTA caja. Es la misma clase de bug que dejó el lock screen
+ * sin PINs el 2026-08-25.
  */
 import { NextRequest, NextResponse } from "next/server"
 
@@ -52,13 +64,16 @@ interface UpstreamEnvelope {
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const cookie = req.headers.get("cookie") ?? ""
   const authHeader = req.headers.get("authorization") ?? ""
-  const hasPanel = /(?:^|;)\s*_jwt_panel=/.test(cookie)
-  const hasBearerToken = /^Bearer\s+\S+/i.test(authHeader)
-  if (!hasPanel && !hasBearerToken) {
+  if (!/^Bearer\s+\S+/i.test(authHeader)) {
     return NextResponse.json(
-      { ok: false, error: { message: "No autenticado", code: 401 } },
+      {
+        ok: false,
+        error: {
+          message: "Falta Bearer del device. Re-conectá el dispositivo desde el panel.",
+          code: 401,
+        },
+      },
       { status: 401 },
     )
   }
@@ -77,8 +92,8 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const base = getTargetBase()
   const headers = new Headers()
-  headers.set("cookie", cookie)
-  if (authHeader) headers.set("authorization", authHeader)
+  // SOLO el Bearer. La cookie no se reenvía: ver el docblock de arriba.
+  headers.set("authorization", authHeader)
   headers.set("accept", "application/json")
   headers.set("content-type", "application/json")
   if (HOST_OVERRIDE) headers.set("host", HOST_OVERRIDE)

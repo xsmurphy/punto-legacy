@@ -48,6 +48,36 @@ export async function posFetch(
     headers.set("Authorization", `Bearer ${token}`)
   }
 
+  // Sin token del device no se manda NADA a la red.
+  //
+  // Sin este corte la request sale igual, sin Bearer, y el browser del operador
+  // le adjunta la cookie del panel: el backend la resuelve como realm `panel` y
+  // contesta 200 con un payload que no es el de la caja. Eso es exactamente lo
+  // que envenenó el cache del lock screen el 2026-08-25. Un 401 local es la
+  // respuesta honesta: este device no tiene credencial.
+  //
+  // NO afecta el arranque offline: un device pareado SIEMPRE tiene token (vive
+  // en localStorage, no depende de la red), así que esta rama solo corre cuando
+  // el device no está pareado. La caída al snapshot de IndexedDB sigue igual.
+  //
+  // El código es `device_unpaired` y no `session_revoked`: acá no hubo señal del
+  // server: nunca hubo sesión. Salimos ANTES del bloque de self-healing de abajo
+  // — limpiar el token del módulo por un 401 que fabricamos nosotros sería
+  // borrar en base a nuestra propia suposición.
+  if (!token) {
+    return new Response(
+      JSON.stringify({
+        ok: false,
+        code: "device_unpaired",
+        error: {
+          message: "Este dispositivo no está conectado a una caja.",
+          code: 401,
+        },
+      }),
+      { status: 401, headers: { "Content-Type": "application/json" } },
+    )
+  }
+
   // Afirmación de operador (`X-Operator-Token`): QUIÉN está usando la caja, en
   // contraposición al Bearer de arriba, que dice QUÉ terminal es. Van juntas y
   // son distintas — el Bearer autentica, esta solo identifica a la persona, y
@@ -65,7 +95,15 @@ export async function posFetch(
     const operatorToken = useLockStore.getState().operatorToken
     if (operatorToken) headers.set(OPERATOR_TOKEN_HEADER, operatorToken)
   }
-  const res = await fetch(input, { ...init, credentials: "include", headers })
+  // `credentials: "omit"` — el device NO necesita cookies para nada, y este
+  // cliente es la mitad POS del contrato "un cliente HTTP = un realm"
+  // (`api-client.ts` es la mitad panel: cookie y nunca Bearer).
+  //
+  // Ojo con el default: `/api/pos/*` es same-origin, y el default de fetch
+  // (`same-origin`) manda las cookies igual. Que el POS sea token-only no es
+  // algo que se logre NO pidiendo cookies — hay que pedir explícitamente que no
+  // vayan. Antes decía `"include"`, que era lo contrario.
+  const res = await fetch(input, { ...init, credentials: "omit", headers })
 
   if (res.status === 401) {
     try {

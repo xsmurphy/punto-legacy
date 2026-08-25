@@ -5,16 +5,22 @@
  * Llamado best-effort desde el lock screen tras match local con bcrypt.
  * Si falla por red (offline), el unlock ya ocurrio — este endpoint solo es logging.
  *
- * NOTA DE SEGURIDAD (code-review 2026-06-25):
- * La verificacion de cookie en este endpoint solo comprueba PRESENCIA del header
- * (_jwt_panel= o _jwt=), NO verifica la firma del JWT. Esto significa que:
- *   1. El log NO puede usarse como evidencia forense confiable de quien opero.
- *   2. Un caller con cualquier string en cookie puede escribir contactIds arbitrarios
- *      al log (log-injection / audit-poisoning).
+ * AUTH: token-only (Bearer del device). La puerta `/api/pos/*` no acepta cookies
+ * — ver la regla en `context/08-convenciones-criticas.md`. Antes alcanzaba con
+ * la PRESENCIA de la cookie `_jwt_panel`, lo que hacía que este log lo pudiera
+ * escribir el browser de cualquier operador con sesión de panel abierta,
+ * estuviera o no operando esta caja.
+ *
+ * NOTA DE SEGURIDAD (code-review 2026-06-25, revisada 2026-08-25):
+ * Este handler sigue sin VALIDAR el token contra la API — solo comprueba que
+ * haya un Bearer bien formado. Sigue sin ser evidencia forense confiable: un
+ * caller con cualquier string como Bearer puede escribir contactIds arbitrarios
+ * al log (log-injection / audit-poisoning). Lo que cambió es la superficie: ya
+ * no basta una cookie que el browser adjunta sola, hace falta fabricar un header
+ * a propósito.
  * Mitigacion: el blast radius es limitado a stdout (logs de Coolify). No hay
- * DB writes ni datos devueltos. Documentar este limite si el log se consume
- * como fuente de verdad para auditorias de seguridad.
- * Para un audit trail confiable, verificar el JWT contra /v1/bootstrap.
+ * DB writes ni datos devueltos. Para un audit trail confiable, este endpoint
+ * tendría que resolver el token contra la API (hoy no lo hace).
  */
 import { NextRequest, NextResponse } from "next/server"
 
@@ -22,11 +28,8 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
-  const cookie = req.headers.get("cookie") ?? ""
   const authHeader = req.headers.get("authorization") ?? ""
-  const hasPanel = /(?:^|;)\s*_jwt_panel=/.test(cookie)
-  const hasBearerToken = /^Bearer\s+\S+/i.test(authHeader)
-  if (!hasPanel && !hasBearerToken) {
+  if (!/^Bearer\s+\S+/i.test(authHeader)) {
     return NextResponse.json({ ok: false }, { status: 401 })
   }
 
@@ -42,7 +45,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ ok: false }, { status: 422 })
   }
 
-  // UNTRUSTED BEST-EFFORT: cookie no esta verificada con firma JWT.
+  // UNTRUSTED BEST-EFFORT: el Bearer no se valida contra la API.
   // Ver nota de seguridad en el JSDoc arriba.
   console.info("[pos/audit-unlock][untrusted]", { contactId, ts: new Date().toISOString() })
 

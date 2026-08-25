@@ -1,0 +1,113 @@
+import { readFileSync, readdirSync } from "node:fs"
+import path from "node:path"
+import { describe, expect, it } from "vitest"
+
+/**
+ * Guard estructural: `/api/pos/*` es TOKEN-ONLY.
+ *
+ * La regla (invariante, ver `context/08-convenciones-criticas.md`): ninguna
+ * puerta del POS acepta la cookie del operador ni la reenvía al backend. La
+ * única credencial es el Bearer del device.
+ *
+ * Por qué existe este test y no alcanza con revisar el diff: la misma clase de
+ * bug entró TRES veces en dos meses, siempre por un camino distinto, y las tres
+ * veces se arregló en el call-site.
+ *
+ *   1. 2026-07-19 — Bearer automático en `api-client.ts`: el PANEL operaba con
+ *      el outlet de la caja.
+ *   2. 2026-08-24 — `/v1/users` con Bearer de device → 403 silencioso → lock
+ *      screen sin PINs.
+ *   3. 2026-08-25 — `/api/pos/bootstrap` sin Bearer resolvía como panel por la
+ *      cookie y devolvía 200 SIN el roster; el cache envenenado dejó un iPhone
+ *      recién pareado bloqueado.
+ *
+ * La causa común: el browser del operador lleva las DOS credenciales (cookie
+ * `_jwt_panel` del panel + Bearer del device en localStorage), así que cualquier
+ * puerta que acepte las dos puede resolver el realm equivocado. Una ruta POS
+ * nueva que reenvíe la cookie reabre exactamente ese agujero, y en una review no
+ * se ve: el reviewer tendría que acordarse de este historial.
+ *
+ * Las dos exigencias por archivo:
+ *   (a) NO reenviar la cookie upstream — ni a mano (`headers.set("cookie", …)`)
+ *       ni pidiéndole al proxy compartido que lo haga (`forwardCookie: true`).
+ *   (b) EXIGIR Bearer antes de tocar el backend — vía `requireBearer: true` en
+ *       cada `bffProxy()`, o con un check explícito del header en los handlers
+ *       que no usan el proxy.
+ *
+ * La contraparte de este guard está en PHP
+ * (`api/tests/pos_token_only_precedence_test.php`): cubre la puerta que SÍ es
+ * multi-credencial (el catch-all `/api/v1/*`, que el panel usa con cookie y el
+ * POS con Bearer) verificando la precedencia de `authResolve()`.
+ */
+
+// lib/bff/__tests__ → raíz de `frontend/`
+const FRONTEND_ROOT = path.resolve(import.meta.dirname, "..", "..", "..")
+const POS_API_DIR = path.join(FRONTEND_ROOT, "app", "api", "pos")
+
+function listRoutes(dir: string): string[] {
+  const out: string[] = []
+  for (const dirent of readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, dirent.name)
+    if (dirent.isDirectory()) out.push(...listRoutes(full))
+    else if (dirent.name === "route.ts") out.push(full)
+  }
+  return out
+}
+
+/**
+ * Comentarios fuera: este guard razona sobre CÓDIGO. Los docblocks de estas
+ * rutas explican justamente por qué no se reenvía la cookie, y sin quitarlos la
+ * palabra "cookie" en la prosa daría un falso positivo en cada archivo bien
+ * escrito — el test castigaría documentar la regla.
+ */
+function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^[ \t]*\/\/.*$/gm, "")
+}
+
+const routeFiles = listRoutes(POS_API_DIR)
+
+describe("/api/pos/* es token-only", () => {
+  it("encuentra las rutas del POS (el guard no puede quedar vacío)", () => {
+    // Sin esto, mover o renombrar el directorio dejaría 0 archivos que escanear
+    // y la suite pasaría en verde sin verificar nada.
+    expect(routeFiles.length).toBeGreaterThan(0)
+  })
+
+  describe.each(routeFiles.map((f) => [path.relative(FRONTEND_ROOT, f), f] as const))(
+    "%s",
+    (_rel, file) => {
+      const code = stripComments(readFileSync(file, "utf8"))
+
+      it("no reenvía el header cookie upstream", () => {
+        // A mano: `headers.set("cookie", …)` / `headers.append('cookie', …)`.
+        expect(code).not.toMatch(/headers\s*\.\s*(?:set|append)\s*\(\s*["'`]cookie["'`]/i)
+        // Vía el proxy compartido: `forwardCookie: true` es el opt-in que SOLO
+        // le corresponde al catch-all del panel (`app/api/v1/[...path]`).
+        expect(code).not.toMatch(/forwardCookie\s*:\s*true/)
+      })
+
+      it("exige Bearer antes de pegarle al backend", () => {
+        // Cada llamada a bffProxy tiene que pedir el Bearer. Contamos llamadas
+        // y opt-ins: si hay 3 `bffProxy(` y 2 `requireBearer: true`, alguien
+        // agregó una rama sin el guard.
+        const proxyCalls = code.match(/\bbffProxy\s*\(/g)?.length ?? 0
+        const requireBearer = code.match(/requireBearer\s*:\s*true/g)?.length ?? 0
+        if (proxyCalls > 0) {
+          expect(requireBearer).toBe(proxyCalls)
+          return
+        }
+        // Handler artesanal (no usa el proxy): tiene que chequear el header él
+        // mismo. Exigimos que el test del header exista Y que rechace.
+        expect(code).toMatch(/Bearer\\s\+\\S\+/)
+        expect(code).toMatch(/status:\s*401/)
+      })
+
+      it("no acepta la cookie del panel como credencial", () => {
+        // El anti-patrón concreto de los tres incidentes: tratar la PRESENCIA
+        // de `_jwt_panel=` (o `_jwt=`) como prueba de autenticación.
+        expect(code).not.toMatch(/_jwt_panel/)
+        expect(code).not.toMatch(/_jwt=/)
+      })
+    },
+  )
+})

@@ -921,3 +921,81 @@ y además ejercita `OutletsService::create()` con payload, el camino legacy blan
 (`$fields = null`), los dos lados del guard de borrado, y el toggle
 `update(status:false)`. Correr con
 `bash api/tests/run_outlet_chain_invariant_test.sh`.
+
+---
+
+## §59 — El POS es token-only; con Bearer presente la cookie NO existe (owner, 2026-08-25)
+
+Palabras del owner, tras el TERCER bug de la misma clase en dos meses:
+
+> "habíamos dicho que el pos iba a ser con token y no íbamos a tener más
+> problemas de realm... ya te pedí cientas de veces que lo cambies y no uses
+> realms"
+
+**La regla, en dos mitades:**
+
+1. **Borde** — ninguna ruta `/api/pos/*` acepta cookies ni las reenvía al
+   backend. La única credencial del POS es el Bearer del device.
+2. **Resolver** — si la request trae `Authorization: Bearer`, el Bearer define
+   el realm y las credenciales ambientales (cookies, tokens en `$_POST`) se
+   ignoran por completo. La cookie solo cuenta cuando NO hay Bearer.
+
+Lo que muere es la **ambigüedad de resolución**, no el modelo: el realm sigue
+siendo columna de `auth_session` y los endpoints multi-realm siguen existiendo
+(context/21).
+
+### Por qué: la misma causa, tres veces
+
+| Fecha | Síntoma | Fix de entonces |
+|---|---|---|
+| 2026-07-19 | El PANEL operaba con el outlet de la caja (espacios en la sucursal equivocada) | Se quitó el Bearer automático de `api-client.ts` |
+| 2026-08-24 | `/v1/users` con Bearer de device → 403 silencioso → lock screen sin PINs | Local, en el call-site |
+| 2026-08-25 | `/api/pos/bootstrap` sin Bearer resolvía como panel por la cookie y devolvía **200 sin el roster**; el cache envenenado dejó un iPhone recién pareado bloqueado | El BFF de bootstrap dejó de aceptar/reenviar la cookie |
+
+La causa común: el browser del operador lleva **las dos credenciales** (modelo
+de doble sesión — cookie `_jwt_panel` del panel + Bearer del device en
+localStorage), y `authResolve()` se quedaba con la **primera credencial válida**.
+Cada fix fue local, así que la clase de bug volvió por otra puerta.
+
+### Dónde vive cada mitad
+
+| Mitad | Archivo | Mecanismo |
+|---|---|---|
+| Borde | `frontend/lib/bff/proxy.ts` | `forwardCookie` default **false**: el proxy no reenvía `cookie` salvo opt-in explícito |
+| Borde | `frontend/lib/api/pos-fetch.ts` | `credentials: "omit"` + 401 local sin token (no viaja la request) |
+| Resolver | `api/includes/auth_session.php` | `authResolve()`: `$candidates = $bearer !== '' ? [$bearer] : $ambient` |
+
+`forwardCookie: true` lo usa **una sola** puerta: el catch-all
+`app/api/v1/[...path]/route.ts`, que es la del PANEL. Esa puerta es
+multi-credencial a propósito y no puede dejar de serlo — el POS también la usa,
+con Bearer, para ventas y cotizaciones (`lib/api/pos-client.ts`). Ahí es donde
+la precedencia del resolver hace el trabajo que el borde no puede hacer.
+
+`credentials: "omit"` no es cosmético: `/api/pos/*` es same-origin y el default
+de `fetch` (`same-origin`) **manda las cookies igual**. Ser token-only no se
+consigue no pidiendo cookies, hay que pedir explícitamente que no vayan.
+
+### Consecuencia deliberada
+
+Un Bearer revocado/expirado/de otro realm da **401 aunque la cookie del operador
+sea válida**. Ese 401 es la respuesta correcta: es lo que dispara el
+self-healing del device en `pos-fetch.ts` (limpia el token, manda a reconexión).
+Antes la cookie lo "rescataba" y el POS seguía operando, pero como panel.
+
+### Los dos guards que lo sostienen
+
+- `frontend/lib/bff/__tests__/pos-token-only.test.ts` — barre
+  `app/api/pos/**/route.ts` y falla si alguna ruta reenvía `cookie`, omite el
+  Bearer, o trata la presencia de `_jwt_panel` como credencial. Corre con
+  `npm test`.
+- `api/tests/pos_token_only_precedence_test.php` — precedencia contra Postgres
+  real, incluido el caso "Bearer revocado + cookie válida → 401" y los dos
+  regression guards del PANEL (sin Bearer, la cookie sigue funcionando).
+  Correr con `bash api/tests/run_pos_token_only_precedence_test.sh`.
+
+### Al sumar una ruta `/api/pos/*`
+
+No hay nada que recordar: el default ya es token-only y el guard falla si la
+ruta se sale de la regla. Lo que NO se puede hacer es agregarle
+`forwardCookie: true` — si una ruta del POS parece necesitar la cookie, lo que
+falta es el Bearer, no la cookie.

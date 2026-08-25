@@ -283,7 +283,7 @@ export function LockScreen() {
         icon: MonitorSmartphone,
         title: "Esta caja no recibió la lista de operadores",
         description:
-          "El servidor respondió, pero sin los operadores de este dispositivo. No es un problema de los códigos del comercio: es esta caja, que no está pidiendo los datos como dispositivo. Reintentá; si vuelve a pasar, reconectá el dispositivo con un link nuevo desde Ajustes → Dispositivos en el panel.",
+          "El servidor respondió sin los operadores de este dispositivo. Reintentá; si vuelve a pasar, reconectá la caja desde Ajustes → Dispositivos en el panel.",
       },
       empty: {
         icon: KeyRound,

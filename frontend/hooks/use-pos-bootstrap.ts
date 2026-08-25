@@ -36,6 +36,20 @@ export function usePosBootstrap() {
     // único escenario para el que existe —la caja arrancando sin red— y el
     // POS quedaría colgado en su loading screen.
     networkMode: "always",
+    // Sin device pareado la query NI SE MONTA. `PosAuthGuard` monta este hook en
+    // todo arranque de `/pos` —el hook corre antes de su propio early return—
+    // así que sin este gate un arranque sin parear ejecuta el `queryFn`, cobra
+    // el 401 y deja la query en `error` para nada.
+    //
+    // No cuelga a nadie: el guard decide "device no conectado" con su propio
+    // check sincrónico de localStorage, no esperando a que esta query falle. Y
+    // se re-habilita sola al parear — el guard hace `setState` al hidratar, eso
+    // re-renderiza y `enabled` se vuelve a evaluar.
+    //
+    // Es defensa en profundidad, no el arreglo: el fail-closed de verdad está en
+    // `fetchPosBootstrap` (lo que no debe entrar al cache ni al snapshot) y en
+    // `posFetch` (lo que no debe viajar a la red).
+    enabled: getDeviceToken() !== null,
     staleTime: 5 * 60 * 1000,
     // Sin reintentos: `fetchPosBootstrap` ya resuelve el fallo sirviendo el
     // snapshot, y un 401 no se reintenta nunca.
