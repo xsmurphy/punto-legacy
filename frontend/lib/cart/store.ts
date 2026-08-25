@@ -778,11 +778,15 @@ interface CartState {
    *
    * Existe separado de `setPosMode("venta")` porque no es lo mismo que el
    * cajero elija venta en el selector de modo: acá el modo es CONSECUENCIA de
-   * una acción de facturar, y todo call-site que abra el cobro lo llama sin
-   * decidir nada. Los loaders que reemplazan el carrito entero
+   * una acción de facturar. Los loaders que reemplazan el carrito entero
    * (`loadFromOrder`, `loadFromSession`, `loadForSettlement`) ya nacen en
-   * venta por `initialState`; los que solo AGREGAN líneas (facturar una
-   * cotización) necesitan esto.
+   * venta por `initialState`; los que solo AGREGAN líneas —facturar una
+   * cotización guardada, en el POS y en el panel— necesitan esto.
+   *
+   * Lo llama quien TOMA la acción, nunca el diálogo de cobro al abrirse:
+   * abrirlo es reversible (Esc) y el hotkey Enter lo dispara desde cualquier
+   * modo, así que llamarlo ahí convertía un Enter+Esc accidental en una
+   * pérdida de modo —y de `fulfillment`/`deliveryAddress`— sin vuelta atrás.
    */
   beginSale: () => void
 

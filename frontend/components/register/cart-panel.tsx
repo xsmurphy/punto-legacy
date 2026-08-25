@@ -185,11 +185,15 @@ export function CartPanel() {
   // re-lockea vía useClearCart — este effect cubre el caso inicial/reactivo.
   //
   // El lock NO pisa un cobro en curso: con el diálogo de pago abierto la caja
-  // está facturando (`beginSale`, lib/cart/store.ts) y el modo tiene que
-  // quedarse en venta hasta que termine. Sin esta condición, cobrar una
-  // comanda con el flag prendido devolvía el carrito a verde con el CTA
-  // "Ordenar" detrás del diálogo. El re-lock vuelve a correr al cerrar el
-  // cobro (o vía useClearCart cuando la venta se confirma).
+  // está facturando y el modo tiene que quedarse en venta hasta que termine,
+  // en vez de pintar el carrito de verde con el CTA "Ordenar" detrás del
+  // diálogo. El re-lock vuelve a correr al cerrar el cobro (o vía
+  // useClearCart cuando la venta se confirma).
+  //
+  // Ojo: esto NO habilita facturar con `modoSoloOrdenes` prendido. Ese flag
+  // oculta facturación por diseño y el lock gana antes de que el cobro se
+  // pueda abrir — cobrar una comanda desde ese POS sigue sin ser posible, que
+  // es lo que el flag promete.
   React.useEffect(() => {
     if (modoSoloOrdenes && posMode !== "orden" && !payOpen) {
       setPosMode("orden")

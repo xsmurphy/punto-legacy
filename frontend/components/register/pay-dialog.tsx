@@ -369,12 +369,21 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setRegisterTakenKind(block?.kind ?? null)
       setBlockedBeforePay(block !== null)
       setPhase(block ? "register-taken" : "pay")
-      // Abrir el cobro ES la acción de facturar: la caja pasa a modo venta
-      // venga de donde venga —comanda, mesa, cotización guardada—, que es el
-      // modo con hotkeys y con el CTA que cobra. Un solo punto de paso, en vez
-      // de repetir el cambio de modo en cada botón "Cobrar" del POS (owner,
-      // 2026-08-25). Ver `beginSale` en lib/cart/store.ts.
-      useCartStore.getState().beginSale()
+      // Acá NO se toca el modo del carrito, a propósito. Abrir el cobro no es
+      // facturar: es un gesto reversible —Esc y listo— y encima el hotkey
+      // Enter lo dispara desde CUALQUIER modo sin mirar `posMode`
+      // (`use-pos-hotkeys.ts`). Un `beginSale()` acá convertía ese Enter+Esc
+      // accidental en una mutación sin vuelta atrás: la cotización amarilla
+      // quedaba en modo venta —y el próximo Enter emitía Factura en vez de
+      // guardar la cotización— y una orden con envío perdía su dirección.
+      //
+      // El modo lo cambia quien TOMA la acción de facturar, que es donde el
+      // cajero sí se comprometió: `loadFromOrder` / `loadFromSession` /
+      // `loadForSettlement` (nacen en venta por `initialState`) y los dos
+      // "Facturar cotización", que llaman `beginSale()` explícito. Y la venta
+      // confirmada termina en venta igual, porque `handleClose` limpia el
+      // carrito. Ver `beginSale` en lib/cart/store.ts.
+
       // Revalidación de tenencia al ABRIR, no al confirmar. El veredicto local
       // se refresca por latido (5 min) y por realtime; entre latido y latido
       // otro dispositivo pudo tomar la caja y el gate síncrono de arriba deja
@@ -1721,6 +1730,14 @@ function PayPhase({
             const blockedHint = pspOffline
               ? "Necesita conexión a internet"
               : (payBlockedHint ?? undefined)
+            // Contado con el total cubierto: el botón NO está impedido (no se
+            // apaga), pero tampoco hace lo de siempre — reintenta la emisión
+            // que falló. El tooltip lo dice en vez de dejar que el cajero
+            // toque Efectivo esperando cargar plata.
+            const retryHint =
+              !blockedHint && !credito && remaining <= 0
+                ? "Reintentar la emisión"
+                : undefined
             return (
             <Button
               key={m.id}
@@ -1733,7 +1750,7 @@ function PayPhase({
               style={accent ? { borderLeftColor: accent } : undefined}
               onClick={() => onMethodClick(m)}
               aria-disabled={blockedHint ? true : undefined}
-              title={blockedHint}
+              title={blockedHint ?? retryHint}
             >
               <span className="truncate">{m.name}</span>
               {m.code && (
