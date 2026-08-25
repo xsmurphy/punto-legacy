@@ -37,6 +37,11 @@ import {
   type LocalShiftTotals,
   type ShiftMethod,
 } from "@/lib/pos/local-shift-total"
+import {
+  EMPTY_SHIFT_CLOSE_BLOCKERS,
+  parseShiftCloseBlockers,
+  type ShiftCloseBlockers,
+} from "@/lib/pos/shift-close-gate"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import type { LocalCloseTotals } from "@/lib/pos/shift-close-reconciliation"
 import type { CountedMethod } from "@/lib/pos/local-shift-total"
@@ -240,38 +245,6 @@ async function fetchDrawerHourlyStats(): Promise<DrawerHourlyStats> {
 }
 
 /**
- * Qué impide cerrar el turno. Es el payload de `ShiftCloseGate::blockers()`
- * (api/lib/services/ShiftCloseGate.php) y llega por DOS caminos que devuelven
- * exactamente lo mismo: el GET que deshabilita el botón, y el `details` del
- * 422 si el cierre se intenta igual.
- */
-export type ShiftCloseBlockerOrder = {
-  id: string
-  number: number | null
-  status: string
-  source: string
-  /** Nombre del espacio (alias de la ocupación o nombre fijo), si la orden es de uno. */
-  space: string | null
-}
-export type ShiftCloseBlockerSpace = { id: string; name: string; status: string }
-export type ShiftCloseBlockers = {
-  /** ¿El comercio prendió la regla? Distingue "no hay nada abierto" de "no aplica acá". */
-  enabled: boolean
-  orderCount: number
-  spaceCount: number
-  total: number
-  orders: ShiftCloseBlockerOrder[]
-  spaces: ShiftCloseBlockerSpace[]
-  /** El detalle viene acotado; los conteos son siempre el total real. */
-  truncated: boolean
-}
-
-export const EMPTY_SHIFT_CLOSE_BLOCKERS: ShiftCloseBlockers = {
-  enabled: false, orderCount: 0, spaceCount: 0, total: 0,
-  orders: [], spaces: [], truncated: false,
-}
-
-/**
  * Error de una mutación de caja con el mensaje del servidor ya desenvuelto.
  *
  * Antes se tiraba `new Error("Drawer action error 422: {json crudo}")`, que en
@@ -307,18 +280,18 @@ export class DrawerActionError extends Error {
     )
   }
 
-  /** Los bloqueadores del gate de cierre, si este error es ese 422. */
+  /**
+   * Los bloqueadores del gate de cierre, si este error es ese 422.
+   *
+   * `details` es el MISMO payload que devuelve el GET `?resource=blockers`
+   * (los dos salen de `ShiftCloseGate::blockers()`), así que se normaliza con
+   * la misma función. `enabled: true` se fuerza porque llegar acá ya prueba
+   * que la regla está prendida — el servidor no rechaza si no lo está.
+   */
   shiftCloseBlockers(): ShiftCloseBlockers | null {
     if (this.status !== 422 || !this.details || typeof this.details !== "object") return null
-    const d = this.details as Partial<ShiftCloseBlockers>
-    if (typeof d.total !== "number") return null
-    return {
-      ...EMPTY_SHIFT_CLOSE_BLOCKERS,
-      ...d,
-      enabled: true,
-      orders: Array.isArray(d.orders) ? d.orders : [],
-      spaces: Array.isArray(d.spaces) ? d.spaces : [],
-    }
+    if (typeof (this.details as { total?: unknown }).total !== "number") return null
+    return { ...parseShiftCloseBlockers(this.details), enabled: true }
   }
 }
 
@@ -559,14 +532,8 @@ export function useShiftCloseBlockers(enabled: boolean) {
 async function fetchShiftCloseBlockers(): Promise<ShiftCloseBlockers> {
   const res = await posFetch("/api/pos/drawer?resource=blockers", { cache: "no-store" })
   if (!res.ok) throw new Error(`Drawer blockers error ${res.status}`)
-  const json = (await res.json()) as { data?: Partial<ShiftCloseBlockers> }
-  const d = json?.data ?? {}
-  return {
-    ...EMPTY_SHIFT_CLOSE_BLOCKERS,
-    ...d,
-    orders: Array.isArray(d.orders) ? d.orders : [],
-    spaces: Array.isArray(d.spaces) ? d.spaces : [],
-  }
+  const json = (await res.json()) as { data?: unknown }
+  return parseShiftCloseBlockers(json?.data)
 }
 
 /**

@@ -103,8 +103,13 @@ import {
   DrawerActionError,
   type DrawerSummary,
   type DrawerHourlyRow,
-  type ShiftCloseBlockers,
 } from "@/hooks/use-drawer"
+import {
+  blockerOrderLabel,
+  blockerSpaceLabel,
+  shiftCloseBlockedSummary,
+  type ShiftCloseBlockers,
+} from "@/lib/pos/shift-close-gate"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { gapMessages, type CountedMethod } from "@/lib/pos/local-shift-total"
 import {
@@ -1431,28 +1436,6 @@ function ShiftCloseReportNotice({ blind }: { blind: boolean }) {
  * la barra de acciones, que está fija.
  */
 /**
- * Resumen de una línea de por qué no se puede cerrar. Lo usan el tooltip del
- * botón y el título del aviso, así que dicen exactamente lo mismo.
- */
-function shiftCloseBlockedSummary(b: ShiftCloseBlockers): string {
-  const partes: string[] = []
-  if (b.orderCount > 0) {
-    partes.push(b.orderCount === 1 ? "1 orden abierta" : `${b.orderCount} órdenes abiertas`)
-  }
-  if (b.spaceCount > 0) {
-    partes.push(b.spaceCount === 1 ? "1 espacio abierto" : `${b.spaceCount} espacios abiertos`)
-  }
-  if (partes.length === 0) return "No se puede cerrar el turno."
-  return `No se puede cerrar el turno: la sucursal tiene ${partes.join(" y ")}.`
-}
-
-/** Etiqueta de una orden en la lista: "Orden #14 — Mesa 3" / "Orden sin número". */
-function blockerOrderLabel(o: ShiftCloseBlockers["orders"][number]): string {
-  const base = o.number === null ? "Orden sin número" : `Orden #${o.number}`
-  return o.space ? `${base} — ${o.space}` : base
-}
-
-/**
  * Qué le falta cerrar al cajero, con un camino para ir a resolverlo.
  *
  * Decirle "no podés cerrar" sin decirle QUÉ es lo que más frustra, así que la
@@ -1511,8 +1494,7 @@ function ShiftCloseBlockersNotice({
         <ul className="mt-2 space-y-0.5">
           {blockers.spaces.map((s) => (
             <li key={s.id} className="text-sm text-muted-foreground">
-              {s.name}
-              {s.status === "bill_requested" ? " — cuenta pedida" : ""}
+              {blockerSpaceLabel(s)}
             </li>
           ))}
         </ul>
