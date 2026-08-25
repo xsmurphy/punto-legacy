@@ -278,6 +278,84 @@ export function rebuildSelectionsFromOrder(
   return { selections, basePrice }
 }
 
+/**
+ * Convierte los ítems de UNA orden en líneas de carrito, re-hidratando los
+ * add-ons (ver `rebuildSelectionsFromOrder`).
+ *
+ * Es la definición ÚNICA de "cómo una orden vuelve al carrito para cobrarse",
+ * compartida por `loadFromOrder` (cobrar una orden suelta) y `loadFromSession`
+ * (cobrar una mesa entera). Vivía inline en `loadFromOrder` y por eso la mesa
+ * se cobraba con una reconstrucción distinta —en realidad, sin ninguna—: el
+ * add-on no generaba su `itemSold`, no descontaba stock y no salía en el
+ * ticket. Que sea una sola función es el arreglo: no hay forma de cerrar un
+ * camino y dejar el otro atrás.
+ *
+ * Las hijas de add-on NO vuelven como líneas propias —una hamburguesa con
+ * queso extra es UNA línea del carrito, no dos— pero su plata y su stock SÍ:
+ * se re-hidratan como `selections` del padre, exactamente la forma con la que
+ * `<AddonPickerDialog>` arma una línea nueva (F4).
+ *
+ * El precio a cobrar se rearma con el `priceDelta` VIGENTE del catálogo (el
+ * mismo que `AddonService::validateSelections` va a re-cotizar server-side),
+ * no con el congelado en la orden: así el número que el cajero ve antes de
+ * cobrar es el que se factura. Ver el docblock de `rebuildSelectionsFromOrder`
+ * para el porqué y para el fail-safe.
+ *
+ * Devuelve líneas SIN `lineId` — cada caller decide la identidad (una mesa
+ * mergea líneas iguales de rondas distintas antes de asignarlo).
+ */
+export function cartLinesFromOrderItems(
+  orderItems: OrderItem[] | undefined,
+  catalogItems: PosItem[],
+): Omit<CartLine, "lineId">[] {
+  const live = (orderItems ?? []).filter((oi) => oi.status !== "cancelled")
+
+  // Índice de hijas de add-on por línea padre (context/41, mig 140). Se arma
+  // sobre `live`: una hija cancelada no se cobra ni descuenta stock.
+  const childrenByParent = new Map<string, OrderItem[]>()
+  for (const oi of live) {
+    if (!isAddonChild(oi)) continue
+    const parentId = oi.parentOrderItemId as string
+    const siblings = childrenByParent.get(parentId)
+    if (siblings) siblings.push(oi)
+    else childrenByParent.set(parentId, [oi])
+  }
+
+  return live
+    .filter((oi) => !isAddonChild(oi))
+    .map((oi) => {
+      // `OrderItem` no viaja con datos de impuesto: se re-resuelven del
+      // catálogo por itemId al reconstruir la línea. Sin esto, el chip de
+      // IVA de una orden/mesa retomada mostraba 0 (selectCartIva trata la
+      // línea sin taxId como exenta). Solo afecta el display — el backend
+      // congela el impuesto real al persistir igual (enrichWithTaxes).
+      const cat = oi.itemId ? catalogItems.find((ci) => ci.id === oi.itemId) : undefined
+
+      // La orden congela QUÉ se pidió; el MONTO se resuelve recién acá, al
+      // pasar al cobro.
+      const rebuilt = rebuildSelectionsFromOrder(oi, childrenByParent.get(oi.id), cat)
+      const basePrice = rebuilt ? rebuilt.basePrice : (oi.price ?? 0)
+      const selections = rebuilt?.selections
+
+      return {
+        itemId: oi.itemId ?? "",
+        name: oi.name,
+        qty: oi.qty,
+        unitPrice: basePrice + addonsDelta(selections),
+        // INVARIANTE: toda línea nace con `basePrice`. Sin él, `usePriceContext`
+        // cae a `unitPrice` como base y el precio ya resuelto se realimenta:
+        // resolver → unitPrice baja → cambia el lineKey → vuelve a resolver
+        // sobre el precio YA descontado. Ver applyResolvedPrices.
+        basePrice,
+        note: oi.note ?? undefined,
+        tags: oi.tags ?? undefined,
+        taxId: cat?.taxId ?? null,
+        taxIncluded: cat?.taxIncluded ?? null,
+        ...(selections ? { selections } : {}),
+      }
+    })
+}
+
 /** Un ítem del vale, tal como lo devuelve `POST /v1/vouchers?resource=validate`. */
 export interface VoucherRedeemItem {
   itemId: string
@@ -844,7 +922,9 @@ interface CartState {
    *
    * Las líneas las arma el caller (`lib/spaces/settlement-lines.ts`) porque
    * dependen del modo: los ítems elegidos en kind='items', el reparto
-   * proporcional del monto en 'amount'/'share'.
+   * proporcional del monto en 'amount'/'share'. Ahí se re-hidratan también las
+   * `selections` de add-on de kind='items' —para que el add-on descuente
+   * stock— y se documenta por qué 'amount'/'share' quedan fuera.
    */
   loadForSettlement: (
     spaceName: string,
@@ -1292,61 +1372,11 @@ export const useCartStore = create<CartState>()((set, _get) => ({
       ? (customers.find((c) => c.id === order.customerId) ?? null)
       : null
 
-    const live = (order.items ?? []).filter((oi) => oi.status !== "cancelled")
-
-    // Índice de hijas de add-on por línea padre (context/41, mig 140). Las
-    // hijas NO vuelven al carrito como líneas propias —una hamburguesa con
-    // queso extra es UNA línea del carrito, no dos— pero su plata y su stock
-    // SÍ vuelven: se re-hidratan como `selections` del padre, que es
-    // exactamente la forma con la que `<AddonPickerDialog>` arma una línea
-    // nueva (F4). Ver `rebuildSelectionsFromOrder`.
-    const childrenByParent = new Map<string, OrderItem[]>()
-    for (const oi of live) {
-      if (!isAddonChild(oi)) continue
-      const parentId = oi.parentOrderItemId as string
-      const siblings = childrenByParent.get(parentId)
-      if (siblings) siblings.push(oi)
-      else childrenByParent.set(parentId, [oi])
-    }
-
-    const newLines: CartLine[] = live
-      .filter((oi) => !isAddonChild(oi))
-      .map((oi) => {
-        // `OrderItem` no viaja con datos de impuesto: se re-resuelven del
-        // catálogo por itemId al reconstruir la línea. Sin esto, el chip de
-        // IVA de una orden/mesa retomada mostraba 0 (selectCartIva trata la
-        // línea sin taxId como exenta). Solo afecta el display — el backend
-        // congela el impuesto real al persistir igual (enrichWithTaxes).
-        const cat = oi.itemId ? catalogItems.find((ci) => ci.id === oi.itemId) : undefined
-
-        // La orden congela QUÉ se pidió; el MONTO se resuelve recién acá, al
-        // pasar al cobro. `basePrice` sale de descontarle al precio congelado
-        // del padre los recargos con los que se ordenó, y el precio a cobrar
-        // se rearma con el `priceDelta` VIGENTE del catálogo — el mismo que el
-        // server va a re-cotizar en `validateSelections`. Así el cajero ve
-        // antes de cobrar el mismo número que se va a facturar.
-        const rebuilt = rebuildSelectionsFromOrder(oi, childrenByParent.get(oi.id), cat)
-        const basePrice = rebuilt ? rebuilt.basePrice : (oi.price ?? 0)
-        const selections = rebuilt?.selections
-
-        return {
-          lineId: crypto.randomUUID(),
-          itemId: oi.itemId ?? "",
-          name: oi.name,
-          qty: oi.qty,
-          unitPrice: basePrice + addonsDelta(selections),
-          // INVARIANTE: toda línea nace con `basePrice`. Sin él, `usePriceContext`
-          // cae a `unitPrice` como base y el precio ya resuelto se realimenta:
-          // resolver → unitPrice baja → cambia el lineKey → vuelve a resolver
-          // sobre el precio YA descontado. Ver applyResolvedPrices.
-          basePrice,
-          note: oi.note ?? undefined,
-          tags: oi.tags ?? undefined,
-          taxId: cat?.taxId ?? null,
-          taxIncluded: cat?.taxIncluded ?? null,
-          ...(selections ? { selections } : {}),
-        }
-      })
+    // Toda la reconstrucción (add-ons incluidos) vive en
+    // `cartLinesFromOrderItems`, compartida con `loadFromSession`.
+    const newLines: CartLine[] = cartLinesFromOrderItems(order.items, catalogItems).map(
+      (line) => ({ ...line, lineId: crypto.randomUUID() }),
+    )
 
     set({
       ...initialState,
@@ -1403,36 +1433,24 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
     let newLines: CartLine[] = []
     for (const order of billable) {
-      const orderLines: Omit<CartLine, "lineId">[] = (order.items ?? [])
-        .filter((oi) => oi.status !== "cancelled")
-        // Mismo criterio que loadFromOrder: las hijas de add-ons no vuelven al
-        // carrito (su recargo ya está en el precio del padre).
-        .filter((oi) => !isAddonChild(oi))
-        .map((oi) => {
-          // Igual que loadFromOrder: OrderItem no trae impuesto — se
-          // re-resuelve del catálogo para que el chip de IVA de la mesa no
-          // muestre 0. Display only; el backend congela el real al cobrar.
-          const cat = oi.itemId ? catalogItems.find((ci) => ci.id === oi.itemId) : undefined
-          return {
-            itemId: oi.itemId ?? "",
-            name: oi.name,
-            qty: oi.qty,
-            unitPrice: oi.price ?? 0,
-            // Mismo invariante que loadFromOrder: sin `basePrice` el precio
-            // resuelto se realimenta y se descuenta una vez por ciclo.
-            basePrice: oi.price ?? 0,
-            note: oi.note ?? undefined,
-            tags: oi.tags ?? undefined,
-            taxId: cat?.taxId ?? null,
-            taxIncluded: cat?.taxIncluded ?? null,
-          }
-        })
+      // MISMA reconstrucción que `loadFromOrder` — add-ons incluidos. Cobrar
+      // la mesa entera no es un camino distinto de cobrar una orden: son las
+      // mismas órdenes, una detrás de otra.
+      const orderLines = cartLinesFromOrderItems(order.items, catalogItems)
       for (const line of orderLines) {
         const last = newLines.at(-1)
         // Mismo criterio de merge que addLines: solo mergea con la ÚLTIMA
         // línea si coincide itemId Y nota (notas distintas = personas/rondas
-        // distintas, no se deben mezclar en una sola línea).
-        if (last && last.itemId === line.itemId && last.note === line.note) {
+        // distintas, no se deben mezclar en una sola línea) Y las selecciones
+        // de add-on son idénticas — una hamburguesa con queso extra y otra sin
+        // son productos DISTINTOS: fusionarlas descontaría el stock del queso
+        // por las dos, o por ninguna.
+        if (
+          last &&
+          last.itemId === line.itemId &&
+          last.note === line.note &&
+          selectionsKey(last.selections) === selectionsKey(line.selections)
+        ) {
           newLines = newLines.map((l) =>
             l === last ? { ...l, qty: l.qty + line.qty } : l,
           )

@@ -177,13 +177,38 @@ De ahí que el add-on exista con dos formas y no sea una inconsistencia:
 | Para qué | qué preparar (comanda de cocina) | plata, stock, IVA, ticket, reportes |
 
 El puente entre las dos formas es `rebuildSelectionsFromOrder()`
-(`frontend/lib/cart/store.ts`), que corre en `loadFromOrder` al pasar una orden
-o mesa al cobro: agrupa las hijas por `parentOrderItemId` y las devuelve al
-carrito como `CartLine.selections` del padre — la MISMA forma con la que
-`<AddonPickerDialog>` arma una línea nueva. De ahí en adelante el cobro es
-indistinguible de una venta directa: `create-sale.ts` manda `selections`,
+(`frontend/lib/cart/store.ts`): agrupa las hijas por `parentOrderItemId` y las
+devuelve al carrito como `CartLine.selections` del padre — la MISMA forma con
+la que `<AddonPickerDialog>` arma una línea nueva. De ahí en adelante el cobro
+es indistinguible de una venta directa: `create-sale.ts` manda `selections`,
 `SaleService::expandAddonSelections` las revalida y persiste las líneas hijas,
 y el stock del add-on se descuenta.
+
+**Corre en los TRES caminos de cobro** (los dos últimos recién desde
+2026-08-25; hasta ahí solo lo hacía `loadFromOrder` y cobrar una mesa seguía
+regalando el add-on):
+
+| Camino | Quién | Precio |
+|---|---|---|
+| Orden suelta | `loadFromOrder` → `cartLinesFromOrderItems` | re-cotizado con el delta vigente |
+| Mesa entera | `loadFromSession` → `cartLinesFromOrderItems` | re-cotizado con el delta vigente |
+| Split por ítems | `buildItemsLines` (`lib/spaces/settlement-lines.ts`) | anclado al persistido |
+
+La reconstrucción de los dos primeros es UNA función compartida a propósito:
+tenerla inline en un loader fue exactamente lo que dejó el otro camino atrás
+durante dos días. El split difiere en el anclaje porque el pago del ledger lo
+calcula el backend desde el precio persistido
+(`SpaceSettlementService::validateAndComputeAmount`): re-cotizar ahí dejaría la
+venta y el asiento diferidos si el add-on cambió de precio con la mesa abierta.
+La base se despeja restando el delta vigente, que es justo el que el server le
+resta al padre — padre + hijas = lo que cobró la caja = lo que registra el
+ledger.
+
+El split por **`amount`/`share` NO reconstruye**, y es decisión, no olvido: la
+qty sale fraccionada y `CartLineAddon.qty` es un entero de unidades, el recargo
+no se prorratea (la hija se llevaría el delta entero de un cobro parcial), y
+como esos modos no marcan lo cobrado, N parciales descontarían el add-on N
+veces. Las tres razones están en el docblock de `buildProportionalLines`.
 
 Tres detalles que importan si se toca:
 
@@ -209,6 +234,21 @@ el add-on se regalaba del inventario, no aparecía en el ticket y era invisible
 para los reportes por opción (F6) en TODAS las ventas que pasaban por orden o
 mesa — el flujo normal en gastronomía.
 
+**Verificación** (no había ninguna: ni un test tocaba add-ons en una venta
+real). La cadena se prueba de los dos lados:
+
+- Front — `frontend/lib/cart/__tests__/addon-rebuild-paths.test.ts`: los tres
+  caminos devuelven `selections`, la qty vuelve a ser por unidad del padre, el
+  merge de la mesa no fusiona el mismo producto con add-ons distintos, y cada
+  fail-safe degrada a "línea sin add-ons" en vez de emitir una selección que
+  el server rechace.
+- Back — `api/lib/Sales/verify_chain/verify_addon_stock.php` (paso propio de
+  `run.sh`, Postgres real, sin mocks): una venta con `selections` persiste la
+  hija con `itemSoldParent`, **mueve el ledger de stock** por optQty ×
+  unidades del padre, reparte el recargo sin duplicarlo (padre + hija =
+  subtotal cobrado) y deja el detalle con `type='addon'`, que es la única
+  señal con la que el ticket la indenta.
+
 Lo que NO cambió, a propósito: `SpaceBalanceService` y `SpaceSettlementService`
 siguen filtrando las hijas (`parentorderitemid IS NULL`). Una hija no es una
 unidad cobrable por separado — el queso extra se paga con la hamburguesa, no en
@@ -220,6 +260,11 @@ otra parte del split.
   `meta.addon`, así que `buildTicketDataFromTxDetail` (reimpresión desde el
   panel) no puede indentar hijas ni aplicar D3. Se resuelve en context/39
   (detalle de transacción) exponiendo el meta por línea.
+- **El split por `amount`/`share` no descuenta el stock del add-on.** Ver
+  arriba: es el mismo hueco del ítem prorrateado en general (esos modos no
+  marcan lo cobrado), y se cierra con la misma solución de raíz — ítem de
+  catálogo dedicado al cobro parcial + línea sin stock en `SaleService` — no
+  con una reconstrucción a medias en `buildProportionalLines`.
 
 ## Fases
 

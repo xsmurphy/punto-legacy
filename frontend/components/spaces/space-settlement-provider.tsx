@@ -154,7 +154,14 @@ export function SpaceSettlementProvider() {
           setSplitTarget(target)
           return
         }
-        lines = buildItemsLines(sources, selection.orderItemIds)
+        // El catálogo se lee acá (no por suscripción): es el mismo hidratado
+        // que usan los loaders del carrito, y hace falta para re-hidratar las
+        // `selections` de add-on del ítem cobrado. Sin red: offline-first.
+        lines = buildItemsLines(
+          sources,
+          selection.orderItemIds,
+          useCatalogStore.getState().items,
+        )
         intent = { sessionId, kind: "items", orderItemIds: selection.orderItemIds }
       } else {
         // Base del prorrateo: SOLO los ítems todavía no saldados — los ya

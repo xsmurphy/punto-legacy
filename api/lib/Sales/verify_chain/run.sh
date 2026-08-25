@@ -193,6 +193,20 @@ if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_offline_resolution.php"; then
   OVERALL_STATUS=1
 fi
 
+# ── 3.7b. El add-on descuenta STOCK (context/41, fix del cobro de mesa
+#    2026-08-25): una venta con `selections` genera la línea hija, mueve el
+#    ledger de stock de la opción (optQty × unidades del padre), reparte el
+#    recargo sin duplicarlo y deja el detalle con type='addon' para que el
+#    ticket la indente — ver docblock de verify_addon_stock.php. Es la mitad
+#    de BACK del arreglo; la de FRONT (orden → selections) vive en
+#    frontend/lib/cart/__tests__/addon-rebuild-paths.test.ts. No depende de
+#    los pasos anteriores.
+echo ""
+echo "[run.sh] === el add-on descuenta stock, no se regala del inventario ==="
+if ! php "${PHP_FLAGS[@]}" "$SCRIPT_DIR/verify_addon_stock.php"; then
+  OVERALL_STATUS=1
+fi
+
 # ── 3.8. Exclusividad de caja + numeración sin arriendo (context/29,
 #    revisado 2026-08-17): dos dispositivos NO pueden compartir la misma
 #    caja (register_lease), y el correlativo de factura lo decide el device
