@@ -44,9 +44,12 @@ require_once __DIR__ . '/_harness.php';
  *      `moduleData[k].status`, valor directo) y trata el ausente como apagado.
  *   H. `PlanAdminService::list()` devuelve planes (no TypeError).
  *   I. El login del panel autentica por ROL, sin exigir `main = 'true'`: hay
- *      dueños de seeds viejos con `main = 'admin'` (dos en prod) y meterles el
- *      filtro de `main` los dejaría afuera del panel. Por eso el predicado son
- *      dos: `ownerRoleSql` (login) y `ownerContactSql` (fichas de /admin).
+ *      dueños de seeds viejos con `main = 'admin'` y meterles el filtro de
+ *      `main` los dejaría afuera del panel. Por eso el predicado son dos:
+ *      `ownerRoleSql` (login) y `ownerContactSql` (fichas de /admin).
+ *   J. La mig 172 normalizó ese `main = 'admin'` legacy a 'true' — con el dato
+ *      sano, el dueño de esos comercios también aparece en la ficha. El caso
+ *      queda para que no vuelva a colarse el valor basura sin que nadie mire.
  *
  * Uso (un comando, desde la raíz del repo):
  *   bash api/tests/run_admin_tenant_reads_test.sh
@@ -258,6 +261,20 @@ check(
     'I4 el contacto con el rol owner de otro tenant NO loguea',
     empty($loginIntruder['contactid'] ?? $loginIntruder['contactId'] ?? null),
     json_encode($loginIntruder['contactid'] ?? null)
+);
+
+// ── J. Sin main='admin' colgando en usuarios con rol de dueño (mig 172) ─────
+// Excluye las companies del fixture: una de ellas TIENE un dueño con
+// main='admin' a propósito, para el caso I (el login no debe mirar `main`).
+$legacyMain = $db->Execute(
+    "SELECT COUNT(*) AS n FROM contact
+      WHERE main = 'admin' AND type = 0 AND companyId NOT IN (?, ?) AND " . RoleService::ownerRoleSql(),
+    [$legacyCo, $modernCo]
+);
+check(
+    'J1 ningún dueño real quedó con el main legacy \'admin\' (mig 172)',
+    ((int) ($legacyMain->fields['n'] ?? -1)) === 0,
+    'quedan ' . ($legacyMain->fields['n'] ?? '?') . ' — la mig 172 no corrió o alguien reintrodujo el valor'
 );
 
 // ── H. Planes ───────────────────────────────────────────────────────────────
