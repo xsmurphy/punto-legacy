@@ -1,165 +1,91 @@
 import ReceiptPrinterEncoder from "@point-of-sale/receipt-printer-encoder"
-import { PAPER_DIMENSIONS, type PrintTemplateConfig, type PrintBlock } from "@/lib/types/print-template"
+import type { PrintTemplateConfig } from "@/lib/types/print-template"
 import type { TicketData } from "./build-ticket-data"
-import {
-  BLOCK_VALUE_RESOLVERS,
-  ITEM_FIELD_RESOLVERS,
-  ITEM_LINE_TYPES,
-  ITEM_TABLE_TYPES,
-  formatMoney,
-  itemTableColumns,
-  lineGeometry,
-  sortBlocksForRender,
-  ticketItemName,
-} from "./blocks"
+import { buildRollGrid, rollGeometry, type RollGraphic } from "./roll-grid"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Encoder = any
 
-function applyBlockText(encoder: Encoder, block: PrintBlock, text: string): Encoder {
-  if (block.align && block.align !== "left") {
-    encoder = encoder.align(block.align)
-  }
-  if (block.bold === "bold") {
-    encoder = encoder.bold(true)
-  }
-  encoder = encoder.line(text)
-  if (block.bold === "bold") {
-    encoder = encoder.bold(false)
-  }
-  if (block.align && block.align !== "left") {
-    encoder = encoder.align("left")
-  }
-  return encoder
-}
-
-/** Listado completo de ítems para `item_receipt*` — antes solo existía en
- *  html-renderer.ts; faltaba por completo en ESC/POS (bug reportado). Cada
- *  ítem imprime 1-2 líneas monoespaciadas según qué columnas trae la
- *  variante (ver `itemTableColumns`). */
-function renderItemTable(encoder: Encoder, block: PrintBlock, data: TicketData): Encoder {
-  const cols = itemTableColumns(block.type)
-  for (const item of data.items) {
-    encoder = applyBlockText(encoder, { ...block, bold: "normal" }, ticketItemName(item))
-    if (cols.qty || cols.unitPrice || cols.total) {
-      const parts: string[] = []
-      if (cols.qty) parts.push(`${item.qty}x`)
-      if (cols.unitPrice) parts.push(formatMoney(item.unitPrice, data))
-      if (cols.total) parts.push(formatMoney(item.total, data))
-      encoder = applyBlockText(encoder, { ...block, bold: "normal", align: "right" }, parts.join("  "))
-    }
-  }
-  return encoder
-}
-
 /**
- * Contexto de PAPEL para traducir geometría de canvas (px) a la grilla
- * monoespaciada del rollo. `canvasWidthPx` es el ancho del canvas con el que
- * se diseñó la plantilla (`PAPER_DIMENSIONS[page_size].widthMm * mm`, la
- * MISMA cuenta que ya usan el editor y `clampBlockToPaper` — no un número
- * paralelo).
- */
-interface EscPosPaper {
-  columns: number
-  canvasWidthPx: number
-}
-
-/**
- * Ancho de una regla ESC/POS en CARACTERES, proporcional a lo que el bloque
- * ocupa del ancho del canvas. Antes toda `hor_line` salía a ancho de papel
- * completo sin mirar el bloque: una línea de media hoja en el editor imprimía
- * una raya de punta a punta.
+ * ESC/POS de una plantilla — emisor de la MISMA grilla de caracteres que usa
+ * la vista previa y la impresión por navegador (`roll-grid.ts`).
  *
- * En plantillas de TICKET el editor ya fuerza `width` = ancho del canvas
- * (regla owner 2026-08-18, `applyReceiptWidthRule`), así que la fracción da 1
- * y el resultado es el de siempre — `columns`. La proporción solo cambia algo
- * cuando se manda a una térmica una plantilla diseñada para hoja.
+ * Antes este archivo tenía su propia interpretación de la plantilla: recorría
+ * los bloques en orden de lectura y emitía una línea por bloque, DESCARTANDO
+ * `top`/`left` del canvas. Era la tercera implementación de "dónde va cada
+ * cosa" (canvas, HTML, ESC/POS), y las tres daban resultados distintos. Ahora
+ * la geometría se resuelve UNA vez en `buildRollGrid` y acá solo se traduce a
+ * bytes: cada fila de la grilla es una línea de la impresora.
+ *
+ * Consecuencia buscada: lo que el operador ve en el editor es lo que sale por
+ * la térmica, incluido el corte de línea por ancho de papel (decisión del
+ * owner 2026-08-24).
+ *
+ * Lo que NO se traduce a caracteres son el logo, el código de barras y el QR:
+ * son comandos gráficos, y la grilla los devuelve como `RollGraphic` anclados
+ * a una fila (ver docblock de roll-grid.ts). Se emiten intercalados en esa
+ * posición, respetando la alineación del bloque pero no su columna — una
+ * térmica no sabe poner un QR en la columna 17.
  */
-function escPosRuleWidth(lengthPx: number, paper: EscPosPaper): number {
-  if (!(paper.canvasWidthPx > 0)) return paper.columns
-  const fraction = lengthPx / paper.canvasWidthPx
-  if (!Number.isFinite(fraction) || fraction <= 0) return paper.columns
-  return Math.max(1, Math.min(paper.columns, Math.round(fraction * paper.columns)))
+
+/**
+ * Emite un texto de la grilla separando ESPACIOS de CONTENIDO.
+ *
+ * Los espacios van por `raw()` (bytes 0x20 crudos) y NUNCA por `text()`.
+ * `text()` pasa por `TextWrap.wrap` de la librería, que descarta un chunk de
+ * espacios mientras la línea todavía está vacía:
+ *
+ *     if (chunk.match(/\s+/) && length == 0) continue
+ *
+ * Con `text("      Gs 23.000")` la térmica imprimía "Gs 23.000" pegado a la
+ * izquierda mientras la vista previa lo mostraba a la derecha — la MISMA
+ * divergencia editor/papel que este trabajo vino a eliminar, reaparecida un
+ * nivel más abajo, en el encoder. Toda fila centrada o alineada a la derecha
+ * salía mal.
+ *
+ * El contenido sí necesita `text()`: es lo que traduce a la codepage de la
+ * impresora ("é" → 0x82 en CP437). Como ningún chunk que llega a `text()`
+ * empieza con espacio, TextWrap no tiene nada que descartar; y como la grilla
+ * ya cortó cada fila al ancho del papel, tampoco tiene nada que wrapear — el
+ * doble-wrap (grilla + librería) deja de ser posible.
+ */
+function emitSegments(encoder: Encoder, text: string): Encoder {
+  let e = encoder
+  for (const segment of text.split(/(\s+)/)) {
+    if (segment === "") continue
+    if (/^\s+$/.test(segment)) e = e.raw(new Array(segment.length).fill(0x20))
+    else e = e.text(segment)
+  }
+  return e
 }
 
-function renderSingleBlock(
-  encoder: Encoder,
-  block: PrintBlock,
-  data: TicketData,
-  paper: EscPosPaper,
-): Encoder {
-  switch (block.type) {
-    case "company_logo":
-      console.warn("[render-template] BlockType no implementado: company_logo — requiere HTMLImageElement")
-      return encoder
-
-    case "hor_line": {
-      // El GROSOR no se traduce acá: una térmica de líneas no tiene medio
-      // carácter de alto, la regla es siempre una fila. Lo que SÍ se respeta
-      // es el largo relativo al ancho del papel.
-      const geo = lineGeometry(block)!
-      const width = escPosRuleWidth(geo.length, paper)
-      if (block.align && block.align !== "left") encoder = encoder.align(block.align)
-      encoder = encoder.rule({ style: "single", width })
-      if (block.align && block.align !== "left") encoder = encoder.align("left")
-      return encoder
-    }
-
-    case "ver_line":
-      // No-op explícito: una línea vertical no tiene sentido en una
-      // impresora térmica de líneas (rollo, sin columnas reales) — no hay dos
-      // columnas entre las cuales separar. El fallback HTML sí la dibuja, con
-      // la geometría del bloque (ver html-renderer.ts).
-      return encoder
-
-    case "transaction_id_barcode":
-      return encoder.barcode(data.transactionId, "code128", { height: 60 })
-
-    case "fe_py": {
-      // Portal de consulta del comprador (F6): QR con el link firmado. Se
-      // intercepta acá en vez de dejarlo caer al resolver de texto porque el
-      // token no es para tipear a mano — se escanea. Sin link (venta sin
-      // documento electrónico) no se imprime nada, ni el rótulo.
-      if (!data.einvoiceUrl) return encoder
-      encoder = encoder.align("center")
-      // errorlevel 'm': ~15% de tolerancia. El ticket térmico se arruga y se
-      // borronea; 'l' (7%) falla al escanear en papel maltratado y 'q'/'h'
-      // agrandan el QR más de lo que entra cómodo en 58 mm.
-      encoder = encoder.qrcode(data.einvoiceUrl, { model: 2, size: 6, errorlevel: "m" })
-      encoder = encoder.line(block.text?.trim() || "Consultá tu factura electrónica")
-      return encoder.align("left")
-    }
-
-    default:
-      break
-  }
-
-  if (ITEM_TABLE_TYPES.has(block.type)) {
-    return renderItemTable(encoder, block, data)
-  }
-
-  const resolver = BLOCK_VALUE_RESOLVERS[block.type]
-  if (resolver) {
-    const value = resolver(data, block)
-    return applyBlockText(encoder, block, value ?? "")
-  }
-
-  // Tipo realmente no implementado — no descartarlo en silencio (ese
-  // silencio fue lo que hizo que este bug llegara a producción).
-  console.error("[render-template] BlockType desconocido, no implementado:", block.type)
-  return applyBlockText(encoder, block, `[${block.type}]`)
+/** Alineación de un gráfico, aplicada y revertida alrededor del comando. */
+function withAlign(encoder: Encoder, align: RollGraphic["align"], fn: (e: Encoder) => Encoder): Encoder {
+  const needsAlign = align === "center" || align === "right"
+  let e = encoder
+  if (needsAlign) e = e.align(align)
+  e = fn(e)
+  if (needsAlign) e = e.align("left")
+  return e
 }
 
-function renderItemBlock(
-  encoder: Encoder,
-  block: PrintBlock,
-  item: TicketData["items"][number],
-  data: TicketData,
-): Encoder {
-  const resolver = ITEM_FIELD_RESOLVERS[block.type]
-  if (!resolver) return encoder
-  const value = resolver(item, data)
-  return applyBlockText(encoder, block, value ?? "")
+function renderGraphic(encoder: Encoder, g: RollGraphic): Encoder {
+  if (g.kind === "logo") {
+    // Requiere un HTMLImageElement decodificado; el encoder no acepta una URL.
+    console.warn("[render-template] company_logo no implementado en ESC/POS — requiere HTMLImageElement")
+    return encoder
+  }
+  if (g.kind === "barcode") {
+    return withAlign(encoder, g.align, (e) => e.barcode(g.value, "code128", { height: 60 }))
+  }
+  // QR del portal de consulta del comprador (`fe_py`). errorlevel 'm' (~15%):
+  // el ticket térmico se arruga y se borronea, 'l' (7%) falla al escanear en
+  // papel maltratado y 'q'/'h' agrandan el QR más de lo que entra en 58mm.
+  return withAlign(encoder, g.align, (e) => {
+    let out = e.qrcode(g.value, { model: 2, size: 6, errorlevel: "m" })
+    if (g.caption) out = out.line(g.caption)
+    return out
+  })
 }
 
 export function renderTemplateToEscPos(opts: {
@@ -170,56 +96,49 @@ export function renderTemplateToEscPos(opts: {
   copies: number
 }): Uint8Array {
   const { template, data, paperWidthMm, openDrawer, copies } = opts
-  const columns = paperWidthMm === 58 ? 32 : 48
-  // Ancho del canvas con el que se diseñó la plantilla — misma cuenta que el
-  // editor (`PAPER_DIMENSIONS[size].widthMm * mm`). `page_size` viaja en un
-  // JSONB abierto: un valor corrupto/legacy cae a A4, igual que en
-  // html-renderer.ts, en vez de tirar la impresión entera.
-  const dim = PAPER_DIMENSIONS[template.page_size] ?? PAPER_DIMENSIONS.a4page
-  const mmRatio = template.mm && template.mm > 0 ? template.mm : 3.78
-  const paper: EscPosPaper = { columns, canvasWidthPx: dim.widthMm * mmRatio }
 
-  let encoder: Encoder = new ReceiptPrinterEncoder({ columns })
+  // La grilla se arma con las columnas del DISPOSITIVO (`paperWidthMm`), no
+  // con las del papel de diseño — ver `rollGeometry`.
+  const mmRatio = template.mm && template.mm > 0 ? template.mm : 3.78
+  const geo = rollGeometry(template.page_size, mmRatio, paperWidthMm)
+  const grid = buildRollGrid(template, data, geo)
+
+  let encoder: Encoder = new ReceiptPrinterEncoder({ columns: geo.columns })
   encoder = encoder.initialize()
 
-  // El destino de la comanda va SIEMPRE, en su propia línea, junto al número
-  // — sin depender de que la plantilla del binding tenga un bloque para eso
-  // (el operador la configura para factura/recibo; una comanda mal armada
-  // por un template incompleto es el bug que estamos evitando).
-  if (data.docType === "order" && data.orderDestination) {
-    encoder = encoder
-      .align("center")
-      .bold(true)
-      .line(`COMANDA #${data.ticketNo ?? "—"} · ${data.orderDestination.toUpperCase()}`)
-      .bold(false)
-      .align("left")
+  const byRow = new Map<number, RollGraphic[]>()
+  for (const g of grid.graphics) {
+    const list = byRow.get(g.row)
+    if (list) list.push(g)
+    else byRow.set(g.row, [g])
   }
 
-  // Canvas → orden visual: ver `sortBlocksForRender` en blocks.ts.
-  const blocks = sortBlocksForRender(template.data ?? [])
-  let i = 0
-
-  while (i < blocks.length) {
-    const block = blocks[i]
-
-    if (ITEM_LINE_TYPES.has(block.type)) {
-      // Collect consecutive item blocks
-      const itemGroupStart = i
-      while (i < blocks.length && ITEM_LINE_TYPES.has(blocks[i].type)) {
-        i++
-      }
-      const itemBlocks = blocks.slice(itemGroupStart, i)
-
-      // Render item blocks once per item
-      for (const item of data.items) {
-        for (const ib of itemBlocks) {
-          encoder = renderItemBlock(encoder, ib, item, data)
-        }
-      }
-    } else {
-      encoder = renderSingleBlock(encoder, block, data, paper)
-      i++
+  for (let r = 0; r < grid.rows.length; r++) {
+    const graphics = byRow.get(r)
+    if (graphics) {
+      for (const g of graphics) encoder = renderGraphic(encoder, g)
+      byRow.delete(r)
     }
+    // Una fila de la grilla = una línea impresa. La negrita viaja por tramos
+    // (`RollRun`): es el único atributo que ESC/POS ya aplicaba antes de la
+    // grilla y se conserva. Doble alto/ancho entrarían por el mismo lugar el
+    // día que se implementen (pedido del owner, marcado como no urgente).
+    const row = grid.rows[r]
+    if (row.runs.length === 0) {
+      encoder = encoder.newline()
+      continue
+    }
+    for (const run of row.runs) {
+      if (run.bold) encoder = encoder.bold(true)
+      encoder = emitSegments(encoder, run.text)
+      if (run.bold) encoder = encoder.bold(false)
+    }
+    encoder = encoder.newline()
+  }
+
+  // Gráficos anclados más abajo de la última fila con texto.
+  for (const row of [...byRow.keys()].sort((a, b) => a - b)) {
+    for (const g of byRow.get(row)!) encoder = renderGraphic(encoder, g)
   }
 
   if (openDrawer) {

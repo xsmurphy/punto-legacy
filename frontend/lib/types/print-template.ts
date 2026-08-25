@@ -85,6 +85,12 @@ export type BlockType =
   | "customer_city" | "customer_country" | "customer_phone" | "customer_phone_2"
   | "customer_note" | "customer_loyalty" | "customer_birthday" | "customer_email"
   | "table_number"
+  // Comanda (docType "order"). Existen porque el banner "COMANDA #12 · MESA 3"
+  // lo INYECTABAN los renderers cuando `docType === "order"`, sin que la
+  // plantilla lo pidiera — al revés de la regla del owner ("lo que se imprime
+  // lo decide la plantilla"). Al sacar esa inyección, el dato tiene que poder
+  // ponerse como bloque, si no la comanda se quedaba sin encabezado.
+  | "order_number" | "order_destination"
   // Transacción
   | "document_number" | "document_prefix" | "document_sufix" | "document_type"
   | "date" | "duedate" | "discount" | "subtotal" | "tax_total" | "total"

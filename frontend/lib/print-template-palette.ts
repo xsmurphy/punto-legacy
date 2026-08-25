@@ -34,8 +34,12 @@ export const PALETTE: PaletteSection[] = [
     label: "Herramientas",
     items: [
       { type: "custom", label: "Texto Personalizado", defaultText: "" },
-      { type: "hor_line", label: "Línea Horizontal", defaultText: "", receiptHidden: true },
-      { type: "ver_line", label: "Línea Vertical", defaultText: "", receiptHidden: true },
+      // Ya NO son `receiptHidden`: en el rollo la salida se arma sobre una
+      // grilla de caracteres (roll-grid.ts), así que una línea horizontal es
+      // una fila de guiones y una vertical una columna de barras — antes el
+      // rollo era flujo lineal sin columnas y no había dónde ponerlas.
+      { type: "hor_line", label: "Línea Horizontal", defaultText: "" },
+      { type: "ver_line", label: "Línea Vertical", defaultText: "" },
     ],
   },
   {
@@ -81,6 +85,8 @@ export const PALETTE: PaletteSection[] = [
       { type: "customer_note", label: "Nota", defaultText: "Nota del Cliente" },
       { type: "customer_loyalty", label: "Loyalty", defaultText: "Loyalty Acumulado" },
       { type: "table_number", label: "Nro. de Mesa", defaultText: "Mesa: ###" },
+      { type: "order_number", label: "Nro. de Comanda", defaultText: "###" },
+      { type: "order_destination", label: "Destino de Comanda", defaultText: "Mesa 3" },
     ],
   },
   {

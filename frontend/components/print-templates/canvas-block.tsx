@@ -366,8 +366,12 @@ function BlockContent({
   // que va a ir ahí (getBlockPlaceholder — reusa el mismo `defaultText` de
   // PALETTE que ya usa el editor al insertar el bloque, nunca una segunda
   // lista de textos de ejemplo).
+  // SIN padding horizontal: el `px-1` que tenía acá corría el texto ~1mm a la
+  // derecha en el editor y en ningún renderer, así que el canvas mentía sobre
+  // dónde empieza el contenido de un bloque (misma clase de divergencia que la
+  // geometría del rollo). El borde de la caja ES el borde del contenido.
   return (
-    <div className="h-full w-full px-1 leading-tight text-zinc-900">
+    <div className="h-full w-full leading-tight text-zinc-900">
       {preview ? preview : <span className="text-zinc-400">{getBlockPlaceholder(block, taxes ?? [])}</span>}
     </div>
   )

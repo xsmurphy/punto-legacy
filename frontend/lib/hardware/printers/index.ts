@@ -13,10 +13,11 @@ import { triggerWindowPrint } from "./transports/window-print"
 import { renderTemplateToEscPos } from "./render-template"
 import { renderTemplateToHtml } from "./html-renderer"
 import { fetchTemplateConfig } from "./print-in-browser"
+import { nearestReceiptPaperWidthMm } from "./roll-grid"
 import { buildTicketDataForTest } from "./build-ticket-data"
 import type { TicketData } from "./build-ticket-data"
 import { posApi } from "@/lib/api/pos-client"
-import { isReceipt, type PaperSize, type PrintTemplateConfig } from "@/lib/types/print-template"
+import { isReceipt, type PrintTemplateConfig } from "@/lib/types/print-template"
 
 /** base64 sin `Buffer` (browser) — btoa sobre chunks para no pegarle a los
  *  límites de `String.fromCharCode.apply` en tickets largos. */
@@ -237,9 +238,7 @@ export async function printTest(binding: PrinterBinding): Promise<void> {
  * (`PrinterBinding`) de la que leer el ancho calibrado, así que aproximamos
  * al más angosto (receipt57→58mm) o al más ancho (receipt76/80→80mm).
  */
-function nearestReceiptPaperWidthMm(pageSize: PaperSize): 58 | 80 {
-  return pageSize === "receipt57" ? 58 : 80
-}
+
 
 /**
  * HTML final de una plantilla en modo editor (`/settings/print-templates`) —
