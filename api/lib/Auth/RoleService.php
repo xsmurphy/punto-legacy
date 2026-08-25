@@ -413,6 +413,70 @@ final class RoleService
     }
 
     /**
+     * Fragmento SQL: el contacto tiene ROL de propietario.
+     *
+     * `contact.role` es varchar(64) desde la mig 58 y convive con dos formatos:
+     *   - '1' legacy (contactos anteriores a la mig)
+     *   - UUID del taxonomy role con slug='owner' (todo lo creado después)
+     *
+     * Comparar contra el entero 1 (`role = 1`) revienta en Postgres
+     * ("operator does not exist: character varying = integer") y comparar solo
+     * contra '1' deja sin dueño a todo tenant creado post-mig 58. Este método
+     * es la ÚNICA definición del predicado — no reimplementarlo en cada query.
+     *
+     * Las columnas SIEMPRE van calificadas (default: el nombre de la tabla).
+     * Sin calificar, el `companyid` del EXISTS se resuelve contra `taxonomy`
+     * —la única tabla del subquery— y la correlación con el contacto se pierde
+     * en silencio: el predicado aceptaría el rol owner de CUALQUIER tenant.
+     *
+     * NO incluye `main` ni `type`: son filtros del caller. El login del panel
+     * (`findPhoneLogin`) autentica por rol solo — sumarle `main = 'true'`
+     * dejaría afuera a los contactos con `main = 'admin'` de los seeds viejos.
+     *
+     * @param string $alias alias de la tabla `contact` en la query
+     */
+    public static function ownerRoleSql(string $alias = 'contact'): string
+    {
+        $a = self::qualify($alias);
+
+        return "({$a}role = '1' OR EXISTS ("
+             .     'SELECT 1 FROM taxonomy owner_role '
+             .      "WHERE owner_role.taxonomyid::text = {$a}role "
+             .        "AND owner_role.taxonomytype = 'role' "
+             .        "AND owner_role.companyid = {$a}companyid "
+             .        "AND owner_role.taxonomyextra::json->>'slug' = 'owner'"
+             . '))';
+    }
+
+    /**
+     * Fragmento SQL: el contacto es el propietario REGISTRADO del comercio —
+     * rol de dueño + `main = 'true'`, que es como lo marca el alta de tenant.
+     *
+     * Es lo que usan las lecturas de /admin para poner nombre y contacto del
+     * dueño en la ficha. Para autenticar alcanza el rol (ver ownerRoleSql).
+     *
+     * No incluye `type = 0`: ese filtro es "usuario del panel" y lo pone el
+     * caller, que a veces cuenta contactos de otro tipo.
+     *
+     * @param string $alias alias de la tabla `contact` en la query
+     */
+    public static function ownerContactSql(string $alias = 'contact'): string
+    {
+        $a = self::qualify($alias);
+
+        return "({$a}main = 'true' AND " . self::ownerRoleSql($alias) . ')';
+    }
+
+    /** Prefijo calificador validado (evita interpolar cualquier cosa en el SQL). */
+    private static function qualify(string $alias): string
+    {
+        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $alias)) {
+            throw new RuntimeException("Alias SQL inválido: $alias");
+        }
+        return $alias . '.';
+    }
+
+    /**
      * Mapea int legacy a UUID del seed role correspondiente.
      * Fallback: cashier si el int no está en el mapa.
      */

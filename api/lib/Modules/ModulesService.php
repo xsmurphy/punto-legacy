@@ -86,29 +86,14 @@ final class ModulesService
             return [];
         }
 
-        $moduleData = json_decode((string) ($row['moduleData'] ?? ''), true);
-        if (!is_array($moduleData)) {
-            $moduleData = [];
-        }
+        $moduleData = ModuleState::moduleData($row);
 
         $result = [];
 
         foreach (self::NATIVE_KEYS as $key) {
-            // enabled: flat column tiene prioridad (lo que lee el POS);
-            // fallback a moduleData[key].status para módulos que solo viven en JSONB.
-            $flatVal     = $row[$key] ?? null;
-            $moduleEntry = $moduleData[$key] ?? null;
-
-            if ($flatVal !== null) {
-                $enabled = $this->truthy($flatVal);
-            } elseif (is_array($moduleEntry) && isset($moduleEntry['status'])) {
-                $enabled = $this->truthy($moduleEntry['status']);
-            } elseif ($moduleEntry !== null && !is_array($moduleEntry)) {
-                // moduleData[key] puede ser el valor directo (crm legacy es array con sub-keys)
-                $enabled = $this->truthy($moduleEntry);
-            } else {
-                $enabled = false;
-            }
+            // Estado por-tenant: resolver único (ModuleState) — lo comparte el
+            // semáforo de salud de /admin, que antes tenía su propia copia.
+            $enabled = ModuleState::enabled($row, $key);
 
             // Kill-switch de plataforma: apaga el módulo para TODOS los tenants
             // sin tocar el estado por-tenant recién calculado arriba.
@@ -460,14 +445,9 @@ final class ModulesService
         return $catalog;
     }
 
-    /** Normaliza un valor a bool (tolerante a '1', 'true', 'yes', 't', 'on'). */
+    /** Atajo local al normalizador único de estado (ver ModuleState::truthy). */
     private function truthy($v): bool
     {
-        if (is_bool($v)) {
-            return $v;
-        }
-        $s = strtolower((string) $v);
-        return in_array($s, ['1', 't', 'true', 'yes', 'on'], true)
-            || (is_numeric($s) && (float) $s > 0);
+        return ModuleState::truthy($v);
     }
 }

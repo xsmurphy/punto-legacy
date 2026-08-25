@@ -63,7 +63,10 @@ class PlanAdminService
         $out = [];
         if ($r) {
             while (!$r->EOF) {
-                $out[] = $this->rowToPlan($r->fields, true);
+                // ncmRow(): normalizador único del DB layer. `$r->fields` es
+                // CaseInsensitiveArray, no array — pasarlo crudo a un typehint
+                // `array` tira TypeError y dejaba /admin/plans sin listado.
+                $out[] = $this->rowToPlan(ncmRow($r->fields), true);
                 $r->MoveNext();
             }
         }

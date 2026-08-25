@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../Auth/RoleService.php';
+
 /**
  * CompanyAdminService.php — capa de datos del panel /admin para gestión de empresas.
  *
@@ -258,7 +260,9 @@ class CompanyAdminService
     // --- batched ------------------------------------------------------------
 
     /**
-     * Owner (contact main=true role=1 type=0) por companyId — batched.
+     * Owner (main=true + rol propietario, type=0) por companyId — batched.
+     * El predicado de propietario sale de RoleService::ownerContactSql():
+     * única definición, cubre el '1' legacy y el UUID del rol owner.
      * Devuelve mapa companyId => owner array (o ausente si no hay owner).
      */
     private function getOwnersBatched(array $ids): array
@@ -271,7 +275,7 @@ class CompanyAdminService
         $r = $db->Execute(
             "SELECT companyId, contactId, contactName, data->>'contactSecondName' AS contactSecondName, contactEmail, contactPhone
                FROM contact
-              WHERE companyId IN ($place) AND main = 'true' AND role = 1 AND type = 0",
+              WHERE companyId IN ($place) AND type = 0 AND " . RoleService::ownerContactSql(),
             $ids
         );
 
@@ -1562,10 +1566,10 @@ class CompanyAdminService
             return null;
         }
 
-        // Propietario principal (role=1, main=true, type=0).
+        // Propietario principal (predicado único, ver RoleService).
         $contact = $db->Execute(
             "SELECT contactId, companyId, role FROM contact
-             WHERE companyId = ? AND role = 1 AND main = 'true' AND type = 0
+             WHERE companyId = ? AND type = 0 AND " . RoleService::ownerContactSql() . "
              LIMIT 1",
             [$id]
         );

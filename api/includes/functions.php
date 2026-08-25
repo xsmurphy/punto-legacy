@@ -2551,13 +2551,16 @@ function passBuilder($pass,$salt,$hashTimes = HASH_TIMES){
 }
 
 function findPhoneLogin($phone){
-	// Solo el Dueño puede loguearse al panel. Soporta dos formatos de role
-	// porque la mig 58 cambió contact.role de smallint a varchar(64):
-	//   - '1' legacy (users pre-mig 58)
-	//   - UUID que apunta a taxonomy role con slug='owner'
+	// Solo el Dueño puede loguearse al panel. El predicado del rol de dueño
+	// (formato '1' legacy vs UUID del taxonomy role slug='owner', mig 58) es
+	// uno solo en todo el codebase: RoleService::ownerRoleSql(). Acá va SIN
+	// `main`: hay dueños de seeds viejos con main='admin' que igual loguean.
 	// Phone storage convention: contactPhone se guarda SIN el '+' inicial
 	// (libphonenumber lo agrega al normalizar, hay que strippearlo para match).
 	$phone = ltrim((string)$phone, '+');
+	// El login corre antes de cualquier resolución de sesión, así que RoleService
+	// puede no estar cargado todavía — cargarlo acá y no depender del caller.
+	require_once __DIR__ . '/../lib/Auth/RoleService.php';
 	// Alias quoted para preservar camelCase — convención del proyecto
 	// post-refactor 28-jun (flattenJsonb plano ya no es CaseInsensitive).
 	// login.php lee $row['contactPassword'], 'companyId', 'contactId', 'role'.
@@ -2568,16 +2571,7 @@ function findPhoneLogin($phone){
                         FROM contact c
                         WHERE c.contactPhone = ?
                           AND c.type = 0
-                          AND (
-                            c.role = '1'
-                            OR EXISTS (
-                              SELECT 1 FROM taxonomy t
-                              WHERE t.taxonomyid::text = c.role
-                                AND t.taxonomytype = 'role'
-                                AND t.companyid = c.companyid
-                                AND t.taxonomyextra::json->>'slug' = 'owner'
-                            )
-                          )
+                          AND " . RoleService::ownerRoleSql('c') . "
                         LIMIT 1",[$phone]);
 }
 

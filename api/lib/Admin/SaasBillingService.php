@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../Auth/RoleService.php';
+
 require_once __DIR__ . '/PlatformConfig.php';
 
 /**
@@ -126,7 +128,7 @@ final class SaasBillingService
         // ── 5. usuario "vendedor" = owner del tenant emisor ──────────────
         $issuerOwner = ncmExecute(
             "SELECT contactId, role FROM contact
-                WHERE companyId = ? AND main = 'true' AND role = 1 AND type = 0 LIMIT 1",
+                WHERE companyId = ? AND type = 0 AND " . RoleService::ownerContactSql() . " LIMIT 1",
             [$issuerCompanyId]
         );
         if (!$issuerOwner || empty($issuerOwner['contactid'])) {

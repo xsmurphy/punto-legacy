@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/../Auth/RoleService.php';
+
 /**
  * TenantHealthService.php — semáforo de salud/adopción por tenant (F2,
  * ver context/34-admin-saas-plan.md).
@@ -52,11 +54,11 @@ class TenantHealthService
         'commercial' => 15,
     ];
 
-    /** key interno del probe => [columna plana en company, key en moduleData JSON]. */
+    /** key interno del probe => key del módulo (la misma que usa ModulesService). */
     private const GATED_MODULES = [
-        'orders'   => ['flat' => 'orderspanel', 'json' => 'ordersPanel'],
-        'espacios' => ['flat' => 'tables',       'json' => 'tables'],
-        'production' => ['flat' => 'production', 'json' => 'production'],
+        'orders'     => 'ordersPanel',
+        'espacios'   => 'tables',
+        'production' => 'production',
     ];
 
     /** Probes de breadth que son features base del producto (no gateadas). */
@@ -403,17 +405,38 @@ class TenantHealthService
         return $out;
     }
 
+    /**
+     * Fila de `company` con el JSONB `config` aplanado.
+     *
+     * `ordersPanel`/`tables`/`production`/`moduleData` NO son columnas: viven
+     * dentro de `config`. Seleccionarlas como columnas tiraba 42703 y dejaba
+     * todo /admin sin semáforo ni listado. El aplanado lo hace el helper
+     * canónico del DB layer (`Query::flattenJsonb`), el mismo que usa ncmExecute.
+     */
     private function fetchCompanyRows(array $ids): array
     {
         global $db;
         $place = $this->placeholders($ids);
         $r = $db->Execute(
-            "SELECT companyId, status, blocked, suspended, planExpired, expiresAt,
-                    orderspanel, tables, production, moduleData
+            "SELECT companyId, status, blocked, suspended, planExpired, expiresAt, config
                FROM company WHERE companyId IN ($place)",
             $ids
         );
-        return $this->mapByCompany($r, 'companyid');
+
+        $out = [];
+        if (!$r) {
+            return $out;
+        }
+        while (!$r->EOF) {
+            $flat = \Punto\App\Database\Query::flattenJsonb($r->fields);
+            $row  = method_exists($flat, 'toArray') ? $flat->toArray() : (array) $flat;
+            $cid  = (string) ($row['companyid'] ?? $row['companyId'] ?? '');
+            if ($cid !== '') {
+                $out[$cid] = $row;
+            }
+            $r->MoveNext();
+        }
+        return $out;
     }
 
     /**
@@ -534,7 +557,7 @@ class TenantHealthService
                 GROUP BY companyId", $ids, 'printtemplate');
 
         $set("SELECT companyId AS companyid, COUNT(*) AS n FROM contact
-                WHERE companyId IN ($place) AND type = 0 AND NOT (main = 'true' AND role = '1')
+                WHERE companyId IN ($place) AND type = 0 AND NOT " . RoleService::ownerContactSql() . "
                 GROUP BY companyId", $ids, 'usersnonowner');
 
         $set("SELECT companyId AS companyid, COUNT(*) AS n FROM outlet
@@ -639,8 +662,8 @@ class TenantHealthService
         $usedSum = 0;
         $activeCount = 0;
 
-        foreach (self::GATED_MODULES as $probe => $cols) {
-            $active = $this->moduleEnabled($companyRow, $cols['flat'], $cols['json']);
+        foreach (self::GATED_MODULES as $probe => $moduleKey) {
+            $active = \Punto\Api\Modules\ModuleState::enabled($companyRow, $moduleKey);
             $count  = (int) ($usage[$probe] ?? 0);
             $modules[$probe] = ['active' => $active, 'used' => $active && $count > 0, 'count30d' => $count];
             if ($active) {
@@ -665,34 +688,10 @@ class TenantHealthService
         return ['subscore' => $subscore, 'modules' => $modules];
     }
 
-    private function moduleEnabled(array $companyRow, string $flatKey, string $jsonKey): bool
-    {
-        $flatVal = $companyRow[strtolower($flatKey)] ?? null;
-        if ($flatVal !== null && $flatVal !== '') {
-            return $this->truthy($flatVal);
-        }
-
-        $moduleData = json_decode((string) ($companyRow['moduledata'] ?? ''), true);
-        if (!is_array($moduleData)) {
-            return false;
-        }
-        $entry = $moduleData[$jsonKey] ?? null;
-        if (is_array($entry) && isset($entry['status'])) {
-            return $this->truthy($entry['status']);
-        }
-        if ($entry !== null && !is_array($entry)) {
-            return $this->truthy($entry);
-        }
-        return false;
-    }
-
+    /** Atajo local al normalizador único de estado (ver ModuleState::truthy). */
     private function truthy($v): bool
     {
-        if (is_bool($v)) {
-            return $v;
-        }
-        $s = strtolower((string) $v);
-        return in_array($s, ['1', 't', 'true', 'yes', 'on'], true) || (is_numeric($s) && (float) $s > 0);
+        return \Punto\Api\Modules\ModuleState::truthy($v);
     }
 
     private function buildDepthSignal(array $d): array
