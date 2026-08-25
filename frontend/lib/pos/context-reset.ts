@@ -98,10 +98,18 @@ export function resetContextScopedState(qc: QueryClient): void {
   useHotkeysStore.getState().reset()
 
   // ── Caches de react-query scopeadas por outlet pero sin outlet en la key ──
-  // El resto de las queries del POS ya llevan `registerId`/`outletId` en su
-  // queryKey y se re-piden solas. Estas tres no, así que hay que invalidarlas
-  // a mano o siguen mostrando el salón y las ventas aparcadas de la sucursal
-  // anterior.
+  // Estas queries resuelven la sucursal SERVER-SIDE, a partir del device (ver
+  // `api/v1/orders.php`), así que su `queryKey` no cambia al mudar el contexto:
+  // react-query las considera las mismas y sirve lo cacheado de la sucursal
+  // anterior. El resto de las queries del POS sí llevan `registerId`/`outletId`
+  // en la key y se re-piden solas.
+  //
+  // Las órdenes activas son el caso grave y no una molestia visual: con
+  // `refetchInterval` de 15s, `/pos/ordenes` sigue listando las órdenes de la
+  // sucursal vieja, y tocar una la COBRA en la caja nueva — exactamente la
+  // mezcla de dimensiones que este reset existe para impedir.
+  qc.invalidateQueries({ queryKey: ["orders", "active"] })
+  qc.invalidateQueries({ queryKey: ["pos-transactions"] })
   qc.invalidateQueries({ queryKey: ["parked-sales"] })
   qc.invalidateQueries({ queryKey: ["pos-space-sectors"] })
   qc.invalidateQueries({ queryKey: ["pos-spaces"] })

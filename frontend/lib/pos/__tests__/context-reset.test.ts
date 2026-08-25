@@ -16,6 +16,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import "fake-indexeddb/auto"
 
 /** localStorage mínimo en memoria — `persist` lo resuelve al importar el store. */
 function installLocalStorage() {
@@ -43,6 +44,8 @@ const { useHotkeysStore } = await import("@/lib/hotkeys/store")
 const { useAddonPickerStore } = await import("@/lib/cart/addon-picker-store")
 const { useGiftcardIssueStore } = await import("@/lib/cart/giftcard-issue-store")
 const { useSpaceSettlementStore } = await import("@/lib/spaces/settlement-store")
+const { enqueue, peekAll } = await import("@/lib/pos/offline-queue")
+const { enqueueOp, peekAllOps } = await import("@/lib/pos/pending-ops")
 
 /** QueryClient de mentira: solo registra las keys invalidadas. */
 function fakeQueryClient() {
@@ -141,15 +144,52 @@ describe("resetContextScopedState", () => {
     expect(useSpaceSettlementStore.getState().splitTarget).toBeNull()
   })
 
+  // EL invariante crítico de todo este cambio. Las dos colas guardan cosas ya
+  // EMITIDAS o ya decididas por el cajero, selladas con el `registerId` de su
+  // caja: el cerco de `pending-ops-sync` impide que se apliquen sobre otra, así
+  // que mudarse con la cola llena no corrompe nada. Vaciarlas acá, en cambio,
+  // sería PERDER ventas que el cliente ya se llevó. Si alguien alguna vez
+  // agrega un `clear()` de colas al reset "para dejar la caja limpia", este
+  // test es lo único que lo frena.
+  it("NO toca la cola de ventas offline ni la de operaciones", async () => {
+    await enqueue({
+      clientTempId: "venta-emitida-en-sucursal-A",
+      invoiceNo: 41,
+      sale: { total: 10_000 } as never,
+    })
+    // Un CIERRE DE CAJA sin enviar: lo más caro que puede haber en la cola.
+    await enqueueOp({
+      kind: "drawerClose",
+      stream: "drawer",
+      registerId: "reg-de-sucursal-A",
+      payload: { counted: 250_000 },
+      label: "Cierre de caja",
+    })
+    const { client } = fakeQueryClient()
+
+    resetContextScopedState(client as never)
+
+    const ventas = await peekAll()
+    expect(ventas.map((v) => v.clientTempId)).toEqual(["venta-emitida-en-sucursal-A"])
+    const ops = await peekAllOps()
+    expect(ops).toHaveLength(1)
+    expect(ops[0]?.registerId).toBe("reg-de-sucursal-A")
+  })
+
   it("invalida las caches por-sucursal que no llevan el outlet en la key", () => {
     const { client, invalidated } = fakeQueryClient()
 
     resetContextScopedState(client as never)
 
     // Las demás queries del POS ya van keyeadas por registerId/outletId y se
-    // re-piden solas; estas tres no y quedarían mostrando la sucursal vieja.
+    // re-piden solas; estas resuelven el outlet server-side y quedarían
+    // mostrando la sucursal vieja.
     expect(invalidated).toContainEqual(["parked-sales"])
     expect(invalidated).toContainEqual(["pos-space-sectors"])
     expect(invalidated).toContainEqual(["pos-spaces"])
+    // Las órdenes activas son el caso grave: con la cache vieja, tocar una
+    // orden la cobra en la caja nueva.
+    expect(invalidated).toContainEqual(["orders", "active"])
+    expect(invalidated).toContainEqual(["pos-transactions"])
   })
 })
