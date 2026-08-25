@@ -131,6 +131,7 @@ import { useOnlineStatus } from "@/hooks/use-online-status"
 import { peekAll } from "@/lib/pos/offline-queue"
 import { getOpsCount, peekAllOps, type PendingOpRow } from "@/lib/pos/pending-ops"
 import { syncPendingOps } from "@/lib/pos/pending-ops-sync"
+import { hasContextScopedWork } from "@/lib/pos/context-reset"
 import { sendPendingOp } from "@/lib/pos/pending-ops-transport"
 import { usePosOutlets, usePosRegisters } from "@/hooks/use-pos-outlets"
 import { useUpdateDeviceContext } from "@/hooks/use-update-device-context"
@@ -2304,6 +2305,23 @@ const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; descriptio
  *    (`context/29`), y el bootstrap offline solo conoce la sucursal actual,
  *    así que ni siquiera hay a dónde mudarse. Un control deshabilitado con el
  *    motivo escrito es preferible a uno que parece disponible y falla raro.
+ *
+ * La sucursal arrastra la caja (2026-08-24)
+ * ─────────────────────────────────────────
+ * Elegir sucursal preselecciona su PRIMERA caja y confirma el cambio de una.
+ * Antes la sucursal quedaba "pendiente" y el cajero tenía que abrir el segundo
+ * selector para que pasara algo; peor, entre un paso y el otro la pantalla
+ * mostraba una sucursal que el device todavía no tenía. La terna
+ * `companyId + outletId + registerId` no admite estados intermedios: no puede
+ * quedar seleccionada una caja de la sucursal A con la sucursal B activa.
+ *
+ * Esto NO contradice la regla de no inventar dimensiones faltantes: el POS
+ * sigue siendo fail-closed cuando el contexto llega incompleto desde el
+ * backend. Acá el cajero pidió explícitamente moverse, y la preselección es
+ * visible en el selector —puede cambiarla acto seguido—, no una dimensión
+ * resuelta en silencio con "la primera que haya". Si la sucursal elegida no
+ * tiene ninguna caja no se inventa nada: el cambio no se comitea y el
+ * impedimento queda escrito al lado del control.
  */
 function DeviceContextSelectors() {
   const activeOutlet = useCatalogStore((s) => s.outlet)
@@ -2317,7 +2335,26 @@ function DeviceContextSelectors() {
   const updateContext = useUpdateDeviceContext()
 
   const [pendingOutletId, setPendingOutletId] = React.useState<string>("")
-  const effectiveOutletId = pendingOutletId || activeOutletId
+
+  // Caja a la que se está mudando: la preselección de la sucursal nueva, o la
+  // que el cajero eligió a mano.
+  const [pendingRegisterId, setPendingRegisterId] = React.useState<string>("")
+
+  // El destino se considera ALCANZADO cuando el catalog store ya lo refleja, y
+  // ahí los selectores vuelven a leer del store.
+  //
+  // Esto se DERIVA en vez de limpiarse en el `onSuccess` de la mutación: el
+  // servidor confirma el cambio bastante antes de que resuelva el refetch del
+  // bootstrap, que es pesado. Limpiando en el onSuccess, los selectores
+  // volvían a mostrar la sucursal VIEJA —con el carrito ya vacío— hasta que
+  // llegaba el bootstrap nuevo. Derivado no hay ventana: el destino se muestra
+  // hasta que el store lo confirma, y recién ahí los dos coinciden. Tampoco
+  // hace falta un `setState` dentro de un efecto.
+  const stagedOutletId = pendingOutletId === activeOutletId ? "" : pendingOutletId
+  const stagedRegisterId =
+    pendingRegisterId === activeRegisterId ? "" : pendingRegisterId
+
+  const effectiveOutletId = stagedOutletId || activeOutletId
 
   // Listado del tenant si se pudo pedir; si no, al menos la sucursal actual
   // sacada del snapshot, para que el selector tenga la opción que va a mostrar.
@@ -2329,31 +2366,86 @@ function DeviceContextSelectors() {
         ? [{ id: activeOutlet.id, name: activeOutlet.name }]
         : []
 
-  const registersFromServer = registersData?.registers ?? []
-  const registersOfOutlet: { id: string; name: string }[] =
-    registersFromServer.length > 0
-      ? registersFromServer.filter((r) => r.outletId === effectiveOutletId && r.status)
-      : snapshotRegisters.filter((r) => r.outletId === effectiveOutletId)
+  // `?? []` sin memo daría un array nuevo por render y `registersOf` se
+  // recrearía siempre.
+  const registersFromServer = React.useMemo(
+    () => registersData?.registers ?? [],
+    [registersData],
+  )
+
+  // Cajas de UNA sucursal, en el mismo orden en que se pintan en el selector —
+  // así "la primera caja" que se preselecciona es literalmente la primera
+  // opción de la lista, y no un criterio distinto del que ve el cajero.
+  const registersOf = React.useCallback(
+    (outletId: string): { id: string; name: string }[] =>
+      registersFromServer.length > 0
+        ? registersFromServer.filter((r) => r.outletId === outletId && r.status)
+        : snapshotRegisters.filter((r) => r.outletId === outletId),
+    [registersFromServer, snapshotRegisters],
+  )
+
+  const registersOfOutlet = registersOf(effectiveOutletId)
+
+  // Una sucursal SIN cajas y una con todas las cajas DESACTIVADAS son dos
+  // problemas distintos y se arreglan distinto (crear una caja vs. reactivar
+  // la que hay). Decir "no tiene cajas" cuando tiene una apagada manda al
+  // encargado a crear una caja de más.
+  const anyRegisterOfOutlet = registersFromServer.some(
+    (r) => r.outletId === effectiveOutletId,
+  )
 
   // Con las listas del snapshot no se puede ofrecer un cambio: el bootstrap
   // trae la sucursal actual y sus cajas, no el mapa del tenant. Y aunque lo
   // trajera, mover la caja es una escritura contra el servidor.
   const contextLocked = !isOnline || outletsFromServer.length === 0
 
-  function handleOutletChange(newOutletId: string) {
-    if (newOutletId === activeOutletId) {
-      setPendingOutletId("")
+  // Cambio decidido que espera el OK del cajero porque hay una venta cargada.
+  // null = no hay nada esperando confirmación.
+  const [pendingSwitch, setPendingSwitch] =
+    React.useState<{ registerId: string; outletId?: string } | null>(null)
+
+  // Distingue "el diálogo se cerró porque el cajero CONFIRMÓ" de "se cerró
+  // porque canceló o apretó Escape". Confirmar también dispara
+  // `onOpenChange(false)`, y sin esta marca el cancel correría encima del
+  // commit y devolvería los selectores a la caja vieja justo mientras el
+  // cambio viaja al servidor.
+  const committingRef = React.useRef(false)
+
+  const cartLineCount = useCartStore((s) => s.lines.length)
+
+  /**
+   * Puerta única de todo cambio de contexto.
+   *
+   * Si hay una venta cargada, pregunta antes de tirarla; si no, comitea
+   * derecho. Preguntar SIEMPRE sería un click de peaje en el caso normal
+   * (carrito vacío, que es la mayoría), y el POS se opera con el dedo.
+   *
+   * Se usa `AlertDialog` y no `useUnsavedChangesGuard`: ese hook es para
+   * NAVEGACIÓN (intercepta clicks en `<a>`/`<Link>` y `beforeunload`) y
+   * pregunta con el `window.confirm()` nativo. Acá no se navega a ningún lado
+   * —se descarta estado de un store estando en la misma pantalla—, el POS es
+   * touch y el confirm nativo no se puede tocar con el dedo cómodamente, y
+   * además ese hook latchea su bypass tras la primera confirmación: un segundo
+   * cambio de caja en la misma sesión sucia no volvería a preguntar.
+   */
+  function requestSwitch(payload: { registerId: string; outletId?: string }) {
+    setPendingRegisterId(payload.registerId)
+    if (hasContextScopedWork()) {
+      setPendingSwitch(payload)
       return
     }
-    // No commiteamos al server hasta que elija una caja del outlet nuevo
-    // (el endpoint exige registerId — sucursal sola no se puede).
-    setPendingOutletId(newOutletId)
+    void commitSwitch(payload)
   }
 
-  async function handleRegisterChange(newRegisterId: string) {
-    const targetOutletId = pendingOutletId || activeOutletId
-    if (!targetOutletId) return
-    if (newRegisterId === activeRegisterId && !pendingOutletId) return
+  /** Cancelar la confirmación devuelve los dos selectores a lo que está activo. */
+  function cancelSwitch() {
+    setPendingSwitch(null)
+    setPendingOutletId("")
+    setPendingRegisterId("")
+  }
+
+  async function commitSwitch(payload: { registerId: string; outletId?: string }) {
+    setPendingSwitch(null)
 
     // Antes de mudar el device, vaciar lo que quedó pendiente de la caja
     // ACTUAL. Las operaciones en cola están selladas con su `registerId` y el
@@ -2380,21 +2472,75 @@ function DeviceContextSelectors() {
       // caja, que es una operación del servidor y no depende de la cola.
     }
 
-    updateContext.mutate(
-      pendingOutletId
+    updateContext.mutate(payload, {
+      // El descarte del carrito y del resto del estado de contexto lo hace
+      // `useUpdateDeviceContext` en su onSuccess (ver `lib/pos/context-reset`),
+      // no este componente: así vale para cualquier call-site que mueva la caja.
+      //
+      // El éxito NO limpia `pendingOutletId`/`pendingRegisterId`: los
+      // selectores tienen que seguir mostrando el destino hasta que el
+      // bootstrap re-hidrate, y de eso se encarga la derivación de
+      // `stagedOutletId`/`stagedRegisterId`. Solo el error los revierte.
+      onSuccess: () => toast.success("Contexto actualizado"),
+      onError: (e) => {
+        toast.error(e.message)
+        setPendingOutletId("")
+        setPendingRegisterId("")
+      },
+    })
+  }
+
+  function handleOutletChange(newOutletId: string) {
+    if (newOutletId === activeOutletId) {
+      setPendingOutletId("")
+      return
+    }
+
+    // La sucursal ARRASTRA la caja: se muestra la sucursal elegida y se
+    // preselecciona su primera caja en el mismo gesto. La caja anterior se
+    // suelta acá mismo para que en ningún frame se vea una caja de la sucursal
+    // vieja debajo de la sucursal nueva.
+    setPendingOutletId(newOutletId)
+    setPendingRegisterId("")
+
+    const target = registersOf(newOutletId)[0]
+    if (!target) {
+      // Caso borde: sucursal sin cajas. No se inventa nada y no se comitea —
+      // el device se quedaría sin `registerId`, que es exactamente el estado en
+      // el que el POS no opera.
+      //
+      // La sucursal elegida queda a la vista a propósito, sin volver sola a la
+      // anterior: así el selector de Caja se puede mostrar deshabilitado CON el
+      // motivo al lado, que es como el POS comunica un impedimento (no con una
+      // banda). Elegir otra sucursal —o volver a la activa— sale del estado.
+      toast.error(
+        registersFromServer.some((r) => r.outletId === newOutletId)
+          ? "Esa sucursal no tiene ninguna caja activa. No se puede mover el device ahí."
+          : "Esa sucursal no tiene cajas. No se puede mover el device ahí.",
+      )
+      return
+    }
+
+    requestSwitch({ registerId: target.id, outletId: newOutletId })
+  }
+
+  function handleRegisterChange(newRegisterId: string) {
+    const targetOutletId = stagedOutletId || activeOutletId
+    if (!targetOutletId) return
+    if (newRegisterId === activeRegisterId && !stagedOutletId) return
+
+    requestSwitch(
+      stagedOutletId
         ? { registerId: newRegisterId, outletId: targetOutletId }
         : { registerId: newRegisterId },
-      {
-        onSuccess: () => {
-          toast.success("Contexto actualizado")
-          setPendingOutletId("")
-        },
-        onError: (e) => toast.error(e.message),
-      },
     )
   }
 
   const disabled = updateContext.isPending || contextLocked
+  // Sucursal elegida sin ninguna caja USABLE: el cambio quedó sin comitear.
+  const noUsableRegisters = !contextLocked && registersOfOutlet.length === 0
+  // …y si las hay pero están todas desactivadas, el motivo es otro.
+  const onlyDisabledRegisters = noUsableRegisters && anyRegisterOfOutlet
 
   return (
     <>
@@ -2425,12 +2571,20 @@ function DeviceContextSelectors() {
           Caja
         </label>
         <Select
-          value={pendingOutletId ? "" : activeRegisterId}
-          onValueChange={(v) => void handleRegisterChange(v)}
+          value={stagedRegisterId || activeRegisterId}
+          onValueChange={handleRegisterChange}
           disabled={disabled || registersOfOutlet.length === 0}
         >
           <SelectTrigger className="flex-1">
-            <SelectValue placeholder={pendingOutletId ? "Elegí una caja para confirmar" : "Sin seleccionar"} />
+            <SelectValue
+              placeholder={
+                onlyDisabledRegisters
+                  ? "Sin cajas activas"
+                  : noUsableRegisters
+                    ? "Esta sucursal no tiene cajas"
+                    : "Sin seleccionar"
+              }
+            />
           </SelectTrigger>
           <SelectContent>
             {registersOfOutlet.map((r) => (
@@ -2451,9 +2605,63 @@ function DeviceContextSelectors() {
         <p className="flex-1 text-xs text-muted-foreground">
           {contextLocked
             ? "Sin conexión: la sucursal y la caja no se pueden cambiar. Se muestran las actuales."
-            : "La caja se puede mover entre sucursales sin pedir un link de invitación nuevo."}
+            : onlyDisabledRegisters
+              ? "Esa sucursal tiene cajas, pero están todas desactivadas. Reactivá una desde el panel o elegí otra sucursal."
+              : noUsableRegisters
+                ? "Esa sucursal no tiene ninguna caja, así que el device no se puede mover ahí. Creá una caja desde el panel o elegí otra sucursal."
+                : "Al elegir una sucursal se toma su primera caja; podés cambiarla abajo. Cambiar de sucursal o de caja vacía la venta en curso."}
         </p>
       </div>
+
+      {/* Confirmación de descarte. Solo aparece si hay líneas cargadas — con el
+          carrito vacío el cambio va derecho, sin peaje.
+
+          Se pregunta ANTES de mover el device: una vez que el servidor aceptó
+          el cambio, la venta ya no tiene dónde emitirse (otros precios, otro
+          stock, otra numeración) y ofrecer "cancelar" sería mentir. */}
+      <AlertDialog
+        open={pendingSwitch !== null}
+        onOpenChange={(o) => {
+          // Al ABRIR se limpia la marca: si algún cierre no llegara a disparar
+          // este handler, el ref quedaría en `true` y se comería el cancel del
+          // diálogo siguiente.
+          if (o) {
+            committingRef.current = false
+            return
+          }
+          if (committingRef.current) {
+            committingRef.current = false
+            return
+          }
+          cancelSwitch()
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Se va a vaciar la venta en curso</AlertDialogTitle>
+            <AlertDialogDescription>
+              {`Hay ${cartLineCount} ${cartLineCount === 1 ? "artículo cargado" : "artículos cargados"} en esta venta. `}
+              Los precios, el stock y la numeración son de la caja actual, así
+              que la venta no se puede mudar: al cambiar de contexto se descarta
+              junto con el cliente, el modo y los descuentos.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={cancelSwitch}>
+              Seguir en esta caja
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!pendingSwitch) return
+                committingRef.current = true
+                void commitSwitch(pendingSwitch)
+              }}
+            >
+              Descartar y cambiar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }
