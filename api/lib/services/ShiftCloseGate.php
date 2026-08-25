@@ -42,7 +42,7 @@ namespace Punto\Api\Services;
  * interruptor nace apagado y lo prende el comercio. Lo que NO es, es un
  * callejón sin salida: todo lo que bloquea se ve y se cierra desde el MISMO
  * POS donde el cajero está parado, porque órdenes y espacios se listan por
- * sucursal. Ver `context/51-configuracion-offline-de-la-caja.md` §9.
+ * sucursal. Ver `context/51-configuracion-offline-de-la-caja.md` §8.
  *
  * Casing: `pos_order`, `space_session` y `space` son todo lowercase sin
  * comillas (convención de las migs 71/72). NO son de las 18 tablas camelCase

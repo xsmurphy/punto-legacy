@@ -13,7 +13,7 @@
  *
  * Alcance SUCURSAL, no caja: `space_session` no tiene columna de caja y
  * `pos_order.registerid` no lo filtra nadie. Está argumentado en el docblock
- * del servicio PHP y en `context/51-configuracion-offline-de-la-caja.md` §9.
+ * del servicio PHP y en `context/51-configuracion-offline-de-la-caja.md` §8.
  */
 
 export type ShiftCloseBlockerOrder = {
