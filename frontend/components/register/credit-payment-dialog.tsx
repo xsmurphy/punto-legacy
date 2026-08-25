@@ -193,7 +193,7 @@ export function CreditPaymentDialog({
             <Textarea
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              rows={2}
+              rows={3}
               placeholder="Observaciones..."
               className="resize-none"
             />

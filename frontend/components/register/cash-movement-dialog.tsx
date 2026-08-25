@@ -3,8 +3,8 @@
 /**
  * Dialog para movimientos de caja con nota: extracción e ingreso de efectivo.
  *
- * Combina NumericField inline (pad en tablet/desktop, campo nativo en teléfono)
- * + Textarea para la nota, dentro de un Dialog.
+ * Combina el NumericPad inline (la única superficie de captura numérica del
+ * POS, en teléfono también) + Textarea para la nota, dentro de un Dialog.
  * Reutilizable para ambos modos (expense / income) vía prop mode.
  *
  * Nota es opcional — se envía vacía si el cajero no la ingresa.
@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/responsive-dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { NumericField } from "@/components/pos/numeric-field"
+import { NumericPad } from "@/components/pos/numeric-pad"
 
 interface CashMovementDialogProps {
   open: boolean
@@ -61,7 +61,7 @@ export function CashMovementDialog({
 
         {/* Body: pad + nota */}
         <div className="px-6 py-6 space-y-4">
-          <NumericField
+          <NumericPad
             mode="money"
             value={draft}
             onChange={setDraft}
@@ -72,7 +72,7 @@ export function CashMovementDialog({
             placeholder="Concepto (opcional)"
             value={nota}
             onChange={(e) => setNota(e.target.value)}
-            rows={2}
+            rows={3}
             className="resize-none"
           />
         </div>

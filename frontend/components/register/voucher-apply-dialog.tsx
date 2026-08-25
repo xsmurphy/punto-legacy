@@ -201,8 +201,9 @@ export function VoucherApplyDialog({
                 // h-10 y sin forzar tamaño de fuente. El h-14 text-2xl que
                 // había dejaba el campo mucho más alto que el botón "Validar"
                 // de al lado (desalineado), y el text-2xl ni siquiera se
-                // aplicaba: `.pos-scope input` de globals.css ya fija la
-                // tipografía táctil del POS y le gana por especificidad.
+                // aplicaba: la regla `[data-pos-touch] input` de globals.css
+                // fija la tipografía de los campos del POS y le gana por
+                // especificidad.
                 className="h-10 flex-1 tabular-nums text-center"
               />
               <Button

@@ -7,8 +7,8 @@ import * as React from "react"
  *
  * POR QUÉ EN LA RAÍZ Y NO EN EL SHELL
  * -----------------------------------
- * El POS ya tenía `.pos-scope` en el `SidebarInset` del layout `(pos)/`, y
- * `app/globals.css` cuelga de ahí la typography táctil de los inputs. Pero ese
+ * El POS tenía `.pos-scope` en el `SidebarInset` del layout `(pos)/` y
+ * `app/globals.css` colgaba de ahí la typography de los campos. Pero ese
  * selector solo alcanza al árbol REAL del shell, y en Radix todo lo que se
  * portalea —diálogos, drawers, dropdowns, popovers, selects, toasts— se
  * monta como hijo directo del `<body>`, hermano del shell, no descendiente.
@@ -19,7 +19,10 @@ import * as React from "react"
  * componente: `<html>` es el único ancestro común del shell y de los portales,
  * así que marcándolo un solo selector alcanza a las dos ramas.
  *
- * Se descartó `:has(.pos-scope)` en CSS —que expresaría lo mismo sin JS— por
+ * Por eso `.pos-scope` ya no existe: las dos familias de reglas del POS
+ * (typography de los campos y mínimo táctil) cuelgan de este atributo.
+ *
+ * Se descartó `:has()` en CSS —que expresaría lo mismo sin JS— por
  * costo de evaluación (el motor reevalúa el `:has()` de la raíz ante cualquier
  * mutación del árbol, y el carrito muta en cada tecla) y por previsibilidad:
  * un atributo se ve en el inspector y se puede forzar a mano para probar.

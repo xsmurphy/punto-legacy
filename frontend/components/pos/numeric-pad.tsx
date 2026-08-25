@@ -19,10 +19,9 @@ export interface NumericModeToggleProps {
  * inalcanzable en un teléfono o tablet sin teclado (reporte del owner
  * 2026-08-01).
  *
- * Vive fuera de `NumericPad` porque la captura numérica del POS tiene DOS
- * superficies (el pad en tablet/desktop, el input nativo en teléfono — ver
- * `components/pos/numeric-field.tsx`) y el modo es una decisión del dialog,
- * no de la superficie: las dos lo pintan igual y en la misma posición.
+ * Se exporta aparte de `NumericPad` porque el modo es una decisión del dialog,
+ * no del pad: `drawer-count-dialog` monta el toggle sobre su propia lista de
+ * medios y el pad abajo. El pad lo renderiza igual, en la misma posición.
  *
  * No usa ToggleChip: ese chip es el patrón cerrado de la fila de atributos del
  * carrito (text-[10px], py-0.5) y como target táctil es demasiado chico.
@@ -338,13 +337,31 @@ export function NumericPad({
             por teclado no aportaría nada (el teclado físico ya escribe en el
             pad vía el listener global) y agregaría una parada de tab que
             colisiona con ese mismo listener en Enter/Espacio. */}
+        {/* Alto y cuerpo del visor por breakpoint: en un teléfono el pad
+            entero (toggle + visor + 4 filas de teclas) vive dentro del bottom
+            drawer, y los 80px + `text-5xl` de la tablet empujaban las teclas
+            de abajo contra el borde. `sm:` restituye el tamaño de siempre —
+            tablet y desktop quedan idénticos. La captura NUNCA cambia de
+            superficie (nada de input nativo en móvil): lo que se ajusta es el
+            pad. */}
         <div
           role="button"
           aria-label="Editar el monto con el teclado"
-          onClick={() => hiddenInputRef.current?.focus()}
-          className="h-20 flex cursor-text items-center justify-center"
+          // Toggle, no solo focus: con el teclado del OS ya abierto, el segundo
+          // toque sobre el monto lo BAJA — mismo gesto que el PIN del lock
+          // screen. Sin el blur, el teclado tapaba el pad y no había forma de
+          // sacarlo sin cerrar el modal.
+          onClick={() => {
+            const el = hiddenInputRef.current
+            if (!el) return
+            if (document.activeElement === el) el.blur()
+            else el.focus()
+          }}
+          className="flex h-14 cursor-text items-center justify-center sm:h-20"
         >
-          <span className="text-5xl font-bold tabular-nums">{displayWithUnit}</span>
+          <span className="text-4xl font-bold tabular-nums sm:text-5xl">
+            {displayWithUnit}
+          </span>
         </div>
         {/* Hint de teclado físico solo cuando NO hay pad en pantalla — en un
             táctil "utilice las teclas del teclado" es una instrucción imposible. */}
@@ -363,7 +380,7 @@ export function NumericPad({
               key={d}
               type="button"
               variant="outline"
-              className="h-12 text-xl"
+              className="h-11 text-xl sm:h-12"
               onClick={() => handleDigit(d)}
             >
               {d}
@@ -374,7 +391,7 @@ export function NumericPad({
           <Button
             type="button"
             variant="outline"
-            className="h-12 text-xl"
+            className="h-11 text-xl sm:h-12"
             disabled={!allowDot || isCalcStyle}
             onClick={handleDot}
           >
@@ -383,7 +400,7 @@ export function NumericPad({
           <Button
             type="button"
             variant="outline"
-            className="h-12 text-xl"
+            className="h-11 text-xl sm:h-12"
             onClick={() => handleDigit("0")}
           >
             0
@@ -391,7 +408,7 @@ export function NumericPad({
           <Button
             type="button"
             variant="outline"
-            className="h-12"
+            className="h-11 sm:h-12"
             onClick={handleBackspace}
             aria-label="Borrar"
           >

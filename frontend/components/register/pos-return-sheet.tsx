@@ -600,7 +600,7 @@ export function PosReturnSheet({ open, onOpenChange, parentTransactionId }: PosR
                     placeholder="Motivo de la devolución…"
                     value={note}
                     onChange={(e) => setNote(e.target.value)}
-                    rows={2}
+                    rows={3}
                     className="resize-none"
                   />
                 </div>

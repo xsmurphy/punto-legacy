@@ -16,6 +16,19 @@
  * Con `Command` el filtrado lo hace cmdk (se va el `useState` de búsqueda) y
  * se gana navegación por teclado: flechas + Enter para elegir sin tocar la
  * pantalla, que es como se opera una caja de alto volumen.
+ *
+ * CONVIVENCIA CON EL TECLADO VIRTUAL (owner, 2026-08-25: "el buscador de
+ * usuarios queda tapado por el teclado"). Dos piezas, ninguna propia de este
+ * diálogo:
+ *   · el alto máximo y el centrado ya descuentan `--kb-inset` en el primitive
+ *     (`components/ui/dialog.tsx`), así que la caja entera se acomoda arriba
+ *     del teclado en vez de centrarse contra la pantalla completa;
+ *   · acá adentro el reparto es columna flex — el campo de búsqueda tiene alto
+ *     fijo y arriba de todo, y la lista se queda con lo que sobre y scrollea.
+ *     Sin esto el contenido sería más alto que la caja y el scroll se lo
+ *     llevaría el content, sacando de pantalla justo el campo enfocado.
+ * El `sm:max-h-72` de la lista queda para desktop, donde no hay teclado que
+ * esquivar y una lista corta no tiene que estirar el modal.
  */
 
 import * as React from "react"
@@ -59,16 +72,16 @@ export function SellerPickerDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="overflow-hidden p-0 sm:max-w-md">
-        <DialogHeader className="px-4 pt-4">
+      <DialogContent className="flex flex-col overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="shrink-0 px-4 pt-4">
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
         {/* `value` incluye el id: cmdk exige valores únicos y dos usuarios
             pueden llamarse igual. El id es un uuid, así que no interfiere con
             lo que el operador tipea al buscar por nombre. */}
-        <Command className="bg-transparent">
+        <Command className="flex min-h-0 flex-1 flex-col bg-transparent">
           <CommandInput placeholder="Buscar..." autoFocus />
-          <CommandList className="max-h-72">
+          <CommandList className="min-h-0 flex-1 sm:max-h-72">
             <CommandEmpty>Sin resultados.</CommandEmpty>
             <CommandGroup>
               {users.map((u) => (

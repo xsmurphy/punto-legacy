@@ -93,6 +93,18 @@ const DialogSectionedContext = React.createContext(false)
  * `dvh` y no `vh`: en móvil la barra del navegador cambia el alto visible y
  * `vh` deja el corte fuera de la pantalla real.
  *
+ * `--kb-inset` (el alto que tapa el TECLADO VIRTUAL, medido por
+ * `components/pos/keyboard-inset.tsx`) entra en la misma cuenta que las áreas
+ * seguras, y por la misma razón: `dvh` mide el viewport de LAYOUT, que en iOS
+ * NO se achica con el teclado abierto. Sin esto, un diálogo centrado se sigue
+ * centrando contra la pantalla entera y con el teclado arriba queda medio
+ * modal —el campo enfocado incluido— atrás del teclado (reporte del owner
+ * 2026-08-25 sobre el buscador de usuarios). Se descuenta en DOS lugares: el
+ * `max-h`, para que el modal no sea más alto que el hueco visible, y el `top`,
+ * para que el centro del modal sea el centro de ESE hueco y no el de la
+ * pantalla. Donde no hay teclado la variable vale 0 y la geometría es la de
+ * siempre — el panel y el desktop no cambian un pixel.
+ *
  * Un diálogo que administra su propio scroll interno (ej. `pay-dialog`, con su
  * cuerpo scrolleable y footer fijo) simplemente pasa sus clases por
  * `className` y ganan: `cn()` mergea con tailwind-merge y lo específico pisa al
@@ -156,7 +168,7 @@ function DialogContent({
           // área útil, y los diálogos altos (el de cobro pedía 90vh) se comían
           // el notch. Donde los insets valen 0 el `min()` devuelve 85dvh y el
           // desktop queda idéntico.
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[min(85dvh,calc(100dvh-2rem-var(--safe-t)-var(--safe-b)))] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-[calc(50%-var(--kb-inset)/2)] left-1/2 z-50 grid max-h-[min(85dvh,calc(100dvh-2rem-var(--safe-t)-var(--safe-b)-var(--kb-inset)))] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           // El padding se va al header/body/footer; el scroll lo administra el
           // <DialogBody>, no el content.
           sectioned && "flex flex-col gap-0 overflow-hidden p-0",
@@ -169,7 +181,12 @@ function DialogContent({
               // diferencia de un par de píxeles deja una franja del overlay
               // asomando contra el borde inferior — el "no baja hasta el final
               // de la pantalla" que reportó el owner (2026-08-25).
-              "max-sm:inset-0 max-sm:h-auto max-sm:max-h-none max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none",
+              // `top/right/left/bottom` explícitos en vez de `inset-0`: el
+              // borde de abajo se apoya en el teclado cuando hay teclado
+              // (`--kb-inset`), y en el borde físico cuando no lo hay. Con
+              // `inset-0` + un `bottom-*` aparte el resultado dependía del
+              // orden en que Tailwind emite las dos utilidades.
+              "max-sm:top-0 max-sm:right-0 max-sm:bottom-[var(--kb-inset)] max-sm:left-0 max-sm:h-auto max-sm:max-h-none max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:content-start max-sm:rounded-none",
               // Fullscreen = la superficie toca los cuatro bordes del
               // dispositivo, y además se portalea FUERA del shell del POS, así
               // que no hereda ningún inset: los descuenta acá, una sola vez,

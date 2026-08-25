@@ -404,6 +404,12 @@
     --safe-r: env(safe-area-inset-right, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
     --safe-l: env(safe-area-inset-left, 0px);
+    /* Alto que tapa el TECLADO VIRTUAL. Hermana de las anteriores: se descuenta
+       igual, pero no hay `env()` que la provea —el teclado no achica el
+       viewport de layout en iOS— así que la mide `components/pos/keyboard-
+       inset.tsx` con `visualViewport` y la escribe acá mientras el POS está
+       montado. El default 0 es lo que ve el desktop y el panel. */
+    --kb-inset: 0px;
 }
 
 /* `safe-area` (cuatro lados) es correcta SOLO en superficies de fondo plano
@@ -424,20 +430,46 @@
     padding-right: var(--safe-r);
 }
 
-/* POS — typography táctil para inputs/textareas. El cajero necesita leer
-   rápido lo que tipea sin esfuerzo. Aplica scoped al árbol bajo .pos-scope
-   (el SidebarInset del layout (pos)/) — fuera del POS los inputs del panel
-   mantienen el styling default. */
-.pos-scope input[type="text"],
-.pos-scope input[type="number"],
-.pos-scope input[type="tel"],
-.pos-scope input[type="search"],
-.pos-scope input[type="email"],
-.pos-scope input:not([type]),
-.pos-scope textarea {
-    font-size: 1.0625rem;       /* ~17px — un punto sobre text-sm */
-    font-weight: 600;
-    letter-spacing: 0.025em;
+/* POS — typography de los CAMPOS (inputs, textareas y triggers de select).
+   El cajero tiene que leer de un vistazo lo que tipea y lo que eligió, así que
+   el POS sube el cuerpo de sus campos por encima del `text-sm` del panel. Lo
+   que fija esta regla es que suba PAREJO: un solo tamaño y un solo peso para
+   las tres superficies.
+
+   POR QUÉ 1rem (16px) Y PESO NORMAL (decisión del owner, 2026-08-25). Antes
+   esto valía 1.0625rem + `font-weight: 600` + tracking, y SOLO para
+   inputs/textareas: los `<Select>` se quedaban en su `text-sm` de 14px normal,
+   así que en un formulario del POS el campo tipeado se veía más grande y más
+   negro que el campo elegido de al lado — "demasiado grandes y bold y
+   desalineados" en el reporte. Las opciones eran igualar para abajo (14px, el
+   tamaño del select) o para arriba; se eligió 16px porque es el piso por
+   debajo del cual iOS hace zoom automático al enfocar un campo —bajar a 14
+   traería de vuelta ese zoom en la caja— y porque es exactamente el `text-base`
+   con el que nacen `<Input>` y `<Textarea>` en móvil. El bold se va: era lo que
+   hacía que el texto tipeado se leyera como un título.
+
+   DÓNDE APLICA. Cuelga de `[data-pos-touch]` (el atributo que
+   `components/pos/pos-touch-scope.tsx` pone en `<html>` mientras el POS está
+   montado) y NO de `.pos-scope`, que es el `SidebarInset` del layout: los
+   portales de Radix —diálogos, drawers, selects— se montan colgados del
+   `<body>`, fuera de ese árbol, y el campo del cobro (el que más se tipea)
+   quedaba afuera. Es el mismo criterio que el bloque táctil de más abajo, y
+   por eso la regla vive UNA sola vez, sin media query: el POS se ve igual en
+   el teléfono, en la tablet de caja y en el desktop. Fuera del POS el atributo
+   no existe y el panel conserva su densidad. */
+[data-pos-touch] :is(
+    [data-slot="select-trigger"],
+    input[type="text"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="search"],
+    input[type="email"],
+    input[type="password"],
+    input:not([type]),
+    textarea
+) {
+    font-size: 1rem;
+    font-weight: 400;
 }
 
 /* ─── POS móvil — mínimo táctil ──────────────────────────────────────────────
@@ -517,9 +549,10 @@
     }
 
     /* Campos de captura. Se incluyen los `<input>`/`<textarea>` nativos que no
-       pasan por el primitive (los diálogos numéricos usan uno nativo para que
-       el teléfono abra el teclado correcto), pero por lista explícita de
-       `type`: un checkbox o un radio no se estiran a 44 de alto. */
+       pasan por el primitive, pero por lista explícita de `type`: un checkbox
+       o un radio no se estiran a 44 de alto. (Los diálogos numéricos NO
+       entran acá: capturan con el `NumericPad`, no con un campo — su único
+       input es `sr-only` y sirve para abrir el teclado del OS.) */
     [data-pos-touch]
         :is(
             [data-slot="input"],
@@ -537,26 +570,6 @@
             textarea
         ):not([data-touch="off"]) {
         min-height: var(--pos-touch-min);
-    }
-
-    /* Typography táctil para los campos PORTALEADOS. El bloque `.pos-scope` de
-       arriba ya la aplica, pero solo dentro del shell — el input del monto en
-       el cobro, que es el que más se tipea, vive en un portal y se veía fino.
-       Acá se replica solo en móvil: en desktop el POS queda exactamente como
-       estaba. */
-    [data-pos-touch]
-        :is(
-            input[type="text"],
-            input[type="number"],
-            input[type="tel"],
-            input[type="search"],
-            input[type="email"],
-            input:not([type]),
-            textarea
-        ) {
-        font-size: 1.0625rem;   /* ~17px — un punto sobre text-sm */
-        font-weight: 600;
-        letter-spacing: 0.025em;
     }
 
     /* Ítems de menú y de select — "dropdowns" en el vocabulario del owner.
