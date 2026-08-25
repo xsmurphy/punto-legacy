@@ -9,7 +9,12 @@ export interface DeviceInvitation {
   outletId: string | null
   registerId: string | null
   deviceName: string | null
-  status: "pending" | "opened" | "approved" | "denied" | "expired"
+  // `consumed` (mig 171) es el estado terminal del canje de un solo uso: la
+  // invitación entregó su token y ya no entrega otro. Desde ese cambio es el
+  // destino normal de una invitación aprobada — antes se quedaban en
+  // `approved` para siempre, que es justamente lo que las volvía emisores de
+  // credenciales permanentes.
+  status: "pending" | "opened" | "approved" | "consumed" | "denied" | "expired"
   deviceUa: string | null
   deviceIp: string | null
   openedAt: string | null

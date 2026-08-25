@@ -196,17 +196,25 @@ final class DeviceAuth
     }
 
     /**
-     * Crea un device en BD y emite un token opaco sin setear cookie.
-     * Usado por el Device Authorization Grant: el admin aprueba la invitación
-     * y el dispositivo recibe el token via polling en /status (no vía setcookie
-     * del request del admin).
+     * Registra un device en BD SIN emitir ninguna sesión.
      *
-     * Misma lógica de idempotencia que issueDeviceToken() pero sin el efecto secundario
-     * de la cookie.
+     * Separado de `createDeviceAndIssueToken()` a propósito (2026-08-25):
+     * registrar el dispositivo y emitir la credencial son dos cosas distintas
+     * y hasta hoy estaban pegadas. `DeviceInvitationService::approve()` —el
+     * request del ADMIN— llamaba a la versión con token y recibía un Bearer
+     * del device que nadie usaba nunca: el dispositivo obtiene el suyo por
+     * polling en `/status`. Esa sesión huérfana quedaba activa en
+     * `auth_session` para siempre, y es parte de por qué en prod había
+     * devices con dos sesiones vivas. El aprobador ya no emite credenciales;
+     * emite exactamente uno el canje, y una sola vez.
      *
-     * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
+     * El fix va acá, en el wrapper, y no en el call-site: cualquier flujo
+     * futuro que necesite "dar de alta el device ahora, credencial después"
+     * usa este método en vez de emitir y descartar.
+     *
+     * @return array{deviceId: string, reused: bool}
      */
-    public static function createDeviceAndIssueToken(
+    public static function createDevice(
         string $companyId,
         string $outletId,
         string $registerId,
@@ -216,17 +224,10 @@ final class DeviceAuth
         ?string $browserLocalId = null,
         string $module          = 'pos',
     ): array {
-        $secret = $_ENV['JWT_SECRET'] ?? '';
-        if ($secret === '') {
-            throw new \RuntimeException('JWT_SECRET no configurado');
-        }
-
         if ($browserLocalId !== null && $browserLocalId !== '') {
             $existing = self::findActiveDeviceByBrowser($companyId, $registerId, $browserLocalId);
             if ($existing) {
-                $deviceId = (string) ($existing['deviceid'] ?? '');
-                $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
-                return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
+                return ['deviceId' => (string) ($existing['deviceid'] ?? ''), 'reused' => true];
             }
         }
 
@@ -253,19 +254,56 @@ final class DeviceAuth
                 throw new \RuntimeException('No se pudo crear el registro de device');
             }
 
-            $token = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
-            return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => false];
+            return ['deviceId' => $deviceId, 'reused' => false];
         } catch (\Throwable $e) {
             if ($browserLocalId !== null && str_contains($e->getMessage(), 'uq_device_browser_active')) {
                 $winner = self::findActiveDeviceByBrowser($companyId, $registerId, $browserLocalId);
                 if ($winner) {
-                    $deviceId = (string) ($winner['deviceid'] ?? '');
-                    $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
-                    return ['deviceId' => $deviceId, 'token' => $token, 'expiresIn' => self::TTL, 'reused' => true];
+                    return ['deviceId' => (string) ($winner['deviceid'] ?? ''), 'reused' => true];
                 }
             }
             throw $e;
         }
+    }
+
+    /**
+     * Crea un device en BD y emite un token opaco sin setear cookie.
+     *
+     * Queda para los flujos donde quien pide el alta ES el dispositivo que va
+     * a usar la credencial. El Device Authorization Grant ya NO pasa por acá:
+     * el aprobador usa `createDevice()` y el token lo emite el canje en
+     * `DeviceInvitationService::status()` (ver el docblock de `createDevice`).
+     *
+     * @return array{deviceId: string, token: string, expiresIn: int, reused: bool}
+     */
+    public static function createDeviceAndIssueToken(
+        string $companyId,
+        string $outletId,
+        string $registerId,
+        string $pairedByContactId,
+        ?string $deviceName     = null,
+        ?string $userAgent      = null,
+        ?string $browserLocalId = null,
+        string $module          = 'pos',
+    ): array {
+        $secret = $_ENV['JWT_SECRET'] ?? '';
+        if ($secret === '') {
+            throw new \RuntimeException('JWT_SECRET no configurado');
+        }
+
+        $created  = self::createDevice(
+            $companyId, $outletId, $registerId, $pairedByContactId,
+            $deviceName, $userAgent, $browserLocalId, $module,
+        );
+        $deviceId = $created['deviceId'];
+        $token    = self::buildToken($companyId, $outletId, $registerId, $deviceId, $pairedByContactId, $secret, $module);
+
+        return [
+            'deviceId'  => $deviceId,
+            'token'     => $token,
+            'expiresIn' => self::TTL,
+            'reused'    => $created['reused'],
+        ];
     }
 
     /**
