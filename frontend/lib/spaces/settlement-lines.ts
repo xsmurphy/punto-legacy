@@ -32,6 +32,13 @@
  * el modo `items`. La plata queda bien (el ledger es la fuente de verdad del
  * saldo); el inventario no. Se resuelve de raíz con un ítem de catálogo
  * dedicado al cobro parcial + soporte de línea sin stock en `SaleService`.
+ * (El backend lo bloquea de todos modos: las dos familias son mutuamente
+ * excluyentes por sesión — `SpaceSettlementService::validateAndComputeAmount`.)
+ *
+ * Add-ons: `kind='items'` los re-hidrata como `selections` del padre y por
+ * ende descuentan stock; `amount`/`share` NO — ver el docblock de
+ * `buildProportionalLines` para las tres razones y por qué forzarlo sería
+ * peor.
  *
  * ── Redondeo ────────────────────────────────────────────────────────────────
  *
@@ -43,9 +50,9 @@
  * "la última parte absorbe el resto".
  */
 
-import type { CartLine } from "@/lib/cart/store"
-import type { Order } from "@/hooks/use-orders"
-import type { PosConfig } from "@/lib/types/pos-bootstrap"
+import { addonsDelta, rebuildSelectionsFromOrder, type CartLine } from "@/lib/cart/store"
+import { isAddonChild, type Order, type OrderItem } from "@/hooks/use-orders"
+import type { PosConfig, PosItem } from "@/lib/types/pos-bootstrap"
 
 /**
  * Tolerancia al comparar un monto contra el saldo. Espejo de
@@ -78,6 +85,17 @@ export interface SettlementSource {
   note?: string
   /** Etiquetas de línea (uso interno) — espejo de `note`, mismo criterio. */
   tags?: string[]
+  /**
+   * La fila cruda de la orden. La necesita `rebuildSelectionsFromOrder` para
+   * re-hidratar los add-ons: los campos aplanados de arriba son el contrato de
+   * PLATA de esta capa, pero la reconstrucción necesita el `OrderItem` entero.
+   */
+  orderItem: OrderItem
+  /**
+   * Hijas de add-on de esta línea (context/41, mig 140), no canceladas. Vacío
+   * en el 100% del tráfico de un comercio que no usa la feature.
+   */
+  children: OrderItem[]
 }
 
 /**
@@ -110,13 +128,29 @@ export function splitShares(total: number, shareCount: number, decimals: number)
  * cerradas/canceladas — el mismo criterio que `computeBalance()` server-side,
  * para que lo que se puede volcar al carrito coincida con lo que compone el
  * saldo.
+ *
+ * Las hijas de add-on NO son unidades cobrables y por eso no entran al mapa:
+ * no llevan plata propia (su recargo ya está en el precio del padre) y el
+ * saldo del backend las excluye explícitamente
+ * (`SpaceBalanceService::compute()`, `parentorderitemid IS NULL`). Quedan
+ * colgadas de su padre en `children`, que es donde sirven: para reconstruir
+ * las `selections` y que el add-on descuente stock al cobrarse.
  */
 export function sourcesFromOrders(orders: Order[]): Map<string, SettlementSource> {
   const map = new Map<string, SettlementSource>()
+  const childrenByParent = new Map<string, OrderItem[]>()
+
   for (const order of orders) {
     if (order.status === "closed" || order.status === "cancelled") continue
     for (const oi of order.items ?? []) {
       if (oi.status === "cancelled") continue
+      if (isAddonChild(oi)) {
+        const parentId = oi.parentOrderItemId as string
+        const siblings = childrenByParent.get(parentId)
+        if (siblings) siblings.push(oi)
+        else childrenByParent.set(parentId, [oi])
+        continue
+      }
       map.set(oi.id, {
         orderItemId: oi.id,
         itemId: oi.itemId ?? "",
@@ -125,9 +159,19 @@ export function sourcesFromOrders(orders: Order[]): Map<string, SettlementSource
         price: oi.price ?? 0,
         note: oi.note ?? undefined,
         tags: oi.tags ?? undefined,
+        orderItem: oi,
+        children: [],
       })
     }
   }
+
+  // Segundo paso: las hijas llegan agrupadas después de su padre, pero el
+  // padre puede venir en otra orden de la misma sesión — no se asume orden.
+  for (const [parentId, children] of childrenByParent) {
+    const parent = map.get(parentId)
+    if (parent) parent.children = children
+  }
+
   return map
 }
 
@@ -150,10 +194,37 @@ function assertBillable(source: SettlementSource): void {
  * Líneas para `kind='items'`: los ítems elegidos, tal cual, sin prorratear.
  * El monto que cobra la caja es la suma de esos ítems — el mismo que el
  * backend recalcula desde los precios persistidos.
+ *
+ * ── Add-ons (context/41) ────────────────────────────────────────────────────
+ *
+ * Un ítem con add-ons vuelve con sus `selections` re-hidratadas
+ * (`rebuildSelectionsFromOrder`), igual que al cobrar una orden o una mesa
+ * entera: sin ellas `SaleService::expandAddonSelections` no corre, el add-on
+ * no genera su `itemSold`, no descuenta stock y no sale indentado en el
+ * ticket. La plata ya estaba bien —el recargo viene adentro del `price` del
+ * padre— y por eso el agujero era invisible.
+ *
+ * **El precio unitario NO se re-cotiza acá, a diferencia de
+ * `cartLinesFromOrderItems`.** Un cobro parcial se registra en el ledger con
+ * el monto que el backend recalcula desde los precios PERSISTIDOS
+ * (`SpaceSettlementService::validateAndComputeAmount`, kind='items'): si la
+ * caja cobrara el `priceDelta` vigente y el owner hubiera cambiado el precio
+ * del add-on con la mesa abierta, la venta y el asiento del ledger diferirían
+ * — el cliente pagaría una cifra y la mesa quedaría con saldo (o saldada de
+ * menos). Se ancla al precio persistido y se despeja la base restándole el
+ * recargo VIGENTE, que es exactamente lo que el server le va a restar al
+ * padre. Invariante que sale intacta: padre + hijas = lo que cobró la caja =
+ * lo que registra el ledger.
+ *
+ * Fail-safe idéntico al de `rebuildSelectionsFromOrder`: si el recargo vigente
+ * no entra en el precio persistido (base negativa), la línea va sin add-ons —
+ * el comportamiento previo — en vez de emitir un detalle que suma más que el
+ * total cobrado.
  */
 export function buildItemsLines(
   sources: Map<string, SettlementSource>,
   orderItemIds: string[],
+  catalogItems: PosItem[],
 ): Omit<CartLine, "lineId">[] {
   return orderItemIds.map((id) => {
     const source = sources.get(id)
@@ -163,7 +234,13 @@ export function buildItemsLines(
       )
     }
     assertBillable(source)
-    return {
+
+    const cat = catalogItems.find((ci) => ci.id === source.itemId)
+    const rebuilt = rebuildSelectionsFromOrder(source.orderItem, source.children, cat)
+    const selections = rebuilt?.selections
+    const basePrice = source.price - addonsDelta(selections)
+
+    const line = {
       itemId: source.itemId,
       name: source.name,
       qty: source.qty,
@@ -171,6 +248,8 @@ export function buildItemsLines(
       note: source.note,
       tags: source.tags,
     }
+    if (!selections || basePrice < 0) return line
+    return { ...line, basePrice, selections }
   })
 }
 
@@ -185,6 +264,32 @@ export function buildItemsLines(
  *
  * `sources` debe traer SOLO los ítems no saldados (los ya cobrados por
  * `kind='items'` no vuelven a facturarse ni a descontar stock).
+ *
+ * ── Por qué acá NO se reconstruyen los add-ons ──────────────────────────────
+ *
+ * Decisión explícita, no un olvido. `buildItemsLines` sí los reconstruye; este
+ * camino no, por tres razones que se suman:
+ *
+ * 1. **La qty deja de ser una unidad.** Estas líneas salen fraccionadas (0,333
+ *    × Pizza) y `CartLineAddon.qty` es un entero ≥ 1 que el server multiplica
+ *    por las unidades del padre. Un tercio de pizza descontaría un tercio de
+ *    queso — un movimiento de stock que no corresponde a nada que haya pasado
+ *    en la cocina.
+ * 2. **El recargo NO se prorratea.** `expandAddonSelections` le resta al padre
+ *    el `priceDelta` unitario COMPLETO y se lo da a la hija. Sobre una línea
+ *    que solo cobra una fracción del ítem, el add-on se llevaría su recargo
+ *    entero (y la base del padre se iría a negativo en cualquier parcial
+ *    chico).
+ * 3. **Se descontaría N veces.** `amount`/`share` prorratean sobre lo no
+ *    saldado SIN marcarlo: N parciales tocan los mismos ítems N veces. Con
+ *    selections, el add-on descontaría stock en cada uno.
+ *
+ * O sea: el add-on cobrado por `amount`/`share` sigue sin descontar stock. Es
+ * el mismo hueco ya documentado arriba para el ítem prorrateado en general
+ * (mezclar familias deriva el inventario), y se cierra con la misma solución
+ * de raíz —ítem de catálogo dedicado al cobro parcial + línea sin stock en
+ * `SaleService`—, no con una reconstrucción a medias acá. Forzarlo cambiaría
+ * un stock que no se descuenta por uno que se descuenta mal.
  */
 export function buildProportionalLines(
   sources: SettlementSource[],
