@@ -29,6 +29,8 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Progress } from "@/components/ui/progress"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useDebounce } from "@/hooks/use-debounce"
+import { useIsMobile } from "@/hooks/use-mobile"
+import { ActionMenu } from "@/components/ui/action-menu"
 import {
   Tooltip,
   TooltipContent,
@@ -50,7 +52,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { useCartStore } from "@/lib/cart/store"
@@ -163,6 +164,7 @@ interface Props {
 // ── Componente principal ──────────────────────────────────────────────────────
 
 export function PosTransactionsDialog({ open, onOpenChange, onDismiss }: Props) {
+  const isMobile = useIsMobile()
   const [searchInput, setSearchInput] = React.useState("")
   const [selectedDate, setSelectedDate] = React.useState<Date | undefined>(undefined)
   const [calendarOpen, setCalendarOpen] = React.useState(false)
@@ -199,13 +201,25 @@ export function PosTransactionsDialog({ open, onOpenChange, onDismiss }: Props) 
           dispositivo". */}
       <DialogContent
         mobileFullscreen
-        // `max-sm:flex flex-col`: en fullscreen el alto lo reparte flex —header
-        // fijo, cuerpo tomando lo que sobra— y no el `grid` con filas `auto`
-        // del primitive. Sin esto el cuerpo se quedaba en el `max-h-[90vh]` de
-        // abajo y el 10% restante mostraba una franja de `bg-popover` contra el
-        // borde inferior: el mismo síntoma "no baja hasta el final de la
-        // pantalla" que este commit cierra en el resto de las superficies.
-        className="sm:max-w-6xl p-0 max-sm:p-0 gap-0 overflow-hidden max-sm:flex max-sm:flex-col"
+        // TECLADO VIRTUAL. Radix enfoca el primer elemento focuseable al abrir
+        // y acá ese es el buscador: en el teléfono el módulo arrancaba con
+        // medio viewport tapado por el teclado, sobre un listado que el cajero
+        // entra a MIRAR, no a filtrar (reporte del owner 2026-08-25). En
+        // desktop el autofocus sí es lo que se quiere —se abre y se tipea— así
+        // que solo se cancela bajo el breakpoint. El foco va al content, que
+        // Radix ya monta con `tabIndex={-1}`: sin eso quedaría en el `<body>`
+        // y ni ESC ni el Tab arrancarían dentro del diálogo.
+        onOpenAutoFocus={(e) => {
+          if (!isMobile) return
+          e.preventDefault()
+          ;(e.currentTarget as HTMLElement | null)?.focus()
+        }}
+        // El reparto del alto en fullscreen (header fijo + cuerpo que toma lo
+        // que sobra) lo hace el primitive: `mobileFullscreen` pasa a `flex
+        // flex-col` bajo `sm`. Acá vivía a mano hasta que el mismo síntoma
+        // —una franja de `bg-popover` contra el borde inferior— apareció en el
+        // menú del POS y el layout se subió al wrapper.
+        className="sm:max-w-6xl p-0 max-sm:p-0 gap-0 overflow-hidden"
       >
         {/* `pt` con `--safe-t` solo en móvil: acá el header apoya en el borde
             superior del dispositivo. En desktop es un modal centrado y el
@@ -301,12 +315,19 @@ function TransactionList({
     <div className="flex flex-col h-full min-h-0 border-r overflow-hidden">
       {/* Filtros sticky — el título principal está en DialogHeader */}
       <div className="shrink-0 bg-background border-b px-6 pt-3 pb-3 flex flex-col gap-2">
-        <div className="flex gap-2">
+        {/* `items-center` + misma superficie en los tres controles: el campo
+            relleno sin borde (`bg-input/50`) al lado de dos botones `outline`
+            se leía como un control de otra familia —y más alto— aunque los
+            tres midan lo mismo (44px en móvil por el mínimo táctil de
+            `globals.css`, `h-8` en desktop). Reporte del owner 2026-08-25. La
+            fila se mantiene en UNA sola línea a propósito: es la barra de
+            filtros del listado, no un formulario. */}
+        <div className="flex items-center gap-2">
           <Input
             placeholder="Buscar por cliente, RUC/CI, comprobante o ID"
             value={searchInput}
             onChange={(e) => onSearchChange(e.target.value)}
-            className="flex-1"
+            className="min-w-0 flex-1 border-border bg-background dark:bg-transparent"
           />
           <Popover open={calendarOpen} onOpenChange={onCalendarOpenChange}>
             <PopoverTrigger asChild>
@@ -762,8 +783,16 @@ export function TransactionDetail({
             </div>
             <div className="shrink-0 flex flex-col items-end gap-2">
               <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
-              {/* Split button */}
-              <div className="inline-flex">
+              {/* Split button.
+
+                  `items-stretch` + tier `icon-sm` en el trigger: el CTA es del
+                  tier de texto (crece solo en alto) y el de opciones, del tier
+                  de icono (crece cuadrado), así que en móvil los dos llegan a
+                  los mismos 44px del mínimo táctil en vez de quedar uno
+                  deformado al lado del otro (reporte del owner 2026-08-25).
+                  El `px-2` sobre un `size="sm"` daba una caja de 44 de alto por
+                  32 de ancho — un tier de icono escrito a mano. */}
+              <div className="inline-flex items-stretch">
                 {primary.disabled ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -784,34 +813,38 @@ export function TransactionDetail({
                     {primary.label}
                   </Button>
                 )}
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button size="sm" className="rounded-l-none px-2" aria-label="Más acciones">
+                <ActionMenu
+                  title="Acciones de la transacción"
+                  trigger={
+                    <Button size="icon-sm" className="rounded-l-none" aria-label="Más acciones">
                       <MoreHorizontal className="size-4" />
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    {showSecondaryDuplicate && (
-                      <DropdownMenuItem onSelect={handleDuplicate}>Duplicar</DropdownMenuItem>
-                    )}
-                    <DropdownMenuItem onSelect={handleReprint}>Reimprimir</DropdownMenuItem>
-                    {typeNum === 9 && (
-                      <DropdownMenuItem onSelect={() => setQuotePdfOpen(true)}>Ver PDF</DropdownMenuItem>
-                    )}
-                    {(canOfferReturn || canOfferVoid) && <DropdownMenuSeparator />}
-                    {canOfferVoid && (
-                      <DropdownMenuItem
-                        className="text-destructive focus:text-destructive"
-                        onSelect={() => setVoidDialogOpen(true)}
-                      >
-                        Anular
-                      </DropdownMenuItem>
-                    )}
-                    {canOfferReturn && (
-                      <DropdownMenuItem onSelect={() => setReturnSheetOpen(true)}>Devolución</DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
+                  }
+                  actions={[
+                    {
+                      label: "Duplicar",
+                      hidden: !showSecondaryDuplicate,
+                      onSelect: handleDuplicate,
+                    },
+                    { label: "Reimprimir", onSelect: handleReprint },
+                    {
+                      label: "Ver PDF",
+                      hidden: typeNum !== 9,
+                      onSelect: () => setQuotePdfOpen(true),
+                    },
+                    {
+                      label: "Devolución",
+                      hidden: !canOfferReturn,
+                      onSelect: () => setReturnSheetOpen(true),
+                    },
+                    {
+                      label: "Anular",
+                      variant: "destructive",
+                      hidden: !canOfferVoid,
+                      onSelect: () => setVoidDialogOpen(true),
+                    },
+                  ]}
+                />
               </div>
             </div>
           </div>
