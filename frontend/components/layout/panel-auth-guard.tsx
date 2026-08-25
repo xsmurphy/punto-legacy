@@ -96,6 +96,31 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     router.replace("/login")
   }, [qc, router])
 
+  // ── Impersonación (admin "entró como" este tenant) ────────────────────────
+  // La marca `_imp_panel` la setea el BFF de admin junto a `_jwt_panel` al
+  // impersonar (app/api/admin/[...path]/route.ts). Es cosmética: solo decide
+  // si se muestra el botón de salida. Estado y no lectura directa en render
+  // porque `document` no existe en SSR.
+  const [isImpersonating, setIsImpersonating] = React.useState(false)
+  React.useEffect(() => {
+    setIsImpersonating(document.cookie.split("; ").includes("_imp_panel=1"))
+  }, [])
+
+  // Salir = cerrar la sesión IMPERSONADA (el logout normal del panel: revoca
+  // `_jwt_panel` en el server) + borrar la marca + volver a /admin, cuya
+  // cookie `_jwt_admin` nunca se tocó. Full navigation y no router.push: el
+  // realm admin es otro layout tree y conviene rehidratar de cero.
+  const handleExitImpersonation = React.useCallback(async () => {
+    try {
+      await api.post("/v1/logout", {})
+    } catch {
+      // igual salimos: sin logout la sesión impersonada expira sola en 24h
+    }
+    document.cookie = "_imp_panel=; path=/; max-age=0"
+    qc.clear()
+    window.location.href = "/admin"
+  }, [qc])
+
   // Subtitle del sidebar = nombre de la sucursal activa SIEMPRE que exista
   // (mismo comportamiento que el panel legacy: debajo del nombre de la empresa
   // aparece la sucursal en la que se está trabajando, sin importar si hay 1 o N
@@ -223,6 +248,8 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         viewScope={viewScope}
         onSelectAllOutlets={handleSelectAllOutlets}
         onLogout={handleLogout}
+        isImpersonating={isImpersonating}
+        onExitImpersonation={handleExitImpersonation}
       />
       <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
       {/* Asistente IA. FAB visible solo fuera de /pos y fuera de /chat.

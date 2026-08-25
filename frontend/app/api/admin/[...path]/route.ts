@@ -213,6 +213,17 @@ async function proxy(
         secure,
         maxAge: expiresIn,
       })
+      // Marca de impersonación, legible por JS a propósito: el sidebar del
+      // panel la usa para mostrar "Salir de impersonación". Es UI, no
+      // autoridad — la credencial sigue siendo solo `_jwt_panel` (HttpOnly).
+      // Forjarla apenas muestra un botón cuyo click hace logout.
+      res.cookies.set("_imp_panel", "1", {
+        path: "/",
+        httpOnly: false,
+        sameSite: "strict",
+        secure,
+        maxAge: expiresIn,
+      })
       return res
     }
     // ok=true sin token = bug backend.

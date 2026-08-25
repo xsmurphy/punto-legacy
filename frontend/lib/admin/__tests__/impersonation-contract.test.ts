@@ -62,6 +62,17 @@ describe("contrato de impersonación /admin", () => {
     expect(PAGE).toMatch(/res\?\.redirectUrl/)
   })
 
+  it("la marca _imp_panel acompaña a la cookie y el panel la consume", () => {
+    // El BFF setea la marca legible por JS junto a `_jwt_panel`; el guard del
+    // panel la lee para mostrar "Salir de impersonación" y la borra al salir.
+    // Si una punta se renombra sin la otra, el botón desaparece en silencio.
+    expect(BFF).toMatch(/res\.cookies\.set\(\s*"_imp_panel"/)
+    const GUARD = read(path.join(FRONTEND, "components/layout/panel-auth-guard.tsx"))
+    expect(GUARD).toMatch(/_imp_panel=1/)
+    expect(GUARD).toMatch(/_imp_panel=; path=\/; max-age=0/)
+    expect(GUARD).toMatch(/window\.location\.href = "\/admin"/)
+  })
+
   it("el token nunca se guarda del lado del cliente", () => {
     // Si alguien lo pasa por localStorage o por la URL, deja de ser HttpOnly y
     // se vuelve una credencial de panel al alcance de cualquier script.
