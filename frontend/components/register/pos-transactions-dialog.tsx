@@ -626,6 +626,11 @@ export function TransactionDetail({
     )
     // Link bidireccional con la cotización: al guardar la venta, el back vincula.
     useCartStore.getState().setQuoteParent(encId)
+    // Facturar es una acción de venta: la caja pasa a modo venta. Sin esto el
+    // carrito se cargaba pero el modo seguía siendo el que estaba (cotización
+    // sticky, típicamente), así que el CTA seguía diciendo "Cotizar" y el
+    // cajero generaba otra cotización en vez de cobrar.
+    useCartStore.getState().beginSale()
     onClose()
     toast.success("Cotización cargada — completá la venta para facturar")
   }

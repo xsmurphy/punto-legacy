@@ -768,6 +768,29 @@ interface CartState {
   setPosMode: (mode: "venta" | "orden" | "cotizacion") => void
 
   /**
+   * La caja vuelve a modo VENTA porque se tomó la acción de facturar.
+   *
+   * Invariante del POS (owner, 2026-08-25): cobrar una comanda —o cualquier
+   * otra cosa que dispare la facturación— deja la caja en modo venta, que es
+   * el único modo con hotkeys y con el CTA que cobra. Sin esto, "Facturar" una
+   * cotización guardada cargaba las líneas y dejaba el carrito en amber con el
+   * CTA "Cotizar": el cajero apretaba cobrar y generaba OTRA cotización.
+   *
+   * Existe separado de `setPosMode("venta")` porque no es lo mismo que el
+   * cajero elija venta en el selector de modo: acá el modo es CONSECUENCIA de
+   * una acción de facturar. Los loaders que reemplazan el carrito entero
+   * (`loadFromOrder`, `loadFromSession`, `loadForSettlement`) ya nacen en
+   * venta por `initialState`; los que solo AGREGAN líneas —facturar una
+   * cotización guardada, en el POS y en el panel— necesitan esto.
+   *
+   * Lo llama quien TOMA la acción, nunca el diálogo de cobro al abrirse:
+   * abrirlo es reversible (Esc) y el hotkey Enter lo dispara desde cualquier
+   * modo, así que llamarlo ahí convertía un Enter+Esc accidental en una
+   * pérdida de modo —y de `fulfillment`/`deliveryAddress`— sin vuelta atrás.
+   */
+  beginSale: () => void
+
+  /**
    * Vuelca el contenido de una orden (`pos_order` + `pos_order_item`) al
    * carrito en modo venta — "cobrar una orden" es copiar su contenido al
    * carrito y facturar con el flujo normal (context/24, "UX — decisión clave
@@ -1252,6 +1275,15 @@ export const useCartStore = create<CartState>()((set, _get) => ({
         ? { posMode: mode, credito: false, interno: false, ivaRemoved: false }
         : { posMode: mode, fulfillment: "dine_in", deliveryAddress: null },
     )
+  },
+
+  beginSale: () => {
+    // Mismo reset que `setPosMode("venta")`: fulfillment y dirección son
+    // atributos de la ORDEN, no de la venta. Los flags fiscales del carrito
+    // (credito/interno/ivaRemoved) NO se tocan — el cajero pudo prender
+    // CRÉDITO antes de abrir el cobro, y perderlo acá sería peor que el modo
+    // equivocado.
+    set({ posMode: "venta", fulfillment: "dine_in", deliveryAddress: null })
   },
 
   loadFromOrder: (order) => {

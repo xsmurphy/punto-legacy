@@ -26,6 +26,12 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { DatePicker } from "@/components/date-picker"
 import { toast } from "sonner"
 import { cn } from "@/lib/utils"
@@ -43,6 +49,7 @@ import type {
 } from "@/lib/commands/create-sale"
 import { ApiError } from "@/lib/api-client"
 import { getNextInvoiceNo } from "@/lib/pos/invoice-numbering"
+import { resolvePaymentAmount } from "@/lib/pos/payment-amount"
 import {
   extractRegisterConflictInfo,
   registerConflictMessage,
@@ -133,6 +140,15 @@ interface AppliedPayment {
   method: PaymentMethodConfig
   amount: number
   identifier: string | null
+  /**
+   * Vuelto que generó ESTE pago (el cliente entregó de más y se le devolvió la
+   * diferencia). Vive en la fila y no en un estado aparte del diálogo porque
+   * el vuelto es un atributo del pago: quitando la fila con la X tiene que
+   * irse con ella. Como estado suelto quedaba pegado — se aplicaba un pago con
+   * vuelto, se lo quitaba, y la venta se emitía igual con ese vuelto fantasma
+   * en la pantalla de éxito y en la pantalla del cliente.
+   */
+  change: number
 }
 
 // ── Helpers de display numérico ───────────────────────────────────────────────
@@ -182,8 +198,8 @@ interface PayDialogProps {
 // tomada, o la propia tenencia venció/se anuló. Bloquea igual que "pay" con
 // error, pero con la info real del tenedor + un CTA de reintentar explícito,
 // en vez de dejar al cajero con el error genérico y sin poder reintentar
-// (los botones de pago quedan disabled con remaining=0 una vez cubierto el
-// total — ver disabled={!credito && remaining<=0} en PayPhase).
+// (con el total ya cubierto los botones de pago quedan apagados y solo
+// explican el motivo — ver `blockedHint` en PayPhase).
 type DialogPhase = "pay" | "success" | "register-taken"
 
 // `RegisterConflictInfo` + `extractRegisterConflictInfo()` — ver
@@ -285,7 +301,6 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   // ── Estado ────────────────────────────────────────────────────────────────
   const [display, setDisplay] = React.useState("")
   const [applied, setApplied] = React.useState<AppliedPayment[]>([])
-  const [change, setChange] = React.useState(0)
   const [pendingIdentifier, setPendingIdentifier] = React.useState<{
     method: PaymentMethodConfig
     amount: number
@@ -339,7 +354,6 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     if (open) {
       setDisplay("")
       setApplied([])
-      setChange(0)
       setPendingIdentifier(null)
       setDueDate(defaultDueDate())
       setSaleResult(null)
@@ -355,15 +369,85 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       setRegisterTakenKind(block?.kind ?? null)
       setBlockedBeforePay(block !== null)
       setPhase(block ? "register-taken" : "pay")
+      // Acá NO se toca el modo del carrito, a propósito. Abrir el cobro no es
+      // facturar: es un gesto reversible —Esc y listo— y encima el hotkey
+      // Enter lo dispara desde CUALQUIER modo sin mirar `posMode`
+      // (`use-pos-hotkeys.ts`). Un `beginSale()` acá convertía ese Enter+Esc
+      // accidental en una mutación sin vuelta atrás: la cotización amarilla
+      // quedaba en modo venta —y el próximo Enter emitía Factura en vez de
+      // guardar la cotización— y una orden con envío perdía su dirección.
+      //
+      // El modo lo cambia quien TOMA la acción de facturar, que es donde el
+      // cajero sí se comprometió: `loadFromOrder` / `loadFromSession` /
+      // `loadForSettlement` (nacen en venta por `initialState`) y los dos
+      // "Facturar cotización", que llaman `beginSale()` explícito. Y la venta
+      // confirmada termina en venta igual, porque `handleClose` limpia el
+      // carrito. Ver `beginSale` en lib/cart/store.ts.
+
+      // Revalidación de tenencia al ABRIR, no al confirmar. El veredicto local
+      // se refresca por latido (5 min) y por realtime; entre latido y latido
+      // otro dispositivo pudo tomar la caja y el gate síncrono de arriba deja
+      // pasar — el rechazo llegaría recién en el 409 del confirm, con el medio
+      // de pago ya cargado (exactamente lo que reportó el owner). Sin `await`
+      // a propósito: un round-trip bloqueante antes de cada cobro rompería el
+      // POS táctil y contradice offline-first. El watcher de abajo levanta el
+      // veredicto nuevo apenas llega y corta antes del teclado numérico.
+      if (
+        !block &&
+        activeRegisterId &&
+        typeof navigator !== "undefined" &&
+        navigator.onLine
+      ) {
+        void refreshTenancy(activeRegisterId)
+      }
       saleUidRef.current = crypto.randomUUID()
       // autofocus al visor
       setTimeout(() => displayRef.current?.focus(), 50)
     }
+    // `activeRegisterId` afuera a propósito: el efecto es "al abrir", y
+    // reejecutarlo por un cambio de caja resetearía el cobro en curso.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
   // ── Derivados ─────────────────────────────────────────────────────────────
   const appliedTotal = applied.reduce((s, r) => s + r.amount, 0)
   const remaining = total - appliedTotal
+  // Vuelto DERIVADO de los pagos, nunca un estado propio: quitar el pago con
+  // la X (o con Backspace) tiene que llevarse su vuelto, y un estado paralelo
+  // se quedaba pegado — la venta salía con un vuelto que ya nadie entregó.
+  const change = applied.reduce((s, r) => s + r.change, 0)
+
+  // Perder la tenencia MIENTRAS el diálogo está abierto tiene que cortar acá,
+  // antes de que el cajero termine de cargar el medio de pago — no en el 409
+  // del confirm. Dos cosas mueven el veredicto con el cobro abierto: la
+  // revalidación que dispara la apertura (arriba) y el evento realtime
+  // `register-lease` cuando un admin libera o reasigna la caja
+  // (`use-realtime-sync.ts`). Una sola suscripción cubre las dos.
+  //
+  // Es una SUSCRIPCIÓN al store y no una lectura reactiva: al diálogo no le
+  // interesa el veredicto vigente —ese ya lo evaluó el gate de la apertura—,
+  // le interesa el momento en que CAMBIA. Se rearma cuando cambian
+  // phase/submitting/remaining: barato, y evita arrastrar refs para leer
+  // valores frescos dentro del callback.
+  //
+  // `submitting` queda excluido: una venta ya en vuelo la resuelve el gate de
+  // `handleConfirm` (que corre antes de numerar), y cambiar de fase encima
+  // taparía su resultado.
+  React.useEffect(() => {
+    if (!open || phase !== "pay" || submitting) return
+    return useTenancyStore.subscribe((state) => {
+      const block = tenancyBlock(state.verdict)
+      if (!block) return
+      setRegisterTakenInfo(block.info)
+      setRegisterTakenKind(block.kind)
+      // El reintento reanuda la emisión SOLO si la venta estaba lista para
+      // emitirse (total cubierto). Con pagos a medio cargar vuelve al teclado
+      // con lo aplicado intacto — reanudar ahí emitiría una venta cobrada por
+      // menos de lo que vale.
+      setBlockedBeforePay(remaining > 0)
+      setPhase("register-taken")
+    })
+  }, [open, phase, submitting, remaining])
 
   // ── Confirmar venta ───────────────────────────────────────────────────────
   /**
@@ -694,7 +778,6 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // "pay" con total Gs. 0 y sin confirmación. El clearCart ahora ocurre
         // al cerrar (handleClose, fase success), igual que el flujo online.
         toast.info('Sin conexión — la venta se enviará al volver online')
-        setChange(changeAmount)
         const offlineResult: CreateSaleResult = {
           transactionId: "",
           transactionUID: payload.uid,
@@ -713,7 +796,6 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         return
       }
 
-      setChange(changeAmount)
       setSaleResult(result)
       // Anotar la venta en el registro del turno de este dispositivo. La venta
       // ONLINE se anota igual que la offline: el total del turno que se muestra
@@ -903,21 +985,26 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     identifier: string | null,
     changeOverride?: number,
   ) {
+    // changeOverride tiene prioridad: permite registrar el vuelto cuando el
+    // pago entra por `remaining` pero el cajero recibió más (medio con vuelto).
+    const rowChange = changeOverride ?? 0
     const newApplied: AppliedPayment[] = [
       ...applied,
-      { rowId: crypto.randomUUID(), method, amount, identifier },
+      { rowId: crypto.randomUUID(), method, amount, identifier, change: rowChange },
     ]
     const newAppliedTotal = newApplied.reduce((s, r) => s + r.amount, 0)
     const newRemaining = total - newAppliedTotal
-    // changeOverride tiene prioridad: permite mostrar vuelto cuando el pago
-    // registrado es `remaining` pero el cajero entregó más (Caso C hasChange).
-    const newChange = changeOverride ?? (newRemaining < 0 ? Math.abs(newRemaining) : 0)
+    const newChange = newApplied.reduce((s, r) => s + r.change, 0)
 
     setApplied(newApplied)
     setDisplay("")
 
-    if (newRemaining <= 0) {
-      // Venta cubierta → confirmar automáticamente
+    // Auto-confirm SOLO en contado. En crédito la venta se cierra siempre con
+    // "Confirmar venta" (el cajero puede querer revisar el vencimiento, o
+    // sacar el pago que acaba de aplicar) — el comportamiento que el footer
+    // del diálogo ya declaraba y que el auto-confirm contradecía cuando el
+    // monto tipeado cubría el total.
+    if (newRemaining <= 0 && !credito) {
       await handleConfirm(newApplied, newChange)
     }
     // Si newRemaining > 0: el cajero sigue agregando pagos
@@ -936,6 +1023,34 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   }
 
   function handleMethodClick(method: PaymentMethodConfig) {
+    // Confirmación en vuelo: `handleConfirm` ya capturó los pagos, así que un
+    // pago más acá se descartaría en silencio.
+    if (submitting) return
+
+    // Caja cerrada: frena TODOS los medios y los dos modos. El aviso vive en
+    // este camino —el que comparten el toque y el hotkey— y no en una banda
+    // del header que además solo se leía en crédito.
+    if (drawerClosed) {
+      toast.error("Abrí la caja antes de cobrar")
+      return
+    }
+
+    // Total ya cubierto. Va ANTES de giftcard y de QR: los dos aplican plata y
+    // sin este corte una giftcard sumaba pagos por encima del total de la
+    // venta, y un medio QR devolvía sin decir nada.
+    if (remaining <= 0) {
+      if (!credito) {
+        // Contado: la única forma de llegar acá con el total cubierto es un
+        // confirm que falló (el que sale bien cierra el teclado). En contado
+        // no hay CTA de confirmar, así que el toque REINTENTA la emisión — si
+        // solo avisara, al cajero le quedaría cancelar y perder los pagos.
+        void handleConfirm(applied, change)
+        return
+      }
+      toast.info("El total ya está cubierto — confirmá la venta")
+      return
+    }
+
     if (method.systemKey === "giftcard") {
       setPendingGiftcard(true)
       return
@@ -955,50 +1070,38 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         )
         return
       }
-      const typed = parseDisplay(display)
-      const qrAmount = typed > 0 ? typed : remaining
+      // Misma regla del visor que el resto de los medios: lo tipeado, o el
+      // restante si no se tipeó nada. Antes acá se pedía el QR por lo TIPEADO
+      // aunque excediera el total — un QR cobra de verdad, así que ese
+      // excedente lo pagaba el cliente y había que devolverlo a mano.
+      const { amount: qrAmount } = resolvePaymentAmount(parseDisplay(display), remaining)
       if (qrAmount <= 0) return
       setPendingQr({ adapter: pspAdapter, amount: qrAmount })
       return
     }
 
-    if (credito) {
-      // En crédito: si hay monto tipeado, se aplica como pago parcial.
-      // Si no hay monto, un click en método con crédito no aplica nada
-      // (la venta a crédito 100% sin cobro inicial se confirma con el botón
-      // "Confirmar venta" — TODO crédito 100%: pendiente de definición con el owner).
-      const parsed = parseDisplay(display)
-      if (parsed > 0) {
-        tryApplyPayment(method, parsed)
-        setDisplay("")
-      }
-      return
+    // El monto SIEMPRE sale del visor, en contado y en crédito por igual —
+    // incluido el visor vacío, que muestra el restante. La regla vive en
+    // `resolvePaymentAmount` (lib/pos/payment-amount.ts), que explica por qué
+    // dejó de estar duplicada por modo. El modo solo decide si la venta se
+    // confirma sola al quedar cubierta (ver `applyPayment`).
+    const { amount, change: overpay } = resolvePaymentAmount(
+      parseDisplay(display),
+      remaining,
+    )
+
+    // El vuelto solo se propaga si el medio lo acepta: con tarjeta, el
+    // excedente no existe (se cobra el monto exacto) y avisarlo evita que el
+    // cajero crea que tiene que devolver algo.
+    if (overpay > 0 && !method.hasChange) {
+      toast.info(`${method.name} no acepta vuelto — se aplicó el monto exacto`)
     }
-
-    if (remaining <= 0) return // ya cubierto
-
-    const parsed = parseDisplay(display)
-    const isEmpty = parsed === 0
-
-    if (isEmpty) {
-      // CASO A: aplica el restante completo → auto-confirm
-      tryApplyPayment(method, remaining)
-    } else if (parsed < remaining) {
-      // CASO B: pago parcial — el cajero sigue agregando pagos
-      tryApplyPayment(method, parsed)
-      setDisplay("")
-    } else {
-      // CASO C: parsed >= remaining
-      if (method.hasChange) {
-        // El pago se registra por `remaining` (lo que se cobra).
-        // El vuelto = parsed - remaining se muestra en la pantalla success.
-        tryApplyPayment(method, remaining, parsed - remaining)
-      } else {
-        toast.info(`${method.name} no acepta vuelto — se aplicó el monto exacto`)
-        tryApplyPayment(method, remaining)
-      }
-      setDisplay("")
-    }
+    tryApplyPayment(
+      method,
+      amount,
+      method.hasChange && overpay > 0 ? overpay : undefined,
+    )
+    setDisplay("")
   }
 
   // ── Captura global de keystrokes ──────────────────────────────────────────
@@ -1029,11 +1132,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       if (e.key === "Backspace") {
         e.preventDefault()
         if (display === "") {
-          setApplied((prev) => {
-            const next = prev.slice(0, -1)
-            if (next.length === 0) setChange(0)
-            return next
-          })
+          setApplied((prev) => prev.slice(0, -1))
         } else {
           setDisplay((prev) => formatDisplayInput(prev.slice(0, -1)))
         }
@@ -1065,11 +1164,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     // Backspace con visor vacío → elimina el último applied
     if (e.key === "Backspace" && display === "") {
       e.preventDefault()
-      setApplied((prev) => {
-        const next = prev.slice(0, -1)
-        if (next.length === 0) setChange(0)
-        return next
-      })
+      setApplied((prev) => prev.slice(0, -1))
       return
     }
 
@@ -1085,17 +1180,49 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   }
 
   // ── Validación (solo para crédito, que no tiene auto-confirm) ────────────
-  const creditoWithoutCustomer = credito && !customer
-  // Cliente seleccionado pero SIN crédito habilitado (contact.contactCreditable
-  // = false). Distinto de "sin cliente" — el cajero ya eligió a alguien, el
-  // problema es que ese cliente puntual no puede comprar a crédito.
-  const creditoCustomerNotCreditable = credito && !!customer && !customer.isCreditable
-  const creditSaleReady =
-    credito && !!customer && customer.isCreditable && !submitting && !drawerClosed
+  /**
+   * Motivo por el que ESTA venta a crédito todavía no se puede confirmar, o
+   * `null` si se puede.
+   *
+   * Es un texto y no tres booleanos porque su destino es el tooltip del propio
+   * CTA: un impedimento se informa en el control que impide, no en una banda
+   * que además empuja el layout del diálogo (regla del owner, `context/14`
+   * R10). Las causas están ordenadas por lo que el cajero tiene que resolver
+   * primero — sin cliente no tiene sentido hablar de si ese cliente tiene
+   * crédito.
+   *
+   * `isCreditable` es un gate real, no cosmético: el backend
+   * (`SaleService::save`) lo valida igual; decirlo acá evita el round-trip.
+   */
+  const creditBlockedReason: string | null = !credito
+    ? null
+    : !customer
+      ? "Elegí un cliente para vender a crédito"
+      : !customer.isCreditable
+        ? `${customer.name} no tiene crédito habilitado`
+        : drawerClosed
+          ? "Abrí la caja antes de cobrar"
+          : null
+  const creditSaleReady = credito && creditBlockedReason === null && !submitting
+
+  /**
+   * Motivo por el que los medios de pago no pueden cargar plata ahora — para
+   * pintarlos apagados con la explicación en vez de dejarlos mudos.
+   *
+   * Contado con el total cubierto NO figura: ese toque no está impedido, es el
+   * reintento de una emisión que falló (ver `handleMethodClick`).
+   */
+  const payBlockedHint: string | null = drawerClosed
+    ? "Abrí la caja antes de cobrar"
+    : credito && remaining <= 0
+      ? "El total ya está cubierto"
+      : null
 
   function handleCreditConfirm() {
     if (!creditSaleReady) return
-    void handleConfirm(applied, 0)
+    // `change` y no 0: en crédito el vuelto de un cobro inicial se calculó al
+    // aplicar el pago (ver `applyPayment`), no acá.
+    void handleConfirm(applied, change)
   }
 
   async function handlePrint() {
@@ -1226,15 +1353,13 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               total={total}
               credito={credito}
               customer={customer}
-              creditoWithoutCustomer={creditoWithoutCustomer}
-              creditoCustomerNotCreditable={creditoCustomerNotCreditable}
-              drawerClosed={drawerClosed}
+              creditBlockedReason={creditBlockedReason}
+              payBlockedHint={payBlockedHint}
               applied={applied}
               display={display}
               displayRef={displayRef}
               remaining={remaining}
               appliedTotal={appliedTotal}
-              creditSaleReady={creditSaleReady}
               submitting={submitting}
               errorMsg={errorMsg}
               config={config}
@@ -1257,6 +1382,18 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
               kind={registerTakenKind}
               registerId={activeRegisterId}
               onRetry={() => {
+                // El gate se re-evalúa ACÁ, después de que la pantalla pidió
+                // la tenencia: si el servidor volvió a decir que no, el cajero
+                // se queda donde está con el motivo actualizado (pudo pasar de
+                // "sin confirmar" a "tomada por otro"). Antes el reintento
+                // devolvía al teclado igual y el rechazo reaparecía recién al
+                // confirmar, con el medio de pago ya cargado.
+                const stillBlocked = tenancyBlock(useTenancyStore.getState().verdict)
+                if (stillBlocked) {
+                  setRegisterTakenInfo(stillBlocked.info)
+                  setRegisterTakenKind(stillBlocked.kind)
+                  return
+                }
                 setPhase("pay")
                 setRegisterTakenInfo(null)
                 setRegisterTakenKind(null)
@@ -1345,7 +1482,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         onApply={(code, amount) => {
           const gcMethod = paymentMethods.find((m) => m.systemKey === "giftcard")
           if (gcMethod) {
-            void applyPayment(gcMethod, amount, code)
+            // Tope en el restante: el saldo de la giftcard puede superar lo
+            // que falta cobrar, y una giftcard no da vuelto — el excedente
+            // sigue siendo saldo de la tarjeta, no plata que entra a la venta.
+            const { amount: gcAmount } = resolvePaymentAmount(amount, remaining)
+            void applyPayment(gcMethod, gcAmount, code)
           }
           setPendingGiftcard(false)
         }}
@@ -1361,15 +1502,20 @@ interface PayPhaseProps {
   total: number
   credito: boolean
   customer: ReturnType<typeof useCartStore.getState>["customer"]
-  creditoWithoutCustomer: boolean
-  creditoCustomerNotCreditable: boolean
-  drawerClosed: boolean
+  /** Por qué no se puede confirmar la venta a crédito, o `null` si se puede. */
+  creditBlockedReason: string | null
+  /**
+   * Por qué los medios de pago no pueden cargar plata ahora, o `null`. Se
+   * pinta en cada botón (apagado + motivo). En CONTADO con el total ya
+   * cubierto es `null` a propósito: ahí el toque no está bloqueado, reintenta
+   * la emisión que falló.
+   */
+  payBlockedHint: string | null
   applied: AppliedPayment[]
   display: string
   displayRef: React.RefObject<HTMLInputElement | null>
   remaining: number
   appliedTotal: number
-  creditSaleReady: boolean
   submitting: boolean
   errorMsg: string | null
   config: ReturnType<typeof useCatalogStore.getState>["config"]
@@ -1389,15 +1535,13 @@ function PayPhase({
   total,
   credito,
   customer,
-  creditoWithoutCustomer,
-  creditoCustomerNotCreditable,
-  drawerClosed,
+  creditBlockedReason,
+  payBlockedHint,
   applied,
   display,
   displayRef,
   remaining,
   appliedTotal,
-  creditSaleReady,
   submitting,
   errorMsg,
   config,
@@ -1437,17 +1581,12 @@ function PayPhase({
           {credito ? "Total a pagar · Crédito" : "Total a pagar · Contado"}
         </span>
 
-        {creditoWithoutCustomer && (
-          <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-center text-xs text-amber-600 dark:text-amber-400">
-            Seleccioná un cliente para venta a crédito
-          </div>
-        )}
-
-        {creditoCustomerNotCreditable && (
-          <div className="mt-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-center text-xs text-amber-600 dark:text-amber-400">
-            {customer?.name} no tiene crédito habilitado — elegí otro cliente
-          </div>
-        )}
+        {/* Los impedimentos de la venta a crédito (sin cliente, cliente sin
+            crédito, caja cerrada) NO se pintan acá: viajan al tooltip del CTA
+            "Confirmar venta", que es el control que impide. Dos bandas
+            condicionales en el header además movían el visor y los métodos de
+            pago hacia abajo según el estado — justo lo que la Regla #10
+            prohíbe (memoria muscular del cajero). */}
 
         {credito && customer && (
           <div className="mt-2 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
@@ -1472,11 +1611,6 @@ function PayPhase({
           </div>
         )}
 
-        {drawerClosed && (
-          <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-xs text-destructive">
-            Abrí la caja antes de cobrar
-          </div>
-        )}
       </DialogHeader>
 
       {/* Visor unificado — display del remaining Y input numérico editable.
@@ -1588,6 +1722,22 @@ function PayPhase({
             // propósito (`aria-disabled`, no `disabled`): el click explica el
             // motivo con un aviso local en vez de no hacer nada.
             const pspOffline = !isOnline && isPspQrSystemKey(m.systemKey)
+            // El botón que no puede cargar plata se apaga EN SU LUGAR y dice
+            // por qué, sin `disabled` real: un `disabled` de verdad no recibe
+            // el toque, y en tablet no hay hover — el cajero se quedaba con un
+            // botón muerto que no explica nada. El motivo definitivo lo da
+            // `onMethodClick`, que es también el camino del hotkey.
+            const blockedHint = pspOffline
+              ? "Necesita conexión a internet"
+              : (payBlockedHint ?? undefined)
+            // Contado con el total cubierto: el botón NO está impedido (no se
+            // apaga), pero tampoco hace lo de siempre — reintenta la emisión
+            // que falló. El tooltip lo dice en vez de dejar que el cajero
+            // toque Efectivo esperando cargar plata.
+            const retryHint =
+              !blockedHint && !credito && remaining <= 0
+                ? "Reintentar la emisión"
+                : undefined
             return (
             <Button
               key={m.id}
@@ -1595,13 +1745,12 @@ function PayPhase({
               className={cn(
                 "h-10 justify-center gap-1.5 border-l-4 px-2 text-xs font-medium",
                 secondary && "text-muted-foreground",
-                pspOffline && "opacity-50",
+                blockedHint && "opacity-50",
               )}
               style={accent ? { borderLeftColor: accent } : undefined}
               onClick={() => onMethodClick(m)}
-              disabled={!credito && remaining <= 0}
-              aria-disabled={pspOffline || undefined}
-              title={pspOffline ? "Necesita conexión a internet" : undefined}
+              aria-disabled={blockedHint ? true : undefined}
+              title={blockedHint ?? retryHint}
             >
               <span className="truncate">{m.name}</span>
               {m.code && (
@@ -1637,16 +1786,73 @@ function PayPhase({
           Cancelar
         </Button>
         {credito && (
-          <Button
-            disabled={!creditSaleReady}
+          <CreditConfirmCta
+            blockedReason={creditBlockedReason}
+            submitting={submitting}
             onClick={onCreditConfirm}
-            className="flex-[2] font-bold transition-all active:scale-[0.98]"
-          >
-            {submitting ? "Procesando..." : "Confirmar venta"}
-          </Button>
+          />
         )}
       </div>
     </>
+  )
+}
+
+/**
+ * CTA "Confirmar venta" del cobro a crédito.
+ *
+ * Mismo patrón que `PayCta` (cart-panel.tsx): cuando la venta no se puede
+ * confirmar, el botón se pinta apagado EN SU LUGAR y el tooltip dice por qué,
+ * en vez de una banda arriba que empuja el layout (regla del owner, pedida
+ * tres veces). `aria-disabled` y no `disabled`: un botón realmente
+ * deshabilitado no recibe eventos de puntero, así que ni dispararía el
+ * tooltip; queda inerte para lo que importa —no confirma— porque el click
+ * pasa por `handleCreditConfirm`, que corta con `creditSaleReady`.
+ *
+ * El estado "Procesando..." sigue siendo un `disabled` real: ahí no hay nada
+ * que explicar y el segundo tap tiene que rebotar.
+ */
+function CreditConfirmCta({
+  blockedReason,
+  submitting,
+  onClick,
+}: {
+  blockedReason: string | null
+  submitting: boolean
+  onClick: () => void
+}) {
+  const button = (
+    <Button
+      disabled={submitting}
+      aria-disabled={blockedReason ? true : undefined}
+      // En tablet no hay hover, así que el toque tiene que decir lo mismo que
+      // el tooltip — si no, el CTA vuelve a ser un botón mudo.
+      onClick={() => {
+        if (blockedReason) {
+          toast.info(blockedReason)
+          return
+        }
+        onClick()
+      }}
+      className={cn(
+        "flex-[2] font-bold transition-all active:scale-[0.98]",
+        blockedReason &&
+          "bg-muted text-muted-foreground hover:bg-muted hover:text-muted-foreground active:scale-100",
+      )}
+      aria-label={blockedReason ? `Confirmar venta — ${blockedReason}` : "Confirmar venta"}
+    >
+      {submitting ? "Procesando..." : "Confirmar venta"}
+    </Button>
+  )
+
+  if (!blockedReason) return button
+
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{button}</TooltipTrigger>
+        <TooltipContent side="top">{blockedReason}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
 
@@ -1657,9 +1863,9 @@ function PayPhase({
 // Dialog entero (mismo patrón que la fase "success") en vez de un aviso
 // chico: "nunca permitir vender sin numeración válida" pide algo más difícil
 // de ignorar que el bloque de `errorMsg`, con el motivo real y un CTA de
-// reintentar explícito (los botones de pago quedan disabled con remaining=0
-// una vez cubierto el total, así que sin este CTA el cajero no tiene forma
-// de reintentar sin cerrar el dialog entero).
+// reintentar explícito (con el total ya cubierto los botones de pago no
+// vuelven a cargar plata, así que sin este CTA el cajero no tendría forma de
+// reintentar sin cerrar el dialog entero y perder los pagos).
 
 interface RegisterTakenPhaseProps {
   info: RegisterConflictInfo | null
