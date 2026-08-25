@@ -2,11 +2,15 @@
 /**
  * REST — Movimientos de Finanzas (el ledger de caja simple).
  *
- *   GET    /v1/finance/movements?accountId=&categoryId=&kind=&from=&to=&q=&limit=&offset= → lista
+ *   GET    /v1/finance/movements?accountId=&categoryId=&costCenterId=&kind=&from=&to=&q=&limit=&offset= → lista
  *   GET    /v1/finance/movements?id=<uuid>                                                → detalle
  *   POST   /v1/finance/movements                          { accountId, kind, amount, ... } → crea (manual)
  *   POST   /v1/finance/movements?resource=transfer         { fromAccountId, toAccountId, amount, ... } → transferencia
+ *   PUT    /v1/finance/movements?id=<uuid>          { categoryId?, costCenterId? } → reclasifica
  *   DELETE /v1/finance/movements?id=<uuid>                 → anula (soft-void; solo manual/transfer)
+ *
+ * `categoryId`/`costCenterId` aceptan el valor literal `none` como FILTRO
+ * (movimientos sin clasificar), no como id.
  *
  * Auth realm `panel`. Requiere permiso `finance.manage`.
  */
@@ -32,8 +36,9 @@ if ($method === 'GET') {
     }
 
     $filters = [
-        'accountId'  => $_GET['accountId'] ?? null,
-        'categoryId' => $_GET['categoryId'] ?? null,
+        'accountId'    => $_GET['accountId'] ?? null,
+        'categoryId'   => $_GET['categoryId'] ?? null,
+        'costCenterId' => $_GET['costCenterId'] ?? null,
         'kind'       => $_GET['kind'] ?? null,
         'from'       => $_GET['from'] ?? null,
         'to'         => $_GET['to'] ?? null,
@@ -60,6 +65,25 @@ if ($method === 'POST') {
 
     try {
         $row = $svc->create((string) COMPANY_ID, $body);
+    } catch (\RuntimeException $e) {
+        apiError($e->getMessage(), 422);
+    }
+    apiOk($row);
+}
+
+// RECLASIFICAR: cambia categoría y/o centro de costo de un movimiento ya
+// registrado, sin tocar monto/cuenta/kind (el saldo no se mueve). Es el camino
+// por el que se clasifica el HISTÓRICO — incluidos los movimientos derivados
+// (compras, gastos de caja del POS), que no se pueden anular desde acá pero sí
+// reclasificar. Ver MovementService::reclassify().
+if ($method === 'PUT') {
+    $id = trim((string) ($_GET['id'] ?? ''));
+    if ($id === '') {
+        apiError('id requerido', 400);
+    }
+    $body = is_array($_POST) ? $_POST : [];
+    try {
+        $row = $svc->reclassify($id, (string) COMPANY_ID, $body);
     } catch (\RuntimeException $e) {
         apiError($e->getMessage(), 422);
     }

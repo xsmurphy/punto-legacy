@@ -250,6 +250,7 @@ final class FinanceLedger
             categoryId: $defaultCategoryId,
             description: $description,
             categorySplit: $categorySplit,
+            costCenterId: $this->resolveCostCenterId($row),
         );
     }
 
@@ -337,12 +338,22 @@ final class FinanceLedger
         // movimiento sea rastreable hasta la compra que se acreditó.
         $parentId = (new \Punto\Api\Services\TransactionLinkService())->listOriginIds($companyId, $transactionId, 'purchase_credit_note')[0] ?? null;
         $invoiceNo = '';
+        // El centro de costo se hereda de la COMPRA ORIGINAL, no de la fila
+        // type=14: `PurchaseCreditNoteService` inserta la NC con `meta = '{}'`
+        // (no copia la meta del padre), así que acá es el único lugar donde el
+        // dato está disponible. Y corresponde heredarlo: la NC es el espejo
+        // contable de la compra — si el gasto se imputó a "Obra Norte", la
+        // devolución al proveedor tiene que DESCONTARSE de "Obra Norte", no
+        // quedar sin centro. Si quedara null, el total por centro mostraría el
+        // gasto inflado (la compra suma, la devolución no resta ahí).
+        $ccFromParent = null;
         if ($parentId !== null) {
             $parent = ncmExecute(
-                'SELECT invoiceNo FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+                'SELECT invoiceNo, meta FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
                 [$parentId, $companyId]
             );
-            $invoiceNo = $parent ? (string) ($parent['invoiceNo'] ?? '') : '';
+            $invoiceNo    = $parent ? (string) ($parent['invoiceNo'] ?? '') : '';
+            $ccFromParent = $parent ? $this->resolveCostCenterId($parent) : null;
         }
 
         $categoryId  = $this->categories->ensurePurchaseCreditNoteCategoryId($companyId);
@@ -356,6 +367,7 @@ final class FinanceLedger
             kind: 'income',
             categoryId: $categoryId,
             description: $description,
+            costCenterId: $ccFromParent,
         );
     }
 
@@ -438,6 +450,12 @@ final class FinanceLedger
      * abajo cae a `$categoryId` sin partir en vez de arriesgar un saldo
      * incorrecto.
      *
+     * $costCenterId (mig 167): centro de costo de la compra ENTERA. A
+     * diferencia de $categorySplit NO parte nada — se copia igual en cada
+     * movimiento generado, sea el único o cada porción del split. Es un dato
+     * de imputación, no de importe: sumarlo a la clave de unicidad del ledger
+     * rompería la idempotencia del hook (ver `resolveCostCenterId()`).
+     *
      * @param list<array{0:?string,1:float}>|null $categorySplit
      */
     private function recordPaymentLines(
@@ -448,7 +466,8 @@ final class FinanceLedger
         string $kind,
         ?string $categoryId,
         string $description,
-        ?array $categorySplit = null
+        ?array $categorySplit = null,
+        ?string $costCenterId = null
     ): void {
         $lines = $this->decodePaymentLines($row);
         if (empty($lines)) {
@@ -499,6 +518,9 @@ final class FinanceLedger
                     $this->movements->recordDerivedMovement($companyId, $source, $sourceId, [
                         'accountId'     => $accountId,
                         'categoryId'    => $sliceCategoryId,
+                        // Mismo centro en TODAS las porciones — la compra se
+                        // divide por categoría, no por destino.
+                        'costCenterId'  => $costCenterId,
                         'kind'          => $kind,
                         'amount'        => $sliceAmount,
                         'date'          => $date,
@@ -514,6 +536,7 @@ final class FinanceLedger
             $this->movements->recordDerivedMovement($companyId, $source, $sourceId, [
                 'accountId'     => $accountId,
                 'categoryId'    => $categoryId,
+                'costCenterId'  => $costCenterId,
                 'kind'          => $kind,
                 'amount'        => $agg['amount'],
                 'date'          => $date,
@@ -781,6 +804,25 @@ final class FinanceLedger
         $meta  = $this->decodeMeta($row);
         $catId = (string) ($meta['expenseCategoryId'] ?? '');
         return ($catId !== '' && preg_match(self::UUID_RE, $catId)) ? $catId : null;
+    }
+
+    /**
+     * Centro de costo al que se imputa la compra ENTERA (`meta.costCenterId`,
+     * ver `PurchasesService::create()`), o null si el comercio no lo eligió.
+     *
+     * Hermano de `resolveHeaderCategoryId()` pero con una diferencia que hace
+     * a la integridad del ledger: la categoría PARTE la compra en N
+     * movimientos (uno por porción), el centro NO. Es un destino único que
+     * viaja idéntico en todas esas porciones, porque `costcenterid` no entra
+     * en la clave del `ON CONFLICT` de la mig 153 — si entrara, un reintento
+     * del hook con otro centro insertaría filas nuevas en vez de actualizar
+     * las existentes y el saldo se duplicaría.
+     */
+    private function resolveCostCenterId(array|\CaseInsensitiveArray $row): ?string
+    {
+        $meta  = $this->decodeMeta($row);
+        $ccId  = (string) ($meta['costCenterId'] ?? '');
+        return ($ccId !== '' && preg_match(self::UUID_RE, $ccId)) ? $ccId : null;
     }
 
     /**

@@ -23,8 +23,35 @@ final class MovementService
     private const KINDS = ['income', 'expense'];
 
     /**
+     * SELECT list compartido por `list()`, `find()` y `transfer()` — resuelve
+     * los nombres de cuenta/categoría/centro de costo y el medio de pago.
+     *
+     * Estaba copiado tres veces con la misma cadena de LEFT JOIN; sumarle el
+     * centro de costo (mig 167) habría hecho una cuarta copia. Se centraliza
+     * para que un JOIN nuevo entre en un solo lugar.
+     *
+     * `c.code`/`cc.code` viajan al front porque el export XLSX del listado
+     * tiene que llevarlos: matchear contra el sistema del contador es el
+     * PUNTO del campo, y un export sin el código no sirve para eso.
+     */
+    private const SELECT_LIST = "SELECT m.*,
+                   a.name  AS accountname,
+                   c.name  AS categoryname,
+                   c.code  AS categorycode,
+                   cc.name AS costcentername,
+                   cc.code AS costcentercode,
+                   t.taxonomyname AS paymentmethodname
+              FROM fin_movement m
+              LEFT JOIN fin_account a ON a.accountid = m.accountid
+              LEFT JOIN fin_category c ON c.categoryid = m.categoryid
+              LEFT JOIN fin_cost_center cc ON cc.costcenterid = m.costcenterid
+              LEFT JOIN taxonomy t ON t.taxonomyid::text = m.paymentmethod
+                                   AND t.companyid = m.companyid
+                                   AND t.taxonomytype = 'paymentMethod'";
+
+    /**
      * Lista movimientos con filtros + paginación.
-     * @param array{accountId?:string,categoryId?:string,kind?:string,from?:string,to?:string,q?:string,limit?:int,offset?:int} $filters
+     * @param array{accountId?:string,categoryId?:string,costCenterId?:string,kind?:string,from?:string,to?:string,q?:string,limit?:int,offset?:int} $filters
      */
     public function list(string $companyId, array $filters = []): array
     {
@@ -45,6 +72,25 @@ final class MovementService
             } elseif (preg_match(self::UUID_RE, $filters['categoryId'])) {
                 $where   .= ' AND m.categoryid = ?';
                 $params[] = $filters['categoryId'];
+            }
+        }
+        if (!empty($filters['costCenterId'])) {
+            // 'none' expone los movimientos SIN imputar — el filtro que hace
+            // usable la decisión del owner de que el centro sea opcional: los
+            // históricos quedan sin asignar y hay que poder encontrarlos para
+            // clasificarlos después (ver `reclassify()`).
+            //
+            // Excluye source='transfer' por el mismo motivo que el filtro de
+            // categoría: mover plata entre cuentas propias no se imputa a
+            // ningún centro (no es gasto de nadie), así que una transferencia
+            // JAMÁS va a salir de esta lista. Dejarla adentro llenaría de ruido
+            // permanente la única vista que sirve para saber qué falta
+            // clasificar.
+            if ($filters['costCenterId'] === 'none') {
+                $where .= " AND m.costcenterid IS NULL AND m.source != 'transfer'";
+            } elseif (preg_match(self::UUID_RE, $filters['costCenterId'])) {
+                $where   .= ' AND m.costcenterid = ?';
+                $params[] = $filters['costCenterId'];
             }
         }
         if (!empty($filters['kind']) && in_array($filters['kind'], self::KINDS, true)) {
@@ -70,17 +116,12 @@ final class MovementService
         $totalRow = ncmExecute("SELECT COUNT(*) AS n FROM fin_movement m WHERE {$where}", $params);
         $total = (int) ($totalRow['n'] ?? 0);
 
-        // LEFT JOIN taxonomy resuelve paymentmethod → nombre real cuando es un
-        // taxonomyId (ventas nuevas, UUID); las claves legacy ('efectivo', etc.)
-        // no matchean acá y se resuelven en shape() vía PaymentMethodResolver
-        // (bug 2026-07-30: el listado mostraba el UUID crudo en "Medio de pago").
-        $sql = "SELECT m.*, a.name AS accountname, c.name AS categoryname, t.taxonomyname AS paymentmethodname
-                  FROM fin_movement m
-                  LEFT JOIN fin_account a ON a.accountid = m.accountid
-                  LEFT JOIN fin_category c ON c.categoryid = m.categoryid
-                  LEFT JOIN taxonomy t ON t.taxonomyid::text = m.paymentmethod
-                                       AND t.companyid = m.companyid
-                                       AND t.taxonomytype = 'paymentMethod'
+        // El LEFT JOIN taxonomy de SELECT_LIST resuelve paymentmethod → nombre
+        // real cuando es un taxonomyId (ventas nuevas, UUID); las claves legacy
+        // ('efectivo', etc.) no matchean ahí y se resuelven en shape() vía
+        // PaymentMethodResolver (bug 2026-07-30: el listado mostraba el UUID
+        // crudo en "Medio de pago").
+        $sql = self::SELECT_LIST . "
                  WHERE {$where}
                  ORDER BY m.date DESC, m.created_at DESC
                  LIMIT {$limit} OFFSET {$offset}";
@@ -214,14 +255,7 @@ final class MovementService
             return null;
         }
         $row = ncmExecute(
-            "SELECT m.*, a.name AS accountname, c.name AS categoryname, t.taxonomyname AS paymentmethodname
-               FROM fin_movement m
-               LEFT JOIN fin_account a ON a.accountid = m.accountid
-               LEFT JOIN fin_category c ON c.categoryid = m.categoryid
-               LEFT JOIN taxonomy t ON t.taxonomyid::text = m.paymentmethod
-                                    AND t.companyid = m.companyid
-                                    AND t.taxonomytype = 'paymentMethod'
-              WHERE m.movementid = ? AND m.companyid = ? LIMIT 1",
+            self::SELECT_LIST . ' WHERE m.movementid = ? AND m.companyid = ? LIMIT 1',
             [$id, $companyId]
         );
         return $row ? $this->shape($row, $companyId) : null;
@@ -231,7 +265,7 @@ final class MovementService
      * Crea un movimiento manual (entrada o salida). Actualiza el saldo de la
      * cuenta en la misma transacción.
      *
-     * @param array{accountId:string,categoryId?:string|null,kind:string,amount:float|string,date?:string,description?:string,paymentMethod?:string,userId?:string,outletId?:string} $data
+     * @param array{accountId:string,categoryId?:string|null,costCenterId?:string|null,kind:string,amount:float|string,date?:string,description?:string,paymentMethod?:string,userId?:string,outletId?:string} $data
      */
     public function create(string $companyId, array $data): array
     {
@@ -258,6 +292,8 @@ final class MovementService
             throw new \RuntimeException('Categoría no encontrada');
         }
 
+        $costCenterId = $this->resolveCostCenterId($companyId, $data['costCenterId'] ?? null);
+
         $account = (new AccountService())->find($accountId, $companyId);
         if (!$account) {
             throw new \RuntimeException('Cuenta no encontrada');
@@ -268,6 +304,7 @@ final class MovementService
         $movementId = $this->insertMovement($companyId, [
             'accountid'     => $accountId,
             'categoryid'    => $categoryId,
+            'costcenterid'  => $costCenterId,
             'kind'          => $kind,
             'amount'        => $amount,
             'date'          => $this->normalizeDate($data['date'] ?? null, $companyId),
@@ -363,15 +400,8 @@ final class MovementService
         }
 
         $rs = ncmExecute(
-            "SELECT m.*, a.name AS accountname, c.name AS categoryname, t.taxonomyname AS paymentmethodname
-               FROM fin_movement m
-               LEFT JOIN fin_account a ON a.accountid = m.accountid
-               LEFT JOIN fin_category c ON c.categoryid = m.categoryid
-               LEFT JOIN taxonomy t ON t.taxonomyid::text = m.paymentmethod
-                                    AND t.companyid = m.companyid
-                                    AND t.taxonomytype = 'paymentMethod'
-              WHERE m.transfergroupid = ? AND m.companyid = ?
-              ORDER BY m.kind ASC",
+            self::SELECT_LIST . ' WHERE m.transfergroupid = ? AND m.companyid = ?
+              ORDER BY m.kind ASC',
             [$groupId, $companyId],
             false,
             true
@@ -474,7 +504,7 @@ final class MovementService
      * los movimientos manuales/transferencias siguen pasando por
      * `insertMovement()` (sourceid NULL, no aplica el UNIQUE).
      *
-     * @param array{accountId:string,categoryId?:string|null,kind:string,amount:float,date?:string,description?:string,paymentMethod?:string,userId?:string,outletId?:string} $fields
+     * @param array{accountId:string,categoryId?:string|null,costCenterId?:string|null,kind:string,amount:float,date?:string,description?:string,paymentMethod?:string,userId?:string,outletId?:string} $fields
      * @return array{inserted:bool,movementId:?string}
      */
     public function recordDerivedMovement(string $companyId, string $source, string $sourceId, array $fields): array
@@ -499,6 +529,18 @@ final class MovementService
         // bloqueante — si no hay ninguna, el movimiento queda sin clasificar.
         $categoryId = (string) ($fields['categoryId'] ?? '');
         $categoryId = ($categoryId !== '' && preg_match(self::UUID_RE, $categoryId)) ? $categoryId : null;
+        // Centro de costo: opcional igual que la categoría, y NUNCA bloqueante
+        // acá. Un movimiento derivado nace de un hecho ya consumado (una venta
+        // cobrada, una compra pagada) — si el centro que trae el origen no
+        // existe o está archivado, se imputa sin centro y se clasifica después
+        // desde el panel. Tirar una excepción haría fallar el hook y dejaría el
+        // ledger sin el movimiento, que es infinitamente peor que un
+        // movimiento sin clasificar.
+        $costCenterId = (string) ($fields['costCenterId'] ?? '');
+        $costCenterId = ($costCenterId !== '' && preg_match(self::UUID_RE, $costCenterId)) ? $costCenterId : null;
+        if ($costCenterId !== null && !(new CostCenterService())->isAssignable($costCenterId, $companyId)) {
+            $costCenterId = null;
+        }
 
         $movementId = $this->uuidV4();
         $date       = $this->normalizeDate($fields['date'] ?? null, $companyId);
@@ -525,17 +567,23 @@ final class MovementService
         // viene vacío → NO aplicamos delta de saldo. Elimina la ventana
         // TOCTOU del patrón SELECT-luego-INSERT: el chequeo de existencia y
         // la inserción son una sola sentencia atómica.
+        //
+        // `costcenterid` NO entra en la clave del ON CONFLICT (ver mig 167):
+        // una compra se parte por CATEGORÍA pero se imputa ENTERA a un solo
+        // centro. Si estuviera en la clave, un reintento del hook que
+        // resolviera un centro distinto crearía una fila nueva y duplicaría
+        // saldo.
         $inserted = ncmExecute(
             'INSERT INTO fin_movement
-                (movementid, companyid, accountid, categoryid, kind, amount, date,
+                (movementid, companyid, accountid, categoryid, costcenterid, kind, amount, date,
                  description, paymentmethod, source, sourceid, userid, outletid, status)
-             VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, 1)
+             VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?, ?::uuid, ?, ?, 1)
              ON CONFLICT (companyid, source, sourceid, accountid, COALESCE(categoryid, \'00000000-0000-0000-0000-000000000000\'::uuid))
                  WHERE sourceid IS NOT NULL
              DO NOTHING
              RETURNING movementid',
             [
-                $movementId, $companyId, $accountId, $categoryId, $kind, $amount, $date,
+                $movementId, $companyId, $accountId, $categoryId, $costCenterId, $kind, $amount, $date,
                 $description, $paymentMethod, $source, $sourceId, $userId, $outletId,
             ]
         );
@@ -614,7 +662,156 @@ final class MovementService
         return count($rows);
     }
 
+    /**
+     * RECLASIFICA un movimiento: cambia a qué categoría y a qué centro de
+     * costo se imputa. NO toca monto, cuenta, kind ni fecha.
+     *
+     * Es la contraparte obligatoria de que el centro de costo sea OPCIONAL
+     * (decisión del owner 2026-08-24): "los históricos quedan sin asignar y se
+     * clasifican después". Sin esta operación esa decisión no cierra — los 696
+     * movimientos de producción se quedarían sin centro para siempre y el
+     * reporte por centro nunca cuadraría con la realidad.
+     *
+     * POR QUÉ ESTE RECORTE DE CAMPOS. Monto, cuenta y kind determinan el saldo
+     * cacheado en `fin_account.currentbalance`; cambiarlos exigiría revertir y
+     * reaplicar el delta, y en un movimiento DERIVADO además divergiría del
+     * hecho que lo originó (la venta seguiría diciendo otra cosa). La
+     * clasificación, en cambio, es metadata pura: no mueve un guaraní.
+     *
+     * POR QUÉ APLICA A MOVIMIENTOS DERIVADOS (a diferencia de `void()`, que
+     * los rechaza). Anular un derivado sería mentirle al origen — la venta
+     * existió. Reclasificarlo no: la categoría y el centro son una decisión
+     * administrativa POSTERIOR al hecho, y justamente el grueso de lo que hay
+     * que clasificar son compras y gastos de caja, que son todos derivados.
+     * Un movimiento ANULADO (status != 1) sí se rechaza: reclasificar algo que
+     * ya no cuenta en ningún reporte solo puede ser un error del operador.
+     *
+     * @param array{categoryId?:string|null,costCenterId?:string|null} $data
+     */
+    public function reclassify(string $id, string $companyId, array $data): array
+    {
+        if (!preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('id inválido');
+        }
+        $row = ncmExecute(
+            'SELECT status FROM fin_movement WHERE movementid = ? AND companyid = ? LIMIT 1',
+            [$id, $companyId]
+        );
+        if (!$row) {
+            throw new \RuntimeException('Movimiento no encontrado');
+        }
+        if ((int) $row['status'] !== 1) {
+            throw new \RuntimeException('El movimiento está anulado: no se puede reclasificar');
+        }
+
+        $records = ['movementid' => $id];
+
+        // Cada campo se toca SOLO si su clave viene en el payload — así un
+        // PUT que solo asigna el centro de costo no borra la categoría que ya
+        // había resuelto el hook de origen.
+        if (array_key_exists('categoryId', $data)) {
+            $categoryId = trim((string) ($data['categoryId'] ?? ''));
+            $categoryId = ($categoryId !== '' && preg_match(self::UUID_RE, $categoryId)) ? $categoryId : null;
+            if ($categoryId !== null && !(new CategoryService())->find($categoryId, $companyId)) {
+                throw new \RuntimeException('Categoría no encontrada');
+            }
+            $records['categoryid'] = $categoryId;
+        }
+        if (array_key_exists('costCenterId', $data)) {
+            $records['costcenterid'] = $this->resolveCostCenterId($companyId, $data['costCenterId']);
+        }
+
+        if (count($records) === 1) {
+            throw new \RuntimeException('Nada que reclasificar');
+        }
+
+        // GUARDA DEL UNIQUE DE LA MIG 153, no decoración.
+        //
+        // Una compra dividida por categoría deja N filas que comparten
+        // (companyid, source, sourceid, accountid) y difieren SOLO en
+        // `categoryid` — que es exactamente la clave de
+        // `uidx_fin_movement_source`. Mover una porción a la categoría de otra
+        // porción del mismo origen (o dos porciones a "sin categoría", que
+        // colisionan en el centinela del COALESCE) levanta un 23505.
+        //
+        // Sin este guard el 23505 sale como `DbQueryException`, que extiende
+        // `\Exception` y NO `\RuntimeException` — así que ATRAVIESA el
+        // `catch (\RuntimeException)` de `api/v1/finance/movements.php` y el
+        // operador recibe un 500 genérico ante algo perfectamente explicable.
+        // No hay corrupción posible (el índice es el que frena), pero el
+        // mensaje tiene que decir por qué no se pudo.
+        \Punto\Api\Support\UniqueViolation::guard(
+            fn() => ncmUpdate([
+                'records'     => $records,
+                'table'       => 'fin_movement',
+                'where'       => 'movementid = ? AND companyid = ?',
+                'whereParams' => [$id, $companyId],
+            ]),
+            [
+                'uidx_fin_movement_source' => 'Otra porción de este mismo comprobante ya está en esa categoría. '
+                    . 'Un comprobante dividido no puede tener dos porciones en la misma categoría: '
+                    . 'reclasificá la otra porción primero.',
+            ],
+            'No se pudo reclasificar: la combinación de categoría ya existe para este comprobante',
+        );
+
+        $updated = $this->find($id, $companyId);
+        if (!$updated) {
+            throw new \RuntimeException('No se pudo releer el movimiento reclasificado');
+        }
+        return $updated;
+    }
+
+    /**
+     * Reporte "Por centro de costo": ingresos/egresos/neto del período
+     * agrupados por centro. Análogo a totalsByCategory()/totalsByAccount() —
+     * misma agregación SQL y mismo pivot, así que la fila "Sin centro de
+     * costo" (id null) sale sola y queda al final del listado.
+     *
+     * @return list<array{id:?string,name:string,income:float,expense:float,net:float}>
+     */
+    public function totalsByCostCenter(string $companyId, string $from, string $to): array
+    {
+        $rs = ncmExecute(
+            "SELECT cc.costcenterid, cc.name, m.kind, COALESCE(SUM(m.amount), 0) AS total
+               FROM fin_movement m
+               LEFT JOIN fin_cost_center cc ON cc.costcenterid = m.costcenterid
+              WHERE m.companyid = ? AND m.status = 1 AND m.date BETWEEN ? AND ?
+              GROUP BY cc.costcenterid, cc.name, m.kind",
+            [$companyId, $from, $to],
+            false,
+            true
+        );
+        return $this->pivotByKind($rs, 'costcenterid', 'Sin centro de costo');
+    }
+
     // ── helpers internos ─────────────────────────────────────────────────
+
+    /**
+     * Valida el centro de costo que llega de un formulario del panel.
+     *
+     * A diferencia de `recordDerivedMovement()` —donde un centro inválido se
+     * degrada a null para no tumbar el hook— acá SÍ lanza: hubo un humano
+     * eligiendo en un selector, y guardar en silencio algo distinto de lo que
+     * eligió es peor que el error.
+     *
+     * Rechaza los ARCHIVADOS: un centro dado de baja conserva su histórico
+     * pero no recibe imputaciones nuevas (ver `CostCenterService::isAssignable`).
+     */
+    private function resolveCostCenterId(string $companyId, mixed $raw): ?string
+    {
+        $id = trim((string) ($raw ?? ''));
+        if ($id === '') {
+            return null;
+        }
+        if (!preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('costCenterId inválido');
+        }
+        if (!(new CostCenterService())->isAssignable($id, $companyId)) {
+            throw new \RuntimeException('Centro de costo no encontrado o archivado');
+        }
+        return $id;
+    }
 
     private function insertMovement(string $companyId, array $fields)
     {
@@ -644,6 +841,16 @@ final class MovementService
             return $val . ' 00:00:00';
         }
         return $val;
+    }
+
+    /** '' y NULL colapsan a null — la UI pinta un guion, no una celda vacía. */
+    private function nullableString(mixed $v): ?string
+    {
+        if ($v === null) {
+            return null;
+        }
+        $s = (string) $v;
+        return $s !== '' ? $s : null;
     }
 
     private function uuidV4(): string
@@ -678,6 +885,13 @@ final class MovementService
             'accountName'        => $f['accountname'] !== null ? (string) $f['accountname'] : null,
             'categoryId'         => $f['categoryid'] !== null ? (string) $f['categoryid'] : null,
             'categoryName'       => $f['categoryname'] !== null ? (string) $f['categoryname'] : null,
+            // Códigos contables externos (mig 167) — viajan al front para que
+            // el export XLSX del listado los lleve; sin ellos el export no
+            // sirve para matchear contra el sistema del contador.
+            'categoryCode'       => $this->nullableString($f['categorycode'] ?? null),
+            'costCenterId'       => isset($f['costcenterid']) && $f['costcenterid'] !== null ? (string) $f['costcenterid'] : null,
+            'costCenterName'     => $this->nullableString($f['costcentername'] ?? null),
+            'costCenterCode'     => $this->nullableString($f['costcentercode'] ?? null),
             'kind'               => (string) $f['kind'],
             'amount'             => (float) $f['amount'],
             'date'               => (string) $f['date'],

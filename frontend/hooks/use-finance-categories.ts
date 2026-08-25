@@ -7,6 +7,12 @@ export interface FinanceCategory {
   id: string
   name: string
   kind: "income" | "expense"
+  /**
+   * Código contable EXTERNO (mig 167) — el que matchea esta categoría contra
+   * el plan de cuentas del contador del comercio. Opcional y único por
+   * comercio; el backend lo normaliza ('' → null).
+   */
+  code: string | null
   parentId: string | null
   sortOrder: number
   isSystem: boolean
@@ -27,7 +33,7 @@ export function useCreateFinanceCategory() {
   return useMutation<
     FinanceCategory,
     Error,
-    { name: string; kind: "income" | "expense"; parentId?: string | null }
+    { name: string; kind: "income" | "expense"; code?: string | null; parentId?: string | null }
   >({
     mutationFn: (values) => api.post<FinanceCategory>("/v1/finance/categories", values),
     onSuccess: () => {
@@ -38,11 +44,17 @@ export function useCreateFinanceCategory() {
 
 export function useUpdateFinanceCategory() {
   const qc = useQueryClient()
-  return useMutation<FinanceCategory, Error, { id: string; name: string; parentId?: string | null }>({
+  return useMutation<
+    FinanceCategory,
+    Error,
+    { id: string; name: string; code?: string | null; parentId?: string | null }
+  >({
     mutationFn: ({ id, name, ...rest }) =>
       api.put<FinanceCategory>(`/v1/finance/categories?id=${id}`, { name, ...rest }),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["finance", "categories"] })
+      // Invalida "finance" entero: el listado de movimientos trae el nombre y
+      // el código de la categoría resueltos por JOIN.
+      qc.invalidateQueries({ queryKey: ["finance"] })
     },
   })
 }

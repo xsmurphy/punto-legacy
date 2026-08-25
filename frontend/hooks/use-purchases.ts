@@ -189,6 +189,13 @@ export interface PurchaseCreatePayload {
    * resuelta server-side). Opcional.
    */
   expenseCategoryId?: string | null
+  /**
+   * Centro de costo de CABECERA (mig 167) — a DÓNDE se imputa el gasto, no
+   * QUÉ es (eso es la categoría). Sin equivalente por línea a propósito: la
+   * compra puede partirse en varios movimientos por categoría, pero todos
+   * llevan este mismo centro. Opcional.
+   */
+  costCenterId?: string | null
   items: PurchaseFormItem[]
 }
 

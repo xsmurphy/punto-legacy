@@ -35,6 +35,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { useTaxes } from "@/hooks/use-taxes"
 import { useFinanceCategories } from "@/hooks/use-finance-categories"
+import { useFinanceCostCenters } from "@/hooks/use-finance-cost-centers"
 import {
   usePurchaseDraft,
   useApprovePurchaseDraft,
@@ -107,6 +108,10 @@ export default function PurchaseDraftReviewPage() {
   // Categoría de gasto de CABECERA (owner 2026-08-20) — mismo campo que
   // /purchase/page.tsx, ver docblock ahí.
   const [expenseCategoryId, setExpenseCategoryId] = React.useState("")
+  // Centro de costo de CABECERA (mig 167) — mismo campo que /purchase/page.tsx,
+  // ver docblock ahí. Viaja dentro de `edited`, así que sobrevive al guardado
+  // del borrador sin tocar el schema de `purchase_draft`.
+  const [costCenterId, setCostCenterId] = React.useState("")
   const [note, setNote] = React.useState("")
   const [lines, setLines] = React.useState<FormLine[]>([])
   const [rejectOpen, setRejectOpen] = React.useState(false)
@@ -114,6 +119,10 @@ export default function PurchaseDraftReviewPage() {
   const expenseCategoryOptions = (financeCategories ?? []).filter(
     (c) => c.kind === "expense" && c.status === 1,
   )
+  // Centros ACTIVOS. Si el comercio no cargó ninguno el selector se oculta
+  // entero — mismo criterio que /purchase/page.tsx.
+  const { data: costCenters } = useFinanceCostCenters()
+  const costCenterOptions = costCenters ?? []
 
   // Hidrata el form UNA sola vez cuando llega el draft — de `edited` si ya
   // se guardó antes, si no de `extracted` (mapeo IA → shape del form).
@@ -139,6 +148,12 @@ export default function PurchaseDraftReviewPage() {
       setCheckBank(e.checkBank ?? "")
       setCheckDueDate(e.checkDueDate ?? "")
       setDiscount(typeof e.discount === "number" ? e.discount : null)
+      // La cabecera de clasificación también se rehidrata: `edited` guarda el
+      // payload COMPLETO, así que si el usuario ya eligió categoría/centro y
+      // volvió después, el form tiene que mostrar lo que él eligió y no un
+      // default vacío que al aprobar mandaría el gasto sin clasificar.
+      setExpenseCategoryId(e.expenseCategoryId ?? "")
+      setCostCenterId(e.costCenterId ?? "")
       setNote(e.note ?? "")
       setLines(
         e.items && e.items.length > 0
@@ -278,6 +293,7 @@ export default function PurchaseDraftReviewPage() {
         : {}),
       discount: discount ?? 0,
       expenseCategoryId: expenseCategoryId || undefined,
+      costCenterId: costCenterId || undefined,
       note,
       items,
     }
@@ -660,6 +676,31 @@ export default function PurchaseDraftReviewPage() {
                   Atajo: la usa cada línea que no eligió su propia categoría.
                 </p>
               </Field>
+
+              {/* Oculto si el comercio no cargó centros — ver /purchase/page.tsx. */}
+              {costCenterOptions.length > 0 && (
+                <Field label="Centro de costo (toda la compra)" id="costCenterId">
+                  <Select
+                    value={costCenterId || "none"}
+                    onValueChange={(v) => setCostCenterId(v === "none" ? "" : v)}
+                  >
+                    <SelectTrigger id="costCenterId">
+                      <SelectValue placeholder="Sin centro de costo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin centro de costo</SelectItem>
+                      {costCenterOptions.map((cc) => (
+                        <SelectItem key={cc.id} value={cc.id}>
+                          {cc.code ? `${cc.code} — ${cc.name}` : cc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    A qué centro se imputa el gasto. Va entero a uno solo.
+                  </p>
+                </Field>
+              )}
 
               <Field label="Nota / observaciones" id="note">
                 <Textarea id="note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Opcional" />

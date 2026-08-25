@@ -96,6 +96,7 @@ export default function FinanzasReportesPage() {
 
   const byCategory = useFinanceReport("category", opts)
   const byAccount = useFinanceReport("account", opts)
+  const byCostCenter = useFinanceReport("costcenter", opts)
 
   return (
     <div className="flex flex-col gap-6">
@@ -112,6 +113,7 @@ export default function FinanzasReportesPage() {
       <Tabs defaultValue="category">
         <TabsList>
           <TabsTrigger value="category">Por categoría</TabsTrigger>
+          <TabsTrigger value="costcenter">Por centro de costo</TabsTrigger>
           <TabsTrigger value="account">Por cuenta</TabsTrigger>
         </TabsList>
         <TabsContent value="category" className="mt-4">
@@ -121,6 +123,22 @@ export default function FinanzasReportesPage() {
             isLoading={byCategory.isLoading}
             exportFileName="finanzas-por-categoria"
             nameHeader="Categoría"
+            emptyTitle="Sin movimientos en el período"
+            emptyDescription="Ajustá el rango de fechas y volvé a consultar."
+          />
+        </TabsContent>
+        {/* Tercer corte del MISMO reporte (mig 167) — misma tabla, mismo
+            período, solo cambia la dimensión del GROUP BY. La fila "Sin centro
+            de costo" sale al final: el centro es opcional, así que el
+            histórico sin clasificar se acumula ahí hasta que alguien lo
+            reclasifique desde /finanzas/movimientos. */}
+        <TabsContent value="costcenter" className="mt-4">
+          <ReportTable
+            tableId="finance-reports-by-cost-center"
+            data={byCostCenter.data?.rows ?? []}
+            isLoading={byCostCenter.isLoading}
+            exportFileName="finanzas-por-centro-de-costo"
+            nameHeader="Centro de costo"
             emptyTitle="Sin movimientos en el período"
             emptyDescription="Ajustá el rango de fechas y volvé a consultar."
           />

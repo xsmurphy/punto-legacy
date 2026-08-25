@@ -24,6 +24,7 @@ import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useCreatePurchase, type PurchaseFormItem } from "@/hooks/use-purchases"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { useFinanceCategories } from "@/hooks/use-finance-categories"
+import { useFinanceCostCenters } from "@/hooks/use-finance-cost-centers"
 import { useUploadInvoice, usePendingDraftsCount } from "@/hooks/use-purchase-drafts"
 import {
   AlertDialog,
@@ -101,6 +102,11 @@ export default function NewPurchasePage() {
   // compra — la hereda cada línea que NO tocó su propio selector. Precedencia
   // línea > cabecera > ítem, resuelta server-side (PurchasesService::create()).
   const [expenseCategoryId, setExpenseCategoryId] = React.useState("")
+  // Centro de costo (mig 167): a DÓNDE se imputa el gasto — una sucursal, un
+  // área, una obra. Es de CABECERA y no tiene par por línea: la compra puede
+  // partirse en varios movimientos por categoría, pero se imputa entera a un
+  // solo centro. Opcional por decisión del owner.
+  const [costCenterId, setCostCenterId] = React.useState("")
   const [note, setNote] = React.useState("")
   const [lines, setLines] = React.useState<FormLine[]>([emptyLine()])
 
@@ -118,6 +124,12 @@ export default function NewPurchasePage() {
   const expenseCategoryOptions = (financeCategories ?? []).filter(
     (c) => c.kind === "expense" && c.status === 1,
   )
+
+  // Centros de costo ACTIVOS. Sin auto-seed: si el comercio no cargó ninguno
+  // el selector no tiene sentido y se oculta entero, en vez de mostrar un
+  // combo con una sola opción muerta.
+  const { data: costCenters } = useFinanceCostCenters()
+  const costCenterOptions = costCenters ?? []
 
   // Medios de pago reales del tenant (taxonomy paymentMethod) — mismo catálogo
   // que ventas/POS, resuelve cuenta vía finAccountMap (Parte 2, context/30).
@@ -293,6 +305,7 @@ export default function NewPurchasePage() {
           : {}),
         discount: discount ?? 0,
         expenseCategoryId: expenseCategoryId || undefined,
+        costCenterId: costCenterId || undefined,
         note,
         items,
     })
@@ -568,6 +581,33 @@ export default function NewPurchasePage() {
               Atajo: la usa cada línea que no eligió su propia categoría. Podés categorizar líneas puntuales distinto abajo.
             </p>
           </Field>
+
+          {/* El centro de costo se oculta si el comercio no cargó ninguno:
+              mostrar un selector cuya única opción es "sin centro" solo agrega
+              ruido a un form que se carga a alto volumen. */}
+          {costCenterOptions.length > 0 && (
+            <Field label="Centro de costo (toda la compra)" id="costCenterId">
+              <Select
+                value={costCenterId || "none"}
+                onValueChange={(v) => setCostCenterId(v === "none" ? "" : v)}
+              >
+                <SelectTrigger id="costCenterId">
+                  <SelectValue placeholder="Sin centro de costo" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Sin centro de costo</SelectItem>
+                  {costCenterOptions.map((cc) => (
+                    <SelectItem key={cc.id} value={cc.id}>
+                      {cc.code ? `${cc.code} — ${cc.name}` : cc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                A qué centro se imputa el gasto. Va entero a uno solo, aunque las líneas tengan categorías distintas.
+              </p>
+            </Field>
+          )}
 
           <Field label="Nota / observaciones" id="note">
             <Textarea

@@ -12,6 +12,7 @@ import {
   Loader2,
   Plus,
   Receipt,
+  Tags,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -59,13 +60,23 @@ import { formatDate } from "@/lib/format-date"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useFinanceAccounts } from "@/hooks/use-finance-accounts"
 import { useFinanceCategories } from "@/hooks/use-finance-categories"
+import { useFinanceCostCenters } from "@/hooks/use-finance-cost-centers"
 import {
   useFinanceMovements,
   useCreateFinanceMovement,
   useCreateFinanceTransfer,
+  useReclassifyFinanceMovement,
   useVoidFinanceMovement,
   type FinanceMovement,
 } from "@/hooks/use-finance-movements"
+
+/**
+ * Centinela de "sin asignar" para los `<Select>` de clasificación: Radix no
+ * acepta `<SelectItem value="">` (el string vacío es su valor de "nada
+ * seleccionado" y rompe el componente). Mismo patrón que `NO_PARENT` en
+ * finanzas/configuracion/categorias-section.tsx. Se traduce a `null` al enviar.
+ */
+const NO_VALUE = "__none__"
 
 export default function FinanzasMovimientosPage() {
   return (
@@ -90,6 +101,11 @@ function FinanzasMovimientosPageInner() {
   // (excluidas explícitamente por el backend, ver MovementService::list) y,
   // más raro, un movimiento importado desde afuera.
   const [categoryId, setCategoryId] = React.useState<string>("all")
+  // "none" = "Sin centro de costo". Acá SÍ es el filtro de uso diario, al revés
+  // que en categorías: el centro de costo es opcional al cargar el gasto y el
+  // histórico previo a la mig 167 quedó entero sin imputar, así que este filtro
+  // es la bandeja de trabajo desde la que se clasifica (con "Reclasificar").
+  const [costCenterId, setCostCenterId] = React.useState<string>("all")
   const { range, setRange } = useDateRange()
 
   // Sincroniza el filtro con la URL cuando cambia externamente (ej. click desde /finanzas/cuentas).
@@ -102,17 +118,20 @@ function FinanzasMovimientosPageInner() {
     () => ({
       accountId: accountId || undefined,
       categoryId: categoryId === "all" ? undefined : categoryId,
+      costCenterId: costCenterId === "all" ? undefined : costCenterId,
       kind: kind === "all" ? undefined : kind,
       ...rangeOpts,
     }),
-    [accountId, categoryId, kind, rangeOpts],
+    [accountId, categoryId, costCenterId, kind, rangeOpts],
   )
 
   const { data, isLoading } = useFinanceMovements(filters)
   const { data: categories } = useFinanceCategories()
+  const { data: costCenters } = useFinanceCostCenters()
   const [movementDialogOpen, setMovementDialogOpen] = React.useState(false)
   const [transferDialogOpen, setTransferDialogOpen] = React.useState(false)
   const [voidTarget, setVoidTarget] = React.useState<FinanceMovement | null>(null)
+  const [reclassifyTarget, setReclassifyTarget] = React.useState<FinanceMovement | null>(null)
 
   const voidMovement = useVoidFinanceMovement()
 
@@ -159,6 +178,39 @@ function FinanzasMovimientosPageInner() {
         header: "Categoría",
         cell: ({ getValue }) => (getValue() as string | null) ?? "—",
         meta: { label: "Categoría" },
+      },
+      // Los códigos van en COLUMNAS PROPIAS y visibles, no concatenados dentro
+      // de la celda del nombre ("Alquiler · 5.1.02"): el export XLSX del
+      // <DataTable> exporta `row.getValue(columnId)` de las columnas visibles,
+      // así que una celda compuesta exportaría solo el nombre. El punto entero
+      // del código es matchear contra el plan de cuentas del contador, y eso
+      // pasa en la planilla, no en pantalla.
+      {
+        accessorKey: "categoryCode",
+        header: "Cód. categoría",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? <span>{v}</span> : <span className="opacity-40">—</span>
+        },
+        meta: { label: "Cód. categoría", className: "whitespace-nowrap" },
+      },
+      {
+        accessorKey: "costCenterName",
+        header: "Centro de costo",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? <span>{v}</span> : <span className="opacity-40">—</span>
+        },
+        meta: { label: "Centro de costo" },
+      },
+      {
+        accessorKey: "costCenterCode",
+        header: "Cód. centro",
+        cell: ({ getValue }) => {
+          const v = getValue() as string | null
+          return v ? <span>{v}</span> : <span className="opacity-40">—</span>
+        },
+        meta: { label: "Cód. centro", className: "whitespace-nowrap" },
       },
       {
         accessorKey: "description",
@@ -223,6 +275,16 @@ function FinanzasMovimientosPageInner() {
             <div onClick={(e) => e.stopPropagation()}>
               <RowActions
                 actions={[
+                  {
+                    // No se deshabilita para movimientos derivados (compra,
+                    // gasto de caja del POS): clasificar esos es justamente el
+                    // caso principal. Solo el anulado queda fuera — el backend
+                    // lo rechaza y no cuenta en ningún reporte.
+                    label: "Reclasificar",
+                    icon: Tags,
+                    disabled: isVoided,
+                    onSelect: () => setReclassifyTarget(m),
+                  },
                   {
                     label: "Anular",
                     icon: X,
@@ -320,6 +382,21 @@ function FinanzasMovimientosPageInner() {
           </SelectContent>
         </Select>
 
+        <Select value={costCenterId} onValueChange={setCostCenterId}>
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Todos los centros" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos los centros</SelectItem>
+            <SelectItem value="none">Sin centro de costo</SelectItem>
+            {(costCenters ?? []).map((cc) => (
+              <SelectItem key={cc.id} value={cc.id}>
+                {cc.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
         <DateRangePicker value={range} onChange={setRange} />
       </div>
 
@@ -329,7 +406,7 @@ function FinanzasMovimientosPageInner() {
         columns={columns}
         getRowId={(r) => r.id}
         isLoading={isLoading}
-        searchPlaceholder="Buscar por descripción, cuenta, categoría…"
+        searchPlaceholder="Buscar por descripción, cuenta, categoría, centro…"
         exportFileName="movimientos"
         emptyMessage={
           <EmptyState
@@ -347,6 +424,10 @@ function FinanzasMovimientosPageInner() {
 
       <MovementDialog open={movementDialogOpen} onOpenChange={setMovementDialogOpen} />
       <TransferDialog open={transferDialogOpen} onOpenChange={setTransferDialogOpen} />
+      <ReclassifyDialog
+        movement={reclassifyTarget}
+        onClose={() => setReclassifyTarget(null)}
+      />
 
       <AlertDialog open={!!voidTarget} onOpenChange={(o) => !o && setVoidTarget(null)}>
         <AlertDialogContent>
@@ -375,6 +456,9 @@ const movementFormSchema = z.object({
   // Opcional (decisión del owner 2026-08-20): categorizar ayuda a los
   // reportes pero no traba la carga.
   categoryId: z.string().optional(),
+  // También opcional, y por el mismo motivo: si clasificar trabara la carga,
+  // el cajero inventa un centro con tal de guardar el gasto.
+  costCenterId: z.string().optional(),
   kind: z.enum(["income", "expense"]),
   amount: z
     .number({ error: "Ingresá un monto" })
@@ -401,7 +485,19 @@ function MovementDialog({
 }) {
   const { data: accounts } = useFinanceAccounts()
   const { data: categories } = useFinanceCategories()
+  const { data: costCenters } = useFinanceCostCenters()
   const createMovement = useCreateFinanceMovement()
+
+  const emptyForm: MovementFormValues = {
+    accountId: "",
+    categoryId: "",
+    costCenterId: NO_VALUE,
+    kind: "expense",
+    amount: 0,
+    date: todayISO(),
+    description: "",
+    paymentMethod: "",
+  }
 
   const {
     register,
@@ -412,15 +508,7 @@ function MovementDialog({
     formState: { errors, isSubmitting },
   } = useForm<MovementFormValues>({
     resolver: zodResolver(movementFormSchema),
-    defaultValues: {
-      accountId: "",
-      categoryId: "",
-      kind: "expense",
-      amount: 0,
-      date: todayISO(),
-      description: "",
-      paymentMethod: "",
-    },
+    defaultValues: emptyForm,
   })
 
   const kind = watch("kind")
@@ -429,16 +517,11 @@ function MovementDialog({
 
   React.useEffect(() => {
     if (open) {
-      reset({
-        accountId: "",
-        categoryId: "",
-        kind: "expense",
-        amount: 0,
-        date: todayISO(),
-        description: "",
-        paymentMethod: "",
-      })
+      reset(emptyForm)
     }
+    // `emptyForm` se reconstruye en cada render (lleva la fecha de hoy); la
+    // dependencia real es la apertura del dialog.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, reset])
 
   async function onSubmit(values: MovementFormValues) {
@@ -446,6 +529,7 @@ function MovementDialog({
       await createMovement.mutateAsync({
         accountId: values.accountId,
         categoryId: values.categoryId || undefined,
+        costCenterId: values.costCenterId === NO_VALUE ? undefined : values.costCenterId,
         kind: values.kind,
         amount: values.amount,
         date: values.date,
@@ -545,6 +629,31 @@ function MovementDialog({
               )}
             </div>
 
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="movement-cost-center">Centro de costo</Label>
+              <Controller
+                name="costCenterId"
+                control={control}
+                render={({ field }) => (
+                  // Sin filtrar por `kind`: un centro de costo no tiene signo
+                  // contable — el mismo centro recibe gastos e ingresos.
+                  <Select value={field.value ?? NO_VALUE} onValueChange={field.onChange}>
+                    <SelectTrigger id="movement-cost-center">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_VALUE}>Sin centro de costo</SelectItem>
+                      {(costCenters ?? []).map((cc) => (
+                        <SelectItem key={cc.id} value={cc.id}>
+                          {cc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="movement-amount">Monto</Label>
               <Controller
@@ -602,6 +711,211 @@ function MovementDialog({
             <Button type="submit" disabled={isSubmitting}>
               {isSubmitting && <Loader2 className="mr-2 size-4 animate-spin" />}
               Registrar
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── Dialog: reclasificar (categoría / centro de costo) ───────────────────────
+
+const reclassifyFormSchema = z.object({
+  categoryId: z.string(),
+  costCenterId: z.string(),
+})
+
+type ReclassifyFormValues = z.infer<typeof reclassifyFormSchema>
+
+/**
+ * Cambia SOLO la clasificación de un movimiento (categoría y centro de costo).
+ * Es la contraparte de que el centro de costo sea opcional al cargar el gasto:
+ * el histórico se clasifica acá, después del hecho, sin tocar monto ni saldo.
+ */
+function ReclassifyDialog({
+  movement,
+  onClose,
+}: {
+  movement: FinanceMovement | null
+  onClose: () => void
+}) {
+  const { data: bootstrap } = useBootstrap()
+  const { data: categories } = useFinanceCategories()
+  const { data: costCenters } = useFinanceCostCenters()
+  const reclassify = useReclassifyFinanceMovement()
+
+  // El padre limpia el target al cerrar, así que el cuerpo del dialog se
+  // quedaría sin datos justo durante la animación de salida. Retenemos el
+  // último movimiento no nulo para que el contenido no parpadee.
+  const [shown, setShown] = React.useState<FinanceMovement | null>(movement)
+  React.useEffect(() => {
+    if (movement) setShown(movement)
+  }, [movement])
+
+  const {
+    handleSubmit,
+    control,
+    reset,
+    formState: { isSubmitting },
+  } = useForm<ReclassifyFormValues>({
+    resolver: zodResolver(reclassifyFormSchema),
+    defaultValues: { categoryId: NO_VALUE, costCenterId: NO_VALUE },
+  })
+
+  React.useEffect(() => {
+    if (movement) {
+      reset({
+        categoryId: movement.categoryId ?? NO_VALUE,
+        costCenterId: movement.costCenterId ?? NO_VALUE,
+      })
+    }
+  }, [movement, reset])
+
+  // Una categoría de ingreso no tiene sentido para un egreso: el signo lo
+  // define la categoría, no el movimiento.
+  const availableCategories = (categories ?? []).filter(
+    (c) => c.kind === shown?.kind && c.status === 1,
+  )
+
+  // Si lo que el movimiento ya tiene imputado fue archivado, no aparece en las
+  // listas (que solo traen activos) y el trigger quedaría en blanco mintiendo
+  // "sin clasificar". Lo agregamos como ítem deshabilitado: se ve qué tiene,
+  // pero no se puede volver a elegir (el backend rechaza los archivados).
+  const orphanCategory =
+    shown?.categoryId && !availableCategories.some((c) => c.id === shown.categoryId)
+      ? { id: shown.categoryId, name: shown.categoryName ?? "Categoría archivada" }
+      : null
+  const orphanCostCenter =
+    shown?.costCenterId && !(costCenters ?? []).some((cc) => cc.id === shown.costCenterId)
+      ? { id: shown.costCenterId, name: shown.costCenterName ?? "Centro archivado" }
+      : null
+
+  async function onSubmit(values: ReclassifyFormValues) {
+    if (!shown) return
+
+    const nextCategoryId = values.categoryId === NO_VALUE ? null : values.categoryId
+    const nextCostCenterId = values.costCenterId === NO_VALUE ? null : values.costCenterId
+
+    // Solo viajan las claves que CAMBIARON. El backend distingue clave ausente
+    // (no tocar) de null (borrar la imputación), y reenviar sin cambio algo
+    // archivado sería un 422 gratuito.
+    const payload: { id: string; categoryId?: string | null; costCenterId?: string | null } = {
+      id: shown.id,
+    }
+    if (nextCategoryId !== shown.categoryId) payload.categoryId = nextCategoryId
+    if (nextCostCenterId !== shown.costCenterId) payload.costCenterId = nextCostCenterId
+
+    if (payload.categoryId === undefined && payload.costCenterId === undefined) {
+      onClose()
+      return
+    }
+
+    try {
+      await reclassify.mutateAsync(payload)
+      toast.success("Movimiento reclasificado")
+      onClose()
+    } catch (err) {
+      toast.error("No se pudo reclasificar el movimiento", {
+        description: err instanceof Error ? err.message : undefined,
+      })
+    }
+  }
+
+  if (!shown) return null
+
+  const pending = isSubmitting || reclassify.isPending
+
+  return (
+    <Dialog open={movement !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Reclasificar movimiento</DialogTitle>
+          <DialogDescription>
+            Cambiás solo a qué categoría y centro de costo se imputa. No afecta el monto ni
+            el saldo de la cuenta.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+          <div className="rounded-md border bg-muted/50 p-4 text-sm">
+            <div className="flex items-baseline justify-between gap-4">
+              <span className="tabular-nums text-muted-foreground">{formatDate(shown.date)}</span>
+              <span className="tabular-nums font-medium">
+                {shown.kind === "expense" ? "-" : ""}
+                {formatMoney(shown.amount, bootstrap)}
+              </span>
+            </div>
+            <p className="mt-1 text-muted-foreground">
+              {shown.description?.trim() || "Sin descripción"}
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="reclassify-category">Categoría</Label>
+              <Controller
+                name="categoryId"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="reclassify-category">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_VALUE}>Sin categoría</SelectItem>
+                      {orphanCategory && (
+                        <SelectItem value={orphanCategory.id} disabled>
+                          {orphanCategory.name}
+                        </SelectItem>
+                      )}
+                      {availableCategories.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="reclassify-cost-center">Centro de costo</Label>
+              <Controller
+                name="costCenterId"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger id="reclassify-cost-center">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_VALUE}>Sin centro de costo</SelectItem>
+                      {orphanCostCenter && (
+                        <SelectItem value={orphanCostCenter.id} disabled>
+                          {orphanCostCenter.name}
+                        </SelectItem>
+                      )}
+                      {(costCenters ?? []).map((cc) => (
+                        <SelectItem key={cc.id} value={cc.id}>
+                          {cc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose} disabled={pending}>
+              Cancelar
+            </Button>
+            <Button type="submit" disabled={pending}>
+              {pending && <Loader2 className="mr-2 size-4 animate-spin" />}
+              Guardar
             </Button>
           </DialogFooter>
         </form>
