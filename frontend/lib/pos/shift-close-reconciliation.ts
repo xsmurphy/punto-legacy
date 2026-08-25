@@ -62,7 +62,7 @@ export interface ServerCloseTotals {
   salesTotal: number
   returns: number
   /**
-   * Arqueo por medio de pago (mig 167). `[]` con un backend sin deployar —
+   * Arqueo por medio de pago (mig 169). `[]` con un backend sin deployar —
    * nunca filas inventadas: una fila de más acá es un medio que el informe
    * afirma haber arqueado y no arqueó.
    */

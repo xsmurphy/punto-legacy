@@ -77,7 +77,7 @@ export function DrawerDetailModal({ drawer, tolerance, onClose, onClosed }: Draw
   const liveDiff =
     countedAmount !== null && expected !== null ? countedAmount - expected : null
 
-  // Arqueo por medio de pago (mig 167). Solo tiene sentido para una caja YA
+  // Arqueo por medio de pago (mig 169). Solo tiene sentido para una caja YA
   // cerrada: mientras está abierta no hay nada contado. Se pide aparte porque
   // el listado no lo trae — una fila del listado por caja con N medios adentro
   // multiplicaría el payload del reporte entero por un detalle que se mira de
@@ -193,7 +193,7 @@ export function DrawerDetailModal({ drawer, tolerance, onClose, onClosed }: Draw
                   </div>
                 </section>
 
-                {/* Arqueo medio por medio (mig 167). El detalle se pide aparte
+                {/* Arqueo medio por medio (mig 169). El detalle se pide aparte
                     —el listado no lo trae— y solo cuando hay una caja abierta
                     en el modal. Un cierre anterior a la migración devuelve
                     únicamente la fila del cajón, marcada `estimated`: los

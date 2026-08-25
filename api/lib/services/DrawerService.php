@@ -503,7 +503,7 @@ final class DrawerService
      *   que alimenta el semáforo de cuadre del panel. El resto de los medios
      *   viaja en `$countedByMethod`.
      * @param array<int,array{key?:string,name?:string,isCash?:bool,counted:float|string}> $countedByMethod
-     *   Lo contado medio por medio (mig 167). Vacío = cliente viejo o cierre
+     *   Lo contado medio por medio (mig 169). Vacío = cliente viejo o cierre
      *   encolado antes del deploy: se sintetiza la fila del efectivo con
      *   `$amount` y el cierre queda idéntico al de siempre.
      * @param array|null $closingTotals Arqueo del turno ya leído por el caller
@@ -614,7 +614,7 @@ final class DrawerService
             return 'Already Closed';
         }
 
-        // Arqueo POR MEDIO DE PAGO congelado (mig 167). Va DESPUÉS del UPDATE
+        // Arqueo POR MEDIO DE PAGO congelado (mig 169). Va DESPUÉS del UPDATE
         // porque el cierre es el hecho y esto es su detalle: si el UPDATE no
         // pasó (caja ya cerrada por otro request), no hay cierre al que
         // colgarle un arqueo.
@@ -667,7 +667,7 @@ final class DrawerService
     }
 
     /**
-     * Congela el arqueo por medio de pago del cierre (`drawer_count`, mig 167).
+     * Congela el arqueo por medio de pago del cierre (`drawer_count`, mig 169).
      *
      * `ON CONFLICT (drawerid, methodkey) DO UPDATE`: un cierre encolado que se
      * reenvía (la cola offline reintentando) tiene que dejar UN arqueo, no dos

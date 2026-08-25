@@ -173,7 +173,7 @@ export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
         // dato que el servidor deba creer.
         //
         // `counted` sí va: es lo que el cajero declaró haber contado de cada
-        // medio (mig 167), y es el hecho que el cierre existe para registrar.
+        // medio (mig 169), y es el hecho que el cierre existe para registrar.
         // Un cierre encolado por una versión anterior no lo trae y se manda
         // igual, sin el campo — el servidor lo lee como "solo efectivo".
         return await posBff('/api/pos/drawer', {

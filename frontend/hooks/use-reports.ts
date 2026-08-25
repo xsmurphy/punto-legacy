@@ -107,7 +107,7 @@ export interface DrawersReportResponse {
 }
 
 /**
- * Una fila del arqueo por medio de pago de un cierre (mig 167): lo que se
+ * Una fila del arqueo por medio de pago de un cierre (mig 169): lo que se
  * esperaba de ese medio, lo que el cajero declaró haber contado y el veredicto.
  */
 export interface DrawerCountRow {
@@ -121,7 +121,7 @@ export interface DrawerCountRow {
   status: "ok" | "short" | "over" | "unknown"
   /**
    * `frozen` = filas escritas por el cierre. `estimated` = el cierre es
-   * anterior a la mig 167 (o lo hizo el panel, que solo pide el efectivo) y lo
+   * anterior a la mig 169 (o lo hizo el panel, que solo pide el efectivo) y lo
    * único reconstruible es la fila del cajón: los demás medios NO se muestran
    * en cero, porque nadie los contó.
    */
@@ -144,7 +144,7 @@ export interface DrawerDetail extends DrawerRow {
  * El endpoint existía desde siempre y ningún cliente lo llamaba: el modal de
  * detalle renderizaba la fila que ya tenía del listado, así que el desglose por
  * medio de pago que el backend calculaba no se veía en ninguna parte. Con el
- * arqueo por medio (mig 167) ese desglose es el contenido principal del
+ * arqueo por medio (mig 169) ese desglose es el contenido principal del
  * informe, así que ahora sí se pide.
  */
 export function useDrawerDetail(drawerId: string | null) {

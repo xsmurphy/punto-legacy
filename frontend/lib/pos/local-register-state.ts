@@ -63,7 +63,7 @@ export interface DrawerOpPayload {
   date: string
   note?: string
   /**
-   * Solo en el CIERRE: lo que el cajero contó de CADA medio de pago (mig 167).
+   * Solo en el CIERRE: lo que el cajero contó de CADA medio de pago (mig 169).
    * A diferencia de `localTotals`, esto SÍ se manda: es la declaración del
    * arqueo, no una referencia para comparar. Ausente = cierre encolado por una
    * versión anterior de la app; el servidor lo trata como "solo se contó el

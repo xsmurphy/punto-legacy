@@ -1,5 +1,5 @@
 /**
- * El arqueo del cierre por MEDIO DE PAGO (mig 167).
+ * El arqueo del cierre por MEDIO DE PAGO (mig 169).
  *
  * Qué se prueba y por qué esto y no otra cosa:
  *
@@ -174,7 +174,7 @@ describe("parseServerCloseTotals — arqueo por medio", () => {
     expect(parsed?.byMethod[1].difference).toBeNull()
   })
 
-  it("un backend sin la mig 167 devuelve lista vacía, no filas inventadas", () => {
+  it("un backend sin la mig 169 devuelve lista vacía, no filas inventadas", () => {
     const parsed = parseServerCloseTotals({
       closing: { date: "", total: 10, subtotal: 10, salesTotal: 10, returns: 0 },
     })

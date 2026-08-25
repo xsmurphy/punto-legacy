@@ -219,7 +219,7 @@ final class DrawersService
     }
 
     /**
-     * El arqueo del cierre MEDIO POR MEDIO (mig 167): lo esperado, lo contado
+     * El arqueo del cierre MEDIO POR MEDIO (mig 169): lo esperado, lo contado
      * y el veredicto de cada uno.
      *
      * Dos fuentes, y la distinción importa:
@@ -227,7 +227,7 @@ final class DrawersService
      *   - `source='frozen'` — filas de `drawer_count`, escritas por el cierre
      *     con los números que el cajero tenía delante. Es el arqueo REAL.
      *   - `source='estimated'` — no hay filas: el cierre es anterior a la mig
-     *     167, o lo hizo el panel (que solo pide el efectivo). Se sintetiza la
+     *     169, o lo hizo el panel (que solo pide el efectivo). Se sintetiza la
      *     ÚNICA fila que sí se conoce, la del cajón, a partir de las columnas
      *     de `drawer`. No se inventan las demás: un medio sin fila es un medio
      *     que nadie contó, y mostrarlo en cero sería afirmar un cuadre que

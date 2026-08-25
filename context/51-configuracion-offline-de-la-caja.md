@@ -154,7 +154,7 @@ del error.
 - **`blindControl` manda.** Con el control a ciegas prendido no hay total, y
   que se caiga la red no es una excusa. La regla vive dentro de
   `computeLocalShiftTotals()` (devuelve `null`), no en el JSX: ninguna pantalla
-  futura puede olvidarse de respetarla. Desde la mig 167 el cajero a ciegas sí
+  futura puede olvidarse de respetarla. Desde la mig 169 el cajero a ciegas sí
   ve la LISTA de medios que tiene que contar (no sus montos) — ver abajo.
 - **El arqueo definitivo lo calcula el servidor** con el monto contado cuando
   el cierre sincroniza. El bloque de la pantalla lo repite con todas las
@@ -162,7 +162,7 @@ del error.
 - **No se imprime el ticket de cierre sin conexión**: lista montos del turno
   que el device no puede sostener.
 
-### El cierre se declara MEDIO POR MEDIO (2026-08-24, mig 167)
+### El cierre se declara MEDIO POR MEDIO (2026-08-24, mig 169)
 
 Hasta acá el cierre pedía **un** monto: el efectivo. El resto del turno —los
 vouchers de las tarjetas, los comprobantes de QR y transferencia— no se contaba.
@@ -219,7 +219,7 @@ slug**, y el efectivo además por bandera. Lo encontró el arnés, no una caja.
 difference}` por medio. El POS lo muestra una sola vez apenas cierra (nunca a
 ciegas) y el panel lo lee en `GET /v1/reports/drawers?id=` →
 `countByMethod`, con el veredicto de `CashCountStatus` por fila. Un cierre
-anterior a la mig 167 no tiene filas: se informa solo la del cajón, marcada
+anterior a la mig 169 no tiene filas: se informa solo la del cajón, marcada
 `source='estimated'`. Los demás medios **no** se muestran en cero — un cero ahí
 diría "se contó y no había nada".
 

@@ -116,7 +116,7 @@ if ($method === 'POST') {
     $date   = trim((string) ($body['date'] ?? ''));
     $note   = trim((string) ($body['note'] ?? ''));
     $user   = trim((string) ($body['user'] ?? ''));
-    // Lo contado MEDIO POR MEDIO (mig 167). Opcional a propósito: un cliente
+    // Lo contado MEDIO POR MEDIO (mig 169). Opcional a propósito: un cliente
     // desplegado antes de este cambio —o un cierre que quedó encolado en una
     // tablet— manda solo `amount`, y ese cierre tiene que seguir funcionando
     // exactamente igual. `amount` sigue siendo el efectivo en los dos casos.

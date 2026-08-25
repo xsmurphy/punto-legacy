@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================
 # run_drawer_count_by_method_test.sh — arnés del arqueo POR MEDIO DE PAGO del
-# cierre de caja (mig 167): una fila congelada por medio en `drawer_count`, el
+# cierre de caja (mig 169): una fila congelada por medio en `drawer_count`, el
 # efectivo que sigue siendo solo efectivo en `drawer` (mig 164), la
 # compatibilidad con un cierre sin desglose y los cierres históricos sin filas.
 # Ver `api/tests/drawer_count_by_method_test.php`.
@@ -139,7 +139,7 @@ fi
 
 # ── 2. Arnés (integración, contra el Postgres de arriba) ───────────────────
 echo ""
-echo "[run_drawer_count_by_method_test.sh] === arqueo por medio de pago (mig 167) ==="
+echo "[run_drawer_count_by_method_test.sh] === arqueo por medio de pago (mig 169) ==="
 export POSTGRES_HOST POSTGRES_PORT POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD
 harness_run "$SCRIPT_DIR/drawer_count_by_method_test.php"
 

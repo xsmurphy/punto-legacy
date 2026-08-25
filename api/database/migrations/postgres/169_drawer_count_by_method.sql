@@ -1,4 +1,4 @@
--- 167_drawer_count_by_method.sql
+-- 169_drawer_count_by_method.sql
 -- El arqueo del cierre, MEDIO DE PAGO POR MEDIO DE PAGO.
 --
 -- PROBLEMA: el cierre de caja pedía UN monto —el efectivo— y la mig 164
@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS drawer_count (
 );
 
 COMMENT ON TABLE drawer_count IS
-  'Mig 167: arqueo del cierre de caja por medio de pago. Una fila por medio '
+  'Mig 169: arqueo del cierre de caja por medio de pago. Una fila por medio '
   'del turno, con lo esperado y lo contado congelados al cerrar. La fila '
   'iscash duplica drawer.drawerCloseAmount/drawerExpectedAmount (mig 164), '
   'que siguen siendo la fuente de esos dos numeros para el semaforo de cuadre. '

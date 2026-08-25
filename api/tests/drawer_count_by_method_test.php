@@ -6,7 +6,7 @@ require_once __DIR__ . '/_harness.php';
 
 /**
  * Test de integración (Postgres real) del arqueo POR MEDIO DE PAGO del cierre
- * de caja (mig 167 + `DrawerService::composeArqueo()` + `drawer_count` +
+ * de caja (mig 169 + `DrawerService::composeArqueo()` + `drawer_count` +
  * `Reports\DrawersService::detail()['countByMethod']`).
  *
  * Qué protege:
@@ -32,7 +32,7 @@ require_once __DIR__ . '/_harness.php';
  *   (e) IDEMPOTENCIA. Reenviar el mismo cierre no duplica el arqueo
  *       (`ON CONFLICT (drawerid, methodkey)`), que es exactamente lo que hace
  *       la cola offline cuando reintenta.
- *   (f) CIERRES HISTÓRICOS. Una caja cerrada ANTES de la mig 167 no tiene
+ *   (f) CIERRES HISTÓRICOS. Una caja cerrada ANTES de la mig 169 no tiene
  *       filas y el reporte la muestra con la única fila reconstruible —la del
  *       cajón— marcada `source='estimated'`. Los demás medios NO aparecen en
  *       cero: un cero acá diría "se contó y no había nada".

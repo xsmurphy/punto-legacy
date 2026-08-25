@@ -1365,7 +1365,7 @@ function ShiftCloseReportNotice({ blind }: { blind: boolean }) {
         </div>
       </div>
 
-      {/* Arqueo medio por medio, tal como quedó en el servidor (mig 167). Un
+      {/* Arqueo medio por medio, tal como quedó en el servidor (mig 169). Un
           informe guardado antes de ese deploy no lo trae y esta sección
           simplemente no aparece — no hay filas que inventar. */}
       {(report.server?.byMethod?.length ?? 0) > 0 && (

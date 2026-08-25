@@ -61,7 +61,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     user: body.user ?? "",
   }
 
-  // Cierre: el conteo por medio de pago (mig 167). Se copia solo si viene y
+  // Cierre: el conteo por medio de pago (mig 169). Se copia solo si viene y
   // solo si es una lista — este handler arma el body campo por campo a
   // propósito (nada del cliente pasa sin nombrarse), así que un campo nuevo
   // hay que agregarlo acá o el servidor nunca lo ve. `amount` sigue siendo el

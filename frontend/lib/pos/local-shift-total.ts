@@ -150,7 +150,7 @@ export interface ShiftMethod {
 /**
  * Lo que el cajero declaró haber contado de un medio. Es lo que viaja al
  * servidor en el cierre (`counted` del payload) y lo que queda congelado en
- * `drawer_count` (mig 167).
+ * `drawer_count` (mig 169).
  *
  * Vive con el cálculo y no con el diálogo que lo captura: lo consumen el
  * diálogo, el hook de la mutación y la cola de operaciones, y ninguno de esos
