@@ -19,6 +19,16 @@ vi.mock("@/lib/api/pos-client", () => ({
   posApi: { get: (path: string) => posGet(path) },
 }))
 
+// El otro borde de `fetchPosBootstrap`: el token del device. El entorno de
+// estos tests es `node` (sin `window`), donde el real siempre devolvería null
+// y todo el árbol de decisión moriría en el guard de "sin token". Mockearlo
+// deja explícita la precondición de cada caso: los tests de red/cache corren
+// con un device PAREADO, y el que ejercita el guard lo saca a propósito.
+let deviceToken: string | null = "pt_device_token"
+vi.mock("@/lib/auth/device-token", () => ({
+  getDeviceToken: () => deviceToken,
+}))
+
 // Imports ESTÁTICOS y un solo grafo de módulos para todo el archivo. Nada de
 // `vi.resetModules()` + `await import()`: eso crea una segunda copia de cada
 // módulo, y entonces el `ApiError` del test deja de ser `instanceof` el del
@@ -58,6 +68,7 @@ function fakeBootstrap(overrides: Record<string, unknown> = {}) {
 beforeEach(async () => {
   await purgeAllOfflineData()
   posGet.mockReset()
+  deviceToken = "pt_device_token"
   useOfflineSyncStore.setState({ catalogFromCache: false, catalogCachedAt: null })
 })
 
@@ -286,6 +297,39 @@ describe("árbol de decisión del bootstrap: red / cache / nada", () => {
     posGet.mockRejectedValue(new ApiError(401, { code: "session_revoked" }, "revocado"))
 
     await expect(fetchPosBootstrap()).rejects.toBeInstanceOf(ApiError)
+    expect(useOfflineSyncStore.getState().catalogFromCache).toBe(false)
+  })
+
+  // Regresión del lockout del 2026-08-25: el iPhone recién pareado abrió el
+  // lock screen diciendo "ningún usuario de esta sucursal tiene código POS"
+  // con los PINs cargados en la base.
+  //
+  // `PosAuthGuard` monta esta query en todo arranque de `/pos`, incluso sin
+  // device pareado (el hook corre antes de su propio early return), y
+  // `posFetch` manda `credentials: "include"`. Sin este guard, esa request
+  // viajaba con la cookie del panel, el BFF la aceptaba y devolvía un
+  // bootstrap de realm `panel` —200, pero SIN la clave `users`— que quedaba
+  // cacheado y persistido como si fuera el bootstrap de este device. El pareo
+  // posterior reusaba ese cache y la caja abría sin PINs.
+  it("SIN TOKEN: no toca la red — una respuesta que no es de este device no puede entrar al cache", async () => {
+    deviceToken = null
+
+    await expect(fetchPosBootstrap()).rejects.toBeInstanceOf(ApiError)
+    await expect(fetchPosBootstrap()).rejects.toMatchObject({ status: 401 })
+    // Lo que importa: ni siquiera se preguntó. Sin device no hay bootstrap del
+    // POS que pedir, y lo que vuelva con OTRA credencial no es su respuesta.
+    expect(posGet).not.toHaveBeenCalled()
+    expect(await loadBootstrapSnapshot()).toBeNull()
+  })
+
+  it("SIN TOKEN con snapshot: tampoco degrada — igual que un 401, la sesión no existe", async () => {
+    await saveBootstrapSnapshot(fakeBootstrap())
+    deviceToken = null
+
+    await expect(fetchPosBootstrap()).rejects.toBeInstanceOf(ApiError)
+    expect(posGet).not.toHaveBeenCalled()
+    // El snapshot sigue ahí (no se purga acá), pero NO se sirve: la caja tiene
+    // que mandar a reconectar el dispositivo, no abrir con datos viejos.
     expect(useOfflineSyncStore.getState().catalogFromCache).toBe(false)
   })
 
