@@ -207,7 +207,93 @@ final class DrawersService
             'income'       => $t['income'],
             'return'       => $t['return'],
             'payments'     => $payments,
+            'countByMethod'=> $this->countByMethod(
+                $drawerId,
+                $companyId,
+                $isClosed,
+                $closeAmount,
+                $count['expectedAmount'] ?? null,
+                $this->toleranceFor($companyId)
+            ),
         ] + $count;
+    }
+
+    /**
+     * El arqueo del cierre MEDIO POR MEDIO (mig 169): lo esperado, lo contado
+     * y el veredicto de cada uno.
+     *
+     * Dos fuentes, y la distinción importa:
+     *
+     *   - `source='frozen'` — filas de `drawer_count`, escritas por el cierre
+     *     con los números que el cajero tenía delante. Es el arqueo REAL.
+     *   - `source='estimated'` — no hay filas: el cierre es anterior a la mig
+     *     169, o lo hizo el panel (que solo pide el efectivo). Se sintetiza la
+     *     ÚNICA fila que sí se conoce, la del cajón, a partir de las columnas
+     *     de `drawer`. No se inventan las demás: un medio sin fila es un medio
+     *     que nadie contó, y mostrarlo en cero sería afirmar un cuadre que
+     *     nunca ocurrió.
+     *
+     * Caja abierta ⇒ lista vacía: todavía no hay nada contado.
+     *
+     * @return array<int,array{key:string,name:string,isCash:bool,expected:float|null,counted:float,difference:float|null,status:string,source:string}>
+     */
+    private function countByMethod(
+        string $drawerId,
+        string $companyId,
+        bool $isClosed,
+        float $closeAmount,
+        float|int|string|null $expectedCash,
+        float $tolerance,
+    ): array {
+        if (!$isClosed) {
+            return [];
+        }
+
+        $rows = [];
+        $rs = ncmExecute(
+            'SELECT methodkey, methodname, iscash, expectedamount, countedamount
+               FROM drawer_count
+              WHERE drawerid = ? AND companyid = ?
+              ORDER BY iscash DESC, countedamount DESC',
+            [$drawerId, $companyId],
+            false,
+            true
+        );
+        if ($rs) {
+            while (!$rs->EOF) {
+                $f        = $rs->fields;
+                $expected = $f['expectedamount'] !== null ? (float) $f['expectedamount'] : null;
+                $counted  = (float) $f['countedamount'];
+                $rows[]   = [
+                    'key'        => (string) $f['methodkey'],
+                    'name'       => (string) $f['methodname'],
+                    'isCash'     => (bool) $f['iscash'],
+                    'expected'   => $expected,
+                    'counted'    => $counted,
+                    'difference' => $expected === null ? null : round($counted - $expected, 2),
+                    'status'     => CashCountStatus::classify($counted, $expected, $tolerance),
+                    'source'     => 'frozen',
+                ];
+                $rs->MoveNext();
+            }
+            $rs->Close();
+        }
+
+        if ($rows !== []) {
+            return $rows;
+        }
+
+        $expected = $expectedCash !== null ? (float) $expectedCash : null;
+        return [[
+            'key'        => 'efectivo',
+            'name'       => 'Efectivo',
+            'isCash'     => true,
+            'expected'   => $expected,
+            'counted'    => $closeAmount,
+            'difference' => $expected === null ? null : round($closeAmount - $expected, 2),
+            'status'     => CashCountStatus::classify($closeAmount, $expected, $tolerance),
+            'source'     => 'estimated',
+        ]];
     }
 
     /** Cierra una caja. SCOPEADO por companyId. */

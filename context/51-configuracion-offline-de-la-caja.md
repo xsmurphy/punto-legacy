@@ -154,12 +154,108 @@ del error.
 - **`blindControl` manda.** Con el control a ciegas prendido no hay total, y
   que se caiga la red no es una excusa. La regla vive dentro de
   `computeLocalShiftTotals()` (devuelve `null`), no en el JSX: ninguna pantalla
-  futura puede olvidarse de respetarla.
+  futura puede olvidarse de respetarla. Desde la mig 169 el cajero a ciegas sí
+  ve la LISTA de medios que tiene que contar (no sus montos) — ver abajo.
 - **El arqueo definitivo lo calcula el servidor** con el monto contado cuando
   el cierre sincroniza. El bloque de la pantalla lo repite con todas las
   letras y cada fila dice "según este dispositivo".
 - **No se imprime el ticket de cierre sin conexión**: lista montos del turno
   que el device no puede sostener.
+
+### El cierre se declara MEDIO POR MEDIO (2026-08-24, mig 169)
+
+Hasta acá el cierre pedía **un** monto: el efectivo. El resto del turno —los
+vouchers de las tarjetas, los comprobantes de QR y transferencia— no se contaba.
+Con el control a ciegas la asimetría era absurda: la pantalla decía "contá el
+efectivo y cerrá", y todo lo demás pasaba sin arqueo (pedido del owner).
+
+**Ahora el cierre declara lo contado de cada medio del turno**, y el efectivo
+está SIEMPRE, aunque no haya habido una sola venta en efectivo: el fondo
+inicial está en el cajón desde que el turno abrió.
+
+| | Qué se cuenta | Qué se ve mientras se cuenta |
+|---|---|---|
+| **Normal** | Todos los medios del turno + efectivo | El esperado de cada medio y la diferencia en vivo |
+| **A ciegas** | Los mismos | Solo lo que uno tipea. Ningún esperado, ninguna diferencia |
+
+La lista de medios NO se apaga a ciegas, y no contradice la regla: lo que el
+dueño decidió ocultar son los **acumulados**, no la existencia de las ventas con
+tarjeta. Un cajero que no sabe qué medios tuvo el turno no puede contarlos, y
+entonces no hay arqueo. Por eso la lista sale de una función aparte
+(`computeLocalShiftMethods()`), que es blind-safe **por construcción** —no
+computa montos, así que no hay monto que se pueda filtrar— y
+`computeLocalShiftTotals()` sigue devolviendo `null` a ciegas, intacta.
+
+**Payload** (`POST /v1/drawer.php`, `action=close`):
+
+```jsonc
+{ "action": "close", "amount": 148000,          // EFECTIVO contado, como siempre
+  "counted": [                                   // nuevo, opcional
+    { "key": "efectivo", "name": "Efectivo", "code": "cash", "isCash": true, "counted": 148000 },
+    { "key": "tcredito", "name": "Tarjeta de crédito", "code": "tcredito", "isCash": false, "counted": 70000 }] }
+```
+
+`amount` **sigue siendo el efectivo y nada más**: es lo que se compara contra
+`drawerExpectedAmount` (mig 164) y lo que alimenta el semáforo de cuadre del
+panel. Mandar ahí la suma de todos los medios convertiría cada turno con tarjeta
+en un sobrante gigante — el bug inverso al que la mig 164 vino a arreglar.
+
+**Compatibilidad**: `counted` es opcional. Un cliente sin actualizar, o un cierre
+que quedó **encolado en una tablet antes del deploy**, manda solo `amount` y
+cierra exactamente como siempre; el servidor escribe la fila del efectivo y
+listo. La cola offline reenvía con `counted` intacto cuando lo tiene, y el
+`ON CONFLICT (drawerid, methodkey)` hace que un reintento deje **un** arqueo, no
+dos.
+
+**Emparejar lo contado con lo esperado no es trivial** y estuvo mal DOS veces
+antes de quedar bien. `groupByPaymentMethod()` agrupa por el nombre *resuelto*
+por taxonomía y cae al slug crudo cuando no resuelve; la caja solo conoce el
+nombre que ella anotó al vender.
+
+1. Solo por clave → el esperado quedaba sin contar y lo contado salía como
+   sobrante por el monto entero. Lo encontró el arnés.
+2. Por una BOLSA de identidades (clave+nombre+slug juntos, cualquier
+   intersección gana) → con dos medios donde el slug de uno es el nombre del
+   otro (`QR` con code `transferencia`, más `Transferencia`), el primero se
+   quedaba el conteo del segundo y **un turno que cuadraba perfecto salía con
+   dos diferencias inventadas**. Lo encontró el review.
+
+Lo vigente: **pasadas ordenadas y excluyentes, siempre dimensión contra la
+misma dimensión** — clave, después slug, después nombre normalizado; lo que
+matchea sale del pool. El efectivo, además, por bandera en una ÚLTIMA pasada,
+para que nunca le gane a un match exacto. Un arqueo que acusa a un cajero
+honesto es el peor resultado posible de esta función, y es el modo de falla que
+esta forma vuelve imposible.
+
+**Reintento y reparación.** Un cierre reenviado sobre una caja ya cerrada no
+corta en `'Already Closed'`: repara el desglose que falte
+(`repairCountForClosedDrawer()`, ubicando el turno por `drawerCloseDate =
+$date`, no por "el último cerrado"). Sin ese camino, un `UPDATE` que pasó con un
+`INSERT` de detalle que falló perdía el arqueo por medio en silencio, y el
+`ON CONFLICT (drawerid, methodkey)` que la idempotencia promete era código
+muerto. El `COALESCE` del UPSERT impide que una reparación que no conoce el
+esperado borre el que ya estaba congelado: un NULL entrante es "no sé", nunca
+"olvidate del que sabías".
+
+**El modo a ciegas se filtra en el SERVIDOR**, no solo en el JSX: `drawer.php`
+consulta `registerBlindControl` y devuelve el resumen sin totales y el `closing`
+sin `expected` ni `difference`. Sobrevive la lista de medios sin montos — sin
+saber QUÉ contar no hay arqueo. Ver `context/modules/14-caja.md` regla 7, que
+esto corrige.
+
+**Respuesta**: `closing.byMethod` trae `{key, name, isCash, expected, counted,
+difference}` por medio. El POS lo muestra una sola vez apenas cierra (nunca a
+ciegas) y el panel lo lee en `GET /v1/reports/drawers?id=` →
+`countByMethod`, con el veredicto de `CashCountStatus` por fila. Un cierre
+anterior a la mig 169 no tiene filas: se informa solo la del cajón, marcada
+`source='estimated'`. Los demás medios **no** se muestran en cero — un cero ahí
+diría "se contó y no había nada".
+
+Verificación: `api/tests/drawer_count_by_method_test.php` (23 checks contra
+Postgres real — incluye el cruce de medios del review y la reparación del
+reenvío) + `frontend/lib/pos/__tests__/drawer-count-by-method.test.ts`. El
+arnés de la mig 164 (`drawer_cash_count_test.php`, 23 checks) sigue en verde:
+el efectivo no cambió de significado.
 
 ### Si el total local no coincide con el del servidor
 

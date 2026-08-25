@@ -13,6 +13,7 @@
  * (action.php es legacy y devuelve formato distinto al envelope canónico).
  */
 
+import * as React from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { posFetch } from "@/lib/api/pos-fetch"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -30,17 +31,41 @@ import { journalSince, readShiftJournal, recordDrawerOp } from "@/lib/pos/shift-
 import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { tenancyHeldSince } from "@/lib/pos/register-tenancy"
 import {
+  computeLocalShiftMethods,
   computeLocalShiftTotals,
+  paymentGroupKey,
   type LocalShiftTotals,
+  type ShiftMethod,
 } from "@/lib/pos/local-shift-total"
 import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import type { LocalCloseTotals } from "@/lib/pos/shift-close-reconciliation"
+import type { CountedMethod } from "@/lib/pos/local-shift-total"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
 export interface DrawerSummaryRow {
   name: string
   amount: number
+}
+
+/** Un medio de pago con lo que el servidor espera de él al cerrar el turno. */
+export interface DrawerExpectedMethod {
+  /** Clave de agrupación: el nombre normalizado (`paymentGroupKey`). */
+  key: string
+  name: string
+  /**
+   * Slug/id del medio tal como lo guardó la venta. Es la identidad estable
+   * entre la caja y el servidor — el nombre lo reescribe el backend al
+   * resolver la taxonomía. Ver `ShiftMethod.code`.
+   */
+  code?: string
+  isCash: boolean
+  /**
+   * AUSENTE cuando la caja arquea a ciegas: el endpoint no lo manda
+   * (`drawerBlindSummary()` en `api/v1/drawer.php`). La fila sigue viniendo
+   * porque el cajero necesita saber QUÉ contar; lo que no viaja es el número.
+   */
+  expected?: number
 }
 
 export interface DrawerSoldProduct {
@@ -58,6 +83,16 @@ export interface DrawerSummary {
    * nombre acá. Opcional: default `[]` para tolerar un backend sin deployar.
    */
   paymentBreakdown?: DrawerSummaryRow[]
+  /**
+   * Lo que el servidor ESPERA de cada medio de pago al cerrar. La fila del
+   * efectivo trae `subtotal` (inicial + ventas en efectivo + ingresos −
+   * extracciones), no las ventas en efectivo a secas: lo que se cuenta son los
+   * billetes que hay en el cajón. Siempre incluye el efectivo, aunque el turno
+   * no haya tenido una sola venta en esa forma.
+   *
+   * Opcional: default `[]` para tolerar un backend sin deployar.
+   */
+  expectedByMethod?: DrawerExpectedMethod[]
   /** Fecha de apertura (ISO) */
   date: string
   /** Total de efectivo = caja inicial + ventas efectivo + ingresos − extracciones */
@@ -203,7 +238,14 @@ async function fetchDrawerHourlyStats(): Promise<DrawerHourlyStats> {
   }
 }
 
-async function postDrawerAction(body: Record<string, unknown>): Promise<void> {
+/**
+ * Devuelve el cuerpo de la respuesta, no `void`: el CIERRE responde con el
+ * arqueo del turno (`closing`) y esa es la única oportunidad de mostrárselo al
+ * cajero — la caja ya quedó cerrada, así que el resumen no se puede volver a
+ * pedir. El camino offline lee lo mismo cuando la cola drena
+ * (`shift-close-reconciliation.ts`); las dos ramas leen el mismo campo.
+ */
+async function postDrawerAction(body: Record<string, unknown>): Promise<unknown> {
   const res = await posFetch("/api/pos/drawer", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -214,6 +256,7 @@ async function postDrawerAction(body: Record<string, unknown>): Promise<void> {
     const text = await res.text().catch(() => "")
     throw new Error(`Drawer action error ${res.status}: ${text.slice(0, 200)}`)
   }
+  return res.json().catch(() => null)
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
@@ -292,6 +335,78 @@ export async function loadLocalShiftTotals(input: {
 }
 
 export const LOCAL_SHIFT_TOTALS_KEY = ["drawer", "localShiftTotals"] as const
+export const SHIFT_METHODS_KEY = ["drawer", "shiftMethods"] as const
+
+/**
+ * Qué medios de pago hay que contar para cerrar, y —cuando se puede— cuánto se
+ * espera de cada uno.
+ *
+ * Dos fuentes, en este orden:
+ *
+ *   1. **El servidor** (`summary.expectedByMethod`). Es la verdad del turno:
+ *      incluye lo que otras cajas y el panel movieron, que este aparato no ve.
+ *   2. **El journal local** (`computeLocalShiftMethods`). Sin red, o con un
+ *      backend sin deployar. Da la LISTA de medios pero ningún esperado: el
+ *      device no lo conoce y no se va a inventar uno.
+ *
+ * La lista NO se apaga con `blindControl`, y eso no contradice la regla del
+ * arqueo a ciegas. Lo que el dueño decidió ocultar son los ACUMULADOS, no la
+ * existencia de las ventas con tarjeta: un cajero que no sabe qué medios tuvo
+ * el turno no puede contarlos, y entonces no hay arqueo, que era el punto.
+ * Los `expected` sí se ocultan, y de eso se ocupa el consumidor —el diálogo
+ * los recibe y no los pinta— porque es una decisión de presentación, no del
+ * dato: el mismo hook alimenta al cierre normal, que sí los muestra.
+ */
+export function useShiftMethods(shiftOpenDate: string | null): {
+  methods: ShiftMethod[]
+  /** `undefined` = no se conoce el esperado (sin red). No es "cero". */
+  expected: Record<string, number> | undefined
+} {
+  const registerId = useCatalogStore((s) => s.activeRegisterId)
+  const paymentMethods = useCatalogStore((s) => s.paymentMethods)
+  const pendingCount = useOfflineSyncStore((s) => s.pendingCount)
+  const { data: summary } = useDrawerSummary()
+
+  // Cómo llama ESTE comercio al efectivo. `systemKey` y no el nombre ni el id:
+  // es el discriminante estable (el id de taxonomía varía por tenant).
+  const cashName =
+    paymentMethods.find((m) => m.systemKey === "cash")?.name?.trim() || "Efectivo"
+
+  const { data: localMethods } = useQuery<ShiftMethod[]>({
+    queryKey: [...SHIFT_METHODS_KEY, registerId, shiftOpenDate, cashName, pendingCount],
+    queryFn: async () =>
+      computeLocalShiftMethods({
+        entries: await readShiftJournal(registerId),
+        shiftOpenDate,
+        cashName,
+      }),
+    enabled: registerId !== "",
+    staleTime: 0,
+    retry: false,
+  })
+
+  const serverMethods = summary?.expectedByMethod
+  return React.useMemo(() => {
+    if (serverMethods && serverMethods.length > 0) {
+      return {
+        methods: serverMethods.map(({ key, name, code, isCash }) => ({ key, name, code, isCash })),
+        expected: Object.fromEntries(
+          serverMethods.map((m) => [m.key, Number(m.expected) || 0]),
+        ),
+      }
+    }
+    const local = localMethods ?? []
+    return {
+      // Sin nada conocido queda igual la fila del cajón: el fondo inicial está
+      // ahí desde que el turno abrió y siempre hay que contarlo.
+      methods:
+        local.length > 0
+          ? local
+          : [{ key: paymentGroupKey(cashName), name: cashName, code: "cash", isCash: true }],
+      expected: undefined,
+    }
+  }, [serverMethods, localMethods, cashName])
+}
 
 /**
  * ¿Esta caja arquea a ciegas? Fail-CLOSED: mientras no se pueda afirmar que
@@ -382,9 +497,21 @@ function useDrawerMutation(action: string, onMutated?: () => void) {
   // tenantNow() cae a la hora local del device si la TZ no llegó del bootstrap.
   const timezone = useCatalogStore((s) => s.config?.timezone)
   return useMutation({
-    mutationFn: async (vars: { amount?: number; note?: string; date?: string; user?: string }) => {
+    mutationFn: async (vars: {
+      amount?: number
+      note?: string
+      date?: string
+      user?: string
+      /**
+       * Cierre: lo contado medio por medio. `amount` sigue siendo el EFECTIVO
+       * —es contra lo que arquea el semáforo de cuadre del panel— y esto es el
+       * resto del turno. Omitirlo deja el cierre exactamente como era antes.
+       */
+      counted?: CountedMethod[]
+    }) => {
       const amount = vars.amount ?? 0
       const note = vars.note ?? ""
+      const counted = vars.counted ?? []
       // La fecha es la del MOMENTO EN QUE SE OPERÓ, no la del envío. Es el
       // invariante de siempre (memoria `project_transaction_required_dimensions`)
       // y sin red se vuelve la diferencia entre un turno bien delimitado y uno
@@ -435,7 +562,7 @@ function useDrawerMutation(action: string, onMutated?: () => void) {
         }
       }
 
-      const enqueueOffline = async (): Promise<void> => {
+      const enqueueOffline = async (): Promise<unknown> => {
         const row = await enqueueOp({
           kind: DRAWER_OP_KIND[action],
           // Canal propio y estrictamente ordenado: aplicar un cierre antes de
@@ -443,17 +570,25 @@ function useDrawerMutation(action: string, onMutated?: () => void) {
           // arqueo mal armado.
           stream: "drawer",
           registerId,
-          payload: { amount, date, note, localTotals },
+          // `counted` VIAJA al servidor (a diferencia de `localTotals`, que se
+          // guarda para comparar): es la declaración del cajero, el dato que
+          // el arqueo existe para registrar. Un cierre que espera horas en la
+          // cola tiene que llegar con el conteo intacto.
+          payload: { amount, date, note, counted, localTotals },
           label: DRAWER_OP_LABEL[action](amount, fmtConfig),
           // Sin `mergePayload`: dos aperturas o dos extracciones son DOS
           // hechos distintos del turno, no una corrección de la anterior.
         })
         await journal(row.opId)
+        // Encolada: todavía no hay arqueo del servidor que mostrar. El informe
+        // de este cierre llega cuando la cola drene (`ShiftCloseReportNotice`).
+        return null
       }
 
       if (typeof navigator !== "undefined" && !navigator.onLine) return enqueueOffline()
+      let response: unknown = null
       try {
-        await postDrawerAction({ action, amount, note, date, user: vars.user ?? "" })
+        response = await postDrawerAction({ action, amount, note, date, user: vars.user ?? "", counted })
       } catch (err) {
         // Solo el corte de red se encola (fetch tira `TypeError`). Un rechazo
         // del servidor —permiso, caja no seleccionada— es una respuesta y le
@@ -465,6 +600,7 @@ function useDrawerMutation(action: string, onMutated?: () => void) {
       // Con segundos y la caja adentro alcanza para que un doble envío del
       // mismo hecho no se cuente dos veces en el total.
       await journal(`${registerId}:${action}:${date}`)
+      return response
     },
     onSuccess: () => {
       // Refrescar estado y resumen después de cualquier acción

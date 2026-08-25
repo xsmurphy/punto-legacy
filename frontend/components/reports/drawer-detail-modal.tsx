@@ -15,7 +15,7 @@ import {
 import { MoneyInput } from "@/components/ui/money-input"
 import { Separator } from "@/components/ui/separator"
 import { useBootstrap } from "@/hooks/use-bootstrap"
-import { type DrawerRow, useCloseDrawerPanel } from "@/hooks/use-reports"
+import { type DrawerRow, useCloseDrawerPanel, useDrawerDetail } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
@@ -76,6 +76,16 @@ export function DrawerDetailModal({ drawer, tolerance, onClose, onClosed }: Draw
   // sea lo que va a leer en el reporte.
   const liveDiff =
     countedAmount !== null && expected !== null ? countedAmount - expected : null
+
+  // Arqueo por medio de pago (mig 169). Solo tiene sentido para una caja YA
+  // cerrada: mientras está abierta no hay nada contado. Se pide aparte porque
+  // el listado no lo trae — una fila del listado por caja con N medios adentro
+  // multiplicaría el payload del reporte entero por un detalle que se mira de
+  // a una caja por vez.
+  const { data: detailData, isLoading: detailLoading } = useDrawerDetail(
+    drawer?.isClosed ? drawer.drawerId : null,
+  )
+  const countRows = detailData?.detail?.countByMethod ?? []
 
   return (
     <Dialog
@@ -165,7 +175,7 @@ export function DrawerDetailModal({ drawer, tolerance, onClose, onClosed }: Draw
                     <span className="tabular-nums text-right">
                       {niceDateTime(drawer.closeDate ?? "")}
                     </span>
-                    <span className="text-muted-foreground">Monto declarado</span>
+                    <span className="text-muted-foreground">Efectivo declarado</span>
                     <span className="tabular-nums text-right">
                       {formatMoney(parseNum(drawer.closeAmount), bootstrap)}
                     </span>
@@ -182,6 +192,42 @@ export function DrawerDetailModal({ drawer, tolerance, onClose, onClosed }: Draw
                     </span>
                   </div>
                 </section>
+
+                {/* Arqueo medio por medio (mig 169). El detalle se pide aparte
+                    —el listado no lo trae— y solo cuando hay una caja abierta
+                    en el modal. Un cierre anterior a la migración devuelve
+                    únicamente la fila del cajón, marcada `estimated`: los
+                    demás medios no se muestran en cero porque nadie los contó. */}
+                {countRows.length > 0 && (
+                  <>
+                    <Separator />
+                    <section className="flex flex-col gap-1.5">
+                      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Arqueo por medio de pago
+                      </p>
+                      {countRows.map((r) => (
+                        <div key={r.key} className="flex items-baseline justify-between gap-3">
+                          <span className="min-w-0 truncate text-muted-foreground">{r.name}</span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <span className="tabular-nums">
+                              {formatMoney(parseNum(r.counted), bootstrap)}
+                            </span>
+                            <CashCountBadge
+                              status={r.status}
+                              difference={r.difference != null ? parseNum(r.difference) : null}
+                              expectedSource={r.source}
+                              tolerance={tolerance}
+                              bootstrap={bootstrap}
+                            />
+                          </span>
+                        </div>
+                      ))}
+                      {detailLoading && (
+                        <p className="text-xs text-muted-foreground">Cargando el arqueo…</p>
+                      )}
+                    </section>
+                  </>
+                )}
               </>
             )}
 

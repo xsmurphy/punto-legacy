@@ -119,6 +119,107 @@ export function isCashPayment(p: ShiftJournalPayment): boolean {
   return name === 'efectivo' || name === 'cash'
 }
 
+/**
+ * Clave con la que un medio de pago se identifica dentro del arqueo.
+ *
+ * Espejo exacto de `DrawerService::paymentGroupKey()` (PHP): el nombre
+ * resuelto, en minúsculas y sin espacios sobrantes. Las dos mitades del arqueo
+ * —lo que el servidor espera y lo que la caja contó— tienen que producir la
+ * MISMA clave o el emparejamiento no ocurre, así que la fórmula está escrita
+ * en los dos lados y en ninguno más.
+ */
+export function paymentGroupKey(name: string): string {
+  return name.trim().toLowerCase()
+}
+
+/** Un medio de pago que hubo que contar, sin ningún acumulado adentro. */
+export interface ShiftMethod {
+  key: string
+  name: string
+  /**
+   * Slug/id del medio tal como lo guardó la venta (`type` del pago). Es la
+   * identidad que el servidor y la caja comparten con certeza: el NOMBRE lo
+   * reescribe el backend al resolver la taxonomía, así que el que esta caja
+   * anotó al vender puede ser otro texto del mismo medio. Sin esto, un cierre
+   * hecho sin conexión emparejaba mal y el medio entero salía como sobrante.
+   */
+  code?: string
+  isCash: boolean
+}
+
+/**
+ * Lo que el cajero declaró haber contado de un medio. Es lo que viaja al
+ * servidor en el cierre (`counted` del payload) y lo que queda congelado en
+ * `drawer_count` (mig 169).
+ *
+ * Vive con el cálculo y no con el diálogo que lo captura: lo consumen el
+ * diálogo, el hook de la mutación y la cola de operaciones, y ninguno de esos
+ * tres debería tener que importar un componente para saber qué manda.
+ */
+export interface CountedMethod extends ShiftMethod {
+  counted: number
+}
+
+/**
+ * QUÉ medios de pago tuvo el turno según este dispositivo — sin CUÁNTO.
+ *
+ * Existe separada de `computeLocalShiftTotals()` por una razón concreta: esa
+ * función devuelve `null` con el control a ciegas prendido, y tiene que seguir
+ * haciéndolo. Pero el cajero que arquea a ciegas igual necesita saber qué
+ * medios contar: no ver los acumulados no es lo mismo que no saber que hubo
+ * ventas con tarjeta.
+ *
+ * Es blind-safe POR CONSTRUCCIÓN, no por una condición que alguien pueda
+ * olvidarse de escribir: no computa montos, así que no hay monto que se pueda
+ * filtrar. Por eso no recibe `blindControl` — no tendría qué hacer con él.
+ *
+ * El efectivo va SIEMPRE y va primero, haya habido ventas en efectivo o no: el
+ * fondo inicial está en el cajón desde que el turno abrió.
+ */
+export function computeLocalShiftMethods(input: {
+  entries: ShiftJournalRow[]
+  shiftOpenDate: string | null
+  /** Nombre con el que este comercio llama al efectivo (del catálogo del POS). */
+  cashName?: string
+}): ShiftMethod[] {
+  const lastOpenEntry = [...input.entries]
+    .filter((e) => e.kind === 'drawerOpen')
+    .sort((a, b) => (a.date < b.date ? -1 : 1))
+    .pop()
+  const windowStart = input.shiftOpenDate ?? lastOpenEntry?.date ?? null
+  const inWindow = windowStart
+    ? input.entries.filter((e) => e.date >= windowStart)
+    : input.entries
+
+  const cashName = (input.cashName ?? '').trim() || 'Efectivo'
+  const byKey = new Map<string, ShiftMethod>()
+  byKey.set(paymentGroupKey(cashName), {
+    key: paymentGroupKey(cashName),
+    name: cashName,
+    code: 'cash',
+    isCash: true,
+  })
+
+  for (const sale of inWindow) {
+    if (sale.kind !== 'sale' || sale.internal === true) continue
+    for (const p of sale.payments ?? []) {
+      const name = (p.name ?? '').trim()
+      if (name === '') continue
+      // El efectivo ya está sembrado con el nombre del catálogo. Si las ventas
+      // lo trajeron con otro nombre (histórico con el slug crudo), el del
+      // catálogo manda y no se duplica la fila del cajón.
+      if (isCashPayment(p)) continue
+      const key = paymentGroupKey(name)
+      if (!byKey.has(key)) {
+        byKey.set(key, { key, name, code: (p.type ?? '').trim() || undefined, isCash: false })
+      }
+    }
+  }
+
+  const rows = [...byKey.values()]
+  return [...rows.filter((r) => r.isCash), ...rows.filter((r) => !r.isCash)]
+}
+
 // ── Cálculo ───────────────────────────────────────────────────────────────────
 
 /**
