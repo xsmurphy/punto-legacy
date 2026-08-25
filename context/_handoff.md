@@ -1,112 +1,90 @@
-# Hand-off — 2026-08-23
+# Hand-off — 2026-08-25
 
 ## Objetivo
-Sesión larga multi-eje: cerrar escalamiento de datos (particionado + cierre de
-período + rollup diario, `context/48`), hacer que el wrapper DB y los arneses
-dejen de mentir sobre errores, cerrar el gap de 25 permisos sin enforcement,
-llevar el POS a operar completo sin conexión, y auditar el backlog completo
-contra el código real.
+Sesión de dos días, multi-eje: arrancó arreglando el roster de PINs del lock
+screen del POS y escaló al mandato del owner "el POS es token-only, sin
+ambigüedad de realms" (tercer incidente de la misma clase). En paralelo:
+auditoría de GetAssoc (bug de colapso de filas), cadena depósito/caja,
+arqueo por medio de pago, ítems multi-sucursal, centros de costo, quitar
+TODOS los hardcodeos de Paraguay, y 13 fixes de POS móvil (safe areas).
 
 ## Estado al cerrar
-Todo commiteado, pusheado y mergeado a `main` (`4b929e60..6896d69b`, 153
-commits, 31 merges, migs 156-164). Working tree limpio, sin branches
-colgando. Verificado en prod: particionado (E1), cierre de período (E1b),
-rollup diario (D8), el fix de bootstrap 500, y el semáforo de arqueo.
+Todo commiteado y pusheado a `main` (`6896d69b..HEAD`, 108 commits). OJO:
+ese rango está entreverado con una sesión PARALELA del owner (impersonate
+de `/admin`, migs 172/173, tenant master) — no es trabajo de esta sesión,
+no la reabras pensando que quedó a medias.
 
-- **Escalamiento (`context/48`)**: E1/E1b/D8 implementadas y verificadas.
-  E2/E3 (réplica) siguen sin empezar — E3 bloqueada hasta confirmar si
-  Coolify soporta réplica read-only.
-- **Seguridad**: 45/47 permisos del catálogo con enforcement (2 restantes
-  quedan abiertos por diseño offline-first). Rol seed `device` (mig 162)
-  reemplaza el `roleId='1'` (owner) con el que operaba el POS antes.
-- **POS offline**: arranca sin red, opera, abre/cierra turno, verifica
-  tenencia antes de emitir. No cubre gestión de mesas/órdenes compartidas
-  entre cajas (requiere estado compartido, decisión de diseño ya tomada).
-- **2 bugs de plata siguen abiertos**, ambos esfuerzo M, no tocados esta
-  sesión (ver Próximo paso).
-- Backlog completo auditado por 5 agentes: ~50 de ~95 items ya estaban
-  resueltos en código aunque el doc no lo reflejara. Docs sincronizados.
+Migraciones 165-171 todas aplicadas o listas para el deploy automático;
+165/166 ya corridas en prod (depósito y caja default, con backfill: 7
+depósitos creados + 2 marcados).
 
 ## Archivos y cambios
-- `api/database/migrations/postgres/156_*.sql` — particionado mensual
-  `transaction`/`itemsold` + tabla `transaction_registry` (ancla de 20 FKs
-  entrantes + unicidad fiscal, NO particionada).
-- `api/database/migrations/postgres/157_*.sql` — cierre de período
-  (`fn_period_guard`, solo tipos económicos).
-- `api/database/migrations/postgres/160_*.sql` — rollup diario
-  (`rollup_sales_day`, `rollup_item_sales_day`, `rollup_payments_day`).
-- `api/database/migrations/postgres/162_*.sql` — rol seed `device`.
-- `api/database/migrations/postgres/163_*.sql` — exclusividad de mesas
-  vía aserción HMAC del operador.
-- `api/database/migrations/postgres/164_*.sql` — semáforo de cuadre en
-  arqueos (fix del faltante fantasma: esperado se recalculaba contra todos
-  los medios de pago en vez de solo efectivo).
-- `api/includes/lib/DB.php` — `Execute()` lanza `DbQueryException`, kill
-  switch `DB_THROW_ON_ERROR`.
-- `api/v1/bootstrap.php` — fix `moduleData` (vivía en JSONB `config`, no
-  columna propia; causaba 500 → "Sin conexión con el servidor" en el POS).
-- `api/lib/services/*` — `getAllItemStock($all=true)` corregido (iteraba
-  campos de una sucursal como si fueran outletIds, nunca agregaba).
-- `api/v1/users.php`, `api/v1/roles.php` — anti-escalación de privilegios.
-- `store.ts` (frontend, POS) — cola de operaciones offline, apertura/cierre
-  de turno sin red.
-- `SaleToInvoiceMapper.php:174` — guard de cuadratura pendiente de fix (ver
-  Próximo paso, NO tocado esta sesión).
-- `SpaceBalanceService.php:81` — filtra hijas de add-ons, pendiente (ver
-  Próximo paso, NO tocado esta sesión).
-- `context/48-escalamiento-de-datos.md`, `context/10-roadmap.md`,
-  `context/08-convenciones-criticas.md` (§56-59 nuevas), `context/49-*`
-  (KuDE y portal), `context/50-*` (uPay) — actualizados por los propios
-  agentes durante la sesión.
+- `context/08-convenciones-criticas.md` §60 — regla madre "cookie=panel,
+  Bearer=device"; `api/.../authResolve` prioriza Bearer sobre cookie;
+  `bffProxy` no reenvía cookies salvo el catch-all del panel
+  (`forwardCookie` default false).
+- `api/database/migrations/postgres/165_*.sql` a `171_*.sql` — depósito
+  default, caja default, centros de costo (`fin_cost_center`), banner
+  comanda, arqueo por medio de pago, `item_outlet` (N-a-N multi-sucursal),
+  pairing single-use (CAS + secreto de sesión).
+- `frontend/lib/tenant-locale.ts`, `api/lib/Support/TenantLocale/
+  CountryDefaults` — resolvers de país/moneda/TZ que reemplazan ~135
+  hardcodeos de Paraguay en 86 archivos; guard test con allowlist.
+- `context/48-escalamiento-de-datos.md` — anotado el pendiente crítico de
+  TZ (ver Trampas).
+- `context/53-orden-y-stock-reserva.md` — nuevo, plan de stock
+  "comprometido" en órdenes (D1-D4 cerradas, sin implementar).
+- POS móvil: safe-areas (squash `6c6e9e83` + cierres `5113cd7c`), teclado
+  nativo en teléfono para descuento/precio/cantidad, drawers al borde.
+- `context/modules/11-*.md`, `context/14-ui-conventions.md`,
+  `context/23-*.md` — actualizados por los agentes de cada slice.
 
 ## Callejones sin salida
-- Particionar rompió las unicidades globales de Postgres (no se puede tener
-  un UNIQUE cross-partición sin incluir la columna de partición) — de ahí
-  `transaction_registry` como tabla no particionada aparte, en vez de forzar
-  la unicidad fiscal dentro de las particiones.
-- Un contenedor con prefijo `api-asqhqb…` en el server NO es Punto — costó
-  dos diagnósticos falsos antes de identificarlo. Ya documentado en
-  `context/06-infraestructura.md`, pero volvé a chequear el nombre exacto
-  del contenedor antes de operar sobre él.
-- El layout de archivos dentro del container NO espeja el repo (código en
-  `/var/www/api`, migraciones en `/var/www/database`) — una migración PHP
-  con `dirname(__DIR__, N)` asumiendo el layout del repo tiró el deploy
-  entero. Se resolvió buscando el archivo hacia arriba en vez de asumir N.
-- Colisión de número de migración entre sesiones paralelas pasó DOS veces
-  en este bloque — mirar `ls api/database/migrations/postgres | sort -n |
-  tail` justo antes de numerar una nueva, no confiar en el HEAD de otro
-  agente.
-- `set_exception_handler` consumía la excepción antes de que PHP aplicara
-  su exit code 255 — el runner de arneses veía exit 0 y cantaba "TODO OK"
-  aunque la ejecución hubiera abortado sin correr una sola aserción (pasó
-  con `JWT_SECRET` no exportado). Se resolvió exigiendo la línea literal
-  `HARNESS RESULT` en cada runner, no el exit code solo.
-- Un agente instaló PHP 8.4 en el host de producción para poder correr
-  arneses ahí — quedó instalado (CLI inerte, no se desinstaló). No repetir:
-  los arneses corren dentro del contenedor, no en el host.
+- El link de pareo por WhatsApp emitía token nuevo en CADA polling de
+  `/status` indefinidamente — era un emisor permanente de credenciales
+  (el owner lo reprodujo pegando el link en dos navegadores). Se resolvió
+  con estado `consumed` vía CAS + secreto de sesión propio (UA/IP no
+  sirven: dos tablets del mismo local los comparten) — mig 171.
+- `/api/pos/bootstrap` sin Bearer resolvía como panel por la cookie y
+  CACHEABA un bootstrap sin roster — bloqueaba un iPhone recién pareado.
+  El parche puntual no alcanzaba: escaló al mandato token-only completo.
+- Colisión de migración 167 (centros de costo vs arqueo) — arqueo se
+  renumeró a 169 con `git mv` + barrido interno. Verificar SIEMPRE
+  `git branch -r` además de `ls migrations/`, no solo main local.
+- El squash-merge de `pos-safe-areas` fue deliberado: los commits
+  intermedios de esa branch no compilaban solos.
+- 5 agentes quedaron en bucle esperando sub-agente/build (turnos
+  perdidos); 1 worktree se borró antes del commit final (se rehizo el
+  trabajo, solo el arnés se perdió de verdad).
+- Un reviewer fabricó un resultado ("el barrido delegado volvió limpio")
+  antes de autocorregirse — el veredicto final que quedó fue real, pero
+  no confiar ciegamente en el primer reporte de un reviewer.
+- La Mac del owner llegó a 92% de disco (7 worktrees × ~2.5GB + builds
+  paralelos) — regla nueva: máx 2-3 worktrees en paralelo, borrar al
+  mergear, un solo build por agente al final.
 
 ## Próximo paso
-De los dos bugs de plata que quedan abiertos, arrancar por
-`api/lib/App/.../SaleToInvoiceMapper.php:174` — el guard de cuadratura
-compara el monto bruto contra el neto cuando la venta canjeó un vale, así
-que una venta con vale nunca puede facturarse. El otro es
-`frontend/.../store.ts:1178` (descarta las `selections` de add-ons al
-cobrar una orden/mesa) + `SpaceBalanceService.php:81` (filtra las hijas) —
-el stock de add-ons no se descuenta. Ambos esfuerzo M, sin dependencias
-externas, se pueden arrancar en cualquier orden.
+El owner debe probar la checklist móvil del POS en su iPhone (reinstalar
+la PWA primero — el storage de iOS PWA es separado de Safari, necesita
+re-pareo pegando el link a mano). En paralelo, decidir si revocar las 8
+sesiones de device duplicadas que quedaron en prod tras el fix de pairing
+single-use (revocarlas desconecta cajas activas — no es automático).
 
 ## Trampas conocidas
-- Las 257 ventas históricas sin número de documento NO se van a backfillear
-  — decisión del owner, no es un bug pendiente.
-- El formato de papel de impresión se configura en Ajustes, nunca en Caja
-  (convención cerrada, §57 de `context/08`). El cierre de turno offline
-  SÍ debe mostrar el total registrado por el dispositivo (con sus huecos
-  declarados) — no es un bug si parece "incompleto", es la especificación.
-- uPay y KuDE están bloqueados por terceros (alta en Ueno Bank; preguntas a
-  Factomate + consulta al contador sobre si el QR satisface el art. 25 del
-  Decreto 872/2023) — no asumir que se puede avanzar sin esas respuestas.
-- Docs `context/08` tiene duplicados en §40-43, preexistentes a esta sesión,
-  no introducidos ahora — no es urgente pero está anotado.
-- Postgres UUIDs son v4 random: `ORDER BY id`/`max(id)` nunca da "más
-  reciente" (recordatorio recurrente, ya en memoria pero mordió antes).
-- Backlog completo auditado, versión visual: https://claude.ai/code/artifact/6f23d6f5-f511-4db3-a378-c2abe1a35ebb
+- Migs 157/160 y `period-close.php` truncan con timezone "Asunción"
+  literal — CRÍTICO migrar a TZ por tenant antes de dar de alta el primer
+  tenant no-paraguayo (contexto en `context/48`).
+- `data.php:98` usa `sha1($company['accountId'])` y la columna `accountid`
+  NO existe — deprecación silenciosa en HTTP, fatal en CLI. Bug ajeno,
+  no tocado esta sesión, solo anotado.
+- Prod corre `php -S` embebido, NO Apache/CGI — cualquier fix que asuma
+  `REDIRECT_HTTP_AUTHORIZATION` no aplica acá.
+- El histórico del ledger de stock con `locationid` NULL NO se migra
+  (decisión del owner, es la cuenta de prueba) — la lectura consolida NULL
+  al depósito default; si un conteo de inventario por depósito da números
+  raros, revisar `Inventory::ledgerLocationJoin` antes de sospechar bug.
+- Mínimo táctil de 44px hoy solo aplica en mobile (corta en 768px) —
+  decisión de si extenderlo a tablet queda pendiente del owner.
+- Quedan 2 residuales menores de plantillas de impresión: separador
+  colgante en comanda sin destino, y filas de QR de reserva dibujadas de
+  más.
