@@ -72,19 +72,32 @@ final class PanelAuth
     ): array {
         require_once dirname(__DIR__, 2) . '/includes/auth_session.php';
 
+        // Este emisor lo usan DOS realms: el login del panel y "entrar como
+        // empresa" desde /admin. Cada uno arranca con un set de includes
+        // distinto, así que acá sólo se puede depender de lo que ambos cargan:
+        // el wrapper DB (`includes/db.php`) y `auth_session.php`, que se
+        // requiere arriba. Las funciones globales de `includes/functions.php`
+        // —`ncmExecute()`, y `validateResultFromDB()` por debajo de `Query`—
+        // sólo existen bajo el bootstrap del PANEL: impersonar moría con un 500
+        // "Call to undefined function" mientras el login del panel andaba bien.
+        global $db;
+
         if ($outletIdOverride !== null) {
             $resolvedOutletId = $outletIdOverride;
         } else {
-            $outlet = ncmExecute(
+            $outlet = $db->Execute(
                 'SELECT outletId FROM outlet WHERE companyId = ? AND outletStatus = 1 ORDER BY outletId ASC LIMIT 1',
-                [$user['companyId']]
+                [(string) $user['companyId']]
             );
-            $resolvedOutletId = (string) ($outlet['outletId'] ?? ''); // CIA wrapper resuelve case-insensitive
+            $of = ($outlet && !$outlet->EOF) ? $outlet->fields : null;
+            $resolvedOutletId = $of !== null
+                ? (string) ($of['outletid'] ?? $of['outletId'] ?? '')
+                : '';
         }
 
         $ttl = (int) ($_ENV['PANEL_JWT_TTL'] ?? 86400);
 
-        $raw = authSessionCreate('panel', [
+        $raw = \authSessionCreate('panel', [
             'companyId' => (string) $user['companyId'],
             'userId'    => (string) $user['contactId'],
             'outletId'  => $resolvedOutletId,
@@ -93,7 +106,7 @@ final class PanelAuth
             'expiresAt' => date('Y-m-d H:i:s', time() + $ttl),
         ]);
 
-        authSetOpaqueCookie('_jwt_panel', $raw, $ttl, 'Lax');
+        \authSetOpaqueCookie('_jwt_panel', $raw, $ttl, 'Lax');
 
         return ['token' => $raw, 'expiresIn' => $ttl];
     }

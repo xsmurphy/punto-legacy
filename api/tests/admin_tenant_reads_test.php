@@ -58,6 +58,11 @@ require_once __DIR__ . '/_harness.php';
  *      textual tal cual. La copia local del emisor lo casteaba a int, así que
  *      el rol UUID de un tenant post-mig 58 se guardaba como un número
  *      inventado — la sesión abría con permisos que no son los del dueño.
+ *      L7 corre el mismo camino en un SUBPROCESO que carga sólo lo que carga el
+ *      endpoint admin (`includes/db.php`), sin `functions.php`. Ese detalle no
+ *      es cosmético: el emisor llamaba a `ncmExecute()`, función global que
+ *      define el bootstrap del PANEL, así que impersonar moría con un 500 "Call
+ *      to undefined function" mientras este arnés —que carga todo— seguía verde.
  *
  * Uso (un comando, desde la raíz del repo):
  *   bash api/tests/run_admin_tenant_reads_test.sh
@@ -122,6 +127,15 @@ $db->Execute(
         $legacyCo, json_encode(['settingName' => 'Admin Reads Legacy', 'ordersPanel' => '1']),
         $modernCo, json_encode(['settingName' => 'Admin Reads Moderno', 'moduleData' => ['ordersPanel' => ['status' => 1]]]),
     ]
+);
+
+// Sucursal activa del tenant moderno: el emisor de sesión la resuelve para
+// ponerla en el token, así que sin ella el caso L8 no probaría nada.
+$db->Execute(
+    "INSERT INTO outlet (outletId, outletName, outletStatus, companyId)
+     VALUES (?, 'Central', 1, ?)
+     ON CONFLICT (outletId) DO UPDATE SET outletStatus = 1",
+    ['7c1f0a44-3002-4c00-9000-000000000002', $modernCo]
 );
 
 // Rol owner del tenant moderno (formato post-mig 58: contact.role = taxonomyId).
@@ -329,6 +343,42 @@ check(
     'roleId=' . ($sessionRow['roleid'] ?? $sessionRow['roleId'] ?? '?') . ' esperado=' . $modernRole
 );
 check(
+    'L8 la sesión lleva la sucursal activa del tenant',
+    strtolower((string) ($sessionRow['outletId'] ?? $sessionRow['outletid'] ?? ''))
+        === '7c1f0a44-3002-4c00-9000-000000000002',
+    'outletId=' . ($sessionRow['outletid'] ?? '?')
+);
+
+// ── L7. El emisor no depende del bootstrap del panel ────────────────────────
+// El endpoint admin carga `includes/db.php` y nada más. Reproducirlo de verdad
+// exige otro proceso: acá dentro `functions.php` ya está cargado y taparía el
+// defecto, que es exactamente lo que pasó — arnés verde, prod en 500.
+$probe = tempnam(sys_get_temp_dir(), 'enter_') . '.php';
+file_put_contents($probe, <<<'PHP'
+<?php
+require_once getenv('PUNTO_API_DIR') . '/includes/db.php';
+require_once getenv('PUNTO_API_DIR') . '/lib/Admin/CompanyAdminService.php';
+$svc = new CompanyAdminService();
+$out = $svc->getEnterToken(getenv('PUNTO_PROBE_COMPANY'));
+echo !empty($out['token']) ? 'TOKEN_OK' : 'SIN_TOKEN';
+PHP);
+
+$probeOut = trim((string) shell_exec(sprintf(
+    'PUNTO_API_DIR=%s PUNTO_PROBE_COMPANY=%s %s -d variables_order=EGPCS %s 2>&1',
+    escapeshellarg(dirname(__DIR__)),
+    escapeshellarg($modernCo),
+    escapeshellarg(PHP_BINARY),
+    escapeshellarg($probe)
+)));
+@unlink($probe);
+
+check(
+    'L7 impersonar funciona sin el bootstrap del panel (contexto real de /admin)',
+    str_contains($probeOut, 'TOKEN_OK'),
+    $probeOut
+);
+
+check(
     'L6 el tenant sin dueño no habilita impersonar',
     $svc->getEnterToken('00000000-0000-0000-0000-0000000000ff') === null,
     'devolvió algo para una company inexistente'
@@ -343,6 +393,7 @@ check('H2 devuelve planes con code/name', is_array($plans) && (!$plans || isset(
 $db->Execute('DELETE FROM contact WHERE contactId IN (?,?,?,?)', [$legacyOwn, $modernOwn, $intruder, $seedOwn]);
 $db->Execute('DELETE FROM tenant_health WHERE companyid IN (?,?)', [$legacyCo, $modernCo]);
 $db->Execute('DELETE FROM taxonomy WHERE taxonomyId = ?', [$modernRole]);
+$db->Execute('DELETE FROM outlet WHERE companyId IN (?,?)', [$legacyCo, $modernCo]);
 $db->Execute('DELETE FROM company WHERE companyId IN (?,?)', [$legacyCo, $modernCo]);
 
 harnessFinish($failures, $checks);
