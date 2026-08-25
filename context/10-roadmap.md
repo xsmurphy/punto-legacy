@@ -10,7 +10,9 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-23 (add-ons: el stock ya se descuenta al cobrar una orden o mesa, ver P0 #2; uPay pasa a standby por decisión del owner)
+> **Última actualización:** 2026-08-25 (orden y stock: plan del "comprometido" cerrado — `context/53`; destapa que no hay job que limpie órdenes zombie, bloqueante de su F1)
+>
+> 2026-08-23 (add-ons: el stock ya se descuenta al cobrar una orden o mesa, ver P0 #2; uPay pasa a standby por decisión del owner)
 >
 > 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
 
@@ -139,6 +141,49 @@ piso del rol `device` clave por clave, con el endpoint que cada una habilita.
 Recortarlo sin querer se pone rojo antes de romper una caja.
 
 ---
+
+## Orden y stock — el comprometido (plan cerrado, sin implementar)
+
+Plan completo: `context/53-orden-y-stock-reserva.md`. D1-D4 cerradas por el
+owner el 2026-08-25. Prerequisito ya mergeado (`48a3e495`).
+
+**El estado hoy**: ninguna orden toca stock — entre que la comanda sale a
+cocina y la mesa se cobra, el sistema cree que la mercadería sigue
+disponible. Y el POS no ve stock ninguno: `reshape.ts:93-96` fija
+`stock: null` con un TODO que miente (`ItemsQuery.php:197` sí devuelve el
+saldo), así que el badge del buscador y el patch optimista post-cobro son
+no-ops, y la cañería de realtime de stock transporta `null` de punta a punta.
+
+**Fases** (detalle en `context/53`):
+
+1. **F1 — Comprometido derivado + disponible + vencimiento de órdenes.**
+   `comprometido` = Σ qty de líneas de órdenes no terminales; `disponible` =
+   `onHand − comprometido`, servido desde `Inventory::onHandBulk` (no un
+   lector nuevo — lo prohíbe D2 de `context/52`). **No se shippea sin el
+   vencimiento**: ver el bloqueante abajo.
+2. **F2 — Bajar stock al POS** (bootstrap + delta + arreglar que el saldo sea
+   por sucursal, no company-wide). Desbloquea el disponible offline.
+3. **F3 — Marca de consumo idempotente** en `pos_order_item`, patrón CAS de
+   `settledpaymentid`. Prerequisito de F4.
+4. **F4 — Descuento al despachar**, interruptor por tenant (gastronomía).
+   Requiere persistir el evento de despacho, que hoy NO existe: no hay
+   `printed_at`/`dispatched_at` y reimprimir una comanda es indistinguible de
+   imprimirla por primera vez.
+
+**BLOQUEANTE de F1 — órdenes zombie.** No existe NINGÚN job que limpie
+órdenes abiertas viejas: los seis del cron (`api/docker/cron/crontab:13-18`)
+y los tres `cron.schedule` de `pg_cron` no tocan `pos_order`. El cierre de
+caja tampoco las ve (`DrawerService`/`CashCountStatus`/`DrawersService` no
+referencian `pos_order`), y `fn_period_guard` no cubre esa tabla
+(`157_period_close.sql:168-184`). Una orden abandonada queda `open`/`sent`
+para siempre. Hoy no molesta porque nadie lee las órdenes abiertas; en cuanto
+el disponible las lea, cada orden zombie resta stock fantasma para siempre.
+Hace falta `settingOrderStaleHours` por tenant + job `orders-expire` que
+cancele con motivo (nunca `DELETE` — una orden no se borra).
+
+**Decisión pendiente del owner**: el default del vencimiento. Un comercio que
+deja mesas abiertas de un día para el otro es un caso legítimo; probablemente
+tenga que variar por `source` (mesa vs. mostrador).
 
 ## P0 — hallazgos de la auditoría del backlog (2026-08-22)
 

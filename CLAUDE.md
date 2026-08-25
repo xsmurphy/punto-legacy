@@ -64,6 +64,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Escalamiento de datos (particionado, réplica, cierre de período)** | `48-escalamiento-de-datos.md` (plan, D1-D7 cerradas por el owner; E1 particionado, E1b cierre de período y D8 grano del rollup implementados 2026-08-22, migs 156/157/160) |
 | **Configuración offline de la caja (cola de operaciones)** | `51-configuracion-offline-de-la-caja.md` (implementado 2026-08-23 — ajustes/hotkeys/impresoras/apertura y cierre sin red; regla de conflicto caja-vs-panel en §5, cierre a ciegas en §4) |
 | **Stock: ledger única fuente de verdad** | `52-stock-ledger-unica-fuente.md` (plan cerrado 2026-08-24, en ejecución — D1-D7; el costo va CON IVA incluido a propósito; crecimiento = apertura por período + particionado patrón mig 156) |
+| **Orden y stock (cuándo sale la mercadería del inventario)** | `53-orden-y-stock-reserva.md` (plan sin implementar, D1-D4 cerradas por el owner 2026-08-25 — hoy NINGUNA orden toca stock; F1 = "comprometido" derivado de órdenes abiertas + descuento al facturar, el descuento al despachar es interruptor por tenant. Ojo: `reserved` ya significa reserva de MESA. Ver §arquitecturas RECHAZADAS antes de proponer nada) |
 | **Cómo funciona cada módulo (y qué asume de los otros)** | `modules/_index.md` + un doc por módulo — LEER el del módulo que vas a tocar ANTES de integrarte con él |
 | **Hand-off de la última sesión** | `_handoff.md` (se reescribe cada cierre) |
 | Bitácora de sesiones | `_session-log.md` (índice histórico, append) |

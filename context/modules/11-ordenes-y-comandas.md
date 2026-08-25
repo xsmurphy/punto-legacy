@@ -60,9 +60,10 @@ opcionalmente, termina convergiendo en una venta.
    venta cobraba el monto correcto (el delta ya estaba en `unitPrice` desde
    que se creó la orden) pero **`expandAddonSelections` nunca corría** — sin
    línea hija de `itemSold`, sin descuento del stock de la opción elegida
-   (`OrderCoreService::create()` no toca stock — ninguna orden lo hace, es
-   consecuencia de la regla 1) y sin el dato para indentar el add-on en el
-   ticket. Plata correcta, inventario y trazabilidad rotos.
+   (`OrderCoreService::create()` no toca stock — **ninguna orden lo hace**, es
+   consecuencia de la regla 1; ver regla 8 y `context/53`) y sin el dato para
+   indentar el add-on en el ticket. Plata correcta, inventario y trazabilidad
+   rotos.
 
    `rebuildSelectionsFromOrder` (`frontend/lib/cart/store.ts`) es el puente:
    despeja el precio base del padre con el `priceDelta` CONGELADO en la orden
@@ -107,6 +108,19 @@ opcionalmente, termina convergiendo en una venta.
 7. **Espacio ⇒ `source='table'` y `fulfillment='dine_in'` forzados,
    sin importar lo que mande el payload.** Una mesa no pide delivery
    (`OrderCoreService.php:166-192`).
+8. **NINGUNA orden toca stock — es el estado actual y hay un plan, no un
+   olvido.** `OrderCoreService` no tiene una sola referencia a
+   `stock`/`manageStock`/`Inventory`, y ni `pos_order` ni `pos_order_item`
+   tienen columna de consumo, reserva o despacho. El descuento ocurre recién
+   al emitir la venta, así que entre que la comanda sale a cocina y la mesa se
+   cobra el sistema cree que la mercadería sigue disponible. El modo orden
+   está explícitamente sin gate de stock (`cart-panel.tsx:330-333`).
+   **El plan que lo cierra es `context/53-orden-y-stock-reserva.md`** (D1-D4
+   cerradas por el owner 2026-08-25): Fase 1 es "comprometido" derivado de las
+   órdenes abiertas + descuento al facturar, y el descuento al despachar queda
+   como interruptor por tenant. Antes de tocar nada de esto, leer ese doc —
+   tiene una sección de arquitecturas RECHAZADAS (descontar al crear la orden,
+   doble descuento sin marca, reserva calculada en el cliente).
 
 ## 4. Flujos principales
 
@@ -197,6 +211,10 @@ se crea la orden ni se imprime nada.
 
 ## 8. Planes y decisiones relacionados
 
+- `context/53-orden-y-stock-reserva.md` — **cuándo la mercadería sale del
+  inventario** (regla 8). D1-D4 del owner, fases F1-F4, arquitecturas
+  rechazadas. Documenta también que NO existe ningún job que limpie órdenes
+  abiertas viejas, y por qué eso es el riesgo central de su Fase 1.
 - `context/24-orders-module-plan.md` — plan original del módulo (O0-O2).
 - `context/41-addons-y-combos.md` — plan de add-ons; el "gap 1" que citaba
   como abierto se cerró parcialmente por `46ac668f` (ver regla 3).
