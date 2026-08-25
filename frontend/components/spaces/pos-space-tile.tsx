@@ -33,6 +33,7 @@ import { HoverCard, HoverCardTrigger, HoverCardContent } from "@/components/ui/h
 import { SPACE_STATE_VISUALS, spaceTintBg } from "@/lib/pos/space-state-visuals"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { SpaceActionsMenu, type SpaceTileActions } from "@/components/spaces/space-actions-menu"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 const DECOR_SHAPES = ["decor_wall", "decor_plant", "bar"]
@@ -41,6 +42,16 @@ interface Props {
   table: SpaceWithState
   onClick: () => void
   position?: { x: number; y: number; width: number; height: number; rotation: number }
+  /**
+   * Handlers del menú de tres puntos. Ausente = tile sin menú (el editor de
+   * layout y cualquier uso read-only siguen funcionando igual que antes).
+   *
+   * Es UN objeto y no seis props porque el caller lo arma una sola vez con
+   * `useMemo` y lo pasa a los dos call-sites (mapa y grilla): seis funciones
+   * inline por tile se recrearían en cada repintado de la pantalla, que en este
+   * módulo ocurre con cada evento de realtime.
+   */
+  actions?: SpaceTileActions
 }
 
 function formatOpenedAt(iso: string): string {
@@ -49,7 +60,7 @@ function formatOpenedAt(iso: string): string {
   return d.toLocaleTimeString("es", { hour: "2-digit", minute: "2-digit" })
 }
 
-export function PosSpaceTile({ table, onClick, position }: Props) {
+export function PosSpaceTile({ table, onClick, position, actions }: Props) {
   const isDecor = DECOR_SHAPES.includes(table.shape)
   // La forma física (redonda) solo aplica en el MAPA (position presente) —
   // en la grilla numerada todos los tiles son uniformes (rounded-lg): la
@@ -226,7 +237,26 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
       </HoverCard>
     )
 
-  if (!position) return content
+  /**
+   * El tile ES un `<button>`, así que el trigger del menú NO puede ir adentro:
+   * un botón dentro de otro es HTML inválido y, peor, el tap se lo quedaría el
+   * tile. Va como HERMANO dentro de un wrapper posicionado — el menú se ubica
+   * solo (`absolute right-0 top-0`, ver `space-actions-menu.tsx`).
+   *
+   * El botón está SIEMPRE, haya sesión o no: geometría estable, memoria
+   * muscular del cajero (Regla #10). Lo único que no lo lleva es la decoración
+   * (barra/pared/planta) — no son espacios, no hay nada que gestionar.
+   */
+  const withMenu = (
+    <div className="relative h-full w-full">
+      {content}
+      {actions && !isDecor && (
+        <SpaceActionsMenu table={table} actions={actions} compact={position !== undefined} />
+      )}
+    </div>
+  )
+
+  if (!position) return withMenu
 
   return (
     <div
@@ -239,7 +269,7 @@ export function PosSpaceTile({ table, onClick, position }: Props) {
         transform: `rotate(${position.rotation}deg)`,
       }}
     >
-      {content}
+      {withMenu}
     </div>
   )
 }

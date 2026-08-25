@@ -14,6 +14,16 @@
  * Reasignar el mozo es el pase de turno normal: el dueño de la mesa se la pasa
  * a un compañero. Quien NO es el dueño no llega hasta acá — el backend lo
  * rechaza con 403 (`SpaceOwnershipGuard`), no solo la UI.
+ *
+ * ── DOS entradas, UN formulario ─────────────────────────────────────────────
+ *
+ * El menú de acciones del tile (`space-actions-menu.tsx`) ofrece "Etiquetar" y
+ * "Asignar Usuario" como ítems separados, y los dos abren ESTE diálogo con los
+ * tres campos visibles: la diferencia es solo `focusField`, que decide en cuál
+ * arranca el cursor. No se parte en dos diálogos a propósito — son tres datos
+ * de la misma ocupación que se guardan en un solo PATCH, y separarlos obligaría
+ * a dos requests y a decidir qué pasa si la segunda falla. El nombre del ítem
+ * dice a qué venías; el form te deja corregir lo de al lado si ya estás ahí.
  */
 
 import * as React from "react"
@@ -51,9 +61,21 @@ interface Props {
   onOpenChange: (open: boolean) => void
   onConfirm: (values: EditSessionValues) => void
   submitting: boolean
+  /**
+   * Campo en el que arranca el cursor. Único efecto: mover el `autoFocus`. El
+   * formulario muestra siempre los tres campos (ver docblock). Default:
+   * `"alias"`, que es como se abría antes de que existiera esta prop.
+   */
+  focusField?: "alias" | "waiterId"
 }
 
-export function EditSpaceSessionDialog({ table, onOpenChange, onConfirm, submitting }: Props) {
+export function EditSpaceSessionDialog({
+  table,
+  onOpenChange,
+  onConfirm,
+  submitting,
+  focusField = "alias",
+}: Props) {
   const users = useCatalogStore((s) => s.users)
   const session = table?.session ?? null
 
@@ -97,7 +119,7 @@ export function EditSpaceSessionDialog({ table, onOpenChange, onConfirm, submitt
               maxLength={60}
               value={alias}
               onChange={(e) => setAlias(e.target.value)}
-              autoFocus
+              autoFocus={focusField === "alias"}
             />
           </div>
 
@@ -117,7 +139,7 @@ export function EditSpaceSessionDialog({ table, onOpenChange, onConfirm, submitt
           <div className="grid gap-2">
             <Label htmlFor="edit-waiter">Mozo</Label>
             <Select value={waiterId} onValueChange={setWaiterId}>
-              <SelectTrigger id="edit-waiter">
+              <SelectTrigger id="edit-waiter" autoFocus={focusField === "waiterId"}>
                 <SelectValue placeholder="Sin asignar" />
               </SelectTrigger>
               <SelectContent>

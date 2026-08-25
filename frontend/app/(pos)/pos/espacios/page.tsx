@@ -106,6 +106,10 @@ export default function EspaciosPage() {
   // en vez de un `mode` compartido: los tres se abren desde el diálogo de
   // sesión, que se cierra al hacerlo, y necesitan recordar sobre cuál operan.
   const [editingTable, setEditingTable] = React.useState<SpaceWithState | null>(null)
+  // Campo donde arranca el cursor del diálogo de edición. Es lo ÚNICO que
+  // distingue "Etiquetar" de "Asignar Usuario" en el menú del tile — el
+  // formulario es el mismo y muestra los tres campos.
+  const [editFocus, setEditFocus] = React.useState<"alias" | "waiterId">("alias")
   const [movingTable, setMovingTable] = React.useState<SpaceWithState | null>(null)
   const [mergingTable, setMergingTable] = React.useState<SpaceWithState | null>(null)
 
@@ -214,18 +218,61 @@ export default function EspaciosPage() {
     }
   }
 
-  async function handleCancelSession() {
-    if (!sessionTable?.session) return
-    try {
-      await cancelSession.mutateAsync(sessionTable.session.id)
-      toast.success(`${sessionTable.name} liberado`)
-      setSessionTable(null)
-    } catch (err) {
-      toast.error("No se pudo cancelar la sesión", {
-        description: err instanceof Error ? err.message : String(err),
-      })
-    }
-  }
+  /**
+   * Libera el espacio SIN cobro (`action=cancel`, cancela en cascada las
+   * órdenes activas).
+   *
+   * Toma el espacio por parámetro en vez de leer `sessionTable`: hoy lo
+   * disparan dos caminos —el botón del `SpaceSessionDialog` (que sí tiene el
+   * espacio en ese estado) y el ítem "Cerrar espacio" del menú del tile (que
+   * nunca abrió el diálogo)—. Atarlo al estado del diálogo obligaría al menú a
+   * abrirlo primero solo para poder cancelar.
+   */
+  const cancelSessionFor = React.useCallback(
+    async (table: SpaceWithState | null) => {
+      if (!table?.session) return
+      try {
+        await cancelSession.mutateAsync(table.session.id)
+        toast.success(`${table.name} liberado`)
+        // Cerrar el diálogo de sesión siempre: si venía de ahí, la sesión que
+        // muestra ya no existe; si venía del menú, ya estaba cerrado.
+        setSessionTable(null)
+      } catch (err) {
+        toast.error("No se pudo cancelar la sesión", {
+          description: err instanceof Error ? err.message : String(err),
+        })
+      }
+    },
+    [cancelSession],
+  )
+
+  /**
+   * Handlers del menú de tres puntos del tile. Se arman UNA vez y el mismo
+   * objeto va a los dos call-sites (mapa y grilla) — ver el docblock de
+   * `actions` en `PosSpaceTile`.
+   *
+   * Ninguno abre nada nuevo: todos apuntan a los diálogos que YA están montados
+   * abajo. "Etiquetar" y "Asignar Usuario" son dos entradas al MISMO
+   * `EditSpaceSessionDialog` (tres campos, un solo guardado) y solo difieren en
+   * dónde arranca el cursor.
+   */
+  const tileActions = React.useMemo(
+    () => ({
+      onViewDetail: (table: SpaceWithState) => setSessionTable(table),
+      onLabel: (table: SpaceWithState) => {
+        setEditFocus("alias")
+        setEditingTable(table)
+      },
+      onAssignWaiter: (table: SpaceWithState) => {
+        setEditFocus("waiterId")
+        setEditingTable(table)
+      },
+      onMerge: (table: SpaceWithState) => setMergingTable(table),
+      onMove: (table: SpaceWithState) => setMovingTable(table),
+      onCloseSpace: (table: SpaceWithState) => void cancelSessionFor(table),
+    }),
+    [cancelSessionFor],
+  )
 
   /**
    * "Cobrar" en el diálogo de sesión → elegir modo de cobro (total o split).
@@ -269,11 +316,15 @@ export default function EspaciosPage() {
         onAddOrder={handleAddOrder}
         onRequestBill={handleRequestBill}
         onCharge={handleCharge}
-        onCancelSession={handleCancelSession}
+        onCancelSession={() => void cancelSessionFor(sessionTable)}
         // Los tres cierran el diálogo de sesión y abren el suyo: dos modales
         // apilados en una tablet tapan la pantalla entera y dejan al cajero
         // sin saber cuál está operando.
         onEdit={() => {
+          // "Editar" es la entrada genérica al formulario: arranca en el primer
+          // campo. Se setea explícito para no heredar el foco que haya dejado
+          // el último uso del menú del tile.
+          setEditFocus("alias")
           setEditingTable(sessionTable)
           setSessionTable(null)
         }}
@@ -290,6 +341,7 @@ export default function EspaciosPage() {
       />
       <EditSpaceSessionDialog
         table={editingTable}
+        focusField={editFocus}
         onOpenChange={(v) => !v && setEditingTable(null)}
         onConfirm={confirmEditSession}
         submitting={updateSession.isPending}
@@ -321,6 +373,7 @@ export default function EspaciosPage() {
                     key={table.id}
                     table={table}
                     onClick={() => handleTileClick(table)}
+                    actions={tileActions}
                     position={{
                       x: table.posX ?? 0,
                       y: table.posY ?? 0,
@@ -359,7 +412,11 @@ export default function EspaciosPage() {
                 `auto-fill` con este mínimo daría solo 2. */}
             {gridTables.map((table) => (
               <div key={table.id} className="aspect-square">
-                <PosSpaceTile table={table} onClick={() => handleTileClick(table)} />
+                <PosSpaceTile
+                  table={table}
+                  onClick={() => handleTileClick(table)}
+                  actions={tileActions}
+                />
               </div>
             ))}
           </div>

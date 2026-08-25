@@ -109,8 +109,16 @@ final class OperatorContext
      * (mismo que usa unlock-pin.php); `contactstatus = 1`, que esté activo —
      * un empleado dado de baja no conserva sus permisos porque su PIN siga
      * en un token emitido antes.
+     *
+     * PÚBLICA desde 2026-08-25: `/v1/unlock-pin` la necesita para adjuntar los
+     * permisos `pos.*` del operador a la respuesta del PIN (ver el docblock de
+     * ese endpoint). Se expone en vez de repetir la query allá para que "el rol
+     * de este operador" —incluidos los filtros `type`/`contactstatus` y el
+     * cache por request— siga teniendo UNA sola definición: si mañana cambia
+     * qué contacto cuenta como usuario del comercio, cambia acá y vale para el
+     * guard y para el surfacing de permisos a la vez.
      */
-    private static function roleOf(string $companyId, string $contactId): ?string
+    public static function roleOf(string $companyId, string $contactId): ?string
     {
         $key = $companyId . ':' . $contactId;
         if (array_key_exists($key, self::$roleCache)) {
