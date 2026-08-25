@@ -99,7 +99,37 @@ if (!$found) {
 // y la exclusividad de mesas (context/15) sería un `if` sobre un dato que el
 // cliente elige. Ver el docblock de OperatorAssertion.
 require_once __DIR__ . '/../lib/Auth/OperatorAssertion.php';
+require_once __DIR__ . '/../lib/Auth/OperatorContext.php';
 $operatorId = (string) ($found['contactid'] ?? '');
+
+// ── Permisos del operador (surfacing para la UI de la caja) ──────────────────
+//
+// El backend sigue siendo la autoridad: `SpaceOwnershipGuard` y compañía
+// resuelven contra el rol del operador en CADA request. Esto es lo que le falta
+// al front para no mentir — sin ello solo puede espejar dos de las tres
+// condiciones del guard ("la mesa no tiene mozo", "la mesa es mía") y le queda
+// afuera la tercera ("soy encargado y puedo intervenir"). El resultado sin esto
+// es siempre malo: o se apagan acciones que el encargado SÍ puede ejecutar, o
+// se dejan prendidas y revientan con 403 al tocarlas.
+//
+// Por qué ACÁ y no en el roster del bootstrap (`/v1/users`): ese payload
+// proyecta a propósito id/name/pinhash y nada más —"ni rol"— porque vive para
+// siempre en el localStorage de una tablet compartida. Los permisos son la
+// capacidad de UNA persona sobre sí misma, y este es el único punto del sistema
+// donde el backend comprobó contra la BD quién es esa persona. Se entregan solo
+// a quien acaba de probar su PIN, en la misma respuesta que su afirmación.
+//
+// Filtrados al prefijo `pos.`: el resto del catálogo son permisos de PANEL
+// (reportes, ajustes, contactos). En la caja no gobiernan ninguna UI, así que
+// mandarlos solo agranda la superficie que se cachea en el dispositivo sin
+// habilitar nada.
+$operatorRole = \Punto\Api\Auth\OperatorContext::roleOf(COMPANY_ID, $operatorId);
+$operatorPerms = $operatorRole !== null
+    ? array_values(array_filter(
+        \RoleService::getPermissions($operatorRole, COMPANY_ID),
+        static fn($perm) => str_starts_with((string) $perm, 'pos.')
+    ))
+    : [];
 
 apiOk([
     'user' => [
@@ -107,4 +137,5 @@ apiOk([
         'name' => (string) ($found['contactname'] ?? ''),
     ],
     'operatorToken' => \Punto\Api\Auth\OperatorAssertion::issue(COMPANY_ID, $operatorId),
+    'permissions'   => $operatorPerms,
 ]);

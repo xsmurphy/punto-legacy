@@ -62,10 +62,36 @@ interface LockState {
    * online-only de todos modos.
    */
   operatorToken: string | null
+  /**
+   * Permisos `pos.*` del operador identificado, tal como los devolvió
+   * `/api/pos/unlock` al validar el PIN contra la BD.
+   *
+   * ── Por qué viven acá y no en el catálogo ────────────────────────────────
+   *
+   * Porque son un hecho sobre la PERSONA, no sobre el comercio ni sobre el
+   * dispositivo. El roster del bootstrap (`catalog store`) proyecta a propósito
+   * id/name/pinhash y nada más: es un payload que queda cacheado en una tablet
+   * compartida, y el rol de cada empleado no tiene por qué estar ahí. Estos
+   * permisos, en cambio, llegan solo a quien acaba de probar su PIN y se van
+   * con él.
+   *
+   * Mismo ciclo de vida que `operatorToken` — se limpian en `lock()` y en
+   * `reset()`, se persisten en la recarga — porque son el MISMO hecho probado
+   * por el server en la misma respuesta. Separarlos permitiría el estado
+   * incoherente de "tengo los permisos del encargado pero no la prueba de que
+   * soy el encargado", que es justo lo que el backend rechazaría.
+   *
+   * Vacío no es "error": es el estado de un operador sin permisos POS extra, y
+   * también el de un desbloqueo OFFLINE (donde tampoco hay token). Los
+   * consumidores solo lo usan para no mentir en la UI — autorizar es del
+   * backend.
+   */
+  operatorPermissions: string[]
   lock: () => void
   unlock: () => void
   setActiveUser: (user: { id: string; name: string } | null) => void
   setOperatorToken: (token: string | null) => void
+  setOperatorPermissions: (permissions: string[]) => void
   /** Reset completo (logout / re-pair). */
   reset: () => void
 }
@@ -76,18 +102,23 @@ export const useLockStore = create<LockState>()(
       locked: true,
       activeUser: null,
       operatorToken: null,
+      operatorPermissions: [],
       // Bloquear TIRA la afirmación firmada del operador: es una prueba de
       // identidad de alguien que acaba de irse de la caja, y no hay ninguna
       // operación que deba poder ejecutar en su nombre mientras no vuelva a
       // tipear su PIN. El desbloqueo pide una nueva (`/api/pos/unlock`), así
       // que no se pierde nada más que la ventana de riesgo. `activeUser`, en
       // cambio, se conserva: es solo a quién saludar y a quién atribuir, y el
-      // próximo PIN lo sobrescribe.
-      lock: () => set({ locked: true, operatorToken: null }),
+      // próximo PIN lo sobrescribe. Los permisos se van CON el token: son la
+      // capacidad de esa misma persona, y conservarlos sin la prueba de
+      // identidad solo habilitaría una UI optimista que el backend rechaza.
+      lock: () => set({ locked: true, operatorToken: null, operatorPermissions: [] }),
       unlock: () => set({ locked: false }),
       setActiveUser: (user) => set({ activeUser: user }),
       setOperatorToken: (token) => set({ operatorToken: token }),
-      reset: () => set({ locked: true, activeUser: null, operatorToken: null }),
+      setOperatorPermissions: (permissions) => set({ operatorPermissions: permissions }),
+      reset: () =>
+        set({ locked: true, activeUser: null, operatorToken: null, operatorPermissions: [] }),
     }),
     {
       name: "punto.pos.lock",
@@ -113,6 +144,10 @@ export const useLockStore = create<LockState>()(
         // sessionStorage (no localStorage) le pone el techo correcto: cerrar la
         // app lo tira, como a la identidad que afirma.
         operatorToken: s.operatorToken,
+        // Viajan con el token, por la misma razón y con el mismo techo: tras
+        // una recarga el encargado tiene que seguir pudiendo intervenir la mesa
+        // ajena sin volver a tipear el PIN, y tras un bloqueo no.
+        operatorPermissions: s.operatorPermissions,
       }),
       /**
        * `locked: true` tiene que GANARLE a cualquier cosa que venga de la

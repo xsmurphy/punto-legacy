@@ -37,6 +37,16 @@ interface UpstreamEnvelope {
      * punto donde el PIN se valida contra la BD.
      */
     operatorToken?: string
+    /**
+     * Permisos `pos.*` del operador que acaba de probar su PIN — los emite el
+     * mismo endpoint, contra el rol del CONTACTO (no el del device).
+     *
+     * Solo sirven para que la caja no mienta: un encargado tiene que ver
+     * habilitadas las acciones sobre mesas de otro mozo, y un mozo tiene que
+     * verlas apagadas CON el motivo en vez de comerse un 403 al tocarlas. La
+     * autorización real la sigue haciendo el backend en cada request.
+     */
+    permissions?: string[]
   }
   error?: { message?: string }
 }
@@ -98,6 +108,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       ok: true,
       user: envelope.data.user,
       operatorToken: envelope.data.operatorToken ?? null,
+      // Default `[]` y no `null`: "no vino la lista" y "el operador no tiene
+      // ningún permiso pos.*" se resuelven igual —sin capacidades extra— y un
+      // solo tipo le ahorra al consumidor una rama que no cambia nada.
+      permissions: Array.isArray(envelope.data.permissions) ? envelope.data.permissions : [],
     })
   } catch {
     return NextResponse.json(

@@ -48,6 +48,7 @@ export function LockScreen() {
   const unlock = useLockStore((s) => s.unlock)
   const setActiveUser = useLockStore((s) => s.setActiveUser)
   const setOperatorToken = useLockStore((s) => s.setOperatorToken)
+  const setOperatorPermissions = useLockStore((s) => s.setOperatorPermissions)
   const outletName = useCatalogStore((s) => s.outlet?.name)
   const users = useCatalogStore((s) => s.users)
   const catalogStatus = useCatalogStore((s) => s.status)
@@ -144,7 +145,30 @@ export function LockScreen() {
         // seguir desbloqueando SIN RED (el POS es offline-first y el PIN ya se
         // verificó localmente). Sin token el mozo opera normal; solo pierde
         // acceso a las mesas asignadas a otro, que son online-only igual.
+        //
+        // La misma respuesta trae los permisos `pos.*` de esta persona. Se
+        // guardan juntos y se limpian juntos: son el mismo hecho probado por el
+        // server, y sirven para que la caja no muestre habilitado lo que el
+        // backend va a rechazar (ni apagado lo que un encargado sí puede
+        // hacer). Sin red quedan vacíos, igual que el token — offline no hay
+        // identidad probada y las acciones que la exigen son online-only.
         setOperatorToken(null)
+        setOperatorPermissions([])
+        // De quién es ESTA request. La respuesta llega tarde y el estado pudo
+        // cambiar de dueño mientras viajaba:
+        //
+        //   Ana desbloquea con red lenta → Ana bloquea → Bruno desbloquea →
+        //   llega la respuesta de Ana → Bruno queda operando con el token Y los
+        //   permisos de Ana.
+        //
+        // Con el token era atribución equivocada; con los permisos adentro es
+        // escalación de privilegios (un cajero heredando el override de un
+        // encargado). Por eso se descarta contra el estado FRESCO del store
+        // (`getState()`, no las closures de este render, que son del momento en
+        // que se disparó la request): si desbloqueó otra persona, o si la caja
+        // volvió a bloquearse —`lock()` tira el token a propósito y una
+        // respuesta en vuelo no puede resucitarlo—, la respuesta se tira.
+        const requestedBy = matched.id
         posFetch("/api/pos/unlock", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -153,10 +177,16 @@ export function LockScreen() {
           .then(async (res) => {
             if (!res.ok) return
             const json = (await res.json().catch(() => null)) as
-              | { ok?: boolean; operatorToken?: string | null }
+              | { ok?: boolean; operatorToken?: string | null; permissions?: unknown }
               | null
-            if (json?.ok && typeof json.operatorToken === "string") {
+            if (!json?.ok) return
+            const now = useLockStore.getState()
+            if (now.locked || now.activeUser?.id !== requestedBy) return
+            if (typeof json.operatorToken === "string") {
               setOperatorToken(json.operatorToken)
+            }
+            if (Array.isArray(json.permissions)) {
+              setOperatorPermissions(json.permissions.filter((p): p is string => typeof p === "string"))
             }
           })
           .catch(() => undefined)
@@ -175,7 +205,7 @@ export function LockScreen() {
       }
     }, 160)
     return () => clearTimeout(id)
-  }, [pin, unlock, users, setActiveUser, setOperatorToken])
+  }, [pin, unlock, users, setActiveUser, setOperatorToken, setOperatorPermissions])
 
   // Escape hatch (P1): si ningún operador del roster tiene PIN, el lock screen
   // se convierte en un deadlock permanente (no hay hash contra el que comparar).

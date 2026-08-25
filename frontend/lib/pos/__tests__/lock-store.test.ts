@@ -103,4 +103,55 @@ describe("lock-store", () => {
     expect(s.operatorToken).toBeNull()
     expect(s.activeUser).toEqual({ id: "u1", name: "Ana" })
   })
+
+  // Los permisos son la CAPACIDAD de la persona que probó su PIN, y el token es
+  // la prueba de que es ella. Sobrevivir uno sin el otro es el estado
+  // incoherente que el backend rechaza —y que la UI pintaría como habilitado—,
+  // así que su ciclo de vida se ancla explícito.
+  it("bloquear limpia los permisos junto con el token", async () => {
+    const useLockStore = await freshStore()
+    useLockStore.getState().setActiveUser({ id: "u1", name: "Ana" })
+    useLockStore.getState().setOperatorToken("tok-1")
+    useLockStore.getState().setOperatorPermissions(["pos.space.override"])
+    useLockStore.getState().unlock()
+
+    useLockStore.getState().lock()
+    expect(useLockStore.getState().operatorPermissions).toEqual([])
+  })
+
+  it("reset limpia permisos, token e identidad", async () => {
+    const useLockStore = await freshStore()
+    useLockStore.getState().setActiveUser({ id: "u1", name: "Ana" })
+    useLockStore.getState().setOperatorToken("tok-1")
+    useLockStore.getState().setOperatorPermissions(["pos.space.override"])
+    useLockStore.getState().unlock()
+
+    useLockStore.getState().reset()
+    const s = useLockStore.getState()
+    expect(s.locked).toBe(true)
+    expect(s.activeUser).toBeNull()
+    expect(s.operatorToken).toBeNull()
+    expect(s.operatorPermissions).toEqual([])
+  })
+
+  it("los permisos viajan con el token en la recarga, y nunca sin él", async () => {
+    const map = installSessionStorage()
+    const useLockStore = await freshStore()
+    useLockStore.getState().setOperatorToken("tok-1")
+    useLockStore.getState().setOperatorPermissions(["pos.space.override"])
+
+    const withToken = JSON.parse(map.get(STORE_KEY) ?? "{}")
+    expect(withToken.state.operatorToken).toBe("tok-1")
+    expect(withToken.state.operatorPermissions).toEqual(["pos.space.override"])
+
+    // Bloquear tira los dos, así que lo que queda en storage tampoco puede
+    // rehidratar permisos huérfanos en la próxima carga.
+    useLockStore.getState().lock()
+    const afterLock = JSON.parse(map.get(STORE_KEY) ?? "{}")
+    expect(afterLock.state.operatorToken).toBeNull()
+    expect(afterLock.state.operatorPermissions).toEqual([])
+
+    const useLockStoreAfterReload = await freshStore()
+    expect(useLockStoreAfterReload.getState().operatorPermissions).toEqual([])
+  })
 })

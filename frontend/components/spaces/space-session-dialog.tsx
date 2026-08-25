@@ -60,6 +60,7 @@ import {
   type Order,
 } from "@/hooks/use-orders"
 import { statusLabelFor } from "@/lib/orders/order-display"
+import { cancelSessionDescription, countActiveOrders } from "@/lib/spaces/cancel-session-copy"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 /** Total de una orden = suma de ítems no cancelados (qty × price). */
@@ -101,7 +102,7 @@ export function SpaceSessionDialog({
   const sessionId = table?.session?.id ?? null
   const { data, isLoading } = useOrdersBySession(sessionId)
   const orders = data?.orders ?? []
-  const activeOrderCount = orders.filter((o) => ACTIVE_ORDER_STATUSES.includes(o.status)).length
+  const activeOrderCount = countActiveOrders(orders, ACTIVE_ORDER_STATUSES)
   const [confirmCancel, setConfirmCancel] = React.useState(false)
 
   // Total de la sesión: órdenes no canceladas (las cobradas siguen sumando —
@@ -286,9 +287,7 @@ export function SpaceSessionDialog({
             <AlertDialogHeader>
               <AlertDialogTitle>¿Cancelar la sesión?</AlertDialogTitle>
               <AlertDialogDescription>
-                {activeOrderCount > 0
-                  ? `Se cancelarán ${activeOrderCount} ${activeOrderCount === 1 ? "orden activa" : "órdenes activas"} y el espacio quedará libre, sin cobro.`
-                  : "El espacio quedará libre, sin cobro."}
+                {cancelSessionDescription(activeOrderCount)}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
