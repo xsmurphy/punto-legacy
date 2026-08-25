@@ -628,7 +628,12 @@ export const PANEL_ROUTES: RouteEntry[] = [
     surface: "palette",
     paletteGroup: "Finanzas",
     requires: "finance.manage",
-    keywords: ["reportes financieros", "informes", "resultados"],
+    keywords: [
+      "reportes financieros",
+      "informes",
+      "resultados",
+      "gastos por centro de costo",
+    ],
   },
   {
     to: "/finanzas/configuracion",
@@ -638,7 +643,19 @@ export const PANEL_ROUTES: RouteEntry[] = [
     surface: "palette",
     paletteGroup: "Finanzas",
     requires: "finance.manage",
-    keywords: ["configuracion", "categorias de gasto", "medios de pago", "ajustes"],
+    // "centros de costo" y "codigo contable" entran acá y no como página
+    // propia: son tabs de esta pantalla (mig 167). Sin la keyword, buscar
+    // "centro de costo" en el palette no encuentra nada — el concepto existe
+    // pero no tiene deep-link.
+    keywords: [
+      "configuracion",
+      "categorias de gasto",
+      "centros de costo",
+      "codigo contable",
+      "plan de cuentas",
+      "medios de pago",
+      "ajustes",
+    ],
   },
 
   // ── Configuración ──────────────────────────────────────────────────────

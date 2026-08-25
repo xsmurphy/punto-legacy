@@ -1,8 +1,8 @@
 "use client"
 
 import * as React from "react"
-import { Plus, Pencil, Archive } from "lucide-react"
-import { useForm } from "react-hook-form"
+import { Plus } from "lucide-react"
+import { useForm, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
 import { toast } from "sonner"
@@ -32,6 +32,7 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -51,14 +52,22 @@ import {
   useUpdateFinanceCategory,
   type FinanceCategory,
 } from "@/hooks/use-finance-categories"
+import { TaxonomyRow } from "./taxonomy-row"
 
 const NO_PARENT = "__none__"
 
 const categorySchema = z.object({
   name: z.string().min(1, "El nombre es requerido"),
+  // Código contable EXTERNO (mig 167): el que matchea esta categoría contra el
+  // plan de cuentas del contador del comercio. Opcional — un comercio puede no
+  // llevar sus categorías a ningún sistema de afuera. El backend normaliza
+  // '' → null y rechaza códigos repetidos dentro del comercio.
+  code: z.string().max(40, "El código no puede superar los 40 caracteres"),
   parentId: z.string(),
 })
 type CategoryValues = z.infer<typeof categorySchema>
+
+const EMPTY_FORM: CategoryValues = { name: "", code: "", parentId: NO_PARENT }
 
 /** Agrupa categorías en raíces + hijas (árbol de 2 niveles), cada nivel ordenado por sortOrder. */
 function groupByParent(categories: FinanceCategory[]) {
@@ -92,26 +101,66 @@ function CategoryRow({
   onArchive: () => void
 }) {
   return (
-    <div
-      className={`flex items-center justify-between gap-2 rounded-md px-2 py-2 hover:bg-accent/50 ${
-        indented ? "ml-6 border-l pl-3" : ""
-      }`}
-    >
-      <div className="flex items-center gap-2">
-        <span className="text-sm">{category.name}</span>
-        {category.isSystem && <Badge variant="secondary">Por defecto</Badge>}
-        {hasChildren && <Badge variant="outline">{"Tiene subcategorías"}</Badge>}
-      </div>
-      <div className="flex items-center gap-1">
-        <Button variant="ghost" size="icon" onClick={onEdit}>
-          <Pencil className="size-4" />
-        </Button>
-        {!category.isSystem && (
-          <Button variant="ghost" size="icon" onClick={onArchive}>
-            <Archive className="size-4" />
-          </Button>
+    <TaxonomyRow
+      name={category.name}
+      code={category.code}
+      indented={indented}
+      badges={
+        <>
+          {category.isSystem && <Badge variant="secondary">Por defecto</Badge>}
+          {hasChildren && <Badge variant="outline">{"Tiene subcategorías"}</Badge>}
+        </>
+      }
+      onEdit={onEdit}
+      // Las categorías por defecto no se archivan (el backend también lo
+      // rechaza) — sin handler, la fila no muestra el botón.
+      onArchive={category.isSystem ? undefined : onArchive}
+    />
+  )
+}
+
+/**
+ * Nombre + código contable. Idéntico en alta y edición, y en las dos columnas
+ * (ingresos y egresos): vive una sola vez para que un cambio no entre en tres
+ * de los cuatro lugares.
+ *
+ * El código aplica a categorías de INGRESO igual que a las de egreso. El owner
+ * habló de gastos, pero es la misma tabla y el mismo formulario — separar por
+ * `kind` sería un `if` sin beneficio, y el contador mapea el plan de cuentas
+ * entero, no solo la mitad.
+ */
+function NameAndCodeFields({ form }: { form: UseFormReturn<CategoryValues> }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <FormField
+        control={form.control}
+        name="name"
+        render={({ field }) => (
+          <FormItem className="sm:col-span-2">
+            <FormLabel>Nombre</FormLabel>
+            <FormControl>
+              <Input {...field} autoFocus />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
         )}
-      </div>
+      />
+      <FormField
+        control={form.control}
+        name="code"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Código</FormLabel>
+            <FormControl>
+              {/* `font-mono` porque se copia carácter a carácter desde el
+                  listado del contador. */}
+              <Input {...field} className="font-mono" placeholder="Opcional" />
+            </FormControl>
+            <FormDescription>Para matchear con el sistema del contador.</FormDescription>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
     </div>
   )
 }
@@ -135,11 +184,11 @@ function CategoryColumn({
 
   const createForm = useForm<CategoryValues>({
     resolver: zodResolver(categorySchema),
-    defaultValues: { name: "", parentId: NO_PARENT },
+    defaultValues: EMPTY_FORM,
   })
   const editForm = useForm<CategoryValues>({
     resolver: zodResolver(categorySchema),
-    defaultValues: { name: "", parentId: NO_PARENT },
+    defaultValues: EMPTY_FORM,
   })
 
   // Solo categorías raíz del mismo kind pueden ser "padre" (árbol de 2 niveles).
@@ -148,12 +197,16 @@ function CategoryColumn({
   const editingHasChildren = editing ? childIds.has(editing.id) : false
 
   const openCreate = () => {
-    createForm.reset({ name: "", parentId: NO_PARENT })
+    createForm.reset(EMPTY_FORM)
     setCreateOpen(true)
   }
 
   const openEdit = (category: FinanceCategory) => {
-    editForm.reset({ name: category.name, parentId: category.parentId ?? NO_PARENT })
+    editForm.reset({
+      name: category.name,
+      code: category.code ?? "",
+      parentId: category.parentId ?? NO_PARENT,
+    })
     setEditing(category)
   }
 
@@ -162,6 +215,7 @@ function CategoryColumn({
       await createCategory.mutateAsync({
         name: values.name,
         kind,
+        code: values.code,
         parentId: values.parentId === NO_PARENT ? null : values.parentId,
       })
       toast.success("Categoría creada")
@@ -179,6 +233,7 @@ function CategoryColumn({
       await updateCategory.mutateAsync({
         id: editing.id,
         name: values.name,
+        code: values.code,
         parentId: values.parentId === NO_PARENT ? null : values.parentId,
       })
       toast.success("Categoría actualizada")
@@ -251,19 +306,7 @@ function CategoryColumn({
           </DialogHeader>
           <Form {...createForm}>
             <form onSubmit={createForm.handleSubmit(onCreateSubmit)} className="flex flex-col gap-4">
-              <FormField
-                control={createForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nombre</FormLabel>
-                    <FormControl>
-                      <Input {...field} autoFocus />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <NameAndCodeFields form={createForm} />
               <FormField
                 control={createForm.control}
                 name="parentId"
@@ -310,19 +353,7 @@ function CategoryColumn({
           </DialogHeader>
           <Form {...editForm}>
             <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="flex flex-col gap-4">
-              <FormField
-                control={editForm.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Nombre</FormLabel>
-                    <FormControl>
-                      <Input {...field} autoFocus />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              <NameAndCodeFields form={editForm} />
               <FormField
                 control={editForm.control}
                 name="parentId"

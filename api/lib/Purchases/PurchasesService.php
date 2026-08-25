@@ -240,6 +240,16 @@ final class PurchasesService
             ? $headerCategoryIdOut
             : null;
 
+        // Centro de costo (mig 167). A diferencia de la categoría, NO se
+        // resuelve por línea: la compra entera se imputa a UN solo centro.
+        // Partirlo por línea obligaría a meter `costcenterid` en la clave de
+        // unicidad del ledger (mig 153) y un reintento del hook duplicaría
+        // saldo — por eso vive solo en cabecera.
+        $headerCostCenterIdOut = (string) ($meta['costCenterId'] ?? '');
+        $headerCostCenterIdOut = ($headerCostCenterIdOut !== '' && preg_match(self::UUID_RE, $headerCostCenterIdOut))
+            ? $headerCostCenterIdOut
+            : null;
+
         return [
             'id'            => (string) $row['transactionid'],
             'date'          => (string) $row['transactiondate'],
@@ -269,6 +279,7 @@ final class PurchasesService
             'paymentType'   => $paymentType,
             'details'       => $details,
             'expenseCategoryId' => $headerCategoryIdOut,
+            'costCenterId'      => $headerCostCenterIdOut,
         ];
     }
 
@@ -294,6 +305,8 @@ final class PurchasesService
      *   discount?:float|string,
      *   paymentMethod?:string,
      *   note?:string,
+     *   expenseCategoryId?:string|null,
+     *   costCenterId?:string|null,
      *   items:array<int,array<string,mixed>>
      * } $data
      *
@@ -392,6 +405,20 @@ final class PurchasesService
         //     patrón que la resolución de nombres de producto arriba).
         $headerCategoryIdRaw = trim((string) ($data['expenseCategoryId'] ?? ''));
         $headerCategoryId = preg_match(self::UUID_RE, $headerCategoryIdRaw) ? $headerCategoryIdRaw : null;
+
+        // Centro de costo de CABECERA (mig 167) — a DÓNDE se imputa el gasto,
+        // ortogonal a QUÉ es el gasto (la categoría). Es opcional por decisión
+        // del owner y no admite valor por línea: la compra se parte en varios
+        // `fin_movement` por categoría, pero todas esas porciones llevan el
+        // MISMO centro (ver `FinanceLedger::resolveCostCenterId()`).
+        //
+        // Un UUID mal formado degrada a null en vez de lanzar: una compra ya
+        // cargada no se cae por un dato de clasificación que el comercio puede
+        // corregir después desde Finanzas. Misma filosofía que
+        // `MovementService::recordDerivedMovement()`, que degrada en silencio
+        // un centro inexistente o archivado para no tumbar el hook.
+        $headerCostCenterIdRaw = trim((string) ($data['costCenterId'] ?? ''));
+        $headerCostCenterId = preg_match(self::UUID_RE, $headerCostCenterIdRaw) ? $headerCostCenterIdRaw : null;
 
         $itemDefaultCategoryIds = [];
         $needsItemDefault = [];
@@ -576,6 +603,10 @@ final class PurchasesService
             // cheque (que no se puede partir por categoría, es 1 documento
             // por el total) y la ficha de la compra si algún día la muestra.
             'expenseCategoryId' => $headerCategoryId,
+            // Centro de costo elegido para TODA la compra (null si no eligió).
+            // Lo lee `FinanceLedger::resolveCostCenterId()` y viaja igual a
+            // cada porción del gasto dividido por categoría.
+            'costCenterId'      => $headerCostCenterId,
         ];
 
         $db->StartTrans();
