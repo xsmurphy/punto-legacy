@@ -99,9 +99,13 @@ import {
   useDrawerExpense,
   useDrawerIncome,
   useShiftMethods,
+  useShiftCloseBlockers,
+  DrawerActionError,
   type DrawerSummary,
   type DrawerHourlyRow,
+  type ShiftCloseBlockers,
 } from "@/hooks/use-drawer"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { gapMessages, type CountedMethod } from "@/lib/pos/local-shift-total"
 import {
   DrawerCloseReportDialog,
@@ -1426,6 +1430,124 @@ function ShiftCloseReportNotice({ blind }: { blind: boolean }) {
  * No desplaza nada: vive al final del cuerpo scrolleable del panel, arriba de
  * la barra de acciones, que está fija.
  */
+/**
+ * Resumen de una línea de por qué no se puede cerrar. Lo usan el tooltip del
+ * botón y el título del aviso, así que dicen exactamente lo mismo.
+ */
+function shiftCloseBlockedSummary(b: ShiftCloseBlockers): string {
+  const partes: string[] = []
+  if (b.orderCount > 0) {
+    partes.push(b.orderCount === 1 ? "1 orden abierta" : `${b.orderCount} órdenes abiertas`)
+  }
+  if (b.spaceCount > 0) {
+    partes.push(b.spaceCount === 1 ? "1 espacio abierto" : `${b.spaceCount} espacios abiertos`)
+  }
+  if (partes.length === 0) return "No se puede cerrar el turno."
+  return `No se puede cerrar el turno: la sucursal tiene ${partes.join(" y ")}.`
+}
+
+/** Etiqueta de una orden en la lista: "Orden #14 — Mesa 3" / "Orden sin número". */
+function blockerOrderLabel(o: ShiftCloseBlockers["orders"][number]): string {
+  const base = o.number === null ? "Orden sin número" : `Orden #${o.number}`
+  return o.space ? `${base} — ${o.space}` : base
+}
+
+/**
+ * Qué le falta cerrar al cajero, con un camino para ir a resolverlo.
+ *
+ * Decirle "no podés cerrar" sin decirle QUÉ es lo que más frustra, así que la
+ * lista es el contenido principal y no un detalle secundario. Los botones
+ * navegan a las pantallas donde esas cosas se cierran (`/pos/ordenes`,
+ * `/pos/espacios`) — la del POS, no la del panel.
+ */
+function ShiftCloseBlockersNotice({
+  blockers,
+  blocked,
+  unverified,
+}: {
+  blockers: ShiftCloseBlockers
+  blocked: boolean
+  unverified: boolean
+}) {
+  const router = useRouter()
+  const setMenuOpen = usePosUIStore((s) => s.setMenuOpen)
+
+  function goTo(path: string) {
+    // Cerrar el menú antes de navegar: la pantalla de órdenes/espacios está
+    // DEBAJO de este overlay, no en una sección hermana del menú.
+    setMenuOpen(false)
+    router.push(path)
+  }
+
+  // Sin red: no se pudo verificar, pero el cierre procede igual. Es una
+  // advertencia, no un impedimento — por eso no pinta destructivo y el botón
+  // de arriba sigue habilitado.
+  if (unverified) {
+    return (
+      <div className="mt-6 rounded-lg border bg-muted/50 p-3">
+        <p className="text-sm font-medium">Órdenes y espacios sin verificar</p>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Este comercio exige cerrar las órdenes y los espacios antes del turno, y sin
+          conexión la caja no puede consultarlos. El cierre se va a encolar igual; si al
+          sincronizar quedan abiertos, la operación va a quedar pendiente en esta misma
+          pantalla para reintentarla.
+        </p>
+      </div>
+    )
+  }
+
+  if (!blocked) return null
+
+  return (
+    <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+      <p className="text-sm font-medium text-destructive">
+        {shiftCloseBlockedSummary(blockers)}
+      </p>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Cerralas o cobralas y el botón se habilita solo.
+      </p>
+
+      {blockers.spaces.length > 0 && (
+        <ul className="mt-2 space-y-0.5">
+          {blockers.spaces.map((s) => (
+            <li key={s.id} className="text-sm text-muted-foreground">
+              {s.name}
+              {s.status === "bill_requested" ? " — cuenta pedida" : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+      {blockers.orders.length > 0 && (
+        <ul className="mt-2 space-y-0.5">
+          {blockers.orders.map((o) => (
+            <li key={o.id} className="text-sm text-muted-foreground">
+              {blockerOrderLabel(o)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {blockers.truncated && (
+        <p className="mt-1 text-sm text-muted-foreground">
+          Se listan las primeras; el total está arriba.
+        </p>
+      )}
+
+      <div className="mt-2 flex gap-2">
+        {blockers.orderCount > 0 && (
+          <Button size="sm" variant="outline" onClick={() => goTo("/pos/ordenes")}>
+            Ver órdenes
+          </Button>
+        )}
+        {blockers.spaceCount > 0 && (
+          <Button size="sm" variant="outline" onClick={() => goTo("/pos/espacios")}>
+            Ver espacios
+          </Button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function FailedDrawerOpsNotice() {
   const failedOpsCount = useOfflineSyncStore((s) => s.failedOpsCount)
   // "Revisar" NAVEGA a la sección de pendientes dentro de este mismo menú. No
@@ -1505,6 +1627,21 @@ function ControlDeCajaPanel() {
   const { data: registerConfigData } = usePosRegisterConfig(activeRegisterId)
   const blind = registerConfigData?.config?.blindControl ?? false
 
+  // Gate de cierre: el comercio puede exigir que no queden órdenes ni espacios
+  // abiertos en la SUCURSAL. El flag viaja en la config de la caja (cacheada
+  // offline); la lista de lo que falta se consulta al servidor.
+  //
+  // Sin red no se consulta y NO se bloquea: órdenes y espacios no están en el
+  // snapshot offline, así que no hay ni un dato viejo que mirar — y bloquear un
+  // cierre con datos vencidos dejaría al cajero con la plata contada y sin poder
+  // terminar el turno. Se avisa (`closeUnverified`) y el servidor valida cuando
+  // la operación sincroniza. Ver `useShiftCloseBlockers`.
+  const requireClosedOrders = registerConfigData?.config?.requireClosedOrders ?? false
+  const drawerIsOpen = status?.isOpen ?? false
+  const closeGate = useShiftCloseBlockers(requireClosedOrders && drawerIsOpen && !offline)
+  const closeBlocked = closeGate.blocking
+  const closeUnverified = requireClosedOrders && drawerIsOpen && (offline || closeGate.isError)
+
   // Estado local del modal de monto (abre/cierra con apertura/cierre/movimiento)
   type ModalMode = "open" | "close" | "expense" | "income" | null
   const [modalMode, setModalMode] = React.useState<ModalMode>(null)
@@ -1582,6 +1719,18 @@ function ControlDeCajaPanel() {
         }
       }
     } catch (err) {
+      // El gate de órdenes/espacios rechazó el cierre (422). Pasa cuando algo
+      // se abrió entre el último refetch y el intento, o cuando el POS tenía
+      // la config vieja. Se cierra el modal de conteo y se refresca la lista:
+      // el aviso de abajo aparece con el detalle y el botón queda
+      // deshabilitado, que es donde el impedimento tiene que vivir. Dejar el
+      // modal abierto con un toast encima invitaría a reintentar a ciegas.
+      const blockers =
+        err instanceof DrawerActionError ? err.shiftCloseBlockers() : null
+      if (blockers) {
+        setModalMode(null)
+        void closeGate.refetch()
+      }
       toast.error(err instanceof Error ? err.message : "Error desconocido")
     }
   }
@@ -1759,19 +1908,48 @@ function ControlDeCajaPanel() {
 
         <ShiftCloseReportNotice blind={blind} />
         <FailedDrawerOpsNotice />
+        {/* Qué falta cerrar. Vive en el cuerpo scrolleable, arriba de la barra
+            de acciones fija — no desplaza ningún control (context/14 §10),
+            mismo lugar que los otros dos avisos de esta pantalla.
+            El tooltip del botón cumple la convención del impedimento en el
+            control; ESTE bloque es lo que lo hace usable en una tablet, donde
+            un botón deshabilitado no tiene hover que revele nada. */}
+        <ShiftCloseBlockersNotice
+          blockers={closeGate.data}
+          blocked={closeBlocked}
+          unverified={closeUnverified}
+        />
       </div>
 
       {/* Barra de acciones */}
       <div className="flex gap-2 border-t bg-background px-6 py-4">
         {isOpen ? (
           <>
-            <Button
-              variant="destructive"
-              className="flex-1"
-              onClick={() => openModal("close")}
-            >
-              Cerrar caja
-            </Button>
+            {/* El impedimento vive en el control de la acción, no en un toast
+                después de intentar. El <span> es necesario: un botón
+                `disabled` no emite eventos de puntero, así que sin un
+                contenedor que sí los reciba el tooltip no se abriría nunca.
+                `flex-1` se mudó del botón al span para que la geometría de la
+                barra no cambie entre estados. */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="flex-1">
+                  <Button
+                    variant="destructive"
+                    className="w-full"
+                    disabled={closeBlocked}
+                    onClick={() => openModal("close")}
+                  >
+                    Cerrar caja
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {closeBlocked && (
+                <TooltipContent side="top" className="max-w-xs">
+                  {shiftCloseBlockedSummary(closeGate.data)}
+                </TooltipContent>
+              )}
+            </Tooltip>
             <Button variant="outline" size="sm" onClick={() => openModal("expense")}>
               <ArrowDown className="size-4" />
               Extraer

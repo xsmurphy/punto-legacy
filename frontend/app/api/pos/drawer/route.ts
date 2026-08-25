@@ -11,6 +11,7 @@
  *   GET  /api/pos/drawer           → resumen completo (list, date, subtotal, total, tips, returns)
  *   GET  /api/pos/drawer?check=1   → { isOpen: bool }
  *   GET  /api/pos/drawer?resource=hourlyStats → { timezone, today[], yesterday[] }
+ *   GET  /api/pos/drawer?resource=blockers    → { enabled, total, orders[], spaces[] }
  *   POST /api/pos/drawer           → { action: "open"|"close"|"expense"|"income", amount, date, note?, user? }
  */
 
@@ -33,6 +34,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // acoplaría dos payloads con ciclos de vida distintos.
   if (req.nextUrl.searchParams.get("resource") === "hourlyStats") {
     return bffProxy(req, { upstreamPath: "/v1/drawer.php?resource=hourlyStats", requireBearer: true })
+  }
+  // Qué impide cerrar el turno (órdenes y espacios abiertos de la sucursal) —
+  // PASSTHROUGH. Va aparte del summary y no dentro: el summary es el arqueo y
+  // se pide una vez al abrir Control de Caja, esto se refresca mientras el
+  // panel está abierto para que el botón se habilite solo cuando el cajero
+  // termina de cerrar lo que faltaba.
+  if (req.nextUrl.searchParams.get("resource") === "blockers") {
+    return bffProxy(req, { upstreamPath: "/v1/drawer.php?resource=blockers", requireBearer: true })
   }
   return bffProxy(req, { upstreamPath: "/v1/drawer.php", requireBearer: true })
 }

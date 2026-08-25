@@ -57,6 +57,8 @@ export interface SettingsGeneral {
   itemSerialized: boolean
   drawerEmail: boolean
   drawerBlind: boolean
+  /** Exigir órdenes y espacios cerrados para poder cerrar el turno. */
+  drawerRequireClosedOrders: boolean
   settingRemoveTaxes: boolean
   paymentId: boolean
   creditLine: boolean
