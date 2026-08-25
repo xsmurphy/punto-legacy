@@ -573,6 +573,32 @@
         ):not([data-touch="off"]) {
         min-height: var(--pos-touch-min);
     }
+
+    /* Switches. El track nace en 20×32 y el thumb en 16: al lado de un input
+       de 44 se lee como un control de otra escala —"los switches se ven muy
+       chicos comparados con los inputs", owner 2026-08-25 sobre Ajustes—. No
+       se estira a 44 de alto: un switch de 44×88 desbalancea la fila. Sube a
+       28×48 con thumb de 24, que con el pseudo-elemento `after:-inset-y-2`
+       que ya trae el primitive da exactamente los 44px de área táctil.
+
+       INVARIANTE del primitive: el thumb recorre `calc(100% - 4px)` de SU
+       ancho, así que el track tiene que medir el doble del thumb (48 = 2×24)
+       y su alto, thumb + los 2px de borde por lado (28 = 24+4). Si se cambia
+       uno hay que recalcular los tres.
+
+       Solo el tier `default`. El `sm` (16×24) es el tier explícitamente denso
+       —mismo criterio que el `xs` de los botones— y no se toca. */
+    [data-pos-touch] [data-slot="switch"][data-size="default"]:not([data-touch="off"]) {
+        height: 1.75rem;
+        width: 3rem;
+    }
+
+    [data-pos-touch]
+        [data-slot="switch"][data-size="default"]:not([data-touch="off"])
+        [data-slot="switch-thumb"] {
+        height: 1.5rem;
+        width: 1.5rem;
+    }
 }
 
 /* MapLibre — popup sin chrome propio.

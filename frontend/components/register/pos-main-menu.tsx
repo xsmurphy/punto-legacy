@@ -44,6 +44,7 @@ import { useOfflineSyncStore } from "@/lib/pos/offline-sync-store"
 import { SyncQueueList } from "@/components/pos/sync-queue-list"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Select,
   SelectContent,
@@ -450,7 +451,12 @@ export function PosMainMenu() {
           </DialogHeader>
 
           {/* Grid: sidebar nav (izquierda) + content area (derecha) */}
-          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden sm:grid sm:h-[80vh] sm:grid-cols-[200px_1fr]">
+          {/* `max-sm:flex-1`: bajo `sm` el DialogContent es una columna flex a
+              pantalla completa (ver `mobileFullscreen` en ui/dialog.tsx) y este
+              grid es su único hijo — toma todo el alto que sobra. El `h-full`
+              alcanza mientras el padre tenga alto definido; el `flex-1` lo deja
+              explícito y sobrevive a que alguien meta otro hijo al lado. */}
+          <div className="flex h-full min-h-0 w-full flex-col overflow-hidden max-sm:flex-1 sm:grid sm:h-[80vh] sm:grid-cols-[200px_1fr]">
 
             {/* Sidebar: vertical en desktop, horizontal scrolleable en mobile. */}
             <div className="flex shrink-0 flex-col sm:border-r">
@@ -2474,6 +2480,57 @@ const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; descriptio
 // verdad, vuelve a esta lista.
 
 /**
+ * Fila "etiqueta + control" de Ajustes — la ÚNICA forma de armar una.
+ *
+ * La etiqueta a la izquierda en una columna fija de 192px funciona en el
+ * desktop del menú (que va a 64rem), pero en un teléfono de 390pt deja ~130px
+ * para el control: los selectores de sucursal y caja quedaban con el nombre
+ * cortado y el input de IP no entraba (reporte del owner 2026-08-25, "el
+ * panel de ajustes se aplasta"). Bajo `sm` la fila apila —etiqueta arriba,
+ * control a ancho completo— y de `sm` para arriba vuelve exactamente a la
+ * geometría de siempre.
+ *
+ * Va en un componente y no repetida en cada fila porque eran cinco filas con
+ * la misma cadena de clases en dos componentes distintos: la próxima fila que
+ * alguien agregue nace responsive sin acordarse de esto.
+ */
+function SettingRow({
+  label,
+  htmlFor,
+  align = "center",
+  children,
+}: {
+  /** Sin `label` la fila solo reserva la columna en desktop (texto de ayuda). */
+  label?: string
+  htmlFor?: string
+  /** `start` para controles de varias líneas (un párrafo de ayuda). */
+  align?: "center" | "start"
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-1.5 sm:flex-row sm:gap-3",
+        align === "center" ? "sm:items-center" : "sm:items-start",
+      )}
+    >
+      {label ? (
+        <Label
+          htmlFor={htmlFor}
+          className="font-normal text-muted-foreground sm:w-48 sm:shrink-0"
+        >
+          {label}
+        </Label>
+      ) : (
+        // En móvil no hay columna que reservar: la fila apila.
+        <div className="hidden sm:block sm:w-48 sm:shrink-0" aria-hidden />
+      )}
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  )
+}
+
+/**
  * Selectores de sucursal+caja del device actual.
  *
  * El admin pre-elige estos valores al generar el link de invitación, pero el
@@ -2740,16 +2797,13 @@ function DeviceContextSelectors() {
 
   return (
     <>
-      <div className="flex items-center gap-3">
-        <label className="w-48 shrink-0 text-sm text-muted-foreground">
-          Sucursal
-        </label>
+      <SettingRow label="Sucursal" htmlFor="ajustes-outlet">
         <Select
           value={effectiveOutletId}
           onValueChange={handleOutletChange}
           disabled={disabled}
         >
-          <SelectTrigger className="flex-1">
+          <SelectTrigger id="ajustes-outlet" className="w-full">
             <SelectValue placeholder="Sin seleccionar" />
           </SelectTrigger>
           <SelectContent>
@@ -2760,18 +2814,15 @@ function DeviceContextSelectors() {
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </SettingRow>
 
-      <div className="flex items-center gap-3">
-        <label className="w-48 shrink-0 text-sm text-muted-foreground">
-          Caja
-        </label>
+      <SettingRow label="Caja" htmlFor="ajustes-register">
         <Select
           value={stagedRegisterId || activeRegisterId}
           onValueChange={handleRegisterChange}
           disabled={disabled || registersOfOutlet.length === 0}
         >
-          <SelectTrigger className="flex-1">
+          <SelectTrigger id="ajustes-register" className="w-full">
             <SelectValue
               placeholder={
                 onlyDisabledRegisters
@@ -2790,15 +2841,14 @@ function DeviceContextSelectors() {
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </SettingRow>
 
       {/* Altura constante: el texto CAMBIA, no aparece. Un bloque que se
           inserta al perder la conexión empujaría todo lo de abajo, y la regla
           del POS es que nada se mueva de lugar según el estado (context/14
           §10). */}
-      <div className="flex items-start gap-3">
-        <div className="w-48 shrink-0" aria-hidden />
-        <p className="flex-1 text-xs text-muted-foreground">
+      <SettingRow align="start">
+        <p className="text-xs text-muted-foreground">
           {contextLocked
             ? "Sin conexión: la sucursal y la caja no se pueden cambiar. Se muestran las actuales."
             : onlyDisabledRegisters
@@ -2807,7 +2857,7 @@ function DeviceContextSelectors() {
                 ? "Esa sucursal no tiene ninguna caja, así que el device no se puede mover ahí. Creá una caja desde el panel o elegí otra sucursal."
                 : "Al elegir una sucursal se toma su primera caja; podés cambiarla abajo. Cambiar de sucursal o de caja vacía la venta en curso."}
         </p>
-      </div>
+      </SettingRow>
 
       {/* Confirmación de descarte. Solo aparece si hay líneas cargadas — con el
           carrito vacío el cambio va derecho, sin peaje.
@@ -2950,34 +3000,33 @@ function AjustesPanel() {
 
               {/* Bloqueo por inactividad */}
               {/* TODO (backend): persistir en config del dispositivo */}
-              <div className="flex items-center gap-3">
-                <label className="w-48 shrink-0 text-sm text-muted-foreground">
-                  Bloquear sesión luego de (seg.)
-                </label>
-                <Input className="flex-1" type="number" defaultValue="0" />
-              </div>
+              <SettingRow
+                label="Bloquear sesión luego de (seg.)"
+                htmlFor="ajustes-lock-timeout"
+              >
+                <Input
+                  id="ajustes-lock-timeout"
+                  className="w-full"
+                  type="number"
+                  defaultValue="0"
+                />
+              </SettingRow>
 
               {/* IP POS Bancard — SOLO con el módulo `bancardPos` activo
                   (panel → Módulos → POS físico Bancard). Persiste por caja en
                   register posConfig (`bancardPosIp`), mismo debounce que los
                   toggles. */}
               {bancardPosEnabled && (
-                <div className="flex items-center gap-3">
-                  <label
-                    htmlFor="ajustes-bancard-ip"
-                    className="w-48 shrink-0 text-sm text-muted-foreground"
-                  >
-                    IP POS Bancard
-                  </label>
+                <SettingRow label="IP POS Bancard" htmlFor="ajustes-bancard-ip">
                   <Input
                     id="ajustes-bancard-ip"
-                    className="flex-1"
+                    className="w-full"
                     placeholder="Ej: 192.168.101.68"
                     value={(pending.bancardPosIp as string | undefined) ?? config.bancardPosIp}
                     disabled={isLoading}
                     onChange={(e) => handleToggle("bancardPosIp", e.target.value)}
                   />
-                </div>
+                </SettingRow>
               )}
             </div>
           </div>
@@ -2996,7 +3045,10 @@ function AjustesPanel() {
                     idx < AJUSTES_TOGGLES.length - 1 && "border-b border-border",
                   )}
                 >
-                  <div>
+                  {/* `min-w-0`: sin esto una descripción larga no puede
+                      encogerse y empuja al Switch fuera de la fila en un
+                      teléfono. */}
+                  <div className="min-w-0">
                     <p className="text-sm">{label}</p>
                     {description && (
                       <p className="text-xs text-muted-foreground">{description}</p>
