@@ -6,6 +6,7 @@ namespace Punto\Api\Sync;
 use function Punto\Api\Items\buildItemsSelectSql;
 use function Punto\Api\Items\presentItem;
 use function Punto\Api\Items\outletVisibilityClause;
+use function Punto\Api\Items\outletInvisibilityClause;
 
 /**
  * SyncService — sync incremental del POS (context/43-sync-incremental.md).
@@ -151,6 +152,36 @@ final class SyncService
 
         $deletedIds = $this->deletedIdsSince('item', $companyId, $since);
 
+        // Un ítem al que le sacaron ESTA sucursal (mig 170, `item_outlet`) no
+        // se borró: dejó de existir PARA ESTA CAJA. El trigger
+        // `trg_item_outlet_touch_item` ya le bumpeó `updated_at`, así que cae
+        // dentro de la ventana del delta — pero el filtro positivo de arriba
+        // lo descarta, y sin este paso el device se quedaría con la copia
+        // vieja en cache, vendible, para siempre.
+        //
+        // Para la caja el efecto es idéntico a un borrado (sacá este id de tu
+        // catálogo), así que viaja por `deletedIds` y NO por un campo nuevo:
+        // el cliente ya sabe procesarlo y no hay contrato que versionar.
+        $deletedIds = array_values(array_unique(array_merge(
+            $deletedIds,
+            $this->itemsNoLongerVisibleTo($companyId, $since, $outletId)
+        )));
+
+        // Invariante del delta: NUNCA mandar un id en `items` y en `deletedIds`
+        // a la vez. El cliente aplicaría los dos y el resultado dependería del
+        // orden. Puede pasar de verdad: si a un ítem le sacan la sucursal y se
+        // la devuelven dentro de la misma ventana, o si una lápida vieja de la
+        // tabla `deleted_row` convive con un ítem re-creado con el mismo id.
+        // Gana la presencia — si el ítem está visible AHORA, no se borra.
+        $presentIds = [];
+        foreach ($items as $it) {
+            if (!empty($it['itemId'])) $presentIds[$it['itemId']] = true;
+        }
+        $deletedIds = array_values(array_filter(
+            $deletedIds,
+            static fn($id) => !isset($presentIds[$id])
+        ));
+
         if (count($items) + count($deletedIds) > self::MAX_REASONABLE_ROWS) {
             return ['items' => [], 'deletedIds' => [], 'full' => true, 'serverTime' => \TODAY];
         }
@@ -194,6 +225,53 @@ final class SyncService
         $ids = [];
         foreach ($rs->GetRows() as $row) {
             $ids[] = $row['rowid'] ?? $row['rowId'] ?? null;
+        }
+        return array_values(array_filter($ids));
+    }
+
+    /**
+     * Ids de ítems que cambiaron desde `$since` y que YA NO pertenecen a
+     * `$outletId` (mig 170). Contraparte de la rama positiva de
+     * `itemsDelta()`: mismo `companyId`, mismo `since`, criterio de
+     * pertenencia negado vía `outletInvisibilityClause()`.
+     *
+     * Devuelve SOLO ids — no hace falta el payload de un ítem que la caja
+     * tiene que descartar, y así el costo no depende de `buildItemsSelectSql()`
+     * (que joinea impuestos/addons/imágenes para armar el `PosItem`).
+     *
+     * Sin `$outletId` (panel) no aplica: el panel no tiene un catálogo local
+     * que podarle.
+     *
+     * VOLUMEN — el conjunto está acotado por los ítems EDITADOS en la ventana
+     * del delta que no son de esta sucursal, no por el tamaño del catálogo: el
+     * mismo orden de magnitud que la rama positiva. Un ítem ajeno que se edita
+     * seguido se reporta como borrado más de una vez; es idempotente del lado
+     * del cliente (borrar lo que no tiene es un no-op) y sale más barato que
+     * llevar registro de qué vio cada device.
+     *
+     * El caso patológico es un ítem SIN ninguna fila en `item_outlet` (estado
+     * inválido — ver mig 170 §4): sería ajeno a TODA sucursal y entraría acá en
+     * cada delta. Si eso escalara, `MAX_REASONABLE_ROWS` corta y devuelve
+     * `full = true`, que degrada a un bootstrap completo en vez de mandar una
+     * lista de borrados gigante. El backfill de la migración existe justamente
+     * para que ningún ítem preexistente nazca en ese estado.
+     */
+    private function itemsNoLongerVisibleTo(string $companyId, string $since, ?string $outletId): array
+    {
+        [$clause, $clauseParams] = outletInvisibilityClause($outletId);
+        if ($clause === '') return [];
+
+        $rs = $this->db->Execute(
+            'SELECT i.itemId FROM item i
+              WHERE i.companyId = ?
+                AND COALESCE(i.updated_at, i.itemDate) > ?
+                AND ' . $clause,
+            array_merge([$companyId, $since], $clauseParams)
+        );
+        if ($rs === false) return [];
+        $ids = [];
+        foreach ($rs->GetRows() as $row) {
+            $ids[] = $row['itemid'] ?? $row['itemId'] ?? null;
         }
         return array_values(array_filter($ids));
     }

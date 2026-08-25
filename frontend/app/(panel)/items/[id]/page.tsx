@@ -82,6 +82,7 @@ import {
   useUpdateItem,
 } from "@/hooks/use-items"
 import { useOutlets } from "@/hooks/use-outlets"
+import { useViewScope } from "@/hooks/use-view-scope"
 import { useFinanceCategories } from "@/hooks/use-finance-categories"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useTaxes } from "@/hooks/use-taxes"
@@ -123,6 +124,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { MultiSelect } from "@/components/ui/multi-select"
 import { useFormTabErrors, TabErrorDot } from "@/hooks/use-form-tab-errors"
 
 const itemSchema = z.object({
@@ -160,7 +162,12 @@ const itemSchema = z.object({
   expenseCategoryId: z.string(),
   brandId: z.string(),
   status: z.boolean(),
-  outletId: z.string(),
+  // Un ítem SIEMPRE vive en al menos una sucursal (regla del owner): sin
+  // sucursal no hay trazabilidad. Ya no existe el "todas" implícito del
+  // modelo 1:1 — las sucursales se marcan explícitas.
+  outletIds: z
+    .array(z.string())
+    .min(1, "El artículo tiene que estar en al menos una sucursal"),
   supplierId: z.string(),
   waste: z.number().min(0).max(99).nullable(),
   // Umbrales de stock. Nullable a propósito: null es "no se controla por este
@@ -268,7 +275,7 @@ function ItemEditPageInner() {
     form,
     fields: {
       perfil: ["name", "sku", "description", "kind", "status", "price", "cost", "packDurationDays", "giftcardColor", "itemSessions", "currencies"],
-      config: ["outletId", "uom", "taxId", "taxIncluded", "discount", "priceType", "pricePercent", "commission", "commissionType", "sort", "ecom", "featured"],
+      config: ["outletIds", "uom", "taxId", "taxIncluded", "discount", "priceType", "pricePercent", "commission", "commissionType", "sort", "ecom", "featured"],
       disponibilidad: ["availability"],
       produccion: ["procedure"],
     },
@@ -297,6 +304,29 @@ function ItemEditPageInner() {
     const firstTax = taxList[0]
     if (firstTax) form.setValue("taxId", firstTax.id, { shouldDirty: false })
   }, [isNew, taxList, form])
+
+  // Alta: el ítem nace SIEMPRE con una sucursal asignada — cero sucursales es
+  // estado inválido (sin sucursal no hay trazabilidad del producto). Con un
+  // solo local del tenant, ese; con varios, el del view-scope si hay uno
+  // fijado, si no el primero de la lista. El usuario puede sumar o cambiar,
+  // pero nunca arranca en vacío.
+  const outletsQuery = useOutlets()
+  const outletRows = React.useMemo(
+    () => outletsQuery.data?.rows ?? [],
+    [outletsQuery.data],
+  )
+  const { scope: viewScope } = useViewScope()
+  React.useEffect(() => {
+    if (!isNew) return
+    if (form.getValues("outletIds").length > 0) return
+    if (outletRows.length === 0) return
+    const scoped =
+      viewScope && viewScope !== "all"
+        ? outletRows.find((o) => o.id === viewScope)
+        : undefined
+    const preset = outletRows.length === 1 ? outletRows[0] : (scoped ?? outletRows[0])
+    form.setValue("outletIds", [preset.id], { shouldDirty: false })
+  }, [isNew, outletRows, viewScope, form])
 
   // Estado local del multi-select de categorías (m2m item_category).
   // El form de react-hook-form sigue manejando `categoryId` (legacy 1:1) que
@@ -353,7 +383,7 @@ function ItemEditPageInner() {
       expenseCategoryId: toStr(data.expenseCategoryId),
       brandId: toStr(data.brandId),
       status: (toNum(data.itemStatus) ?? 1) === 1,
-      outletId: toStr(data.outletId),
+      outletIds: data.outletIds ?? [],
       supplierId: toStr(data.supplierId),
       waste: toNum(data.itemWaste),
       minStock: toNum(data.itemMinStock),
@@ -1298,30 +1328,23 @@ function ConfigTab({
             />
             <FormField
               control={form.control}
-              name="outletId"
+              name="outletIds"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Sucursal</FormLabel>
-                  <Select
-                    onValueChange={(v) => field.onChange(v === "_all" ? "" : v)}
-                    value={field.value || "_all"}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Todas las sucursales" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="_all">Todas las sucursales</SelectItem>
-                      {(outlets?.rows ?? []).map((o) => (
-                        <SelectItem key={o.id} value={o.id}>
-                          {o.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <FormLabel>Sucursales</FormLabel>
+                  <MultiSelect
+                    value={field.value}
+                    onChange={field.onChange}
+                    options={(outlets?.rows ?? []).map((o) => ({ id: o.id, name: o.name }))}
+                    minOne
+                    minOneReason="El artículo tiene que estar en al menos una sucursal. Marcá otra antes de sacar esta."
+                    placeholder="Seleccionar sucursales…"
+                    searchPlaceholder="Buscar sucursal…"
+                    emptyMessage="Sin sucursales."
+                    unitLabels={["sucursal", "sucursales"]}
+                  />
                   <FormDescription className="text-xs">
-                    Si seleccionás una, el artículo solo aparece en esa caja.
+                    El artículo aparece en las cajas de las sucursales marcadas.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -2153,7 +2176,9 @@ function emptyValues(): ItemFormValues {
     expenseCategoryId: "",
     brandId: "",
     status: true,
-    outletId: "",
+    // Vacío solo como valor inicial del form: el alta preselecciona una
+    // sucursal apenas carga la lista (ver el effect de preselección).
+    outletIds: [],
     supplierId: "",
     waste: null,
     minStock: null,

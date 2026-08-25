@@ -379,7 +379,11 @@ if ($resource === 'last-purchase-price') {
 }
 
 // ── Rama Panel CRUD ───────────────────────────────────────────────────────
-$itemService = new \Punto\Api\Items\ItemService(new \Punto\Api\Items\ItemRepository($db));
+$itemOutletService = new \Punto\Api\Items\ItemOutletService($db);
+$itemService = new \Punto\Api\Items\ItemService(
+    new \Punto\Api\Items\ItemRepository($db),
+    $itemOutletService
+);
 $locService  = new \Punto\Api\Items\LocationService($db);
 
 // ── Sub-recurso: grupos de items (parent/child via itemIsParent + itemParentId) ──
@@ -721,7 +725,14 @@ if ($resource === 'bulk-edit') {
     $pap = $_POST['priceAdjustPercent'] ?? null;
     $priceAdjustPercent = ($pap !== null && $pap !== '' && is_numeric($pap)) ? (float) $pap : null;
 
-    $report = $itemService->bulkEdit($companyId, $itemIds, $patch, $priceAdjustPercent);
+    try {
+        $report = $itemService->bulkEdit($companyId, $itemIds, $patch, $priceAdjustPercent);
+    } catch (\InvalidArgumentException $e) {
+        // Sucursal de otro tenant en `outletIds` (ItemOutletService). El caso
+        // "lista vacía" no llega acá: `bulkEdit()` la descarta antes de tocar
+        // ningún ítem, para no fallar N veces por el mismo payload.
+        apiError($e->getMessage(), 422);
+    }
     apiOk($report);
 }
 
@@ -773,13 +784,23 @@ switch ($method) {
             // (`ItemService::isForeignOutletItem`) y que el listado/bulk-get
             // de más abajo: un ítem de otra sucursal se trata como "no
             // encontrado", nunca se confirma su existencia a la caja.
+            //
+            // La pertenencia sale de `item_outlet` (N-a-N, mig 170). Esta rama
+            // usa `find()` (un `SELECT * FROM item` crudo), no el SELECT
+            // compartido de `buildItemsSelectSql()`, así que las sucursales se
+            // resuelven acá explícitamente — y de paso alimentan `outletIds`
+            // más abajo, que es lo que la ficha del panel manda de vuelta al
+            // guardar.
+            $itemOutlets   = $itemOutletService->listWithNamesFor($id, $companyId);
+            $itemOutletIds = array_column($itemOutlets, 'outletId');
             if ($deviceOutletId !== null && $deviceOutletId !== '') {
-                $itemOutletId = (string) ($item['outletId'] ?? '');
-                if ($itemOutletId !== '' && $itemOutletId !== $deviceOutletId) {
+                if (!in_array($deviceOutletId, $itemOutletIds, true)) {
                     apiError('Item no encontrado', 404);
                 }
             }
             $presented = presentItem(ncmRow($item));
+            $presented['outletIds'] = $itemOutletIds;
+            $presented['outlets']   = $itemOutlets;
             $presented['categories'] = fetchItemCategories($id);
             $presented['brands']     = fetchItemBrands($id);
             $presented['tags']       = fetchItemTags($id);
@@ -862,17 +883,18 @@ switch ($method) {
             implode(' AND ', $where)
         );
 
-        // Catálogo ofrecido a la venta: una caja (pos-app) solo ve lo de su
-        // sucursal (+ ítems globales, outletId NULL). Es el filtro central
-        // del bug "el POS ofrece artículos de otras sucursales" — antes no
-        // existía acá, así que el bootstrap bajaba el catálogo del tenant
-        // entero.
+        // Catálogo ofrecido a la venta: una caja (pos-app) solo ve los ítems
+        // asignados a SU sucursal (`item_outlet`, mig 170 — ya no existe el
+        // "ítem global" de outletId NULL: las sucursales son explícitas). Es el
+        // filtro central del bug "el POS ofrece artículos de otras sucursales"
+        // — antes no existía acá, así que el bootstrap bajaba el catálogo del
+        // tenant entero.
         //
         // Panel: por default administra el catálogo completo del tenant
         // (Scope=Tenant), pero si el selector global de sucursal tiene
         // elegida una puntual ($panelViewOutletId), el listado de Artículos
         // respeta ese scope con el MISMO criterio de visibilidad que pos-app
-        // — asignado a esa sucursal o global (outletId NULL) — decisión
+        // — asignado a esa sucursal en `item_outlet` — decisión
         // owner 2026-08-22 (context/25 §3/§5). `$deviceOutletId` y
         // `$panelViewOutletId` son mutuamente excluyentes (uno por realm),
         // así que reusar `outletVisibilityClause()` con cualquiera de los
@@ -932,14 +954,30 @@ switch ($method) {
         $legacyFlags = kindToLegacyFlags($kind);
         $record = array_merge(['itemKind' => $kind], $legacyFlags);
 
-        $newId = $itemService->createBlank($companyId, $legacyFlags['itemType'] ?? null, $kind);
+        // Sucursal preseleccionada del alta (mig 170 / ItemOutletService::defaultFor):
+        // la del device si es una caja, si no la que el panel tenga fijada en el
+        // selector global. Con una sola sucursal en el tenant no importa cuál
+        // llegue acá — `defaultFor()` devuelve esa igual.
+        $newId = $itemService->createBlank(
+            $companyId,
+            $legacyFlags['itemType'] ?? null,
+            $kind,
+            $deviceOutletId ?: $panelViewOutletId
+        );
         if ($newId === false) apiError('No se pudo crear el item', 500);
 
         // Aplicar kind + extras al row recién creado.
         $extras = array_diff_key($_POST, ['type' => 1, 'kind' => 1]);
         $extras['itemKind'] = $kind;
         $extras = array_merge($extras, $legacyFlags);
-        $itemService->update($newId, $companyId, $extras);
+        try {
+            $itemService->update($newId, $companyId, $extras);
+        } catch (\InvalidArgumentException $e) {
+            // Invariante de sucursales (mínimo una, y del tenant) — ver
+            // ItemOutletService. El ítem ya se creó con su sucursal por
+            // defecto, así que el 422 rechaza el patch, no deja basura.
+            apiError($e->getMessage(), 422);
+        }
 
         $item = $itemService->find($newId, $companyId);
         $presented = $item !== null
@@ -949,6 +987,8 @@ switch ($method) {
             $presented['categories'] = [];
             $presented['brands']     = [];
             $presented['tags']       = [];
+            $presented['outlets']    = $itemOutletService->listWithNamesFor($newId, $companyId);
+            $presented['outletIds']  = array_column($presented['outlets'], 'outletId');
         }
         apiOk($presented, 201);
         break;
@@ -1062,7 +1102,13 @@ switch ($method) {
             apiError($e->getMessage(), $code);
         }
 
-        $ok = $itemService->update($id, $companyId, $patch);
+        try {
+            $ok = $itemService->update($id, $companyId, $patch);
+        } catch (\InvalidArgumentException $e) {
+            // Invariante de sucursales: lista vacía o sucursal de otro tenant
+            // (ItemOutletService). 422, no 500 — es un payload inválido.
+            apiError($e->getMessage(), 422);
+        }
         if (!$ok) apiError('Update falló', 500);
 
         $item = $itemService->find($id, $companyId);
@@ -1070,6 +1116,8 @@ switch ($method) {
             ? presentItem(ncmRow($item))
             : ['itemId' => $id];
         if ($item !== null) {
+            $presented['outlets']    = $itemOutletService->listWithNamesFor($id, $companyId);
+            $presented['outletIds']  = array_column($presented['outlets'], 'outletId');
             $presented['categories'] = fetchItemCategories($id);
             $presented['brands']     = fetchItemBrands($id);
             $presented['tags']       = fetchItemTags($id);

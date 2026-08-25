@@ -75,7 +75,10 @@ final class ItemService
             'description' => $item['itemDescription'],
             'tax'         => iftn(getTaxonomyName($item['taxId'], true), '0'),
             'category'    => iftn(getTaxonomyName($item['categoryId'], true), 'Sin categoría'),
-            'outlet'      => iftn($item['outletId'], 'Todas', getCurrentOutletName($item['outletId'])),
+            // Sucursales del ítem (`item_outlet`, mig 170). Ya no existe el
+            // "Todas" del modelo viejo (outletId NULL): las sucursales son
+            // explícitas, así que se listan por nombre.
+            'outlet'      => $this->outletNamesLabel($item['itemId'], $companyId),
             'brand'       => iftn(getTaxonomyName($item['brandId'], true), 'Sin marca'),
             'duration'    => iftn($item['itemDuration'], ''),
             'sessions'    => iftn($item['itemSessions'], ''),
@@ -194,22 +197,66 @@ final class ItemService
 
     /**
      * `true` si el request viene de una CAJA (pos-app, `ctx->deviceId` no
-     * vacío — ver `TenantContext`) y el ítem pertenece a OTRA sucursal
-     * (`outletId` seteado y distinto al del device). Un ítem sin `outletId`
-     * (NULL, "disponible en todas") nunca es foráneo.
+     * vacío — ver `TenantContext`) y el ítem NO pertenece a la sucursal de esa
+     * caja.
      *
-     * Mismo criterio de invisibilidad que `outletVisibilityClause()`
-     * (`api/lib/Items/ItemsQuery.php`) para el listado/bulk-get/delta: la
-     * caja trata un ítem de otra sucursal como si no existiera (404), nunca
-     * como un 403 que confirme su existencia. El panel (`ctx->deviceId ===
-     * ''`) nunca está restringido acá — administra el catálogo del tenant.
+     * La pertenencia vive en `item_outlet` (N-a-N, mig 170) — mismo criterio
+     * que `outletVisibilityClause()` (`api/lib/Items/ItemsQuery.php`) para el
+     * listado/bulk-get/delta, expresado acá como una consulta directa porque
+     * el caller trae una fila cruda de `SELECT * FROM item` (sin el
+     * `outletIds` que arma `presentItem()`). Es un lookup por PK
+     * `(itemid, outletid)`.
+     *
+     * La caja trata un ítem de otra sucursal como si no existiera (404), nunca
+     * como un 403 que confirme su existencia. El panel (`ctx->deviceId === ''`)
+     * nunca está restringido acá — administra el catálogo del tenant.
+     *
+     * OJO con el cambio de modelo: antes un ítem con `outletId` NULL era
+     * "visible en todas" y NUNCA era foráneo. Hoy la pertenencia es explícita,
+     * así que un ítem sin ninguna fila en `item_outlet` es foráneo para
+     * CUALQUIER caja. La mig 170 backfillea una fila por sucursal justamente
+     * para que ningún ítem preexistente caiga en ese estado.
      */
+    /**
+     * Nombres de las sucursales del ítem, para mostrar en la ficha.
+     * `'Sin sucursal'` solo puede pasar en el estado inválido que documenta la
+     * §4 de la mig 170 (hard-delete de la última sucursal) — se muestra tal
+     * cual, a propósito: es un dato que hay que corregir, no que disimular.
+     */
+    private function outletNamesLabel(string $itemId, string $companyId): string
+    {
+        // `ncmRows()` y no `getAssoc`: acá se quieren TODAS las filas, y
+        // getAssoc indexa por la primera columna proyectada — dos sucursales
+        // con el mismo nombre colapsarían en una sin aviso.
+        $rows = ncmRows(
+            'SELECT o.outletName AS name
+               FROM item_outlet io
+               JOIN outlet o ON o.outletId = io.outletid
+              WHERE io.itemid = ? AND io.companyid = ?
+              ORDER BY o.outletName ASC',
+            [$itemId, $companyId]
+        );
+        $names = [];
+        foreach ($rows as $r) {
+            $n = $r['name'] ?? null;
+            if ($n) $names[] = (string) $n;
+        }
+        return $names === [] ? 'Sin sucursal' : implode(', ', $names);
+    }
+
     private function isForeignOutletItem(array|\CaseInsensitiveArray $item): bool
     {
         if ($this->ctx->deviceId === '') {
             return false;
         }
-        $itemOutletId = (string) ($item['outletId'] ?? '');
-        return $itemOutletId !== '' && $itemOutletId !== $this->ctx->outletId;
+        $itemId = (string) ($item['itemId'] ?? '');
+        if ($itemId === '') {
+            return true;
+        }
+        $hit = ncmExecute(
+            'SELECT 1 AS ok FROM item_outlet WHERE itemid = ? AND outletid = ? LIMIT 1',
+            [$itemId, $this->ctx->outletId]
+        );
+        return empty($hit);
     }
 }

@@ -24,10 +24,28 @@ use CaseInsensitiveArray;
 final class ItemService
 {
     private ItemRepository $repo;
+    private ?ItemOutletService $outlets;
 
-    public function __construct(ItemRepository $repo)
+    public function __construct(ItemRepository $repo, ?ItemOutletService $outlets = null)
     {
-        $this->repo = $repo;
+        $this->repo    = $repo;
+        $this->outlets = $outlets;
+    }
+
+    /**
+     * `ItemOutletService` es OBLIGATORIO para sostener el invariante de
+     * mínimo-una-sucursal (mig 170), pero se resuelve perezosamente contra el
+     * `$db` global si el caller no lo inyectó — así los 5 call-sites que ya
+     * construían este servicio con un solo argumento siguen andando Y quedan
+     * cubiertos por el invariante, en vez de saltearlo por omisión.
+     */
+    private function outlets(): ItemOutletService
+    {
+        if ($this->outlets === null) {
+            global $db;
+            $this->outlets = new ItemOutletService($db);
+        }
+        return $this->outlets;
     }
 
     /**
@@ -40,8 +58,12 @@ final class ItemService
      * @param string|null $type article|discount|combo|giftcard
      * @return string|false itemId del nuevo registro o false si falla.
      */
-    public function createBlank(string $companyId, ?string $type = null, ?string $kind = null)
-    {
+    public function createBlank(
+        string $companyId,
+        ?string $type = null,
+        ?string $kind = null,
+        ?string $preferredOutletId = null
+    ) {
         $defaults = self::blankDefaults($type);
         $record = [
             'itemName'      => $defaults['name'],
@@ -69,7 +91,22 @@ final class ItemService
         // itemTaxIncluded vive en data JSONB; ncmInsert lo enruta solo.
         $record['itemTaxIncluded'] = 1;
 
-        return $this->repo->create($record);
+        $itemId = $this->repo->create($record);
+        if (!$itemId) return $itemId;
+
+        // "Cuando ingreso un producto por defecto tiene una sucursal asignada;
+        // si hay solo una, esa es la sucursal por defecto" (owner). El ítem
+        // nace CON sucursal — nunca en el estado inválido de cero, ni siquiera
+        // durante el rato en que es un placeholder que el usuario todavía no
+        // editó. Si el tenant no tiene ninguna sucursal, `defaultFor()` devuelve
+        // [] y el ítem queda sin vínculo: no hay sucursal que asignarle, y
+        // abortar el alta acá dejaría al tenant sin poder crear artículos.
+        $defaults = $this->outlets()->defaultFor($companyId, $preferredOutletId);
+        if ($defaults !== []) {
+            $this->outlets()->replace((string) $itemId, $companyId, $defaults);
+        }
+
+        return $itemId;
     }
 
     /**
@@ -100,6 +137,39 @@ final class ItemService
     public function update(string $id, string $companyId, array $patch): bool
     {
         if (empty($patch)) return false;
+
+        // Sucursales (`item_outlet`, mig 170): NO son una columna de `item`, así
+        // que se sacan del patch ANTES de que llegue al writer genérico —
+        // `ncmUpdate` intentaría un `SET outletIds = ...` contra una columna que
+        // no existe. `resolveFromPayload()` devuelve null si el patch no habla
+        // de sucursales (un PATCH de precio no debe tocar el vínculo) y tira
+        // InvalidArgumentException si intenta dejarlo en cero — el caller la
+        // traduce a 422.
+        $outletIds = $this->outlets()->resolveFromPayload($patch, $companyId);
+        unset($patch['outletIds'], $patch['outletId']);
+
+        if ($outletIds !== null) {
+            // AISLAMIENTO MULTI-TENANT: `replace()` escribe en `item_outlet`
+            // con el `$itemId` tal cual viene del caller. El UPDATE de columnas
+            // de más abajo se protege solo (su WHERE lleva companyId), pero un
+            // INSERT no tiene dónde filtrar: sin este chequeo, un PUT con el
+            // id de un ítem de OTRA empresa insertaría filas
+            // (itemid ajeno, outletid mío, companyid mío) — y el ítem de la
+            // víctima terminaría mostrando una sucursal que no es suya.
+            //
+            // Devolver false (no una excepción) hace que el endpoint conteste
+            // "Update falló" sin confirmar si el ítem existe: un id ajeno y uno
+            // inexistente son indistinguibles desde afuera.
+            if ($this->repo->find($id, $companyId) === null) {
+                return false;
+            }
+            $this->outlets()->replace($id, $companyId, $outletIds);
+        }
+
+        // El patch puede quedar vacío si SOLO traía sucursales: eso es un
+        // update exitoso, no un no-op fallido.
+        if (empty($patch)) return true;
+
         $patch['updated_at'] = TODAY;
         return $this->repo->update($id, $companyId, $patch);
     }
@@ -206,7 +276,12 @@ final class ItemService
      */
     private const BULK_EDIT_WHITELIST = [
         'itemPrice', 'itemCost',
-        'taxId', 'categoryId', 'brandId', 'outletId',
+        // `outletIds` (array) reemplaza al `outletId` escalar: el bulk-edit
+        // asigna el SET COMPLETO de sucursales, y `ItemService::update()` lo
+        // desvía a `item_outlet` (mig 170). El escalar legacy ya NO se acepta
+        // acá — dejarlo habilitaría un "todas las sucursales" (outletId = null)
+        // que el modelo nuevo no tiene.
+        'taxId', 'categoryId', 'brandId', 'outletIds',
         'itemDiscount', 'itemUOM', 'itemWaste',
         'itemComissionPercent', 'itemComissionType',
         'itemPricePercent', 'itemPriceType',
@@ -229,9 +304,15 @@ final class ItemService
         // Whitelist: dropear cualquier campo que no esté permitido.
         $patch = array_intersect_key($patch, array_flip(self::BULK_EDIT_WHITELIST));
 
-        // Normalizar: outletId 'all' o '' → NULL (compat legacy).
-        if (array_key_exists('outletId', $patch) && ($patch['outletId'] === 'all' || $patch['outletId'] === '')) {
-            $patch['outletId'] = null;
+        // Sucursales: un `outletIds` vacío es un intento de dejar los ítems sin
+        // sucursal — se descarta en vez de propagarse a N ítems y hacer fallar
+        // cada uno por separado. (El front deshabilita el submit en ese caso;
+        // esto es la red de seguridad del lado del server.)
+        if (array_key_exists('outletIds', $patch)) {
+            $ids = is_array($patch['outletIds']) ? array_filter($patch['outletIds']) : [];
+            if ($ids === []) {
+                unset($patch['outletIds']);
+            }
         }
         // itemDiscount: 0 o vacío → NULL.
         if (array_key_exists('itemDiscount', $patch)) {

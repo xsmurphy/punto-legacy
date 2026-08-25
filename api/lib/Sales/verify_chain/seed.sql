@@ -258,3 +258,19 @@ INSERT INTO item (itemid, itemname, itemsku, itemprice, itemtype, itemstatus, it
     ('46e7fef1-eb5f-4c29-8edb-79936e698f10', 'Verify exenta incluido', 'VERIFY-B-EXEMPT',       40.00, 'product', 1, TRUE, FALSE, 'eb7e216c-2649-48e1-8bbf-3aba6ad43c69', '{"itemTaxIncluded": true}'::jsonb,  'fa8cf679-9003-417e-8726-5b772d3b6e88', 'producto'),
     ('21dcfb96-107a-4642-a597-d3503f391f68', 'Verify 16% cantidad decimal', 'VERIFY-B-DECIMALQTY', 10.00, 'product', 1, TRUE, FALSE, '5af6f0c6-994b-4543-9455-4b67cb8c049e', '{"itemTaxIncluded": false}'::jsonb, 'fa8cf679-9003-417e-8726-5b772d3b6e88', 'producto')
 ON CONFLICT (itemid) DO UPDATE SET itemname = EXCLUDED.itemname, itemprice = EXCLUDED.itemprice, taxid = EXCLUDED.taxid, data = EXCLUDED.data;
+
+-- ── Sucursales de cada ítem (`item_outlet`, mig 170) ────────────────────────
+-- Este seed inserta ítems con SQL directo, sin pasar por `ItemOutletService`.
+-- Bajo el modelo N-a-N un ítem SIN filas acá es invisible para toda caja (cero
+-- sucursales es estado inválido), así que hay que asignarlas explícitamente o
+-- el catálogo del arnés no existiría para ningún device.
+--
+-- Misma regla que el backfill (b) de la migración 170: un ítem sin sucursal
+-- explícita vive en TODAS las de su empresa. Va al FINAL del seed a propósito —
+-- necesita que ya estén insertados todos los ítems y todas las sucursales.
+-- Idempotente (ON CONFLICT), como el resto del seed.
+INSERT INTO item_outlet (itemid, outletid, companyid)
+  SELECT i.itemid, o.outletid, i.companyid
+    FROM item i
+    JOIN outlet o ON o.companyid = i.companyid
+ON CONFLICT DO NOTHING;

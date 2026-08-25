@@ -130,10 +130,21 @@ export interface ItemListItem {
   updated_at: string | null
   categoryId: string | null
   brandId: string | null
+  /**
+   * @deprecated legacy 1:1 ítem↔sucursal (NULL = "todas"). La verdad es
+   * `outletIds`: el ítem vive en N sucursales y NUNCA en cero. No leerlo para
+   * decidir nada nuevo ni mandarlo en el body.
+   */
   outletId: string | null
+  /** Sucursales donde vive el ítem. Siempre ≥1 — cero es estado inválido: un
+   *  producto sin sucursal no tiene trazabilidad. */
+  outletIds: string[]
+  /** Nombres resueltos por el backend — para pintar sin cruzar otra query. */
+  outlets: { outletId: string; outletName: string }[]
   /** Nombres resueltos por JOIN en la API — para mostrar sin lookup adicional. */
   categoryName: string | null
   brandName: string | null
+  /** @deprecated Nombre de la sucursal 1:1 legacy — usar `outlets`. */
   outletName: string | null
   /** URL de la imagen de portada (sort=0). Null si no hay galería. */
   coverImageUrl: string | null
@@ -198,6 +209,7 @@ export interface ItemFull extends ItemListItem {
   expenseCategoryId: string | null
   supplierId: string | null
   locationId: string | null
+  /** @deprecated legacy 1:1 — la verdad es `outletIds` (heredado del listado). */
   outletId: string | null
   itemDescription: string | null
   /** Categorías m2m — disponibles en el detalle, vacío en el listado. */
@@ -242,7 +254,8 @@ export interface ItemFormValues {
   brandId: string
   status: boolean
 
-  outletId: string
+  /** Sucursales del ítem. Mínimo una SIEMPRE — el form no deja guardar vacío. */
+  outletIds: string[]
   supplierId: string
   waste: number | null
   /** Umbral de quiebre. null = no se controla por mínimo. */

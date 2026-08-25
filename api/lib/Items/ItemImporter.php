@@ -289,7 +289,6 @@ final class ItemImporter
             'brandId'               => $brandId,
             'categoryId'            => $categoryId,
             'taxId'                 => $taxId,
-            'outletId'              => $outletId,
             'itemStatus'            => 1,
             'itemTaxIncluded'       => 1,
             'updated_at'            => \TODAY,
@@ -299,6 +298,25 @@ final class ItemImporter
         // (para no sobrescribir tags existentes en modo update cuando no viene la columna).
         if (isset($headerMap['ETIQUETAS'])) {
             $record['tags'] = !empty($tagIds) ? $tagIds : [];
+        }
+
+        // Sucursales (`item_outlet`, mig 170). Solo se tocan si la planilla
+        // TRAE la columna SUCURSAL — misma guarda que ETIQUETAS arriba, y por
+        // el mismo motivo: sin ella, reimportar una planilla que no habla de
+        // sucursales reasignaría en silencio todos los ítems.
+        //
+        // SUCURSAL vacía, "todas", o con un nombre que no matchea ninguna
+        // sucursal → todas las del tenant. Es la traducción exacta del
+        // comportamiento viejo (`outletId = NULL` significaba "visible en
+        // todas"), ahora explícita porque el modelo nuevo no tiene comodín.
+        if (isset($headerMap['SUCURSAL'])) {
+            // "Todas" se resuelve consultando `outlet` directamente, NO con
+            // `array_values($outlets)`: ese mapa está indexado por nombre en
+            // minúsculas, así que dos sucursales homónimas colapsan en una y el
+            // ítem terminaría en menos sucursales de las que la planilla dice.
+            $record['outletIds'] = $outletId !== null
+                ? [$outletId]
+                : (new ItemOutletService($this->db))->allOutletIdsOf($companyId);
         }
 
         if ($existingId !== null) {
@@ -315,7 +333,10 @@ final class ItemImporter
 
         $record['itemDate'] = \TODAY;
         $record['companyId'] = $companyId;
-        $newId = $this->svc->createBlank($companyId, $legacyFlags['itemType'], $kind);
+        // La sucursal de la fila es la preseleccionada del alta: así el ítem
+        // nace ya en su sucursal y no en la que `defaultFor()` elegiría por
+        // defecto, aunque el `update()` de abajo la corrija igual.
+        $newId = $this->svc->createBlank($companyId, $legacyFlags['itemType'], $kind, $outletId);
         if ($newId === false) throw new \RuntimeException('No se pudo crear el item');
         $ok = $this->svc->update($newId, $companyId, $record);
         if (!$ok) throw new \RuntimeException('Update post-create falló');
