@@ -9,6 +9,7 @@ import { InstallPrompt } from "@/components/pos/install-prompt"
 import { ChunkErrorListener } from "@/components/pos/chunk-error-listener"
 import { PosTouchScope } from "@/components/pos/pos-touch-scope"
 import { PosKeyboardInset } from "@/components/pos/keyboard-inset"
+import { SafeAreaCalibrator } from "@/components/pos/safe-area-calibrator"
 import { PosConfigSync } from "@/lib/pos/config-sync"
 
 /**
@@ -31,15 +32,13 @@ import { PosConfigSync } from "@/lib/pos/config-sync"
  * no un documento: escala fija. La legibilidad se resuelve con los tamaños
  * táctiles del propio POS (`[data-pos-touch]`), no con zoom del navegador.
  *
- * ALTURA DEL SHELL: `h-full`, no `dvh` ni `svh`. En la PWA instalada en iOS
- * las unidades de viewport reportan un alto MENOR que la pantalla —el gap que
- * el owner viene reportando aparecía por igual en el carrito, en el lock
- * screen y en cualquier overlay `fixed inset-0`, o sea que no era de ningún
- * componente sino del viewport— y con `h-dvh` el shell terminaba antes del
- * borde dejando ver el fondo del webview. `body` está fijado con `inset: 0`
- * (globals.css), que sí cubre la pantalla real: colgarse de él con `h-full`
- * hace que el shell mida exactamente eso. En desktop el `md:` conserva el
- * cálculo de siempre.
+ * ALTURA DEL SHELL: `h-dvh`. NO usar `h-full` acá — se probó el 2026-08-26 y
+ * COLAPSA: el wrapper de `SidebarProvider` declara `min-h-svh` (un mínimo, no
+ * una altura), así que un `height: 100%` del hijo no tiene contra qué resolver
+ * y el shell termina midiendo solo su contenido. El gap del iPhone sigue
+ * abierto y NO se cierra por acá: aparece también en overlays `fixed inset-0`,
+ * o sea que es el viewport de la app el que mide menos que la pantalla. Para
+ * diagnosticarlo está `?debug=viewport` (components/pos/viewport-probe.tsx).
  */
 export const viewport: Viewport = {
   width: "device-width",
@@ -66,6 +65,10 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             modales con búsqueda no queden detrás del teclado en el teléfono.
             Ver el docblock de `components/pos/keyboard-inset.tsx`. */}
         <PosKeyboardInset />
+        {/* Anula `--safe-t`/`--safe-b` cuando el viewport NO cubre la pantalla:
+            ahí el chrome del sistema ya reservó esa franja y descontarla otra
+            vez la cuenta dos veces (ver docblock del componente). */}
+        <SafeAreaCalibrator />
         <PosConfigSync />
         <PosSidebar />
         {/* Áreas seguras del dispositivo — ver la regla completa en
@@ -92,7 +95,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             alcanza para que el CONTENIDO lo esquive. Donde el inset es 0
             (desktop, tablets sin notch) las tres declaraciones valen 0 y no
             cambia nada. */}
-        <SidebarInset className="h-full overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem)]">
+        <SidebarInset className="h-dvh overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem)]">
           {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
               abajo a la derecha. Se movió al extremo izquierdo del toolbar del
               carrito (CartToolbar), junto al botón del menú principal, por

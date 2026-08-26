@@ -353,20 +353,22 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
         </DialogHeader>
 
         <Tabs defaultValue="general" className="mt-2 w-full min-w-0">
-          {/* `min-w-0` en el wrapper del scroll: es el flex/grid item que
-              contiene la tira. Sin él, el ancho intrínseco de los 4 triggers
-              se propaga al modal y hace scrollear el FORM entero en vez de solo
-              esta barra (diagnóstico del owner 2026-08-26). El `overflow-x-auto`
-              recién contiene el scroll cuando el contenedor tiene permiso de
-              encogerse por debajo de su contenido. */}
-          <div className="-mx-2 min-w-0 overflow-x-auto px-2">
-            <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
-              <TabsTrigger value="general">General</TabsTrigger>
-              <TabsTrigger value="behavior">Comportamiento</TabsTrigger>
-              <TabsTrigger value="categories">Categorías</TabsTrigger>
-              <TabsTrigger value="device">Dispositivo</TabsTrigger>
-            </TabsList>
-          </div>
+          {/* El scroll vive DENTRO de la píldora, no en un wrapper de afuera.
+              Con el `overflow-x-auto` en un div externo, la `TabsList` seguía
+              creciendo con su contenido (`w-fit`) y lo que se desplazaba era la
+              píldora gris ENTERA, saliéndose del modal. Lo que tiene que quedar
+              fijo es la píldora —ancho del contenedor, esquinas redondeadas— y
+              lo que scrollea son los triggers de adentro (diagnóstico del owner
+              2026-08-26). De ahí `w-full` + `overflow-x-auto` en la lista y
+              `shrink-0` en cada trigger, que si no se comprimen para entrar.
+              `min-w-0` en el Tabs raíz evita que el ancho intrínseco de la tira
+              empuje el formulario. */}
+          <TabsList className="w-full justify-start gap-1 overflow-x-auto sm:gap-0 [&::-webkit-scrollbar]:hidden">
+            <TabsTrigger value="general" className="shrink-0">General</TabsTrigger>
+            <TabsTrigger value="behavior" className="shrink-0">Comportamiento</TabsTrigger>
+            <TabsTrigger value="categories" className="shrink-0">Categorías</TabsTrigger>
+            <TabsTrigger value="device" className="shrink-0">Dispositivo</TabsTrigger>
+          </TabsList>
 
           <TabsContent value="general" className="mt-6 flex min-w-0 flex-col gap-4">
             <div className="space-y-1.5">

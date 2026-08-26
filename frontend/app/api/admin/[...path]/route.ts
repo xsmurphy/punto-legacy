@@ -210,48 +210,43 @@ async function proxy(
       // ── UN SOLO EMISOR DE `_jwt_panel` ────────────────────────────────────
       // La cookie se PROPAGA del upstream, no se inventa acá. El emisor
       // canónico (`authSetOpaqueCookie`, api/includes/auth_session.php) la
-      // firma con `COOKIE_DOMAIN=.punto.la`; este BFF la seteaba sin domain,
-      // o sea HOST-ONLY (app.punto.la). Con las dos variantes vivas, el
-      // browser manda AMBAS en el header `Cookie` y cada consumidor se queda
-      // con una distinta: PHP con la última que parsea, `cookies.get()` de
-      // Next con la primera. Resultado: el dashboard resolvía un tenant y el
-      // chart de ingresos —que lee la cookie acá y la reenvía como Bearer—
-      // resolvía OTRO. Un panel mostrando las ventas de otra empresa
-      // (reporte del owner 2026-08-26). Dos cookies del mismo nombre en
-      // scopes distintos son dos sesiones simultáneas: no puede haber dos
-      // emisores.
+      // firma con `COOKIE_DOMAIN=.punto.la`; este BFF la acuñaba host-only y
+      // las dos variantes conviviendo fueron el leak cross-tenant del
+      // 2026-08-26 (cada consumidor resolvía una sesión distinta).
+      //
+      // TODO por headers CRUDOS, nunca la API de cookies de NextResponse:
+      // ResponseCookies guarda su propio mapa y CADA `set()` re-serializa el
+      // header `set-cookie` entero desde ese mapa — un append hecho antes
+      // se PIERDE. Así se rompió la impersonación el mismo día del fix del
+      // leak: la respuesta salía con el borrado y la marca pero sin la cookie
+      // canónica, y el panel abría con "Tu sesión expiró". Mezclar las dos
+      // APIs sobre la misma respuesta es el bug; acá se usa una sola.
       const upstreamCookies = upstream.headers.getSetCookie?.() ?? []
       const panelFromUpstream = upstreamCookies.filter((c) =>
         /^_jwt_panel=/.test(c),
       )
-      // Borra la variante host-only que puedan tener los browsers de antes de
-      // este fix. Va SIEMPRE: es de otro scope que la canónica, así que no la
-      // pisa — las dos instrucciones conviven en la misma respuesta.
-      res.cookies.set("_jwt_panel", "", { path: "/", maxAge: 0 })
+      // 1. Borrar la variante host-only que quedó en browsers de antes del
+      //    fix del leak. Es de otro scope que la canónica: conviven en la
+      //    misma respuesta sin pisarse.
+      res.headers.append("set-cookie", "_jwt_panel=; Path=/; Max-Age=0")
+      // 2. La credencial: la del upstream tal cual; si el upstream no la
+      //    emitió (config sin COOKIE_DOMAIN), fallback host-only para no
+      //    dejar la impersonación sin sesión.
       if (panelFromUpstream.length > 0) {
         for (const c of panelFromUpstream) res.headers.append("set-cookie", c)
       } else {
-        // El upstream no la emitió (config sin COOKIE_DOMAIN, o cambió el
-        // emisor): sin este fallback la impersonación quedaría sin credencial.
-        res.cookies.set("_jwt_panel", token, {
-          path: "/",
-          httpOnly: true,
-          sameSite: "strict",
-          secure,
-          maxAge: expiresIn,
-        })
+        res.headers.append(
+          "set-cookie",
+          `_jwt_panel=${token}; Path=/; Max-Age=${expiresIn}; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`,
+        )
       }
-      // Marca de impersonación, legible por JS a propósito: el sidebar del
-      // panel la usa para mostrar "Salir de impersonación". Es UI, no
-      // autoridad — la credencial sigue siendo solo `_jwt_panel` (HttpOnly).
-      // Forjarla apenas muestra un botón cuyo click hace logout.
-      res.cookies.set("_imp_panel", "1", {
-        path: "/",
-        httpOnly: false,
-        sameSite: "strict",
-        secure,
-        maxAge: expiresIn,
-      })
+      // 3. Marca de impersonación, legible por JS a propósito: el sidebar del
+      //    panel la usa para mostrar "Salir de impersonación". Es UI, no
+      //    autoridad — forjarla apenas muestra un botón cuyo click hace logout.
+      res.headers.append(
+        "set-cookie",
+        `_imp_panel=1; Path=/; Max-Age=${expiresIn}; SameSite=Strict${secure ? "; Secure" : ""}`,
+      )
       return res
     }
     // ok=true sin token = bug backend.

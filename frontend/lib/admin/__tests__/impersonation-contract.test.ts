@@ -49,8 +49,14 @@ describe("contrato de impersonación /admin", () => {
     expect(BFF).toMatch(/urlParams\.get\("action"\) === "enter"/)
   })
 
-  it("el BFF —y sólo el BFF— convierte el token en la cookie del panel", () => {
-    expect(BFF).toMatch(/res\.cookies\.set\(\s*"_jwt_panel"/)
+  it("el BFF entrega la credencial por headers crudos, nunca res.cookies", () => {
+    // ResponseCookies re-serializa el header `set-cookie` entero en CADA
+    // `set()`, pisando cualquier `headers.append()` previo — mezclar las dos
+    // APIs dejó la impersonación sin cookie canónica (2026-08-26, "Tu sesión
+    // expiró" al abrir el panel). En esta rama se usa UNA sola API: append.
+    expect(BFF).toMatch(/headers\.append\(\s*"set-cookie",\s*`_jwt_panel=\$\{token\}/)
+    const enterBranch = BFF.slice(BFF.indexOf("UN SOLO EMISOR"), BFF.indexOf("ok=true sin token"))
+    expect(enterBranch).not.toMatch(/res\.cookies\.set/)
     // El realm admin no puede quedar tocado por impersonar: la sesión del
     // operador de /admin sigue siendo la suya.
     expect(BFF).not.toMatch(/cookies\(\)\.delete\("_jwt_admin"\)/)
@@ -66,7 +72,7 @@ describe("contrato de impersonación /admin", () => {
     // El BFF setea la marca legible por JS junto a `_jwt_panel`; el guard del
     // panel la lee para mostrar "Salir de impersonación" y la borra al salir.
     // Si una punta se renombra sin la otra, el botón desaparece en silencio.
-    expect(BFF).toMatch(/res\.cookies\.set\(\s*"_imp_panel"/)
+    expect(BFF).toMatch(/headers\.append\(\s*"set-cookie",\s*`_imp_panel=1/)
     const GUARD = read(path.join(FRONTEND, "components/layout/panel-auth-guard.tsx"))
     expect(GUARD).toMatch(/_imp_panel=1/)
     expect(GUARD).toMatch(/_imp_panel=; path=\/; max-age=0/)
@@ -82,7 +88,7 @@ describe("contrato de impersonación /admin", () => {
     // propaga del upstream; el único `set` propio permitido es el borrado de
     // la variante vieja y el fallback si el upstream no la emitió.
     expect(BFF).toMatch(/getSetCookie/)
-    expect(BFF).toMatch(/res\.cookies\.set\("_jwt_panel", "", \{ path: "\/", maxAge: 0 \}\)/)
+    expect(BFF).toMatch(/"set-cookie", "_jwt_panel=; Path=\/; Max-Age=0"/)
   })
 
   it("el token nunca se guarda del lado del cliente", () => {

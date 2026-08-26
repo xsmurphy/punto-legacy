@@ -10,11 +10,83 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-25 (orden y stock: plan del "comprometido" cerrado — `context/53`; destapa que no hay job que limpie órdenes zombie, bloqueante de su F1)
+> **Última actualización:** 2026-08-26 (estación de impresión instalable como PWA — pedido del owner; ver item abajo)
+>
+> 2026-08-25 (orden y stock: plan del "comprometido" cerrado — `context/53`; destapa que no hay job que limpie órdenes zombie, bloqueante de su F1)
 >
 > 2026-08-23 (add-ons: el stock ya se descuenta al cobrar una orden o mesa, ver P0 #2; uPay pasa a standby por decisión del owner)
 >
 > 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
+
+---
+
+## Estación de Impresión instalable como PWA (pedido del owner 2026-08-26)
+
+La estación (`frontend/app/(screen)/print`, módulo de pairing `print`, plan en
+`context/26-print-station-plan.md`) hoy vive en una pestaña del navegador: el
+comercio la deja abierta y cualquiera la cierra sin darse cuenta, y no hay
+forma de volver a ella salvo escribir la URL. El owner la quiere **instalable**
+— icono en el escritorio, se abre en su propia ventana y se minimiza como una
+app más.
+
+**Lo que NO es**: agregar `/print` al manifest actual. Ese manifest declara
+`id: "/pos"` y `scope: "/pos"` a propósito — la PWA instalable de hoy es LA
+CAJA, y Chrome solo ofrece instalar cuando la página visitada cae dentro del
+scope. Meter `/print` ahí haría que las dos compartan identidad: una sola app
+instalada, un solo icono, y el que abra la caja podría terminar en la estación.
+Es **otra PWA**: su propio manifest (`id`/`scope`/`start_url` = `/print`),
+su propio nombre corto y sus propios iconos, servido desde una ruta aparte y
+enlazado con `<link rel="manifest">` solo en ese árbol.
+
+**Por qué encaja bien con esta pantalla**: la estación es exactamente el caso
+de uso de una PWA de escritorio — una sola ventana, siempre abierta, sin
+navegación. Y una ventana propia la separa del resto de las pestañas del
+comercio, que es el problema que el owner quiere resolver.
+
+**Lo que esto NO resuelve** (sigue abierto, ver `context/05` §Estación de
+Impresión): las impresoras de RED no son alcanzables desde el browser —
+instalar la pantalla no le da acceso TCP a la LAN. Una PWA sigue siendo una
+página; el agente local sigue siendo una decisión de producto pendiente. Este
+item es de ergonomía del operador, no de conectividad.
+
+**Requisito no negociable (owner, 2026-08-26): tiene que aguantar DÍAS abierta
+y minimizada.** Ese es el modo de uso real —se prende a la mañana y nadie la
+toca— y hoy nadie lo verificó. Antes de darlo por hecho hay que probarlo y
+arreglar lo que salte. Qué mirar, en orden de riesgo:
+
+1. **El navegador congela lo que no se ve.** Chrome/Edge suspenden timers de
+   pestañas en background y el Memory Saver puede descartar la ventana entera.
+   Si el drenado de la cola cuelga de un `setInterval`, la estación deja de
+   imprimir sin dar ningún error — el peor modo de falla posible acá. Verificar
+   qué pasa con la ventana minimizada horas, y si hace falta apoyarse en el
+   canal WS (que es push y no depende del timer) o en un Wake Lock.
+2. **Reconexión del WebSocket** tras suspensión del equipo, caída de red o
+   reinicio del proxy. Un socket muerto que nadie reabre es el mismo silencio
+   del punto 1.
+3. **Vencimiento de la credencial.** Revisar el TTL de la sesión del módulo
+   `print`: si expira a las 24h, la estación amanece muerta y el comercio no
+   sabe por qué. Debería reconectar sola o avisar en pantalla, nunca quedarse
+   en blanco.
+4. **Memoria**: listas de trabajos que crecen sin tope, listeners que se
+   acumulan por reconexión, estado de React que nunca se poda. Días de uptime
+   convierten una fuga chica en una ventana congelada.
+5. **Cambio de día**: cualquier cosa cacheada por fecha (correlativos, filtros
+   "de hoy") tiene que rotar sin recargar la página.
+6. **Señal de vida visible**: que el operador pueda mirar la pantalla y saber
+   que sigue conectada. Hoy no hay forma de distinguir "sin trabajos" de
+   "colgada".
+
+**Autoarranque al prender la máquina**: sí, pero es configuración del equipo,
+no código. Chrome y Edge exponen "iniciar al abrir sesión" para PWAs
+instaladas (`chrome://apps` → clic derecho sobre la app), y en Windows también
+sirve un acceso directo en la carpeta de Inicio (`shell:startup`). La web no
+puede pedirlo por seguridad. Va en el instructivo de instalación del local,
+junto con desactivar la suspensión del equipo — confirmar el paso exacto en la
+máquina destino, que cambia entre versiones.
+
+**Tamaño**: el manifest en sí es chico (manifest + iconos + link en el layout
+del árbol `screen`). Lo que puede crecer es el punto 1-4: son los que hacen la
+diferencia entre "se instala" y "sirve".
 
 ---
 

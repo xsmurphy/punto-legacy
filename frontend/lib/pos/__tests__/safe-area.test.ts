@@ -91,9 +91,13 @@ describe("fuente única de las áreas seguras", () => {
       // Este archivo nombra el patrón en prosa (docblocks y títulos de test).
       "lib/pos/__tests__/safe-area.test.ts",
     ])
+    // `stripComments`: un docblock que NOMBRA el patrón (explicando por qué no
+    // hay que usarlo) no es una aplicación. Sin esto el guard obliga a meter en
+    // la allowlist a cualquier archivo que lo mencione en prosa, y la allowlist
+    // deja de significar "acá se usa de verdad".
     const offenders = allSourceFiles()
       .filter((rel) => !allowed.has(rel))
-      .filter((rel) => read(rel).includes(needle))
+      .filter((rel) => stripComments(read(rel)).includes(needle))
     expect(
       offenders,
       `usan env() en vez de var(--safe-*): ${offenders.join(", ")}`,

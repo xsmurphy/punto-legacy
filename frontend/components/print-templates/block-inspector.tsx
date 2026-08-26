@@ -12,7 +12,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { FONT_FAMILIES, FONT_SIZES } from "@/lib/print-template-palette"
-import { lineGeometry } from "@/lib/hardware/printers/blocks"
+import { ITEM_LINE_TYPES, ITEM_TABLE_TYPES, lineGeometry } from "@/lib/hardware/printers/blocks"
 import type { PrintBlock } from "@/lib/types/print-template"
 
 interface Props {
@@ -55,6 +55,9 @@ export function BlockInspector({ blocks, onChange }: Props) {
   // ahí el campo "Texto — (dinámico)" era engañoso: una línea no se rellena
   // con ningún dato al imprimir.
   const line = lineGeometry(block)
+  // Los bloques de ítem se repiten una vez por producto: un título ahí saldría
+  // en cada línea del detalle.
+  const isItemBlock = ITEM_LINE_TYPES.has(block.type) || ITEM_TABLE_TYPES.has(block.type)
 
   return (
     <div className="space-y-4 overflow-y-auto px-4 py-4 text-sm">
@@ -103,6 +106,25 @@ export function BlockInspector({ blocks, onChange }: Props) {
             <p className="text-[11px] text-muted-foreground">
               Este bloque se rellena automáticamente con datos reales al imprimir.
             </p>
+          )}
+          {/* Título del campo. Va acá y no en una tabla del renderer porque la
+              plantilla es la que decide qué se imprime (context/20): el mismo
+              bloque `date` puede querer "Fecha:" en la factura y nada en la
+              comanda. No aplica a bloques de ítem — se repiten por producto. */}
+          {!isItemBlock && (
+            <div className="space-y-1.5 pt-2">
+              <Label htmlFor="block-label">Título</Label>
+              <Input
+                id="block-label"
+                value={block.label ?? ""}
+                onChange={(e) => onChange({ label: e.target.value })}
+                placeholder="Ej.: Fecha:"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Se imprime antes del valor: “Fecha: 12-03-2026”. Vacío = solo el
+                valor. Los dos puntos van incluidos en lo que escribas.
+              </p>
+            </div>
           )}
         </div>
       )}

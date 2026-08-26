@@ -144,6 +144,28 @@ export type FontWeight = "normal" | "bold"
 export interface PrintBlock {
   type: BlockType
   text: string
+  /**
+   * Título que precede al valor al imprimir: "Fecha: 12-03-2026".
+   *
+   * Vacío o ausente = solo el valor, que es como se comportaban TODOS los
+   * bloques hasta 2026-08-26 (por eso es opcional: las plantillas guardadas no
+   * lo traen y tienen que seguir imprimiendo igual).
+   *
+   * Es una propiedad de la PLANTILLA y no una tabla de títulos en el renderer:
+   * la regla del proyecto es que lo que se imprime lo decide la plantilla
+   * (context/20). Un mismo bloque `date` puede querer "Fecha:" en la factura,
+   * "Emitido:" en el remito y nada en la comanda — eso no lo puede saber el
+   * código, y hardcodearlo obligaría a un gating por docType, que es
+   * exactamente lo que la regla prohíbe.
+   *
+   * La puntuación va incluida en el texto que escribe el operador ("Fecha:",
+   * no "Fecha"): el sistema no impone ni dos puntos ni mayúsculas, solo pone
+   * un espacio entre el título y el valor.
+   *
+   * NO aplica a los bloques de ítem (`item_*`): esos se repiten una vez por
+   * producto y el título quedaría en cada línea.
+   */
+  label?: string
   top: number
   left: number
   width: number
@@ -192,6 +214,7 @@ export function defaultBlock(type: BlockType, defaultText = ""): PrintBlock {
   return {
     type,
     text: defaultText,
+    label: "",
     top: 0,
     left: 0,
     width: 100,
@@ -346,6 +369,9 @@ export function canonicalizeTemplateForCompare(config: PrintTemplateConfig, mm: 
     return {
       type: b.type,
       text: b.text,
+      // Se serializa solo si tiene contenido: una plantilla sin títulos no
+      // gana claves vacías en su JSON.
+      ...(b.label ? { label: b.label } : {}),
       top: fix.top,
       left: fix.left,
       width: fix.width,

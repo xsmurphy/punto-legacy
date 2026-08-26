@@ -1043,3 +1043,22 @@ saber que existen antes de "arreglar" un 401: el lint de imports
 (`frontend/eslint.config.mjs`, prohíbe `api-client` en rutas del POS), el guard
 de rutas del BFF (`frontend/lib/bff/__tests__/pos-token-only.test.ts`) y el
 arnés de precedencia (`api/tests/pos_token_only_precedence_test.php`).
+
+## §61 — Una cookie de sesión, UN solo emisor (2026-08-26)
+
+Leak cross-tenant en prod: `_jwt_panel` tenía dos emisores con scope
+distinto — `authSetOpaqueCookie` (PHP, `COOKIE_DOMAIN=.punto.la`) y el BFF
+de admin (`frontend/app/api/admin/[...path]/route.ts`, impersonación) que
+la seteaba host-only aparte. El browser manda AMBAS; PHP parsea una,
+`req.cookies.get()` de Next la otra, y cada capa resolvía un tenant
+distinto. El SQL nunca estuvo mal — el bug era de transporte, no de query.
+Regla: si dos capas (PHP y un BFF Next) pueden emitir la misma cookie de
+sesión, una de ellas propaga el `Set-Cookie` del upstream tal cual; ninguna
+inventa su propia variante en paralelo.
+
+Corolario en la misma corrección: dentro de una `NextResponse`, no mezclar
+`res.cookies.set()` con `res.headers.append("set-cookie", …)`.
+`ResponseCookies` mantiene su propio mapa interno y cada `.set()`
+re-serializa el header `Set-Cookie` COMPLETO desde ese mapa, pisando
+cualquier append() previo a headers crudos. Elegir una sola API por
+response y usarla para todas las cookies de esa respuesta.

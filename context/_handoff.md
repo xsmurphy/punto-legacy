@@ -1,106 +1,79 @@
-# Hand-off — 2026-08-25 (sesión /admin + POS móvil)
+# Hand-off — 2026-08-26 (segunda vuelta: impresión mergeada + roadmap estación PWA)
 
 ## Objetivo
-Corría en paralelo a la sesión "POS token-only" (ver entry de arriba en la
-bitácora, que ya cerró). Esta sesión atacó: (1) tres lecturas de `/admin`
-caídas en prod a la vez (tenants, semáforo de salud, planes), (2) el bug
-real de impersonación que las destapó, y (3) un pedido urgente del owner
-de fixes de POS móvil (12 items, 2 agentes Opus en worktrees paralelos).
+Cierre del día tras dos ejes: (1) el leak cross-tenant + PWA móvil de la
+primera vuelta (ya cerrados, ver commits `68260271..a8c96774`); (2) el wip
+de impresión que había quedado incompleto se terminó en una sesión paralela
+y se mergeó a `main`, y el owner pidió planificar una estación de impresión
+instalable como PWA independiente de la caja.
 
 ## Estado al cerrar
-Todo commiteado, pusheado a `main` y DEPLOYADO en prod (verificado con
-`curl`: API corre `a792623b`, frontend `33c4dacc` con el resto llegando).
-Los commits de esta sesión están entreverados con los de la sesión paralela
-ya cerrada — no son un rango limpio, ver lista de hashes en el entry de
-bitácora `## 2026-08-25 — /admin...`.
+Todo commiteado y pusheado a `main`. La mig 174 (backfill de `label` en
+plantillas de venta) **ya corrió en prod**: "174: 3 plantillas con títulos,
+0 sin cambios". El roadmap (`context/10-roadmap.md`) ya tiene el item nuevo
+al tope — NO tocarlo de nuevo en este cierre. Sesiones paralelas activas:
+"Punto Security" (auditoría completa de auth, panel→Bearer, cero leaks
+cross-tenant — dispara por el leak de hoy) y "Punto bugs" (impresión, ya
+entregó su parte).
 
 ## Archivos y cambios
-- `api/lib/Services/RoleService.php` — `ownerRoleSql()` (login, sin `main`)
-  y `ownerContactSql()` (fichas, con `main='true'`), predicado owner
-  unificado, reemplaza 5 copias locales de `role = 1`.
-- `api/lib/Services/TenantHealthService.php`, `ModulesService.php`,
-  `api/lib/Modules/ModuleState.php` (nuevo) — resolver único de
-  `ordersPanel/tables/production/moduleData`, viven en `company.config`
-  JSONB, no como columnas propias. `Query::flattenJsonb` nuevo en el wrapper.
-- `api/lib/Services/PlanAdminService.php` — `rowToPlan()` usa `ncmRow()`
-  en vez de asumir `array` (recibía `CaseInsensitiveArray`).
-- `api/database/migrations/postgres/172_*.sql`, `173_*.sql` — normaliza
-  `contact.main='admin'`→`'true'` (2 filas); marca la empresa master
-  (`00000000-...-0001`) `isInternal=1`. El seed `01_master_admin.sql`
-  también se corrigió (seguía escribiendo `main='admin'`).
-- `api/lib/Auth/PanelAuth.php` — `issuePanelSession()` es el emisor único
-  de sesión de panel; `getEnterToken()` (impersonación) delega ahí; dejó
-  de depender de `ncmExecute()` (global que no existe fuera del bootstrap
-  del panel).
-- `frontend/lib/admin/__tests__/impersonation-contract.test.ts` — fija el
-  contrato de 3 piezas: PHP `{token}` → BFF admin (`app/api/admin/
-  [...path]/route.ts`) convierte a cookie+`{redirectUrl}` → front navega.
-- `frontend/components/app-sidebar.tsx` (o equivalente) + `PanelAuthGuard`
-  — botón "Salir de impersonación" cableado: BFF setea `_imp_panel=1`
-  (no HttpOnly) junto a `_jwt_panel`; el guard lo lee y sale con logout +
-  borrar marca + redirect a `/admin`.
-- `api/tests/admin_tenant_reads_test.php` + `run_admin_tenant_reads_test.sh`
-  — arnés nuevo, 44 checks, Postgres descartable. Incluye caso L7 en
-  subproceso que carga SOLO los includes exactos del endpoint admin (para
-  no repetir el falso-verde de la regresión 2).
-- POS móvil: `components/ui/action-menu.tsx` (nuevo, Dropdown desktop ↔
-  Drawer bottom móvil), `NumericField`→ vuelta a `NumericPad`, Textarea de
-  comentarios (`field-sizing-content` anulaba `rows`), `--kb-inset` medido
-  con `visualViewport` en `dialog.tsx`, `SettingRow` apilado, switches
-  28×48, fullscreen `grid`→`flex flex-col`.
-- `context/14-ui-conventions.md` §11 — regla nueva: pad numérico siempre,
-  nunca input nativo para montos; ActionMenu para menús de fila. (Ya
-  commiteada en `0303b4d9`, no la retoques.)
-- `context/34-admin-saas-plan.md` — evaluar si necesita una línea sobre
-  el estado real (ver Próximo paso).
+- `frontend/lib/hardware/printers/blocks.ts` — `withBlockLabel` /
+  `resolveSimpleBlock`: título opcional antepuesto en un solo lugar,
+  consumido por los tres renderers (canvas/preview/térmica).
+- `frontend/lib/hardware/printers/roll-grid.ts` — `distributeRow`: la fila
+  de ítems reparte columnas al ancho real del papel (cantidad izquierda,
+  total derecha, unitario al medio); cede separación y wrapea, nunca recorta
+  un importe.
+- `frontend/lib/hardware/printers/*` — `formatQty`: cantidad sin `x`, máx 2
+  decimales, separador del tenant.
+- `frontend/lib/hardware/printers/html-renderer.ts` — `company_name` y
+  `total` dejaron de tener case propio con negrita forzada (ahora respetan
+  la plantilla + soportan título).
+- `api/migrations/174_block_labels_backfill.php` — backfill idempotente,
+  SOLO plantillas de venta (receipt/invoice/factura/credit), no toca
+  comandas/cotizaciones/remitos. Ya corrida en prod.
+- `frontend/lib/hardware/printers/__tests__/block-labels.test.ts` — 22 tests
+  nuevos. Suite completa 379/379, build verde (verificado sobre el merge
+  `8fa72899` antes de pushear).
+- `context/10-roadmap.md` — item nuevo: estación de impresión instalable
+  como PWA propia (manifest/iconos separados del POS), con checklist de
+  supervivencia (background timers, TTL credencial módulo `print`, WS
+  reconnect, señal de vida visible).
+- Branch `frontend/print-labels` — mergeada (`8fa72899`, `--no-ff`) y
+  borrada local+remota.
 
 ## Callejones sin salida
-- **Impersonación, regresión propia 1**: se vio PHP devolviendo `{token}`
-  y el front leyendo `redirectUrl` y se concluyó "contrato desalineado" —
-  sin ver que el BFF de admin YA hacía esa conversión token→cookie+
-  redirectUrl en el medio. Alinear las puntas rompió con 502 "Backend no
-  devolvió token". Por eso el test de contrato nuevo mira las 3 piezas.
-- **Impersonación, regresión propia 2**: pasar `getEnterToken()` al emisor
-  compartido rompió con 500 "Call to undefined function ncmExecute" — esa
-  global vive en `includes/functions.php`, que solo carga el bootstrap del
-  PANEL; el realm admin arranca con `includes/db.php` solo.
-  `Query::execute()` tampoco servía (arrastra `validateResultFromDB`, otra
-  global del mismo archivo). El arnés daba VERDE con el bug adentro porque
-  cargaba el bootstrap completo — de ahí el caso L7 en subproceso.
-- **`ownerContactSql` con `main`** casi rompe el login: `findPhoneLogin`
-  nunca filtró por `main`, y 2 cuentas de prod tienen `main='admin'`. Por
-  eso son DOS funciones separadas (login sin `main`, fichas con `main`).
-- **Checkout de la sesión paralela pisó ediciones sin commitear** de
-  `PanelAuth.php` y del arnés (git status quedó limpio, se habían
-  revertido) — se rehicieron a mano. Confirma: sesiones paralelas sobre
-  el mismo árbol → worktrees, commit inmediato, no acumular.
-- **Primer `ownerContactSql` sin alias** dejaba `companyid` sin calificar
-  en el EXISTS → se resolvía contra `taxonomy` (tautología silenciosa,
-  aceptaba el rol owner de CUALQUIER tenant). Columnas SIEMPRE calificadas
-  + check de texto A1-A4 en el arnés.
-- **`NumericField` decía en su propio docblock** "decisión del owner
-  2026-08-25" — el owner lo declaró regresión ese mismo día. Los briefs
-  pueden fabricar decisiones que no existieron; regla + guard test en
-  `context/14` §11.
+- Ninguno nuevo en esta vuelta — el trabajo de impresión lo hizo la sesión
+  paralela sobre el wip que había dejado esta; ver su propio reporte si
+  hace falta más detalle de implementación.
+- Ya documentado en la vuelta anterior (sigue vigente): mezclar
+  `res.cookies.set()` con headers crudos en la misma `NextResponse` de
+  Next pisa el `Set-Cookie`; `h-full` en el shell del POS colapsa el layout
+  contra `min-h-svh` del `SidebarProvider`.
 
 ## Próximo paso
-Confirmar con el owner si `context/34-admin-saas-plan.md` necesita una
-línea sobre el estado real (F1-F6 implementadas pero las 3 lecturas
-estuvieron caídas en prod y ahora hay arnés `admin_tenant_reads_test.php`
-cubriéndolas) — si no se hizo en esta sesión, es la única acción de docs
-que quedó pendiente de evaluar.
+Confirmar con el owner cómo salió el ticket impreso tras la mig 174 (títulos
+de bloque visibles, reparto de columnas correcto en 57mm/80mm) — es lo
+primero a verificar antes de tocar cualquier otra cosa del módulo de
+impresión.
 
 ## Trampas conocidas
-- Las 8 sesiones de device duplicadas en prod (pairing) siguen sin
-  revocar — heredado de la sesión paralela, decisión del owner.
-- Migs 157/160 y `period-close.php` siguen truncando con TZ "Asunción"
-  literal — heredado, crítico antes del primer tenant no-PY.
-- El owner todavía no probó el lote móvil en su iPhone (deploy recién
-  salió; necesita reinstalar la PWA — storage separado de Safari).
-- "Bloquear sesión luego de" en Ajustes POS sigue siendo mock con TODO
-  backend (heredado, no tocado esta sesión).
-- `RowActions` del panel (no-POS) sigue sin rama drawer — a propósito,
-  el pedido era específico del POS.
-- Las sesiones de prueba usadas para verificar impersonación end-to-end
-  en prod (curl) fueron revocadas después — no quedan credenciales vivas
-  de esa verificación.
+- Símbolo de moneda imprime `?` en la térmica — `UNKNOWN_CURRENCY_SIGN =
+  "¤"` (`frontend/lib/tenant-locale.ts:135`) no existe en CP437. Sin
+  confirmar si "Punto bugs" lo tocó — no asumir que está resuelto.
+- Estación de impresión PWA es solo roadmap, sin una línea de código
+  todavía: no destraba el pendiente real (impresoras de red inalcanzables
+  desde el browser; el agente local sigue sin decidir).
+- TZ "Asunción" literal en migs 157/160 + `period-close.php` — crítico
+  antes del primer tenant no-PY. Heredado, sin tocar.
+- 8 sesiones de device duplicadas en prod esperando decisión de revocar
+  (heredado).
+- `SaleToInvoiceMapper.php:195` — venta con vale no factura (heredado).
+- "Bloquear sesión luego de" en Ajustes POS sigue mock con TODO backend.
+- Cron semanal de poda de BuildKit vive en el HOST de prod
+  (`/etc/cron.weekly/docker-builder-prune`), NO viaja en el repo. Si los
+  deploys se vuelven lentos, `docker system df` antes de sospechar del
+  código.
+- Sesión "Punto Security" tiene mandato de auditoría completa de auth
+  (panel y /pos sin dominios de cookies compartidos, cero leaks) — no
+  asumir que ya se hizo por los fixes puntuales de hoy.

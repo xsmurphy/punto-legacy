@@ -1,0 +1,263 @@
+import { describe, it, expect } from "vitest"
+
+import { defaultBlock, type PrintBlock, type PrintTemplateConfig } from "@/lib/types/print-template"
+import { formatQty, resolveSimpleBlock, withBlockLabel } from "../blocks"
+import { renderTemplateToHtml } from "../html-renderer"
+import { buildRollGrid, distributeRow, rollGeometry } from "../roll-grid"
+import type { TicketData, TicketItem } from "../build-ticket-data"
+
+/**
+ * Guard del pedido del owner (2026-08-26, foto de un ticket impreso):
+ *
+ *   1. El ticket imprime "Fecha: 12-03-2026", no "12-03-2026" pelado — y el
+ *      título sale de la PLANTILLA (`block.label`), no de una tabla en el
+ *      renderer. Esa distinción es la regla del proyecto (context/20): el
+ *      mismo bloque `date` quiere "Fecha:" en la factura y nada en la comanda.
+ *   2. La cantidad va sin la `x` y con 2 decimales como máximo: "1,5 Azúcar
+ *      por kilo" son 1,5 kilos, y en 57 mm cada carácter cuenta.
+ *
+ * Los dos se verifican en las TRES superficies (valor compartido, ESC/POS vía
+ * grilla, HTML) porque la historia del módulo es justamente tres switches que
+ * divergían en silencio.
+ */
+
+const MM = 3.78
+
+function tpl(data: PrintBlock[], over: Partial<PrintTemplateConfig> = {}): PrintTemplateConfig {
+  return {
+    page_size: "receipt80",
+    page_size_name: "Roll 80mm",
+    page_name: "",
+    page_font_family: "Arial",
+    page_font_size: "8pt",
+    page_font_case: "none",
+    receipt_left_margin: "7",
+    mm: MM,
+    data,
+    ...over,
+  }
+}
+
+/**
+ * Plantilla de HOJA. El renderer HTML solo pinta bloque por bloque
+ * (`renderBlockHtml`/`renderItemTable`) en hoja: en rollo delega en la MISMA
+ * grilla de caracteres que el ESC/POS. Para cubrir las dos rutas del HTML hay
+ * que probar con hoja, si no se testea dos veces la grilla.
+ */
+function sheet(data: PrintBlock[]): PrintTemplateConfig {
+  return tpl(data, { page_size: "a4page", page_size_name: "A4 (Vertical)" })
+}
+
+function item(over: Partial<TicketItem> = {}): TicketItem {
+  return {
+    name: "Azúcar por kilo",
+    qty: 1.5,
+    unitPrice: 8000,
+    discountAmount: 0,
+    discountPercent: 0,
+    total: 12000,
+    categoryId: null,
+    id: null,
+    uid: null,
+    note: null,
+  } as unknown as TicketItem
+}
+
+function ticket(over: Partial<TicketData> = {}): TicketData {
+  return {
+    docType: "sale",
+    companyName: "Almacén Central",
+    transactionId: "tx-1",
+    date: "12-03-2026",
+    documentNumber: "001-001-1233454",
+    total: 12000,
+    // `thousand: "dot"` = separador decimal coma, que es el caso del owner.
+    thousand: "dot",
+    country: "",
+    items: [item()],
+    payments: [],
+    ...over,
+  } as unknown as TicketData
+}
+
+const rowsOf = (t: PrintTemplateConfig, d: TicketData) =>
+  buildRollGrid(t, d, rollGeometry(t.page_size, MM)).rows.map((r) => r.text)
+
+describe("withBlockLabel — título declarado por la plantilla", () => {
+  it("antepone el título al valor con un solo espacio", () => {
+    expect(withBlockLabel({ ...defaultBlock("date"), label: "Fecha:" }, "12-03-2026")).toBe(
+      "Fecha: 12-03-2026",
+    )
+  })
+
+  it("sin título, el valor sale igual que antes de la feature", () => {
+    expect(withBlockLabel({ ...defaultBlock("date"), label: "" }, "12-03-2026")).toBe("12-03-2026")
+    // Plantillas guardadas antes de 2026-08-26 no traen la clave.
+    const legacy = { ...defaultBlock("date") } as PrintBlock
+    delete (legacy as { label?: string }).label
+    expect(withBlockLabel(legacy, "12-03-2026")).toBe("12-03-2026")
+  })
+
+  it("un bloque SIN valor no imprime su título suelto", () => {
+    const block = { ...defaultBlock("date"), label: "Fecha:" }
+    expect(withBlockLabel(block, null)).toBeNull()
+    expect(withBlockLabel(block, "")).toBeNull()
+  })
+
+  it("no impone puntuación: la escribe el operador", () => {
+    expect(withBlockLabel({ ...defaultBlock("date"), label: "FECHA" }, "12-03-2026")).toBe(
+      "FECHA 12-03-2026",
+    )
+  })
+})
+
+describe("resolveSimpleBlock — un solo lugar para los tres renderers", () => {
+  it("resuelve el valor real y le pone el título", () => {
+    const data = ticket()
+    expect(resolveSimpleBlock({ ...defaultBlock("date"), label: "Fecha:" }, data)).toBe(
+      "Fecha: 12-03-2026",
+    )
+    expect(
+      resolveSimpleBlock({ ...defaultBlock("document_number"), label: "Fact. Nro.:" }, data),
+    ).toBe("Fact. Nro.: 001-001-1233454")
+    expect(resolveSimpleBlock({ ...defaultBlock("sale_type"), label: "Condición:" }, data)).toBe(
+      "Condición: Contado",
+    )
+  })
+
+  it("un tipo sin resolver no inventa una línea con el título", () => {
+    expect(
+      resolveSimpleBlock({ ...defaultBlock("hor_line"), label: "Fecha:" }, ticket()),
+    ).toBeNull()
+  })
+})
+
+describe("el título llega a las dos superficies de impresión", () => {
+  const blocks = [
+    { ...defaultBlock("date"), label: "Fecha:", top: 0, left: 0, width: 302, height: 12 },
+  ]
+
+  it("ESC/POS (grilla del rollo)", () => {
+    expect(rowsOf(tpl(blocks), ticket()).join("\n")).toContain("Fecha: 12-03-2026")
+  })
+
+  it("HTML de hoja (fallback del navegador)", () => {
+    expect(renderTemplateToHtml(sheet(blocks), ticket())).toContain("Fecha: 12-03-2026")
+  })
+})
+
+describe("formatQty — cantidad sin `x` y con 2 decimales máximo", () => {
+  const data = ticket()
+
+  it("usa el separador decimal del tenant", () => {
+    expect(formatQty(1.5, data)).toBe("1,5")
+    expect(formatQty(1.5, { thousand: "comma", country: "" })).toBe("1.5")
+  })
+
+  it("no rellena con ceros: 1 kilo es '1', no '1,00'", () => {
+    expect(formatQty(1, data)).toBe("1")
+  })
+
+  it("corta en 2 decimales", () => {
+    expect(formatQty(1.239, data)).toBe("1,24")
+  })
+})
+
+describe("la tabla de ítems imprime la cantidad sin la `x`", () => {
+  const blocks = [
+    { ...defaultBlock("item_receipt"), top: 0, left: 0, width: 302, height: 36 },
+  ]
+
+  it("ESC/POS (grilla del rollo)", () => {
+    const text = rowsOf(tpl(blocks), ticket()).join("\n")
+    expect(text).toContain("1,5")
+    expect(text).not.toContain("1,5x")
+    expect(text).not.toContain("1.5x")
+  })
+
+  it("HTML de hoja (fallback del navegador)", () => {
+    const html = renderTemplateToHtml(sheet(blocks), ticket())
+    expect(html).toContain("1,5")
+    expect(html).not.toContain("1.5</td>")
+  })
+})
+
+describe("distributeRow — la fila de ítems usa todo el ancho del papel", () => {
+  it("cantidad a la izquierda y total contra el borde derecho (48 columnas)", () => {
+    const row = distributeRow(["2", "12.000", "24.000"], 48)
+    expect(row).toHaveLength(48)
+    expect(row.startsWith("2")).toBe(true)
+    expect(row.endsWith("24.000")).toBe(true)
+    // El unitario queda en el medio, separado de los dos extremos.
+    expect(row).toMatch(/^2 {2,}12\.000 {2,}24\.000$/)
+  })
+
+  it("mismo reparto en 32 columnas (papel de 57mm)", () => {
+    const row = distributeRow(["2", "12.000", "24.000"], 32)
+    expect(row).toHaveLength(32)
+    expect(row).toMatch(/^2 {2,}12\.000 {2,}24\.000$/)
+  })
+
+  it("la columna del medio alinea entre filas aunque el texto mida distinto", () => {
+    const a = distributeRow(["2", "12.000", "24.000"], 48)
+    const b = distributeRow(["10", "1.500", "15.000"], 48)
+    // Centradas en la misma franja: los centros caen a menos de un carácter.
+    const centerOf = (row: string, cell: string) => row.indexOf(cell) + cell.length / 2
+    expect(Math.abs(centerOf(a, "12.000") - centerOf(b, "1.500"))).toBeLessThanOrEqual(1)
+  })
+
+  it("con dos celdas, una a cada borde", () => {
+    const row = distributeRow(["2", "24.000"], 20)
+    expect(row).toBe("2" + " ".repeat(13) + "24.000")
+  })
+
+  it("una sola celda no se estira", () => {
+    expect(distributeRow(["2"], 32)).toBe("2")
+  })
+
+  it("cuando no entra, cede la separación y deja que wrapee — nunca recorta un importe", () => {
+    const row = distributeRow(["1,25", "1.250.000", "1.562.500"], 20)
+    expect(row).toBe("1,25 1.250.000 1.562.500")
+    expect(row).toContain("1.562.500")
+  })
+})
+
+describe("la fila de ítems repartida llega al rollo", () => {
+  it("el total queda contra el borde derecho del bloque", () => {
+    const g = rollGeometry("receipt80", MM)
+    const blocks = [
+      {
+        ...defaultBlock("item_receipt"),
+        top: 0,
+        left: 0,
+        width: Math.round(g.canvasWidthPx),
+        height: 36,
+      },
+    ]
+    const rows = rowsOf(tpl(blocks), ticket())
+    const row = rows.find((r) => r.includes("12.000"))
+    expect(row).toBeDefined()
+    expect(row!.trimEnd().endsWith("12.000")).toBe(true)
+    expect(row!.trimStart().startsWith("1,5")).toBe(true)
+  })
+})
+
+describe("el renderer HTML dejó de decidir por su cuenta", () => {
+  it("`total` respeta la negrita de la plantilla en vez de forzarla", () => {
+    const normal = renderTemplateToHtml(
+      sheet([{ ...defaultBlock("total"), bold: "normal", top: 0, left: 0, width: 300, height: 12 }]),
+      ticket(),
+    )
+    expect(normal).not.toContain("font-weight:bold")
+  })
+
+  it("`total` y `company_name` aceptan título como cualquier otro bloque", () => {
+    const html = renderTemplateToHtml(
+      sheet([
+        { ...defaultBlock("total"), label: "TOTAL A PAGAR:", top: 0, left: 0, width: 300, height: 12 },
+      ]),
+      ticket(),
+    )
+    expect(html).toContain("TOTAL A PAGAR:")
+  })
+})
