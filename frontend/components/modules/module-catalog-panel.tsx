@@ -181,7 +181,12 @@ function normalize(s: string): string {
 
 export function ModuleCatalogPanel({ kind }: { kind: ModuleKind }) {
   const router = useRouter()
-  const { data: modulesMap, isLoading } = useModules()
+  // `isError` se lee y se PINTA: sin esto, una lectura fallida caía en el
+  // `?? false` de cada fila y el catálogo entero se mostraba "apagado" —
+  // indistinguible de un tenant sin módulos, y encima con los switches
+  // deshabilitados sin decir por qué (reporte del owner 2026-08-26). Un
+  // listado de estado no puede inventar el estado cuando no lo pudo leer.
+  const { data: modulesMap, isLoading, isError, error, refetch } = useModules()
   const toggleModule = useToggleModule()
   const [query, setQuery] = React.useState("")
   const [statusFilter, setStatusFilter] = React.useState<StatusFilter>("all")
@@ -274,6 +279,18 @@ export function ModuleCatalogPanel({ kind }: { kind: ModuleKind }) {
 
       {isLoading ? (
         <SkeletonRows count={Math.min(entries.length, 6)} />
+      ) : isError ? (
+        <EmptyState
+          icon={SearchX}
+          ghost={false}
+          title="No se pudo leer el estado de los módulos"
+          description={
+            error instanceof Error
+              ? `${error.message}. Los interruptores no se muestran para no dar por apagado lo que no se pudo consultar.`
+              : "Los interruptores no se muestran para no dar por apagado lo que no se pudo consultar."
+          }
+          actions={<Button onClick={() => refetch()}>Reintentar</Button>}
+        />
       ) : noResults ? (
         <EmptyState
           icon={SearchX}
