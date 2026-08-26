@@ -122,6 +122,36 @@ Decisión del owner. Este doc no implementa ninguna de las dos — la auditoría
 2026-08-26 ya dejó cerrado el leak agudo (emisor único + income-chart), que es
 lo urgente; la elección A/B es el paso de fondo, sin apuro.
 
+## 4b. Impersonación desde /admin — cómo encaja (verificado 2026-08-26)
+
+Soporte impersona un tenant desde /admin para configurar/diagnosticar. **Clave:
+la impersonación NO es un override cross-tenant por header — se CONVIERTE en el
+tenant.** `PanelAuth::issuePanelSession()` (api/lib/Auth/PanelAuth.php) emite una
+sesión REAL de realm `panel` con `companyId`/`userId`/`roleId` del tenant
+destino, gateada por `adminMiddleware` + `adminRequireRole('support')` y
+registrada en `admin_audit`. A partir de ahí `AUTHED_COMPANY_ID` = el tenant
+impersonado.
+
+Consecuencia: **todo guard scopeado por companyId hace lo correcto bajo
+impersonación sin caso especial** — scopea al tenant impersonado, que es
+exactamente lo que soporte necesita ver/tocar:
+- El guard de pertenencia de `/v1/items` valida contra el companyId impersonado
+  → soporte edita el catálogo de ESE tenant normalmente.
+- El guard de `/v1/bancard` (mig 174) valida los QR del tenant impersonado.
+- El gate de permisos de `imports` respeta el rol de la sesión impersonada.
+- `income-chart` reenvía la cookie `_jwt_panel` de impersonación → resuelve el
+  tenant impersonado, consistente con el resto del dashboard. Esto es
+  justamente lo que arregla el leak: el bug era la SEGUNDA `_jwt_panel` que
+  crea la impersonación en el browser del admin (que ya tiene la suya) — con
+  emisor único + income-chart reenviando cookie cruda, solo una resuelve y
+  todas las rutas coinciden.
+
+Regla para el futuro: la impersonación funciona porque es una sesión de panel
+más, del tenant destino. Cualquier fix de aislamiento cross-tenant que scopee
+por `AUTHED_COMPANY_ID` es automáticamente compatible. Lo que NUNCA hay que
+hacer es que la impersonación acuñe una cookie de scope distinto al emisor
+canónico (fue la causa de `ad46b4c1`).
+
 ## 5. Estado
 
 - [x] Emisor único de `_jwt_panel` (ad46b4c1) + `income-chart` deja de re-acuñar

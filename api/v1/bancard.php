@@ -42,11 +42,30 @@ if ($type === 'create') {
     apiOk(json_decode($raw, true) ?: ['raw' => $raw]);
 }
 
+/**
+ * Guard de pertenencia del QR (aislamiento cross-tenant, path de dinero).
+ *
+ * refresh/cancel operan sobre un `id` que viene del body con el token GLOBAL de
+ * Bancard: sin esto, un tenant refrescaba/cancelaba el cobro de OTRO comercio
+ * con solo conocer el id (auditoría 2026-08-26). El binding id→tenant se
+ * persiste al crear el QR (mig 174 / BancardService::persistOwnership). Fail-open
+ * ante id desconocido a propósito: no rompemos QRs creados antes de la mig ni un
+ * flujo legítimo si no capturamos la clave del id — solo bloqueamos lo que
+ * sabemos que es de otro tenant. 404 (no 403) para no delatar existencia.
+ */
+$assertQrOwned = static function (string $id) use ($svc, $ctx): void {
+    $owner = $svc->ownerCompanyOf($id);
+    if ($owner !== null && $owner !== (string) $ctx['companyId']) {
+        apiError('QR no encontrado', 404);
+    }
+};
+
 if ($type === 'refresh') {
     $id = trim((string) ($_POST['id'] ?? ''));
     if ($id === '') {
         apiError('Falta id', 422);
     }
+    $assertQrOwned($id);
     $raw = $svc->refreshQR($id);
     apiOk(json_decode($raw, true) ?: ['raw' => $raw]);
 }
@@ -56,6 +75,7 @@ if ($type === 'cancel') {
     if ($id === '') {
         apiError('Falta id', 422);
     }
+    $assertQrOwned($id);
     $raw = $svc->cancelQR($id);
     apiOk(json_decode($raw, true) ?: ['raw' => $raw]);
 }

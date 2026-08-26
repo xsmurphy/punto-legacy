@@ -20,6 +20,17 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     apiError('Method not allowed', 405);
 }
 
+// Gate de permiso: para siquiera stagear un CSV el rol tiene que poder importar
+// ALGO. El gate fino por kind/mode vive en run.php (donde se escribe de verdad);
+// acá alcanza con negar el staging a quien no tiene ninguna capacidad de import
+// (antes cualquier sesión de panel subía archivos sin ningún permiso).
+$canImport = hasPermission('inventory.item.create') || hasPermission('inventory.item.edit')
+    || hasPermission('contacts.customer.create') || hasPermission('contacts.customer.edit')
+    || hasPermission('contacts.supplier.manage');
+if (!$canImport) {
+    apiError('No tenés permiso para importar', 403);
+}
+
 if (empty($_FILES['file'])) {
     apiError('No se recibió ningún archivo', 400);
 }

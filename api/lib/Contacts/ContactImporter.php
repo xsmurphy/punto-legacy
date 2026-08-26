@@ -18,7 +18,17 @@ final class ContactImporter
     /**
      * @return array { total:int, created:int, updated:int, errors:[{line:int, message:string}] }
      */
-    public function importFromCsv(string $csvPath, string $mode, string $companyId, string $userId): array
+    /**
+     * @param int[]|null $allowedTypes Tipos de contacto que el caller tiene
+     *   permiso de importar (1=cliente, 2=proveedor). null = sin restricción
+     *   (compat con callers que ya gatean por otra vía, ej. ai/execute). El gate
+     *   por permiso vive acá —donde se conoce el tipo de CADA fila— y no
+     *   up-front en el endpoint, porque un CSV puede mezclar clientes y
+     *   proveedores: un rol con permiso solo de clientes importa un CSV de
+     *   clientes, y las filas de proveedor de un CSV mixto se rechazan una por
+     *   una en vez de bloquear todo o dejar colar lo que no corresponde.
+     */
+    public function importFromCsv(string $csvPath, string $mode, string $companyId, string $userId, ?array $allowedTypes = null): array
     {
         if (!function_exists('phoneToE164')) {
             require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
@@ -62,7 +72,7 @@ final class ContactImporter
             if (implode('', $row) === '') continue;
 
             try {
-                $result = $this->processRow($row, $headers, $mode, $companyId, $svc, $line);
+                $result = $this->processRow($row, $headers, $mode, $companyId, $svc, $line, $allowedTypes);
                 if ($result === 'created') $report['created']++;
                 elseif ($result === 'updated') $report['updated']++;
             } catch (\Throwable $e) {
@@ -74,7 +84,7 @@ final class ContactImporter
         return $report;
     }
 
-    private function processRow(array $row, array $headers, string $mode, string $companyId, ContactService $svc, int $lineNum): string
+    private function processRow(array $row, array $headers, string $mode, string $companyId, ContactService $svc, int $lineNum, ?array $allowedTypes = null): string
     {
         $get = function(string $col) use ($row, $headers): string {
             $idx = array_search($col, $headers, true);
@@ -102,6 +112,14 @@ final class ContactImporter
             $type = 1;
         } else {
             throw new \InvalidArgumentException("Línea {$lineNum}: TIPO inválido '{$tipoStr}' (usar cliente/proveedor)");
+        }
+
+        // Gate de permiso por tipo de fila (ver docblock de importFromCsv). El
+        // caller (imports/run.php) pasa los tipos que su rol puede importar; una
+        // fila de un tipo no permitido se rechaza sola, sin frenar el resto.
+        if ($allowedTypes !== null && !in_array($type, $allowedTypes, true)) {
+            $etiqueta = $type === 2 ? 'proveedores' : 'clientes';
+            throw new \InvalidArgumentException("Línea {$lineNum}: no tenés permiso para importar {$etiqueta}");
         }
 
         $phoneE164 = null;
