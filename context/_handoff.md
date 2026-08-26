@@ -1,106 +1,92 @@
-# Hand-off — 2026-08-25 (sesión /admin + POS móvil)
+# Hand-off — 2026-08-26 (leak cross-tenant + PWA móvil)
 
 ## Objetivo
-Corría en paralelo a la sesión "POS token-only" (ver entry de arriba en la
-bitácora, que ya cerró). Esta sesión atacó: (1) tres lecturas de `/admin`
-caídas en prod a la vez (tenants, semáforo de salud, planes), (2) el bug
-real de impersonación que las destapó, y (3) un pedido urgente del owner
-de fixes de POS móvil (12 items, 2 agentes Opus en worktrees paralelos).
+Continuación de la sesión del 25 sobre el eje `/admin` + POS móvil. Dos
+disparadores del owner: (1) vio en el panel del tenant Eclock el gráfico de
+ingresos con ventas de OTRA empresa (ICAS) — leak cross-tenant, P0; (2) el
+"gap de abajo" en la PWA iOS seguía sin cerrar tras 3 intentos previos.
 
 ## Estado al cerrar
-Todo commiteado, pusheado a `main` y DEPLOYADO en prod (verificado con
-`curl`: API corre `a792623b`, frontend `33c4dacc` con el resto llegando).
-Los commits de esta sesión están entreverados con los de la sesión paralela
-ya cerrada — no son un rango limpio, ver lista de hashes en el entry de
-bitácora `## 2026-08-25 — /admin...`.
+Todo commiteado, pusheado a `main` y deployado, EXCEPTO la branch
+`frontend/print-labels` (trabajo parcial, NO mergeada, no compila — ver
+Trampas). La auditoría completa de auth (mandato del owner: panel y /pos
+sin dominios de cookies compartidos, migrar panel a Bearer, cero leaks en
+cualquier endpoint) quedó delegada a la sesión paralela "Punto Security",
+NO se hizo en esta sesión.
 
 ## Archivos y cambios
-- `api/lib/Services/RoleService.php` — `ownerRoleSql()` (login, sin `main`)
-  y `ownerContactSql()` (fichas, con `main='true'`), predicado owner
-  unificado, reemplaza 5 copias locales de `role = 1`.
-- `api/lib/Services/TenantHealthService.php`, `ModulesService.php`,
-  `api/lib/Modules/ModuleState.php` (nuevo) — resolver único de
-  `ordersPanel/tables/production/moduleData`, viven en `company.config`
-  JSONB, no como columnas propias. `Query::flattenJsonb` nuevo en el wrapper.
-- `api/lib/Services/PlanAdminService.php` — `rowToPlan()` usa `ncmRow()`
-  en vez de asumir `array` (recibía `CaseInsensitiveArray`).
-- `api/database/migrations/postgres/172_*.sql`, `173_*.sql` — normaliza
-  `contact.main='admin'`→`'true'` (2 filas); marca la empresa master
-  (`00000000-...-0001`) `isInternal=1`. El seed `01_master_admin.sql`
-  también se corrigió (seguía escribiendo `main='admin'`).
-- `api/lib/Auth/PanelAuth.php` — `issuePanelSession()` es el emisor único
-  de sesión de panel; `getEnterToken()` (impersonación) delega ahí; dejó
-  de depender de `ncmExecute()` (global que no existe fuera del bootstrap
-  del panel).
-- `frontend/lib/admin/__tests__/impersonation-contract.test.ts` — fija el
-  contrato de 3 piezas: PHP `{token}` → BFF admin (`app/api/admin/
-  [...path]/route.ts`) convierte a cookie+`{redirectUrl}` → front navega.
-- `frontend/components/app-sidebar.tsx` (o equivalente) + `PanelAuthGuard`
-  — botón "Salir de impersonación" cableado: BFF setea `_imp_panel=1`
-  (no HttpOnly) junto a `_jwt_panel`; el guard lo lee y sale con logout +
-  borrar marca + redirect a `/admin`.
-- `api/tests/admin_tenant_reads_test.php` + `run_admin_tenant_reads_test.sh`
-  — arnés nuevo, 44 checks, Postgres descartable. Incluye caso L7 en
-  subproceso que carga SOLO los includes exactos del endpoint admin (para
-  no repetir el falso-verde de la regresión 2).
-- POS móvil: `components/ui/action-menu.tsx` (nuevo, Dropdown desktop ↔
-  Drawer bottom móvil), `NumericField`→ vuelta a `NumericPad`, Textarea de
-  comentarios (`field-sizing-content` anulaba `rows`), `--kb-inset` medido
-  con `visualViewport` en `dialog.tsx`, `SettingRow` apilado, switches
-  28×48, fullscreen `grid`→`flex flex-col`.
-- `context/14-ui-conventions.md` §11 — regla nueva: pad numérico siempre,
-  nunca input nativo para montos; ActionMenu para menús de fila. (Ya
-  commiteada en `0303b4d9`, no la retoques.)
-- `context/34-admin-saas-plan.md` — evaluar si necesita una línea sobre
-  el estado real (ver Próximo paso).
+- `api/includes/auth_session.php` (`authSetOpaqueCookie`) y
+  `frontend/app/api/admin/[...path]/route.ts` — un solo emisor de
+  `_jwt_panel`: el BFF de admin ahora propaga el `Set-Cookie` del upstream
+  (con `COOKIE_DOMAIN=.punto.la`) en vez de setear su propia variante
+  host-only. Fix del leak (`ad46b4c1`).
+- `frontend/app/api/admin/[...path]/route.ts` — regresión inmediata: la
+  rama de impersonación mezclaba `res.cookies.set()` (borrado + marca
+  `_imp_panel`) con `res.headers.append("set-cookie", …)`. Ahora TODO pasa
+  por headers crudos, una sola API (`a8c96774`).
+- `frontend/lib/admin/__tests__/impersonation-contract.test.ts` — guard
+  ampliado para el caso de las dos cookies/dos emisores.
+- `frontend/components/pos/safe-area-calibrator.tsx` (nuevo) — mide
+  `innerHeight` contra `screen` y pone `--safe-b` en 0 cuando el viewport
+  no llega al borde (cover no está aplicando ahí). Toca SOLO el eje
+  inferior — la primera versión tocó también `--safe-t` y rompió el status
+  bar (revertido en el propio eje, ver commits `258afca1`/`68e84e7a`).
+- POS shell — `aa3d5ae7` revirtió un intento con `h-full` (colapsaba el
+  layout, ver Callejones). Quedó en `h-dvh`.
+- `frontend/lib/api/*` (api-client y pos-client) — `ee131584`: un sobre
+  `{ok:true}` sin `data` dejó de tratarse como contenido válido; ahora es
+  error visible en vez de blanco silencioso.
+- `frontend/components/pos/viewport-probe.tsx` (nuevo, `?debug=viewport`)
+  — inútil en PWA standalone (no hay barra de direcciones para pegar la
+  URL). Queda sin vía de activación.
+- `context/06-infraestructura.md` — cron `/etc/cron.weekly/docker-builder-
+  prune` en el server (poda BuildKit, NO viaja en el repo).
 
 ## Callejones sin salida
-- **Impersonación, regresión propia 1**: se vio PHP devolviendo `{token}`
-  y el front leyendo `redirectUrl` y se concluyó "contrato desalineado" —
-  sin ver que el BFF de admin YA hacía esa conversión token→cookie+
-  redirectUrl en el medio. Alinear las puntas rompió con 502 "Backend no
-  devolvió token". Por eso el test de contrato nuevo mira las 3 piezas.
-- **Impersonación, regresión propia 2**: pasar `getEnterToken()` al emisor
-  compartido rompió con 500 "Call to undefined function ncmExecute" — esa
-  global vive en `includes/functions.php`, que solo carga el bootstrap del
-  PANEL; el realm admin arranca con `includes/db.php` solo.
-  `Query::execute()` tampoco servía (arrastra `validateResultFromDB`, otra
-  global del mismo archivo). El arnés daba VERDE con el bug adentro porque
-  cargaba el bootstrap completo — de ahí el caso L7 en subproceso.
-- **`ownerContactSql` con `main`** casi rompe el login: `findPhoneLogin`
-  nunca filtró por `main`, y 2 cuentas de prod tienen `main='admin'`. Por
-  eso son DOS funciones separadas (login sin `main`, fichas con `main`).
-- **Checkout de la sesión paralela pisó ediciones sin commitear** de
-  `PanelAuth.php` y del arnés (git status quedó limpio, se habían
-  revertido) — se rehicieron a mano. Confirma: sesiones paralelas sobre
-  el mismo árbol → worktrees, commit inmediato, no acumular.
-- **Primer `ownerContactSql` sin alias** dejaba `companyid` sin calificar
-  en el EXISTS → se resolvía contra `taxonomy` (tautología silenciosa,
-  aceptaba el rol owner de CUALQUIER tenant). Columnas SIEMPRE calificadas
-  + check de texto A1-A4 en el arnés.
-- **`NumericField` decía en su propio docblock** "decisión del owner
-  2026-08-25" — el owner lo declaró regresión ese mismo día. Los briefs
-  pueden fabricar decisiones que no existieron; regla + guard test en
-  `context/14` §11.
+- **Leak cross-tenant**: el SQL nunca estuvo mal (`Roc::build` filtra bien
+  por companyId). La causa era el browser mandando DOS cookies
+  `_jwt_panel` con scope distinto y cada capa (PHP vs Next `req.cookies`)
+  parseando una distinta.
+- **Regresión de la impersonación**: `res.cookies.set()` de Next mantiene
+  su propio mapa interno y CADA llamada re-serializa el header
+  `Set-Cookie` completo desde ese mapa — pisa cualquier append() previo a
+  headers crudos. No mezclar las dos APIs en la misma `NextResponse`.
+- **PWA — 4 hipótesis descartadas antes de la real**: faltaban safe areas
+  (no), doble descuento shell+CartBottom (no), caché del meta
+  `viewport-fit=cover` (no, el owner reinstaló y persistía), `h-full` en
+  el shell (empeoró todo — el wrapper de SidebarProvider usa `min-h-svh`,
+  que es un mínimo, no una altura; `height:100%` no resuelve contra eso).
+- **`?debug=viewport`** no sirve para diagnosticar en producción porque
+  una PWA instalada no tiene barra de direcciones donde pegar el query
+  param.
+- **Reproducir el detalle de transacción con cookie de panel** da 401
+  SIEMPRE — ese endpoint exige Bearer de device, no cookie de panel.
+- **Árbol compartido**: otra sesión hizo checkout y borró ediciones sin
+  commitear (repetido de la sesión anterior) — hubo que rehacerlas.
 
 ## Próximo paso
-Confirmar con el owner si `context/34-admin-saas-plan.md` necesita una
-línea sobre el estado real (F1-F6 implementadas pero las 3 lecturas
-estuvieron caídas en prod y ahora hay arnés `admin_tenant_reads_test.php`
-cubriéndolas) — si no se hizo en esta sesión, es la única acción de docs
-que quedó pendiente de evaluar.
+Dar una vía de activación a `viewport-probe.tsx` que no dependa de la URL
+(ej. botón oculto en Ajustes POS) para poder diagnosticar el próximo
+problema de viewport en la PWA instalada sin depender de reinstalar y
+adivinar.
 
 ## Trampas conocidas
-- Las 8 sesiones de device duplicadas en prod (pairing) siguen sin
-  revocar — heredado de la sesión paralela, decisión del owner.
-- Migs 157/160 y `period-close.php` siguen truncando con TZ "Asunción"
-  literal — heredado, crítico antes del primer tenant no-PY.
-- El owner todavía no probó el lote móvil en su iPhone (deploy recién
-  salió; necesita reinstalar la PWA — storage separado de Safari).
-- "Bloquear sesión luego de" en Ajustes POS sigue siendo mock con TODO
-  backend (heredado, no tocado esta sesión).
-- `RowActions` del panel (no-POS) sigue sin rama drawer — a propósito,
-  el pedido era específico del POS.
-- Las sesiones de prueba usadas para verificar impersonación end-to-end
-  en prod (curl) fueron revocadas después — no quedan credenciales vivas
-  de esa verificación.
+- Branch `frontend/print-labels` sin mergear, no compila (falta un
+  import) — traspasada a la sesión "Punto bugs" junto con el pedido
+  original del owner (títulos de campo en tickets + `formatQty`).
+- Auditoría de auth completa (Bearer, cero leaks) es mandato del owner
+  de hace meses, delegada a sesión paralela "Punto Security" — NO
+  asumir que ya se hizo por este fix puntual.
+- Símbolo de moneda imprime `?` en la térmica —
+  `UNKNOWN_CURRENCY_SIGN = "¤"` (`frontend/lib/tenant-locale.ts:135`) no
+  existe en codepage CP437. Sin arreglar.
+- TZ "Asunción" literal en migs 157/160 + `period-close.php` — crítico
+  antes del primer tenant no-PY. Heredado, sin tocar.
+- 8 sesiones de device duplicadas en prod esperando decisión de revocar
+  (heredado).
+- `SaleToInvoiceMapper.php:195` — venta con vale no factura (heredado).
+- "Bloquear sesión luego de" en Ajustes POS sigue mock con TODO backend.
+- El owner debe confirmar en su iPhone que el gap quedó cerrado (dijo
+  "ahora quedó bien" tras `68e84e7a`, pero no hubo confirmación final
+  post-`a8c96774`) y probar impersonar de nuevo tras el fix de la
+  regresión.
