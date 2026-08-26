@@ -6,7 +6,7 @@ import {
   ITEM_FIELD_RESOLVERS,
   ITEM_LINE_TYPES,
   ITEM_TABLE_TYPES,
-  formatMoney,
+  formatAmountOnly,
   formatQty,
   resolvePaymentLines,
   itemTableColumns,
@@ -63,8 +63,8 @@ function renderItemTable(block: PrintBlock, data: TicketData): string {
         // Misma cantidad formateada que el ESC/POS (formatQty, blocks.ts): sin
         // la `x` y con 2 decimales como máximo.
         (cols.qty ? `<td style="text-align:right">${esc(formatQty(item.qty, data))}</td>` : "") +
-        (cols.unitPrice ? `<td style="text-align:right">${esc(formatMoney(item.unitPrice, data))}</td>` : "") +
-        (cols.total ? `<td style="text-align:right">${esc(formatMoney(item.total, data))}</td>` : "")
+        (cols.unitPrice ? `<td style="text-align:right">${esc(formatAmountOnly(item.unitPrice, data))}</td>` : "") +
+        (cols.total ? `<td style="text-align:right">${esc(formatAmountOnly(item.total, data))}</td>` : "")
       return `<tr>${cells}</tr>`
     })
     .join("")

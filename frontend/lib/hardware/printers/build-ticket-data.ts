@@ -1052,8 +1052,15 @@ export function buildTicketDataForTest(): TicketData {
   const cart = useCartStore.getState()
   const { config, taxes } = useCatalogStore.getState()
 
+  // `config` va a las DOS ramas: el ticket de prueba tiene que salir con la
+  // moneda y los separadores del tenant igual que una venta real. Omitirla acá
+  // hacía que `resolveCurrencyLabel` cayera al signo genérico `¤` — que además
+  // no existe en CP437, así que la térmica imprimía "?" (reporte del owner
+  // 2026-08-26). No era un tenant sin moneda: era esta llamada tirándola.
   const base: TicketData =
-    cart.lines.length === 0 ? buildDemoTicketData(taxes) : buildTicketDataFromCartForTest(cart, config)
+    cart.lines.length === 0
+      ? buildDemoTicketData(taxes, config)
+      : buildTicketDataFromCartForTest(cart, config)
 
   return withTestMasking(base)
 }
@@ -1083,8 +1090,15 @@ function withTestMasking(base: TicketData): TicketData {
  * tasas reales del tenant — las mismas que `TemplateEditor` ya trae con
  * `useTaxes()` para la sección "Impuestos" de la paleta y para `demoData`.
  */
-export function buildTemplateTestData(taxes: DemoTaxSource[]): TicketData {
-  return withTestMasking(buildDemoTicketData(taxes))
+export function buildTemplateTestData(
+  taxes: DemoTaxSource[],
+  config?: Pick<PosConfig, "currency" | "thousand" | "decimal" | "country"> | null,
+): TicketData {
+  // `config` es la MISMA que el editor ya le pasa a `demoData` para el canvas.
+  // Sin ella, "Simular impresión" salía con el signo genérico `¤` mientras la
+  // vista previa en pantalla mostraba la moneda real — el editor mintiendo
+  // sobre el papel, que es justo lo que este módulo existe para evitar.
+  return withTestMasking(buildDemoTicketData(taxes, config))
 }
 
 /**

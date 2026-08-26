@@ -129,7 +129,9 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "y explícito: el test verifica que la etiqueta de moneda salga del país del tenant. " +
       "Antes el fixture no lo declaraba y el ticket salía en guaraníes por el default " +
       "escondido, o sea el test tapaba el bug en vez de detectarlo.",
-    allow: { 'símbolo "Gs"': 4, 'país "PY" como default': 1 },
+    // 4 → 2: desde 2026-08-26 los importes de ÍTEM salen sin moneda (el
+    // símbolo va solo en el total), así que el fixture tiene dos "Gs" menos.
+    allow: { 'símbolo "Gs"': 2, 'país "PY" como default': 1 },
   },
   "frontend/lib/hardware/printers/__tests__/escpos-bytes.test.ts": {
     reason:

@@ -84,9 +84,11 @@ describe("rollo 80mm — ticket típico", () => {
       "------------------------------------------------",
       "24/08/2026                       001-001-0000123",
       "------------------------------------------------",
-      "Empanada de carne cortada a      2     Gs 16.000",
+      // Los importes de ítem van SIN moneda desde 2026-08-26 (decisión del
+      // owner): el símbolo se declara una sola vez, en el total de abajo.
+      "Empanada de carne cortada a      2        16.000",
       "cuchillo",
-      "Gaseosa 500ml                    1      Gs 7.000",
+      "Gaseosa 500ml                    1         7.000",
       "------------------------------------------------",
       "                                       Gs 23.000",
       "",

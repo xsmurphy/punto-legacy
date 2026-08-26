@@ -37,7 +37,7 @@ import type { PrinterDocType } from "./binding"
 import type { TicketData } from "./build-ticket-data"
 import type { DocumentTemplateRow, PrintTemplateConfig } from "@/lib/types/print-template"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { formatMoney } from "./blocks"
+import { formatAmountOnly, formatMoney, formatQty } from "./blocks"
 import { renderTemplateToHtml } from "./html-renderer"
 import { triggerWindowPrint } from "./transports/window-print"
 
@@ -109,13 +109,13 @@ function renderFallbackTicketHtml(docType: PrinterDocType, data: TicketData, pap
   const rows = data.items
     .map(
       (item) =>
-        `<tr><td>${esc(item.name)}</td><td style="text-align:right">${item.qty}</td>` +
-        `<td style="text-align:right">${esc(formatMoney(item.unitPrice, data))}</td>` +
-        `<td style="text-align:right">${esc(formatMoney(item.total, data))}</td></tr>`,
+        `<tr><td>${esc(item.name)}</td><td style="text-align:right">${esc(formatQty(item.qty, data))}</td>` +
+        `<td style="text-align:right">${esc(formatAmountOnly(item.unitPrice, data))}</td>` +
+        `<td style="text-align:right">${esc(formatAmountOnly(item.total, data))}</td></tr>`,
     )
     .join("")
   const paymentLines = data.payments
-    .map((p) => `<div>${esc(p.method)}: ${esc(formatMoney(p.amount, data))}</div>`)
+    .map((p) => `<div>${esc(p.method)}: ${esc(formatAmountOnly(p.amount, data))}</div>`)
     .join("")
 
   const body = `
@@ -134,7 +134,7 @@ function renderFallbackTicketHtml(docType: PrinterDocType, data: TicketData, pap
             <tbody>${rows}</tbody></table><hr/>`
         : ""
     }
-    ${data.discount > 0 ? `<div>Descuento: ${esc(formatMoney(data.discount, data))}</div>` : ""}
+    ${data.discount > 0 ? `<div>Descuento: ${esc(formatAmountOnly(data.discount, data))}</div>` : ""}
     <div style="font-weight:bold">Total: ${esc(formatMoney(data.total, data))}</div>
     ${paymentLines ? `<hr/>${paymentLines}` : ""}
     ${data.note ? `<hr/><div>${esc(data.note)}</div>` : ""}

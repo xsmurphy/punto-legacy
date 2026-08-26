@@ -1,7 +1,12 @@
 import { describe, it, expect } from "vitest"
 
 import { defaultBlock, type PrintBlock, type PrintTemplateConfig } from "@/lib/types/print-template"
-import { formatQty, resolveSimpleBlock, withBlockLabel } from "../blocks"
+import {
+  formatQty,
+  resolveSimpleBlock,
+  resolveSingleBlockPreview,
+  withBlockLabel,
+} from "../blocks"
 import { renderTemplateToHtml } from "../html-renderer"
 import { buildRollGrid, distributeRow, rollGeometry } from "../roll-grid"
 import type { TicketData, TicketItem } from "../build-ticket-data"
@@ -259,5 +264,52 @@ describe("el renderer HTML dejó de decidir por su cuenta", () => {
       ticket(),
     )
     expect(html).toContain("TOTAL A PAGAR:")
+  })
+})
+
+describe("la moneda se declara UNA vez, en el total (owner 2026-08-26)", () => {
+  // Moneda neutra a propósito: el guard de `no-hardcoded-paraguay` es la regla
+  // (nada de "Gs" en fixtures), y lo que se prueba acá es DÓNDE aparece la
+  // etiqueta del tenant, no cuál es.
+  const data = ticket({ currency: "$", subtotal: 12000, taxTotal: 1091, discount: 500 })
+
+  it("el total la lleva", () => {
+    expect(resolveSimpleBlock(defaultBlock("total"), data)).toBe("$ 12.000")
+  })
+
+  it("los importes de ítem NO la llevan", () => {
+    for (const type of ["item_uni_price", "item_price", "item_total", "item_subtotal"] as const) {
+      const printed = resolveSingleBlockPreview(defaultBlock(type), data)
+      expect(printed).not.toContain("$")
+      expect(printed).toMatch(/^[\d.,]+$/)
+    }
+  })
+
+  it("subtotal, descuento e IVA tampoco", () => {
+    expect(resolveSimpleBlock(defaultBlock("subtotal"), data)).toBe("12.000")
+    expect(resolveSimpleBlock(defaultBlock("tax_total"), data)).toBe("1.091")
+    expect(resolveSimpleBlock(defaultBlock("discount"), data)).toBe("500")
+  })
+
+  it("la tabla de ítems del rollo sale sin moneda", () => {
+    const g = rollGeometry("receipt80", MM)
+    const rows = rowsOf(
+      tpl([
+        {
+          ...defaultBlock("item_receipt"),
+          top: 0,
+          left: 0,
+          width: Math.round(g.canvasWidthPx),
+          height: 36,
+        },
+      ]),
+      data,
+    )
+    expect(rows.join("\n")).not.toContain("$")
+  })
+
+  it("sigue usando los separadores del tenant, no un formato fijo", () => {
+    const comma = ticket({ currency: "US$", thousand: "comma", subtotal: 12000 })
+    expect(resolveSimpleBlock(defaultBlock("subtotal"), comma)).toBe("12,000")
   })
 })

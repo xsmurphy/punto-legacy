@@ -27,7 +27,7 @@
  */
 
 import type { BlockType, PrintBlock } from "@/lib/types/print-template"
-import { formatMoney as formatMoneyShared } from "@/lib/format-money"
+import { formatAmount as formatAmountShared, formatMoney as formatMoneyShared } from "@/lib/format-money"
 import { formatPhone } from "@/lib/phone"
 import { resolveNumberLocale } from "@/lib/tenant-locale"
 import type { TicketData, TicketItem } from "./build-ticket-data"
@@ -67,6 +67,29 @@ export function formatMoney(
     // Sin defaults de formato tampoco: `thousand`/`decimal` ausentes se
     // resuelven contra el país igual que la moneda. El `?? "dot"` anterior era
     // correcto para Paraguay y para casi toda LatAm, pero no para MX/US/EC.
+    thousand: data.thousand ?? null,
+    decimal: data.decimal ?? null,
+  })
+}
+
+/**
+ * Monto SIN el símbolo de moneda — el formato por defecto de casi todo el
+ * ticket.
+ *
+ * Decisión del owner (2026-08-26): el símbolo repetido en cada precio de ítem
+ * no informa nada (un ticket no mezcla monedas) y en un rollo de 57 mm gasta
+ * ancho en cada línea del detalle. La moneda se declara UNA vez, en el total
+ * de la venta — que es donde el cliente la busca.
+ *
+ * Los separadores siguen siendo los del tenant: lo único que se saca es la
+ * etiqueta, nunca el formato.
+ */
+export function formatAmountOnly(
+  n: number,
+  data: Pick<TicketData, "thousand" | "decimal" | "country">,
+): string {
+  return formatAmountShared(n, {
+    country: data.country ?? "",
     thousand: data.thousand ?? null,
     decimal: data.decimal ?? null,
   })
@@ -399,9 +422,13 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   document_type: (data) => documentTypeLabel(data.docType),
   date: (data) => data.date,
   duedate: (data) => data.dueDate ?? null,
-  discount: (data) => formatMoney(data.discount, data),
-  subtotal: (data) => formatMoney(data.subtotal, data),
-  tax_total: (data) => formatMoney(data.taxTotal, data),
+  discount: (data) => formatAmountOnly(data.discount, data),
+  subtotal: (data) => formatAmountOnly(data.subtotal, data),
+  tax_total: (data) => formatAmountOnly(data.taxTotal, data),
+  // EL ÚNICO bloque con símbolo de moneda (decisión del owner 2026-08-26, ver
+  // `formatAmountOnly`): el resto de los importes —ítems, subtotal, descuento,
+  // IVA por tasa, pagos— salen como número pelado. La moneda se declara una
+  // vez, donde el cliente la busca.
   total: (data) => formatMoney(data.total, data),
   // ⚠ nums_to_words: requiere conversión número→letras en español (ej. "Cien
   // mil guaraníes"). No hay librería ni función propia hoy — implementar un
@@ -441,20 +468,20 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // abajo) — nunca se recalcula contra el catálogo.
   subtotal_by_rate: (data, block) => {
     const bucket = findTaxBucket(data.items, block.text)
-    return bucket ? formatMoney(bucket.base, data) : null
+    return bucket ? formatAmountOnly(bucket.base, data) : null
   },
   iva_by_rate: (data, block) => {
     const bucket = findTaxBucket(data.items, block.text)
-    return bucket ? formatMoney(bucket.amount, data) : null
+    return bucket ? formatAmountOnly(bucket.amount, data) : null
   },
   item_total_by_rate: (data, block) => {
     const bucket = findTaxBucket(data.items, block.text)
-    return bucket ? formatMoney(bucket.base + bucket.amount, data) : null
+    return bucket ? formatAmountOnly(bucket.base + bucket.amount, data) : null
   },
   // Suma de todos los buckets — mismo total que `tax_total`, expuesto aparte
   // para plantillas que arman una lista de `iva_by_rate` con un pie
   // `iva_total` (el legacy los trataba como bloques distintos).
-  iva_total: (data) => formatMoney(data.taxTotal, data),
+  iva_total: (data) => formatAmountOnly(data.taxTotal, data),
 
   // tax_single (legacy: `documentPrintBuilder.source.js`, `type ==
   // 'tax_single'`): el operador tipeaba una TASA (ej. "10") en `block.text`
@@ -473,7 +500,7 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
     // tasa, no el taxId) necesita juntarlos de nuevo.
     const matching = groupItemsByTaxRate(data.items).filter((b) => b.rate === rate)
     if (matching.length === 0) return null
-    return formatMoney(matching.reduce((s, b) => s + b.amount, 0), data)
+    return formatAmountOnly(matching.reduce((s, b) => s + b.amount, 0), data)
   },
 }
 
@@ -550,23 +577,23 @@ export function ticketItemName(item: TicketItem): string {
 export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>> = {
   item: (item) => ticketItemName(item),
   item_units: (item, data) => formatQty(item.qty, data),
-  item_uni_price: (item, data) => formatMoney(item.unitPrice, data),
+  item_uni_price: (item, data) => formatAmountOnly(item.unitPrice, data),
   // item_price ("Precio") no tiene hoy un valor distinto de item_uni_price
   // ("Precio de lista") — TicketItem solo lleva un único unitPrice. Se
   // resuelve igual hasta que se modele precio neto vs. precio de lista.
-  item_price: (item, data) => formatMoney(item.unitPrice, data),
+  item_price: (item, data) => formatAmountOnly(item.unitPrice, data),
   // item_discount = MONTO del descuento de la línea (defaultText "##.###" en
   // print-template-palette.ts ya lo daba a entender: formato de plata, no de
   // %). Plantillas guardadas con este tipo NO se rompen: su significado no
   // cambia, lo que se corrige es QUÉ dato le llegaba (antes, 2 de los 3
   // builders lo llenaban con el % en vez de la plata — ver TicketItem arriba).
   // El % vive en el bloque nuevo `item_discount_percent`.
-  item_discount: (item, data) => formatMoney(item.discountAmount, data),
+  item_discount: (item, data) => formatAmountOnly(item.discountAmount, data),
   item_discount_percent: (item) => formatPercent(item.discountPercent),
-  item_total: (item, data) => formatMoney(item.total, data),
+  item_total: (item, data) => formatAmountOnly(item.total, data),
   // item_subtotal ("Total" antes de impuesto) — sin desglose de impuesto
   // por ítem hoy, se resuelve igual que item_total.
-  item_subtotal: (item, data) => formatMoney(item.total, data),
+  item_subtotal: (item, data) => formatAmountOnly(item.total, data),
   // F3b (context/38): TicketItem ya lleva id/sku/nota/tasa/monto de impuesto
   // — poblado por cada builder según lo que su fuente realmente tiene (ver
   // build-ticket-data.ts). item_tags (pedido owner 2026-08-14): etiquetas de
@@ -590,17 +617,17 @@ export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>>
   },
   // Impuesto de la línea completa (todas las unidades). D4: renombrado desde
   // `item_taxAmount` — el alias de lectura vive en `normalizeBlockType`.
-  item_tax_amount: (item, data) => (item.taxAmount === null ? null : formatMoney(item.taxAmount, data)),
+  item_tax_amount: (item, data) => (item.taxAmount === null ? null : formatAmountOnly(item.taxAmount, data)),
   // Impuesto de UNA unidad — item_tax_amount / cantidad. qty=0 no debería
   // darse (línea sin unidades no se vende), pero se guarda por las dudas.
   // D4: renombrado desde `item_taxAmount_single`.
   item_tax_amount_single: (item, data) =>
-    item.taxAmount === null || item.qty === 0 ? null : formatMoney(item.taxAmount / item.qty, data),
+    item.taxAmount === null || item.qty === 0 ? null : formatAmountOnly(item.taxAmount / item.qty, data),
   // Precio unitario NETO (sin impuesto) — item_uni_price/item_price son el
   // precio con impuesto incluido cuando taxIncluded=true; este bloque separa
   // la base imponible por unidad para plantillas que quieren desglosar.
   item_price_notax: (item, data) =>
-    item.taxNet === null || item.qty === 0 ? null : formatMoney(item.taxNet / item.qty, data),
+    item.taxNet === null || item.qty === 0 ? null : formatAmountOnly(item.taxNet / item.qty, data),
 }
 
 /** true si el tipo es conocido por el catálogo (tiene resolver de valor, es
@@ -694,7 +721,7 @@ export function resolveSimpleBlock(block: PrintBlock, data: TicketData): string 
  * ("Forma de pago: Efectivo …"): repetirlo por pago sería ruido en un rollo.
  */
 export function resolvePaymentLines(block: PrintBlock, data: TicketData): string[] {
-  const lines = data.payments.map((p) => `${p.method}: ${formatMoney(p.amount, data)}`)
+  const lines = data.payments.map((p) => `${p.method}: ${formatAmountOnly(p.amount, data)}`)
   if (lines.length === 0) return []
   const first = withBlockLabel(block, lines[0])
   return first ? [first, ...lines.slice(1)] : lines
@@ -717,8 +744,8 @@ export function itemTableCells(
   const cols = itemTableColumns(block.type)
   const cells: string[] = []
   if (cols.qty) cells.push(formatQty(item.qty, data))
-  if (cols.unitPrice) cells.push(formatMoney(item.unitPrice, data))
-  if (cols.total) cells.push(formatMoney(item.total, data))
+  if (cols.unitPrice) cells.push(formatAmountOnly(item.unitPrice, data))
+  if (cols.total) cells.push(formatAmountOnly(item.total, data))
   return cells
 }
 

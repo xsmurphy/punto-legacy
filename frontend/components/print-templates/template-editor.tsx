@@ -513,7 +513,7 @@ export function TemplateEditor({ existing }: Props) {
   // correlativo de ejemplo — mismo tratamiento que `buildTicketDataForTest`
   // le da al ticket de prueba del POS (build-ticket-data.ts).
   const handleSimulatePrint = () => {
-    const testData = buildTemplateTestData(taxesQuery.data?.taxes ?? [])
+    const testData = buildTemplateTestData(taxesQuery.data?.taxes ?? [], bootstrapQuery.data)
     simulateTemplatePrint(config, testData)
   }
 

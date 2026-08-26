@@ -214,7 +214,9 @@ describe("bytes ESC/POS — el listado de ítems es dinámico", () => {
     expect(rule).toBeGreaterThan(gaseosa)
     expect(total).toBeGreaterThan(rule)
     // Y el importe de cada ítem sigue en la fila de SU nombre.
-    expect(lines[gaseosa]).toContain("Gs 1.000")
+    // Sin moneda: el símbolo va solo en el total (owner 2026-08-26).
+    expect(lines[gaseosa]).toContain("1.000")
+    expect(lines[gaseosa]).not.toContain("Gs")
   })
 })
 
