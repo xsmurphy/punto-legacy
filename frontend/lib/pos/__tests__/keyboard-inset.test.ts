@@ -59,6 +59,13 @@ describe("una sola medición del teclado", () => {
     const allowed = new Set([
       "components/pos/keyboard-inset.tsx",
       "lib/pos/__tests__/keyboard-inset.test.ts",
+      // Sonda de diagnóstico (`?debug=viewport`): LEE y muestra números, no
+      // escribe `--kb-inset` ni la usa nadie para maquetar. La regla que cuida
+      // este test es que haya una sola FUENTE de la medición; un observador de
+      // solo lectura, montado bajo un query param, no la duplica — y es la
+      // única forma de ver estos valores en una PWA de iOS, donde no hay
+      // devtools.
+      "components/pos/viewport-probe.tsx",
     ])
     const offenders = allSourceFiles()
       .filter((rel) => !allowed.has(rel))

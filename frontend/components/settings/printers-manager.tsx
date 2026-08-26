@@ -337,15 +337,29 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
 
   return (
     <Dialog open={mode !== null} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-2xl">
+      {/* `mobileFullscreen`: en un teléfono este form (4 tabs, inputs y selects
+          a ancho completo) no entra en el modal centrado y quedaba con scroll
+          HORIZONTAL, con el contenido saliéndose por el borde derecho (reporte
+          del owner 2026-08-26). Fullscreen bajo `sm` = el content toma el ancho
+          entero del dispositivo y el scroll pasa a ser vertical, que es lo que
+          corresponde a un formulario largo. Mismo patrón que los diálogos
+          densos del POS (pos-transactions, pos-main-menu). En desktop queda el
+          modal `max-w-2xl` de siempre. */}
+      <DialogContent mobileFullscreen className="sm:max-w-2xl max-sm:overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">
             {mode?.type === "edit" ? "Editar impresora" : "Agregar impresora"}
           </DialogTitle>
         </DialogHeader>
 
-        <Tabs defaultValue="general" className="mt-2">
-          <div className="-mx-2 overflow-x-auto px-2">
+        <Tabs defaultValue="general" className="mt-2 w-full min-w-0">
+          {/* `min-w-0` en el wrapper del scroll: es el flex/grid item que
+              contiene la tira. Sin él, el ancho intrínseco de los 4 triggers
+              se propaga al modal y hace scrollear el FORM entero en vez de solo
+              esta barra (diagnóstico del owner 2026-08-26). El `overflow-x-auto`
+              recién contiene el scroll cuando el contenedor tiene permiso de
+              encogerse por debajo de su contenido. */}
+          <div className="-mx-2 min-w-0 overflow-x-auto px-2">
             <TabsList className="w-fit min-w-full justify-start gap-1 sm:gap-0">
               <TabsTrigger value="general">General</TabsTrigger>
               <TabsTrigger value="behavior">Comportamiento</TabsTrigger>
@@ -354,7 +368,7 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
             </TabsList>
           </div>
 
-          <TabsContent value="general" className="mt-6 flex flex-col gap-4">
+          <TabsContent value="general" className="mt-6 flex min-w-0 flex-col gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="printer-name">Nombre</Label>
               <Input
@@ -452,7 +466,7 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
             </div>
           </TabsContent>
 
-          <TabsContent value="behavior" className="mt-6 flex flex-col gap-4">
+          <TabsContent value="behavior" className="mt-6 flex min-w-0 flex-col gap-4">
             <div className="flex items-center gap-3">
               <Switch id="auto-print" checked={autoPrint} onCheckedChange={setAutoPrint} />
               <Label htmlFor="auto-print">Auto-imprimir al cerrar venta</Label>
@@ -486,7 +500,7 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
             </div>
           </TabsContent>
 
-          <TabsContent value="categories" className="mt-6 flex flex-col gap-4">
+          <TabsContent value="categories" className="mt-6 flex min-w-0 flex-col gap-4">
             <p className="text-sm text-muted-foreground">
               Si seleccionás categorías, esta impresora solo imprimirá ítems de venta con esas
               categorías. Útil para barra (solo tragos) o cocina (solo comida). Dejá vacío para
@@ -499,7 +513,7 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
             />
           </TabsContent>
 
-          <TabsContent value="device" className="mt-6 flex flex-col gap-4">
+          <TabsContent value="device" className="mt-6 flex min-w-0 flex-col gap-4">
             <div className="space-y-1.5">
               <Label htmlFor="printer-transport">Tipo de dispositivo</Label>
               <Select value={transport} onValueChange={(v) => setTransport(v as PrinterTransport)}>

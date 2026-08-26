@@ -31,9 +31,15 @@ import { PosConfigSync } from "@/lib/pos/config-sync"
  * no un documento: escala fija. La legibilidad se resuelve con los tamaños
  * táctiles del propio POS (`[data-pos-touch]`), no con zoom del navegador.
  *
- * `h-dvh` (no `svh`) en el shell por lo mismo: en Safari con la barra
- * colapsada, `svh` mide el viewport CHICO y deja ~80px muertos abajo; `dvh`
- * sigue a la barra. En la PWA instalada son equivalentes.
+ * ALTURA DEL SHELL: `h-full`, no `dvh` ni `svh`. En la PWA instalada en iOS
+ * las unidades de viewport reportan un alto MENOR que la pantalla —el gap que
+ * el owner viene reportando aparecía por igual en el carrito, en el lock
+ * screen y en cualquier overlay `fixed inset-0`, o sea que no era de ningún
+ * componente sino del viewport— y con `h-dvh` el shell terminaba antes del
+ * borde dejando ver el fondo del webview. `body` está fijado con `inset: 0`
+ * (globals.css), que sí cubre la pantalla real: colgarse de él con `h-full`
+ * hace que el shell mida exactamente eso. En desktop el `md:` conserva el
+ * cálculo de siempre.
  */
 export const viewport: Viewport = {
   width: "device-width",
@@ -86,7 +92,7 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             alcanza para que el CONTENIDO lo esquive. Donde el inset es 0
             (desktop, tablets sin notch) las tres declaraciones valen 0 y no
             cambia nada. */}
-        <SidebarInset className="h-dvh overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem)]">
+        <SidebarInset className="h-full overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem)]">
           {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
               abajo a la derecha. Se movió al extremo izquierdo del toolbar del
               carrito (CartToolbar), junto al botón del menú principal, por
