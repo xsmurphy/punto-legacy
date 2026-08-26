@@ -223,6 +223,14 @@ transacción, orden, badge de estado) usan `<ActionMenu>`
 en móvil, labels texto solo. Prohibido montar un `DropdownMenu` de acciones
 directo en un call-site del POS.
 
+Corolario (2026-08-26, segunda vez que pasa): un toggle explícito del
+usuario en Ajustes ("Mostrar teclado virtual") manda SIEMPRE sobre
+cualquier heurístico de dispositivo (`pointer: coarse`, ancho de viewport,
+etc.). El heurístico es el default antes de que el usuario decida algo; una
+vez que decidió, ninguna detección automática lo puede pisar. Ya pasó antes
+con `NumericField` (arriba): un slice asumió qué quería el dispositivo en
+vez de leer la preferencia guardada.
+
 ---
 
 ## Checklist para review de un componente nuevo
