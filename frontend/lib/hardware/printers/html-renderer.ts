@@ -2,10 +2,13 @@ import { isReceipt, PAPER_DIMENSIONS, type PrintTemplateConfig, type PrintBlock 
 import type { TicketData } from "./build-ticket-data"
 import {
   BLOCK_VALUE_RESOLVERS,
+  resolveSimpleBlock,
   ITEM_FIELD_RESOLVERS,
   ITEM_LINE_TYPES,
   ITEM_TABLE_TYPES,
   formatMoney,
+  formatQty,
+  resolvePaymentLines,
   itemTableColumns,
   lineGeometry,
   sortBlocksForRender,
@@ -57,7 +60,9 @@ function renderItemTable(block: PrintBlock, data: TicketData): string {
         // impriman lo mismo. HTML colapsa espacios repetidos por default y
         // comería justamente esa sangría.
         `<td style="white-space:pre-wrap">${esc(ticketItemName(item))}</td>` +
-        (cols.qty ? `<td style="text-align:right">${item.qty}</td>` : "") +
+        // Misma cantidad formateada que el ESC/POS (formatQty, blocks.ts): sin
+        // la `x` y con 2 decimales como máximo.
+        (cols.qty ? `<td style="text-align:right">${esc(formatQty(item.qty, data))}</td>` : "") +
         (cols.unitPrice ? `<td style="text-align:right">${esc(formatMoney(item.unitPrice, data))}</td>` : "") +
         (cols.total ? `<td style="text-align:right">${esc(formatMoney(item.total, data))}</td>` : "")
       return `<tr>${cells}</tr>`
@@ -71,27 +76,22 @@ function renderItemTable(block: PrintBlock, data: TicketData): string {
 
 function renderBlockHtml(block: PrintBlock, data: TicketData): string {
   const styleAttr = blockStyleAttr(block)
-  const align = blockAlign(block)
 
   // `hor_line`/`ver_line` NO llegan acá: los dos caminos las interceptan
   // antes (la hoja con `positionedLine`, el rollo con la grilla de caracteres
   // de roll-grid.ts). Un `case` para ellas acá sería código muerto que miente
   // sobre quién dibuja una línea.
-  switch (block.type) {
-    case "company_name":
-      return `<div style="${align};font-weight:bold">${esc(data.companyName)}</div>`
-
-    case "total":
-      return `<div style="${align};font-weight:bold">${esc(formatMoney(data.total, data))}</div>`
-
-    case "payment_methods": {
-      return data.payments
-        .map((p) => `<div${styleAttr}>${esc(p.method)}: ${esc(formatMoney(p.amount, data))}</div>`)
-        .join("")
-    }
-
-    default:
-      break
+  // `company_name` y `total` tenían su propio `case` acá, con la negrita
+  // forzada y el valor resuelto a mano (`data.companyName`, `formatMoney(
+  // data.total)`). Eran dos mentiras al mismo tiempo: la plantilla decía
+  // `bold: "normal"` y salía en negrita igual (el renderer decidiendo qué
+  // imprime, justo lo que prohíbe context/20), y al pasar por afuera del
+  // resolver compartido se habrían quedado sin el título de la plantilla.
+  // Ahora caen en el camino común de abajo, con el estilo del bloque.
+  if (block.type === "payment_methods") {
+    return resolvePaymentLines(block, data)
+      .map((line) => `<div${styleAttr}>${esc(line)}</div>`)
+      .join("")
   }
 
   if (ITEM_TABLE_TYPES.has(block.type)) {
@@ -100,7 +100,8 @@ function renderBlockHtml(block: PrintBlock, data: TicketData): string {
 
   const resolver = BLOCK_VALUE_RESOLVERS[block.type]
   if (resolver) {
-    const value = resolver(data, block)
+    // Mismo resolver + título que la vista previa y la térmica (blocks.ts).
+    const value = resolveSimpleBlock(block, data)
     return `<div${styleAttr}>${esc(value ?? "")}</div>`
   }
 
