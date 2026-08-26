@@ -9,6 +9,7 @@ import { InstallPrompt } from "@/components/pos/install-prompt"
 import { ChunkErrorListener } from "@/components/pos/chunk-error-listener"
 import { PosTouchScope } from "@/components/pos/pos-touch-scope"
 import { PosKeyboardInset } from "@/components/pos/keyboard-inset"
+import { SafeAreaCalibrator } from "@/components/pos/safe-area-calibrator"
 import { PosConfigSync } from "@/lib/pos/config-sync"
 
 /**
@@ -64,6 +65,10 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             modales con búsqueda no queden detrás del teclado en el teléfono.
             Ver el docblock de `components/pos/keyboard-inset.tsx`. */}
         <PosKeyboardInset />
+        {/* Anula `--safe-t`/`--safe-b` cuando el viewport NO cubre la pantalla:
+            ahí el chrome del sistema ya reservó esa franja y descontarla otra
+            vez la cuenta dos veces (ver docblock del componente). */}
+        <SafeAreaCalibrator />
         <PosConfigSync />
         <PosSidebar />
         {/* Áreas seguras del dispositivo — ver la regla completa en
