@@ -337,7 +337,15 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
 
   return (
     <Dialog open={mode !== null} onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="sm:max-w-2xl">
+      {/* `mobileFullscreen`: en un teléfono este form (4 tabs, inputs y selects
+          a ancho completo) no entra en el modal centrado y quedaba con scroll
+          HORIZONTAL, con el contenido saliéndose por el borde derecho (reporte
+          del owner 2026-08-26). Fullscreen bajo `sm` = el content toma el ancho
+          entero del dispositivo y el scroll pasa a ser vertical, que es lo que
+          corresponde a un formulario largo. Mismo patrón que los diálogos
+          densos del POS (pos-transactions, pos-main-menu). En desktop queda el
+          modal `max-w-2xl` de siempre. */}
+      <DialogContent mobileFullscreen className="sm:max-w-2xl max-sm:overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">
             {mode?.type === "edit" ? "Editar impresora" : "Agregar impresora"}
