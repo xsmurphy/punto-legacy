@@ -1023,6 +1023,22 @@ ruta se sale de la regla. Lo que NO se puede hacer es agregarle
 `forwardCookie: true` — si una ruta del POS parece necesitar la cookie, lo que
 falta es el Bearer, no la cookie.
 
+### Consecuencia nueva del lado panel (auditoría de seguridad, 2026-08-26)
+
+La regla también corre al revés: un valor de cookie **nunca** debe
+re-acuñarse como `Authorization: Bearer`. `frontend/app/api/dashboard/
+income-chart/route.ts` extraía `_jwt_panel` por nombre
+(`req.cookies.get(...)`) y la reenviaba como Bearer — con dos cookies
+homónimas en scopes distintos, `req.cookies.get()` de Next devuelve la
+PRIMERA y PHP parsea la ÚLTIMA, y mandarla como Bearer le da PRECEDENCIA
+en `authResolve` (la misma regla de arriba, ahora jugando en contra). Ese
+desacople fue la superficie viva de un leak cross-tenant real (el owner
+veía en el panel de una empresa el gráfico de otra). Fix: reenviar el
+header `cookie` crudo, igual que el resto de las rutas del panel — nunca
+leer, decodificar o reconstruir la cookie para reenviarla como otro
+esquema de auth. Guardado por `frontend/lib/bff/__tests__/
+panel-cookie-no-bearer.test.ts`.
+
 ### Dónde estaba escrito antes (consolidado acá)
 
 Esta regla vivía en fragmentos, y por eso se pudo violar tres veces sin que

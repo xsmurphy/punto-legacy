@@ -12,6 +12,8 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 > **Última actualización:** 2026-08-26 (estación de impresión instalable como PWA — pedido del owner; ver item abajo)
 >
+> 2026-08-26 (auditoría de seguridad de auth: 4 P1 cross-tenant cerrados, cero P0; 7 P2 intra-tenant reportados sin arreglar, ver sección abajo)
+>
 > 2026-08-25 (orden y stock: plan del "comprometido" cerrado — `context/53`; destapa que no hay job que limpie órdenes zombie, bloqueante de su F1)
 >
 > 2026-08-23 (add-ons: el stock ya se descuenta al cobrar una orden o mesa, ver P0 #2; uPay pasa a standby por decisión del owner)
@@ -19,6 +21,30 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 > 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
 
 ---
+
+## Seguridad — P2 pendientes de la auditoría de auth (2026-08-26)
+
+La auditoría completa de auth (disparada por el leak cross-tenant de
+`income-chart`, ya cerrado — ver `context/08` §60 y `context/54`) encontró
+4 P1 cross-tenant, ya arreglados, y estos P2 **intra-tenant** (ninguno
+cross-tenant) sin arreglar:
+
+- `api/v1/modules.php:44-83` — `action=toggle`/`config` sin ningún
+  `hasPermission()`; cualquier sesión panel prende/apaga módulos y edita
+  su config. El más directo de arreglar.
+- `api/bootstrap.php:226-244` — `X-Outlet-Id: all` valida pertenencia al
+  tenant pero no chequea rol: un cajero ve reportes consolidados de todas
+  las sucursales. Decisión de producto.
+- `api/v1/attendance.php:25-40` — el control de presencia física es
+  `md5(companyId.outletId)`, derivable por cualquiera que conozca su
+  propio `companyId` (lo publica `/v1/bootstrap`).
+- `api/v1/devices.php:35` — 403 (device ajeno) vs 404 (inexistente) es
+  oráculo de existencia; unificar a 404.
+- `api/lib/services/OrderService.php:196-217,349` y
+  `api/lib/Reports/DashboardService.php:592` — scope incompleto
+  (companyId no usado / EXISTS sin filtrar), no explotable hoy.
+- `api/lib/services/DrawerService.php:92,102,838,892` — queries a
+  `expenses` filtradas solo por `registerId`+fecha, sin `companyId`.
 
 ## Estación de Impresión instalable como PWA (pedido del owner 2026-08-26)
 
