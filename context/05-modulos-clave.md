@@ -725,6 +725,8 @@ Pool de impresión con router tonto device-paired + cola durable. Plan completo 
 - **P0 — Backend**: mig 83 (`station_printer`+`print_job`), `PrintPoolService`, endpoints, canal WS `{companyId}:print:{outletId}`.
 - **P1 — Pantalla**: `(screen)/print`, pairing module `print`, vinculación USB/BT/red, drenado con claim/dispatch/done-failed.
 - ⚠ **Impresoras de RED no alcanzables desde el browser** (no puede abrir TCP; el proxy corre en el cloud y no rutea a la LAN) — requiere agente local, decisión de producto pendiente.
+- **Títulos por bloque + reparto de columnas (2026-08-26)**: `PrintBlock.label` (título opcional por bloque, ej. "Fact. Nro.:") vive en la plantilla, no en un mapa fijo del renderer; `distributeRow` (`roll-grid.ts`) reparte la fila de ítems al ancho real del papel. Mig 174 hizo backfill de labels solo en plantillas de venta (receipt/invoice/factura/credit), ya corrida en prod.
+- **Roadmap (2026-08-26)**: estación de impresión instalable como PWA propia (manifest/scope separado de `/pos`), ver ítem al tope de `context/10-roadmap.md` — requisito no negociable del owner es que aguante días abierta minimizada.
 - **Pendiente**: P2 (panel + rama pool del pipeline), P3 (formatos inkjet/matricial).
 
 ## Libreta de direcciones (2026-07-27)

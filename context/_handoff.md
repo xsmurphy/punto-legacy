@@ -1,92 +1,79 @@
-# Hand-off — 2026-08-26 (leak cross-tenant + PWA móvil)
+# Hand-off — 2026-08-26 (segunda vuelta: impresión mergeada + roadmap estación PWA)
 
 ## Objetivo
-Continuación de la sesión del 25 sobre el eje `/admin` + POS móvil. Dos
-disparadores del owner: (1) vio en el panel del tenant Eclock el gráfico de
-ingresos con ventas de OTRA empresa (ICAS) — leak cross-tenant, P0; (2) el
-"gap de abajo" en la PWA iOS seguía sin cerrar tras 3 intentos previos.
+Cierre del día tras dos ejes: (1) el leak cross-tenant + PWA móvil de la
+primera vuelta (ya cerrados, ver commits `68260271..a8c96774`); (2) el wip
+de impresión que había quedado incompleto se terminó en una sesión paralela
+y se mergeó a `main`, y el owner pidió planificar una estación de impresión
+instalable como PWA independiente de la caja.
 
 ## Estado al cerrar
-Todo commiteado, pusheado a `main` y deployado, EXCEPTO la branch
-`frontend/print-labels` (trabajo parcial, NO mergeada, no compila — ver
-Trampas). La auditoría completa de auth (mandato del owner: panel y /pos
-sin dominios de cookies compartidos, migrar panel a Bearer, cero leaks en
-cualquier endpoint) quedó delegada a la sesión paralela "Punto Security",
-NO se hizo en esta sesión.
+Todo commiteado y pusheado a `main`. La mig 174 (backfill de `label` en
+plantillas de venta) **ya corrió en prod**: "174: 3 plantillas con títulos,
+0 sin cambios". El roadmap (`context/10-roadmap.md`) ya tiene el item nuevo
+al tope — NO tocarlo de nuevo en este cierre. Sesiones paralelas activas:
+"Punto Security" (auditoría completa de auth, panel→Bearer, cero leaks
+cross-tenant — dispara por el leak de hoy) y "Punto bugs" (impresión, ya
+entregó su parte).
 
 ## Archivos y cambios
-- `api/includes/auth_session.php` (`authSetOpaqueCookie`) y
-  `frontend/app/api/admin/[...path]/route.ts` — un solo emisor de
-  `_jwt_panel`: el BFF de admin ahora propaga el `Set-Cookie` del upstream
-  (con `COOKIE_DOMAIN=.punto.la`) en vez de setear su propia variante
-  host-only. Fix del leak (`ad46b4c1`).
-- `frontend/app/api/admin/[...path]/route.ts` — regresión inmediata: la
-  rama de impersonación mezclaba `res.cookies.set()` (borrado + marca
-  `_imp_panel`) con `res.headers.append("set-cookie", …)`. Ahora TODO pasa
-  por headers crudos, una sola API (`a8c96774`).
-- `frontend/lib/admin/__tests__/impersonation-contract.test.ts` — guard
-  ampliado para el caso de las dos cookies/dos emisores.
-- `frontend/components/pos/safe-area-calibrator.tsx` (nuevo) — mide
-  `innerHeight` contra `screen` y pone `--safe-b` en 0 cuando el viewport
-  no llega al borde (cover no está aplicando ahí). Toca SOLO el eje
-  inferior — la primera versión tocó también `--safe-t` y rompió el status
-  bar (revertido en el propio eje, ver commits `258afca1`/`68e84e7a`).
-- POS shell — `aa3d5ae7` revirtió un intento con `h-full` (colapsaba el
-  layout, ver Callejones). Quedó en `h-dvh`.
-- `frontend/lib/api/*` (api-client y pos-client) — `ee131584`: un sobre
-  `{ok:true}` sin `data` dejó de tratarse como contenido válido; ahora es
-  error visible en vez de blanco silencioso.
-- `frontend/components/pos/viewport-probe.tsx` (nuevo, `?debug=viewport`)
-  — inútil en PWA standalone (no hay barra de direcciones para pegar la
-  URL). Queda sin vía de activación.
-- `context/06-infraestructura.md` — cron `/etc/cron.weekly/docker-builder-
-  prune` en el server (poda BuildKit, NO viaja en el repo).
+- `frontend/lib/hardware/printers/blocks.ts` — `withBlockLabel` /
+  `resolveSimpleBlock`: título opcional antepuesto en un solo lugar,
+  consumido por los tres renderers (canvas/preview/térmica).
+- `frontend/lib/hardware/printers/roll-grid.ts` — `distributeRow`: la fila
+  de ítems reparte columnas al ancho real del papel (cantidad izquierda,
+  total derecha, unitario al medio); cede separación y wrapea, nunca recorta
+  un importe.
+- `frontend/lib/hardware/printers/*` — `formatQty`: cantidad sin `x`, máx 2
+  decimales, separador del tenant.
+- `frontend/lib/hardware/printers/html-renderer.ts` — `company_name` y
+  `total` dejaron de tener case propio con negrita forzada (ahora respetan
+  la plantilla + soportan título).
+- `api/migrations/174_block_labels_backfill.php` — backfill idempotente,
+  SOLO plantillas de venta (receipt/invoice/factura/credit), no toca
+  comandas/cotizaciones/remitos. Ya corrida en prod.
+- `frontend/lib/hardware/printers/__tests__/block-labels.test.ts` — 22 tests
+  nuevos. Suite completa 379/379, build verde (verificado sobre el merge
+  `8fa72899` antes de pushear).
+- `context/10-roadmap.md` — item nuevo: estación de impresión instalable
+  como PWA propia (manifest/iconos separados del POS), con checklist de
+  supervivencia (background timers, TTL credencial módulo `print`, WS
+  reconnect, señal de vida visible).
+- Branch `frontend/print-labels` — mergeada (`8fa72899`, `--no-ff`) y
+  borrada local+remota.
 
 ## Callejones sin salida
-- **Leak cross-tenant**: el SQL nunca estuvo mal (`Roc::build` filtra bien
-  por companyId). La causa era el browser mandando DOS cookies
-  `_jwt_panel` con scope distinto y cada capa (PHP vs Next `req.cookies`)
-  parseando una distinta.
-- **Regresión de la impersonación**: `res.cookies.set()` de Next mantiene
-  su propio mapa interno y CADA llamada re-serializa el header
-  `Set-Cookie` completo desde ese mapa — pisa cualquier append() previo a
-  headers crudos. No mezclar las dos APIs en la misma `NextResponse`.
-- **PWA — 4 hipótesis descartadas antes de la real**: faltaban safe areas
-  (no), doble descuento shell+CartBottom (no), caché del meta
-  `viewport-fit=cover` (no, el owner reinstaló y persistía), `h-full` en
-  el shell (empeoró todo — el wrapper de SidebarProvider usa `min-h-svh`,
-  que es un mínimo, no una altura; `height:100%` no resuelve contra eso).
-- **`?debug=viewport`** no sirve para diagnosticar en producción porque
-  una PWA instalada no tiene barra de direcciones donde pegar el query
-  param.
-- **Reproducir el detalle de transacción con cookie de panel** da 401
-  SIEMPRE — ese endpoint exige Bearer de device, no cookie de panel.
-- **Árbol compartido**: otra sesión hizo checkout y borró ediciones sin
-  commitear (repetido de la sesión anterior) — hubo que rehacerlas.
+- Ninguno nuevo en esta vuelta — el trabajo de impresión lo hizo la sesión
+  paralela sobre el wip que había dejado esta; ver su propio reporte si
+  hace falta más detalle de implementación.
+- Ya documentado en la vuelta anterior (sigue vigente): mezclar
+  `res.cookies.set()` con headers crudos en la misma `NextResponse` de
+  Next pisa el `Set-Cookie`; `h-full` en el shell del POS colapsa el layout
+  contra `min-h-svh` del `SidebarProvider`.
 
 ## Próximo paso
-Dar una vía de activación a `viewport-probe.tsx` que no dependa de la URL
-(ej. botón oculto en Ajustes POS) para poder diagnosticar el próximo
-problema de viewport en la PWA instalada sin depender de reinstalar y
-adivinar.
+Confirmar con el owner cómo salió el ticket impreso tras la mig 174 (títulos
+de bloque visibles, reparto de columnas correcto en 57mm/80mm) — es lo
+primero a verificar antes de tocar cualquier otra cosa del módulo de
+impresión.
 
 ## Trampas conocidas
-- Branch `frontend/print-labels` sin mergear, no compila (falta un
-  import) — traspasada a la sesión "Punto bugs" junto con el pedido
-  original del owner (títulos de campo en tickets + `formatQty`).
-- Auditoría de auth completa (Bearer, cero leaks) es mandato del owner
-  de hace meses, delegada a sesión paralela "Punto Security" — NO
-  asumir que ya se hizo por este fix puntual.
-- Símbolo de moneda imprime `?` en la térmica —
-  `UNKNOWN_CURRENCY_SIGN = "¤"` (`frontend/lib/tenant-locale.ts:135`) no
-  existe en codepage CP437. Sin arreglar.
+- Símbolo de moneda imprime `?` en la térmica — `UNKNOWN_CURRENCY_SIGN =
+  "¤"` (`frontend/lib/tenant-locale.ts:135`) no existe en CP437. Sin
+  confirmar si "Punto bugs" lo tocó — no asumir que está resuelto.
+- Estación de impresión PWA es solo roadmap, sin una línea de código
+  todavía: no destraba el pendiente real (impresoras de red inalcanzables
+  desde el browser; el agente local sigue sin decidir).
 - TZ "Asunción" literal en migs 157/160 + `period-close.php` — crítico
   antes del primer tenant no-PY. Heredado, sin tocar.
 - 8 sesiones de device duplicadas en prod esperando decisión de revocar
   (heredado).
 - `SaleToInvoiceMapper.php:195` — venta con vale no factura (heredado).
 - "Bloquear sesión luego de" en Ajustes POS sigue mock con TODO backend.
-- El owner debe confirmar en su iPhone que el gap quedó cerrado (dijo
-  "ahora quedó bien" tras `68e84e7a`, pero no hubo confirmación final
-  post-`a8c96774`) y probar impersonar de nuevo tras el fix de la
-  regresión.
+- Cron semanal de poda de BuildKit vive en el HOST de prod
+  (`/etc/cron.weekly/docker-builder-prune`), NO viaja en el repo. Si los
+  deploys se vuelven lentos, `docker system df` antes de sospechar del
+  código.
+- Sesión "Punto Security" tiene mandato de auditoría completa de auth
+  (panel y /pos sin dominios de cookies compartidos, cero leaks) — no
+  asumir que ya se hizo por los fixes puntuales de hoy.
