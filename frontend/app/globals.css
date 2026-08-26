@@ -446,6 +446,22 @@ html[data-pos-touch] body {
     overscroll-behavior: none;
 }
 
+/* `position: fixed` en el body, no solo overflow: en iOS, `overflow: hidden`
+   NO impide que el navegador scrollee la VENTANA — al enfocar un campo cerca
+   del teclado, Safari/WebKit corre el viewport hacia arriba igual, y ese
+   corrimiento sobrevive al cierre del teclado: toda la app queda desplazada,
+   con ~60pt de blanco entre el CTA y el borde, y hasta los overlays `fixed`
+   terminan antes de la pantalla (screenshots del owner 2026-08-26 — el
+   overlay del drawer cortado a la misma altura fue la prueba). Con el body
+   fijado, WebKit solo puede mover el viewport VISUAL, que sí se restaura.
+   El complemento activo vive en `keyboard-inset.tsx`: al cerrarse el teclado
+   fuerza `scrollTo(0,0)` por si algún resto quedó. */
+html[data-pos-touch] body {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+}
+
 /* POS — typography de los campos: SIN regla global (decisión del owner,
    2026-08-25, segunda iteración). La regla que vivía acá (antes 17px semibold
    solo-inputs; después 16px normal para input+select+textarea) tenía más

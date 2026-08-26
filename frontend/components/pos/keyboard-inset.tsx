@@ -56,6 +56,16 @@ export function PosKeyboardInset() {
       // ~250px, así que 120 separa las dos cosas sin falsos positivos.
       const inset = covered > 120 ? Math.round(covered) : 0
       root.style.setProperty("--kb-inset", `${inset}px`)
+
+      // Restauración activa del corrimiento de iOS: enfocar un campo puede
+      // scrollear la ventana y/o dejar el viewport visual con offset, y ese
+      // resto SOBREVIVE al cierre del teclado — la app entera queda corrida
+      // hacia arriba (los screenshots del owner 2026-08-26: hasta el overlay
+      // de un drawer terminaba ~60pt antes del borde). El body fijado
+      // (globals.css) previene la mayor parte; esto limpia lo que quede.
+      if (inset === 0 && (window.scrollY !== 0 || vv.offsetTop > 0)) {
+        window.scrollTo(0, 0)
+      }
     }
 
     // `resize` y `scroll` del viewport visual son los dos eventos que dispara

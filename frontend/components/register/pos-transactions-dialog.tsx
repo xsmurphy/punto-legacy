@@ -748,9 +748,14 @@ export function TransactionDetail({
               TransactionDetail — el split de `PosTransactionsDialog` y el
               standalone de `PosTransactionDetailDialog` — porque en ambos el
               panel de detalle va pegado al borde derecho del modal. */}
-          <div className="flex items-start justify-between gap-3 pr-8">
-            <div className="min-w-0 flex-1">
-              <h2 className="text-xl font-semibold truncate">
+          {/* En teléfono el header apila: el nombre toma el ancho completo (2
+              líneas si hace falta) y el monto+acciones bajan a su propia fila
+              — lado a lado quedaba "BENITEZ MARTI…" con todo comprimido
+              (screenshot del owner 2026-08-26). En desktop, el lado a lado de
+              siempre. */}
+          <div className="flex items-start justify-between gap-3 pr-8 max-sm:flex-col">
+            <div className="min-w-0 flex-1 max-sm:w-full max-sm:flex-none">
+              <h2 className="text-xl font-semibold sm:truncate max-sm:line-clamp-2">
                 {detail.customerName || <span className="text-muted-foreground">Sin cliente</span>}
               </h2>
               <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
@@ -781,7 +786,7 @@ export function TransactionDetail({
                 </p>
               )}
             </div>
-            <div className="shrink-0 flex flex-col items-end gap-2">
+            <div className="shrink-0 flex flex-col items-end gap-2 max-sm:w-full max-sm:flex-row max-sm:items-center max-sm:justify-between">
               <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
               {/* Split button.
 
