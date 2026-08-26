@@ -201,6 +201,21 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
       <DialogContent
         className="top-[7dvh] flex max-h-[calc(86dvh-var(--kb-inset))] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl"
         showCloseButton={false}
+        // Los Select/DatePicker del form de alta se portalean al <body>, FUERA
+        // de este content. En táctil, elegir una opción podía leerse como
+        // "interacción afuera" y cerraba el diálogo entero con el form a medio
+        // llenar (reporte del owner 2026-08-25, "Tipo de documento"). Un toque
+        // dentro de cualquier portal de Radix no es un cierre.
+        onInteractOutside={(e) => {
+          const t = e.target as HTMLElement | null
+          if (
+            t?.closest?.(
+              "[data-radix-popper-content-wrapper], [data-slot=select-content], [data-slot=popover-content]",
+            )
+          ) {
+            e.preventDefault()
+          }
+        }}
       >
         <DialogHeader className="sr-only">
           <DialogTitle>Buscar o crear cliente</DialogTitle>
@@ -210,7 +225,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
         </DialogHeader>
 
         {/* ── Pill del input (separado del panel) ── */}
-        <div className="shrink-0 rounded-full bg-popover px-6 py-4 shadow-lg">
+        <div className="shrink-0 rounded-full bg-popover px-6 py-1.5 shadow-lg">
           <Input
             ref={searchInputRef}
             value={searchQuery}
@@ -542,6 +557,29 @@ function CreateCustomerForm({
                   />
                 </div>
 
+                {/* Teléfono */}
+                <div className="flex flex-col gap-1">
+                  <Label htmlFor="phone" className="text-xs">
+                    Teléfono
+                  </Label>
+                  <Controller
+                    name="phoneValue"
+                    control={control}
+                    render={({ field }) => (
+                      <PhoneInput
+                        id="phone"
+                        value={field.value ?? ""}
+                        country={tenantPhoneCountry}
+                        onChange={(v) => {
+                          field.onChange(v.value)
+                          setValue("phoneE164", v.e164)
+                          setValue("phoneCountry", v.country)
+                        }}
+                      />
+                    )}
+                  />
+                </div>
+
                 {/* Tipo de documento — exclusivo de Paraguay (Tabla 3 SET) */}
                 {isPyTenant && (
                   <div className="flex flex-col gap-1">
@@ -605,29 +643,6 @@ function CreateCustomerForm({
                   )}
                 </div>
 
-                {/* Teléfono */}
-                <div className="flex flex-col gap-1">
-                  <Label htmlFor="phone" className="text-xs">
-                    Teléfono
-                  </Label>
-                  <Controller
-                    name="phoneValue"
-                    control={control}
-                    render={({ field }) => (
-                      <PhoneInput
-                        id="phone"
-                        value={field.value ?? ""}
-                        country={tenantPhoneCountry}
-                        onChange={(v) => {
-                          field.onChange(v.value)
-                          setValue("phoneE164", v.e164)
-                          setValue("phoneCountry", v.country)
-                        }}
-                      />
-                    )}
-                  />
-                </div>
-
                 {/* Fecha de Nacimiento — DatePicker shadcn, no input nativo */}
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="birthdate" className="text-xs">
@@ -635,6 +650,10 @@ function CreateCustomerForm({
                   </Label>
                   <DatePicker
                     id="birthdate"
+                    // Mismo alto táctil que los inputs de al lado: el trigger
+                    // del DatePicker no es [data-slot=input] y el mínimo de 44
+                    // no lo alcanzaba — quedaba visiblemente más fino.
+                    className="max-sm:min-h-(--pos-touch-min)"
                     value={birthdateValue}
                     onChange={(v) => setValue("birthdate", v, { shouldDirty: true })}
                     placeholder="Seleccionar fecha"

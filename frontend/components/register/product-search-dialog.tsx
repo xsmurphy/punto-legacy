@@ -124,7 +124,7 @@ export function ProductSearchDialog({
         </DialogHeader>
 
         {/* ── Pill del input (separado del listado) ── */}
-        <div className="shrink-0 rounded-full bg-popover px-6 py-4 shadow-lg">
+        <div className="shrink-0 rounded-full bg-popover px-6 py-1.5 shadow-lg">
           <Input
             ref={inputRef}
             value={query}

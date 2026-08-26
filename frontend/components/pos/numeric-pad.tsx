@@ -145,13 +145,15 @@ export function NumericPad({
 }: NumericPadProps) {
   const config = useCatalogStore((s) => s.config)
   const showSoftKeyboard = usePosUIStore((s) => s.showSoftKeyboard)
-  // En un dispositivo táctil (pointer: coarse) el pad en pantalla es la ÚNICA
-  // forma de tipear — la captura de teclado físico de abajo no existe en un
-  // smartphone. El toggle "Mostrar teclado virtual" queda como override para
-  // FORZARLO en desktops (ej. all-in-one táctil que además tiene teclado);
-  // en táctil no puede apagarlo: un numpad sin teclas es un modal roto.
+  // Las teclas en pantalla se muestran SOLO si el toggle "Mostrar teclado
+  // virtual en numpads" (Ajustes) está habilitado — el toggle MANDA, en
+  // cualquier dispositivo (decisión del owner 2026-08-25; antes un heurístico
+  // por pointer:coarse las forzaba en táctiles ignorando la config). Sin
+  // teclas, el numpad no queda roto: el visor sigue capturando el teclado
+  // físico, y en táctil tocarlo abre el teclado del OS (mismo gesto que el
+  // PIN del lock screen).
   const coarsePointer = useIsCoarsePointer()
-  const padVisible = showSoftKeyboard || coarsePointer
+  const padVisible = showSoftKeyboard
   const allowDot = mode !== "int"
   // money/decimal usan entrada estilo calculadora (shift desde la derecha) —
   // el punto se posiciona solo, no se tipea. "decimal" (cantidades
@@ -371,11 +373,14 @@ export function NumericPad({
             {displayWithUnit}
           </span>
         </div>
-        {/* Hint de teclado físico solo cuando NO hay pad en pantalla — en un
-            táctil "utilice las teclas del teclado" es una instrucción imposible. */}
+        {/* Hint solo cuando NO hay pad en pantalla, según el dispositivo: en
+            táctil la vía es tocar el visor (teclado del OS); con teclado
+            físico, tipear directo. */}
         {!padVisible && (
           <p className="text-xs italic text-muted-foreground text-center">
-            *Utilice las teclas del teclado{onShiftToggle ? " · Shift cambia el modo" : ""}
+            {coarsePointer
+              ? "*Tocá el monto para escribir"
+              : `*Utilice las teclas del teclado${onShiftToggle ? " · Shift cambia el modo" : ""}`}
           </p>
         )}
       </div>

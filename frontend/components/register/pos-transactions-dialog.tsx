@@ -331,7 +331,7 @@ function TransactionList({
           />
           <Popover open={calendarOpen} onOpenChange={onCalendarOpenChange}>
             <PopoverTrigger asChild>
-              <Button variant="outline" className="gap-1.5 shrink-0">
+              <Button variant="outline" className="gap-1.5 shrink-0 max-sm:h-11">
                 <CalendarIcon className="size-4" />
                 <span>
                   {selectedDate ? format(selectedDate, "dd MMM", { locale: es }) : "Fecha"}
@@ -348,7 +348,7 @@ function TransactionList({
           </Popover>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="gap-1.5 shrink-0">
+              <Button variant="outline" className="gap-1.5 shrink-0 max-sm:h-11">
                 <Filter className="size-4" />
                 <span>
                   {typeFilter != null
@@ -785,19 +785,19 @@ export function TransactionDetail({
               <p className="text-2xl font-bold tabular-nums">{formatMoney(total, config)}</p>
               {/* Split button.
 
-                  `items-stretch` + tier `icon-sm` en el trigger: el CTA es del
-                  tier de texto (crece solo en alto) y el de opciones, del tier
-                  de icono (crece cuadrado), así que en móvil los dos llegan a
-                  los mismos 44px del mínimo táctil en vez de quedar uno
-                  deformado al lado del otro (reporte del owner 2026-08-25).
-                  El `px-2` sobre un `size="sm"` daba una caja de 44 de alto por
-                  32 de ancho — un tier de icono escrito a mano. */}
+                  Altos EXPLÍCITOS por breakpoint en los dos lados
+                  (`max-sm:h-11` / `max-sm:size-11`): la primera versión
+                  confiaba en `items-stretch` + el mínimo táctil global, pero
+                  ese mínimo alcanzaba al CTA y no al trigger de icono — el
+                  "Facturar" salía gigante con el `...` chico y solapado
+                  (reporte del owner 2026-08-25, dos veces). Con las clases en
+                  cada botón no depende de ninguna regla global. */}
               <div className="inline-flex items-stretch">
                 {primary.disabled ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <span>
-                        <Button size="sm" className="rounded-r-none border-r-0 opacity-60" disabled>
+                        <Button size="sm" className="rounded-r-none border-r-0 opacity-60 max-sm:h-11" disabled>
                           {primary.label}
                         </Button>
                       </span>
@@ -807,7 +807,7 @@ export function TransactionDetail({
                 ) : (
                   <Button
                     size="sm"
-                    className="rounded-r-none border-r-0"
+                    className="rounded-r-none border-r-0 max-sm:h-11"
                     onClick={handlePrimaryAction}
                   >
                     {primary.label}
@@ -816,7 +816,7 @@ export function TransactionDetail({
                 <ActionMenu
                   title="Acciones de la transacción"
                   trigger={
-                    <Button size="icon-sm" className="rounded-l-none" aria-label="Más acciones">
+                    <Button size="icon-sm" className="rounded-l-none max-sm:size-11" aria-label="Más acciones">
                       <MoreHorizontal className="size-4" />
                     </Button>
                   }

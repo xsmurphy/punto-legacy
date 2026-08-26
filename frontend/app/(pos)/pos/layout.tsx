@@ -63,9 +63,8 @@ function wantsHotkeysModule(search: { get(key: string): string | null }): boolea
 
 import * as React from "react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
-import { ArrowLeft, PanelLeft } from "lucide-react"
+import { ArrowLeft } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useSidebar } from "@/components/ui/sidebar"
 import {
   Dialog,
   DialogContent,
@@ -182,24 +181,21 @@ function PosWorkspaceLayoutInner({
   // estado local del módulo.
   const searchParams = useSearchParams()
   const hotkeysAsModule = pathname === "/pos" && wantsHotkeysModule(searchParams)
+
+  // En móvil, el editor de hotkeys VIVE en el módulo-modal: si el modal se
+  // cierra (cancelar el diálogo de asignación, gesto de cierre) con el modo
+  // edición todavía prendido, el carrito queda mostrando la guía de edición a
+  // pantalla completa sin ningún control para salir (reporte del owner
+  // 2026-08-25). HotkeysEditScope no cubre este caso: mira el pathname, y
+  // cerrar el modal no lo cambia (/pos con y sin ?view=hotkeys). En desktop no
+  // aplica — el editor convive con su botón "Listo" en la grilla.
+  React.useEffect(() => {
+    if (isMobile && pathname === "/pos" && !hotkeysAsModule) {
+      useHotkeysStore.getState().setEditing(false)
+    }
+  }, [isMobile, pathname, hotkeysAsModule])
   const moduleTitle = moduleTitleFor(pathname) ?? (hotkeysAsModule ? "HotKeys" : null)
   const moduleAsDialog = isMobile && moduleTitle !== null
-
-  // Abre el menú de módulos desde ADENTRO de un módulo (barra de arriba del
-  // Dialog).
-  //
-  // Cierra el módulo antes de abrirlo, y no es un capricho de UX: el módulo es
-  // un Dialog MODAL de Radix, que mientras está abierto pone el resto del
-  // documento en `pointer-events: none`. El drawer se portalea al `<body>`,
-  // fuera del Dialog, así que abrirlo sin cerrar el módulo daría un menú
-  // visible pero que no acepta un solo toque. Los dos updates caen en el mismo
-  // batch de React: los cleanups (que devuelven los pointer-events) corren
-  // antes que el efecto que monta el drawer.
-  const { setOpenMobile } = useSidebar()
-  const openModulesMenu = React.useCallback(() => {
-    router.push("/pos")
-    setOpenMobile(true)
-  }, [router, setOpenMobile])
 
   // Toggle "pantalla completa" de módulo (oculta el CartPanel): solo desktop
   // y solo en rutas que lo soportan (/pos/espacios, /pos/ordenes). En /pos
@@ -351,21 +347,10 @@ function PosWorkspaceLayoutInner({
               <span className="min-w-0 flex-1 truncate text-base font-semibold">
                 {moduleTitle}
               </span>
-              {/* El pedido del owner fue poder "volver atrás O ir a otro
-                  módulo". Con solo la flecha, cambiar de módulo eran dos
-                  toques: salir a la caja y recién ahí abrir el menú, que vive
-                  en el carrito y queda tapado por esta pantalla. El mismo
-                  ícono y la misma posición estable que el trigger del carrito,
-                  para que sea el mismo gesto en las dos pantallas. */}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-11"
-                aria-label="Ir a otro módulo"
-                onClick={openModulesMenu}
-              >
-                <PanelLeft className="size-5" />
-              </Button>
+              {/* Sin botón de "otro módulo" acá: existió (PanelLeft) y el
+                  owner lo eliminó el 2026-08-25 — no le veía sentido. Cambiar
+                  de módulo es: flecha a la caja y el trigger de módulos del
+                  toolbar del carrito. */}
             </div>
             {/* `pb`: el módulo apoya en el borde inferior. Su barra de vistas
                 (Órdenes) y sus listas terminan justo arriba del indicador de
