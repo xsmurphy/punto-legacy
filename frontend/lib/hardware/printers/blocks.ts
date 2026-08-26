@@ -29,6 +29,7 @@
 import type { BlockType, PrintBlock } from "@/lib/types/print-template"
 import { formatMoney as formatMoneyShared } from "@/lib/format-money"
 import { formatPhone } from "@/lib/phone"
+import { resolveNumberLocale } from "@/lib/tenant-locale"
 import type { TicketData, TicketItem } from "./build-ticket-data"
 
 /**
@@ -684,20 +685,51 @@ export function resolveSimpleBlock(block: PrintBlock, data: TicketData): string 
   return withBlockLabel(block, resolver(data, block) ?? null)
 }
 
+/**
+ * Líneas del bloque `payment_methods` — una por pago cobrado.
+ *
+ * Vive acá y no en cada renderer por la misma razón que `resolveSimpleBlock`:
+ * los dos armaban `${método}: ${monto}` por su cuenta, y el título de la
+ * plantilla habría llegado a uno solo. El título va SOLO en la primera línea
+ * ("Forma de pago: Efectivo …"): repetirlo por pago sería ruido en un rollo.
+ */
+export function resolvePaymentLines(block: PrintBlock, data: TicketData): string[] {
+  const lines = data.payments.map((p) => `${p.method}: ${formatMoney(p.amount, data)}`)
+  if (lines.length === 0) return []
+  const first = withBlockLabel(block, lines[0])
+  return first ? [first, ...lines.slice(1)] : lines
+}
+
+/**
+ * Celdas NUMÉRICAS de una fila del listado de ítems (`item_receipt*`), en
+ * orden y ya formateadas. El NOMBRE del producto no va acá: ocupa su propia
+ * línea, arriba, porque es lo único que puede wrapear.
+ *
+ * Compartido para que la fila diga lo mismo en la vista previa, el HTML y la
+ * térmica — quién la reparte a lo ancho del papel es otra decisión, y esa sí
+ * es de la grilla (`distributeRow` en roll-grid.ts).
+ */
+export function itemTableCells(
+  block: PrintBlock,
+  item: TicketItem,
+  data: TicketData,
+): string[] {
+  const cols = itemTableColumns(block.type)
+  const cells: string[] = []
+  if (cols.qty) cells.push(formatQty(item.qty, data))
+  if (cols.unitPrice) cells.push(formatMoney(item.unitPrice, data))
+  if (cols.total) cells.push(formatMoney(item.total, data))
+  return cells
+}
+
 export function resolveSingleBlockPreview(block: PrintBlock, data: TicketData): string {
   if (block.type === "payment_methods") {
-    const p = data.payments[0]
-    return p ? `${p.method}: ${formatMoney(p.amount, data)}` : ""
+    return resolvePaymentLines(block, data)[0] ?? ""
   }
   if (ITEM_TABLE_TYPES.has(block.type)) {
     const item = data.items[0]
     if (!item) return ""
-    const cols = itemTableColumns(block.type)
-    const parts = [ticketItemName(item)]
-    if (cols.qty) parts.push(formatQty(item.qty, data))
-    if (cols.unitPrice) parts.push(formatMoney(item.unitPrice, data))
-    if (cols.total) parts.push(formatMoney(item.total, data))
-    return parts.join("  ")
+    return [ticketItemName(item), ...itemTableCells(block, item, data)].join("  ")
   }
   if (ITEM_LINE_TYPES.has(block.type)) {
     const item = data.items[0]

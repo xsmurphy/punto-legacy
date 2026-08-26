@@ -74,8 +74,8 @@ import {
   ITEM_FIELD_RESOLVERS,
   ITEM_LINE_TYPES,
   ITEM_TABLE_TYPES,
-  formatMoney,
-  itemTableColumns,
+  itemTableCells,
+  resolvePaymentLines,
   lineGeometry,
   sortBlocksForRender,
   ticketItemName,
@@ -212,6 +212,55 @@ function alignInBox(line: string, width: number, align: PrintBlock["align"]): st
   return clipped
 }
 
+/**
+ * Reparte las celdas de una fila a lo ANCHO del papel: la primera pegada al
+ * borde izquierdo, la última pegada al derecho, y las del medio centradas en
+ * el hueco que queda (pedido del owner 2026-08-26 — la grilla de ítems salía
+ * toda amontonada a la izquierda con media línea en blanco).
+ *
+ *     2              12.000            24.000
+ *     ^ cantidad     ^ unitario        ^ total, contra el borde
+ *
+ * Quién cede espacio cuando NO entra todo está decidido acá y no librado al
+ * wrap: los EXTREMOS son intocables (la cantidad es el dato que el cliente
+ * chequea primero, y el total contra el borde derecho es lo que hace legible
+ * una columna de importes), así que lo que se comprime es la separación. Si ni
+ * con un solo espacio entra, la fila cae al empaquetado izquierdo y wrapea
+ * como cualquier otro texto — un importe recortado sería peor que una fila de
+ * dos líneas.
+ */
+export function distributeRow(cells: string[], width: number): string {
+  const parts = cells.filter((c) => c !== "")
+  if (parts.length === 0) return ""
+  if (parts.length === 1) return parts[0]
+
+  const minimal = parts.reduce((n, p) => n + p.length, 0) + (parts.length - 1)
+  if (minimal > width) return parts.join(" ")
+
+  const first = parts[0]
+  const last = parts[parts.length - 1]
+  const middles = parts.slice(1, -1)
+
+  const row = first + " ".repeat(width - first.length - last.length) + last
+  if (middles.length === 0) return row
+
+  // Cada celda del medio se centra en su propia franja del hueco, para que dos
+  // filas consecutivas alineen la columna aunque los textos midan distinto.
+  const gapStart = first.length
+  const gapWidth = width - first.length - last.length
+  const chars = row.split("")
+  const slot = gapWidth / middles.length
+  middles.forEach((cell, idx) => {
+    const slotStart = gapStart + slot * idx
+    // Un espacio de guarda a cada lado: sin esto un unitario ancho puede
+    // quedar pegado a la cantidad y leerse como un solo número.
+    const at = Math.round(slotStart + (slot - cell.length) / 2)
+    const from = Math.min(Math.max(at, gapStart + 1), width - last.length - cell.length - 1)
+    for (let k = 0; k < cell.length; k++) chars[from + k] = cell[k]
+  })
+  return chars.join("")
+}
+
 /** Gráfico anclado a una fila — no cabe en la grilla de caracteres (ver
  *  docblock del módulo). */
 export interface RollGraphic {
@@ -248,21 +297,22 @@ export interface RollGrid {
   graphics: RollGraphic[]
 }
 
-/** Texto lógico (sin wrapear) de un bloque que NO es de ítem ni gráfico. */
-function blockTextLines(block: PrintBlock, data: TicketData): string[] {
+/** Texto lógico de un bloque que NO es de ítem ni gráfico. `width` es el ancho
+ *  del bloque EN CARACTERES: el listado de ítems lo necesita para repartir sus
+ *  columnas (`distributeRow`); el resto wrapea después contra el mismo número. */
+function blockTextLines(block: PrintBlock, data: TicketData, width: number): string[] {
   if (block.type === "payment_methods") {
-    return data.payments.map((p) => `${p.method}: ${formatMoney(p.amount, data)}`)
+    return resolvePaymentLines(block, data)
   }
   if (ITEM_TABLE_TYPES.has(block.type)) {
-    const cols = itemTableColumns(block.type)
     const lines: string[] = []
     for (const item of data.items) {
       lines.push(ticketItemName(item))
-      const parts: string[] = []
-      if (cols.qty) parts.push(`${item.qty}x`)
-      if (cols.unitPrice) parts.push(formatMoney(item.unitPrice, data))
-      if (cols.total) parts.push(formatMoney(item.total, data))
-      if (parts.length) lines.push(parts.join("  "))
+      // Cantidad sin la `x`: "1,5 Azúcar por kilo" son 1,5 kilos, no "1,5
+      // veces" — y en un rollo de 57 mm cada carácter cuenta (pedido owner
+      // 2026-08-26). `formatQty` respeta los separadores del tenant.
+      const cells = itemTableCells(block, item, data)
+      if (cells.length) lines.push(distributeRow(cells, width))
     }
     return lines
   }
@@ -514,7 +564,7 @@ export function buildRollGrid(
     }
 
     // ── Texto ─────────────────────────────────────────────────────────────
-    const logical = blockTextLines(block, data).map(cased)
+    const logical = blockTextLines(block, data, width).map(cased)
     const lines: string[] = []
     for (const l of logical) {
       // `textwrap: "cut"` recorta a una línea; "wrap" deja bajar. El wrap por
