@@ -3,7 +3,7 @@
 import * as React from "react"
 
 /**
- * Calibra `--safe-t` / `--safe-b` contra lo que el viewport REALMENTE ocupa.
+ * Calibra `--safe-b` contra lo que el viewport REALMENTE ocupa.
  *
  * EL PROBLEMA QUE RESUELVE. `env(safe-area-inset-*)` solo hay que descontarlo
  * cuando la página se dibuja POR DEBAJO del chrome del sistema — es decir,
@@ -21,16 +21,22 @@ import * as React from "react"
  * componente, y por eso el ajuste es una MEDICIÓN, no una hipótesis sobre el
  * dispositivo.
  *
- * NO es una segunda fuente de verdad de las áreas seguras: las variables se
- * siguen definiendo una sola vez en `globals.css` a partir de `env()`. Acá
- * solo se ANULAN cuando medimos que el chrome ya reservó ese espacio, y se
- * devuelven a su valor original (`removeProperty`) apenas vuelve a cubrir.
+ * SOLO EL EJE INFERIOR. La primera versión anulaba también `--safe-t` y dejó
+ * los iconos de la toolbar DEBAJO del reloj y la batería (owner, 2026-08-26).
+ * Ese error probó algo valioso: arriba el viewport SÍ se extiende bajo el
+ * status bar —o sea `cover` está aplicando— y el recorte es únicamente abajo.
+ * El eje superior no se toca nunca: su `env()` es correcto.
+ *
+ * NO es una segunda fuente de verdad de las áreas seguras: la variable se
+ * sigue definiendo una sola vez en `globals.css` a partir de `env()`. Acá solo
+ * se ANULA mientras midamos que el chrome ya reservó ese espacio, y se
+ * devuelve a su valor original (`removeProperty`) apenas el viewport cubra.
  *
  * Casos que cubre por construcción:
- *   - PWA instalada con cover OK  → no toca nada, `env()` manda.
- *   - PWA sin cover               → insets a 0 (el sistema ya reservó).
- *   - Safari/Chrome con barras    → insets a 0 (la barra ya ocupa la franja).
- *   - Rotación / cambio de barras → recalibra en `resize`.
+ *   - Viewport que llega al borde  → no toca nada, `env()` manda.
+ *   - Viewport recortado abajo     → `--safe-b` a 0 (el sistema ya reservó).
+ *   - Safari/Chrome con barras     → `--safe-b` a 0 (la barra ocupa la franja).
+ *   - Rotación / cambio de barras  → recalibra en `resize`.
  */
 export function SafeAreaCalibrator() {
   React.useEffect(() => {
@@ -46,18 +52,16 @@ export function SafeAreaCalibrator() {
       const portrait = window.innerHeight >= window.innerWidth
       const screenAlong = portrait ? Math.max(sw, sh) : Math.min(sw, sh)
 
-      // Tolerancia de 2px: redondeos de escala, no chrome.
-      const viewportCoversScreen = window.innerHeight >= screenAlong - 2
+      // Cuánto le falta al viewport para llegar al borde FÍSICO. Tolerancia de
+      // 2px por redondeos de escala.
+      const missing = screenAlong - window.innerHeight
 
-      if (viewportCoversScreen) {
-        // Cover aplicando: las áreas seguras son reales y hay que descontarlas.
-        root.style.removeProperty("--safe-t")
-        root.style.removeProperty("--safe-b")
-      } else {
-        // El chrome del sistema ya se quedó con esa franja: descontarla otra
-        // vez la contaría dos veces.
-        root.style.setProperty("--safe-t", "0px")
+      if (missing > 2) {
+        // Al viewport le falta pantalla: el chrome del sistema ya reservó esa
+        // franja, así que descontar `--safe-b` otra vez la cuenta DOS VECES.
         root.style.setProperty("--safe-b", "0px")
+      } else {
+        root.style.removeProperty("--safe-b")
       }
     }
 
@@ -67,7 +71,6 @@ export function SafeAreaCalibrator() {
     return () => {
       window.removeEventListener("resize", calibrate)
       window.removeEventListener("orientationchange", calibrate)
-      root.style.removeProperty("--safe-t")
       root.style.removeProperty("--safe-b")
     }
   }, [])
