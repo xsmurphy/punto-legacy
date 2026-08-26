@@ -510,6 +510,32 @@ if ($resource === 'import') {
 
 $id = $_GET['id'] ?? null;
 
+// ── Guard de pertenencia al tenant (aislamiento multi-tenant) ───────────────
+// UN solo punto, mismo espíritu que el gate único de permisos de arriba: si la
+// request trae `id`, el ítem TIENE que ser del `$companyId` autenticado ANTES
+// de despachar a cualquier sub-recurso. Sin esto, las ramas que mutan tablas
+// m2m SIN columna companyId (`item_category`/`item_brand`/`item_tag` —
+// `PUT ?resource=categories|brands|tags`) y `LocationService::syncForItem`
+// (scopeaba solo por itemId) tocaban filas de OTRA empresa con solo pasar un
+// itemId ajeno: `DELETE FROM item_category WHERE itemId = ?` borra las
+// categorías del ítem víctima, el INSERT le clava las del atacante. El UUID es
+// v4 (no enumerable) pero filtrable por URL/export/pantalla compartida, así
+// que no es defensa. Una rama nueva id-based nace cubierta acá arriba. Los
+// sub-recursos que ya re-validan (compounds/combo-groups/images) no se rompen:
+// el guard es idempotente con su propio assert. 404 (no 403) para no delatar
+// la existencia de un id ajeno.
+if ($id !== null) {
+    $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+    $ownsItem = false;
+    if (preg_match($uuidRe, (string) $id)) {
+        $ownRs    = $db->Execute('SELECT 1 FROM item WHERE itemId = ? AND companyId = ? LIMIT 1', [$id, $companyId]);
+        $ownsItem = $ownRs !== false && !$ownRs->EOF;
+    }
+    if (!$ownsItem) {
+        apiError('Ítem no encontrado', 404);
+    }
+}
+
 // Sub-recurso: grupos de combo dinámico (combo_group + combo_group_item).
 //
 // @deprecated F5 (context/41, 2026-08-15) — reemplazado por `addon_group` /
@@ -651,7 +677,7 @@ if ($id !== null && $resource === 'images') {
 // Sub-recurso: depósitos
 if ($id !== null && $resource === 'locations') {
     if ($method === 'GET') {
-        apiOk(['locations' => $locService->listForItem($id)]);
+        apiOk(['locations' => $locService->listForItem($id, $companyId)]);
     }
 
     if ($method === 'PUT') {
