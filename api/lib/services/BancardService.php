@@ -109,7 +109,7 @@ final class BancardService
 
     /**
      * El companyId dueño de un QR, o null si no lo tenemos registrado.
-     * null = fail-open a propósito (ver mig 174): no bloqueamos lo que no
+     * null = fail-open a propósito (ver mig 175): no bloqueamos lo que no
      * conocemos, solo lo que sabemos que es de otro tenant.
      */
     public function ownerCompanyOf(string $id): ?string

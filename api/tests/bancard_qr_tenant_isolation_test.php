@@ -12,7 +12,7 @@ require_once __DIR__ . '/_harness.php';
  * a Bancard con el token GLOBAL de plataforma, sin verificar pertenencia: un
  * tenant refrescaba/cancelaba el cobro de OTRO comercio con solo conocer el id.
  * Bancard no expone binding id→comercio, así que se persiste local al crear
- * (`BancardService::persistOwnership`, mig 174) y refresh/cancel validan contra
+ * (`BancardService::persistOwnership`, mig 175) y refresh/cancel validan contra
  * eso. Fail-open ante id DESCONOCIDO a propósito: no rompe QRs viejos ni un
  * flujo legítimo si no capturamos la clave del id — solo bloquea lo que sabemos
  * que es de otro tenant.
@@ -59,10 +59,10 @@ $companyB = _bqUuid();
 $qrIdB    = 'qr-test-B-' . bin2hex(random_bytes(6));
 
 try {
-    // ── Precondición: la mig 174 creó la tabla ────────────────────────────────
+    // ── Precondición: la mig 175 creó la tabla ────────────────────────────────
     $tbl = $db->Execute("SELECT to_regclass('public.bancard_qr') AS t");
     check(
-        '(0) mig 174 aplicada — tabla bancard_qr existe',
+        '(0) mig 175 aplicada — tabla bancard_qr existe',
         $tbl !== false && !$tbl->EOF && !empty($tbl->fields['t']),
         'to_regclass devolvió vacío — ¿corrió migrate.php?',
         $failures, $checks

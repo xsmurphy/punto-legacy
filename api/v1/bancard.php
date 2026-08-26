@@ -48,7 +48,7 @@ if ($type === 'create') {
  * refresh/cancel operan sobre un `id` que viene del body con el token GLOBAL de
  * Bancard: sin esto, un tenant refrescaba/cancelaba el cobro de OTRO comercio
  * con solo conocer el id (auditoría 2026-08-26). El binding id→tenant se
- * persiste al crear el QR (mig 174 / BancardService::persistOwnership). Fail-open
+ * persiste al crear el QR (mig 175 / BancardService::persistOwnership). Fail-open
  * ante id desconocido a propósito: no rompemos QRs creados antes de la mig ni un
  * flujo legítimo si no capturamos la clave del id — solo bloqueamos lo que
  * sabemos que es de otro tenant. 404 (no 403) para no delatar existencia.

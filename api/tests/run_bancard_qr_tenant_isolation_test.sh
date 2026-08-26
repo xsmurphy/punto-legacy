@@ -5,7 +5,7 @@
 #
 # Cierra el IDOR encontrado en la auditoría 2026-08-26: un tenant refrescaba/
 # cancelaba el cobro QR de OTRO comercio con solo conocer el id. El binding
-# id→tenant se persiste al crear (mig 174). Ver bancard_qr_tenant_isolation_test.php.
+# id→tenant se persiste al crear (mig 175). Ver bancard_qr_tenant_isolation_test.php.
 #
 # Mismo patrón que run_pos_token_only_precedence_test.sh: Postgres descartable +
 # schema + migraciones, corre el arnés y destruye todo al terminar.

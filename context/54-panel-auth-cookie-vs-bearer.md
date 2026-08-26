@@ -137,7 +137,7 @@ impersonación sin caso especial** — scopea al tenant impersonado, que es
 exactamente lo que soporte necesita ver/tocar:
 - El guard de pertenencia de `/v1/items` valida contra el companyId impersonado
   → soporte edita el catálogo de ESE tenant normalmente.
-- El guard de `/v1/bancard` (mig 174) valida los QR del tenant impersonado.
+- El guard de `/v1/bancard` (mig 175) valida los QR del tenant impersonado.
 - El gate de permisos de `imports` respeta el rol de la sesión impersonada.
 - `income-chart` reenvía la cookie `_jwt_panel` de impersonación → resuelve el
   tenant impersonado, consistente con el resto del dashboard. Esto es

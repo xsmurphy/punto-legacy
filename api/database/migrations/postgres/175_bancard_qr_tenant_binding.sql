@@ -1,4 +1,4 @@
--- Migration 174: binding QR de Bancard → tenant (aislamiento cross-tenant)
+-- Migration 175: binding QR de Bancard → tenant (aislamiento cross-tenant)
 --
 -- /v1/bancard.php refresh/cancel tomaban el `id` del QR del body y lo mandaban
 -- a Bancard con el token GLOBAL de plataforma, sin ninguna verificación de
