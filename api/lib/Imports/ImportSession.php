@@ -125,7 +125,11 @@ final class ImportSession
         ?array  $mapping,
         string  $mode,
         string  $companyId,
-        string  $userId
+        string  $userId,
+        // Tipos de contacto que el caller puede importar (1=cliente, 2=proveedor).
+        // null = sin restricción (ai/execute gatea por su propia vía). Solo aplica
+        // a kind='contacts'; se enforcea por fila en ContactImporter.
+        ?array  $allowedContactTypes = null
     ): array {
         $session = self::get($sessionId, $companyId);
         if ($session === null) {
@@ -157,7 +161,7 @@ final class ImportSession
                 $report   = $importer->import($fileContents, $companyId, $mode);
             } elseif ($kind === 'contacts') {
                 $importer = new \Punto\Api\Contacts\ContactImporter($db);
-                $report   = $importer->importFromCsv($workPath, $mode, $companyId, $userId);
+                $report   = $importer->importFromCsv($workPath, $mode, $companyId, $userId, $allowedContactTypes);
             } else {
                 return ['ok' => false, 'error' => "kind inválido: {$kind}"];
             }

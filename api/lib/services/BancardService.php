@@ -72,7 +72,101 @@ final class BancardService
             ]),
         ];
 
-        return (string) curlContents($this->baseUrl() . '/create', 'POST', json_encode($data), $this->headers());
+        $raw = (string) curlContents($this->baseUrl() . '/create', 'POST', json_encode($data), $this->headers());
+
+        // Binding local id→tenant para que refresh/cancel puedan validar
+        // pertenencia (Bancard no lo expone). Best-effort: si falla, NO se
+        // rompe la creación del QR (path de dinero).
+        $this->persistOwnership($raw);
+
+        return $raw;
+    }
+
+    /**
+     * Guarda en `bancard_qr` todos los ids candidatos de la respuesta de Bancard
+     * apuntando al tenant emisor. Espeja las claves que prueba el front
+     * (frontend/lib/payments/psp-qr.ts) + los wrappers donde puede venir anidado.
+     */
+    private function persistOwnership(string $raw): void
+    {
+        $ids = $this->extractQrIds($raw);
+        if ($ids === []) {
+            return;
+        }
+        foreach ($ids as $id) {
+            try {
+                ncmExecute(
+                    'INSERT INTO bancard_qr (qrId, companyId, outletId)
+                     VALUES (?, ?::uuid, ?)
+                     ON CONFLICT (qrId) DO NOTHING',
+                    [$id, $this->ctx->companyId, $this->ctx->outletId ?: null]
+                );
+            } catch (\Throwable $e) {
+                error_log('[BancardService] persistOwnership falló para id ' . $id . ': ' . $e->getMessage());
+            }
+        }
+    }
+
+    /**
+     * El companyId dueño de un QR, o null si no lo tenemos registrado.
+     * null = fail-open a propósito (ver mig 175): no bloqueamos lo que no
+     * conocemos, solo lo que sabemos que es de otro tenant.
+     */
+    public function ownerCompanyOf(string $id): ?string
+    {
+        global $db;
+        if ($id === '' || !isset($db) || !is_object($db)) {
+            return null;
+        }
+        try {
+            // `$db->Execute` (recordset con ->EOF/->fields), NO `ncmExecute`
+            // (que devuelve una fila directa — trap conocida del wrapper).
+            $rs = $db->Execute('SELECT companyId FROM bancard_qr WHERE qrId = ? LIMIT 1', [$id]);
+        } catch (\Throwable $e) {
+            error_log('[BancardService] ownerCompanyOf falló: ' . $e->getMessage());
+            return null; // fail-open ante error de DB: no rompemos el path de dinero
+        }
+        if ($rs === false || $rs->EOF) {
+            return null;
+        }
+        $owner = (string) ($rs->fields['companyid'] ?? $rs->fields['companyId'] ?? '');
+        return $owner !== '' ? $owner : null;
+    }
+
+    /**
+     * Ids candidatos en la respuesta de Bancard: mismas claves que el front
+     * (ID_KEYS) miradas en la raíz y en cada wrapper (data/result/response/qr).
+     *
+     * @return string[]
+     */
+    private function extractQrIds(string $raw): array
+    {
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+        $idKeys      = ['id', 'qr_id', 'qrId', 'transaction_id', 'transactionId', 'operationId'];
+        $wrapperKeys = ['data', 'result', 'response', 'qr'];
+
+        $scopes = [$decoded];
+        foreach ($wrapperKeys as $wk) {
+            if (isset($decoded[$wk]) && is_array($decoded[$wk])) {
+                $scopes[] = $decoded[$wk];
+            }
+        }
+
+        $ids = [];
+        foreach ($scopes as $scope) {
+            foreach ($idKeys as $k) {
+                if (isset($scope[$k]) && (is_string($scope[$k]) || is_int($scope[$k]))) {
+                    $val = trim((string) $scope[$k]);
+                    if ($val !== '') {
+                        $ids[$val] = true; // dedup
+                    }
+                }
+            }
+        }
+        return array_keys($ids);
     }
 
     /**

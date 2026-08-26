@@ -55,16 +55,22 @@ final class LocationService
 
     /**
      * Lista TODOS los depósitos del item (todos los outlets).
+     *
+     * `companyId` obligatorio: sin él, esta lectura devolvía los nombres de
+     * sucursal/depósito de CUALQUIER ítem del sistema con solo pasar su itemId
+     * (leak cross-tenant). El endpoint (items.php) ya valida pertenencia antes
+     * de llamar, pero el filtro va también acá — el aislamiento no depende de
+     * que el caller se acuerde.
      */
-    public function listForItem(string $itemId): array
+    public function listForItem(string $itemId, string $companyId): array
     {
         $sql = "SELECT il.locationId, il.outletId, il.isDefault, t.taxonomyName, o.outletName
                   FROM itemLocation il
                   JOIN taxonomy t ON t.taxonomyId = il.locationId
                   JOIN outlet   o ON o.outletId   = il.outletId
-                 WHERE il.itemId = ?
+                 WHERE il.itemId = ? AND il.companyId = ?
                  ORDER BY o.outletName, il.isDefault DESC, t.taxonomyName";
-        $rs = $this->db->Execute($sql, [$itemId]);
+        $rs = $this->db->Execute($sql, [$itemId, $companyId]);
         if ($rs === false) {
             // Solo alcanzable con el kill-switch DB_THROW_ON_ERROR=false (modo
             // incendio): ahí el wrapper vuelve a devolver `false` en vez de
@@ -108,8 +114,8 @@ final class LocationService
         if ($isDefault) {
             // Asegurar que solo este sea el default del outlet
             $this->db->Execute(
-                "UPDATE itemLocation SET isDefault = FALSE WHERE itemId = ? AND outletId = ? AND locationId <> ?",
-                [$itemId, $outletId, $locationId]
+                "UPDATE itemLocation SET isDefault = FALSE WHERE itemId = ? AND outletId = ? AND locationId <> ? AND companyId = ?",
+                [$itemId, $outletId, $locationId, $companyId]
             );
         }
 
@@ -122,12 +128,16 @@ final class LocationService
 
     /**
      * Quita la asignación de un item a un depósito.
+     *
+     * `companyId` obligatorio: sin él, el DELETE por itemId a secas borraba las
+     * asignaciones de depósito de un ítem de OTRA empresa (leak cross-tenant vía
+     * `syncForItem`). Ver el guard del endpoint + el docblock de listForItem.
      */
-    public function detach(string $itemId, string $locationId): bool
+    public function detach(string $itemId, string $locationId, string $companyId): bool
     {
         return $this->db->Execute(
-            "DELETE FROM itemLocation WHERE itemId = ? AND locationId = ?",
-            [$itemId, $locationId]
+            "DELETE FROM itemLocation WHERE itemId = ? AND locationId = ? AND companyId = ?",
+            [$itemId, $locationId, $companyId]
         ) !== false;
     }
 
@@ -140,8 +150,8 @@ final class LocationService
     public function syncForItem(string $itemId, string $companyId, array $locationIds, ?string $defaultLocationId = null): void
     {
         $existing = $this->db->Execute(
-            "SELECT locationId FROM itemLocation WHERE itemId = ?",
-            [$itemId]
+            "SELECT locationId FROM itemLocation WHERE itemId = ? AND companyId = ?",
+            [$itemId, $companyId]
         );
         $current = [];
         if ($existing !== false) {
@@ -152,32 +162,32 @@ final class LocationService
         $toRemove = array_diff($current, $locationIds);
 
         foreach ($toRemove as $loc) {
-            $this->detach($itemId, $loc);
+            $this->detach($itemId, $loc, $companyId);
         }
         foreach ($toAdd as $loc) {
             $this->attach($itemId, $loc, $companyId, $loc === $defaultLocationId);
         }
         // Re-aplicar default si ya estaba presente y el form lo cambió
         if ($defaultLocationId !== null && !in_array($defaultLocationId, $toAdd)) {
-            $this->setDefault($itemId, $defaultLocationId);
+            $this->setDefault($itemId, $defaultLocationId, $companyId);
         }
     }
 
     /**
      * Marca un depósito como default para su outlet. Desmarca los demás del mismo outlet.
      */
-    public function setDefault(string $itemId, string $locationId): bool
+    public function setDefault(string $itemId, string $locationId, string $companyId): bool
     {
         $outletId = $this->resolveOutletForLocation($locationId);
         if ($outletId === null) return false;
 
         $this->db->Execute(
-            "UPDATE itemLocation SET isDefault = FALSE WHERE itemId = ? AND outletId = ?",
-            [$itemId, $outletId]
+            "UPDATE itemLocation SET isDefault = FALSE WHERE itemId = ? AND outletId = ? AND companyId = ?",
+            [$itemId, $outletId, $companyId]
         );
         return $this->db->Execute(
-            "UPDATE itemLocation SET isDefault = TRUE WHERE itemId = ? AND locationId = ?",
-            [$itemId, $locationId]
+            "UPDATE itemLocation SET isDefault = TRUE WHERE itemId = ? AND locationId = ? AND companyId = ?",
+            [$itemId, $locationId, $companyId]
         ) !== false;
     }
 
