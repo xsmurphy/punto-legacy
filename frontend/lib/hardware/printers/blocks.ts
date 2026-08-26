@@ -91,6 +91,28 @@ function phoneBlock(value: string | null | undefined): string | null {
  * un % EFECTIVO calculado por `allocateLineDiscounts`
  * (frontend/lib/cart/allocate-discounts.ts), casi nunca un entero.
  */
+/**
+ * Cantidad de una línea, para el ticket.
+ *
+ * Hasta 2 decimales y sin ceros de relleno: "2", "1,5", "1,25". La cantidad es
+ * fraccionable (1,5 kg de azúcar), así que imprimirla cruda podía sacar
+ * "1.4999999999" y fijarle 2 decimales siempre gastaba dos caracteres en cada
+ * línea entera — en un roll de 57mm eso es ancho que se le quita al nombre del
+ * producto (pedido del owner 2026-08-26).
+ *
+ * El separador decimal sale de la config del tenant, igual que los montos: un
+ * comercio que escribe 1,5 no puede leer 1.5 en su propio ticket.
+ */
+export function formatQty(
+  n: number,
+  data: Pick<TicketData, "thousand" | "country">,
+): string {
+  return new Intl.NumberFormat(
+    resolveNumberLocale({ thousand: data.thousand ?? null, country: data.country ?? "" }),
+    { maximumFractionDigits: 2 },
+  ).format(n)
+}
+
 export function formatPercent(n: number): string {
   return `${Number(n.toFixed(2))}%`
 }
@@ -526,7 +548,7 @@ export function ticketItemName(item: TicketItem): string {
 
 export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>> = {
   item: (item) => ticketItemName(item),
-  item_units: (item) => String(item.qty),
+  item_units: (item, data) => formatQty(item.qty, data),
   item_uni_price: (item, data) => formatMoney(item.unitPrice, data),
   // item_price ("Precio") no tiene hoy un valor distinto de item_uni_price
   // ("Precio de lista") — TicketItem solo lleva un único unitPrice. Se
@@ -634,6 +656,34 @@ export function sortBlocksForRender<T extends { type: string; top: number; left:
  * de IVA 5%/10% mostrando el mismo número: dos fuentes de verdad para "qué
  * muestra un bloque").
  */
+/**
+ * Antepone el título declarado por la plantilla (`block.label`).
+ *
+ * Vive acá y no en cada renderer porque los tres —canvas/preview, HTML y
+ * ESC/POS— resolvían el valor con la misma línea (`resolver(data, block)`) y
+ * este archivo existe justamente para que esa decisión se tome UNA vez: la
+ * historia del módulo es que tres switches paralelos daban tres resultados
+ * distintos.
+ *
+ * Un bloque sin valor no imprime su título: un "Fecha:" suelto sin fecha es
+ * peor que la línea ausente.
+ */
+export function withBlockLabel(block: PrintBlock, value: string | null): string | null {
+  if (value === null || value === undefined || value === "") return null
+  const label = (block.label ?? "").trim()
+  return label ? `${label} ${value}` : value
+}
+
+/**
+ * Valor final de un bloque SIMPLE (no de ítem), con su título si lo tiene.
+ * `null` = el bloque no imprime nada (sin dato, o tipo sin resolver).
+ */
+export function resolveSimpleBlock(block: PrintBlock, data: TicketData): string | null {
+  const resolver = BLOCK_VALUE_RESOLVERS[block.type]
+  if (!resolver) return null
+  return withBlockLabel(block, resolver(data, block) ?? null)
+}
+
 export function resolveSingleBlockPreview(block: PrintBlock, data: TicketData): string {
   if (block.type === "payment_methods") {
     const p = data.payments[0]
@@ -644,7 +694,7 @@ export function resolveSingleBlockPreview(block: PrintBlock, data: TicketData): 
     if (!item) return ""
     const cols = itemTableColumns(block.type)
     const parts = [ticketItemName(item)]
-    if (cols.qty) parts.push(String(item.qty))
+    if (cols.qty) parts.push(formatQty(item.qty, data))
     if (cols.unitPrice) parts.push(formatMoney(item.unitPrice, data))
     if (cols.total) parts.push(formatMoney(item.total, data))
     return parts.join("  ")
@@ -655,6 +705,5 @@ export function resolveSingleBlockPreview(block: PrintBlock, data: TicketData): 
     const resolver = ITEM_FIELD_RESOLVERS[block.type]
     return resolver ? resolver(item, data) ?? "" : ""
   }
-  const resolver = BLOCK_VALUE_RESOLVERS[block.type]
-  return resolver ? resolver(data, block) ?? "" : ""
+  return resolveSimpleBlock(block, data) ?? ""
 }

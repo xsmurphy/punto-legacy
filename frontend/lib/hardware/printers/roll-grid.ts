@@ -70,6 +70,7 @@ import {
 import type { TicketData } from "./build-ticket-data"
 import {
   BLOCK_VALUE_RESOLVERS,
+  resolveSimpleBlock,
   ITEM_FIELD_RESOLVERS,
   ITEM_LINE_TYPES,
   ITEM_TABLE_TYPES,
@@ -267,7 +268,9 @@ function blockTextLines(block: PrintBlock, data: TicketData): string[] {
   }
   const resolver = BLOCK_VALUE_RESOLVERS[block.type]
   if (resolver) {
-    const value = resolver(data, block)
+    // `resolveSimpleBlock` = resolver + título de la plantilla, en un solo
+    // lugar para los tres renderers (ver blocks.ts).
+    const value = resolveSimpleBlock(block, data)
     return value ? [value] : []
   }
   console.error("[roll-grid] BlockType desconocido, no implementado:", block.type)

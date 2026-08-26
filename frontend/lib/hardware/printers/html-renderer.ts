@@ -2,6 +2,7 @@ import { isReceipt, PAPER_DIMENSIONS, type PrintTemplateConfig, type PrintBlock 
 import type { TicketData } from "./build-ticket-data"
 import {
   BLOCK_VALUE_RESOLVERS,
+  resolveSimpleBlock,
   ITEM_FIELD_RESOLVERS,
   ITEM_LINE_TYPES,
   ITEM_TABLE_TYPES,
@@ -100,7 +101,8 @@ function renderBlockHtml(block: PrintBlock, data: TicketData): string {
 
   const resolver = BLOCK_VALUE_RESOLVERS[block.type]
   if (resolver) {
-    const value = resolver(data, block)
+    // Mismo resolver + título que la vista previa y la térmica (blocks.ts).
+    const value = resolveSimpleBlock(block, data)
     return `<div${styleAttr}>${esc(value ?? "")}</div>`
   }
 
