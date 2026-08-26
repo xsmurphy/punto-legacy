@@ -858,21 +858,28 @@ export function TransactionDetail({
           {isCredit && (
             <div className="mt-6">
               {/* Cards + barra SIEMPRE visibles; al saldar, Deuda=0 verde y barra full verde. */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="border rounded-lg p-4">
+              {/* `gap-3` + padding y cuerpo menores en teléfono: con dos
+                  columnas fijas y `text-2xl`, un monto de 7+ dígitos no entra
+                  en la mitad del ancho y se parte contra el borde de la tarjeta
+                  (reporte del owner 2026-08-26). El monto además baja un
+                  escalón de tamaño bajo `sm` — la jerarquía la sigue dando el
+                  color, no el cuerpo. Se mantienen las DOS columnas: apilarlas
+                  empujaría los ítems fuera de la primera pantalla. */}
+              <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                <div className="min-w-0 border rounded-lg p-3 sm:p-4">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Deuda</p>
                   <p
                     className={cn(
-                      "text-2xl font-bold tabular-nums mt-1",
+                      "mt-1 text-xl font-bold tabular-nums break-words sm:text-2xl",
                       debt > 0 ? "text-destructive" : "text-emerald-600 dark:text-emerald-400",
                     )}
                   >
                     {formatMoney(debt, config)}
                   </p>
                 </div>
-                <div className="border rounded-lg p-4">
+                <div className="min-w-0 border rounded-lg p-3 sm:p-4">
                   <p className="text-xs uppercase tracking-wide text-muted-foreground">Pagado</p>
-                  <p className="text-2xl font-bold tabular-nums text-muted-foreground mt-1">
+                  <p className="mt-1 text-xl font-bold tabular-nums break-words text-muted-foreground sm:text-2xl">
                     {formatMoney(paid, config)}
                   </p>
                 </div>

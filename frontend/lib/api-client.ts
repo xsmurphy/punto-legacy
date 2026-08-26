@@ -188,6 +188,17 @@ async function request<T>(
   if (envelope && typeof envelope === "object" && envelope.ok === true && "data" in envelope) {
     return envelope.data as T
   }
+  // Envelope sin `data`: error, no "dato vacío". Devolver el sobre como
+  // contenido entrega un objeto que existe pero no tiene campos, y la UI lo
+  // pinta como un registro en blanco en vez de fallar. Mismo criterio que
+  // `lib/api/pos-client.ts`.
+  if (envelope && typeof envelope === "object" && "ok" in envelope) {
+    throw new ApiError(
+      res.status,
+      payload,
+      `${rest.method ?? "GET"} ${path} → respuesta sin datos (ok=${String(envelope.ok)})`,
+    )
+  }
   return payload as T
 }
 

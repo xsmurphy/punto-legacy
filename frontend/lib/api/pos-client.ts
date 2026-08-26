@@ -53,6 +53,19 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (envelope && typeof envelope === "object" && envelope.ok === true && "data" in envelope) {
     return envelope.data as T
   }
+  // Un envelope canónico SIN `data` no se devuelve tal cual: hacerlo entrega el
+  // SOBRE como si fuera el contenido, y el consumidor recibe un objeto que
+  // existe pero no tiene ningún campo — el detalle de una transacción se pinta
+  // entonces como "Sin cliente / Gs 0 / sin items" en vez de fallar (reporte
+  // del owner 2026-08-26). Un cliente HTTP no puede fabricar un cuerpo vacío
+  // que parezca un dato válido: si el sobre no trae contenido, es un error.
+  if (envelope && typeof envelope === "object" && "ok" in envelope) {
+    throw new ApiError(
+      res.status,
+      payload,
+      `${init.method ?? "GET"} ${path} → respuesta sin datos (ok=${String(envelope.ok)})`,
+    )
+  }
   return payload as T
 }
 
