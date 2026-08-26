@@ -73,6 +73,18 @@ describe("contrato de impersonación /admin", () => {
     expect(GUARD).toMatch(/window\.location\.href = "\/admin"/)
   })
 
+  it("el BFF no inventa una segunda `_jwt_panel` con scope propio", () => {
+    // Dos cookies del mismo nombre en scopes distintos (una con
+    // `domain=.punto.la` del emisor PHP, otra host-only del BFF) son dos
+    // sesiones simultáneas en el mismo browser: PHP lee una y `cookies.get()`
+    // de Next lee la otra, así que el panel puede resolver un tenant y un
+    // widget otro. Fue un leak cross-tenant real (2026-08-26). La cookie se
+    // propaga del upstream; el único `set` propio permitido es el borrado de
+    // la variante vieja y el fallback si el upstream no la emitió.
+    expect(BFF).toMatch(/getSetCookie/)
+    expect(BFF).toMatch(/res\.cookies\.set\("_jwt_panel", "", \{ path: "\/", maxAge: 0 \}\)/)
+  })
+
   it("el token nunca se guarda del lado del cliente", () => {
     // Si alguien lo pasa por localStorage o por la URL, deja de ser HttpOnly y
     // se vuelve una credencial de panel al alcance de cualquier script.

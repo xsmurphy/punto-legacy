@@ -206,13 +206,41 @@ async function proxy(
       const expiresIn = json.data.expiresIn ?? 28800
       const secure = isHttps(req)
       const res = NextResponse.json({ ok: true, redirectUrl: "/" })
-      res.cookies.set("_jwt_panel", token, {
-        path: "/",
-        httpOnly: true,
-        sameSite: "strict",
-        secure,
-        maxAge: expiresIn,
-      })
+
+      // ── UN SOLO EMISOR DE `_jwt_panel` ────────────────────────────────────
+      // La cookie se PROPAGA del upstream, no se inventa acá. El emisor
+      // canónico (`authSetOpaqueCookie`, api/includes/auth_session.php) la
+      // firma con `COOKIE_DOMAIN=.punto.la`; este BFF la seteaba sin domain,
+      // o sea HOST-ONLY (app.punto.la). Con las dos variantes vivas, el
+      // browser manda AMBAS en el header `Cookie` y cada consumidor se queda
+      // con una distinta: PHP con la última que parsea, `cookies.get()` de
+      // Next con la primera. Resultado: el dashboard resolvía un tenant y el
+      // chart de ingresos —que lee la cookie acá y la reenvía como Bearer—
+      // resolvía OTRO. Un panel mostrando las ventas de otra empresa
+      // (reporte del owner 2026-08-26). Dos cookies del mismo nombre en
+      // scopes distintos son dos sesiones simultáneas: no puede haber dos
+      // emisores.
+      const upstreamCookies = upstream.headers.getSetCookie?.() ?? []
+      const panelFromUpstream = upstreamCookies.filter((c) =>
+        /^_jwt_panel=/.test(c),
+      )
+      // Borra la variante host-only que puedan tener los browsers de antes de
+      // este fix. Va SIEMPRE: es de otro scope que la canónica, así que no la
+      // pisa — las dos instrucciones conviven en la misma respuesta.
+      res.cookies.set("_jwt_panel", "", { path: "/", maxAge: 0 })
+      if (panelFromUpstream.length > 0) {
+        for (const c of panelFromUpstream) res.headers.append("set-cookie", c)
+      } else {
+        // El upstream no la emitió (config sin COOKIE_DOMAIN, o cambió el
+        // emisor): sin este fallback la impersonación quedaría sin credencial.
+        res.cookies.set("_jwt_panel", token, {
+          path: "/",
+          httpOnly: true,
+          sameSite: "strict",
+          secure,
+          maxAge: expiresIn,
+        })
+      }
       // Marca de impersonación, legible por JS a propósito: el sidebar del
       // panel la usa para mostrar "Salir de impersonación". Es UI, no
       // autoridad — la credencial sigue siendo solo `_jwt_panel` (HttpOnly).
