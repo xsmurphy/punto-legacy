@@ -125,7 +125,13 @@ expiración por inactividad.
       re-acuñar la cookie como Bearer (auditoría 2026-08-26).
 - [x] Decisión del owner: **Bearer** (2026-08-26).
 - [x] Verificado que ningún Server Component depende de la cookie de auth.
-- [ ] F1 — `api-client.ts` a Bearer.
-- [ ] F2 — BFF sin cookie (+ F2b impersonación).
+- [x] F1 — `api-client.ts` a Bearer (`credentials: "omit"` + token de
+      `lib/auth/panel-token.ts`). Los CUATRO emisores de sesión de panel
+      entregan el token al cliente: login, signup, cambio de sucursal
+      (`active-outlet.php`, que RE-EMITE la sesión — antes la credencial nueva
+      viajaba solo por cookie) e impersonación.
+- [x] F2 — BFF sin cookie: el catch-all dejó de reenviarla y los 4 route
+      handlers (income-chart, agent/chat, ocr-invoice, geo) reenvían
+      `Authorization`. F2b: la impersonación devuelve el token en el body.
 - [ ] F3 — cutover: dejar de emitir `_jwt_panel`.
 - [ ] F4 — limpieza + context/08 §60 reescrito.

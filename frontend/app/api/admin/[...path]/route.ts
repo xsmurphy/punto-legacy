@@ -205,42 +205,27 @@ async function proxy(
       const token = json.data.token
       const expiresIn = json.data.expiresIn ?? 28800
       const secure = isHttps(req)
-      const res = NextResponse.json({ ok: true, redirectUrl: "/" })
+      // El token de la sesión impersonada viaja al CLIENTE, que lo guarda con
+      // `setPanelToken()` — el panel es Bearer desde context/54 F1. Ya no se
+      // acuña ninguna cookie de sesión acá: con una sola clave de storage no
+      // pueden coexistir dos credenciales de panel, que fue exactamente el leak
+      // cross-tenant del 2026-08-26 (dos `_jwt_panel` de scopes distintos, cada
+      // consumidor resolviendo un tenant diferente).
+      const res = NextResponse.json({ ok: true, redirectUrl: "/", token, expiresIn })
 
-      // ── UN SOLO EMISOR DE `_jwt_panel` ────────────────────────────────────
-      // La cookie se PROPAGA del upstream, no se inventa acá. El emisor
-      // canónico (`authSetOpaqueCookie`, api/includes/auth_session.php) la
-      // firma con `COOKIE_DOMAIN=.punto.la`; este BFF la acuñaba host-only y
-      // las dos variantes conviviendo fueron el leak cross-tenant del
-      // 2026-08-26 (cada consumidor resolvía una sesión distinta).
+      // ── Borrado de la cookie legacy ───────────────────────────────────────
+      // El upstream sigue emitiendo `_jwt_panel` (F3 la saca del backend). Acá
+      // NO se propaga: se BORRA, para que el browser no quede con una cookie de
+      // sesión que ya nadie manda (el api-client es `credentials: "omit"`) pero
+      // que el server aceptaría si alguna ruta la reenviara.
       //
-      // TODO por headers CRUDOS, nunca la API de cookies de NextResponse:
+      // Por headers CRUDOS, nunca la API de cookies de NextResponse:
       // ResponseCookies guarda su propio mapa y CADA `set()` re-serializa el
       // header `set-cookie` entero desde ese mapa — un append hecho antes
       // se PIERDE. Así se rompió la impersonación el mismo día del fix del
-      // leak: la respuesta salía con el borrado y la marca pero sin la cookie
-      // canónica, y el panel abría con "Tu sesión expiró". Mezclar las dos
-      // APIs sobre la misma respuesta es el bug; acá se usa una sola.
-      const upstreamCookies = upstream.headers.getSetCookie?.() ?? []
-      const panelFromUpstream = upstreamCookies.filter((c) =>
-        /^_jwt_panel=/.test(c),
-      )
-      // 1. Borrar la variante host-only que quedó en browsers de antes del
-      //    fix del leak. Es de otro scope que la canónica: conviven en la
-      //    misma respuesta sin pisarse.
+      // leak. Mezclar las dos APIs sobre la misma respuesta es el bug.
       res.headers.append("set-cookie", "_jwt_panel=; Path=/; Max-Age=0")
-      // 2. La credencial: la del upstream tal cual; si el upstream no la
-      //    emitió (config sin COOKIE_DOMAIN), fallback host-only para no
-      //    dejar la impersonación sin sesión.
-      if (panelFromUpstream.length > 0) {
-        for (const c of panelFromUpstream) res.headers.append("set-cookie", c)
-      } else {
-        res.headers.append(
-          "set-cookie",
-          `_jwt_panel=${token}; Path=/; Max-Age=${expiresIn}; HttpOnly; SameSite=Strict${secure ? "; Secure" : ""}`,
-        )
-      }
-      // 3. Marca de impersonación, legible por JS a propósito: el sidebar del
+      // Marca de impersonación, legible por JS a propósito: el sidebar del
       //    panel la usa para mostrar "Salir de impersonación". Es UI, no
       //    autoridad — forjarla apenas muestra un botón cuyo click hace logout.
       res.headers.append(

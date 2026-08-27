@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/form"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { api, ApiError } from "@/lib/api-client"
+import { setPanelToken } from "@/lib/auth/panel-token"
 
 // Schema. El campo `phone` guarda el valor NACIONAL que ve el usuario;
 // la validación cruza por libphonenumber-js a través del PhoneInput
@@ -89,10 +90,20 @@ function LoginPageInner() {
       // Endpoint: el legacy usa POST /login?login=true con campo `phone`;
       // la nueva API esperamos `/v1/login` con JSON {phone: E164, password}.
       // Si el endpoint nuevo no existe todavía, el catch muestra el error.
-      await api.post("/v1/login", {
+      // `/v1/login` devuelve { token, expiresIn, user }. El token es la
+      // credencial del realm panel: se guarda acá y `api-client` lo adjunta
+      // como Bearer en cada request (context/54 F1). Antes la sesión viajaba
+      // en la cookie `_jwt_panel` y este `data` se descartaba.
+      const session = await api.post<{ token?: string }>("/v1/login", {
         phone: values.phoneE164,
         password: values.password,
       })
+      if (!session?.token) {
+        // Sin token no hay sesión utilizable: fallar acá es mejor que mandar
+        // al panel para que rebote con 401 sin explicación.
+        throw new Error("El servidor no devolvió el token de sesión")
+      }
+      setPanelToken(session.token)
       toast.success("Sesión iniciada")
       router.push(next)
     } catch (err) {

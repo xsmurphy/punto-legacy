@@ -41,6 +41,7 @@ import { cn } from "@/lib/utils"
 import { DEFAULT_COUNTRY } from "@/lib/countries"
 import { COMPANY_CATEGORIES } from "@/lib/company-categories"
 import { api, ApiError } from "@/lib/api-client"
+import { setPanelToken } from "@/lib/auth/panel-token"
 
 // El form vive como una sola fuente de verdad para los 3 pasos. La
 // validación se hace por paso vía `form.trigger(fieldNames)` antes de
@@ -137,7 +138,10 @@ export default function SignupPage() {
   const submitStep3 = async (values: SignupValues) => {
     setSubmitting(true)
     try {
-      await api.post("/v1/signup", {
+      // `/v1/signup` crea la empresa Y emite la sesión de panel, igual que
+      // `/v1/login`. El panel es Bearer (context/54 F1): sin guardar este token
+      // el usuario recién registrado caería al login en vez de entrar.
+      const session = await api.post<{ token?: string }>("/v1/signup", {
         phone: values.phoneE164,
         code: values.otp,
         storename: values.storename,
@@ -146,6 +150,10 @@ export default function SignupPage() {
         password: values.password,
         country: values.country,
       })
+      if (!session?.token) {
+        throw new Error("El servidor no devolvió el token de sesión")
+      }
+      setPanelToken(session.token)
       toast.success("¡Empresa creada! Iniciando sesión…")
       router.push("/")
     } catch (err) {

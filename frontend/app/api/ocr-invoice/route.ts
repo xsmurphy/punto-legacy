@@ -246,7 +246,8 @@ export async function POST(req: Request) {
     )
   }
 
-  const cookie = req.headers.get("cookie") ?? ""
+  // Bearer del panel (context/54 F2): se reenvía tal cual al backend.
+  const authHeader = req.headers.get("authorization") ?? ""
 
   let form: FormData
   try {
@@ -272,7 +273,7 @@ export async function POST(req: Request) {
   // balance, no procede (antes era fail-open).
   const requestId = crypto.randomUUID()
   try {
-    await assertAiCredits({ apiUrl, cookie, logPrefix: "[ocr-invoice]" })
+    await assertAiCredits({ apiUrl, authHeader, logPrefix: "[ocr-invoice]" })
   } catch (e) {
     if (e instanceof AiCreditsError) {
       const message = e.status === 402 ? "Sin créditos para procesar facturas con IA" : e.message
@@ -285,7 +286,7 @@ export async function POST(req: Request) {
   // alineado al seed por si /v1/ai/config no responde.
   let modelId = "google/gemini-3.5-flash"
   try {
-    const configRes = await fetch(`${apiUrl}/v1/ai/config`, { headers: { cookie } })
+    const configRes = await fetch(`${apiUrl}/v1/ai/config`, { headers: { Authorization: authHeader } })
     if (configRes.ok) {
       const config = (await configRes.json()) as Record<
         string,
@@ -311,7 +312,7 @@ export async function POST(req: Request) {
   if (outletId !== "") {
     try {
       const outletRes = await fetch(`${apiUrl}/v1/outlets?id=${encodeURIComponent(outletId)}`, {
-        headers: { cookie },
+        headers: { Authorization: authHeader },
       })
       if (outletRes.ok) {
         const outletJson = (await outletRes.json()) as { data?: { ruc?: string } }
@@ -400,7 +401,7 @@ export async function POST(req: Request) {
   // requestId para reconciliar pero NO bloquea la creación del borrador.
   await debitAiUsage({
     apiUrl,
-    cookie,
+    authHeader,
     tokensIn,
     tokensOut,
     capability: "vision",
@@ -428,7 +429,7 @@ export async function POST(req: Request) {
   try {
     createRes = await fetch(`${apiUrl}/v1/purchase-drafts`, {
       method: "POST",
-      headers: { cookie },
+      headers: { Authorization: authHeader },
       body: phpForm,
     })
   } catch (e) {
