@@ -1,161 +1,131 @@
-# 54 — Autenticación del panel: cookie vs Bearer (plan post-auditoría 2026-08-26)
+# 54 — Panel a Bearer: matar la cookie de sesión del panel
 
-> Disparado por la auditoría de seguridad del 2026-08-26 (leak cross-tenant real
-> en el panel). Cierra el pedido recurrente del owner de "abandonar cookies por
-> Bearer". **Es una decisión abierta del owner** — este doc pone los dos caminos
-> con sus tradeoffs y una recomendación; no relitiga nada ya decidido.
+> **Decisión del owner (2026-08-26): el panel migra a Bearer. Cerrada, no
+> relitigar.** El motivo es de producto, no teórico: panel y `/pos` se usan en
+> el MISMO navegador, sus credenciales se mezclan, y eso viene causando
+> deslogueos del POS y bugs de sesión que bloquean la salida a producción.
 
-## 0. TL;DR
+## 0. La decisión y por qué
 
-La causa de los incidentes NO es "cookies en vez de Bearer". Es **dos cosas
-concretas y arreglables sin tocar el modelo**:
+**Qué:** el realm `panel` deja de autenticar por cookie `_jwt_panel` y pasa a
+`Authorization: Bearer`, igual que el POS. La cookie deja de emitirse.
 
-1. El `COOKIE_DOMAIN=.punto.la` **wildcard** — hace que la cookie del panel
-   valga en todos los subdominios, y habilita que convivan dos cookies del
-   mismo nombre con scopes distintos (host-only vs domain-wide).
-2. **Emisores divergentes** de la misma cookie (el BFF de impersonación acuñaba
-   su propia `_jwt_panel` host-only en paralelo al emisor PHP domain-wide). Ya
-   unificado en `ad46b4c1`; el `income-chart` que la leía por nombre y la
-   re-mandaba como Bearer, unificado en esta auditoría.
+**Por qué (razonamiento del owner, correcto):**
 
-Mover el panel a **Bearer-en-localStorage es un DOWNGRADE de seguridad** para
-una app web: cambia una clase de bug (scope de cookie mal configurado, ya
-cerrada) por otra peor (robo del token por XSS — una cookie `HttpOnly` no la
-puede leer un script, un Bearer en `localStorage` sí). El POS usa Bearer porque
-es un dispositivo pareado, no un navegador con superficie de XSS de terceros.
+1. **Es un bug real, recurrente y que bloquea producción.** Cuatro incidentes de
+   la misma clase en dos meses (2026-07-19, 08-24, 08-25, 08-26), todos con la
+   misma raíz: el browser del operador lleva DOS credenciales (cookie del panel +
+   Bearer del device) y algo del lado del server elige la equivocada. El cajero
+   se desloguea. Eso no es aceptable en una caja.
+2. **La cookie es la mitad ambiental del problema.** Una cookie viaja SOLA en
+   toda request same-origin: nadie la eligió, el browser la adjunta. Un Bearer
+   es explícito — el cliente HTTP lo pone a propósito. Sin cookie de panel, el
+   browser deja de mandar credenciales por su cuenta y la clase de bug "llevo dos
+   y el server elige mal" **deja de ser expresable**, no queda mitigada.
+3. **El riesgo que se cambia es menos probable que el que se elimina.** La
+   objeción clásica a Bearer es XSS (ver §4). Pero el panel es React con escapado
+   por defecto, el POS ya vive con su token en el browser desde siempre, y los
+   riesgos que de verdad enfrenta un tenant —phishing, dejar la sesión abierta en
+   una PC ajena— **afectan igual a cookie y a Bearer**. Cambiar un riesgo
+   hipotético por resolver uno que ocurre todas las semanas es la decisión
+   correcta.
 
-**Recomendación: Opción A** (cookie host-only + emisor único), no Bearer.
+Las mitigaciones de §4 no son condición para migrar: son el trabajo que hace que
+el saldo neto quede bien.
 
 ## 1. Cómo está hoy
 
-| Cookie | Emisor | Scope | Flags | Realm |
-|---|---|---|---|---|
-| `_jwt_panel` | `authSetOpaqueCookie` (PHP, único) | `domain=.punto.la` (wildcard) | HttpOnly, Lax, Secure | panel |
-| `_jwt_admin` | BFF admin (Next, único) | host-only | HttpOnly, Lax, Secure | admin |
-| `_jwt` | device pairing (legacy) | — | — | pos-app |
+| Cliente | Credencial | Realm |
+|---|---|---|
+| `lib/api-client.ts` (panel) | cookie `_jwt_panel` (`credentials:"include"`) | panel |
+| `lib/api/pos-fetch.ts` (device) | Bearer en el browser (`credentials:"omit"`) | pos-app |
 
-- El browser del operador solo habla con **`app.punto.la`** (el Next app). Todo
-  el tráfico a la API PHP es **server-to-server desde el BFF** (`API_URL`
-  interno), nunca del browser directo. → la cookie del panel **no necesita
-  cruzar subdominios**: el wildcard `.punto.la` es (hoy) vestigial.
-- `authResolve()` ya tiene precedencia Bearer-sobre-cookie y robustez
-  multi-candidato (context/08 §60). El POS ya es token-only.
+- Emisor único de la cookie: `authSetOpaqueCookie` (`api/includes/auth_session.php`),
+  con `COOKIE_DOMAIN=.punto.la`.
+- `authResolve()` **ya soporta Bearer para cualquier realm** y le da precedencia
+  sobre las cookies (context/08 §60). El backend no necesita un modelo nuevo.
+- **`/v1/login` YA devuelve el token en el body**
+  (`{ok:true, data:{token, expiresIn, user}}`) además de setear la cookie. La
+  credencial que el panel necesita ya está disponible para el cliente.
 
-## 2. Opción A — cookie host-only + emisor único (RECOMENDADA)
+## 2. Lo que hace la migración viable (verificado 2026-08-26)
 
-**Qué:** dejar de emitir `_jwt_panel` con `domain=.punto.la`; emitirla
-**host-only** (sin `domain`), igual que `_jwt_admin`. Un solo emisor, HttpOnly,
-`SameSite=Lax`, `Secure`.
+Se auditó el árbol buscando dependencias duras de la cookie. **No hay ninguna
+bloqueante:**
 
-**Por qué cierra la clase de bug:** sin `domain` wildcard, no pueden coexistir
-dos `_jwt_panel` de scope distinto en el mismo browser — es imposible que un
-consumidor lea una y otro consumidor lea otra. El leak de 2026-08-26 deja de
-ser expresable.
+- **Ningún Server Component depende de la cookie de auth.** Los dos layouts que
+  llaman `cookies()` (`app/(panel)/layout.tsx`, `app/(admin)/layout.tsx`) leen
+  `sidebar_state`, que es preferencia de UI. Era el riesgo grande (un Server
+  Component no puede leer el storage del browser) y no aplica.
+- **`PanelAuthGuard` ya es `"use client"`** — el gate de sesión del panel corre
+  en el cliente, donde el token es accesible.
+- **El backend ya está listo**: `authResolve` acepta Bearer en realm panel y
+  `login.php` ya entrega el token.
 
-**Por qué NO es un downgrade:** sigue siendo `HttpOnly` → un XSS no la roba. Se
-conserva todo lo bueno de la cookie; solo se saca el wildcard que sobra.
+Superficie a tocar (chica y enumerada): `lib/api-client.ts`, el catch-all
+`app/api/v1/[...path]/route.ts`, y los 4 route handlers que hoy reenvían la
+cookie cruda (`dashboard/income-chart`, `agent/chat`, `ocr-invoice`,
+`geo/autocomplete` vía `getTenantCountry`).
 
-**Prerrequisito DURO a confirmar con infra (owner):** que ningún browser del
-usuario pegue directo a otro subdominio que `app.punto.la` (ej. `api.punto.la`,
-`screen.punto.la`) esperando la cookie. Si TODO pasa por el BFF same-origin
-—como parece hoy— host-only alcanza. Si algún flujo del browser cruza
-subdominio, ese flujo hay que ruteralo por el BFF antes (o queda como la única
-`razón dura` para conservar el wildcard, y entonces se documenta acá).
+## 3. Fases
 
-**Alcance (chico):**
-1. `api/includes/auth_session.php` — `authSetOpaqueCookie`/`authClearCookie`:
-   dejar de aplicar `COOKIE_DOMAIN` a `_jwt_panel` (o directamente vaciar el env
-   en la config del panel). El set y el clear tienen que usar el MISMO scope
-   (un clear con domain distinto no borra la cookie → sesión zombie).
-2. Migración de sesiones vivas: las cookies domain-wide ya emitidas siguen
-   viajando hasta que expiren. Emitir un `Set-Cookie` de borrado de la variante
-   domain-wide en el próximo request autenticado (o forzar re-login). Sin esto,
-   por un tiempo conviven la vieja (domain) y la nueva (host-only) — el mismo
-   patrón de dos scopes que queremos matar. **El borrado de la variante vieja es
-   parte del fix, no un extra.**
-3. Guard de test: extender `panel-cookie-no-bearer.test.ts` (o el arnés PHP) a
-   que falle si `_jwt_panel` se emite con `domain`.
+**F1 — el cliente del panel manda Bearer.**
+`api-client.ts` deja de usar `credentials:"include"` y adjunta
+`Authorization: Bearer <token>`. El login guarda el token que `/v1/login` ya
+devuelve. La cookie se sigue emitiendo en paralelo (todavía no se rompe nada).
 
-**Qué NO rompe:** el POS (token-only, no toca esta cookie), la impersonación
-(ya propaga el `Set-Cookie` del upstream — heredaría el scope host-only sin
-cambios), el resto del panel (mismo origen).
+**F2 — los BFF dejan de depender de la cookie.**
+El catch-all pasa de `forwardCookie:true` a reenviar el `Authorization` entrante.
+Los 4 route handlers que reenvían `cookie` cruda pasan a reenviar `Authorization`.
+`getTenantCountry(cookie)` cambia de firma a token.
+Al terminar F2, **ninguna ruta del panel necesita la cookie**.
 
-## 3. Opción B — Bearer para el panel (pedido del owner)
+**F3 — cutover.** Se deja de emitir `_jwt_panel` y se borra la existente. Re-login
+masivo (los tokens de cookie no migran solos al storage del browser), igual que el
+cutover de context/21. A partir de acá el browser no lleva ninguna credencial
+ambiental de panel.
 
-**Qué:** el panel deja de usar cookie; guarda el token opaco `pt_` en memoria/
-`localStorage` y lo manda en `Authorization: Bearer` en cada request, como el
-POS. `authResolve` ya lo soporta (la precedencia Bearer ya existe).
+**F4 — limpieza.** Sacar `COOKIE_DOMAIN`, el path de cookie de panel en
+`authSetOpaqueCookie`, `forwardCookie` del proxy, y `_authAmbientTokens()` deja de
+mirar `_jwt_panel`. Actualizar context/08 §60: la tabla pasa a **Bearer para los
+dos clientes**, y el guard `panel-cookie-no-bearer.test.ts` se reemplaza por uno
+que exija que ninguna ruta del panel lea cookies de auth.
 
-**Fases:**
-- **F1** — `lib/api-client.ts` adjunta `Authorization: Bearer <token>` en vez de
-  depender de la cookie; el login guarda el token donde lo lea el cliente.
-- **F2** — el catch-all BFF `/api/v1/[...path]` deja de necesitar
-  `forwardCookie` para el panel (el Bearer viaja solo). `income-chart` y
-  cualquier route handler que hoy reenvía cookie pasan a reenviar el
-  `Authorization` entrante.
-- **F3** — cutover: re-login masivo (los tokens de cookie no migran a
-  localStorage solos). Igual que el cutover del auth rewrite (context/21).
-- **F4** — borrar `COOKIE_DOMAIN`, `authSetOpaqueCookie` para panel, y el
-  `forwardCookie` del catch-all. `_jwt_admin` decide aparte (mismo dilema).
+**Impersonación desde /admin (F2b, no olvidar).** Hoy el BFF de admin propaga el
+`Set-Cookie` del upstream para "entrar como empresa". Con el panel en Bearer, ese
+flujo pasa a **devolverle el token de la sesión impersonada al cliente**, que lo
+guarda como cualquier token de panel. `issuePanelSession` ya devuelve
+`['token' => ...]`, así que el cambio es de plumbing, no de modelo. Beneficio
+lateral: desaparece la SEGUNDA `_jwt_panel` en el browser del admin, que fue
+exactamente la causa del leak cross-tenant de `ad46b4c1`. `_jwt_admin` se decide
+aparte (mismo dilema, distinto realm, sin urgencia).
 
-**Qué ROMPE / a vigilar:**
-- **XSS = robo de sesión.** Es el costo real. Mitigaciones si se toma este
-  camino: tokens de vida corta + refresh, CSP estricta, y aún así la superficie
-  es peor que HttpOnly. Un panel es una app con mucho input de terceros
-  (nombres de productos, notas, etc.) — no es el modelo de amenaza del POS.
-- SSR / route handlers que hoy leen la cookie para pre-renderizar pierden la
-  credencial (el server no ve `localStorage`) — hay que pasar el token por otro
-  canal o mover esas lecturas al cliente.
-- CSRF cambia de forma: con Bearer no hay envío automático (bueno), pero hay que
-  asegurar que ningún endpoint siga aceptando la cookie como fallback para el
-  realm panel (si no, no ganás nada).
+## 4. Mitigaciones (parte del trabajo, no condición previa)
 
-## 4. Recomendación
+Un token legible por JavaScript se puede exfiltrar si alguien logra ejecutar
+script en la página (XSS). Para que el saldo quede favorable:
 
-**Opción A.** Cierra exactamente la clase de bug de los incidentes (scope de
-cookie divergente) al menor costo y SIN degradar la resistencia a XSS. La
-Opción B satisface la preferencia expresada del owner pero cambia un riesgo
-cerrado por uno peor y abierto; si el owner igual la quiere, que sea con los ojos
-en el tradeoff de XSS de §3, no como "lo seguro".
+- **Guardar el token en memoria del módulo, con `sessionStorage` de respaldo**
+  (no `localStorage`): muere al cerrar la pestaña y no queda en disco.
+- **Expiración corta + renovación.** Hoy el panel es 24h (`PANEL_JWT_TTL`). Con
+  Bearer conviene bajarlo y renovar, para que un token robado tenga ventana chica.
+- **CSP estricta** (sin `unsafe-inline`, sin hosts externos de script).
+- **Auditar `dangerouslySetInnerHTML`** y las plantillas de impresión — React
+  escapa por defecto, así que esos son los únicos puntos donde entra HTML crudo.
 
-Decisión del owner. Este doc no implementa ninguna de las dos — la auditoría
-2026-08-26 ya dejó cerrado el leak agudo (emisor único + income-chart), que es
-lo urgente; la elección A/B es el paso de fondo, sin apuro.
-
-## 4b. Impersonación desde /admin — cómo encaja (verificado 2026-08-26)
-
-Soporte impersona un tenant desde /admin para configurar/diagnosticar. **Clave:
-la impersonación NO es un override cross-tenant por header — se CONVIERTE en el
-tenant.** `PanelAuth::issuePanelSession()` (api/lib/Auth/PanelAuth.php) emite una
-sesión REAL de realm `panel` con `companyId`/`userId`/`roleId` del tenant
-destino, gateada por `adminMiddleware` + `adminRequireRole('support')` y
-registrada en `admin_audit`. A partir de ahí `AUTHED_COMPANY_ID` = el tenant
-impersonado.
-
-Consecuencia: **todo guard scopeado por companyId hace lo correcto bajo
-impersonación sin caso especial** — scopea al tenant impersonado, que es
-exactamente lo que soporte necesita ver/tocar:
-- El guard de pertenencia de `/v1/items` valida contra el companyId impersonado
-  → soporte edita el catálogo de ESE tenant normalmente.
-- El guard de `/v1/bancard` (mig 175) valida los QR del tenant impersonado.
-- El gate de permisos de `imports` respeta el rol de la sesión impersonada.
-- `income-chart` reenvía la cookie `_jwt_panel` de impersonación → resuelve el
-  tenant impersonado, consistente con el resto del dashboard. Esto es
-  justamente lo que arregla el leak: el bug era la SEGUNDA `_jwt_panel` que
-  crea la impersonación en el browser del admin (que ya tiene la suya) — con
-  emisor único + income-chart reenviando cookie cruda, solo una resuelve y
-  todas las rutas coinciden.
-
-Regla para el futuro: la impersonación funciona porque es una sesión de panel
-más, del tenant destino. Cualquier fix de aislamiento cross-tenant que scopee
-por `AUTHED_COMPANY_ID` es automáticamente compatible. Lo que NUNCA hay que
-hacer es que la impersonación acuñe una cookie de scope distinto al emisor
-canónico (fue la causa de `ad46b4c1`).
+**Contra phishing y sesión abierta en PC ajena** —que es el riesgo más probable
+en este negocio, y que cookie y Bearer sufren IGUAL— lo que sirve ya existe y
+conviene apretarlo: `auth_session` es revocable, hay UI en `/settings/sessions`, y
+el POS tiene bloqueo de pantalla. Vale sumar "cerrar todas mis sesiones" visible y
+expiración por inactividad.
 
 ## 5. Estado
 
-- [x] Emisor único de `_jwt_panel` (ad46b4c1) + `income-chart` deja de re-acuñar
-      Bearer (auditoría 2026-08-26).
-- [ ] Decisión owner: A (host-only) vs B (Bearer).
-- [ ] Confirmar con infra el prerrequisito de §2 (nada del browser cruza
-      subdominio).
+- [x] Emisor único de `_jwt_panel` (`ad46b4c1`) + `income-chart` deja de
+      re-acuñar la cookie como Bearer (auditoría 2026-08-26).
+- [x] Decisión del owner: **Bearer** (2026-08-26).
+- [x] Verificado que ningún Server Component depende de la cookie de auth.
+- [ ] F1 — `api-client.ts` a Bearer.
+- [ ] F2 — BFF sin cookie (+ F2b impersonación).
+- [ ] F3 — cutover: dejar de emitir `_jwt_panel`.
+- [ ] F4 — limpieza + context/08 §60 reescrito.
