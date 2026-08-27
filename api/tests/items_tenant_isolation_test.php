@@ -217,6 +217,22 @@ try {
         $checks
     );
 
+    // ── (f) El choke point está ARRIBA de TODAS las ramas id-based ────────────
+    // `ungroup` (`POST ?id=X&resource=ungroup`) vivía por ENCIMA del parseo de
+    // `$id`: leía un null y cortaba 422 siempre — la operación estuvo muerta
+    // desde que se escribió, y encima era la única rama id-based que el guard
+    // no cubría. Que el guard "cuelgue de $id" (e2) no alcanza si una rama que
+    // usa $id corre antes; esto fija el ORDEN.
+    $idParsePos  = strpos($src, "\$id = \$_GET['id']");
+    $groupBranch = strpos($src, "if (\$resource === 'group' || \$resource === 'ungroup')");
+    check(
+        '(f) $id se parsea ANTES del dispatch de group|ungroup',
+        $idParsePos !== false && $groupBranch !== false && $idParsePos < $groupBranch,
+        'parseo de $id en ' . var_export($idParsePos, true) . ', rama group|ungroup en ' . var_export($groupBranch, true),
+        $failures,
+        $checks
+    );
+
 } finally {
     foreach ($created['itemLocation'] as $it) {
         try { $db->Execute('DELETE FROM itemLocation WHERE itemId = ?', [$it]); } catch (\Throwable) {}
