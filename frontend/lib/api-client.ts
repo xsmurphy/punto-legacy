@@ -224,7 +224,15 @@ function safeJson(text: string): unknown {
 }
 
 export const api = {
-  get: <T>(path: string) => request<T>(path, { method: "GET" }),
+  /**
+   * `init` opcional para casos que necesitan control del fetch — hoy `signal`,
+   * para abortar requests obsoletas (typeahead). Existe para que esos
+   * call-sites NO tengan que caer a `fetch` crudo: un fetch directo a `/api/*`
+   * se salta la credencial del panel y el view-scope, que es exactamente cómo
+   * el chart de ingresos quedó en 401 al migrar a Bearer.
+   */
+  get: <T>(path: string, init?: Pick<RequestInit, "signal">) =>
+    request<T>(path, { method: "GET", ...init }),
   post: <T>(path: string, body?: Json) =>
     request<T>(path, {
       method: "POST",

@@ -171,3 +171,55 @@ describe("todo emisor de sesión de panel entrega el token al cliente", () => {
     expect(guard).toMatch(/clearPanelToken\(\)/)
   })
 })
+
+describe("el panel no usa `fetch` crudo contra su propio BFF", () => {
+  // Un `fetch("/api/...")` directo desde el panel se salta el api-client, que es
+  // el ÚNICO lugar que adjunta la credencial (Bearer) y el view-scope. Mientras
+  // el panel usó cookie el agujero era invisible: el browser la mandaba sola y
+  // el fetch crudo "funcionaba". Al migrar a Bearer, el chart de ingresos quedó
+  // devolviendo `BFF 401` en producción mientras el resto del dashboard cargaba
+  // normal — un solo widget roto, difícil de atribuir.
+  //
+  // Excepciones legítimas (no son credencial de panel):
+  //   - `/api/pos/*`      → los llama `pos-fetch.ts` con el Bearer del device.
+  //   - `/api/admin/*`    → realm admin, cookie `_jwt_admin` (F4 pendiente).
+  //   - `/api/geo/reverse`, `/api/geo/resolve-short-link` → sin auth de tenant.
+  //   - `/api/v1/einvoice-public` → endpoint público, por token en la URL.
+  const ALLOWED = [
+    /\/api\/pos\//,
+    /\/api\/admin\//,
+    /\/api\/geo\/reverse/,
+    /\/api\/geo\/resolve-short-link/,
+    /\/api\/v1\/einvoice-public/,
+  ]
+
+  function walk(dir: string): string[] {
+    const out: string[] = []
+    for (const dirent of readdirSync(dir, { withFileTypes: true })) {
+      if (dirent.name === "node_modules" || dirent.name === "__tests__") continue
+      const full = path.join(dir, dirent.name)
+      if (dirent.isDirectory()) out.push(...walk(full))
+      else if (/\.tsx?$/.test(dirent.name)) out.push(full)
+    }
+    return out
+  }
+
+  it("ningún call-site del panel llama fetch() a /api/ sin pasar por el api-client", () => {
+    const roots = ["app", "components", "hooks", "lib"].map((d) => path.join(FRONTEND_ROOT, d))
+    const offenders: string[] = []
+    for (const root of roots) {
+      for (const file of walk(root)) {
+        // Los route handlers del BFF corren en el server: su `fetch` va al
+        // backend PHP, no al propio BFF.
+        if (file.includes(path.join("app", "api"))) continue
+        const code = stripComments(readFileSync(file, "utf8"))
+        const matches = code.match(/fetch\(\s*[`"']\/api\/[^`"']*/g) ?? []
+        for (const m of matches) {
+          if (ALLOWED.some((re) => re.test(m))) continue
+          offenders.push(`${path.relative(FRONTEND_ROOT, file)} → ${m.slice(0, 60)}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+})

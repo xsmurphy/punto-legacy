@@ -157,22 +157,23 @@ import { readViewScope } from "@/hooks/use-view-scope"
 
 export function useIncomeChart(opts: { from: string; to: string }) {
   // El scope va en el queryKey para que React Query refetchee al cambiar de
-  // sucursal (este chart usa fetch crudo, no el api-client que ya manda el header).
+  // sucursal. El header `X-Outlet-Id` NO se manda a mano: lo pone el api-client.
   const scope = readViewScope()
   return useQ<IncomeChartData>({
     queryKey: ["bff", "income-chart", opts.from, opts.to, scope],
-    queryFn: async () => {
+    // Vía `api` y no `fetch` crudo: el api-client es el único lugar que sabe
+    // adjuntar la credencial del panel (Bearer, context/54 F1), el view-scope y
+    // el unwrap del envelope `{ok,data}`.
+    //
+    // Con `fetch` crudo + `credentials: "include"` esto se rompió apenas el
+    // panel dejó la cookie: el chart era el ÚNICO widget que se autenticaba solo
+    // —viajaba la cookie sin que nadie la mandara— y quedó sin credencial,
+    // devolviendo "BFF 401" mientras el resto del dashboard cargaba normal. Un
+    // `fetch` directo a `/api/*` desde el panel vuelve a introducir ese agujero;
+    // lo bloquea el guard `lib/auth/__tests__/realm-token-separation.test.ts`.
+    queryFn: () => {
       const params = new URLSearchParams({ from: opts.from, to: opts.to })
-      const res = await fetch(`/api/dashboard/income-chart?${params.toString()}`, {
-        credentials: "include",
-        // Sin api-client hay que reenviar el view-scope a mano para que el chart
-        // se filtre por la sucursal seleccionada (no por la del JWT).
-        headers: scope ? { "X-Outlet-Id": scope } : undefined,
-      })
-      if (!res.ok) throw new Error(`BFF ${res.status}`)
-      const env = (await res.json()) as { ok?: boolean; data?: IncomeChartData }
-      if (!env.ok || !env.data) throw new Error("BFF response inválido")
-      return env.data
+      return api.get<IncomeChartData>(`/dashboard/income-chart?${params.toString()}`)
     },
     staleTime: 60 * 1000,
     retry: false,

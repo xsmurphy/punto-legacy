@@ -17,6 +17,7 @@
  */
 
 import * as React from "react"
+import { api } from "@/lib/api-client"
 import type { GeoAutocompleteResponse, GeoSuggestion } from "@/lib/geo/types"
 
 export const ADDRESS_AUTOCOMPLETE_MIN_LENGTH = 3
@@ -45,15 +46,15 @@ export function useAddressAutocomplete(query: string) {
       abortRef.current = controller
       setIsLoading(true)
       try {
-        const res = await fetch(`/api/geo/autocomplete?q=${encodeURIComponent(trimmed)}`, {
-          signal: controller.signal,
-        })
-        if (!res.ok) {
-          setSuggestions([])
-          return
-        }
-        const json = (await res.json()) as GeoAutocompleteResponse
-        setSuggestions(json.suggestions ?? [])
+        // Vía `api` y no `fetch` crudo: `/api/geo/autocomplete` resuelve el país
+        // del tenant contra `/v1/settings`, que necesita la credencial del panel
+        // (Bearer, context/54 F1). Con fetch directo el país salía null y el
+        // typeahead perdía el sesgo geográfico en silencio.
+        const json = await api.get<GeoAutocompleteResponse>(
+          `/geo/autocomplete?q=${encodeURIComponent(trimmed)}`,
+          { signal: controller.signal },
+        )
+        setSuggestions(json?.suggestions ?? [])
       } catch {
         // Abort (query superada) o sin red — el form sigue funcionando con
         // escritura libre, no hay nada que reportar acá.
