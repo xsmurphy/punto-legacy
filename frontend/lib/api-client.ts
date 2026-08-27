@@ -265,6 +265,36 @@ export const api = {
       body: body ? JSON.stringify(body) : undefined,
     }),
   del: <T>(path: string) => request<T>(path, { method: "DELETE" }),
-  /** URL absoluta para descargas directas (CSV/PDF). */
+  /**
+   * Descarga autenticada: devuelve el Blob del endpoint (CSV, XLSX, PDF).
+   *
+   * No pasa por `request()` porque eso asume JSON. Existe para que las
+   * descargas NO caigan a `fetch` crudo: desde que el panel es Bearer
+   * (context/54 F1) una descarga con `credentials: "include"` no lleva
+   * credencial y devuelve 401 — le pasó a la plantilla de importación de
+   * artículos. Un `<a href>` o `window.open` tampoco sirven: no pueden
+   * adjuntar headers, así que la descarga tiene que pasar por acá y
+   * entregarse con `URL.createObjectURL`.
+   */
+  getBlob: async (path: string): Promise<Blob> => {
+    const headers: Record<string, string> = { Accept: "*/*" }
+    const token = getPanelToken()
+    if (token) headers["Authorization"] = `Bearer ${token}`
+    const res = await fetch(`${baseUrl()}${path}`, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "omit",
+      headers,
+    })
+    if (!res.ok) {
+      throw new ApiError(res.status, null, `GET ${path} → ${res.status}`)
+    }
+    return res.blob()
+  },
+  /**
+   * URL absoluta del endpoint. OJO: sirve para construir la request, NO para
+   * ponerla en un `<a href>` o `window.open` esperando que descargue — el
+   * browser no adjunta el Bearer en una navegación. Para descargar, `getBlob`.
+   */
   url: (path: string) => `${baseUrl()}${path}`,
 }

@@ -24,7 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { api } from "@/lib/api-client"
-import { useImportItems, importTemplateUrl, type ImportReport } from "@/hooks/use-items"
+import { useImportItems, TEMPLATE_PATH, type ImportReport } from "@/hooks/use-items"
 import { cn } from "@/lib/utils"
 
 export function ImportItemsDialog() {
@@ -107,10 +107,10 @@ export function ImportItemsDialog() {
 
   const onDownloadTemplate = async () => {
     try {
-      // Fetch con credentials para que el JWT viaje en el cookie cross-origin.
-      const res = await fetch(importTemplateUrl(), { credentials: "include" })
-      if (!res.ok) throw new Error("No se pudo descargar la plantilla")
-      const blob = await res.blob()
+      // `api.getBlob` y no `fetch` crudo: la descarga necesita la credencial del
+      // panel (Bearer, context/54 F1). Con `credentials: "include"` esto devolvía
+      // 401 desde que el panel dejó la cookie.
+      const blob = await api.getBlob(TEMPLATE_PATH)
       const url = URL.createObjectURL(blob)
       const a = document.createElement("a")
       a.href = url

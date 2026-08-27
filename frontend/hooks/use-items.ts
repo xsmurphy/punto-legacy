@@ -305,10 +305,15 @@ export function useImportItems() {
   })
 }
 
-/** URL absoluta para descargar la plantilla CSV. */
-export function importTemplateUrl(): string {
-  return api.url("/v1/items?resource=template")
-}
+/**
+ * Path de la plantilla CSV de importación.
+ *
+ * Es el PATH y no la URL absoluta a propósito: la descarga va por
+ * `api.getBlob()`, que adjunta la credencial del panel. Una URL absoluta
+ * invitaba a ponerla en un `<a href>`, y una navegación del browser no lleva el
+ * Bearer — devolvería 401 desde que el panel dejó la cookie (context/54 F1).
+ */
+export const TEMPLATE_PATH = "/v1/items?resource=template"
 
 // ── Recetas / Compuestos ───────────────────────────────────────────────────
 

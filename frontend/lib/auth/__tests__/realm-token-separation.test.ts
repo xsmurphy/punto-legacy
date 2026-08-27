@@ -223,3 +223,43 @@ describe("el panel no usa `fetch` crudo contra su propio BFF", () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe("nada del panel espera que la cookie viaje sola", () => {
+  // `credentials: "include"` es la huella de "esto se autenticaba solo". Es un
+  // marcador MÁS fuerte que buscar `fetch("/api/…")`: atrapa también la
+  // descarga que arma la URL con un helper, o cualquier variante que un grep de
+  // paths no ve. Fue el caso que se escapó en la primera pasada — la plantilla
+  // CSV de importación de artículos, que quedó devolviendo 401 en producción.
+  //
+  // Excepción: `/admin` sigue autenticando por cookie `_jwt_admin` (realm
+  // aparte, F4 pendiente). Cuando migre, sale de acá.
+  const ADMIN_FILES = [
+    path.join("lib", "api-admin.ts"),
+    path.join("hooks", "use-admin.ts"),
+  ]
+
+  function walk(dir: string): string[] {
+    const out: string[] = []
+    for (const dirent of readdirSync(dir, { withFileTypes: true })) {
+      if (dirent.name === "node_modules" || dirent.name === "__tests__") continue
+      const full = path.join(dir, dirent.name)
+      if (dirent.isDirectory()) out.push(...walk(full))
+      else if (/\.tsx?$/.test(dirent.name)) out.push(full)
+    }
+    return out
+  }
+
+  it("ningún archivo del panel usa `credentials: \"include\"`", () => {
+    const roots = ["app", "components", "hooks", "lib"].map((d) => path.join(FRONTEND_ROOT, d))
+    const offenders: string[] = []
+    for (const root of roots) {
+      for (const file of walk(root)) {
+        const rel = path.relative(FRONTEND_ROOT, file)
+        if (ADMIN_FILES.includes(rel)) continue
+        const code = stripComments(readFileSync(file, "utf8"))
+        if (/credentials:\s*["']include["']/.test(code)) offenders.push(rel)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+})
