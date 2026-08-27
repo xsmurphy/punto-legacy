@@ -28,14 +28,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json<GeoAutocompleteResponse>({ provider: "photon", suggestions: [] })
   }
 
-  const cookie = req.headers.get("cookie") ?? ""
+  // Bearer del panel (context/54 F2): esta ruta ya no ve cookies.
+  const authHeader = req.headers.get("authorization") ?? ""
   const countryParam = req.nextUrl.searchParams.get("country")?.trim()
   // Sin `|| "PY"`: si no se conoce el país del tenant, el typeahead va SIN
   // sesgo geográfico en vez de sesgarse a Paraguay. `photonAutocomplete` ya
   // acepta el caso "sin país" (fail-open documentado en get-tenant-country.ts)
   // — un resultado global es peor que uno local, pero mucho mejor que
   // proponerle calles de Asunción a un comercio de São Paulo.
-  const country = countryParam || (await getTenantCountry(cookie)) || null
+  const country = countryParam || (await getTenantCountry(authHeader)) || null
 
   try {
     const suggestions = await photonAutocomplete(q, country)

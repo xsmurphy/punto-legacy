@@ -19,6 +19,7 @@ import { AgentChatFloating } from "@/components/agent/agent-chat-floating"
 import { useSettings } from "@/hooks/use-settings"
 import { useViewScope } from "@/hooks/use-view-scope"
 import { api } from "@/lib/api-client"
+import { clearPanelToken } from "@/lib/auth/panel-token"
 import { useQueryClient } from "@tanstack/react-query"
 import { useModules } from "@/hooks/use-modules"
 import type { ModulesMap } from "@/lib/types/module"
@@ -80,18 +81,20 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   // 401 de bootstrap ahora lo captura AuthSentinel via evento api:unauthorized.
   // El useEffect anterior fue eliminado para evitar doble navegación.
 
-  // Logout del panel — borra SOLO `_jwt_panel` (la cookie del POS `_jwt`
-  // queda intacta porque modela device pairing, no sesión humana — ver
-  // [[project_pos_dual_session_model]]). Si el endpoint falla, igualmente
-  // limpiamos el cache de TanStack y redirigimos: el peor caso es que la
-  // cookie quede vigente hasta su TTL natural (24h) pero el usuario sí ve
-  // que "se cerró" porque cae al login.
+  // Logout del panel — revoca la sesión del panel en el server y borra SU token
+  // del browser. El token del POS (`lib/auth/device-token.ts`) queda intacto:
+  // modela device pairing, no sesión humana (ver
+  // [[project_pos_dual_session_model]]). Si el endpoint falla, igual limpiamos
+  // el token local, el cache de TanStack y redirigimos — el peor caso es que la
+  // sesión siga viva en la BD hasta su TTL natural, pero el browser ya no la
+  // tiene y el usuario sí ve que "se cerró" porque cae al login.
   const handleLogout = React.useCallback(async () => {
     try {
       await api.post("/v1/logout", {})
     } catch {
       // ignore: el redirect al login pasa igual
     }
+    clearPanelToken()
     qc.clear()
     router.replace("/login")
   }, [qc, router])
@@ -116,6 +119,7 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
     } catch {
       // igual salimos: sin logout la sesión impersonada expira sola en 24h
     }
+    clearPanelToken()
     document.cookie = "_imp_panel=; path=/; max-age=0"
     qc.clear()
     window.location.href = "/admin"

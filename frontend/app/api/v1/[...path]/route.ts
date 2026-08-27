@@ -8,8 +8,8 @@
  *
  * Este handler reenvía CUALQUIER request a `/api/v1/<...path>` hacia
  * `<API_URL>/v1/<...path>`, preservando método, headers relevantes, query
- * string y body. La cookie `_jwt_panel` la lee el handler y la pasa como
- * cookie al backend (mismo nombre — el bootstrap PHP la lee idéntico).
+ * string y body. La credencial viaja SIEMPRE en `Authorization: Bearer` (panel
+ * y POS) — `bffProxy` reenvía ese header tal cual.
  *
  * Endpoints reshape específicos (ej. `app/api/dashboard/income-chart/route.ts`)
  * NO chocan con este catch-all: viven en `app/api/dashboard/*`, no en
@@ -25,24 +25,27 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 /**
- * ÚNICA puerta del BFF que reenvía la cookie (`forwardCookie: true`): es la
- * puerta del PANEL, cuya credencial ES la cookie `_jwt_panel`. Todo `/api/pos/*`
- * es token-only y no la reenvía (ver `forwardCookie` en `lib/bff/proxy.ts`).
+ * TOKEN-ONLY, como todo el resto del BFF (context/54 F2, 2026-08-26).
  *
- * Esta puerta es multi-credencial a propósito y no puede dejar de serlo: el POS
- * también la usa, con Bearer, para los call-sites que no tienen un `/api/pos/*`
- * dedicado (ventas y cotizaciones vía `lib/api/pos-client.ts`). Por eso NO se
- * filtra el `authorization` acá — se rompería la venta.
+ * Esta era la ÚNICA puerta con `forwardCookie: true`, porque la credencial del
+ * panel ERA la cookie `_jwt_panel`. Con el panel en Bearer ya no hay ninguna
+ * cookie que reenviar: los dos realms que usan esta puerta —el panel
+ * (`lib/api-client.ts`) y el POS (`lib/api/pos-client.ts`, para ventas y
+ * cotizaciones)— mandan su propio Bearer, y `bffProxy` reenvía `authorization`
+ * siempre.
  *
- * Lo que resuelve la ambigüedad cuando llegan las dos credenciales juntas es la
- * precedencia de Bearer de `authResolve()` (`api/includes/auth_session.php`):
- * con Bearer presente, la cookie se ignora y el realm lo define el Bearer.
+ * Que esta puerta ya no acepte cookies es el punto del cambio: mientras las
+ * reenviaba, una request del POS podía llegar al backend con DOS credenciales
+ * (su Bearer + la cookie del operador, que el browser adjuntaba sola), y de ahí
+ * salieron cuatro incidentes de sesión cruzada. Ahora llega UNA, la que el
+ * cliente eligió mandar. La precedencia de Bearer en `authResolve()` sigue en su
+ * lugar como defensa en profundidad, pero ya no hay ambigüedad que resolver.
  */
 async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) {
   const { path } = await ctx.params
   const tail = (path ?? []).join("/")
   const search = req.nextUrl.search // incluye `?` si hay query
-  return bffProxy(req, { upstreamPath: `/v1/${tail}${search}`, forwardCookie: true })
+  return bffProxy(req, { upstreamPath: `/v1/${tail}${search}` })
 }
 
 export const GET     = proxy

@@ -59,7 +59,7 @@ const actionItemSchema = payloadSchema.extend({
 })
 
 async function registerConfirmation(
-  cookie: string,
+  authHeader: string,
   apiUrl: string,
   actions: Array<{ action: string; payload: unknown }>,
   summary: string,
@@ -68,7 +68,7 @@ async function registerConfirmation(
   try {
     const res = await fetch(`${apiUrl}/v1/ai/confirm`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", cookie },
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
       body: JSON.stringify({ actions, summary }),
     })
     const bodyText = await res.text()
@@ -93,12 +93,12 @@ async function registerConfirmation(
   }
 }
 
-async function executeConfirmation(cookie: string, apiUrl: string, confirmToken: string) {
+async function executeConfirmation(authHeader: string, apiUrl: string, confirmToken: string) {
   console.error("[agent] execute_action confirmToken", JSON.stringify(confirmToken))
   try {
     const res = await fetch(`${apiUrl}/v1/ai/execute`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", cookie },
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
       body: JSON.stringify({ confirmToken }),
     })
     const bodyText = await res.text()
@@ -113,7 +113,7 @@ async function executeConfirmation(cookie: string, apiUrl: string, confirmToken:
   }
 }
 
-export function makeActionTools(cookie: string, apiUrl: string) {
+export function makeActionTools(authHeader: string, apiUrl: string) {
   return {
     register_action: tool({
       description:
@@ -125,7 +125,7 @@ export function makeActionTools(cookie: string, apiUrl: string) {
       execute: async ({ actions, summary }) => {
         // Re-anidar plano → {action, payload} que espera el backend, intacto.
         const nested = actions.map(({ action, ...fields }) => ({ action, payload: fields }))
-        return registerConfirmation(cookie, apiUrl, nested, summary)
+        return registerConfirmation(authHeader, apiUrl, nested, summary)
       },
     }),
 
@@ -135,7 +135,7 @@ export function makeActionTools(cookie: string, apiUrl: string) {
       inputSchema: z.object({
         confirmToken: z.string().describe("Token devuelto por register_action"),
       }),
-      execute: async ({ confirmToken }) => executeConfirmation(cookie, apiUrl, confirmToken),
+      execute: async ({ confirmToken }) => executeConfirmation(authHeader, apiUrl, confirmToken),
     }),
   }
 }

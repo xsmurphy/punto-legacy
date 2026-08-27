@@ -31,7 +31,8 @@ export async function POST(req: Request) {
     return Response.json({ error: "OPENROUTER_API_KEY no configurada" }, { status: 500 })
   }
 
-  const cookie = req.headers.get("cookie") ?? ""
+  // Bearer del panel (context/54 F2): se reenvía tal cual al backend.
+  const authHeader = req.headers.get("authorization") ?? ""
   const apiUrl = process.env.API_URL ?? ""
 
   type PageSnapshot = {
@@ -61,10 +62,10 @@ export async function POST(req: Request) {
   // agente salgan de la MISMA sucursal que el resto del panel, no la del JWT.
   // Si no hay override (viewOutletId vacío), el backend usa el outlet del JWT.
   // Los fetches de infra (ai/config, balance, debit, settings) son tenant-level
-  // y NO se scopean — siguen usando solo `{ cookie }`.
+  // y NO se scopean — siguen usando solo la credencial.
   const dataHeaders: Record<string, string> = viewOutletId
-    ? { cookie, "X-Outlet-Id": viewOutletId }
-    : { cookie }
+    ? { Authorization: authHeader, "X-Outlet-Id": viewOutletId }
+    : { Authorization: authHeader }
 
   // Elegir modelo desde la config del tenant (fail-safe: deepseek por defecto)
   // Fallback si `/v1/ai/config` no responde. Mantener alineado con el seed de
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
   let modelId = "deepseek/deepseek-v4-flash"
   try {
     const configRes = await fetch(`${apiUrl}/v1/ai/config`, {
-      headers: { cookie },
+      headers: { Authorization: authHeader },
     })
     if (configRes.ok) {
       const config = (await configRes.json()) as Record<
@@ -96,7 +97,7 @@ export async function POST(req: Request) {
   // verificar el balance, no procede (antes era fail-open).
   const requestId = crypto.randomUUID()
   try {
-    await assertAiCredits({ apiUrl, cookie, logPrefix: "[agent]" })
+    await assertAiCredits({ apiUrl, authHeader, logPrefix: "[agent]" })
   } catch (e) {
     if (e instanceof AiCreditsError) {
       return Response.json({ error: e.message }, { status: e.status })
@@ -114,7 +115,7 @@ export async function POST(req: Request) {
   let agentName = "Asistente"
   let agentPersonality: AgentPersonality = "professional"
   try {
-    const setRes = await fetch(`${apiUrl}/v1/settings`, { headers: { cookie } })
+    const setRes = await fetch(`${apiUrl}/v1/settings`, { headers: { Authorization: authHeader } })
     if (setRes.ok) {
       const sj = (await setRes.json()) as { data?: Record<string, unknown> } & Record<string, unknown>
       const s = (sj.data ?? sj) as Record<string, unknown>
@@ -244,7 +245,7 @@ export async function POST(req: Request) {
       const tokensOut = Number(usage.outputTokens ?? 0)
       await debitAiUsage({
         apiUrl,
-        cookie,
+        authHeader,
         tokensIn,
         tokensOut,
         capability: "chat",
@@ -509,7 +510,7 @@ export async function POST(req: Request) {
         inputSchema: z.object({}),
         execute: async () => {
           try {
-            const res = await fetch(`${apiUrl}/v1/settings`, { headers: { cookie } })
+            const res = await fetch(`${apiUrl}/v1/settings`, { headers: { Authorization: authHeader } })
             if (!res.ok) return { error: `Error ${res.status}` }
             const json = (await res.json()) as { data?: unknown }
             return json?.data ?? json
@@ -713,7 +714,7 @@ export async function POST(req: Request) {
         },
       }),
 
-      ...makeActionTools(cookie, apiUrl),
+      ...makeActionTools(authHeader, apiUrl),
     },
   })
 

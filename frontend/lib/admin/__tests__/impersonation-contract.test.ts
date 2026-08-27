@@ -9,21 +9,23 @@ import path from "node:path"
  * distinto. Ninguna de las tres es obvia leyendo las otras dos:
  *
  *   1. `api/v1/admin/companies.php` (?action=enter) responde `{token, expiresIn}`.
- *      El token va en el body a propósito: no lo consume el navegador.
- *   2. `app/api/admin/[...path]/route.ts` (BFF) intercepta esa respuesta, guarda
- *      el token como cookie `_jwt_panel` HttpOnly con las banderas del front, y
- *      responde otra cosa: `{ok, redirectUrl}`.
- *   3. La ficha del tenant abre `redirectUrl` en una pestaña nueva.
+ *   2. `app/api/admin/[...path]/route.ts` (BFF) intercepta esa respuesta y la
+ *      reenvía al cliente como `{ok, redirectUrl, token, expiresIn}`.
+ *   3. La ficha del tenant guarda el token con `setPanelToken()` y abre
+ *      `redirectUrl` en una pestaña nueva.
  *
  * El 2026-08-25 se "alineó" el paso 1 con el paso 3 —que efectivamente no
- * encajan entre sí— sin ver el paso 2, que era el que los unía. Resultado: el
- * BFF dejó de encontrar el token y devolvió 502 "Backend no devolvió token de
- * impersonación". Nada en el repo lo verificaba, porque el contrato cruza dos
- * lenguajes y ningún test miraba los dos lados a la vez.
+ * encajan entre sí— sin ver el paso 2, que era el que los unía. Resultado: 502
+ * "Backend no devolvió token de impersonación". Nada en el repo lo verificaba,
+ * porque el contrato cruza dos lenguajes y ningún test miraba los dos lados.
  *
- * Estos chequeos son de código, no de runtime: garantizan que las tres piezas
- * sigan nombrando lo mismo. Si el flujo se rediseña, se cambian los tres juntos
- * y este archivo con ellos — que es exactamente el punto.
+ * ── Cambio de modelo (context/54 F1/F2b, 2026-08-26) ────────────────────────
+ * Antes el BFF convertía el token en una cookie `_jwt_panel` HttpOnly. Ahora el
+ * panel es Bearer, así que el token viaja al cliente y se guarda en el storage
+ * del panel. Eso además elimina de raíz el leak cross-tenant del 2026-08-26: la
+ * impersonación acuñaba una SEGUNDA `_jwt_panel` con scope distinto al del
+ * emisor PHP, y cada consumidor resolvía una sesión diferente. Con una sola
+ * clave de storage no pueden coexistir dos credenciales de panel.
  */
 
 const FRONTEND = path.resolve(import.meta.dirname, "../../..")
@@ -49,29 +51,45 @@ describe("contrato de impersonación /admin", () => {
     expect(BFF).toMatch(/urlParams\.get\("action"\) === "enter"/)
   })
 
-  it("el BFF entrega la credencial por headers crudos, nunca res.cookies", () => {
-    // ResponseCookies re-serializa el header `set-cookie` entero en CADA
-    // `set()`, pisando cualquier `headers.append()` previo — mezclar las dos
-    // APIs dejó la impersonación sin cookie canónica (2026-08-26, "Tu sesión
-    // expiró" al abrir el panel). En esta rama se usa UNA sola API: append.
-    expect(BFF).toMatch(/headers\.append\(\s*"set-cookie",\s*`_jwt_panel=\$\{token\}/)
-    const enterBranch = BFF.slice(BFF.indexOf("UN SOLO EMISOR"), BFF.indexOf("ok=true sin token"))
-    expect(enterBranch).not.toMatch(/res\.cookies\.set/)
+  it("el BFF reenvía el token al cliente junto con redirectUrl", () => {
+    // Las tres puntas tienen que nombrar lo mismo: BFF lo emite, el hook lo
+    // tipa, la página lo consume.
+    expect(BFF).toMatch(/NextResponse\.json\(\{\s*ok:\s*true,\s*redirectUrl:\s*"\/",\s*token,\s*expiresIn\s*\}\)/)
+    expect(HOOK).toMatch(/apiAdmin\.post<\{[^}]*token:\s*string/)
+    expect(PAGE).toMatch(/res\?\.redirectUrl/)
+    expect(PAGE).toMatch(/res\.token/)
+  })
+
+  it("el BFF NO acuña ninguna cookie de sesión de panel", () => {
+    // El panel es Bearer: una cookie de sesión emitida acá sería una segunda
+    // credencial conviviendo con el token del storage — exactamente la forma
+    // del leak cross-tenant de 2026-08-26, que nació de dos `_jwt_panel` con
+    // scopes distintos. Lo único permitido es el BORRADO de la variante legacy.
+    expect(BFF).not.toMatch(/set-cookie",\s*`_jwt_panel=\$\{token\}/)
+    expect(BFF).not.toMatch(/cookies\.set\(\s*"_jwt_panel"/)
+    expect(BFF).toMatch(/"set-cookie", "_jwt_panel=; Path=\/; Max-Age=0"/)
     // El realm admin no puede quedar tocado por impersonar: la sesión del
     // operador de /admin sigue siendo la suya.
     expect(BFF).not.toMatch(/cookies\(\)\.delete\("_jwt_admin"\)/)
   })
 
-  it("el BFF responde redirectUrl, que es lo que consume el front", () => {
-    expect(BFF).toMatch(/NextResponse\.json\(\{\s*ok:\s*true,\s*redirectUrl:/)
-    expect(HOOK).toMatch(/apiAdmin\.post<\{\s*redirectUrl:\s*string\s*\}>/)
-    expect(PAGE).toMatch(/res\?\.redirectUrl/)
+  it("el cliente guarda el token en el storage del PANEL, no en otro lado", () => {
+    // `setPanelToken` es la única puerta de escritura de esa credencial
+    // (lib/auth/panel-token.ts). Escribirla a mano en localStorage o pasarla por
+    // la URL la dejaría fuera de ese control — y por la URL además quedaría en
+    // el historial y en los logs del server.
+    expect(PAGE).toMatch(/setPanelToken\(res\.token\)/)
+    // Acotado a la vecindad del token: esta página usa `localStorage` para otra
+    // cosa (confirmación de borrado), y prohibirlo entero daría un falso rojo.
+    expect(PAGE).not.toMatch(/localStorage[\s\S]{0,60}token/)
+    expect(PAGE).not.toMatch(/redirectUrl[\s\S]{0,40}\?token=/)
   })
 
-  it("la marca _imp_panel acompaña a la cookie y el panel la consume", () => {
-    // El BFF setea la marca legible por JS junto a `_jwt_panel`; el guard del
-    // panel la lee para mostrar "Salir de impersonación" y la borra al salir.
-    // Si una punta se renombra sin la otra, el botón desaparece en silencio.
+  it("la marca _imp_panel acompaña a la sesión y el panel la consume", () => {
+    // Marca legible por JS, cosmética: el guard del panel la lee para mostrar
+    // "Salir de impersonación" y la borra al salir. No es autoridad — forjarla
+    // apenas muestra un botón cuyo click hace logout. Si una punta se renombra
+    // sin la otra, el botón desaparece en silencio.
     expect(BFF).toMatch(/headers\.append\(\s*"set-cookie",\s*`_imp_panel=1/)
     const GUARD = read(path.join(FRONTEND, "components/layout/panel-auth-guard.tsx"))
     expect(GUARD).toMatch(/_imp_panel=1/)
@@ -79,22 +97,11 @@ describe("contrato de impersonación /admin", () => {
     expect(GUARD).toMatch(/window\.location\.href = "\/admin"/)
   })
 
-  it("el BFF no inventa una segunda `_jwt_panel` con scope propio", () => {
-    // Dos cookies del mismo nombre en scopes distintos (una con
-    // `domain=.punto.la` del emisor PHP, otra host-only del BFF) son dos
-    // sesiones simultáneas en el mismo browser: PHP lee una y `cookies.get()`
-    // de Next lee la otra, así que el panel puede resolver un tenant y un
-    // widget otro. Fue un leak cross-tenant real (2026-08-26). La cookie se
-    // propaga del upstream; el único `set` propio permitido es el borrado de
-    // la variante vieja y el fallback si el upstream no la emitió.
-    expect(BFF).toMatch(/getSetCookie/)
-    expect(BFF).toMatch(/"set-cookie", "_jwt_panel=; Path=\/; Max-Age=0"/)
-  })
-
-  it("el token nunca se guarda del lado del cliente", () => {
-    // Si alguien lo pasa por localStorage o por la URL, deja de ser HttpOnly y
-    // se vuelve una credencial de panel al alcance de cualquier script.
-    expect(PAGE).not.toMatch(/localStorage[\s\S]{0,40}token/)
-    expect(PAGE).not.toMatch(/redirectUrl[\s\S]{0,40}\?token=/)
+  it("salir de impersonación borra el token del panel", () => {
+    // Sin esto, cerrar la impersonación dejaba la credencial del tenant viva en
+    // el browser del admin: el botón devuelve a /admin pero la sesión sigue
+    // usable desde cualquier pestaña del panel.
+    const GUARD = read(path.join(FRONTEND, "components/layout/panel-auth-guard.tsx"))
+    expect(GUARD).toMatch(/clearPanelToken\(\)/)
   })
 })

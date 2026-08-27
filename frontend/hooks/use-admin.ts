@@ -480,7 +480,10 @@ export function useAdminHardDelete() {
 export function useAdminEnterCompany() {
   return useMutation({
     mutationFn: (id: string) =>
-      apiAdmin.post<{ redirectUrl: string }>(
+      // `token`: la credencial de la sesión impersonada. El panel es Bearer
+      // (context/54 F1), así que el BFF la devuelve en el body en vez de
+      // acuñar una cookie — el caller la guarda con `setPanelToken()`.
+      apiAdmin.post<{ redirectUrl: string; token: string; expiresIn: number }>(
         `/companies.php?id=${encodeURIComponent(id)}&action=enter`,
         {},
       ),

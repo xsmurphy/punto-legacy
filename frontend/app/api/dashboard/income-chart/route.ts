@@ -14,9 +14,9 @@ import { NextRequest, NextResponse } from "next/server"
  *     <LineChart>
  *   - Frontend (frontend page): solo renderea
  *
- * El JWT viaja por cookie `_jwt_panel` (domain .punto.la → server-to-server
- * tiene que pasarla manualmente porque fetch desde route handler no la
- * propaga automáticamente).
+ * La credencial viaja en `Authorization: Bearer` (context/54 F2) y este
+ * handler la reenvía tal cual al backend — un fetch desde un route handler no
+ * propaga nada automáticamente.
  */
 
 interface SeriesBucket {
@@ -50,20 +50,18 @@ export interface IncomeChartResponse {
 }
 
 export async function GET(req: NextRequest) {
-  // Reenviar el header `cookie` CRUDO al backend — igual que el catch-all
-  // /api/v1, agent/chat, ocr y geo. NO extraer `_jwt_panel` por nombre para
-  // re-acuñarla como `Authorization: Bearer`: `req.cookies.get()` de Next
-  // devuelve UNA de dos cookies homónimas (la primera) mientras PHP parsea la
-  // última, y mandar ese valor como Bearer le da PRECEDENCIA en `authResolve`
-  // (api/includes/auth_session.php). Así este widget resolvía un tenant
-  // distinto al del resto del dashboard — el leak cross-tenant que vio el owner
-  // (2026-08-26): KPIs de la empresa correcta, barras de OTRA. Reenviando la
-  // cookie cruda, income-chart resuelve por el MISMO `authResolve` que las
-  // demás rutas de panel, así que no puede divergir por más emisores de
-  // `_jwt_panel` que lleguen a existir. Además respeta §60 (cookie = panel,
-  // Bearer = device): un valor de cookie nunca debe viajar como Bearer.
-  const cookie = req.headers.get("cookie") ?? ""
-  if (!/(?:^|;\s*)_jwt_panel=/.test(cookie)) {
+  // Reenviar el `Authorization` entrante TAL CUAL (context/54 F2). El panel es
+  // Bearer: el token lo manda `lib/api-client.ts` desde `lib/auth/panel-token.ts`.
+  //
+  // Este handler fue el origen del leak cross-tenant del 2026-08-26: extraía
+  // `_jwt_panel` por nombre con `req.cookies.get()` y la re-acuñaba como Bearer.
+  // Con dos cookies homónimas en scopes distintos, Next devolvía una y PHP
+  // parseaba la otra, así que el chart resolvía un tenant y el resto del
+  // dashboard otro. Sin cookies en juego, esa clase de bug no existe: hay una
+  // sola credencial y es la que el cliente eligió mandar. No volver a leer
+  // cookies acá.
+  const auth = req.headers.get("authorization") ?? ""
+  if (!/^Bearer\s+\S+/i.test(auth)) {
     return NextResponse.json({ ok: false, error: "no autenticado" }, { status: 401 })
   }
 
@@ -77,7 +75,7 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  // Server-side, no CORS — reenviamos la cookie de sesión del panel tal cual.
+  // Server-side, no CORS — reenviamos el Bearer del panel tal cual.
   const apiBase = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL
   if (!apiBase) {
     return NextResponse.json({ ok: false, error: "API_URL no configurada" }, { status: 500 })
@@ -91,7 +89,7 @@ export async function GET(req: NextRequest) {
 
   const res = await fetch(url, {
     headers: {
-      cookie,
+      Authorization: auth,
       Accept: "application/json",
       ...(viewOutlet ? { "X-Outlet-Id": viewOutlet } : {}),
     },

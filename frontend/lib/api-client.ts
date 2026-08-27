@@ -11,25 +11,30 @@
  * devuelve `/api` y se concatena → `/api/v1/contacts` que matchea el
  * catch-all del BFF. Same-origin, sin CORS, cookie viaja sola.
  *
- * INVARIANTE DE REALM (decisión de arquitectura, 2026-07-19 — `context/08` §60):
- * **cookie = panel, Bearer = device.** Un cliente HTTP habla UN realm. Este
- * cliente es SOLO panel: autentica por cookie (`credentials: "include"`,
- * `_jwt_panel`) y NUNCA manda `Authorization`. El POS usa el suyo
- * (`lib/api/pos-client.ts` / `lib/api/pos-fetch.ts`), que adjunta el Bearer y
- * no manda cookies (`credentials: "omit"`).
+ * INVARIANTE DE REALM (decisión del owner 2026-08-26 — `context/54`, F1):
+ * **un cliente HTTP habla UN realm, con SU token.** Este cliente es SOLO panel:
+ * adjunta el Bearer de `lib/auth/panel-token.ts` y NO manda cookies
+ * (`credentials: "omit"`). El POS usa el suyo (`lib/api/pos-fetch.ts`), que
+ * adjunta el Bearer de `lib/auth/device-token.ts`.
  *
- * Por qué: el browser del operador tiene cookie de panel Y token de device
- * (caja pareada en la misma máquina). Si este cliente adjuntara el Bearer como
- * fallback, el resolver del server —que da precedencia al Bearer— autenticaría
- * la request de PANEL como DEVICE → outlet scope equivocado (bug real: espacios
- * creados en la sucursal del device, no la elegida en el panel).
+ * Este archivo NUNCA debe importar `lib/auth/device-token` (ni al revés): son
+ * dos credenciales de dos realms distintos, y mezclarlas es exactamente el bug
+ * que este cambio elimina. Lo verifica en CI
+ * `lib/auth/__tests__/realm-token-separation.test.ts`.
  *
- * Hasta 2026-08-25 este archivo ofrecía una opción `jwt` que seteaba
- * `Authorization: Bearer` — contradecía la decisión de arriba y no la usaba
- * NINGÚN call-site. Se eliminó: la puerta que no debe existir se cierra, no se
- * deja abierta sin usar. No reintroducirla.
+ * Por qué se fue la cookie: panel y `/pos` conviven en el MISMO navegador. Una
+ * cookie viaja SOLA en toda request same-origin, así que el server recibía dos
+ * credenciales sin que nadie las pidiera y tenía que adivinar cuál usar — cuatro
+ * incidentes de sesión cruzada en dos meses y deslogueos del POS en la caja. Con
+ * los dos clientes en Bearer, cada request lleva UNA credencial explícita: no hay
+ * lista de candidatos que resolver, la ambigüedad desaparece.
+ *
+ * `credentials: "omit"` no es cosmético: el BFF es same-origin y el default de
+ * fetch (`same-origin`) mandaría las cookies igual. Ser token-only exige pedir
+ * explícitamente que no viajen — misma razón que en `pos-fetch.ts`.
  */
 
+import { getPanelToken } from "@/lib/auth/panel-token"
 import { VIEW_SCOPE_KEY } from "@/hooks/use-view-scope"
 
 type Json = Record<string, unknown> | unknown[]
@@ -106,8 +111,14 @@ async function request<T>(
     // No setear Content-Type para FormData — fetch lo arma con el boundary correcto.
     baseHeaders["Content-Type"] = "application/json"
   }
-  // Acá NO se setea `Authorization`. Este cliente es cookie-pura por decisión
-  // de arquitectura — ver el docblock del módulo y `context/08` §60.
+  // Bearer del PANEL — nunca el del device (ver invariante en el docblock).
+  // Sin token igual se manda la request: el 401 del server dispara el evento
+  // `api:unauthorized` que AuthSentinel ya escucha para mandar al login, que es
+  // el camino que la UI espera. Cortar acá en seco cambiaría ese contrato.
+  const panelToken = getPanelToken()
+  if (panelToken) {
+    baseHeaders["Authorization"] = `Bearer ${panelToken}`
+  }
 
   // View-scope override del outlet: si el usuario eligió una sucursal o
   // "Todas" desde el dropdown del logo, mandamos `X-Outlet-Id` para que
@@ -130,7 +141,9 @@ async function request<T>(
     // sucursal anterior (misma URL) al cambiar de scope → los reportes "no se
     // actualizan". Forzamos red siempre: estos reads son per-outlet/per-tenant.
     cache: "no-store",
-    credentials: "include",
+    // Token-only: el BFF es same-origin y el default de fetch mandaría las
+    // cookies igual. Ver el invariante de realm en el docblock.
+    credentials: "omit",
     headers: {
       ...baseHeaders,
       ...headers,
@@ -152,9 +165,9 @@ async function request<T>(
     // 401 del api-client, no solo el de useBootstrap.
     if (res.status === 401 && typeof window !== "undefined") {
       const backendCode = envelope?.error?.code
-      // Este cliente es SOLO panel: un 401 acá significa que la COOKIE del panel
-      // murió (expiró a las 24h, se cerró sesión, se revocó) — nunca dice nada
-      // sobre la sesión del device.
+      // Este cliente es SOLO panel: un 401 acá significa que el TOKEN del panel
+      // murió (expiró, se cerró sesión, se revocó) — nunca dice nada sobre la
+      // sesión del device.
       //
       // Antes, un heurístico por prefijo de path ("/v1/sales", "/v1/transactions",
       // …) asumía "401 en ruta POS = device muerto" y llamaba `moduleLogout()`,

@@ -35,9 +35,10 @@ import { describe, expect, it } from "vitest"
  *       que no usan el proxy.
  *
  * La contraparte de este guard está en PHP
- * (`api/tests/pos_token_only_precedence_test.php`): cubre la puerta que SÍ es
- * multi-credencial (el catch-all `/api/v1/*`, que el panel usa con cookie y el
- * POS con Bearer) verificando la precedencia de `authResolve()`.
+ * (`api/tests/pos_token_only_precedence_test.php`): verifica la precedencia de
+ * `authResolve()`, que desde context/54 F2 queda como defensa en profundidad —
+ * el catch-all `/api/v1/*` ya no reenvía cookies, así que el panel y el POS lo
+ * usan cada uno con SU Bearer y no hay ambigüedad que resolver.
  */
 
 // lib/bff/__tests__ → raíz de `frontend/`
@@ -82,17 +83,16 @@ describe("/api/pos/* es token-only", () => {
     expect(routeFiles.length).toBeGreaterThan(0)
   })
 
-  it("el catch-all del panel es el ÚNICO opt-in de forwardCookie en todo el BFF", () => {
-    // Escanear solo `/api/pos/**` deja un hueco: una ruta NUEVA fuera de ese
-    // directorio podría reenviar la cookie a un endpoint que el POS consume, y
-    // el guard de arriba no la vería. `forwardCookie: true` es la decisión de
-    // "esta puerta es multi-credencial", y hoy solo hay UNA puerta así.
+  it("NINGUNA ruta del BFF reenvía la cookie (`forwardCookie` no tiene opt-ins)", () => {
+    // Antes el catch-all `/api/v1` era el único opt-in legítimo, porque la
+    // credencial del PANEL era la cookie `_jwt_panel`. Desde context/54 F2 el
+    // panel es Bearer, así que ya no queda ninguna puerta multi-credencial: cada
+    // request llega con UNA credencial explícita. Un `forwardCookie: true` nuevo
+    // reabriría el escenario de los cuatro incidentes de sesión cruzada.
     const optIns = listRoutes(API_DIR).filter((f) =>
       /forwardCookie\s*:\s*true/.test(stripComments(readFileSync(f, "utf8"))),
     )
-    expect(optIns.map((f) => path.relative(FRONTEND_ROOT, f))).toEqual([
-      path.join("app", "api", "v1", "[...path]", "route.ts"),
-    ])
+    expect(optIns.map((f) => path.relative(FRONTEND_ROOT, f))).toEqual([])
   })
 
   describe.each(routeFiles.map((f) => [path.relative(FRONTEND_ROOT, f), f] as const))(

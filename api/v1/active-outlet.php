@@ -74,8 +74,14 @@ $jwt = \Punto\Api\Auth\PanelAuth::issuePanelSession([
     'role'      => $ctx['roleId'],
 ], (string) $row['outletId']);
 
+// `token`: cambiar de sucursal RE-EMITE la sesión de panel (con el outlet
+// nuevo), así que hay una credencial nueva y el cliente tiene que adoptarla. El
+// panel es Bearer (context/54 F1): si el token se quedara solo en la cookie, el
+// front seguiría mandando el ANTERIOR y el cambio de sucursal no tendría efecto
+// — el panel diría "Sucursal B" mientras el backend sigue resolviendo A.
 apiOk([
     'outletId'   => (string) $row['outletId'],
     'outletName' => (string) $row['outletName'],
     'expiresIn'  => $jwt['expiresIn'],
+    'token'      => $jwt['token'],
 ]);

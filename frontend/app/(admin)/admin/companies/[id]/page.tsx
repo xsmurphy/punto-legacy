@@ -125,6 +125,7 @@ import {
   type AdminHealthChecklistItem,
 } from "@/hooks/use-admin"
 import { AdminApiError } from "@/lib/api-admin"
+import { setPanelToken } from "@/lib/auth/panel-token"
 import { formatPhone } from "@/lib/phone"
 import {
   formatPuntoSaasDate,
@@ -246,9 +247,20 @@ function HeaderActions({ id }: { id: string }) {
   const handleEnter = () => {
     enterCompany.mutate(id, {
       onSuccess: (res) => {
+        if (!res?.token) {
+          toast.error("El servidor no devolvió la sesión de la empresa")
+          return
+        }
+        // El panel es Bearer (context/54 F1): guardamos el token de la sesión
+        // impersonada ANTES de abrir la pestaña. `localStorage` es del origen,
+        // no de la pestaña, así que la que abre abajo ya lo encuentra.
+        //
+        // Esto PISA el token de panel que el admin pudiera tener (sesión propia
+        // en el mismo browser) — deliberado y sano: hay UNA sola clave, así que
+        // no pueden coexistir dos credenciales de panel. Justamente coexistir
+        // era el leak cross-tenant del 2026-08-26.
+        setPanelToken(res.token)
         toast.success("Ingresando como empresa…")
-        // La cookie `_jwt_panel` ya viene seteada por el BFF de admin; la
-        // pestaña nueva abre el panel con esa credencial.
         window.open(res?.redirectUrl ?? "/", "_blank", "noopener,noreferrer")
       },
       onError: (err) => {

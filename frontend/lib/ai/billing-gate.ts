@@ -15,7 +15,7 @@
  *     manualmente contra `ai_credit_ledger` — nunca se pierde en silencio.
  *
  * Ambas rutas comparten el MISMO fetch a `/v1/ai/balance` / `/v1/ai/debit`
- * (`api/v1/ai/balance.php`, `api/v1/ai/debit.php`) vía cookie de sesión —
+ * (`api/v1/ai/balance.php`, `api/v1/ai/debit.php`) vía el Bearer del panel —
  * la company se resuelve server-side ahí, no la conocemos en el BFF.
  */
 
@@ -40,12 +40,12 @@ export class AiCreditsError extends Error {
  *
  * Lanza `AiCreditsError` si el gate no pasa; no retorna nada si pasa.
  */
-export async function assertAiCredits(params: { apiUrl: string; cookie: string; logPrefix: string }): Promise<void> {
-  const { apiUrl, cookie, logPrefix } = params
+export async function assertAiCredits(params: { apiUrl: string; authHeader: string; logPrefix: string }): Promise<void> {
+  const { apiUrl, authHeader, logPrefix } = params
 
   let balRes: Response
   try {
-    balRes = await fetch(`${apiUrl}/v1/ai/balance`, { headers: { cookie } })
+    balRes = await fetch(`${apiUrl}/v1/ai/balance`, { headers: { Authorization: authHeader } })
   } catch (e) {
     console.error(`${logPrefix} fallo de red al verificar balance, fail-closed (no procede)`, e)
     throw new AiCreditsError("No se pudo verificar el saldo de créditos, reintentá", 503)
@@ -79,7 +79,7 @@ export async function assertAiCredits(params: { apiUrl: string; cookie: string; 
  */
 export async function debitAiUsage(params: {
   apiUrl: string
-  cookie: string
+  authHeader: string
   tokensIn: number
   tokensOut: number
   capability: string
@@ -87,7 +87,7 @@ export async function debitAiUsage(params: {
   requestId: string
   logPrefix: string
 }): Promise<void> {
-  const { apiUrl, cookie, tokensIn, tokensOut, capability, model, requestId, logPrefix } = params
+  const { apiUrl, authHeader, tokensIn, tokensOut, capability, model, requestId, logPrefix } = params
   if (tokensIn + tokensOut <= 0) return
 
   const reconcileHint = `requestId=${requestId} capability=${capability} model=${model} tokensIn=${tokensIn} tokensOut=${tokensOut} — reconciliar manualmente contra ai_credit_ledger`
@@ -95,7 +95,7 @@ export async function debitAiUsage(params: {
   try {
     const res = await fetch(`${apiUrl}/v1/ai/debit`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", cookie },
+      headers: { "Content-Type": "application/json", Authorization: authHeader },
       body: JSON.stringify({ tokensIn, tokensOut, capability, model, requestId }),
     })
     if (!res.ok) {

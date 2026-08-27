@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api, type HttpClient } from "@/lib/api-client"
+import { setPanelToken } from "@/lib/auth/panel-token"
 import type { Bootstrap } from "@/lib/types/bootstrap"
 
 /**
@@ -47,16 +48,25 @@ export function useBootstrap(opts: { client?: HttpClient } = {}) {
 export function useSetActiveOutlet() {
   const qc = useQueryClient()
   return useMutation<
-    { outletId: string; outletName: string; expiresIn: number },
+    { outletId: string; outletName: string; expiresIn: number; token: string },
     Error,
     string
   >({
     mutationFn: (outletId) =>
-      api.post<{ outletId: string; outletName: string; expiresIn: number }>(
+      api.post<{ outletId: string; outletName: string; expiresIn: number; token: string }>(
         "/v1/active-outlet",
         { outletId },
       ),
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Cambiar de sucursal RE-EMITE la sesión de panel con el outlet nuevo, así
+      // que hay que adoptar la credencial nueva ANTES de refetchear: si
+      // siguiéramos con el token anterior, el backend resolvería la sucursal
+      // VIEJA y el panel mostraría datos que no corresponden a la que el usuario
+      // acaba de elegir. Antes esto lo resolvía la cookie, que el browser
+      // reemplazaba sola; con Bearer (context/54 F1) el cliente la adopta acá.
+      if (data?.token) {
+        setPanelToken(data.token)
+      }
       qc.invalidateQueries()
     },
   })
