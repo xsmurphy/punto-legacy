@@ -1,233 +1,24 @@
-import { createOpenRouter } from "@openrouter/ai-sdk-provider"
-import { generateObject } from "ai"
-import { z } from "zod"
+import { extractInvoice } from "@/lib/ai/extract-invoice"
+import { after } from "next/server"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
 
 /**
- * BFF — OCR de facturas de compra (context/32-ocr-facturas-compra.md).
+ * POST /api/ocr-invoice   multipart/form-data { image: File, outletId: string }
  *
- *   POST /api/ocr-invoice   multipart/form-data { image: File, outletId: string }
+ * Sube una factura y devuelve el borrador RECIÉN CREADO, sin esperar a la IA:
  *
- * Patrón calcado de `app/api/agent/chat/route.ts`: mismo mecanismo de elegir
- * modelo (`/v1/ai/config`, acá capability `vision`). El gate de créditos
- * (pre-check fail-closed) y el débito (post, best-effort) están en el
- * wrapper compartido `lib/ai/billing-gate.ts` — no duplicar esa lógica acá.
- * NO Anthropic SDK — OpenRouter vía `@openrouter/ai-sdk-provider`.
+ *   1. Verifica créditos del tenant (fail-closed — sin saldo no se guarda nada).
+ *   2. Crea el borrador con la imagen, en estado `queued`, y RESPONDE.
+ *   3. En `after()` (ya mandada la respuesta, pero server-side): toma el
+ *      borrador con `claim`, lo lee con el modelo de visión, guarda el
+ *      resultado con `complete` y debita los créditos consumidos.
  *
- * Flujo:
- *   1. Gate de créditos ANTES de gastar nada.
- *   2. Vision model de la capability `vision` (`ai_model_config`, mig 43/98).
- *   3. `generateObject` con schema estricto — campos ilegibles quedan `null`,
- *      la IA nunca inventa (instruido en el prompt).
- *   4. Débito de créditos (best-effort, no bloquea la respuesta si falla).
- *   5. Crea el borrador vía PHP (`POST /v1/purchase-drafts`) — ahí se sube la
- *      imagen a S3/DO Spaces (mismo mecanismo que `items.php`) y se persiste
- *      `extracted`. Este BFF NUNCA toca stock/finanzas ni escribe en BD
- *      directamente — el draft nace `pending`, la aprobación humana es la
- *      única puerta a `PurchasesService::create` (ver purchase-drafts.php).
- *
- * Si la extracción IA falla (error de red, JSON inválido, modelo caído), el
- * borrador se crea IGUAL con `extracted={}` + `error` seteado — así el
- * usuario no pierde la foto y puede cargar los datos a mano en la pantalla
- * de revisión, en vez de un upload que desaparece en un error 500.
- *
- * Prompt y guía espacial (bloques A-D, formatos PY, validación aritmética):
- * técnicas tomadas del pipeline de facturas de Urban Domus (proyecto hermano
- * del owner), adaptadas a multi-tenant — ver context/32-ocr-facturas-compra.md
- * §"Criterios de extracción" para el detalle completo.
+ * Antes los pasos 2 y 3 estaban invertidos y el request esperaba al modelo
+ * (10-30s) antes de persistir: subir un lote era inviable y cerrar la pestaña
+ * perdía el trabajo. Como `after()` no sobrevive a que el proceso muera, la red
+ * de seguridad es el job `ocr-requeue` (PHP/crond) más el drain de
+ * `/api/ocr-invoice/drain`. Ver context/32-ocr-facturas-compra.md.
  */
-
-export const runtime = "nodejs"
-export const maxDuration = 60
-
-const ExtractionSchema = z.object({
-  supplier: z.object({
-    name: z.string().nullable(),
-    ruc: z.string().nullable(),
-  }),
-  receiver: z.object({
-    ruc: z.string().nullable(),
-    name: z.string().nullable(),
-  }),
-  invoice: z.object({
-    number: z.string().nullable(),
-    timbrado: z.string().nullable(),
-    timbradoStart: z.string().nullable(),
-    timbradoEnd: z.string().nullable(),
-    date: z.string().nullable(),
-    condition: z.enum(["contado", "credito"]).nullable(),
-    dueDate: z.string().nullable(),
-    isElectronic: z.boolean().nullable(),
-    cdc: z.string().nullable(),
-  }),
-  items: z.array(
-    z.object({
-      description: z.string().nullable(),
-      quantity: z.number().nullable(),
-      unitPrice: z.number().nullable(),
-      total: z.number().nullable(),
-      ivaRate: z.union([z.literal(0), z.literal(5), z.literal(10)]).nullable(),
-    }),
-  ),
-  totals: z.object({
-    subtotal: z.number().nullable(),
-    exempt: z.number().nullable(),
-    discount: z.number().nullable(),
-    iva5: z.number().nullable(),
-    iva10: z.number().nullable(),
-    total: z.number().nullable(),
-  }),
-  currency: z.string().nullable(),
-  isInvoice: z.boolean(),
-  // El modelo intenta la comparación (se lo pedimos en el prompt cuando hay
-  // RUC de tenant), pero el valor final que se persiste SIEMPRE se recalcula
-  // en código (ver `rucsMatch` abajo) — no confiamos en que el LLM compare
-  // bien dos strings de RUC, solo en que extraiga `receiver.ruc` con fidelidad.
-  receiverMatchesTenant: z.boolean().nullable(),
-  confidence: z.number().min(0).max(1),
-})
-
-/**
- * REGLA CRÍTICA DE NULLS — NO TOCAR sin releer context/32:
- * el borrador lo aprueba un humano; un default inventado (timbrado
- * "11111111", descripción "SERVICIOS PRESTADOS", etc.) se cuela como si
- * fuera un dato real leído de la factura. Para Punto eso es inaceptable —
- * campo ilegible SIEMPRE es `null`, nunca un placeholder. Ya no hay ninguna
- * excepción: `currency` también queda `null` cuando no se detecta. Existía
- * como excepción ("es la moneda del tenant"), pero eso asumía que el tenant
- * era paraguayo — y la moneda del tenant tampoco se puede derivar acá,
- * porque la config guarda el símbolo, no el código ISO.
- *
- * ALCANCE: el prompt de abajo está escrito para facturas PARAGUAYAS (pide
- * timbrado, RUC con dígito verificador, tasas de IVA 0/5/10, formato de
- * número XXX-XXX-XXXXXXX). Eso es una decisión de producto, no un descuido,
- * pero HOY NO ESTÁ GATEADA por país: un tenant de otro país que suba una
- * factura local va a recibir una extracción mala. Antes de habilitar el
- * módulo fuera de Paraguay hay que gatearlo por `settingCountry` o escribir
- * variantes del prompt por país.
- */
-function buildExtractionPrompt(todayISO: string, tenantRuc: string | null, isPdf: boolean): string {
-  const pdfSection = isPdf
-    ? `
-# Documento PDF
-
-Te paso un PDF (no una foto). Si el PDF trae texto seleccionable (la
-mayoría de las facturas que llegan por correo son digitales, no
-escaneadas), TRANSCRIBÍ los valores EXACTOS del texto — no los
-reinterpretes, no los redondees, no los infieras visualmente. Si el PDF
-tiene varias páginas, es UNA sola factura — leé todas las páginas
-necesarias (los ítems suelen continuar en la página siguiente) y devolvé
-un único JSON con todo consolidado.
-`
-    : ""
-
-  const receiverSection = tenantRuc
-    ? `
-# Verificación de destinatario
-
-El RUC de la empresa que sube esta factura es ${tenantRuc}. Extraé
-"receiver.ruc" con el RUC del receptor tal como figura impreso en la
-factura — NO lo fuerces a coincidir con ${tenantRuc}, reportá lo que
-realmente dice el documento. Después comparalo: si "receiver.ruc" coincide
-con ${tenantRuc}, "receiverMatchesTenant": true; si no coincide,
-"receiverMatchesTenant": false; si el RUC del receptor no se puede leer,
-"receiverMatchesTenant": null.
-`
-    : ""
-
-  return `Sos un especialista en OCR de facturas de compra de proveedores
-paraguayos. Te paso el documento de UNA factura (el negocio que la recibe es
-el comprador — extraé los datos del EMISOR/proveedor Y del receptor/cliente,
-ambos figuran impresos en el documento).
-
-REGLA CRÍTICA — NUNCA INVENTES: si un dato no se lee con claridad, devolvé
-null en ese campo. Es preferible null a un dato incorrecto: un humano revisa
-y completa cada borrador antes de que se registre nada. NO uses valores por
-defecto inventados (timbrados de relleno, descripciones genéricas tipo
-"SERVICIOS PRESTADOS", ítems que no están impresos) para tapar huecos — eso
-es exactamente lo que NO tenés que hacer.
-${pdfSection}
-
-# Dónde mirar (guía espacial)
-
-Las facturas paraguayas siguen un layout consistente en bloques — usalo para
-ubicar cada dato y para decidir cuál usar si un valor aparece repetido en
-más de un lugar (priorizá siempre el bloque que le corresponde):
-
-- Bloque A (superior): tipo de documento, timbrado, fecha de inicio y de
-  vencimiento del timbrado, número de factura, RUC y razón social del
-  EMISOR (proveedor), actividad comercial.
-- Bloque B (centro — en formatos tipo ticket puede estar al pie): fecha de
-  emisión, fecha de vencimiento, RUC/razón social/dirección del CLIENTE
-  (receptor), condición de venta.
-- Bloque C (centro): detalle de ítems — descripción, cantidad, precio
-  unitario, IVA, total por línea.
-- Bloque D (inferior): subtotal, descuentos, total general, total en
-  letras, exentas, IVA 5%, IVA 10%, suma de IVAs, moneda.
-
-# Formato de campos críticos
-
-- "invoice.number": XXX-XXX-XXXXXXX (3-3-7). Si viene sin guiones, agregalos
-  (ej. "1234567890123" → "123-456-7890123").
-- "invoice.timbrado": 8 dígitos exactos, sin letras ni símbolos.
-- RUC del emisor y del receptor: hasta 8 dígitos + guion + 1 dígito
-  verificador (ej. "80012345-0", "7659194-1").
-- Números: convertí a punto decimal (ej. "1.234,56" → 1234.56). Montos en
-  guaraníes (PYG): enteros, sin separadores ni decimales (ej. "10.000,00" →
-  10000). Montos en otras monedas: punto decimal.
-- Fechas: siempre YYYY-MM-DD.
-- "invoice.condition": buscá CONTADO o CRÉDITO — puede estar marcado con una
-  X o un check en una casilla en vez de estar escrito como texto.
-
-# Identificación del documento
-
-Para que el documento sea una factura legal paraguaya válida tiene que
-contener la palabra "factura" o "timbrado" (o variantes: FACT., FACTURA
-ELECTRÓNICA, TIMBRADO). Si la contiene, "isInvoice": true. Si no la
-contiene (foto de otra cosa, remito, comprobante no fiscal), "isInvoice":
-false — igual completá el resto de los campos con lo que se alcance a leer.
-
-# Fechas relativas
-
-Hoy es ${todayISO}. Si la condición de venta es CRÉDITO y no hay fecha de
-vencimiento legible, copiá la fecha de emisión como vencimiento.
-${receiverSection}
-# Reglas de mapeo
-
-- "supplier": RUC y razón social del EMISOR (proveedor) — nunca del cliente.
-- "receiver": RUC y razón social del CLIENTE (receptor) — nunca del emisor.
-- "invoice.isElectronic": true si el documento se identifica como factura
-  electrónica (KuDE, CDC visible, texto "factura electrónica" o similar);
-  false si es una factura preimpresa común; null si no se puede determinar.
-- "invoice.cdc": código de control de 44 dígitos de la factura electrónica,
-  si figura (usualmente al pie, cerca del código QR).
-- "items": una entrada por cada línea de producto/servicio facturado.
-- "items[].ivaRate": 0, 5 o 10 (tasas de IVA vigentes en Paraguay) según lo
-  que indique la línea; null si no se puede determinar.
-- "totals": subtotal, exentas, descuento, IVA discriminado (5% y 10%) y
-  total general, tal como figuran impresos.
-- "currency": código ISO de la moneda de la factura si figura (ej. "USD",
-  "PYG", "BRL"); null si el documento no la especifica. No adivines: si no
-  está escrita, dejalo null.
-- "confidence": tu confianza global en la lectura completa, de 0 (nada
-  legible) a 1 (perfectamente legible).
-
-Devolvé ÚNICAMENTE el JSON con el schema pedido.`
-}
-
-/** Normaliza un RUC a solo dígitos para comparar sin importar guiones/espacios. */
-function normalizeRuc(raw: string | null | undefined): string {
-  return (raw ?? "").replace(/[^0-9]/g, "")
-}
-
-/** Fuente única de la comparación receptor↔tenant — nunca se confía en el juicio del LLM. */
-function rucsMatch(receiverRuc: string | null, tenantRuc: string | null): boolean | null {
-  if (!tenantRuc) return null
-  const a = normalizeRuc(receiverRuc)
-  const b = normalizeRuc(tenantRuc)
-  if (a === "" || b === "") return null
-  return a === b
-}
 
 export async function POST(req: Request) {
   const apiKey = process.env.OPENROUTER_API_KEY
@@ -334,85 +125,13 @@ export async function POST(req: Request) {
   // el fallback solo aplica si el browser no lo mandó.
   const mediaType = file.type || "image/jpeg"
   const isPdf = mediaType === "application/pdf"
-  const dataUrl = `data:${mediaType};base64,${buffer.toString("base64")}`
 
-  const openrouter = createOpenRouter({ apiKey })
-  const model = openrouter(modelId)
-
-  const todayISO = new Date().toISOString().slice(0, 10)
-  const extractionPrompt = buildExtractionPrompt(todayISO, tenantRuc, isPdf)
-
-  let extracted: z.infer<typeof ExtractionSchema> | null = null
-  let extractError: string | null = null
-  let tokensIn = 0
-  let tokensOut = 0
-
-  try {
-    const result = await generateObject({
-      model,
-      schema: ExtractionSchema,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: extractionPrompt },
-            // PDF: parte `file` (AI SDK `FilePart`, @ai-sdk/provider-utils)
-            // — el modelo (google/gemini-3.5-flash vía OpenRouter) lee el
-            // PDF nativo, incluido multipágina. NO se convierte a imagen ni
-            // se parte por página: un PDF (todas sus páginas) = una parte
-            // = un borrador.
-            isPdf
-              ? { type: "file", data: dataUrl, mediaType }
-              : { type: "image", image: dataUrl },
-          ],
-        },
-      ],
-      // 8000 (antes 2000): una factura con muchos ítems o un PDF
-      // multipágina trunca la respuesta con el límite viejo y la
-      // extracción falla entera.
-      maxOutputTokens: 8000,
-      temperature: 0.4,
-    })
-    extracted = result.object
-    // `currency` y `receiverMatchesTenant` finales: código, no el LLM.
-    // - currency: si el modelo no detectó divisa en la factura, queda `null`
-    //   = "no se sabe". Antes se rellenaba con "PYG", con el argumento de que
-    //   era "la moneda del tenant" — pero eso solo vale si el tenant es
-    //   paraguayo, y la moneda del tenant NO se puede derivar acá: la config
-    //   guarda el SÍMBOLO ("Gs", "R$"), no el código ISO que este campo
-    //   necesita. Rellenar con PYG le cargaba guaraníes a la compra de un
-    //   comercio brasileño sin que nadie lo notara. Con `null`, quien arma el
-    //   borrador de compra usa la moneda del tenant o se la pide al usuario.
-    // - receiverMatchesTenant: recalculado siempre con `rucsMatch` (fuente
-    //   única), pisa lo que haya puesto el modelo.
-    extracted = {
-      ...extracted,
-      currency: extracted.currency && extracted.currency.trim() !== "" ? extracted.currency : null,
-      receiverMatchesTenant: rucsMatch(extracted.receiver?.ruc ?? null, tenantRuc),
-    }
-    tokensIn = Number(result.usage?.inputTokens ?? 0)
-    tokensOut = Number(result.usage?.outputTokens ?? 0)
-  } catch (e) {
-    console.error("[ocr-invoice] fallo la extracción IA", e)
-    extractError = e instanceof Error ? e.message : "No se pudo leer la factura"
-  }
-
-  // Débito best-effort — mismo wrapper que el chat: si falla, se loguea con
-  // requestId para reconciliar pero NO bloquea la creación del borrador.
-  await debitAiUsage({
-    apiUrl,
-    authHeader,
-    tokensIn,
-    tokensOut,
-    capability: "vision",
-    model: modelId,
-    requestId,
-    logPrefix: "[ocr-invoice]",
-  })
-
-  // Crear el borrador vía PHP — sube la imagen (S3/DO Spaces, mismo
-  // mecanismo que items.php) y persiste `extracted`. Reenviamos los MISMOS
-  // bytes que ya leímos para la IA — un solo upload del lado del cliente.
+  // ── 1. Guardar el borrador YA, sin extracción ──────────────────────────────
+  // El borrador nace en 'queued' (mig 176) y respondemos enseguida. Antes este
+  // request esperaba a la IA (10-30s) antes de persistir nada: con eso no se
+  // puede subir un lote —el usuario mira la pantalla y si la cierra pierde
+  // todo— y una factura que tardaba de más se caía por timeout sin dejar
+  // rastro. Ahora la imagen queda guardada pase lo que pase.
   const phpForm = new FormData()
   phpForm.set(
     "image",
@@ -420,10 +139,6 @@ export async function POST(req: Request) {
     file.name || (isPdf ? "invoice.pdf" : "invoice.jpg"),
   )
   phpForm.set("outletId", outletId)
-  phpForm.set("extracted", JSON.stringify(extracted ?? {}))
-  if (extractError) {
-    phpForm.set("error", extractError)
-  }
 
   let createRes: Response
   try {
@@ -454,6 +169,94 @@ export async function POST(req: Request) {
     )
   }
 
+  // El presenter del borrador expone la PK como `id` (no `draftId`) — ver
+  // PurchaseDraftService::present(). Con la clave equivocada acá el borrador se
+  // crea igual pero nunca se procesa: queda en la bandeja, vacío y en cola.
+  const draftId = String(
+    (createJson as { data?: { id?: string } } | null)?.data?.id ?? "",
+  )
+  if (draftId === "") {
+    console.error("[ocr-invoice] el borrador se creó sin id — no se puede procesar", createJson)
+  }
+
+  // ── 2. Extraer en segundo plano ────────────────────────────────────────────
+  // `after()` corre DESPUÉS de mandar la respuesta, pero dentro del server: no
+  // depende de que el browser siga abierto, así que el usuario puede cerrar la
+  // pantalla o subir la siguiente factura mientras esta se procesa.
+  //
+  // Si el contenedor se recicla a mitad (deploy), el borrador queda en
+  // 'processing' y el job `ocr-requeue` (crond, cada 5') lo devuelve a la cola.
+  // Esa es la red de seguridad: `after()` no sobrevive a que el proceso muera.
+  if (draftId !== "") {
+    after(async () => {
+      try {
+        // Lock: si el requeue ya lo tomó, este llamador se retira. Sin esto la
+        // misma factura se extrae dos veces y se cobra dos veces.
+        const claimRes = await fetch(
+          `${apiUrl}/v1/purchase-drafts?id=${encodeURIComponent(draftId)}&resource=claim`,
+          { method: "POST", headers: { Authorization: authHeader } },
+        )
+        if (!claimRes.ok) {
+          // 409 = otro proceso ganó el lock, es el caso sano. Cualquier otra
+          // cosa (401 por token vencido, 5xx) es un fallo real: si lo tragamos
+          // como si fuera un lock perdido, el borrador queda en cola sin que
+          // nadie lo vuelva a mirar.
+          if (claimRes.status !== 409) {
+            console.error(
+              `[ocr-invoice] no se pudo tomar el borrador ${draftId} (${claimRes.status})`,
+            )
+          }
+          return
+        }
+
+        const { extracted, extractError, tokensIn, tokensOut } = await extractInvoice({
+          apiUrl,
+          authHeader,
+          modelId,
+          apiKey,
+          buffer,
+          mediaType,
+          isPdf,
+          tenantRuc,
+        })
+
+        // Persistir ANTES de debitar: si el orden fuera al revés y el
+        // `complete` fallara (token vencido, red), al tenant se le cobraron
+        // créditos por una lectura que nunca llegó a su borrador. Al revés, el
+        // peor caso es una lectura entregada y no cobrada — que se reconcilia
+        // por `requestId` y no perjudica al comercio.
+        const doneForm = new FormData()
+        doneForm.set("extracted", JSON.stringify(extracted ?? {}))
+        if (extractError) doneForm.set("error", extractError)
+        const doneRes = await fetch(
+          `${apiUrl}/v1/purchase-drafts?id=${encodeURIComponent(draftId)}&resource=complete`,
+          { method: "POST", headers: { Authorization: authHeader }, body: doneForm },
+        )
+        if (!doneRes.ok) {
+          console.error(
+            `[ocr-invoice] no se pudo guardar la extracción del borrador ${draftId} (${doneRes.status})`,
+          )
+        }
+
+        // Débito best-effort — mismo wrapper que el chat: si falla, se loguea
+        // con requestId para reconciliar pero NO bloquea el borrador.
+        await debitAiUsage({
+          apiUrl,
+          authHeader,
+          tokensIn,
+          tokensOut,
+          capability: "vision",
+          model: modelId,
+          requestId,
+          logPrefix: "[ocr-invoice]",
+        })
+      } catch (e) {
+        console.error("[ocr-invoice] fallo el procesamiento en segundo plano", e)
+        // El borrador queda en 'processing'; lo rescata `ocr-requeue`.
+      }
+    })
+  }
+
   return Response.json(createJson, { status: 201 })
 }
 
@@ -464,3 +267,11 @@ function safeJson(text: string): unknown {
     return null
   }
 }
+
+/**
+ * Llama al modelo de visión y devuelve la extracción normalizada.
+ *
+ * Vive aparte del handler porque ahora corre en `after()`, después de que la
+ * respuesta salió: mezclarla con el flujo del request hacía difícil ver qué
+ * parte bloquea al usuario (subir la imagen) y qué parte no (leerla).
+ */

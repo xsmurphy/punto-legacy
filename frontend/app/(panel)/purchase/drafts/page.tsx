@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, FileText } from "lucide-react"
+import { ArrowLeft, FileText, Loader2 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
+import { api } from "@/lib/api-client"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import {
   usePurchaseDrafts,
@@ -27,10 +28,30 @@ import { formatMoney } from "@/lib/format"
 export default function PurchaseDraftsPage() {
   const router = useRouter()
   const { data: bootstrap } = useBootstrap()
-  const [status, setStatus] = React.useState<PurchaseDraftStatus | "all">("pending")
+  // Arranca en "Todos" y no en "Pendientes": después de subir, las facturas
+  // están `queued`/`processing` un rato, así que con el filtro en pendientes el
+  // usuario aterrizaba en una lista VACÍA justo después de subir un lote —
+  // parecía que no se había guardado nada. Además, con la query filtrada a
+  // `pending` el auto-refresco nunca veía filas en vuelo y no se encendía.
+  const [status, setStatus] = React.useState<PurchaseDraftStatus | "all">("all")
 
   const drafts = usePurchaseDrafts(status === "all" ? undefined : status)
   const rows = drafts.data?.rows ?? []
+
+  // Destraba la cola: si hay facturas esperando lectura, le pide al BFF que
+  // procese unas cuantas. Cubre el borrador que quedó en cola porque el proceso
+  // que lo tenía murió (un deploy a mitad de la extracción) — sin esto nadie
+  // volvía a mirarlo y quedaba colgado para siempre. Una vez por visita, no en
+  // cada refetch.
+  const drainedRef = React.useRef(false)
+  const hasQueued = rows.some((r) => r.status === "queued")
+  React.useEffect(() => {
+    if (!hasQueued || drainedRef.current) return
+    drainedRef.current = true
+    void api.post("/ocr-invoice/drain", {}).catch(() => {
+      // Silencioso: es una recuperación oportunista, no una acción del usuario.
+    })
+  }, [hasQueued])
 
   const columns = React.useMemo<ColumnDef<PurchaseDraftSummary>[]>(
     () => [
@@ -142,7 +163,7 @@ export default function PurchaseDraftsPage() {
           <EmptyState
             icon={FileText}
             title="Sin borradores en este estado"
-            description="Subí una foto de factura desde /purchase con el botón «Subir factura»."
+            description="Arrastrá fotos o PDF de facturas en la zona de carga de Nueva compra."
           />
         }
       />
@@ -163,6 +184,20 @@ function ConfidenceBadge({ value }: { value: number | null }) {
 }
 
 function StatusBadge({ status }: { status: PurchaseDraftStatus }) {
+  // `En cola` / `Leyendo` son de la extracción asíncrona (context/32): el
+  // borrador ya existe con su imagen pero todavía no tiene datos. Sin
+  // distinguirlos, una factura recién subida se ve como una "pendiente" vacía y
+  // el usuario cree que la lectura falló.
+  if (status === "queued") return <Badge variant="outline">En cola</Badge>
+  if (status === "processing") {
+    return (
+      <Badge variant="outline" className="gap-1">
+        <Loader2 className="size-3 animate-spin" />
+        Leyendo
+      </Badge>
+    )
+  }
+  if (status === "failed") return <Badge variant="destructive">No se pudo leer</Badge>
   if (status === "pending") return <Badge variant="outline">Pendiente</Badge>
   if (status === "approved") return <Badge variant="secondary">Aprobado</Badge>
   return <Badge variant="destructive">Rechazado</Badge>

@@ -355,7 +355,6 @@ export default function NewPurchasePage() {
         </div>
         <div className="flex items-center gap-2">
           <DraftsLink />
-          <UploadInvoiceButton outletId={outletId} />
           <Button
             type="button"
             variant="outline"
@@ -371,6 +370,11 @@ export default function NewPurchasePage() {
           </Button>
         </div>
       </header>
+
+      {/* Carga por foto/PDF: alternativa al alta manual de abajo. Va acá y no
+          en la barra del header porque una zona de arrastre necesita área —
+          como botón compacto nadie descubre que se pueden soltar archivos. */}
+      <UploadInvoiceDropzone outletId={outletId} />
 
       <AlertDialog open={pendiente !== null} onOpenChange={(o) => { if (!o) setPendiente(null) }}>
         <AlertDialogContent>
@@ -646,6 +650,7 @@ export default function NewPurchasePage() {
                   onTabFromTax={addLine}
                   registerFirstField={(el) => registerFirstField(l.rowId, el)}
                   bootstrap={bootstrap}
+                  outletId={outletId}
                 />
               ))}
             </div>
@@ -696,20 +701,30 @@ function DraftsLink() {
 }
 
 /**
- * Botón "Subir factura" — dispara un `<input type=file multiple>` oculto.
+ * Zona de carga de facturas: botón + arrastrar y soltar.
+ *
  * Acepta foto (JPG/PNG/WEBP) o PDF — un PDF entero (aunque tenga varias
  * páginas) se manda tal cual al modelo, sin convertir a imagen. Cada archivo
- * seleccionado crea UN borrador (una factura = un borrador = una compra al
- * aprobar) vía `/api/ocr-invoice` (extracción IA + creación del draft). Sube
- * secuencial para no saturar créditos/red con selecciones grandes, y reporta
- * el resultado agregado al terminar. Navega a `/purchase/drafts` para que el
- * usuario revise lo recién subido.
+ * crea UN borrador (una factura = un borrador = una compra al aprobar).
+ *
+ * La subida es rápida y la LECTURA queda encolada: `/api/ocr-invoice` guarda la
+ * imagen, crea el borrador en `queued` y responde, y la IA lo procesa en
+ * segundo plano (context/32). Por eso el usuario puede soltar un lote entero,
+ * irse de la pantalla y volver después — antes cada archivo bloqueaba 10-30s
+ * esperando al modelo y cerrar la pestaña perdía todo.
+ *
+ * Las subidas van de a `CONCURRENCY` en paralelo: cada request es corta, pero
+ * mandar 30 de golpe satura la red del comercio y no acelera nada (la lectura
+ * ya no ocurre acá).
  */
-function UploadInvoiceButton({ outletId }: { outletId: string }) {
+const CONCURRENCY = 3
+
+function UploadInvoiceDropzone({ outletId }: { outletId: string }) {
   const router = useRouter()
   const inputRef = React.useRef<HTMLInputElement>(null)
   const uploadInvoice = useUploadInvoice()
-  const [busy, setBusy] = React.useState(false)
+  const [dragging, setDragging] = React.useState(false)
+  const [progress, setProgress] = React.useState<{ done: number; total: number } | null>(null)
 
   const onFiles = async (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return
@@ -718,32 +733,62 @@ function UploadInvoiceButton({ outletId }: { outletId: string }) {
       return
     }
     const files = Array.from(fileList)
-    setBusy(true)
+    setProgress({ done: 0, total: files.length })
+
     let ok = 0
     let failed = 0
-    for (const file of files) {
-      try {
-        await uploadInvoice.mutateAsync({ file, outletId })
-        ok++
-      } catch (err) {
-        failed++
-        toast.error(`No se pudo procesar "${file.name}"`, {
-          description: err instanceof Error ? err.message : undefined,
-        })
+    const queue = [...files]
+    const worker = async () => {
+      for (;;) {
+        const file = queue.shift()
+        if (!file) return
+        try {
+          await uploadInvoice.mutateAsync({ file, outletId })
+          ok++
+        } catch (err) {
+          failed++
+          toast.error(`No se pudo subir "${file.name}"`, {
+            description: err instanceof Error ? err.message : undefined,
+          })
+        } finally {
+          setProgress((p) => (p ? { ...p, done: p.done + 1 } : p))
+        }
       }
     }
-    setBusy(false)
+    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, files.length) }, worker))
+
+    setProgress(null)
     if (ok > 0) {
       toast.success(
-        ok === 1 ? "Factura subida — revisá el borrador" : `${ok} facturas subidas — revisá los borradores`,
+        ok === 1
+          ? "Factura subida — se está leyendo"
+          : `${ok} facturas subidas — se están leyendo`,
+        { description: "Podés seguir trabajando: la lectura continúa en segundo plano." },
       )
       router.push("/purchase/drafts")
     }
     if (inputRef.current) inputRef.current.value = ""
   }
 
+  const busy = progress !== null
+
   return (
-    <>
+    <div
+      onDragOver={(e) => {
+        e.preventDefault()
+        if (!busy) setDragging(true)
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        if (!busy) void onFiles(e.dataTransfer.files)
+      }}
+      className={cn(
+        "flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed p-6 text-center transition-colors",
+        dragging ? "border-primary bg-primary/5" : "border-muted-foreground/25",
+      )}
+    >
       <input
         ref={inputRef}
         type="file"
@@ -752,19 +797,32 @@ function UploadInvoiceButton({ outletId }: { outletId: string }) {
         className="hidden"
         onChange={(e) => onFiles(e.target.files)}
       />
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => inputRef.current?.click()}
-        disabled={busy}
-      >
-        {busy ? (
-          <Loader2 className="mr-1.5 size-4 animate-spin" />
-        ) : (
-          <Upload className="mr-1.5 size-4" />
-        )}
-        Subir factura
-      </Button>
-    </>
+      {busy ? (
+        <>
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">
+            Subiendo {progress.done} de {progress.total}…
+          </p>
+        </>
+      ) : (
+        <>
+          <Upload className="size-5 text-muted-foreground" />
+          <p className="text-sm">
+            Arrastrá facturas acá o{" "}
+            <Button
+              type="button"
+              variant="link"
+              onClick={() => inputRef.current?.click()}
+              className="h-auto p-0 text-sm font-medium"
+            >
+              elegí archivos
+            </Button>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Fotos o PDF. Se leen en segundo plano: podés cerrar esta pantalla.
+          </p>
+        </>
+      )}
+    </div>
   )
 }

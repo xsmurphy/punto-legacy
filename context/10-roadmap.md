@@ -10,7 +10,9 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-26 (estación de impresión instalable como PWA — pedido del owner; ver item abajo)
+> **Última actualización:** 2026-08-28 (tres módulos pedidos por el owner: consignación, alquiler y subproductos/reproceso en producción — ver primera sección; el reproceso resultó ya posible con el motor actual)
+>
+> 2026-08-26 (estación de impresión instalable como PWA — pedido del owner; ver item abajo)
 >
 > 2026-08-26 (auditoría de seguridad de auth: 4 P1 cross-tenant cerrados, cero P0; 7 P2 intra-tenant reportados sin arreglar, ver sección abajo)
 >
@@ -19,6 +21,107 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 > 2026-08-23 (add-ons: el stock ya se descuenta al cobrar una orden o mesa, ver P0 #2; uPay pasa a standby por decisión del owner)
 >
 > 2026-08-22 (permisos: rol propio para el dispositivo POS — cierra la toma del tenant desde un token de caja; anti-escalación también en /v1/roles; queda abierta la fase (b), sesión de operador sobre el token del device)
+
+---
+
+## Módulos nuevos pedidos por el owner (2026-08-28) — sin planificar
+
+Los tres entran como pedido del owner el 2026-08-28. Ninguno tiene plan cerrado
+todavía; lo que sigue es el encuadre técnico para poder decidir alcance y orden.
+
+### 1. Venta en consignación
+
+Mercadería que cambia de manos ANTES de cambiar de dueño. Son dos flujos
+opuestos y conviene decidir cuál se implementa primero, porque el modelo de
+datos que necesitan NO es el mismo:
+
+- **Consignación RECIBIDA** (el proveedor me deja mercadería y le pago lo que
+  vendo). El stock existe físicamente en mi sucursal pero **no es mi activo**:
+  no debe entrar a la valuación de inventario propio ni al costo hasta que se
+  venda. Al vender se dispara la deuda con el proveedor.
+- **Consignación ENTREGADA** (dejo mercadería en otro comercio). Sigue siendo
+  MI stock, pero fuera de mi sucursal, y solo lo facturo cuando el tercero
+  reporta la venta.
+
+Impacto en lo que ya existe:
+
+- `stock` hoy tiene sucursal y depósito, pero **no propiedad**. Consignación
+  recibida exige distinguir "está acá" de "es mío" — sin eso, el valor de
+  inventario y el costo de la mercadería quedan inflados con algo que no se
+  compró. Es el punto de diseño central; casi todo lo demás se deriva.
+- `RecipeCosting` y el promedio ponderado del ledger (`context/52`) asumen que
+  todo lo que entró se compró. Una entrada en consignación a costo cero
+  distorsiona el promedio de ese ítem.
+- Cuentas por pagar: la deuda nace al VENDER, no al recibir — el flujo inverso
+  al de una compra normal.
+- La remisión (`context/42-remision.md`) ya modela traslado de mercadería sin
+  venta: es el documento más parecido que existe y probablemente el punto de
+  partida para el movimiento de consignación entregada.
+
+### 2. Alquiler
+
+Ítems que salen y **vuelven**, con tarifa por período. No hay nada equivalente
+hoy: el catálogo modela cosas que se venden (se van y no vuelven) o servicios
+(no tienen stock).
+
+Lo que exige que no existe:
+
+- **Estado por unidad**, no por cantidad: "3 disponibles de 10" no alcanza —
+  hay que saber QUÉ unidad está afuera, con quién y hasta cuándo. Eso implica
+  identidad por unidad (serie/etiqueta), que el catálogo no tiene.
+- **Calendario de disponibilidad**: una reserva a futuro bloquea la unidad sin
+  moverla del stock todavía. Ojo: `reserved` ya significa reserva de MESA
+  (`context/53`), así que el vocabulario está ocupado y conviene no reusarlo.
+- **Devolución con estado**: vuelve entero, dañado o no vuelve. Cada caso
+  termina distinto (nada, cobro por daño contra el depósito, venta forzada).
+- **Depósito/garantía**: dinero retenido que no es ingreso hasta que se define
+  el destino. Toca Finanzas, no solo el POS.
+
+El caso "no vuelve y se cobra" convierte el alquiler en venta — vale definir si
+eso genera una venta real (con su documento fiscal) o un ajuste.
+
+### 3. Subproductos y reproceso en producción — ANÁLISIS, no compromiso
+
+El pedido: que los restos de una producción (retazos, sobras, producto que no se
+vendió) puedan volver como materia prima de otra. El ejemplo del owner: el pan
+que sobra se muele y la galleta molida es insumo de otra receta.
+
+**Hallazgo: son DOS casos y solo uno es caro.**
+
+**(a) Reproceso de un ítem terminado → ya se puede hacer HOY, sin desarrollo.**
+El pan que no se vendió es stock terminado. Crear un ítem "galleta molida" con
+receta `{pan: 1}` y completar una `production_order` descuenta el pan y acredita
+la galleta, con su costo real tomado del ledger — exactamente lo que se pide, y
+el motor ya lo hace (`ProductionService::complete()`, `RecipeCosting`). Lo que
+falta no es modelo, es **descubrimiento**: nadie va a deducir que "reprocesar"
+se hace armando una receta al revés. Trabajo real ≈ un atajo "Reprocesar" desde
+el ítem o desde la merma que precargue la orden. Barato y cubre el caso que el
+owner describió primero.
+
+**(b) Subproducto simultáneo (la misma orden produce pan Y retazo) → caro.**
+Acá sí falta modelo:
+
+- `production_order` tiene UN output (`itemid` + `qtyproduced`). Un segundo
+  output exige tabla aparte (`production_order_output`) y tocar el motor de
+  completado, que es código sensible (mueve stock y congela costos).
+- **El problema difícil es el costeo, no el stock.** Si una orden gasta 100 de
+  harina y salen pan + retazo, ¿cuánto vale cada uno? Las tres respuestas
+  contables estándar son: subproducto a costo cero (todo el costo al principal,
+  simple pero el retazo entra gratis y distorsiona el costo de la receta que
+  después lo use), valor neto realizable (se le resta al principal el precio
+  estimado del subproducto), o prorrateo por valor de mercado. **Elegir esto es
+  una decisión del owner/contador, no técnica** — y define cuánto código hace
+  falta.
+- Hoy la merma es una salida TERMINAL: `waste_event` resta stock y ahí termina
+  (regla 6 de `context/modules/06-produccion.md`: las unidades falladas no
+  entran a stock). Convertir merma en entrada de otro ítem invierte esa
+  semántica, así que **no se debería modelar como merma** — un subproducto no
+  es merma, es producción conjunta. Mezclarlos rompería los reportes de merma.
+
+**Recomendación:** hacer (a) —que es casi gratis y ya resuelve el caso del pan
+del día anterior— y dejar (b) para cuando exista un caso real que lo pida con
+volumen. (b) sin la decisión de costeo tomada es un módulo a medias que ensucia
+el costo de todas las recetas que toquen el subproducto.
 
 ---
 

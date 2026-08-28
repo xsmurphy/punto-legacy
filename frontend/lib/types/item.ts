@@ -560,3 +560,54 @@ function toBool(v: unknown): boolean {
   if (typeof v === "string") return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "t"
   return false
 }
+
+/**
+ * Valores iniciales de un ítem nuevo. Única fuente de defaults del alta:
+ * la usa el form completo (`/items/[id]`) y el alta rápida desde el
+ * formulario de compras, que solo pisa los campos básicos.
+ *
+ * Vivía como función privada dentro de la página del ítem; se movió acá al
+ * aparecer el segundo consumidor — dos copias de estos defaults divergen sin
+ * que nadie lo note (un campo nuevo que se agrega en una y no en la otra).
+ */
+export function emptyItemValues(): ItemFormValues {
+  return {
+    kind: "producto",
+    name: "",
+    sku: "",
+    description: "",
+    price: null,
+    cost: null,
+    discount: null,
+    taxId: "",
+    taxIncluded: true,
+    uom: "",
+    categoryId: "",
+    expenseCategoryId: "",
+    brandId: "",
+    status: true,
+    // Vacío solo como valor inicial: cada caller preselecciona la sucursal
+    // (el alta completa con un effect, el alta rápida con la de la compra).
+    outletIds: [],
+    supplierId: "",
+    waste: null,
+    minStock: null,
+    maxStock: null,
+    sort: 99999,
+    commission: null,
+    commissionType: "percent",
+    pricePercent: null,
+    priceType: "fixed",
+    ecom: false,
+    featured: false,
+    procedure: "",
+    availability: defaultAvailability(),
+    currencies: {},
+    validFrom: null,
+    validUntil: null,
+    minDaysBetweenSessions: null,
+    giftcardColor: DEFAULT_GIFTCARD_COLOR,
+    packDurationDays: 30,
+    itemSessions: null,
+  }
+}

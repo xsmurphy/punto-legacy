@@ -160,13 +160,23 @@ final class PurchaseDraftService
             $extractedJson = '{}';
         }
 
+        // Sin extracción todavía → el borrador entra a la COLA (mig 176): la
+        // imagen ya está guardada y visible en el listado, y la IA lo enriquece
+        // después. Con extracción (camino síncrono legacy) nace listo para
+        // revisar. Un error de extracción es 'failed', no 'pending': un
+        // borrador vacío en la bandeja de revisión no se distinguía de uno que
+        // el modelo sí pudo leer.
+        $status = $extracted !== null
+            ? ($extractError !== null ? 'failed' : 'pending')
+            : ($extractError !== null ? 'failed' : 'queued');
+
         $inserted = ncmInsert([
             'records' => [
                 'draftid'   => $draftId,
                 'companyid' => $companyId,
                 'outletid'  => $outletId,
                 'userid'    => $userId,
-                'status'    => 'pending',
+                'status'    => $status,
                 'imageref'  => $imageUrl,
                 'extracted' => $extractedJson,
                 'contactid' => $contactId,
@@ -179,6 +189,148 @@ final class PurchaseDraftService
         }
 
         return $this->find($draftId, $companyId) ?? [];
+    }
+
+    /**
+     * Toma el borrador para procesar: 'queued' → 'processing'.
+     *
+     * El UPDATE condicionado por status es el lock: si dos procesos intentan el
+     * mismo borrador (el `after()` del upload y el job de requeue pisándose),
+     * solo uno afecta filas y el otro se va sin trabajo. Sin esto, la misma
+     * factura se extrae dos veces y se cobran dos veces los créditos.
+     *
+     * @return bool true si ESTE llamador se quedó con el trabajo.
+     */
+    public function claim(string $id, string $companyId): bool
+    {
+        if (!preg_match(self::UUID_RE, $id)) {
+            return false;
+        }
+        // `ncmExecute` devuelve la FILA (o falsy si no hubo ninguna) — con
+        // RETURNING alcanza para saber si ganamos el lock.
+        $row = ncmExecute(
+            "UPDATE purchase_draft
+                SET status = 'processing', processing_at = now(), attempts = attempts + 1
+              WHERE draftid = ? AND companyid = ? AND status IN ('queued', 'processing')
+                AND (status = 'queued' OR processing_at < now() - interval '10 minutes')
+              RETURNING draftid",
+            [$id, $companyId]
+        );
+        return (bool) $row;
+    }
+
+    /**
+     * Cierra la extracción: escribe lo que la IA devolvió y pasa a 'pending'
+     * (listo para revisar) o 'failed'.
+     *
+     * Vuelve a intentar el match de proveedor por RUC — al crear el borrador
+     * todavía no había datos extraídos, así que es acá donde por primera vez se
+     * conoce el RUC del emisor.
+     */
+    public function completeExtraction(
+        string $id,
+        string $companyId,
+        ?array $extracted,
+        ?string $extractError = null
+    ): array {
+        if (!preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('id inválido');
+        }
+        $extractedJson = json_encode($extracted ?? new \stdClass());
+        if ($extractedJson === false) {
+            $extractedJson = '{}';
+        }
+
+        $contactId = null;
+        $ruc = trim((string) ($extracted['supplier']['ruc'] ?? ''));
+        if ($ruc !== '') {
+            $match = ncmExecute(
+                'SELECT contactId FROM contact
+                  WHERE companyId = ? AND contactType = 2 AND contactStatus = 1 AND contactTIN = ?
+                  LIMIT 1',
+                [$companyId, $ruc]
+            );
+            if ($match) {
+                $contactId = (string) $match['contactId'];
+            }
+        }
+
+        $status = $extractError !== null ? 'failed' : 'pending';
+        // SOLO cierra borradores que están en la cola. Sin este guard, un
+        // `?resource=complete` tardío (o malicioso) sobre uno ya APROBADO lo
+        // devolvía a 'pending' con `extracted` arbitrario, y como approve() es
+        // idempotente por status, el segundo approve creaba una SEGUNDA compra
+        // real. También evita des-rechazar un borrador que el usuario descartó
+        // mientras la IA todavía lo estaba leyendo.
+        ncmExecute(
+            "UPDATE purchase_draft
+                SET status = ?, extracted = ?::jsonb, error = ?, contactid = COALESCE(?, contactid)
+              WHERE draftid = ? AND companyid = ? AND status IN ('queued', 'processing')",
+            [$status, $extractedJson, $extractError, $contactId, $id, $companyId]
+        );
+        return $this->find($id, $companyId) ?? [];
+    }
+
+    /**
+     * Reencola un borrador que no se pudo leer. Resetea `attempts` porque es
+     * una decisión NUEVA del usuario, no un reintento automático: si la foto
+     * era ilegible y la reemplaza el criterio de "ya se intentó 3 veces" no
+     * aplica.
+     */
+    public function retry(string $id, string $companyId): array
+    {
+        if (!preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('id inválido');
+        }
+        $row = ncmExecute(
+            "UPDATE purchase_draft
+                SET status = 'queued', attempts = 0, processing_at = NULL, error = NULL
+              WHERE draftid = ? AND companyid = ? AND status = 'failed'
+              RETURNING draftid",
+            [$id, $companyId]
+        );
+        if (!$row) {
+            throw new \RuntimeException('Solo se puede reintentar un borrador que falló');
+        }
+        return $this->find($id, $companyId) ?? [];
+    }
+
+    /**
+     * Devuelve a la cola los borradores que quedaron colgados en 'processing'
+     * (el proceso murió a mitad — típicamente un deploy recicló el contenedor
+     * mientras la IA respondía) y marca 'failed' los que ya agotaron intentos.
+     *
+     * @return array{requeued:int, failed:int}
+     */
+    public function requeueStale(int $staleMinutes = 10, int $maxAttempts = 3): array
+    {
+        global $db;
+        $failed = $db->Execute(
+            "UPDATE purchase_draft
+                SET status = 'failed',
+                    error = COALESCE(error, 'La extracción no pudo completarse tras varios intentos')
+              WHERE status = 'processing'
+                AND processing_at < now() - (? || ' minutes')::interval
+                AND attempts >= ?
+              RETURNING draftid",
+            [$staleMinutes, $maxAttempts]
+        );
+        $failedCount = 0;
+        while ($failed !== false && !$failed->EOF) { $failedCount++; $failed->MoveNext(); }
+
+        $requeued = $db->Execute(
+            "UPDATE purchase_draft
+                SET status = 'queued'
+              WHERE status = 'processing'
+                AND processing_at < now() - (? || ' minutes')::interval
+                AND attempts < ?
+              RETURNING draftid",
+            [$staleMinutes, $maxAttempts]
+        );
+        $requeuedCount = 0;
+        while ($requeued !== false && !$requeued->EOF) { $requeuedCount++; $requeued->MoveNext(); }
+
+        return ['requeued' => $requeuedCount, 'failed' => $failedCount];
     }
 
     /**
@@ -267,6 +419,22 @@ final class PurchaseDraftService
         }
 
         $status = (string) $row['status'];
+
+        // Idempotencia por TRANSACCIÓN, no solo por status: si el borrador ya
+        // generó una compra, no puede generar otra aunque su status haya vuelto
+        // a 'pending' por algún camino (un `complete` tardío, una corrección
+        // manual en BD). El status es un estado editable; `transactionid` es el
+        // hecho consumado.
+        if ($row['transactionid'] !== null && (string) $row['transactionid'] !== '') {
+            $db->CompleteTrans();
+            return [
+                'draftId'         => $id,
+                'status'          => $status === 'approved' ? 'approved' : $status,
+                'transactionId'   => (string) $row['transactionid'],
+                'alreadyApproved' => true,
+                'warning'         => null,
+            ];
+        }
 
         if ($status === 'approved') {
             $db->CompleteTrans();

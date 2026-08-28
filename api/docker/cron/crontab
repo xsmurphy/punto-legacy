@@ -12,6 +12,8 @@
 
 */5  *  *  *  *   /usr/local/bin/maintenance.sh einvoice-drain
 */10 *  *  *  *   /usr/local/bin/maintenance.sh rollup-reconcile
+# Rescata extracciones OCR colgadas (proceso muerto a mitad, ej. deploy).
+*/5  *  *  *  *   /usr/local/bin/maintenance.sh ocr-requeue
 0    3  *  *  *   /usr/local/bin/maintenance.sh purge-tenant-audit
 0    4  *  *  *   /usr/local/bin/maintenance.sh purge-deleted-row
 30   2  *  *  *   /usr/local/bin/maintenance.sh partition-ensure
