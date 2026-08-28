@@ -351,7 +351,33 @@ final class SignupService
             return ['ok' => false, 'error' => $db->ErrorMsg() ?: 'No se pudo crear la cuenta'];
         }
 
+        // `\` obligatorio en las llamadas: RoleService NO declara namespace (vive
+        // en el global) y este archivo sí está en Punto\Api\Auth. Sin la barra,
+        // PHP resolvía a `Punto\Api\Auth\RoleService` y el alta moría con
+        // "Class not found".
+        require_once __DIR__ . '/RoleService.php';
+        // Los roles del tenant se siembran ANTES del dueño: el contacto nace con
+        // el UUID del rol `owner`, no con el int legacy `1`. `ownerRoleSql()`
+        // acepta las dos formas, así que el login funcionaba igual — pero el
+        // selector de Rol del panel lista roles por UUID, y un `role = '1'` no
+        // matchea ninguna opción: el Dueño abría su propia ficha con el campo
+        // Rol EN BLANCO, y al guardar el panel mandaba `roleId: null` (que le
+        // habría borrado el rol a cualquier otro usuario editado así).
+        \RoleService::seedCompanyRoles((string) $companyInsert);
+        $ownerRoleId = \RoleService::resolveLegacyRole(1, (string) $companyInsert);
+
         $passSalt = passEncoder((string) $post['password']);
+        // PIN por defecto de la caja. Se escriben los TRES campos que el resto
+        // del sistema espera, no solo el plano:
+        //   `lockPass`     — el número, es lo que muestra la ficha del panel.
+        //   `pinhash`      — SHA-256, lo ÚNICO contra lo que compara el lock
+        //                    screen del POS (match local, offline-first).
+        //   `lockpasshash` — BCrypt, el hash histórico (mig 49).
+        // Escribir solo el plano dejaba a TODO tenant nuevo sin poder entrar al
+        // POS: el panel mostraba el PIN 1111 y la caja decía "Código incorrecto"
+        // porque `pinhash` venía NULL. Los tres salen de la misma constante para
+        // que no puedan divergir.
+        $defaultPin = '1111';
         $userInsert = ncmInsert(['records' => [
             'contactName'     => ucwords((string) $post['username']),
             'contactPassword' => $passSalt[0],
@@ -360,9 +386,11 @@ final class SignupService
             'companyId'       => $companyInsert,
             'outletId'        => $outletInsert,
             'main'            => 'true',
-            'role'            => 1, // 1 = Super Admin
+            'role'            => $ownerRoleId,
             'salt'            => $passSalt[1],
-            'lockPass'        => '1111',
+            'lockPass'        => $defaultPin,
+            'lockPassHash'    => password_hash($defaultPin, PASSWORD_BCRYPT),
+            'pinhash'         => hash('sha256', $defaultPin),
             'type'            => '0',
         ], 'table' => 'contact']);
 
@@ -371,14 +399,6 @@ final class SignupService
             return ['ok' => false, 'error' => $db->ErrorMsg() ?: 'No se pudo crear el usuario'];
         }
         $db->CompleteTrans();
-
-        // Seed de roles del sistema para la company recién creada.
-        require_once __DIR__ . '/RoleService.php';
-        // `\` obligatorio: RoleService NO declara namespace (vive en el global),
-        // y este archivo sí está en Punto\Api\Auth. Sin la barra, PHP resolvía a
-        // `Punto\Api\Auth\RoleService`, que no existe, y el alta moría con
-        // "Class not found". Mismo criterio que TransactionService:644.
-        \RoleService::seedCompanyRoles((string) $companyInsert);
 
         // Login automático: recuperar el contact con todos los campos para
         // que PanelAuth::issuePanelSession lo use para emitir la sesion opaca.

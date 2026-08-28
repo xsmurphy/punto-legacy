@@ -610,7 +610,14 @@ export function TeamSection({ openCreateRef }: { openCreateRef?: React.RefObject
     try {
       const payload: TeamMemberFormValues = { ...values }
       if (isEdit) {
-        await update.mutateAsync({ id: editing!.id, values: payload })
+        // `originalRoleId`: el rol con el que se abrió la ficha. Sin esto el
+        // PUT afirma un cambio de rol que nadie hizo (403 al editar tu propia
+        // ficha, y borrado silencioso del rol ajeno) — ver `serialize`.
+        await update.mutateAsync({
+          id: editing!.id,
+          values: payload,
+          originalRoleId: editing!.roleId ?? NONE,
+        })
         toast.success("Usuario actualizado")
       } else {
         await create.mutateAsync(payload)
