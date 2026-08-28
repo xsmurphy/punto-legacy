@@ -39,6 +39,15 @@ if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET') {
     apiError('El dispositivo POS solo puede leer los módulos', 403);
 }
 
+// Prender/apagar un módulo o editar su config es administrar la empresa, no
+// operarla: exige permiso, igual que `/v1/devices` o `/v1/document-templates`.
+// Hasta acá CUALQUIER sesión de panel podía hacerlo — un cajero apagaba el
+// módulo de mesas del comercio sin que nada lo frenara (P2 de la auditoría de
+// seguridad 2026-08-26; era el más directo de los siete).
+if ($method !== 'GET' && !hasPermission('settings.company.edit')) {
+    apiError('No tenés permiso para administrar los módulos (requiere: settings.company.edit)', 403);
+}
+
 $svc    = new \Punto\Api\Modules\ModulesService();
 
 if ($method === 'POST') {

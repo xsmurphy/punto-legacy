@@ -1149,14 +1149,24 @@ sirve cuando intenta emitir. Nadie se entera desde adentro.
 **Guard:** `frontend/lib/__tests__/country-gated-modules.test.ts` — un módulo
 nuevo atado a un país que no declare `countries` rompe el test.
 
+### Dos capas, no una
+
+El front decide qué **mostrar** (`countries` en el catálogo) y el backend qué se
+puede **activar** (`ModulesService::COUNTRY_ONLY`). Son dos a propósito: el
+catálogo del panel es UI y un `POST` directo se la saltea. Apagar un módulo de
+otro país SÍ se permite — si quedó prendido de antes, o el tenant cambió de país,
+hay que poder sacarlo.
+
+`taxPy` ("Régimen tributario Paraguay") se ELIMINÓ el 2026-08-28: era un switch
+manual redundante con el país, y ningún cálculo leía su valor — se persistía y se
+mostraba, nada más. Lo que su descripción prometía (RG90, libro de compras) ya se
+gatea por `country`.
+
 ### Lo que todavía NO está gateado (deuda conocida)
 
 - **Timbrado / punto de expedición / numeración fiscal** viven en el core de la
   emisión de comprobantes, no en un módulo que se pueda apagar. Sacarlos para un
-  tenant no-PY es rediseño, no un flag — ver `context/29`.
-- **`taxPy`** ("Régimen tributario Paraguay", `/settings`) sigue siendo un switch
-  MANUAL, redundante con el país del tenant. Debería derivarse de él o
-  desaparecer.
-- El backend no valida el país al tocar módulos PY: hoy el gate es de UI. Un
-  `POST` directo a `/v1/modules` con `key=einvoicePy` desde un tenant no-PY no
-  se rechaza (relacionado con el P2 de `modules.php` sin gate de permiso).
+  tenant no-PY es rediseño, no un flag — ver `context/29`. Es la deuda grande
+  que queda para vender fuera de Paraguay.
+- **TZ `America/Asuncion`** literal en las migs 157/160 y `period-close.php`:
+  rompe silenciosamente con el primer tenant no-PY.

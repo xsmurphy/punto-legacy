@@ -139,7 +139,6 @@ const settingsSchema = z.object({
   stockCountBlind: z.boolean(),
   blockUsedDocNo: z.boolean(),
   autoSendDocs: z.boolean(),
-  taxPy: z.boolean(),
   weightBarcodes: z.boolean(),
   deletedItemsHistory: z.boolean(),
   // D7/E1b de context/48-escalamiento-de-datos.md — editable desde
@@ -248,7 +247,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
   empresa: [
     "name", "slug", "category", "website",
     "language", "timeZone", "country", "currency", "decimal",
-    "thousandSeparator", "taxName", "tin", "taxPy",
+    "thousandSeparator", "taxName", "tin",
   ],
   pos: [
     "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
@@ -386,7 +385,6 @@ export default function SettingsPage() {
       stockCountBlind: !!data.stockCountBlind,
       blockUsedDocNo: !!data.blockUsedDocNo,
       autoSendDocs: !!data.autoSendDocs,
-      taxPy: !!data.taxPy,
       weightBarcodes: !!data.weightBarcodes,
       deletedItemsHistory: !!data.deletedItemsHistory,
       agentName: data.agentName ?? "",
@@ -882,23 +880,6 @@ function LocaleTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
                 RUC en PY, CUIT en AR, CNPJ en BR — depende del país.
               </FormDescription>
               <FormMessage />
-            </FormItem>
-          )}
-        />
-        <FormField
-          control={form.control}
-          name="taxPy"
-          render={({ field }) => (
-            <FormItem className="flex flex-row items-center justify-between rounded-md border p-3">
-              <div>
-                <FormLabel className="text-sm">Régimen tributario Paraguay</FormLabel>
-                <FormDescription className="text-xs">
-                  Activa cálculos fiscales específicos PY (IVA 10/5, libro de compra, RG90).
-                </FormDescription>
-              </div>
-              <FormControl>
-                <Switch checked={field.value} onCheckedChange={field.onChange} />
-              </FormControl>
             </FormItem>
           )}
         />
@@ -1405,7 +1386,6 @@ function emptyValues(): SettingsFormValues {
     stockCountBlind: false,
     blockUsedDocNo: false,
     autoSendDocs: false,
-    taxPy: false,
     weightBarcodes: false,
     deletedItemsHistory: false,
     settingPeriodCloseMonths: 1,

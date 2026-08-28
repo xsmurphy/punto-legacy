@@ -118,7 +118,7 @@ const SERIALIZE_BOOL_FIELDS: (keyof SettingsFormValues)[] = [
   "drawerRequireClosedOrders",
   "settingRemoveTaxes", "paymentId", "creditLine", "storeCredit",
   "ignoreInternal", "stockCountBlind", "blockUsedDocNo", "autoSendDocs",
-  "taxPy", "weightBarcodes", "deletedItemsHistory",
+  "weightBarcodes", "deletedItemsHistory",
 ]
 
 /**

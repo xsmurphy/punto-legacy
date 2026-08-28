@@ -67,7 +67,6 @@ export interface SettingsGeneral {
   stockCountBlind: boolean
   blockUsedDocNo: boolean
   autoSendDocs: boolean
-  taxPy: boolean
   weightBarcodes: boolean
   deletedItemsHistory: boolean
 

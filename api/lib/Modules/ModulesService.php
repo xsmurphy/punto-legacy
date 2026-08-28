@@ -158,10 +158,40 @@ final class ModulesService
      *
      * @throws \RuntimeException si la key no está en el allowlist.
      */
+    /**
+     * Módulos atados a la normativa o a proveedores de UN país.
+     *
+     * Espejo de `countries` en `frontend/lib/modules-catalog.ts` — el front
+     * decide qué MOSTRAR, esto decide qué se puede ACTIVAR. Son dos capas a
+     * propósito: el catálogo del panel es UI, y un POST directo se la saltea.
+     * Si se agrega un módulo país-específico, va en los dos lados (el guard
+     * `country-gated-modules.test.ts` cubre el lado del front).
+     *
+     * Regla del owner 2026-08-28, `context/08` §61.
+     */
+    private const COUNTRY_ONLY = [
+        'einvoicePy' => ['PY'],
+        'bancard'    => ['PY'],
+        'upay'       => ['PY'],
+    ];
+
     public function toggle($companyId, string $key, bool $enabled): void
     {
         if (!in_array($key, self::NATIVE_KEYS, true)) {
             throw new \RuntimeException("Módulo '$key' no reconocido.");
+        }
+
+        // Un módulo de otro país no se activa, venga de donde venga la request.
+        // Apagarlo sí se permite: si quedó prendido de antes (o el tenant cambió
+        // de país), hay que poder sacarlo.
+        if ($enabled && isset(self::COUNTRY_ONLY[$key])) {
+            $country = \Punto\Api\Support\TenantLocale::country((string) $companyId);
+            if ($country === null || !in_array($country, self::COUNTRY_ONLY[$key], true)) {
+                throw new \RuntimeException(
+                    "El módulo '$key' solo está disponible para comercios de: "
+                    . implode(', ', self::COUNTRY_ONLY[$key]) . '.'
+                );
+            }
         }
 
         $value = $enabled ? 1 : 0;

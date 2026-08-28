@@ -33,16 +33,13 @@ por `bootstrap.country`), con guard que caza un módulo país-específico nuevo 
 declarar. Ya estaban gateados de antes el export fiscal RG90/Libro Ventas y los
 campos de documento de identidad.
 
-**Falta:**
+**Hecho también (2026-08-28):** `taxPy` eliminado (switch manual redundante que
+ningún cálculo leía); gate de país en el BACKEND (`ModulesService::COUNTRY_ONLY`,
+un `POST` directo ya no activa un módulo de otro país); y `modules.php` pasó a
+exigir `settings.company.edit` — cierra el P2 más directo de la auditoría de
+seguridad, con dos casos nuevos en el arnés de permisos (217 checks).
 
-- **`taxPy` es un switch manual** en `/settings` ("Régimen tributario Paraguay"),
-  redundante con el país del tenant. Debería derivarse de `country` o
-  desaparecer — hoy un tenant paraguayo puede tenerlo apagado y otro de Brasil
-  encendido, que es exactamente lo que la regla viene a impedir.
-- **El gate es solo de UI.** El backend no valida el país al activar un módulo:
-  un `POST /v1/modules` con `key=einvoicePy` desde un tenant no-PY no se
-  rechaza. Se resuelve junto con el P2 de `modules.php` sin `hasPermission()`
-  (ver sección de seguridad), que toca el mismo endpoint.
+**Falta:**
 - **Timbrado, punto de expedición y numeración fiscal** están en el core de la
   emisión, no en un módulo apagable. Para vender fuera de Paraguay hay que
   decidir qué reemplaza al timbrado en un tenant no-PY — es rediseño
@@ -158,9 +155,9 @@ La auditoría completa de auth (disparada por el leak cross-tenant de
 4 P1 cross-tenant, ya arreglados, y estos P2 **intra-tenant** (ninguno
 cross-tenant) sin arreglar:
 
-- `api/v1/modules.php:44-83` — `action=toggle`/`config` sin ningún
-  `hasPermission()`; cualquier sesión panel prende/apaga módulos y edita
-  su config. El más directo de arreglar.
+- ~~`api/v1/modules.php` — `action=toggle`/`config` sin `hasPermission()`~~
+  ✅ RESUELTO 2026-08-28: exige `settings.company.edit`, cubierto por el arnés
+  de permisos.
 - `api/bootstrap.php:226-244` — `X-Outlet-Id: all` valida pertenencia al
   tenant pero no chequea rol: un cajero ve reportes consolidados de todas
   las sucursales. Decisión de producto.

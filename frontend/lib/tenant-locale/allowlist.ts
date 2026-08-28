@@ -188,6 +188,14 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "explícitamente si la venta no es en guaraníes, en vez de convertirla.",
     allow: { 'símbolo "Gs"': 1, 'código "PYG"': 2 },
   },
+  "api/lib/Modules/ModulesService.php": {
+    reason:
+      "Espejo en PHP del `countries` del catálogo (context/08 §61): el front decide qué MOSTRAR " +
+      "y esto decide qué se puede ACTIVAR, porque un POST directo se saltea la UI. El literal " +
+      "\"PY\" ES el gate —nombra el país para poder EXCLUIRLO— no un default asumido.",
+    allow: { 'país "PY" como default': 3 },
+  },
+
   "frontend/lib/modules-catalog.ts": {
     reason:
       "El `countries: [\"PY\"]` de einvoicePy/bancard/upay ES el gate que exige la regla del " +
