@@ -24,6 +24,29 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 ---
 
+## Funcionalidades PY gateadas por país (owner 2026-08-28) — parcial
+
+Regla nueva en `context/08` §61: lo específico de Paraguay se habilita por el
+país del tenant, no queda prendido para todos. **Hecho**: el catálogo de módulos
+(`einvoicePy`, `bancard`, `upay` declaran `countries: ["PY"]` y el panel filtra
+por `bootstrap.country`), con guard que caza un módulo país-específico nuevo sin
+declarar. Ya estaban gateados de antes el export fiscal RG90/Libro Ventas y los
+campos de documento de identidad.
+
+**Hecho también (2026-08-28):** `taxPy` eliminado (switch manual redundante que
+ningún cálculo leía); gate de país en el BACKEND (`ModulesService::COUNTRY_ONLY`,
+un `POST` directo ya no activa un módulo de otro país); y `modules.php` pasó a
+exigir `settings.company.edit` — cierra el P2 más directo de la auditoría de
+seguridad, con dos casos nuevos en el arnés de permisos (217 checks).
+
+**Falta:**
+- **Timbrado, punto de expedición y numeración fiscal** están en el core de la
+  emisión, no en un módulo apagable. Para vender fuera de Paraguay hay que
+  decidir qué reemplaza al timbrado en un tenant no-PY — es rediseño
+  (`context/29`), no un flag.
+- **TZ "Asunción" hardcodeada** en migs 157/160 y `period-close.php` (deuda ya
+  registrada): rompe silenciosamente con el primer tenant no-PY.
+
 ## Módulos nuevos pedidos por el owner (2026-08-28) — sin planificar
 
 Los tres entran como pedido del owner el 2026-08-28. Ninguno tiene plan cerrado
@@ -165,9 +188,9 @@ La auditoría completa de auth (disparada por el leak cross-tenant de
 4 P1 cross-tenant, ya arreglados, y estos P2 **intra-tenant** (ninguno
 cross-tenant) sin arreglar:
 
-- `api/v1/modules.php:44-83` — `action=toggle`/`config` sin ningún
-  `hasPermission()`; cualquier sesión panel prende/apaga módulos y edita
-  su config. El más directo de arreglar.
+- ~~`api/v1/modules.php` — `action=toggle`/`config` sin `hasPermission()`~~
+  ✅ RESUELTO 2026-08-28: exige `settings.company.edit`, cubierto por el arnés
+  de permisos.
 - `api/bootstrap.php:226-244` — `X-Outlet-Id: all` valida pertenencia al
   tenant pero no chequea rol: un cajero ve reportes consolidados de todas
   las sucursales. Decisión de producto.

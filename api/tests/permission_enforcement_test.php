@@ -262,6 +262,10 @@ $CASOS = [
     ['settings.tax.manage',      'taxes DELETE baja',           'v1/taxes.php',              'DELETE', 'id=00000000-0000-0000-0000-0000000000ff', []],
     ['settings.template.manage', 'document-templates POST',     'v1/document-templates.php', 'POST',   '',                              ['name' => '']],
     ['settings.template.manage', 'document-templates DELETE',   'v1/document-templates.php', 'DELETE', 'id=00000000-0000-0000-0000-0000000000ff', []],
+    // Módulos: hasta 2026-08-28 CUALQUIER sesión de panel prendía o apagaba un
+    // módulo del comercio sin permiso (P2 de la auditoría de auth).
+    ['settings.company.edit',    'modules POST toggle',         'v1/modules.php',            'POST',   '',                              ['action' => 'toggle', 'key' => 'tables', 'enabled' => '0']],
+    ['settings.company.edit',    'modules POST config',         'v1/modules.php',            'POST',   '',                              ['action' => 'config', 'key' => 'tables']],
     ['settings.register.manage', 'register POST create',        'v1/register.php',           'POST',   '',                              ['action' => 'create']],
     ['settings.register.manage', 'register PUT config',         'v1/register.php',           'PUT',    'resource=config',               []],
     ['settings.device.manage',   'devices GET lista',           'v1/devices.php',            'GET',    '',                              []],

@@ -86,6 +86,20 @@ export interface ModuleCatalogEntry {
   configHref?: string
   /** Etiqueta de estado a partir de la config guardada. Ver docblock arriba. */
   configStatus?: (config: ModuleConfig | undefined) => ModuleConfigStatus | null
+  /**
+   * Países donde este módulo tiene sentido (ISO-3166 alpha-2). Ausente =
+   * disponible en todos, que es el default correcto para casi todo.
+   *
+   * Existe porque hay módulos atados a la normativa o a proveedores de UN país:
+   * la facturación electrónica de la SET, Bancard, uPay. Mostrárselos a un
+   * comercio brasileño no es solo ruido — le ofrece configurar algo que no
+   * puede usar, y el que lo intenta descubre el problema recién adentro.
+   *
+   * Regla del owner (2026-08-28): lo específico de un país se HABILITA por el
+   * país del tenant, nunca queda prendido para todos. Ver
+   * `context/08-convenciones-criticas.md` §61.
+   */
+  countries?: string[]
 }
 
 export const MODULES_CATALOG: ModuleCatalogEntry[] = [
@@ -96,6 +110,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
   // ── Integraciones (sistemas de terceros) ─────────────────────────────────
   {
     key: "einvoicePy",
+    countries: ["PY"],
     kind: "integration",
     title: "Facturación Electrónica",
     description: "Emití facturas electrónicas habilitadas por la SET (SIFEN) directo desde tus ventas.",
@@ -107,6 +122,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
   },
   {
     key: "bancard",
+    countries: ["PY"],
     kind: "integration",
     title: "Bancard",
     description:
@@ -131,6 +147,7 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
   },
   {
     key: "upay",
+    countries: ["PY"],
     kind: "integration",
     title: "uPay (ueno bank)",
     description:
@@ -291,6 +308,28 @@ export const MODULE_CATEGORIES = [
 ] as const
 
 /** Entradas de una vista (módulos o integraciones), en orden de catálogo. */
-export function catalogByKind(kind: ModuleKind): ModuleCatalogEntry[] {
-  return MODULES_CATALOG.filter((entry) => entry.kind === kind)
+/**
+ * El catálogo que corresponde a un tenant, según su país.
+ *
+ * `country` viene del bootstrap (`bootstrap.country`). Si todavía no cargó
+ * (undefined), se devuelven SOLO los módulos sin restricción: es preferible
+ * mostrar de menos por un instante que ofrecer una integración de otro país y
+ * tener que sacarla cuando llega el dato.
+ */
+export function modulesForCountry(country: string | null | undefined): ModuleCatalogEntry[] {
+  const code = (country ?? "").trim().toUpperCase()
+  return MODULES_CATALOG.filter((m) => {
+    if (!m.countries) return true
+    return code !== "" && m.countries.includes(code)
+  })
+}
+
+export function catalogByKind(
+  kind: ModuleKind,
+  country?: string | null,
+): ModuleCatalogEntry[] {
+  // `country` opcional para no romper a los consumidores de /admin, que ven la
+  // plataforma entera a propósito. El PANEL siempre lo pasa: un tenant no debe
+  // ver módulos de un país que no es el suyo.
+  return modulesForCountry(country).filter((entry) => entry.kind === kind)
 }

@@ -18,6 +18,7 @@ import {
   type ModuleCatalogEntry,
   type ModuleKind,
 } from "@/lib/modules-catalog"
+import { useBootstrap } from "@/hooks/use-bootstrap"
 import type { ModulesMap } from "@/lib/types/module"
 import { ModuleConfigDialog } from "@/components/modules/module-config-dialog"
 import { EmptyState } from "@/components/empty-state"
@@ -197,7 +198,14 @@ export function ModuleCatalogPanel({ kind }: { kind: ModuleKind }) {
     entry: ModuleCatalogEntry | null
   }>({ open: false, entry: null })
 
-  const entries = React.useMemo(() => catalogByKind(kind), [kind])
+  // El país del tenant decide qué módulos existen para él: los atados a la
+  // normativa o a proveedores de un país (facturación SET, Bancard, uPay) no se
+  // le ofrecen a un comercio de otro. Regla del owner 2026-08-28, context/08 §61.
+  const { data: bootstrap } = useBootstrap()
+  const entries = React.useMemo(
+    () => catalogByKind(kind, bootstrap?.country),
+    [kind, bootstrap?.country],
+  )
 
   function handleToggle(key: string, enabled: boolean) {
     toggleModule.mutate(

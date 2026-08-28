@@ -22,7 +22,7 @@ use Punto\Api\Support\Slug;
  * `company.config` JSONB) → el guardado de ajustes está ROTO en PG. Acá se rutea a `company.config`
  * vía `ncmUpdate` (que enruta claves desconocidas al JSONB con merge `||` no-destructivo).
  *
- * Los flags "extra" (ignoreInternal/stockCountBlind/blockUsedDocNo/autoSendDocs/taxPy/
+ * Los flags "extra" (ignoreInternal/stockCountBlind/blockUsedDocNo/autoSendDocs/
  * weightBarcodes/deletedItemsHistory) + las monedas viven en `config.settingObj` (un JSON
  * anidado). El write hace MERGE no-destructivo de settingObj (preserva currencies y claves
  * desconocidas) — a diferencia del legacy que hacía `settingObj = json_encode($_POST)` (clobber).
@@ -144,7 +144,6 @@ final class SettingsService
             'stockCountBlind'     => $this->truthy($obj['stockCountBlind'] ?? null),
             'blockUsedDocNo'      => $this->truthy($obj['blockUsedDocNo'] ?? null),
             'autoSendDocs'        => $this->truthy($obj['autoSendDocs'] ?? null),
-            'taxPy'               => $this->truthy($obj['taxPy'] ?? null),
             'weightBarcodes'      => $this->truthy($obj['weightBarcodes'] ?? null),
             'deletedItemsHistory' => $this->truthy($obj['deletedItemsHistory'] ?? null),
             // Asistente IA — nombre y personalidad por empresa. Viven como claves
@@ -303,7 +302,6 @@ final class SettingsService
             'stockCountBlind'     => 'stockCountBlind',
             'blockUsedDocNo'      => 'blockUsedDocNo',
             'autoSendDocs'        => 'autoSendDocs',
-            'taxPy'               => 'taxPy',
             'weightBarcodes'      => 'weightBarcodes',
             'deletedItemsHistory' => 'deletedItemsHistory',
         ];

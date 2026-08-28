@@ -164,7 +164,7 @@ if ($method === 'POST') {
         'drawerRequireClosedOrders',
         'settingRemoveTaxes', 'paymentId', 'creditLine', 'storeCredit',
         'ignoreInternal', 'stockCountBlind', 'blockUsedDocNo', 'autoSendDocs',
-        'taxPy', 'weightBarcodes', 'deletedItemsHistory',
+        'weightBarcodes', 'deletedItemsHistory',
         // D2 de context/40-anulacion-y-nota-credito.md — devoluciones.
         'settingReturnAllowIngredientReversal',
     ];
