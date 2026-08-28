@@ -10,7 +10,8 @@
     "lint": "eslint",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "export:content": "node --experimental-strip-types --import ./scripts/alias-hook.mjs scripts/export-site-content.ts"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.210",
