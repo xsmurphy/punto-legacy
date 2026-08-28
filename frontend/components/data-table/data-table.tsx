@@ -16,7 +16,17 @@ import {
 } from "@tanstack/react-table"
 import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Search, SlidersHorizontal } from "lucide-react"
 
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import {
@@ -84,6 +94,29 @@ export interface DataTableProps<T> {
   isLoading?: boolean
   /** Toolbar custom adicional a la izquierda (filtros por columna, etc). */
   toolbarSlot?: React.ReactNode
+  /**
+   * Filtros de DOMINIO del listado (tipo, sucursal, categoría, estado…). Se
+   * renderizan dentro de un panel lateral que abre un botón "Filtros", en vez
+   * de ocupar la barra.
+   *
+   * Por qué un panel y no la barra: en un listado con 4-5 filtros la toolbar se
+   * satura y empuja los controles propios de la tabla (Columnas, Excel) a una
+   * segunda fila. Los filtros de dominio crecen con el módulo; los de la tabla
+   * son siempre los mismos. Separarlos mantiene la barra estable.
+   *
+   * Lo que NO va acá: buscador, Columnas y Excel — son de la tabla y se quedan
+   * siempre a la vista.
+   */
+  filtersSlot?: React.ReactNode
+  /**
+   * Cuántos filtros hay aplicados. Pinta un badge en el botón: sin eso, un
+   * listado filtrado se ve igual que uno sin filtrar y el usuario no entiende
+   * por qué faltan filas. Es el costo de esconder los filtros, y el badge es lo
+   * que lo paga.
+   */
+  activeFilterCount?: number
+  /** Si viene, el panel muestra "Limpiar filtros". */
+  onClearFilters?: () => void
   /** Slot a la DERECHA del toolbar, pegado al column-toggle (Columnas). */
   rightToolbarSlot?: React.ReactNode
   /** Page size default. 25 por defecto. */
@@ -122,6 +155,9 @@ export function DataTable<T>({
   emptyMessage,
   isLoading,
   toolbarSlot,
+  filtersSlot,
+  activeFilterCount = 0,
+  onClearFilters,
   rightToolbarSlot,
   pageSize = 25,
   enableSelection,
@@ -136,6 +172,7 @@ export function DataTable<T>({
   const { data: bootstrapForFooter } = useBootstrap()
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
+  const [filtersOpen, setFiltersOpen] = React.useState(false)
   const [globalFilter, setGlobalFilter] = React.useState("")
   // Búsqueda externa (server-side): con `onSearchChange` el input lo maneja
   // el caller y `data` ya llega filtrada — el `globalFilter` de la tabla
@@ -361,6 +398,50 @@ export function DataTable<T>({
         </div>
 
         {toolbarSlot}
+
+        {filtersSlot && (
+          <Sheet open={filtersOpen} onOpenChange={setFiltersOpen}>
+            <SheetTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9">
+                <SlidersHorizontal className="size-3.5" />
+                Filtros
+                {activeFilterCount > 0 && (
+                  <Badge
+                    variant="secondary"
+                    className="ml-1 h-5 min-w-5 justify-center rounded-full px-1 tabular-nums"
+                  >
+                    {activeFilterCount}
+                  </Badge>
+                )}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="right" className="flex flex-col gap-0 sm:max-w-sm">
+              <SheetHeader>
+                <SheetTitle>Filtros</SheetTitle>
+                <SheetDescription>
+                  Acotá el listado. Los cambios se aplican al instante.
+                </SheetDescription>
+              </SheetHeader>
+              {/* Los controles llegan del call-site y se apilan a ancho
+                  completo: un panel angosto no admite la fila horizontal que
+                  usaban en la toolbar. */}
+              <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-4 py-2 [&_button[role=combobox]]:w-full [&>*]:w-full">
+                {filtersSlot}
+              </div>
+              {onClearFilters && (
+                <SheetFooter>
+                  <Button
+                    variant="outline"
+                    onClick={onClearFilters}
+                    disabled={activeFilterCount === 0}
+                  >
+                    Limpiar filtros
+                  </Button>
+                </SheetFooter>
+              )}
+            </SheetContent>
+          </Sheet>
+        )}
 
         <div className="ml-auto flex items-center gap-2">
           {rightToolbarSlot}
@@ -711,4 +792,27 @@ declare module "@tanstack/react-table" {
     /** Formatea la suma del footer. Si se omite, usa formatInt con el separador del tenant. */
     footerFormat?: (sum: number) => React.ReactNode
   }
+}
+
+/**
+ * Fila del panel de filtros: label arriba, control abajo, a ancho completo.
+ *
+ * En la toolbar horizontal el placeholder del `<Select>` alcanzaba como
+ * etiqueta ("Todos los tipos" se lee solo). Apilados en un panel angosto no:
+ * cuatro selects seguidos sin label se vuelven indistinguibles, sobre todo
+ * cuando ya tienen valor y el placeholder desaparece.
+ */
+export function FilterField({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
+      {children}
+    </div>
+  )
 }

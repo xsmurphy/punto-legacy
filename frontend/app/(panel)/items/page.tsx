@@ -25,7 +25,7 @@ import { EmptyState } from "@/components/empty-state"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
-import { DataTable } from "@/components/data-table/data-table"
+import { DataTable, FilterField } from "@/components/data-table/data-table"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -94,6 +94,26 @@ function ItemsPageInner() {
   const { data: categories } = useTaxonomiesByType("category")
   const [showArchived, setShowArchived] = React.useState(false)
   const [showVariants, setShowVariants] = React.useState(false)
+
+  // Cuántos filtros están puestos. Va al badge del botón "Filtros": con el panel
+  // cerrado, un listado filtrado se ve igual que uno completo, y sin esta señal
+  // el usuario no entiende por qué no encuentra un artículo que sabe que existe.
+  //
+  // "Archivados" cuenta como filtro (cambia qué universo se lista) y "ver
+  // variantes" no: no acota nada, solo despliega las variantes de las filas que
+  // ya se están mostrando.
+  const activeFilterCount =
+    (kindFilter !== "all" ? 1 : 0) +
+    (outletFilter !== "all" ? 1 : 0) +
+    (categoryFilter !== "all" ? 1 : 0) +
+    (showArchived ? 1 : 0)
+
+  const clearFilters = React.useCallback(() => {
+    setKindFilter("all")
+    setOutletFilter("all")
+    setCategoryFilter("all")
+    setShowArchived(false)
+  }, [])
   // Búsqueda server-side (nombre, SKU o categoría — ver api/v1/items.php).
   // Antes el <DataTable> filtraba client-side sobre las 200 filas cargadas
   // por `useItems`, así que tipear el nombre de una categoría ("materia
@@ -794,13 +814,16 @@ function ItemsPageInner() {
               </>
             )}
             emptyMessage={emptyState}
-            toolbarSlot={
+            activeFilterCount={activeFilterCount}
+            onClearFilters={clearFilters}
+            filtersSlot={
               <>
+                <FilterField label="Tipo">
                 <Select
                   value={kindFilter}
                   onValueChange={(v) => setKindFilter(v as typeof kindFilter)}
                 >
-                  <SelectTrigger className="h-9 w-[170px]">
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="Tipo" />
                   </SelectTrigger>
                   <SelectContent>
@@ -812,12 +835,14 @@ function ItemsPageInner() {
                     ))}
                   </SelectContent>
                 </Select>
+                </FilterField>
                 {(bootstrap?.outlets?.length ?? 0) > 1 && (
+                  <FilterField label="Sucursal">
                   <Select
                     value={outletFilter}
                     onValueChange={(v) => setOutletFilter(v)}
                   >
-                    <SelectTrigger className="h-9 w-[170px]">
+                    <SelectTrigger className="h-9">
                       <SelectValue placeholder="Sucursal" />
                     </SelectTrigger>
                     <SelectContent>
@@ -829,13 +854,15 @@ function ItemsPageInner() {
                       ))}
                     </SelectContent>
                   </Select>
+                  </FilterField>
                 )}
                 {(categories?.length ?? 0) > 0 && (
+                  <FilterField label="Categoría">
                   <Select
                     value={categoryFilter}
                     onValueChange={(v) => setCategoryFilter(v)}
                   >
-                    <SelectTrigger className="h-9 w-[170px]">
+                    <SelectTrigger className="h-9">
                       <SelectValue placeholder="Categoría" />
                     </SelectTrigger>
                     <SelectContent>
@@ -847,12 +874,14 @@ function ItemsPageInner() {
                       ))}
                     </SelectContent>
                   </Select>
+                  </FilterField>
                 )}
+                <FilterField label="Estado">
                 <Select
                   value={showArchived ? "archived" : "active"}
                   onValueChange={(v) => setShowArchived(v === "archived")}
                 >
-                  <SelectTrigger className="h-9 w-[130px]">
+                  <SelectTrigger className="h-9">
                     <SelectValue placeholder="Estado" />
                   </SelectTrigger>
                   <SelectContent>
@@ -860,15 +889,18 @@ function ItemsPageInner() {
                     <SelectItem value="archived">Archivados</SelectItem>
                   </SelectContent>
                 </Select>
-                <Button
-                  variant={showVariants ? "default" : "outline"}
-                  size="sm"
-                  className="h-9 gap-1.5"
-                  onClick={() => setShowVariants((v) => !v)}
-                >
-                  <Layers className="size-3.5" />
-                  {showVariants ? "Ocultar variantes" : "Ver variantes"}
-                </Button>
+                </FilterField>
+                <FilterField label="Variantes">
+                  <Button
+                    variant={showVariants ? "default" : "outline"}
+                    size="sm"
+                    className="h-9 w-full gap-1.5"
+                    onClick={() => setShowVariants((v) => !v)}
+                  >
+                    <Layers className="size-3.5" />
+                    {showVariants ? "Ocultar variantes" : "Ver variantes"}
+                  </Button>
+                </FilterField>
               </>
             }
           />

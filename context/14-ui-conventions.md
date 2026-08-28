@@ -70,34 +70,36 @@ shadcn `<DialogContent>` viene con `sm:max-w-lg` por default (32rem / 512px). **
 
 **Si el `<Dialog>` no acepta override de tamaño** (componente shadcn que envuelve y fuerza): editá el componente base en `frontend/components/ui/dialog.tsx` para aceptar `size="xs|sm|m|l|xl"` como prop, default `m`. Esa edición vale el cost porque elimina la fricción.
 
-### Regla #2.2 — Dialog (modal) es el default; Drawer solo en dos casos cerrados
+### Regla #2.2 — Dialog es el default; el lateral es para paneles auxiliares
 
-Para paneles contextuales, formularios y detalles (incluidos los del POS), el
-componente por defecto en DESKTOP es **`<Dialog>` centrado**. La regla nació
-(2026-07-19) porque los sub-agentes metían `Sheet`/`Drawer` lateral para
-información densa que necesita espacio — ahí un drawer a la derecha NO sirve.
-Refinada 2026-08-01 por el owner; los ÚNICOS dos usos legítimos de Drawer:
+**La prohibición de `Sheet`/`Drawer` lateral se ELIMINÓ (owner, 2026-08-28).**
+Existía desde 2026-07-19 porque un modelo anterior metía drawers laterales para
+todo, incluida información densa que necesitaba ancho. Era un parche contra ese
+comportamiento, no una regla de diseño — y ya no hace falta. Lo que queda es el
+criterio.
 
-1. **Mobile/tablet: bottom drawer para modales chicos de interacción** —
-   confirmaciones, descuento, nota de venta, lista de precios, modificador de
-   precio, cantidad. Se implementa vía el wrapper responsive canónico
-   (Dialog centrado en desktop ↔ Drawer de abajo bajo el breakpoint), NUNCA
-   importando Drawer directo en el call-site.
-2. **Desktop: actionsheet** — lista corta de acciones contextuales. Nada de
-   contenido denso, formularios largos ni listados.
+Elegí por lo que el contenido necesita:
 
-Todo lo demás sigue igual:
-- Panel de detalle/acciones con datos (ej. sesión de espacio) → `Dialog`.
-- Formulario de alta/edición → `Dialog`.
-- Confirmación → `AlertDialog` (que en mobile también baja como drawer vía el
-  wrapper cuando aplique).
-- En POS (touch-first), dentro del Dialog/Drawer usá botones `size="lg"` a
-  ancho completo — el contenedor no releva de los touch targets grandes.
+- **`Dialog` centrado — el default.** Formularios de alta/edición, paneles de
+  detalle con datos, cualquier cosa que necesite ancho o sea la tarea principal
+  del momento. Si dudás, es Dialog.
+- **`AlertDialog`** para confirmaciones.
+- **`Sheet` lateral (`side="right"`)** para paneles AUXILIARES a una vista que
+  sigue siendo el foco: filtros de un listado, configuración de una vista,
+  ayuda contextual. La tabla que estás filtrando queda visible al lado, que es
+  justamente la ventaja sobre el Dialog. No lo uses para contenido denso ni
+  formularios largos — ahí el ancho de un lateral juega en contra.
+- **Bottom drawer (mobile/tablet)** para modales chicos de interacción:
+  confirmaciones, descuento, nota de venta, cantidad. Vía el wrapper responsive
+  canónico (Dialog en desktop ↔ Drawer abajo bajo el breakpoint), NUNCA
+  importando `Drawer` directo en el call-site.
+- **Actionsheet (desktop)** para listas cortas de acciones contextuales.
 
-**Anti-patrón vigente**: `Sheet`/`Drawer` LATERAL para contenido denso
-(2026-07-19: panel de sesión de espacio como Sheet → convertido a Dialog).
-Eso sigue prohibido — el refinamiento habilita SOLO el bottom drawer mobile y
-el actionsheet desktop.
+En POS (touch-first), dentro de cualquiera de estos usá botones `size="lg"` a
+ancho completo — el contenedor no releva de los touch targets grandes.
+
+**Filtros de listado**: no los armes a mano. `<DataTable>` ya trae el panel
+(`filtersSlot` + `activeFilterCount` + `onClearFilters`) — ver Regla #3.
 
 ---
 
@@ -114,6 +116,38 @@ simple, sin DataTable.
 
 **Empty state** siempre con `<EmptyState>` de `@/components/empty-state` (icono +
 título + descripción). Nunca un `<p>"No hay resultados"</p>` pelado.
+
+### Filtros de dominio → panel lateral, no la toolbar (2026-08-28)
+
+Los filtros propios del módulo (tipo, sucursal, categoría, estado…) van en el
+**panel de filtros** del `<DataTable>`, no sueltos en la barra:
+
+```tsx
+<DataTable
+  filtersSlot={
+    <>
+      <FilterField label="Tipo"><Select …/></FilterField>
+      <FilterField label="Sucursal"><Select …/></FilterField>
+    </>
+  }
+  activeFilterCount={n}       // pinta el badge del botón
+  onClearFilters={clear}      // habilita "Limpiar filtros"
+/>
+```
+
+Por qué: los filtros de dominio CRECEN con el módulo, los controles de la tabla
+(buscador, Columnas, Excel) son siempre los mismos. Con 4-5 filtros sueltos la
+toolbar se satura y empuja Columnas/Excel a una segunda fila (pasó en
+`/items`, 2026-08-28). Separarlos mantiene la barra estable sin importar cuántos
+filtros sume el módulo.
+
+**El `activeFilterCount` no es opcional en la práctica**: con el panel cerrado,
+un listado filtrado se ve igual que uno completo. Sin el badge, el usuario no
+entiende por qué no aparece un registro que sabe que existe. Contá como filtro
+lo que ACOTA el universo de filas; no cuentes los toggles de presentación (ej.
+"ver variantes", que despliega filas ya visibles).
+
+Lo que se queda SIEMPRE en la barra: buscador, `Columnas` y `Excel`.
 
 ---
 
