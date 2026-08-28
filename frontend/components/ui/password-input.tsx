@@ -44,7 +44,12 @@ export function PasswordInput({
         type={visible ? "text" : "password"}
         {...props}
       />
-      <InputGroupAddon align="inline-end" className="pr-1">
+      {/* `has-[>button]:mr-0` anula el margen NEGATIVO que trae la variante
+          `inline-end` del addon (`has-[>button]:mr-[-0.3rem]`): está pensado
+          para addons que son un botón con texto, y con un botón de icono
+          redondo deja el ojo pegado al borde del campo (reporte del owner
+          2026-08-28). Con el margen en cero queda el `pr-2` de la variante. */}
+      <InputGroupAddon align="inline-end" className="has-[>button]:mr-0">
         <InputGroupButton
           size="icon-xs"
           aria-label={visible ? hideLabel : showLabel}
