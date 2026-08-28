@@ -2,7 +2,7 @@
 /**
  * REST — Endpoint interno de jobs de mantenimiento periódicos.
  *
- *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|partition-ensure|period-close>
+ *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|partition-ensure|period-close|ocr-requeue>
  *       → { processed?, deleted?, issued?, errors?, skipped?, job }
  *
  * SIN apiAuthTenant: lo invoca el cron DENTRO de la imagen del API
@@ -84,7 +84,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'partition-ensure', 'period-close'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'partition-ensure', 'period-close', 'ocr-requeue'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -123,6 +123,15 @@ function maintenanceRunJob(string $job): array
             $limitRaw = (int) ($_GET['limit'] ?? 20);
             $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 20;
             return (new \Punto\Api\EInvoice\EInvoiceService())->drain($limit);
+
+        case 'ocr-requeue':
+            // Rescata borradores de compra que quedaron en 'processing': el
+            // proceso que los tomó murió a mitad (típicamente un deploy recicló
+            // el contenedor mientras el modelo respondía). Sin esto quedan
+            // colgados para siempre — visibles en la bandeja pero sin datos y
+            // sin nadie que los vuelva a intentar.
+            require_once __DIR__ . '/../lib/Purchases/PurchaseDraftService.php';
+            return (new \Punto\Api\Purchases\PurchaseDraftService())->requeueStale();
 
         case 'partition-ensure':
             return maintenancePartitionEnsure($db);

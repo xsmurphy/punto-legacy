@@ -7,16 +7,29 @@ import type { PurchaseCreatePayload } from "@/hooks/use-purchases"
 /**
  * Borradores de compra generados por OCR/IA — context/32-ocr-facturas-compra.md.
  *
- * Flujo: `useUploadInvoice` sube la foto a `/api/ocr-invoice` (BFF Next, hace
- * la extracción IA + crea el draft vía PHP). El draft nace `pending` con
- * `extracted` (JSON crudo de la IA, inmutable). La pantalla de revisión
+ * Flujo: `useUploadInvoice` sube la foto a `/api/ocr-invoice` (BFF Next), que
+ * crea el draft en `queued` y RESPONDE — la extracción IA corre después, en
+ * segundo plano (`after()`), así que el usuario puede cerrar la pantalla o
+ * seguir subiendo. Cuando termina, el draft pasa a `pending` con `extracted`
+ * (JSON crudo de la IA, inmutable) o a `failed`. La pantalla de revisión
  * arma `edited` (mismo shape que `PurchaseCreatePayload`) a partir de
  * `extracted` y lo guarda con `useUpdatePurchaseDraft` a medida que el
  * usuario corrige. `useApprovePurchaseDraft` crea la compra real — la IA
  * nunca escribe stock/finanzas por su cuenta.
  */
 
-export type PurchaseDraftStatus = "pending" | "approved" | "rejected"
+/**
+ * `queued` / `processing` / `failed` son de la COLA de extracción (mig 176): el
+ * borrador se crea apenas se sube la imagen y la IA lo enriquece después, así
+ * que existe un rato sin datos. `pending` = extraído y listo para revisar.
+ */
+export type PurchaseDraftStatus =
+  | "queued"
+  | "processing"
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "failed"
 
 export interface ExtractedInvoiceItem {
   description: string | null
@@ -110,6 +123,17 @@ export function usePurchaseDrafts(status?: PurchaseDraftStatus) {
     queryKey: [...DRAFTS_KEY, "list", status ?? "all"],
     queryFn: () => api.get<PurchaseDraftListResponse>(`/v1/purchase-drafts${qs}`),
     staleTime: 15_000,
+    // Mientras haya facturas leyéndose, refrescar solo: la extracción termina
+    // en el server (`after()`, sin cliente que avise), así que sin esto el
+    // usuario ve "En cola" fijo hasta que recargue a mano. Cuando no queda
+    // ninguna en vuelo el polling se apaga — `false` desactiva el intervalo.
+    refetchInterval: (query) => {
+      const rows = query.state.data?.rows ?? []
+      const working = rows.some(
+        (d: PurchaseDraftSummary) => d.status === "queued" || d.status === "processing",
+      )
+      return working ? 5_000 : false
+    },
   })
 }
 

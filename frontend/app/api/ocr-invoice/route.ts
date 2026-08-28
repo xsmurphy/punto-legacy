@@ -1,5 +1,6 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider"
 import { generateObject } from "ai"
+import { after } from "next/server"
 import { z } from "zod"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
 
@@ -334,85 +335,13 @@ export async function POST(req: Request) {
   // el fallback solo aplica si el browser no lo mandó.
   const mediaType = file.type || "image/jpeg"
   const isPdf = mediaType === "application/pdf"
-  const dataUrl = `data:${mediaType};base64,${buffer.toString("base64")}`
 
-  const openrouter = createOpenRouter({ apiKey })
-  const model = openrouter(modelId)
-
-  const todayISO = new Date().toISOString().slice(0, 10)
-  const extractionPrompt = buildExtractionPrompt(todayISO, tenantRuc, isPdf)
-
-  let extracted: z.infer<typeof ExtractionSchema> | null = null
-  let extractError: string | null = null
-  let tokensIn = 0
-  let tokensOut = 0
-
-  try {
-    const result = await generateObject({
-      model,
-      schema: ExtractionSchema,
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: extractionPrompt },
-            // PDF: parte `file` (AI SDK `FilePart`, @ai-sdk/provider-utils)
-            // — el modelo (google/gemini-3.5-flash vía OpenRouter) lee el
-            // PDF nativo, incluido multipágina. NO se convierte a imagen ni
-            // se parte por página: un PDF (todas sus páginas) = una parte
-            // = un borrador.
-            isPdf
-              ? { type: "file", data: dataUrl, mediaType }
-              : { type: "image", image: dataUrl },
-          ],
-        },
-      ],
-      // 8000 (antes 2000): una factura con muchos ítems o un PDF
-      // multipágina trunca la respuesta con el límite viejo y la
-      // extracción falla entera.
-      maxOutputTokens: 8000,
-      temperature: 0.4,
-    })
-    extracted = result.object
-    // `currency` y `receiverMatchesTenant` finales: código, no el LLM.
-    // - currency: si el modelo no detectó divisa en la factura, queda `null`
-    //   = "no se sabe". Antes se rellenaba con "PYG", con el argumento de que
-    //   era "la moneda del tenant" — pero eso solo vale si el tenant es
-    //   paraguayo, y la moneda del tenant NO se puede derivar acá: la config
-    //   guarda el SÍMBOLO ("Gs", "R$"), no el código ISO que este campo
-    //   necesita. Rellenar con PYG le cargaba guaraníes a la compra de un
-    //   comercio brasileño sin que nadie lo notara. Con `null`, quien arma el
-    //   borrador de compra usa la moneda del tenant o se la pide al usuario.
-    // - receiverMatchesTenant: recalculado siempre con `rucsMatch` (fuente
-    //   única), pisa lo que haya puesto el modelo.
-    extracted = {
-      ...extracted,
-      currency: extracted.currency && extracted.currency.trim() !== "" ? extracted.currency : null,
-      receiverMatchesTenant: rucsMatch(extracted.receiver?.ruc ?? null, tenantRuc),
-    }
-    tokensIn = Number(result.usage?.inputTokens ?? 0)
-    tokensOut = Number(result.usage?.outputTokens ?? 0)
-  } catch (e) {
-    console.error("[ocr-invoice] fallo la extracción IA", e)
-    extractError = e instanceof Error ? e.message : "No se pudo leer la factura"
-  }
-
-  // Débito best-effort — mismo wrapper que el chat: si falla, se loguea con
-  // requestId para reconciliar pero NO bloquea la creación del borrador.
-  await debitAiUsage({
-    apiUrl,
-    authHeader,
-    tokensIn,
-    tokensOut,
-    capability: "vision",
-    model: modelId,
-    requestId,
-    logPrefix: "[ocr-invoice]",
-  })
-
-  // Crear el borrador vía PHP — sube la imagen (S3/DO Spaces, mismo
-  // mecanismo que items.php) y persiste `extracted`. Reenviamos los MISMOS
-  // bytes que ya leímos para la IA — un solo upload del lado del cliente.
+  // ── 1. Guardar el borrador YA, sin extracción ──────────────────────────────
+  // El borrador nace en 'queued' (mig 176) y respondemos enseguida. Antes este
+  // request esperaba a la IA (10-30s) antes de persistir nada: con eso no se
+  // puede subir un lote —el usuario mira la pantalla y si la cierra pierde
+  // todo— y una factura que tardaba de más se caía por timeout sin dejar
+  // rastro. Ahora la imagen queda guardada pase lo que pase.
   const phpForm = new FormData()
   phpForm.set(
     "image",
@@ -420,10 +349,6 @@ export async function POST(req: Request) {
     file.name || (isPdf ? "invoice.pdf" : "invoice.jpg"),
   )
   phpForm.set("outletId", outletId)
-  phpForm.set("extracted", JSON.stringify(extracted ?? {}))
-  if (extractError) {
-    phpForm.set("error", extractError)
-  }
 
   let createRes: Response
   try {
@@ -454,6 +379,73 @@ export async function POST(req: Request) {
     )
   }
 
+  // El presenter del borrador expone la PK como `id` (no `draftId`) — ver
+  // PurchaseDraftService::present(). Con la clave equivocada acá el borrador se
+  // crea igual pero nunca se procesa: queda en la bandeja, vacío y en cola.
+  const draftId = String(
+    (createJson as { data?: { id?: string } } | null)?.data?.id ?? "",
+  )
+  if (draftId === "") {
+    console.error("[ocr-invoice] el borrador se creó sin id — no se puede procesar", createJson)
+  }
+
+  // ── 2. Extraer en segundo plano ────────────────────────────────────────────
+  // `after()` corre DESPUÉS de mandar la respuesta, pero dentro del server: no
+  // depende de que el browser siga abierto, así que el usuario puede cerrar la
+  // pantalla o subir la siguiente factura mientras esta se procesa.
+  //
+  // Si el contenedor se recicla a mitad (deploy), el borrador queda en
+  // 'processing' y el job `ocr-requeue` (crond, cada 5') lo devuelve a la cola.
+  // Esa es la red de seguridad: `after()` no sobrevive a que el proceso muera.
+  if (draftId !== "") {
+    after(async () => {
+      try {
+        // Lock: si el requeue ya lo tomó, este llamador se retira. Sin esto la
+        // misma factura se extrae dos veces y se cobra dos veces.
+        const claimRes = await fetch(
+          `${apiUrl}/v1/purchase-drafts?id=${encodeURIComponent(draftId)}&resource=claim`,
+          { method: "POST", headers: { Authorization: authHeader } },
+        )
+        if (!claimRes.ok) return
+
+        const { extracted, extractError, tokensIn, tokensOut } = await extractInvoice({
+          apiUrl,
+          authHeader,
+          modelId,
+          apiKey,
+          buffer,
+          mediaType,
+          isPdf,
+          tenantRuc,
+        })
+
+        // Débito best-effort — mismo wrapper que el chat: si falla, se loguea
+        // con requestId para reconciliar pero NO bloquea el borrador.
+        await debitAiUsage({
+          apiUrl,
+          authHeader,
+          tokensIn,
+          tokensOut,
+          capability: "vision",
+          model: modelId,
+          requestId,
+          logPrefix: "[ocr-invoice]",
+        })
+
+        const doneForm = new FormData()
+        doneForm.set("extracted", JSON.stringify(extracted ?? {}))
+        if (extractError) doneForm.set("error", extractError)
+        await fetch(
+          `${apiUrl}/v1/purchase-drafts?id=${encodeURIComponent(draftId)}&resource=complete`,
+          { method: "POST", headers: { Authorization: authHeader }, body: doneForm },
+        )
+      } catch (e) {
+        console.error("[ocr-invoice] fallo el procesamiento en segundo plano", e)
+        // El borrador queda en 'processing'; lo rescata `ocr-requeue`.
+      }
+    })
+  }
+
   return Response.json(createJson, { status: 201 })
 }
 
@@ -463,4 +455,89 @@ function safeJson(text: string): unknown {
   } catch {
     return null
   }
+}
+
+/**
+ * Llama al modelo de visión y devuelve la extracción normalizada.
+ *
+ * Vive aparte del handler porque ahora corre en `after()`, después de que la
+ * respuesta salió: mezclarla con el flujo del request hacía difícil ver qué
+ * parte bloquea al usuario (subir la imagen) y qué parte no (leerla).
+ */
+async function extractInvoice({
+  modelId,
+  apiKey,
+  buffer,
+  mediaType,
+  isPdf,
+  tenantRuc,
+}: {
+  apiUrl: string
+  authHeader: string
+  modelId: string
+  apiKey: string
+  buffer: Buffer
+  mediaType: string
+  isPdf: boolean
+  tenantRuc: string | null
+}): Promise<{
+  extracted: z.infer<typeof ExtractionSchema> | null
+  extractError: string | null
+  tokensIn: number
+  tokensOut: number
+}> {
+  const dataUrl = `data:${mediaType};base64,${buffer.toString("base64")}`
+  const openrouter = createOpenRouter({ apiKey })
+  const model = openrouter(modelId)
+  const todayISO = new Date().toISOString().slice(0, 10)
+  const extractionPrompt = buildExtractionPrompt(todayISO, tenantRuc, isPdf)
+
+  let extracted: z.infer<typeof ExtractionSchema> | null = null
+  let extractError: string | null = null
+  let tokensIn = 0
+  let tokensOut = 0
+
+  try {
+    const result = await generateObject({
+      model,
+      schema: ExtractionSchema,
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: extractionPrompt },
+            // PDF: parte `file` (AI SDK `FilePart`) — el modelo lee el PDF
+            // nativo, incluido multipágina. NO se convierte a imagen ni se
+            // parte por página: un PDF (todas sus páginas) = un borrador.
+            isPdf
+              ? { type: "file", data: dataUrl, mediaType }
+              : { type: "image", image: dataUrl },
+          ],
+        },
+      ],
+      // 8000 (antes 2000): una factura con muchos ítems o un PDF multipágina
+      // trunca la respuesta con el límite viejo y la extracción falla entera.
+      maxOutputTokens: 8000,
+      temperature: 0.4,
+    })
+    extracted = result.object
+    // `currency` y `receiverMatchesTenant` finales: código, no el LLM.
+    // - currency: si el modelo no detectó divisa, queda `null` = "no se sabe".
+    //   Rellenar con PYG le cargaba guaraníes a un comercio brasileño sin que
+    //   nadie lo notara (la config guarda el SÍMBOLO, no el código ISO).
+    // - receiverMatchesTenant: recalculado siempre con `rucsMatch` (fuente
+    //   única), pisa lo que haya puesto el modelo.
+    extracted = {
+      ...extracted,
+      currency: extracted.currency && extracted.currency.trim() !== "" ? extracted.currency : null,
+      receiverMatchesTenant: rucsMatch(extracted.receiver?.ruc ?? null, tenantRuc),
+    }
+    tokensIn = Number(result.usage?.inputTokens ?? 0)
+    tokensOut = Number(result.usage?.outputTokens ?? 0)
+  } catch (e) {
+    console.error("[ocr-invoice] fallo la extracción IA", e)
+    extractError = e instanceof Error ? e.message : "No se pudo leer la factura"
+  }
+
+  return { extracted, extractError, tokensIn, tokensOut }
 }

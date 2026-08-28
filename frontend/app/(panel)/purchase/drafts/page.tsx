@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ArrowLeft, FileText } from "lucide-react"
+import { ArrowLeft, FileText, Loader2 } from "lucide-react"
 import type { ColumnDef } from "@tanstack/react-table"
 
 import { Button } from "@/components/ui/button"
@@ -163,6 +163,20 @@ function ConfidenceBadge({ value }: { value: number | null }) {
 }
 
 function StatusBadge({ status }: { status: PurchaseDraftStatus }) {
+  // `En cola` / `Leyendo` son de la extracción asíncrona (context/32): el
+  // borrador ya existe con su imagen pero todavía no tiene datos. Sin
+  // distinguirlos, una factura recién subida se ve como una "pendiente" vacía y
+  // el usuario cree que la lectura falló.
+  if (status === "queued") return <Badge variant="outline">En cola</Badge>
+  if (status === "processing") {
+    return (
+      <Badge variant="outline" className="gap-1">
+        <Loader2 className="size-3 animate-spin" />
+        Leyendo
+      </Badge>
+    )
+  }
+  if (status === "failed") return <Badge variant="destructive">No se pudo leer</Badge>
   if (status === "pending") return <Badge variant="outline">Pendiente</Badge>
   if (status === "approved") return <Badge variant="secondary">Aprobado</Badge>
   return <Badge variant="destructive">Rechazado</Badge>
