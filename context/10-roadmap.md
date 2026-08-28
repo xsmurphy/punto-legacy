@@ -24,6 +24,32 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 ---
 
+## Funcionalidades PY gateadas por país (owner 2026-08-28) — parcial
+
+Regla nueva en `context/08` §61: lo específico de Paraguay se habilita por el
+país del tenant, no queda prendido para todos. **Hecho**: el catálogo de módulos
+(`einvoicePy`, `bancard`, `upay` declaran `countries: ["PY"]` y el panel filtra
+por `bootstrap.country`), con guard que caza un módulo país-específico nuevo sin
+declarar. Ya estaban gateados de antes el export fiscal RG90/Libro Ventas y los
+campos de documento de identidad.
+
+**Falta:**
+
+- **`taxPy` es un switch manual** en `/settings` ("Régimen tributario Paraguay"),
+  redundante con el país del tenant. Debería derivarse de `country` o
+  desaparecer — hoy un tenant paraguayo puede tenerlo apagado y otro de Brasil
+  encendido, que es exactamente lo que la regla viene a impedir.
+- **El gate es solo de UI.** El backend no valida el país al activar un módulo:
+  un `POST /v1/modules` con `key=einvoicePy` desde un tenant no-PY no se
+  rechaza. Se resuelve junto con el P2 de `modules.php` sin `hasPermission()`
+  (ver sección de seguridad), que toca el mismo endpoint.
+- **Timbrado, punto de expedición y numeración fiscal** están en el core de la
+  emisión, no en un módulo apagable. Para vender fuera de Paraguay hay que
+  decidir qué reemplaza al timbrado en un tenant no-PY — es rediseño
+  (`context/29`), no un flag.
+- **TZ "Asunción" hardcodeada** en migs 157/160 y `period-close.php` (deuda ya
+  registrada): rompe silenciosamente con el primer tenant no-PY.
+
 ## Módulos nuevos pedidos por el owner (2026-08-28) — sin planificar
 
 Los tres entran como pedido del owner el 2026-08-28. Ninguno tiene plan cerrado

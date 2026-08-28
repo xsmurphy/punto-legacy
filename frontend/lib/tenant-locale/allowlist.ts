@@ -188,6 +188,22 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "explícitamente si la venta no es en guaraníes, en vez de convertirla.",
     allow: { 'símbolo "Gs"': 1, 'código "PYG"': 2 },
   },
+  "frontend/lib/modules-catalog.ts": {
+    reason:
+      "El `countries: [\"PY\"]` de einvoicePy/bancard/upay ES el gate que exige la regla del " +
+      "owner (context/08 §61), no un default hardcodeado: declara que esos módulos SOLO se le " +
+      "ofrecen a un tenant paraguayo. Sin el literal no hay forma de expresar la restricción — " +
+      "es lo contrario de asumir Paraguay, es nombrarlo para poder excluirlo.",
+    allow: { 'país "PY" como default': 3 },
+  },
+
+  "frontend/lib/__tests__/country-gated-modules.test.ts": {
+    reason:
+      "El guard de §61: verifica que los módulos paraguayos declaren su país y que un tenant de " +
+      "otro país NO los vea. Necesita nombrar \"PY\" y \"BR\" para probar las dos direcciones.",
+    allow: { 'país "PY" como default': 3 },
+  },
+
   "frontend/lib/ai/extract-invoice.ts": {
     reason:
       "PENDIENTE — el prompt de OCR está escrito para facturas paraguayas (timbrado, RUC con " +

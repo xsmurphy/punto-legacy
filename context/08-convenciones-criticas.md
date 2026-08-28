@@ -1106,3 +1106,57 @@ Corolario en la misma corrección: dentro de una `NextResponse`, no mezclar
 re-serializa el header `Set-Cookie` COMPLETO desde ese mapa, pisando
 cualquier append() previo a headers crudos. Elegir una sola API por
 response y usarla para todas las cookies de esa respuesta.
+
+---
+
+## §61 — Lo específico de un país se habilita por el país del tenant (owner, 2026-08-28)
+
+**La regla, textual:** «todas las funcionalidades que apuntan a Paraguay tienen
+que habilitarse solo cuando el tenant selecciona que su país es Paraguay, y no
+que esté siempre habilitado y hardcodeado a Paraguay».
+
+Es la hermana mayor de §"no hardcodear Paraguay" (el guard de literales `Gs`,
+`PYG`, `es-PY`, `America/Asuncion`). Aquel impide que se escriba un literal
+suelto; este impide algo más grande: **una funcionalidad entera de un país
+ofrecida a todos**. Paraguay no es el default del producto, es el país de
+algunos tenants.
+
+**Qué es específico de Paraguay hoy** (la lista viva, no exhaustiva):
+facturación electrónica SET/SIFEN, KuDE, RG90 y Libro de Ventas (Marangatu),
+timbrado y punto de expedición, RUC con dígito verificador, y las pasarelas
+locales (Bancard, uPay).
+
+### Cómo se gatea
+
+El país sale del tenant, nunca de una constante ni de un switch manual:
+
+| Capa | Cómo |
+|---|---|
+| Front | `bootstrap.country === "PY"` (ver `transactions-list.tsx`, `customer-dialog.tsx`) |
+| Back | `ContactService::isPyTenant()` / `TenantLocale::country($companyId)` |
+| Catálogo de módulos | `countries: ["PY"]` en la entrada de `lib/modules-catalog.ts`; el panel filtra con `catalogByKind(kind, bootstrap?.country)` |
+
+**Sin país resuelto todavía se muestra de MENOS, no de más**: es preferible que
+un módulo tarde un instante en aparecer a ofrecer una integración de otro país y
+tener que sacarla cuando llega el dato.
+
+### Por qué el síntoma es invisible
+
+Igual que con los literales: no falla ruidosamente. El módulo aparece en el
+catálogo, el comercio lo prende, lo configura — y recién descubre que no le
+sirve cuando intenta emitir. Nadie se entera desde adentro.
+
+**Guard:** `frontend/lib/__tests__/country-gated-modules.test.ts` — un módulo
+nuevo atado a un país que no declare `countries` rompe el test.
+
+### Lo que todavía NO está gateado (deuda conocida)
+
+- **Timbrado / punto de expedición / numeración fiscal** viven en el core de la
+  emisión de comprobantes, no en un módulo que se pueda apagar. Sacarlos para un
+  tenant no-PY es rediseño, no un flag — ver `context/29`.
+- **`taxPy`** ("Régimen tributario Paraguay", `/settings`) sigue siendo un switch
+  MANUAL, redundante con el país del tenant. Debería derivarse de él o
+  desaparecer.
+- El backend no valida el país al tocar módulos PY: hoy el gate es de UI. Un
+  `POST` directo a `/v1/modules` con `key=einvoicePy` desde un tenant no-PY no
+  se rechaza (relacionado con el P2 de `modules.php` sin gate de permiso).
