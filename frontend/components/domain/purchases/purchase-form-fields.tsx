@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Loader2, Package, Plus, Search, Trash2 } from "lucide-react"
+import { Loader2, MoreVertical, Package, Plus, Search, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -63,6 +63,17 @@ export interface FormLine extends Omit<PurchaseFormItem, "price"> {
    * key para que el backend resuelva cabecera → ítem → sin categoría.
    */
   expenseCategoryTouched?: boolean
+  /**
+   * true si el usuario editó el monto de IVA a mano. Mientras sea false el
+   * valor se recalcula solo (tasa × subtotal); en cuanto lo tocan, su número
+   * manda y el efecto deja de pisarlo.
+   *
+   * Existe porque el IVA impreso en la factura del proveedor no siempre cuadra
+   * al centavo con el que sale de aplicar la tasa (redondeos del emisor). Sin
+   * poder forzarlo, la compra queda cargada con un impuesto distinto al del
+   * documento que la respalda.
+   */
+  taxValueTouched?: boolean
 }
 
 export function makeRowId(): string {
@@ -80,6 +91,7 @@ export function emptyLine(isProduct = true, taxId = ""): FormLine {
     packSize: 1,
     expenseCategoryId: "",
     expenseCategoryTouched: false,
+    taxValueTouched: false,
   }
 }
 
@@ -172,6 +184,10 @@ export function LineRow({
 
   React.useEffect(() => {
     if (!line.taxId) return
+    // Override manual: si el usuario escribió el IVA, no lo recalculamos aunque
+    // cambien cantidad o precio. Para volver al automático, cambiar el impuesto
+    // en el select (eso limpia el flag).
+    if (line.taxValueTouched) return
     const t = taxOptions.find((tx) => tx.id === line.taxId)
     if (!t || t.rate === null) return
     const sub = (Number(line.units) || 0) * (line.price ?? 0)
@@ -179,7 +195,23 @@ export function LineRow({
     const calculated = (sub * rate) / (100 + rate)
     onChange({ taxValue: Number(calculated.toFixed(2)) })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [line.units, line.price, line.taxId])
+  }, [line.units, line.price, line.taxId, line.taxValueTouched])
+
+  // Segunda fila (unidades por paquete, impuesto, IVA en moneda, categoría):
+  // arranca OCULTA. Son opciones que la mayoría de las compras no toca, y
+  // tenerlas siempre a la vista satura la línea — la carga típica es cantidad,
+  // producto y precio.
+  const [detailsOpen, setDetailsOpen] = React.useState(false)
+
+  // Si hay algo configurado ahí abajo, el botón lo señala: con la fila colapsada
+  // esos valores son invisibles, y una categoría o un IVA forzado que el usuario
+  // no ve es peor que no tenerlos.
+  const hasDetails =
+    (line.isProduct && (line.packSize ?? 1) > 1) ||
+    !!line.expenseCategoryId ||
+    !!line.taxValueTouched
+
+  const subtotal = (Number(line.units) || 0) * (line.price ?? 0)
 
   // Tab desde el SelectTrigger de Impuesto en la ÚLTIMA línea → crea una
   // nueva línea en lugar de salir del form. Shift+Tab usa el back-nav default.
@@ -213,26 +245,42 @@ export function LineRow({
             {line.isProduct ? "Producto" : "Descripción libre"}
           </Label>
         </div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          onClick={onRemove}
-          aria-label="Eliminar línea"
-          className="size-7"
-        >
-          <Trash2 className="size-3.5 text-muted-foreground" />
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={() => setDetailsOpen((v) => !v)}
+            aria-label={detailsOpen ? "Ocultar más opciones" : "Más opciones"}
+            aria-expanded={detailsOpen}
+            className="relative size-7"
+          >
+            <MoreVertical className="size-3.5 text-muted-foreground" />
+            {hasDetails && !detailsOpen && (
+              <span
+                aria-hidden
+                className="absolute right-1 top-1 size-1.5 rounded-full bg-primary"
+              />
+            )}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            onClick={onRemove}
+            aria-label="Eliminar línea"
+            className="size-7"
+          >
+            <Trash2 className="size-3.5 text-muted-foreground" />
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-12 gap-2">
-        <div
-          className={
-            line.isProduct
-              ? "col-span-12 sm:col-span-3"
-              : "col-span-12 sm:col-span-5"
-          }
-        >
+        {/* 5 + 2 (cantidad) + 2 (precio) + 3 (total) = 12. Antes era 3 porque
+            "Uni. x paq." compartía la fila; ahora que bajó, el campo se queda
+            con el espacio — es el que más lo necesita (nombres largos). */}
+        <div className="col-span-12 sm:col-span-5">
           <FieldLabel>{line.isProduct ? "Producto" : "Descripción"}</FieldLabel>
           {line.isProduct ? (
             <ProductPicker
@@ -287,24 +335,6 @@ export function LineRow({
             inputMode="decimal"
           />
         </div>
-        {line.isProduct && (
-          <div className="col-span-4 sm:col-span-2">
-            <FieldLabel htmlFor={`${line.rowId}-packsize`}>Uni. x paq.</FieldLabel>
-            <Input
-              id={`${line.rowId}-packsize`}
-              type="number"
-              min={1}
-              step="1"
-              value={line.packSize ?? 1}
-              onChange={(e) =>
-                onChange({ packSize: Math.max(1, Math.round(Number(e.target.value) || 1)) })
-              }
-              placeholder="U x paq."
-              inputMode="numeric"
-              aria-label="Unidades por paquete o caja"
-            />
-          </div>
-        )}
         <div className="col-span-4 sm:col-span-2">
           {/* "Precio" es el del PAQUETE, no el de la unidad: el backend deriva
               el costo unitario como precio / packSize (PurchasesService.php). */}
@@ -323,55 +353,104 @@ export function LineRow({
             </p>
           )}
         </div>
+        {/* Total de la línea: texto, no input — es cantidad × precio y se
+            actualiza al tipear. Editable sería una tercera fuente de verdad
+            que puede contradecir a las otras dos. */}
         <div className="col-span-4 sm:col-span-3">
-          <FieldLabel>Impuesto</FieldLabel>
-          <Select
-            value={line.taxId ?? ""}
-            onValueChange={(v) => onChange({ taxId: v })}
-          >
-            <SelectTrigger onKeyDown={onTaxKeyDown}>
-              <SelectValue placeholder="Impuesto" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="0">Sin impuesto</SelectItem>
-              {taxOptions.map((t) => (
-                <SelectItem key={t.id} value={t.id}>
-                  IVA {t.name}%
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="col-span-12 sm:col-span-4">
-          {/* Opcional (owner 2026-08-20): categoriza el gasto de esta línea
-              para los reportes de Finanzas — precargada desde la ficha del
-              ítem si tiene una configurada, no traba la carga. Tocar este
-              selector marca la línea como "explícita": gana por sobre la
-              categoría de cabecera aunque el usuario elija "Sin categoría". */}
-          <FieldLabel>Categoría de gasto</FieldLabel>
-          <Select
-            value={line.expenseCategoryId || "none"}
-            onValueChange={(v) =>
-              onChange({
-                expenseCategoryId: v === "none" ? "" : v,
-                expenseCategoryTouched: true,
-              })
-            }
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Sin categoría" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">Sin categoría</SelectItem>
-              {expenseCategoryOptions.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <FieldLabel>Total</FieldLabel>
+          <div className="flex h-9 items-center justify-end rounded-md border border-transparent bg-muted/50 px-3 text-sm font-medium tabular-nums">
+            {formatMoney(subtotal, bootstrap)}
+          </div>
         </div>
       </div>
+
+      {/* Segunda fila — colapsada por default (ver `detailsOpen`). */}
+      {detailsOpen && (
+        <div className="grid grid-cols-12 gap-2 border-t pt-2.5">
+          {line.isProduct && (
+            <div className="col-span-6 sm:col-span-2">
+              <FieldLabel htmlFor={`${line.rowId}-packsize`}>Uni. x paq.</FieldLabel>
+              <Input
+                id={`${line.rowId}-packsize`}
+                type="number"
+                min={1}
+                step="1"
+                value={line.packSize ?? 1}
+                onChange={(e) =>
+                  onChange({ packSize: Math.max(1, Math.round(Number(e.target.value) || 1)) })
+                }
+                placeholder="U x paq."
+                inputMode="numeric"
+                aria-label="Unidades por paquete o caja"
+              />
+            </div>
+          )}
+          <div className="col-span-6 sm:col-span-3">
+            <FieldLabel>Impuesto</FieldLabel>
+            <Select
+              value={line.taxId ?? ""}
+              onValueChange={(v) =>
+                // Cambiar el impuesto vuelve al cálculo automático: si el
+                // usuario elige otra tasa, el monto que forzó para la anterior
+                // dejó de tener sentido.
+                onChange({ taxId: v, taxValueTouched: false })
+              }
+            >
+              <SelectTrigger onKeyDown={onTaxKeyDown}>
+                <SelectValue placeholder="Impuesto" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="0">Sin impuesto</SelectItem>
+                {taxOptions.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>
+                    IVA {t.name}%
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="col-span-6 sm:col-span-3">
+            {/* Editable para cuadrar con el IVA impreso en la factura cuando el
+                redondeo del proveedor no coincide con el de la tasa. */}
+            <FieldLabel htmlFor={`${line.rowId}-taxvalue`}>IVA en moneda</FieldLabel>
+            <MoneyInput
+              id={`${line.rowId}-taxvalue`}
+              value={line.taxValue ?? 0}
+              onChange={(v) => onChange({ taxValue: v ?? 0, taxValueTouched: true })}
+              placeholder="IVA"
+            />
+          </div>
+          <div className="col-span-12 sm:col-span-4">
+            {/* Opcional (owner 2026-08-20): categoriza el gasto de esta línea
+                para los reportes de Finanzas — precargada desde la ficha del
+                ítem si tiene una configurada, no traba la carga. Tocar este
+                selector marca la línea como "explícita": gana por sobre la
+                categoría de cabecera aunque el usuario elija "Sin categoría". */}
+            <FieldLabel>Categoría de gasto</FieldLabel>
+            <Select
+              value={line.expenseCategoryId || "none"}
+              onValueChange={(v) =>
+                onChange({
+                  expenseCategoryId: v === "none" ? "" : v,
+                  expenseCategoryTouched: true,
+                })
+              }
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Sin categoría" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Sin categoría</SelectItem>
+                {expenseCategoryOptions.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
