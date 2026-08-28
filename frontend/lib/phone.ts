@@ -3,29 +3,81 @@ import { resolvePhoneCountry, type TenantLocaleConfig } from "@/lib/tenant-local
 
 /**
  * Convierte un número de teléfono a formato nacional para mostrar al usuario.
- * Acepta E.164 ("+595981234567") o formato nacional ("0981 234 567").
- * Si el parsing falla (número parcial, inválido), retorna el input tal cual.
+ * Acepta las TRES formas que existen en el proyecto:
  *
- * Convención del proyecto: front muestra nacional, backend almacena E.164.
+ *   "595991742353"   → como lo guarda la BD: E.164 SIN el '+'
+ *   "+595991742353"  → E.164 canónico (lo que viaja hacia afuera)
+ *   "0991 742353"    → nacional, lo que tipea una persona
  *
- * `fallback` es el país con el que se interpretan los números guardados SIN
- * prefijo internacional. Antes era `"PY"` fijo por default de la firma, así
- * que un teléfono brasileño en formato nacional salía crudo, sin formato.
- * Ahora NO hay default: quien tenga el bootstrap a mano pasa el país del
- * tenant (`formatPhoneForTenant`), y quien no lo tenga deja que
- * `libphonenumber-js` resuelva sola desde el prefijo del E.164 — que es el
- * caso normal, porque la BD guarda E.164.
+ * Si el parsing falla (número parcial, inválido), devuelve el input tal cual.
+ *
+ * ── Por qué prueba con '+' antes que con el país ─────────────────────────────
+ *
+ * La convención del proyecto es que la BD guarda E.164 **sin** el '+'
+ * (`normalizePhoneForStorage`, `feedback_phone_storage_no_plus`). A
+ * `libphonenumber-js` eso le resulta indistinguible de un número nacional de un
+ * país desconocido: `parsePhoneNumber("595991742353")` tira INVALID_COUNTRY, el
+ * catch devolvía el crudo, y TODOS los listados de contactos, proveedores y
+ * usuarios mostraban "595991742353" en vez de "0991 742353" (reporte del owner
+ * 2026-08-28). El mismo agujero pintaba el teléfono crudo en el ticket impreso,
+ * porque el resolver de bloques también pasa por acá.
+ *
+ * Re-agregar el '+' antes de parsear es lo que cierra el círculo de la
+ * convención: la BD lo saca al guardar, esto lo repone al mostrar.
+ *
+ * Y va ANTES del país de fallback a propósito, no solo por orden de prueba: con
+ * un argentino guardado ("5491123456789") interpretarlo como nacional del
+ * tenant paraguayo no falla — devuelve el crudo, que es peor que fallar. Con
+ * '+' sale "011 15-2345-6789", correcto y sin que el país del tenant tenga nada
+ * que ver. Un número guardado ya trae su prefijo de país adentro; el `fallback`
+ * es para lo OTRO, lo que tipea una persona en formato local.
+ *
+ * `fallback` no tiene default: quien tenga el bootstrap a mano pasa el país del
+ * tenant (`formatPhoneForTenant`). Un "PY" cableado acá le rompería el formato
+ * a cualquier tenant no paraguayo (`feedback_no_hardcodear_paraguay`).
  */
 export function formatPhone(
   phone: string | null | undefined,
   fallback?: CountryCode,
 ): string {
   if (!phone) return ""
-  try {
-    return parsePhoneNumber(phone, fallback).formatNational()
-  } catch {
-    return phone
+
+  const trimmed = phone.trim()
+  if (trimmed === "") return phone
+
+  for (const candidate of parseCandidates(trimmed, fallback)) {
+    try {
+      const parsed = parsePhoneNumber(candidate.value, candidate.country)
+      if (parsed.isValid()) return parsed.formatNational()
+    } catch {
+      // Candidato inválido: se prueba el siguiente. El return crudo del final
+      // es el único fallback.
+    }
   }
+  return phone
+}
+
+/**
+ * Formas en las que vale la pena intentar interpretar el número, en orden.
+ *
+ * `isValid()` es lo que hace seguro probar varias: sin esa validación,
+ * `parsePhoneNumber` acepta cosas que no son teléfonos y el primer candidato
+ * ganaría siempre.
+ */
+function parseCandidates(
+  phone: string,
+  fallback?: CountryCode,
+): { value: string; country?: CountryCode }[] {
+  if (phone.startsWith("+")) return [{ value: phone }]
+
+  const candidates: { value: string; country?: CountryCode }[] = []
+  // E.164 sin '+' (cómo lo guarda la BD). El leading 0 lo excluye: ahí el 0 es
+  // el prefijo de larga distancia nacional, no un código de país.
+  if (/^[1-9]\d{6,14}$/.test(phone)) {
+    candidates.push({ value: `+${phone}` })
+  }
+  if (fallback) candidates.push({ value: phone, country: fallback })
+  return candidates
 }
 
 /**

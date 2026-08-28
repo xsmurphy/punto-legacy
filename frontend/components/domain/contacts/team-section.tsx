@@ -37,7 +37,8 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { InputOTP, InputOTPGroup, InputOTPSlot } from "@/components/ui/input-otp"
+import { PasswordInput } from "@/components/ui/password-input"
+import { PinInput } from "@/components/ui/pin-input"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -352,8 +353,7 @@ function TeamForm({
                   Contraseña {!isEdit && <span className="text-destructive">*</span>}
                 </FormLabel>
                 <FormControl>
-                  <Input
-                    type="password"
+                  <PasswordInput
                     placeholder={isEdit ? "Dejar vacío para no cambiar" : "Mínimo 6 caracteres"}
                     autoComplete="new-password"
                     {...field}
@@ -370,20 +370,7 @@ function TeamForm({
               <FormItem>
                 <FormLabel>Código POS</FormLabel>
                 <FormControl>
-                  <InputOTP
-                    maxLength={4}
-                    value={field.value}
-                    onChange={field.onChange}
-                    inputMode="numeric"
-                    pattern="^[0-9]*$"
-                  >
-                    <InputOTPGroup>
-                      <InputOTPSlot index={0} />
-                      <InputOTPSlot index={1} />
-                      <InputOTPSlot index={2} />
-                      <InputOTPSlot index={3} />
-                    </InputOTPGroup>
-                  </InputOTP>
+                  <PinInput value={field.value} onChange={field.onChange} />
                 </FormControl>
                 <FormDescription className="text-xs">
                   Código de 4 dígitos para desbloquear la pantalla de la caja.

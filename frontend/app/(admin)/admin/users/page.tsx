@@ -27,6 +27,7 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { PasswordInput } from "@/components/ui/password-input"
 import { Switch } from "@/components/ui/switch"
 import {
   Select,
@@ -151,7 +152,7 @@ function CreateAdminDialog({ open, onOpenChange }: { open: boolean; onOpenChange
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Contraseña</FormLabel>
-                  <FormControl><Input type="password" {...field} /></FormControl>
+                  <FormControl><PasswordInput {...field} /></FormControl>
                   <FormMessage />
                 </FormItem>
               )}
@@ -256,7 +257,7 @@ function EditAdminDialog({
                 <FormItem>
                   <FormLabel>Nueva contraseña (opcional)</FormLabel>
                   <FormControl>
-                    <Input type="password" placeholder="Dejar en blanco para no cambiar" {...field} />
+                    <PasswordInput placeholder="Dejar en blanco para no cambiar" {...field} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>

@@ -232,6 +232,23 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "por `lib/tenant-locale.ts`.",
     allow: { 'código "PYG"': 1, 'locale "es-PY"': 1 },
   },
+  "frontend/lib/__tests__/phone.test.ts": {
+    reason:
+      "TEST — fija que `formatPhone` muestre nacional lo que la BD guarda como E.164 SIN '+' " +
+      "(bug reportado por el owner 2026-08-28: los listados pintaban 595991742353). El 'PY' es " +
+      "la ASERCIÓN: uno de los casos verifica que un número argentino guardado salga en formato " +
+      "argentino AUNQUE el país de referencia sea PY — o sea, que el prefijo del número le gane " +
+      "al país del tenant.",
+    allow: { 'país "PY" como default': 3 },
+  },
+  "frontend/scripts/export-site-content.ts": {
+    reason:
+      "PUNTO S.A. — el export del sitio comercial, mismo caso que `lib/site/markets.ts` (su " +
+      "propia entrada acá): es la landing de Punto, no la UI de un tenant. El `es-PY` es un " +
+      "token de formato de miles para los créditos de IA del plan, con la misma justificación " +
+      "que el de `marketMoney`, del que este script es consumidor directo.",
+    allow: { 'locale "es-PY"': 1 },
+  },
   "frontend/lib/site/markets.ts": {
     reason:
       "PUNTO S.A. — configuración del mercado del sitio comercial. Hoy Punto le habla solo al " +

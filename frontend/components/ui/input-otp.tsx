@@ -43,12 +43,24 @@ function InputOTPGroup({ className, ...props }: React.ComponentProps<"div">) {
 function InputOTPSlot({
   index,
   className,
+  masked = false,
   ...props
 }: React.ComponentProps<"div"> & {
   index: number
+  /**
+   * Pinta un punto en lugar del dígito. Lo usa el campo de PIN
+   * (`components/ui/pin-input.tsx`), que arranca oculto y se revela con el ojo:
+   * un PIN es una clave y el formulario de usuarios se llena con gente mirando.
+   *
+   * Va acá y no envolviendo el slot desde afuera porque el carácter lo pinta
+   * este primitive desde el contexto de `input-otp`; taparlo por encima dejaría
+   * el dígito real en el DOM.
+   */
+  masked?: boolean
 }) {
   const inputOTPContext = React.useContext(OTPInputContext)
   const { char, hasFakeCaret, isActive } = inputOTPContext?.slots[index] ?? {}
+  const shown = masked && char ? "•" : char
 
   return (
     <div
@@ -60,7 +72,7 @@ function InputOTPSlot({
       )}
       {...props}
     >
-      {char}
+      {shown}
       {hasFakeCaret && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
           <div className="h-4 w-px animate-caret-blink bg-foreground duration-1000" />
