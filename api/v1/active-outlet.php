@@ -3,8 +3,10 @@
  * REST canónico (API compartida /api) — Cambio de sucursal activa del realm `panel`.
  *
  *   POST /v1/active-outlet { outletId: "<uuid>" }
- *       → { ok: true, data: { outletId, outletName, expiresIn } }
- *       → cookie `_jwt_panel` HttpOnly reseteada (oid del token se actualiza)
+ *       → { ok: true, data: { outletId, outletName, expiresIn, token } }
+ *       → RE-EMITE la sesión con el outlet nuevo. El `token` viaja en la respuesta
+ *         y el cliente DEBE adoptarlo (context/54 F1): si sigue mandando el
+ *         anterior, el backend resuelve la sucursal vieja.
  *
  * Replica el "selector de sucursal" del menú user del panel legacy. El
  * front (frontend sidebar) llama acá, el backend re-emite el JWT
@@ -28,10 +30,10 @@
  *    refrescar el reloj. Si se quisiera preservar el `exp` original habría
  *    que decodear el JWT en mano (`jwtAuthenticate` no expone `AUTHED_EXP`).
  *
- *  - CSRF: la cookie `_jwt_panel` viaja con `SameSite=Lax`, lo que bloquea
- *    POST cross-site desde el browser. Sin token CSRF explícito ni check de
- *    Origin/Referer — clientes nativos NO están cubiertos. Aceptable para el
- *    modelo de amenaza actual (frontend se sirve del mismo eTLD+1).
+ *  - CSRF: ya no aplica el razonamiento de `SameSite` — desde context/54 F1 la
+ *    credencial es un Bearer, no una cookie. Un sitio de terceros no puede
+ *    hacer que el browser lo adjunte (no hay envío ambiental), así que la
+ *    protección es más fuerte que antes y no depende de un atributo de cookie.
  */
 
 require_once __DIR__ . '/../bootstrap.php';

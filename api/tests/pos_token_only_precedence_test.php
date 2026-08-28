@@ -154,6 +154,12 @@ try {
     // una `_jwt_panel` que todavía viva en un browser no puede autenticar nada.
     // Ese es el cierre real del cutover — mientras el resolver la aceptara, el
     // envío ambiental seguía siendo posible aunque los clientes no la mandaran.
+    //
+    // OJO al leer este caso y el (f): como ya NADA lee `_jwt_panel`, su salida es
+    // idéntica a la de una request sin ninguna credencial. O sea que verifican la
+    // regla, pero no distinguen "la cookie no autentica" de "la cookie no se
+    // seteó". Lo que mantiene honesto el plumbing de cookies del arnés es el
+    // caso (f3), donde `_jwt_admin` SÍ tiene que resolver.
     $outB = runAuth('', $panelToken, 'panel,pos-app');
     check(
         '(b) sin Bearer + cookie panel → 401 (la cookie de panel ya no es credencial)',

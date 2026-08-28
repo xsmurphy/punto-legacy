@@ -13,8 +13,11 @@ import { SafeAreaCalibrator } from "@/components/pos/safe-area-calibrator"
 import { PosConfigSync } from "@/lib/pos/config-sync"
 
 /**
- * Layout del POS — auth via _jwt (device cookie, 10 años), NO _jwt_panel.
- * PosAuthGuard muestra <DeviceNotConnected /> si no hay cookie _jwt válida
+ * Layout del POS — auth con el Bearer del DEVICE (`lib/auth/device-token.ts`,
+ * en localStorage, sin expiración), nunca con la credencial del panel. No hay
+ * cookies en juego: el panel también es Bearer desde context/54, y cada uno
+ * tiene su propia clave de storage.
+ * PosAuthGuard muestra <DeviceNotConnected /> si no hay token de device válido
  * (el viejo /pos-pair fue eliminado; el pairing nuevo es invitation-based
  * vía /connect/[id] generado por el admin desde /settings/devices).
  *

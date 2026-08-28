@@ -4,7 +4,8 @@
  *
  *   POST /v1/login { phone: "E.164", password: "..." }
  *       → { ok: true, data: { token, expiresIn, user: { id, role, companyId } } }
- *       → cookie `_jwt_panel` HttpOnly seteada vía PanelAuth::issuePanelSession()
+ *       → el `token` ES la credencial: el cliente lo guarda y lo manda como
+ *         `Authorization: Bearer` (context/54 F1). Ya NO se setea cookie.
  *
  * Endpoint PÚBLICO (no `apiAuthTenant`) — esto es lo que produce la sesión.
  *

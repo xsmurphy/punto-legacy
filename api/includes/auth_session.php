@@ -111,11 +111,15 @@ function authSessionLookup(string $raw)
  * AUTHED_*. Mata 401 si ninguna sobrevive.
  *
  * ── PRECEDENCIA (invariante, 2026-08-25) ────────────────────────────────────
- * Si la request trae `Authorization: Bearer`, el Bearer DEFINE el realm y las
- * credenciales ambientales (cookies `_jwt_panel`/`_jwt_admin`/`_jwt` y los
- * tokens en $_POST) se IGNORAN POR COMPLETO. La cookie solo cuenta cuando NO
- * hay Bearer. No hay "primera credencial válida gana": hay una credencial
+ * Si la request trae `Authorization: Bearer`, el Bearer DEFINE el realm y la
+ * credencial ambiental (hoy solo la cookie `_jwt_admin` — ver
+ * `_authAmbientTokens()`) se IGNORA POR COMPLETO. Esa cookie solo cuenta cuando
+ * NO hay Bearer. No hay "primera credencial válida gana": hay una credencial
  * explícita que manda, y un fallback ambiental que solo aplica en su ausencia.
+ *
+ * Desde context/54 F4 el panel y el device autentican con Bearer, así que esta
+ * precedencia quedó como defensa en profundidad para el único realm que sigue
+ * usando cookie: `admin`.
  *
  * Consecuencia deliberada: un Bearer revocado/expirado/de otro realm devuelve
  * 401 aunque la cookie del operador sea válida. Ese 401 es la respuesta
@@ -411,15 +415,36 @@ function _authAmbientTokens(): array
  * para poder borrar las cookies que se emitieron con ese scope.
  */
 
-/** Limpia un cookie (logout, y el borrado de las cookies legacy de panel). */
+/**
+ * Limpia un cookie (logout, y el borrado de las cookies legacy de panel).
+ *
+ * Emite DOS borrados cuando hay `COOKIE_DOMAIN`: uno con domain y otro
+ * host-only. Para el browser son cookies DISTINTAS aunque se llamen igual, así
+ * que un `Set-Cookie` con `Domain=.punto.la` no borra la host-only — y llegó a
+ * haber una: la impersonación vieja la acuñaba desde el BFF de Next mientras PHP
+ * emitía la domain-scoped (ese fue el leak cross-tenant de `ad46b4c1`, dos
+ * sesiones simultáneas con el mismo nombre). Sin este segundo borrado esa
+ * variante queda zombie: es `HttpOnly`, así que ningún script del front la puede
+ * limpiar, y solo se iba si el usuario volvía a impersonar.
+ *
+ * Post-cutover es higiene, no seguridad: el resolver ya no acepta `_jwt_panel`
+ * y el proxy no reenvía cookies, así que una zombie no autentica nada.
+ */
 function authClearCookie(string $name, string $sameSite = 'Lax'): void
 {
     $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
             || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
     $opts = ['expires' => 1, 'path' => '/', 'httponly' => true, 'samesite' => $sameSite, 'secure' => $isHttps];
-    $dom = $_ENV['COOKIE_DOMAIN'] ?? '';
-    if ($dom !== '') { $opts['domain'] = $dom; }
+
+    // Host-only (sin `domain`): cubre la variante que acuñaba el BFF de Next.
     setcookie($name, '', $opts);
+
+    // Domain-scoped: la que emitía PHP con COOKIE_DOMAIN.
+    $dom = $_ENV['COOKIE_DOMAIN'] ?? '';
+    if ($dom !== '') {
+        $opts['domain'] = $dom;
+        setcookie($name, '', $opts);
+    }
 }
 
 // ---------------------------------------------------------------------------

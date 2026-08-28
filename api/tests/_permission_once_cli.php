@@ -10,7 +10,9 @@ declare(strict_types=1);
  * `_pos_auth_once_cli.php` / `_void_once_cli.php`.
  *
  * Uso:
- *   php _permission_once_cli.php <endpointRelPath> <METHOD> <queryString> <bodyJson> <cookieToken> [bearerToken] [operatorToken]
+ *   php _permission_once_cli.php <endpointRelPath> <METHOD> <queryString> <bodyJson> <panelToken> [deviceBearer] [operatorToken]
+ *
+ * `<panelToken>` va como Bearer desde context/54 F4 (el realm panel dejó la cookie).
  *
  * `operatorToken` es la afirmación de operador (`X-Operator-Token`,
  * api/lib/Auth/OperatorAssertion.php): bajo realm `pos-app` es lo ÚNICO que le
@@ -124,9 +126,18 @@ $_SERVER['REMOTE_ADDR']     = '127.0.0.1';
 $_SERVER['HTTP_USER_AGENT'] = 'permission-enforcement-test';
 $_SERVER['CONTENT_TYPE']    = 'application/json';
 
+// El token de PANEL viaja como Bearer, NO como cookie (context/54 F4,
+// 2026-08-27): `_authAmbientTokens()` dejó de aceptar `_jwt_panel`, así que
+// setearla acá haría que TODO respondiera 401 — y peor, en silencio: los casos
+// "rol CON la clave → pasa el gate" tratan cualquier respuesta que no sea 403
+// como éxito, así que el arnés seguiría en verde sin ejercitar un solo gate de
+// permiso. El slot sigue llamándose `$cookieToken` por compatibilidad con el
+// orden de argumentos; lo que transporta es la credencial del realm panel.
+//
+// Nunca llegan los dos a la vez (el caller pasa uno u otro: panel por este slot,
+// device por `$bearerToken`), así que no se pierde ningún caso multi-credencial.
 if ($cookieToken !== '') {
-    $_COOKIE['_jwt_panel']  = $cookieToken;
-    $_SERVER['HTTP_COOKIE'] = '_jwt_panel=' . $cookieToken;
+    $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $cookieToken;
 }
 if ($bearerToken !== '') {
     $_SERVER['HTTP_AUTHORIZATION'] = 'Bearer ' . $bearerToken;
