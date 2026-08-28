@@ -31,6 +31,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import { EmptyState } from "@/components/empty-state"
+import { api } from "@/lib/api-client"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { useTaxes } from "@/hooks/use-taxes"
@@ -362,6 +363,64 @@ export default function PurchaseDraftReviewPage() {
           icon={FileWarning}
           title="Borrador no encontrado"
           description="Puede haber sido eliminado o no tenés acceso."
+        />
+      </div>
+    )
+  }
+
+  // Todavía en la cola: el borrador existe con su imagen pero sin datos. Sin
+  // esta rama caía al form de revisión VACÍO — el usuario tipeaba y al guardar
+  // recibía "Solo se puede editar un borrador pendiente".
+  if (draft.status === "queued" || draft.status === "processing") {
+    return (
+      <div className="flex flex-col gap-4">
+        <BackLink />
+        <EmptyState
+          icon={Loader2}
+          title={draft.status === "queued" ? "En cola para leerse" : "Leyendo la factura…"}
+          description="La lectura corre en segundo plano. Podés cerrar esta pantalla: cuando termine, la factura aparece lista para revisar."
+        />
+      </div>
+    )
+  }
+
+  // No se pudo leer: sin `extracted` no hay nada que revisar ni aprobar, así
+  // que la única salida útil es reintentar la lectura (vuelve a la cola) o
+  // descartarlo. Antes era un callejón sin salida.
+  if (draft.status === "failed") {
+    return (
+      <div className="flex flex-col gap-4">
+        <BackLink />
+        <EmptyState
+          icon={FileWarning}
+          title="No se pudo leer esta factura"
+          description={
+            draft.error ??
+            "La lectura automática falló. Probá de nuevo; si vuelve a fallar, cargá la compra a mano."
+          }
+          actions={
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={async () => {
+                  try {
+                    await api.post(`/v1/purchase-drafts?id=${draft.id}&resource=retry`, {})
+                    toast.success("Reintentando la lectura…")
+                    router.push("/purchase/drafts")
+                  } catch (err) {
+                    toast.error("No se pudo reintentar", {
+                      description: err instanceof Error ? err.message : undefined,
+                    })
+                  }
+                }}
+              >
+                Reintentar lectura
+              </Button>
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/purchase">Cargar a mano</Link>
+              </Button>
+            </div>
+          }
         />
       </div>
     )

@@ -53,7 +53,7 @@ export function QuickCreateItemDialog({
   initialName?: string
   /** Sucursal de la compra: el ítem necesita al menos una asignada. */
   outletId?: string
-  onCreated: (item: { id: string; name: string }) => void
+  onCreated: (item: { id: string; name: string; taxId?: string }) => void
 }) {
   const createItem = useCreateItem()
   const { data: taxes } = useTaxes()
@@ -78,8 +78,10 @@ export function QuickCreateItemDialog({
     setPrice(null)
     setCategoryId("")
     setTaxId(taxOptions[0]?.id ?? "")
+    // `taxOptions[0]?.id` en las deps: si `useTaxes()` todavía no resolvió al
+    // abrir el diálogo, sin esto el ítem nacía sin impuesto y nadie lo notaba.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, initialName])
+  }, [open, initialName, taxOptions[0]?.id])
 
   const canSave = name.trim() !== "" && !createItem.isPending
 
@@ -101,7 +103,9 @@ export function QuickCreateItemDialog({
       const id = created?.itemId ?? ""
       if (!id) throw new Error("El servidor no devolvió el artículo creado")
       toast.success(`"${name.trim()}" creado`)
-      onCreated({ id, name: name.trim() })
+      // `taxId` viaja para que la línea de compra herede el impuesto que el
+      // usuario acaba de elegir acá, sin tener que volver a fijarlo.
+      onCreated({ id, name: name.trim(), taxId })
       onOpenChange(false)
     } catch (err) {
       toast.error("No se pudo crear el artículo", {
@@ -182,7 +186,7 @@ export function QuickCreateItemDialog({
                 <SelectItem value="0">Sin impuesto</SelectItem>
                 {taxOptions.map((t) => (
                   <SelectItem key={t.id} value={t.id}>
-                    IVA {t.name}%
+                    {t.name}
                   </SelectItem>
                 ))}
               </SelectContent>

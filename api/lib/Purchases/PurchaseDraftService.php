@@ -256,12 +256,42 @@ final class PurchaseDraftService
         }
 
         $status = $extractError !== null ? 'failed' : 'pending';
+        // SOLO cierra borradores que están en la cola. Sin este guard, un
+        // `?resource=complete` tardío (o malicioso) sobre uno ya APROBADO lo
+        // devolvía a 'pending' con `extracted` arbitrario, y como approve() es
+        // idempotente por status, el segundo approve creaba una SEGUNDA compra
+        // real. También evita des-rechazar un borrador que el usuario descartó
+        // mientras la IA todavía lo estaba leyendo.
         ncmExecute(
-            'UPDATE purchase_draft
+            "UPDATE purchase_draft
                 SET status = ?, extracted = ?::jsonb, error = ?, contactid = COALESCE(?, contactid)
-              WHERE draftid = ? AND companyid = ?',
+              WHERE draftid = ? AND companyid = ? AND status IN ('queued', 'processing')",
             [$status, $extractedJson, $extractError, $contactId, $id, $companyId]
         );
+        return $this->find($id, $companyId) ?? [];
+    }
+
+    /**
+     * Reencola un borrador que no se pudo leer. Resetea `attempts` porque es
+     * una decisión NUEVA del usuario, no un reintento automático: si la foto
+     * era ilegible y la reemplaza el criterio de "ya se intentó 3 veces" no
+     * aplica.
+     */
+    public function retry(string $id, string $companyId): array
+    {
+        if (!preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('id inválido');
+        }
+        $row = ncmExecute(
+            "UPDATE purchase_draft
+                SET status = 'queued', attempts = 0, processing_at = NULL, error = NULL
+              WHERE draftid = ? AND companyid = ? AND status = 'failed'
+              RETURNING draftid",
+            [$id, $companyId]
+        );
+        if (!$row) {
+            throw new \RuntimeException('Solo se puede reintentar un borrador que falló');
+        }
         return $this->find($id, $companyId) ?? [];
     }
 
@@ -389,6 +419,22 @@ final class PurchaseDraftService
         }
 
         $status = (string) $row['status'];
+
+        // Idempotencia por TRANSACCIÓN, no solo por status: si el borrador ya
+        // generó una compra, no puede generar otra aunque su status haya vuelto
+        // a 'pending' por algún camino (un `complete` tardío, una corrección
+        // manual en BD). El status es un estado editable; `transactionid` es el
+        // hecho consumado.
+        if ($row['transactionid'] !== null && (string) $row['transactionid'] !== '') {
+            $db->CompleteTrans();
+            return [
+                'draftId'         => $id,
+                'status'          => $status === 'approved' ? 'approved' : $status,
+                'transactionId'   => (string) $row['transactionid'],
+                'alreadyApproved' => true,
+                'warning'         => null,
+            ];
+        }
 
         if ($status === 'approved') {
             $db->CompleteTrans();

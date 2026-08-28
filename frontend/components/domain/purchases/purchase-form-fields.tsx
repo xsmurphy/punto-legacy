@@ -651,19 +651,26 @@ export function ProductPicker({
                 <div className="py-4 text-sm text-muted-foreground">
                   Tipeá para buscar
                 </div>
+              ) : items.isFetching ? (
+                // Mientras la búsqueda está en vuelo no se ofrece crear: el
+                // ítem puede existir y todavía no haber llegado.
+                <div className="flex items-center justify-center gap-2 py-4 text-sm text-muted-foreground">
+                  <Loader2 className="size-4 animate-spin" /> Buscando…
+                </div>
               ) : (
-                <button
+                <Button
                   type="button"
+                  variant="ghost"
                   onClick={() => {
                     setPendingName(q.trim())
                     setOpen(false)
                     setCreateOpen(true)
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+                  className="h-auto w-full justify-start gap-2 px-3 py-2 text-sm font-normal"
                 >
                   <Plus className="size-4" />
                   Crear artículo <span className="font-medium">"{q.trim()}"</span>
-                </button>
+                </Button>
               )}
             </CommandEmpty>
             <CommandGroup>
@@ -715,10 +722,12 @@ export function ProductPicker({
       onOpenChange={setCreateOpen}
       initialName={pendingName}
       outletId={outletId}
-      onCreated={({ id, name }) => {
-        // Queda seleccionado en la línea. Sin precio de última compra (recién
-        // nace) ni categoría de gasto: la línea conserva lo que ya tenía.
-        onChange(id, name, 0)
+      onCreated={({ id, name, taxId }) => {
+        // Queda seleccionado en la línea, con el impuesto que el usuario acaba
+        // de elegir en el diálogo — descartarlo lo obligaba a volver a fijarlo
+        // en la línea. Sin precio de última compra (el ítem recién nace) ni
+        // categoría de gasto: la línea conserva lo que ya tenía.
+        onChange(id, name, 0, undefined, taxId ?? null)
         setQ("")
       }}
     />

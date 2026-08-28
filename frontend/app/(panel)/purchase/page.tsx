@@ -809,13 +809,14 @@ function UploadInvoiceDropzone({ outletId }: { outletId: string }) {
           <Upload className="size-5 text-muted-foreground" />
           <p className="text-sm">
             Arrastrá facturas acá o{" "}
-            <button
+            <Button
               type="button"
+              variant="link"
               onClick={() => inputRef.current?.click()}
-              className="font-medium text-primary underline-offset-2 hover:underline"
+              className="h-auto p-0 text-sm font-medium"
             >
               elegí archivos
-            </button>
+            </Button>
           </p>
           <p className="text-xs text-muted-foreground">
             Fotos o PDF. Se leen en segundo plano: podés cerrar esta pantalla.

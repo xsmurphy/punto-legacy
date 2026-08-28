@@ -10,6 +10,7 @@
  *          el BFF de Next, frontend/app/api/ocr-invoice/route.ts, tras la
  *          extracción IA — NUNCA se llama directo desde el browser)
  *   PUT    /v1/purchase-drafts?id=<uuid>  { edited?, contactId? } → guarda correcciones
+ *   POST   /v1/purchase-drafts?id=<uuid>&resource=retry              → vuelve a encolar un fallido
  *   POST   /v1/purchase-drafts?id=<uuid>&resource=claim              → toma para procesar
  *   POST   /v1/purchase-drafts?id=<uuid>&resource=complete { extracted?, error? } → cierra extracción
  *   POST   /v1/purchase-drafts?id=<uuid>&resource=approve { edited? } → aprueba
@@ -127,6 +128,19 @@ if ($method === 'POST' && $id !== '' && $resource === 'claim') {
         apiError('El borrador ya está siendo procesado', 409);
     }
     apiOk(['claimed' => true]);
+}
+
+// POST ?id=<uuid>&resource=retry
+//   Devuelve a la cola un borrador que no se pudo leer. Sin esto, un 'failed'
+//   es un callejón sin salida: no se puede editar (update() exige 'pending') ni
+//   aprobar (approve() necesita datos que la extracción nunca produjo).
+if ($method === 'POST' && $id !== '' && $resource === 'retry') {
+    try {
+        $row = $svc->retry($id, (string) COMPANY_ID);
+    } catch (\RuntimeException $e) {
+        apiError($e->getMessage(), 422);
+    }
+    apiOk($row);
 }
 
 if ($method === 'PUT' && $id !== '') {

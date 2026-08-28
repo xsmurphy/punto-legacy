@@ -292,7 +292,7 @@ function ItemEditPageInner() {
 
   // Para items nuevos: pre-seleccionamos el primer impuesto disponible del
   // tenant para que el form no arranque sin impuesto. taxIncluded ya viene
-  // true en emptyValues.
+  // true en emptyItemValues().
   //
   // Migrado de useTaxonomiesByType("tax") a useTaxes (F0 del plan de
   // impuestos multi-país, context/38) — la tabla `tax` es la fuente única

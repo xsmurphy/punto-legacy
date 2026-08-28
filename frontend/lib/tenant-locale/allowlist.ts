@@ -188,13 +188,15 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "explícitamente si la venta no es en guaraníes, en vez de convertirla.",
     allow: { 'símbolo "Gs"': 1, 'código "PYG"': 2 },
   },
-  "frontend/app/api/ocr-invoice/route.ts": {
+  "frontend/lib/ai/extract-invoice.ts": {
     reason:
       "PENDIENTE — el prompt de OCR está escrito para facturas paraguayas (timbrado, RUC con " +
       "dígito verificador, tasas de IVA 0/5/10) pero NO está gateado por país. El default de " +
       "moneda ya se sacó (queda null si no se detecta); falta gatear el módulo por " +
       "`settingCountry` o escribir variantes del prompt por país antes de habilitarlo fuera " +
-      "de Paraguay.",
+      "de Paraguay. (El prompt vivía en `app/api/ocr-invoice/route.ts`; se movió acá al " +
+      "aparecer el segundo consumidor —el drain de la cola— para que los dos usen el mismo " +
+      "texto. Los literales son los mismos, solo cambiaron de archivo.)",
     allow: { 'código "PYG"': 2 },
   },
 
