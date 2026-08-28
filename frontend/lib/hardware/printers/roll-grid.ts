@@ -86,6 +86,48 @@ import {
 export const ESC_POS_CELL_ASPECT = 2
 
 /**
+ * Tipografía de TODO lo que se imprime en rollo — la del editor y la del papel.
+ *
+ * No es una preferencia estética: la térmica imprime en modo texto con una
+ * celda de ancho FIJO, y toda la geometría de este módulo son columnas de
+ * caracteres. Con una fuente proporcional, las mismas 48 columnas que la grilla
+ * centró y cortó se pintan cada una de un ancho distinto: el texto sale corrido
+ * y se desborda del papel aunque la grilla haya cortado bien (reporte del owner
+ * 2026-08-28, con capturas del canvas centrado y la vista previa corrida).
+ *
+ * Por eso `page_font_family` y `block.family` NO se respetan en rollo: la
+ * plantilla puede pedir Arial, pero la impresora no sabe imprimir Arial. Antes
+ * el renderer la ponía primero en el stack (`'Arial', monospace`), o sea que la
+ * plantilla ganaba y el resultado mentía sobre el papel. En HOJA sí se
+ * respetan — ahí el navegador imprime con la fuente que se le pida.
+ */
+export const ROLL_FONT_STACK =
+  "ui-monospace, 'SFMono-Regular', 'Menlo', 'DejaVu Sans Mono', 'Courier New', monospace"
+
+/**
+ * Avance horizontal de un carácter monoespaciado, en `em`. 0.6 es el valor de
+ * Courier/DejaVu Sans Mono y de la mayoría de las monoespaciadas de sistema.
+ *
+ * Es una aproximación VISUAL: los cortes de línea ya los decidió la grilla, así
+ * que una métrica distinta cambia cuánto se llena el ancho del papel, nunca
+ * dónde corta el texto.
+ */
+const CHAR_EM_RATIO = 0.6
+
+/**
+ * Tamaño de fuente para que `columns` caracteres ocupen exactamente `width`.
+ *
+ * Una sola fórmula para las dos superficies: el canvas del editor la usa en px
+ * y el documento impreso en mm. Cuando vivía solo en `html-renderer.ts`, el
+ * canvas dibujaba con el tamaño que la plantilla pedía y el papel con este —
+ * y eso es, literalmente, que el editor muestre otra densidad de caracteres que
+ * la que sale impresa.
+ */
+export function rollFontSizeFor(width: number, columns: number): number {
+  return width / columns / CHAR_EM_RATIO
+}
+
+/**
  * Columnas por ancho REAL de dispositivo. Las térmicas del proyecto son de dos
  * anchos y nada más (`PrinterBinding.paperWidthMm` es `58 | 80`), así que esta
  * tabla tiene exactamente dos entradas.

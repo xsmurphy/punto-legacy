@@ -15,7 +15,14 @@ import {
   ticketItemName,
 } from "./blocks"
 import type { LineGeometry } from "./blocks"
-import { buildRollGrid, rollGeometry, type RollGraphic, type RollGrid } from "./roll-grid"
+import {
+  buildRollGrid,
+  rollFontSizeFor,
+  rollGeometry,
+  ROLL_FONT_STACK,
+  type RollGraphic,
+  type RollGrid,
+} from "./roll-grid"
 
 function esc(s: string): string {
   return s
@@ -421,12 +428,9 @@ ${body}
 
   const widthMm = options.paperWidthMm ?? PAPER_DIMENSIONS[template.page_size].widthMm
   // Tamaño de fuente para que `columns` caracteres llenen el ancho del papel.
-  // 0.6em es el avance típico de un carácter monoespaciado; es una
-  // aproximación VISUAL y nada más — los cortes de línea ya vienen decididos
-  // por la grilla (roll-grid.ts), así que una métrica de fuente distinta
-  // cambia cuánto se llena el ancho, nunca dónde corta el texto.
-  const charEmRatio = 0.6
-  const rollFontSize = `${(widthMm / geo.columns / charEmRatio).toFixed(3)}mm`
+  // La fórmula vive en roll-grid.ts: la comparte con el canvas del editor, para
+  // que las dos superficies muestren la MISMA densidad de caracteres.
+  const rollFontSize = `${rollFontSizeFor(widthMm, geo.columns).toFixed(3)}mm`
 
   return `<!DOCTYPE html>
 <html>
@@ -435,7 +439,11 @@ ${body}
 <style>
   @page { size: ${widthMm}mm auto; margin: 0; }
   html, body { margin: 0; padding: 0; }
-  body { font-family: '${fontFamily}', monospace; font-size: ${rollFontSize}; width: ${widthMm}mm; margin: 0 auto; }
+  /* Monoespaciada SIEMPRE, ignorando \`page_font_family\`: ver ROLL_FONT_STACK
+     (roll-grid.ts). La térmica imprime celdas de ancho fijo; con la fuente de
+     la plantilla adelante en el stack, las columnas que la grilla centró y
+     cortó se pintaban de anchos distintos y el texto se desbordaba del papel. */
+  body { font-family: ${ROLL_FONT_STACK}; font-size: ${rollFontSize}; width: ${widthMm}mm; margin: 0 auto; }
   pre { font-family: inherit; }
   @media print { body { margin: 0; } }
 </style>

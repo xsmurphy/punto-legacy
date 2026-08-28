@@ -44,6 +44,11 @@ import { useTaxes } from "@/hooks/use-taxes"
 import { buildDemoTicketData, buildTemplateTestData } from "@/lib/hardware/printers/build-ticket-data"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { simulateTemplatePrint } from "@/lib/hardware/printers"
+import {
+  rollFontSizeFor,
+  rollGeometry,
+  ROLL_FONT_STACK,
+} from "@/lib/hardware/printers/roll-grid"
 import { getBlockPlaceholder, type PaletteItem } from "@/lib/print-template-palette"
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard"
 import {
@@ -185,6 +190,12 @@ export function TemplateEditor({ existing }: Props) {
 
   const dim = PAPER_DIMENSIONS[config.page_size]
   const widthPx = dim.widthMm * mm
+  // Geometría del rollo (null en hoja) — la MISMA que usan la vista previa y
+  // el emisor ESC/POS, así que el canvas no puede quedar desincronizado.
+  const rollGeo = React.useMemo(
+    () => (isReceipt(config.page_size) ? rollGeometry(config.page_size, mm) : null),
+    [config.page_size, mm],
+  )
   const heightPx = dim.heightMm * mm
   const ticket = isReceipt(config.page_size)
 
@@ -255,7 +266,15 @@ export function TemplateEditor({ existing }: Props) {
       // hor_line/ver_line no tienen "contenido" que medir — su ancho por
       // defecto ya es intencional (línea decorativa), no un cabo pendiente.
       const placeholder = getBlockPlaceholder(block, taxesQuery.data?.taxes ?? [])
-      const estimated = estimateContentWidth(placeholder, config.page_font_family, config.page_font_size)
+      // Se mide con la tipografía REAL del papel: en rollo es la monoespaciada
+      // de la grilla, no la que diga la plantilla (ver ROLL_FONT_STACK). Con la
+      // fuente de la plantilla, un bloque nuevo nacía con un ancho que no
+      // correspondía a ninguna cantidad de columnas.
+      const estimated = estimateContentWidth(
+        placeholder,
+        rollGeo ? ROLL_FONT_STACK : config.page_font_family,
+        rollGeo ? `${rollFontSizeFor(widthPx, rollGeo.columns).toFixed(2)}px` : config.page_font_size,
+      )
       block.width = Math.max(MIN_BLOCK_SIZE, Math.min(estimated, Math.round(widthPx)))
     }
     setBlocks((prev) => [...prev, block])
@@ -678,8 +697,17 @@ export function TemplateEditor({ existing }: Props) {
             style={{
               width: `${widthPx}px`,
               height: `${heightPx}px`,
-              fontFamily: config.page_font_family,
-              fontSize: config.page_font_size,
+              // En ROLLO la tipografía la manda el papel, no la plantilla: la
+              // térmica imprime celdas de ancho fijo y toda la geometría son
+              // columnas de caracteres. Mostrar acá la fuente elegida hacía que
+              // el canvas dibujara una densidad de caracteres distinta a la que
+              // sale impresa — el editor centraba bien y la vista previa salía
+              // corrida y desbordada (reporte del owner 2026-08-28). En HOJA sí
+              // manda la plantilla: ahí imprime el navegador.
+              fontFamily: rollGeo ? ROLL_FONT_STACK : config.page_font_family,
+              fontSize: rollGeo
+                ? `${rollFontSizeFor(widthPx, rollGeo.columns).toFixed(2)}px`
+                : config.page_font_size,
               textTransform: config.page_font_case,
             }}
             onMouseDown={handlePaperMouseDown}

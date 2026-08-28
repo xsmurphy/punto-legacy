@@ -92,6 +92,8 @@ export function CanvasBlock({
   onDragGuides,
 }: Props) {
   const ticket = isReceipt(paperSize)
+  // Alias local: en rollo la tipografía la manda el papel, no el bloque.
+  const isRoll = ticket
   const grid = Math.max(1, mm) // 1mm snap
   const [isDragging, setIsDragging] = React.useState(false)
   const [isResizing, setIsResizing] = React.useState(false)
@@ -229,8 +231,14 @@ export function CanvasBlock({
         opacity: moving ? 0.55 : 1,
         transition: moving ? "none" : "opacity 120ms ease-out",
         textAlign: block.align,
-        fontSize: block.size !== "inherit" ? block.size : undefined,
-        fontFamily: block.family !== "inherit" ? block.family : undefined,
+        // En ROLLO la tipografía por bloque no existe: la térmica imprime en
+        // modo texto con una celda de ancho fijo, y los renderers ya la ignoran
+        // (la grilla de caracteres es la geometría). Pintarla acá solo lograba
+        // que el canvas mostrara algo que el papel no puede hacer. En hoja sí
+        // manda el bloque — ahí imprime el navegador. Ver ROLL_FONT_STACK
+        // (roll-grid.ts).
+        fontSize: !isRoll && block.size !== "inherit" ? block.size : undefined,
+        fontFamily: !isRoll && block.family !== "inherit" ? block.family : undefined,
         fontWeight: block.bold,
       }}
     >
