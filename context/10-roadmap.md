@@ -148,6 +148,35 @@ el costo de todas las recetas que toquen el subproducto.
 
 ---
 
+## Cotización en PDF para mandarle al cliente (plan cerrado 2026-08-28)
+
+Pedido del owner: que la cotización tenga un PDF con buen diseño, tipo
+"Quotation", que el comercio pueda enviarle a su cliente. Plan en
+[56-cotizacion-pdf.md](56-cotizacion-pdf.md).
+
+**Por qué NO sale del document builder:** el motor de hoja pinta bloques en
+posición absoluta en milímetros y **no pagina** — una cotización de 40 ítems se
+corta al pie y los totales quedan afuera, sin aviso. Ese motor existe para el
+ticket térmico y los formularios fiscales preimpresos; esto es otra cosa.
+Decisión del owner: documento propio con diseño fijo que fluye y pagina, donde
+el tenant configura su marca y sus textos, no posiciones. No contradice
+context/20: esa regla gobierna el ticket, no una pieza comercial.
+
+Motor: `@react-pdf/renderer` en un route handler de Next — pagina de verdad,
+texto seleccionable, sin meter Chromium (~300 MB) en la imagen. Descartadas:
+puppeteer (peso), dompdf/mpdf (sin flex/grid, obliga a maquetar con tablas),
+jsPDF/html2canvas (rasteriza).
+
+Se genera bajo demanda y se cachea en S3 con la versión del documento en la
+clave: generarlo en cada alta gasta trabajo en cotizaciones que nadie manda y
+deja un archivo desactualizado apenas la cotización se edita. Offline se puede
+crear la cotización pero no el PDF — el botón se deshabilita con su motivo.
+
+F0 ajustes (validez, condiciones, nota), F1 layout + endpoint + descarga,
+F2 cache en S3, F3 envío por mail/WhatsApp (hoy Evolution solo se usa para OTP).
+
+---
+
 ## Franquicias — el franquiciador supervisa, no manda (plan cerrado 2026-08-28)
 
 Pedido del owner: que un franquiciador pueda supervisar a sus franquiciados.
