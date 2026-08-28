@@ -190,7 +190,7 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
   },
   "api/lib/Modules/ModulesService.php": {
     reason:
-      "Espejo en PHP del `countries` del catálogo (context/08 §61): el front decide qué MOSTRAR " +
+      "Espejo en PHP del `countries` del catálogo (context/08 §62): el front decide qué MOSTRAR " +
       "y esto decide qué se puede ACTIVAR, porque un POST directo se saltea la UI. El literal " +
       "\"PY\" ES el gate —nombra el país para poder EXCLUIRLO— no un default asumido.",
     allow: { 'país "PY" como default': 3 },
@@ -199,7 +199,7 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
   "frontend/lib/modules-catalog.ts": {
     reason:
       "El `countries: [\"PY\"]` de einvoicePy/bancard/upay ES el gate que exige la regla del " +
-      "owner (context/08 §61), no un default hardcodeado: declara que esos módulos SOLO se le " +
+      "owner (context/08 §62), no un default hardcodeado: declara que esos módulos SOLO se le " +
       "ofrecen a un tenant paraguayo. Sin el literal no hay forma de expresar la restricción — " +
       "es lo contrario de asumir Paraguay, es nombrarlo para poder excluirlo.",
     allow: { 'país "PY" como default': 3 },
@@ -207,7 +207,7 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
 
   "frontend/lib/__tests__/country-gated-modules.test.ts": {
     reason:
-      "El guard de §61: verifica que los módulos paraguayos declaren su país y que un tenant de " +
+      "El guard de §62: verifica que los módulos paraguayos declaren su país y que un tenant de " +
       "otro país NO los vea. Necesita nombrar \"PY\" y \"BR\" para probar las dos direcciones.",
     allow: { 'país "PY" como default': 3 },
   },

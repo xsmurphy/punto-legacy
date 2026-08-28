@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-28 — cutover Bearer F3+F4 (panel sin cookie), filtros en DataTable, compras compactas+alta rápida, cola OCR asíncrona, módulos gateados por país
+
+Commits `5f8f7d73..291b52a1` (13, incl. 3 merges). Highlights: PHP deja de emitir/aceptar `_jwt_panel` (`context/54` F3+F4 cerrado, `authSetOpaqueCookie`/`forwardCookie` eliminados, arnés `pos_token_only_precedence_test` 16/16 con 2 aserciones invertidas); `<DataTable>` con panel de filtros (`filtersSlot`) y se elimina la regla de `context/14` que prohibía Sheet lateral (parche contra modelo anterior); compras con línea compacta + alta rápida de artículo desde el buscador; cola OCR asíncrona (mig 176, `PurchaseDraftService::claim/complete/retry`, drain en Next porque la extracción vive ahí, no en PHP); `context/08` §62 nuevo — módulos PY-only (`einvoicePy`/`bancard`/`upay`) gateados por país del tenant, `taxPy` eliminado por redundante. Pendiente: verificar deploy `291b52a1`; roadmap de consignación/alquiler/subproductos (`5ab381fb`).
+
 ## 2026-08-27 — stock ledger única fuente de verdad (context/52 F1-F4) + preaviso de timbrado (D5) + go-live checklist
 
 Commits `06b625ce..c98299da` (no contiguos, intercalados con otras sesiones; 2026-08-23/24). Highlights: add-on descuenta stock al cobrar orden/mesa (`4bc1e370`); IVA hereda de la última compra del ítem (`e4a62faf`); saneamiento del ledger de stock — lector único SUM (`onHand`/`onHandBulk`/`onHandByLocation`), `stockTrigger`/`inventory` muertas confirmadas, `manageStock` lanza en fallo real, doble reposición de combos cerrada (`4f95ba50`, ~16.000 queries → 4); arnés `stock_ledger_test` 12/12 verde destapó 2 bugs (COGS `''` reventaba NUMERIC, `isCompoundChildRow` no contemplaba `flattenJsonb`, `b11819cf`); preaviso de timbrado por números restantes, funciona offline (`c98299da`); uPay a standby (`f1c81d5e`). Checklist de go-live: https://claude.ai/code/artifact/f19a38b1-0cb0-4f25-939a-7448c3f999ac — backlog visual: https://claude.ai/code/artifact/6f23d6f5-f511-4db3-a378-c2abe1a35ebb. Pendiente: verificar deploy en prod + simulacro end-to-end, NC de devolución con vale sin exclusión.

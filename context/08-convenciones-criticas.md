@@ -1109,7 +1109,7 @@ response y usarla para todas las cookies de esa respuesta.
 
 ---
 
-## §61 — Lo específico de un país se habilita por el país del tenant (owner, 2026-08-28)
+## §62 — Lo específico de un país se habilita por el país del tenant (owner, 2026-08-28)
 
 **La regla, textual:** «todas las funcionalidades que apuntan a Paraguay tienen
 que habilitarse solo cuando el tenant selecciona que su país es Paraguay, y no

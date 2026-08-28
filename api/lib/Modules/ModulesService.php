@@ -167,7 +167,7 @@ final class ModulesService
      * Si se agrega un módulo país-específico, va en los dos lados (el guard
      * `country-gated-modules.test.ts` cubre el lado del front).
      *
-     * Regla del owner 2026-08-28, `context/08` §61.
+     * Regla del owner 2026-08-28, `context/08` §62.
      */
     private const COUNTRY_ONLY = [
         'einvoicePy' => ['PY'],

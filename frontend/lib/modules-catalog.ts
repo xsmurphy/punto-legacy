@@ -97,7 +97,7 @@ export interface ModuleCatalogEntry {
    *
    * Regla del owner (2026-08-28): lo específico de un país se HABILITA por el
    * país del tenant, nunca queda prendido para todos. Ver
-   * `context/08-convenciones-criticas.md` §61.
+   * `context/08-convenciones-criticas.md` §62.
    */
   countries?: string[]
 }

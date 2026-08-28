@@ -26,7 +26,7 @@ Items completados archivados en [_archive-roadmap-completado.md](_archive-roadma
 
 ## Funcionalidades PY gateadas por país (owner 2026-08-28) — parcial
 
-Regla nueva en `context/08` §61: lo específico de Paraguay se habilita por el
+Regla nueva en `context/08` §62: lo específico de Paraguay se habilita por el
 país del tenant, no queda prendido para todos. **Hecho**: el catálogo de módulos
 (`einvoicePy`, `bancard`, `upay` declaran `countries: ["PY"]` y el panel filtra
 por `bootstrap.country`), con guard que caza un módulo país-específico nuevo sin
