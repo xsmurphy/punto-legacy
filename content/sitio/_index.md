@@ -5,8 +5,9 @@ fuente: "sitio punto.la"
 
 # Contenido del sitio de Punto
 
-Un archivo por página. Generado desde el código del sitio con
-`npm run export:content` — no editar a mano: se sobreescribe.
+Generado desde el código del sitio con `npm run export:content`.
+
+## Páginas del sitio (no editar — se sobreescriben)
 
 - [Punto — Sistema de punto de venta y facturación electrónica](home.md) — /
 - [Precios y planes](precios.md) — /precios
@@ -36,3 +37,7 @@ Un archivo por página. Generado desde el código del sitio con
 - [Punto para odontología](rubro-odontologia.md) — /para/odontologia
 - [Punto para veterinarias](rubro-veterinarias.md) — /para/veterinarias
 - [Punto para estética y cosmetología](rubro-estetica-y-cosmetologia.md) — /para/estetica-y-cosmetologia
+
+## Contenido editado a mano (persiste entre corridas)
+
+- [Preguntas de venta que el sitio no responde](faq-ventas.md)

@@ -52,8 +52,16 @@ function seccionesToMd(
 }
 
 async function main() {
-  await rm(DESTINO, { recursive: true, force: true })
+  // Se borra todo lo generado, pero NUNCA los archivos editados a mano
+  // (marcados con `editable` en el frontmatter, ej. faq-ventas.md).
   await mkdir(DESTINO, { recursive: true })
+  const { readdir, readFile } = await import("node:fs/promises")
+  for (const nombre of await readdir(DESTINO)) {
+    const ruta = join(DESTINO, nombre)
+    const texto = await readFile(ruta, "utf8").catch(() => "")
+    if (/^editable:/m.test(texto)) continue
+    await rm(ruta, { force: true })
+  }
 
   const archivos: { nombre: string; contenido: string; titulo: string; url: string }[] = []
 
@@ -248,6 +256,8 @@ ${
     await writeFile(join(DESTINO, a.nombre), contenido, "utf8")
   }
 
+  const manuales = [{ nombre: "faq-ventas.md", titulo: "Preguntas de venta que el sitio no responde" }]
+
   const indice = `---
 titulo: "Índice del contenido del sitio"
 fuente: "sitio punto.la"
@@ -255,10 +265,15 @@ fuente: "sitio punto.la"
 
 # Contenido del sitio de Punto
 
-Un archivo por página. Generado desde el código del sitio con
-\`npm run export:content\` — no editar a mano: se sobreescribe.
+Generado desde el código del sitio con \`npm run export:content\`.
+
+## Páginas del sitio (no editar — se sobreescriben)
 
 ${archivos.map((a) => `- [${a.titulo}](${a.nombre}) — ${a.url}`).join("\n")}
+
+## Contenido editado a mano (persiste entre corridas)
+
+${manuales.map((m) => `- [${m.titulo}](${m.nombre})`).join("\n")}
 `
   await writeFile(join(DESTINO, "_index.md"), indice, "utf8")
 
