@@ -930,7 +930,7 @@ y además ejercita `OutletsService::create()` con payload, el camino legacy blan
 
 ---
 
-## §60 — Cookie = panel, Bearer = device: un cliente HTTP habla UN realm (decisión de arquitectura, 2026-07-19; enforcement 2026-08-25)
+## §60 — Bearer en los dos clientes: un cliente HTTP habla UN realm (decisión 2026-07-19; enforcement 2026-08-25; **panel a Bearer 2026-08-27**)
 
 > **Esta es la regla madre.** El token-only del POS, la precedencia del
 > resolver y el BFF sin cookies son sus CONSECUENCIAS, no reglas separadas.
@@ -939,10 +939,31 @@ y además ejercita `OutletsService::create()` con payload, el camino legacy blan
 **La decisión** (tomada el 2026-07-19, tras el bug de espacios): cada cliente
 HTTP autentica con UNA credencial y habla UN realm.
 
+**Actualización 2026-08-27 (decisión del owner, context/54):** el panel dejó la
+cookie y pasó a Bearer. La regla no cambió; se volvió estructural. Mientras el
+panel usaba cookie, la credencial viajaba SOLA en toda request same-origin: el
+server recibía dos sin que nadie las pidiera y tenía que adivinar cuál usar —
+cuatro incidentes de la misma clase en dos meses. Con los dos clientes en Bearer,
+cada request lleva UNA credencial explícita: la ambigüedad no se mitiga,
+**desaparece**.
+
 | Cliente | Credencial | Realm | Nunca |
 |---|---|---|---|
-| `lib/api-client.ts` (panel) | cookie `_jwt_panel` | `panel` | manda `Authorization` |
-| `lib/api/pos-fetch.ts` (device) | Bearer del device | `pos-app` | manda cookies (`credentials: "omit"`) |
+| `lib/api-client.ts` (panel) | Bearer de `lib/auth/panel-token.ts` | `panel` | manda cookies (`credentials: "omit"`) |
+| `lib/api/pos-fetch.ts` (device) | Bearer de `lib/auth/device-token.ts` | `pos-app` | manda cookies (`credentials: "omit"`) |
+| BFF `/api/admin/*` | cookie `_jwt_admin` | `admin` | — (realm aparte, no migró) |
+
+**Consecuencia que hay que respetar:** un valor de cookie NUNCA viaja como
+Bearer, y ningún call-site del panel usa `fetch` crudo contra `/api/*` — se
+saltearía el `api-client`, que es el único que adjunta la credencial. Así quedó
+el chart de ingresos en 401 el día del cutover, y así se rompió la descarga de
+plantilla CSV. Para descargar archivos autenticados: `api.getBlob()`, nunca un
+`<a href>` (una navegación no puede adjuntar headers).
+
+**Los dos tokens conviven en el mismo browser sin pisarse** porque cada uno tiene
+su clave de storage y su módulo: `punto.panel.token` y
+`punto.device.token.<module>`. No existe un `getToken()` genérico sin realm — un
+helper así es exactamente cómo vuelve el bug.
 
 No es una observación sobre cómo está el código: es la decisión, y el código
 que la contradiga es el que está mal. Hasta 2026-08-25 `api-client.ts` ofrecía
@@ -984,19 +1005,26 @@ Cada fix fue local, así que la clase de bug volvió por otra puerta.
 
 | Mitad | Archivo | Mecanismo |
 |---|---|---|
-| Borde | `frontend/lib/bff/proxy.ts` | `forwardCookie` default **false**: el proxy no reenvía `cookie` salvo opt-in explícito |
-| Borde | `frontend/lib/api/pos-fetch.ts` | `credentials: "omit"` + 401 local sin token (no viaja la request) |
-| Resolver | `api/includes/auth_session.php` | `authResolve()`: `$candidates = $bearer !== '' ? [$bearer] : $ambient` |
+| Borde | `frontend/lib/bff/proxy.ts` | El proxy **nunca** reenvía `cookie`. La opción `forwardCookie` se eliminó (F4): ya no hay puertas multi-credencial |
+| Borde | `frontend/lib/api-client.ts` y `lib/api/pos-fetch.ts` | `credentials: "omit"` + Bearer propio |
+| Resolver | `api/includes/auth_session.php` | `authResolve()`: `$candidates = $bearer !== '' ? [$bearer] : $ambient`; `_authAmbientTokens()` solo acepta `_jwt_admin` |
+| Emisor | `api/lib/Auth/PanelAuth.php` | `issuePanelSession()` devuelve el token y **borra** `_jwt_panel`. PHP ya no emite ninguna cookie de sesión (`authSetOpaqueCookie` eliminada) |
 
-`forwardCookie: true` lo usa **una sola** puerta: el catch-all
-`app/api/v1/[...path]/route.ts`, que es la del PANEL. Esa puerta es
-multi-credencial a propósito y no puede dejar de serlo — el POS también la usa,
-con Bearer, para ventas y cotizaciones (`lib/api/pos-client.ts`). Ahí es donde
-la precedencia del resolver hace el trabajo que el borde no puede hacer.
-
-`credentials: "omit"` no es cosmético: `/api/pos/*` es same-origin y el default
-de `fetch` (`same-origin`) **manda las cookies igual**. Ser token-only no se
+`credentials: "omit"` no es cosmético: el BFF es same-origin y el default de
+`fetch` (`same-origin`) **manda las cookies igual**. Ser token-only no se
 consigue no pidiendo cookies, hay que pedir explícitamente que no vayan.
+
+**No alcanzaba con que los clientes dejaran de mandar la cookie:** mientras el
+resolver la ACEPTARA, una `_jwt_panel` vieja que siguiera en un browser podía
+autenticar. Por eso F4 la sacó de `_authAmbientTokens()` — la puerta se cierra en
+el resolver, no solo en el borde. Lo verifica
+`api/tests/pos_token_only_precedence_test.php` (casos b/f: la cookie de panel da
+401; f2/f3: el panel con Bearer y el admin con su cookie siguen vivos).
+
+**Los guards que lo sostienen:** `frontend/lib/auth/__tests__/realm-token-separation.test.ts`
+(los clientes no cruzan tokens, no hay `getToken()` genérico, ninguna ruta del
+panel lee cookies, ningún `fetch("/api/…")` crudo, ningún `credentials: "include"`)
+y `frontend/lib/bff/__tests__/pos-token-only.test.ts`.
 
 ### Consecuencia deliberada
 

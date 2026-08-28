@@ -15,7 +15,8 @@ declare(strict_types=1);
  *
  * Uso: php _auth_precedence_once_cli.php <bearerToken> <cookieToken> <realms>
  *   <bearerToken>  token crudo para `Authorization: Bearer`, o '' para omitir
- *   <cookieToken>  token crudo para la cookie `_jwt_panel`, o '' para omitir
+ *   <cookieToken>  token crudo para la cookie, o '' para omitir
+ *   <cookieName>   nombre de la cookie (default `_jwt_panel`; `_jwt_admin` para el realm admin)
  *   <realms>       lista separada por comas, ej. 'panel,pos-app'
  *
  * Imprime a stdout:
@@ -41,6 +42,10 @@ declare(strict_types=1);
 $bearerToken = $argv[1] ?? '';
 $cookieToken = $argv[2] ?? '';
 $realmsArg   = $argv[3] ?? 'panel,pos-app';
+// Nombre de la cookie a setear. Default `_jwt_panel` por compatibilidad con los
+// casos existentes — que desde context/54 F4 verifican lo CONTRARIO que antes:
+// esa cookie ya no es credencial. `_jwt_admin` sigue siéndolo (realm admin).
+$cookieName  = $argv[4] ?? '_jwt_panel';
 
 $realms = array_values(array_filter(array_map('trim', explode(',', $realmsArg))));
 
@@ -49,10 +54,9 @@ if ($bearerToken !== '') {
 } else {
     unset($_SERVER['HTTP_AUTHORIZATION']);
 }
+unset($_COOKIE['_jwt_panel'], $_COOKIE['_jwt_admin'], $_COOKIE['_jwt']);
 if ($cookieToken !== '') {
-    $_COOKIE['_jwt_panel'] = $cookieToken;
-} else {
-    unset($_COOKIE['_jwt_panel']);
+    $_COOKIE[$cookieName] = $cookieToken;
 }
 
 $_SERVER['REQUEST_METHOD'] = 'GET';

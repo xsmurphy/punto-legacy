@@ -367,46 +367,51 @@ function _authBearerToken(): string
 }
 
 /**
- * Credenciales AMBIENTALES: cookies y tokens en $_POST. El browser las adjunta
- * solo por estar en el mismo origen — el código que hace la request no eligió
- * mandarlas. Solo cuentan cuando NO hay Bearer (ver authResolve()).
+ * Credenciales AMBIENTALES: cookies que el browser adjunta solo por estar en el
+ * mismo origen — el código que hace la request no eligió mandarlas. Solo cuentan
+ * cuando NO hay Bearer (ver authResolve()).
+ *
+ * ── Queda UNA sola: `_jwt_admin` (context/54 F4, 2026-08-27) ────────────────
+ * El panel (`_jwt_panel`) y el device (`_jwt`) autentican con Bearer, así que
+ * sus cookies dejaron de ser credencial. No alcanzaba con que los clientes
+ * dejaran de mandarlas: mientras el resolver las ACEPTARA, una cookie vieja que
+ * siguiera en el browser podía autenticar una request — justo el envío
+ * ambiental que causó cuatro incidentes de sesión cruzada en dos meses. La
+ * puerta se cierra acá, no solo en el borde.
+ *
+ * `_jwt_admin` sigue porque el realm admin todavía autentica por cookie: es
+ * otra superficie (no convive con el POS en el browser del cajero) y su
+ * migración se decide aparte.
+ *
+ * Los tokens en `$_POST` se fueron con el mismo criterio: eran para el BFF
+ * legacy de `/app`, que ya no existe.
  *
  * Tokens opacos (prefix pt_); los JWT viejos simplemente no resuelven.
  */
 function _authAmbientTokens(): array
 {
     $tokens = [];
-    foreach (['_jwt_panel', '_jwt_admin', '_jwt'] as $c) {
-        if (!empty($_COOKIE[$c])) { $tokens[] = $_COOKIE[$c]; }
+    if (!empty($_COOKIE['_jwt_admin'])) {
+        $tokens[] = $_COOKIE['_jwt_admin'];
     }
-    foreach (['_jwt_panel', '_jwt'] as $c) {
-        if (!empty($_POST[$c])) { $tokens[] = $_POST[$c]; }
-    }
-    return array_values(array_unique($tokens));
+    return $tokens;
 }
 
 /**
- * Setea un cookie opaco (cualquier nombre). Generaliza el viejo jwtSetCookie.
- * $sameSite: 'Lax' (panel/pos) | 'Strict' (admin/impersonación).
+ * `authSetOpaqueCookie()` fue ELIMINADA (context/54 F4, 2026-08-27).
+ *
+ * Era el emisor de `_jwt_panel`, la única cookie de sesión que emitía el
+ * backend. El panel autentica con Bearer y el realm admin emite su cookie desde
+ * el BFF de Next, así que PHP ya no emite ninguna. Se borra en vez de dejarla
+ * sin usar: una función que acuña credenciales ambientales es la puerta que
+ * alguien vuelve a cruzar (mismo criterio con el que se sacó la opción `jwt` de
+ * `api-client.ts` en 2026-08-25). Si algún día hace falta, está en el historial.
+ *
+ * `COOKIE_DOMAIN` ya no se usa para EMITIR — solo lo lee `authClearCookie()`
+ * para poder borrar las cookies que se emitieron con ese scope.
  */
-function authSetOpaqueCookie(string $name, string $raw, int $ttl, string $sameSite = 'Lax'): void
-{
-    $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
-            || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
-    $maxAge = ($ttl > 0) ? $ttl : (400 * 86400); // 0 = eterno → 400d (máx Chrome)
-    $opts = [
-        'expires'  => time() + $maxAge,
-        'path'     => '/',
-        'httponly' => true,
-        'samesite' => $sameSite,
-        'secure'   => $isHttps,
-    ];
-    $dom = $_ENV['COOKIE_DOMAIN'] ?? '';
-    if ($dom !== '') { $opts['domain'] = $dom; }
-    setcookie($name, $raw, $opts);
-}
 
-/** Limpia un cookie (logout). */
+/** Limpia un cookie (logout, y el borrado de las cookies legacy de panel). */
 function authClearCookie(string $name, string $sameSite = 'Lax'): void
 {
     $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
