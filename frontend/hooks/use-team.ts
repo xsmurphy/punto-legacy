@@ -84,17 +84,40 @@ export function useTeamRoles() {
 
 const NONE = "__none__"
 
-function serialize(values: TeamMemberFormValues, isEdit: boolean) {
+/**
+ * `originalRoleId`: el rol con el que se ABRIÓ la ficha (`NONE` si no tenía).
+ * En edición, `roleId` viaja SOLO si cambió.
+ *
+ * Mandarlo siempre rompía dos cosas a la vez, las dos reportadas por el owner:
+ *
+ *   1. Editar tu PROPIA ficha (aunque solo cambiaras el PIN) daba 403 "No podés
+ *      cambiar tu propio rol": el guard de `/v1/users` mira si la clave `roleId`
+ *      viene en el body, no si el valor cambió.
+ *   2. Si el rol del usuario no matcheaba ninguna opción del selector, el
+ *      selector mostraba "Sin rol asignado" y el submit mandaba `roleId: null`,
+ *      BORRÁNDOLE el rol a alguien que nadie quiso tocar.
+ *
+ * `NONE` sigue siendo mandable como `null` cuando es un cambio REAL: "Sin rol
+ * asignado" es una opción explícita del selector, no solo un placeholder.
+ */
+function serialize(
+  values: TeamMemberFormValues,
+  isEdit: boolean,
+  originalRoleId?: string,
+) {
   const payload: Record<string, unknown> = {
     name:             values.name,
     email:            values.email || null,
     phone:            values.phone || null,
-    roleId:           (!values.roleId || values.roleId === NONE) ? null : values.roleId,
     outletIds:        values.outletIds ?? [],
     lockPass:         values.lockPass || null,
     inCalendar:       values.inCalendar,
     color:            values.color || null,
     status:           Number(values.status),
+  }
+  const roleChanged = !isEdit || values.roleId !== (originalRoleId ?? NONE)
+  if (roleChanged) {
+    payload.roleId = (!values.roleId || values.roleId === NONE) ? null : values.roleId
   }
   if (!isEdit || values.password) {
     payload.password = values.password
@@ -116,8 +139,16 @@ export function useCreateTeamMember() {
 export function useUpdateTeamMember() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ id, values }: { id: string; values: TeamMemberFormValues }) =>
-      api.put<TeamMember>(`/v1/users?id=${id}`, serialize(values, true)),
+    mutationFn: ({
+      id,
+      values,
+      originalRoleId,
+    }: {
+      id: string
+      values: TeamMemberFormValues
+      /** Rol con el que se abrió la ficha — ver `serialize`. */
+      originalRoleId?: string
+    }) => api.put<TeamMember>(`/v1/users?id=${id}`, serialize(values, true, originalRoleId)),
     onSuccess: (_data, { id }) => {
       qc.invalidateQueries({ queryKey: ["team"] })
       qc.invalidateQueries({ queryKey: ["team", id] })
