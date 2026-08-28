@@ -125,6 +125,39 @@ el costo de todas las recetas que toquen el subproducto.
 
 ---
 
+## Franquicias — el franquiciador supervisa, no manda (plan cerrado 2026-08-28)
+
+Pedido del owner: que un franquiciador pueda supervisar a sus franquiciados.
+Plan completo en [55-franquicias.md](55-franquicias.md); acá solo lo que hay que
+saber para no arrancar de cero ni proponer lo ya descartado.
+
+**El modelo ya existía.** `franchiser_to_tenant` (mig 08) está en prod con 0
+filas y su diseño está aceptado en [ADR-001](adr/ADR-001-franchiser-tenant-acceso.md):
+relación N→N de ACCESO, no de propiedad ni de billing. Cada franquicia es una
+empresa independiente, con su plan y su factura. Lo que falta es la
+implementación en el stack nuevo — el legacy la tenía en `panel/franchiser.php`.
+
+**Decisión del owner 2026-08-28 (revierte lo que asumía ADR-001):** el
+franquiciador **NO entra** al panel del franquiciado. Ni impersonación, ni
+"modo lectura". Tiene su propio espacio con métricas consolidadas de su red,
+servidas desde los rollups que ya existen (`rollup_sales_day`,
+`rollup_item_sales_day`, `rollup_payments_day`), y ahí termina su alcance.
+
+Ve ventas, ranking de productos y medios de pago. **No ve** clientes, costos ni
+`cogs`, caja, usuarios ni documentos. El franquiciado **acepta** la supervisión y
+puede revocarla (`franchiser_to_tenant.status`: 0 pendiente / 1 activo /
+2 revocado).
+
+Por qué agregado y no "entrar en modo lectura": esa opción obliga a que cada
+endpoint operativo (~200 archivos entre `api/v1` y `api/lib`) distinga operación
+propia de lectura supervisada, y uno solo que no mire el flag convierte
+supervisión en operación. Con agregados, **ningún endpoint operativo cambia**.
+
+F0 permiso + estados, F1 invitación/aceptación, F2 servicio + arnés de
+aislamiento (no negociable), F3 UI, F4 "hoy" en vivo, F5 billing.
+
+---
+
 ## Seguridad — P2 pendientes de la auditoría de auth (2026-08-26)
 
 La auditoría completa de auth (disparada por el leak cross-tenant de
