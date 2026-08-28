@@ -36,6 +36,7 @@ import { api } from "@/lib/api-client"
 import { MoneyInput } from "@/components/ui/money-input"
 import { formatMoney } from "@/lib/format"
 import type { Bootstrap } from "@/lib/types/bootstrap"
+import { QuickCreateItemDialog } from "@/components/items/quick-create-item-dialog"
 import type { PurchaseFormItem } from "@/hooks/use-purchases"
 
 /**
@@ -129,6 +130,8 @@ export interface LineRowProps {
   onTabFromTax: () => void
   registerFirstField: (el: HTMLElement | null) => void
   bootstrap?: Pick<Bootstrap, "currency" | "decimal" | "thousand">
+  /** Sucursal de la compra — la hereda un ítem creado desde el picker. */
+  outletId?: string
 }
 
 /**
@@ -161,6 +164,7 @@ export function LineRow({
   onTabFromTax,
   registerFirstField,
   bootstrap,
+  outletId,
 }: LineRowProps) {
   const { data: taxes } = useTaxes()
   const taxOptions = taxes?.taxes ?? []
@@ -306,6 +310,7 @@ export function LineRow({
                 })
               }
               triggerRef={registerFirstField}
+              outletId={outletId}
             />
           ) : (
             <Input
@@ -587,6 +592,7 @@ export function ProductPicker({
   displayName,
   onChange,
   triggerRef,
+  outletId,
 }: {
   value: string
   displayName: string
@@ -598,13 +604,20 @@ export function ProductPicker({
     lastTaxId?: string | null,
   ) => void
   triggerRef?: (el: HTMLElement | null) => void
+  /** Sucursal de la compra — la hereda el ítem creado desde acá. */
+  outletId?: string
 }) {
   const [open, setOpen] = React.useState(false)
   const [q, setQ] = React.useState("")
   const items = useItems({ q })
   const rows = items.data?.items ?? []
+  // Alta rápida: el producto de la factura todavía no está en el catálogo y
+  // mandar al usuario a `/items/new` le hace perder la carga a medio hacer.
+  const [createOpen, setCreateOpen] = React.useState(false)
+  const [pendingName, setPendingName] = React.useState("")
 
   return (
+    <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
@@ -634,7 +647,24 @@ export function ProductPicker({
           />
           <CommandList>
             <CommandEmpty>
-              {q.trim() === "" ? "Tipeá para buscar" : "Sin resultados"}
+              {q.trim() === "" ? (
+                <div className="py-4 text-sm text-muted-foreground">
+                  Tipeá para buscar
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingName(q.trim())
+                    setOpen(false)
+                    setCreateOpen(true)
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-accent"
+                >
+                  <Plus className="size-4" />
+                  Crear artículo <span className="font-medium">"{q.trim()}"</span>
+                </button>
+              )}
             </CommandEmpty>
             <CommandGroup>
               {rows.map((r) => (
@@ -680,5 +710,18 @@ export function ProductPicker({
         </Command>
       </PopoverContent>
     </Popover>
+    <QuickCreateItemDialog
+      open={createOpen}
+      onOpenChange={setCreateOpen}
+      initialName={pendingName}
+      outletId={outletId}
+      onCreated={({ id, name }) => {
+        // Queda seleccionado en la línea. Sin precio de última compra (recién
+        // nace) ni categoría de gasto: la línea conserva lo que ya tenía.
+        onChange(id, name, 0)
+        setQ("")
+      }}
+    />
+    </>
   )
 }

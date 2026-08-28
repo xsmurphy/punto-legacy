@@ -646,6 +646,7 @@ export default function NewPurchasePage() {
                   onTabFromTax={addLine}
                   registerFirstField={(el) => registerFirstField(l.rowId, el)}
                   bootstrap={bootstrap}
+                  outletId={outletId}
                 />
               ))}
             </div>

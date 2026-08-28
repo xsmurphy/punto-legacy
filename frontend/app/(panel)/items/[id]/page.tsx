@@ -102,6 +102,7 @@ import {
   type ItemImage,
   type ItemKind,
   type KindFieldVisibility,
+  emptyItemValues,
 } from "@/lib/types/item"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { ItemGallery } from "@/components/items/item-gallery"
@@ -261,7 +262,7 @@ function ItemEditPageInner() {
 
   const form = useForm<ItemFormValues>({
     resolver: zodResolver(itemSchema),
-    defaultValues: { ...emptyValues(), kind: initialKind },
+    defaultValues: { ...emptyItemValues(), kind: initialKind },
   })
 
   const initialTab = React.useMemo(() => {
@@ -2164,48 +2165,6 @@ function toStr(v: unknown): string {
     return v === "false" ? "" : v
   }
   return ""
-}
-
-function emptyValues(): ItemFormValues {
-  return {
-    kind: "producto",
-    name: "",
-    sku: "",
-    description: "",
-    price: null,
-    cost: null,
-    discount: null,
-    taxId: "",
-    taxIncluded: true,
-    uom: "",
-    categoryId: "",
-    expenseCategoryId: "",
-    brandId: "",
-    status: true,
-    // Vacío solo como valor inicial del form: el alta preselecciona una
-    // sucursal apenas carga la lista (ver el effect de preselección).
-    outletIds: [],
-    supplierId: "",
-    waste: null,
-    minStock: null,
-    maxStock: null,
-    sort: 99999,
-    commission: null,
-    commissionType: "percent",
-    pricePercent: null,
-    priceType: "fixed",
-    ecom: false,
-    featured: false,
-    procedure: "",
-    availability: defaultAvailability(),
-    currencies: {},
-    validFrom: null,
-    validUntil: null,
-    minDaysBetweenSessions: null,
-    giftcardColor: DEFAULT_GIFTCARD_COLOR,
-    packDurationDays: 30,
-    itemSessions: null,
-  }
 }
 
 function BackLink() {
