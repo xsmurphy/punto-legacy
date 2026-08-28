@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-27 — stock ledger única fuente de verdad (context/52 F1-F4) + preaviso de timbrado (D5) + go-live checklist
+
+Commits `06b625ce..c98299da` (no contiguos, intercalados con otras sesiones; 2026-08-23/24). Highlights: add-on descuenta stock al cobrar orden/mesa (`4bc1e370`); IVA hereda de la última compra del ítem (`e4a62faf`); saneamiento del ledger de stock — lector único SUM (`onHand`/`onHandBulk`/`onHandByLocation`), `stockTrigger`/`inventory` muertas confirmadas, `manageStock` lanza en fallo real, doble reposición de combos cerrada (`4f95ba50`, ~16.000 queries → 4); arnés `stock_ledger_test` 12/12 verde destapó 2 bugs (COGS `''` reventaba NUMERIC, `isCompoundChildRow` no contemplaba `flattenJsonb`, `b11819cf`); preaviso de timbrado por números restantes, funciona offline (`c98299da`); uPay a standby (`f1c81d5e`). Checklist de go-live: https://claude.ai/code/artifact/f19a38b1-0cb0-4f25-939a-7448c3f999ac — backlog visual: https://claude.ai/code/artifact/6f23d6f5-f511-4db3-a378-c2abe1a35ebb. Pendiente: verificar deploy en prod + simulacro end-to-end, NC de devolución con vale sin exclusión.
+
 ## 2026-08-26 (3) — auditoría de seguridad de auth: 4 IDOR/leak P1 cerrados, cero P0
 
 Commits `8a441701..7a16fc96` (branch `api/auth-security-audit`, mergeada a main). Highlights: IDOR cross-tenant destructivo en `/v1/items` (categories/brands/tags/locations borraban/reescribían clasificación de ítems ajenos sin validar pertenencia, guard único en `items.php`); `income-chart` re-acuñaba la cookie del panel como Bearer — causa viva del leak que disparó la auditoría, ahora reenvía `cookie` crudo como el resto del BFF; `/v1/imports` sin gate de permiso (`run.php`/`upload.php` corrían la misma importación masiva sin chequear rol); Bancard refresh/cancel sin validar dueño del QR (mig 175 `bancard_qr`, fail-open deliberado ante id desconocido). Cero P0; 7 P2 intra-tenant documentados sin arreglar (roadmap); doc nuevo `context/54` — la causa raíz es el `COOKIE_DOMAIN` wildcard, no cookies-vs-Bearer, decisión abierta del owner.

@@ -12,7 +12,8 @@
  *     country:  "PY"
  *   }
  *   → { ok: true, data: { token, expiresIn, companyId, user: { id, role } } }
- *   → cookie `_jwt_panel` seteada
+ *   → el `token` ES la credencial (Bearer, context/54 F1). Ya NO se setea cookie:
+ *     el front tiene que guardarlo o el usuario recién registrado queda sin sesión.
  *
  * Endpoint PÚBLICO. Re-verifica el OTP server-side antes de crear la cuenta
  * para que no sea bypasseable saltando el paso 2 del front. Llama a

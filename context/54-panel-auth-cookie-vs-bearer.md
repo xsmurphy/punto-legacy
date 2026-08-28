@@ -133,5 +133,22 @@ expiración por inactividad.
 - [x] F2 — BFF sin cookie: el catch-all dejó de reenviarla y los 4 route
       handlers (income-chart, agent/chat, ocr-invoice, geo) reenvían
       `Authorization`. F2b: la impersonación devuelve el token en el body.
-- [ ] F3 — cutover: dejar de emitir `_jwt_panel`.
-- [ ] F4 — limpieza + context/08 §60 reescrito.
+- [x] F3 — cutover: `issuePanelSession()` dejó de emitir `_jwt_panel` y ahora la
+      BORRA en el browser.
+- [x] F4 — limpieza: `_authAmbientTokens()` solo acepta `_jwt_admin` (la cookie
+      de panel ya no autentica, verificado con arnés), `authSetOpaqueCookie()`
+      eliminada (PHP no emite ninguna cookie de sesión), `forwardCookie` borrado
+      del proxy, y §60 reescrito.
+
+## 6. Lo que quedó afuera a propósito
+
+- **El realm `admin` sigue en cookie** (`_jwt_admin`, emitida por el BFF de
+  Next). Es otra superficie: no convive con el POS en el browser del cajero, que
+  es lo que causaba los incidentes. Migrarlo es una decisión aparte, sin urgencia.
+- **Mitigaciones de XSS de §4** (TTL corto del token de panel + renovación, CSP
+  estricta, auditar `dangerouslySetInnerHTML`): pendientes. El token hoy dura lo
+  mismo que duraba la cookie (`PANEL_JWT_TTL`, 24h) y se revoca igual desde
+  `/settings/sessions`, así que no hay regresión — pero acortarlo es lo que
+  achica la ventana de un token robado.
+- **El WebSocket de realtime no autentica** (relay por canal `companyId`).
+  Preexistente, ajeno a este cambio; no filtra datos, solo avisa "algo cambió".

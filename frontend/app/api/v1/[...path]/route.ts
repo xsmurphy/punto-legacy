@@ -27,9 +27,10 @@ export const dynamic = "force-dynamic"
 /**
  * TOKEN-ONLY, como todo el resto del BFF (context/54 F2, 2026-08-26).
  *
- * Esta era la ÚNICA puerta con `forwardCookie: true`, porque la credencial del
- * panel ERA la cookie `_jwt_panel`. Con el panel en Bearer ya no hay ninguna
- * cookie que reenviar: los dos realms que usan esta puerta —el panel
+ * Esta era la ÚNICA puerta que reenviaba la cookie, porque la credencial del
+ * panel ERA `_jwt_panel`. Con el panel en Bearer ya no hay ninguna cookie que
+ * reenviar —la opción `forwardCookie` del proxy se eliminó (F4)— y los dos
+ * realms que usan esta puerta —el panel
  * (`lib/api-client.ts`) y el POS (`lib/api/pos-client.ts`, para ventas y
  * cotizaciones)— mandan su propio Bearer, y `bffProxy` reenvía `authorization`
  * siempre.

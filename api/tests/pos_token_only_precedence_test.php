@@ -75,14 +75,15 @@ function check(string $label, bool $ok, string $detail, int &$failures, int &$ch
     echo "FAIL $label\n     $detail\n";
 }
 
-function runAuth(string $bearer, string $cookie, string $realms): string
+function runAuth(string $bearer, string $cookie, string $realms, string $cookieName = '_jwt_panel'): string
 {
     $phpBin = PHP_BINARY !== '' ? PHP_BINARY : 'php';
     $cmd = escapeshellarg($phpBin) . ' -d variables_order=EGPCS '
         . escapeshellarg(__DIR__ . '/_auth_precedence_once_cli.php') . ' '
         . escapeshellarg($bearer) . ' '
         . escapeshellarg($cookie) . ' '
-        . escapeshellarg($realms) . ' 2>&1';
+        . escapeshellarg($realms) . ' '
+        . escapeshellarg($cookieName) . ' 2>&1';
     return shell_exec($cmd) ?? '';
 }
 
@@ -146,12 +147,23 @@ try {
         $checks
     );
 
-    // ── (b) Solo cookie, endpoint multi-realm → resuelve PANEL ────────────────
-    // REGRESSION GUARD del panel: sin Bearer la cookie sigue siendo la credencial.
+    // ── (b) Solo cookie de panel → 401: YA NO es credencial ───────────────────
+    // Cambió de sentido en context/54 F4 (2026-08-27). Antes la cookie era LA
+    // credencial del panel y este caso exigía que resolviera `panel`. Ahora el
+    // panel autentica con Bearer y `_authAmbientTokens()` dejó de aceptarla:
+    // una `_jwt_panel` que todavía viva en un browser no puede autenticar nada.
+    // Ese es el cierre real del cutover — mientras el resolver la aceptara, el
+    // envío ambiental seguía siendo posible aunque los clientes no la mandaran.
+    //
+    // OJO al leer este caso y el (f): como ya NADA lee `_jwt_panel`, su salida es
+    // idéntica a la de una request sin ninguna credencial. O sea que verifican la
+    // regla, pero no distinguen "la cookie no autentica" de "la cookie no se
+    // seteó". Lo que mantiene honesto el plumbing de cookies del arnés es el
+    // caso (f3), donde `_jwt_admin` SÍ tiene que resolver.
     $outB = runAuth('', $panelToken, 'panel,pos-app');
     check(
-        '(b) sin Bearer + cookie panel en endpoint multi-realm → resuelve panel (no rompe el panel)',
-        str_contains($outB, 'REALM:panel') && !str_contains($outB, 'HTTP_STATUS:401'),
+        '(b) sin Bearer + cookie panel → 401 (la cookie de panel ya no es credencial)',
+        str_contains($outB, 'HTTP_STATUS:401') && !str_contains($outB, 'REALM:panel'),
         "salida: $outB",
         $failures,
         $checks
@@ -193,12 +205,46 @@ try {
         $checks
     );
 
-    // ── (f) Panel puro (sin Bearer) contra endpoint solo panel → 200 ─────────
+    // ── (f) Cookie de panel contra endpoint solo panel → 401 ─────────────────
+    // El panel ahora manda Bearer; su cookie no abre ninguna puerta, ni siquiera
+    // la suya.
     $outF = runAuth('', $panelToken, 'panel');
     check(
-        '(f) sin Bearer + cookie panel en endpoint SOLO panel → resuelve panel (panel intacto)',
-        str_contains($outF, 'REALM:panel') && !str_contains($outF, 'HTTP_STATUS:401'),
+        '(f) sin Bearer + cookie panel en endpoint SOLO panel → 401',
+        str_contains($outF, 'HTTP_STATUS:401') && !str_contains($outF, 'REALM:panel'),
         "salida: $outF",
+        $failures,
+        $checks
+    );
+
+    // ── (f2) El PANEL con su Bearer sigue funcionando ─────────────────────────
+    // Regression guard del cutover: lo que se rompió es la cookie, no el realm.
+    $outF2 = runAuth($panelToken, '', 'panel');
+    check(
+        '(f2) Bearer de panel en endpoint SOLO panel → resuelve panel (el panel sigue vivo)',
+        str_contains($outF2, 'REALM:panel') && !str_contains($outF2, 'HTTP_STATUS:401'),
+        "salida: $outF2",
+        $failures,
+        $checks
+    );
+
+    // ── (f3) La cookie del ADMIN sigue siendo credencial ──────────────────────
+    // `_jwt_admin` es la única ambiental que queda: ese realm no migró (context/54
+    // §3). Si alguien la sacara junto con las otras, /admin dejaría de entrar.
+    $adminToken = authSessionCreate('admin', [
+        'companyId' => $companyId,
+        'userId'    => $userId,
+        'meta'      => ['origen' => 'pos_token_only_precedence_test'],
+    ]);
+    $adminRow = authSessionLookup($adminToken);
+    if ($adminRow !== null) {
+        $sessionIdsToClean[] = (string) $adminRow['sessionId'];
+    }
+    $outF3 = runAuth('', $adminToken, 'admin', '_jwt_admin');
+    check(
+        '(f3) cookie `_jwt_admin` en endpoint admin → resuelve admin (única ambiental viva)',
+        str_contains($outF3, 'REALM:admin') && !str_contains($outF3, 'HTTP_STATUS:401'),
+        "salida: $outF3",
         $failures,
         $checks
     );

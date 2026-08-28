@@ -43,12 +43,24 @@ final class PanelAuth
     }
 
     /**
-     * Emite la sesión opaca del realm `panel` y setea la cookie `_jwt_panel` con
-     * el scope correcto para coexistencia panel legacy + frontend.
+     * Emite la sesión opaca del realm `panel` y devuelve el token.
      *
-     * Cookie domain: `COOKIE_DOMAIN` env var (ej. ".punto.la"). Si no
-     * está seteado, default = sin domain (cookie atada al host actual —
-     * comportamiento histórico para local dev).
+     * ── YA NO EMITE COOKIE (context/54 F3, 2026-08-27) ──────────────────────
+     * El panel autentica con `Authorization: Bearer`: el token viaja en la
+     * respuesta y el cliente lo guarda (`lib/auth/panel-token.ts`). Esta función
+     * ADEMÁS borra `_jwt_panel` en el browser, para que no quede una credencial
+     * que nadie manda pero que el server aceptaría si alguna ruta la reenviara.
+     *
+     * Por qué se fue la cookie: panel y `/pos` conviven en el mismo navegador y
+     * una cookie viaja SOLA en toda request same-origin, así que el server
+     * recibía dos credenciales sin que nadie las pidiera y tenía que adivinar —
+     * cuatro incidentes de sesión cruzada en dos meses. Con Bearer, cada request
+     * lleva UNA credencial explícita.
+     *
+     * TODOS los callers devuelven ya el token al cliente: `login.php`,
+     * `signup.php`, `active-outlet.php` (re-emite al cambiar de sucursal) y
+     * la impersonación de `/admin`. Un caller nuevo que no lo haga deja al
+     * usuario sin sesión utilizable.
      *
      * Devuelve `['token' => string, 'expiresIn' => int]`.
      *
@@ -106,7 +118,9 @@ final class PanelAuth
             'expiresAt' => date('Y-m-d H:i:s', time() + $ttl),
         ]);
 
-        \authSetOpaqueCookie('_jwt_panel', $raw, $ttl, 'Lax');
+        // Borra la cookie legacy en browsers que todavía la tengan. NO se emite
+        // ninguna: la credencial es el token que devolvemos acá abajo.
+        \authClearCookie('_jwt_panel', 'Lax');
 
         return ['token' => $raw, 'expiresIn' => $ttl];
     }
