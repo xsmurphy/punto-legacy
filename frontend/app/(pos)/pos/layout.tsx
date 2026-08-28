@@ -76,6 +76,7 @@ import { cn } from "@/lib/utils"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { CartPanel } from "@/components/register/cart-panel"
 import { ViewportProbe } from "@/components/pos/viewport-probe"
+import { PosDocumentTitle } from "@/components/pos/document-title"
 import { LockScreen } from "@/components/register/lock-screen"
 import { PosLoadingScreen } from "@/components/register/pos-loading-screen"
 import { SpaceSettlementProvider } from "@/components/spaces/space-settlement-provider"
@@ -257,6 +258,7 @@ function PosWorkspaceLayoutInner({
           componente — existe porque en una PWA de iOS no hay devtools y el
           "gap de abajo" se persiguió a ciegas tres veces. */}
       {searchParams.get("debug") === "viewport" && <ViewportProbe />}
+      <PosDocumentTitle />
       <BeforeUnloadGuard />
       <HotkeysEditScope />
       <OfflineSyncRunner />
