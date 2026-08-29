@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-29 (3) — informe del tester: hoja A4 que paginaba mal, detalle de transacción vacío, scope de sucursal y estado de cotizaciones
+
+Commits `a72dbd68..ebef4373` (6 propios + `6cb5c50d` de una sesión paralela; todos deployados). Highlights: `pushDown` era un concepto del ROLLO filtrado al renderer de HOJA — tomaba `block.height` (la región de la tabla, ~640px) como alto de fila y mandaba el pie a una segunda página; ahora las filas avanzan por alto de línea y nada empuja a nada (`939341ee`); `item_total_if_rate` nuevo — bloque de LÍNEA que pone el monto en la columna de SU tasa (los `*_by_rate` son agregados de documento, un `item_total` en la columna del 10% "funcionaba" solo si todos los ítems compartían tasa); `use-transactions.ts` casteaba el envelope `{ok,data}` a payload y compartía queryKey con `usePosTransactionDetail`, que sí desenvolvía — dos formas sobre una clave, ganaba el último (`9ebbaf15`, de paso la lista del sheet de devoluciones venía vacía SIEMPRE); `open_invoices.php` no tenía una sola referencia a outlet (`6ad25670`); cotizaciones con estado real pendiente/facturada/vencida/anulada, lo que exigió reconstruir el writer de `quote_to_sale` que la mig 115 dejó declarado y sin hacer (`ebef4373`). Plan `context/57` — entrega digital del KuDE, solo email, WhatsApp diferido (`6785fe88`). Dos arneses nuevos contra Postgres descartable (6/6 y 9/9), 453/453 vitest. Regla nueva: el deploy lo dispara la sesión con el MCP de Coolify, el auto-deploy está apagado.
+
 ## 2026-08-29 (2) — paridad logo/bloques de orden + títulos dinámicos por docType
 
 Commits `4bcd1c6d..0a5d9283` (2, deployados, migs 179/180 corridas). Highlights: `RollGraphic.rows` fija el alto del gráfico y elimina el doble-conteo del hueco bajo el logo (`42b0b28e`); gates `docType==="order"` eliminados de `order_number`/`order_destination`/`table_number` (violaban regla 1 del módulo); `document_number` sin título propio se titula dinámico por doctype (`DOC_NUMBER_LABELS`, mig 179 backfill a TODOS los doctypes); "Cajero:"→"Usuario:", "Mesa:"→"Espacio:" (`0a5d9283`, mig 180). 438/438 vitest, verificado visualmente antes de deployar.

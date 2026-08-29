@@ -167,10 +167,14 @@ a todos los que venían atrás.
 
 **Flujo**: pusheá las veces que haga falta; deployá UNA vez por tanda coherente.
 
-- Deploy: `mcp__Coolify_MCP__deploy` con `tag_or_uuid: "<APP_UUID>"`.
-- Estado de la cola: `mcp__Coolify_MCP__list_deployments` — ojo que solo
-  devuelve los activos (queued / in_progress), no el historial.
-- Para saber el UUID de la app: `mcp__Coolify_MCP__list_applications`.
+- Deploy: `mcp__coolify__deploy` con `uuid: "<APP_UUID>"`.
+- Estado: `mcp__coolify__get_deployment` con el `deployment_uuid` que devolvió el
+  deploy — `status` pasa de `queued`/`in_progress` a `finished`/`failed`.
+- Historial de una app: `mcp__coolify__list_deployments` con `application_uuid`.
+  SIN ese parámetro devuelve solo los activos de todo el equipo; con él,
+  el historial completo — así se verifica un deploy sin entrar por SSH.
+- Salud tras el deploy: `mcp__coolify__list_applications` (trae `status`, ej.
+  `running:healthy`), y también los UUID de las apps.
 
 ### Las tres apps de Punto salen del MISMO repo
 
@@ -198,8 +202,12 @@ que lo que está en `main` es lo que está corriendo. Si por algo no se pudo
 deployar, decilo explícito en el cierre y anotalo en `_handoff.md`.
 
 **Verificá que subió**, no lo des por hecho: el deploy queda encolado y puede
-fallar. Confirmá que el contenedor corriendo es el del commit nuevo antes de
-declararlo desplegado — la imagen del contenedor lleva el SHA:
+fallar. `get_deployment` hasta `status: "finished"` y después
+`list_applications` para confirmar `running:healthy`. Los builds del Front
+tardan ~6-8 min; los del Backend ~1.
+
+El SSH sigue sirviendo si hace falta ver la imagen que corre, pero no es
+necesario para verificar un deploy:
 
 ```bash
 ssh root@167.71.165.221 'docker ps --format "{{.Names}}\t{{.Image}}" | grep -E "nzmay|z645"'

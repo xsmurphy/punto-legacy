@@ -1,79 +1,83 @@
-# Hand-off — 2026-08-29 (2)
+# Hand-off — 2026-08-29 (3)
 
 ## Objetivo
-Continuación de la sesión "Punto bugs" sobre impresión de tickets: cerrar
-2 gaps de paridad visual que quedaron del bloque anterior (hueco duplicado
-bajo el logo, bloques de orden que no imprimían fuera de `docType==="order"`)
-y ajustar vocabulario de 2 títulos por pedido del owner. Sigue siendo
-respuesta a reportes de bugs en producción, no roadmap planificado.
+Responder al informe de bugs del tester (documento del 2026-08-28, 7 ítems) y
+diseñar cómo le llega al cliente el PDF de la factura electrónica. Reacción a lo
+que se rompió en uso real, no roadmap planificado.
 
 ## Estado al cerrar
-`origin/main` en `0a5d9283`. Los 2 commits del rango `4bcd1c6d..0a5d9283`
-están commiteados, pusheados y **DEPLOYADOS** — front y backend corren
-`0a5d9283`, healthy. Migraciones 179 y 180 corridas y verificadas contra
-la BD de prod (179 rotuló 4 plantillas, 180 renombró 2 literales).
+`origin/main` en `ebef4373`, todo pusheado y **deployado** — Front y Backend
+corren ese commit, `running:healthy` (verificado por MCP de Coolify). Sin
+migraciones nuevas. De los 7 ítems: 4 resueltos, 1 ya lo estaba, 2 abiertos.
 
-- Hueco duplicado tras el logo: corregido — `RollGraphic.rows` es ahora la
-  única fuente del alto del bloque gráfico; los 3 renderers dibujan DE ese
-  alto y saltean filas reservadas sin texto.
-- `order_number`/`order_destination`/`table_number`: gate `docType==="order"`
-  eliminado (contradecía context/20 y regla 1 del módulo de impresión).
-- `document_number` sin título propio: título dinámico por `docType`
-  (`DOC_NUMBER_LABELS`), backfill mig 179 a TODOS los doctypes (174/178
-  solo cubrían venta).
-- Vocabulario: "Cajero:"→"Usuario:", "Mesa:"→"Espacio:" (catálogo +
-  mig 180, solo literales exactos auto-estampados — títulos editados a
-  mano no se tocaron).
-- 438/438 vitest. Verificación visual del bloque de logo/gráficos hecha
-  ANTES de deployar (mismo método que el bloque anterior — ver Callejones).
+**Ningún commit lo vio un humano todavía.**
+
+⚠ El auto-deploy está APAGADO: el push no deploya, lo dispara la sesión con
+`mcp__coolify__deploy` (ver `CLAUDE.md` §Deploy). Ojo que ahí el tool figura como
+`mcp__Coolify_MCP__deploy` con `tag_or_uuid` y **es incorrecto**: es
+`mcp__coolify__deploy` con `uuid`. `list_deployments` + `application_uuid` sí
+devuelve historial (la doc dice que no) — así se verifica un deploy sin SSH.
 
 ## Archivos y cambios
-- `frontend/lib/hardware/printers/render-template.ts` — `RollGraphic.rows`
-  nuevo campo; HTML dibuja con altura en mm + `object-fit`; ESC/POS con
-  `rows*24` puntos y ancho por aspecto capado al papel; filas reservadas
-  sin texto se saltean en ambos renderers.
-- `frontend/lib/hardware/printers/blocks.ts` — gate `docType==="order"`
-  eliminado de `order_number`/`order_destination`/`table_number`;
-  `DOC_NUMBER_LABELS` nuevo (título dinámico por docType para
-  `document_number`, sale de `DEFAULT_BLOCK_LABELS`); labels de
-  `user_name`/`table_number` actualizados a "Usuario:"/"Espacio:".
-- Mig `179` — backfill de títulos para TODOS los doctypes (no solo venta).
-- Mig `180` — renombra SOLO los literales exactos "Cajero:"/"Mesa:"
-  auto-estampados; no toca títulos editados a mano.
-- `context/modules/18-impresion.md` — reglas 12/13/14 nuevas (alto de
-  gráficos vía `rows`, gates de orden eliminados, título dinámico de
-  `document_number` + trampa del bloque angosto); reglas viejas 11+
-  renumeradas a 15+.
-- `context/_session-log.md` / `context/_handoff.md` — este cierre.
+- `frontend/lib/hardware/printers/html-renderer.ts` — `pushDown` fuera del
+  camino de HOJA; `sheetRowHeightPx()`; `positioned()` acepta `lineHeightPx`.
+- `frontend/lib/hardware/printers/blocks.ts` — `item_total_if_rate`;
+  `ItemFieldResolver` recibe el bloque.
+- `frontend/lib/print-template-palette.ts` — "Logo (B&W)" eliminado;
+  `TAX_RATE_BLOCK_TYPES`.
+- `frontend/hooks/use-transactions.ts` — fetchers por `posApi`, exportados.
+- `frontend/hooks/use-pos-transactions.ts` — delega en `useTransaction`.
+- `api/lib/Sales/SaleInput.php` + `SaleService.php` — `quoteParentId` y escritura
+  de `transaction_link` kind `quote_to_sale`.
+- `api/lib/Reports/TransactionsService.php` — `quoteStatus()`/`billedQuoteIds()`.
+- `api/lib/Reports/OpenInvoicesService.php` + `api/v1/reports/open_invoices.php`
+  — scope por sucursal, opt-in, solo en `general()`.
+- `context/57-entrega-digital-del-kude.md` — NUEVO, plan cerrado sin implementar.
+- Arneses: `api/tests/{open_invoices_outlet_scope,quote_status}_test.php` + sus
+  `run_*.sh` (6/6 y 9/9).
 
 ## Callejones sin salida
-- Nada nuevo en este bloque — ver el hand-off anterior (ya reemplazado)
-  para los callejones del bloque previo (wrap genérico vs relleno
-  pre-calculado, margen restado de las columnas, "caché del browser" como
-  diagnóstico equivocado). Siguen vigentes como conocimiento del módulo,
-  documentados en `context/modules/18-impresion.md`.
+- **`psql` contra prod lo bloquea el classifier.** No insistir: verificar por MCP
+  de Coolify, o con arnés local (los `api/tests/run_*.sh` levantan Postgres en
+  Docker solos — usarlos de plantilla).
+- **`verify_chain` de impresión no corre acá**: pide Postgres local y su `run.sh`
+  no existe, aunque el docblock de `run.mjs` lo referencia.
+- **Tipar una fila del DB layer como `array` revienta**: son
+  `CaseInsensitiveArray`. Se resolvió pasando escalares, no aflojando el hint.
+- **`vitest` ignoraba `hooks/`** — un test ahí daba "No test files found" sin
+  decir por qué. Se amplió el `include`.
+- Diagnóstico errado del detalle vacío: se culpó al cast sin validar. Era el
+  síntoma; la causa es que DOS hooks escribían la queryKey
+  `["pos-transaction", id]` con formas distintas.
 
 ## Próximo paso
-Sigue siendo el mismo pendiente de fondo: pedirle al owner que imprima un
-ticket con logo en una térmica FÍSICA (el pipeline completo, incluida la
-corrección de alto de este bloque, solo se verificó en browser). Si sale
-mal, el punto de entrada es `renderTemplateToEscPos` en
-`frontend/lib/hardware/printers/render-template.ts`.
+**Facturación electrónica: cerrar los caminos sin probar** — es lo que bloquea
+vender en Paraguay. Los dos más baratos van contra la cuenta DEV que YA funciona
+(emisión verificada 2026-07-30, SIFEN aprobó): una venta con **línea exenta** y
+otra con **pago dividido** (preguntas 10 y 12 de `context/28`). Leer
+`context/28` §"Verificado contra la API real" antes de tocar.
+
+Antes: confirmar con el owner que hay un tenant conectado a la cuenta DEV. Las 4
+env vars del backend están cargadas (verificado), pero no se pudo consultar
+`einvoice_account` en prod.
 
 ## Trampas conocidas
-- **Nueva**: `document_number` en un bloque ANGOSTO (media columna) con
-  título dinámico wrapea por palabras y con `textwrap:"cut"` puede perder
-  el NÚMERO, dejando solo el rótulo (ej. "Factura Nro.:" sin número). El
-  golden test lo cubre; en plantillas reales los bloques de número son
-  full-width, pero si un comercio reporta este síntoma es esto — fix del
-  operador: título corto propio o ensanchar el bloque, no un bug de datos.
-- Deploy de Punto Front sigue con webhook de auto-deploy ACTIVO en Coolify
-  (decisión del owner, sin cambios). Backend no tiene el webhook.
-- `fe_cdc` en blanco en el primer ticket no es bug (emisión asíncrona).
-- P2s de la auditoría de seguridad del 26 siguen abiertos; `TZ
-  America/Asuncion` literal en migs 157/160/period-close sigue sin migrar;
-  "Bloquear sesión luego de" en Ajustes sigue mock.
-- El arnés de facturación electrónica (guard del caso vale) sigue OFRECIDO
-  al owner y sin hacer — no asumir que existe.
-- Logo en ESC/POS sigue sin probarse contra impresora térmica física
-  (solo verificado en browser, dos bloques seguidos ahora).
+- **Cambió el render de TODA plantilla A4/Carta/Legal guardada.** Es la
+  corrección —ninguna imprimía bien con más de un ítem— pero se ve distinto.
+- **Los ítems de hoja que no entran DESBORDAN**, no se recortan. Decisión
+  explícita; la paginación real es `context/56`.
+- **Las cotizaciones viejas figuran todas "Pendiente"**: el vínculo se escribe
+  desde `ebef4373`, lo anterior no se recupera. No es bug.
+- **"Vencida" no la pidió el owner**, se agregó porque sale del mismo
+  `transactionDueDate`. Se saca en una línea de `quoteStatus()`.
+- **Ítem 5 del tester (stock) NO resuelto y puede no ser bug**: el endpoint
+  scopea saldos/ubicaciones/desglose; company-wide es solo la query de `item`,
+  que lista los 2000 ítems aunque no tengan movimiento (aportan `onHand=0`, así
+  que el costo probablemente ya salga bien). **Necesita que el owner mire datos
+  reales** — el fix cambia según si el total está mal o es solo ruido.
+- **Ítem 3 del tester ("Ver PDF" del presupuesto)** = `context/56`, proyecto de
+  varias horas, no un fix.
+- Pendiente de antes: 6 P2 de la auditoría del 2026-08-26, WebSocket de realtime
+  sin auth, TZ `America/Asuncion` literal en migs 157/160 y `period-close.php`,
+  y el owner imprimiendo un ticket con logo en térmica FÍSICA (todo el pipeline
+  se verificó solo en browser).

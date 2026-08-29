@@ -43,7 +43,7 @@ factura".
 | `return` | type 6 ← 0/3 | nota de crédito → venta original |
 | `credit_payment` | type 5 ← 3 | pago → factura a crédito |
 | `purchase_payment` | type 5 ← 4 | pago a proveedor → compra a crédito |
-| `quote_to_sale` | type 0/3 ← 9/2 | cotización → factura |
+| `quote_to_sale` | type 0/3 ← 9/2 | cotización → factura. **Writer reconstruido el 2026-08-29** (`ebef4373`): la mig 115 backfilleó los históricos desde `transactionParentId` y dropeó la columna, pero el writer que la reemplazara quedó declarado y sin hacer ("sub-slices futuros lo agregarán", `SaleService`). El front venía mandando `parentTransactionId` en el payload de la venta desde entonces y el backend lo descartaba — `assertSimplePathEligible` chequea `parentId`, que es otra clave. Ahora `SaleInput::$quoteParentId` lo lee y `SaleService::save()` escribe el vínculo tras el commit, best-effort. Lo facturado entre la mig 115 y esa fecha NO se puede recuperar. |
 | `package_session` | type 13 ← 0/3 | cita/sesión → venta del paquete |
 | `table_merge` | type 11 ← 11 | mesa unida → mesa destino (legacy) |
 
