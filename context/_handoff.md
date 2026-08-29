@@ -1,131 +1,112 @@
-# Hand-off — 2026-08-28
+# Hand-off — 2026-08-29
 
 ## Objetivo
-Cerrar el cutover de auth del panel a Bearer (F3+F4 de `context/54`,
-decisión del owner 2026-08-26), sumar filtros al `<DataTable>` genérico,
-mejorar el flujo de compras (línea compacta + alta rápida de artículo),
-sacar el OCR de facturas de compra del hot path (cola asíncrona), y
-empezar a gatear módulos específicos de Paraguay por el país del tenant
-(paso previo a vender fuera de PY).
+Sesión "Punto bugs": cadena de fixes reportados por el owner sobre el módulo
+de impresión de tickets (fuente/ancho/alineación del rollo térmico, soporte
+real de 76mm/TM-U220, logo en ESC/POS) y sobre teléfonos E.164 sin `+` que
+salían crudos en listados y tickets. No es trabajo planificado de roadmap —
+es respuesta directa a reportes de bugs en producción.
 
 ## Estado al cerrar
-`main` en `291b52a1`, todo commiteado y pusheado. Deploy disparado por el
-push pero **NO verificado** (front/backend corriendo en `963a6348`
-confirmado sano; `291b52a1` es posterior y quedó sin chequear). Migración
-176 (cola OCR) aplicada en prod. Branches de la sesión borradas (local +
-remoto).
+`origin/main` en `08d8d5b8`. Los 18 commits del rango `31a2efbd..08d8d5b8`
+están commiteados, pusheados y **DEPLOYADOS** — front y backend corren
+`08d8d5b8`, verificado contra los contenedores (no solo contra el push).
+Migraciones 174/177/178 corridas y verificadas contra la BD de prod.
 
-- Auth: cutover Bearer 100% completo. Panel y POS son ambos Bearer-only,
-  cero cookies de sesión en ningún realm salvo `_jwt_admin`.
-- Doc fix de cierre: `context/08` tenía dos secciones `§61` (colisión
-  entre esta sesión y una paralela) — el de módulos por país se renumeró
-  a **§62**, y las 7 referencias que habían quedado apuntando a §61 en
-  código y docs (`modules-catalog.ts`, `module-catalog-panel.tsx`,
-  `allowlist.ts`, `ModulesService.php`, roadmap, bitácora) ya están
-  corregidas. No queda ninguna.
-- Filtros DataTable: implementado y en uso en `/items`.
-- Compras: línea compacta + alta rápida en uso.
-- Cola OCR: implementada con consumidor real (drain), sin verificar por
-  un humano (dropzone, estados, supervivencia al cierre de pestaña).
-- Módulos por país: implementado front+back, sin verificar por un humano.
+- Teléfonos: arreglado en TODOS los listados y en el ticket impreso.
+- Rollo térmico: monoespaciado forzado, ancho de columna correcto, wrap sin
+  destruir alineación, snap a grilla — verificado VISUALMENTE antes de
+  deployar (ver Callejones).
+- 76mm/TM-U220: implementado, plantillas viejas de 76 ahora renderizan a 33
+  columnas (corrección, no regresión, decisión del owner).
+- Logo: funciona en canvas/preview/HTML/ESC-POS — el pipeline se probó en
+  browser, NO contra una impresora térmica física. Ver Próximo paso.
+- `fe_cdc` (bloque nuevo, paleta gateada por módulo `einvoicePy`) y
+  `TransactionDetailService.einvoiceCdc`/`einvoicePortalUrl`: el primer
+  ticket puede salir sin CDC porque la emisión electrónica es asíncrona —
+  es diseño documentado en el tipo, no bug.
+- Dropzone OCR de la sesión paralela de compras (system-fb) sacado del
+  formulario a un diálogo "Leer factura" (`cac7633f`) — no es trabajo de
+  esta sesión, solo se movió un componente que estorbaba.
 
 ## Archivos y cambios
-- `api/lib/services/PanelAuth.php` (`issuePanelSession`) — ya NO emite
-  `_jwt_panel`, lo borra.
-- `api/bootstrap.php` (`_authAmbientTokens`) — acepta solo `_jwt_admin`.
-- `frontend/lib/bff/proxy.ts` — `forwardCookie` eliminado.
-- `context/08-convenciones-criticas.md` §60 — reescrito (Bearer en ambos
-  realms, ya no "cookie=panel, Bearer=device"); §62 nuevo (módulos
-  gateados por país; renumerado de §61 a §62 al detectar colisión con el
-  §61 de otra sesión paralela — "Una cookie de sesión, UN solo emisor").
-- `api/tests/pos_token_only_precedence_test.php` — 16/16, casos (b)/(f)
-  invirtieron aserción, (f2)/(f3) nuevos.
-- `frontend/components/ui/data-table.tsx` — `filtersSlot`/
-  `activeFilterCount`/`onClearFilters` + `FilterField`.
-- `context/14-ui-conventions.md` — Regla #2.2 (prohibía Sheet lateral)
-  ELIMINADA por decisión del owner.
-- `frontend/components/items/quick-create-item-dialog.tsx` — nuevo, alta
-  rápida de artículo desde el buscador de compras.
-- `frontend/lib/types/item.ts` — `emptyItemValues()` (movida desde
-  `app/(panel)/items/[id]/page.tsx`).
-- Migración `176` — cola OCR (`queued`/`processing`/`failed`/`attempts`/
-  `processing_at`).
-- `api/lib/services/PurchaseDraftService.php` —
-  `claim()/completeExtraction()/requeueStale()/retry()`.
-- `frontend/app/api/ocr-invoice/route.ts` — crea el draft y responde,
-  IA corre en `after()`.
-- `frontend/app/api/ocr-invoice/drain/route.ts` — NUEVO, consumidor real
-  de la cola (disparado por el front, no por crond — la extracción vive
-  en Next, no en PHP).
-- `frontend/lib/ai/extract-invoice.ts` — prompt OCR movido acá (2
-  consumidores).
-- `frontend/lib/modules/*` (`ModuleCatalogEntry.countries`,
-  `modulesForCountry`, `catalogByKind`) — `einvoicePy`/`bancard`/`upay`
-  marcados PY-only.
-- `frontend/lib/__tests__/country-gated-modules.test.ts` — guard nuevo.
-- `api/lib/services/ModulesService.php` (`COUNTRY_ONLY`) — un POST
-  directo ya no activa módulo de otro país.
-- `api/v1/modules.php` — ahora exige `settings.company.edit` (cierra un
-  P2 de la auditoría de seguridad del 2026-08-26).
-- `taxPy` — ELIMINADO (front+back), switch manual que ningún cálculo leía.
-- `context/10-roadmap.md` — consignación, alquiler, análisis de
-  subproductos de producción.
+- `frontend/lib/format-phone.ts` (o equivalente) — repone `+` antes de
+  parsear con libphonenumber; tocaba TODOS los listados + el bloque de
+  ticket que imprime teléfono.
+- `frontend/components/ui/password-input.tsx` / `pin-input.tsx` — ojo
+  mostrar/ocultar, PIN nace oculto, margen del ícono corregido
+  (`has-[>button]:mr-[-0.3rem]` anulado en `PasswordInput`).
+- `frontend/lib/hardware/printers/render-template.ts` — `ROLL_FONT_STACK`,
+  `renderTemplateToEscPos` ahora ASYNC (logo: `img.decode` + `crossOrigin
+  anonymous` + `encoder.image` con dithering `atkinson`).
+- Renderer del rollo (canvas + HTML del preview) — grilla CSS de `columns`
+  celdas de `1fr`; `charWidthPx = canvas/columns` (NO `contentColumns`);
+  `ROLL_MARGIN_COLS=1`; `distributeRow`/`wrapToWidth` (línea que ya entra
+  se devuelve tal cual); `snapBlockToRollRows`; `CHAR_EM_RATIO=0.605`.
+- Tipo `PaperWidthMm` → `58|76|80`; selector "76 mm (impacto, TM-U220)" en
+  bindings; API acepta 76.
+- Mig `178` — backfill de `DEFAULT_BLOCK_LABELS` para plantillas que
+  quedaron sin título tras la mig 174 (totales, cliente, por-tasa).
+- Endpoint duplicar plantilla (GET detalle + POST copia).
+- `frontend/lib/hardware/printers/blocks.ts` — `fe_cdc` nuevo, `fe_py`/
+  `fe_cdc` filtrados de la paleta salvo módulo `einvoicePy` activo.
+- `context/modules/18-impresion.md` — reglas 9 (monoespaciado forzado +
+  grilla de columnas) y 10 (76mm=TM-U220) agregadas; logo ESC/POS anotado
+  como no verificado físicamente; `fe_cdc` sumado a la fila de FE.
+- `context/_session-log.md` / `context/_handoff.md` — este cierre.
 
 ## Callejones sin salida
-- El chart de ingresos volvió a romper en prod (`BFF 401`) tras F3/F4:
-  `useIncomeChart` usaba `fetch` crudo con `credentials:"include"`,
-  funcionaba de casualidad mientras hubo cookie. Regla: al sacar envío
-  ambiental de credenciales, todo lo que se autenticaba "solo" queda
-  expuesto — hay que grepear `credentials: "include"`, NO por path de
-  endpoint (eso ya había fallado una vez con `income-chart` el 2026-08-27
-  y volvió a aparecer).
-- Di código muerto a `importTemplateUrl()` por un grep case-sensitive
-  (`templateUrl` no matchea `importTemplateUrl`) — rompió la descarga de
-  plantilla CSV hasta el 3er barrido.
-- Cola OCR nació sin consumidor: `requeueStale()` volvía filas a `queued`
-  pero nada las procesaba (`after()` corre una sola vez por upload). Un
-  drain por crond PHP no sirve — la extracción IA vive en el contenedor
-  Next, no en PHP, y necesita credencial del tenant. Se resolvió con
-  endpoint drain en Next disparado por el front.
-- Tab default `pending` en la UI de OCR dejaba la feature invisible: lo
-  recién subido es `queued`, el usuario aterrizaba en lista vacía y el
-  polling (atado al filtro) nunca se encendía.
-- El arnés de permisos daba falso verde tras F4: autenticaba el realm
-  panel leyendo `$_COOKIE['_jwt_panel']` (ya no aceptado), y los casos
-  "con la clave → pasa" trataban cualquier respuesta ≠403 como éxito, así
-  que un 401 pasaba como verde sin ejercitar el gate real. Migrado a
-  Bearer.
-- Otra sesión (`system-83`) hizo `git reset --mixed` sobre el árbol
-  compartido mientras esta sesión trabajaba; su commit de users/PIN quedó
-  un rato encima del mío. Nada se perdió, pero reafirma la regla de
-  worktrees para sesiones paralelas. Colisión de numeración de migs
-  resuelta a mano: esta sesión usó 176, la otra 177.
+- **Deployar impresión sin verificar visualmente = rebote seguro.** Dos
+  tandas previas de esta sesión se deployaron mirando solo el código y el
+  owner las rebotó. Lo que funcionó: dump del HTML real del renderer con
+  un test vitest temporal (`zz-dump.test.ts`, borrado al terminar), servido
+  con `python3 -m http.server` en el scratchpad y mirado/medido en el
+  Browser pane — los `file://` no screenshotean, hace falta HTTP real.
+  Medición fina con `getBoundingClientRect` vía `javascript_tool` cuando el
+  ojo no alcanza.
+- **"Es caché del browser" fue un diagnóstico equivocado.** El corte a la
+  derecha del preview que el owner reportó 2 veces era el mismatch entre
+  papel de DISEÑO (76mm) y papel del DISPOSITIVO (80mm) — un bug real, solo
+  visible en plantillas guardadas a 76mm. Si el owner insiste con evidencia
+  concreta después de un "ya lo arreglé", reproducir SU caso exacto antes
+  de descartar.
+- **El wrap genérico destruía el relleno pre-calculado.** `wrapToWidth`
+  parte por palabras y re-une con un espacio — cualquier línea ya alineada
+  por `distributeRow` quedaba amontonada al pasar por el wrap. Fix: una
+  línea que ya entra en el ancho se devuelve tal cual, sin tocar.
+- **Restar el margen de las columnas del divisor ensancha la celda y
+  rompe todo.** El margen del rollo (`ROLL_MARGIN_COLS`) son celdas DEL
+  papel, no columnas de contenido — dividir por `contentColumns` (46) en
+  vez de `columns` (48) hizo la celda 4% más ancha y el texto desbordaba
+  (regresión propia, `61a74215`).
+- Coolify drena el contenedor viejo ~1-2 min después del healthy del
+  nuevo — verificar el drenaje antes de decirle al owner que pruebe, o va
+  a probar contra la versión vieja y reportar que "no cambió nada".
 
 ## Próximo paso
-Verificar que el deploy de Coolify disparado por `291b52a1` (módulos por
-país + `taxPy` + permiso de `modules.php`) llegó sano a prod — Coolify
-rollbackea silencioso si el build falla y no se ve desde afuera.
+Pedirle al owner que imprima un ticket con logo en una térmica FÍSICA
+(hoy solo se verificó el pipeline en browser). Si sale mal, el punto de
+entrada es `renderTemplateToEscPos` en
+`frontend/lib/hardware/printers/render-template.ts` (la parte nueva y
+async es el manejo del logo: `img.decode`/`crossOrigin`/`encoder.image`).
 
 ## Trampas conocidas
-- **Deuda grande de §61**: timbrado/punto de expedición/numeración fiscal
-  viven en el core de emisión, no son un flag por módulo. Sacarlos para
-  un tenant no-PY es rediseño (`context/29`), no trabajo de esta sesión.
-  Es LA deuda para vender fuera de Paraguay.
-- TZ `America/Asuncion` literal en migs 157/160 y `period-close.php`
-  sigue sin migrar — rompe silenciosamente con el primer tenant no-PY
-  (heredado, no tocado hoy).
-- Sin verificar por un humano: alta rápida de artículo, cola OCR completa
-  (dropzone/estados/supervivencia al cierre de pestaña), filtros de
-  `/items`, filtrado de módulos por país.
-- 7 P2 de la auditoría de seguridad del 2026-08-26 siguen sin arreglar
-  (ver `context/10-roadmap.md`); el de `api/v1/modules.php` se cerró hoy,
-  quedan 6.
-- WebSocket de realtime sigue sin autenticación (preexistente, no filtra
-  datos entre tenants).
-- Dos worktrees ajenos sin limpiar en
-  `/private/tmp/claude-501/-Users-xstian-Dropbox-Punto-system/7b5abdf0-.../scratchpad/`:
-  `off-wt` y `wt-kude`. NO son de esta sesión — confirmar que esa otra
-  sesión cerró antes de borrarlos.
-- Atajo "Reprocesar" del roadmap de producción (`5ab381fb`) queda casi
-  gratis con el motor actual, esperando OK del owner para implementar.
-- Costo de inventario va CON IVA incluido — decisión del owner, no bug.
+- Deploy de Punto Front sigue con webhook de auto-deploy ACTIVO en Coolify
+  (se disparó solo con el push de esta sesión) — contradice la regla nueva
+  de deploy manual documentada en `1308a564`/CLAUDE.md. Backend no tiene
+  el webhook. Pendiente que el owner decida si lo apaga.
+- `fe_cdc` en blanco en el primer ticket no es bug — la emisión electrónica
+  es asíncrona, el CDC solo llega en la reimpresión.
+- P2s de la auditoría de seguridad del 26 siguen abiertos (`modules.php`
+  sin `hasPermission` es el más directo — ver `context/10-roadmap.md`).
+  `TZ America/Asuncion` literal en migs 157/160/period-close sigue sin
+  migrar. "Bloquear sesión luego de" en Ajustes sigue mock.
+- El arnés de facturación electrónica (guard del caso vale) quedó
+  OFRECIDO al owner y sin hacer — no asumir que existe.
+- Sesión paralela "compras" (system-fb) tenía trabajo en vuelo (cola OCR,
+  mig 176) — ya mergeado por ellos antes de este cierre; el dropzone que
+  esta sesión movió (`cac7633f`) era de esa sesión, no nuevo acá.
+- Fixes de PIN/rol del alta (`769b2d66`+mig 177), título de ventana del
+  POS (`6e0083a8`), franquicias `context/55` (`3a0264fb`) y ungroup
+  (`ee291a9b`) son de ESTA misma sesión pero de ANTES del rango de arriba
+  — ya están documentados en el entry del 2026-08-28, no se repiten acá.
