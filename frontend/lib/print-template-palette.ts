@@ -205,7 +205,7 @@ export const DEFAULT_BLOCK_LABELS: Partial<Record<BlockType, string>> = {
   nums_to_words: "Son:",
   // Caja / operador
   register_name: "Caja:",
-  user_name: "Cajero:",
+  user_name: "Usuario:",
   // Timbrado
   auth_number: "Timbrado No.:",
   auth_start_date: "Válido desde:",
@@ -221,7 +221,7 @@ export const DEFAULT_BLOCK_LABELS: Partial<Record<BlockType, string>> = {
   // Comanda / mesa
   order_number: "Orden Nro.:",
   order_destination: "Espacio:",
-  table_number: "Mesa:",
+  table_number: "Espacio:",
   // Remisión
   transfer_reason: "Motivo:",
   transfer_origin: "Origen:",
