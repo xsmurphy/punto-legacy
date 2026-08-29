@@ -89,9 +89,10 @@ describe("snapBlockToRollRows — el canvas y el papel cuentan las mismas filas"
   const row = geo.lineHeightPx
 
   it("lleva `top` a una fila exacta y `height` a filas enteras", () => {
-    // Geometría real de una plantilla de prod: diseñada con snap de 1mm, cae
-    // entre filas (38 / 11.97 = 3.17).
-    const snapped = snapBlockToRollRows({ top: 38, height: 24 }, geo)
+    // El caso real: una plantilla diseñada con snap de 1mm cae ENTRE filas.
+    // Relativo a `row` para que el test no dependa de las columnas del
+    // dispositivo (76mm pasó de proyectarse a 80 a ser la TM-U220 real).
+    const snapped = snapBlockToRollRows({ top: row * 3.17, height: row * 2.05 }, geo)
     expect(snapped.top / row).toBe(3)
     expect(snapped.height / row).toBe(2)
   })
@@ -111,9 +112,10 @@ describe("snapBlockToRollRows — el canvas y el papel cuentan las mismas filas"
   })
 
   it("sin snap, esos mismos bloques salían separados (regresión que se está fijando)", () => {
-    // 24px de alto sobre filas de ~12px = 2 filas para UNA línea de texto.
-    const a = { ...defaultBlock("custom", "LINEA UNO"), left: 0, width: 287, top: 0, height: 24 }
-    const b = { ...defaultBlock("custom", "LINEA DOS"), left: 0, width: 287, top: 24, height: 24 }
+    // 2 filas de alto para UNA línea de texto: el segundo renglón queda en
+    // blanco. Relativo a `row`, no en px fijos (ver el test de arriba).
+    const a = { ...defaultBlock("custom", "LINEA UNO"), left: 0, width: 287, top: 0, height: row * 2 }
+    const b = { ...defaultBlock("custom", "LINEA DOS"), left: 0, width: 287, top: row * 2, height: row * 2 }
     const texts = buildRollGrid(tpl({ page_size: "receipt76", page_size_name: "Roll 76mm" }, [a, b]), ticket(), geo)
       .rows.map((r) => r.text.trim())
     expect(texts[1]).toBe("")

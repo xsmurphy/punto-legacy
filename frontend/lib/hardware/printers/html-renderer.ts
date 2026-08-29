@@ -20,6 +20,7 @@ import {
   rollFontSizeFor,
   rollGeometry,
   ROLL_FONT_STACK,
+  type PaperWidthMm,
   type RollGraphic,
   type RollGrid,
 } from "./roll-grid"
@@ -396,7 +397,7 @@ export interface RenderTemplateToHtmlOptions {
    *  ancho de A4 completo — inconsistente con lo que sale por ESC/POS. Sin
    *  efecto en plantillas de HOJA (ver `isReceipt` abajo): esas siempre usan
    *  su propio `page_size` físico, nunca este override de ticket. */
-  paperWidthMm?: 58 | 80
+  paperWidthMm?: PaperWidthMm
 }
 
 export function renderTemplateToHtml(

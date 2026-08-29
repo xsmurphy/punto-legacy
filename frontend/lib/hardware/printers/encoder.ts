@@ -5,6 +5,8 @@
 
 import ReceiptPrinterEncoder from "@point-of-sale/receipt-printer-encoder"
 
+import type { PaperWidthMm } from "./roll-grid"
+
 /**
  * Pulso de apertura de cajón (device 0, on 25ms, off 250ms) — mismos valores
  * que `render-template.ts`. La Estación de Impresión lo necesita suelto porque
@@ -20,7 +22,7 @@ export function buildDrawerPulse(): Uint8Array {
   return encoder.pulse(0, 25, 250).encode()
 }
 
-export function buildTestTicket(opts: { paperWidthMm: 58 | 80 }): Uint8Array {
+export function buildTestTicket(opts: { paperWidthMm: PaperWidthMm }): Uint8Array {
   const columns = opts.paperWidthMm === 58 ? 32 : 48
 
   const now = new Intl.DateTimeFormat("es", {

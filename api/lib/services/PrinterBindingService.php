@@ -311,8 +311,11 @@ class PrinterBindingService {
 
         if (isset($data['paperWidthMm']) || $requireAll) {
             $pw = (int)($data['paperWidthMm'] ?? 80);
-            if (!in_array($pw, [58, 80], true))
-                throw new \RuntimeException('paperWidthMm debe ser 58 o 80', 422);
+            // 76 = impresoras de impacto (Epson TM-U220 y compatibles, 33
+            // columnas) — dispositivo real desde 2026-08-28, decisión del
+            // owner: es la impresora de tickets más usada en PY.
+            if (!in_array($pw, [58, 76, 80], true))
+                throw new \RuntimeException('paperWidthMm debe ser 58, 76 u 80', 422);
             $out['paperWidthMm'] = $pw;
         }
 

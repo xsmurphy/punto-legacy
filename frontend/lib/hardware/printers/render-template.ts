@@ -1,7 +1,7 @@
 import ReceiptPrinterEncoder from "@point-of-sale/receipt-printer-encoder"
 import type { PrintTemplateConfig } from "@/lib/types/print-template"
 import type { TicketData } from "./build-ticket-data"
-import { buildRollGrid, rollGeometry, type RollGraphic } from "./roll-grid"
+import { buildRollGrid, rollGeometry, type PaperWidthMm, type RollGraphic } from "./roll-grid"
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Encoder = any
@@ -91,7 +91,7 @@ function renderGraphic(encoder: Encoder, g: RollGraphic): Encoder {
 export function renderTemplateToEscPos(opts: {
   template: PrintTemplateConfig
   data: TicketData
-  paperWidthMm: 58 | 80
+  paperWidthMm: PaperWidthMm
   openDrawer: boolean
   copies: number
 }): Uint8Array {

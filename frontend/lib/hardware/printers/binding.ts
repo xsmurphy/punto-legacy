@@ -1,3 +1,5 @@
+import type { PaperWidthMm } from "./roll-grid"
+
 export type PrinterTransport = "usb" | "bluetooth" | "network" | "native" | "station"
 export type PrinterMode = "escpos" | "native"
 export type PrinterDocType =
@@ -22,7 +24,7 @@ export interface PrinterBinding {
   // Config
   mode: PrinterMode
   templateId: string | null
-  paperWidthMm: 58 | 80
+  paperWidthMm: PaperWidthMm
   copies: number
   openDrawer: boolean
   autoPrint: boolean

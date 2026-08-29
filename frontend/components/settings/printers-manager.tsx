@@ -4,6 +4,8 @@ import * as React from "react"
 import { Check, X, Printer, Trash2, PrinterCheck, Pencil, ChevronsUpDown } from "lucide-react"
 import { toast } from "sonner"
 
+import type { PaperWidthMm } from "@/lib/hardware/printers/roll-grid"
+
 import { Card } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
@@ -226,7 +228,7 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
   const [color, setColor] = React.useState<string>(PALETTE_COLORS[0].key)
   const [printerMode, setPrinterMode] = React.useState<PrinterMode>("escpos")
   const [templateId, setTemplateId] = React.useState<string>("")
-  const [paperWidthMm, setPaperWidthMm] = React.useState<58 | 80>(80)
+  const [paperWidthMm, setPaperWidthMm] = React.useState<PaperWidthMm>(80)
   const [copies, setCopies] = React.useState(1)
   const [openDrawer, setOpenDrawer] = React.useState(false)
   const [autoPrint, setAutoPrint] = React.useState(false)
@@ -427,13 +429,17 @@ function BindingDialog({ mode, outletId, onClose, onSave }: BindingDialogProps) 
                 <Label htmlFor="printer-width">Ancho del papel</Label>
                 <Select
                   value={String(paperWidthMm)}
-                  onValueChange={(v) => setPaperWidthMm(Number(v) as 58 | 80)}
+                  onValueChange={(v) => setPaperWidthMm(Number(v) as PaperWidthMm)}
                 >
                   <SelectTrigger id="printer-width">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="80">80 mm</SelectItem>
+                    <SelectItem value="80">80 mm (térmica)</SelectItem>
+                    {/* 76mm = impresoras de impacto (Epson TM-U220 y
+                        compatibles) — 33 columnas, no 48. Decisión del owner
+                        2026-08-28: es la impresora de tickets más usada en PY. */}
+                    <SelectItem value="76">76 mm (impacto, TM-U220)</SelectItem>
                     <SelectItem value="58">58 mm</SelectItem>
                   </SelectContent>
                 </Select>

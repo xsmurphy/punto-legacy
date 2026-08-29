@@ -161,7 +161,7 @@ export function snapBlockToRollRows<T extends { top: number; height: number }>(
 
 /**
  * Columnas por ancho REAL de dispositivo. Las térmicas del proyecto son de dos
- * anchos y nada más (`PrinterBinding.paperWidthMm` es `58 | 80`), así que esta
+ * anchos (`PrinterBinding.paperWidthMm`), así que esta
  * tabla tiene exactamente dos entradas.
  *
  * Antes había una tercera (`receipt76: 42`) indexada por el papel de DISEÑO.
@@ -170,8 +170,17 @@ export function snapBlockToRollRows<T extends { top: number; height: number }>(
  * en la vista previa, que ya mapea 76mm a 80. Una constante que nadie puede
  * alcanzar es documentación falsa sobre lo que el sistema soporta.
  */
-export const ROLL_COLUMNS: Record<58 | 80, number> = {
+/** Anchos de papel de dispositivo soportados por los bindings. */
+export type PaperWidthMm = 58 | 76 | 80
+
+export const ROLL_COLUMNS: Record<PaperWidthMm, number> = {
   58: 32,
+  // 76mm = impresoras de IMPACTO (Epson TM-U220 y compatibles, la impresora de
+  // tickets más usada en PY — decisión del owner 2026-08-28 de soportarla como
+  // dispositivo real). Font A de la TM-U220: 33 columnas de 9x9 puntos. Hasta
+  // hoy "76mm" era solo un papel de DISEÑO proyectado a la térmica de 80 (48
+  // columnas): en una TM-U220 real eso desborda cada línea en 15 caracteres.
+  76: 33,
   80: 48,
 }
 
@@ -182,8 +191,12 @@ export const ROLL_COLUMNS: Record<58 | 80, number> = {
  * ancho de térmica soportado, así que cae en la de 80 — que es lo que la
  * vista previa ya hacía por su cuenta.
  */
-export function nearestReceiptPaperWidthMm(pageSize: PaperSize): 58 | 80 {
-  return pageSize === "receipt57" ? 58 : 80
+export function nearestReceiptPaperWidthMm(pageSize: PaperSize): PaperWidthMm {
+  // 76 dejó de caer en 80: es un dispositivo real (TM-U220). El binding sigue
+  // teniendo la última palabra — esto es solo el default sin impresora atada.
+  if (pageSize === "receipt57") return 58
+  if (pageSize === "receipt76") return 76
+  return 80
 }
 
 /**
@@ -222,7 +235,7 @@ export interface RollGeometry {
 export function rollGeometry(
   pageSize: PaperSize,
   mm: number,
-  paperWidthMm?: 58 | 80,
+  paperWidthMm?: PaperWidthMm,
 ): RollGeometry {
   const deviceWidthMm = paperWidthMm ?? nearestReceiptPaperWidthMm(pageSize)
   const columns = ROLL_COLUMNS[deviceWidthMm]

@@ -69,8 +69,13 @@ describe("wrapToWidth", () => {
 })
 
 describe("rollGeometry", () => {
-  it("sin binding, el papel de diseño cae en el ancho de térmica más cercano", () => {
+  it("sin binding, cada papel de diseño cae en SU dispositivo", () => {
     expect(rollGeometry("receipt57", MM).columns).toBe(ROLL_COLUMNS[58])
+    // 76 dejó de proyectarse a 80: es la TM-U220 (impacto, 33 columnas).
+    // Diseñar en 76 y previsualizar en 48 columnas desbordaba cada línea en 15
+    // caracteres sobre la impresora real.
+    expect(rollGeometry("receipt76", MM).columns).toBe(ROLL_COLUMNS[76])
+    expect(ROLL_COLUMNS[76]).toBe(33)
     expect(rollGeometry("receipt80", MM).columns).toBe(ROLL_COLUMNS[80])
   })
 

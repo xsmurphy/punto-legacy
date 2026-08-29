@@ -34,6 +34,7 @@
  * (sin plantilla resuelta, local o no) — no se tocó su criterio de uso.
  */
 import type { PrinterDocType } from "./binding"
+import type { PaperWidthMm } from "./roll-grid"
 import type { TicketData } from "./build-ticket-data"
 import type { DocumentTemplateRow, PrintTemplateConfig } from "@/lib/types/print-template"
 import { useCatalogStore } from "@/lib/catalog/store"
@@ -105,7 +106,7 @@ function esc(s: string): string {
  *  que arma el HTML directo en vez de pasar por `renderTemplateToHtml` +
  *  `PrintBlock[]` (no tiene sentido sintetizar un template JSON solo para
  *  volver a interpretarlo). */
-function renderFallbackTicketHtml(docType: PrinterDocType, data: TicketData, paperWidthMm: 58 | 80): string {
+function renderFallbackTicketHtml(docType: PrinterDocType, data: TicketData, paperWidthMm: PaperWidthMm): string {
   const rows = data.items
     .map(
       (item) =>
@@ -165,7 +166,7 @@ export interface PrintTicketInBrowserOptions {
   /** Si viene (ej. binding con transport nativo pero sin picker), se usa esa
    *  plantilla puntual en vez de resolver la default del docType. */
   templateId?: string | null
-  paperWidthMm?: 58 | 80
+  paperWidthMm?: PaperWidthMm
 }
 
 /**
