@@ -12,10 +12,9 @@
  */
 
 import * as React from "react"
-import { useQuery } from "@tanstack/react-query"
 import { posApi as api } from "@/lib/api/pos-client"
 import type { PosTransactionListItem, PosTransactionsListResponse } from "@/lib/types/pos-transactions"
-import type { TransactionDetail } from "@/hooks/use-transactions"
+import { useTransaction } from "@/hooks/use-transactions"
 
 const PAGE_SIZE = 30
 
@@ -114,15 +113,20 @@ export function usePosTransactionsList({
 
 // ── Detalle ────────────────────────────────────────────────────────────────────
 
-async function fetchDetail(encId: string): Promise<TransactionDetail> {
-  return api.get<TransactionDetail>(`/pos/transactions/${encodeURIComponent(encId)}`)
-}
-
+/**
+ * Delega en `useTransaction` en vez de traer su propio fetcher — que es lo que
+ * el docblock de arriba decía desde el principio y el código no hacía.
+ *
+ * Los dos cacheaban bajo la MISMA queryKey `["pos-transaction", encId]` pero
+ * con fetchers distintos: éste desenvolvía el envelope vía `posApi`, y el de
+ * use-transactions.ts casteaba el `{ ok, data }` crudo. Ganaba el último en
+ * resolver, así que el detalle salía vacío ("Tipo NaN", "Items (0)") hasta que
+ * una recarga hacía correr el otro (reporte del tester, 2026-08-28).
+ *
+ * Dos hooks pueden compartir una queryKey; lo que no pueden es tener cada uno
+ * su propio fetcher para ella. Un solo dueño de la clave y el problema no
+ * puede volver.
+ */
 export function usePosTransactionDetail(encId: string | null) {
-  return useQuery<TransactionDetail, Error>({
-    queryKey: ["pos-transaction", encId],
-    queryFn: () => fetchDetail(encId!),
-    enabled: encId !== null,
-    staleTime: 60_000,
-  })
+  return useTransaction(encId)
 }

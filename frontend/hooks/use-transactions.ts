@@ -13,7 +13,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query"
-import { posFetch } from "@/lib/api/pos-fetch"
+import { posApi } from "@/lib/api/pos-client"
 
 // ── Tipos ─────────────────────────────────────────────────────────────────────
 
@@ -112,7 +112,33 @@ export interface PaymentMethod {
 
 // ── Fetchers ──────────────────────────────────────────────────────────────────
 
-async function fetchTransactionsList(filters: {
+/**
+ * Los dos fetchers van por `posApi` — el wrapper del realm device — y NO por
+ * `posFetch` crudo.
+ *
+ * `posFetch` devuelve la `Response` tal cual, así que el `.json()` de acá era
+ * el ENVELOPE `{ ok, data }` de la API (`apiOk`, api/lib/response.php), no el
+ * payload. Los dos fetchers lo trataban como si fuera el payload:
+ *
+ *   - El detalle casteaba el envelope entero a `TransactionDetail`. Un objeto
+ *     sin `type`/`items`/`customerName` pero TRUTHY, así que el panel lo
+ *     pintaba en vez de mostrar error: "Sin cliente", "Tipo NaN", "Items (0)",
+ *     "Gs 0" (reporte del tester, 2026-08-28).
+ *   - La lista leía `data.transactionsList` sobre el envelope — siempre
+ *     `undefined`, siempre `[]`. Falla en silencio porque cae al `?? []`.
+ *
+ * Y el detalle además comparte la queryKey `["pos-transaction", id]` con
+ * `usePosTransactionDetail` (use-pos-transactions.ts), que sí usa `posApi` y
+ * guarda la forma correcta. Dos escritores con formas distintas sobre la MISMA
+ * clave: ganaba el último en resolver, de ahí que recargar la página "lo
+ * arreglara". Con los dos por `posApi` la forma es una sola.
+ *
+ * `posApi` ya desenvuelve el envelope, tira `ApiError` en las respuestas no-ok
+ * y avisa cuando `ok=true` viene sin `data` — nada de eso hay que repetirlo
+ * acá. Es la misma regla del proyecto que ya cerró `/api/api` y el Bearer
+ * faltante: se usa el wrapper compartido, no se lo esquiva (CLAUDE.md §5).
+ */
+export async function fetchTransactionsList(filters: {
   date?: string
   limit?: number
 }): Promise<TransactionListItem[]> {
@@ -120,18 +146,14 @@ async function fetchTransactionsList(filters: {
   if (filters.date) qs.set("date", filters.date)
   if (filters.limit) qs.set("limit", String(filters.limit))
 
-  const res = await posFetch(`/api/pos/transactions?${qs.toString()}`)
-  if (!res.ok) throw new Error(`Error ${res.status}`)
-  const data = await res.json()
-  // El backend devuelve { transactionsList: [...] }
-  return (data.transactionsList as TransactionListItem[]) ?? []
+  const data = await posApi.get<{ transactionsList?: TransactionListItem[] }>(
+    `/pos/transactions?${qs.toString()}`,
+  )
+  return data.transactionsList ?? []
 }
 
-async function fetchTransactionDetail(id: string): Promise<TransactionDetail> {
-  const res = await posFetch(`/api/pos/transactions/${encodeURIComponent(id)}`)
-  if (!res.ok) throw new Error(`Error ${res.status}`)
-  const data = await res.json()
-  return data as TransactionDetail
+export async function fetchTransactionDetail(id: string): Promise<TransactionDetail> {
+  return posApi.get<TransactionDetail>(`/pos/transactions/${encodeURIComponent(id)}`)
 }
 
 // ── Hooks ─────────────────────────────────────────────────────────────────────
