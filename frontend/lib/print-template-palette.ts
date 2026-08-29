@@ -51,7 +51,6 @@ export const PALETTE: PaletteSection[] = [
     label: "Empresa",
     items: [
       { type: "company_logo", label: "Logo", defaultText: "" },
-      { type: "company_logo", label: "Logo (B&W)", defaultText: "" },
       { type: "company_name", label: "Nombre", defaultText: "" },
       { type: "company_billing_name", label: "Razón Social", defaultText: "" },
       { type: "company_tin", label: "__TIN__ de la empresa", defaultText: "" },
@@ -308,12 +307,16 @@ export function substituteLabels(label: string, opts: { tin?: string; tax?: stri
  * Mapa type → label del catálogo estático (PALETTE) — ÚNICA fuente de "cómo
  * se llama este bloque", reusada por los tooltips del canvas (canvas-block.tsx)
  * en vez de mantener una segunda lista de nombres que divergiría con el
- * tiempo (mismo criterio que `normalizeBlockType` en blocks.ts). Cuando un
- * `type` tiene más de una entrada en PALETTE (ej. `company_logo`: "Logo" y
- * "Logo (B&W)" comparten `type` — el bloque colocado no guarda cuál de los
- * dos eligió el operador, ver `PrintBlock` en print-template.ts), se queda
- * con la PRIMERA etiqueta: ambigüedad preexistente del modelo, no algo que
- * este mapa pueda resolver.
+ * tiempo (mismo criterio que `normalizeBlockType` en blocks.ts).
+ *
+ * INVARIANTE: cada `type` aparece UNA sola vez en PALETTE. Dos entradas con
+ * el mismo `type` son indistinguibles una vez colocadas —`PrintBlock` guarda
+ * el `type`, no de qué ítem de la paleta salió (ver print-template.ts)—, así
+ * que ofrecerlas es prometer una elección que no existe. Fue el caso de
+ * "Logo" / "Logo (B&W)", eliminado 2026-08-29: el blanco y negro del logo lo
+ * decide el transporte del binding, no el bloque (ESC/POS siempre dithera a
+ * B&W puro, ver `renderGraphic` en render-template.ts). El guard de abajo se
+ * queda con la PRIMERA etiqueta por si el invariante se rompe.
  */
 const BLOCK_TYPE_LABELS: Partial<Record<BlockType, string>> = (() => {
   const map: Partial<Record<BlockType, string>> = {}
