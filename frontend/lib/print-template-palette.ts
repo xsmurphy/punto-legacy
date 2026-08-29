@@ -255,9 +255,37 @@ function taxRateLabel(tax: Pick<Tax, "kind" | "rate" | "name">): string {
  *  corresponde) y agrega la sección "Impuestos" cuando llegaron las tasas
  *  del tenant (`taxes` viene de `useTaxes()`, puede tardar en cargar — sin
  *  eso, la sección simplemente no aparece, no rompe el render). */
-export function filterPaletteForSize(paperSize: PaperSize, taxes: Tax[] = []): PaletteSection[] {
+/**
+ * Sección "Factura electrónica" — SOLO con el módulo `einvoicePy` activo
+ * (pedido del owner 2026-08-29): en un comercio sin FE, un bloque de QR o de
+ * CDC solo puede imprimir un hueco, así que ni se ofrece.
+ *
+ * `fe_py` ya existía como tipo (el renderer lo intercepta como QR) pero NUNCA
+ * estuvo en la paleta: no había forma de agregarlo a una plantilla. El QR del
+ * KuDE y el CDC llegan como dato de la VENTA (TicketData), no de la plantilla.
+ */
+function buildEInvoiceSection(): PaletteSection {
+  return {
+    id: "einvoice",
+    label: "Factura electrónica",
+    items: [
+      { type: "fe_py", label: "QR de consulta (KuDE)", defaultText: "" },
+      { type: "fe_cdc", label: "CDC", defaultText: "", defaultLabel: "CDC:" },
+    ],
+  }
+}
+
+export function filterPaletteForSize(
+  paperSize: PaperSize,
+  taxes: Tax[] = [],
+  opts: { einvoiceEnabled?: boolean } = {},
+): PaletteSection[] {
   const ticket = isReceipt(paperSize)
-  const sections = taxes.length > 0 ? [...PALETTE, buildTaxRateSection(taxes)] : PALETTE
+  const sections = [
+    ...PALETTE,
+    ...(taxes.length > 0 ? [buildTaxRateSection(taxes)] : []),
+    ...(opts.einvoiceEnabled ? [buildEInvoiceSection()] : []),
+  ]
   return sections
     .map((sec) => ({
       ...sec,

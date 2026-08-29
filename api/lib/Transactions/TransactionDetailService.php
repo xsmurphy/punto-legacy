@@ -349,6 +349,26 @@ final class TransactionDetailService
         $discount = (float) ($tx['transactionDiscount'] ?? 0);
         $netTotal = $subtotal - $discount;
 
+        $einvoiceCdc = null;
+        $einvoicePortalUrl = null;
+        try {
+            $eiDoc = ncmExecute(
+                "SELECT cdc FROM einvoice_document
+                  WHERE companyid = ? AND transactionid = ? AND status = 'issued'
+                    AND cdc IS NOT NULL
+                  ORDER BY issued_at DESC NULLS LAST LIMIT 1",
+                [$companyId, $id]
+            );
+            if ($eiDoc && !empty($eiDoc['cdc'])) {
+                $einvoiceCdc = (string) $eiDoc['cdc'];
+            }
+            $einvoicePortalUrl = (new \Punto\Api\EInvoice\EInvoiceService())
+                ->portalUrl($companyId, $id);
+        } catch (\Throwable $e) {
+            // La FE nunca puede tirar el detalle: sin dato, los bloques en blanco.
+            error_log('[TransactionDetailService] einvoice: ' . $e->getMessage());
+        }
+
         $txData = [
             'transactionId'          => (string) $tx['transactionId'],
             'transactionDate'        => $tx['transactionDate']    !== null ? (string) $tx['transactionDate']    : null,
@@ -401,6 +421,16 @@ final class TransactionDetailService
             ),
             'subtotal'      => $subtotal,
             'netTotal'      => $netTotal,
+
+            // ── Facturación electrónica (bloques `fe_py`/`fe_cdc` del ticket) ──
+            // El CDC nace ASÍNCRONO (outbox → Factomate): en el primer ticket de
+            // la venta todavía no existe y estos campos van null — el bloque de
+            // la plantilla sale en blanco, como cualquier otro sin dato. En la
+            // REIMPRESIÓN desde el panel ya está, que es donde el comprador lo
+            // pide. `status='issued'` a propósito: un CDC de un documento
+            // rechazado o pendiente no identifica nada ante SIFEN.
+            'einvoiceCdc'       => $einvoiceCdc,
+            'einvoicePortalUrl' => $einvoicePortalUrl,
         ];
 
         return [

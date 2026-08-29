@@ -87,9 +87,15 @@ function ticket(over: Partial<TicketData> = {}): TicketData {
   } as unknown as TicketData
 }
 
-function emit(config: PrintTemplateConfig, data: TicketData, paperWidthMm: 58 | 80): string[] {
+async function emit(
+  config: PrintTemplateConfig,
+  data: TicketData,
+  paperWidthMm: 58 | 80,
+): Promise<string[]> {
+  // `renderTemplateToEscPos` es async desde que precarga el logo (2026-08-29);
+  // estas plantillas no llevan logo, así que no toca red.
   return printedLines(
-    renderTemplateToEscPos({ template: config, data, paperWidthMm, openDrawer: false, copies: 1 }),
+    await renderTemplateToEscPos({ template: config, data, paperWidthMm, openDrawer: false, copies: 1 }),
   )
 }
 
@@ -97,9 +103,9 @@ describe("bytes ESC/POS — alineación real en el papel", () => {
   for (const paperWidthMm of [58, 80] as const) {
     const cols = ROLL_COLUMNS[paperWidthMm]
 
-    it(`${paperWidthMm}mm: alineación izquierda arranca DESPUÉS del margen`, () => {
+    it(`${paperWidthMm}mm: alineación izquierda arranca DESPUÉS del margen`, async () => {
       const geo = rollGeometry("receipt80", MM, paperWidthMm)
-      const lines = emit(
+      const lines = await emit(
         tpl([{ ...defaultBlock("total"), top: 0, left: 0, width: Math.round(geo.canvasWidthPx), height: 12, align: "left" }]),
         ticket(),
         paperWidthMm,
@@ -108,9 +114,9 @@ describe("bytes ESC/POS — alineación real en el papel", () => {
       expect(lines[0]).toBe(" ".repeat(ROLL_MARGIN_COLS) + "Gs 23.000")
     })
 
-    it(`${paperWidthMm}mm: alineación DERECHA conserva el padding (el bug del encoder)`, () => {
+    it(`${paperWidthMm}mm: alineación DERECHA conserva el padding (el bug del encoder)`, async () => {
       const geo = rollGeometry("receipt80", MM, paperWidthMm)
-      const lines = emit(
+      const lines = await emit(
         tpl([{ ...defaultBlock("total"), top: 0, left: 0, width: Math.round(geo.canvasWidthPx), height: 12, align: "right" }]),
         ticket(),
         paperWidthMm,
@@ -121,9 +127,9 @@ describe("bytes ESC/POS — alineación real en el papel", () => {
       expect(lines[0]).toHaveLength(cols - ROLL_MARGIN_COLS)
     })
 
-    it(`${paperWidthMm}mm: alineación CENTRADA conserva el padding`, () => {
+    it(`${paperWidthMm}mm: alineación CENTRADA conserva el padding`, async () => {
       const geo = rollGeometry("receipt80", MM, paperWidthMm)
-      const lines = emit(
+      const lines = await emit(
         tpl([{ ...defaultBlock("total"), top: 0, left: 0, width: Math.round(geo.canvasWidthPx), height: 12, align: "center" }]),
         ticket(),
         paperWidthMm,
@@ -134,9 +140,9 @@ describe("bytes ESC/POS — alineación real en el papel", () => {
       expect(lines[0]).toBe(" ".repeat(expectedLead) + "Gs 23.000")
     })
 
-    it(`${paperWidthMm}mm: el byte del padding es 0x20 y va antes del contenido`, () => {
+    it(`${paperWidthMm}mm: el byte del padding es 0x20 y va antes del contenido`, async () => {
       const geo = rollGeometry("receipt80", MM, paperWidthMm)
-      const bytes = renderTemplateToEscPos({
+      const bytes = await renderTemplateToEscPos({
         template: tpl([
           { ...defaultBlock("total"), top: 0, left: 0, width: Math.round(geo.canvasWidthPx), height: 12, align: "right" },
         ]),
@@ -191,8 +197,8 @@ describe("bytes ESC/POS — el listado de ítems es dinámico", () => {
     })) as unknown as TicketData["items"]
 
   for (const n of [1, 10]) {
-    it(`con ${n} ítem(s), la regla y el total quedan DEBAJO del último`, () => {
-      const lines = emit(config, ticket({ items: mkItems(n) }), 80)
+    it(`con ${n} ítem(s), la regla y el total quedan DEBAJO del último`, async () => {
+      const lines = await emit(config, ticket({ items: mkItems(n) }), 80)
       const lastItem = lines.findIndex((l) => l.includes(`Producto ${n}`))
       const rule = lines.findIndex((l) => l.trimStart().startsWith("---"))
       const total = lines.findIndex((l) => l.includes("Gs 23.000"))
@@ -206,12 +212,12 @@ describe("bytes ESC/POS — el listado de ítems es dinámico", () => {
     })
   }
 
-  it("un ítem de nombre largo wrapea y empuja el pie una fila más", () => {
+  it("un ítem de nombre largo wrapea y empuja el pie una fila más", async () => {
     const items = [
       { name: "Empanada de carne cortada a cuchillo con cebolla", qty: 1, unitPrice: 1000, total: 1000 },
       { name: "Gaseosa", qty: 1, unitPrice: 1000, total: 1000 },
     ] as unknown as TicketData["items"]
-    const lines = emit(config, ticket({ items }), 80)
+    const lines = await emit(config, ticket({ items }), 80)
     const gaseosa = lines.findIndex((l) => l.includes("Gaseosa"))
     const rule = lines.findIndex((l) => l.trimStart().startsWith("---"))
     const total = lines.findIndex((l) => l.includes("Gs 23.000"))
@@ -229,9 +235,9 @@ describe("bytes ESC/POS — el listado de ítems es dinámico", () => {
 describe("bytes ESC/POS — wrap por ancho de papel", () => {
   const geo = rollGeometry("receipt80", MM, 80)
 
-  it("ninguna línea impresa supera las columnas del papel", () => {
+  it("ninguna línea impresa supera las columnas del papel", async () => {
     for (const paperWidthMm of [58, 80] as const) {
-      const lines = emit(
+      const lines = await emit(
         tpl([
           {
             ...defaultBlock("custom", "Gracias por su compra, vuelva pronto a visitarnos por nuestro local"),
@@ -252,8 +258,8 @@ describe("bytes ESC/POS — wrap por ancho de papel", () => {
 })
 
 describe("bytes ESC/POS — no-ASCII", () => {
-  it("é y Ñ se traducen a la codepage de la impresora, no se pierden", () => {
-    const bytes = renderTemplateToEscPos({
+  it("é y Ñ se traducen a la codepage de la impresora, no se pierden", async () => {
+    const bytes = await renderTemplateToEscPos({
       template: tpl([
         { ...defaultBlock("custom", "Almacén Ñandú"), top: 0, left: 0, width: 302, height: 12 },
       ]),
@@ -269,7 +275,7 @@ describe("bytes ESC/POS — no-ASCII", () => {
     expect(Array.from(bytes)).toContain(0xa5)
   })
 
-  it("el ancho se cuenta en caracteres, no en bytes: el acento no desalinea", () => {
+  it("el ancho se cuenta en caracteres, no en bytes: el acento no desalinea", async () => {
     const geo = rollGeometry("receipt80", MM, 80)
     const grid = buildRollGrid(
       tpl([
@@ -287,7 +293,7 @@ describe("bytes ESC/POS — no-ASCII", () => {
     )
     // Hasta la última columna útil: la del borde es margen (ROLL_MARGIN_COLS).
     expect(grid.rows[0].text).toHaveLength(ROLL_COLUMNS[80] - ROLL_MARGIN_COLS)
-    const lines = emit(
+    const lines = await emit(
       tpl([
         {
           ...defaultBlock("custom", "Almacén"),

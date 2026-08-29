@@ -69,11 +69,51 @@ function withAlign(encoder: Encoder, align: RollGraphic["align"], fn: (e: Encode
   return e
 }
 
-function renderGraphic(encoder: Encoder, g: RollGraphic): Encoder {
+/**
+ * Carga los logos de la plantilla ANTES de encodear — el encoder necesita el
+ * `HTMLImageElement` decodificado, y decodificar es asíncrono. Un logo que no
+ * carga (S3 caído, URL rota, sin red) devuelve null y el ticket sale SIN él:
+ * la emisión es offline-first y una imagen nunca puede frenar un comprobante.
+ */
+async function loadLogoImages(graphics: RollGraphic[]): Promise<Map<string, HTMLImageElement>> {
+  const urls = [...new Set(graphics.filter((g) => g.kind === "logo" && g.value).map((g) => g.value))]
+  const out = new Map<string, HTMLImageElement>()
+  await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const img = new Image()
+        // El logo vive en S3 público en otro origen: sin `crossOrigin`, el
+        // canvas con el que el encoder rasteriza queda "tainted" y getImageData
+        // tira SecurityError — el logo cargaría y aun así no se imprimiría.
+        img.crossOrigin = "anonymous"
+        img.src = url
+        await img.decode()
+        out.set(url, img)
+      } catch (err) {
+        console.error("[render-template] logo no cargó, el ticket sale sin él:", url, err)
+      }
+    }),
+  )
+  return out
+}
+
+function renderGraphic(
+  encoder: Encoder,
+  g: RollGraphic,
+  columns: number,
+  logos: Map<string, HTMLImageElement>,
+): Encoder {
   if (g.kind === "logo") {
-    // Requiere un HTMLImageElement decodificado; el encoder no acepta una URL.
-    console.warn("[render-template] company_logo no implementado en ESC/POS — requiere HTMLImageElement")
-    return encoder
+    const img = g.value ? logos.get(g.value) : undefined
+    if (!img) return encoder
+    // Ancho objetivo: el del papel (12 puntos por columna, Font A). El encoder
+    // exige múltiplos de 8 en ambos ejes. `atkinson` es el dithering que
+    // convierte el logo a BLANCO Y NEGRO puro — la térmica no tiene grises, y
+    // un threshold pelado convierte cualquier gris medio en una mancha.
+    const maxDots = columns * 12
+    const width = Math.max(8, Math.min(maxDots, img.naturalWidth) & ~7)
+    const height = Math.max(8, Math.round((img.naturalHeight / img.naturalWidth) * width) & ~7)
+    return withAlign(encoder, g.align, (e) => e.image(img, width, height, "atkinson"))
   }
   if (g.kind === "barcode") {
     return withAlign(encoder, g.align, (e) => e.barcode(g.value, "code128", { height: 60 }))
@@ -88,13 +128,13 @@ function renderGraphic(encoder: Encoder, g: RollGraphic): Encoder {
   })
 }
 
-export function renderTemplateToEscPos(opts: {
+export async function renderTemplateToEscPos(opts: {
   template: PrintTemplateConfig
   data: TicketData
   paperWidthMm: PaperWidthMm
   openDrawer: boolean
   copies: number
-}): Uint8Array {
+}): Promise<Uint8Array> {
   const { template, data, paperWidthMm, openDrawer, copies } = opts
 
   // La grilla se arma con las columnas del DISPOSITIVO (`paperWidthMm`), no
@@ -102,6 +142,8 @@ export function renderTemplateToEscPos(opts: {
   const mmRatio = template.mm && template.mm > 0 ? template.mm : 3.78
   const geo = rollGeometry(template.page_size, mmRatio, paperWidthMm)
   const grid = buildRollGrid(template, data, geo)
+
+  const logos = await loadLogoImages(grid.graphics)
 
   let encoder: Encoder = new ReceiptPrinterEncoder({ columns: geo.columns })
   encoder = encoder.initialize()
@@ -116,7 +158,7 @@ export function renderTemplateToEscPos(opts: {
   for (let r = 0; r < grid.rows.length; r++) {
     const graphics = byRow.get(r)
     if (graphics) {
-      for (const g of graphics) encoder = renderGraphic(encoder, g)
+      for (const g of graphics) encoder = renderGraphic(encoder, g, geo.columns, logos)
       byRow.delete(r)
     }
     // Una fila de la grilla = una línea impresa. La negrita viaja por tramos
@@ -138,7 +180,7 @@ export function renderTemplateToEscPos(opts: {
 
   // Gráficos anclados más abajo de la última fila con texto.
   for (const row of [...byRow.keys()].sort((a, b) => a - b)) {
-    for (const g of byRow.get(row)!) encoder = renderGraphic(encoder, g)
+    for (const g of byRow.get(row)!) encoder = renderGraphic(encoder, g, geo.columns, logos)
   }
 
   if (openDrawer) {

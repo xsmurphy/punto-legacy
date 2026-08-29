@@ -25,6 +25,9 @@ interface Props {
    *  de la paleta (una entrada por tasa). Sin esto (todavía cargando/error),
    *  la sección no aparece. */
   taxes?: Tax[]
+  /** Módulo `einvoicePy` activo — habilita la sección "Factura electrónica"
+   *  (QR del KuDE + CDC). Sin el módulo, esos bloques ni se ofrecen. */
+  einvoiceEnabled?: boolean
   onAddBlock: (item: PaletteItem) => void
 }
 
@@ -36,10 +39,10 @@ interface Props {
  * drag-from-palette del legacy lo simplificamos: click → drop en (0,0). El
  * usuario lo mueve después.
  */
-export function PaletteSidebar({ paperSize, tinName, taxName, taxes, onAddBlock }: Props) {
+export function PaletteSidebar({ paperSize, tinName, taxName, taxes, einvoiceEnabled, onAddBlock }: Props) {
   const sections = React.useMemo(
-    () => filterPaletteForSize(paperSize, taxes ?? []),
-    [paperSize, taxes],
+    () => filterPaletteForSize(paperSize, taxes ?? [], { einvoiceEnabled }),
+    [paperSize, taxes, einvoiceEnabled],
   )
 
   return (

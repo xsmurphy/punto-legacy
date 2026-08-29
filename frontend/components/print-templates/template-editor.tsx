@@ -52,6 +52,7 @@ import {
 import { useTaxes } from "@/hooks/use-taxes"
 import { buildDemoTicketData, buildTemplateTestData } from "@/lib/hardware/printers/build-ticket-data"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useModules } from "@/hooks/use-modules"
 import { simulateTemplatePrint } from "@/lib/hardware/printers"
 import {
   rollFontSizeFor,
@@ -123,6 +124,10 @@ export function TemplateEditor({ existing }: Props) {
   // diseñando el ticket que va a imprimir y tiene que verlo con su propio
   // símbolo, no con uno de otro país (antes era "Gs" fijo).
   const bootstrapQuery = useBootstrap()
+  // Módulo de facturación electrónica PY: habilita la sección de bloques FE
+  // de la paleta (QR del KuDE + CDC). Ver buildEInvoiceSection.
+  const modulesQuery = useModules()
+  const einvoiceEnabled = modulesQuery.data?.einvoicePy?.enabled === true
   // El bootstrap del PANEL llama al logo `logoUrl`; el shape que esperan los
   // builders es el del POS (`companyLogo`). Se adapta acá, en el borde — los
   // builders no deben conocer dos nombres para el mismo dato.
@@ -742,6 +747,7 @@ export function TemplateEditor({ existing }: Props) {
           <PaletteSidebar
             paperSize={config.page_size}
             taxes={taxesQuery.data?.taxes}
+            einvoiceEnabled={einvoiceEnabled}
             onAddBlock={handleAddBlock}
           />
         </aside>

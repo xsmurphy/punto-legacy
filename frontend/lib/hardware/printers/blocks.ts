@@ -453,6 +453,9 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // fallback HTML del navegador. null cuando la venta no generó documento
   // electrónico — el bloque queda en blanco, como cualquier otro sin dato.
   fe_py: (data) => data.einvoiceUrl ?? null,
+  // CDC en texto (el QR es `fe_py`). Acepta título como cualquier bloque
+  // simple ("CDC:"). null hasta que el documento se emita — ver TicketData.
+  fe_cdc: (data) => data.einvoiceCdc ?? null,
 
   // Remisión (context/42) — poblados solo por buildTicketDataFromStockTransfer
   // y buildTicketDataFromRemision (build-ticket-data.ts); null en cualquier

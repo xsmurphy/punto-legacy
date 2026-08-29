@@ -160,7 +160,7 @@ export async function printSale(opts: {
         }
         const config = fetchTemplateConfig(binding.templateId)
         if (!config) throw new Error(`No se pudo resolver la plantilla asignada (revisá Ajustes → Impresoras)`)
-        const bytes = renderTemplateToEscPos({
+        const bytes = await renderTemplateToEscPos({
           template: config as Parameters<typeof renderTemplateToEscPos>[0]["template"],
           data: dataForPrinter,
           paperWidthMm: binding.paperWidthMm,
@@ -219,7 +219,7 @@ export async function printTest(binding: PrinterBinding): Promise<void> {
     return
   }
 
-  const bytes = renderTemplateToEscPos({
+  const bytes = await renderTemplateToEscPos({
     template: config as Parameters<typeof renderTemplateToEscPos>[0]["template"],
     data,
     paperWidthMm: binding.paperWidthMm,

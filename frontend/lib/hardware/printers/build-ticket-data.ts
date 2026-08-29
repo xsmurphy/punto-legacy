@@ -88,6 +88,9 @@ export interface TicketData {
    * transacción persistida, que todavía no expone el link.
    */
   einvoiceUrl?: string | null
+  /** CDC del documento electrónico emitido (SIFEN). null hasta que Factomate
+   *  emite — el primer ticket puede salir sin él; la reimpresión lo trae. */
+  einvoiceCdc?: string | null
   // usuario
   userName?: string
   /** Caja activa (`activeRegisterId` resuelto contra `registers` del catálogo). */
@@ -636,6 +639,10 @@ export interface TicketableTxDetail {
     invoiceNoPad?: string
     invoicePrefix?: string
     customerName: string | null
+    /** FE (bloques `fe_py`/`fe_cdc`): el resolver canónico los manda desde
+     *  2026-08-29; null hasta que Factomate emite el documento. */
+    einvoiceCdc?: string | null
+    einvoicePortalUrl?: string | null
   }
   items: Array<{
     itemId: string
@@ -696,6 +703,8 @@ export function buildTicketDataFromTxDetail(
   const itemsTotal = items.reduce((s, i) => s + i.total, 0)
 
   return {
+    einvoiceUrl: detail.transaction.einvoicePortalUrl ?? null,
+    einvoiceCdc: detail.transaction.einvoiceCdc ?? null,
     companyName,
     customerName: tx.customerName?.trim() || undefined,
     docType,
@@ -1004,6 +1013,7 @@ export function buildDemoTicketData(
     tags: ["etiqueta1", "etiqueta2"],
     associatedDocument: "001-001-0000099",
     einvoiceUrl: "https://ekuatia.set.gov.py/consultas/qr?demo",
+    einvoiceCdc: "0180012345678001001000012312026061234567890123",
     userName: "Juan Pérez",
     registerName: "Caja Principal",
     printerName: "Impresora 1",

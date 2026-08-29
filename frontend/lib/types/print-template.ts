@@ -98,6 +98,10 @@ export type BlockType =
   | "payment_methods" | "tags" | "note"
   | "transaction_id" | "transaction_id_barcode" | "associated_document"
   | "fe_py"
+  // CDC del documento electrónico (SIFEN). Nace asíncrono: en el primer ticket
+  // puede no existir todavía y el bloque sale en blanco; en la reimpresión ya
+  // está. Solo aparece en la paleta con el módulo `einvoicePy` activo.
+  | "fe_cdc"
   // Artículos
   | "item_receipt" | "item_receipt_2" | "item_receipt_3" | "item_receipt_4"
   | "item_units" | "item" | "item_id" | "item_note" | "item_uid"
