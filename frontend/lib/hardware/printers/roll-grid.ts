@@ -230,16 +230,20 @@ export function rollGeometry(
   const ratio = mm > 0 ? mm : 3.78
   const canvasWidthPx = dim.widthMm * ratio
   const contentColumns = Math.max(1, columns - ROLL_MARGIN_COLS * 2)
+  // El carácter se mide contra las columnas del DISPOSITIVO, siempre: la celda
+  // de la térmica mide ancho-del-papel / columnas, y el margen son dos de esas
+  // celdas — no un ensanchamiento de las demás. La primera versión del margen
+  // (2026-08-28) dividió por `contentColumns`: cada celda del canvas quedó ~4%
+  // más ancha que la real, el texto diseñado "hasta el borde" medía 48 celdas
+  // reales en un papel de 48 con 2 de margen, y la impresión se pasaba del
+  // papel — exactamente el bug que el margen venía a arreglar.
+  const charWidthPx = canvasWidthPx / columns
   return {
     columns,
     contentColumns,
     canvasWidthPx,
-    // El carácter se mide contra las columnas ÚTILES: el canvas representa el
-    // área donde el operador puede poner bloques, que es el papel menos los
-    // márgenes. Medirlo contra `columns` haría que el diseño entrara 2
-    // caracteres más de los que el papel le deja usar.
-    charWidthPx: canvasWidthPx / contentColumns,
-    lineHeightPx: (canvasWidthPx / contentColumns) * ESC_POS_CELL_ASPECT,
+    charWidthPx,
+    lineHeightPx: charWidthPx * ESC_POS_CELL_ASPECT,
   }
 }
 

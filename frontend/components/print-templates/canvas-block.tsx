@@ -13,7 +13,7 @@ import {
   TypeOutline,
   WrapText,
 } from "lucide-react"
-import { rollGeometry } from "@/lib/hardware/printers/roll-grid"
+import { rollGeometry, ROLL_MARGIN_COLS } from "@/lib/hardware/printers/roll-grid"
 import { cn } from "@/lib/utils"
 import { FONT_FAMILIES, FONT_SIZES, getBlockPlaceholder, getBlockTitle } from "@/lib/print-template-palette"
 import { lineGeometry, resolveSingleBlockPreview } from "@/lib/hardware/printers/blocks"
@@ -115,6 +115,25 @@ export function CanvasBlock({
   )
   const rowPx = rollGeo ? rollGeo.lineHeightPx : Math.max(1, mm)
   const grid = rowPx
+
+  /**
+   * Estilo del wrapper de texto del bloque (compartido por la rama con y sin
+   * tooltip — antes eran dos copias del mismo objeto).
+   *
+   * En TICKET agrega el MARGEN del papel como padding horizontal de una celda
+   * (`ROLL_MARGIN_COLS`): la impresora reserva esa columna a cada lado, así que
+   * el texto del canvas tiene que arrancar donde va a arrancar impreso. Va en
+   * el TEXTO del bloque y no como padding del papel — el papel del canvas mide
+   * el papel físico, y agrandarlo dejaba una banda muerta a la derecha que no
+   * existe en el rollo real.
+   */
+  const contentStyle: React.CSSProperties = {
+    overflow: block.textwrap === "cut" ? "hidden" : undefined,
+    whiteSpace: block.textwrap === "cut" ? "nowrap" : "normal",
+    textOverflow: block.textwrap === "cut" ? "clip" : undefined,
+    paddingLeft: rollGeo ? rollGeo.charWidthPx * ROLL_MARGIN_COLS : undefined,
+    paddingRight: rollGeo ? rollGeo.charWidthPx * ROLL_MARGIN_COLS : undefined,
+  }
   const [isDragging, setIsDragging] = React.useState(false)
   const [isResizing, setIsResizing] = React.useState(false)
   const moving = isDragging || isResizing
@@ -285,27 +304,13 @@ export function CanvasBlock({
           drag — Radix no lo cierra solo porque el mouse "se mueva" si nunca
           sale del trigger, que es justo lo que pasa en un drag. */}
       {moving ? (
-        <div
-          className="size-full"
-          style={{
-            overflow: block.textwrap === "cut" ? "hidden" : undefined,
-            whiteSpace: block.textwrap === "cut" ? "nowrap" : "normal",
-            textOverflow: block.textwrap === "cut" ? "clip" : undefined,
-          }}
-        >
+        <div className="size-full" style={contentStyle}>
           <BlockContent block={block} data={data} taxes={taxes} />
         </div>
       ) : (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div
-              className="size-full"
-              style={{
-                overflow: block.textwrap === "cut" ? "hidden" : undefined,
-                whiteSpace: block.textwrap === "cut" ? "nowrap" : "normal",
-                textOverflow: block.textwrap === "cut" ? "clip" : undefined,
-              }}
-            >
+            <div className="size-full" style={contentStyle}>
               <BlockContent block={block} data={data} taxes={taxes} />
             </div>
           </TooltipTrigger>

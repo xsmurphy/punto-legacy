@@ -79,13 +79,14 @@ describe("rollGeometry", () => {
     expect(rollGeometry("receipt57", MM, 80).columns).toBe(ROLL_COLUMNS[80])
   })
 
-  it("el ancho del canvas equivale a las columnas ÚTILES, no a las del papel", () => {
-    // El canvas es el área donde el operador puede poner bloques: el papel
-    // MENOS el margen de un carácter de cada lado (`ROLL_MARGIN_COLS`). Medirlo
-    // contra `columns` le dejaría diseñar 2 caracteres que el papel no le da.
+  it("la celda se mide contra las columnas del DISPOSITIVO", () => {
+    // El margen son dos celdas del papel, no un ensanchamiento de las demás:
+    // inflar la celda dividiendo por `contentColumns` hizo que el diseño
+    // midiera más columnas reales de las que el papel tiene y la impresión se
+    // pasara del borde (regresión 2026-08-28).
     const g = geo80()
     expect(g.contentColumns).toBe(ROLL_COLUMNS[80] - ROLL_MARGIN_COLS * 2)
-    expect(g.charWidthPx * g.contentColumns).toBeCloseTo(g.canvasWidthPx, 6)
+    expect(g.charWidthPx * g.columns).toBeCloseTo(g.canvasWidthPx, 6)
   })
 })
 

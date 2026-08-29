@@ -739,15 +739,14 @@ export function TemplateEditor({ existing }: Props) {
             // dark mode con primary brand verde se mezclaba.
             className="relative mx-auto border border-dashed border-zinc-400 bg-white shadow-md dark:shadow-zinc-950/50"
             style={{
-              // El padding es el MARGEN del papel (un carácter por lado en
-              // ticket, ver ROLL_MARGIN_COLS): el área blanca de adentro es
-              // exactamente donde la impresora deja poner texto, así que lo que
-              // se ve acá es lo que entra en el papel.
+              // El papel del canvas mide EXACTAMENTE el papel físico. El
+              // margen de impresión (ROLL_MARGIN_COLS) no se dibuja acá como
+              // padding del papel — eso lo agrandaba y dejaba una banda vacía a
+              // la derecha que no existe en el papel real (reporte del owner
+              // 2026-08-28). El margen lo dibuja cada bloque sobre su propio
+              // texto (canvas-block), que es donde la impresora lo aplica.
               width: `${widthPx}px`,
               height: `${heightPx}px`,
-              paddingLeft: rollGeo ? `${rollGeo.charWidthPx}px` : undefined,
-              paddingRight: rollGeo ? `${rollGeo.charWidthPx}px` : undefined,
-              boxSizing: "content-box",
               // En ROLLO la tipografía la manda el papel, no la plantilla: la
               // térmica imprime celdas de ancho fijo y toda la geometría son
               // columnas de caracteres. Mostrar acá la fuente elegida hacía que

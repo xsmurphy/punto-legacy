@@ -461,6 +461,10 @@ ${body}
   // La fórmula vive en roll-grid.ts: la comparte con el canvas del editor, para
   // que las dos superficies muestren la MISMA densidad de caracteres.
   const rollFontSize = `${rollFontSizeFor(widthMm, geo.columns).toFixed(3)}mm`
+  // Alto de fila en mm — la MISMA relación 2:1 con la celda que usa la grilla
+  // (`lineHeightPx = charWidthPx * ESC_POS_CELL_ASPECT`), así una fila del
+  // canvas mide en papel lo que mide en pantalla.
+  const rollRowHeightMm = (widthMm / geo.columns) * 2
 
   return `<!DOCTYPE html>
 <html>
@@ -480,7 +484,18 @@ ${body}
      \`overflow: hidden\` en la celda es el último seguro — si el glifo de una
      fuente rara midiera más que su celda, se recorta ahí y no corre la fila
      entera. */
-  .r { display: grid; grid-template-columns: repeat(${geo.columns}, 1fr); width: 100%; }
+  .r {
+    display: grid;
+    grid-template-columns: repeat(${geo.columns}, 1fr);
+    width: 100%;
+    /* Alto EXPLÍCITO de fila = 2 celdas (Font A de ESC/POS es 2:1). Sin esto,
+       una fila VACÍA —celdas sin contenido— colapsaba a alto 0 y las líneas en
+       blanco que el operador dejó en el canvas desaparecían del papel: todo
+       salía pegado (reporte del owner 2026-08-28). Cinco filas vacías en el
+       canvas TIENEN que ser cinco renglones de papel en blanco. */
+    height: ${rollRowHeightMm.toFixed(4)}mm;
+    line-height: ${rollRowHeightMm.toFixed(4)}mm;
+  }
   .r > span { overflow: hidden; white-space: pre; }
   @media print { body { margin: 0; } }
 </style>
