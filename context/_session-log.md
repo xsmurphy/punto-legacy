@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-29 (2) — paridad logo/bloques de orden + títulos dinámicos por docType
+
+Commits `4bcd1c6d..0a5d9283` (2, deployados, migs 179/180 corridas). Highlights: `RollGraphic.rows` fija el alto del gráfico y elimina el doble-conteo del hueco bajo el logo (`42b0b28e`); gates `docType==="order"` eliminados de `order_number`/`order_destination`/`table_number` (violaban regla 1 del módulo); `document_number` sin título propio se titula dinámico por doctype (`DOC_NUMBER_LABELS`, mig 179 backfill a TODOS los doctypes); "Cajero:"→"Usuario:", "Mesa:"→"Espacio:" (`0a5d9283`, mig 180). 438/438 vitest, verificado visualmente antes de deployar.
+
 ## 2026-08-28/29 — módulo de impresión: rollo monoespaciado + grilla real de columnas + TM-U220 76mm + logo ESC/POS; teléfonos E.164 sin '+' arreglados en todos los listados
 
 Commits `31a2efbd..08d8d5b8` (18). Highlights: `formatPhone` repone el '+' que la BD saca (bug tiraba `INVALID_COUNTRY` en TODOS los listados y el ticket, `c7bf0bbb`); rollo SIEMPRE monoespaciado (`fb9fe120`) con ancho de celda = papel/`columns` vía grilla CSS, no métrica de fuente (regresión propia por `contentColumns` corregida en `61a74215`, verificada visualmente sirviendo el HTML con `python3 -m http.server` antes de deployar — 2 tandas previas se habían deployado sin mirar y rebotaron); `wrapToWidth` ya no destruye el relleno de `distributeRow` (`46eb803d`); 76mm = Epson TM-U220 real, 33 columnas Font A (`f7b52c07`); preview medía papel de diseño vs HTML de dispositivo, 4mm cortados — no era caché de browser como se diagnosticó mal la 1ra vez (`430cbcd7`); logo real del tenant en canvas/preview/HTML/ESC-POS (`a2f27828`/`08d8d5b8`, sin verificar contra térmica física); `fe_cdc` nuevo en paleta (gateado por módulo `einvoicePy`); duplicar plantilla (`af95135a`). Doc `context/modules/18-impresion.md` actualizado (reglas 9-10 + logo ESC/POS). Pendiente: owner imprimir prueba con logo en térmica física; decidir si apagar el webhook auto-deploy de Punto Front en Coolify (contradice la regla nueva de `1308a564`).
