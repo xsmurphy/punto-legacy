@@ -15,6 +15,10 @@ export interface PaletteItem {
   type: BlockType
   label: string
   defaultText: string
+  /** Título sugerido para `block.label` al insertar. Solo lo usan los bloques
+   *  por-tasa, que no pueden salir de `DEFAULT_BLOCK_LABELS` (el título lleva
+   *  la tasa, que es dato del comercio). */
+  defaultLabel?: string
   /** Si está presente, oculta el bloque cuando NO se está en hoja receipt. */
   receiptOnly?: boolean
   /** Si está presente, oculta el bloque cuando SÍ se está en hoja receipt. */
@@ -169,14 +173,70 @@ export const PALETTE: PaletteSection[] = [
  * bloque (mismo mecanismo que ya usaba `tax_single` para la tasa tipeada a
  * mano).
  */
+/**
+ * Título sugerido al AGREGAR un bloque a la plantilla (`block.label`).
+ *
+ * Un backfill sobre las plantillas guardadas no alcanza: un bloque agregado
+ * DESPUÉS nace sin título, y el operador tiene que escribirlo a mano uno por
+ * uno — que es lo que reportó el owner ("muchas líneas del ticket siguen sin
+ * título", 2026-08-28) después de que la migración corriera.
+ *
+ * Es un DEFAULT, no una regla: el título vive en la plantilla y el operador lo
+ * edita o lo borra. Los que no están acá salen sin título a propósito — el
+ * nombre del comercio, el logo o el pie se leen solos, y rotularlos es ruido.
+ */
+export const DEFAULT_BLOCK_LABELS: Partial<Record<BlockType, string>> = {
+  // Transacción
+  date: "Fecha:",
+  duedate: "Vencimiento:",
+  document_number: "Fact. Nro.:",
+  sale_type: "Condición:",
+  payment_methods: "Formas de pago:",
+  associated_document: "Documento asociado:",
+  // Totales
+  subtotal: "Subtotal:",
+  discount: "Descuento:",
+  tax_total: "Total IVA:",
+  iva_total: "Total IVA:",
+  total: "TOTAL A PAGAR:",
+  nums_to_words: "Son:",
+  // Caja / operador
+  register_name: "Caja:",
+  user_name: "Cajero:",
+  // Timbrado
+  auth_number: "Timbrado No.:",
+  auth_start_date: "Válido desde:",
+  auth_expiration: "Válido hasta:",
+  // Cliente
+  customer_name: "Cliente:",
+  customer_full_name: "Cliente:",
+  customer_tin: "R.U.C.:",
+  customer_ci: "C.I.:",
+  customer_address: "Dirección:",
+  customer_phone: "Teléfono:",
+  customer_email: "Email:",
+  // Comanda / mesa
+  order_number: "Orden Nro.:",
+  order_destination: "Destino:",
+  table_number: "Mesa:",
+  // Remisión
+  transfer_reason: "Motivo:",
+  transfer_origin: "Origen:",
+  transfer_destination: "Destino:",
+}
+
 export function buildTaxRateSection(taxes: Tax[]): PaletteSection {
   const items: PaletteItem[] = []
   for (const tax of taxes) {
     const rateLabel = taxRateLabel(tax)
     items.push(
-      { type: "subtotal_by_rate", label: `Subtotal __TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
-      { type: "iva_by_rate", label: `__TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
-      { type: "item_total_by_rate", label: `Total __TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
+      // `defaultLabel`: el título del bloque en el ticket. Se arma con la tasa
+      // porque es lo único que distingue una línea de otra ("Total IVA 10%:" vs
+      // "Total IVA 5%:") — un mapa estático no puede saberlo, la tasa sale del
+      // catálogo del comercio.
+      { type: "subtotal_by_rate", label: `Subtotal __TAX__ ${rateLabel}`, defaultText: tax.id, defaultLabel: `Subtotal ${rateLabel}:`, receiptHidden: true },
+      { type: "iva_by_rate", label: `__TAX__ ${rateLabel}`, defaultText: tax.id, defaultLabel: `IVA ${rateLabel}:`, receiptHidden: true },
+      { type: "item_total_by_rate", label: `Total __TAX__ ${rateLabel}`, defaultText: tax.id, defaultLabel: `Total ${rateLabel}:`, receiptHidden: true },
     )
   }
   items.push({ type: "iva_total", label: "Total __TAX__ (todas las tasas)", defaultText: "__TAX__" })

@@ -59,7 +59,7 @@ import {
   ROLL_FONT_STACK,
   snapBlockToRollRows,
 } from "@/lib/hardware/printers/roll-grid"
-import { getBlockPlaceholder, type PaletteItem } from "@/lib/print-template-palette"
+import { getBlockPlaceholder, type PaletteItem, DEFAULT_BLOCK_LABELS } from "@/lib/print-template-palette"
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard"
 import {
   MIN_BLOCK_SIZE,
@@ -254,6 +254,10 @@ export function TemplateEditor({ existing }: Props) {
 
   const handleAddBlock = (item: PaletteItem) => {
     const block = defaultBlock(item.type, item.defaultText)
+    // Título sugerido: del catálogo por tipo, o el que traiga el ítem de la
+    // paleta (los bloques por-tasa lo arman con la tasa). Es un default
+    // editable, no una regla — ver `DEFAULT_BLOCK_LABELS`.
+    block.label = item.defaultLabel ?? DEFAULT_BLOCK_LABELS[item.type] ?? ""
     if (ticket) {
       // En tickets, los bloques ocupan toda la fila — left=0, width = canvas
       // (regla owner 2026-08-18: 100% del ancho siempre, sin excepción). El
