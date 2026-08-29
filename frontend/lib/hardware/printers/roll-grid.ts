@@ -105,14 +105,19 @@ export const ROLL_FONT_STACK =
   "ui-monospace, 'SFMono-Regular', 'Menlo', 'DejaVu Sans Mono', 'Courier New', monospace"
 
 /**
- * Avance horizontal de un carácter monoespaciado, en `em`. 0.6 es el valor de
- * Courier/DejaVu Sans Mono y de la mayoría de las monoespaciadas de sistema.
+ * Avance horizontal de un carácter monoespaciado, en `em`.
+ *
+ * 0.6 es el valor de Courier New y SF Mono; Menlo y DejaVu Sans Mono miden
+ * 0.602. Con 0.6 exacto, una línea llena calculaba justo el ancho del papel y
+ * cualquier fuente un pelo más ancha desbordaba la última columna. 0.605 deja
+ * medio punto porcentual de aire: la línea llena ocupa ~99% del papel en vez de
+ * 100.3%, diferencia invisible que garantiza que nunca se corte.
  *
  * Es una aproximación VISUAL: los cortes de línea ya los decidió la grilla, así
  * que una métrica distinta cambia cuánto se llena el ancho del papel, nunca
  * dónde corta el texto.
  */
-const CHAR_EM_RATIO = 0.6
+const CHAR_EM_RATIO = 0.605
 
 /**
  * Tamaño de fuente para que `columns` caracteres ocupen exactamente `width`.
@@ -125,6 +130,33 @@ const CHAR_EM_RATIO = 0.6
  */
 export function rollFontSizeFor(width: number, columns: number): number {
   return width / columns / CHAR_EM_RATIO
+}
+
+/**
+ * Ajusta la geometría VERTICAL de un bloque a la grilla de caracteres del
+ * rollo: `top` a una fila exacta y `height` a un número entero de filas
+ * (mínimo una).
+ *
+ * Es lo que hace que el canvas y el papel digan lo mismo. El renderer mapea
+ * píxeles a filas redondeando (`toRow`/`toRows` en `buildRollGrid`): un bloque
+ * a 38px sobre filas de 11.97px imprime en la fila 3, y uno de 24px de alto
+ * reserva 2 filas aunque muestre una sola línea. Mientras el canvas permita
+ * posiciones intermedias, dos bloques pegados en pantalla pueden salir
+ * separados por un renglón en blanco, o compartir fila y pisarse.
+ *
+ * Solo toca el eje Y: el horizontal en ticket ya está resuelto — todo bloque
+ * ocupa el ancho completo del papel (regla del owner 2026-08-18).
+ */
+export function snapBlockToRollRows<T extends { top: number; height: number }>(
+  block: T,
+  geo: RollGeometry,
+): T {
+  const row = geo.lineHeightPx
+  return {
+    ...block,
+    top: Math.round(Math.max(0, block.top) / row) * row,
+    height: Math.max(1, Math.round(block.height / row)) * row,
+  }
 }
 
 /**

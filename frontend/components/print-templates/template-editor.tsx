@@ -3,7 +3,16 @@
 import * as React from "react"
 import { toast } from "sonner"
 import { useRouter } from "next/navigation"
-import { Loader2, Save, ChevronLeft, ChevronDown, Eye, Printer, Trash2 } from "lucide-react"
+import {
+  AlignVerticalSpaceAround,
+  ChevronDown,
+  ChevronLeft,
+  Eye,
+  Loader2,
+  Printer,
+  Save,
+  Trash2,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -48,6 +57,7 @@ import {
   rollFontSizeFor,
   rollGeometry,
   ROLL_FONT_STACK,
+  snapBlockToRollRows,
 } from "@/lib/hardware/printers/roll-grid"
 import { getBlockPlaceholder, type PaletteItem } from "@/lib/print-template-palette"
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard"
@@ -252,6 +262,10 @@ export function TemplateEditor({ existing }: Props) {
       // parpadeo de un bloque angosto en el primer frame.
       block.left = 0
       block.width = Math.round(widthPx)
+      // Alto: UNA fila de caracteres. El default de `defaultBlock` son 24px,
+      // que sobre filas de ~12px son DOS filas — un bloque nuevo nacía con un
+      // renglón en blanco pegado abajo (ver `snapBlockToRollRows`).
+      if (rollGeo) Object.assign(block, snapBlockToRollRows({ ...block, height: 1 }, rollGeo))
     } else if (block.type !== "company_logo" && block.type !== "hor_line" && block.type !== "ver_line") {
       // En papel, el bloque nace ajustado al tamaño de su contenido en vez
       // del ancho fijo de 100px de siempre (cabo pendiente de una tanda
@@ -520,6 +534,21 @@ export function TemplateEditor({ existing }: Props) {
     }
   }
 
+  /**
+   * Alinea TODOS los bloques a la grilla de caracteres del rollo.
+   *
+   * Para plantillas que ya existen: se diseñaron con snap de 1mm, así que sus
+   * `top`/`height` caen entre filas y el renderer los redondea — de ahí los
+   * renglones en blanco entre bloques que en el canvas se tocan. Los bloques
+   * nuevos ya nacen alineados y el drag/resize ahora snapea, así que esto es
+   * para el diseño heredado, una vez.
+   */
+  const handleSnapToGrid = () => {
+    if (!rollGeo) return
+    setBlocks((prev) => prev.map((b) => snapBlockToRollRows(b, rollGeo)))
+    toast.success("Bloques alineados a la grilla del papel")
+  }
+
   // "Simular impresión" — dispara el diálogo de impresión REAL del browser
   // (mismo camino que el botón "Probar" de Ajustes → Impresoras en transport
   // native, y que el botón "Imprimir" de PreviewDialog — los tres llaman
@@ -653,6 +682,17 @@ export function TemplateEditor({ existing }: Props) {
                   <Printer className="size-4" />
                   Simular impresión
                 </DropdownMenuItem>
+                {/* Solo en ticket: en hoja la geometría es continua y no hay
+                    grilla a la que alinear. Es una acción EXPLÍCITA y no un
+                    arreglo al abrir la plantilla — reacomodar el diseño de
+                    alguien sin que lo haya pedido es peor que el renglón de
+                    más. Ver `snapBlockToRollRows`. */}
+                {rollGeo && (
+                  <DropdownMenuItem onSelect={handleSnapToGrid}>
+                    <AlignVerticalSpaceAround className="size-4" />
+                    Alinear a la grilla
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

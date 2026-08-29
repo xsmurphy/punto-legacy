@@ -13,6 +13,7 @@ import {
   TypeOutline,
   WrapText,
 } from "lucide-react"
+import { rollGeometry } from "@/lib/hardware/printers/roll-grid"
 import { cn } from "@/lib/utils"
 import { FONT_FAMILIES, FONT_SIZES, getBlockPlaceholder, getBlockTitle } from "@/lib/print-template-palette"
 import { lineGeometry, resolveSingleBlockPreview } from "@/lib/hardware/printers/blocks"
@@ -94,7 +95,26 @@ export function CanvasBlock({
   const ticket = isReceipt(paperSize)
   // Alias local: en rollo la tipografía la manda el papel, no el bloque.
   const isRoll = ticket
-  const grid = Math.max(1, mm) // 1mm snap
+  // Snap del drag/resize.
+  //
+  // En TICKET la unidad NO es el milímetro: es la CELDA DE CARÁCTER. El papel es
+  // una grilla de columnas x filas (roll-grid.ts) y el renderer mapea
+  // `top`/`height` a filas REDONDEANDO — así que un bloque a 38px sobre filas de
+  // 11.97px cae en la fila 3 (38/11.97 = 3.17), y uno de 24px de alto reserva 2
+  // filas aunque muestre UNA sola línea. De ahí salían los renglones en blanco
+  // entre bloques que en el canvas se tocaban, y que dos bloques pudieran
+  // compartir una fila (reporte del owner 2026-08-28). Con el snap en la altura
+  // de fila, la posición del canvas ES la fila impresa: no hay redondeo que
+  // pueda correr nada.
+  //
+  // En HOJA sigue siendo 1mm: ahí la geometría es continua (posición absoluta en
+  // milímetros), no hay grilla de caracteres.
+  const rollGeo = React.useMemo(
+    () => (ticket ? rollGeometry(paperSize, mm) : null),
+    [ticket, paperSize, mm],
+  )
+  const rowPx = rollGeo ? rollGeo.lineHeightPx : Math.max(1, mm)
+  const grid = rowPx
   const [isDragging, setIsDragging] = React.useState(false)
   const [isResizing, setIsResizing] = React.useState(false)
   const moving = isDragging || isResizing
@@ -169,7 +189,9 @@ export function CanvasBlock({
       // `minWidth` no aplica — solo `minHeight`, que SÍ es resizeable en los
       // dos modos.
       minWidth={ticket ? undefined : MIN_BLOCK_SIZE}
-      minHeight={MIN_BLOCK_SIZE}
+      // En ticket el piso es UNA fila de caracteres: media fila no existe en el
+      // papel, y un bloque más bajo igual reserva una fila entera al imprimir.
+      minHeight={ticket ? rowPx : MIN_BLOCK_SIZE}
       // Excluye la toolbar flotante del área draggable — sin esto, el delete y
       // demás botones nunca disparan click porque react-rnd captura el mousedown.
       cancel=".block-toolbar"

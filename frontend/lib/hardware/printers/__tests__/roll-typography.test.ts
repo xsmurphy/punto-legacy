@@ -2,7 +2,13 @@ import { describe, it, expect } from "vitest"
 
 import { defaultBlock, type PrintBlock, type PrintTemplateConfig } from "@/lib/types/print-template"
 import { renderTemplateToHtml } from "../html-renderer"
-import { ROLL_FONT_STACK, rollFontSizeFor, rollGeometry } from "../roll-grid"
+import {
+  buildRollGrid,
+  ROLL_FONT_STACK,
+  rollFontSizeFor,
+  rollGeometry,
+  snapBlockToRollRows,
+} from "../roll-grid"
 import type { TicketData } from "../build-ticket-data"
 
 /**
@@ -75,5 +81,41 @@ describe("tipografía del rollo", () => {
       ticket(),
     )
     expect(html).toContain("'Arial'")
+  })
+})
+
+describe("snapBlockToRollRows — el canvas y el papel cuentan las mismas filas", () => {
+  const geo = rollGeometry("receipt76", MM)
+  const row = geo.lineHeightPx
+
+  it("lleva `top` a una fila exacta y `height` a filas enteras", () => {
+    // Geometría real de una plantilla de prod: diseñada con snap de 1mm, cae
+    // entre filas (38 / 11.97 = 3.17).
+    const snapped = snapBlockToRollRows({ top: 38, height: 24 }, geo)
+    expect(snapped.top / row).toBe(3)
+    expect(snapped.height / row).toBe(2)
+  })
+
+  it("un bloque más bajo que una fila ocupa UNA, nunca cero", () => {
+    expect(snapBlockToRollRows({ top: 0, height: 1 }, geo).height).toBe(row)
+    expect(snapBlockToRollRows({ top: 0, height: 0 }, geo).height).toBe(row)
+  })
+
+  it("dos bloques pegados en el canvas NO dejan un renglón en blanco al imprimir", () => {
+    const a = snapBlockToRollRows({ ...defaultBlock("custom", "LINEA UNO"), left: 0, width: 287, top: 0, height: 1 }, geo)
+    const b = snapBlockToRollRows({ ...defaultBlock("custom", "LINEA DOS"), left: 0, width: 287, top: a.top + a.height, height: 1 }, geo)
+    const grid = buildRollGrid(tpl({ page_size: "receipt76", page_size_name: "Roll 76mm" }, [a, b]), ticket(), geo)
+    const texts = grid.rows.map((r) => r.text.trim())
+    expect(texts[0]).toBe("LINEA UNO")
+    expect(texts[1]).toBe("LINEA DOS")
+  })
+
+  it("sin snap, esos mismos bloques salían separados (regresión que se está fijando)", () => {
+    // 24px de alto sobre filas de ~12px = 2 filas para UNA línea de texto.
+    const a = { ...defaultBlock("custom", "LINEA UNO"), left: 0, width: 287, top: 0, height: 24 }
+    const b = { ...defaultBlock("custom", "LINEA DOS"), left: 0, width: 287, top: 24, height: 24 }
+    const texts = buildRollGrid(tpl({ page_size: "receipt76", page_size_name: "Roll 76mm" }, [a, b]), ticket(), geo)
+      .rows.map((r) => r.text.trim())
+    expect(texts[1]).toBe("")
   })
 })

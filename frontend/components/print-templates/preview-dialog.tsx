@@ -149,15 +149,28 @@ function ScaledPaper({
         className="relative shrink-0"
         style={{ width: `${widthPx * scale}px`, height: `${heightPx * scale}px` }}
       >
+        {/* El borde del papel va en ESTE wrapper y no en el iframe.
+            Con `box-sizing: border-box` (global de Tailwind), un borde en el
+            iframe le come 2px de VIEWPORT: el documento de adentro mide el ancho
+            exacto del papel, así que sobraban ~2px y la última columna de
+            caracteres quedaba cortada contra el borde — se veía como "el texto
+            se sale del papel" (reporte del owner 2026-08-28). Acá el borde es
+            decoración alrededor y el iframe conserva su ancho completo. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute left-0 top-0 border border-dashed border-muted-foreground/30"
+          style={{ width: `${widthPx * scale}px`, height: `${heightPx * scale}px` }}
+        />
         <iframe
           title="Vista previa del documento"
           srcDoc={html}
-          className="absolute left-0 top-0 border border-dashed border-muted-foreground/30 bg-white shadow-sm"
+          className="absolute left-0 top-0 bg-white shadow-sm"
           style={{
             width: `${widthPx}px`,
             height: `${heightPx}px`,
             transform: `scale(${scale})`,
             transformOrigin: "top left",
+            border: "none",
           }}
         />
       </div>
