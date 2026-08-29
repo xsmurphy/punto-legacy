@@ -29,13 +29,17 @@ final class OpenInvoicesService
      *   las facturas a crédito pendientes de un cliente sin traer las de toda la empresa.
      *   Reusa el mismo cálculo que el reporte agregado (mismo dueStatus, mismo
      *   payedByParent vía transaction_link) en vez de duplicar la query.
+     * @param string $outletId Sucursal del view-scope (`VIEW_OUTLET_ID`, header
+     *   X-Outlet-Id). Vacío = consolidado ("Todas"), que es lo que el selector manda
+     *   como 'all'. Sin esto el reporte mezclaba las facturas de TODAS las sucursales
+     *   aunque el usuario tuviera una elegida (reporte del tester, 2026-08-28).
      */
-    public function general($state, $companyId, ?string $contactId = null)
+    public function general($state, $companyId, ?string $contactId = null, string $outletId = '')
     {
         $isToPay    = ($state === 'outcome');
         $isCustomer = !$isToPay;
 
-        $invoices = $this->openCreditInvoices($companyId, $isCustomer, $contactId);
+        $invoices = $this->openCreditInvoices($companyId, $isCustomer, $contactId, $outletId);
         if ($invoices === []) {
             return ['rows' => [], 'kpi' => ['totalDebt' => 0, 'accounts' => 0, 'expired' => 0, 'toExpire' => 0]];
         }
@@ -252,8 +256,28 @@ final class OpenInvoicesService
      *
      * @return list<array{saleId:string,cid:string,invoiceNo:string,date:string,dueDate:string,total:float}>
      */
-    private function openCreditInvoices(string $companyId, bool $isCustomer, ?string $contactId = null): array
-    {
+    /**
+     * @param string $outletId Sucursal por la que filtrar. Vacío = TODAS.
+     *
+     * El filtro es OPT-IN y solo lo pasa `general()` — el reporte, que es lo que el
+     * selector de sucursal del panel gobierna. `forContact()` y `contactStatement()`
+     * lo dejan vacío A PROPÓSITO: el saldo de un contacto es lo que le debe a la
+     * EMPRESA, no a una sucursal. Scopearlo haría que el diálogo de cobro ofrezca
+     * cobrar contra una deuda parcial y que la ficha del cliente muestre menos de lo
+     * que realmente debe.
+     *
+     * Los PAGOS no se filtran por sucursal en ningún caso: `payedByParent` los
+     * resuelve por id de la factura de origen (`paidForCreditOrigins`), así que una
+     * factura emitida en la sucursal A y cobrada en la B sigue descontando bien.
+     * Filtrar los pagos por outlet haría reaparecer como impaga una factura ya
+     * cobrada en otro mostrador.
+     */
+    private function openCreditInvoices(
+        string $companyId,
+        bool $isCustomer,
+        ?string $contactId = null,
+        string $outletId = ''
+    ): array {
         $type       = $isCustomer ? 3 : 4;
         $contactCol = $isCustomer ? 'customerId' : 'supplierId';
 
@@ -263,6 +287,12 @@ final class OpenInvoicesService
                 FROM transaction
                 WHERE transactionComplete = false AND transactionType = ? AND companyId = ?";
         $params = [$type, $companyId];
+        // Bound, no interpolado: esta clase no usa `Roc::build` justamente para no
+        // meter valores dentro del SQL (ver docblock de la clase).
+        if ($outletId !== '') {
+            $sql .= " AND outletId = ?";
+            $params[] = $outletId;
+        }
         if ($contactId !== null && $contactId !== '') {
             $sql .= " AND $contactCol = ?";
             $params[] = $contactId;

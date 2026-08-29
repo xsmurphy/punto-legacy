@@ -9,7 +9,8 @@
  *       multi-factura del panel para listar las facturas a crédito pendientes de UN
  *       cliente (evita traer el reporte completo de la empresa para eso).
  *
- * Read-only. Auth: realm `panel`. Sin ROC (service bindea companyId en cada SELECT).
+ * Read-only. Auth: realm `panel`. Sin ROC (el service bindea companyId y outletId en
+ * cada SELECT en vez de interpolarlos como hace `Roc::build`).
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
@@ -33,4 +34,21 @@ if ($contactId !== '' && !preg_match($uuidRe, $contactId)) {
     apiError('contactId inválido', 422);
 }
 
-apiOk($svc->general($state, COMPANY_ID, $contactId !== '' ? $contactId : null));
+// Sucursal efectiva del view-scope — mismo patrón que reports/stock.php y
+// reports/dashboard.php. `VIEW_OUTLET_ID` la define bootstrap.php a partir del
+// header X-Outlet-Id del selector del panel: '' cuando el usuario eligió "Todas"
+// (consolidado), el UUID cuando eligió una. Sin el header definido cae a la
+// sucursal del token.
+//
+// Este reporte NO lo tenía: listaba las cuentas por cobrar/pagar de TODAS las
+// sucursales aunque hubiera una elegida (reporte del tester, 2026-08-28).
+$effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
+
+// Un valor que no sea UUID no filtra — misma tolerancia que `Roc::build`, que
+// solo agrega el `AND outletId` cuando matchea el patrón. '' ("Todas") entra
+// por acá y consolida, que es el comportamiento correcto para ese modo.
+if (!preg_match($uuidRe, $effectiveOutletId)) {
+    $effectiveOutletId = '';
+}
+
+apiOk($svc->general($state, COMPANY_ID, $contactId !== '' ? $contactId : null, $effectiveOutletId));
