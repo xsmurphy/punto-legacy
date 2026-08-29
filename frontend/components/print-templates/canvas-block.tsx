@@ -68,6 +68,14 @@ interface Props {
    *  (`moveBlocksBy` en template-editor.tsx) — acá no se sabe cuántos
    *  bloques hay seleccionados. */
   onMoveBy: (dx: number, dy: number) => void
+  /** Delta EN VIVO durante el drag (mismo formato que onMoveBy). El editor lo
+   *  usa para arrastrar el resto de la selección junto con este bloque —
+   *  antes los demás quedaban clavados y saltaban recién al soltar. */
+  onLiveDrag?: (delta: { dx: number; dy: number } | null) => void
+  /** Corrimiento visual aplicado por el editor mientras OTRO bloque de la
+   *  misma selección se arrastra. Solo posición pintada; el modelo se muta
+   *  una única vez al soltar (moveBlocksBy). */
+  groupOffset?: { dx: number; dy: number } | null
   /** Cuando se está arrastrando: notifica al editor para que muestre guides. */
   onDragGuides?: (info: { top: number; left: number; width: number; height: number } | null) => void
 }
@@ -90,7 +98,9 @@ export function CanvasBlock({
   onDelete,
   onClone,
   onMoveBy,
+  onLiveDrag,
   onDragGuides,
+  groupOffset,
 }: Props) {
   const ticket = isReceipt(paperSize)
   // Alias local: en rollo la tipografía la manda el papel, no el bloque.
@@ -195,7 +205,10 @@ export function CanvasBlock({
   return (
     <Rnd
       size={{ width: block.width, height: block.height }}
-      position={{ x: block.left, y: block.top }}
+      position={{
+        x: block.left + (groupOffset?.dx ?? 0),
+        y: block.top + (groupOffset?.dy ?? 0),
+      }}
       bounds="parent"
       // Ticket: el ancho es siempre 100% del papel y no se mueve en
       // horizontal — no tiene sentido arrastrarlo de lado si ya ocupa todo
@@ -220,17 +233,19 @@ export function CanvasBlock({
       // demás botones nunca disparan click porque react-rnd captura el mousedown.
       cancel=".block-toolbar"
       onDragStart={() => setIsDragging(true)}
-      onDrag={(_, d) =>
+      onDrag={(_, d) => {
         onDragGuides?.({
           top: d.y,
           left: d.x,
           width: block.width,
           height: block.height,
         })
-      }
+        onLiveDrag?.({ dx: d.x - block.left, dy: d.y - block.top })
+      }}
       onDragStop={(_, d) => {
         setIsDragging(false)
         onDragGuides?.(null)
+        onLiveDrag?.(null)
         // Delta, no posición absoluta — el editor lo aplica a TODO el grupo
         // seleccionado si este bloque es parte de una selección múltiple
         // (moveBlocksBy en template-editor.tsx), o solo a este bloque si no.
@@ -378,7 +393,22 @@ function BlockContent({
     )
   }
   if (block.type === "company_logo") {
-    return (
+    // El logo REAL del tenant (TicketData.companyLogoUrl, ya en la venta de
+    // demo del editor). El placeholder "[Logo]" queda solo para un tenant sin
+    // logo cargado — antes se mostraba siempre y el owner reportó que el logo
+    // del negocio nunca aparecía (2026-08-29).
+    return data?.companyLogoUrl ? (
+      <div className="flex h-full w-full items-center justify-center">
+        {/* eslint-disable-next-line @next/next/no-img-element -- el logo vive
+            en S3 con URL del tenant; next/image no aplica dentro del canvas */}
+        <img
+          src={data.companyLogoUrl}
+          alt="Logo del comercio"
+          className="max-h-full max-w-full object-contain"
+          draggable={false}
+        />
+      </div>
+    ) : (
       <div className="flex h-full w-full items-center justify-center text-xs text-zinc-500">
         [Logo]
       </div>

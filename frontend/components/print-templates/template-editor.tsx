@@ -123,9 +123,19 @@ export function TemplateEditor({ existing }: Props) {
   // diseñando el ticket que va a imprimir y tiene que verlo con su propio
   // símbolo, no con uno de otro país (antes era "Gs" fijo).
   const bootstrapQuery = useBootstrap()
+  // El bootstrap del PANEL llama al logo `logoUrl`; el shape que esperan los
+  // builders es el del POS (`companyLogo`). Se adapta acá, en el borde — los
+  // builders no deben conocer dos nombres para el mismo dato.
+  const demoConfig = React.useMemo(
+    () =>
+      bootstrapQuery.data
+        ? { ...bootstrapQuery.data, companyLogo: bootstrapQuery.data.logoUrl || null }
+        : bootstrapQuery.data,
+    [bootstrapQuery.data],
+  )
   const demoData = React.useMemo(
-    () => buildDemoTicketData(taxesQuery.data?.taxes ?? [], bootstrapQuery.data),
-    [taxesQuery.data, bootstrapQuery.data],
+    () => buildDemoTicketData(taxesQuery.data?.taxes ?? [], demoConfig),
+    [taxesQuery.data, demoConfig],
   )
 
   const initialConfig: PrintTemplateConfig = React.useMemo(() => {
@@ -152,6 +162,20 @@ export function TemplateEditor({ existing }: Props) {
 
   // Guides al arrastrar/redimensionar — top/mid/bottom + left/midX/right del bloque
   // siendo movido, atravesando todo el canvas para alinearlo visualmente con otros.
+  /**
+   * Drag de grupo EN VIVO: mientras se arrastra un bloque de una selección
+   * múltiple, el resto se pinta corrido por el mismo delta (`groupOffset` en
+   * CanvasBlock). Antes solo se movía el agarrado y los demás saltaban al
+   * soltar — "se ve como un error y cuesta calcular la posición" (owner,
+   * 2026-08-29). El modelo NO se toca durante el drag: una sola mutación al
+   * soltar (moveBlocksBy), igual que siempre.
+   */
+  const [liveDrag, setLiveDrag] = React.useState<{
+    source: number
+    dx: number
+    dy: number
+  } | null>(null)
+
   const [guides, setGuides] = React.useState<{
     top: number
     left: number
@@ -565,7 +589,7 @@ export function TemplateEditor({ existing }: Props) {
   // correlativo de ejemplo — mismo tratamiento que `buildTicketDataForTest`
   // le da al ticket de prueba del POS (build-ticket-data.ts).
   const handleSimulatePrint = () => {
-    const testData = buildTemplateTestData(taxesQuery.data?.taxes ?? [], bootstrapQuery.data)
+    const testData = buildTemplateTestData(taxesQuery.data?.taxes ?? [], demoConfig)
     simulateTemplatePrint(config, testData)
   }
 
@@ -737,7 +761,12 @@ export function TemplateEditor({ existing }: Props) {
             // Borde del papel: dashed zinc (visible en cualquier modo sobre
             // fondo blanco del papel). Antes era border-primary/50 que en
             // dark mode con primary brand verde se mezclaba.
-            className="relative mx-auto border border-dashed border-zinc-400 bg-white shadow-md dark:shadow-zinc-950/50"
+            // `select-none`: el shift-click y el marquee de selección múltiple
+            // pintaban el TEXTO de los bloques como selección del navegador
+            // (reporte del owner 2026-08-29) — acá se selecciona bloques, no
+            // texto. Los inputs del inspector viven fuera del papel, no los
+            // afecta.
+            className="relative mx-auto border border-dashed border-zinc-400 bg-white shadow-md select-none dark:shadow-zinc-950/50"
             style={{
               // El papel del canvas mide EXACTAMENTE el papel físico. El
               // margen de impresión (ROLL_MARGIN_COLS) no se dibuja acá como
@@ -776,6 +805,17 @@ export function TemplateEditor({ existing }: Props) {
                 onSelect={(e) => handleBlockMouseDown(i, e)}
                 onChange={(patch) => updateBlock(i, patch)}
                 onMoveBy={(dx, dy) => moveBlocksBy(i, dx, dy)}
+                onLiveDrag={(delta) =>
+                  setLiveDrag(delta ? { source: i, ...delta } : null)
+                }
+                groupOffset={
+                  liveDrag &&
+                  liveDrag.source !== i &&
+                  selectedSet.has(i) &&
+                  selectedSet.has(liveDrag.source)
+                    ? liveDrag
+                    : null
+                }
                 onDelete={() => deleteBlock(i)}
                 onClone={() => cloneBlock(i)}
                 onDragGuides={setGuides}

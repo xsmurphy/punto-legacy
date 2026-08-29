@@ -102,6 +102,17 @@ function renderBlockHtml(block: PrintBlock, data: TicketData): string {
       .join("")
   }
 
+  // Logo del TENANT (TicketData.companyLogoUrl ← PosConfig.companyLogo). Solo
+  // llega acá en HOJA — el rollo lo intercepta como gráfico (roll-grid.ts).
+  // Sin logo cargado, el bloque queda vacío: un "[Logo]" impreso en una
+  // factura sería peor que el hueco.
+  if (block.type === "company_logo") {
+    const url = block.url || data.companyLogoUrl || ""
+    return url
+      ? `<div${styleAttr}><img src="${esc(url)}" alt="" style="max-width:100%;max-height:100%"/></div>`
+      : ""
+  }
+
   if (ITEM_TABLE_TYPES.has(block.type)) {
     return renderItemTable(block, data)
   }

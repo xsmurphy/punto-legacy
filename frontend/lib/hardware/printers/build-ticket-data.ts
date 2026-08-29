@@ -325,6 +325,9 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
 
   return {
     companyName: config?.companyName ?? "",
+    // El logo es dato del TENANT (PosConfig.companyLogo). El bloque
+    // `company_logo` no lo guarda en la plantilla — imprime el logo vigente.
+    companyLogoUrl: config?.companyLogo ?? undefined,
     companyBillingName: config?.companyBillingName ?? null,
     companyTin: config?.companyTin ?? null,
     companyEmail: config?.companyEmail ?? null,
@@ -557,6 +560,9 @@ export function buildTicketDataFromTransaction(
 
   return {
     companyName: config?.companyName ?? "",
+    // El logo es dato del TENANT (PosConfig.companyLogo). El bloque
+    // `company_logo` no lo guarda en la plantilla — imprime el logo vigente.
+    companyLogoUrl: config?.companyLogo ?? undefined,
     companyBillingName: config?.companyBillingName ?? null,
     companyTin: config?.companyTin ?? null,
     companyEmail: config?.companyEmail ?? null,
@@ -905,7 +911,7 @@ type DemoTaxSource = Pick<Tax, "id" | "rate" | "kind">
  */
 export function buildDemoTicketData(
   taxes: DemoTaxSource[],
-  config?: Pick<PosConfig, "currency" | "thousand" | "decimal" | "country"> | null,
+  config?: Pick<PosConfig, "currency" | "thousand" | "decimal" | "country" | "companyLogo"> | null,
 ): TicketData {
   // Las dos tasas "rate" (no exentas) más altas del tenant — típicamente IVA
   // 10%/5% en Paraguay (TaxService siembra estas por defecto en el signup,
@@ -963,6 +969,7 @@ export function buildDemoTicketData(
 
   return {
     companyName: "Mi Empresa S.A.",
+    companyLogoUrl: config?.companyLogo ?? undefined,
     companyBillingName: "Mi Empresa Sociedad Anónima",
     companyTin: "80012345-6",
     companyAddress: "Av. España 1234, Asunción",
@@ -1092,7 +1099,7 @@ function withTestMasking(base: TicketData): TicketData {
  */
 export function buildTemplateTestData(
   taxes: DemoTaxSource[],
-  config?: Pick<PosConfig, "currency" | "thousand" | "decimal" | "country"> | null,
+  config?: Pick<PosConfig, "currency" | "thousand" | "decimal" | "country" | "companyLogo"> | null,
 ): TicketData {
   // `config` es la MISMA que el editor ya le pasa a `demoData` para el canvas.
   // Sin ella, "Simular impresión" salía con el signo genérico `¤` mientras la

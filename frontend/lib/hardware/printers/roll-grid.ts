@@ -616,7 +616,15 @@ export function buildRollGrid(
     // ── Gráficos (no caben en la grilla — ver docblock) ───────────────────
     if (block.type === "company_logo") {
       canvas.reserve(row0, reserved)
-      graphics.push({ kind: "logo", row: row0, align: block.align, value: block.url ?? "" })
+      // El logo sale del TENANT (TicketData.companyLogoUrl ← PosConfig): el
+      // bloque solo dice DÓNDE va. `block.url` queda como override por
+      // plantilla (legacy) — nadie lo escribe desde el editor hoy.
+      graphics.push({
+        kind: "logo",
+        row: row0,
+        align: block.align,
+        value: block.url || data.companyLogoUrl || "",
+      })
       i++
       continue
     }
