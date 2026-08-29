@@ -73,6 +73,23 @@ final class SaleInput
          * Ver mig 118, que sigue el patrón de `ivaRemoved` (mig 101).
          */
         public readonly bool $interno = false,
+        /**
+         * Cotización (o venta guardada) de la que sale esta venta — el
+         * `quoteParentId` que el carrito ya venía mandando como
+         * `parentTransactionId` y que NADIE leía.
+         *
+         * La mig 115 backfilleó los `quote_to_sale` históricos desde la columna
+         * `transactionParentId` y después la dropeó, pero el writer que la
+         * reemplazara nunca se construyó (`SaleService.php`: "sub-slices futuros
+         * lo agregarán"). Resultado: los vínculos viejos existen, los nuevos no,
+         * y una cotización facturada hoy es indistinguible de una pendiente.
+         *
+         * NO se confunde con `parentId`, que `assertSimplePathEligible()` sigue
+         * rechazando: aquél marca una venta con padre que exige el path legacy
+         * completo; éste es solo la trazabilidad del documento de origen y no
+         * cambia en nada cómo se procesa la venta.
+         */
+        public readonly ?string $quoteParentId = null,
     ) {
     }
 
@@ -166,6 +183,7 @@ final class SaleInput
             repeat:  !empty($payload['repeat']),
             repeatF: !empty($payload['repeatF']) ? (string) $payload['repeatF'] : null,
             repeatT: isset($payload['repeatT']) && is_numeric($payload['repeatT']) ? (int) $payload['repeatT'] : null,
+            quoteParentId: self::normalizeUuid($payload['parentTransactionId'] ?? null),
         );
     }
 
@@ -347,6 +365,17 @@ final class SaleInput
      * `transactionStatus` (smallint en PG) — el legacy aceptaba > -1; acá enforce
      * rango 0..127 (cabe en smallint). Si viene fuera de rango → InvalidSaleInputException.
      */
+    /**
+     * UUID o null. Un valor con basura se descarta en silencio en vez de tirar
+     * 422: es trazabilidad, no un dato del que dependa la venta — perder el
+     * vínculo es preferible a que no se pueda cobrar.
+     */
+    private static function normalizeUuid(mixed $v): ?string
+    {
+        $s = is_string($v) ? trim($v) : '';
+        return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $s) ? $s : null;
+    }
+
     private static function normalizeStatus(mixed $raw): ?int
     {
         // El front manda `false` (booleano JS) para "sin valor" — tratar igual que null.

@@ -803,10 +803,16 @@ export interface PurchasesReportResponse {
   rows: PurchaseReportRow[]
 }
 
+/** Estado del ciclo de vida de una cotización — lo deriva el backend
+ *  (`TransactionsService::quoteStatus`), no es el entero de `transactionStatus`. */
+export type QuoteStatus = "pendiente" | "facturada" | "vencida" | "anulada"
+
 export interface QuoteRow {
   transactionId: string
   invoiceNo: string
   date: string
+  quoteStatus: QuoteStatus
+  /** Entero crudo del motor de transacciones. NO se muestra: es 1/6/etc. */
   transactionStatus: string
   customerName: string
   customerTIN: string

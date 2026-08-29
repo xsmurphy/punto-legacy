@@ -335,6 +335,31 @@ final class SaleService
             error_log('[SaleService] FinanceLedger::recordSale falló para ' . $transId . ': ' . $e->getMessage());
         }
 
+        // Vínculo cotización → venta (`transaction_link`, kind='quote_to_sale').
+        //
+        // Best-effort DESPUÉS del commit, igual que el rollup y el ledger de
+        // arriba: es trazabilidad, no parte de la venta. Si falla, la venta ya
+        // está cobrada y emitida — lo único que se pierde es que la cotización
+        // siga figurando como pendiente, y `link()` es idempotente, así que un
+        // re-envío del mismo par la corrige.
+        //
+        // Esto reemplaza al writer que la mig 115 dejó sin construir: aquella
+        // backfilleó los vínculos históricos desde `transactionParentId` y
+        // dropeó la columna, pero nada volvió a escribirlos. El front venía
+        // mandando `parentTransactionId` desde entonces y el backend lo tiraba.
+        if ($input->quoteParentId !== null) {
+            try {
+                (new \Punto\Api\Services\TransactionLinkService())->link(
+                    (string) $this->ctx->companyId,
+                    $input->quoteParentId,
+                    (string) $transId,
+                    'quote_to_sale'
+                );
+            } catch (\Throwable $e) {
+                error_log('[SaleService] link quote_to_sale falló para ' . $transId . ': ' . $e->getMessage());
+            }
+        }
+
         // Realtime best-effort, scope 'dashboard' — mismo motivo que
         // FinanceLedger arriba: api/v1/sales.php y api/v1/offline-sync.php
         // corren con apiAuthPosContext(), que NO pasa por

@@ -294,7 +294,7 @@ final class TransactionsService
     {
         // Columnas que lee el loop de abajo ($f[...]) — ninguna vive en meta/data/config.
         $cols = "transactionId, transactionType, invoiceNo, transactionDate, transactionStatus,
-                 customerId, userId, outletId, transactionTotal, transactionDiscount";
+                 transactionDueDate, customerId, userId, outletId, transactionTotal, transactionDiscount";
 
         if ($filters['src']) {
             $like = '%' . $filters['src'] . '%';
@@ -334,14 +334,30 @@ final class TransactionsService
         $contacts = $this->contactInfo(array_merge($custIds, $usrIds), $companyId);
         $outlets  = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
 
+        // Cuáles de estas cotizaciones ya se facturaron. Una sola query para
+        // todas (no N+1): `transaction_link` kind='quote_to_sale', escrito por
+        // `SaleService::save()` cuando la venta nace de una cotización.
+        $quoteIds = array_map(static fn ($f) => (string) $f['transactionId'], $res);
+        $billed   = $this->billedQuoteIds($quoteIds, $companyId);
+
         $rows = [];
         foreach ($res as $f) {
             $custId = (string) $f['customerId'];
             $usrId  = (string) $f['userId'];
+            $txId   = (string) $f['transactionId'];
             $rows[] = [
-                'transactionId'     => (string) $f['transactionId'],
+                'transactionId'     => $txId,
                 'invoiceNo'         => (string) ($f['invoiceNo'] ?? ''),
                 'date'              => (string) $f['transactionDate'],
+                // Estado del CICLO DE VIDA de la cotización, no el entero crudo
+                // de `transactionStatus` — que es del motor de transacciones y
+                // llegaba al panel como un "1" pelado dentro de un Badge
+                // (reporte del tester, 2026-08-28).
+                'quoteStatus'       => $this->quoteStatus(
+                    isset($f['transactionStatus']) ? (int) $f['transactionStatus'] : null,
+                    isset($f['transactionDueDate']) ? (string) $f['transactionDueDate'] : null,
+                    isset($billed[$txId])
+                ),
                 'transactionStatus' => (string) ($f['transactionStatus'] ?? ''),
                 'customerName'      => $custId ? ($contacts[$custId]['name'] ?? '') : '',
                 'customerTIN'       => $custId ? ($contacts[$custId]['tin'] ?? '') : '',
@@ -356,6 +372,69 @@ final class TransactionsService
         }
 
         return ['rows' => $rows];
+    }
+
+    /**
+     * Estado del ciclo de vida de una cotización, en el vocabulario del negocio:
+     *
+     *   anulada    — `transactionStatus = 6` (mismo valor de anulación que usa
+     *                el resto del motor, ver PurchasesService/SaleVoidService).
+     *   facturada  — existe una venta que la tiene como origen.
+     *   vencida    — pasó su `transactionDueDate` sin facturarse. Un presupuesto
+     *                con fecha de validez vencida no es lo mismo que uno que
+     *                sigue vigente esperando respuesta, y el vendedor necesita
+     *                distinguirlos para saber a quién llamar.
+     *   pendiente  — el resto.
+     *
+     * Se dice "facturada" y no "aprobada": lo que el sistema sabe es que se
+     * emitió la venta, no lo que el cliente contestó. Un presupuesto aprobado de
+     * palabra y todavía sin facturar seguiría figurando como pendiente, y
+     * llamarlo "no aprobado" sería afirmar algo que Punto no tiene cómo saber.
+     *
+     * Recibe los dos valores que usa, no la fila: las filas del DB layer son
+     * `CaseInsensitiveArray` (RecordsetIterator, `Query.php`), no `array`, así
+     * que tipar la fila obliga a elegir entre un hint que revienta en runtime o
+     * uno tan flojo que no dice nada. Con escalares el helper queda además puro
+     * y testeable sin DB.
+     */
+    private function quoteStatus(?int $status, ?string $dueDate, bool $isBilled): string
+    {
+        if (($status ?? 1) === 6) {
+            return 'anulada';
+        }
+        if ($isBilled) {
+            return 'facturada';
+        }
+        $due = (string) $dueDate;
+        if ($due !== '' && strtotime($due) !== false && strtotime($due) < strtotime(date('Y-m-d 00:00:00'))) {
+            return 'vencida';
+        }
+        return 'pendiente';
+    }
+
+    /**
+     * Set de cotizaciones que YA tienen una venta derivada, en una sola query.
+     *
+     * @param list<string> $quoteIds
+     * @return array<string,true>
+     */
+    private function billedQuoteIds(array $quoteIds, string $companyId): array
+    {
+        $quoteIds = array_values(array_unique(array_filter($quoteIds)));
+        if ($quoteIds === []) {
+            return [];
+        }
+        $ph  = implode(',', array_fill(0, count($quoteIds), '?'));
+        $res = ncmExecute(
+            "SELECT DISTINCT originid FROM transaction_link
+              WHERE companyid = ? AND kind = 'quote_to_sale' AND originid IN ($ph)",
+            array_merge([$companyId], $quoteIds), false, false, true
+        );
+        $out = [];
+        foreach (is_array($res) ? $res : [] as $r) {
+            $out[(string) $r['originid']] = true;
+        }
+        return $out;
     }
 
     /**

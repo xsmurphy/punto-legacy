@@ -73,6 +73,7 @@ import {
   type CobrosRow,
   type CobrosReportResponse,
   type QuoteRow,
+  type QuoteStatus,
   type QuotesReportResponse,
 } from "@/hooks/use-reports"
 import {
@@ -108,6 +109,24 @@ export const TX_TYPE_LABELS: Record<string, string> = {
   "2": "Guardado",
   "12": "Mesa",
   "13": "Cita",
+}
+
+/** Etiquetas del estado de una cotización. El backend manda el valor canónico
+ *  en minúscula (`TransactionsService::quoteStatus`); acá solo se presenta. */
+const QUOTE_STATUS_LABEL: Record<QuoteStatus, string> = {
+  pendiente: "Pendiente",
+  facturada: "Facturada",
+  vencida: "Vencida",
+  anulada: "Anulada",
+}
+
+/** `default` (sólido) para la que ya se convirtió en venta — es el desenlace que
+ *  el vendedor busca; `destructive` solo para vencida, que pide acción. */
+const QUOTE_STATUS_VARIANT: Record<QuoteStatus, "default" | "secondary" | "destructive" | "outline"> = {
+  pendiente: "secondary",
+  facturada: "default",
+  vencida: "destructive",
+  anulada: "outline",
 }
 
 export function txTypeLabel(type: string): string {
@@ -711,13 +730,15 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
         meta: { label: "Fecha" },
       },
       {
-        accessorKey: "transactionStatus",
+        accessorKey: "quoteStatus",
         header: "Estado",
         cell: ({ getValue }) => {
-          const v = getValue() as string
-          const variant =
-            v === "activa" ? "default" : v === "vencida" ? "destructive" : "secondary"
-          return <Badge variant={variant}>{v || "—"}</Badge>
+          // Antes leía `transactionStatus`, el entero del motor, y esperaba los
+          // strings "activa"/"vencida" que nunca llegaban: el Badge pintaba un
+          // "1" pelado (reporte del tester, 2026-08-28). El estado ahora lo
+          // deriva el backend (`TransactionsService::quoteStatus`).
+          const v = (getValue() as QuoteStatus) ?? "pendiente"
+          return <Badge variant={QUOTE_STATUS_VARIANT[v] ?? "secondary"}>{QUOTE_STATUS_LABEL[v] ?? v}</Badge>
         },
         meta: { label: "Estado" },
       },
