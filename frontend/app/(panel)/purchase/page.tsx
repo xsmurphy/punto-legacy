@@ -36,6 +36,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import type { PurchaseCreatePayload } from "@/hooks/use-purchases"
 import { formatMoney } from "@/lib/format"
 import { DatePicker } from "@/components/date-picker"
@@ -81,6 +88,9 @@ export default function NewPurchasePage() {
   const { data: bootstrap } = useBootstrap()
   const createPurchase = useCreatePurchase()
 
+  // Diálogo de lectura de factura (OCR). Cerrado por default: el camino
+  // habitual de esta pantalla es el alta manual.
+  const [uploadOpen, setUploadOpen] = React.useState(false)
   const [supplierId, setSupplierId] = React.useState("")
   const [supplierName, setSupplierName] = React.useState("")
   const [outletId, setOutletId] = React.useState("")
@@ -354,6 +364,10 @@ export default function NewPurchasePage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" onClick={() => setUploadOpen(true)}>
+            <Upload className="mr-1.5 size-4" />
+            Leer factura
+          </Button>
           <DraftsLink />
           <Button
             type="button"
@@ -371,10 +385,23 @@ export default function NewPurchasePage() {
         </div>
       </header>
 
-      {/* Carga por foto/PDF: alternativa al alta manual de abajo. Va acá y no
-          en la barra del header porque una zona de arrastre necesita área —
-          como botón compacto nadie descubre que se pueden soltar archivos. */}
-      <UploadInvoiceDropzone outletId={outletId} />
+      {/* Carga por foto/PDF en un DIÁLOGO, no arriba del formulario.
+          Ocupando el ancho completo entre el header y los campos, la zona de
+          arrastre era lo primero que se veía al entrar a cargar una compra a
+          mano —el camino habitual— y empujaba el formulario fuera de la
+          pantalla (pedido del owner 2026-08-28). Adentro del diálogo la zona
+          tiene todo el área que necesita, sin robársela al alta manual. */}
+      <Dialog open={uploadOpen} onOpenChange={setUploadOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Leer factura</DialogTitle>
+            <DialogDescription>
+              Subí una foto o un PDF y la lectura corre en segundo plano.
+            </DialogDescription>
+          </DialogHeader>
+          <UploadInvoiceDropzone outletId={outletId} />
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={pendiente !== null} onOpenChange={(o) => { if (!o) setPendiente(null) }}>
         <AlertDialogContent>
