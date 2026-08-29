@@ -148,6 +148,35 @@ el costo de todas las recetas que toquen el subproducto.
 
 ---
 
+## Entrega del KuDE por WhatsApp — diferido (evaluado 2026-08-29)
+
+Plan de entrega digital cerrado en `context/57-entrega-digital-del-kude.md`.
+Esta iteración va **solo con email**; WhatsApp queda acá con la investigación
+hecha para que no se rehaga.
+
+**Evolution API: descartada.** WhatsApp no oficial. Mandar PDFs a gente que
+nunca escribió al número es el disparador clásico de baneo, y el número que se
+quema es **el del comercio**, no el de Punto.
+
+**Kapso (Cloud API oficial): viable, bloqueado por costo.** Verificado
+2026-08-29 (MCP autenticado, proyecto Brixton, 9 números). Un comercio de 200
+ventas/día son ~6.000 mensajes/mes, y `context/09` dice que Punto **absorbe**
+todas las APIs externas salvo tokens de IA. A ese volumen no cierra.
+
+**El patrón customer-initiated** (QR `wa.me/<numero>?text=Mi factura AB3K9Q` en
+el ticket → ventana de servicio de 24 h → respuesta gratis, sin template) se
+evaluó y se **descartó por D1**: la obligación de entrega es del emisor, y un
+diseño donde el comprador tiene que pedirla invierte quién responde. Puede
+volver como comodidad SOBRE un canal de push que ya cumpla — nunca como el
+canal principal.
+
+**Para reabrirlo, en orden:** (1) confirmar con Kapso cómo factura la ventana
+de servicio y el template Utility en PY; (2) decidir remitente (número único de
+Punto vs. por comercio — el adapter de `context/57` ya lo deja como config);
+(3) decidir si se absorbe o se metera con el patrón de `ai_credit_ledger`.
+
+---
+
 ## Cotización en PDF para mandarle al cliente (plan cerrado 2026-08-28)
 
 Pedido del owner: que la cotización tenga un PDF con buen diseño, tipo
