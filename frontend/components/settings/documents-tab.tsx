@@ -3,7 +3,7 @@
 import * as React from "react"
 import Link from "next/link"
 import { toast } from "sonner"
-import { Plus, Pencil, Trash2, FileText, Loader2 } from "lucide-react"
+import { Plus, Pencil, Trash2, FileText, Loader2, Copy } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import {
   useDeleteDocumentTemplate,
+  useDuplicateDocumentTemplate,
   useDocumentTemplates,
 } from "@/hooks/use-document-templates"
 import type { DocumentTemplateRow } from "@/lib/types/print-template"
@@ -63,6 +64,7 @@ const PAGE_SIZE_LABELS: Record<DocumentTemplateRow["pageSize"], string> = {
 export function DocumentsTab({ onNavigate }: { onNavigate?: (href: string) => void } = {}) {
   const { data, isLoading } = useDocumentTemplates()
   const del = useDeleteDocumentTemplate()
+  const duplicate = useDuplicateDocumentTemplate()
 
   const templates = data?.templates ?? []
 
@@ -144,6 +146,26 @@ export function DocumentsTab({ onNavigate }: { onNavigate?: (href: string) => vo
                             </Link>
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-8"
+                          aria-label="Duplicar plantilla"
+                          title="Duplicar"
+                          disabled={duplicate.isPending}
+                          onClick={async () => {
+                            try {
+                              const copy = await duplicate.mutateAsync(t.templateId)
+                              toast.success(`Plantilla duplicada: ${copy.name}`)
+                            } catch (e) {
+                              toast.error("No se pudo duplicar", {
+                                description: e instanceof Error ? e.message : undefined,
+                              })
+                            }
+                          }}
+                        >
+                          <Copy className="size-3.5" />
+                        </Button>
                         <DeleteTemplateButton
                           name={t.name}
                           onConfirm={async () => {

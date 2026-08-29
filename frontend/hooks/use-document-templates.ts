@@ -60,6 +60,33 @@ export function useUpdateDocumentTemplate() {
   })
 }
 
+/**
+ * Duplica una plantilla (pedido del owner 2026-08-28: rearmar un diseño de
+ * cero para variarle algo era el único camino).
+ *
+ * GET del detalle + POST de una copia — el `config` completo NO viaja en el
+ * listado, así que primero se trae la fila entera. La copia nace:
+ *   - "Nombre (copia)": distinguible en el listado sin inventar numeración.
+ *   - NUNCA por defecto: hay un solo default por (empresa, tipo de documento)
+ *     y el original lo conserva — duplicar no puede robárselo en silencio.
+ */
+export function useDuplicateDocumentTemplate() {
+  const qc = useQueryClient()
+  return useMutation<DocumentTemplateRow, Error, string>({
+    mutationFn: async (id) => {
+      const original = await api.get<DocumentTemplateRow>(`/v1/document-templates?id=${id}`)
+      return api.post<DocumentTemplateRow>("/v1/document-templates", {
+        name: `${original.name} (copia)`,
+        docType: original.docType,
+        pageSize: original.pageSize,
+        isDefault: false,
+        config: original.config,
+      } as unknown as Record<string, unknown>)
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["document-templates"] }),
+  })
+}
+
 export function useDeleteDocumentTemplate() {
   const qc = useQueryClient()
   return useMutation<{ deleted: boolean }, Error, string>({
