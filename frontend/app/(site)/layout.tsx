@@ -1,4 +1,5 @@
 import type { Metadata } from "next"
+import Script from "next/script"
 
 import { SiteFooter } from "@/components/site/site-footer"
 import { SiteHeader } from "@/components/site/site-header"
@@ -33,6 +34,11 @@ export default function SiteLayout({
       <SiteHeader />
       <main className="flex-1">{children}</main>
       <SiteFooter />
+      {/* Webchat de atención al cliente (Fish) — en todas las páginas del sitio */}
+      <Script
+        src="https://app.getfish.la/api/webchat/widget.js?token=wc_9ae63da42cb2fad0dcb0affd8a1679d7aa5b2a50985fef05"
+        strategy="afterInteractive"
+      />
     </div>
   )
 }
