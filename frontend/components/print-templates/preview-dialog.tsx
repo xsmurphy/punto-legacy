@@ -14,9 +14,11 @@ import {
 import { buildTemplatePreviewHtml, simulateTemplatePrint } from "@/lib/hardware/printers"
 import type { TicketData } from "@/lib/hardware/printers/build-ticket-data"
 import {
+  isReceipt,
   PAPER_DIMENSIONS,
   type PrintTemplateConfig,
 } from "@/lib/types/print-template"
+import { nearestReceiptPaperWidthMm } from "@/lib/hardware/printers/roll-grid"
 
 interface Props {
   open: boolean
@@ -60,7 +62,18 @@ interface Props {
  */
 export function PreviewDialog({ open, config, mm, data, onClose }: Props) {
   const dim = PAPER_DIMENSIONS[config.page_size]
-  const widthPx = dim.widthMm * mm
+  // El papel del preview es el del DISPOSITIVO, no el del diseño. El HTML se
+  // genera para la térmica real (`buildTemplatePreviewHtml` pasa
+  // `nearestReceiptPaperWidthMm`: un diseño de 76mm se imprime en la térmica de
+  // 80), así que el body del documento mide 80mm — y el iframe medía los 76 del
+  // diseño: los 4mm de diferencia quedaban CORTADOS contra el borde derecho,
+  // comiéndose el margen y el final de cada línea alineada a la derecha
+  // (reporte del owner 2026-08-28, dos veces: la segunda con el fix de celdas
+  // ya deployado, que fue la pista de que el corte no era de la grilla).
+  const paperWidthMm = isReceipt(config.page_size)
+    ? nearestReceiptPaperWidthMm(config.page_size)
+    : dim.widthMm
+  const widthPx = paperWidthMm * mm
   const heightPx = dim.heightMm * mm
 
   // Mismo HTML, mismo motor, mismo camino que "Simular impresión" — ver
