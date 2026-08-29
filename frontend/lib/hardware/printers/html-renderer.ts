@@ -139,12 +139,15 @@ function renderItemFieldHtml(block: PrintBlock, item: TicketData["items"][number
 
 /** Gráfico del rollo (logo / código de barras / QR) — no cabe en la grilla de
  *  caracteres, se emite entre filas. Ver docblock de roll-grid.ts. */
-function renderRollGraphicHtml(g: RollGraphic): string {
+function renderRollGraphicHtml(g: RollGraphic, rowHeightMm: number): string {
   const align = `text-align:${g.align === "center" ? "center" : g.align === "right" ? "right" : "left"}`
   if (g.kind === "logo") {
+    // El alto es el del BLOQUE en el canvas (`rows` filas), no el natural de
+    // la imagen: lo que se dibuja mide lo que el operador dibujó.
+    const h = (g.rows * rowHeightMm).toFixed(3)
     return g.value
-      ? `<div style="${align}"><img src="${esc(g.value)}" alt="" style="max-width:100%"/></div>`
-      : `<div style="${align}">[Logo]</div>`
+      ? `<div style="${align};height:${h}mm"><img src="${esc(g.value)}" alt="" style="max-width:100%;height:100%;object-fit:contain"/></div>`
+      : ""
   }
   if (g.kind === "barcode") {
     return `<div style="${align}">${esc(g.value)}</div>`
@@ -202,12 +205,17 @@ function renderRollRowHtml(row: RollGrid["rows"][number], columns: number): stri
   return `<div class="r">${cells.map((c) => `<span>${c}</span>`).join("")}</div>`
 }
 
-function renderRollBody(grid: RollGrid): string {
+function renderRollBody(grid: RollGrid, rowHeightMm: number): string {
   const byRow = new Map<number, RollGraphic[]>()
+  // Filas reservadas por un gráfico: el gráfico YA ocupa ese alto (la imagen
+  // se dibuja de `rows` filas), así que estas filas NO se emiten como
+  // renglones en blanco — emitirlas duplicaba el hueco del canvas.
+  const reservedRows = new Set<number>()
   for (const g of grid.graphics) {
     const list = byRow.get(g.row)
     if (list) list.push(g)
     else byRow.set(g.row, [g])
+    for (let r = g.row; r < g.row + g.rows; r++) reservedRows.add(r)
   }
 
   const parts: string[] = []
@@ -222,9 +230,12 @@ function renderRollBody(grid: RollGrid): string {
     const graphics = byRow.get(r)
     if (graphics) {
       flush()
-      for (const g of graphics) parts.push(renderRollGraphicHtml(g))
+      for (const g of graphics) parts.push(renderRollGraphicHtml(g, rowHeightMm))
       byRow.delete(r)
     }
+    // Fila reservada por un gráfico y sin texto propio: el gráfico ya puso el
+    // alto — no emitir un renglón en blanco encima.
+    if (reservedRows.has(r) && grid.rows[r].text.trim() === "") continue
     // La negrita viaja por tramos (`RollRun`) — el mismo atributo que ESC/POS
     // le pasa al encoder, así que el preview la muestra donde el papel la va
     // a tener.
@@ -235,7 +246,7 @@ function renderRollBody(grid: RollGrid): string {
   // Gráficos anclados más abajo de la última fila con texto (el operador los
   // puso al final del canvas): van al cierre, en orden de fila.
   for (const row of [...byRow.keys()].sort((a, b) => a - b)) {
-    for (const g of byRow.get(row)!) parts.push(renderRollGraphicHtml(g))
+    for (const g of byRow.get(row)!) parts.push(renderRollGraphicHtml(g, rowHeightMm))
   }
 
   return parts.join("\n")
@@ -466,7 +477,8 @@ ${body}
   const rollMm = template.mm && template.mm > 0 ? template.mm : 3.78
   const geo = rollGeometry(template.page_size, rollMm, options.paperWidthMm)
   const grid = buildRollGrid(template, data, geo)
-  const body = renderRollBody(grid)
+  const rollRowHeightMmForBody = ((options.paperWidthMm ?? PAPER_DIMENSIONS[template.page_size].widthMm) / geo.columns) * 2
+  const body = renderRollBody(grid, rollRowHeightMmForBody)
 
   const widthMm = options.paperWidthMm ?? PAPER_DIMENSIONS[template.page_size].widthMm
   // Tamaño de fuente para que `columns` caracteres llenen el ancho del papel.

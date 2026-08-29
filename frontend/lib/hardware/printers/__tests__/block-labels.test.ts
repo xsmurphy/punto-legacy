@@ -379,3 +379,53 @@ describe("margen del papel", () => {
     expect(rows[0].length).toBeLessThanOrEqual(g.columns - ROLL_MARGIN_COLS)
   })
 })
+
+describe("document_number — el título por defecto sigue al TIPO de documento", () => {
+  const base = ticket({ documentNumber: "001-001-0000123" })
+
+  it("venta = Factura, orden = Orden, recibo = Recibo", () => {
+    const block = defaultBlock("document_number")
+    expect(resolveSimpleBlock(block, { ...base, docType: "sale" })).toBe(
+      "Factura Nro.: 001-001-0000123",
+    )
+    expect(resolveSimpleBlock(block, { ...base, docType: "order" })).toBe(
+      "Orden Nro.: 001-001-0000123",
+    )
+    expect(resolveSimpleBlock(block, { ...base, docType: "receipt" })).toBe(
+      "Recibo Nro.: 001-001-0000123",
+    )
+  })
+
+  it("el título escrito por el operador SIEMPRE gana", () => {
+    expect(
+      resolveSimpleBlock({ ...defaultBlock("document_number"), label: "Fact. Nro.:" }, {
+        ...base,
+        docType: "order",
+      }),
+    ).toBe("Fact. Nro.: 001-001-0000123")
+  })
+
+  it("un docType desconocido cae a un título neutro, nunca a ninguno", () => {
+    expect(resolveSimpleBlock(defaultBlock("document_number"), { ...base, docType: "algoRaro" })).toBe(
+      "Nro.: 001-001-0000123",
+    )
+  })
+})
+
+describe("bloques de orden — sin gate por docType (context/20)", () => {
+  it("espacio, mesa y número imprimen si el dato EXISTE, en cualquier documento", () => {
+    const data = ticket({ docType: "sale", ticketNo: "123", orderDestination: "Mesa 10" })
+    expect(resolveSimpleBlock({ ...defaultBlock("order_number"), label: "Orden Nro.:" }, data)).toBe(
+      "Orden Nro.: 123",
+    )
+    expect(
+      resolveSimpleBlock({ ...defaultBlock("order_destination"), label: "Espacio:" }, data),
+    ).toBe("Espacio: Mesa 10")
+    expect(resolveSimpleBlock(defaultBlock("table_number"), data)).toBe("Mesa 10")
+  })
+
+  it("sin dato, el bloque sale en blanco solo — sin título huérfano", () => {
+    const data = ticket({ docType: "order" })
+    expect(resolveSimpleBlock({ ...defaultBlock("order_number"), label: "Orden Nro.:" }, data)).toBeNull()
+  })
+})

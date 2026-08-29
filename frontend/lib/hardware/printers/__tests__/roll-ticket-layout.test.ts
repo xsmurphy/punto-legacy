@@ -35,7 +35,11 @@ describe("rollo 80mm — ticket típico", () => {
       { ...defaultBlock("company_address"), top: rowH, left: 0, width: c(48), height: rowH, align: "center" },
       { ...defaultBlock("hor_line"), top: rowH * 2, left: 0, width: c(48), height: rowH },
       { ...defaultBlock("date"), top: rowH * 3, left: 0, width: c(24), height: rowH },
-      { ...defaultBlock("document_number"), top: rowH * 3, left: c(24), width: c(24), height: rowH, align: "right" },
+      // `label: "Nro."` explícito: desde 2026-08-29 un document_number SIN
+      // título usa el dinámico por docType ("Factura Nro.:"), que en esta
+      // media columna no entra junto al número — y este test fija POSICIONES,
+      // no títulos. Con título corto, el número sigue visible.
+      { ...defaultBlock("document_number"), label: "Nro.", top: rowH * 3, left: c(24), width: c(24), height: rowH, align: "right" },
       { ...defaultBlock("hor_line"), top: rowH * 4, left: 0, width: c(48), height: rowH },
       { ...defaultBlock("item"), top: rowH * 5, left: 0, width: c(28), height: rowH, textwrap: "wrap" },
       { ...defaultBlock("item_units"), top: rowH * 5, left: c(28), width: c(6), height: rowH, align: "right" },
@@ -85,7 +89,7 @@ describe("rollo 80mm — ticket típico", () => {
       // (`ROLL_MARGIN_COLS`): el contenido arranca en la columna 1 y termina
       // una antes del borde, así que las filas miden 47 y no 48.
       " ----------------------------------------------",
-      " 24/08/2026                     001-001-0000123",
+      " 24/08/2026                Nro. 001-001-0000123",
       " ----------------------------------------------",
       // Los importes de ítem van SIN moneda desde 2026-08-26 (decisión del
       // owner): el símbolo se declara una sola vez, en el total de abajo.

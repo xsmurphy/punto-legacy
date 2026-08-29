@@ -338,6 +338,30 @@ function documentTypeLabel(docType: string): string {
   return DOC_TYPE_LABELS[docType] ?? (docType.charAt(0).toUpperCase() + docType.slice(1))
 }
 
+/**
+ * Título por defecto del bloque `document_number`, según el TIPO de documento
+ * (pedido del owner 2026-08-29): la misma plantilla imprime "Factura Nro.:" en
+ * la venta, "Orden Nro.:" en la comanda y "Recibo Nro.:" en un pago. Solo
+ * aplica cuando el operador NO escribió un título propio — `block.label`
+ * siempre gana (la plantilla decide, context/20).
+ */
+const DOC_NUMBER_LABELS: Record<string, string> = {
+  receipt: "Recibo Nro.:",
+  invoice: "Factura Nro.:",
+  factura: "Factura Nro.:",
+  credit: "Factura Nro.:",
+  sale: "Factura Nro.:",
+  order: "Orden Nro.:",
+  workorder: "Orden Nro.:",
+  quote: "Cotización Nro.:",
+  delivery: "Remisión Nro.:",
+  return: "Nota de crédito Nro.:",
+}
+
+function docNumberLabel(docType: string): string {
+  return DOC_NUMBER_LABELS[docType] ?? "Nro.:"
+}
+
 /** "Contado" para todo lo que no sea venta a crédito explícita. */
 function saleTypeLabel(docType: string): string {
   return docType === "credit" ? "Crédito" : "Contado"
@@ -406,14 +430,18 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   // table_number reusa orderDestination (comandas de espacios) — es el dato
   // más cercano que existe hoy a "número de mesa" (orderDestinationText()).
   // No es un campo dedicado de mesa; documentado como aproximación.
-  table_number: (data) => (data.docType === "order" ? data.orderDestination ?? null : null),
+  // Sin gate por docType (lo tenía y contradecía context/20: si el bloque está
+  // en la plantilla, sale — el dato existe o no, y sin dato el bloque queda en
+  // blanco solo). El gate hacía que estos bloques no imprimieran NADA en la
+  // vista previa ni en documentos que sí traen el dato (reporte 2026-08-29).
+  table_number: (data) => data.orderDestination ?? null,
 
   // Comanda — reemplazan el banner que los renderers inyectaban solos cuando
   // `docType === "order"` (ver BlockType en lib/types/print-template.ts). Como
   // cualquier otro bloque: si el dato no aplica resuelve `null` y el bloque
   // sale en blanco, sin gating por tipo de documento.
-  order_number: (data) => (data.docType === "order" ? data.ticketNo ?? null : null),
-  order_destination: (data) => (data.docType === "order" ? data.orderDestination ?? null : null),
+  order_number: (data) => data.ticketNo ?? null,
+  order_destination: (data) => data.orderDestination ?? null,
 
   // Transacción
   document_number: (data) => data.documentNumber ?? null,
@@ -712,7 +740,13 @@ export function withBlockLabel(block: PrintBlock, value: string | null): string 
 export function resolveSimpleBlock(block: PrintBlock, data: TicketData): string | null {
   const resolver = BLOCK_VALUE_RESOLVERS[block.type]
   if (!resolver) return null
-  return withBlockLabel(block, resolver(data, block) ?? null)
+  const value = resolver(data, block) ?? null
+  // `document_number` sin título propio: el título sale del TIPO de documento
+  // ("Factura Nro.:" / "Orden Nro.:" / "Recibo Nro.:"). Ver DOC_NUMBER_LABELS.
+  if (block.type === "document_number" && !(block.label ?? "").trim()) {
+    return withBlockLabel({ ...block, label: docNumberLabel(data.docType) }, value)
+  }
+  return withBlockLabel(block, value)
 }
 
 /**

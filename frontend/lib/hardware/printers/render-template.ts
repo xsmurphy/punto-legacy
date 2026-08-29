@@ -106,13 +106,22 @@ function renderGraphic(
   if (g.kind === "logo") {
     const img = g.value ? logos.get(g.value) : undefined
     if (!img) return encoder
-    // Ancho objetivo: el del papel (12 puntos por columna, Font A). El encoder
-    // exige múltiplos de 8 en ambos ejes. `atkinson` es el dithering que
-    // convierte el logo a BLANCO Y NEGRO puro — la térmica no tiene grises, y
-    // un threshold pelado convierte cualquier gris medio en una mancha.
+    // El ALTO manda y es el del bloque en el canvas: `rows` filas de 24 puntos
+    // (celda Font A, 12x24) — así el papel mide lo que el operador dibujó, no
+    // lo que mida el archivo. El ancho sale del aspecto, capado al papel (12
+    // puntos por columna). El encoder exige múltiplos de 8 en ambos ejes.
+    // `atkinson` es el dithering que convierte el logo a BLANCO Y NEGRO puro —
+    // la térmica no tiene grises, y un threshold pelado convierte cualquier
+    // gris medio en una mancha.
+    const targetH = Math.max(8, (g.rows * 24) & ~7)
     const maxDots = columns * 12
-    const width = Math.max(8, Math.min(maxDots, img.naturalWidth) & ~7)
-    const height = Math.max(8, Math.round((img.naturalHeight / img.naturalWidth) * width) & ~7)
+    let width = Math.round((img.naturalWidth / img.naturalHeight) * targetH)
+    let height = targetH
+    if (width > maxDots) {
+      height = Math.max(8, Math.round((img.naturalHeight / img.naturalWidth) * maxDots) & ~7)
+      width = maxDots
+    }
+    width = Math.max(8, width & ~7)
     return withAlign(encoder, g.align, (e) => e.image(img, width, height, "atkinson"))
   }
   if (g.kind === "barcode") {
@@ -149,10 +158,15 @@ export async function renderTemplateToEscPos(opts: {
   encoder = encoder.initialize()
 
   const byRow = new Map<number, RollGraphic[]>()
+  // Filas reservadas por un gráfico: el gráfico YA imprime ese alto — no se
+  // emiten como renglones en blanco (duplicaba el hueco; mismo criterio que
+  // el HTML, ver renderRollBody).
+  const reservedRows = new Set<number>()
   for (const g of grid.graphics) {
     const list = byRow.get(g.row)
     if (list) list.push(g)
     else byRow.set(g.row, [g])
+    for (let r = g.row; r < g.row + g.rows; r++) reservedRows.add(r)
   }
 
   for (let r = 0; r < grid.rows.length; r++) {
@@ -161,6 +175,7 @@ export async function renderTemplateToEscPos(opts: {
       for (const g of graphics) encoder = renderGraphic(encoder, g, geo.columns, logos)
       byRow.delete(r)
     }
+    if (reservedRows.has(r) && grid.rows[r].text.trim() === "") continue
     // Una fila de la grilla = una línea impresa. La negrita viaja por tramos
     // (`RollRun`): es el único atributo que ESC/POS ya aplicaba antes de la
     // grilla y se conserva. Doble alto/ancho entrarían por el mismo lugar el

@@ -391,6 +391,14 @@ export interface RollGraphic {
   align: PrintBlock["align"]
   /** Contenido: url del logo, id para el barcode, link para el QR. */
   value: string
+  /**
+   * Alto reservado en la grilla, en FILAS — el alto del bloque en el canvas.
+   * Los renderers dibujan el gráfico DE ese alto y saltean las filas
+   * reservadas: sin esto, el hueco del canvas y la imagen se sumaban (el
+   * canvas reservaba N filas Y la imagen media lo suyo) y el ticket mostraba
+   * el doble de espacio que el editor (reporte del owner 2026-08-29).
+   */
+  rows: number
   /** Rótulo bajo el QR (`fe_py` lo guarda en `block.text`). */
   caption?: string
 }
@@ -622,6 +630,7 @@ export function buildRollGrid(
       graphics.push({
         kind: "logo",
         row: row0,
+        rows: reserved,
         align: block.align,
         value: block.url || data.companyLogoUrl || "",
       })
@@ -630,7 +639,7 @@ export function buildRollGrid(
     }
     if (block.type === "transaction_id_barcode") {
       canvas.reserve(row0, reserved)
-      graphics.push({ kind: "barcode", row: row0, align: block.align, value: data.transactionId })
+      graphics.push({ kind: "barcode", row: row0, rows: reserved, align: block.align, value: data.transactionId })
       i++
       continue
     }
@@ -642,6 +651,7 @@ export function buildRollGrid(
         graphics.push({
           kind: "qrcode",
           row: row0,
+          rows: reserved,
           align: block.align,
           value: data.einvoiceUrl,
           caption: cased(block.text?.trim() || "Consultá tu factura electrónica"),

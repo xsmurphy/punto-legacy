@@ -189,7 +189,10 @@ export const DEFAULT_BLOCK_LABELS: Partial<Record<BlockType, string>> = {
   // Transacción
   date: "Fecha:",
   duedate: "Vencimiento:",
-  document_number: "Fact. Nro.:",
+  // `document_number` NO está acá a propósito: su título por defecto es
+  // DINÁMICO por tipo de documento ("Factura Nro.:" / "Orden Nro.:" /
+  // "Recibo Nro.:", ver DOC_NUMBER_LABELS en blocks.ts). Un título estático
+  // acá lo pisaría para siempre.
   sale_type: "Condición:",
   payment_methods: "Formas de pago:",
   associated_document: "Documento asociado:",
@@ -217,7 +220,7 @@ export const DEFAULT_BLOCK_LABELS: Partial<Record<BlockType, string>> = {
   customer_email: "Email:",
   // Comanda / mesa
   order_number: "Orden Nro.:",
-  order_destination: "Destino:",
+  order_destination: "Espacio:",
   table_number: "Mesa:",
   // Remisión
   transfer_reason: "Motivo:",
