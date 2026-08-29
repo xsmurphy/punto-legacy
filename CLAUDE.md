@@ -157,6 +157,55 @@ Reglas:
 
 ---
 
+## Deploy — lo disparás VOS con el MCP de Coolify
+
+El auto-deploy por push está APAGADO en Coolify. Cada commit gatillaba un build
+completo (varios minutos) y se encolaban en serie: una sesión de 10 commits
+dejaba el último cambio esperando más de una hora, y un build colgado bloqueaba
+a todos los que venían atrás.
+
+**Flujo**: pusheá las veces que haga falta; deployá UNA vez por tanda coherente.
+
+- Deploy: `mcp__Coolify_MCP__deploy` con `tag_or_uuid: "<APP_UUID>"`.
+- Estado de la cola: `mcp__Coolify_MCP__list_deployments` — ojo que solo
+  devuelve los activos (queued / in_progress), no el historial.
+- Para saber el UUID de la app: `mcp__Coolify_MCP__list_applications`.
+
+### Las tres apps de Punto salen del MISMO repo
+
+Un push a `main` no actualiza nada por sí solo, y cada app se deploya aparte.
+Mirá qué tocó la tanda:
+
+| App | UUID | Se deploya si tocaste |
+|---|---|---|
+| Punto Front | `nzmay2ytcdup3sgylspq39z6` | `frontend/` |
+| Punto Backend | `z645wx54kwtcciczaeoldwvc` | `api/` (incluye **migraciones**) |
+| Punto WebSockets | `sji3nm6ze583d9ykm0e8gsc6` | `ws-server/` |
+
+Una tanda que tocó `frontend/` Y `api/` necesita DOS deploys.
+
+**Cuándo deployar**
+
+- Cuando la tanda está completa y verificada (build y typecheck en verde).
+- SIEMPRE antes de cerrar la sesión.
+- En el momento, si el usuario necesita probar algo puntual ya.
+
+**Nunca termines una sesión con commits pusheados sin deployar.** Sin deploy no
+hay código nuevo en producción — y como las migraciones corren al arranque del
+contenedor del backend, tampoco están aplicadas. La próxima sesión va a asumir
+que lo que está en `main` es lo que está corriendo. Si por algo no se pudo
+deployar, decilo explícito en el cierre y anotalo en `_handoff.md`.
+
+**Verificá que subió**, no lo des por hecho: el deploy queda encolado y puede
+fallar. Confirmá que el contenedor corriendo es el del commit nuevo antes de
+declararlo desplegado — la imagen del contenedor lleva el SHA:
+
+```bash
+ssh root@167.71.165.221 'docker ps --format "{{.Names}}\t{{.Image}}" | grep -E "nzmay|z645"'
+```
+
+---
+
 ## Subagentes (`.claude/agents/`)
 
 Invocá solo cuando matchee claramente la descripción del agente:
