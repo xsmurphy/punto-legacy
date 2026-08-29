@@ -239,11 +239,41 @@ export function buildTaxRateSection(taxes: Tax[]): PaletteSection {
       { type: "subtotal_by_rate", label: `Subtotal __TAX__ ${rateLabel}`, defaultText: tax.id, defaultLabel: `Subtotal ${rateLabel}:`, receiptHidden: true },
       { type: "iva_by_rate", label: `__TAX__ ${rateLabel}`, defaultText: tax.id, defaultLabel: `IVA ${rateLabel}:`, receiptHidden: true },
       { type: "item_total_by_rate", label: `Total __TAX__ ${rateLabel}`, defaultText: tax.id, defaultLabel: `Total ${rateLabel}:`, receiptHidden: true },
+      // Bloque de LÍNEA (los tres de arriba son agregados de documento): va en
+      // la columna de su tasa dentro del cuerpo de la tabla, y cada ítem
+      // imprime su monto solo en la columna que le toca. Es lo que arma la
+      // factura de hoja paraguaya (Exentas | IVA 5% | IVA 10%).
+      //
+      // Sin `defaultLabel` a propósito: los bloques de ítem se repiten una vez
+      // por producto y un título saldría en cada fila (misma regla que
+      // documenta `PrintBlock.label`). El encabezado de la columna es un
+      // bloque de texto aparte, como el resto de los encabezados.
+      //
+      // `receiptHidden`: en 33-48 columnas no entran tres columnas de tasa.
+      { type: "item_total_if_rate", label: `Monto del ítem si es __TAX__ ${rateLabel}`, defaultText: tax.id, receiptHidden: true },
     )
   }
   items.push({ type: "iva_total", label: "Total __TAX__ (todas las tasas)", defaultText: "__TAX__" })
   return { id: "taxes", label: "Impuestos", items }
 }
+
+/**
+ * Los bloques parametrizados por tasa — los que guardan un `taxId` del catálogo
+ * en `block.text` en vez de un texto tipeado.
+ *
+ * Existe como SET y no como tres/cuatro condiciones repetidas porque la lista
+ * se consultaba en dos lugares (`getBlockTitle`, `getBlockPlaceholder`) con la
+ * misma cadena de `||`: al agregar `item_total_if_rate` (2026-08-29) había que
+ * acordarse de tocar los dos, y el que se olvidara dejaba el bloque mostrando
+ * su `type` crudo en el tooltip del canvas. Un tipo nuevo por-tasa se agrega
+ * acá y las dos funciones lo toman solas.
+ */
+const TAX_RATE_BLOCK_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
+  "subtotal_by_rate",
+  "iva_by_rate",
+  "item_total_by_rate",
+  "item_total_if_rate",
+])
 
 /** "Exento" o "N%" para una tasa del tenant — mismo criterio en los dos
  *  lugares que arman un label con la tasa real: la sección "Impuestos" de
@@ -349,11 +379,7 @@ export function getBlockTitle(
   taxes: Tax[] = [],
   opts: { tin?: string; tax?: string } = {},
 ): string {
-  if (
-    block.type === "subtotal_by_rate" ||
-    block.type === "iva_by_rate" ||
-    block.type === "item_total_by_rate"
-  ) {
+  if (TAX_RATE_BLOCK_TYPES.has(block.type)) {
     const tax = taxes.find((t) => t.id === block.text)
     const rateLabel = tax ? taxRateLabel(tax) : "?"
     const prefix =
@@ -361,7 +387,9 @@ export function getBlockTitle(
         ? "Subtotal __TAX__"
         : block.type === "iva_by_rate"
           ? "__TAX__"
-          : "Total __TAX__"
+          : block.type === "item_total_if_rate"
+            ? "Monto del ítem si es __TAX__"
+            : "Total __TAX__"
     return substituteLabels(`${prefix} ${rateLabel}`, opts)
   }
   const label = BLOCK_TYPE_LABELS[block.type] ?? block.type
@@ -418,11 +446,7 @@ export function getBlockPlaceholder(
   taxes: Tax[] = [],
   opts: { tin?: string; tax?: string } = {},
 ): string {
-  if (
-    block.type === "subtotal_by_rate" ||
-    block.type === "iva_by_rate" ||
-    block.type === "item_total_by_rate"
-  ) {
+  if (TAX_RATE_BLOCK_TYPES.has(block.type)) {
     return getBlockTitle(block, taxes, opts)
   }
   const text = BLOCK_TYPE_DEFAULT_TEXT[block.type]

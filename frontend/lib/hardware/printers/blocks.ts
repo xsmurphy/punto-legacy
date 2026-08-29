@@ -190,6 +190,10 @@ export const ITEM_LINE_TYPES: ReadonlySet<BlockType> = new Set<BlockType>([
   "item_price_notax",
   "item_total",
   "item_subtotal",
+  // Por-LÍNEA aunque el nombre se parezca a los `*_by_rate` (que son
+  // agregados de documento y por eso NO están acá): imprime el monto de ESTE
+  // ítem solo si su impuesto es el de la columna. Ver BlockType.
+  "item_total_if_rate",
   // tax_single NO va acá desde F3c: es un agregado por-tasa a nivel venta
   // (ver BLOCK_VALUE_RESOLVERS abajo), no algo que se repita por línea.
 ])
@@ -582,7 +586,19 @@ function findTaxBucket(items: TicketItem[], taxId: string): TaxByRateBucket | un
 
 // ── Resolución de valores por ítem (bloques que se repiten por producto) ──
 
-export type ItemFieldResolver = (item: TicketItem, data: TicketData) => string | null
+/**
+ * `block` es opcional a propósito: casi todos los resolvers de línea solo
+ * necesitan el ítem, y pedirles un parámetro que ignoran ensucia las 20
+ * definiciones. Lo reciben los que están PARAMETRIZADOS por la plantilla —
+ * hoy `item_total_if_rate`, que lee el `taxId` de su columna desde
+ * `block.text`. Los tres call-sites (html-renderer, roll-grid y la vista
+ * previa de un bloque suelto en blocks.ts) siempre lo pasan.
+ */
+export type ItemFieldResolver = (
+  item: TicketItem,
+  data: TicketData,
+  block?: PrintBlock,
+) => string | null
 
 /**
  * Prefijo de una línea hija de add-on (F5, D3 de context/41).
@@ -622,6 +638,29 @@ export const ITEM_FIELD_RESOLVERS: Partial<Record<BlockType, ItemFieldResolver>>
   item_discount: (item, data) => formatAmountOnly(item.discountAmount, data),
   item_discount_percent: (item) => formatPercent(item.discountPercent),
   item_total: (item, data) => formatAmountOnly(item.total, data),
+  // El monto de la línea, pero SOLO en la columna de su propio impuesto.
+  //
+  // El match es por IDENTIDAD del impuesto (`taxId`), nunca por el número de
+  // la tasa: `kind="exempt"` y `kind="rate", rate=0` son fiscalmente distintos
+  // (context/38, context/modules/_index.md) y compararlos por `rate === 0`
+  // los metería en la misma columna. Dos impuestos del catálogo pueden además
+  // compartir tasa — mig 120 no tiene UNIQUE sobre rate+kind — así que el
+  // número tampoco identifica.
+  //
+  // Usa `taxNet + taxAmount` CONGELADOS en la línea, no `item.total`: es la
+  // misma fórmula que suma `item_total_by_rate` para su bucket, así que la
+  // columna cierra exacta contra el total por tasa del pie. Y es la regla
+  // central de context/38 F3a — si el comercio cambia una tasa después de
+  // vender, la reimpresión declara la que se cobró, no la vigente hoy.
+  //
+  // Cadena vacía (no `null`) cuando no matchea: la celda tiene que quedar EN
+  // BLANCO, que es el punto de todo el layout. `null` haría que el call-site
+  // caiga a su propio default.
+  item_total_if_rate: (item, data, block) => {
+    const taxId = block?.text ?? ""
+    if (!taxId || item.taxId !== taxId) return ""
+    return formatAmountOnly((item.taxNet ?? 0) + (item.taxAmount ?? 0), data)
+  },
   // item_subtotal ("Total" antes de impuesto) — sin desglose de impuesto
   // por ítem hoy, se resuelve igual que item_total.
   item_subtotal: (item, data) => formatAmountOnly(item.total, data),
@@ -808,7 +847,7 @@ export function resolveSingleBlockPreview(block: PrintBlock, data: TicketData): 
     const item = data.items[0]
     if (!item) return ""
     const resolver = ITEM_FIELD_RESOLVERS[block.type]
-    return resolver ? resolver(item, data) ?? "" : ""
+    return resolver ? resolver(item, data, block) ?? "" : ""
   }
   return resolveSimpleBlock(block, data) ?? ""
 }

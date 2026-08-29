@@ -133,7 +133,7 @@ function renderBlockHtml(block: PrintBlock, data: TicketData): string {
 function renderItemFieldHtml(block: PrintBlock, item: TicketData["items"][number], data: TicketData): string {
   const resolver = ITEM_FIELD_RESOLVERS[block.type]
   if (!resolver) return ""
-  const value = resolver(item, data)
+  const value = resolver(item, data, block)
   return `<div>${esc(value ?? "")}</div>`
 }
 
@@ -293,7 +293,38 @@ function renderRollBody(grid: RollGrid, rowHeightMm: number): string {
  * se desborda visualmente ahí también. Es la misma limitación del modelo de
  * canvas de una sola página, no algo que este fix introduce ni resuelve.
  */
-function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number): string {
+/**
+ * Alto de una fila de ítem en HOJA, en px de canvas.
+ *
+ * NO es `block.height`: en una factura de hoja el operador dibuja la REGIÓN
+ * del cuerpo de la tabla (la caja alta que va del encabezado a la banda de
+ * totales), no una fila. Tomar ese alto como paso de fila mandaba el segundo
+ * ítem ~640px abajo y empujaba el pie fuera de la página — el bug que reportó
+ * el owner el 2026-08-29.
+ *
+ * Sale de la tipografía, que es lo único que sí mide una línea. El valor se
+ * emite ADEMÁS como `line-height` en cada celda (ver `positionedRow`), así
+ * que el avance y lo que el browser dibuja son el mismo número por
+ * construcción, en vez de dos aproximaciones que se separan de a poco.
+ */
+const SHEET_LINE_HEIGHT_RATIO = 1.2
+const PT_TO_MM = 25.4 / 72
+
+function sheetRowHeightPx(fontSize: string, mmRatio: number): number {
+  const pt = Number.parseFloat(fontSize)
+  // `size: 'inherit'` y cualquier valor corrupto del JSONB caen al 8pt que
+  // usa `defaultTemplateConfig` — nunca a NaN, que colapsaría todas las filas
+  // sobre la primera.
+  const safePt = Number.isFinite(pt) && pt > 0 ? pt : 8
+  return safePt * PT_TO_MM * mmRatio * SHEET_LINE_HEIGHT_RATIO
+}
+
+function renderSheetBody(
+  blocks: PrintBlock[],
+  data: TicketData,
+  mmRatio: number,
+  pageFontSize: string,
+): string {
   const px = (n: number) => `${(n / mmRatio).toFixed(2)}mm`
   // `overflowVisible` es `block.textwrap === "wrap"` — mismo campo, mismo
   // significado que en canvas-block.tsx/preview-dialog.tsx: "cut" (default)
@@ -306,11 +337,16 @@ function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number
     height: number,
     overflowVisible: boolean,
     innerHtml: string,
+    // Solo las filas de ítem lo pasan: fija el alto de línea al MISMO número
+    // con el que avanzan, para que el browser no elija uno propio y las filas
+    // se vayan separando del paso calculado.
+    lineHeightPx?: number,
   ) => {
     const overflow = overflowVisible ? "visible" : "hidden"
     const whiteSpace = overflowVisible ? "pre-wrap" : "nowrap"
     const textOverflow = overflowVisible ? "" : "text-overflow:clip;"
-    return `<div style="position:absolute;top:${px(top)};left:${px(left)};width:${px(width)};height:${px(height)};overflow:${overflow};white-space:${whiteSpace};${textOverflow}">${innerHtml}</div>`
+    const lineHeight = lineHeightPx !== undefined ? `line-height:${px(lineHeightPx)};` : ""
+    return `<div style="position:absolute;top:${px(top)};left:${px(left)};width:${px(width)};height:${px(height)};overflow:${overflow};white-space:${whiteSpace};${textOverflow}${lineHeight}">${innerHtml}</div>`
   }
 
   /**
@@ -342,7 +378,6 @@ function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number
   }
 
   const parts: string[] = []
-  let pushDown = 0
   let i = 0
   while (i < blocks.length) {
     const block = blocks[i]
@@ -352,7 +387,7 @@ function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number
     // que hace de guarda sin repetir acá el switch de tipos.
     const lineGeo = lineGeometry(block)
     if (lineGeo) {
-      parts.push(positionedLine(block, lineGeo, block.top + pushDown))
+      parts.push(positionedLine(block, lineGeo, block.top))
       i++
       continue
     }
@@ -361,34 +396,42 @@ function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number
       const groupStart = i
       while (i < blocks.length && ITEM_LINE_TYPES.has(blocks[i].type)) i++
       const rowBlocks = blocks.slice(groupStart, i)
-      const rowHeight = Math.max(...rowBlocks.map((b) => b.height), 1)
+
+      // El modelo de HOJA es el inverso del rollo, y confundirlos fue el bug.
+      //
+      // En rollo no hay página: el papel crece, el bloque de ítem mide una
+      // línea y todo lo que sigue se corre hacia abajo (`pushDown` vive en
+      // roll-grid.ts, donde SÍ corresponde). En hoja la página es fija: el
+      // operador dibujó la región del cuerpo de la tabla, los ítems se apilan
+      // ADENTRO, y el pie se queda donde lo pusieron — la región ya reservó
+      // su espacio. Por eso acá nada empuja a nada: cada bloque se imprime en
+      // el `top` que tiene guardado, igual que lo muestra el editor (que
+      // nunca tuvo lógica de `pushDown`, de ahí que el canvas se viera bien y
+      // la vista previa no).
+      const rowHeight = sheetRowHeightPx(rowBlocks[0]?.size ?? pageFontSize, mmRatio)
       data.items.forEach((item, itemIdx) => {
         for (const rb of rowBlocks) {
           parts.push(
             positioned(
-              // Paso por `rowHeight` (alto MÁXIMO del grupo) — ver docblock
-              // de la función. Todos los campos de la fila avanzan lo mismo
-              // por ítem, así que la fila se mueve como una unidad.
-              rb.top + pushDown + itemIdx * rowHeight,
+              rb.top + itemIdx * rowHeight,
               rb.left,
               rb.width,
-              rb.height,
+              // Alto de UNA línea, no el de la región dibujada: si cada celda
+              // midiera `rb.height` se solaparían todas entre sí.
+              rowHeight,
               rb.textwrap === "wrap",
               renderItemFieldHtml(rb, item, data),
+              rowHeight,
             ),
           )
         }
       })
-      // El canvas ya reservaba el alto de UNA fila para este grupo — con N
-      // ítems el bloque ocupa N filas, así que lo que sigue se empuja
-      // (N-1) filas (0 ítems colapsa el hueco reservado).
-      pushDown += (data.items.length - 1) * rowHeight
       continue
     }
 
     if (ITEM_TABLE_TYPES.has(block.type)) {
       parts.push(
-        positioned(block.top + pushDown, block.left, block.width, block.height, true, renderItemTable(block, data)),
+        positioned(block.top, block.left, block.width, block.height, true, renderItemTable(block, data)),
       )
       i++
       continue
@@ -396,7 +439,7 @@ function renderSheetBody(blocks: PrintBlock[], data: TicketData, mmRatio: number
 
     parts.push(
       positioned(
-        block.top + pushDown,
+        block.top,
         block.left,
         block.width,
         block.height,
@@ -450,7 +493,7 @@ export function renderTemplateToHtml(
     // impresión entera — cae a A4 (el default de `defaultTemplateConfig`).
     const dim = PAPER_DIMENSIONS[template.page_size] ?? PAPER_DIMENSIONS.a4page
     const mmRatio = template.mm && template.mm > 0 ? template.mm : 3.78
-    const body = renderSheetBody(blocks, data, mmRatio)
+    const body = renderSheetBody(blocks, data, mmRatio, fontSize)
     return `<!DOCTYPE html>
 <html>
 <head>

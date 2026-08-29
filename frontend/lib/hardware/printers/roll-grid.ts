@@ -683,7 +683,7 @@ export function buildRollGrid(
           const rbCol = toCol(rb.left)
           const rbWidth = toWidth(rb.width, rbCol)
           const resolver = ITEM_FIELD_RESOLVERS[rb.type]
-          const value = resolver ? resolver(item, data) ?? "" : ""
+          const value = resolver ? resolver(item, data, rb) ?? "" : ""
           const lines = value
             ? wrapToWidth(cased(value), rbWidth).map((l) => alignInBox(l, rbWidth, rb.align))
             : []

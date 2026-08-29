@@ -128,6 +128,18 @@ export type BlockType =
   // rename del impuesto; si guardara `rate` una plantilla vieja seguiría
   // apuntando a un valor que el comercio pudo borrar/reemplazar.
   | "item_total_by_rate" | "subtotal_by_rate" | "iva_by_rate" | "iva_total"
+  // `item_total_if_rate` es la versión POR LÍNEA de la familia de arriba, y la
+  // pieza que arma la factura de hoja paraguaya clásica:
+  //
+  //   Cant. | Descripción | Precio unit. | Exentas | IVA 5% | IVA 10% | TOTAL
+  //
+  // Tres instancias del MISMO bloque con distinto `taxId` en `block.text`, una
+  // por columna: cada ítem imprime su monto en la columna de SU tasa y deja
+  // las otras dos en blanco. Los `*_by_rate` de arriba no sirven para esto —
+  // son agregados de documento, se imprimen una sola vez con la suma de todo
+  // el bucket. Poner un `item_total` en la columna del 10% "funciona" solo
+  // mientras todos los ítems compartan tasa (bug reportado 2026-08-29).
+  | "item_total_if_rate"
   // Remisión (context/42): motivo/origen/destino del traslado. Resuelven
   // TicketData.transferReason/originLabel/destinationLabel — null en
   // cualquier docType que no los pueble (build-ticket-data.ts), el bloque
