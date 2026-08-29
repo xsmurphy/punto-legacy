@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest"
 
 import { defaultBlock, type PrintBlock, type PrintTemplateConfig } from "@/lib/types/print-template"
 import { renderTemplateToEscPos } from "../render-template"
-import { buildRollGrid, rollGeometry, ROLL_COLUMNS } from "../roll-grid"
+import { buildRollGrid, rollGeometry, ROLL_COLUMNS, ROLL_MARGIN_COLS } from "../roll-grid"
 import type { TicketData } from "../build-ticket-data"
 
 /**
@@ -97,14 +97,15 @@ describe("bytes ESC/POS — alineación real en el papel", () => {
   for (const paperWidthMm of [58, 80] as const) {
     const cols = ROLL_COLUMNS[paperWidthMm]
 
-    it(`${paperWidthMm}mm: alineación izquierda arranca en la columna 0`, () => {
+    it(`${paperWidthMm}mm: alineación izquierda arranca DESPUÉS del margen`, () => {
       const geo = rollGeometry("receipt80", MM, paperWidthMm)
       const lines = emit(
         tpl([{ ...defaultBlock("total"), top: 0, left: 0, width: Math.round(geo.canvasWidthPx), height: 12, align: "left" }]),
         ticket(),
         paperWidthMm,
       )
-      expect(lines[0]).toBe("Gs 23.000")
+      // Columna 0 = margen del papel (`ROLL_MARGIN_COLS`), no contenido.
+      expect(lines[0]).toBe(" ".repeat(ROLL_MARGIN_COLS) + "Gs 23.000")
     })
 
     it(`${paperWidthMm}mm: alineación DERECHA conserva el padding (el bug del encoder)`, () => {
@@ -115,8 +116,9 @@ describe("bytes ESC/POS — alineación real en el papel", () => {
         paperWidthMm,
       )
       // Lo que importa: los espacios de padding LLEGAN a la impresora.
-      expect(lines[0]).toBe(" ".repeat(cols - "Gs 23.000".length) + "Gs 23.000")
-      expect(lines[0]).toHaveLength(cols)
+      // Termina en la última columna ÚTIL: el margen derecho queda en blanco.
+      expect(lines[0]).toBe(" ".repeat(cols - ROLL_MARGIN_COLS - "Gs 23.000".length) + "Gs 23.000")
+      expect(lines[0]).toHaveLength(cols - ROLL_MARGIN_COLS)
     })
 
     it(`${paperWidthMm}mm: alineación CENTRADA conserva el padding`, () => {
@@ -126,7 +128,9 @@ describe("bytes ESC/POS — alineación real en el papel", () => {
         ticket(),
         paperWidthMm,
       )
-      const expectedLead = Math.floor((cols - "Gs 23.000".length) / 2)
+      // Centrado dentro del área ÚTIL, corrido por el margen izquierdo.
+      const contentCols = cols - ROLL_MARGIN_COLS * 2
+      const expectedLead = ROLL_MARGIN_COLS + Math.floor((contentCols - "Gs 23.000".length) / 2)
       expect(lines[0]).toBe(" ".repeat(expectedLead) + "Gs 23.000")
     })
 
@@ -157,7 +161,9 @@ describe("bytes ESC/POS — alineación real en el papel", () => {
       // en vez de mirar solo el byte pegado a la "G".
       let spaces = 0
       for (let i = 0; i < gIdx; i++) if (bytes[i] === 0x20) spaces++
-      expect(spaces).toBe(cols - "Gs 23.000".length)
+      // Un espacio menos que antes: la última columna del papel es margen y
+      // el contenido termina ahí (ver ROLL_MARGIN_COLS).
+      expect(spaces).toBe(cols - ROLL_MARGIN_COLS - "Gs 23.000".length)
     })
   }
 })
@@ -188,7 +194,7 @@ describe("bytes ESC/POS — el listado de ítems es dinámico", () => {
     it(`con ${n} ítem(s), la regla y el total quedan DEBAJO del último`, () => {
       const lines = emit(config, ticket({ items: mkItems(n) }), 80)
       const lastItem = lines.findIndex((l) => l.includes(`Producto ${n}`))
-      const rule = lines.findIndex((l) => l.startsWith("---"))
+      const rule = lines.findIndex((l) => l.trimStart().startsWith("---"))
       const total = lines.findIndex((l) => l.includes("Gs 23.000"))
       expect(lastItem).toBeGreaterThanOrEqual(0)
       expect(rule).toBeGreaterThan(lastItem)
@@ -207,7 +213,7 @@ describe("bytes ESC/POS — el listado de ítems es dinámico", () => {
     ] as unknown as TicketData["items"]
     const lines = emit(config, ticket({ items }), 80)
     const gaseosa = lines.findIndex((l) => l.includes("Gaseosa"))
-    const rule = lines.findIndex((l) => l.startsWith("---"))
+    const rule = lines.findIndex((l) => l.trimStart().startsWith("---"))
     const total = lines.findIndex((l) => l.includes("Gs 23.000"))
     // El nombre largo ocupó 2 filas; "Gaseosa" arranca después, no encima.
     expect(gaseosa).toBeGreaterThan(1)
@@ -279,7 +285,8 @@ describe("bytes ESC/POS — no-ASCII", () => {
       ticket(),
       geo,
     )
-    expect(grid.rows[0].text).toHaveLength(ROLL_COLUMNS[80])
+    // Hasta la última columna útil: la del borde es margen (ROLL_MARGIN_COLS).
+    expect(grid.rows[0].text).toHaveLength(ROLL_COLUMNS[80] - ROLL_MARGIN_COLS)
     const lines = emit(
       tpl([
         {
@@ -295,6 +302,6 @@ describe("bytes ESC/POS — no-ASCII", () => {
       80,
     )
     expect(lines[0].endsWith("n")).toBe(true)
-    expect(lines[0]).toHaveLength(ROLL_COLUMNS[80])
+    expect(lines[0]).toHaveLength(ROLL_COLUMNS[80] - ROLL_MARGIN_COLS)
   })
 })

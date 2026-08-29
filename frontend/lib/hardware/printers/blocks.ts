@@ -723,8 +723,17 @@ export function resolveSimpleBlock(block: PrintBlock, data: TicketData): string 
 export function resolvePaymentLines(block: PrintBlock, data: TicketData): string[] {
   const lines = data.payments.map((p) => `${p.method}: ${formatAmountOnly(p.amount, data)}`)
   if (lines.length === 0) return []
-  const first = withBlockLabel(block, lines[0])
-  return first ? [first, ...lines.slice(1)] : lines
+  const label = (block.label ?? "").trim()
+  if (label === "") return lines
+  // El título va en su PROPIA línea y los pagos debajo, uno por línea. Antes se
+  // anteponía al primero ("Forma de pago: Efectivo: 200.000") y con dos medios
+  // de pago quedaba un renglón con dos títulos y el resto suelto (reporte del
+  // owner 2026-08-28). Como encabezado de lista, una venta mixta se lee:
+  //
+  //   Formas de pago:
+  //   Efectivo: 200.000
+  //   T. de Crédito: 100.000
+  return [label, ...lines]
 }
 
 /**

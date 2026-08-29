@@ -81,16 +81,19 @@ describe("rollo 80mm — ticket típico", () => {
     expect(grid.rows.map((r) => r.text)).toEqual([
       "              Almacén Central S.A.",
       "        Avda. Mcal. López 1234, Asunción",
-      "------------------------------------------------",
-      "24/08/2026                       001-001-0000123",
-      "------------------------------------------------",
+      // Desde 2026-08-28 la primera y la última columna del papel son MARGEN
+      // (`ROLL_MARGIN_COLS`): el contenido arranca en la columna 1 y termina
+      // una antes del borde, así que las filas miden 47 y no 48.
+      " ----------------------------------------------",
+      " 24/08/2026                     001-001-0000123",
+      " ----------------------------------------------",
       // Los importes de ítem van SIN moneda desde 2026-08-26 (decisión del
       // owner): el símbolo se declara una sola vez, en el total de abajo.
-      "Empanada de carne cortada a      2        16.000",
-      "cuchillo",
-      "Gaseosa 500ml                    1         7.000",
-      "------------------------------------------------",
-      "                                       Gs 23.000",
+      " Empanada de carne cortada a      2      16.000",
+      " cuchillo",
+      " Gaseosa 500ml                    1       7.000",
+      " ----------------------------------------------",
+      "                                      Gs 23.000",
       "",
       "     Gracias por su compra, vuelva pronto a",
       "                   visitarnos",

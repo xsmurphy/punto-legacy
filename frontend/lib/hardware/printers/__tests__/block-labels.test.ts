@@ -3,12 +3,13 @@ import { describe, it, expect } from "vitest"
 import { defaultBlock, type PrintBlock, type PrintTemplateConfig } from "@/lib/types/print-template"
 import {
   formatQty,
+  resolvePaymentLines,
   resolveSimpleBlock,
   resolveSingleBlockPreview,
   withBlockLabel,
 } from "../blocks"
 import { renderTemplateToHtml } from "../html-renderer"
-import { buildRollGrid, distributeRow, rollGeometry } from "../roll-grid"
+import { buildRollGrid, distributeRow, rollGeometry, ROLL_MARGIN_COLS } from "../roll-grid"
 import type { TicketData, TicketItem } from "../build-ticket-data"
 
 /**
@@ -311,5 +312,70 @@ describe("la moneda se declara UNA vez, en el total (owner 2026-08-26)", () => {
   it("sigue usando los separadores del tenant, no un formato fijo", () => {
     const comma = ticket({ currency: "US$", thousand: "comma", subtotal: 12000 })
     expect(resolveSimpleBlock(defaultBlock("subtotal"), comma)).toBe("12,000")
+  })
+})
+
+describe("la fila repartida SOBREVIVE al wrap de la grilla", () => {
+  it("la lista de ítems llega al papel con sus columnas, no amontonada", () => {
+    const g = rollGeometry("receipt80", MM)
+    const rows = rowsOf(
+      tpl([
+        {
+          ...defaultBlock("item_receipt"),
+          top: 0,
+          left: 0,
+          width: Math.round(g.canvasWidthPx),
+          height: 36,
+        },
+      ]),
+      ticket(),
+    )
+    const row = rows.find((r) => r.includes("12.000"))!
+    // Si `wrapToWidth` volviera a re-unir por palabras, esto sería
+    // "1,5 8.000 12.000" con un espacio entre cada campo.
+    expect(row).toMatch(/1,5 {2,}8\.000 {2,}12\.000/)
+  })
+})
+
+describe("payment_methods — el título encabeza la lista", () => {
+  const data = ticket({
+    payments: [
+      { method: "Efectivo", amount: 200000 },
+      { method: "T. de Crédito", amount: 100000 },
+    ],
+  })
+
+  it("el título va en su propia línea y cada pago en la suya", () => {
+    expect(
+      resolvePaymentLines({ ...defaultBlock("payment_methods"), label: "Formas de pago:" }, data),
+    ).toEqual(["Formas de pago:", "Efectivo: 200.000", "T. de Crédito: 100.000"])
+  })
+
+  it("sin título, solo los pagos", () => {
+    expect(resolvePaymentLines(defaultBlock("payment_methods"), data)).toEqual([
+      "Efectivo: 200.000",
+      "T. de Crédito: 100.000",
+    ])
+  })
+})
+
+describe("margen del papel", () => {
+  it("el contenido no toca el borde: una columna en blanco de cada lado", () => {
+    const g = rollGeometry("receipt80", MM)
+    const rows = rowsOf(
+      tpl([
+        {
+          ...defaultBlock("custom", "X".repeat(80)),
+          top: 0,
+          left: 0,
+          width: Math.round(g.canvasWidthPx),
+          height: 12,
+          textwrap: "wrap",
+        },
+      ]),
+      ticket(),
+    )
+    expect(rows[0].startsWith(" ".repeat(ROLL_MARGIN_COLS))).toBe(true)
+    expect(rows[0].length).toBeLessThanOrEqual(g.columns - ROLL_MARGIN_COLS)
   })
 })

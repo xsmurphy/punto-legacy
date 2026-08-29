@@ -186,9 +186,25 @@ export function nearestReceiptPaperWidthMm(pageSize: PaperSize): 58 | 80 {
   return pageSize === "receipt57" ? 58 : 80
 }
 
+/**
+ * Columnas en blanco que se reservan a CADA lado del papel.
+ *
+ * El texto pegado al borde es ilegible y en una térmica real el corte nunca cae
+ * exactamente donde dice la especificación (pedido del owner 2026-08-28: "un
+ * carácter de espacio entre el borde y el texto").
+ *
+ * Se reservan de las columnas del DISPOSITIVO, no del diseño: el encoder
+ * ESC/POS sigue emitiendo filas de `columns` caracteres —los márgenes viajan
+ * como espacios— así que el papel impreso tiene el mismo margen que la vista
+ * previa.
+ */
+export const ROLL_MARGIN_COLS = 1
+
 export interface RollGeometry {
   columns: number
   canvasWidthPx: number
+  /** Columnas ÚTILES: `columns` menos los márgenes de los dos lados. */
+  contentColumns: number
   charWidthPx: number
   lineHeightPx: number
 }
@@ -213,12 +229,17 @@ export function rollGeometry(
   const dim = PAPER_DIMENSIONS[pageSize] ?? PAPER_DIMENSIONS.receipt80
   const ratio = mm > 0 ? mm : 3.78
   const canvasWidthPx = dim.widthMm * ratio
-  const charWidthPx = canvasWidthPx / columns
+  const contentColumns = Math.max(1, columns - ROLL_MARGIN_COLS * 2)
   return {
     columns,
+    contentColumns,
     canvasWidthPx,
-    charWidthPx,
-    lineHeightPx: charWidthPx * ESC_POS_CELL_ASPECT,
+    // El carácter se mide contra las columnas ÚTILES: el canvas representa el
+    // área donde el operador puede poner bloques, que es el papel menos los
+    // márgenes. Medirlo contra `columns` haría que el diseño entrara 2
+    // caracteres más de los que el papel le deja usar.
+    charWidthPx: canvasWidthPx / contentColumns,
+    lineHeightPx: (canvasWidthPx / contentColumns) * ESC_POS_CELL_ASPECT,
   }
 }
 
@@ -238,6 +259,15 @@ export function rollGeometry(
 export function wrapToWidth(text: string, width: number): string[] {
   const max = Math.max(1, Math.floor(width))
   if (text === "") return []
+  // Una línea que YA entra se devuelve TAL CUAL, sin pasar por el wrap.
+  //
+  // El wrap parte por palabras y las vuelve a unir con UN espacio, así que
+  // destruía cualquier relleno intencional: la fila de ítems repartida a lo
+  // ancho del papel (`distributeRow`) entraba como
+  // "2        50.000        100.000" y salía "2 50.000 100.000", amontonada a
+  // la izquierda. El owner lo reportó dos veces como "la lista no respeta las
+  // columnas" (2026-08-28) — y no era la distribución, era este re-wrap.
+  if (!text.includes("\n") && text.length <= max) return [text]
   const out: string[] = []
   for (const paragraph of text.split("\n")) {
     if (paragraph === "") {
@@ -505,10 +535,16 @@ export function buildRollGrid(
   const cased = (s: string) => (upper ? s.toUpperCase() : s)
 
   const toCol = (px: number) =>
-    Math.min(geo.columns - 1, Math.max(0, Math.round(px / geo.charWidthPx)))
+    Math.min(
+      geo.columns - ROLL_MARGIN_COLS - 1,
+      Math.max(ROLL_MARGIN_COLS, ROLL_MARGIN_COLS + Math.round(px / geo.charWidthPx)),
+    )
   const toRow = (px: number) => Math.max(0, Math.round(px / geo.lineHeightPx))
   const toWidth = (px: number, col: number) =>
-    Math.max(1, Math.min(geo.columns - col, Math.round(px / geo.charWidthPx)))
+    Math.max(
+      1,
+      Math.min(geo.columns - ROLL_MARGIN_COLS - col, Math.round(px / geo.charWidthPx)),
+    )
   const toRows = (px: number) => Math.max(1, Math.round(px / geo.lineHeightPx))
 
   let pushRows = 0

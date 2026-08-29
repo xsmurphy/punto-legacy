@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest"
 
 import { defaultBlock, type PrintBlock, type PrintTemplateConfig } from "@/lib/types/print-template"
-import { buildRollGrid, rollGeometry, wrapToWidth, ROLL_COLUMNS } from "../roll-grid"
+import { buildRollGrid, rollGeometry, wrapToWidth, ROLL_COLUMNS, ROLL_MARGIN_COLS } from "../roll-grid"
 import type { TicketData } from "../build-ticket-data"
 
 /**
@@ -79,9 +79,13 @@ describe("rollGeometry", () => {
     expect(rollGeometry("receipt57", MM, 80).columns).toBe(ROLL_COLUMNS[80])
   })
 
-  it("el ancho del canvas equivale exactamente a `columns` caracteres", () => {
+  it("el ancho del canvas equivale a las columnas ÚTILES, no a las del papel", () => {
+    // El canvas es el área donde el operador puede poner bloques: el papel
+    // MENOS el margen de un carácter de cada lado (`ROLL_MARGIN_COLS`). Medirlo
+    // contra `columns` le dejaría diseñar 2 caracteres que el papel no le da.
     const g = geo80()
-    expect(g.charWidthPx * g.columns).toBeCloseTo(g.canvasWidthPx, 6)
+    expect(g.contentColumns).toBe(ROLL_COLUMNS[80] - ROLL_MARGIN_COLS * 2)
+    expect(g.charWidthPx * g.contentColumns).toBeCloseTo(g.canvasWidthPx, 6)
   })
 })
 
@@ -142,7 +146,9 @@ describe("buildRollGrid — la posición del canvas manda", () => {
       ticket(),
     )
     expect(rows[0].endsWith("24/08/2026")).toBe(true)
-    expect(rows[0].length).toBe(ROLL_COLUMNS[80])
+    // La fila llega hasta la última columna ÚTIL: el margen derecho queda en
+    // blanco, así que el texto termina un carácter antes del borde del papel.
+    expect(rows[0].length).toBe(ROLL_COLUMNS[80] - ROLL_MARGIN_COLS)
   })
 
   it("hor_line sale como una fila de guiones del ancho del bloque", () => {
@@ -159,7 +165,8 @@ describe("buildRollGrid — la posición del canvas manda", () => {
       ]),
       ticket(),
     )
-    expect(rows[0]).toBe("-".repeat(10))
+    // Arranca en la columna 1, no en la 0: la 0 es el margen izquierdo.
+    expect(rows[0]).toBe(" ".repeat(ROLL_MARGIN_COLS) + "-".repeat(10))
   })
 
   it("uppercase se aplica ANTES de wrapear, no como estilo del renderer", () => {

@@ -126,6 +126,11 @@ export function CanvasBlock({
   // template-editor.tsx (PAPER_DIMENSIONS[size].xMm * mm). Fuente única para
   // "esto entra en el papel", ver clampBlockToPaper (lib/types/print-template.ts).
   const paperDim = PAPER_DIMENSIONS[paperSize]
+  // En ticket el área de bloques es el papel MENOS el margen de un carácter de
+  // cada lado (`ROLL_MARGIN_COLS`): es exactamente lo que el papel deja usar, y
+  // el canvas dibuja ese margen como padding (ver `template-editor.tsx`). Si
+  // acá siguiera siendo el ancho completo, el operador diseñaría dos caracteres
+  // que la impresora no le da y el texto wrapearía distinto en el papel.
   const widthPx = paperDim.widthMm * mm
   const heightPx = paperDim.heightMm * mm
 

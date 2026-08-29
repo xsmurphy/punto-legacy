@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { Printer } from "lucide-react"
+import { Minus, Plus, Printer } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -116,6 +116,19 @@ function ScaledPaper({
 }) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const [scale, setScale] = React.useState(1)
+  /**
+   * Zoom manual. `null` = "encajar en la ventana", que es el default y lo que
+   * calcula el efecto de abajo. Apenas el usuario toca +/− pasa a mandar él:
+   * un ticket largo entra entero pero queda ilegible, y hasta ahora no había
+   * forma de acercarlo (pedido del owner 2026-08-28).
+   */
+  const [zoom, setZoom] = React.useState<number | null>(null)
+  const ZOOM_STEPS = [0.5, 0.75, 1, 1.5, 2, 3]
+  /** Próximo/anterior paso a partir de la escala VISIBLE, así el primer click
+   *  parte de lo que el usuario está viendo y no de un valor abstracto. */
+  const nextStep = (from: number) => ZOOM_STEPS.find((z) => z > from + 0.001) ?? ZOOM_STEPS[ZOOM_STEPS.length - 1]
+  const prevStep = (from: number) =>
+    [...ZOOM_STEPS].reverse().find((z) => z < from - 0.001) ?? ZOOM_STEPS[0]
 
   React.useLayoutEffect(() => {
     const el = containerRef.current
@@ -127,24 +140,58 @@ function ScaledPaper({
       if (aw <= 0 || ah <= 0) return
       const sx = aw / widthPx
       const sy = ah / heightPx
-      const next = Math.min(1, sx, sy)
+      const fit = Math.min(1, sx, sy)
+      const next = zoom ?? fit
       setScale((prev) => (Math.abs(prev - next) > 0.005 ? next : prev))
     }
     compute()
     const obs = new ResizeObserver(compute)
     obs.observe(el)
     return () => obs.disconnect()
-  }, [widthPx, heightPx])
+  }, [widthPx, heightPx, zoom])
 
   // Wrapper con dimensiones VISUALES (escaladas) para que el flex padre
   // centre/scrollee según el tamaño aparente del papel — `transform: scale`
   // no afecta layout, por eso el papel adentro va `position: absolute` con
   // origen top-left y el wrapper exterior reserva su tamaño escalado.
   return (
-    <div
-      ref={containerRef}
-      className="flex flex-1 items-start justify-center overflow-auto bg-muted/40 p-6"
-    >
+    <div ref={containerRef} className="relative flex flex-1 flex-col overflow-hidden bg-muted/40">
+      {/* Controles de zoom: un ticket largo entra entero en la ventana pero
+          queda ilegible, y no había forma de acercarlo (pedido del owner
+          2026-08-28). "Ajustar" vuelve al auto-fit. */}
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-1 rounded-2xl border bg-background/90 p-1 shadow-sm backdrop-blur">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          aria-label="Alejar"
+          onClick={() => setZoom(prevStep(scale))}
+        >
+          <Minus className="size-4" />
+        </Button>
+        <span className="min-w-12 text-center text-xs tabular-nums text-muted-foreground">
+          {Math.round(scale * 100)}%
+        </span>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8"
+          aria-label="Acercar"
+          onClick={() => setZoom(nextStep(scale))}
+        >
+          <Plus className="size-4" />
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 px-2 text-xs"
+          onClick={() => setZoom(null)}
+          disabled={zoom === null}
+        >
+          Ajustar
+        </Button>
+      </div>
+      <div className="flex flex-1 items-start justify-center overflow-auto p-6">
       <div
         className="relative shrink-0"
         style={{ width: `${widthPx * scale}px`, height: `${heightPx * scale}px` }}
@@ -173,6 +220,7 @@ function ScaledPaper({
             border: "none",
           }}
         />
+        </div>
       </div>
     </div>
   )

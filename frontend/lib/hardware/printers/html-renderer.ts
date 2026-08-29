@@ -158,6 +158,38 @@ function renderRollGraphicHtml(g: RollGraphic): string {
  * La tipografía solo afecta cuánto LLENA el ancho del papel, nunca dónde
  * corta: los saltos ya vienen decididos por columnas.
  */
+/**
+ * Una fila del rollo: `columns` CELDAS de ancho fijo, un carácter cada una.
+ *
+ * No es una decoración — es lo que hace que la vista previa no pueda mentir. El
+ * `<pre>` anterior confiaba en que la fuente midiera exactamente el avance que
+ * asumía la cuenta del tamaño (`rollFontSizeFor`): con la monoespaciada del
+ * sistema pintando un pelo más ancho, una línea llena se pasaba del papel y la
+ * última columna quedaba cortada contra el borde — y las columnas de la lista
+ * de ítems no coincidían entre el editor y la vista previa (reporte del owner
+ * 2026-08-28, con capturas).
+ *
+ * Con una grilla CSS de `columns` fracciones, cada carácter ocupa exactamente
+ * 1/columns del papel por CONSTRUCCIÓN, cualquiera sea la fuente que el
+ * dispositivo termine usando. El tamaño de letra pasa a ser solo qué tan
+ * llena se ve la celda; ya no puede desbordar el ancho.
+ */
+function renderRollRowHtml(row: RollGrid["rows"][number], columns: number): string {
+  const cells: string[] = []
+  for (const run of row.runs) {
+    // `Array.from` y no `split("")`: los acentos y cualquier carácter fuera del
+    // BMP se cuentan como UNA celda, igual que los cuenta la grilla.
+    for (const ch of Array.from(run.text)) {
+      const glyph = ch === " " ? "&nbsp;" : esc(ch)
+      cells.push(run.bold ? `<b>${glyph}</b>` : glyph)
+    }
+  }
+  // Las celdas que faltan (la fila puede ser más corta que el papel) se
+  // completan vacías para que la grilla mantenga el ancho.
+  while (cells.length < columns) cells.push("")
+  return `<div class="r">${cells.map((c) => `<span>${c}</span>`).join("")}</div>`
+}
+
 function renderRollBody(grid: RollGrid): string {
   const byRow = new Map<number, RollGraphic[]>()
   for (const g of grid.graphics) {
@@ -170,7 +202,7 @@ function renderRollBody(grid: RollGrid): string {
   let buffer: string[] = []
   const flush = () => {
     if (!buffer.length) return
-    parts.push(`<pre style="margin:0;font:inherit;white-space:pre">${buffer.join("\n")}</pre>`)
+    parts.push(buffer.join(""))
     buffer = []
   }
 
@@ -184,9 +216,7 @@ function renderRollBody(grid: RollGrid): string {
     // La negrita viaja por tramos (`RollRun`) — el mismo atributo que ESC/POS
     // le pasa al encoder, así que el preview la muestra donde el papel la va
     // a tener.
-    buffer.push(
-      grid.rows[r].runs.map((run) => (run.bold ? `<b>${esc(run.text)}</b>` : esc(run.text))).join(""),
-    )
+    buffer.push(renderRollRowHtml(grid.rows[r], grid.columns))
   }
   flush()
 
@@ -444,7 +474,14 @@ ${body}
      la plantilla adelante en el stack, las columnas que la grilla centró y
      cortó se pintaban de anchos distintos y el texto se desbordaba del papel. */
   body { font-family: ${ROLL_FONT_STACK}; font-size: ${rollFontSize}; width: ${widthMm}mm; margin: 0 auto; }
-  pre { font-family: inherit; }
+  /* Una fila = \`columns\` celdas de 1fr. El ancho de cada carácter sale de
+     DIVIDIR el papel, no de la métrica de la fuente: por construcción una
+     línea llena mide exactamente el ancho del papel y no puede desbordar.
+     \`overflow: hidden\` en la celda es el último seguro — si el glifo de una
+     fuente rara midiera más que su celda, se recorta ahí y no corre la fila
+     entera. */
+  .r { display: grid; grid-template-columns: repeat(${geo.columns}, 1fr); width: 100%; }
+  .r > span { overflow: hidden; white-space: pre; }
   @media print { body { margin: 0; } }
 </style>
 </head>
