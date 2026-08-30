@@ -854,7 +854,7 @@ function CustomerChip({
     if (!priceListName) return null
     return (
       <div className="px-3 py-1.5">
-        <p className="truncate text-[10px] text-muted-foreground">Lista: {priceListName}</p>
+        <p className="truncate text-[10px] text-muted-foreground lg:text-[11px]">Lista: {priceListName}</p>
       </div>
     )
   }
@@ -862,12 +862,12 @@ function CustomerChip({
   return (
     <div className="flex items-center gap-2 px-3 py-1.5">
       <div className="flex-1 min-w-0">
-        <p className="truncate text-xs font-medium text-foreground">{customer.name}</p>
+        <p className="truncate text-xs font-medium text-foreground lg:text-sm">{customer.name}</p>
         {customer.tin && (
-          <p className="text-[10px] text-muted-foreground">{customer.tin}</p>
+          <p className="text-[10px] text-muted-foreground lg:text-[11px]">{customer.tin}</p>
         )}
         {priceListName && (
-          <p className="truncate text-[10px] text-muted-foreground">Lista: {priceListName}</p>
+          <p className="truncate text-[10px] text-muted-foreground lg:text-[11px]">Lista: {priceListName}</p>
         )}
       </div>
       <Button
@@ -942,7 +942,7 @@ function LineAddons({
 }) {
   if (!line.selections || line.selections.length === 0) return null
   return (
-    <div className="mt-0.5 flex flex-col gap-px pl-2 text-[10px] text-muted-foreground">
+    <div className="mt-0.5 flex flex-col gap-px pl-2 text-[10px] text-muted-foreground lg:text-xs">
       {line.selections.map((addon) => (
         <span key={addon.optionId} className="truncate">
           {"· "}
@@ -999,7 +999,7 @@ function CartRowCollapsed({
     >
       <span
         className={cn(
-          "flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums",
+          "flex size-6 shrink-0 items-center justify-center rounded-full border text-[11px] font-semibold tabular-nums lg:text-xs",
           isVoucher
             ? "border-blue-500/40 bg-blue-500/15 text-blue-500"
             : hasDiscount
@@ -1011,10 +1011,10 @@ function CartRowCollapsed({
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">{line.name}</p>
+        <p className="truncate text-sm font-medium text-foreground lg:text-base">{line.name}</p>
         <LineAddons line={line} config={config} />
         {showSubtitle && (
-          <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground">
+          <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground lg:text-xs">
             {isVoucher && (
               <span className="inline-flex items-center gap-1 text-blue-500" title={`Vale ${line.voucher?.code}`}>
                 <Ticket className="size-3" aria-hidden />
@@ -1050,7 +1050,7 @@ function CartRowCollapsed({
             No suma al total
           </span>
         ) : (
-          <span className="text-sm font-semibold tabular-nums text-foreground">
+          <span className="text-sm font-semibold tabular-nums text-foreground lg:text-base">
             {formatAmount(subtotal, config)}
           </span>
         )}

@@ -248,7 +248,7 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Buscar clientes"
-            className="h-auto border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none placeholder:font-semibold placeholder:text-muted-foreground focus-visible:ring-0"
+            className="h-auto border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none lg:text-xl placeholder:font-semibold placeholder:text-muted-foreground focus-visible:ring-0"
             autoComplete="off"
             aria-label="Buscar clientes"
           />
@@ -310,11 +310,11 @@ function CustomerResultRow({
         )}
       >
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground">
+          <p className="truncate text-sm font-medium text-foreground lg:text-base">
             {customer.name}
           </p>
           {customer.tin && (
-            <p className="text-xs text-muted-foreground">{customer.tin}</p>
+            <p className="text-xs text-muted-foreground lg:text-sm">{customer.tin}</p>
           )}
         </div>
       </button>

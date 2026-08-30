@@ -147,7 +147,7 @@ export function ProductSearchDialog({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Buscar productos o servicios"
-            className="h-auto rounded-full border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none placeholder:font-semibold placeholder:text-muted-foreground focus-visible:ring-0"
+            className="h-auto rounded-full border-0 bg-transparent px-0 text-center text-lg font-semibold shadow-none lg:text-xl placeholder:font-semibold placeholder:text-muted-foreground focus-visible:ring-0"
             autoComplete="off"
             aria-label="Buscar producto"
           />
@@ -282,16 +282,16 @@ function ProductResultRow({
 
         {/* Nombre + categoría */}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-foreground flex items-center gap-1.5">
+          <p className="truncate text-sm font-medium text-foreground flex items-center gap-1.5 lg:text-base">
             <span className="truncate">{item.name}</span>
             {item.isGroup && (
-              <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] font-medium uppercase text-muted-foreground leading-none">
+              <span className="shrink-0 rounded bg-muted px-1 py-0.5 text-[10px] font-medium uppercase text-muted-foreground leading-none lg:text-[11px]">
                 Grupo
               </span>
             )}
           </p>
           {(categoryName || brandName) && (
-            <p className="truncate text-xs text-muted-foreground">
+            <p className="truncate text-xs text-muted-foreground lg:text-sm">
               {categoryName}
               {categoryName && brandName && " · "}
               {brandName}
@@ -300,7 +300,7 @@ function ProductResultRow({
         </div>
 
         {/* Precio a la derecha */}
-        <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground">
+        <span className="shrink-0 text-sm font-semibold tabular-nums text-foreground lg:text-base">
           {formatMoney(item.price, config)}
         </span>
       </button>
