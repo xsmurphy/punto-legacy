@@ -125,6 +125,8 @@ export const PANEL_ROUTES: RouteEntry[] = [
     title: "Asistente",
     icon: MessageCircle,
     surface: "sidebar",
+    // Gate real del endpoint que consume la página: api/v1/ai/execute.php:23.
+    requires: "ai.agent.use",
     hideOnMobile: true,
     keywords: ["ia", "ai", "agente", "chat", "asistente"],
   },

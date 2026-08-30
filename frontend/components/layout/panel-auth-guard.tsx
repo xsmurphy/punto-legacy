@@ -11,7 +11,7 @@ import {
   buildSidebarNav,
   type NavContext,
 } from "@/lib/navigation/build"
-import { usePermissions } from "@/hooks/use-permissions"
+import { usePermission, usePermissions } from "@/hooks/use-permissions"
 import { useBootstrap, useSetActiveOutlet } from "@/hooks/use-bootstrap"
 import { useParkedSales } from "@/hooks/use-parked-sales"
 import { RealtimeWire } from "@/components/realtime-wire"
@@ -37,6 +37,8 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter()
   const pathname = usePathname()
   const permissions = usePermissions()
+  // Mismo permiso que exige api/v1/ai/execute.php:23 — gatea FAB y Sheet.
+  const canUseAgent = usePermission("ai.agent.use")
   // Sidebar contextual: dentro de /pos se muestran los módulos de la caja.
   const isPos = pathname === "/pos" || pathname.startsWith("/pos/")
   // Solo en POS: el endpoint /v1/parked-sales requiere Bearer del device.
@@ -257,8 +259,11 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
       />
       <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
       {/* Asistente IA. FAB visible solo fuera de /pos y fuera de /chat.
-          El Sheet se monta siempre para que el menú POS pueda abrirlo via store. */}
-      {bootstrap?.companyId != null && (
+          El Sheet se monta siempre que el usuario pueda usar el agente, para
+          que el menú POS pueda abrirlo via store. El gate `ai.agent.use`
+          espeja el del backend (api/v1/ai/execute.php:23): sin el permiso el
+          endpoint rechaza igual, así que ni el FAB ni el Sheet se montan. */}
+      {bootstrap?.companyId != null && canUseAgent && (
         <AgentChatFloating
           companyName={bootstrap.companyName}
           viewOutletId={viewOutletId}
