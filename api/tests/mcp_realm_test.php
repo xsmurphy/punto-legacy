@@ -19,6 +19,10 @@ require_once __DIR__ . '/_harness.php';
  *     que repetir el caso 18 veces esperando que nadie se olvide.
  *  3. Una key es rechazada donde el realm NO optó. Habilitar el MCP es
  *     explícito por endpoint; lo que no se agregó, no entra.
+ *  4. El rate limit del realm existe, cuenta por KEY y es FAIL_OPEN. Lo
+ *     último importa tanto como lo primero: si Redis se cae, las integraciones
+ *     de todos los comercios tienen que seguir leyendo — es una superficie de
+ *     lectura, y tirarla por un contador es peor que el abuso que evita.
  *
  * Corre cada endpoint en SUBPROCESO (`_permission_once_cli.php`) porque
  * `apiError()` hace `exit`: un 405 dentro del proceso del test lo mataría.
@@ -179,6 +183,41 @@ try {
             $failures, $checks
         );
     }
+    // ── 4. Rate limit ────────────────────────────────────────────────────────
+    // En este entorno Redis NO está (el arnés lo dice en su salida), así que lo
+    // que se ejercita de verdad es la rama FAIL_OPEN: las llamadas de arriba
+    // pasaron TODAS, que es exactamente el comportamiento que se quiere cuando
+    // el limiter no está disponible. Si esto se rompiera, los GET del caso 1
+    // habrían dado 429 o 503.
+    [$st, $raw] = hitEndpoint('v1/settings.php', 'GET', '', $bearer);
+    check(
+        'sin Redis el limiter deja pasar (FAIL_OPEN), no corta la integración',
+        $st !== 429 && $st !== 503,
+        "status = $st — con FAIL_CLOSED daría 503 y tumbaría a todos los comercios | $raw",
+        $failures, $checks
+    );
+
+    // Y que la regla siga en el embudo: es lo que puede regresar si alguien
+    // mueve el limiter a un endpoint puntual o cambia la política.
+    $bootstrap = (string) file_get_contents(dirname(__DIR__) . '/bootstrap.php');
+    check(
+        'el limiter cuenta por KEY (AUTHED_SESSION_ID), no por IP ni por tenant',
+        str_contains($bootstrap, '$__rlKey = (string) AUTHED_SESSION_ID'),
+        'contar por IP juntaría varias keys del mismo comercio; por tenant, las de usuarios distintos',
+        $failures, $checks
+    );
+    check(
+        'son DOS ventanas: la de minuto corta el loop, la diaria acota el costo',
+        str_contains($bootstrap, "'mcpmin'") && str_contains($bootstrap, "'mcpday'"),
+        'quedó una sola ventana',
+        $failures, $checks
+    );
+    check(
+        'la política es FAIL_OPEN, no FAIL_CLOSED',
+        str_contains($bootstrap, 'RateLimiter::FAIL_OPEN') && !preg_match('/mcp.*FAIL_CLOSED/s', substr($bootstrap, strpos($bootstrap, 'mcpmin') - 2000, 4000)),
+        'con FAIL_CLOSED una caída de Redis tumba las integraciones de todos',
+        $failures, $checks
+    );
 } finally {
     $db->Execute("DELETE FROM auth_session WHERE companyid = ?::uuid AND realm = 'mcp'", [$companyId]);
     $db->Execute('DELETE FROM tenant_audit WHERE companyid = ?::uuid', [$companyId]);

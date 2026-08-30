@@ -239,7 +239,7 @@ M0 (realm, keys, scopes, auditoría) como la pieza más grande.
 | **M1** | MCP server + opt-in del realm en los endpoints de lectura | ✅ **HECHA 2026-08-30** |
 | **M2** | Redacción del catálogo de tools: nombres, descripciones, etiquetas de campo. Prueba real con Claude Desktop contra un tenant de prueba | M1 |
 | **M3** | Invitación a terceros (contador) con scope de lectura contable (D9) | M0 |
-| **M4** | Gating por plan + rate limit por key (D10) | M1 |
+| **M4** | Gating por plan (D10) — el **rate limit ya está**, ver abajo | M1 |
 | **M5** | Telemetría de uso de tools, mismo esquema para MCP y agente propio (D12) | M1, `context/17` |
 
 ## M0 — cómo quedó (2026-08-30)
@@ -307,6 +307,38 @@ contra el route, con Requests estándar).
 **Lo que sigue sin verificar**: nadie lo conectó a un cliente real. El smoke
 cubre el modo de falla más probable —que el server arranque pero hable mal el
 protocolo— pero no reemplaza una conexión de verdad.
+
+## Rate limit (2026-08-30)
+
+Aplicado en el mismo embudo que el read-only (`apiAuthTenant()`), reusando el
+`RateLimiter` que ya existía y que hasta ahora solo usaba el login de admin.
+
+Importa MÁS en el MCP que en el panel por una razón concreta: **un humano hace
+clics, un modelo hace loops.** Un agente que razona mal puede pedir el mismo
+reporte cincuenta veces en un minuto sin que nadie lo note — no es un ataque, es
+uso normal salido de control. Y algunas tools traen hasta 5000 filas.
+
+- **Dos ventanas**, porque frenan cosas distintas: 60/minuto corta el loop en
+  caliente, 5000/día acota el costo total de una key que se porta "bien" pero
+  consulta todo el día. Números generosos a propósito: una sesión de análisis
+  real encadena varias herramientas y no debería tocar el techo nunca.
+- **Cuenta por KEY** (`AUTHED_SESSION_ID`), no por IP ni por tenant: es lo que
+  se revoca y lo que el comercio ve en la auditoría, así que es la unidad
+  correcta para contar y para explicar el corte.
+- **FAIL_OPEN**, al revés que el login de admin. Allá el limiter protege una
+  credencial y si Redis se cae hay que cerrar; acá protege capacidad sobre una
+  superficie de LECTURA, y tirar las integraciones de todos los comercios
+  porque se cayó Redis es peor que el abuso que evita.
+
+**NO verificado el corte real**: el PHP de desarrollo no tiene la extensión
+phpredis, así que el arnés ejercita la rama FAIL_OPEN (que las llamadas pasen
+sin Redis) y fija la configuración sobre el código. Que corte en 60/min solo se
+puede comprobar donde haya Redis.
+
+**Lo que sigue sin haber**: tope de tamaño de respuesta (`get_transactions`
+trae hasta 5000 filas y todas viajan), límite de concurrencia por key más allá
+del `maxDuration = 60` del route, y scopes por key — el campo `meta` está listo
+pero hoy una key lee todo lo que su usuario puede.
 
 ## Riesgos
 

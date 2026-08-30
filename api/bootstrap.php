@@ -154,6 +154,44 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         apiError('El realm mcp es de solo lectura', 405);
     }
 
+    // ── Rate limit del realm `mcp`, también en el embudo ──────────────────────
+    //
+    // Importa MÁS acá que en el panel por una razón concreta: un humano hace
+    // clics, un modelo hace loops. Un agente que razona mal puede pedir el mismo
+    // reporte cincuenta veces en un minuto sin que nadie lo note — no es un
+    // ataque, es uso normal salido de control. Y algunas tools traen hasta 5000
+    // filas.
+    //
+    // DOS ventanas, porque frenan cosas distintas: la de minuto corta el loop en
+    // caliente; la diaria acota el costo total de una key que se porta "bien"
+    // pero consulta todo el día. Los números son generosos a propósito: una
+    // sesión de análisis real encadena varias herramientas y no debería tocar
+    // el techo nunca.
+    //
+    // La identidad es la KEY (`AUTHED_SESSION_ID`), no la IP ni el tenant: es lo
+    // que se revoca y lo que el comercio ve en la auditoría, así que es la
+    // unidad correcta para contar y para explicar el corte.
+    //
+    // FAIL_OPEN a propósito, al revés que el login de admin: allá el limiter
+    // protege una credencial y si Redis se cae hay que cerrar; acá protege
+    // capacidad sobre una superficie de LECTURA, y tirar abajo las
+    // integraciones de todos los comercios porque se cayó Redis es peor que el
+    // abuso que evita.
+    if ($realm === 'mcp' && defined('AUTHED_SESSION_ID')) {
+        require_once __DIR__ . '/lib/RateLimit/RateLimiter.php';
+        $__rlKey = (string) AUTHED_SESSION_ID;
+        try {
+            (new \Punto\Api\RateLimit\RateLimiter($__rlKey, 'mcpmin'))
+                ->limit(60, 60, \Punto\Api\RateLimit\RateLimiter::FAIL_OPEN);
+            (new \Punto\Api\RateLimit\RateLimiter($__rlKey, 'mcpday'))
+                ->limit(5000, 86400, \Punto\Api\RateLimit\RateLimiter::FAIL_OPEN);
+        } catch (\Punto\Api\RateLimit\RateExceededException $e) {
+            // 429 con mensaje accionable: quien lo lee es un modelo, y el texto
+            // es lo único que tiene para decidir si reintentar o parar.
+            apiError('Límite de consultas alcanzado para esta key. Esperá un minuto antes de reintentar.', 429);
+        }
+    }
+
     // Contexto operativo: la fila `device` es la fuente de verdad para pos-app.
     // Los claims oid/rid del JWT YA NO se usan para scope (pueden estar presentes
     // en tokens viejos, pero se ignoran — evita el drift que causaba los bugs).
