@@ -21,6 +21,9 @@ require_once __DIR__ . '/_harness.php';
  *     revoca y responde igual que una inexistente — el mismo P2 que se cerró
  *     en `devices.php`.
  *  6. El listado nunca devuelve el token ni su hash.
+ *  7. La regla de auditoría del realm `mcp`: se auditan TODAS las llamadas,
+ *     incluidas las GET. Es la excepción a la regla general (solo mutaciones)
+ *     y auditar solo mutaciones en un realm read-only sería no auditar nada.
  *
  * Uso (necesita Postgres migrado — ver run_mcp_key_test.sh):
  *   POSTGRES_HOST=... php -d variables_order=EGPCS api/tests/mcp_key_test.php
@@ -168,6 +171,48 @@ try {
     );
     check('revocada, desaparece del listado activo', count($svc->listForCompany($companyA)) === 0, 'sigue activa', $failures, $checks);
     check('pero sigue en el historial', count($svc->listForCompany($companyA, true)) >= 1, 'se perdió la auditoría', $failures, $checks);
+    // ── 7. Regla de auditoría del realm mcp ──────────────────────────────────
+    // El gate vive en `apiAuthTenant()` (bootstrap.php) y depende de
+    // `$_SERVER['REQUEST_METHOD']`, que bajo CLI no existe: en vez de simular
+    // media request, se verifica la REGLA sobre el código, que es lo que puede
+    // regresar. Un `tenantAudit()` que vuelva a mirar solo mutaciones dejaría
+    // al MCP —que no muta— sin una sola línea de auditoría.
+    $bootstrap = (string) file_get_contents(dirname(__DIR__) . '/bootstrap.php');
+    check(
+        'la condición de auditoría contempla el realm mcp, no solo mutaciones',
+        str_contains($bootstrap, '$__isMcp') && str_contains($bootstrap, '$__isMutation || $__isMcp'),
+        'la guarda volvió a ser solo-mutaciones: el MCP quedaría sin auditoría',
+        $failures, $checks
+    );
+    check(
+        'el realtime sigue disparando SOLO en mutaciones',
+        str_contains($bootstrap, 'if ($__isMutation) {'),
+        'una lectura del MCP estaría emitiendo eventos de realtime',
+        $failures, $checks
+    );
+    check(
+        'la auditoría del mcp registra QUÉ key hizo la llamada',
+        str_contains($bootstrap, "'keyId' => (string) AUTHED_SESSION_ID"),
+        'sin keyId el comercio ve la llamada pero no qué integración la hizo',
+        $failures, $checks
+    );
+
+    // Y que la tabla acepte el shape que se le va a escribir.
+    $auditId = 'b17ce470-0000-4000-8000-0000000009aa';
+    $db->Execute(
+        'INSERT INTO tenant_audit (id, companyid, userid, outletid, realm, method, endpoint, meta, ip)
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::jsonb, ?)',
+        [$auditId, $companyA, $userA, $outletA, 'mcp', 'GET', '/v1/reports/summary_year',
+         json_encode(['keyId' => 'b17ce470-0000-4000-8000-0000000009bb']), '127.0.0.1']
+    );
+    $back = ncmExecute('SELECT realm, method, meta FROM tenant_audit WHERE id = ?::uuid', [$auditId]);
+    check(
+        'tenant_audit acepta una lectura del realm mcp con su keyId',
+        $back && (string) $back['realm'] === 'mcp' && (string) $back['method'] === 'GET',
+        'no se pudo escribir/leer la fila de auditoría del mcp',
+        $failures, $checks
+    );
+    $db->Execute('DELETE FROM tenant_audit WHERE id = ?::uuid', [$auditId]);
 } finally {
     $db->Execute("DELETE FROM auth_session WHERE companyid IN (?::uuid, ?::uuid) AND realm = 'mcp'", [$companyA, $companyB]);
     foreach ($created['contact'] as $id) { $db->Execute('DELETE FROM contact WHERE contactId = ?', [$id]); }

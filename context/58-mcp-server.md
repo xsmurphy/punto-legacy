@@ -235,12 +235,43 @@ M0 (realm, keys, scopes, auditoría) como la pieza más grande.
 
 | Fase | Qué | Depende de |
 |---|---|---|
-| **M0** | Realm `mcp` + emisión/revocación de API keys desde `/settings/sessions` + scopes en `meta` + auditoría de cada llamada (el tenant tiene que poder ver qué hizo su IA) | — |
+| **M0** | Realm `mcp` + emisión/revocación de API keys + auditoría de cada llamada | ✅ **HECHA 2026-08-30** |
 | **M1** | MCP server mínimo: handshake + listado de tools sobre `lib/agent/read-tools.ts` (`buildReadOnlyFetchTools`, que ya excluye `render_chart`) | M0 |
 | **M2** | Redacción del catálogo de tools: nombres, descripciones, etiquetas de campo. Prueba real con Claude Desktop contra un tenant de prueba | M1 |
 | **M3** | Invitación a terceros (contador) con scope de lectura contable (D9) | M0 |
 | **M4** | Gating por plan + rate limit por key (D10) | M1 |
 | **M5** | Telemetría de uso de tools, mismo esquema para MCP y agente propio (D12) | M1, `context/17` |
+
+## M0 — cómo quedó (2026-08-30)
+
+Salió más barato de lo planificado porque casi todo existía:
+
+- **Sin migración.** Una key es una fila de `auth_session` (mig 69) con
+  `realm = 'mcp'`; esa columna es `varchar(16)` sin CHECK. `authResolve()`
+  tampoco se tocó: ya chequea `in_array($realm, $allowedRealms)`.
+- **Permisos ⊆ usuario, por construcción.** La key se emite con el mismo
+  `userId`/`roleId`/`outletId` del operador, así que `hasPermission()` resuelve
+  idéntico. No hay segunda tabla de permisos que pueda divergir (D6 sin código
+  propio).
+- **UI en página aparte**, `/settings/mcp-keys`, NO como sección de Sesiones: una
+  sesión solo se revoca, una key se emite y su token se muestra una sola vez.
+  Verbos distintos. Las keys igual aparecen en Sesiones con la etiqueta
+  "Integración".
+- **Auditoría sobre `tenant_audit`** (mig 35), que ya tenía columna `realm`,
+  índices y retención por pg_cron. El único cambio en `bootstrap.php`: la regla
+  general audita mutaciones y NO los GET; el realm `mcp` es la excepción
+  invertida, porque sus lecturas son todo el producto — auditar solo mutaciones
+  en un realm read-only sería no auditar nada. Se guarda `keyId` en `meta` para
+  saber qué integración llamó; el nombre no, porque vive en `auth_session.meta`
+  y el SELECT de `authSessionLookup()` es el hot path de toda request
+  autenticada.
+
+Arnés `api/tests/mcp_key_test.php`, 24/24.
+
+**Lo que M0 NO incluye, y hace falta para probar con un cliente real:** ningún
+endpoint acepta todavía el realm `mcp` — `/v1/*` es `apiAuthTenant(['panel'])`,
+así que hoy una key válida sería rechazada. Ese opt-in es parte de M1, junto con
+el server.
 
 ## Riesgos
 

@@ -243,19 +243,44 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         }
     }
 
-    // Auditoría: registrar mutaciones (POST/PUT/PATCH/DELETE) del tenant.
-    // GET no se audita. Best-effort: tenantAudit() absorbe cualquier error.
+    // Auditoría del tenant. Best-effort: tenantAudit() absorbe cualquier error.
+    //
+    // Regla general: se auditan las MUTACIONES (POST/PUT/PATCH/DELETE) y los GET
+    // no, porque el volumen de lecturas de un panel en uso llenaría la tabla sin
+    // aportar nada — el operador ya sabe lo que miró.
+    //
+    // El realm `mcp` es la excepción, y es lo contrario: ahí las LECTURAS son
+    // todo el producto (M0 de `context/58`, superficie read-only), y el comercio
+    // necesita poder ver qué consultó su IA — es lo que vuelve investigable el
+    // "Claude hizo algo raro en mi Punto", que es un ticket que no se puede
+    // reproducir. Auditar solo las mutaciones de un realm que no muta sería no
+    // auditar nada.
     $__auditMethod = $_SERVER['REQUEST_METHOD'] ?? '';
-    if (in_array($__auditMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+    $__isMutation  = in_array($__auditMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true);
+    $__isMcp       = ($realm === 'mcp');
+    if ($__isMutation || $__isMcp) {
         $__auditEndpoint = (string) (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '');
         $__auditTargetId = isset($_GET['id']) ? (string) $_GET['id'] : null;
+        // Qué key hizo la llamada. Va el ID y no el nombre: el nombre vive en
+        // `auth_session.meta`, que el SELECT de `authSessionLookup()` NO trae —
+        // y ese es el hot path de toda request autenticada (con cache Redis
+        // opcional). Ensancharlo por una etiqueta no vale; la UI de auditoría
+        // resuelve el nombre contra la lista de keys, que ya lo expone.
+        $__auditMeta = $__isMcp && defined('AUTHED_SESSION_ID')
+            ? ['keyId' => (string) AUTHED_SESSION_ID]
+            : [];
         tenantAudit(
             compact('companyId', 'outletId', 'userId', 'realm'),
             $__auditMethod,
             $__auditEndpoint,
-            $__auditTargetId
+            $__auditTargetId,
+            $__auditMeta
         );
-        realtimeAfterMutation($__auditMethod, $__auditEndpoint, $__auditTargetId, $companyId);
+        // El realtime solo tiene sentido para mutaciones: una lectura del MCP no
+        // cambia nada que otro dispositivo deba refrescar.
+        if ($__isMutation) {
+            realtimeAfterMutation($__auditMethod, $__auditEndpoint, $__auditTargetId, $companyId);
+        }
     }
 
     // deviceId: solo no-vacío para realm pos-app (ver arriba). Agregado para que
