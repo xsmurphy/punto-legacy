@@ -17,7 +17,7 @@ require_once __DIR__ . '/../lib/Users/UsersService.php';
 require_once __DIR__ . '/../lib/Auth/RoleEscalation.php';
 
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$allowedRealms = $method === 'GET' ? ['panel', 'pos-app'] : ['panel'];
+$allowedRealms = $method === 'GET' ? ['panel', 'pos-app', 'mcp'] : ['panel'];
 $ctx      = apiAuthTenant($allowedRealms);
 $svc      = new \Punto\Api\Users\UsersService();
 $id       = $_GET['id']       ?? null;

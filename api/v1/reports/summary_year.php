@@ -12,7 +12,7 @@
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'mcp']);
 $svc = new \Punto\Api\Reports\SummaryYearService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

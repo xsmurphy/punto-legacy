@@ -147,7 +147,7 @@ const VALID_KINDS = [
     'descuento', 'giftcard',
 ];
 
-$ctx       = apiAuthTenant(['panel', 'pos-app']);
+$ctx       = apiAuthTenant(['panel', 'pos-app', 'mcp']);
 $companyId = $ctx['companyId'];
 
 // Visibilidad por sucursal: solo pos-app queda restringido a su outlet

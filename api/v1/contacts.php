@@ -28,7 +28,7 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel', 'pos-app']);
+$ctx = apiAuthTenant(['panel', 'pos-app', 'mcp']);
 
 global $db;
 

@@ -12,7 +12,7 @@
  */
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'mcp']);
 if (!hasPermission('finance.manage')) {
     apiError('No tenés permiso para gestionar Finanzas (requiere: finance.manage)', 403);
 }

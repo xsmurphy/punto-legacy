@@ -26,7 +26,7 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx    = apiAuthTenant(['panel']);
+$ctx    = apiAuthTenant(['panel', 'mcp']);
 $svc    = new \Punto\Api\Settings\SettingsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 

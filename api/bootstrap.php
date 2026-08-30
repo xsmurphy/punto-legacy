@@ -135,6 +135,25 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         apiError('Company Blocked', 403);
     }
 
+    // ── El realm `mcp` es READ-ONLY, y se hace cumplir ACÁ ────────────────────
+    //
+    // Un endpoint habilita el MCP agregando 'mcp' a su allowlist, y muchos de
+    // esos archivos sirven GET y mutaciones en el MISMO archivo (items,
+    // contacts, users…). Si el read-only dependiera de que cada uno se acuerde
+    // de chequear el método, alcanzaría UN olvido para que una API key pudiera
+    // escribir — y el olvido no fallaría en tests, fallaría en producción.
+    //
+    // Por eso vive en el embudo: agregar 'mcp' a un endpoint es seguro por
+    // construcción, no por disciplina. Es la misma lección del POS token-only
+    // (`context/08` §60) y de D5 en `context/58`.
+    //
+    // HEAD entra con GET (es un GET sin cuerpo). Todo lo demás corta con 405 y
+    // no 403: el problema no es quién sos, es que este verbo no existe para
+    // esta credencial.
+    if ($realm === 'mcp' && !in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true)) {
+        apiError('El realm mcp es de solo lectura', 405);
+    }
+
     // Contexto operativo: la fila `device` es la fuente de verdad para pos-app.
     // Los claims oid/rid del JWT YA NO se usan para scope (pueden estar presentes
     // en tokens viejos, pero se ignoran — evita el drift que causaba los bugs).
