@@ -27,9 +27,9 @@ import * as React from "react"
  * Igual que con las áreas seguras: se mide UNA vez acá y se expone como
  * variable. Ningún call-site vuelve a tocar `visualViewport` — el modal que
  * necesite convivir con el teclado descuenta `var(--kb-inset)` en su alto y
- * listo. (El bottom drawer de vaul es la excepción histórica: se reposiciona
- * solo, y por eso `components/ui/responsive-dialog.tsx` pide no agregarle
- * hacks. Esta variable no lo toca.)
+ * listo. El bottom drawer de vaul dejó de ser la excepción: consume la
+ * variable como el resto (`components/ui/drawer.tsx`, dirección bottom), y su
+ * `repositionInputs` va apagado para que no mueva el drawer una segunda vez.
  *
  * Vive montado desde el layout del POS, junto a `PosTouchScope`, y limpia la
  * variable al desmontar: fuera de la caja nadie la consume.

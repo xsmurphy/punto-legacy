@@ -42,8 +42,12 @@
  *   acá ni en los call-sites.
  *
  * TECLADO VIRTUAL
- *   vaul reposiciona el drawer solo cuando el teclado se abre. No agregar
- *   hacks de `visualViewport` acá ni en los call-sites.
+ *   Lo resuelve el primitive: `DrawerContent` descuenta `--kb-inset` —la misma
+ *   variable que consume `dialog.tsx`, medida una sola vez en
+ *   `components/pos/keyboard-inset.tsx`— y apoya el drawer sobre el teclado en
+ *   vez de quedar debajo. El `repositionInputs` de vaul va apagado en el root
+ *   para que no compita con esa medición. No agregar hacks de `visualViewport`
+ *   acá ni en los call-sites.
  */
 
 import * as React from "react"
