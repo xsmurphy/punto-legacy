@@ -308,6 +308,34 @@ contra el route, con Requests estándar).
 cubre el modo de falla más probable —que el server arranque pero hable mal el
 protocolo— pero no reemplaza una conexión de verdad.
 
+## La UI de Connectors reserva `Authorization` (hallazgo 2026-08-30)
+
+Al conectar desde **Claude Desktop → Connectors → conector propio**, el diálogo
+NO ofrece dónde pegar una API key: para servers remotos asume OAuth e intenta
+registrarse solo (dynamic client registration). Con nuestro server —Bearer
+estático, sin OAuth— falla con *"Couldn't register with Punto's sign-in
+service"*.
+
+Tiene una sección "Additional request headers", pero ahí `authorization`
+aparece **deshabilitado**: Claude lo reserva para su propio bearer de OAuth. Los
+seleccionables son `x-api-key`, `api-key`, `apikey`, `x-apikey`, `x-api-token`,
+`api-token`, `x-auth-token`, `x-access-token`.
+
+**Por eso el route acepta la key por cualquiera de esos headers**, no solo por
+`Authorization` (`KEY_HEADERS` en `app/api/mcp/route.ts`, normalizado a
+`Bearer <key>` antes de salir hacia la API). Son varios y no uno porque el menú
+lo dicta el cliente: el usuario elige cualquiera y todos tienen que andar, o el
+éxito depende de cuál haya tocado.
+
+Sin esto la ÚNICA instalación posible era editar `claude_desktop_config.json` a
+mano con el puente `mcp-remote` — aceptable para un técnico, imposible de pedirle
+a un comercio, que es justamente el caso de uso de D9 (el contador como canal) y
+del upsell de plan alto.
+
+**OAuth sigue siendo el camino prolijo** —clic en "Conectar", login en Punto,
+consentimiento, sin copiar keys— pero ya NO bloquea la instalación. Queda como
+mejora, no como prerequisito.
+
 ## Rate limit (2026-08-30)
 
 Aplicado en el mismo embudo que el read-only (`apiAuthTenant()`), reusando el

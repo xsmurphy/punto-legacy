@@ -10,7 +10,11 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
  * falla más probable: que el server arranque pero hable mal el protocolo.
  *
  * También fija dos propiedades de seguridad del route:
- *  - Sin `Authorization` no se atiende NADA, ni siquiera el listado de tools.
+ *  - Sin credencial no se atiende NADA, ni siquiera el listado de tools.
+ *  - La key entra por `x-api-key` además de por `Authorization`: la UI de
+ *    Connectors de Claude RESERVA `authorization` para su propio bearer de
+ *    OAuth y solo deja elegir los alternativos, así que sin eso la única
+ *    instalación posible sería editar el JSON de config a mano.
  *  - `render_chart` no se expone: es de presentación y un cliente MCP no tiene
  *    UI de chat donde pintarla.
  */
@@ -72,6 +76,14 @@ describe("route MCP", () => {
     expect(res.status).toBe(401)
     const body = await readRpc(res)
     expect(JSON.stringify(body)).toContain("API key")
+  })
+
+  it("acepta la key por x-api-key, que es lo que ofrece la UI de Connectors", async () => {
+    const { POST } = await import("../../app/api/mcp/route")
+    const res = await POST(rpc(INITIALIZE, { "x-api-key": "key-pelada-sin-bearer" }))
+    expect(res.status).toBe(200)
+    const body = await readRpc(res)
+    expect((body.result as Record<string, unknown>)?.serverInfo).toMatchObject({ name: "punto" })
   })
 
   it("completa el handshake de initialize", async () => {

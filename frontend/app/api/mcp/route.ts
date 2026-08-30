@@ -39,9 +39,51 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 export const maxDuration = 60
 
+/**
+ * Headers por los que puede llegar la key, en orden de preferencia.
+ *
+ * `authorization` es el natural y el que usa el puente `mcp-remote`. Pero la UI
+ * de Connectors de Claude Desktop lo RESERVA para su propio bearer de OAuth: en
+ * "Additional request headers" aparece deshabilitado, y los seleccionables son
+ * los de abajo. Como nuestro server no habla OAuth, sin esta lista la única
+ * instalación posible era editar `claude_desktop_config.json` a mano — que para
+ * un comercio no es una opción.
+ *
+ * Son varios y no uno porque el menú lo dicta el cliente, no nosotros: el
+ * usuario elige cualquiera de esa lista y todos tienen que funcionar, o el
+ * fracaso depende de cuál haya tocado.
+ */
+const KEY_HEADERS = [
+  "authorization",
+  "x-api-key",
+  "api-key",
+  "apikey",
+  "x-apikey",
+  "x-api-token",
+  "api-token",
+  "x-auth-token",
+  "x-access-token",
+] as const
+
+/**
+ * Devuelve la credencial normalizada a `Bearer <key>`, venga como venga.
+ *
+ * Los headers alternativos llevan la key PELADA (nadie escribe "Bearer " en un
+ * campo que se llama `x-api-key`), así que se le antepone el esquema — el
+ * backend espera `Bearer` y no debería enterarse de por dónde entró.
+ */
+function resolveBearer(req: Request): string {
+  for (const name of KEY_HEADERS) {
+    const raw = (req.headers.get(name) ?? "").trim()
+    if (raw === "") continue
+    return /^bearer\s+/i.test(raw) ? raw : `Bearer ${raw}`
+  }
+  return ""
+}
+
 async function handle(req: Request): Promise<Response> {
-  const authHeader = req.headers.get("authorization") ?? ""
-  if (!authHeader.toLowerCase().startsWith("bearer ")) {
+  const authHeader = resolveBearer(req)
+  if (authHeader === "") {
     // Rechazo temprano por ausencia de credencial. La VALIDEZ de la key no se
     // chequea acá: la resuelve la API en cada llamada (`authResolve`, realm
     // `mcp`). Verificarla en este punto costaría un roundtrip extra por
@@ -50,7 +92,12 @@ async function handle(req: Request): Promise<Response> {
     return Response.json(
       {
         jsonrpc: "2.0",
-        error: { code: -32001, message: "Falta la API key. Configurá el header Authorization: Bearer <key>." },
+        error: {
+          code: -32001,
+          message:
+            "Falta la API key de Punto. Mandala en el header `x-api-key` (o `Authorization: Bearer <key>`). " +
+            "La generás en Ajustes → Keys de integración.",
+        },
         id: null,
       },
       { status: 401 },
