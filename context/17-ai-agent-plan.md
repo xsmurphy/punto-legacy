@@ -1,6 +1,21 @@
 # Plan: Agente IA embebido (chat con tools sobre Punto)
 
-**Estado:** Planificado (arranca después de RB-1 del rollup).
+**Estado:** **IMPLEMENTADO y en uso** (corregido 2026-08-30 — el doc decía
+"Planificado" y ya estaba construido; esa desactualización hizo estimar mal el
+plan del MCP, ver `context/58`).
+
+Superficie real hoy:
+- **20 tools de LECTURA** en `frontend/lib/agent/read-tools.ts` — extraídas de
+  `app/api/agent/chat/route.ts` el 2026-08-30 a un catálogo compartido, porque
+  el MCP server (`context/58` D11) va a servir EXACTAMENTE las mismas
+  definiciones y dos listas divergirían.
+- **2 tools de ESCRITURA** en `frontend/lib/agent/confirm-tool.ts`
+  (`register_action` → `confirmToken` → `execute_action`), que cubren
+  crear/editar contacto, ítem, usuario, taxonomías e importación tabular. El
+  flujo de dos pasos existe para que un humano confirme en la UI antes de
+  escribir — por eso NO se puede exponer tal cual a un cliente MCP.
+- Personalidad por empresa, gate de créditos (`ai_credit_ledger`), modelo por
+  capability desde `/admin`, view-scope reenviado en las lecturas de datos.
 **Objetivo:** un chat flotante en el panel donde el operador conversa con un agente IA que puede crear/modificar datos, generar reportes y analizar información de Punto vía tools. Model-agnostic vía OpenRouter, modelos configurables desde /admin, billing con el `ai_credit_ledger` existente.
 
 ## Decisiones (cerradas con el owner)

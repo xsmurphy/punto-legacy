@@ -202,12 +202,41 @@ herramientas bien nombradas y bien descritas, con vocabulario del dominio y
 columnas etiquetadas, valen más que cuarenta endpoints crudos. Es trabajo de
 redacción tanto como de código, y es donde se gana o se pierde.
 
+## El primer paso NO es la F0 de `context/47` (corregido 2026-08-30)
+
+La primera versión de este doc daba la F0 de `context/47` (catálogo + ejecutor
+declarativo) como prerequisito y estimaba 3-4 semanas. **Estaba mal**, y el
+motivo fue leer `context/17`, que decía "Planificado" cuando el agente ya
+estaba construido.
+
+Lo que hay en realidad: **20 tools de lectura ya definidas**, con `description`
+escrita para un LLM e `inputSchema` en zod, y `execute` que es un fetch fino
+contra `/v1/*` — la MISMA API que consumiría el MCP. Las descripciones además
+ya están probadas contra un modelo real, que es justo la parte que este doc
+advierte que se subestima (§Arquitectura).
+
+**Hecho el 2026-08-30**: esas 20 definiciones se extrajeron a
+`frontend/lib/agent/read-tools.ts`, un catálogo agnóstico del transporte. No
+importa `tool()` del AI SDK —ese helper ES el transporte— sino un `defineTool`
+propio que hace lo único necesario: atar el tipo de `execute` al de
+`inputSchema`. `route.ts` las consume con un spread y bajó de 734 a 282 líneas.
+Los cuerpos quedaron byte-idénticos al original: la extracción no cambió una
+sola definición.
+
+Consecuencia para el plan: **M1 deja de depender de la F0 de `context/47`**. El
+MCP server pasa a ser un segundo transporte sobre un catálogo que ya existe. La
+F0 sigue valiendo la pena —volver el catálogo declarativo, con dimensiones y
+filtros validados— pero como MEJORA posterior, no como bloqueo.
+
+Estimación revisada: **~1,5 a 2 semanas** para un MCP read-only vendible, con
+M0 (realm, keys, scopes, auditoría) como la pieza más grande.
+
 ## Fases
 
 | Fase | Qué | Depende de |
 |---|---|---|
 | **M0** | Realm `mcp` + emisión/revocación de API keys desde `/settings/sessions` + scopes en `meta` + auditoría de cada llamada (el tenant tiene que poder ver qué hizo su IA) | — |
-| **M1** | MCP server mínimo: handshake, listado de tools, 3-5 herramientas de lectura sobre el catálogo (ventas por período/sucursal, stock, cuentas por cobrar) | M0, `context/47` F0 |
+| **M1** | MCP server mínimo: handshake + listado de tools sobre `lib/agent/read-tools.ts` (`buildReadOnlyFetchTools`, que ya excluye `render_chart`) | M0 |
 | **M2** | Redacción del catálogo de tools: nombres, descripciones, etiquetas de campo. Prueba real con Claude Desktop contra un tenant de prueba | M1 |
 | **M3** | Invitación a terceros (contador) con scope de lectura contable (D9) | M0 |
 | **M4** | Gating por plan + rate limit por key (D10) | M1 |
