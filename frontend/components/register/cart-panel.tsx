@@ -1655,11 +1655,14 @@ function CartBottom({
           `min-h-*`: conserva su alto aunque quede vacía en cualquier modo, así
           el CTA de abajo NO se mueve ni un pixel al cambiar de modo — memoria
           muscular del cajero (Regla #10, context/14-ui-conventions.md). Son
-          dos valores porque los chips son más grandes en móvil (ver
-          `CHIP_BASE` en toggle-chip.tsx): el alto de la fila acompaña al chip
-          en cada breakpoint, y dentro de cada uno sigue siendo constante.
+          TRES valores, uno por breakpoint, porque el chip cambia de tamaño en
+          los tres (ver `CHIP_BASE` en toggle-chip.tsx): grande en móvil, chico
+          en tablet, grande de nuevo en desktop —donde el cajero mira parado y
+          de lejos—. El alto de la fila acompaña al chip en cada breakpoint, y
+          dentro de cada uno es constante: eso es lo que la Regla #10 exige, no
+          un único valor para todos los anchos.
           VACIAR es desktop/tablet only — ver el comentario del chip. */}
-      <div className="mb-2 flex min-h-7 items-center justify-center gap-2 sm:min-h-6">
+      <div className="mb-2 flex min-h-7 items-center justify-center gap-2 sm:min-h-6 lg:min-h-7">
         {/* Nav de módulos (HotKeys / Órdenes / Espacios / Guardadas), solo
             mobile — el owner lo pidió acá, a la izquierda de CRÉDITO
             (2026-08-01). Va FUERA del condicional de los toggles: en modo

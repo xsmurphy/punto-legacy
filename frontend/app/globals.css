@@ -615,6 +615,73 @@ html[data-pos-touch] body {
     }
 }
 
+/* ─── POS desktop — alcance visual a distancia ───────────────────────────────
+   (pedido del owner, 2026-08-30: los botones de confirmación de los diálogos
+   del POS "se ven chicos" en la caja de mostrador)
+
+   POR QUÉ EXISTE. El cajero de mostrador NO es un usuario de escritorio: opera
+   PARADO, con la pantalla más lejos y en ángulo, y decide en un segundo entre
+   confirmar y cancelar. Lo que falta ahí no es área táctil —el mouse acierta
+   igual— sino TAMAÑO LEÍBLE a esa distancia. Es la misma tanda que ya subió un
+   escalón el texto de los buscadores, el carrito y los chips (`CHIP_BASE` en
+   components/register/toggle-chip.tsx).
+
+   POR ESO LA VARIABLE SE LLAMA `--pos-reach-min` Y NO `--pos-touch-min`: son
+   dos sistemas distintos que casualmente crecen. El de arriba es superficie
+   para el dedo (44px, WCAG 2.5.5); este es alcance visual a distancia. Si un
+   día se ajusta uno, el otro no tiene por qué moverse — compartir el nombre
+   invitaría a tocarlos juntos.
+
+   EL CORTE es 1024px (`lg` de Tailwind, el mismo escalón que usó el resto de
+   la tanda), no los 768 del bloque de arriba: entre medio están las tablets de
+   caja, que se operan de cerca, con el dedo, y ya tienen sus propios layouts
+   resueltos. Bajarlo a 768 les engordaría los diálogos sin motivo.
+
+   SOLO FOOTERS DE OVERLAY. Alcanza a los botones de los pies de diálogo, alert
+   y drawer — que es donde el cajero confirma o cancela una operación con plata
+   de por medio. NO a todos los botones del POS: engordar el chrome (sidebar,
+   toolbars, filas densas del carrito) no lo pidió nadie y movería una
+   geometría que el cajero ya tiene memorizada (Regla #10, context/14). Si más
+   adelante aparece otro control que de verdad se lee mal a distancia, se suma
+   a la lista de slots con su razón al lado, no se generaliza el selector.
+
+   Mismas exclusiones que el bloque táctil, por el mismo criterio: el tier
+   `xs`/`icon-xs` es densidad a propósito, y `data-touch="off"` sigue siendo la
+   vía de escape única. Y también va sin `@layer`, así que gana sobre un
+   `text-*` puesto en el `className` del call-site. */
+@media (width >= 1024px) {
+    [data-pos-touch] {
+        /* 40px. No son los 44 del mínimo táctil: acá el objetivo es que el
+           botón se LEA, y 44 de alto con texto de 16 deja el pie del diálogo
+           desbalanceado frente al resto del contenido. */
+        --pos-reach-min: 2.5rem;
+    }
+
+    /* `alert-dialog-action` / `alert-dialog-cancel` van en la lista además de
+       `button` porque NO son otro control: son `<Button asChild>`, y el `Slot`
+       de Radix deja ganar el `data-slot` del hijo, así que el del primitive se
+       pierde. El `data-size` sí sobrevive — por eso las exclusiones de tier de
+       abajo siguen valiendo para los tres.
+
+       `--text-base` es el token de escala de Tailwind v4 (1rem); se usa por
+       nombre para que el botón siga la misma escala tipográfica que el resto
+       de la UI y no un literal suelto. */
+    [data-pos-touch]
+        :is(
+            [data-slot="dialog-footer"],
+            [data-slot="alert-dialog-footer"],
+            [data-slot="drawer-footer"]
+        )
+        :is(
+            [data-slot="button"],
+            [data-slot="alert-dialog-action"],
+            [data-slot="alert-dialog-cancel"]
+        ):not([data-size="xs"]):not([data-size="icon-xs"]):not([data-touch="off"]) {
+        min-height: var(--pos-reach-min);
+        font-size: var(--text-base);
+    }
+}
+
 /* MapLibre — popup sin chrome propio.
    El popup de los mapas (hoy /pos/ordenes) renderiza React con componentes
    shadcn adentro (ver components/orders/orders-map-view.tsx). MapLibre pinta

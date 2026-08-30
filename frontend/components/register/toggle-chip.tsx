@@ -23,13 +23,21 @@ import { cn } from "@/lib/utils"
  * clases a mano, así que agrandarlos en móvil habría sido tres ediciones que
  * se desincronizan a la primera.
  *
- * Móvil primero: el owner pidió los pills "un poco más grandes" en el teléfono
- * (2026-08-25) — `text-xs` con más padding, que además acerca el área táctil a
- * lo que la caja necesita. Desde `sm` vuelve al tamaño original: en desktop y
- * tablet la fila convive con el resto del carrito y no se toca con el dedo.
+ * Tres escalones, y cada uno responde a una razón distinta:
+ *
+ *   · móvil (base) — el owner pidió los pills "un poco más grandes" en el
+ *     teléfono (2026-08-25): `text-xs` con más padding, que además acerca el
+ *     área táctil a lo que la caja necesita;
+ *   · tablet (`sm`) — vuelve al tamaño original. Se opera con dedo pero de
+ *     cerca, y la fila convive con el resto del carrito en poco ancho;
+ *   · desktop (`lg`) — vuelve a subir al tamaño de móvil, pero NO por el dedo:
+ *     el cajero de mostrador opera PARADO y a más distancia de la pantalla que
+ *     un usuario de escritorio (owner, 2026-08-30), así que lo que manda acá es
+ *     la legibilidad a distancia. Mismo motivo por el que los buscadores y el
+ *     carrito ya subieron un escalón en `lg`.
  */
 export const CHIP_BASE =
-  "rounded-full border px-3 py-1 text-xs font-bold tracking-wide transition-colors sm:px-2.5 sm:py-0.5 sm:text-[10px]"
+  "rounded-full border px-3 py-1 text-xs font-bold tracking-wide transition-colors sm:px-2.5 sm:py-0.5 sm:text-[10px] lg:px-3 lg:py-1 lg:text-xs"
 
 export function ToggleChip({
   label,
