@@ -196,6 +196,18 @@ Una tanda que tocó `frontend/` Y `api/` necesita DOS deploys.
 - SIEMPRE antes de cerrar la sesión.
 - En el momento, si el usuario necesita probar algo puntual ya.
 
+**Un deploy a la vez.** Antes de encolar, verificá que no haya otro corriendo
+para esa app: `mcp__coolify__get_deployment` sobre el último `deployment_uuid`,
+o `mcp__coolify__list_deployments` con `application_uuid`. Si el status es
+`queued` o `in_progress`, ESPERÁ a que termine — no encoles encima. Los builds
+se ejecutan en serie y compiten por CPU del server: encolar sobre uno vivo no
+adelanta nada, alarga los dos (los del Front pasan de ~7 a ~10 min) y deja al
+usuario esperando un cambio que ya estaba listo. Es la misma razón por la que
+el auto-deploy está apagado.
+
+Corolario: si mientras esperás llegan más commits, mejor — un solo deploy
+levanta toda la tanda. Encolá recién cuando el anterior diga `finished`.
+
 **Nunca termines una sesión con commits pusheados sin deployar.** Sin deploy no
 hay código nuevo en producción — y como las migraciones corren al arranque del
 contenedor del backend, tampoco están aplicadas. La próxima sesión va a asumir
