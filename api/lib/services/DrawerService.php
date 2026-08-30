@@ -88,9 +88,16 @@ final class DrawerService
     /** Extracciones (efectivo) del registro desde `$since`. */
     public function getExpenses(string $registerId, string $since): array
     {
+        // `companyId` va BINDEADO además del registerId (P2 de la auditoría de
+        // auth del 2026-08-26). Un `registerId` es UUID y la colisión entre
+        // tenants es improbable, pero filtrar una tabla multi-tenant por una FK
+        // sin el dueño es la forma en que estos bugs se vuelven explotables más
+        // tarde — basta que alguien acepte el id desde el request. El índice
+        // `idx_expenses_register (registerId, outletId, companyId)` ya lo cubre.
         $exp = ncmExecute(
-            'SELECT SUM(expensesAmount) as expense FROM expenses WHERE expensesDate > ? AND type IS NULL AND registerId = ?',
-            [$since, $registerId]
+            'SELECT SUM(expensesAmount) as expense FROM expenses
+              WHERE expensesDate > ? AND type IS NULL AND registerId = ? AND companyId = ?',
+            [$since, $registerId, $this->ctx->companyId]
         );
         return ['amount' => ($exp && $exp['expense']) ? (float) $exp['expense'] : 0.0];
     }
@@ -98,9 +105,16 @@ final class DrawerService
     /** Ingresos (efectivo) del registro desde `$since`, separando propinas. */
     public function getIncome(string $registerId, string $since): array
     {
+        // `companyId` va BINDEADO además del registerId (P2 de la auditoría de
+        // auth del 2026-08-26). Un `registerId` es UUID y la colisión entre
+        // tenants es improbable, pero filtrar una tabla multi-tenant por una FK
+        // sin el dueño es la forma en que estos bugs se vuelven explotables más
+        // tarde — basta que alguien acepte el id desde el request. El índice
+        // `idx_expenses_register (registerId, outletId, companyId)` ya lo cubre.
         $inc = ncmExecute(
-            'SELECT expensesAmount, expensesDescription FROM expenses WHERE expensesDate > ? AND type = 1 AND registerId = ?',
-            [$since, $registerId],
+            'SELECT expensesAmount, expensesDescription FROM expenses
+              WHERE expensesDate > ? AND type = 1 AND registerId = ? AND companyId = ?',
+            [$since, $registerId, $this->ctx->companyId],
             false,
             true
         );
@@ -834,9 +848,16 @@ final class DrawerService
      */
     public function addExpense(float $amount, string $note, string $date): string|true
     {
+        // `companyId` va BINDEADO además del registerId (P2 de la auditoría de
+        // auth del 2026-08-26). Un `registerId` es UUID y la colisión entre
+        // tenants es improbable, pero filtrar una tabla multi-tenant por una FK
+        // sin el dueño es la forma en que estos bugs se vuelven explotables más
+        // tarde — basta que alguien acepte el id desde el request. El índice
+        // `idx_expenses_register (registerId, outletId, companyId)` ya lo cubre.
         $exists = ncmExecute(
-            'SELECT expensesId FROM expenses WHERE expensesAmount = ? AND expensesDate = ? AND registerId = ? LIMIT 1',
-            [$amount, $date, $this->ctx->registerId]
+            'SELECT expensesId FROM expenses
+              WHERE expensesAmount = ? AND expensesDate = ? AND registerId = ? AND companyId = ? LIMIT 1',
+            [$amount, $date, $this->ctx->registerId, $this->ctx->companyId]
         );
         if ($exists) {
             return 'Expense Already Exists';
@@ -888,9 +909,16 @@ final class DrawerService
      */
     public function addIncome(float $amount, string $note, string $date): string|true
     {
+        // `companyId` va BINDEADO además del registerId (P2 de la auditoría de
+        // auth del 2026-08-26). Un `registerId` es UUID y la colisión entre
+        // tenants es improbable, pero filtrar una tabla multi-tenant por una FK
+        // sin el dueño es la forma en que estos bugs se vuelven explotables más
+        // tarde — basta que alguien acepte el id desde el request. El índice
+        // `idx_expenses_register (registerId, outletId, companyId)` ya lo cubre.
         $exists = ncmExecute(
-            'SELECT expensesId FROM expenses WHERE expensesAmount = ? AND expensesDate = ? AND registerId = ? LIMIT 1',
-            [(float) $amount, $date, $this->ctx->registerId]
+            'SELECT expensesId FROM expenses
+              WHERE expensesAmount = ? AND expensesDate = ? AND registerId = ? AND companyId = ? LIMIT 1',
+            [(float) $amount, $date, $this->ctx->registerId, $this->ctx->companyId]
         );
         if ($exists) {
             return 'Income Already Exists';

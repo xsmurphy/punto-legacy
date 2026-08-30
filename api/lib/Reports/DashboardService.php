@@ -595,6 +595,13 @@ final class DashboardService
                     AND t.transactionType IN (0,3)
                     AND ' . SaleFilters::notVoidedSql('t') . '
                     AND t.customerId = c.contactId
+                    -- Correlación de tenant en el EXISTS (P2 de la auditoría de
+                    -- auth del 2026-08-26): el `contact` de afuera ya va
+                    -- scopeado por $rocC, pero la subconsulta no filtraba
+                    -- `transaction` por empresa. Se correlaciona contra `c` en
+                    -- vez de bindear otro parámetro: así no hay un segundo
+                    -- lugar del que el scope pueda divergir.
+                    AND t.companyId = c.companyId
                 )';
 
         $resPast = ncmExecute($sql, [$backStart, $backStart, $backEnd]);

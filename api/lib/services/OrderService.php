@@ -193,27 +193,33 @@ final class OrderService
         $cols = 'transactionId, transactionName, transactionDate, invoiceNo, meta';
 
         if ($kind === 'customer') {
+        // `companyId` bindeado además del outlet (P2 de la auditoría de auth del
+        // 2026-08-26). Un outlet pertenece a UNA empresa, así que hoy el
+        // `outletId` ya implica el tenant y esto no es explotable — pero filtrar
+        // una tabla multi-tenant por una FK sin su dueño es la forma en que
+        // estos bugs se vuelven reales más tarde, en cuanto alguien acepte el
+        // id desde el request o una fila quede con el outlet equivocado.
             $rs    = $db->Execute(
                 "SELECT $cols FROM transaction
-                  WHERE outletId = ? AND transactionType = 12
+                  WHERE outletId = ? AND companyId = ? AND transactionType = 12
                     AND transactionStatus IN (0,1,2,3,5) AND customerId = ?
                   LIMIT 500",
-                [$outletId, $t]
+                [$outletId, $this->ctx->companyId, $t]
             );
             $table = '';
         } elseif ($kind === 'any') {
             $rs    = $db->Execute(
-                'SELECT * FROM transaction WHERE outletId = ? AND transactionId = ? LIMIT 1',
-                [$outletId, $t]
+                'SELECT * FROM transaction WHERE outletId = ? AND companyId = ? AND transactionId = ? LIMIT 1',
+                [$outletId, $this->ctx->companyId, $t]
             );
             $table = '';
         } else {
             $rs    = $db->Execute(
                 "SELECT $cols FROM transaction
-                  WHERE outletId = ? AND transactionType = 12
+                  WHERE outletId = ? AND companyId = ? AND transactionType = 12
                     AND transactionStatus IN (0,1,2,3,5) AND transactionName = ?
                   LIMIT 500",
-                [$outletId, $t]
+                [$outletId, $this->ctx->companyId, $t]
             );
             $table = $t;
         }
@@ -346,8 +352,9 @@ final class OrderService
             $subTitle = '';
         } else {
             $tableOp     = ncmExecute(
-                'SELECT * FROM transaction WHERE outletId = ? AND transactionType = 11 AND transactionName = ? LIMIT 1',
-                [$outletId, $table]
+                'SELECT * FROM transaction
+                  WHERE outletId = ? AND companyId = ? AND transactionType = 11 AND transactionName = ? LIMIT 1',
+                [$outletId, $this->ctx->companyId, $table]
             );
             $usrOpenName = $tableOp ? ($allUsers[$tableOp['userId']]['name'] ?? '') : '';
             $running     = $tableOp ? niceDate2($tableOp['transactionDate'], 'small') : '';

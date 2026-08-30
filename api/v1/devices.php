@@ -32,16 +32,22 @@ if ($method === 'DELETE') {
     if ($deviceId === '') {
         apiError('id requerido', 422);
     }
+    // El `companyId` va DENTRO de la query, no en un chequeo posterior (P2 de
+    // la auditoría de auth del 2026-08-26).
+    //
+    // Antes se buscaba el device por id solo y se comparaba después: un device
+    // ajeno daba 403 y uno inexistente 404, así que la diferencia de códigos
+    // confirmaba la EXISTENCIA de un device de otro tenant a cualquiera que
+    // probara UUIDs. Unificar los dos a 404 también lo cerraría, pero deja la
+    // rama viva y dependiendo de que nadie la toque; scopeando la query no
+    // queda nada que unificar — un device ajeno es indistinguible de uno que no
+    // existe porque para esta consulta, literalmente, no existe.
     $device = ncmExecute(
-        'SELECT deviceid, companyid, status FROM device WHERE deviceid = ?::uuid',
-        [$deviceId]
+        'SELECT deviceid, status FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid',
+        [$deviceId, COMPANY_ID]
     );
     if (!$device) {
         apiError('Device no encontrado', 404);
-    }
-    $devCompanyId = (string) ($device['companyid'] ?? '');
-    if ($devCompanyId !== COMPANY_ID) {
-        apiError('No autorizado', 403);
     }
     if ($hard) {
         // DELETE físico solo permitido si ya está revocado (preserva la barrera de seguridad:

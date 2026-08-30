@@ -251,17 +251,28 @@ cross-tenant) sin arreglar:
   de permisos.
 - `api/bootstrap.php:226-244` — `X-Outlet-Id: all` valida pertenencia al
   tenant pero no chequea rol: un cajero ve reportes consolidados de todas
-  las sucursales. Decisión de producto.
+  las sucursales. **Decisión de producto del owner**: ¿qué roles pueden
+  consolidar? Sin esa respuesta no hay fix, solo una elección arbitraria.
 - `api/v1/attendance.php:25-40` — el control de presencia física es
   `md5(companyId.outletId)`, derivable por cualquiera que conozca su
-  propio `companyId` (lo publica `/v1/bootstrap`).
-- `api/v1/devices.php:35` — 403 (device ajeno) vs 404 (inexistente) es
-  oráculo de existencia; unificar a 404.
-- `api/lib/services/OrderService.php:196-217,349` y
-  `api/lib/Reports/DashboardService.php:592` — scope incompleto
-  (companyId no usado / EXISTS sin filtrar), no explotable hoy.
-- `api/lib/services/DrawerService.php:92,102,838,892` — queries a
-  `expenses` filtradas solo por `registerId`+fecha, sin `companyId`.
+  propio `companyId` (lo publica `/v1/bootstrap`). **Necesita decidir con qué
+  se reemplaza** (secreto por outlet rotable, QR con expiración, geocerca);
+  cambiar el esquema invalida lo que hoy tengan impreso o configurado.
+- ~~`api/v1/devices.php:35` — 403 vs 404 es oráculo de existencia~~
+  ✅ RESUELTO 2026-08-30: el `companyId` va DENTRO de la query, así que un
+  device ajeno es indistinguible de uno inexistente. Se scopeó en vez de
+  unificar los códigos: no queda rama viva que pueda volver a divergir.
+- ~~`OrderService.php:196-217,349` y `DashboardService.php:592` — scope
+  incompleto~~ ✅ RESUELTO 2026-08-30: `companyId` bindeado en las 4 queries
+  de `OrderService`; el `EXISTS` del dashboard correlaciona
+  `t.companyId = c.companyId` (sin bindear un segundo parámetro del que el
+  scope pueda divergir).
+- ~~`DrawerService.php:92,102,838,892` — `expenses` sin `companyId`~~
+  ✅ RESUELTO 2026-08-30: las 4 queries llevan `companyId` bindeado; usan el
+  índice `idx_expenses_register (registerId, outletId, companyId)` que ya
+  existía.
+
+**Quedan 2, y ninguno es un fix mecánico:**
 
 ## Estación de Impresión instalable como PWA (pedido del owner 2026-08-26)
 
