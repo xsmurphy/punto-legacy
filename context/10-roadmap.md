@@ -249,15 +249,38 @@ cross-tenant) sin arreglar:
 - ~~`api/v1/modules.php` — `action=toggle`/`config` sin `hasPermission()`~~
   ✅ RESUELTO 2026-08-28: exige `settings.company.edit`, cubierto por el arnés
   de permisos.
-- `api/bootstrap.php:226-244` — `X-Outlet-Id: all` valida pertenencia al
-  tenant pero no chequea rol: un cajero ve reportes consolidados de todas
-  las sucursales. **Decisión de producto del owner**: ¿qué roles pueden
-  consolidar? Sin esa respuesta no hay fix, solo una elección arbitraria.
-- `api/v1/attendance.php:25-40` — el control de presencia física es
-  `md5(companyId.outletId)`, derivable por cualquiera que conozca su
-  propio `companyId` (lo publica `/v1/bootstrap`). **Necesita decidir con qué
-  se reemplaza** (secreto por outlet rotable, QR con expiración, geocerca);
-  cambiar el esquema invalida lo que hoy tengan impreso o configurado.
+- `api/bootstrap.php:226-244` — `X-Outlet-Id: all` no chequea rol.
+  **DECIDIDO 2026-08-30 (owner)**: el acceso a la info de cada sucursal se
+  define por los permisos del usuario Y las sucursales que tiene asignadas —
+  no por un permiso de "ver consolidado". El consolidado pasa a ser la UNIÓN de
+  las sucursales asignadas, no "todas las del tenant".
+
+  **No es un parche de P2, es una feature.** Hoy un usuario tiene UNA sucursal
+  (`contact.outletId`) y `Roc::build` emite `AND outletId = X` o nada. El
+  modelo decidido necesita: tabla `user_outlet` (precedente: `item_outlet`,
+  mig 170), `Roc::build` emitiendo `IN (...)` —y eso lo lee TODO reporte—, UI
+  de asignación en `/settings/team`, y `bootstrap.php` resolviendo el set en
+  vez de validar un solo uuid. Interactúa con `context/25` y con franquicias
+  (`context/55`). Merece plan propio antes de tocar `Roc::build`, que es el
+  embudo único de lectura.
+
+- `api/v1/attendance.php:25-40` — token `md5(companyId.outletId)` derivable.
+  **DECIDIDO 2026-08-30 (owner)**: se reemplaza por un **secreto aleatorio por
+  sucursal, rotable** (en `outlet.data`), que el QR codifica. No derivable de
+  nada público, la UX no cambia (sigue siendo un QR impreso), y si se filtra se
+  rota desde el panel y el QR viejo muere.
+
+  **BLOQUEADO por algo más grande, encontrado el 2026-08-30**: el módulo
+  `attendance` está `status: "available"` en `modules-catalog.ts` —se le ofrece
+  al comercio— pero en el stack nuevo SOLO existe `api/v1/attendance.php`, que
+  *verifica* el token. No hay UI de asistencia en `frontend/` ni nada que
+  GENERE el QR (grep global: cero). Vivía en el panel legacy. Implementar el
+  secreto sin el generador no cierra el círculo.
+
+  **Decisión pendiente del owner**: ¿se marca el módulo `soon` hasta
+  reescribirlo (honesto: hoy no es usable), o se prioriza completarlo? Punto no
+  tiene tenants reales todavía, así que el costo de marcarlo `soon` es casi
+  nulo — pero es un módulo que hoy figura como vendible.
 - ~~`api/v1/devices.php:35` — 403 vs 404 es oráculo de existencia~~
   ✅ RESUELTO 2026-08-30: el `companyId` va DENTRO de la query, así que un
   device ajeno es indistinguible de uno inexistente. Se scopeó en vez de

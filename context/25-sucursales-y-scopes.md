@@ -104,6 +104,33 @@ que estaba desactualizada — ver §6).
   **válidas de dos realms distintos** en la misma request — señal de cliente
   mal configurado, no debería pasar en uso normal.
 
+## 4.5 Dirección decidida — el scope sale de las sucursales ASIGNADAS al usuario
+
+**Decisión del owner, 2026-08-30. Sin implementar.**
+
+Hoy `X-Outlet-Id: all` valida que la sucursal pertenezca al tenant pero no mira
+al usuario: cualquiera con permiso sobre un reporte lo ve consolidado de TODAS
+las sucursales (P2 de la auditoría del 2026-08-26).
+
+El modelo decidido no es un permiso de "ver consolidado", sino:
+**el acceso a la info de cada sucursal se define por los permisos del usuario Y
+las sucursales que tiene asignadas.** El consolidado es la UNIÓN de sus
+sucursales asignadas.
+
+Lo que falta para sostenerlo, y por qué no es un parche:
+
+- Un usuario hoy tiene UNA sucursal (`contact.outletId`). Hace falta una
+  relación N–N — precedente en `item_outlet` (mig 170).
+- `Roc::build` emite `AND outletId = '<uuid>'` o nada. Con un subconjunto pasa a
+  `IN (...)`, y ese helper es el embudo por el que lee TODO reporte: es el
+  cambio profundo, no la tabla.
+- UI de asignación en `/settings/team`, y `bootstrap.php` resolviendo el set en
+  lugar de validar un uuid suelto.
+
+Interactúa con franquicias (`context/55`): un franquiciador supervisando a sus
+franquiciados es el mismo problema un nivel arriba. No tocar `Roc::build` sin
+plan propio.
+
 ## 5. Reglas para código nuevo (checklist)
 
 **Página nueva del panel que opera datos por-sucursal:**
