@@ -209,6 +209,10 @@ const SECTIONS: {
   // por si alguien llega con ?section=plan desde un link viejo.
   { id: "devices" as unknown as SettingsSection, label: "Dispositivos", icon: Monitor, href: "/settings/devices" },
   { id: "sessions" as unknown as SettingsSection, label: "Sesiones", icon: KeyRound, href: "/settings/sessions" },
+  // Página propia y NO una sección de Sesiones: una sesión solo se revoca
+  // —nadie la crea desde una pantalla— y una key se EMITE, con un token que se
+  // muestra una sola vez. Verbos distintos, superficies distintas.
+  { id: "mcpKeys" as unknown as SettingsSection, label: "Keys de integración", icon: Plug, href: "/settings/mcp-keys" },
   { id: "printers" as unknown as SettingsSection, label: "Impresoras", icon: Printer, href: "/settings/printers" },
   { id: "tables" as unknown as SettingsSection, label: "Espacios", icon: LayoutGrid, href: "/settings/espacios" },
   { id: "roles" as unknown as SettingsSection, label: "Roles y permisos", icon: ShieldCheck, href: "/settings/roles" },
