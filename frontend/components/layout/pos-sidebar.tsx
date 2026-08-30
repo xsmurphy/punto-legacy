@@ -9,6 +9,7 @@ import {
   ClipboardList,
   LayoutGrid,
   Lock,
+  MessageCircle,
   Repeat,
 } from "lucide-react"
 import {
@@ -37,6 +38,8 @@ import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
 import { MODE_VISUALS } from "@/lib/pos/mode-visuals"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
+import { useAgentChatStore } from "@/lib/agent/store"
+import { usePermission } from "@/hooks/use-permissions"
 
 // Mismo criterio conservador que `panel-auth-guard.tsx` (posNav): mientras
 // isLoading o error, el item condicional NO se muestra — evita parpadeo.
@@ -147,6 +150,11 @@ export function PosSidebar() {
   // modoSoloOrdenes el POS queda lockeado en orden y el selector se oculta:
   // ofrecer cambiar de modo ahí sería un botón que no puede cumplir.
   const setModeDialogOpen = usePosUIStore((s) => s.setModeDialogOpen)
+
+  // Asistente IA: mismo permiso que exige api/v1/ai/execute.php. El operador
+  // del POS tiene sesión de panel, así que el bootstrap ya lo trae.
+  const canUseAgent = usePermission("ai.agent.use")
+  const setAgentChatOpen = useAgentChatStore((s) => s.setOpen)
   const posMode = useCartStore((s) => s.posMode)
   const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
   // Color del modo activo sobre el ícono del trigger: la misma señal que la
@@ -282,6 +290,26 @@ export function PosSidebar() {
         className={cn(!isMobile && "pb-[calc(0.5rem+var(--safe-b))]")}
       >
         <SidebarMenu>
+          {/* Asistente IA. El Sheet lo monta `panel-auth-guard` para toda la
+              superficie (incluido /pos); acá solo se dispara por store. El
+              gate `ai.agent.use` espeja el del backend
+              (api/v1/ai/execute.php:23): sin el permiso el endpoint rechaza
+              igual, así que mostrar la entrada sería una promesa falsa. */}
+          {canUseAgent && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip="Asistente"
+                onClick={() => {
+                  closeMobile()
+                  setAgentChatOpen(true)
+                }}
+                className={ACTION_ITEM_CLASS}
+              >
+                <MessageCircle />
+                <span>Asistente</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           {!modoSoloOrdenes && (
             <SidebarMenuItem>
               <SidebarMenuButton

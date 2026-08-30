@@ -36,7 +36,6 @@ import {
   X,
   type LucideIcon,
   CloudOff,
-  MessageCircle,
 } from "lucide-react"
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, XAxis, YAxis } from "recharts"
 
@@ -77,8 +76,6 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
-import { useAgentChatStore } from "@/lib/agent/store"
-import { usePermission } from "@/hooks/use-permissions"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
 import { ThemePicker } from "@/components/theme-picker"
@@ -260,23 +257,6 @@ const SECTIONS: Omit<MenuSection, "disabled">[] = [
     icon: CloudOff,
     CustomContent: SyncQueuePanel,
   },
-  {
-    // Abre el drawer del asistente IA — el Sheet lo monta panel-auth-guard
-    // para toda la superficie (incluido /pos), acá solo se dispara por store.
-    // No tiene CustomContent: el chat vive en su propio Sheet, no en el
-    // content area de este menú.
-    //
-    // El gate del item (`ai.agent.use`, aplicado en sectionsWithState) espeja
-    // el del backend en api/v1/ai/execute.php — sin el permiso el endpoint
-    // rechaza igual, así que mostrar la entrada sería una promesa falsa.
-    key: "assistant",
-    label: "Asistente",
-    icon: MessageCircle,
-    onSelect: ({ setOpen }) => {
-      setOpen(false)
-      useAgentChatStore.getState().setOpen(true)
-    },
-  },
   // Agenda, Órdenes y Módulos ocultos por ahora — se rehabilitan cuando
   // construyamos esas secciones reales (hoy son previews). 2026-06-28.
   // {
@@ -383,13 +363,8 @@ export function PosMainMenu() {
   const controlCaja = registerConfigData?.config?.controlCaja ?? true
   const modoSoloOrdenes = registerConfigData?.config?.modoSoloOrdenes ?? false
 
-  // Mismo permiso que exige api/v1/ai/execute.php. El operador del POS tiene
-  // sesión de panel (el guard envuelve /pos), así que el bootstrap ya lo trae.
-  const canUseAgent = usePermission("ai.agent.use")
-
   const sectionsWithState: MenuSection[] = SECTIONS
     .filter((s) => s.key !== "drawer" || controlCaja)
-    .filter((s) => s.key !== "assistant" || canUseAgent)
     // Modo solo-órdenes (spec owner): el POS queda solo para órdenes y
     // mesas, se ocultan transacciones y caja del menú.
     .filter((s) => !modoSoloOrdenes || (s.key !== "drawer" && s.key !== "transactions"))
