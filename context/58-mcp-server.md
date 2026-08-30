@@ -1,7 +1,7 @@
 # MCP Server de Punto — plan del módulo
 
 > Estado: **plan sin implementar** (2026-08-29). D1–D3 las cerró el owner en la
-> conversación que originó este doc; D4–D10 son PROPUESTAS y necesitan su OK
+> conversación que originó este doc; D4–D13 son PROPUESTAS y necesitan su OK
 > (marcadas **[?]**). No es lo próximo — ver §Cuándo.
 
 ## Por qué
@@ -124,6 +124,59 @@ Gatear algo de costo marginal casi nulo para vender plan es legítimo, pero la
 razón más fuerte es otra: **limita quién puede martillar la API**. Un power user
 con un modelo en loop hace mucho más volumen que un cajero.
 
+### D11 [?] — La fuente compartida es el CATÁLOGO, no el transporte MCP
+
+Pregunta del owner: ¿conviene que el agente propio consuma el mismo MCP, para
+tener una sola fuente de código?
+
+Sí a una sola fuente — pero una capa más abajo. Lo que no debe duplicarse son
+las **definiciones**: qué datasets existen, qué dimensiones y filtros aceptan,
+cómo se llaman y cómo se describen. Eso es la F0 de `context/47`, y de ahí
+cuelgan los dos consumidores:
+
+```
+                    ┌─→ MCP server ──→ cliente externo (Claude u otro)
+catálogo (F0) ──────┤
+                    └─→ agente de Punto (in-process)
+```
+
+Lo que NO conviene es `catálogo → MCP server → agente`: el agente corre dentro
+del propio backend, así que enrutarlo por el MCP le agrega un salto de red,
+serialización de protocolo y un punto de falla nuevo para llegar a datos que ya
+tiene al lado — y ata la disponibilidad de una funcionalidad del producto a un
+servicio cuyo propósito es servir a terceros.
+
+La divergencia que preocupa es real (dos listas de tools que se separan), pero
+se evita en el registro declarativo, no en el transporte.
+
+### D12 [?] — Telemetría de uso de tools, NO un benchmark Claude vs Punto IA
+
+La otra mitad de la pregunta del owner era medir la performance de los dos
+motores contra la misma fuente. Compartir la fuente saca UNA variable y deja las
+que deciden el resultado: modelo mucho más grande, el prompting del propio
+usuario, iteración multi-turno y otras herramientas en la mezcla. No es
+comparable y no va a serlo.
+
+Y el resultado ya se conoce: que Claude gana en análisis complejo es la premisa
+de D1 — es por eso que se segmentó. Medirlo confirma lo que ya se diseñó
+asumiendo.
+
+Lo que sí vale medir, y que el catálogo compartido da gratis porque es un solo
+esquema para los dos lados: **qué tools se usan, con qué argumentos y dónde
+fallan.**
+
+- Una tool llamada con filtros que el catálogo rechaza = hueco de catálogo.
+- El agente propio que nunca encuentra la tool correcta = problema de
+  DESCRIPCIÓN, no de modelo (ver §Arquitectura: las descripciones son la UX).
+- Una tool que concentra el grueso de las llamadas = dónde conviene invertir.
+
+### D13 [?] — El agente como CLIENTE de MCPs de terceros (futuro, solo en el radar)
+
+Distinto de D11 y no lo cambia. Si algún día se quiere que el agente propio use
+las herramientas del comercio (su CRM, su mailing), lo que conviene es que sea
+cliente MCP — consumiendo servidores AJENOS, no el propio. Se anota porque
+cambia la arquitectura interna del agente y conviene saberlo antes de cerrarla.
+
 ## Arquitectura
 
 ```
@@ -158,6 +211,7 @@ redacción tanto como de código, y es donde se gana o se pierde.
 | **M2** | Redacción del catálogo de tools: nombres, descripciones, etiquetas de campo. Prueba real con Claude Desktop contra un tenant de prueba | M1 |
 | **M3** | Invitación a terceros (contador) con scope de lectura contable (D9) | M0 |
 | **M4** | Gating por plan + rate limit por key (D10) | M1 |
+| **M5** | Telemetría de uso de tools, mismo esquema para MCP y agente propio (D12) | M1, `context/17` |
 
 ## Riesgos
 
