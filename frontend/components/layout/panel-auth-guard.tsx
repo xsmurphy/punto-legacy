@@ -258,11 +258,12 @@ export function PanelAuthGuard({ children }: { children: React.ReactNode }) {
         onExitImpersonation={handleExitImpersonation}
       />
       <RealtimeWire scope={isPos ? "pos" : "panel"}>{children}</RealtimeWire>
-      {/* Asistente IA. FAB visible solo fuera de /pos y fuera de /chat.
-          El Sheet se monta siempre que el usuario pueda usar el agente, para
-          que el menú POS pueda abrirlo via store. El gate `ai.agent.use`
-          espeja el del backend (api/v1/ai/execute.php:23): sin el permiso el
-          endpoint rechaza igual, así que ni el FAB ni el Sheet se montan. */}
+      {/* Asistente IA del PANEL. FAB oculto en /chat, que ya es el chat.
+          Este guard NO cubre /pos —el grupo `(pos)` tiene el suyo—, así que la
+          caja monta su propia instancia: `components/pos/pos-agent-chat.tsx`.
+          El gate `ai.agent.use` espeja el del backend
+          (api/v1/ai/execute.php:23): sin el permiso el endpoint rechaza igual,
+          así que ni el FAB ni el Sheet se montan. */}
       {bootstrap?.companyId != null && canUseAgent && (
         <AgentChatFloating
           companyName={bootstrap.companyName}

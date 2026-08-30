@@ -11,6 +11,7 @@ import { PosTouchScope } from "@/components/pos/pos-touch-scope"
 import { PosKeyboardInset } from "@/components/pos/keyboard-inset"
 import { SafeAreaCalibrator } from "@/components/pos/safe-area-calibrator"
 import { PosConfigSync } from "@/lib/pos/config-sync"
+import { PosAgentChat } from "@/components/pos/pos-agent-chat"
 
 /**
  * Layout del POS — auth con el Bearer del DEVICE (`lib/auth/device-token.ts`,
@@ -110,6 +111,10 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
           {/* Selector de modo — montado en el layout (no en el sidebar) para
               sobrevivir al cierre del Sheet mobile que contiene su trigger. */}
           <PosModeDialog />
+          {/* Asistente IA — mismo motivo que PosModeDialog para vivir acá: su
+              trigger está en el sidebar, que en mobile es un Sheet que se
+              cierra al tocarlo. Ver el docblock del componente. */}
+          <PosAgentChat />
           <InstallPrompt />
         </SidebarInset>
       </PosAuthGuard>
