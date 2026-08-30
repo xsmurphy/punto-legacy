@@ -169,6 +169,37 @@ sombras visibles** en el sistema actual (superficie flat, separación por
 | `--animate-pin-shake` | LockScreen — shake en PIN incorrecto |
 | `--animate-pos-loading` | `PosLoadingScreen` — barra indeterminada |
 
+### Overlays — duración y animación de entrada
+
+**100ms en toda la familia de overlays** (dialog, popover, dropdown-menu,
+alert-dialog, drawer), contra los 200ms de shadcn de fábrica. `sheet.tsx` es la
+única excepción y se queda en 200: se desliza, y un slide necesita más tiempo
+que un fade. El criterio es el POS — el cajero abre y cierra el buscador
+decenas de veces por turno y una animación lenta se siente como lag. Era
+convención de hecho hasta 2026-08-29; queda escrita para que no se relitigue.
+
+**Cómo funciona el keyframe, que no es obvio.** `enter` define SOLO el `0%`:
+el `100%` es el estado propio del elemento. Anima `opacity` (desde
+`--tw-enter-opacity`) y `transform` (desde `--tw-enter-translate-*` /
+`--tw-enter-scale`). En Tailwind v4 las utilidades de translate escriben la
+propiedad **`translate`**, no `transform` — son propiedades distintas, así que
+el keyframe NO pisa el centrado (`-translate-x-1/2`) y ningún modal se
+desplaza al abrir. Solo hay fade + scale.
+
+**Consecuencia: un `DialogContent` transparente casi no anima.** El
+`fade-in-0`+`zoom-in-95` del primitive vive en el content, así que si un modal
+lo hace invisible (`bg-transparent shadow-none ring-0 border-none`) para que la
+superficie visible sean sus hijos, lo que queda es opacidad y un scale del 5%
+sobre un área diminuta — en 100ms se lee como instantáneo. Es lo que reportó el
+owner el 2026-08-29: en el menú del POS (tarjeta grande y opaca) el fade se
+nota; en los buscadores de producto y cliente, no.
+
+La salida NO es subir la duración global: es darle recorrido propio con
+`data-open:slide-in-from-top-4` / `data-closed:slide-out-to-top-4`, que setea
+la variable que el keyframe ya lee. Bajar desde arriba es además el idioma de
+la familia command-palette (Spotlight, ⌘K). Aplicado en
+`product-search-dialog.tsx` y `customer-dialog.tsx`.
+
 ### Tipografía táctil del POS
 
 Scoped a `.pos-scope` (el `SidebarInset` del layout `(pos)/`): inputs/textareas

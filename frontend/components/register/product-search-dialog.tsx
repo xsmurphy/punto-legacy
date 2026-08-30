@@ -113,7 +113,24 @@ export function ProductSearchDialog({
     <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) setViewingGroup(null); onOpenChange(v) }}>
       <DialogContent
-        className="top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-lg"
+        className={cn(
+          "top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-lg",
+          // Animación de entrada/salida propia — ver context/20 §Overlays.
+          // El `DialogContent` de este modal es TRANSPARENTE (command
+          // palette: la superficie visible son la pastilla y la lista, no el
+          // content), así que el `fade-in-0`+`zoom-in-95` del primitive
+          // anima un contenedor sin pintura propia sobre un área diminuta y
+          // en 100ms se lee como instantáneo (reporte del owner 2026-08-29:
+          // "en el menú del POS sí se nota el fade, en los buscadores no").
+          // `slide-in-from-top` le da recorrido real: setea
+          // `--tw-enter-translate-y`, la variable que el keyframe `enter` ya
+          // lee. Compone limpio con el centrado porque en Tailwind v4 las
+          // utilidades de translate escriben la propiedad `translate`, NO
+          // `transform` — son propiedades distintas y no se pisan.
+          // Bajar desde arriba es además el idioma de la familia
+          // command-palette (Spotlight, ⌘K).
+          "data-open:slide-in-from-top-4 data-closed:slide-out-to-top-4",
+        )}
         showCloseButton={false}
       >
         <DialogHeader className="sr-only">
