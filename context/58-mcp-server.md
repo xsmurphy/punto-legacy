@@ -255,15 +255,27 @@ M0 (realm, keys, scopes, auditoría) como la pieza más grande.
   decisión suya, no de Punto, pero tiene que estar dicho en los términos y no
   aparecer como sorpresa.
 
-## Cuándo — NO es lo próximo
+## Cuándo — qué lo bloquea de verdad y qué no
 
-Compite contra cosas que bloquean vender: los caminos de facturación electrónica
-sin probar (`context/28` — línea exenta, multi-pago, NC), los 6 P2 de la
-auditoría de auth del 2026-08-26, y el WebSocket de realtime sin autenticación.
+> Corregido 2026-08-30. La versión anterior decía "orden: FE → auth → F0 → MCP",
+> mezclando una dependencia técnica real con una preferencia de prioridad.
+> Pregunta del owner que lo destapó: *"la facturación electrónica se ejecuta al
+> hacerse una venta, ¿qué tiene que ver con el MCP?"*. Nada.
 
-Abrir una superficie programática con hallazgos de auth conocidos multiplica el
-radio de cualquier cosa que quede abierta. Orden: **FE → auth → `context/47` F0
-→ MCP**. Contra F0 ya hecha, M1 es barato.
+**M0 sí depende de cerrar los P2 de auth.** Es la única dependencia técnica del
+plan, y es real: M0 crea un tipo de credencial nuevo sobre la MISMA tabla
+`auth_session` y el MISMO gate `apiAuthTenant`. Con hallazgos de auth abiertos
+(6 P2 de la auditoría del 2026-08-26 + el WebSocket de realtime sin
+autenticación), agregar un realm encima multiplica el radio de cualquiera que
+siga sin cerrar.
+
+**FE no bloquea nada de esto.** Corre en el camino de la venta; el MCP es una
+superficie de lectura. No comparten código ni superficie de auth. Que FE sea lo
+que bloquea VENDER en Paraguay es razón para priorizarla — no para escribir que
+traba al MCP, que es lo que decía este doc.
+
+**M1 en adelante** no depende de FE ni de la F0 de `context/47` (ver la sección
+anterior: el catálogo ya existe). Podría ir en paralelo si hubiera capacidad.
 
 ## Relacionados
 
