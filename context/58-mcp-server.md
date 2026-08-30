@@ -236,7 +236,7 @@ M0 (realm, keys, scopes, auditoría) como la pieza más grande.
 | Fase | Qué | Depende de |
 |---|---|---|
 | **M0** | Realm `mcp` + emisión/revocación de API keys + auditoría de cada llamada | ✅ **HECHA 2026-08-30** |
-| **M1** | MCP server mínimo: handshake + listado de tools sobre `lib/agent/read-tools.ts` (`buildReadOnlyFetchTools`, que ya excluye `render_chart`) | M0 |
+| **M1** | MCP server + opt-in del realm en los endpoints de lectura | ✅ **HECHA 2026-08-30** |
 | **M2** | Redacción del catálogo de tools: nombres, descripciones, etiquetas de campo. Prueba real con Claude Desktop contra un tenant de prueba | M1 |
 | **M3** | Invitación a terceros (contador) con scope de lectura contable (D9) | M0 |
 | **M4** | Gating por plan + rate limit por key (D10) | M1 |
@@ -272,6 +272,41 @@ Arnés `api/tests/mcp_key_test.php`, 24/24.
 endpoint acepta todavía el realm `mcp` — `/v1/*` es `apiAuthTenant(['panel'])`,
 así que hoy una key válida sería rechazada. Ese opt-in es parte de M1, junto con
 el server.
+
+## M1 — cómo quedó (2026-08-30)
+
+**El server es un ROUTE, no un contenedor.** `frontend/app/api/mcp/route.ts`,
+con `WebStandardStreamableHTTPServerTransport` del SDK oficial. MCP sobre
+Streamable HTTP es JSON-RPC por POST: un endpoint más. Un proceso propio solo
+haría falta con transporte stdio o para escalar/aislar esto del panel — ninguna
+aplica, y evitarlo ahorra una app en Coolify con su env y su dominio.
+
+Dos propiedades que NO son preferencias:
+
+- **Stateless obligatorio** (`sessionIdGenerator: undefined`). Un route handler
+  de Next no garantiza el mismo proceso entre requests, así que cualquier estado
+  en memoria se perdería de forma intermitente — el peor modo de fallar.
+- **Un `McpServer` por request.** Las tools se arman con el Bearer de ESA
+  request. Un server module-level compartido quedaría con la credencial del
+  primer tenant que lo tocó y las lecturas de todos saldrían con esa key: leak
+  cross-tenant silencioso. Instanciar por request lo hace imposible por
+  construcción.
+
+**El realm opt-in llegó con el read-only en el embudo.** Los 18 endpoints que el
+catálogo consulta agregan `'mcp'` a su allowlist, pero muchos sirven GET y
+mutaciones en el mismo archivo: si el read-only dependiera de que cada uno mire
+el método, UN olvido daría escritura a una API key. El guard vive en
+`apiAuthTenant()` — realm `mcp` con verbo distinto de GET/HEAD corta 405.
+`devices.php` y `mcp-keys.php` quedan FUERA a propósito: una key filtrada no
+enumera cajas ni se fabrica más keys.
+
+Arneses: `mcp_realm_test` 9/9 (endpoints reales, en subproceso) y
+`lib/__tests__/mcp-route.test.ts` 3/3 (handshake `initialize` + `tools/list`
+contra el route, con Requests estándar).
+
+**Lo que sigue sin verificar**: nadie lo conectó a un cliente real. El smoke
+cubre el modo de falla más probable —que el server arranque pero hable mal el
+protocolo— pero no reemplaza una conexión de verdad.
 
 ## Riesgos
 

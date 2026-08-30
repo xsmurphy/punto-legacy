@@ -6,10 +6,21 @@ import { Drawer as DrawerPrimitive } from "vaul"
 import { cn } from "@/lib/utils"
 import { isolateOverlaySubmit } from "@/lib/overlay-form-isolation"
 
+/**
+ * `repositionInputs={false}`: vaul trae su propio manejo del teclado virtual
+ * —mueve el drawer cuando detecta un campo enfocado— y esta app ya mide el
+ * teclado UNA vez en `components/pos/keyboard-inset.tsx` y lo publica como
+ * `--kb-inset`. Con los dos activos el drawer se corre dos veces y termina
+ * peor que sin nada. El desplazamiento lo hace `DrawerContent` descontando la
+ * variable, igual que `dialog.tsx`. Va antes del spread para que un call-site
+ * pueda volver a prenderlo si alguna vez hiciera falta.
+ */
 function Drawer({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Root>) {
-  return <DrawerPrimitive.Root data-slot="drawer" {...props} />
+  return (
+    <DrawerPrimitive.Root data-slot="drawer" repositionInputs={false} {...props} />
+  )
 }
 
 function DrawerTrigger({
@@ -82,13 +93,32 @@ function DrawerContent({
   // llegando al borde físico. El contenido sigue corriéndose hacia adentro con
   // los insets (`pb`/`pl`/`pr` de acá abajo) — si al sacar el margen se va
   // también el inset, el último botón vuelve a caer sobre la barra de gestos.
+  //
+  // TECLADO VIRTUAL (`--kb-inset`)
+  // El drawer bottom consume la misma variable que `dialog.tsx`: apoya en
+  // `bottom-[var(--kb-inset)]` en vez de `bottom-0`, así el teclado deja de
+  // taparle el textarea/input (reporte del owner 2026-08-30: nota de línea,
+  // descuentos, montos y numpads quedaban detrás del teclado). vaul NO lo
+  // resuelve solo — por eso `repositionInputs` va apagado en el root.
+  // Los tres ajustes van juntos y son de la dirección bottom nada más:
+  //   - `bottom`: sube el drawer justo lo que mide el teclado.
+  //   - `max-h`: al subir, un drawer alto se saldría por arriba; el `min()`
+  //     lo recorta contra el alto que queda libre.
+  //   - `pb`: con el teclado abierto la barra de gestos ya no está entre el
+  //     drawer y el dedo, así que el `--safe-b` se descuenta; el `max(1rem,…)`
+  //     sigue siendo el piso.
+  // La transición es solo de `bottom` porque vaul anima `transform` inline
+  // (arrastre y apertura): son propiedades distintas y no se pisan.
+  // Fuera del POS `--kb-inset` vale `0px` (default global en `globals.css`) y
+  // las tres expresiones colapsan a lo de siempre: nada de esto se ve en
+  // desktop ni en el panel.
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay />
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         className={cn(
-          "group/drawer-content fixed z-50 flex h-auto flex-col bg-transparent p-4 text-sm before:absolute before:inset-2 before:-z-10 before:rounded-[min(var(--radius-4xl),24px)] before:border before:border-border before:bg-popover before:shadow-xl data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-0 data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[80vh] data-[vaul-drawer-direction=bottom]:before:inset-x-0 data-[vaul-drawer-direction=bottom]:before:bottom-0 data-[vaul-drawer-direction=bottom]:before:rounded-b-none data-[vaul-drawer-direction=bottom]:pb-[max(1rem,var(--safe-b))] data-[vaul-drawer-direction=bottom]:pl-[max(1rem,var(--safe-l))] data-[vaul-drawer-direction=bottom]:pr-[max(1rem,var(--safe-r))] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm",
+          "group/drawer-content fixed z-50 flex h-auto flex-col bg-transparent p-4 text-sm before:absolute before:inset-2 before:-z-10 before:rounded-[min(var(--radius-4xl),24px)] before:border before:border-border before:bg-popover before:shadow-xl data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-[var(--kb-inset)] data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[min(80vh,calc(100dvh-var(--kb-inset)-2rem))] data-[vaul-drawer-direction=bottom]:transition-[bottom] data-[vaul-drawer-direction=bottom]:duration-200 data-[vaul-drawer-direction=bottom]:before:inset-x-0 data-[vaul-drawer-direction=bottom]:before:bottom-0 data-[vaul-drawer-direction=bottom]:before:rounded-b-none data-[vaul-drawer-direction=bottom]:pb-[max(1rem,calc(var(--safe-b)-var(--kb-inset)))] data-[vaul-drawer-direction=bottom]:pl-[max(1rem,var(--safe-l))] data-[vaul-drawer-direction=bottom]:pr-[max(1rem,var(--safe-r))] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm",
           className
         )}
         {...props}
