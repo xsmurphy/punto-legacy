@@ -67,12 +67,20 @@ export function useAgentChat({
   companyName,
   viewOutletId,
   viewOutletName,
+  userId,
 }: {
   companyName: string
   /** UUID de la sucursal seleccionada (view-scope), "all", o "" si no hay override. */
   viewOutletId: string
   /** Nombre de la sucursal seleccionada — alimenta el contexto del prompt. */
   viewOutletName: string
+  /**
+   * Dueño del historial (owner, 2026-08-31: "el historial debe estar atado al
+   * User ID siempre"). Acá es el usuario logueado en el panel. Con `""` —
+   * bootstrap todavía en vuelo— la conversación vive en memoria y no se
+   * persiste: ver el docblock de `chat-history-store.ts`.
+   */
+  userId: string
 }) {
   const setStored = useChatHistoryStore((s) => s.setMessages)
   const clearStored = useChatHistoryStore((s) => s.clear)
@@ -165,9 +173,12 @@ export function useAgentChat({
   const skipFirstEmptyPersistRef = React.useRef(true)
 
   React.useEffect(() => {
-    if (hydratedRef.current || !storeHydrated) return
+    // Sin usuario todavía no se hidrata: el historial es de alguien, y hacerlo
+    // con `""` levantaría el cajón vacío y lo marcaría como ya hidratado, así
+    // que cuando el bootstrap llegara con el id real ya no volvería a intentar.
+    if (hydratedRef.current || !storeHydrated || !userId) return
     hydratedRef.current = true
-    const stored = useChatHistoryStore.getState().messages
+    const stored = useChatHistoryStore.getState().histories[userId] ?? []
     if (stored.length > 0 && chat.messages.length === 0) {
       chat.setMessages(stored)
     } else {
@@ -175,7 +186,7 @@ export function useAgentChat({
       skipFirstEmptyPersistRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storeHydrated])
+  }, [storeHydrated, userId])
 
   // Race condition: el effect de persist puede ver chat.messages=[] antes de que
   // el setMessages del effect de hidratación termine de impactar. El flag
@@ -196,8 +207,8 @@ export function useAgentChat({
       const stored = msg as StoredMessage
       return stored.createdAt !== undefined ? stored : { ...stored, createdAt: now }
     })
-    setStored(stamped)
-  }, [chat.messages, setStored])
+    setStored(userId, stamped)
+  }, [chat.messages, setStored, userId])
 
   // Auto-expiración de mensajes con credenciales: cuando aparece un nuevo
   // mensaje del assistant que contiene una contraseña visible, programar un
@@ -221,7 +232,7 @@ export function useAgentChat({
 
   const clear = React.useCallback(() => {
     chat.setMessages([])
-    clearStored()
+    clearStored(userId)
     scheduledRef.current.clear()
   }, [chat, clearStored])
 

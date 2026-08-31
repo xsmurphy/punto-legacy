@@ -5,6 +5,7 @@ import { AgentChatContent } from "@/components/agent/agent-chat-content"
 import { useAgentChat } from "@/lib/agent/use-agent-chat"
 import { useAiBalance, useInvalidateAiBalance } from "@/hooks/use-ai-balance"
 import { useSettings } from "@/hooks/use-settings"
+import { useBootstrap } from "@/hooks/use-bootstrap"
 
 /**
  * DUEÑO DE DATOS del chat del asistente en el PANEL.
@@ -48,6 +49,13 @@ export function AgentChatPanel({
   onInputChange,
   renderEmpty,
 }: Props) {
+  // Dueño del historial: el usuario logueado en el panel. Mientras el bootstrap
+  // está en vuelo es "", y con eso el hook NO persiste ni hidrata — el
+  // historial es de alguien, y guardarlo sin dueño lo dejaría a la vista del
+  // próximo que entre en esta máquina (owner, 2026-08-31).
+  const { data: bootstrap } = useBootstrap()
+  const userId = bootstrap?.user?.id != null ? String(bootstrap.user.id) : ""
+
   const {
     messages,
     sendMessage,
@@ -58,7 +66,7 @@ export function AgentChatPanel({
     addAttachment,
     removeAttachment,
     clearAttachments,
-  } = useAgentChat({ companyName, viewOutletId, viewOutletName })
+  } = useAgentChat({ companyName, viewOutletId, viewOutletName, userId })
 
   const { data: settingsData } = useSettings()
   const agentName = settingsData?.agentName?.trim() || "Asistente"

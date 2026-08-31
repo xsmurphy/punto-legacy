@@ -100,6 +100,9 @@ export default function ChatPage() {
     companyName: bootstrap?.companyName ?? "",
     viewOutletId,
     viewOutletName,
+    // Mismo dueño que el drawer del FAB, así las dos vistas del panel comparten
+    // la conversación de ESTA persona y no la de quien usó la máquina antes.
+    userId: bootstrap?.user?.id != null ? String(bootstrap.user.id) : "",
   })
 
   const { data: settingsData } = useSettings()
