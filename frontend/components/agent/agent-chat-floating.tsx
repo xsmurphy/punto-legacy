@@ -4,7 +4,7 @@ import * as React from "react"
 import { MessageCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
-import { AgentChatContent } from "./agent-chat-content"
+import { AgentChatPanel } from "./agent-chat-panel"
 import { useAgentChatStore } from "@/lib/agent/store"
 
 interface Props {
@@ -40,7 +40,9 @@ export function AgentChatFloating({ companyName, viewOutletId, viewOutletName, s
             Desktop ≥sm: max-w-md side panel. */}
         <SheetContent side="right" overlay={false} className="flex !w-[95vw] flex-col p-0 sm:!w-full sm:max-w-md">
           <SheetTitle className="sr-only">Asistente</SheetTitle>
-          <AgentChatContent companyName={companyName} viewOutletId={viewOutletId} viewOutletName={viewOutletName} showHeader />
+          {/* El dueño de datos del panel. La presentación
+              (`AgentChatContent`) es la misma que usa la caja. */}
+          <AgentChatPanel companyName={companyName} viewOutletId={viewOutletId} viewOutletName={viewOutletName} showHeader />
         </SheetContent>
       </Sheet>
     </>
