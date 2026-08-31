@@ -4,151 +4,186 @@ declare(strict_types=1);
 namespace Punto\Api\Reports;
 
 /**
- * Dominio de Reportes — Flujo de Caja (API compartida, motor ERP).
+ * Dominio de Reportes — Flujo de Efectivo (B1 de `context/60`).
  *
- * Port FIEL de panel/lib/reports/ReportCashflowService.php (Fase 2 batch 4). Cambios vs original:
- *  - namespace + `final`
- *  - el ROC se recibe por PARÁMETRO (el original llamaba `getROC(1)` dentro del service, que no
- *    existe en /api). El endpoint compone el ROC con `Roc::build()` y lo pasa.
- *  - `getPreviousPeriod` y `getCashFlowReceivedPayments` (sólo viven en panel) → portados como
- *    métodos privados (port fiel; semántica MySQL→PG preservada: `itemId IS NOT NULL/NULL`).
- *  - `getCashFlowReceivedPayments` ahora recibe `$companyId` por parámetro (mejor higiene
- *    multi-tenant; el original leía COMPANY_ID de la constante global).
+ * ── Reescrito el 2026-08-31. Qué estaba mal antes ───────────────────────────
+ * La versión anterior (port del panel legacy) se construía sobre `transaction`
+ * y tenía tres defectos que la volvían no confiable:
  *
- * Read-only. Sin formatear: el front formatea + arma KPIs + tabla.
+ *  1. `cashSales` NO era efectivo: sumaba `transactionTotal` de los tipos 0 y 6
+ *     SIN filtrar medio de pago, así que una venta con tarjeta o transferencia
+ *     entraba como caja. En un reporte de flujo de efectivo, ése es el error
+ *     central.
+ *  2. `initialCash` NO era un saldo de apertura: era el NETO del período
+ *     anterior de igual largo. Con un rango de 7 días, el "saldo inicial" era
+ *     lo que había pasado los 7 días previos.
+ *  3. Ignoraba `fin_account`, que sí lleva saldos reales. El sistema mostraba
+ *     dos verdades sobre el efectivo, las dos como ciertas.
+ *
+ * ── La fuente correcta ──────────────────────────────────────────────────────
+ * `fin_movement` (mig 72) registra CADA movimiento de dinero con su cuenta, su
+ * categoría, su medio de pago y su signo (`kind`), y `fin_account` lleva
+ * `openingbalance`. Con eso el reporte cuadra POR CONSTRUCCIÓN:
+ *
+ *     saldo inicial + entradas − salidas = saldo final
+ *
+ * Los tres términos salen de la misma tabla, así que no pueden divergir. El
+ * reporte devuelve además `balances.check` con la diferencia: si alguna vez no
+ * da cero, hay un bug de datos y se ve en el propio payload en vez de que
+ * alguien tenga que sospecharlo.
+ *
+ * ── Invariantes de `fin_movement` que no se pueden ignorar ──────────────────
+ *  - `amount` es SIEMPRE positivo; el signo lo da `kind` ('income'|'expense').
+ *    Sumar sin mirar `kind` da un número sin sentido.
+ *  - `status = 0` es ANULADO. Sin filtrarlo, los movimientos revertidos se
+ *    cuentan como reales.
+ *  - Las transferencias entre cuentas propias (`source = 'transfer'`) generan
+ *    DOS movimientos: un expense en la cuenta origen y un income en la destino.
+ *    A nivel empresa no son flujo —la plata no entró ni salió— así que se
+ *    EXCLUYEN de entradas/salidas; siguen afectando el saldo POR CUENTA, que es
+ *    donde sí importan.
+ *
+ * Read-only. Sin formatear: el front formatea.
  */
 final class CashflowService
 {
-    public function getCashFlow($from, $to, string $roc, string $companyId)
-    {
-        [$pFrom, $pTo] = $this->previousPeriod($from, $to);
-
-        $cur  = $this->periodTotals($from, $to, $roc, $companyId);
-        $prev = $this->periodTotals($pFrom, $pTo, $roc, $companyId);
-
-        $initialCash  = ($prev['cash'] + $prev['payments']) - ($prev['purchase'] + $prev['ppayment'] + $prev['expenses']);
-        $incomeTotal  = $cur['payments'] + $cur['cash'];
-        $outcomeTotal = $cur['purchase'] + $cur['ppayment'] + $cur['expenses'];
-        $remains      = $incomeTotal - $outcomeTotal;
-
-        return [
-            'cashSales'        => $cur['cash'],
-            'cashPayments'     => $cur['payments'],
-            'incomeTotal'      => $incomeTotal,
-            'stockPurchase'    => $cur['purchase'],
-            'expensesPurchase' => $cur['expenses'],
-            'outPayment'       => $cur['ppayment'],
-            'outcomeTotal'     => $outcomeTotal,
-            'remains'          => $remains,
-            'initialCash'      => $initialCash,
-            'accumulated'      => $initialCash + $remains,
-        ];
-    }
-
-    /** Totales de un período: ventas contado, cobros, compra mercadería, pagos compra, gastos. */
-    private function periodTotals($from, $to, $roc, $companyId)
-    {
-        $row = ncmExecute(
-            "SELECT SUM(transactionTotal) as total, SUM(transactionDiscount) as discount
-             FROM transaction WHERE transactionType IN (0,6)
-             AND " . SaleFilters::notVoidedSql() . "
-             AND transactionDate BETWEEN ? AND ?" . $roc,
-            [$from, $to]
-        );
-        $cash = $row ? ((float) ($row['total'] ?? 0) - (float) ($row['discount'] ?? 0)) : 0.0;
-
-        $payments = (float) $this->receivedPayments(5, 3, $roc, $from, $to, $companyId);
-        $ppayment = (float) $this->receivedPayments(5, 4, $roc, $from, $to, $companyId);
-
-        $purchase = $this->purchaseLines($from, $to, $roc, true);
-        $expenses = $this->purchaseLines($from, $to, $roc, false);
-
-        return ['cash' => $cash, 'payments' => $payments, 'purchase' => $purchase, 'ppayment' => $ppayment, 'expenses' => $expenses];
-    }
-
     /**
-     * Σ itemSoldTotal de compras contado (tipo 1) del período. $merchandise=true → líneas con
-     * ítem (mercadería); false → líneas sin ítem (gastos/servicios). Fix PG: itemId es UUID,
-     * el legacy usaba `itemId > 0` / `itemId = 0` (semántica MySQL) → IS NOT NULL / IS NULL.
+     * @param string $from 'Y-m-d H:i:s'
+     * @param string $to   'Y-m-d H:i:s'
+     * @param string $outletId Sucursal del view-scope; '' = todas.
      */
-    private function purchaseLines($from, $to, $roc, $merchandise)
+    public function getCashFlow(string $from, string $to, string $companyId, string $outletId = ''): array
     {
-        $itemClause = $merchandise ? 'AND b.itemId IS NOT NULL' : 'AND b.itemId IS NULL';
-        $rocB = str_replace(
-            ['registerId', 'outletId', 'companyId'],
-            ['a.registerId', 'a.outletId', 'a.companyId'],
-            $roc
-        );
-        $row = ncmExecute(
-            "SELECT SUM(b.itemSoldTotal) as total
-             FROM transaction a, itemSold b
-             WHERE a.transactionType = 1 AND a.transactionDate BETWEEN ? AND ?" . $rocB . "
-             AND a.transactionId = b.transactionId " . $itemClause,
-            [$from, $to]
-        );
-        return $row ? (float) ($row['total'] ?? 0) : 0.0;
-    }
+        $accounts = $this->accountBalances($from, $to, $companyId, $outletId);
 
-    /**
-     * Port fiel de getCashFlowReceivedPayments (panel-only). $companyId explícito.
-     * Suma transactionTotal de los pagos (typePay) cuyo padre es del tipo $typeTrans.
-     */
-    private function receivedPayments($typePay, $typeTrans, $roc, $from, $to, $companyId): float
-    {
-        // Sólo se leen transactionId (batch de origen vía transaction_link) y
-        // transactionTotal (suma) — ninguna vive en meta/data/config.
-        $sql = "SELECT transactionId, transactionTotal FROM transaction
-                WHERE transactionType IN (" . (int) $typePay . ")
-                AND transactionDate BETWEEN ? AND ? " . $roc . "
-                ORDER BY transactionDate DESC";
-        $result = ncmExecute($sql, [$from, $to], false, true, true);
-        $sum = 0.0;
-        if ($result) {
-            // mig 115: transactionParentId dropeada — batch lookup del origen
-            // vía transaction_link (TransactionLinkService), sin N+1.
-            $rows = is_array($result) ? $result : [];
-            $derivedIds = array_map(static fn($f) => (string) $f['transactionId'], $rows);
-            $originByDerived = $derivedIds !== []
-                ? (new \Punto\Api\Services\TransactionLinkService())->mapOriginIdByDerivedIds($companyId, $derivedIds, 'credit_payment')
-                : [];
-
-            $originIds = array_values(array_unique(array_filter($originByDerived)));
-            $matchOrigins = [];
-            if ($originIds !== []) {
-                $ph = implode(',', array_fill(0, count($originIds), '?'));
-                $rs = ncmExecute(
-                    "SELECT transactionId FROM transaction WHERE transactionId IN ($ph) AND transactionType = ? AND companyId = ?",
-                    array_merge($originIds, [$typeTrans, $companyId]),
-                    false,
-                    true
-                );
-                if ($rs) {
-                    while (!$rs->EOF) {
-                        $matchOrigins[(string) $rs->fields['transactionId']] = true;
-                        $rs->MoveNext();
-                    }
-                }
-            }
-
-            foreach ($rows as $fields) {
-                $origin = $originByDerived[(string) $fields['transactionId']] ?? null;
-                if ($origin !== null && isset($matchOrigins[$origin])) {
-                    $sum += (float) $fields['transactionTotal'];
-                }
-            }
+        $opening = 0.0;
+        $closing = 0.0;
+        foreach ($accounts as $a) {
+            $opening += $a['opening'];
+            $closing += $a['closing'];
         }
-        return $sum;
+
+        $income  = $this->byCategory($from, $to, $companyId, $outletId, 'income');
+        $expense = $this->byCategory($from, $to, $companyId, $outletId, 'expense');
+
+        $incomeTotal  = array_sum(array_column($income, 'amount'));
+        $expenseTotal = array_sum(array_column($expense, 'amount'));
+
+        return [
+            'from' => $from,
+            'to'   => $to,
+            'balances' => [
+                'opening' => round($opening, 2),
+                'closing' => round($closing, 2),
+                'net'     => round($incomeTotal - $expenseTotal, 2),
+                // Tiene que ser 0. Se expone en vez de asumirse: si algún día no
+                // lo es, el reporte lo dice solo.
+                'check'   => round($opening + $incomeTotal - $expenseTotal - $closing, 2),
+            ],
+            'accounts'     => $accounts,
+            'income'       => $income,
+            'expense'      => $expense,
+            'incomeTotal'  => round($incomeTotal, 2),
+            'expenseTotal' => round($expenseTotal, 2),
+        ];
     }
 
-    /** Port fiel de getPreviousPeriod (panel-only): mismo intervalo desplazado hacia atrás. */
-    private function previousPeriod($start, $end): array
+    /**
+     * Saldo de apertura y cierre POR CUENTA.
+     *
+     * El saldo se RECOMPUTA (`openingbalance + Σ movimientos`), no se lee de
+     * `fin_account.currentbalance`: esa columna es un cache del saldo de HOY y
+     * no sirve para un período que termina en el pasado.
+     *
+     * Acá las transferencias SÍ cuentan: mover plata del efectivo al banco no
+     * es flujo de la empresa pero cambia el saldo de las dos cuentas.
+     *
+     * @return list<array<string,mixed>>
+     */
+    private function accountBalances(string $from, string $to, string $companyId, string $outletId): array
     {
-        $startF    = strtotime($start);
-        $endF      = strtotime($end);
-        $diference = ($endF - $startF) + 1;
-        return [
-            date('Y-m-d H:i:00', ($startF - $diference)),
-            date('Y-m-d H:i:00', ($endF   - $diference)),
-        ];
+        $params = [$companyId];
+        $accWhere = 'a.companyid = ?::uuid AND a.status = 1';
+        if ($outletId !== '') {
+            // `outletid IS NULL` = cuenta global de todas las sucursales: se
+            // incluye siempre, o el efectivo global desaparecería al filtrar.
+            $accWhere .= ' AND (a.outletid = ?::uuid OR a.outletid IS NULL)';
+            $params[] = $outletId;
+        }
+
+        $rows = \ncmRows(
+            "SELECT a.accountid, a.name, a.type, a.openingbalance,
+                    COALESCE(SUM(CASE WHEN m.date <  ?::timestamptz AND m.kind = 'income'  THEN m.amount END), 0) AS pre_in,
+                    COALESCE(SUM(CASE WHEN m.date <  ?::timestamptz AND m.kind = 'expense' THEN m.amount END), 0) AS pre_out,
+                    COALESCE(SUM(CASE WHEN m.date >= ?::timestamptz AND m.date <= ?::timestamptz AND m.kind = 'income'  THEN m.amount END), 0) AS per_in,
+                    COALESCE(SUM(CASE WHEN m.date >= ?::timestamptz AND m.date <= ?::timestamptz AND m.kind = 'expense' THEN m.amount END), 0) AS per_out
+               FROM fin_account a
+               LEFT JOIN fin_movement m
+                 ON m.accountid = a.accountid AND m.companyid = a.companyid AND m.status = 1
+              WHERE {$accWhere}
+              GROUP BY a.accountid, a.name, a.type, a.openingbalance
+              ORDER BY a.type, a.name",
+            array_merge([$from, $from, $from, $to, $from, $to], $params)
+        );
+
+        $out = [];
+        foreach ($rows as $r) {
+            $opening = (float) $r['openingbalance'] + (float) $r['pre_in'] - (float) $r['pre_out'];
+            $movement = (float) $r['per_in'] - (float) $r['per_out'];
+            $out[] = [
+                'accountId' => (string) $r['accountid'],
+                'name'      => (string) $r['name'],
+                'type'      => (string) $r['type'],
+                'opening'   => round($opening, 2),
+                'income'    => round((float) $r['per_in'], 2),
+                'expense'   => round((float) $r['per_out'], 2),
+                'closing'   => round($opening + $movement, 2),
+            ];
+        }
+        return $out;
+    }
+
+    /**
+     * Entradas o salidas del período AGRUPADAS POR CATEGORÍA.
+     *
+     * Excluye `source = 'transfer'`: mover plata entre cuentas propias no es
+     * flujo de la empresa. Incluirlo inflaría entradas y salidas por el mismo
+     * monto — el neto quedaría bien y los totales mentirían.
+     *
+     * Los movimientos sin categoría caen en "Sin categoría" en vez de
+     * descartarse: son plata real y omitirlos rompería el cuadre.
+     *
+     * @return list<array{categoryId:?string,name:string,amount:float}>
+     */
+    private function byCategory(string $from, string $to, string $companyId, string $outletId, string $kind): array
+    {
+        $where  = "m.companyid = ?::uuid AND m.status = 1 AND m.kind = ?
+                   AND m.source <> 'transfer'
+                   AND m.date >= ?::timestamptz AND m.date <= ?::timestamptz";
+        $params = [$companyId, $kind, $from, $to];
+        if ($outletId !== '') {
+            $where   .= ' AND (m.outletid = ?::uuid OR m.outletid IS NULL)';
+            $params[] = $outletId;
+        }
+
+        $rows = \ncmRows(
+            "SELECT m.categoryid, COALESCE(c.name, 'Sin categoría') AS name, SUM(m.amount) AS total
+               FROM fin_movement m
+               LEFT JOIN fin_category c ON c.categoryid = m.categoryid AND c.companyid = m.companyid
+              WHERE {$where}
+              GROUP BY m.categoryid, c.name
+              ORDER BY SUM(m.amount) DESC",
+            $params
+        );
+
+        $out = [];
+        foreach ($rows as $r) {
+            $out[] = [
+                'categoryId' => $r['categoryid'] !== null ? (string) $r['categoryid'] : null,
+                'name'       => (string) $r['name'],
+                'amount'     => round((float) $r['total'], 2),
+            ];
+        }
+        return $out;
     }
 }
