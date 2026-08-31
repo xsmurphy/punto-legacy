@@ -251,8 +251,19 @@ describe("la medición del teclado no mezcla posición con altura", () => {
     ).not.toMatch(/-\s*(vv|visualViewport)\.offsetTop/)
   })
 
-  it("mide la diferencia de alturas entre el viewport de layout y el visual", () => {
-    expect(source).toMatch(/window\.innerHeight\s*-\s*vv\.height/)
+  it("mide contra el alto que usa el CSS, no contra innerHeight", () => {
+    // En iOS con la PWA instalada `innerHeight` SIGUE al viewport visual: vale
+    // lo mismo que `vv.height` y la resta da 0 siempre (medición del owner,
+    // 2026-08-31: innerHeight 441 / vv.height 441 / clientHeight 797). El marco
+    // del que hay que descontar es contra el que resuelven `100dvh` y los
+    // elementos `fixed`, o sea `documentElement.clientHeight`.
+    expect(
+      source,
+      "`innerHeight` no es el viewport de layout en iOS standalone",
+    ).not.toMatch(/window\.innerHeight\s*-/)
+    expect(source).toMatch(
+      /document\.documentElement\.clientHeight[\s\S]{0,80}-\s*vv\.height/,
+    )
   })
 
   it("nunca publica un inset negativo", () => {

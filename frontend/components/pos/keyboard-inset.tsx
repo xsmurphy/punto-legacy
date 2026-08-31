@@ -59,12 +59,32 @@ export function PosKeyboardInset() {
       // —diálogos, drawers, shell— descontaba cero JUSTO cuando más importaba.
       // El comentario anterior afirmaba lo contrario de lo que hacía el código.
       //
-      // `max(0, …)`: en un navegador que achique el viewport de LAYOUT al abrir
-      // el teclado (Chrome con `interactive-widget=resizes-content`),
-      // `innerHeight` ya viene reducido y la diferencia da ~0 o negativa. Es el
-      // resultado correcto: ahí el contenido se reacomodó solo y no hay que
-      // descontar nada. La misma fórmula sirve para los dos comportamientos.
-      const covered = Math.max(0, window.innerHeight - vv.height)
+      // El minuendo es `documentElement.clientHeight`, NO `window.innerHeight`.
+      //
+      // Medición del owner en su iPhone, PWA instalada, con el teclado abierto
+      // (sonda `?debug=viewport`, 2026-08-31):
+      //
+      //     innerHeight        441      html.clientHeight   797
+      //     visualViewport.h   441      100dvh              797
+      //
+      // `innerHeight` SIGUE al viewport visual en iOS standalone: vale lo mismo
+      // que `vv.height`, así que restarlos da 0 siempre y el inset nunca se
+      // publicaba. Ese fue el error de origen, y explica por qué el arreglo
+      // anterior —sacar `offsetTop` de la cuenta— no podía cambiar nada: los
+      // dos términos ya eran el mismo número.
+      //
+      // `clientHeight` del `<html>` es la altura contra la que el CSS resuelve
+      // `100dvh` y contra la que se posicionan los elementos `fixed`, que es
+      // exactamente el marco del que hay que descontar. Acá: 797 - 441 = 356,
+      // el alto real del teclado.
+      //
+      // Sirve igual para el navegador que SÍ achica su viewport de layout al
+      // abrir el teclado (`interactive-widget=resizes-content`): ahí
+      // `clientHeight` baja junto con `vv.height`, la diferencia da ~0 y el
+      // resultado es correcto, porque en ese caso el contenido ya se reacomodó
+      // solo y no hay nada que descontar. El `max(0, …)` cubre el redondeo.
+      const layoutHeight = document.documentElement.clientHeight
+      const covered = Math.max(0, layoutHeight - vv.height)
       // Umbral: las barras del navegador entran y salen con ~60-90px de
       // diferencia y NO son un teclado. Ningún teclado virtual mide menos de
       // ~250px, así que 120 separa las dos cosas sin falsos positivos.

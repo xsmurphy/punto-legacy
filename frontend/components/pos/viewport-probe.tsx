@@ -59,21 +59,34 @@ export function ViewportProbe() {
         ["100svh", String(svh)],
         ["100lvh", String(lvh)],
         ["visualViewport.h", vv ? String(Math.round(vv.height)) : "—"],
-        // `offsetTop` y `covered` son EL diagnóstico del teclado virtual:
-        // `keyboard-inset.tsx` publica `--kb-inset` con exactamente esta
-        // cuenta, así que verlos al lado dice si la variable está en 0 porque
-        // no hay teclado o porque la medición no lo ve.
+        // `covered` es EL diagnóstico del teclado virtual: `keyboard-inset.tsx`
+        // publica `--kb-inset` con exactamente esta cuenta, así que verlos al
+        // lado dice si la variable está en 0 porque no hay teclado o porque la
+        // medición no lo ve.
         //
-        // La distinción que importa: iOS NO achica el viewport de LAYOUT al
-        // abrir el teclado (`innerHeight` queda igual y `covered` da la altura
-        // del teclado), pero un navegador que sí lo achique deja `innerHeight`
-        // ya reducido, `covered` en ~0 y el inset en 0 aunque el teclado esté
-        // arriba. Si eso pasa, el bug es la fórmula, no el consumo.
+        // Esta sonda YA cazó un bug, y vale dejar el número escrito porque es
+        // contraintuitivo: en el iPhone del owner con la PWA instalada y el
+        // teclado abierto, `innerHeight` marcó 441 y `visualViewport.h` marcó
+        // 441 TAMBIÉN — o sea que `innerHeight` sigue al viewport VISUAL, no al
+        // de layout. Restarlos daba 0 y el inset nunca se publicaba. El alto
+        // correcto es `html.clientHeight` (797 ahí), que es contra el que
+        // resuelven `100dvh` y los elementos `fixed`: 797 - 441 = 356.
+        //
+        // Por eso las tres filas se leen juntas: si `covered` da 0 con el
+        // teclado arriba, comparar `innerHeight` con `html.clientHeight` dice
+        // enseguida cuál de los dos está siguiendo al teclado.
         ["visualViewport.top", vv ? String(Math.round(vv.offsetTop)) : "—"],
         [
           "covered(calc)",
           vv
-            ? String(Math.max(0, Math.round(window.innerHeight - vv.height)))
+            ? String(
+                Math.max(
+                  0,
+                  Math.round(
+                    document.documentElement.clientHeight - vv.height,
+                  ),
+                ),
+              )
             : "—",
         ],
         ["--safe-t", cs.getPropertyValue("--safe-t").trim() || "—"],
