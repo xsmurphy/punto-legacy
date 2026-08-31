@@ -10,7 +10,9 @@
 Roadmap único del proyecto Punto POS. Solo items vivos / abiertos.
 Items completados archivados en [_archive-roadmap-completado.md](_archive-roadmap-completado.md).
 
-> **Última actualización:** 2026-08-28 (tres módulos pedidos por el owner: consignación, alquiler y subproductos/reproceso en producción — ver primera sección; el reproceso resultó ya posible con el motor actual)
+> **Última actualización:** 2026-08-31 (Balance y Flujo de efectivo gerenciales implementados — `context/60-balance-y-flujo-de-efectivo.md`; snapshot de balance a hoy + flujo de efectivo reescrito sobre `fin_movement`/`fin_account`, sin partida doble)
+>
+> 2026-08-28 (tres módulos pedidos por el owner: consignación, alquiler y subproductos/reproceso en producción — ver primera sección; el reproceso resultó ya posible con el motor actual)
 >
 > 2026-08-26 (estación de impresión instalable como PWA — pedido del owner; ver item abajo)
 >

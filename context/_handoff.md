@@ -1,109 +1,99 @@
-# Hand-off — 2026-08-31 (sitio de marketing)
+# Hand-off — 2026-08-31 (2)
 
 ## Objetivo
-Punto no tenía sitio de marketing real — el dominio `punto.la` no servía
-nada propio. Esta sesión construyó uno de cero (`frontend/app/(site)/`),
-usando pediaca.app SOLO como referencia de estructura (copy propio,
-auditado contra lo que Punto realmente ofrece), para tener una presencia
-comercial con SEO, páginas por rubro/módulo, y una fuente de contenido para
-el futuro agente de atención al cliente vía WhatsApp/Fish.
+El owner pidió analizar si los reportes tenían un balance y un flujo de
+efectivo usables — no había ninguno. Acotó el alcance con la frase que es la
+decisión de fondo: *"gerencial.. nosotros no nos metemos en lo contable"* —
+no partida doble, es lo que un dueño mira para decidir. De paso, la marca
+del conector MCP (título/ícono en el handshake) destapó un dominio
+hardcodeado y otros dos fixes chicos de infra.
 
 ## Estado al cerrar
-`origin/main` = `5630c3d1` (working tree limpio). El trabajo de ESTA sesión
-termina en `b91b2991` — las 3 commits entre `b91b2991` y `5630c3d1` son de
-una sesión paralela (reportes de clientes), no tocarlas ni asumir que son
-tuyas si retomás esto.
-
-**Deploy**: el último confirmado `finished` para el sitio fue `6cb5c50d`
-(webchat). El commit final de la sesión (`b91b2991`, fix del link de
-Instagram) NO se deployó solo, pero SÍ va incluido en el deploy
-`1oag5axpukdg1cnq2wdheqvv` (para el commit `5630c3d1`, disparado por la
-sesión paralela) que quedó `in_progress` al momento de cerrar. Primer paso
-de la próxima sesión si toca el sitio: `mcp__coolify__get_deployment` con
-ese uuid para confirmar `status: finished`, y `list_applications` para
-`running:healthy`. Si por algo falló, hace falta un deploy explícito de
-Punto Front (`nzmay2ytcdup3sgylspq39z6`).
-
-El sitemap ya fue enviado a Search Console por el owner (19→29 URLs
-indexadas en la última corrida). Los redirects de `encom.app` están
-cargados en Cloudflare Bulk Redirects (a mano, fuera del repo) y
-confirmados funcionando con 301 a destinos específicos.
+`origin/main` en `7312dc8c` al momento de escribir (puede haber avanzado por
+sesiones paralelas). Working tree limpio. Los 6 commits propios de esta
+sesión (`8efbd353..7312dc8c`, intercalados con una sesión paralela) YA están
+pusheados. **Sin verificar si están deployados** — no se disparó deploy
+desde esta sesión; antes de cerrar cualquier sesión futura, confirmar con
+`mcp__coolify__list_deployments` que el Front cubre estos commits.
 
 ## Archivos y cambios
-- `frontend/middleware.ts` — ruteo por host: `punto.la` reescribe `/` →
-  `/home`, `app.punto.la` sigue sirviendo el panel sin cambios.
-- `frontend/app/(site)/` — todas las páginas del sitio (home, rubros,
-  módulos, precios, contacto).
-- `frontend/lib/site/rubros.ts` — 15 rubros, 3 grupos, campo `destacado`.
-- `frontend/lib/site/modulos.ts` — 10 minipages, `mercados: ["PY"]` en
-  facturación electrónica.
-- `frontend/lib/site/markets.ts` — capa de mercado (precio/moneda/
-  `{docFiscal}`/`{money:X}`); hoy solo existe `PY`, sin testear con un
-  segundo mercado.
-- `frontend/lib/site/legacy-redirects.ts` — mapa `encom.app` → URL
-  específica en `punto.la`.
-- `frontend/scripts/export-site-content.ts` + `scripts/alias-hook.mjs` —
-  genera `content/sitio/*.md` en `prebuild`, desde las mismas fuentes que
-  renderiza el sitio.
-- `content/sitio/faq-ventas.md` — único archivo de esa carpeta escrito a
-  mano (`editable: true`), el exportador lo respeta.
-- `frontend/app/globals.css` — fix cross-cutting: `@custom-variant dark
-  (&:is(.dark *):not(.light *));` (la variante `dark:` se filtraba dentro
-  de subtrees forzados a `.light`, no solo del sitio).
-- `frontend/components/ui/tabs.tsx` — fix cross-cutting: `data-active:` →
-  `data-[state=active]:` (Radix marca `data-state="active"`, no
-  `data-active`; el estado activo de Tabs nunca se pintó en NINGÚN lugar
-  del proyecto hasta este fix). Vale la pena revisar si el panel tiene
-  Tabs cuyo estado activo nadie reportó como bug.
-- `frontend/components/site/mockups.tsx` (`MockFrame`) — fija su propio
-  color de texto, no hereda del fondo de la escena que lo contiene.
-- `context/61-sitio-marketing.md` — doc nuevo, estructura + capa de
-  mercado + pipeline de contenido.
+- `api/lib/Reports/CashflowService.php` — reescrito sobre `fin_movement`/
+  `fin_account`, recalcula saldos (no lee `currentbalance` cacheado);
+  `source='transfer'` excluido de ingresos/egresos pero SÍ mueve saldo por
+  cuenta.
+- `api/lib/Reports/BalanceService.php` — nuevo. Snapshot a HOY (no rango).
+  Pasivo excluye `type='purchase'` de obligaciones (ya cuenta como cuenta
+  por pagar; contarla dos veces era el bug). `notes.missingFixedAssets:
+  true` — el sistema no registra activos fijos, se declara en vez de mentir.
+- `api/v1/reports/cashflow.php` / `balance.php` — `apiAuthTenant(['panel',
+  'api'])`, resuelven `VIEW_OUTLET_ID`.
+- `frontend/app/(panel)/reports/cashflow/page.tsx` reescrita, `.../balance/
+  page.tsx` nueva (sin `DateRangePicker` a propósito, es una foto de hoy).
+- `context/60-balance-y-flujo-de-efectivo.md` — doc nuevo del módulo.
+- `frontend/app/api/mcp/route.ts` — `serverInfo` con `title`/`description`/
+  `websiteUrl`/`icons` (SEP-973).
+- `frontend/next.config.ts` — rewrite de `/favicon.ico` (Next servía `/icon.
+  png` pero no `/favicon.ico`; devolvía el HTML del panel).
+- `context/58-mcp-server.md` — sección sobre el WAF "Block AI bots" de
+  Cloudflare.
 
 ## Callejones sin salida
-- **Verde de marca en el pill activo de tabs** — violaba `context/14`
-  §5 (el verde nunca va en UI interactiva/CTA, solo decorativo). Revertido
-  a `bg-foreground` por marca del owner. Chequear §5 ANTES de aplicar
-  color a un elemento interactivo, no después.
-- **Tamaño de los pills de tabs** — se pasó para chico primero (heredaba
-  `h-8` de la densidad del panel) y para grande después (`h-11 px-6`). El
-  correcto es `h-9 px-4` (el de `Button size="lg"`). Cuando el primitive
-  fija alto con `!important` en la variante horizontal, hay que
-  neutralizarlo explícito — no alcanza con tocar el padding.
-- **Copy heredado de pediaca.app** arrastró promesas que Punto no cumple:
-  "prueba gratis / sin tarjeta" (no hay onboarding autogestionado, los CTA
-  van a WhatsApp o al signup real), precio repetido en todos los hero/CTA
-  (vive SOLO en `/precios`), "todo incluido" (alcance no cerrado). Cualquier
-  copy de referencia externa se audita contra lo que Punto realmente
-  ofrece antes de publicar, no se asume que aplica.
-- **Sesgo de rubro** — los primeros mockups/ejemplos del home eran
-  puramente gastronómicos (lomito, mesas, comanda), alguien de otro rubro
-  sentía que el sistema no era para él. Se corrigió reordenando tabs y
-  cambiando ejemplos. Al armar contenido de producto genérico, el primer
-  ejemplo visible no puede ser de un solo rubro.
-- **Menú mobile** faltó toda la sesión hasta que se notó (nav tenía
-  `hidden md:flex`, sin botón hamburguesa). Se resolvió con un panel a
-  pantalla completa montado vía `createPortal` en `<body>` — el header con
-  `backdrop-blur` es contenedor de posicionamiento, así que un `fixed`
-  adentro colapsaba a alto 0.
+- **Perseguir `serverInfo.icons` como fuente del logo del conector fue
+  tiempo mal gastado, y probablemente no se puede.** Los conectores custom/
+  self-hosted NO reciben ícono de marca hoy — eso sale del registro interno
+  de Anthropic, solo first-party/marketplace. Issues abiertos pidiendo esa
+  función: `anthropics/claude-ai-mcp#152`, `anthropics/claude-code#49040`,
+  `modelcontextprotocol/modelcontextprotocol#1040` y discussion `#2573`.
+  Favicon, URLs absolutas y data URIs en `icons` — todo probado, nada
+  funciona, y coincide con lo que esos issues reportan.
+- **La premisa que disparó la investigación era casi seguro falsa.** El
+  owner dijo que el ícono aparecía *"desde la primera conexión"* — antes de
+  que existieran los `icons` del handshake y antes del fix del favicon. Si
+  ya estaba sin ninguna de las dos cosas desplegadas, no viene de nada que
+  controlemos: hipótesis viva es que es el ícono GENÉRICO del cliente
+  (círculo oscuro + punto verde de "conectado"), no el logo de Punto.
+- **`"https://app.punto.la"` como fallback de `APP_URL` "funcionaba" en
+  prod por coincidencia, no por configuración.** Al verificar contra
+  Coolify, `APP_URL` NO existe en el env del Front. Regla: un `?? "literal"`
+  se verifica contra el env real antes de darlo por resuelto — no alcanza
+  con que ande.
 
 ## Próximo paso
-Confirmar el deploy `1oag5axpukdg1cnq2wdheqvv` (`mcp__coolify__get_deployment`)
-llegó a `finished` y la app quedó `running:healthy` — ese deploy lleva el
-fix del link de Instagram (`b91b2991`), el último commit de esta sesión.
-Si terminó bien, no queda nada abierto del sitio; si falló, redeployar
-Punto Front (`nzmay2ytcdup3sgylspq39z6`) explícito.
+Pedirle al owner que compare `https://app.punto.la/icon.png` contra la
+ficha del conector en Claude Desktop/Connectors. Si son visualmente
+distintos, el ícono que se ve es el genérico del cliente — dejar de tocar
+`serverInfo.icons` y avisarle a la sesión "Fish" (otro proyecto, mencionado
+por el owner) que pare de perseguir lo mismo ahí.
 
 ## Trampas conocidas
-- `content/sitio/*.md` se regenera en CADA build salvo `faq-ventas.md`
-  (`editable: true`) — no editar a mano los demás, se pierde en el próximo
-  `npm run build`.
-- `hero.tsx` tiene un comentario documentando dónde engancha un futuro
-  video de fondo — no es dead code, no borrarlo sin leerlo.
-- `lib/site/markets.ts` solo tiene la entrada `PY`; el mecanismo para
-  agregar mercado está diseñado pero nunca ejercitado con un segundo país
-  real — la primera vez que se agregue uno, verificar con cuidado.
-- El módulo de facturación electrónica se autooculta por mercado
-  (`modulosVisibles()`) porque nombra al organismo fiscal paraguayo — si
-  se agrega copy PY-específico en otro lugar del sitio, replicar el mismo
-  gating, no asumir que basta con no tocar esa página.
+- **`get_sales_summary` (tool MCP) devuelve `tax: 0` en TODOS los meses**,
+  incluidos los de uso real (junio: 68 tickets, 10 clientes), con el tenant
+  teniendo IVA y RUC configurados. Sin diagnosticar — bug concreto más
+  urgente que quedó abierto.
+- **Balance y Flujo de efectivo sin verificar contra datos reales.** Las
+  queries no se corrieron contra Postgres real; falta que el owner revise a
+  ojo la valuación de inventario y el patrimonio derivado contra lo que él
+  sabe del negocio.
+- Cloudflare "Block AI bots" desactivada A MANO en el dashboard (fuera del
+  repo) — Cloudflare anunció migración de esa tarjeta para el 15 de
+  septiembre; si se reactiva sola, el conector MCP vuelve a fallar con
+  "Couldn't reach Punto" y el síntoma no apunta a Cloudflare.
+- Del informe del tester sigue abierto el ítem 5 (reporte de stock lista
+  ítems de toda la compañía — el endpoint scopea, lo company-wide es la
+  query de `item`; necesita que el owner mire datos reales) y `context/56`
+  (cotización PDF, proyecto de varias horas).
+- 2 P2 de auth decididos pero sin implementar (detalle en `context/10-
+  roadmap.md`): consolidado por sucursal vía `user_outlet`+`Roc::build`; y
+  fichaje por QR con secreto rotable, bloqueado hasta que el owner decida
+  `soon` o completar el módulo `attendance`.
+- WebSocket de realtime sin auth; TZ `America/Asuncion` literal en migs
+  157/160 y `period-close.php`; ticket con logo en térmica FÍSICA sin
+  probar.
+
+**Nota de concurrencia**: esta sesión cerró en paralelo con otra que hizo el
+sitio de marketing (`punto.la`, commits `53ce1895..b91b2991`). Ese trabajo
+NO está descrito arriba — su propio entry de bitácora es "## 2026-08-31 (2)
+— sitio de marketing..." y su hand-off detallado (objetivo, callejones,
+trampas) fue sobrescrito por este archivo al cerrar. Si hace falta ese
+detalle, está en el historial de git de `_handoff.md` o se puede reconstruir
+del entry de bitácora + `context/61-sitio-marketing.md`.
