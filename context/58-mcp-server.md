@@ -430,6 +430,40 @@ Timeouts del cliente: ≤10s discovery, ≤30s refresh. Librerías candidatas:
 `mcp-auth`, `fastmcp-oauth`, `@cloudflare/workers-oauth-provider` — ninguna
 lista out-of-box para Next.js App Router + PHP.
 
+## El WAF de Cloudflare bloquea al cliente MCP por USER-AGENT (2026-08-31)
+
+Paso de infra que NO se deduce del repo, y cuyo modo de falla manda a buscar el
+problema en el lugar equivocado: el server responde perfecto a mano y el conector
+no conecta.
+
+`app.punto.la` está detrás de Cloudflare (`server: cloudflare`, `cf-ray`). Sus
+reglas de bots pueden matar el request ANTES de llegar al origen, con un 403 de
+`text/plain`.
+
+**El filtro es por user-agent declarado**, no por fingerprint TLS ni reputación
+de IP — medido por la sesión de Fish sobre su propio dominio, mismo proveedor.
+Eso hace la prueba trivial:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST https://app.punto.la/api/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -A "Claude-User/1.0" -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
+```
+
+403 → es el WAF. 200 → el UA no es el problema, ir a los eventos de seguridad.
+
+**Estado en Punto: RESUELTO.** El owner sacó la regla antes de que se construyera
+el MCP, verificado 2026-08-31: `Claude-User/1.0` y `ClaudeBot/1.0` dan 200 acá y
+403 en el dominio de Fish. Por eso las pruebas con `curl` de esta sesión nunca
+vieron el bloqueo — llegaron después del fix, y `curl/8.7.1` no matchea la regla
+igual.
+
+**Si vuelve a aparecer**: la excepción va acotada a la ruta del MCP, no bajando la
+seguridad del sitio. Y ojo con **Bot Fight Mode**: no admite excepción por path,
+así que si el bloqueo viene de ahí hay que apagarlo y poner una regla WAF
+equivalente que sí la acepte.
+
 ## La identidad del conector viaja en el handshake (2026-08-31)
 
 El cliente NO deduce el logo del favicon del dominio: dibuja la tarjeta del
