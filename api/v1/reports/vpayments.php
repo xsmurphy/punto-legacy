@@ -5,7 +5,7 @@
  *   GET /v1/reports/vpayments?from=&to=   → registros de pagos ePOS + totales, CRUDO.
  *
  * La capa API es la única que habla con el servicio externo (proxy a get_vpayments → Bancard/Dinelco).
- * Read-only. Sin formatear: el front formatea + arma tabla/donut. Auth: realm `panel`. Ver REGLA RAÍZ 2.
+ * Read-only. Sin formatear: el front formatea + arma tabla/donut. Auth: realms `panel` y `api` (lectura programatica: API keys / MCP). Ver REGLA RAÍZ 2.
  *
  * Port FIEL de panel/API/v1/reports/vpayments.php (Fase 2 del desacople de /panel — último
  * reporte). Cambios: `apiMiddleware()` → `apiAuthTenant(['panel'])`; service en namespace
@@ -14,7 +14,7 @@
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);

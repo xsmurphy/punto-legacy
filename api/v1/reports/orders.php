@@ -5,13 +5,14 @@
  *   GET /v1/reports/orders?from=&to=  → { rows } CRUDO (transaction type=12).
  *
  * Lectura sin formatear (el front mapea estado→badge y formatea fecha/monto).
- * Auth: realm `panel` (apiAuthTenant(['panel'])). Tenant por COMPANY_ID + outlet (ROC).
+ * Auth: realms `panel` y `api` (lectura programatica: API keys / MCP). Tenant por
+ * COMPANY_ID + outlet (ROC).
  * Ver REGLA RAÍZ 2. Mismo patrón que los demás reportes de la /api compartida.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-apiAuthTenant(['panel']);
+apiAuthTenant(['panel', 'api']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);

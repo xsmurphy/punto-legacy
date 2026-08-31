@@ -145,6 +145,26 @@ try {
         ['v1/settings.php',              ''],
         ['v1/outlets.php',               ''],
         ['v1/reports/summary_year.php',  'y=2026'],
+        // Los reportes que consume la tool `get_report` del catálogo compartido
+        // (`frontend/lib/agent/read-tools.ts`). Iban 401 por MCP porque el realm
+        // `api` no estaba en su allowlist: la tool existía y el endpoint también,
+        // pero no se hablaban. Si alguien saca 'api' de uno de estos, la tool
+        // vuelve a romperse en producción y no en el arnés — por eso están acá
+        // enumerados uno por uno y no por wildcard.
+        ['v1/reports/sales.php',            'view=summary'],
+        ['v1/reports/open_invoices.php',    'state=income'],
+        ['v1/reports/customers.php',        ''],
+        ['v1/reports/categories.php',       ''],
+        ['v1/reports/brands.php',           ''],
+        ['v1/reports/payment-methods.php',  ''],
+        ['v1/reports/orders.php',           ''],
+        ['v1/reports/purchases.php',        'view=general'],
+        ['v1/reports/expenses.php',         ''],
+        ['v1/reports/vpayments.php',        ''],
+        ['v1/reports/inventory.php',        ''],
+        ['v1/reports/production.php',       ''],
+        ['v1/reports/satisfaction.php',     ''],
+        ['v1/reports/users.php',            ''],
     ] as [$ep, $q]) {
         [$st, $raw] = hitEndpoint($ep, 'GET', $q, $bearer);
         check(
@@ -161,6 +181,13 @@ try {
         ['v1/contacts.php', 'POST'],
         ['v1/users.php',    'POST'],
         ['v1/settings.php', 'PUT'],
+        // Los 3 reportes que abrieron la LECTURA al realm `api` pero conservan un
+        // POST que muta (borrar un pago a proveedor, editar/borrar un movimiento
+        // de caja, borrar un voto). Son justamente los que tendrían más para
+        // perder si el read-only del embudo se cayera, así que se ejercitan.
+        ['v1/reports/purchases.php',    'POST'],
+        ['v1/reports/expenses.php',     'POST'],
+        ['v1/reports/satisfaction.php', 'POST'],
     ] as [$ep, $method]) {
         [$st, $raw] = hitEndpoint($ep, $method, '', $bearer);
         check(

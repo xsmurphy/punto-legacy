@@ -6,7 +6,8 @@
  *   POST /v1/reports/expenses (action=update|delete&id=<uuid> [+date/total/note/user]) → muta.
  *
  * Lectura sin formatear/HTML (el front mapea/formatea). Escritura scopeada por COMPANY_ID del
- * JWT. Auth: realm `panel` (apiAuthTenant(['panel'])). Tenant por COMPANY_ID + outlet (ROC).
+ * JWT. Auth: GET acepta realms `panel` y `api` (lectura programatica: API keys / MCP);
+ * el POST (update/delete) sigue siendo solo `panel`. Tenant por COMPANY_ID + outlet (ROC).
  * Ver REGLA RAÍZ 2.
  *
  * Primer endpoint del panel servido por la /api compartida (Fase 1 del desacople de /panel).
@@ -14,9 +15,14 @@
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx    = apiAuthTenant(['panel']); // solo realm panel (no POS): es un reporte administrativo
-$svc    = new \Punto\Api\Reports\ExpensesService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+// Allowlist por método. Nunca el POS: es un reporte administrativo. La LECTURA
+// sí la abre al realm `api` (API keys / MCP); la mutación (update/delete de
+// movimientos) sigue siendo exclusiva del panel. El embudo ya corta todo verbo
+// distinto de GET/HEAD para `api` (bootstrap.php); esto lo hace explícito en el
+// archivo que tiene el POST.
+$ctx    = apiAuthTenant($method === 'GET' ? ['panel', 'api'] : ['panel']);
+$svc    = new \Punto\Api\Reports\ExpensesService();
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 if ($method === 'POST') {

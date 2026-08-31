@@ -6,12 +6,12 @@
  *
  * SOLO las vistas de LECTURA. El modal de receta (`recipe`), export y write (`delete`)
  * siguen sirviéndose por el PHP legacy vía ?action= (migración parcial).
- * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Auth: realms `panel` y `api` (lectura programatica: API keys / MCP). Tenant por COMPANY_ID + outlet.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 $svc = new \Punto\Api\Reports\ProductionService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

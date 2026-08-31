@@ -9,13 +9,13 @@
  *       multi-factura del panel para listar las facturas a crédito pendientes de UN
  *       cliente (evita traer el reporte completo de la empresa para eso).
  *
- * Read-only. Auth: realm `panel`. Sin ROC (el service bindea companyId y outletId en
+ * Read-only. Auth: realms `panel` y `api` (lectura programatica). Sin ROC (el service bindea companyId y outletId en
  * cada SELECT en vez de interpolarlos como hace `Roc::build`).
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 $svc = new \Punto\Api\Reports\OpenInvoicesService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

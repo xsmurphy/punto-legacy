@@ -5,15 +5,21 @@
  *   GET  /v1/reports/satisfaction?from=&to=                          → filas crudas de votos.
  *   POST /v1/reports/satisfaction (action=delete&id=<uuid>)          → borra un voto.
  *
- * Auth: realm `panel`. Tenant por COMPANY_ID + outlet. DELETE scopeado por companyId
+ * Auth: GET acepta realms `panel` y `api` (lectura programatica: API keys / MCP);
+ * el POST (borrado de votos) sigue siendo solo `panel`. Tenant por COMPANY_ID + outlet.
+ * DELETE scopeado por companyId
  * (fix IDOR vs el legacy).
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx    = apiAuthTenant(['panel']);
-$svc    = new \Punto\Api\Reports\SatisfactionService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+// Allowlist por método: la lectura la abre al realm `api` (API keys / MCP), el
+// borrado de votos sigue siendo exclusivo del panel. El embudo ya corta todo
+// verbo distinto de GET/HEAD para `api` (bootstrap.php); esto lo hace explícito
+// en el archivo que tiene el POST.
+$ctx    = apiAuthTenant($method === 'GET' ? ['panel', 'api'] : ['panel']);
+$svc    = new \Punto\Api\Reports\SatisfactionService();
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 if ($method === 'POST') {

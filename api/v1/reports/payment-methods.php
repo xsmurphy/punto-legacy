@@ -6,13 +6,13 @@
  *       → { detail: [...], summary: [...] } CRUDO. detail = una fila por medio de pago de
  *         cada transacción; summary = agrupado por medio, ordenado por monto desc.
  *
- * El BFF formatea montos, el front arma tablas + chart. Auth: realm `panel`.
+ * El BFF formatea montos, el front arma tablas + chart. Auth: realms `panel` y `api` (lectura programatica: API keys / MCP).
  * Tenant por COMPANY_ID + outlet (ROC sin prefix). Ver REGLA RAÍZ 2.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 $svc = new \Punto\Api\Reports\PaymentMethodsService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

@@ -4,12 +4,12 @@
  *
  *   GET /v1/reports/customers?from=&to=  → { rows: [...] } CRUDO.
  *
- * Read-only. Sin formatear. Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Read-only. Sin formatear. Auth: realms `panel` y `api` (lectura programatica: API keys / MCP). Tenant por COMPANY_ID + outlet.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 $svc = new \Punto\Api\Reports\CustomersService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

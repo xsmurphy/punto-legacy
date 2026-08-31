@@ -10,12 +10,12 @@
  *     hours   → conteo de ventas por hora del día.
  *     byday   → filas por día.
  *
- * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Auth: realms `panel` y `api` (lectura programatica: API keys / MCP). Tenant por COMPANY_ID + outlet.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 $svc = new \Punto\Api\Reports\SalesService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

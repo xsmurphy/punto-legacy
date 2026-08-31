@@ -8,14 +8,19 @@
  *
  * Las 3 vistas de LECTURA + borrado de pagos a proveedor.
  * El CRUD de edición y los fiscales siguen en panel legacy.
- * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Auth: GET acepta realms `panel` y `api` (lectura programatica: API keys / MCP);
+ * el POST (borrado de pagos) sigue siendo solo `panel`. Tenant por COMPANY_ID + outlet.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx    = apiAuthTenant(['panel']);
-$svc    = new \Punto\Api\Reports\PurchasesService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+// Allowlist por método: la lectura la abre al realm `api` (API keys / MCP), el
+// borrado de pagos sigue siendo exclusivo del panel. El embudo ya corta todo
+// verbo distinto de GET/HEAD para `api` (bootstrap.php), así que esto es la
+// segunda vuelta de la misma regla — explícita en el archivo que tiene el POST.
+$ctx    = apiAuthTenant($method === 'GET' ? ['panel', 'api'] : ['panel']);
+$svc    = new \Punto\Api\Reports\PurchasesService();
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 /* ───────── write: eliminar pago a proveedor ───────── */

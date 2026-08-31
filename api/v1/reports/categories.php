@@ -5,13 +5,13 @@
  *   GET /v1/reports/categories?from=&to=
  *       → filas crudas [{categoryId, name, usold, total, tax, cogs, comission, discount}]
  *
- * Sin formatear, sin HTML. El BFF compone % + totales. Auth: realm `panel`.
+ * Sin formatear, sin HTML. El BFF compone % + totales. Auth: realms `panel` y `api` (lectura programatica: API keys / MCP).
  * Tenant por COMPANY_ID + outlet (ROC b-prefijado para el JOIN con transaction).
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 $svc = new \Punto\Api\Reports\CategoriesService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

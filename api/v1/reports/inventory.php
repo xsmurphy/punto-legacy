@@ -12,12 +12,12 @@
  * (legacy roto en PG → 0,0,0 con datos reales) es una decisión de PRODUCTO
  * (semántica sucursal vs company). El BFF ramifica las dos rutas.
  *
- * Auth: realm `panel`. Tenant por COMPANY_ID + outlet.
+ * Auth: realms `panel` y `api` (lectura programatica: API keys / MCP). Tenant por COMPANY_ID + outlet.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 $svc = new \Punto\Api\Reports\InventoryService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

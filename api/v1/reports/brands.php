@@ -4,13 +4,13 @@
  *
  *   GET /v1/reports/brands?from=&to= → filas crudas [{brandId, name, usold, total, tax, cogs, discount}]
  *
- * Sin formatear, sin HTML. El BFF compone % + subtotal + totales. Auth: realm `panel`.
+ * Sin formatear, sin HTML. El BFF compone % + subtotal + totales. Auth: realms `panel` y `api` (lectura programatica: API keys / MCP).
  * Tenant por COMPANY_ID + outlet (ROC c-prefijado para el JOIN con transaction).
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+$ctx = apiAuthTenant(['panel', 'api']);
 $svc = new \Punto\Api\Reports\BrandsService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
