@@ -11,7 +11,7 @@
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx    = apiAuthTenant(['panel', 'mcp']);
+$ctx    = apiAuthTenant(['panel', 'api']);
 $svc    = new \Punto\Api\Reports\DrawersService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';

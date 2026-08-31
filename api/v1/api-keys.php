@@ -1,9 +1,9 @@
 <?php
 /**
- * GET    /v1/mcp-keys                  -- Keys MCP del tenant (activas).
- * GET    /v1/mcp-keys?showRevoked=1    -- Incluye revocadas y vencidas (historial).
- * POST   /v1/mcp-keys { name, ttlDays? } -- Emite una. Devuelve el token UNA SOLA VEZ.
- * DELETE /v1/mcp-keys?id=X             -- Revoca (status=0). Preserva auditoría.
+ * GET    /v1/api-keys                  -- Keys MCP del tenant (activas).
+ * GET    /v1/api-keys?showRevoked=1    -- Incluye revocadas y vencidas (historial).
+ * POST   /v1/api-keys { name, ttlDays? } -- Emite una. Devuelve el token UNA SOLA VEZ.
+ * DELETE /v1/api-keys?id=X             -- Revoca (status=0). Preserva auditoría.
  *
  * M0 de `context/58`. Auth: realm `panel` — las keys se administran desde el
  * panel por una persona; el MCP mismo NUNCA puede emitir ni revocar keys (no
@@ -12,9 +12,9 @@
  */
 
 require_once __DIR__ . '/../bootstrap.php';
-require_once __DIR__ . '/../lib/Auth/McpKeyService.php';
+require_once __DIR__ . '/../lib/Auth/ApiKeyService.php';
 
-use Punto\Api\Auth\McpKeyService;
+use Punto\Api\Auth\ApiKeyService;
 
 $__ctx  = apiAuthTenant(['panel']);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -28,7 +28,7 @@ if (!hasPermission('settings.company.edit')) {
     apiError('No tenés permiso para esta acción (requiere: settings.company.edit)', 403);
 }
 
-$svc = new McpKeyService();
+$svc = new ApiKeyService();
 
 if ($method === 'GET') {
     $showRevoked = ($_GET['showRevoked'] ?? '') === '1';

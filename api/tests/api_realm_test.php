@@ -6,7 +6,7 @@ require_once __DIR__ . '/_harness.php';
 /**
  * Arnés del REALM `mcp` sobre endpoints reales — M1 de `context/58`.
  *
- * Complementa a `mcp_key_test.php` (que cubre la credencial en sí) probando lo
+ * Complementa a `api_key_test.php` (que cubre la credencial en sí) probando lo
  * que pasa cuando esa credencial LLEGA a `/v1/*`. Tres propiedades, y las tres
  * son de seguridad:
  *
@@ -27,8 +27,8 @@ require_once __DIR__ . '/_harness.php';
  * Corre cada endpoint en SUBPROCESO (`_permission_once_cli.php`) porque
  * `apiError()` hace `exit`: un 405 dentro del proceso del test lo mataría.
  *
- * Uso (necesita Postgres migrado — ver run_mcp_realm_test.sh):
- *   POSTGRES_HOST=... php -d variables_order=EGPCS api/tests/mcp_realm_test.php
+ * Uso (necesita Postgres migrado — ver run_api_realm_test.sh):
+ *   POSTGRES_HOST=... php -d variables_order=EGPCS api/tests/api_realm_test.php
  */
 
 $companyId = 'c3a1e470-0000-4000-8000-000000000101';
@@ -40,9 +40,9 @@ define('OUTLET_ID',  $outletId);
 define('USER_ID',    $userId);
 
 require_once dirname(__DIR__) . '/bootstrap.php';
-require_once dirname(__DIR__) . '/lib/Auth/McpKeyService.php';
+require_once dirname(__DIR__) . '/lib/Auth/ApiKeyService.php';
 
-use Punto\Api\Auth\McpKeyService;
+use Punto\Api\Auth\ApiKeyService;
 
 /** @var \Punto\Api\Database\Query $db */
 global $db;
@@ -130,7 +130,7 @@ try {
         [$userId, 'MCP Realm Usuario', $companyId, $outletId]
     );
 
-    $key = (new McpKeyService())->issue([
+    $key = (new ApiKeyService())->issue([
         'companyId' => $companyId,
         'userId'    => $userId,
         'outletId'  => $outletId,
@@ -172,9 +172,9 @@ try {
     }
 
     // ── 3. Rechazada donde el realm NO optó ──────────────────────────────────
-    // `devices.php` y `mcp-keys.php` son realm `panel` a propósito: una key
+    // `devices.php` y `api-keys.php` son realm `panel` a propósito: una key
     // filtrada no puede enumerar el parque de cajas ni fabricarse más keys.
-    foreach (['v1/devices.php', 'v1/mcp-keys.php'] as $ep) {
+    foreach (['v1/devices.php', 'v1/api-keys.php'] as $ep) {
         [$st, $raw] = hitEndpoint($ep, 'GET', '', $bearer);
         check(
             "GET $ep rechaza la key (el realm no optó)",
@@ -208,18 +208,18 @@ try {
     );
     check(
         'son DOS ventanas: la de minuto corta el loop, la diaria acota el costo',
-        str_contains($bootstrap, "'mcpmin'") && str_contains($bootstrap, "'mcpday'"),
+        str_contains($bootstrap, "'apimin'") && str_contains($bootstrap, "'apiday'"),
         'quedó una sola ventana',
         $failures, $checks
     );
     check(
         'la política es FAIL_OPEN, no FAIL_CLOSED',
-        str_contains($bootstrap, 'RateLimiter::FAIL_OPEN') && !preg_match('/mcp.*FAIL_CLOSED/s', substr($bootstrap, strpos($bootstrap, 'mcpmin') - 2000, 4000)),
+        str_contains($bootstrap, 'RateLimiter::FAIL_OPEN') && !preg_match('/mcp.*FAIL_CLOSED/s', substr($bootstrap, strpos($bootstrap, 'apimin') - 2000, 4000)),
         'con FAIL_CLOSED una caída de Redis tumba las integraciones de todos',
         $failures, $checks
     );
 } finally {
-    $db->Execute("DELETE FROM auth_session WHERE companyid = ?::uuid AND realm = 'mcp'", [$companyId]);
+    $db->Execute("DELETE FROM auth_session WHERE companyid = ?::uuid AND realm = 'api'", [$companyId]);
     $db->Execute('DELETE FROM tenant_audit WHERE companyid = ?::uuid', [$companyId]);
     $db->Execute('DELETE FROM contact WHERE contactId = ?', [$userId]);
     $db->Execute('DELETE FROM outlet  WHERE outletId  = ?', [$outletId]);

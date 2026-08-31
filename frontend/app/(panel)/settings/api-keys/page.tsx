@@ -30,11 +30,11 @@ import {
 } from "@/components/ui/dialog"
 import { EmptyState } from "@/components/empty-state"
 import {
-  useMcpKeys,
-  useIssueMcpKey,
-  useRevokeMcpKey,
-  type McpKey,
-} from "@/hooks/use-mcp-keys"
+  useApiKeys,
+  useIssueApiKey,
+  useRevokeApiKey,
+  type ApiKey,
+} from "@/hooks/use-api-keys"
 
 function niceDate(iso: string | null): string {
   if (!iso) return "—"
@@ -45,7 +45,7 @@ function niceDate(iso: string | null): string {
   }).format(new Date(iso))
 }
 
-export default function McpKeysPage() {
+export default function ApiKeysPage() {
   const [showRevoked, setShowRevoked] = React.useState(false)
   const [revokeId, setRevokeId] = React.useState<string | null>(null)
   const [createOpen, setCreateOpen] = React.useState(false)
@@ -55,11 +55,11 @@ export default function McpKeysPage() {
   // una segunda copia de una credencial que el backend ya decidió no persistir.
   const [issued, setIssued] = React.useState<{ token: string; name: string } | null>(null)
 
-  const { data: keys = [], isLoading } = useMcpKeys({ showRevoked })
-  const issueKey = useIssueMcpKey()
-  const revokeKey = useRevokeMcpKey()
+  const { data: keys = [], isLoading } = useApiKeys({ showRevoked })
+  const issueKey = useIssueApiKey()
+  const revokeKey = useRevokeApiKey()
 
-  const columns = React.useMemo<ColumnDef<McpKey>[]>(
+  const columns = React.useMemo<ColumnDef<ApiKey>[]>(
     () => [
       {
         accessorKey: "name",
@@ -161,7 +161,7 @@ export default function McpKeysPage() {
       </header>
 
       <DataTable
-        tableId="mcp-keys"
+        tableId="api-keys"
         columns={columns}
         data={keys}
         isLoading={isLoading}

@@ -135,26 +135,26 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         apiError('Company Blocked', 403);
     }
 
-    // ── El realm `mcp` es READ-ONLY, y se hace cumplir ACÁ ────────────────────
+    // ── El realm `api` es READ-ONLY, y se hace cumplir ACÁ ────────────────────
     //
-    // Un endpoint habilita el MCP agregando 'mcp' a su allowlist, y muchos de
-    // esos archivos sirven GET y mutaciones en el MISMO archivo (items,
+    // Un endpoint habilita el acceso programático agregando 'api' a su allowlist,
+    // y muchos de esos archivos sirven GET y mutaciones en el MISMO archivo (items,
     // contacts, users…). Si el read-only dependiera de que cada uno se acuerde
     // de chequear el método, alcanzaría UN olvido para que una API key pudiera
     // escribir — y el olvido no fallaría en tests, fallaría en producción.
     //
-    // Por eso vive en el embudo: agregar 'mcp' a un endpoint es seguro por
+    // Por eso vive en el embudo: agregar 'api' a un endpoint es seguro por
     // construcción, no por disciplina. Es la misma lección del POS token-only
     // (`context/08` §60) y de D5 en `context/58`.
     //
     // HEAD entra con GET (es un GET sin cuerpo). Todo lo demás corta con 405 y
     // no 403: el problema no es quién sos, es que este verbo no existe para
     // esta credencial.
-    if ($realm === 'mcp' && !in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true)) {
-        apiError('El realm mcp es de solo lectura', 405);
+    if ($realm === 'api' && !in_array($_SERVER['REQUEST_METHOD'] ?? 'GET', ['GET', 'HEAD'], true)) {
+        apiError('El realm api es de solo lectura', 405);
     }
 
-    // ── Rate limit del realm `mcp`, también en el embudo ──────────────────────
+    // ── Rate limit del realm `api`, también en el embudo ──────────────────────
     //
     // Importa MÁS acá que en el panel por una razón concreta: un humano hace
     // clics, un modelo hace loops. Un agente que razona mal puede pedir el mismo
@@ -177,13 +177,13 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // capacidad sobre una superficie de LECTURA, y tirar abajo las
     // integraciones de todos los comercios porque se cayó Redis es peor que el
     // abuso que evita.
-    if ($realm === 'mcp' && defined('AUTHED_SESSION_ID')) {
+    if ($realm === 'api' && defined('AUTHED_SESSION_ID')) {
         require_once __DIR__ . '/lib/RateLimit/RateLimiter.php';
         $__rlKey = (string) AUTHED_SESSION_ID;
         try {
-            (new \Punto\Api\RateLimit\RateLimiter($__rlKey, 'mcpmin'))
+            (new \Punto\Api\RateLimit\RateLimiter($__rlKey, 'apimin'))
                 ->limit(60, 60, \Punto\Api\RateLimit\RateLimiter::FAIL_OPEN);
-            (new \Punto\Api\RateLimit\RateLimiter($__rlKey, 'mcpday'))
+            (new \Punto\Api\RateLimit\RateLimiter($__rlKey, 'apiday'))
                 ->limit(5000, 86400, \Punto\Api\RateLimit\RateLimiter::FAIL_OPEN);
         } catch (\Punto\Api\RateLimit\RateExceededException $e) {
             // 429 con mensaje accionable: quien lo lee es un modelo, y el texto
@@ -314,8 +314,8 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // auditar nada.
     $__auditMethod = $_SERVER['REQUEST_METHOD'] ?? '';
     $__isMutation  = in_array($__auditMethod, ['POST', 'PUT', 'PATCH', 'DELETE'], true);
-    $__isMcp       = ($realm === 'mcp');
-    if ($__isMutation || $__isMcp) {
+    $__isApiKey       = ($realm === 'api');
+    if ($__isMutation || $__isApiKey) {
         $__auditEndpoint = (string) (parse_url($_SERVER['REQUEST_URI'] ?? '', PHP_URL_PATH) ?? '');
         $__auditTargetId = isset($_GET['id']) ? (string) $_GET['id'] : null;
         // Qué key hizo la llamada. Va el ID y no el nombre: el nombre vive en
@@ -323,7 +323,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         // y ese es el hot path de toda request autenticada (con cache Redis
         // opcional). Ensancharlo por una etiqueta no vale; la UI de auditoría
         // resuelve el nombre contra la lista de keys, que ya lo expone.
-        $__auditMeta = $__isMcp && defined('AUTHED_SESSION_ID')
+        $__auditMeta = $__isApiKey && defined('AUTHED_SESSION_ID')
             ? ['keyId' => (string) AUTHED_SESSION_ID]
             : [];
         tenantAudit(

@@ -28,7 +28,7 @@
 require_once __DIR__ . '/../bootstrap.php';
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-$ctx    = apiAuthTenant($method === 'GET' ? ['panel', 'pos-app', 'mcp'] : ['panel']);
+$ctx    = apiAuthTenant($method === 'GET' ? ['panel', 'pos-app', 'api'] : ['panel']);
 $svc    = new \Punto\Api\Outlets\OutletsService();
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 

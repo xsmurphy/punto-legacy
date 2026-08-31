@@ -54,7 +54,7 @@ un cliente HTTP más de `/v1/*`, igual que el panel o el POS. No hay stack nuevo
 
 ## Decisiones propuestas — falta OK del owner
 
-### D4 [?] — Realm propio `mcp`, no reusar `panel`
+### D4 [?] — Realm propio `api`, no reusar `panel`
 
 `auth_session` (mig 69) ya modela todo lo necesario y **no cuesta migración**:
 `realm` es `varchar(16)` sin CHECK, `tokenHash` es sha256 del token crudo (que
@@ -64,8 +64,8 @@ en `/settings/sessions`, y `meta jsonb` es donde viven los scopes.
 
 El realm tiene que ser **propio** por la razón contraria al costo: como
 `apiAuthTenant(['panel'])` es el allowlist endpoint por endpoint, reusar
-`panel` le daría al MCP TODO lo que el panel puede hacer, incluidas las
-escrituras, sin que nadie lo haya decidido. Con `mcp`, cada endpoint opta
+`panel` le daría a las keys TODO lo que el panel puede hacer, incluidas las
+escrituras, sin que nadie lo haya decidido. Con `api`, cada endpoint opta
 explícitamente. Es la misma disciplina que ya evitó tres incidentes en el POS
 (`context/08` §60, `feedback_pos_token_only_no_realms`).
 
@@ -307,6 +307,33 @@ contra el route, con Requests estándar).
 **Lo que sigue sin verificar**: nadie lo conectó a un cliente real. El smoke
 cubre el modo de falla más probable —que el server arranque pero hable mal el
 protocolo— pero no reemplaza una conexión de verdad.
+
+## El realm se llama `api`, no `mcp` (rename 2026-08-30, mig 182)
+
+Pregunta del owner: *"¿no se pueden usar esas keys como API keys? ¿son solo para
+MCP?"*. Se pueden, y el nombre estaba mal.
+
+El realm es la frontera de seguridad y describe **acceso programático de solo
+lectura en nombre de un usuario**. MCP resultó ser su primer consumidor, no su
+definición: la MISMA key funciona como API key común contra cualquier endpoint
+que optó por el realm —
+
+```bash
+curl -H "Authorization: Bearer <key>" https://api.punto.la/v1/settings
+```
+
+Dejarlo como `mcp` significaba que un comercio integrando su propio dashboard, o
+el sistema de su contador (D9), iba a autenticar contra un realm llamado "mcp"
+que no tiene nada que ver con MCP.
+
+Se renombró **ahora** porque las únicas keys existentes eran de prueba: cada
+semana que pasara, esto se volvía una migración sobre credenciales en uso — la
+clase de rename que después nadie hace. La mig 182 cubre `auth_session` y
+también `tenant_audit`, para que el historial de auditoría no quede partido en
+dos realms sin explicación.
+
+El **route MCP conserva su nombre** (`/api/mcp`): eso sí es MCP. Lo que se
+generalizó es la credencial, no el transporte.
 
 ## La UI de Connectors reserva `Authorization` (hallazgo 2026-08-30)
 

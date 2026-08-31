@@ -212,7 +212,7 @@ const SECTIONS: {
   // Página propia y NO una sección de Sesiones: una sesión solo se revoca
   // —nadie la crea desde una pantalla— y una key se EMITE, con un token que se
   // muestra una sola vez. Verbos distintos, superficies distintas.
-  { id: "mcpKeys" as unknown as SettingsSection, label: "Keys de integración", icon: Plug, href: "/settings/mcp-keys" },
+  { id: "apiKeys" as unknown as SettingsSection, label: "Keys de integración", icon: Plug, href: "/settings/api-keys" },
   { id: "printers" as unknown as SettingsSection, label: "Impresoras", icon: Printer, href: "/settings/printers" },
   { id: "tables" as unknown as SettingsSection, label: "Espacios", icon: LayoutGrid, href: "/settings/espacios" },
   { id: "roles" as unknown as SettingsSection, label: "Roles y permisos", icon: ShieldCheck, href: "/settings/roles" },

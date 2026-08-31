@@ -20,7 +20,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 // Acá el scope es más chico todavía: `VIEW_OUTLET_ID` está restringido al realm
 // `panel` (bootstrap.php:284), así que una request `pos-app` no puede ensanchar
 // el reporte más allá de la sucursal de su caja.
-$ctx = apiAuthTenant(['panel', 'pos-app', 'mcp']);
+$ctx = apiAuthTenant(['panel', 'pos-app', 'api']);
 $svc = new \Punto\Api\Reports\StockService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

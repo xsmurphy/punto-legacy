@@ -767,13 +767,13 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["sessions", "sesiones activas", "cerrar sesion", "seguridad", "tokens"],
   },
   {
-    to: "/settings/mcp-keys",
+    to: "/settings/api-keys",
     title: "Keys de integración",
     paletteTitle: "Configuración · Keys de integración",
     icon: KeyRound,
     surface: "palette",
     paletteGroup: "Configuración",
-    // api/v1/mcp-keys.php — gate de archivo entero, incluido el GET: listar ya
+    // api/v1/api-keys.php — gate de archivo entero, incluido el GET: listar ya
     // dice cuántas integraciones hay y cuándo se usaron por última vez.
     requires: "settings.company.edit",
     keywords: ["mcp", "api key", "claude", "integracion", "ia", "token"],

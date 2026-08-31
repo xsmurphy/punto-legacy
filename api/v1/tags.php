@@ -16,7 +16,7 @@
 
 require_once __DIR__ . '/../bootstrap.php';
 
-$ctx       = apiAuthTenant(['panel', 'mcp']);
+$ctx       = apiAuthTenant(['panel', 'api']);
 $companyId = $ctx['companyId'];
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $id        = $_GET['id'] ?? null;

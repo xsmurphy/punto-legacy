@@ -10,20 +10,27 @@ namespace Punto\Api\Auth;
 require_once __DIR__ . '/../../includes/auth_session.php';
 
 /**
- * API keys del MCP server — emisión, listado y revocación (M0 de `context/58`).
+ * API keys del tenant — emisión, listado y revocación (M0 de `context/58`).
  *
  * ── Por qué NO hay tabla nueva ──────────────────────────────────────────────
- * Una key del MCP es una sesión más: `auth_session` (mig 69) ya guarda el hash
+ * Una key es una sesión más: `auth_session` (mig 69) ya guarda el hash
  * del token (nunca el crudo), su realm, a qué empresa y usuario pertenece, si
  * está revocada y cuándo se la vio por última vez. La columna `realm` es
- * `varchar(16)` SIN CHECK, así que `'mcp'` es un valor más — no hay migración.
+ * `varchar(16)` SIN CHECK, así que `'api'` es un valor más — no hay migración.
  *
  * ── Por qué el realm es PROPIO y no se reusa `panel` ────────────────────────
  * `apiAuthTenant(['panel'])` es el allowlist endpoint por endpoint. Si una key
- * del MCP se emitiera con realm `panel`, entraría a TODO lo que el panel puede
- * hacer —incluidas las escrituras— sin que nadie lo hubiera decidido. Con
- * `'mcp'` cada endpoint tiene que optar explícitamente. Es la misma disciplina
- * que evitó tres incidentes en el POS (`context/08` §60).
+ * se emitiera con realm `panel`, entraría a TODO lo que el panel puede hacer
+ * —incluidas las escrituras— sin que nadie lo hubiera decidido. Con `'api'`
+ * cada endpoint tiene que optar explícitamente. Es la misma disciplina que
+ * evitó tres incidentes en el POS (`context/08` §60).
+ *
+ * ── Por qué `api` y no `mcp` (rename, mig 182) ──────────────────────────────
+ * El realm describe "acceso programático de solo lectura en nombre de un
+ * usuario". MCP resultó ser su primer consumidor, no su definición: la MISMA
+ * key sirve como API key común contra cualquier endpoint que optó por el realm.
+ * Nombrarlo por el primer caso de uso habría dejado a un comercio integrando su
+ * dashboard autenticando contra un realm llamado "mcp".
  *
  * ── Los permisos de la key ⊆ los del usuario, por construcción ──────────────
  * La sesión se emite con el MISMO `userId`/`roleId`/`outletId` del operador que
@@ -40,7 +47,7 @@ require_once __DIR__ . '/../../includes/auth_session.php';
  * veces termina en un repo. Por eso `issue()` exige una vigencia y `DEFAULT_TTL_DAYS`
  * es el default cuando el caller no opina (D7).
  */
-final class McpKeyService
+final class ApiKeyService
 {
     /** Vigencia por defecto de una key nueva. Larga, pero no infinita. */
     public const DEFAULT_TTL_DAYS = 365;
@@ -73,14 +80,14 @@ final class McpKeyService
         }
         $expiresAt = date('Y-m-d H:i:s', strtotime("+{$ttl} days"));
 
-        $token = \authSessionCreate('mcp', [
+        $token = \authSessionCreate('api', [
             'companyId' => $ctx['companyId'],
             // Identidad heredada: es lo que hace que los permisos de la key sean
             // los del usuario sin mantener una segunda lista. Ver docblock.
             'userId'    => $ctx['userId'],
             'outletId'  => $ctx['outletId'],
             'roleId'    => $ctx['roleId'],
-            'module'    => 'mcp',
+            'module'    => 'api',
             'expiresAt' => $expiresAt,
             'meta'      => ['name' => $name],
         ]);
@@ -99,7 +106,7 @@ final class McpKeyService
     {
         $sql = 'SELECT sessionid, meta, createdat, lastseenat, expiresat, status, revokedat, userid
                   FROM auth_session
-                 WHERE companyid = ?::uuid AND realm = \'mcp\'';
+                 WHERE companyid = ?::uuid AND realm = \'api\'';
         if (!$includeRevoked) {
             $sql .= ' AND status = 1';
         }
@@ -160,7 +167,7 @@ final class McpKeyService
         $r = $db->Execute(
             'UPDATE auth_session
                 SET status = 0, revokedat = now(), revokedby = ?::uuid
-              WHERE sessionid = ?::uuid AND companyid = ?::uuid AND realm = \'mcp\' AND status = 1',
+              WHERE sessionid = ?::uuid AND companyid = ?::uuid AND realm = \'api\' AND status = 1',
             [$revokedBy, $sessionId, $companyId]
         );
         if ($r === false) {

@@ -36,10 +36,10 @@ const REALM_LABELS: Record<string, string> = {
   "pos-app": "POS",
   screen: "Pantalla",
   admin: "Admin",
-  // Las keys del MCP son sesiones como cualquier otra y aparecen acá; se
-  // administran desde /settings/mcp-keys, pero sin esta etiqueta la tabla
-  // mostraría "mcp" crudo.
-  mcp: "Integración",
+  // Las API keys son sesiones como cualquier otra y aparecen acá; se
+  // administran desde /settings/api-keys, pero sin esta etiqueta la tabla
+  // mostraría "api" crudo.
+  api: "Integración",
 }
 
 const MODULE_LABELS: Record<string, string> = {
@@ -49,7 +49,7 @@ const MODULE_LABELS: Record<string, string> = {
   kds: "KDS",
   display: "Display",
   admin: "Admin",
-  mcp: "Integración",
+  api: "Integración",
 }
 
 export default function SessionsPage() {

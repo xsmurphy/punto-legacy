@@ -25,8 +25,8 @@ require_once __DIR__ . '/_harness.php';
  *     incluidas las GET. Es la excepción a la regla general (solo mutaciones)
  *     y auditar solo mutaciones en un realm read-only sería no auditar nada.
  *
- * Uso (necesita Postgres migrado — ver run_mcp_key_test.sh):
- *   POSTGRES_HOST=... php -d variables_order=EGPCS api/tests/mcp_key_test.php
+ * Uso (necesita Postgres migrado — ver run_api_key_test.sh):
+ *   POSTGRES_HOST=... php -d variables_order=EGPCS api/tests/api_key_test.php
  */
 
 $companyA = 'b17ce470-0000-4000-8000-000000000101';
@@ -41,9 +41,9 @@ define('OUTLET_ID',  $outletA);
 define('USER_ID',    $userA);
 
 require_once dirname(__DIR__) . '/bootstrap.php';
-require_once dirname(__DIR__) . '/lib/Auth/McpKeyService.php';
+require_once dirname(__DIR__) . '/lib/Auth/ApiKeyService.php';
 
-use Punto\Api\Auth\McpKeyService;
+use Punto\Api\Auth\ApiKeyService;
 
 /** @var \Punto\Api\Database\Query $db */
 global $db;
@@ -86,7 +86,7 @@ try {
         $created['contact'][] = $uid;
     }
 
-    $svc = new McpKeyService();
+    $svc = new ApiKeyService();
     $ctxA = ['companyId' => $companyA, 'userId' => $userA, 'outletId' => $outletA, 'roleId' => 'admin'];
 
     // ── 1. Emisión ───────────────────────────────────────────────────────────
@@ -115,7 +115,7 @@ try {
     );
 
     // ── 3. Identidad heredada + realm propio ─────────────────────────────────
-    check('realm = mcp, no panel', (string) $row['realm'] === 'mcp', 'realm = ' . (string) $row['realm'], $failures, $checks);
+    check('realm = api, no panel', (string) $row['realm'] === 'api', 'realm = ' . (string) $row['realm'], $failures, $checks);
     check('hereda el userId del operador', (string) $row['userid'] === $userA, 'userid = ' . (string) $row['userid'], $failures, $checks);
     check('hereda el roleId del operador', (string) $row['roleid'] === 'admin', 'roleid = ' . (string) $row['roleid'], $failures, $checks);
     check('hereda el outletId del operador', (string) $row['outletid'] === $outletA, 'outletid = ' . (string) $row['outletid'], $failures, $checks);
@@ -179,19 +179,19 @@ try {
     // al MCP —que no muta— sin una sola línea de auditoría.
     $bootstrap = (string) file_get_contents(dirname(__DIR__) . '/bootstrap.php');
     check(
-        'la condición de auditoría contempla el realm mcp, no solo mutaciones',
-        str_contains($bootstrap, '$__isMcp') && str_contains($bootstrap, '$__isMutation || $__isMcp'),
+        'la condición de auditoría contempla el realm api, no solo mutaciones',
+        str_contains($bootstrap, '$__isApiKey') && str_contains($bootstrap, '$__isMutation || $__isApiKey'),
         'la guarda volvió a ser solo-mutaciones: el MCP quedaría sin auditoría',
         $failures, $checks
     );
     check(
         'el realtime sigue disparando SOLO en mutaciones',
         str_contains($bootstrap, 'if ($__isMutation) {'),
-        'una lectura del MCP estaría emitiendo eventos de realtime',
+        'una lectura por API key estaría emitiendo eventos de realtime',
         $failures, $checks
     );
     check(
-        'la auditoría del mcp registra QUÉ key hizo la llamada',
+        'la auditoría del realm api registra QUÉ key hizo la llamada',
         str_contains($bootstrap, "'keyId' => (string) AUTHED_SESSION_ID"),
         'sin keyId el comercio ve la llamada pero no qué integración la hizo',
         $failures, $checks
@@ -202,19 +202,19 @@ try {
     $db->Execute(
         'INSERT INTO tenant_audit (id, companyid, userid, outletid, realm, method, endpoint, meta, ip)
          VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::jsonb, ?)',
-        [$auditId, $companyA, $userA, $outletA, 'mcp', 'GET', '/v1/reports/summary_year',
+        [$auditId, $companyA, $userA, $outletA, 'api', 'GET', '/v1/reports/summary_year',
          json_encode(['keyId' => 'b17ce470-0000-4000-8000-0000000009bb']), '127.0.0.1']
     );
     $back = ncmExecute('SELECT realm, method, meta FROM tenant_audit WHERE id = ?::uuid', [$auditId]);
     check(
-        'tenant_audit acepta una lectura del realm mcp con su keyId',
-        $back && (string) $back['realm'] === 'mcp' && (string) $back['method'] === 'GET',
+        'tenant_audit acepta una lectura del realm api con su keyId',
+        $back && (string) $back['realm'] === 'api' && (string) $back['method'] === 'GET',
         'no se pudo escribir/leer la fila de auditoría del mcp',
         $failures, $checks
     );
     $db->Execute('DELETE FROM tenant_audit WHERE id = ?::uuid', [$auditId]);
 } finally {
-    $db->Execute("DELETE FROM auth_session WHERE companyid IN (?::uuid, ?::uuid) AND realm = 'mcp'", [$companyA, $companyB]);
+    $db->Execute("DELETE FROM auth_session WHERE companyid IN (?::uuid, ?::uuid) AND realm = 'api'", [$companyA, $companyB]);
     foreach ($created['contact'] as $id) { $db->Execute('DELETE FROM contact WHERE contactId = ?', [$id]); }
     foreach ($created['outlet'] as $id)  { $db->Execute('DELETE FROM outlet WHERE outletId = ?', [$id]); }
     foreach ($created['company'] as $id) { $db->Execute('DELETE FROM company WHERE companyId = ?', [$id]); }

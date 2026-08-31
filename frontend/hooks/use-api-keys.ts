@@ -10,7 +10,7 @@ import { api } from "@/lib/api-client"
  * pantalla—, mientras que una key se EMITE, y su token existe en texto plano
  * una sola vez. Son verbos distintos y la UI lo refleja.
  */
-export interface McpKey {
+export interface ApiKey {
   id: string
   name: string
   createdAt: string
@@ -22,12 +22,12 @@ export interface McpKey {
   expired: boolean
 }
 
-export function useMcpKeys(opts: { showRevoked?: boolean } = {}) {
+export function useApiKeys(opts: { showRevoked?: boolean } = {}) {
   const qs = opts.showRevoked ? "?showRevoked=1" : ""
-  return useQuery<McpKey[]>({
-    queryKey: ["mcp-keys", { showRevoked: !!opts.showRevoked }],
+  return useQuery<ApiKey[]>({
+    queryKey: ["api-keys", { showRevoked: !!opts.showRevoked }],
     queryFn: async () => {
-      const res = await api.get<{ keys: McpKey[] }>(`/v1/mcp-keys${qs}`)
+      const res = await api.get<{ keys: ApiKey[] }>(`/v1/api-keys${qs}`)
       return res.keys ?? []
     },
     staleTime: 30_000,
@@ -35,24 +35,24 @@ export function useMcpKeys(opts: { showRevoked?: boolean } = {}) {
 }
 
 /** El `token` del resultado es la ÚNICA vez que existe: no hay endpoint que lo relea. */
-export interface IssuedMcpKey {
+export interface IssuedApiKey {
   token: string
   name: string
   expiresAt: string
 }
 
-export function useIssueMcpKey() {
+export function useIssueApiKey() {
   const qc = useQueryClient()
-  return useMutation<IssuedMcpKey, Error, { name: string; ttlDays?: number }>({
-    mutationFn: (body) => api.post<IssuedMcpKey>("/v1/mcp-keys", body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["mcp-keys"] }),
+  return useMutation<IssuedApiKey, Error, { name: string; ttlDays?: number }>({
+    mutationFn: (body) => api.post<IssuedApiKey>("/v1/api-keys", body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-keys"] }),
   })
 }
 
-export function useRevokeMcpKey() {
+export function useRevokeApiKey() {
   const qc = useQueryClient()
   return useMutation<{ revoked: boolean }, Error, string>({
-    mutationFn: (id) => api.del<{ revoked: boolean }>(`/v1/mcp-keys?id=${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["mcp-keys"] }),
+    mutationFn: (id) => api.del<{ revoked: boolean }>(`/v1/api-keys?id=${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["api-keys"] }),
   })
 }
