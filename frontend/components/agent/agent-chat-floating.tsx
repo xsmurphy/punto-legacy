@@ -38,11 +38,28 @@ export function AgentChatFloating({ companyName, viewOutletId, viewOutletName, s
             `data-[side=right]:w-3/4` con más specificity que un className
             custom — sin important el override se pierde.
             Desktop ≥sm: max-w-md side panel. */}
-        <SheetContent side="right" overlay={false} className="flex !w-[95vw] flex-col p-0 sm:!w-full sm:max-w-md">
+        {/* `showCloseButton={false}`: la X del primitive es absoluta en la
+            esquina y caía ENCIMA de las acciones del header del chat —ajustes y
+            limpiar— (reporte del owner, 2026-08-31). El chat rinde la suya
+            adentro del header, en fila con las demás, y recibe `onClose` para
+            eso. Es lo que el POS ya hacía desde que se armó su diálogo; acá
+            faltaba. */}
+        <SheetContent
+          side="right"
+          overlay={false}
+          showCloseButton={false}
+          className="flex !w-[95vw] flex-col p-0 sm:!w-full sm:max-w-md"
+        >
           <SheetTitle className="sr-only">Asistente</SheetTitle>
           {/* El dueño de datos del panel. La presentación
               (`AgentChatContent`) es la misma que usa la caja. */}
-          <AgentChatPanel companyName={companyName} viewOutletId={viewOutletId} viewOutletName={viewOutletName} showHeader />
+          <AgentChatPanel
+            companyName={companyName}
+            viewOutletId={viewOutletId}
+            viewOutletName={viewOutletName}
+            showHeader
+            onClose={() => setOpen(false)}
+          />
         </SheetContent>
       </Sheet>
     </>

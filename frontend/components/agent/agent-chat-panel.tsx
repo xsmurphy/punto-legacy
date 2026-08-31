@@ -35,6 +35,8 @@ interface Props {
   /** Nombre de la sucursal seleccionada para el contexto del prompt. */
   viewOutletName: string
   showHeader?: boolean
+  /** Cierra el Sheet desde la X del header del chat (ver agent-chat-floating). */
+  onClose?: () => void
   initialInput?: string
   onInputChange?: (v: string) => void
   renderEmpty?: React.ReactNode
@@ -45,6 +47,7 @@ export function AgentChatPanel({
   viewOutletId,
   viewOutletName,
   showHeader = true,
+  onClose,
   initialInput,
   onInputChange,
   renderEmpty,
@@ -98,6 +101,7 @@ export function AgentChatPanel({
       onClear={clear}
       agentName={agentName}
       showHeader={showHeader}
+      onClose={onClose}
       hasNoCredits={hasNoCredits}
       attachments={attachments}
       onAddAttachment={addAttachment}
