@@ -59,6 +59,23 @@ export function ViewportProbe() {
         ["100svh", String(svh)],
         ["100lvh", String(lvh)],
         ["visualViewport.h", vv ? String(Math.round(vv.height)) : "—"],
+        // `offsetTop` y `covered` son EL diagnóstico del teclado virtual:
+        // `keyboard-inset.tsx` publica `--kb-inset` con exactamente esta
+        // cuenta, así que verlos al lado dice si la variable está en 0 porque
+        // no hay teclado o porque la medición no lo ve.
+        //
+        // La distinción que importa: iOS NO achica el viewport de LAYOUT al
+        // abrir el teclado (`innerHeight` queda igual y `covered` da la altura
+        // del teclado), pero un navegador que sí lo achique deja `innerHeight`
+        // ya reducido, `covered` en ~0 y el inset en 0 aunque el teclado esté
+        // arriba. Si eso pasa, el bug es la fórmula, no el consumo.
+        ["visualViewport.top", vv ? String(Math.round(vv.offsetTop)) : "—"],
+        [
+          "covered(calc)",
+          vv
+            ? String(Math.round(window.innerHeight - vv.height - vv.offsetTop))
+            : "—",
+        ],
         ["--safe-t", cs.getPropertyValue("--safe-t").trim() || "—"],
         ["--safe-b", cs.getPropertyValue("--safe-b").trim() || "—"],
         ["--kb-inset", cs.getPropertyValue("--kb-inset").trim() || "—"],
@@ -68,9 +85,17 @@ export function ViewportProbe() {
     measure()
     window.addEventListener("resize", measure)
     window.visualViewport?.addEventListener("resize", measure)
+    // `scroll` del viewport VISUAL además de `resize`: iOS desplaza ese
+    // viewport para revelar el campo enfocado sin cambiar su alto, así que sin
+    // este listener el probe mostraría un `offsetTop` viejo — justo el término
+    // que puede estar faltando en la cuenta. `keyboard-inset.tsx` escucha los
+    // dos por el mismo motivo; el probe tiene que medir igual que él o no
+    // sirve para diagnosticarlo.
+    window.visualViewport?.addEventListener("scroll", measure)
     return () => {
       window.removeEventListener("resize", measure)
       window.visualViewport?.removeEventListener("resize", measure)
+      window.visualViewport?.removeEventListener("scroll", measure)
     }
   }, [])
 
