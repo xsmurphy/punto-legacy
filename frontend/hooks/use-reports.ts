@@ -318,19 +318,114 @@ export type BrandRow = Omit<CategoryRow, "categoryId"> & { brandId: string }
 /** Customers report — ranking de clientes por consumo en el período. */
 export interface CustomerRow {
   customerId: string
+  /** `contactName` crudo — la RAZÓN SOCIAL. Para mostrar, usar `displayName`. */
   name: string
+  /** `contactSecondName` crudo — el nombre de la persona. */
   secondName: string
+  /**
+   * Nombre a mostrar, resuelto en el backend con `ContactDisplayName`: el
+   * nombre de la persona y, si no hay, la razón social. Nunca concatena — son
+   * datos de distinta naturaleza (regla del owner 2026-08-05).
+   */
+  displayName: string
   ruc: string
   ci: string
   bday: string
   email: string
   phone: string
+  address: string
+  location: string
+  city: string
   loyalty: number
   usold: number
   grossTotal: number
   discount: number
   count: number
+  /** Gasto promedio por compra en el período. Lo calcula el backend. */
+  avgTicket: number
   tags: string[]
+}
+
+/**
+ * Dashboard del reporte de clientes (`?include=dashboard`).
+ *
+ * Las tasas son PORCENTAJES (0-100) y pueden venir `null`: eso significa "sin
+ * base de comparación" (el período anterior no tuvo clientes activos), NO 0%.
+ * La UI tiene que distinguirlas — un 0% dice "los perdiste a todos".
+ */
+export interface CustomersDashboard {
+  periodo: {
+    from: string
+    to: string
+    prevFrom: string
+    prevTo: string
+    prevActivos: number
+    retenidos: number
+  }
+  totales: {
+    activos: number
+    nuevos: number
+    recurrentes: number
+    compras: number
+    facturado: number
+  }
+  tasas: {
+    /** Activos con 2+ compras dentro del período / activos. */
+    retorno: number | null
+    /** Activos del período anterior que volvieron / activos del anterior. */
+    retencion: number | null
+    /** Variación de activos contra el período anterior. */
+    crecimiento: number | null
+    /** Complemento de la retención: los del anterior que no volvieron. */
+    perdida: number | null
+  }
+  comportamiento: {
+    promedioPorCliente: number | null
+    frecuenciaCompra: number | null
+    /** Días promedio entre compras; null si ningún cliente compró 2+ veces. */
+    intervaloDias: number | null
+    /** Sobre cuántos clientes se calculó el intervalo. */
+    intervaloBase: number
+  }
+  serie: Array<{
+    date: string
+    nuevos: number
+    recurrentes: number
+    total: number
+  }>
+}
+
+/** Una localidad o ciudad del análisis geográfico. */
+export interface GeoPlaceRow {
+  /** Clave normalizada (minúsculas, sin acentos) usada para agrupar. */
+  key: string
+  /** Etiqueta de display: la variante literal más frecuente del padrón. */
+  label: string
+  clientes: number
+  /** Cuántas grafías distintas se agruparon acá — señal de dato sucio. */
+  variantes: number
+}
+
+/**
+ * Análisis geográfico (`?include=geo`). NO depende del rango de fechas: es el
+ * padrón de clientes, no el período.
+ *
+ * `cobertura` no es opcional en la UI: las coordenadas solo existen si alguien
+ * las cargó, y un mapa de calor armado con una fracción del padrón presentado
+ * como "dónde viven tus clientes" es una conclusión falsa.
+ */
+export interface CustomersGeo {
+  cobertura: {
+    clientes: number
+    conCoordenadas: number
+    conLocalidad: number
+    conCiudad: number
+  }
+  localidades: GeoPlaceRow[]
+  ciudades: GeoPlaceRow[]
+  puntos: Array<{ lat: number; lng: number; peso: number }>
+  /** El backend recortó puntos por tope de payload. */
+  puntosTruncados: boolean
 }
 
 /** Payment methods report — devuelve detail + summary. */

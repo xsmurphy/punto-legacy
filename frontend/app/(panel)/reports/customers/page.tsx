@@ -1,212 +1,70 @@
 "use client"
 
 /**
- * Reporte de Análisis de Clientes — espejo de panel/reports/customers.html.
+ * Reporte de Análisis de Clientes — tres tabs sobre `/v1/reports/customers`.
  *
- * Backend: GET /v1/reports/customers?from=&to= → array de rows con
- * customerId, name, ruc, ci, phone, email, loyalty, usold, grossTotal,
- * discount, count, tags[].
+ *   Dashboard  → composición de la cartera, tasas y comportamiento de compra.
+ *   Listado    → una fila por cliente con todas sus métricas (DataTable).
+ *   Geográfico → dónde residen: localidades, ciudades y mapa de calor.
  *
- * El reporte muestra ranking por consumo + permite ver loyalty y tags.
- * Columnas opcionales (Email, Teléfono, CI) hidden-by-default vía toggle.
+ * Cada sección del backend se pide por separado (`?include=…`) en vez de en un
+ * solo blob:
+ *   - `rows` sin `include` es el shape histórico del endpoint, que ya consumen
+ *     las read-tools del agente / MCP — no debían empezar a pagar el costo de
+ *     las secciones nuevas;
+ *   - `geo` recorre el padrón entero de clientes, así que solo se dispara
+ *     cuando el usuario abre ese tab (`enabled`);
+ *   - `geo` además NO lleva rango de fechas: dónde vive un cliente no depende
+ *     del período (ver `CustomersService::geography`).
  */
 
 import * as React from "react"
 import Link from "next/link"
-import type { ColumnDef } from "@tanstack/react-table"
-import { AlertCircle, ArrowLeft, Users } from "lucide-react"
+import { AlertCircle, ArrowLeft } from "lucide-react"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { DataTable } from "@/components/data-table/data-table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   DateRangePicker,
   rangeToBackend,
 } from "@/components/date-range-picker"
 import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
-import { useReport, type CustomerRow } from "@/hooks/use-reports"
-import { formatInt, formatMoney } from "@/lib/format"
-import { formatPhone } from "@/lib/phone"
-import { EmptyState } from "@/components/empty-state"
-import { StatsRow, StatTile } from "@/components/domain/reports/stat-tile"
+import {
+  useReport,
+  type CustomerRow,
+  type CustomersDashboard,
+  type CustomersGeo,
+} from "@/hooks/use-reports"
+import { CustomersDashboardTab } from "@/components/domain/reports/customers/customers-dashboard-tab"
+import { CustomersGeoTab } from "@/components/domain/reports/customers/customers-geo-tab"
+import { CustomersListTab } from "@/components/domain/reports/customers/customers-list-tab"
+
+type TabKey = "dashboard" | "listado" | "geografico"
 
 export default function CustomersReportPage() {
   const { data: bootstrap } = useBootstrap()
   const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
+  const [tab, setTab] = React.useState<TabKey>("dashboard")
 
-  // El endpoint devuelve `{ rows: CustomerRow[] }`. El comentario anterior
-  // estaba mal y la página tiraba TypeError "rows.forEach is not a function"
-  // porque `data` era un objeto, no un array.
-  const { data, isLoading, error } = useReport<{ rows: CustomerRow[] }>(
-    "customers",
-    opts,
-  )
-  const rows = React.useMemo(() => data?.rows ?? [], [data])
+  const listado = useReport<{ rows: CustomerRow[] }>("customers", opts)
+  const dashboard = useReport<{ dashboard: CustomersDashboard }>("customers", {
+    ...opts,
+    params: { include: "dashboard" },
+  })
+  // El tab geográfico recorre todo el padrón: se pide recién cuando se abre, y
+  // queda cacheado por TanStack Query si el usuario vuelve.
+  const geo = useReport<{ geo: CustomersGeo }>("customers", {
+    params: { include: "geo" },
+    enabled: tab === "geografico",
+  })
 
-  const totals = React.useMemo(() => {
-    let units = 0
-    let total = 0
-    let count = 0
-    rows.forEach((r) => {
-      units += r.usold
-      total += r.grossTotal
-      count += r.count
-    })
-    return { units, total, count }
-  }, [rows])
+  const rows = React.useMemo(() => listado.data?.rows ?? [], [listado.data])
 
-  const columns = React.useMemo<ColumnDef<CustomerRow>[]>(
-    () => [
-      {
-        accessorKey: "name",
-        header: "Cliente",
-        cell: ({ row }) => {
-          const r = row.original
-          return (
-            <div className="flex flex-col">
-              <span className="font-medium truncate">
-                {r.name || "(sin nombre)"}
-              </span>
-              {r.secondName && (
-                <span className="text-[10px] text-muted-foreground truncate">
-                  {r.secondName}
-                </span>
-              )}
-            </div>
-          )
-        },
-        meta: { label: "Cliente" },
-      },
-      {
-        accessorKey: "ruc",
-        header: "RUC",
-        cell: ({ getValue }) => {
-          const v = getValue() as string
-          return v ? (
-            <span className="tabular-nums text-muted-foreground">{v}</span>
-          ) : (
-            <span className="opacity-40">—</span>
-          )
-        },
-        meta: { label: "RUC", className: "tabular-nums" },
-      },
-      {
-        accessorKey: "ci",
-        header: "CI",
-        cell: ({ getValue }) => {
-          const v = getValue() as string
-          return v ? (
-            <span className="tabular-nums text-muted-foreground">{v}</span>
-          ) : (
-            <span className="opacity-40">—</span>
-          )
-        },
-        meta: { label: "CI", className: "tabular-nums" },
-      },
-      {
-        accessorKey: "phone",
-        header: "Teléfono",
-        cell: ({ getValue }) => {
-          // formatPhone: la BD guarda E.164 sin '+'; la columna lo pintaba crudo.
-          const v = formatPhone(getValue() as string)
-          return v ? (
-            <span className="tabular-nums text-muted-foreground">{v}</span>
-          ) : (
-            <span className="opacity-40">—</span>
-          )
-        },
-        meta: { label: "Teléfono", className: "tabular-nums" },
-      },
-      {
-        accessorKey: "email",
-        header: "Email",
-        cell: ({ getValue }) => {
-          const v = getValue() as string
-          return v ? (
-            <span className="text-muted-foreground truncate">{v}</span>
-          ) : (
-            <span className="opacity-40">—</span>
-          )
-        },
-        meta: { label: "Email" },
-      },
-      {
-        accessorKey: "count",
-        header: "Compras",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums">{Number(getValue()) || 0}</span>
-        ),
-        meta: { label: "Compras", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "usold",
-        header: "Unidades",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums text-muted-foreground">
-            {formatInt(Number(getValue()) || 0, bootstrap)}
-          </span>
-        ),
-        meta: { label: "Unidades", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "grossTotal",
-        header: "Total gastado",
-        cell: ({ getValue }) => (
-          <span className="tabular-nums font-medium">
-            {formatMoney(Number(getValue()) || 0, bootstrap)}
-          </span>
-        ),
-        meta: { label: "Total gastado", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "loyalty",
-        header: "Loyalty",
-        cell: ({ getValue }) => {
-          const v = Number(getValue()) || 0
-          if (v <= 0) return <span className="text-muted-foreground">—</span>
-          return (
-            <span className="tabular-nums text-emerald-600">
-              {formatInt(v, bootstrap)}
-            </span>
-          )
-        },
-        meta: { label: "Loyalty", className: "tabular-nums text-right" },
-      },
-      {
-        accessorKey: "tags",
-        header: "Etiquetas",
-        cell: ({ row }) => {
-          const tags = row.original.tags ?? []
-          if (!tags.length) return <span className="opacity-40">—</span>
-          return (
-            <div className="flex flex-wrap gap-1">
-              {tags.slice(0, 3).map((t, i) => (
-                <Badge key={i} variant="outline" className="text-[10px]">
-                  {t}
-                </Badge>
-              ))}
-              {tags.length > 3 && (
-                <span className="text-[10px] text-muted-foreground">
-                  +{tags.length - 3}
-                </span>
-              )}
-            </div>
-          )
-        },
-        meta: { label: "Etiquetas" },
-      },
-    ],
-    [bootstrap],
-  )
-
-  // Columnas opcionales hidden por default — el legacy las muestra todas pero
-  // saturan en pantalla angosta. Toggle del DataTable las activa cuando importa.
-  const initialColumnVisibility = React.useMemo(
-    () => ({ ci: false, phone: false, email: false, tags: false }),
-    [],
-  )
+  // El rango solo afecta a dashboard y listado; el error del tab geográfico se
+  // muestra dentro de su propio tab para no gritar en los otros dos.
+  const error = listado.error ?? dashboard.error ?? null
 
   return (
     <div className="flex flex-col gap-6">
@@ -215,8 +73,7 @@ export default function CustomersReportPage() {
           <BackLink />
           <h1 className="text-2xl font-semibold">Análisis de Clientes</h1>
           <p className="text-sm text-muted-foreground">
-            Ranking por consumo en el período. Las columnas CI, Teléfono, Email y
-            Etiquetas se activan desde el toggle <strong>Columnas</strong>.
+            Quiénes son, cuánto compran y en qué zonas viven.
           </p>
         </div>
         <DateRangePicker value={range} onChange={setRange} />
@@ -227,41 +84,61 @@ export default function CustomersReportPage() {
           <AlertCircle className="mt-0.5 size-4 text-destructive" />
           <div>
             <p className="font-medium">No se pudo cargar el reporte</p>
-            <p className="text-xs text-muted-foreground">{error.message}</p>
+            <p className="text-sm text-muted-foreground">{error.message}</p>
           </div>
         </div>
       )}
 
-      {!isLoading && rows.length > 0 && (
-        <StatsRow>
-          <StatTile label="Clientes" value={rows.length.toString()} />
-          <StatTile label="Compras" value={formatInt(totals.count, bootstrap)} />
-          <StatTile label="Unidades vendidas" value={formatInt(totals.units, bootstrap)} />
-          <StatTile
-            label="Total facturado"
-            value={formatMoney(totals.total, bootstrap)}
-            emphasis
-          />
-        </StatsRow>
-      )}
+      <Tabs
+        value={tab}
+        onValueChange={(v) => setTab(v as TabKey)}
+        className="flex flex-col gap-4"
+      >
+        <TabsList>
+          <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsTrigger value="listado">Listado</TabsTrigger>
+          <TabsTrigger value="geografico">Geográfico</TabsTrigger>
+        </TabsList>
 
-      <DataTable
-        tableId="report-customers"
-        data={rows}
-        columns={columns}
-        initialColumnVisibility={initialColumnVisibility}
-        getRowId={(r) => r.customerId}
-        isLoading={isLoading}
-        searchPlaceholder="Buscar por nombre, RUC, CI, teléfono…"
-        exportFileName="analisis_clientes"
-        emptyMessage={
-          <EmptyState
-            icon={Users}
-            title="Sin clientes con ventas"
-            description="Ajustá el rango de fechas y volvé a consultar."
+        <TabsContent value="dashboard" className="m-0">
+          <CustomersDashboardTab
+            dashboard={dashboard.data?.dashboard}
+            rows={rows}
+            isLoading={dashboard.isLoading || listado.isLoading}
+            bootstrap={bootstrap}
           />
-        }
-      />
+        </TabsContent>
+
+        <TabsContent value="listado" className="m-0">
+          <CustomersListTab
+            rows={rows}
+            isLoading={listado.isLoading}
+            bootstrap={bootstrap}
+          />
+        </TabsContent>
+
+        <TabsContent value="geografico" className="m-0">
+          {geo.error ? (
+            <div className="flex items-start gap-3 rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
+              <AlertCircle className="mt-0.5 size-4 text-destructive" />
+              <div>
+                <p className="font-medium">
+                  No se pudo cargar el análisis geográfico
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {geo.error.message}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <CustomersGeoTab
+              geo={geo.data?.geo}
+              isLoading={geo.isLoading}
+              bootstrap={bootstrap}
+            />
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
@@ -272,7 +149,7 @@ function BackLink() {
       asChild
       variant="ghost"
       size="sm"
-      className="w-fit h-7 -ml-2 text-xs text-muted-foreground hover:text-foreground"
+      className="w-fit h-7 -ml-2 text-sm text-muted-foreground hover:text-foreground"
     >
       <Link href="/reports">
         <ArrowLeft className="size-3.5" />
