@@ -3,6 +3,10 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-31 (2) — sitio de marketing de Punto (punto.la) construido de cero
+
+Commits `53ce1895..b91b2991` (60, `frontend/app/(site)`+`components/site`+`lib/site`+`content/sitio`). Highlights: home + 15 rubros (3 grupos) + 10 minipages de módulo + precios + contacto, ruteo por host en `middleware.ts` (`punto.la`→`/home`, panel intacto); capa de mercado `lib/site/markets.ts` aísla precio/moneda/`{docFiscal}`/montos de ejemplo por país (hoy solo PY); exportador `content/sitio/*.md` en `prebuild` alimenta al agente de atención; redirects de `encom.app` cargados en Cloudflare y confirmados; SEO completo (sitemap enviado a Search Console) y webchat de Fish en las 30 páginas; 2 fixes cross-cutting al design system compartido — `dark:` de Tailwind se filtraba dentro de `.light` (`app/globals.css`) y el estado activo de `<Tabs>` shadcn nunca se pintaba en NINGÚN lugar del proyecto (`components/ui/tabs.tsx`). Doc nuevo `context/61-sitio-marketing.md`. Deploy: `b91b2991` va incluido en el deploy `1oag5axpukdg1cnq2wdheqvv` (commit `5630c3d1`, otra sesión) que quedó `in_progress` al cierre — verificar que termine `finished`.
+
 ## 2026-08-31 — MCP: el conector de Claude quedó conectado de punta a punta
 
 Commit `ff66e624` (los `8cab0cd6`/`e8b3371c` de teclado virtual del POS son de
