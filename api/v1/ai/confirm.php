@@ -14,14 +14,26 @@
  *   Se envuelve automáticamente en actions:[{action,payload}].
  *
  * Response: { ok: true, data: { confirmToken, summary, count } }
+ *
+ * Auth: realms `panel` y `pos-app`. En la caja la autorización NO sale de la
+ * credencial sino del operador que probó su PIN — ver `AgentActor`.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 require_once API_APP_DIR . '/includes/ai_confirm_store.php';
+require_once dirname(__DIR__, 2) . '/lib/Ai/AgentActor.php';
 
-$ctx = apiAuthTenant(['panel']);
+// MISMO gate de entrada que `execute.php`, resuelto por el MISMO objeto. Que
+// las dos mitades de la operación compartan la definición de "quién es el actor
+// y qué puede" es el punto entero de `AgentActor`: si `confirm` se aflojara sin
+// que `execute` se entere, se registrarían lotes que nadie debió poder pedir.
+$ctx = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
-$userId    = $ctx['userId'];
+
+$actor = \Punto\Api\Ai\AgentActor::authorize($ctx);
+// El token queda a nombre del ACTOR (en la caja, el operador del PIN), y
+// `execute` exige que quien lo consuma sea el mismo. Ver ai_confirm_store.php.
+$userId = $actor->userId();
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     apiError('Method not allowed', 405);
@@ -150,6 +162,13 @@ foreach ($actions as $item) {
     $payload = $item['payload'] ?? null;
 
     aiConfirmValidateAction($action, $payload);
+
+    // Alcance por superficie: hay acciones que no se piden desde una caja (hoy,
+    // `create_user`). Se corta en el registro para que el operador reciba el
+    // "no" en el acto y no después de confirmar un lote que iba a fallar.
+    if (!$actor->allowsAction($action)) {
+        apiError('Esa acción no se puede hacer desde la caja — se hace desde el panel', 403);
+    }
 
     $payload['action'] = $action;
     $normalized[] = $payload;

@@ -127,6 +127,12 @@ const GATES_INDIRECTOS = [
     // tablet, y la regla es sobre PERSONAS. Se evalúa contra el rol del
     // operador que probó su PIN (Punto\Api\Auth\OperatorContext).
     'OperatorContext::can($operator, self::OVERRIDE_PERMISSION, $companyId)' => ['pos.space.override'],
+    // AgentActor (lib/Ai) — la MISMA puerta para las dos superficies del agente
+    // IA: contra la credencial en el panel, contra el rol del OPERADOR en la
+    // caja. La usan `ai/confirm.php` y `ai/execute.php`.
+    '\hasPermission(self::PANEL_ENTRY_PERMISSION)'                          => ['ai.agent.use'],
+    'OperatorContext::can($operator, self::POS_ENTRY_PERMISSION, $companyId)' => ['pos.ai.use'],
+    '$this->can(self::ELEVATED_PERMISSION)'                                 => ['ai.agent.elevated'],
 ];
 
 const EXCEPCIONES_CONOCIDAS = [
@@ -140,20 +146,11 @@ const EXCEPCIONES_CONOCIDAS = [
     // operador en el POS el control correcto es en el cliente (deshabilitar
     // el campo), no rechazar el documento en el back.
     'pos.discount.apply' => 'viaja dentro de una venta ya emitida (offline-first)',
-    // Asistente de IA en la caja (context/59 D4). Esta clave gatea el item del
-    // sidebar del POS y su ruta de chat — NO gobierna qué datos puede leer el
-    // asistente: eso lo deciden los allowlists de realm de cada endpoint (D3) y
-    // el gate de operador de `drawers` (D9). Viaja al dispositivo por
-    // `unlock-pin.php` (que filtra los permisos del operador al prefijo `pos.`)
-    // y se evalúa en el cliente.
-    //
-    // OJO: es una excepción TEMPORAL. Cuando exista el BFF del chat
-    // (`/api/pos/agent/chat`, F2) y `ai/debit.php` acepte `pos-app` (D5), la
-    // clave tiene que enforcarse ahí con `OperatorContext::can()` — la
-    // `OperatorAssertion` ya identifica a la persona— y esta entrada debe
-    // salir de la lista. El arnés avisa solo: si se gatea sin sacarla de acá,
-    // el check de arriba falla por el motivo inverso.
-    'pos.ai.use'         => 'gatea el item de la UI en la caja, no un endpoint todavía (context/59 D4)',
+    // `pos.ai.use` SALIÓ de esta lista el 2026-08-31, tal como anticipaba la
+    // nota que estaba acá: desde que el asistente de la caja escribe, la clave
+    // gatea `/v1/ai/confirm` y `/v1/ai/execute` de verdad, evaluada con
+    // `OperatorContext::can()` contra el rol del operador que probó su PIN
+    // (`lib/Ai/AgentActor.php`). Figura arriba, en GATES_INDIRECTOS.
 ];
 
 echo "=== (A) cobertura del catálogo ===\n";

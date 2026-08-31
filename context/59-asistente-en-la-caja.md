@@ -46,7 +46,52 @@ fila `device`, *"así el listado de transacciones del POS queda scopeado a la
 sucursal de la caja"* — corrección de un bug del 2026-07-30 en que el POS pedía
 con la cookie del operador y mostraba la sucursal del view-scope del panel.
 
-## D2 — Read-only por gate de método, no por invariante de embudo
+## D2 — REABIERTA por el owner (2026-08-31): el asistente de la caja ESCRIBE
+
+> *"Veo que el bot en /pos es solo lectura, sería bueno que se adapte a los
+> permisos del usuario (cajero) conectado. De esta forma si necesita modificar
+> algo de un producto no tiene que entrar al panel, solo se lo pide al bot."*
+
+El read-only cae. Lo que lo reemplaza **no es "ahora también escribe"**: es que
+la autorización deja de colgar de la credencial y pasa a colgar de la PERSONA.
+
+**El invariante que gobierna esta fase, y que no se negocia:** el Bearer del
+realm `pos-app` es del DISPOSITIVO. No expira y vive en el localStorage de una
+tablet que comparten todos los turnos. **Ninguna escritura se autoriza con él
+solo.** La persona se prueba con la `OperatorAssertion` que emite el unlock por
+PIN (`api/lib/Auth/OperatorAssertion.php`), y cada acción se evalúa contra el rol
+de esa persona (`OperatorContext::can`). Sin operador identificado no hay
+escritura: 403, fail-closed, sin modo degradado.
+
+Tres piezas lo sostienen:
+
+1. **Un actor, no dos caminos.** `api/lib/Ai/AgentActor.php` responde "quién es y
+   qué puede" una sola vez, y lo usan las DOS mitades de la operación
+   (`/v1/ai/confirm` y `/v1/ai/execute`). El gate de entrada es `ai.agent.use`
+   contra la credencial en `panel` y `pos.ai.use` contra el rol del operador en
+   `pos-app`; el gate por acción (contactos, ítems, taxonomías) sale del mismo
+   objeto. Que `confirm` se afloje sin que `execute` se entere deja de ser
+   posible.
+2. **El `confirmToken` se ata a quien lo pidió.** Se guardaba el `userId` y no se
+   miraba nunca: en una tablet que desbloquean tres personas por turno, eso
+   significaba que el lote registrado por el encargado lo podía ejecutar el mozo
+   que tipeó su PIN después. Ahora `aiConfirmStoreConsume()` exige el mismo
+   actor, y un intento ajeno no le quema el token a su dueño.
+3. **`create_user` no se puede pedir desde la caja**, bloqueada por realm y
+   explícitamente. Se creía que quedaba fuera sola porque exige
+   `ai.agent.elevated` y `unlock-pin.php` filtra al prefijo `pos.` — **eso es
+   falso**: ese filtro decide qué se cachea en la tablet, no qué evalúa el
+   backend, y el rol real de un encargado sí tiene esa clave. Sin el bloqueo,
+   "creá un usuario" desde el mostrador llegaba hasta `RoleEscalation`.
+
+**El alcance de escritura no se amplió ni una acción**: es el que el agente ya
+tenía (contactos, ítems básicos, categorías/marcas/etiquetas). Nada de ventas,
+caja, sucursales ni permisos — eso sigue siendo del POS y del panel.
+
+Lo que sigue vigente de la versión anterior de esta decisión es el análisis del
+gate por método para las LECTURAS, que se conserva abajo porque no cambió.
+
+### D2 (histórico) — Read-only por gate de método, no por invariante de embudo
 
 Esto cambia de fundamento respecto de la versión anterior y **no hay que
 maquillarlo**.
@@ -342,6 +387,7 @@ Mucho más chicas que en las versiones anteriores: ya no hay fase de realm.
 | **F3** | Recorte del catálogo: `POS_TOOL_IDS` filtrando `buildReadOnlyFetchTools`, **sin tocar `read-tools.ts`** | F2, D3 |
 | **F4** | UI: item del footer (D7), componente de chat (D8), gate del item, estados offline (D6) | F3, D7 |
 | **F5** | Permiso `pos.ai.use` (D4) + actor en el ledger y `debit.php` para `pos-app` (D5) | F4 |
+| **F6** | **Escritura con permisos del operador** (D2 reabierta): `AgentActor` + `confirm`/`execute` con realm `pos-app`, `confirmToken` atado al actor, `X-Operator-Token` de punta a punta, tools de escritura en el set del POS | F4 |
 
 **F1 son dos líneas**, una por archivo:
 
@@ -373,6 +419,12 @@ escribirse, solo para servir de algo.
   chats en tablets y no se verifica sin dispositivo.
 - **F5** — el consumo real de créditos por caja. No hay forma de estimarlo antes
   de que alguien lo use.
+- **F6** — el flujo completo contra un modelo real: que entienda que tiene que
+  llamar `register_action` una sola vez por pedido y esperar la confirmación
+  (en el panel costó tres iteraciones de prompt). Tampoco se verificó el 403 de
+  operador ausente contra la API corriendo — el arnés de permisos cubre que la
+  clave esté gateada, no el round-trip. Y el ledger sigue sin registrar al
+  operador que gastó los créditos: eso es F5, no entró acá.
 
 ---
 

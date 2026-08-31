@@ -49,9 +49,14 @@ import { cn } from "@/lib/utils"
  * —mismo criterio que `showAttach`/`showVoice` de `agent-input-box.tsx`—, así
  * que el panel no cambia ni de aspecto ni de comportamiento por este refactor.
  *
- * `showActions` es el interruptor CRÍTICO: gatea las cards de acción y los
- * gráficos, y `AgentChart` usa `useBootstrap()` (credencial de panel). Con
- * `showActions={false}` esos hijos nunca se montan en la caja. Los demás hijos
+ * `showActions` gatea las cards de confirmación de `register_action` /
+ * `execute_action`. Hasta el 2026-08-31 gateaba TAMBIÉN los gráficos, y esa
+ * mezcla se volvió un problema el día que el asistente de la caja empezó a
+ * escribir: la caja necesita las cards (sin ellas la confirmación se degrada a
+ * tipear "sí") y sigue sin poder montar `AgentChart`, que lee `useBootstrap()`
+ * —credencial de PANEL— y no tiene sentido en una tablet de mostrador. Un solo
+ * interruptor obligaba a elegir entre una regresión de UX y una de auth, así
+ * que son dos: `showActions` y `showCharts`. Los demás hijos
  * se auditaron import por import y son presentación pura: `MessageMarkdown`,
  * `MessageActions`, `AgentInputBox`, `ThinkingIndicator`, `ClearChatButton`.
  * `AgentSettingsDialog` sí usa `useSettings()`/`useUpdateSettings()` → va detrás
@@ -83,8 +88,10 @@ export interface AgentChatContentProps {
   showHeader?: boolean
   /** Engranaje de Ajustes del asistente — usa credencial de panel. */
   showSettings?: boolean
-  /** Cards de `register_action`/`execute_action` y gráficos — usan credencial de panel. */
+  /** Cards de confirmación de `register_action`/`execute_action`. */
   showActions?: boolean
+  /** Gráficos (`render_chart`). `AgentChart` usa `useBootstrap()`: solo panel. */
+  showCharts?: boolean
   /** Adjuntos: drag-and-drop sobre el thread + botón de adjuntar en el input. */
   showAttachments?: boolean
   /** Botón de voz del input ("próximamente"). */
@@ -131,6 +138,7 @@ export function AgentChatContent({
   showHeader = true,
   showSettings = true,
   showActions = true,
+  showCharts = true,
   showAttachments = true,
   showVoice = true,
   showCredits = true,
@@ -441,11 +449,12 @@ export function AgentChatContent({
                   )
                 }
 
-                // Las cards de acción y los gráficos son del agente del panel
-                // (escriben, y `AgentChart` lee el bootstrap del panel). En la
-                // caja `showActions` es false y nunca se montan.
-                if (showActions && isToolOrDynamicToolUIPart(part)) {
-                  if (part.type === "tool-register_action" && part.state === "output-available") {
+                // Las cards de confirmación se muestran en las dos superficies
+                // (la caja también escribe desde 2026-08-31). Los gráficos no:
+                // `AgentChart` lee el bootstrap del PANEL, así que en la caja
+                // `showCharts` es false y ese hijo nunca se monta.
+                if ((showActions || showCharts) && isToolOrDynamicToolUIPart(part)) {
+                  if (showActions && part.type === "tool-register_action" && part.state === "output-available") {
                     const isLatest = idx === message.parts.length - 1
                     return (
                       <RegisterActionCard
@@ -458,10 +467,10 @@ export function AgentChatContent({
                       />
                     )
                   }
-                  if (part.type === "tool-execute_action" && part.state === "output-available") {
+                  if (showActions && part.type === "tool-execute_action" && part.state === "output-available") {
                     return <ExecuteActionSummary key={idx} output={part.output as never} />
                   }
-                  if (part.type === "tool-render_chart") {
+                  if (showCharts && part.type === "tool-render_chart") {
                     if (part.state === "output-available") {
                       return <AgentChart key={idx} input={part.input} />
                     }

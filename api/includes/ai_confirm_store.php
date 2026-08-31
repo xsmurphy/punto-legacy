@@ -88,7 +88,9 @@ function aiConfirmStoreCmd(string ...$args): mixed
  *                            trae su propia key 'action'. Este store no
  *                            interpreta la forma — solo la serializa.
  * @param string $companyId  ID del tenant (para validación en consume).
- * @param string $userId     ID del usuario que generó la acción.
+ * @param string $userId     ID de la PERSONA que pidió la acción — el operador
+ *                            del PIN en la caja, el usuario logueado en el
+ *                            panel. `consume` exige que sea el mismo.
  * @return string|null Token de 32 hex chars, o null si Redis no responde.
  */
 function aiConfirmStoreCreate(array $payload, string $companyId, string $userId): ?string
@@ -110,15 +112,31 @@ function aiConfirmStoreCreate(array $payload, string $companyId, string $userId)
 }
 
 /**
- * Consume (GET + DEL atómico) un token de confirmación.
+ * Consume (GET + DEL) un token de confirmación.
  *
- * Valida que el token pertenezca al companyId del caller.
+ * Valida DOS cosas: que el token sea del tenant del caller y que lo consuma la
+ * MISMA persona que lo pidió.
  *
+ * ── Por qué el dueño también se valida ─────────────────────────────────────
+ *
+ * Hasta 2026-08-31 el token solo se ataba al tenant: el `userId` se guardaba y
+ * no se miraba nunca. En el panel eso era una laxitud teórica (hay que robar un
+ * token de 5 minutos de vida de otra sesión de la misma empresa). En la CAJA
+ * deja de ser teórica: una tablet la desbloquean tres personas por turno, el
+ * token viaja por el chat de esa tablet, y sin este check el lote que registró
+ * el encargado —con SUS permisos— lo podría ejecutar quien tipee su PIN después.
+ * La confirmación dejaría de significar "esta persona aprobó esto".
+ *
+ * Mismatch devuelve null SIN borrar la key: el token sigue siendo de su dueño
+ * legítimo y no se le quema porque otro lo haya intentado.
+ *
+ * @param string $actorUserId la persona que consume — operador del PIN en la
+ *                            caja, usuario logueado en el panel.
  * @return array|null Payload con keys [payload, companyId, userId, createdAt], donde
  *                     payload = ['actions' => [...]] (el lote completo), o null si
- *                     inválido/expirado.
+ *                     inválido/expirado/de otra persona.
  */
-function aiConfirmStoreConsume(string $token, string $companyId): ?array
+function aiConfirmStoreConsume(string $token, string $companyId, string $actorUserId): ?array
 {
     $key  = 'ai:confirm:' . $token;
     $raw  = aiConfirmStoreCmd('GET', $key);
@@ -130,6 +148,10 @@ function aiConfirmStoreConsume(string $token, string $companyId): ?array
         return null;
     }
     if (($data['companyId'] ?? '') !== $companyId) {
+        return null;
+    }
+    if ($actorUserId === '' || (string) ($data['userId'] ?? '') !== $actorUserId) {
+        error_log('[ai_confirm] token consumido por otra persona que la que lo registró — rechazado');
         return null;
     }
     aiConfirmStoreCmd('DEL', $key);

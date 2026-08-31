@@ -1,5 +1,6 @@
 /**
- * Recorte del catálogo de tools para el asistente de la CAJA (context/59 D3).
+ * El set de tools del asistente de la CAJA: el recorte de LECTURA (context/59
+ * D3) más las dos tools de ESCRITURA, que son las mismas del panel.
  *
  * `lib/agent/read-tools.ts` es el catálogo COMPARTIDO con el MCP y NO se
  * modifica ni se duplica: dos listas escritas por separado se desincronizan en
@@ -63,13 +64,42 @@
  *                        PRESENTACIÓN). En una tablet de caja un gráfico
  *                        tampoco es la respuesta.
  *
- * Y NINGUNA tool de escritura: ni `register_action` ni `execute_action`. El
- * asistente de la caja es SOLO LECTURA. La caja ya tiene sus escrituras, con
- * su permiso, su confirmación y su comportamiento offline; el asistente no es
- * una segunda puerta a ellas (context/59 D2).
+ * ─────────────────────────────────────────────────────────────────────────
+ * LAS DOS TOOLS DE ESCRITURA — por qué ahora sí, y cuál es el límite
+ *
+ * Hasta el 2026-08-31 acá no había ninguna: el asistente de la caja era de solo
+ * lectura (D2 de context/59). El owner reabrió esa decisión con un caso
+ * concreto —"si necesita modificar algo de un producto no tiene que entrar al
+ * panel, solo se lo pide al bot"— y la respuesta correcta no era relajar el
+ * alcance sino atarlo a la persona.
+ *
+ * `register_action` / `execute_action` salen de `lib/agent/confirm-tool.ts`, el
+ * MISMO módulo que usa el panel. No hay una versión POS de estas tools, y no
+ * debe haberla: los schemas y las descripciones son lo caro de mantener, y el
+ * alcance de escritura del agente es UNO solo (contactos, ítems básicos,
+ * taxonomías; nada de ventas, caja, sucursales ni permisos).
+ *
+ * Lo que las acota en la caja son dos cosas, las dos del backend:
+ *
+ *   1. LA PERSONA. Bajo realm `pos-app` el Bearer identifica una tablet, no a
+ *      alguien: no expira y lo comparten todos los turnos. Por eso estas tools
+ *      solo se arman si hay `operatorToken` —la `OperatorAssertion` firmada que
+ *      emite el unlock por PIN— y `api/lib/Ai/AgentActor.php` evalúa CADA acción
+ *      contra el rol de esa persona. Sin operador: 403, sin excepción. El cajero
+ *      que no puede editar precios en el panel tampoco puede pedírselo al bot.
+ *   2. EL confirmToken. `register_action` no escribe: registra el lote y
+ *      devuelve un token de 5 minutos que queda a nombre de quien lo pidió.
+ *      Recién `execute_action`, tras la confirmación explícita, ejecuta — y solo
+ *      si lo consume la MISMA persona que lo registró (una tablet la desbloquean
+ *      tres personas por turno).
+ *
+ * `create_user` queda afuera desde la caja, bloqueada por realm en el backend:
+ * dar de alta un empleado es la puerta a más accesos y se hace en el panel.
  */
 
+import type { ToolSet } from "ai"
 import { buildReadOnlyFetchTools, type ToolContext } from "@/lib/agent/read-tools"
+import { makeActionTools } from "@/lib/agent/confirm-tool"
 
 /**
  * Ids habilitados en la caja. Verificados uno por uno contra las claves reales
@@ -107,15 +137,22 @@ export type PosToolId = (typeof POS_TOOL_IDS)[number]
 type ReadOnlyToolSet = ReturnType<typeof buildReadOnlyFetchTools>
 
 /**
- * Arma el set de tools del asistente de la caja: el catálogo compartido,
- * filtrado a `POS_TOOL_IDS`.
+ * Arma el set de tools del asistente de la caja: el catálogo compartido
+ * filtrado a `POS_TOOL_IDS`, más las dos de escritura si hay un operador
+ * identificado.
  *
  * Si un id de la lista no existe en el catálogo (alguien lo renombró del otro
  * lado), se saltea con un log en vez de romper el chat: perder una tool
  * degrada la respuesta, tirar el endpoint deja la caja sin asistente. El log
  * es lo que hace que se note.
+ *
+ * @param operatorToken afirmación firmada del operador (`X-Operator-Token`).
+ *   Vacía o ausente = nadie probó su PIN en esta caja → NO se arman las tools de
+ *   escritura. Es la mitad cliente del fail-closed: la que manda es la del
+ *   backend, pero ofrecerle al modelo una capacidad que va a terminar en 403 es
+ *   pedirle que le prometa al cajero algo que no va a pasar.
  */
-export function buildPosAgentTools(ctx: ToolContext): ReadOnlyToolSet {
+export function buildPosAgentTools(ctx: ToolContext, operatorToken = ""): ToolSet {
   const catalog = buildReadOnlyFetchTools(ctx)
   const picked: ReadOnlyToolSet = {}
 
@@ -131,5 +168,12 @@ export function buildPosAgentTools(ctx: ToolContext): ReadOnlyToolSet {
     picked[id] = definition
   }
 
-  return picked
+  if (operatorToken === "") {
+    return picked
+  }
+
+  return {
+    ...picked,
+    ...makeActionTools(ctx.authHeader, ctx.apiUrl, { "X-Operator-Token": operatorToken }),
+  }
 }

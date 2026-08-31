@@ -11,18 +11,29 @@
  *
  * Un fallo en una acción del lote NO aborta las demás — cada acción se ejecuta
  * de forma independiente y su resultado (éxito o error) se reporta por separado.
+ *
+ * Auth: realms `panel` y `pos-app`. En la caja la autorización NO sale de la
+ * credencial sino del operador que probó su PIN — ver `AgentActor`.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 require_once API_APP_DIR . '/includes/ai_confirm_store.php';
+require_once dirname(__DIR__, 2) . '/lib/Ai/AgentActor.php';
 
-$ctx = apiAuthTenant(['panel']);
+// Realm `pos-app` (context/59, pedido del owner 2026-08-31): el asistente de la
+// caja pasa a poder ESCRIBIR, pero solo lo que el rol del OPERADOR permita.
+// Quién es esa persona y qué puede lo resuelve `AgentActor` — el mismo objeto
+// que usa `confirm.php`, para que las dos mitades de la operación no puedan
+// diverger. Bajo `pos-app` exige `OperatorAssertion`: sin PIN validado no hay
+// escritura, y el Bearer eterno del dispositivo no alcanza por sí solo.
+$ctx = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
-$userId    = $ctx['userId'];
 
-if (!hasPermission('ai.agent.use')) {
-    apiError('No tenés permiso para esta acción (requiere: ai.agent.use)', 403);
-}
+$actor  = \Punto\Api\Ai\AgentActor::authorize($ctx);
+// El autor de lo que se escriba es el ACTOR, no la credencial: en la caja, el
+// `userId` del contexto es el contacto que pareó la tablet hace meses, y
+// atribuirle a él los cambios de todos los turnos es un bug silencioso.
+$userId = $actor->userId();
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     apiError('Method not allowed', 405);
@@ -35,7 +46,10 @@ if (strlen($confirmToken) !== 32) {
     apiError('confirmToken inválido', 400);
 }
 
-$stored = aiConfirmStoreConsume($confirmToken, $companyId);
+// El token se ata a QUIEN lo pidió, no solo al tenant: una tablet la desbloquean
+// tres personas por día, y un lote registrado por el encargado no lo ejecuta el
+// mozo que tipeó su PIN después.
+$stored = aiConfirmStoreConsume($confirmToken, $companyId, $userId);
 if ($stored === null) {
     apiError('Token expirado, inválido o ya utilizado', 410);
 }
@@ -45,52 +59,6 @@ $actions       = $storedPayload['actions'] ?? null;
 
 if (!is_array($actions) || count($actions) < 1) {
     apiError('El token no contiene acciones ejecutables', 422);
-}
-
-/**
- * Permiso ESPECÍFICO por acción (defense in depth — `ai.agent.use` solo habilita
- * el agente; cada acción exige además el permiso real que el operador necesitaría
- * para hacerla a mano en el panel). El agente NUNCA puede ejecutar algo que el
- * usuario logueado no esté autorizado a hacer por sí mismo.
- *
- * Keys del catálogo canónico (PermissionCatalog):
- *   - contactos:   contacts.customer.create / .edit, contacts.user.manage
- *   - inventario:  inventory.item.create / .edit
- * No existe permiso propio para taxonomías (category/brand/tag): se gatean con
- * inventory.item.edit (gestión de catálogo), el más restrictivo razonable.
- * tabular_import (operación masiva) exige el permiso de CREAR de la entidad
- * importada — gate fuerte, resuelto por $payload['kind'].
- */
-function aiExecuteRequiredPermission(string $action, array $payload): ?string
-{
-    $actionPermission = [
-        'create_contact'    => 'contacts.customer.create',
-        'update_contact'    => 'contacts.customer.edit',
-        'create_item'       => 'inventory.item.create',
-        'update_item_price' => 'inventory.item.edit',
-        'create_user'       => 'contacts.user.manage',
-        'create_category'   => 'inventory.item.edit',
-        'create_brand'      => 'inventory.item.edit',
-        'create_tag'        => 'inventory.item.edit',
-    ];
-
-    // `create_user` es la única acción del agente que toca el equipo del
-    // comercio, o sea la puerta a más accesos. Exige la clave elevada ADEMÁS
-    // de contacts.user.manage — sin esto `ai.agent.elevated` era una clave
-    // decorativa del catálogo, mostrada en el panel y chequeada en ningún
-    // lado. Seed: manager y owner la tienen; cashier no.
-    if ($action === 'create_user' && !hasPermission('ai.agent.elevated')) {
-        return 'ai.agent.elevated';
-    }
-
-    if ($action === 'tabular_import') {
-        $importKind = (string) ($payload['kind'] ?? '');
-        return $importKind === 'contacts'
-            ? 'contacts.customer.create'
-            : 'inventory.item.create';
-    }
-
-    return $actionPermission[$action] ?? null;
 }
 
 /**
@@ -325,8 +293,22 @@ foreach ($actions as $payload) {
 
     $action = (string) ($payload['action'] ?? '');
 
-    $requiredPerm = aiExecuteRequiredPermission($action, $payload);
-    if ($requiredPerm !== null && !hasPermission($requiredPerm)) {
+    // Acción fuera de alcance para esta superficie (hoy: `create_user` desde la
+    // caja). Se vuelve a chequear acá y no solo en `confirm` porque un token
+    // sigue vivo 5 minutos: podría haberse registrado antes de un cambio de
+    // política, o desde otra superficie.
+    if (!$actor->allowsAction($action)) {
+        $results[] = [
+            'action' => $action,
+            'ok'     => false,
+            'error'  => 'Esa acción no se puede hacer desde la caja — se hace desde el panel',
+        ];
+        $failCount++;
+        continue;
+    }
+
+    $requiredPerm = $actor->requiredPermission($action, $payload);
+    if ($requiredPerm !== null && !$actor->can($requiredPerm)) {
         $results[] = [
             'action' => $action,
             'ok'     => false,

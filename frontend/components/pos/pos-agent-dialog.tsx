@@ -30,12 +30,18 @@ import { useOnlineStatus } from "@/hooks/use-online-status"
  *
  * La UI del chat es `components/agent/agent-chat-content.tsx` — LA MISMA que
  * renderiza el drawer del panel. Acá solo se resuelve de dónde salen los datos:
- * `usePosAgentChat` (Bearer del device, `credentials: "omit"`) y
- * `useCatalogStore` (config del POS). Ni un hook con credencial de panel entra
- * en este árbol: `showSettings`, `showActions`, `showAttachments` y
- * `showCredits` van en `false` justamente porque los componentes que gatean
- * —`AgentSettingsDialog` (useSettings), `AgentChart` (useBootstrap) y el link a
- * `/history-billing`— son del panel.
+ * `usePosAgentChat` (Bearer del device + `X-Operator-Token`,
+ * `credentials: "omit"`) y `useCatalogStore` (config del POS). Ni un hook con
+ * credencial de panel entra en este árbol: `showSettings`, `showCharts`,
+ * `showAttachments` y `showCredits` van en `false` justamente porque los
+ * componentes que gatean —`AgentSettingsDialog` (useSettings), `AgentChart`
+ * (useBootstrap) y el link a `/history-billing`— son del panel.
+ *
+ * `showActions` SÍ va prendido desde 2026-08-31: el asistente de la caja hace
+ * cambios simples, y la tarjeta de confirmación es el control donde la persona
+ * los aprueba de un toque. Es presentación pura —lee el input/output de la
+ * tool-call, no una credencial— y por eso dejó de compartir interruptor con los
+ * gráficos.
  *
  * Hasta el 2026-08-30 este archivo tenía una COPIA del markup del chat, por el
  * temor —correcto en su momento— de arrastrar esos hooks. El resultado fue el
@@ -116,10 +122,11 @@ export function PosAgentDialog() {
           // El alcance de los datos es de SUCURSAL, nunca del turno ni de esta
           // caja (Roc::build filtra por company + outlet y nada más). El copy lo
           // dice para que nadie lea "lo mío".
-          headerSubtitle="Consultas de esta sucursal — no hace cambios"
-          // Todo lo que resuelve con credencial de PANEL, apagado.
+          headerSubtitle="Datos de esta sucursal — los cambios se confirman"
+          // Todo lo que resuelve con credencial de PANEL, apagado. Las cards de
+          // confirmación no entran en esa bolsa (ver docblock).
           showSettings={false}
-          showActions={false}
+          showCharts={false}
           showAttachments={false}
           showVoice={false}
           showCredits={false}
@@ -145,7 +152,7 @@ export function PosAgentDialog() {
               ghost={false}
               icon={MessageCircle}
               title="Preguntá lo que necesites"
-              description="Precios, stock, saldo de un cliente o las ventas de esta sucursal. Solo consulta: no modifica nada."
+              description="Precios, stock, saldo de un cliente o las ventas de esta sucursal. También cambios simples, con tu confirmación."
             />
           }
         />

@@ -20,6 +20,14 @@ import { z } from "zod"
  *
  *   register_action(actions[], summary) → devuelve confirmToken (NO ejecuta)
  *   execute_action(confirmToken)        → ejecuta TODAS las acciones del lote
+ *
+ * COMPARTIDAS CON LA CAJA (2026-08-31): el asistente del POS usa ESTAS MISMAS
+ * dos tools, no una copia. Lo único que cambia entre superficies son los
+ * headers: el panel manda su Bearer y nada más, y la caja manda además el
+ * `X-Operator-Token` que prueba QUIÉN está operando — sin él el backend
+ * rechaza la escritura (ver `extraHeaders` en `makeActionTools`). Duplicar
+ * estas definiciones habría duplicado también los schemas y las descripciones,
+ * que son la parte que hay que ajustar contra un modelo real.
  */
 
 // payload con campos EXPLÍCITOS (no z.record/additionalProperties, que los
@@ -61,6 +69,7 @@ const actionItemSchema = payloadSchema.extend({
 async function registerConfirmation(
   authHeader: string,
   apiUrl: string,
+  extraHeaders: Record<string, string>,
   actions: Array<{ action: string; payload: unknown }>,
   summary: string,
 ) {
@@ -68,7 +77,7 @@ async function registerConfirmation(
   try {
     const res = await fetch(`${apiUrl}/v1/ai/confirm`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader },
+      headers: { "Content-Type": "application/json", Authorization: authHeader, ...extraHeaders },
       body: JSON.stringify({ actions, summary }),
     })
     const bodyText = await res.text()
@@ -93,12 +102,17 @@ async function registerConfirmation(
   }
 }
 
-async function executeConfirmation(authHeader: string, apiUrl: string, confirmToken: string) {
+async function executeConfirmation(
+  authHeader: string,
+  apiUrl: string,
+  extraHeaders: Record<string, string>,
+  confirmToken: string,
+) {
   console.error("[agent] execute_action confirmToken", JSON.stringify(confirmToken))
   try {
     const res = await fetch(`${apiUrl}/v1/ai/execute`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: authHeader },
+      headers: { "Content-Type": "application/json", Authorization: authHeader, ...extraHeaders },
       body: JSON.stringify({ confirmToken }),
     })
     const bodyText = await res.text()
@@ -113,7 +127,19 @@ async function executeConfirmation(authHeader: string, apiUrl: string, confirmTo
   }
 }
 
-export function makeActionTools(authHeader: string, apiUrl: string) {
+/**
+ * @param extraHeaders headers adicionales para los DOS fetches. La caja manda
+ *   acá su `X-Operator-Token`: es la prueba de identidad de la persona que
+ *   tipeó el PIN, y sin ella `/v1/ai/confirm` y `/v1/ai/execute` responden 403
+ *   bajo realm `pos-app` (el Bearer del device es del mueble, no de nadie). El
+ *   panel no pasa nada: ahí la credencial YA es la persona. Nunca se manda una
+ *   cookie por acá — la caja es token-only (context/08 §60).
+ */
+export function makeActionTools(
+  authHeader: string,
+  apiUrl: string,
+  extraHeaders: Record<string, string> = {},
+) {
   return {
     register_action: tool({
       description:
@@ -125,7 +151,7 @@ export function makeActionTools(authHeader: string, apiUrl: string) {
       execute: async ({ actions, summary }) => {
         // Re-anidar plano → {action, payload} que espera el backend, intacto.
         const nested = actions.map(({ action, ...fields }) => ({ action, payload: fields }))
-        return registerConfirmation(authHeader, apiUrl, nested, summary)
+        return registerConfirmation(authHeader, apiUrl, extraHeaders, nested, summary)
       },
     }),
 
@@ -135,7 +161,8 @@ export function makeActionTools(authHeader: string, apiUrl: string) {
       inputSchema: z.object({
         confirmToken: z.string().describe("Token devuelto por register_action"),
       }),
-      execute: async ({ confirmToken }) => executeConfirmation(authHeader, apiUrl, confirmToken),
+      execute: async ({ confirmToken }) =>
+        executeConfirmation(authHeader, apiUrl, extraHeaders, confirmToken),
     }),
   }
 }
