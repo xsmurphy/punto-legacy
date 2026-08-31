@@ -1,99 +1,83 @@
-# Hand-off — 2026-08-31 (2)
+# Hand-off — 2026-08-31 (4)
 
 ## Objetivo
-El owner pidió analizar si los reportes tenían un balance y un flujo de
-efectivo usables — no había ninguno. Acotó el alcance con la frase que es la
-decisión de fondo: *"gerencial.. nosotros no nos metemos en lo contable"* —
-no partida doble, es lo que un dueño mira para decidir. De paso, la marca
-del conector MCP (título/ícono en el handshake) destapó un dominio
-hardcodeado y otros dos fixes chicos de infra.
+Tres hilos que se enredaron en una sesión larga: (1) el owner pidió que el
+asistente de la caja pueda escribir cambios simples (precios, stock, ítems)
+sin que el cajero tenga que entrar al panel; (2) el teclado virtual del POS
+seguía tapando inputs en iOS pese a dos rondas previas de fix; (3) limpieza
+de reportes que fue apareciendo en el camino — Equipo vacío, Auditoría sin
+fecha, secciones muertas, identificadores fiscales hardcodeados a Paraguay.
 
 ## Estado al cerrar
-`origin/main` en `7312dc8c` al momento de escribir (puede haber avanzado por
-sesiones paralelas). Working tree limpio. Los 6 commits propios de esta
-sesión (`8efbd353..7312dc8c`, intercalados con una sesión paralela) YA están
-pusheados. **Sin verificar si están deployados** — no se disparó deploy
-desde esta sesión; antes de cerrar cualquier sesión futura, confirmar con
-`mcp__coolify__list_deployments` que el Front cubre estos commits.
+`main` en `ae34f580`, todo pusheado. Deploys verificados con el MCP de
+Coolify (sin `in_progress` pendientes): Front en `5630c3d1` (deployment
+`1oag5axpukdg1cnq2wdheqvv`, finished), Backend en `7e29907d` (deployment
+`s3h28hg9pjem49yjfvptkmsv`, finished) — ambos cubren mis commits de código.
+`79f6f2b8` y `ae34f580` son solo markdown, no requieren deploy.
 
 ## Archivos y cambios
-- `api/lib/Reports/CashflowService.php` — reescrito sobre `fin_movement`/
-  `fin_account`, recalcula saldos (no lee `currentbalance` cacheado);
-  `source='transfer'` excluido de ingresos/egresos pero SÍ mueve saldo por
-  cuenta.
-- `api/lib/Reports/BalanceService.php` — nuevo. Snapshot a HOY (no rango).
-  Pasivo excluye `type='purchase'` de obligaciones (ya cuenta como cuenta
-  por pagar; contarla dos veces era el bug). `notes.missingFixedAssets:
-  true` — el sistema no registra activos fijos, se declara en vez de mentir.
-- `api/v1/reports/cashflow.php` / `balance.php` — `apiAuthTenant(['panel',
-  'api'])`, resuelven `VIEW_OUTLET_ID`.
-- `frontend/app/(panel)/reports/cashflow/page.tsx` reescrita, `.../balance/
-  page.tsx` nueva (sin `DateRangePicker` a propósito, es una foto de hoy).
-- `context/60-balance-y-flujo-de-efectivo.md` — doc nuevo del módulo.
-- `frontend/app/api/mcp/route.ts` — `serverInfo` con `title`/`description`/
-  `websiteUrl`/`icons` (SEP-973).
-- `frontend/next.config.ts` — rewrite de `/favicon.ico` (Next servía `/icon.
-  png` pero no `/favicon.ico`; devolvía el HTML del panel).
-- `context/58-mcp-server.md` — sección sobre el WAF "Block AI bots" de
-  Cloudflare.
+- `api/lib/Ai/AgentActor.php` — nuevo. Identidad + permiso del operador del
+  PIN para las DOS mitades (`confirm`/`execute`) de una escritura del agente.
+- `frontend/app/(pos)/pos/**` — BFF propio del asistente (`/api/pos/agent/
+  chat`), catálogo de tools recortado (`POS_TOOL_IDS`), UI del chat.
+- `frontend/components/pos/keyboard-inset.tsx` + `viewport-probe.tsx` — miden
+  contra `document.documentElement.clientHeight`, no `window.innerHeight`,
+  en iOS PWA standalone. Test en `frontend/lib/pos/__tests__/keyboard-inset.
+  test.ts` prohíbe restar de `innerHeight`.
+- `frontend/app/(panel)/reports/audit/**` — fix de los 2 bugs de
+  serialización (jsonb `meta`, claves lowercase de `AuditRow`).
+- `frontend/app/(panel)/reports/customers/**` — reescrito en 3 tabs.
+- `api/lib/Support/CountryDefaults.php` (nuevo) + `frontend/lib/contact-id-
+  types.ts` — catálogo de identificadores fiscales por país (`c9dfc3cd`),
+  reemplazó 3 `?? "RUC"` hardcodeados.
+- `context/59-asistente-en-la-caja.md` — status actualizado a implementado
+  (F1-F6), D9 sigue abierta.
+- `CLAUDE.md` — fila de `context/59` actualizada a implementado.
+- `context/62-dashboard-operaciones.md` — doc nuevo, plan sin OK del owner.
 
 ## Callejones sin salida
-- **Perseguir `serverInfo.icons` como fuente del logo del conector fue
-  tiempo mal gastado, y probablemente no se puede.** Los conectores custom/
-  self-hosted NO reciben ícono de marca hoy — eso sale del registro interno
-  de Anthropic, solo first-party/marketplace. Issues abiertos pidiendo esa
-  función: `anthropics/claude-ai-mcp#152`, `anthropics/claude-code#49040`,
-  `modelcontextprotocol/modelcontextprotocol#1040` y discussion `#2573`.
-  Favicon, URLs absolutas y data URIs en `icons` — todo probado, nada
-  funciona, y coincide con lo que esos issues reportan.
-- **La premisa que disparó la investigación era casi seguro falsa.** El
-  owner dijo que el ícono aparecía *"desde la primera conexión"* — antes de
-  que existieran los `icons` del handshake y antes del fix del favicon. Si
-  ya estaba sin ninguna de las dos cosas desplegadas, no viene de nada que
-  controlemos: hipótesis viva es que es el ícono GENÉRICO del cliente
-  (círculo oscuro + punto verde de "conectado"), no el logo de Punto.
-- **`"https://app.punto.la"` como fallback de `APP_URL` "funcionaba" en
-  prod por coincidencia, no por configuración.** Al verificar contra
-  Coolify, `APP_URL` NO existe en el env del Front. Regla: un `?? "literal"`
-  se verifica contra el env real antes de darlo por resuelto — no alcanza
-  con que ande.
+- **El teclado se arregló mal dos veces antes de acertar.** Rondas previas
+  culparon el CONSUMO de `--kb-inset` (cada superficie que no la
+  descontaba) y después la fórmula (`vv.offsetTop`). Ninguna era la causa:
+  en iOS PWA `innerHeight` sigue al viewport visual, no al de layout. El
+  síntoma es IDÉNTICO a "no hay teclado" — sin la sonda `?debug=viewport`
+  capturando 441 vs 797 no se resolvía.
+- **Se culpó al deploy sin verificar la hora, otra vez.** Capturas del owner
+  de las 12:08 comparadas contra un deploy de las 00:20 — 12 horas antes, no
+  después. Ya está anotado como trampa recurrente en hand-offs previos.
+- **Un `git commit` sin `-o` arrastró un rename staged de otra sesión**
+  (`McpKeyService`→`ApiKeyService`) al índice. En repo con sesiones
+  paralelas, `git status` antes de commitear no es opcional.
+- **`main` tuvo el typecheck roto** por un commit ajeno (`e49cccd5`) hasta
+  `359f30dc` — nada se podía deployar mientras tanto.
+- **`npx vitest` desde la raíz del repo** (no `frontend/`) tira 35 archivos
+  fallando con "Cannot find package '@/...'" — no es bug, es directorio
+  equivocado.
+- **El MCP devolvía 401** durante parte de la sesión, probablemente por el
+  rename de realm `mcp`→`api` de la sesión paralela — no se pudo verificar
+  ningún reporte contra datos reales por esa vía.
+- **`psql` contra prod y SSH a la BD siguen bloqueados por el classifier.**
 
 ## Próximo paso
-Pedirle al owner que compare `https://app.punto.la/icon.png` contra la
-ficha del conector en Claude Desktop/Connectors. Si son visualmente
-distintos, el ícono que se ve es el genérico del cliente — dejar de tocar
-`serverInfo.icons` y avisarle a la sesión "Fish" (otro proyecto, mencionado
-por el owner) que pare de perseguir lo mismo ahí.
+Nada abierto que arrancar de una: lo que sigue depende del owner (ver
+Trampas). Si retoma código, el punto natural es D9 de `context/59` —gate de
+`OperatorAssertion` en `drawers.php`— para poder sumar `get_drawers` al
+catálogo del asistente.
 
 ## Trampas conocidas
-- **`get_sales_summary` (tool MCP) devuelve `tax: 0` en TODOS los meses**,
-  incluidos los de uso real (junio: 68 tickets, 10 clientes), con el tenant
-  teniendo IVA y RUC configurados. Sin diagnosticar — bug concreto más
-  urgente que quedó abierto.
-- **Balance y Flujo de efectivo sin verificar contra datos reales.** Las
-  queries no se corrieron contra Postgres real; falta que el owner revise a
-  ojo la valuación de inventario y el patrimonio derivado contra lo que él
-  sabe del negocio.
-- Cloudflare "Block AI bots" desactivada A MANO en el dashboard (fuera del
-  repo) — Cloudflare anunció migración de esa tarjeta para el 15 de
-  septiembre; si se reactiva sola, el conector MCP vuelve a fallar con
-  "Couldn't reach Punto" y el síntoma no apunta a Cloudflare.
-- Del informe del tester sigue abierto el ítem 5 (reporte de stock lista
-  ítems de toda la compañía — el endpoint scopea, lo company-wide es la
-  query de `item`; necesita que el owner mire datos reales) y `context/56`
-  (cotización PDF, proyecto de varias horas).
-- 2 P2 de auth decididos pero sin implementar (detalle en `context/10-
-  roadmap.md`): consolidado por sucursal vía `user_outlet`+`Roc::build`; y
-  fichaje por QR con secreto rotable, bloqueado hasta que el owner decida
-  `soon` o completar el módulo `attendance`.
-- WebSocket de realtime sin auth; TZ `America/Asuncion` literal en migs
-  157/160 y `period-close.php`; ticket con logo en térmica FÍSICA sin
-  probar.
-
-**Nota de concurrencia**: esta sesión cerró en paralelo con otra que hizo el
-sitio de marketing (`punto.la`, commits `53ce1895..b91b2991`). Ese trabajo
-NO está descrito arriba — su propio entry de bitácora es "## 2026-08-31 (2)
-— sitio de marketing..." y su hand-off detallado (objetivo, callejones,
-trampas) fue sobrescrito por este archivo al cerrar. Si hace falta ese
-detalle, está en el historial de git de `_handoff.md` o se puede reconstruir
-del entry de bitácora + `context/61-sitio-marketing.md`.
+- **El asistente de la caja NO responde hasta que el tenant tenga créditos
+  IA cargados** en `/admin` → Empresas → Créditos IA. El "Sin créditos" es
+  literal (saldo 0), no un bug — la cadena de auth funciona.
+- **`tenant_audit` atribuye las escrituras del asistente del POS al contacto
+  que pareó la tablet, no al operador del PIN** — P1 de un code-review,
+  pendiente en commit propio.
+- **D9 de `context/59` sin implementar**: `/v1/reports/drawers` no scopea
+  por caja y su GET no chequea permisos; `get_drawers` quedó fuera del
+  catálogo del asistente como mitigación, no como decisión final.
+- Pendiente de verificación del owner (sin acceso a datos reales): si
+  `/reports/audit` trae filas tras el deploy, y si `/reports/users` (Equipo)
+  ya muestra datos.
+- Plan de compras en el POS (alcance ya cerrado por el owner: solo cargar,
+  mismo impacto en stock que el panel) sigue sin escribirse.
+- `context/62-dashboard-operaciones.md` es plan con D1-D9 propuestas SIN OK
+  del owner — no asumir ninguna cerrada.

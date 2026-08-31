@@ -1,7 +1,12 @@
 # Asistente IA en la caja — plan del módulo
 
-> Estado: **plan sin implementar** (2026-08-30). D1 y D7 las cerró el owner.
-> El resto son propuestas marcadas **[?]**.
+> Estado: **implementado 2026-08-31** (F1-F6, lecturas y escrituras con
+> `AgentActor` sobre los permisos del operador del PIN, D2 reabierta y
+> cerrada). D9 sigue **sin implementar** — `drawers` no tiene el gate de
+> operador, así que `get_drawers` quedó excluido del catálogo del asistente
+> como mitigación temporal, no como decisión final. Pendiente de review (P1):
+> `tenant_audit` atribuye las escrituras del agente al contacto que pareó la
+> tablet, no al operador.
 >
 > Tercera versión. Las dos anteriores inventaron un realm nuevo (`pos-operator`,
 > después `pos-ai`) para un problema que ya estaba resuelto. El owner las cortó
