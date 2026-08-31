@@ -52,7 +52,15 @@ import { buildTicketDataFromTxDetail } from "@/lib/hardware/printers/build-ticke
 import { printTicketInBrowser } from "@/lib/hardware/printers/print-in-browser"
 import { MultiInvoicePaymentDialog } from "@/components/domain/transactions/multi-invoice-payment-dialog"
 import { TransactionEditDialog } from "@/components/domain/transactions/transaction-edit-dialog"
-import { txTypeLabel } from "@/components/domain/transactions/transactions-list"
+import {
+  isCashSale,
+  isCreditSale,
+  isEditableSale,
+  isInvoicedSale,
+  isQuote as isQuoteType,
+  isReceipt as isReceiptType,
+  saleTypeLabel,
+} from "@/lib/domain/sale-type"
 
 /**
  * Detalle completo de una transacción de venta — espejo de `/purchase/{id}`
@@ -107,17 +115,16 @@ function TransactionDetailView({
   bootstrap: ReturnType<typeof useBootstrap>["data"]
 }) {
   const tx = detail.transaction
-  const typeStr = String(tx.transactionType)
-  const isReceipt = tx.transactionType === 5
-  // `void` (transactionType===7) es el patrón de anulación de VENTA; el
+  const isReceipt = isReceiptType(tx.transactionType)
+  // `void` (SaleType.Canceled) es el patrón de anulación de VENTA; el
   // recibo de pago (type=5) usa el patrón soft-void de compras/NC
   // (transactionStatus=6, correlativo conservado — ver
   // context/40-anulacion-y-nota-credito.md). Un documento puede estar
   // anulado por cualquiera de los dos caminos según su tipo.
   const isVoid = !!tx.void || tx.transactionStatus === 6
-  const isCredit = tx.transactionType === 3
-  const isQuote = tx.transactionType === 9
-  const canEdit = !isVoid && (tx.transactionType === 0 || tx.transactionType === 3 || isQuote)
+  const isCredit = isCreditSale(tx.transactionType)
+  const isQuote = isQuoteType(tx.transactionType)
+  const canEdit = !isVoid && isEditableSale(tx.transactionType)
 
   // Gate cliente — espejo de hasPermission('pos.sale.creditPayment') que
   // enforce api/v1/credit-payments.php. No es el boundary de seguridad (eso
@@ -185,9 +192,9 @@ function TransactionDetailView({
 
   const badgeVariant = isVoid
     ? "destructive"
-    : tx.transactionType === 0
+    : isCashSale(tx.transactionType)
       ? "default"
-      : tx.transactionType === 3
+      : isCredit
         ? "secondary"
         : "outline"
 
@@ -205,7 +212,7 @@ function TransactionDetailView({
         <div className="flex flex-col gap-1">
           <BackButton />
           <h1 className="text-2xl font-semibold flex flex-wrap items-center gap-2">
-            <Badge variant={badgeVariant}>{isVoid ? "Anulada" : txTypeLabel(typeStr)}</Badge>
+            <Badge variant={badgeVariant}>{isVoid ? "Anulada" : saleTypeLabel(tx.transactionType)}</Badge>
             {tx.docNo ? tx.docNo : "Detalle de transacción"}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -249,7 +256,7 @@ function TransactionDetailView({
           <InfoRow label="Caja" value={tx.registerName || "—"} />
           <InfoRow label="Cajero" value={tx.userName || "—"} />
           <InfoRow label="Fecha y hora" value={tx.transactionDate ? formatDateTime(tx.transactionDate, "d MMM yyyy, HH:mm") : "—"} />
-          {(tx.transactionType === 0 || tx.transactionType === 3) && (
+          {isInvoicedSale(tx.transactionType) && (
             <InfoRow label="Condición" value={tx.condition === "credit" ? "Crédito" : "Contado"} />
           )}
           {isCredit && tx.transactionDueDate && (
@@ -576,7 +583,7 @@ function RelatedDocSection({
               <span className="font-medium">
                 {doc.invoicePrefix || doc.invoiceNo
                   ? `${doc.invoicePrefix ?? ""}${doc.invoiceNo ?? ""}`
-                  : txTypeLabel(String(doc.type))}
+                  : saleTypeLabel(doc.type)}
               </span>
               <span className="text-xs text-muted-foreground">
                 {doc.date ? formatDateTime(doc.date, "d MMM yyyy, HH:mm") : "—"}

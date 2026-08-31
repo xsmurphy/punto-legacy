@@ -47,6 +47,14 @@ import { useOutlets } from "@/hooks/use-outlets"
 import { useTeamMembers } from "@/hooks/use-team"
 import { usePaymentMethods } from "@/hooks/use-payment-methods"
 import { api } from "@/lib/api-client"
+import {
+  SALE_TYPE_LABELS,
+  SaleType,
+  isCreditSale,
+  isEditableSale,
+  isInvoicedSale,
+  isQuote as isQuoteType,
+} from "@/lib/domain/sale-type"
 import type { TxDetailFull } from "@/hooks/use-reports"
 
 interface TransactionEditDialogProps {
@@ -142,7 +150,7 @@ function EditDialogBody({
   async function handleSave() {
     setSaving(true)
     try {
-      const isQuote = detail.transaction.transactionType === 9
+      const isQuote = isQuoteType(detail.transaction.transactionType)
       const body = {
         date: form.date.replace("T", " ") + ":00",
         dueDate: form.dueDate || null,
@@ -204,8 +212,8 @@ function EditDialogBody({
   }
 
   const tx = detail.transaction
-  const isCredit = form.transactionType === 3
-  const isQuote = tx.transactionType === 9
+  const isCredit = isCreditSale(form.transactionType)
+  const isQuote = isQuoteType(tx.transactionType)
 
   /**
    * Factura emitida: contado (0) o crédito (3). Ya salió con timbrado, número y
@@ -216,8 +224,8 @@ function EditDialogBody({
    * La cotización no es documento fiscal: se sigue editando entera.
    */
   const esFiscal = !isQuote
-  const canEditType = !esFiscal && (tx.transactionType === 0 || tx.transactionType === 3)
-  const canEditItems = tx.transactionType === 0 || tx.transactionType === 3 || isQuote
+  const canEditType = !esFiscal && isInvoicedSale(tx.transactionType)
+  const canEditItems = isEditableSale(tx.transactionType)
 
   return (
     <>
@@ -244,8 +252,12 @@ function EditDialogBody({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="0">Contado</SelectItem>
-                <SelectItem value="3">Crédito</SelectItem>
+                <SelectItem value={String(SaleType.Cashsale)}>
+                  {SALE_TYPE_LABELS[SaleType.Cashsale]}
+                </SelectItem>
+                <SelectItem value={String(SaleType.Creditsale)}>
+                  {SALE_TYPE_LABELS[SaleType.Creditsale]}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>

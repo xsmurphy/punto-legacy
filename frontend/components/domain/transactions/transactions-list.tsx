@@ -96,20 +96,18 @@ import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { CreditPaymentDialog } from "@/components/register/credit-payment-dialog"
 import { QuotePrintViewDialog } from "@/components/domain/transactions/quote-print-view"
 import { cn } from "@/lib/utils"
+import {
+  REPORT_DETAIL_SALE_TYPES,
+  isCreditSale,
+  isInvoicedSale,
+  isQuote as isQuoteType,
+  isReturn as isReturnType,
+  isVoided,
+  saleTypeLabel,
+  saleTypeLabelOrNull,
+} from "@/lib/domain/sale-type"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-export const TX_TYPE_LABELS: Record<string, string> = {
-  "0": "Contado",
-  "3": "Crédito",
-  "5": "Recibo",
-  "6": "Devolución",
-  "7": "Anulada",
-  "9": "Cotización",
-  "2": "Guardado",
-  "12": "Mesa",
-  "13": "Cita",
-}
 
 /** Etiquetas del estado de una cotización. El backend manda el valor canónico
  *  en minúscula (`TransactionsService::quoteStatus`); acá solo se presenta. */
@@ -128,16 +126,6 @@ const QUOTE_STATUS_VARIANT: Record<QuoteStatus, "default" | "secondary" | "destr
   vencida: "destructive",
   anulada: "outline",
 }
-
-export function txTypeLabel(type: string): string {
-  return TX_TYPE_LABELS[type] ?? `Tipo ${type}`
-}
-
-// Tipos de venta que efectivamente devuelve /v1/reports/transactions?view=detail
-// (TransactionsService::TX_TYPES = '0,3,6,7,8') — mismo universo que ya
-// pinta la columna "Tipo" de la tabla, así el filtro nunca ofrece una opción
-// que no puede aparecer en esta vista.
-const SALE_TYPE_FILTER_VALUES = ["0", "3", "6", "7", "8"]
 
 function niceDateTime(iso: string): string {
   if (!iso) return "—"
@@ -221,7 +209,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
       ? {
           key: "saleType",
           label: "Tipo de venta",
-          value: txTypeLabel(saleTypeFilter),
+          value: saleTypeLabel(saleTypeFilter),
           onRemove: () => setSaleTypeFilter("all"),
         }
       : null
@@ -544,13 +532,13 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
         // cuando la deuda se salda (ObligationsService), así que una venta a
         // crédito ya cobrada aparecía como "Pagada" — indistinguible de un
         // contado. La modalidad sale de `transactionType` y su mapa canónico
-        // (TX_TYPE_LABELS, el mismo que usa el detalle).
+        // (`lib/domain/sale-type.ts`, el mismo que usa el detalle).
         cell: ({ row }) => {
           const r = row.original
-          const label = txTypeLabel(String(r.transactionType))
+          const label = saleTypeLabel(r.transactionType)
           // El estado de cobro no se pierde: un crédito todavía adeudado va
           // atenuado. No se agrega columna — el ancho queda igual.
-          const pendingCredit = r.transactionType === 3 && r.transactionComplete !== 1
+          const pendingCredit = isCreditSale(r.transactionType) && r.transactionComplete !== 1
           if (!pendingCredit) return <Badge variant="default">{label}</Badge>
           return (
             <Tooltip>
@@ -805,9 +793,9 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
       </SelectTrigger>
       <SelectContent>
         <SelectItem value="all">Todos los tipos</SelectItem>
-        {SALE_TYPE_FILTER_VALUES.map((v) => (
-          <SelectItem key={v} value={v}>
-            {txTypeLabel(v)}
+        {REPORT_DETAIL_SALE_TYPES.map((v) => (
+          <SelectItem key={v} value={String(v)}>
+            {saleTypeLabel(v)}
           </SelectItem>
         ))}
       </SelectContent>
@@ -1166,17 +1154,17 @@ export function TransactionDetailContent({
   const [showQuotePdf, setShowQuotePdf] = React.useState(false)
 
   const txType = tx.type
-  const isVoid = txType === "7"
-  const isReturn = txType === "6"
+  const isVoid = isVoided(txType)
+  const isReturn = isReturnType(txType)
   const isReadOnly = isVoid || isReturn
-  const isQuote = txType === "9"
+  const isQuote = isQuoteType(txType)
 
-  const canVoid = (txType === "0" || txType === "3" || txType === "9") && !isVoid
-  const canReturn = (txType === "0" || txType === "3") && !isVoid && !isReturn
+  const canVoid = (isInvoicedSale(txType) || isQuote) && !isVoid
+  const canReturn = isInvoicedSale(txType) && !isVoid && !isReturn
   const canDuplicate = !isReadOnly
   const canAddToCart = (tx.transactionDatas?.filter((i) => i.status !== 0).length ?? 0) > 0 && !isVoid
   const canInvoice = isQuote && !isVoid
-  const canPay = txType === "3" && (tx.creditPayments?.debt ?? 0) > 0
+  const canPay = isCreditSale(txType) && (tx.creditPayments?.debt ?? 0) > 0
 
   const docLabel = tx.invoicePrefix
     ? `${tx.invoicePrefix}-${tx.documentNo}`
@@ -1239,7 +1227,7 @@ export function TransactionDetailContent({
             </Badge>
           )}
           {!["0", "3", "6", "7", "9"].includes(txType) && (
-            <Badge variant="outline">{TX_TYPE_LABELS[txType] ?? txType}</Badge>
+            <Badge variant="outline">{saleTypeLabelOrNull(txType) ?? txType}</Badge>
           )}
 
           {/* Botón principal + Opciones */}

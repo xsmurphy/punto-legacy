@@ -32,7 +32,7 @@ import {
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
 import { formatDateTime } from "@/lib/format-date"
-import { txTypeLabel } from "@/components/domain/transactions/transactions-list"
+import { isCreditSale, saleTypeLabel } from "@/lib/domain/sale-type"
 
 interface Props {
   customerId: string
@@ -73,7 +73,7 @@ export function ContactTransactionsTab({ customerId }: Props) {
         accessorKey: "transactionType",
         header: "Tipo",
         cell: ({ getValue }) => (
-          <Badge variant="outline">{txTypeLabel(String(getValue()))}</Badge>
+          <Badge variant="outline">{saleTypeLabel(getValue() as number)}</Badge>
         ),
         meta: { label: "Tipo" },
       },
@@ -92,7 +92,7 @@ export function ContactTransactionsTab({ customerId }: Props) {
         header: "Estado",
         cell: ({ row }) => {
           const r = row.original
-          if (r.transactionType === 3 && r.transactionComplete !== 1) {
+          if (isCreditSale(r.transactionType) && r.transactionComplete !== 1) {
             return (
               <div className="flex flex-col gap-0.5">
                 <Badge variant="secondary">Crédito pendiente</Badge>

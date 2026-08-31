@@ -21,6 +21,7 @@ import {
   type PurchasesReportResponse,
 } from "@/hooks/use-reports"
 import { formatMoney } from "@/lib/format"
+import { SaleType } from "@/lib/domain/sale-type"
 import { EmptyState } from "@/components/empty-state"
 
 /**
@@ -128,9 +129,12 @@ export default function PurchasesReportPage() {
         header: "Condición",
         meta: { label: "Condición" },
         cell: ({ row }) => {
+          // Etiquetas propias, no las del mapa global: en esta tabla la columna
+          // es "Condición" y ya se sabe que son compras, así que dice "Contado"
+          // y no "Compra al contado".
           const t = row.original.transactionType
-          if (t === 1) return <Badge variant="secondary">Contado</Badge>
-          if (t === 4) return <Badge variant="outline">Crédito</Badge>
+          if (t === SaleType.CashPurchase) return <Badge variant="secondary">Contado</Badge>
+          if (t === SaleType.CreditPurchase) return <Badge variant="outline">Crédito</Badge>
           return <Badge variant="outline">{t}</Badge>
         },
       },
