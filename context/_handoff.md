@@ -1,120 +1,92 @@
-# Hand-off — 2026-08-30
+# Hand-off — 2026-08-31
 
 ## Objetivo
-Construir el MCP server de Punto (`context/58`) para que un tenant conecte
-Claude u otra IA a sus datos. Decisión del owner: el MCP se hace sí o sí, no
-había que validarlo.
+El MCP server de Punto (`context/58`) funciona técnicamente (M0/M1 hechas
+2026-08-30) pero hasta ayer nadie había podido CONECTARLO desde un cliente
+real (Claude Desktop/Connectors) ni ejecutar una tool contra prod. Esta
+sesión cerró esa verificación.
 
 ## Estado al cerrar
-`origin/main` en `48b4c9ee`. **Deployado hasta `a5de9258`** (Front y Backend,
-ambos `running:healthy`, verificados por MCP de Coolify + curl contra prod).
+`origin/main` = `ff66e624`. Working tree limpio. Deployado: Front,
+deployment `nd7exabsoeb9kvcdokibmkuf`, `finished` 2026-08-31 03:12 UTC, app
+`running:healthy`. Backend NO se tocó esta sesión (no hubo cambios en `api/`).
 
-⚠ `48b4c9ee` y otros commits del asistente del POS son de una **sesión
-paralela** y NO los deployó esta sesión — confirmar con esa sesión antes de
-asumir que están en prod.
+**El conector de Claude quedó funcionando de punta a punta.** M2 (prueba
+real con Claude Desktop) queda VERIFICADA: el owner conectó el conector y
+desde la sesión se ejecutaron 4 tools con datos reales del tenant ICAS
+(`get_settings`, `get_outlets`, `get_sales_summary`, `get_top_products`).
 
-Migración **182** (rename del realm) aplicada.
-
-**M0 y M1 completas.** La cadena funciona de punta a punta contra prod,
-verificada con curl:
-
-```
-POST /api/mcp con x-api-key → 200, handshake OK, 0.3s
-GET  /api/mcp               → 405 Allow: POST, 0.26s
-```
-
-**PERO no se pudo conectar desde la UI de Connectors de Claude Desktop.** Ver
-Callejones. El camino por archivo de config con `mcp-remote` SÍ conectó
-(`Proxy established successfully`), pero nadie llegó a ejecutar una tool: **que
-las llamadas devuelvan datos sigue SIN VERIFICAR**.
+Hoy el conector funciona por **API key vía header adicional** (`x-api-key`
+u otras variantes) — sirve para un técnico que edita config a mano o pega la
+key en el diálogo de Connectors, pero NO es instalable por un comercio sin
+ayuda. Eso es lo que falta para que sea un producto vendible (ver Próximo
+paso).
 
 ## Archivos y cambios
-- `frontend/lib/agent/read-tools.ts` — NUEVO. Las 20 tools de lectura, extraídas
-  de `app/api/agent/chat/route.ts` (734 → 282 líneas). Agnóstico del transporte:
-  `defineTool` propio, sin importar `tool()` del AI SDK.
-- `frontend/app/api/mcp/route.ts` — el server. Stateless obligatorio; un
-  `McpServer` POR REQUEST (compartirlo filtraría la credencial del primer
-  tenant); `KEY_HEADERS` acepta la key por `x-api-key` y variantes; GET/DELETE
-  → 405 inmediato.
-- `api/lib/Auth/ApiKeyService.php` + `api/v1/api-keys.php` — emisión/listado/
-  revocación. Sin tabla nueva: `auth_session` con realm `api`.
-- `api/bootstrap.php` — TRES guards del realm `api` en el embudo: read-only
-  (405 si no es GET/HEAD), rate limit (60/min + 5000/día por key, FAIL_OPEN), y
-  auditoría de TODA llamada (invierte la regla general: audita lecturas).
-- `api/database/migrations/postgres/182_realm_mcp_to_api.sql` — rename del realm
-  en `auth_session` y `tenant_audit`.
-- 18 endpoints de `/v1/*` con `'api'` en su allowlist.
-- `frontend/app/(panel)/settings/api-keys/page.tsx` + `hooks/use-api-keys.ts`.
-- Arneses: `api/tests/{api_key,api_realm}_test.php` (24/24 y 13/13) y
-  `frontend/lib/__tests__/mcp-route.test.ts` (5/5).
+- `frontend/app/api/mcp/route.ts` — `initialize`/`tools/list` ya no exigen
+  key (200 sin credencial); `tools/call` sin key devuelve `isError: true` en
+  vez de rechazar en el protocolo.
+- `frontend/lib/__tests__/mcp-route.test.ts` — 6/6. Se reescribieron 2 tests
+  (el que exigía 401 ahora exige 200 sin credencial) y se agregó uno nuevo
+  que verifica que `tools/call` sin key no llega a llamar a la API.
+- `context/58-mcp-server.md` — sección nueva "RESUELTO — el conector conecta
+  de punta a punta" con las dos causas, el fix, y la investigación de RFCs/
+  librerías para OAuth (camino 2). M2 marcada verificada en la tabla de fases.
 
 ## Callejones sin salida
-- **La UI de Connectors de Claude Desktop NO conecta.** Falla con *"Couldn't
-  register with Punto's sign-in service"*: para servers remotos asume OAuth e
-  intenta dynamic client registration. Sus "Additional request headers" NO
-  reemplazan a OAuth — se mandan *"alongside the OAuth bearer token"*, y
-  `authorization` aparece deshabilitado en el menú porque Claude lo reserva.
-  Agregar `x-api-key` (`61e25e2c`) no alcanzó.
-- **El GET colgado era un bug real pero NO el que bloquea el conector.** El
-  transporte en stateless abría un stream SSE que nunca cerraba (`curl` daba
-  HTTP 000 a los 15s). Se arregló (`e5772e5b`, 405 inmediato) y el conector
-  siguió fallando igual con el error de OAuth. No volver a atribuirle eso.
-- **Dos veces se culpó al deploy sin verificar la hora.** El primer 404 sí era
-  un deploy a medio terminar; el segundo NO — el deploy había cerrado 2,5 h
-  antes. Paraguay es UTC−3: comparar contra `finished_at` en UTC antes de
-  afirmar.
-- **`authSessionCreate('mcp', ...)` no entró en el primer barrido del rename.**
-  Habría seguido emitiendo keys con el realm viejo contra endpoints que ya
-  esperaban el nuevo: ninguna key nueva habría funcionado. En un rename de
-  realm, revisar el WRITER, no solo los readers.
-- **El PHP de desarrollo no tiene phpredis**, así que el rate limit solo se
-  ejercita por su rama FAIL_OPEN. Que corte en 60/min únicamente se comprueba
-  donde haya Redis.
-- El token de Coolify NO tiene `read:sensitive`: `get_deployment` con
-  `include_log_summary` falla. No se pueden leer logs de build desde el MCP.
+- **Dos errores distintos se veían como "el mismo problema".** "Couldn't
+  register with Punto's sign-in service" (OAuth/DCR) y "Couldn't reach
+  Punto" (Cloudflare) son causas independientes y secuenciales. Si el owner
+  dice "sigue el mismo error", comparar el TEXTO exacto antes de asumir que
+  no hubo avance — cambió.
+- **Un bloqueo de borde es invisible desde curl.** Todo el smoke previo (y el
+  del hand-off de ayer) usaba curl con su user-agent default, que Cloudflare
+  dejaba pasar. Al depurar "no conecta desde el cliente X", reproducir con el
+  USER-AGENT real de X.
+- **El scope de "Block AI bots" no filtra por path.** Se buscó excluir solo
+  `/api/mcp` y la UI de esa tarjeta legacy no lo permite (solo: todas las
+  páginas / páginas con ads / no bloquear). La alternativa habría sido una
+  WAF custom rule con acción Skip (hay un molde en la cuenta: "Allow
+  Telegram Webhook", `/api/webhooks/telegram`). Se optó por desactivar la
+  tarjeta entera porque `punto.la` no tiene contenido público scrapeable y
+  las políticas nuevas de esa misma pantalla ya estaban en "Allow".
+- **Claude no puede tocar configuración de seguridad** (WAF/Cloudflare) ni
+  con autorización explícita del usuario — el clasificador corta la acción.
+  Preparar los pasos exactos y pedírselos al owner, no reintentar.
 
 ## Próximo paso
-**Decidir entre dos caminos para que el conector de Claude Desktop funcione**, y
-ejecutar el elegido:
-
-1. **Probar la hipótesis del 401** (barato, incierto): que Claude intente OAuth
-   porque nuestro server responde 401 sin credencial. El experimento es dejar
-   que `initialize` y `tools/list` respondan SIN credencial y exigir la key solo
-   en `tools/call` — hoy el listado ya sale con una key inventada igual, porque
-   la validez la resuelve la API recién en cada llamada, así que no baja la
-   seguridad. Es una hipótesis sin confirmar.
-2. **Implementar OAuth** (caro, seguro): metadata del authorization server,
-   dynamic client registration, endpoint de autorización con pantalla de
-   consentimiento, token y refresh. Es el camino prolijo y el que vuelve esto
-   instalable por un comercio.
-
-Antes de cualquiera de los dos: **verificar por el camino que YA funciona** que
-las tools devuelven datos. Config en
-`~/Library/Application Support/Claude/claude_desktop_config.json` con
-`mcp-remote` y `--transport http-only`; el header va como
-`"Authorization:${VAR}"` SIN espacio (Claude parte los args por espacios).
+Implementar OAuth para el conector (camino 2 del hand-off anterior): es lo
+que lo vuelve instalable por un comercio sin un técnico de por medio (hoy
+depende de pegar una API key a mano). La investigación ya está hecha —
+sección nueva en `context/58-mcp-server.md`, cerca de la línea 366—: cadena
+RFC 9728 (protected resource metadata) + 8414 (AS metadata) + 7591 (DCR) o
+CIMD + 8707 + 9207, 401 con `WWW-Authenticate: Bearer resource_metadata=...`
+como disparador, y librerías candidatas `mcp-auth` / `fastmcp-oauth` /
+`@cloudflare/workers-oauth-provider` (ninguna lista out-of-box para Next.js
+App Router + PHP — hay que armar el resource server a mano).
 
 ## Trampas conocidas
-- **Nadie ejecutó una tool todavía.** El smoke cubre handshake y `tools/list`;
-  que `/v1/*` devuelva datos con una key real está sin probar. Si falla, mirar
-  **Reportes → Auditoría** filtrando realm `api`: si la llamada figura, la key
-  entró y el problema está más adentro; si no figura, no pasó el gate de auth.
-- La key existente quedó migrada a realm `api` por la mig 182 y sigue sirviendo.
-  La URL de la pantalla cambió a `/settings/api-keys`.
-- **Sin tope de tamaño de respuesta**: `get_transactions` trae hasta 5000 filas
-  y todas viajan. Sin límite de concurrencia por key más allá del
-  `maxDuration = 60`. Sin scopes por key (el campo `meta` está listo, sin usar).
+- **Cloudflare "Block AI bots" fue desactivado A MANO en el dashboard, no en
+  el repo.** Si alguien la vuelve a activar (o Cloudflare la reactiva con su
+  migración anunciada para el 15 de septiembre), el conector vuelve a morir
+  con "Couldn't reach Punto" y el síntoma no apunta a Cloudflare — repetir el
+  probe con user-agents `Claude-User/1.0`/`Claude-Web/1.0`/`anthropic-ai/1.0`
+  antes de sospechar del backend.
 - **2 P2 de auth DECIDIDOS pero SIN implementar** (`context/10-roadmap.md`):
   (a) el consolidado por sucursal pasa a "permisos del usuario + sucursales
-  asignadas" — NO es un parche, necesita `user_outlet` y que `Roc::build` emita
-  `IN (...)`, y ese helper lo lee TODO reporte (ver `context/25` §4.5);
-  (b) el fichaje por QR va a secreto rotable por sucursal, pero está BLOQUEADO:
-  el módulo `attendance` figura `status: "available"` y en el stack nuevo solo
-  existe el verificador — no hay UI ni generador de QR. Falta que el owner
-  decida si se marca `soon` o se completa.
+  asignadas" — necesita `user_outlet` y que `Roc::build` emita `IN (...)`
+  (ver `context/25` §4.5); (b) el fichaje por QR va a secreto rotable por
+  sucursal, BLOQUEADO porque el módulo `attendance` figura `available` sin
+  UI ni generador de QR en el stack nuevo — falta que el owner decida
+  `soon` o completarlo.
+- **Sin tope de tamaño de respuesta en el MCP**: `get_transactions` trae
+  hasta 5000 filas y todas viajan. Sin límite de concurrencia por key más
+  allá de `maxDuration = 60`. Sin scopes por key (el campo `meta` está listo,
+  sin usar).
 - Del informe del tester quedan el ítem 5 (stock — el endpoint scopea, lo
-  company-wide es la query de `item`; necesita que el owner mire datos reales
-  antes de tocarlo) y el 3 (`context/56`, proyecto de varias horas).
+  company-wide es la query de `item`; necesita que el owner mire datos
+  reales antes de tocarlo) y `context/56` (cotización PDF, proyecto de varias
+  horas).
 - Pendientes de antes: WebSocket de realtime sin auth, TZ `America/Asuncion`
-  literal en migs 157/160 y `period-close.php`, y el ticket con logo en térmica
-  FÍSICA sin probar.
+  literal en migs 157/160 y `period-close.php`, y el ticket con logo en
+  térmica FÍSICA sin probar.

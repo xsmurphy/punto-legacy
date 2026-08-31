@@ -237,7 +237,7 @@ M0 (realm, keys, scopes, auditoría) como la pieza más grande.
 |---|---|---|
 | **M0** | Realm `mcp` + emisión/revocación de API keys + auditoría de cada llamada | ✅ **HECHA 2026-08-30** |
 | **M1** | MCP server + opt-in del realm en los endpoints de lectura | ✅ **HECHA 2026-08-30** |
-| **M2** | Redacción del catálogo de tools: nombres, descripciones, etiquetas de campo. Prueba real con Claude Desktop contra un tenant de prueba | M1 |
+| **M2** | Redacción del catálogo de tools: nombres, descripciones, etiquetas de campo. Prueba real con Claude Desktop contra un tenant de prueba | ✅ **VERIFICADA 2026-08-31** (conector conectado, 4 tools ejecutadas contra ICAS con datos reales) |
 | **M3** | Invitación a terceros (contador) con scope de lectura contable (D9) | M0 |
 | **M4** | Gating por plan (D10) — el **rate limit ya está**, ver abajo | M1 |
 | **M5** | Telemetría de uso de tools, mismo esquema para MCP y agente propio (D12) | M1, `context/17` |
@@ -381,6 +381,54 @@ transporte — los dos presuponen una sesión, y en stateless no hay ninguna.
 
 Guard en `lib/__tests__/mcp-route.test.ts`: el caso falla si el GET tarda más de
 2 segundos.
+
+## RESUELTO — el conector conecta de punta a punta (2026-08-31)
+
+Los dos hallazgos de arriba no eran el bloqueo final. Hubo dos causas
+encadenadas, la segunda tapando a la primera:
+
+1. **El 401 disparaba OAuth, no solo el header reservado.** El handshake
+   (`initialize`/`tools/list`) devolvía 401 sin credencial, y CUALQUIER 401 en
+   un server remoto hace que el cliente MCP de Claude arranque el flujo OAuth
+   (dynamic client registration), sin importar qué headers alternativos
+   ofrezca el menú. Confirmado contra prod antes de tocar código: el 401 no
+   traía `WWW-Authenticate`, y `/.well-known/oauth-protected-resource`,
+   `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`
+   y `POST /register` daban 404 HTML — ese 404 en `/register` ES el "Couldn't
+   register with Punto's sign-in service". Fix (`ff66e624`): `initialize` y
+   `tools/list` responden 200 sin credencial; la key se exige recién en la
+   ejecución de cada tool, como error de tool (`isError: true`), no como error
+   de protocolo. Sin baja de seguridad real: la validez de la key siempre la
+   resolvió la API (`authResolve`), y el catálogo ya salía con cualquier key
+   inventada.
+2. **Cloudflare bloqueaba a los user-agents de Anthropic.** Con el 401 fuera
+   del camino, el error cambió a "Couldn't reach Punto" (ref
+   `ofid_0fd21e04c1729a39`). Probe decisivo: `Claude-User/1.0`,
+   `Claude-Web/1.0` y `anthropic-ai/1.0` daban 403 "Your request was blocked"
+   en ~50ms — ni llegaban al origin — mientras curl/node/Mozilla daban 200.
+   Causa: en la zona `punto.la` la tarjeta legacy **"Block AI bots
+   [Deprecating on September 15]"** estaba activa con scope **"Block on all
+   pages"**, sin opción de excluir por path. **El owner la desactivó a mano en
+   el dashboard de Cloudflare** ("Do not block — allow crawlers"). Esto es
+   infra, NO vive en el repo: si alguien la vuelve a prender, el conector
+   muere con "Couldn't reach" y el síntoma no apunta a Cloudflare.
+
+Verificación final: los tres user-agents de Anthropic pasaron a 200,
+`tools/list` devolvió las 19 tools, el owner conectó el conector desde la UI
+de Claude y se ejecutaron 4 tools con datos reales del tenant ICAS
+(`get_settings`, `get_outlets`, `get_sales_summary`, `get_top_products`).
+
+**Investigación para el camino 2 (OAuth), cuando se encare:** Anthropic
+soporta 6 métodos de auth para conectores remotos (`oauth_dcr`, `oauth_cimd`
+—RFC 9728, recomendado—, `oauth_anthropic_creds`, `static_headers` en beta,
+`custom_connection`, `none`). Los conectores reales (Sentry, Linear, Asana)
+encadenan OAuth 2.1 + PKCE con RFC 9728 + 8414 + 7591 + 8707 + 9207: 401 con
+`WWW-Authenticate: Bearer resource_metadata=...` → protected resource
+metadata → AS metadata → CIMD o DCR → authorize con consentimiento → token
+(el `resource` del token request debe matchear exacto la URL del MCP).
+Timeouts del cliente: ≤10s discovery, ≤30s refresh. Librerías candidatas:
+`mcp-auth`, `fastmcp-oauth`, `@cloudflare/workers-oauth-provider` — ninguna
+lista out-of-box para Next.js App Router + PHP.
 
 ## Rate limit (2026-08-30)
 

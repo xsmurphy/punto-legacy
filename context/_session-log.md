@@ -3,6 +3,17 @@
 
 # Bitácora de Sesiones
 
+## 2026-08-31 — MCP: el conector de Claude quedó conectado de punta a punta
+
+Commit `ff66e624` (los `8cab0cd6`/`e8b3371c` de teclado virtual del POS son de
+una sesión paralela). Dos causas encadenadas: el 401 del handshake disparaba
+OAuth/dynamic client registration en el cliente ("Couldn't register") — fix,
+`initialize`/`tools/list` responden sin key, la key se exige recién en
+`tools/call`; resuelto eso, Cloudflare bloqueaba los user-agents de Anthropic
+con la tarjeta legacy "Block AI bots" (desactivada a mano por el owner, fuera
+del repo). Verificado con 4 tools reales contra el tenant ICAS. `context/58`
+actualizado; próximo paso es OAuth (camino 2) para que lo instale un comercio.
+
 ## 2026-08-30 — MCP server de punta a punta: catálogo compartido, realm `api`, 4 P2 de auth cerrados
 
 Commits `fc0a6968..a5de9258` (13 propios; los del asistente del POS son de una sesión paralela). Highlights: las 20 tools del agente salieron a `frontend/lib/agent/read-tools.ts` — catálogo agnóstico del transporte, byte-idéntico al original, que borró la F0 de `context/47` como prerequisito y bajó la estimación del MCP de 3-4 semanas a ~2 (`fc0a6968`); M0 completa —API keys sobre `auth_session` sin tabla nueva, UI en `/settings/api-keys`, auditoría de TODA llamada (el realm invierte la regla: se auditan las lecturas, no las mutaciones)—; M1 completa: server MCP como route del Front en modo stateless (`/api/mcp`), 18 endpoints optando por el realm y el read-only en el embudo `apiAuthTenant()`, no en cada archivo; rate limit por key con dos ventanas y FAIL_OPEN (`6fddd077`); realm renombrado `mcp` → `api` con mig 182 sobre `auth_session` y `tenant_audit` — MCP era el primer consumidor, no la definición (`a5de9258`). Aparte: 4 de los 6 P2 de auth cerrados (`8bb5f003`), y los otros 2 decididos pero sin implementar. **Pendiente crítico: la UI de Connectors de Claude Desktop NO conecta (exige OAuth); el camino `mcp-remote` por archivo de config SÍ funciona.**
