@@ -124,6 +124,145 @@ final class ContactService
         return self::ID_TYPE_SIN_NOMBRE;
     }
 
+    // ── Unicidad de identidad (documento personal y teléfono) ───────────────
+
+    /**
+     * Normaliza un documento PERSONAL para compararlo: mayúsculas y solo
+     * alfanuméricos. "1.234.567", "1234567" y "1 234 567" son el mismo
+     * documento escrito de tres formas; sin esta normalización el bloqueo no
+     * detecta el duplicado más común de todos.
+     *
+     * Alfanumérico y no solo dígitos porque el mismo campo (`contactCI`)
+     * guarda pasaportes y carnets extranjeros — ver el docblock de
+     * `CONTACT_ID_TYPES.numberField` en frontend/lib/contact-id-types.ts.
+     *
+     * No hay espejo en el front a propósito: el bloqueo es del backend (misma
+     * regla para panel, POS, importador y agente IA), y duplicar la
+     * normalización en el cliente crearía una segunda definición de "mismo
+     * documento" que puede divergir sin que nada falle.
+     */
+    public static function normalizePersonalId(?string $value): string
+    {
+        return preg_replace('/[^A-Z0-9]/', '', strtoupper(trim((string) $value))) ?? '';
+    }
+
+    /**
+     * Normaliza un teléfono para compararlo: SOLO los dígitos. Ver el porqué
+     * en `ContactRepository::findDuplicatePhone()`.
+     */
+    public static function normalizePhoneDigits(?string $value): string
+    {
+        return preg_replace('/[^0-9]/', '', (string) $value) ?? '';
+    }
+
+    /**
+     * Bloqueo duro de duplicados de documento personal y teléfono.
+     *
+     * Decisión del owner (2026-08-31): el identificador FISCAL puede
+     * repetirse —varias personas facturan a nombre de la misma empresa, es un
+     * caso legítimo— pero el documento personal y el celular no. Vive acá y
+     * no en el formulario del POS porque la misma regla tiene que valer para
+     * el panel, el importador de CSV y el agente IA: los tres pasan por
+     * `create()`/`update()`.
+     *
+     * Los duplicados que YA existen en la base NO se tocan y NO pueden trabar
+     * una edición: si el número que llega es el MISMO que ya tiene el
+     * contacto (comparado normalizado), no se chequea nada. Así, guardar un
+     * contacto viejo sin tocarle el número nunca falla — ni por chocar
+     * consigo mismo ni por un duplicado preexistente que alguien más ya
+     * tenía. Solo se valida el número que efectivamente CAMBIA.
+     *
+     * La búsqueda es POR ROL (`type`): un cliente y un proveedor con el mismo
+     * documento son dos registros legítimos de libros distintos, y bloquear
+     * entre roles sorprendería a un comercio que le compra al mismo señor al
+     * que le vende.
+     *
+     * Alcance en EMPLEADOS (type=0): el alta y la edición del equipo van por
+     * `UsersService` (`/v1/users`), que no pasa por acá — el único camino que
+     * llega es el PUT de `/v1/contacts`, ya restringido al realm `panel`. Ahí
+     * el bloqueo de teléfono es deseable y no accidental: el login del panel
+     * autentica por `contactPhone AND type=0` (ver el guard de realm en
+     * api/v1/contacts.php), así que dos empleados con el mismo número es una
+     * ambigüedad de identidad, no una comodidad.
+     *
+     * @param array      $rec      Record ya mapeado a columnas (post `mapToColumns`).
+     * @param ?array     $existing Fila actual en update; null en create.
+     */
+    private function assertIdentityIsFree(
+        string $companyId,
+        array $rec,
+        int $type,
+        ?string $excludeId,
+        array|CaseInsensitiveArray|null $existing,
+    ): void {
+        // Documento personal.
+        if (array_key_exists('contactCI', $rec)) {
+            $new = self::normalizePersonalId((string) ($rec['contactCI'] ?? ''));
+            $old = $existing !== null ? self::normalizePersonalId((string) ($existing['contactCI'] ?? '')) : null;
+            if ($new !== '' && $new !== $old) {
+                $hit = $this->repo->findDuplicatePersonalId($new, $companyId, $type, $excludeId);
+                if ($hit !== null) {
+                    throw new DuplicateContactException(
+                        $this->duplicateMessage($companyId, 'ci', $type, $hit['contactName']),
+                        'ci',
+                        $hit['contactId'],
+                        $hit['contactName'],
+                    );
+                }
+            }
+        }
+
+        // Teléfono.
+        if (array_key_exists('contactPhone', $rec)) {
+            $new = self::normalizePhoneDigits((string) ($rec['contactPhone'] ?? ''));
+            $old = $existing !== null ? self::normalizePhoneDigits((string) ($existing['contactPhone'] ?? '')) : null;
+            if ($new !== '' && $new !== $old) {
+                $hit = $this->repo->findDuplicatePhone($new, $companyId, $type, $excludeId);
+                if ($hit !== null) {
+                    throw new DuplicateContactException(
+                        $this->duplicateMessage($companyId, 'phone', $type, $hit['contactName']),
+                        'phone',
+                        $hit['contactId'],
+                        $hit['contactName'],
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Mensaje del choque. Nombra al contacto en conflicto a propósito: un
+     * "ya existe" seco obliga al cajero a salir del alta, buscar a mano y
+     * volver — el trabajo que esta regla venía a ahorrar.
+     *
+     * El nombre del documento sale del PAÍS del tenant
+     * (`CountryDefaults::personalIdLabel`), nunca literal: en Argentina el
+     * mismo error tiene que decir DNI, no "cédula".
+     */
+    private function duplicateMessage(string $companyId, string $field, int $type, string $name): string
+    {
+        $role = match ($type) {
+            self::TYPE_CUSTOMER => 'cliente',
+            self::TYPE_SUPPLIER => 'proveedor',
+            default             => 'contacto',
+        };
+
+        if ($field === 'phone') {
+            return "Ese teléfono ya lo tiene otro {$role}: {$name}";
+        }
+
+        $label = \Punto\Api\Support\CountryDefaults::personalIdLabel($this->tenantCountry($companyId))
+            ?? 'documento';
+        // "DNI"/"CPF" son siglas y van en mayúscula en medio de la frase;
+        // "Cédula de identidad" es una descripción y ahí la mayúscula sobra.
+        // La distinción es si la etiqueta ya viene toda en mayúsculas.
+        if ($label !== mb_strtoupper($label, 'UTF-8')) {
+            $label = mb_strtolower(mb_substr($label, 0, 1, 'UTF-8'), 'UTF-8') . mb_substr($label, 1, null, 'UTF-8');
+        }
+
+        return "Ese número de {$label} ya lo tiene otro {$role}: {$name}";
+    }
+
     /**
      * Mapea el shape público a columnas de `contact`.
      * Solo incluye las claves presentes (para updates parciales).
@@ -267,6 +406,12 @@ final class ContactService
             unset($rec['contactIdType']);
         }
 
+        // Unicidad de documento personal y teléfono — ver assertIdentityIsFree().
+        // Va DESPUÉS de mapToColumns porque el teléfono se compara ya
+        // normalizado a la forma de storage (E.164 sin '+'): comparar el crudo
+        // que tipeó el cajero contra lo guardado no matchea nunca.
+        $this->assertIdentityIsFree($companyId, $rec, (int) $rec['type'], null, null);
+
         $newId = $this->repo->create($rec);
         if ($newId === false) {
             throw new RuntimeException('No se pudo crear el contacto');
@@ -290,6 +435,21 @@ final class ContactService
         // Mismo gate que create() — ver comentario ahí.
         if (!$this->isPyTenant($companyId)) {
             unset($rec['contactIdType']);
+        }
+
+        // Unicidad: el `type` y los números ACTUALES salen de la fila, no del
+        // patch — el PUT de `/v1/contacts` borra `type` del payload, y sin la
+        // fila no hay contra qué comparar para saber si el número cambió (que
+        // es lo único que se valida; ver assertIdentityIsFree()).
+        $existing = $this->repo->find($id, $companyId);
+        if ($existing !== null) {
+            $this->assertIdentityIsFree(
+                $companyId,
+                $rec,
+                (int) ($existing['type'] ?? self::TYPE_CUSTOMER),
+                $id,
+                $existing,
+            );
         }
 
         $ok = $this->repo->update($id, $companyId, $rec);

@@ -325,6 +325,14 @@ foreach ($actions as $payload) {
     } catch (\InvalidArgumentException $e) {
         $results[] = ['action' => $action, 'ok' => false, 'error' => $e->getMessage()];
         $failCount++;
+    } catch (\Punto\Api\Contacts\DuplicateContactException $e) {
+        // ANTES del catch de RuntimeException (del que hereda): un choque de
+        // documento o teléfono NO es una falla interna, es una respuesta útil
+        // — dice con QUÉ contacto choca. Tragarlo en el "Error ejecutando la
+        // acción" genérico deja al agente sin nada que contarle al usuario, y
+        // encima manda a error_log algo que no es un incidente.
+        $results[] = ['action' => $action, 'ok' => false, 'error' => $e->getMessage()];
+        $failCount++;
     } catch (\RuntimeException $e) {
         error_log('[ai/execute] RuntimeException (' . $action . '): ' . $e->getMessage());
         $results[] = ['action' => $action, 'ok' => false, 'error' => 'Error ejecutando la acción'];

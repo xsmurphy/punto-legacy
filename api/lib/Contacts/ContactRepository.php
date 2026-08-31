@@ -70,6 +70,88 @@ final class ContactRepository
         return _flattenJsonb($rs->fields);
     }
 
+    /**
+     * ¿Hay OTRO contacto activo del tenant, del mismo rol, con este documento
+     * personal? Devuelve `[contactId, contactName]` del primero, o null.
+     *
+     * Normaliza los dos lados con la MISMA expresión (mayúsculas + solo
+     * alfanuméricos): sin eso "1.234.567" y "1234567" son el mismo documento
+     * escrito de dos formas y el bloqueo no lo detecta. La normalización va en
+     * SQL y no en PHP porque la columna guarda lo que el cajero tipeó — no hay
+     * forma canónica en la base contra la cual comparar.
+     *
+     * `contactStatus = 1`: un contacto ARCHIVADO no bloquea un alta. El cajero
+     * no lo ve en ninguna lista, así que un error que lo nombra sería un
+     * callejón sin salida.
+     *
+     * `$excludeId` saca al propio contacto de la búsqueda en el update.
+     *
+     * Post-Migración 25 contactCI vive en `data` JSONB — mismo criterio que
+     * `findByCI()` y que el search de `buildListWhere()`.
+     */
+    public function findDuplicatePersonalId(
+        string $normalizedCi,
+        string $companyId,
+        int $type,
+        ?string $excludeId = null,
+    ): ?array {
+        $sql = "SELECT contactId, contactName FROM contact
+                 WHERE companyId = ?
+                   AND type = ?
+                   AND contactStatus = 1
+                   AND regexp_replace(upper(coalesce(data->>'contactCI', '')), '[^A-Z0-9]', '', 'g') = ?";
+        $params = [$companyId, $type, $normalizedCi];
+        if ($excludeId !== null) {
+            $sql     .= " AND contactId <> ?";
+            $params[] = $excludeId;
+        }
+        $sql .= " LIMIT 1";
+
+        $rs = $this->db->Execute($sql, $params);
+        if ($rs === false || $rs->EOF) return null;
+        $row = _flattenJsonb($rs->fields);
+        return ['contactId' => (string) $row['contactId'], 'contactName' => (string) ($row['contactName'] ?? '')];
+    }
+
+    /**
+     * Idem para el teléfono. Compara SOLO los dígitos de los dos lados.
+     *
+     * La convención del proyecto es guardar E.164 sin '+' ("595991742353"),
+     * y `ContactService::mapToColumns()` ya normaliza a esa forma antes de
+     * llegar acá — pero la tabla tiene filas viejas con espacios, guiones o
+     * el '+' delante. Comparar crudo dejaría pasar el duplicado justamente
+     * contra esas filas. Los dígitos son la única representación que ambos
+     * lados comparten sin ambigüedad.
+     *
+     * Lo que esto NO empareja es un número guardado en formato NACIONAL
+     * ("0981234567") contra el mismo número en E.164 ("595981234567"): son
+     * dígitos distintos. Es el caso de los duplicados PREEXISTENTES, que por
+     * decisión del owner se limpian aparte y no rompiendo el guardado.
+     */
+    public function findDuplicatePhone(
+        string $digits,
+        string $companyId,
+        int $type,
+        ?string $excludeId = null,
+    ): ?array {
+        $sql = "SELECT contactId, contactName FROM contact
+                 WHERE companyId = ?
+                   AND type = ?
+                   AND contactStatus = 1
+                   AND regexp_replace(coalesce(contactPhone, ''), '[^0-9]', '', 'g') = ?";
+        $params = [$companyId, $type, $digits];
+        if ($excludeId !== null) {
+            $sql     .= " AND contactId <> ?";
+            $params[] = $excludeId;
+        }
+        $sql .= " LIMIT 1";
+
+        $rs = $this->db->Execute($sql, $params);
+        if ($rs === false || $rs->EOF) return null;
+        $row = _flattenJsonb($rs->fields);
+        return ['contactId' => (string) $row['contactId'], 'contactName' => (string) ($row['contactName'] ?? '')];
+    }
+
     // `companyCountry()` se eliminó: el país del tenant lo resuelve
     // `Punto\Api\Support\TenantLocale::country()`, que es el lector único de
     // `company.config` para toda la localización (país, moneda, zona horaria)

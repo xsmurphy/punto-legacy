@@ -325,6 +325,13 @@ switch ($method) {
             $newId = $service->create(COMPANY_ID, $_POST);
         } catch (\InvalidArgumentException $e) {
             apiError($e->getMessage(), 422);
+        } catch (\Punto\Api\Contacts\DuplicateContactException $e) {
+            // 409 y ANTES del catch de RuntimeException (del que hereda): el
+            // choque de documento/teléfono es un conflicto de datos, no una
+            // falla del servidor. `details` lleva a QUIÉN pertenece el número
+            // para que la UI ofrezca usar ese contacto en vez de obligar a
+            // salir del alta y buscarlo a mano.
+            apiError($e->getMessage(), 409, $e->details());
         } catch (\RuntimeException $e) {
             apiError($e->getMessage(), 500);
         }
@@ -346,6 +353,9 @@ switch ($method) {
         } catch (\InvalidArgumentException $e) {
             // Ej.: idType fuera de la Tabla 3 de la SET (ContactService::ID_TYPES).
             apiError($e->getMessage(), 422);
+        } catch (\Punto\Api\Contacts\DuplicateContactException $e) {
+            // Mismo criterio que el POST — ver el comentario ahí.
+            apiError($e->getMessage(), 409, $e->details());
         }
         if (!$updated) {
             apiError('Update falló', 500);

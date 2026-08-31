@@ -64,6 +64,7 @@ import {
   taxIdFieldCopy,
 } from "@/lib/contact-id-types"
 import { useTaxpayerLookup } from "@/hooks/use-contacts"
+import { usePosContactById, usePosContactSearch } from "@/hooks/use-pos-contact-lookup"
 import { ApiError } from "@/lib/api-client"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
 import { cn } from "@/lib/utils"
@@ -283,7 +284,10 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl bg-popover shadow-lg">
-            <CreateCustomerForm onCreated={handleCustomerCreated} />
+            <CreateCustomerForm
+              onCreated={handleCustomerCreated}
+              onSelectExisting={handleSelectCustomer}
+            />
           </div>
         )}
       </DialogContent>
@@ -340,10 +344,78 @@ function CustomerResultRow({
 
 // ── Formulario de creación de cliente ─────────────────────────────────────────
 
+/**
+ * Choque de unicidad devuelto por el backend (409 de `/v1/contacts`).
+ * `field` dice en qué campo pintarlo; el resto identifica al contacto que ya
+ * tiene ese número, para poder usarlo en vez de crear un duplicado.
+ * Ver `ContactService::assertIdentityIsFree()`.
+ */
+interface DuplicateConflict {
+  field: "ci" | "phone"
+  contactId: string
+  contactName: string
+  message: string
+}
+
+/**
+ * Lee el `error.details` del 409. Devuelve null ante cualquier otra cosa —
+ * un error de red o un 500 no se pintan como choque de unicidad.
+ */
+function parseDuplicateConflict(err: unknown): DuplicateConflict | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null
+  const details = (err.payload as { error?: { details?: Record<string, unknown> } } | null)
+    ?.error?.details
+  const field = details?.field
+  const contactId = details?.contactId
+  if ((field !== "ci" && field !== "phone") || typeof contactId !== "string") return null
+  return {
+    field,
+    contactId,
+    contactName: typeof details?.contactName === "string" ? details.contactName : "",
+    message: err.message,
+  }
+}
+
+/**
+ * El choque, pintado EN el campo que lo causó (no en un toast ni en una
+ * banda): dice qué número está repetido, de quién es, y ofrece pasar a ese
+ * cliente con un toque. Sin el atajo, el cajero tendría que cerrar el alta a
+ * medio llenar y buscar el nombre a mano — que es justo lo que el bloqueo
+ * pretende evitar.
+ */
+function ConflictNotice({
+  conflict,
+  onUse,
+  isPending,
+}: {
+  conflict: DuplicateConflict
+  onUse: (contactId: string) => void
+  isPending: boolean
+}) {
+  return (
+    <div role="alert" className="flex flex-col items-start gap-1">
+      <p className="text-xs text-destructive">{conflict.message}</p>
+      <Button
+        type="button"
+        variant="link"
+        onClick={() => onUse(conflict.contactId)}
+        disabled={isPending}
+        className="h-auto p-0 text-xs"
+      >
+        {isPending && <Loader2 className="mr-1 size-3 animate-spin" />}
+        Usar ese cliente
+      </Button>
+    </div>
+  )
+}
+
 function CreateCustomerForm({
   onCreated,
+  onSelectExisting,
 }: {
   onCreated: (c: PosCustomer) => void
+  /** Usar un cliente que YA existe: lo pone en el carrito y cierra el modal. */
+  onSelectExisting: (c: PosCustomer) => void
 }) {
   // Config del tenant (PosConfig), ya hidratada en el store del POS: de acá
   // salen el país Y la etiqueta del documento fiscal, sin round-trip. El alta
@@ -395,12 +467,46 @@ function CreateCustomerForm({
   const idType = watch("idType")
   const personalCopy = personalIdFieldCopy(tenantConfig, idType)
 
+  // Clientes del tenant que ya tienen ese identificador fiscal. Se llenan al
+  // tocar la lupa, junto con el padrón — ver handleLookupTaxId().
+  const [localMatches, setLocalMatches] = React.useState<PosCustomer[]>([])
+  // Choque de documento personal / teléfono devuelto por el backend al guardar.
+  const [conflict, setConflict] = React.useState<DuplicateConflict | null>(null)
+
+  // "Datos personales" arranca colapsada, pero los dos campos que pueden
+  // chocar (documento y teléfono) viven ahí adentro. Un error pintado dentro
+  // de una sección cerrada es un error invisible, así que la sección pasa a
+  // ser controlada y se abre sola cuando el backend rechaza el guardado.
+  const [personalOpen, setPersonalOpen] = React.useState(false)
+
+  const searchLocalContacts = usePosContactSearch()
+  const fetchContactById = usePosContactById()
+
+  // El choque deja de aplicar en cuanto el cajero toca el número: el mensaje
+  // nombra a un cliente concreto y sostenerlo sobre un valor que ya cambió
+  // sería mentir sobre qué está mal. Va en el onChange de los dos campos y NO
+  // en un `useEffect` sobre `watch(...)`: un setState dentro de un efecto
+  // encadena un render extra por tecla (`react-hooks/set-state-in-effect`).
+  const clearConflict = React.useCallback(() => setConflict(null), [])
+
+  /** Pasa a usar el cliente en conflicto en vez de crear un duplicado. */
+  function handleUseConflictingContact(contactId: string) {
+    fetchContactById.mutate(contactId, {
+      onSuccess: (c) => {
+        reset()
+        onSelectExisting(c)
+      },
+      onError: () => toast.error("No se pudo abrir ese cliente"),
+    })
+  }
+
   async function onSubmit(values: CustomerFormValues) {
     // Nombre display: razón social tiene prioridad; si no, nombre + apellido.
     const displayName =
       values.fiscalName.trim() ||
       `${values.firstName ?? ""} ${values.lastName ?? ""}`.trim()
 
+    setConflict(null)
     try {
       const customer = await executeCreateCustomer({
         name: displayName,
@@ -416,6 +522,16 @@ function CreateCustomerForm({
       reset()
       onCreated(customer)
     } catch (err) {
+      // Choque de documento personal / teléfono: NO va a un toast. El toast se
+      // desvanece y no dice en qué campo está el problema; el cajero necesita
+      // verlo pegado al número que tiene que corregir, con el nombre del
+      // cliente que ya lo usa y el atajo para pasar a ese cliente.
+      const dup = parseDuplicateConflict(err)
+      if (dup) {
+        setConflict(dup)
+        setPersonalOpen(true)
+        return
+      }
       // Mostrar el mensaje del backend si está disponible, sino genérico.
       const msg =
         err instanceof ApiError
@@ -428,23 +544,51 @@ function CreateCustomerForm({
 
   function handleClear() {
     reset()
+    setLocalMatches([])
+    setConflict(null)
   }
 
-  // Lookup del RUC en el padrón — lo resuelve el BACKEND
+  // Lookup del identificador fiscal en el padrón — lo resuelve el BACKEND
   // (`/v1/contacts?resource=taxpayer`), que consulta el padrón del emisor de
   // facturación electrónica si el comercio lo tiene conectado y cae al padrón
   // público si no. Antes se pegaba desde acá contra turuc.com.py: el alta de
   // clientes dependía de que el navegador del cajero alcanzara a un tercero.
   //
   // Al recibir los datos auto-completa Razón Social y reemplaza el campo TIN
-  // con el RUC formateado (ej. "7659394" → "7659394-0").
+  // con el identificador formateado (ej. "7659394" → "7659394-0").
   const lookupTaxpayer = useTaxpayerLookup()
-  function handleLookupRuc() {
+
+  /**
+   * La lupa consulta DOS cosas distintas con el mismo número, en paralelo:
+   *
+   *   1. Los clientes del TENANT — "¿este ya es cliente mío?". Si lo es, no
+   *      hace falta crearlo de nuevo (pedido del owner 2026-08-31).
+   *   2. El padrón fiscal — "¿existe en el registro del fisco?", que es lo
+   *      que autocompleta la razón social.
+   *
+   * Se muestran separados porque responden preguntas distintas, y los del
+   * tenant van PRIMERO: si el cliente ya existe, el alta sobra. Ninguno de
+   * los dos bloquea nada — un mismo identificador fiscal puede tener varios
+   * contactos (varias personas facturando a nombre de la misma empresa es un
+   * caso legítimo), así que el cajero elige: usar el existente o seguir de
+   * largo y crear uno nuevo.
+   */
+  function handleLookupTaxId() {
     const raw = (getValues("tin") || "").trim()
     if (!raw) {
-      toast.warning("Ingresá un RUC para buscar")
+      toast.warning(`Ingresá un ${taxCopy.label} para buscar`)
       return
     }
+
+    setLocalMatches([])
+    searchLocalContacts.mutate(raw, {
+      onSuccess: setLocalMatches,
+      // Silencioso a propósito: esto es una AYUDA. Si el POS está sin red, el
+      // alta tiene que seguir funcionando igual — un error acá no puede
+      // frenar al cajero ni robarle la atención con un toast.
+      onError: () => setLocalMatches([]),
+    })
+
     lookupTaxpayer.mutate(raw, {
       onSuccess: (data) => {
         setValue("fiscalName", data.name, { shouldValidate: true, shouldDirty: true })
@@ -454,11 +598,13 @@ function CreateCustomerForm({
       onError: (err) =>
         toast.error(
           err instanceof ApiError && err.status === 404
-            ? "RUC no encontrado"
-            : "No se pudo consultar el RUC",
+            ? `${taxCopy.label} no encontrado en el padrón`
+            : `No se pudo consultar el ${taxCopy.label}`,
         ),
     })
   }
+
+  const isLookingUp = lookupTaxpayer.isPending || searchLocalContacts.isPending
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="flex min-h-0 flex-1 flex-col">
@@ -516,20 +662,22 @@ function CreateCustomerForm({
                 <Input
                   id="tin"
                   className="flex-1"
+                  placeholder={taxCopy.placeholder}
                   {...register("tin")}
                 />
-                {/* Lupa: lookup del RUC en el padrón, resuelto por el backend */}
+                {/* Lupa: busca el número EN LOS CLIENTES DEL COMERCIO y en el
+                    padrón fiscal, las dos cosas — ver handleLookupTaxId() */}
                 <Button
                   type="button"
                   variant="outline"
                   size="icon-sm"
-                  onClick={handleLookupRuc}
-                  disabled={lookupTaxpayer.isPending}
-                  title="Buscar datos del RUC"
-                  aria-label="Buscar datos del RUC"
+                  onClick={handleLookupTaxId}
+                  disabled={isLookingUp}
+                  title={`Buscar ${taxCopy.label} en tus clientes y en el padrón`}
+                  aria-label={`Buscar ${taxCopy.label} en tus clientes y en el padrón`}
                   className="shrink-0"
                 >
-                  {lookupTaxpayer.isPending ? (
+                  {isLookingUp ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <SearchCode className="size-4" />
@@ -537,13 +685,56 @@ function CreateCustomerForm({
                 </Button>
               </div>
             </div>
+
+            {/* ── Clientes del comercio que ya tienen ese identificador ──
+                Van pegados al campo que los produjo y ARRIBA de cualquier
+                dato del padrón: responden "ya es tu cliente", que es la
+                pregunta que hace innecesaria el alta entera. El padrón es
+                otra cosa ("existe en el registro fiscal") y sigue llenando el
+                formulario como siempre. */}
+            {localMatches.length > 0 && (
+              <div className="rounded-md border border-border">
+                <p className="border-b border-border px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                  Ya es tu cliente
+                </p>
+                <ul role="listbox" aria-label="Clientes existentes con ese documento">
+                  {localMatches.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onClick={() => onSelectExisting(c)}
+                        className={cn(
+                          "flex w-full min-w-0 items-center px-3 py-2 text-left",
+                          "transition-colors hover:bg-muted/50 active:bg-muted",
+                          "focus-visible:bg-muted/50 focus-visible:outline-none",
+                          "max-sm:min-h-(--pos-touch-min)",
+                        )}
+                      >
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-foreground">
+                            {c.name}
+                          </span>
+                          {c.tin && (
+                            <span className="block text-xs text-muted-foreground">{c.tin}</span>
+                          )}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
+                  Tocá uno para usarlo, o seguí completando el formulario para
+                  crear otro cliente con el mismo {taxCopy.label}.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
         <Separator />
 
         {/* ── Sección DATOS PERSONALES — colapsada por default ── */}
-        <Collapsible defaultOpen={false}>
+        <Collapsible open={personalOpen} onOpenChange={setPersonalOpen}>
           <div className="px-6 pt-4 pb-4">
             <CollapsibleTrigger asChild>
               <button
@@ -602,10 +793,18 @@ function CreateCustomerForm({
                           field.onChange(v.value)
                           setValue("phoneE164", v.e164)
                           setValue("phoneCountry", v.country)
+                          clearConflict()
                         }}
                       />
                     )}
                   />
+                  {conflict?.field === "phone" && (
+                    <ConflictNotice
+                      conflict={conflict}
+                      onUse={handleUseConflictingContact}
+                      isPending={fetchContactById.isPending}
+                    />
+                  )}
                 </div>
 
                 {/* Tipo de documento — solo en países con taxonomía propia
@@ -652,8 +851,16 @@ function CreateCustomerForm({
                   <Input
                     id="ci"
                     placeholder={personalCopy.placeholder}
-                    {...register("ci")}
+                    aria-invalid={conflict?.field === "ci"}
+                    {...register("ci", { onChange: clearConflict })}
                   />
+                  {conflict?.field === "ci" && (
+                    <ConflictNotice
+                      conflict={conflict}
+                      onUse={handleUseConflictingContact}
+                      isPending={fetchContactById.isPending}
+                    />
+                  )}
                 </div>
 
                 {/* E-mail */}
