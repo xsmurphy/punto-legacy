@@ -3,7 +3,7 @@
 import * as React from "react"
 import { MessageCircle, WifiOff } from "lucide-react"
 
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/empty-state"
 import { AgentChatContent } from "@/components/agent/agent-chat-content"
 import { usePosAgentChat } from "@/lib/pos/use-pos-agent-chat"
@@ -43,25 +43,34 @@ import { useOnlineStatus } from "@/hooks/use-online-status"
  * duplicado se eliminó; la paridad ahora es por construcción.
  *
  * ─────────────────────────────────────────────────────────────────────────
- * POR QUÉ `Dialog` + `mobileFullscreen` Y NO EL `Sheet` LATERAL DEL PANEL
+ * EL CONTENEDOR ES EL `Sheet` LATERAL, EL MISMO QUE EL PANEL
  *
- * La paridad que pidió el owner es del CONTENIDO (burbujas, tipografía,
- * espaciados, header, input), no del contenedor: §2.2 de context/14 reserva el
- * lateral para paneles AUXILIARES a una vista que sigue siendo el foco, y
- * prohíbe contenido denso ahí. Una conversación con scrollback en una tablet de
- * mostrador es contenido, y el ancho de un lateral juega en contra.
+ * Decisión del owner, pedida dos veces (2026-08-30 y 2026-08-31): "no tiene la
+ * misma UI que la versión del panel ni tampoco aparece en un drawer a la
+ * derecha como en el panel". La paridad que quiere es COMPLETA — contenido y
+ * contenedor—, y el asistente es la misma herramienta en las dos superficies:
+ * que se abra distinto según dónde estés es exactamente la inconsistencia que
+ * el pedido señala.
  *
- * `mobileFullscreen` es exactamente su caso de uso: bajo `sm` el diálogo
- * centrado con `max-h-[85dvh]` deja poquísimo alto útil cuando se abre el
- * teclado virtual, y este modal es 100% teclado. El primitive ya descuenta
- * `--kb-inset` del borde inferior.
+ * Esto convive con §2.2 de context/14, que prohíbe el DRAWER lateral de vaul
+ * para contenido denso en el POS. Acá el primitive es `Sheet` (Radix), que es
+ * el que ya usa el panel para este mismo chat, y el caso es el que la regla
+ * contempla: un panel auxiliar a una vista que sigue siendo el foco. El cajero
+ * consulta algo SIN perder de vista el carrito — que es justamente lo que un
+ * modal a pantalla completa le tapaba.
  *
- * `sectioned` + `max-sm:p-0`: el chat trae chrome propio (header con borde,
- * cuerpo scrolleable, input al pie), así que declara que administra su propio
- * layout vertical y resetea el gutter que `mobileFullscreen` pone por default.
- * Es el patrón documentado en el docblock de `DialogContent` para los shells
- * que montan un módulo entero adentro del modal (ver `customer-dialog.tsx`);
- * los insets del dispositivo los descuenta el chat vía `safeArea`.
+ * Las medidas se copian del panel (`components/agent/agent-chat-floating.tsx`)
+ * a propósito, incluido el `!w-[95vw]` con `important`: `SheetContent` trae
+ * `data-[side=right]:w-3/4` con más especificidad que un `className` custom, y
+ * sin el `!` el override se pierde. En mobile ese 95vw deja ver un borde del
+ * POS por detrás, que es la señal de overlay y la zona de cierre al tocar
+ * afuera.
+ *
+ * TECLADO: no se descuenta `--kb-inset` acá. El `Sheet` es `inset-y-0` contra
+ * el viewport y el input vive al pie de un cuerpo flex; el shell del POS ya
+ * resta el teclado una sola vez (`app/globals.css`, § teclado virtual). Meter
+ * un segundo descuento en este árbol sería la doble resta que cuida
+ * `lib/pos/__tests__/keyboard-inset.test.ts`.
  *
  * `showCloseButton={false}` + `onClose`: la X del primitive es absoluta en la
  * esquina y caería justo encima de las acciones del header del chat. El chat
@@ -81,17 +90,20 @@ export function PosAgentDialog() {
   })
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent
-        mobileFullscreen
-        sectioned
+    <Sheet open={open} onOpenChange={setOpen}>
+      <SheetContent
+        side="right"
+        // `overlay={false}`, igual que el panel: sin fondo oscurecido, así el
+        // cajero sigue viendo el carrito mientras consulta. Es lo que hace que
+        // esto sea un panel auxiliar y no un modal que interrumpe la venta.
+        overlay={false}
         showCloseButton={false}
         aria-describedby={undefined}
-        className="max-sm:p-0 sm:h-[min(85dvh,44rem)] sm:w-full sm:max-w-2xl"
+        className="flex !w-[95vw] flex-col p-0 sm:!w-full sm:max-w-md"
       >
         {/* El título accesible del diálogo. Visible ya está el header del chat,
             que es el mismo del panel. */}
-        <DialogTitle className="sr-only">Asistente</DialogTitle>
+        <SheetTitle className="sr-only">Asistente</SheetTitle>
 
         <AgentChatContent
           className="min-h-0 flex-1"
@@ -137,7 +149,7 @@ export function PosAgentDialog() {
             />
           }
         />
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   )
 }
