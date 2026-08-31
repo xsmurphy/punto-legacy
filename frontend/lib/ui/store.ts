@@ -33,6 +33,13 @@ interface PosUIState {
    * sobrevivir a ese cierre montado desde el layout del POS.
    */
   modeDialogOpen: boolean
+  /**
+   * Asistente IA de la caja (context/59). Mismo motivo que `modeDialogOpen`:
+   * el trigger está en el footer del sidebar —que en mobile es un drawer que
+   * se cierra al tocar— y el diálogo se monta desde el layout del POS, así
+   * que su estado de apertura no puede vivir en el sidebar.
+   */
+  agentDialogOpen: boolean
   /** Query activo del buscador de productos. Persiste al cerrar el modal. */
   itemSearchQuery: string
   /** Query activo del buscador de clientes. Persiste al cerrar el modal. */
@@ -47,6 +54,7 @@ interface PosUIState {
   openMenuSection: (key: string) => void
   setOptionsOpen: (v: boolean) => void
   setModeDialogOpen: (v: boolean) => void
+  setAgentDialogOpen: (v: boolean) => void
   setItemSearchQuery: (q: string) => void
   setCustomerSearchQuery: (q: string) => void
   clearItemSearchQuery: () => void
@@ -97,6 +105,7 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   menuSection: null,
   optionsOpen: false,
   modeDialogOpen: false,
+  agentDialogOpen: false,
   itemSearchQuery: "",
   customerSearchQuery: "",
   discountPadMode: "money",
@@ -110,6 +119,7 @@ export const usePosUIStore = create<PosUIState>()((set) => ({
   openMenuSection: (key) => set({ menuOpen: true, menuSection: key }),
   setOptionsOpen: (v) => set({ optionsOpen: v }),
   setModeDialogOpen: (v) => set({ modeDialogOpen: v }),
+  setAgentDialogOpen: (v) => set({ agentDialogOpen: v }),
   setItemSearchQuery: (q) => set({ itemSearchQuery: q }),
   setCustomerSearchQuery: (q) => set({ customerSearchQuery: q }),
   clearItemSearchQuery: () => set({ itemSearchQuery: "" }),

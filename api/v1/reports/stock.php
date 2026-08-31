@@ -4,12 +4,23 @@
  *
  *   GET /v1/reports/stock
  *       → { needsOutlet: bool, rows: [...] }. needsOutlet=true si no hay sucursal válida
- *         seleccionada. Filas crudas (números). Auth: realm `panel`. Ver REGLA RAÍZ 2.
+ *         seleccionada. Filas crudas (números). Auth: realms `panel`, `pos-app`,
+ *         `mcp`. Ver REGLA RAÍZ 2.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel', 'mcp']);
+// `pos-app` (context/59 D3/F1): el asistente de la caja lee stock con el Bearer
+// del device. NO agrega exposición material — el device ya ve el stock de TODAS
+// las sucursales por otra puerta: `/api/pos/items?id=X&resource=inventory-movements`
+// (items.php:150 acepta `pos-app`; su GET devuelve `breakdown`, que agrupa por
+// outlet filtrando SOLO por companyId — StockMovementsService::breakdown:98).
+// Eso es lo que pinta la ficha de producto del mostrador, para derivar al
+// cliente a la sucursal que sí tiene el artículo (use-pos-item-info.ts:7-8).
+// Acá el scope es más chico todavía: `VIEW_OUTLET_ID` está restringido al realm
+// `panel` (bootstrap.php:284), así que una request `pos-app` no puede ensanchar
+// el reporte más allá de la sucursal de su caja.
+$ctx = apiAuthTenant(['panel', 'pos-app', 'mcp']);
 $svc = new \Punto\Api\Reports\StockService();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {

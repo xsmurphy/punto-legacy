@@ -9,12 +9,26 @@
  * INSERT ai_credit_ledger (delta negativo). Mismo patrón que
  * PaymentsService::creditInvoice.
  *
- * Auth: realm panel. POST only.
+ * Auth: realms `panel` y `pos-app`. POST only.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+// `pos-app` (context/59 F2/D5): el asistente de la caja consume créditos del
+// MISMO pozo del tenant, así que tiene que poder debitarlos. Es el único
+// endpoint de ESCRITURA que la caja abre para el asistente, y va sin gate por
+// método porque el endpoint entero es la escritura — no hay un GET del que
+// separarlo.
+//
+// Lo que esto habilita, dicho sin maquillar: quien tenga el Bearer eterno de una
+// tablet puede llamar acá con `tokensIn`/`tokensOut` inventados y quemar
+// créditos del comercio. NO es una clase de riesgo nueva —los tokens ya vienen
+// del cliente y cualquier sesión de panel puede hacer lo mismo desde 2026-07-31—
+// pero sí la extiende a una credencial que no expira y vive en el localStorage
+// de un dispositivo compartido. Mitigarlo de verdad es mover el cálculo al
+// server (que el BFF reporte el uso y el backend lo valide contra la respuesta
+// del proveedor); queda anotado en context/59 D5 junto con el actor del ledger.
+$ctx = apiAuthTenant(['panel', 'pos-app']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'POST') !== 'POST') {
     apiError('Method not allowed', 405);

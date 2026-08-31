@@ -13,6 +13,7 @@ import { detectKind } from "./attachment-types"
 import { parseTabularToCsv } from "./parse-tabular"
 import { uploadTabular, generateImageThumbnail } from "./upload-attachment"
 import { useAgentPageSnapshotStore } from "./page-snapshot-store"
+import { getPanelToken } from "@/lib/auth/panel-token"
 
 /** Tiempo de vida de un mensaje con credencial en el thread vivo. */
 const CREDENTIAL_TTL_MS = 60_000
@@ -83,6 +84,18 @@ export function useAgentChat({
   const chat = useChat({
     transport: new DefaultChatTransport({
       api: "/api/agent/chat",
+      // El Bearer del panel va EXPLÍCITO. Nadie lo inyectaba: este transport no
+      // pasa por `lib/api-client.ts`, que es el único que conoce la clave del
+      // token, así que desde que `context/54` movió el panel de cookie a Bearer
+      // (commit 0a269e97, 2026-08-27) el BFF venía recibiendo un header vacío
+      // (`app/api/agent/chat/route.ts`, `req.headers.get("authorization") ?? ""`)
+      // y todas las tools del agente salían sin credencial. `headers` es función
+      // y no objeto para que se lea en CADA request: leerlo una vez al montar
+      // congelaría el token de ese instante y sobreviviría a un re-login.
+      headers: (): Record<string, string> => {
+        const token = getPanelToken()
+        return token ? { Authorization: `Bearer ${token}` } : {}
+      },
       body: { companyName, viewOutletId, viewOutletName, pathname, snapshot: snapshot ?? undefined },
     }),
     onFinish: ({ message, messages }) => {

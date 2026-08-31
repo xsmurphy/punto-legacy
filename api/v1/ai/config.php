@@ -6,13 +6,16 @@
  * WHERE enabled. El route handler del agente lo consulta antes de cada llamada
  * para elegir el modelo configurado.
  *
- * Auth: realm panel. GET only.
+ * Auth: realms `panel` y `pos-app`. GET only.
  * Si la tabla no existe (deploy sin mig 43) devuelve {} sin romper.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-apiAuthTenant(['panel']);
+// `pos-app` (context/59 F2): el BFF del asistente de la caja necesita el mismo
+// map capability→modelo que el del panel para elegir con qué modelo responder.
+// No hay dato del tenant acá, es configuración de la plataforma.
+apiAuthTenant(['panel', 'pos-app']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Method not allowed', 405);

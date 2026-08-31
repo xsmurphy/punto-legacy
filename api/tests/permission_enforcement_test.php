@@ -140,6 +140,20 @@ const EXCEPCIONES_CONOCIDAS = [
     // operador en el POS el control correcto es en el cliente (deshabilitar
     // el campo), no rechazar el documento en el back.
     'pos.discount.apply' => 'viaja dentro de una venta ya emitida (offline-first)',
+    // Asistente de IA en la caja (context/59 D4). Esta clave gatea el item del
+    // sidebar del POS y su ruta de chat — NO gobierna qué datos puede leer el
+    // asistente: eso lo deciden los allowlists de realm de cada endpoint (D3) y
+    // el gate de operador de `drawers` (D9). Viaja al dispositivo por
+    // `unlock-pin.php` (que filtra los permisos del operador al prefijo `pos.`)
+    // y se evalúa en el cliente.
+    //
+    // OJO: es una excepción TEMPORAL. Cuando exista el BFF del chat
+    // (`/api/pos/agent/chat`, F2) y `ai/debit.php` acepte `pos-app` (D5), la
+    // clave tiene que enforcarse ahí con `OperatorContext::can()` — la
+    // `OperatorAssertion` ya identifica a la persona— y esta entrada debe
+    // salir de la lista. El arnés avisa solo: si se gatea sin sacarla de acá,
+    // el check de arriba falla por el motivo inverso.
+    'pos.ai.use'         => 'gatea el item de la UI en la caja, no un endpoint todavía (context/59 D4)',
 ];
 
 echo "=== (A) cobertura del catálogo ===\n";

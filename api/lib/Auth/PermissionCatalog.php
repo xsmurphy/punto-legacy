@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 5;
+    public const CURRENT_VERSION = 6;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -54,6 +54,27 @@ final class PermissionCatalog
             // así que dárselo ahí anularía la regla para todo el mundo. Se
             // evalúa contra el rol del OPERADOR (Punto\Api\Auth\OperatorContext).
             ['id' => 'pos.space.override',      'label' => 'Intervenir mesas de otro mozo', 'group' => 'POS', 'since' => 5],
+
+            // Asistente de IA en la caja (context/59 D4). Gatea SOLO el item de
+            // la UI y su ruta de chat: qué datos puede leer el asistente lo
+            // gobiernan los allowlists de realm de cada endpoint, no esta clave.
+            //
+            // Por qué NO se reusa `ai.agent.use`: `unlock-pin.php:127-131` filtra
+            // los permisos del operador al prefijo `pos.` antes de mandarlos al
+            // dispositivo —a propósito, para no cachear permisos de panel en una
+            // tablet compartida (el motivo está escrito en `:122-126`)—, así que
+            // una clave sin ese prefijo NUNCA llega a la caja. De paso separa los
+            // dos asistentes: habilitar el del mostrador sin abrir el del panel
+            // hoy no se puede expresar con una sola clave.
+            //
+            // Se evalúa contra el rol del OPERADOR (OperatorContext), no contra el
+            // rol `device` — misma razón que `pos.space.override`: bajo `pos-app`
+            // ese rol es el mismo para todos los que usan la tablet.
+            //
+            // `since` = 6 y clave NUEVA: el caso seguro del backfill (nunca
+            // existió, así que no puede estar revocada a propósito en ningún
+            // tenant — ver la advertencia del docblock de since()).
+            ['id' => 'pos.ai.use',              'label' => 'Usar el asistente en la caja', 'group' => 'POS', 'since' => 6],
 
             ['id' => 'inventory.item.view',    'label' => 'Ver catálogo',             'group' => 'Inventario'],
             ['id' => 'inventory.item.create',  'label' => 'Crear artículos',          'group' => 'Inventario'],

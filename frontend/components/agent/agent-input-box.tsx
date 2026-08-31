@@ -5,6 +5,7 @@ import { Plus, Mic, ArrowUp, FileSpreadsheet, FileText, AlertTriangle, Loader2, 
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { cn } from "@/lib/utils"
 import type { AttachmentDraft } from "@/lib/agent/attachment-types"
 
 export const AgentInputBox = React.forwardRef<
@@ -19,6 +20,15 @@ export const AgentInputBox = React.forwardRef<
     attachments?: AttachmentDraft[]
     onAddFiles?: (files: File[]) => void
     onRemoveAttachment?: (id: string) => void
+    /**
+     * Botón de adjuntar (`false` lo oculta). Default `true` — el panel no
+     * cambia. Lo apaga el asistente de la CAJA: es solo lectura y no importa
+     * planillas, así que un botón que abre el picker y no hace nada es peor
+     * que no tenerlo (`components/pos/pos-agent-dialog.tsx`).
+     */
+    showAttach?: boolean
+    /** Botón de voz ("próximamente"). Mismo criterio que `showAttach`. */
+    showVoice?: boolean
   }
 >(function AgentInputBox(
   {
@@ -31,6 +41,8 @@ export const AgentInputBox = React.forwardRef<
     attachments,
     onAddFiles,
     onRemoveAttachment,
+    showAttach = true,
+    showVoice = true,
   },
   ref,
 ) {
@@ -138,32 +150,43 @@ export const AgentInputBox = React.forwardRef<
         }}
       />
 
-      <div className="flex items-center justify-between px-3 pb-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={() => fileInputRef.current?.click()}
-          className="size-9 rounded-full text-muted-foreground/70 hover:text-foreground"
-          aria-label="Adjuntar archivo"
-        >
-          <Plus className="size-4" />
-        </Button>
+      {/* `justify-between` con el adjuntar oculto dejaría el enviar a la
+          izquierda: sin ese botón el grupo de la derecha se alinea solo. */}
+      <div
+        className={cn(
+          "flex items-center px-3 pb-2",
+          showAttach ? "justify-between" : "justify-end",
+        )}
+      >
+        {showAttach && (
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => fileInputRef.current?.click()}
+            className="size-9 rounded-full text-muted-foreground/70 hover:text-foreground"
+            aria-label="Adjuntar archivo"
+          >
+            <Plus className="size-4" />
+          </Button>
+        )}
         <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span tabIndex={0}>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  disabled
-                  className="size-9 rounded-full text-muted-foreground/70 pointer-events-none"
-                >
-                  <Mic className="size-4" />
-                </Button>
-              </span>
-            </TooltipTrigger>
-            <TooltipContent>Voz (próximamente)</TooltipContent>
-          </Tooltip>
+          {showVoice && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span tabIndex={0}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    disabled
+                    className="size-9 rounded-full text-muted-foreground/70 pointer-events-none"
+                  >
+                    <Mic className="size-4" />
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>Voz (próximamente)</TooltipContent>
+            </Tooltip>
+          )}
           <Button
             onClick={onSend}
             disabled={disabled || (!value.trim() && (!attachments || attachments.length === 0)) || !!hasPendingAttachments}

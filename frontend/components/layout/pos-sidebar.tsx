@@ -9,6 +9,7 @@ import {
   ClipboardList,
   LayoutGrid,
   Lock,
+  MessageCircle,
   Repeat,
 } from "lucide-react"
 import {
@@ -34,9 +35,11 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { usePosModules } from "@/hooks/use-pos-modules"
 import type { ModulesMap } from "@/lib/types/module"
 import { usePosUIStore } from "@/lib/ui/store"
+import { useOnlineStatus } from "@/hooks/use-online-status"
 import { useCartStore } from "@/lib/cart/store"
 import { MODE_VISUALS } from "@/lib/pos/mode-visuals"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
+import { toast } from "sonner"
 
 // Mismo criterio conservador que `panel-auth-guard.tsx` (posNav): mientras
 // isLoading o error, el item condicional NO se muestra — evita parpadeo.
@@ -102,6 +105,13 @@ export function PosSidebar() {
   const ordersEnabled = moduleEnabled(modules, modulesLoading, modulesError, "ordersPanel") !== false
   const tablesEnabled = moduleEnabled(modules, modulesLoading, modulesError, "tables") !== false
   const lock = useLockStore((s) => s.lock)
+  // Permisos REALES del operador desbloqueado (llegan del unlock por PIN,
+  // filtrados al prefijo `pos.` en el backend). Es la ÚNICA fuente válida de
+  // permisos dentro de /pos — ver el comentario del item "Asistente" abajo.
+  const operatorPermissions = useLockStore((s) => s.operatorPermissions)
+  const canUseAgent = operatorPermissions.includes("pos.ai.use")
+  const isOnline = useOnlineStatus()
+  const setAgentDialogOpen = usePosUIStore((s) => s.setAgentDialogOpen)
   const parkedCount = parkedSales?.length ?? 0
   const activeOrdersCount = activeOrders?.orders.length ?? 0
 
@@ -282,6 +292,60 @@ export function PosSidebar() {
         className={cn(!isMobile && "pb-[calc(0.5rem+var(--safe-b))]")}
       >
         <SidebarMenu>
+          {/* Asistente — PRIMER item del footer, arriba de "Modo" (context/59
+              D7, decisión del owner). Sin FAB: taparía el CTA de cobrar.
+
+              Gate: `operatorPermissions` del lock-store, que son los permisos
+              REALES de la persona que desbloqueó con su PIN. NUNCA
+              `usePermission()`: ese sale de `useBootstrap()`, el bootstrap del
+              realm PANEL, y en una caja pareada el rol es el rol `device` — el
+              item aparecía o no según cómo se hubiera abierto la caja
+              (revertido en `80a21be2`).
+
+              El diálogo NO se monta acá sino en `app/(pos)/layout.tsx`: en
+              mobile este footer vive dentro del drawer del sidebar, que
+              `closeMobile()` desmonta en el mismo toque que abre el chat. */}
+          {canUseAgent && (
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                tooltip={
+                  isOnline
+                    ? "Asistente"
+                    : "Sin conexión — el asistente necesita internet"
+                }
+                // El impedimento se informa en el control que impide, nunca en
+                // una banda (`feedback_pos_alerts_on_the_action_not_banners`).
+                // El item no se esconde: sacarlo movería "Modo" y "Bloquear"
+                // de lugar cada vez que se cae la red (regla #10 de context/14).
+                //
+                // `aria-disabled` y NO `disabled`, mismo criterio que el
+                // `PayCta` del carrito: un botón realmente deshabilitado no
+                // recibe eventos de puntero y el tooltip del sidebar —que es
+                // donde vive el motivo— nunca llegaría a mostrarse. El click
+                // se bloquea abajo, a mano.
+                //
+                // En mobile no hay tooltip (el primitive lo oculta fuera del
+                // rail colapsado) ni hay hover, así que ahí el motivo sale por
+                // toast al tocar: sigue siendo "el aviso en el control", con
+                // el mecanismo que la superficie táctil permite.
+                aria-disabled={!isOnline || undefined}
+                className={cn(ACTION_ITEM_CLASS, !isOnline && "opacity-50")}
+                onClick={() => {
+                  if (!isOnline) {
+                    toast.error("Sin conexión", {
+                      description: "El asistente necesita internet para responder.",
+                    })
+                    return
+                  }
+                  closeMobile()
+                  setAgentDialogOpen(true)
+                }}
+              >
+                <MessageCircle />
+                <span>Asistente</span>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          )}
           {!modoSoloOrdenes && (
             <SidebarMenuItem>
               <SidebarMenuButton

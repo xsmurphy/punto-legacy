@@ -5,12 +5,16 @@
  * Devuelve el balance de créditos IA del tenant.
  * No toma lock — solo lectura para polling del chat.
  *
- * Auth: realm panel. GET only.
+ * Auth: realms `panel` y `pos-app`. GET only.
  */
 
 require_once __DIR__ . '/../../bootstrap.php';
 
-$ctx = apiAuthTenant(['panel']);
+// `pos-app` (context/59 F2): el asistente de la caja consulta el saldo antes de
+// cada llamada, igual que el del panel. Es el MISMO crédito del MISMO tenant —
+// el saldo no es dato por usuario ni por caja, así que el realm no cambia qué
+// se devuelve, solo quién puede preguntarlo.
+$ctx = apiAuthTenant(['panel', 'pos-app']);
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Method not allowed', 405);

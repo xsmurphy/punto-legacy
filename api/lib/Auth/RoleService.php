@@ -73,6 +73,12 @@ final class RoleService
             // context/15 no tendría válvula de escape y se evadiría
             // compartiendo el PIN del dueño.
             'pos.space.override',
+            // Asistente de IA en la caja (context/59 D4). Va al default del
+            // Encargado por el mismo criterio con que ya tiene `ai.agent.use`
+            // más abajo: es el rol que el comercio autoriza a usar IA. `cashier`
+            // NO lo recibe — no tiene `ai.agent.use` tampoco, y el asistente se
+            // habilita por rol desde Ajustes → Roles, no por default.
+            'pos.ai.use',
             'inventory.item.view','inventory.item.create','inventory.item.edit','inventory.item.delete',
             'inventory.stock.adjust','inventory.transfer',
             'contacts.customer.view','contacts.customer.create','contacts.customer.edit','contacts.customer.delete',

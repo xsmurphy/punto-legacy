@@ -5,6 +5,7 @@ import { PosSidebarProvider } from "@/components/layout/pos-sidebar-provider"
 import { PosAuthGuard } from "@/components/layout/pos-auth-guard"
 import { PosSidebar } from "@/components/layout/pos-sidebar"
 import { PosModeDialog } from "@/components/register/pos-mode-dialog"
+import { PosAgentDialog } from "@/components/pos/pos-agent-dialog"
 import { InstallPrompt } from "@/components/pos/install-prompt"
 import { ChunkErrorListener } from "@/components/pos/chunk-error-listener"
 import { PosTouchScope } from "@/components/pos/pos-touch-scope"
@@ -110,6 +111,10 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
           {/* Selector de modo — montado en el layout (no en el sidebar) para
               sobrevivir al cierre del Sheet mobile que contiene su trigger. */}
           <PosModeDialog />
+          {/* Asistente IA de la caja (context/59) — montado acá por el MISMO
+              motivo que PosModeDialog: su trigger es un item del footer del
+              sidebar, que en mobile es un drawer y se desmonta al tocarlo. */}
+          <PosAgentDialog />
           <InstallPrompt />
         </SidebarInset>
       </PosAuthGuard>
