@@ -13,6 +13,8 @@
 import * as React from "react"
 import Link from "next/link"
 import type { ColumnDef } from "@tanstack/react-table"
+import { format } from "date-fns"
+import { es } from "date-fns/locale"
 import { AlertCircle, ArrowLeft, ShieldCheck } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -52,12 +54,33 @@ function humanizeAction(method: string, endpoint: string): string {
   return `${m} /${e}`
 }
 
+/**
+ * Retención de la tabla `tenant_audit`: el job de pg_cron `purge-tenant-audit`
+ * borra todos los días lo que tenga más de 2 meses (migs 36 y 150). Se nombra
+ * en el empty state porque explica el único caso en que el vacío NO es
+ * "no hubo actividad" sino "ya se purgó".
+ */
+const AUDIT_RETENTION_LABEL = "2 meses"
+
 export default function AuditReportPage() {
   const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
   const { data, isLoading, error } = useReport<{ rows: AuditRow[] }>("audit", opts)
   const rows = React.useMemo(() => data?.rows ?? [], [data])
+
+  // El empty state nombra el período consultado. Un reporte de auditoría vacío
+  // es ambiguo por naturaleza —"no pasó nada" y "esto no está funcionando" se
+  // ven igual—, y es la ambigüedad que hizo que se reportara como bug. Decir
+  // qué rango se consultó y que la retención es de dos meses convierte el vacío
+  // en una respuesta en vez de una duda.
+  const rangeLabel = React.useMemo(
+    () => ({
+      from: format(range.from, "d 'de' MMMM", { locale: es }),
+      to: format(range.to, "d 'de' MMMM", { locale: es }),
+    }),
+    [range],
+  )
 
   const columns = React.useMemo<ColumnDef<AuditRow>[]>(
     () => [
@@ -154,8 +177,16 @@ export default function AuditReportPage() {
         emptyMessage={
           <EmptyState
             icon={ShieldCheck}
-            title="Sin registros de auditoría"
-            description="Ajustá el rango de fechas y volvé a consultar."
+            title={`Sin actividad entre el ${rangeLabel.from} y el ${rangeLabel.to}`}
+            description={
+              <>
+                La auditoría está activa: nadie del comercio realizó acciones
+                registrables en este período. Probá con un rango más amplio.
+                <br />
+                Los registros se conservan {AUDIT_RETENTION_LABEL}; un rango
+                anterior a eso siempre va a salir vacío.
+              </>
+            }
           />
         }
       />

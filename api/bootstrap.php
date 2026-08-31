@@ -364,6 +364,12 @@ function tenantAudit(array $ctx, string $method, string $endpoint, ?string $targ
     global $db;
 
     if (!isset($db) || !is_object($db)) {
+        // Loguea igual que el catch de abajo. Antes retornaba mudo, y ese es el
+        // peor de los dos caminos de falla: sin $db no se audita NADA y no
+        // queda una sola línea que lo diga — el reporte se ve idéntico a "no
+        // hubo actividad". Un fallo silencioso de la auditoría es justo el que
+        // no se puede permitir que pase inadvertido.
+        error_log('[tenantAudit] $db no disponible — request NO auditada: ' . $method . ' ' . $endpoint);
         return;
     }
 
