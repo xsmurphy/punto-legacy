@@ -23,6 +23,7 @@ import {
   Globe,
   HandCoins,
   History,
+  KeyRound,
   Landmark,
   LayoutDashboard,
   LayoutGrid,
@@ -40,6 +41,7 @@ import {
   ReceiptText,
   RefreshCw,
   Route,
+  Scale,
   ScanBarcode,
   ScanLine,
   ScrollText,
@@ -55,7 +57,6 @@ import {
   Users,
   Wallet,
   Warehouse,
-  KeyRound,
 } from "lucide-react"
 
 import type {
@@ -489,12 +490,21 @@ export const PANEL_ROUTES: RouteEntry[] = [
   },
   {
     to: "/reports/cashflow",
-    title: "Flujo de caja",
-    paletteTitle: "Reportes · Flujo de caja",
+    title: "Flujo de efectivo",
+    paletteTitle: "Reportes · Flujo de efectivo",
     icon: TrendingUp,
     surface: "palette",
     paletteGroup: "Reportes",
-    keywords: ["cashflow", "flujo", "ingresos egresos", "liquidez"],
+    keywords: ["cashflow", "flujo", "caja", "ingresos egresos", "liquidez", "efectivo"],
+  },
+  {
+    to: "/reports/balance",
+    title: "Balance",
+    paletteTitle: "Reportes · Balance",
+    icon: Scale,
+    surface: "palette",
+    paletteGroup: "Reportes",
+    keywords: ["balance", "activo", "pasivo", "patrimonio", "situacion", "cuanto tengo"],
   },
   {
     to: "/reports/vpayments",

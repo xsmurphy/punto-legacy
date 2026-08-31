@@ -512,17 +512,70 @@ export interface SummaryYearResponse {
 
 // ── Cashflow ──────────────────────────────────────────────────────────────────
 
+/** Una cuenta (efectivo, banco, billetera) con su movimiento del período. */
+export interface CashflowAccount {
+  accountId: string
+  name: string
+  type: string
+  opening: number
+  income: number
+  expense: number
+  closing: number
+}
+
+export interface CashflowCategory {
+  categoryId: string | null
+  name: string
+  amount: number
+}
+
+/**
+ * Flujo de efectivo (B1 de `context/60`). Fuente: `fin_movement` + `fin_account`.
+ *
+ * `balances.check` DEBE ser 0: es `opening + entradas − salidas − closing`. Se
+ * expone en vez de asumirse para que un desvío de datos se vea en la pantalla en
+ * lugar de tener que sospecharlo.
+ */
 export interface CashflowResponse {
-  cashSales: number
-  cashPayments: number
+  from: string
+  to: string
+  balances: {
+    opening: number
+    closing: number
+    net: number
+    check: number
+  }
+  accounts: CashflowAccount[]
+  income: CashflowCategory[]
+  expense: CashflowCategory[]
   incomeTotal: number
-  stockPurchase: number
-  expensesPurchase: number
-  outPayment: number
-  outcomeTotal: number
-  remains: number
-  initialCash: number
-  accumulated: number
+  expenseTotal: number
+}
+
+/**
+ * Balance GERENCIAL (B3 de `context/60`). NO es contable: `equity` es DERIVADO
+ * (Activo − Pasivo), no una cuenta que alguien carga.
+ *
+ * `notes.missingFixedAssets` no es metadata decorativa: Punto no modela activo
+ * fijo, así que el patrimonio queda subestimado y la pantalla TIENE que decirlo.
+ */
+export interface BalanceResponse {
+  asOf: string
+  assets: {
+    cash: number
+    cashByAccount: { accountId: string; name: string; type: string; balance: number }[]
+    receivables: number
+    inventory: number
+    total: number
+  }
+  liabilities: {
+    payables: number
+    obligations: number
+    obligationsByType: Record<string, number>
+    total: number
+  }
+  equity: number
+  notes: { missingFixedAssets: boolean; managerial: boolean }
 }
 
 // ── vPayments (ePOS) ──────────────────────────────────────────────────────────
