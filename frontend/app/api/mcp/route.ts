@@ -113,7 +113,29 @@ async function handle(req: Request): Promise<Response> {
     )
   }
 
-  const server = new McpServer({ name: "punto", version: "1.0.0" })
+  // La identidad del server viaja en el HANDSHAKE, no se deduce del dominio: el
+  // cliente dibuja la tarjeta del conector con lo que le mandemos acá. Sin
+  // `icons`, Claude no cae al favicon del sitio — muestra el conector sin
+  // marca. (Dato de la sesión de Fish, que se topó con lo mismo.)
+  //
+  // Dos variantes por tema: el panel del cliente puede estar en claro u oscuro y
+  // un logo pensado para uno se ve mal en el otro.
+  //
+  // URLs ABSOLUTAS y con host propio: el cliente las busca desde su proceso, no
+  // desde el navegador del usuario, así que una ruta relativa no resuelve. Sale
+  // de `APP_URL` para no hardcodear el dominio (regla 3 del proyecto).
+  const appUrl = (process.env.APP_URL ?? "https://app.punto.la").replace(/\/$/, "")
+  const server = new McpServer({
+    name: "punto",
+    version: "1.0.0",
+    title: "Punto",
+    websiteUrl: appUrl,
+    description: "Los datos de tu comercio: ventas, stock, clientes, caja y finanzas.",
+    icons: [
+      { src: `${appUrl}/logos/icon_bg_light.png`, mimeType: "image/png", theme: "light" },
+      { src: `${appUrl}/logos/icon_bg_dark.png`, mimeType: "image/png", theme: "dark" },
+    ],
+  })
 
   // Mismas definiciones que consume el agente propio (`context/58` D11): el
   // catálogo es la fuente compartida, este archivo solo es otro transporte.

@@ -430,6 +430,27 @@ Timeouts del cliente: ≤10s discovery, ≤30s refresh. Librerías candidatas:
 `mcp-auth`, `fastmcp-oauth`, `@cloudflare/workers-oauth-provider` — ninguna
 lista out-of-box para Next.js App Router + PHP.
 
+## La identidad del conector viaja en el handshake (2026-08-31)
+
+El cliente NO deduce el logo del favicon del dominio: dibuja la tarjeta del
+conector con lo que venga en el `Implementation` del handshake. Sin `title` e
+`icons`, el conector aparece con el `name` crudo y sin marca.
+
+El SDK (1.30) acepta `title`, `websiteUrl`, `description` e `icons` con
+`{src, mimeType, theme}`. Se mandan las dos variantes de tema —un logo pensado
+para claro se ve mal en oscuro— y los `src` van ABSOLUTOS: el cliente los busca
+desde su propio proceso, no desde el navegador del usuario, así que una ruta
+relativa no resuelve. El host sale de `APP_URL`, no hardcodeado.
+
+Dato aportado por la sesión de Fish, que se topó con lo mismo en su propio
+server MCP.
+
+**Pendiente relacionado, sin resolver**: `https://app.punto.la/favicon.ico`
+devuelve **404 con el HTML del panel** (`text/html`, 10 KB) porque el proyecto
+sirve `app/icon.png` y no hay `.ico`. No afecta al MCP —la identidad va por el
+handshake— pero cualquier cliente que pida `/favicon.ico` y no parsee HTML se
+queda sin ícono.
+
 ## Rate limit (2026-08-30)
 
 Aplicado en el mismo embudo que el read-only (`apiAuthTenant()`), reusando el

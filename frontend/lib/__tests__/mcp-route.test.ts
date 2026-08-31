@@ -136,6 +136,26 @@ describe("route MCP", () => {
     expect(result?.serverInfo).toMatchObject({ name: "punto" })
   })
 
+  it("el handshake lleva la identidad con la que el cliente dibuja el conector", async () => {
+    // El cliente NO cae al favicon del dominio: si el handshake no manda
+    // `title`/`icons`, el conector aparece sin marca. Y los `src` tienen que ser
+    // absolutos — el cliente los busca desde su propio proceso, no desde el
+    // navegador del usuario, así que una ruta relativa no resuelve.
+    const { POST } = await import("../../app/api/mcp/route")
+    const res = await POST(rpc(INITIALIZE, AUTH))
+    const body = await readRpc(res)
+    const info = (body.result as { serverInfo?: Record<string, unknown> })?.serverInfo ?? {}
+
+    expect(info.title, "sin title el conector muestra el name crudo").toBeTruthy()
+    expect(info.websiteUrl).toMatch(/^https?:\/\//)
+
+    const icons = (info.icons ?? []) as { src: string; theme?: string }[]
+    expect(icons.length, "sin icons el conector queda sin logo").toBeGreaterThan(0)
+    for (const i of icons) expect(i.src, `icon relativo: ${i.src}`).toMatch(/^https?:\/\//)
+    // Claro y oscuro: un logo pensado para un tema se ve mal en el otro.
+    expect(icons.map((i) => i.theme).sort()).toEqual(["dark", "light"])
+  })
+
   it("lista las tools de lectura y NO render_chart", async () => {
     const { POST } = await import("../../app/api/mcp/route")
     await POST(rpc(INITIALIZE, AUTH))
