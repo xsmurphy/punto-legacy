@@ -5,6 +5,10 @@ import { useChat } from "@ai-sdk/react"
 import { DefaultChatTransport } from "ai"
 import { getDeviceToken } from "@/lib/auth/device-token"
 import { useLockStore } from "@/lib/pos/lock-store"
+import {
+  useChatHistoryStore,
+  useChatHistoryHydrated,
+} from "@/lib/agent/chat-history-store"
 
 /**
  * Hook del chat del asistente de la CAJA.
@@ -15,10 +19,8 @@ import { useLockStore } from "@/lib/pos/lock-store"
  * No es por gusto de tener lo propio. El hook del panel tiene cinco bloques y
  * NINGUNO aplica acá:
  *
- *   1. Persistencia en `chat-history-store` (localStorage) + hidratación al
- *      mount, con el flag anti-race del primer persist vacío. La caja es una
- *      TABLET COMPARTIDA: rehidratar la conversación del cajero anterior es
- *      justo lo que no queremos. El thread muere con el diálogo.
+ *   1. (YA NO: ver "El historial es de la persona", abajo.) Los otros cuatro
+ *      siguen sin aplicar.
  *   2. Redacción de credenciales con TTL de 60s. Existe porque el agente del
  *      panel puede crear usuarios y devolver un `tempPassword`. En la caja
  *      `create_user` está bloqueada por realm en el backend
@@ -71,6 +73,26 @@ import { useLockStore } from "@/lib/pos/lock-store"
  * En un desbloqueo OFFLINE el PIN se valida contra el roster cacheado y no hay
  * token: el chat sigue funcionando para consultar (cuando vuelva la red) y no
  * ofrece cambios. Es el fail-closed correcto, no un bug.
+ *
+ * ─────────────────────────────────────────────────────────────────────────
+ * EL HISTORIAL ES DE LA PERSONA, NO DEL DISPOSITIVO
+ *
+ * Owner, 2026-08-31: "el historial debe estar atado al User ID siempre, tanto
+ * en panel como en /pos", después de ver que al refrescar la página se perdía
+ * la conversación.
+ *
+ * Este hook NO persistía por una razón buena —una tablet la comparten tres
+ * personas por turno y rehidratar la charla del anterior es exactamente lo que
+ * no se quiere—, pero la conclusión era demasiado gruesa: recargar la página no
+ * es cambiar de persona. Con `chat-history-store` segmentado por usuario el
+ * problema desaparece de raíz: cada operador tiene su propio cajón y nunca ve
+ * el de otro.
+ *
+ * El dueño acá es el OPERADOR del PIN (`activeUser.id`), NUNCA el device: el
+ * Bearer identifica la tablet, y atar el historial a eso sería volver a
+ * mezclar a todos en un solo hilo. Con la caja bloqueada no hay dueño, el id
+ * es "" y el store no persiste ni hidrata — así el thread del turno anterior no
+ * queda colgado esperando a que alguien lo lea.
  */
 export function usePosAgentChat({
   companyName,
@@ -114,10 +136,45 @@ export function usePosAgentChat({
     },
   })
 
-  /** Vacía el thread. No hay historial persistido que borrar (ver docblock). */
+  // Dueño del historial: la persona que desbloqueó con su PIN. Con la caja
+  // bloqueada es "" y el store ignora tanto el guardado como la hidratación.
+  const operatorId = useLockStore((s) => s.activeUser?.id ?? "")
+  const setStored = useChatHistoryStore((s) => s.setMessages)
+  const storeHydrated = useChatHistoryHydrated()
+  const { setMessages } = chat
+
+  // Hidratación: una vez POR OPERADOR. La ref guarda a quién se hidrató, no un
+  // booleano, porque en la misma pestaña se suceden varias personas: con un
+  // flag, el segundo cajero se quedaría con el thread en blanco del arranque en
+  // vez del suyo.
+  const hydratedFor = React.useRef<string | null>(null)
+  React.useEffect(() => {
+    if (!storeHydrated) return
+    if (hydratedFor.current === operatorId) return
+    hydratedFor.current = operatorId
+    // Al bloquear (operatorId "") el thread se vacía: lo que quede en pantalla
+    // es de alguien que ya se fue, incluidas las tarjetas de confirmación que
+    // el backend le rechazaría al siguiente de todos modos.
+    setMessages(
+      operatorId
+        ? ((useChatHistoryStore.getState().histories[operatorId] ?? []) as typeof chat.messages)
+        : [],
+    )
+  }, [storeHydrated, operatorId, setMessages])
+
+  // Persistencia: mientras haya dueño. El store recorta y redacta.
+  React.useEffect(() => {
+    if (!operatorId || !storeHydrated) return
+    if (hydratedFor.current !== operatorId) return // no pisar antes de hidratar
+    setStored(operatorId, chat.messages)
+  }, [chat.messages, operatorId, setStored, storeHydrated])
+
+  /** Vacía el thread en pantalla Y el historial guardado de esta persona. */
+  const clearStored = useChatHistoryStore((s) => s.clear)
   const clear = React.useCallback(() => {
     chat.setMessages([])
-  }, [chat])
+    clearStored(operatorId)
+  }, [chat, clearStored, operatorId])
 
   return { ...chat, clear }
 }
