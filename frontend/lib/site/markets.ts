@@ -56,6 +56,8 @@ export type Market = {
     whatsappNumero: string
     direccion: string
     coords: { lat: number; lng: number }
+    /** Sin @ — usuario de Instagram. */
+    instagram: string
   }
   /**
    * Rubros que se ofrecen en este mercado (slugs de `rubros.ts`). `null`
@@ -90,6 +92,7 @@ export const MARKETS: Record<MarketCode, Market> = {
       direccion:
         "Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay",
       coords: { lat: -25.2853893, lng: -57.5696954 },
+      instagram: "tupuntoapp",
     },
     rubros: null,
     ejemplos: { escala: 1, redondeo: 1 },

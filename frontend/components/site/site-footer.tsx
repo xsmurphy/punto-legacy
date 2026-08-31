@@ -4,7 +4,7 @@ import { PuntoLogo } from "@/components/layout/punto-logo"
 import { FEATURE_CARDS } from "@/lib/site/modules"
 import { RUBROS, RUBRO_GRUPOS } from "@/lib/site/rubros"
 import { MODULOS } from "@/lib/site/modulos"
-import { WHATSAPP_URL } from "@/lib/site/contacto"
+import { INSTAGRAM_URL, WHATSAPP_URL } from "@/lib/site/contacto"
 
 const RECURSOS = [
   { label: "Precios", href: "/precios" },
@@ -66,7 +66,9 @@ export function SiteFooter() {
             </p>
             <div className="flex items-center gap-4">
               <Link
-                href="#"
+                href={INSTAGRAM_URL}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="text-sm text-white/65 transition-colors hover:text-white"
               >
                 Instagram

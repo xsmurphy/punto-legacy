@@ -16,3 +16,6 @@ export const MAPS_EMBED_URL = `https://www.google.com/maps?q=${CONTACTO.coords.l
 
 /** Link para abrir la ubicación en Google Maps. */
 export const MAPS_URL = `https://www.google.com/maps/search/?api=1&query=${CONTACTO.coords.lat},${CONTACTO.coords.lng}`
+
+/** Link al perfil de Instagram. */
+export const INSTAGRAM_URL = `https://instagram.com/${CONTACTO.instagram}`
