@@ -7,6 +7,14 @@
  * `<DataTable>` (convención de todo listado largo: search, sort, export XLSX,
  * column-toggle persistido).
  *
+ * COMPOSICIÓN — este tab es la excepción al rediseño de escritorio del
+ * 2026-08-31: no se partió en columnas a propósito. Su contenido es UNA tabla
+ * de quince columnas, que a ancho completo ya usa toda la pantalla (de hecho
+ * scrollea en horizontal); meterla en 2/3 para poner algo al lado le sacaría
+ * las columnas que el owner pidió ver de entrada. Los KPIs de arriba ya van en
+ * fila. Si en algún momento se le suma un gráfico, ahí sí corresponde la fila
+ * de dos columnas.
+ *
  * Los encabezados del identificador fiscal y del documento personal salen de
  * `resolveTaxIdLabel` / `resolvePersonalIdLabel`: escribir "RUC" o "Cédula"
  * literales afirmaría Paraguay en un panel que ya es multi-país.

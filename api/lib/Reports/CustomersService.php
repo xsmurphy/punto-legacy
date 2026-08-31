@@ -305,6 +305,21 @@ final class CustomersService
         $tasaCrecimiento = $previos > 0 ? (($totalActivos - $previos) / $previos) * 100 : null;
         $tasaRetorno     = $totalActivos > 0 ? ($conDosOMas / $totalActivos) * 100 : null;
 
+        // ── 4. Padrón completo: cuántos clientes tiene cargados el comercio ──
+        // Mismo criterio que `geography()` (contacto de tipo cliente, activo).
+        // NO va scopeado por outlet a propósito: un contacto pertenece a la
+        // empresa, no a una sucursal, así que este número no cambia con el
+        // view-scope mientras `activos` sí. Es el denominador honesto del
+        // desglose nuevos/recurrentes: dice cuánta de la cartera se movió.
+        $padron = $this->fetchOne(
+            "SELECT COUNT(*) AS n
+               FROM contact
+              WHERE companyId = ?
+                AND type = 1
+                AND contactStatus = 1",
+            [$companyId]
+        );
+
         return [
             'periodo' => [
                 'from'         => $from,
@@ -320,6 +335,8 @@ final class CustomersService
                 'recurrentes' => $totalActivos - $totalNuevos,
                 'compras'     => $totalCompras,
                 'facturado'   => $totalFacturado,
+                // Padrón entero del comercio: ni el período ni el outlet lo acotan.
+                'registrados' => (int) ($padron['n'] ?? 0),
             ],
             'tasas' => [
                 'retorno'     => $tasaRetorno,

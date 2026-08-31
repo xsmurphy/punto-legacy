@@ -368,6 +368,12 @@ export interface CustomersDashboard {
     recurrentes: number
     compras: number
     facturado: number
+    /**
+     * Padrón completo de clientes del comercio (contactos activos de tipo
+     * cliente). No lo acotan ni el período ni el view-scope de sucursal —
+     * es el universo contra el que se lee cuántos se movieron.
+     */
+    registrados: number
   }
   tasas: {
     /** Activos con 2+ compras dentro del período / activos. */
