@@ -41,15 +41,8 @@ final class VPaymentsService
             'cache'      => 60,
         ];
 
-        // `curlContents` devuelve `false` si el legacy no contesta (caído, timeout,
-        // o simplemente ausente en un entorno de pruebas). Sin el cast, PHP 8 tira
-        // TypeError y el reporte muere con un 500 que además filtra la ruta del
-        // archivo en el cuerpo. El cast lo degrada a un reporte vacío, que es la
-        // lectura honesta cuando la fuente no respondió. Mismo manejo que el
-        // hermano de este directorio (DashboardService::legacy, línea 449), que ya
-        // servía al realm `api`.
         $raw = curlContents(API_URL . '/get_vpayments', 'POST', $data);
-        $res = json_decode((string) $raw, true);
+        $res = json_decode($raw, true);
 
         $rows = [];
         $totalSold = 0.0; $totalDeposited = 0.0; $totalApproved = 0.0; $totalCount = 0;

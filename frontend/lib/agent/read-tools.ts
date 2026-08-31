@@ -176,7 +176,12 @@ export const REPORT_ROUTES = {
   compras_y_gastos: { path: "/v1/reports/purchases", ranged: true },
   movimientos_de_caja: { path: "/v1/reports/expenses", ranged: true },
   control_de_cajas: { path: "/v1/reports/drawers", ranged: true },
-  pagos_epos: { path: "/v1/reports/vpayments", ranged: true },
+  // `pagos_epos` (`/v1/reports/vpayments`) NO se expone: el módulo ePOS está
+  // muerto y su pantalla ya salió del panel. Un reporte muerto en el catálogo
+  // no es neutro — el modelo lo lee como una opción válida y lo elige, para
+  // recibir un error o una lista vacía que después interpreta como "no hubo
+  // pagos". El endpoint sigue existiendo para el panel; lo que se saca es la
+  // oferta al agente.
   inventario: { path: "/v1/reports/inventory", ranged: true },
   stock: { path: "/v1/reports/stock", ranged: false },
   produccion: { path: "/v1/reports/production", ranged: true },

@@ -160,7 +160,6 @@ try {
         ['v1/reports/orders.php',           ''],
         ['v1/reports/purchases.php',        'view=general'],
         ['v1/reports/expenses.php',         ''],
-        ['v1/reports/vpayments.php',        ''],
         ['v1/reports/inventory.php',        ''],
         ['v1/reports/production.php',       ''],
         ['v1/reports/satisfaction.php',     ''],
