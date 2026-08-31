@@ -43,7 +43,6 @@ const GROUPS: ReportGroup[] = [
       { title: "Medios de pago",           to: "/reports/payment-methods", implemented: true  },
       { title: "Órdenes",                  to: "/reports/orders",          implemented: true  },
       { title: "Análisis de clientes",     to: "/reports/customers",       implemented: true  },
-      { title: "Calificación de clientes", to: "/reports/satisfaction",    implemented: true  },
     ],
   },
   {
@@ -71,9 +70,8 @@ const GROUPS: ReportGroup[] = [
     title: "Operaciones y equipo",
     description: "Tu gente y las operaciones del día a día.",
     items: [
-      { title: "Staff y usuarios", to: "/reports/users",    implemented: true  },
-      { title: "Agendamientos",    to: "/reports/schedule", implemented: true  },
-      { title: "Auditoría",        to: "/reports/audit",    implemented: true  },
+      { title: "Equipo",    to: "/reports/users", implemented: true  },
+      { title: "Auditoría", to: "/reports/audit", implemented: true  },
     ],
   },
 ]

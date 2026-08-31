@@ -1,13 +1,17 @@
 "use client"
 
 /**
- * Reporte Staff y Usuarios — espejo de panel/reports/users.html.
+ * Reporte Equipo — espejo de panel/reports/users.html.
  *
  * Backend: GET /v1/reports/users?from=&to=
  * → array de filas: { userId, name, usold, total, comission, discount, count }
  *
  * El reporte es date-scoped (por período). Muestra ventas, comisiones y
- * descuentos por usuario/recurso. Incluye usuarios sin actividad (total=0).
+ * descuentos por persona. Incluye usuarios sin actividad (total=0).
+ *
+ * La atribución es COALESCE(vendedor de la línea, operador de la venta): ver el
+ * comentario en api/lib/Reports/UsersService.php. La comisión, en cambio, sigue
+ * siendo la que se congeló por línea al vender — no se recalcula acá.
  */
 
 import * as React from "react"
@@ -117,9 +121,9 @@ export default function UsersReportPage() {
       <header className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="flex flex-col gap-1">
           <BackLink />
-          <h1 className="text-2xl font-semibold">Staff y Usuarios</h1>
+          <h1 className="text-2xl font-semibold">Equipo</h1>
           <p className="text-sm text-muted-foreground">
-            Ventas, unidades y comisiones por usuario/recurso del período.
+            Ventas, unidades y comisiones por persona del período.
           </p>
         </div>
         <DateRangePicker value={range} onChange={setRange} />
@@ -155,11 +159,11 @@ export default function UsersReportPage() {
         getRowId={(r) => r.userId}
         isLoading={isLoading}
         searchPlaceholder="Buscar por usuario…"
-        exportFileName="staff_usuarios"
+        exportFileName="equipo"
         emptyMessage={
           <EmptyState
             icon={Users}
-            title="Sin datos de usuarios"
+            title="Sin datos del equipo"
             description="Ajustá el rango de fechas y volvé a consultar."
           />
         }

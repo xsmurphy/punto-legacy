@@ -7,7 +7,6 @@ import {
   Bookmark,
   Boxes,
   Building2,
-  CalendarClock,
   CalendarDays,
   ChartPie,
   ClipboardEdit,
@@ -49,7 +48,6 @@ import {
   ShieldCheck,
   ShoppingBasket,
   SquareKanban,
-  Star,
   Tag,
   TrendingUp,
   Truck,
@@ -470,15 +468,6 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["customers", "ranking clientes", "consumo", "loyalty"],
   },
   {
-    to: "/reports/satisfaction",
-    title: "Calificación de clientes",
-    paletteTitle: "Reportes · Calificación de clientes",
-    icon: Star,
-    surface: "palette",
-    paletteGroup: "Reportes",
-    keywords: ["satisfaction", "encuesta", "nps", "feedback", "estrellas", "opinion"],
-  },
-  {
     to: "/reports/drawers",
     title: "Control de cajas",
     paletteTitle: "Reportes · Control de cajas",
@@ -535,21 +524,14 @@ export const PANEL_ROUTES: RouteEntry[] = [
   },
   {
     to: "/reports/users",
-    title: "Staff y usuarios",
-    paletteTitle: "Reportes · Staff y usuarios",
+    title: "Equipo",
+    paletteTitle: "Reportes · Equipo",
     icon: UserCog,
     surface: "palette",
     paletteGroup: "Reportes",
-    keywords: ["users", "staff", "cajeros", "vendedores", "desempeño", "comisiones"],
-  },
-  {
-    to: "/reports/schedule",
-    title: "Agendamientos",
-    paletteTitle: "Reportes · Agendamientos",
-    icon: CalendarClock,
-    surface: "palette",
-    paletteGroup: "Reportes",
-    keywords: ["schedule", "agenda", "turnos", "citas", "reservas"],
+    // "staff"/"usuarios" siguen como keywords: el módulo se renombró a Equipo
+    // pero los cajeros lo buscan por el nombre viejo.
+    keywords: ["users", "staff", "usuarios", "cajeros", "vendedores", "desempeño", "comisiones"],
   },
   {
     to: "/reports/audit",

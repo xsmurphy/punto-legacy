@@ -19,7 +19,22 @@ final class UsersService
     {
         $rows = [];
 
-        $sql = 'SELECT i.userId AS userid,
+        // `itemSold.userId` NO es quien hizo la venta: es el vendedor asignado A
+        // LA LÍNEA (la función "vendedor por línea" del POS, line-seller-dialog).
+        // Es una columna NULLABLE que solo se escribe si el cajero asigna un
+        // vendedor a mano (SaleService::2171 → `$sD['user'] ?: null`). Como casi
+        // nadie la usa, el JOIN contra ella no matcheaba ninguna fila y el
+        // reporte salía en cero para todos — el bug que reportó el owner.
+        //
+        // `transaction.userId` sí es el operador que emitió la venta (NOT NULL,
+        // sale de `$this->ctx->userId`). El COALESCE atribuye cada línea a su
+        // vendedor propio cuando lo tiene, y al operador de la venta cuando no
+        // — que es lo que un reporte llamado "Equipo" tiene que mostrar.
+        //
+        // Identificadores sin comillas a propósito: `itemSold` y `transaction`
+        // se crearon sin comillas en el schema, así que Postgres ya plegó las
+        // columnas a minúsculas y `i.userId` resuelve a `userid`.
+        $sql = 'SELECT COALESCE(i.userId, t.userId) AS userid,
                        c.contactName AS name,
                        SUM(i.itemSoldUnits)     AS usold,
                        SUM(i.itemSoldTotal)     AS total,
@@ -28,14 +43,14 @@ final class UsersService
                        COUNT(i.transactionId)   AS count
                 FROM itemSold i
                 JOIN transaction t ON i.transactionId = t.transactionId
-                JOIN contact c     ON i.userId = c.contactId
+                JOIN contact c     ON COALESCE(i.userId, t.userId) = c.contactId
                 WHERE t.transactionDate >= ? AND t.transactionDate <= ?
                   AND t.companyId = ?
                   AND t.transactionType IN (0, 3, 6)
                   AND ' . SaleFilters::notVoidedSql('t') . '
                   AND c.contactStatus = 1
                   AND c.type = 0
-                GROUP BY i.userId, c.contactName';
+                GROUP BY COALESCE(i.userId, t.userId), c.contactName';
 
         $res = ncmExecute($sql, [$from, $to, $companyId], false, true);
         if ($res && is_object($res)) {
