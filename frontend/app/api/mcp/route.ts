@@ -32,7 +32,7 @@ import { buildReadOnlyFetchTools } from "@/lib/agent/read-tools"
  * pinta la UI del chat y acá no hay UI). Las mutaciones nunca estuvieron en el
  * catálogo: viven en `confirm-tool.ts` detrás de una confirmación humana que un
  * cliente MCP no tiene (D5). Y aunque alguien las expusiera, el backend corta:
- * el realm `mcp` es read-only en `apiAuthTenant()`.
+ * el realm `api` es read-only en `apiAuthTenant()`.
  */
 
 export const runtime = "nodejs"
@@ -81,28 +81,28 @@ function resolveBearer(req: Request): string {
   return ""
 }
 
+/**
+ * Sin credencial NO se responde 401: el 401 es lo que dispara OAuth en el
+ * cliente MCP. La UI de Connectors de Claude Desktop, al recibirlo, intenta
+ * dynamic client registration contra endpoints que este server no tiene
+ * (verificado contra prod: `WWW-Authenticate` ausente, los `/.well-known/*` y
+ * `/register` dan 404) y muere con "Couldn't register with Punto's sign-in
+ * service" ANTES de mandar una sola request al route. Los "Additional request
+ * headers" del conector viajan en TODAS las requests, así que la key por
+ * `x-api-key` llega igual — pero solo si el handshake no aborta primero.
+ *
+ * Por eso `initialize` y `tools/list` responden sin key y la exigencia vive en
+ * la ejecución de cada tool. No baja la seguridad: la validez de la key nunca
+ * se resolvió acá sino en la API en cada llamada (`authResolve`), y el listado
+ * ya salía con cualquier key inventada — el catálogo de tools es público de
+ * hecho, los DATOS siguen detrás del gate real del backend.
+ */
+const MISSING_KEY_MESSAGE =
+  "Falta la API key de Punto. Mandala en el header `x-api-key` (o `Authorization: Bearer <key>`). " +
+  "La generás en Ajustes → Keys de integración."
+
 async function handle(req: Request): Promise<Response> {
   const authHeader = resolveBearer(req)
-  if (authHeader === "") {
-    // Rechazo temprano por ausencia de credencial. La VALIDEZ de la key no se
-    // chequea acá: la resuelve la API en cada llamada (`authResolve`, realm
-    // `mcp`). Verificarla en este punto costaría un roundtrip extra por
-    // request para adelantar un error que igual va a llegar — y duplicaría en
-    // el front una decisión que es del backend.
-    return Response.json(
-      {
-        jsonrpc: "2.0",
-        error: {
-          code: -32001,
-          message:
-            "Falta la API key de Punto. Mandala en el header `x-api-key` (o `Authorization: Bearer <key>`). " +
-            "La generás en Ajustes → Keys de integración.",
-        },
-        id: null,
-      },
-      { status: 401 },
-    )
-  }
 
   const apiUrl = process.env.API_URL ?? ""
   if (apiUrl === "") {
@@ -132,6 +132,12 @@ async function handle(req: Request): Promise<Response> {
       name,
       { description: def.description, inputSchema: def.inputSchema },
       async (args: unknown) => {
+        // La exigencia de credencial vive acá y no en el embudo (ver arriba):
+        // como error DE TOOL y no de protocolo, el modelo del cliente lo lee y
+        // le explica al usuario qué configurar, en vez de un fallo opaco.
+        if (authHeader === "") {
+          return { content: [{ type: "text" as const, text: MISSING_KEY_MESSAGE }], isError: true }
+        }
         const result = await (def.execute as (i: unknown) => Promise<unknown>)(args)
         // El resultado va como texto JSON: es lo que el protocolo transporta, y
         // el modelo del cliente lo lee igual de bien que un objeto.

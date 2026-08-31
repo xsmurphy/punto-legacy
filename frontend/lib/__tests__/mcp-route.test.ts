@@ -10,7 +10,11 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest"
  * falla más probable: que el server arranque pero hable mal el protocolo.
  *
  * También fija dos propiedades de seguridad del route:
- *  - Sin credencial no se atiende NADA, ni siquiera el listado de tools.
+ *  - Sin credencial el handshake y el listado SÍ responden (un 401 dispara el
+ *    flujo OAuth del cliente, que este server no habla — la UI de Connectors
+ *    moría en dynamic client registration sin llegar a mandar nada), pero
+ *    ejecutar una tool devuelve error de tool pidiendo la key. Los datos
+ *    siguen detrás del gate real: la API valida la key en cada llamada.
  *  - La key entra por `x-api-key` además de por `Authorization`: la UI de
  *    Connectors de Claude RESERVA `authorization` para su propio bearer de
  *    OAuth y solo deja elegir los alternativos, así que sin eso la única
@@ -85,12 +89,32 @@ describe("route MCP", () => {
     expect(res.headers.get("allow")).toBe("POST")
   })
 
-  it("rechaza sin Authorization, antes de exponer nada", async () => {
+  it("initialize responde 200 SIN credencial — un 401 dispararía OAuth en el cliente", async () => {
     const { POST } = await import("../../app/api/mcp/route")
     const res = await POST(rpc(INITIALIZE))
-    expect(res.status).toBe(401)
+    expect(res.status).toBe(200)
     const body = await readRpc(res)
-    expect(JSON.stringify(body)).toContain("API key")
+    expect((body.result as Record<string, unknown>)?.serverInfo).toMatchObject({ name: "punto" })
+  })
+
+  it("ejecutar una tool sin credencial devuelve error de tool pidiendo la key", async () => {
+    const { POST } = await import("../../app/api/mcp/route")
+    await POST(rpc(INITIALIZE))
+    const res = await POST(
+      rpc({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "get_sales_summary", arguments: { year: 2026 } },
+      }),
+    )
+    expect(res.status).toBe(200)
+    const body = await readRpc(res)
+    const result = body.result as { isError?: boolean; content?: { text?: string }[] } | undefined
+    expect(result?.isError).toBe(true)
+    expect(result?.content?.[0]?.text).toContain("API key")
+    // Y no tocó la API: sin key no sale ningún fetch.
+    expect(posFetchMock).not.toHaveBeenCalled()
   })
 
   it("acepta la key por x-api-key, que es lo que ofrece la UI de Connectors", async () => {
