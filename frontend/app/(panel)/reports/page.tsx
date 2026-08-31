@@ -54,7 +54,6 @@ const GROUPS: ReportGroup[] = [
       { title: "Balance",       to: "/reports/balance",       implemented: true  },
       { title: "Flujo de efectivo", to: "/reports/cashflow",  implemented: true  },
       { title: "Control de cajas", to: "/reports/drawers",    implemented: true  },
-      { title: "Pagos ePOS",    to: "/reports/vpayments",     implemented: true  },
       { title: "Resumen anual", to: "/reports/summary-year",  implemented: true  },
     ],
   },

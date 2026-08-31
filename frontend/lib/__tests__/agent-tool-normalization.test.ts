@@ -438,7 +438,13 @@ describe("resolución de moneda desde el catálogo", () => {
       }),
     )
     const tools = buildReadTools(ctx)
-    const out = (await tools.get_transactions.execute({})) as Record<string, unknown>
+    // `limit` es obligatorio en el schema de la tool: el `{}` pelado tipaba mal
+    // y rompía `tsc` (y con él el build del Front). El caso que se prueba es el
+    // 403, así que el valor no importa mientras sea válido.
+    const out = (await tools.get_transactions.execute({ limit: 1 })) as Record<
+      string,
+      unknown
+    >
     expect(String(out.error)).toContain("403")
     expect(calls.some((u) => u.includes("/v1/settings"))).toBe(false)
   })

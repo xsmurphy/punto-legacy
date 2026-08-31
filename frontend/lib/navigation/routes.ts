@@ -507,15 +507,6 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["balance", "activo", "pasivo", "patrimonio", "situacion", "cuanto tengo"],
   },
   {
-    to: "/reports/vpayments",
-    title: "Pagos ePOS",
-    paletteTitle: "Reportes · Pagos ePOS",
-    icon: CreditCard,
-    surface: "palette",
-    paletteGroup: "Reportes",
-    keywords: ["vpayments", "epos", "pagos electronicos", "pasarela", "qr"],
-  },
-  {
     to: "/reports/inventory",
     title: "Movimientos de inventario",
     paletteTitle: "Reportes · Movimientos de inventario",
