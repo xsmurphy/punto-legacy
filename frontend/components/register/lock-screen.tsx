@@ -320,7 +320,23 @@ export function LockScreen() {
       role="dialog"
       aria-modal="true"
       aria-label="Pantalla bloqueada"
-      className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-background safe-area"
+      // El teclado virtual se descuenta acá y no se hereda del shell: esta
+      // pantalla es `position: fixed`, y un fijo resuelve contra el VIEWPORT
+      // aunque su ancestro sea el body fijado que `globals.css` ya achica con
+      // `--kb-inset`. O sea que sin esta línea el `justify-center` centra el
+      // PIN en la pantalla ENTERA y el teclado —que lo abre el input invisible
+      // de acá abajo— le tapa justamente los círculos (captura del owner,
+      // 2026-08-30). Es la única aplicación de la variable en este árbol, así
+      // que no hay nada que se le sume.
+      //
+      // `inset-x-0 top-0` en vez de `inset-0`: dejar `inset-0` y confiar en
+      // que el `bottom-[…]` gane la cascada es depender del orden en que
+      // Tailwind emite dos utilidades que escriben la misma propiedad. Los
+      // cuatro lados explícitos no dependen de eso.
+      //
+      // Las otras dos pantallas de este archivo (spinner y aviso sin PINs) no
+      // lo necesitan: no tienen campo, no abren teclado.
+      className="fixed inset-x-0 top-0 bottom-[var(--kb-inset)] z-[100] flex flex-col items-center justify-center bg-background safe-area"
     >
       {/*
        * Input invisible — captura el teclado virtual en mobile cuando el

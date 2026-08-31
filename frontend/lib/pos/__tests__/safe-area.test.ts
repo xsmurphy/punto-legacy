@@ -183,15 +183,21 @@ describe("cada superficie que toca un borde lo descuenta", () => {
     expect(read(rel)).toMatch(DECLARES_SAFE_AREA)
   })
 
-  it("cada overlay `fixed inset-0` del POS trae su propia declaración", () => {
-    // Se portalean fuera del shell: no hay padding que heredar.
+  it("cada overlay a pantalla completa del POS trae su propia declaración", () => {
+    // Se posicionan `fixed` contra el viewport: no hay padding que heredar del
+    // shell aunque estén montados adentro.
+    //
+    // El match es `fixed inset-` y no `fixed inset-0`: el lock screen pasó a
+    // `fixed inset-x-0 top-0 bottom-[var(--kb-inset)]` para que el teclado no
+    // le tape el PIN (2026-08-30), y con el patrón viejo la superficie que más
+    // importa —la única con un campo— se salía del guard justo al tocarla.
     for (const rel of [
       "components/register/lock-screen.tsx",
       "components/register/pos-loading-screen.tsx",
     ]) {
       const lines = read(rel)
         .split("\n")
-        .filter((line) => line.includes("fixed inset-0"))
+        .filter((line) => line.includes("fixed inset-"))
       expect(lines.length).toBeGreaterThan(0)
       for (const line of lines) {
         expect(line, `${rel}: overlay sin área segura → ${line.trim()}`).toMatch(

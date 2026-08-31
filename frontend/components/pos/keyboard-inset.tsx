@@ -45,12 +45,26 @@ export function PosKeyboardInset() {
     function measure() {
       frame = 0
       if (!vv) return
-      // Lo tapado = lo que hay entre el borde de abajo del viewport visual y el
-      // borde de abajo del de layout. `offsetTop` entra en la cuenta porque
-      // iOS desplaza el viewport visual hacia arriba para revelar el campo
-      // enfocado, y sin restarlo la medición se queda corta justo cuando más
-      // importa.
-      const covered = window.innerHeight - vv.height - vv.offsetTop
+      // Lo tapado = ALTURA del layout viewport menos ALTURA del visual. Nada
+      // más: los dos términos son alturas y la diferencia es exactamente el
+      // alto del teclado.
+      //
+      // `vv.offsetTop` NO va acá, y restarlo era el bug (capturas del owner,
+      // 2026-08-31: el teclado tapaba el PIN y la nota de venta, y NINGUNA
+      // pantalla se movía). `offsetTop` es POSICIÓN —cuánto desplazó el
+      // navegador el viewport visual dentro del de layout—, no alto. Cuando
+      // iOS desplaza para revelar el campo enfocado, ese valor crece hasta casi
+      // lo que mide el teclado, así que la resta se cancelaba sola: `covered`
+      // caía por debajo del umbral, el inset quedaba en 0 y todo el sistema
+      // —diálogos, drawers, shell— descontaba cero JUSTO cuando más importaba.
+      // El comentario anterior afirmaba lo contrario de lo que hacía el código.
+      //
+      // `max(0, …)`: en un navegador que achique el viewport de LAYOUT al abrir
+      // el teclado (Chrome con `interactive-widget=resizes-content`),
+      // `innerHeight` ya viene reducido y la diferencia da ~0 o negativa. Es el
+      // resultado correcto: ahí el contenido se reacomodó solo y no hay que
+      // descontar nada. La misma fórmula sirve para los dos comportamientos.
+      const covered = Math.max(0, window.innerHeight - vv.height)
       // Umbral: las barras del navegador entran y salen con ~60-90px de
       // diferencia y NO son un teclado. Ningún teclado virtual mide menos de
       // ~250px, así que 120 separa las dos cosas sin falsos positivos.

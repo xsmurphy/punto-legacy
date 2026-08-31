@@ -36,7 +36,8 @@ import { PosConfigSync } from "@/lib/pos/config-sync"
  * no un documento: escala fija. La legibilidad se resuelve con los tamaños
  * táctiles del propio POS (`[data-pos-touch]`), no con zoom del navegador.
  *
- * ALTURA DEL SHELL: `h-dvh`. NO usar `h-full` acá — se probó el 2026-08-26 y
+ * ALTURA DEL SHELL: `dvh` menos `--kb-inset` (el detalle, en el JSX de abajo).
+ * NO usar `h-full` acá — se probó el 2026-08-26 y
  * COLAPSA: el wrapper de `SidebarProvider` declara `min-h-svh` (un mínimo, no
  * una altura), así que un `height: 100%` del hijo no tiene contra qué resolver
  * y el shell termina midiendo solo su contenido. El gap del iPhone sigue
@@ -99,7 +100,28 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             alcanza para que el CONTENIDO lo esquive. Donde el inset es 0
             (desktop, tablets sin notch) las tres declaraciones valen 0 y no
             cambia nada. */}
-        <SidebarInset className="h-dvh overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem)]">
+        {/* ALTO DEL SHELL — el teclado virtual se descuenta ACÁ.
+
+            `dvh` mide el viewport de LAYOUT y el teclado no lo achica (en iOS
+            se dibuja encima; ver el docblock de `keyboard-inset.tsx`), así que
+            el body fijado de `globals.css`, que ya sube su borde inferior con
+            `--kb-inset`, no cambia cuánto mide `100dvh`. Sin esta resta el
+            shell seguiría midiendo la pantalla entera y su mitad de abajo
+            quedaría bajo el teclado — que es exactamente el síntoma que el
+            owner vio "en muchas cosas del POS" (2026-08-30).
+
+            Repetir el descuento acá NO es el doble-descuento que prohíbe la
+            regla de áreas seguras: no son dos restas encadenadas sobre la
+            misma caja, son dos cajas —la lámina del documento y el shell—
+            midiendo el mismo espacio visible. Encadenarlo sería que un hijo
+            del shell volviera a restar `--kb-inset`; eso no pasa: los únicos
+            consumidores de la variable son el dialog, el drawer y el lock
+            screen, y los tres se posicionan `fixed` contra el viewport, fuera
+            de este árbol de layout.
+
+            Con el teclado cerrado `--kb-inset` vale `0px` y las dos
+            expresiones colapsan a lo de siempre. */}
+        <SidebarInset className="h-[calc(100dvh-var(--kb-inset))] overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem-var(--kb-inset))]">
           {/* El trigger mobile del nav de módulos vivía acá como FAB flotante
               abajo a la derecha. Se movió al extremo izquierdo del toolbar del
               carrito (CartToolbar), junto al botón del menú principal, por

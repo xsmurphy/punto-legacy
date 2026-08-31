@@ -87,6 +87,7 @@ import { usePriceContext } from "@/hooks/use-price-context"
 import { useRegisterClaim } from "@/hooks/use-register-claim"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useWorkspaceStore, supportsFullscreen } from "@/lib/pos/workspace-store"
+import { usePosDebugStore } from "@/lib/pos/debug-store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { useCartStore } from "@/lib/cart/store"
 import { useRealtimeSync } from "@/hooks/use-realtime-sync"
@@ -182,6 +183,8 @@ function PosWorkspaceLayoutInner({
   // Nunca en los dos a la vez: montar dos veces duplicaría fetches, sockets y
   // estado local del módulo.
   const searchParams = useSearchParams()
+  // Interruptor persistente de la sonda de viewport (Ajustes → Diagnóstico).
+  const viewportProbe = usePosDebugStore((st) => st.viewportProbe)
   const hotkeysAsModule = pathname === "/pos" && wantsHotkeysModule(searchParams)
 
   // En móvil, el editor de hotkeys VIVE en el módulo-modal: si el modal se
@@ -254,10 +257,16 @@ function PosWorkspaceLayoutInner({
 
   return (
     <div className="relative flex h-full w-full flex-col overflow-hidden">
-      {/* Sonda de viewport: solo con `?debug=viewport`. Ver el docblock del
-          componente — existe porque en una PWA de iOS no hay devtools y el
-          "gap de abajo" se persiguió a ciegas tres veces. */}
-      {searchParams.get("debug") === "viewport" && <ViewportProbe />}
+      {/* Sonda de viewport. Ver el docblock del componente — existe porque en
+          una PWA de iOS no hay devtools y el "gap de abajo" se persiguió a
+          ciegas tres veces.
+
+          DOS disparadores, no uno: el `?debug=viewport` de siempre para el
+          browser, y el interruptor de Ajustes → Diagnóstico para la PWA
+          INSTALADA, que es como opera la caja y donde no hay barra de
+          direcciones en la que escribir un query param. Justo el modo donde
+          aparecen los bugs de viewport es el que no podía activarla. */}
+      {(searchParams.get("debug") === "viewport" || viewportProbe) && <ViewportProbe />}
       <PosDocumentTitle />
       <BeforeUnloadGuard />
       <HotkeysEditScope />

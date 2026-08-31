@@ -455,10 +455,56 @@ html[data-pos-touch] body {
    overlay del drawer cortado a la misma altura fue la prueba). Con el body
    fijado, WebKit solo puede mover el viewport VISUAL, que sí se restaura.
    El complemento activo vive en `keyboard-inset.tsx`: al cerrarse el teclado
-   fuerza `scrollTo(0,0)` por si algún resto quedó. */
+   fuerza `scrollTo(0,0)` por si algún resto quedó.
+
+   ── EL TECLADO ACHICA LA LÁMINA, NO CADA PANTALLA ─────────────────────────
+   `bottom: var(--kb-inset)` es la contracara de lo anterior. Fijar el body
+   impide que iOS scrollee la ventana para revelar el campo enfocado, pero eso
+   por sí solo deja el campo TAPADO: la app sigue midiendo la pantalla entera y
+   su mitad de abajo queda bajo el teclado. Fue el reporte del owner
+   (2026-08-30): la nota de línea, los descuentos, los montos y el asistente
+   escribían a ciegas — "está pasando con muchas cosas en el POS".
+
+   Se resuelve UNA vez acá, no pantalla por pantalla. Cada superficie que se
+   acordara de descontar `--kb-inset` por su cuenta es una que la próxima se
+   olvida; el documento del POS es una lámina fija y lo correcto es que la
+   lámina mida lo que se ve. Todo lo que sea descendiente en flujo normal, o se
+   dimensione contra el body, queda dentro de esa área sin saber que el teclado
+   existe — y lo que sobra lo recorta el `overflow: hidden` de arriba.
+
+   `height: auto` NO es cosmético: con `position: fixed`, si `top`, `height` y
+   `bottom` están los tres declarados, el navegador IGNORA `bottom` (caja
+   sobre-restringida). El `height: 100%` de la regla anterior dejaría este
+   descuento sin efecto y el bug se leería como "el CSS no hace nada". Con
+   `auto`, el alto sigue siendo definido (lo fijan `top` y `bottom`), así que
+   los hijos con `height: 100%` siguen resolviendo igual que antes.
+
+   DOS COSAS QUE ESTO NO ALCANZA A CUBRIR, y por qué NO son doble descuento
+   (ver la regla de un-inset-por-eje en § "Áreas seguras del dispositivo"):
+
+     1. Las unidades de viewport. `dvh` mide el viewport de LAYOUT, que el
+        teclado no achica — achicar el body no cambia cuánto mide `100dvh`.
+        El shell del POS se cuelga de `dvh` (`app/(pos)/layout.tsx`) porque el
+        wrapper del sidebar declara `min-h-svh` y un `height: 100%` colapsa,
+        así que ahí el descuento se repite EN LA MISMA EXPRESIÓN del alto. No
+        se suman: son dos cajas distintas midiendo el mismo espacio visible,
+        no dos restas encadenadas sobre la misma caja.
+     2. Lo que es `position: fixed`. Un body fijado no crea bloque contenedor
+        para sus descendientes fijos —solo lo hacen `transform`, `filter`,
+        `perspective`, `contain` y compañía—, así que los portales de Radix y
+        de vaul, que cuelgan del `<body>` y se posicionan `fixed`, siguen
+        resolviendo contra el VIEWPORT y este `bottom` no los mueve ni un
+        pixel. Por eso `components/ui/dialog.tsx` y `components/ui/drawer.tsx`
+        conservan su propio descuento: son el único que reciben. Lo mismo vale
+        para los overlays `fixed inset-0` montados dentro del shell, como el
+        lock screen — cada uno declara el suyo. */
 html[data-pos-touch] body {
     position: fixed;
-    inset: 0;
+    top: 0;
+    right: 0;
+    bottom: var(--kb-inset);
+    left: 0;
+    height: auto;
     width: 100%;
 }
 

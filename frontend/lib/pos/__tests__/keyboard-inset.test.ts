@@ -107,3 +107,159 @@ describe("los modales conviven con el teclado", () => {
     )
   })
 })
+
+/**
+ * El shell se achica UNA vez y las superficies fijas se achican solas.
+ *
+ * Lo anterior arreglaba modal por modal, y el owner volvió con "eso está
+ * pasando con muchas cosas en el POS" (2026-08-30): cualquier pantalla de ruta
+ * con un campo seguía escribiendo a ciegas. La corrección de fondo es que el
+ * documento del POS mida lo que se VE, así que ninguna pantalla nueva tenga
+ * que acordarse de nada.
+ *
+ * Estos tests fijan las dos mitades de esa corrección y, sobre todo, la
+ * frontera entre ellas: el descuento del shell y el de las superficies `fixed`
+ * NO se suman (son árboles distintos), pero encadenar dos restas dentro del
+ * MISMO árbol sí sería el bug — el mismo de "el botón de cobrar quedó
+ * demasiado arriba" que cuida `safe-area.test.ts`, un eje descontado dos veces.
+ */
+describe("el teclado achica la lámina del POS, no cada pantalla", () => {
+  it("el body fijado sube su borde inferior con el teclado", () => {
+    const css = read("app/globals.css")
+    const rule = css.match(/html\[data-pos-touch\] body \{[^}]*\}/g)?.at(-1) ?? ""
+    expect(rule, "el body del POS no descuenta el teclado").toMatch(
+      /bottom:\s*var\(--kb-inset\)/,
+    )
+    // `height: auto` es la mitad silenciosa del fix: con `position: fixed`, si
+    // `top`, `height` y `bottom` están los tres, el navegador ignora `bottom`.
+    // Sin esto el descuento de arriba no hace absolutamente nada y el síntoma
+    // vuelve entero.
+    expect(rule, "con height distinto de auto, `bottom` queda ignorado").toMatch(
+      /height:\s*auto/,
+    )
+  })
+
+  it("el shell repite el descuento porque `dvh` no ve el teclado", () => {
+    // El body achicado no cambia cuánto mide `100dvh` (viewport de LAYOUT), y
+    // el shell se cuelga de esa unidad porque `h-full` colapsa contra el
+    // `min-h-svh` del wrapper del sidebar. Va DENTRO de la misma expresión de
+    // alto: no es una segunda resta encadenada, es la misma medida.
+    const shell = read("app/(pos)/layout.tsx")
+    const inset = shell.match(/<SidebarInset[\s\S]*?>/)?.[0] ?? ""
+    expect(inset).toMatch(/h-\[calc\(100dvh-var\(--kb-inset\)\)\]/)
+    expect(inset).toMatch(/md:h-\[calc\(100dvh-1rem-var\(--kb-inset\)\)\]/)
+  })
+
+  it("nadie DENTRO del shell vuelve a restar el teclado", () => {
+    // La frontera: `--kb-inset` solo puede aparecer en superficies que se
+    // posicionan `fixed` contra el viewport —los portales de Radix y de vaul,
+    // y los overlays a pantalla completa—, más el propio shell. Un componente
+    // de ruta que la descuente estaría restando sobre un contenedor que ya
+    // está achicado, y su contenido terminaría flotando el alto del teclado
+    // por encima de donde va.
+    const allowed = new Set([
+      // La fuente y su sonda.
+      "components/pos/keyboard-inset.tsx",
+      "components/pos/viewport-probe.tsx",
+      "lib/pos/__tests__/keyboard-inset.test.ts",
+      // El default y la lámina.
+      "app/globals.css",
+      // El shell.
+      "app/(pos)/layout.tsx",
+      // Portales `fixed`: no son descendientes de nada del shell.
+      "components/ui/dialog.tsx",
+      "components/ui/drawer.tsx",
+      "components/register/customer-dialog.tsx",
+      // Overlay `fixed inset-x-0` a pantalla completa (el PIN).
+      "components/register/lock-screen.tsx",
+    ])
+    const offenders = allSourceFiles()
+      .filter((rel) => !allowed.has(rel))
+      .filter((rel) => stripComments(read(rel)).includes("--kb-inset"))
+    expect(
+      offenders,
+      `descuentan el teclado adentro del shell, que ya lo descontó: ${offenders.join(", ")}`,
+    ).toEqual([])
+  })
+
+  it("el lock screen centra el PIN sobre el hueco visible", () => {
+    // Es `fixed`, así que resuelve contra el VIEWPORT y el body achicado no lo
+    // toca: sin su propio descuento, el `justify-center` centra los círculos
+    // en la pantalla entera y el teclado numérico —que abre su propio input
+    // invisible— los tapa.
+    const lock = read("components/register/lock-screen.tsx")
+    expect(lock).toMatch(/fixed inset-x-0 top-0 bottom-\[var\(--kb-inset\)\]/)
+  })
+})
+
+/**
+ * La sonda tiene que ser alcanzable en la PWA instalada.
+ *
+ * `?debug=viewport` es inútil justo donde importa: la caja corre sin barra de
+ * direcciones, así que el único modo donde aparecen estos bugs es el único
+ * donde no se puede escribir el query param. El interruptor de Ajustes se SUMA
+ * al param, no lo reemplaza.
+ */
+describe("la sonda se puede prender sin URL", () => {
+  it("el montaje acepta el query param Y el interruptor", () => {
+    const layout = read("app/(pos)/pos/layout.tsx")
+    expect(layout).toMatch(
+      /searchParams\.get\("debug"\) === "viewport" \|\| viewportProbe/,
+    )
+  })
+
+  it("el interruptor es del DISPOSITIVO y sobrevive al reload", () => {
+    // Persistido, no en memoria: el POS se recarga y se bloquea sola, y una
+    // sonda que se apaga en cada reload no sirve para observar el arranque.
+    // Local y no en `posConfig` del register: es una herramienta de ESTE
+    // teléfono, no un ajuste del comercio que valga para todas sus cajas.
+    const store = read("lib/pos/debug-store.ts")
+    expect(store).toMatch(/persist\(/)
+    expect(store).toMatch(/localStorage/)
+  })
+
+  it("Ajustes del POS expone el interruptor", () => {
+    expect(read("components/register/pos-main-menu.tsx")).toContain(
+      "Diagnóstico de viewport",
+    )
+  })
+})
+
+/**
+ * La FÓRMULA de la medición — el bug que costó tres reportes del owner.
+ *
+ * `--kb-inset` se calculaba como `innerHeight - vv.height - vv.offsetTop`, y
+ * ese tercer término era el error: `offsetTop` es POSICIÓN (cuánto desplazó el
+ * navegador el viewport visual dentro del de layout), no altura. Cuando iOS
+ * desplaza para revelar el campo enfocado crece hasta casi lo que mide el
+ * teclado, así que la resta se cancelaba sola, `covered` caía bajo el umbral y
+ * la variable quedaba en 0 — con todo el sistema descontando cero JUSTO cuando
+ * el teclado estaba abierto. Las capturas del owner (2026-08-31) mostraban el
+ * PIN y la nota de venta tapados con la pantalla sin moverse un pixel.
+ *
+ * El síntoma es indistinguible de "no hay teclado", que es lo que lo hizo
+ * sobrevivir a dos rondas de arreglos en las superficies. Por eso se fija acá:
+ * quien toque la fórmula tiene que romper este test a propósito.
+ */
+describe("la medición del teclado no mezcla posición con altura", () => {
+  const source = stripComments(read("components/pos/keyboard-inset.tsx"))
+
+  it("no resta offsetTop del alto tapado", () => {
+    expect(
+      source,
+      "`offsetTop` es posición, no altura: restarlo anula la medición cuando iOS desplaza el viewport",
+    ).not.toMatch(/-\s*(vv|visualViewport)\.offsetTop/)
+  })
+
+  it("mide la diferencia de alturas entre el viewport de layout y el visual", () => {
+    expect(source).toMatch(/window\.innerHeight\s*-\s*vv\.height/)
+  })
+
+  it("nunca publica un inset negativo", () => {
+    // Un navegador que achique el viewport de LAYOUT (Chrome con
+    // `interactive-widget=resizes-content`) deja `innerHeight` ya reducido y la
+    // diferencia puede dar negativa. Ahí el contenido se reacomodó solo y el
+    // descuento correcto es 0, no un valor que empuje el layout al revés.
+    expect(source).toMatch(/Math\.max\(\s*0\s*,/)
+  })
+})

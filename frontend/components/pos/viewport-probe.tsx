@@ -73,7 +73,7 @@ export function ViewportProbe() {
         [
           "covered(calc)",
           vv
-            ? String(Math.round(window.innerHeight - vv.height - vv.offsetTop))
+            ? String(Math.max(0, Math.round(window.innerHeight - vv.height)))
             : "—",
         ],
         ["--safe-t", cs.getPropertyValue("--safe-t").trim() || "—"],

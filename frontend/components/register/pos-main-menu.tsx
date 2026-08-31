@@ -75,6 +75,7 @@ import {
 import { PuntoLogo } from "@/components/layout/punto-logo"
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { usePosDebugStore } from "@/lib/pos/debug-store"
 import { useHotkeysStore } from "@/lib/hotkeys/store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useCartStore } from "@/lib/cart/store"
@@ -2914,6 +2915,10 @@ function DeviceContextSelectors() {
 
 function AjustesPanel() {
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
+  // Sonda de viewport — local del DISPOSITIVO, no de la caja: ver el docblock
+  // de `lib/pos/debug-store.ts` y la sección "Diagnóstico" más abajo.
+  const viewportProbe = usePosDebugStore((s) => s.viewportProbe)
+  const setViewportProbe = usePosDebugStore((s) => s.setViewportProbe)
   // Módulo "POS físico Bancard" (panel → Módulos) — gatea la config de IP.
   const bancardPosEnabled = useCatalogStore((s) => s.config?.bancardPosEnabled ?? false)
   const { data, isLoading } = usePosRegisterConfig(activeRegisterId)
@@ -3061,6 +3066,35 @@ function AjustesPanel() {
                   />
                 </div>
               ))}
+            </div>
+          </div>
+
+          {/* Sección: Diagnóstico
+
+              Separada de "Opciones del POS" a propósito: aquellas son ajustes
+              del COMERCIO (viven en `posConfig` del register y valen para
+              cualquier dispositivo que abra esa caja); esto es una herramienta
+              de este teléfono y se guarda local (`lib/pos/debug-store.ts`).
+              Mezclarlas invita a que la próxima herramienta de debug termine
+              sincronizándose a todas las cajas del negocio. */}
+          <div>
+            <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Diagnóstico
+            </p>
+            <div className="flex items-center justify-between gap-3 px-1 py-3">
+              {/* `min-w-0`: mismo motivo que en los toggles de arriba — sin
+                  esto la descripción empuja el Switch fuera de la fila. */}
+              <div className="min-w-0">
+                <p className="text-sm">Diagnóstico de viewport</p>
+                <p className="text-xs text-muted-foreground">
+                  Muestra en pantalla las medidas del viewport y del teclado. Sirve
+                  para sacar una captura cuando algo queda tapado o desplazado.
+                </p>
+              </div>
+              <Switch
+                checked={viewportProbe}
+                onCheckedChange={setViewportProbe}
+              />
             </div>
           </div>
 
