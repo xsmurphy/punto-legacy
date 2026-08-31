@@ -336,6 +336,25 @@ del upsell de plan alto.
 consentimiento, sin copiar keys— pero ya NO bloquea la instalación. Queda como
 mejora, no como prerequisito.
 
+## El GET no puede colgar (hallazgo 2026-08-30)
+
+Segundo síntoma al conectar desde la UI de Connectors, ya con el `x-api-key`
+resuelto: *"Couldn't connect to the server. Check that the URL points to a valid
+MCP server."*
+
+La URL estaba bien y el POST respondía 200. Lo que fallaba era el **GET**:
+delegado al transporte en modo stateless, abría un stream SSE que nunca emitía
+ni cerraba, así que la request quedaba COLGADA hasta el timeout del cliente
+(`curl` da `HTTP 000` a los 15s). Claude sondea con GET al agregar el conector,
+espera, y reporta un error que apunta a la URL — que está bien.
+
+**Colgar es peor que rechazar**: manda a investigar el lugar equivocado. Ahora
+GET y DELETE devuelven 405 inmediato con `Allow: POST`, sin pasar por el
+transporte — los dos presuponen una sesión, y en stateless no hay ninguna.
+
+Guard en `lib/__tests__/mcp-route.test.ts`: el caso falla si el GET tarda más de
+2 segundos.
+
 ## Rate limit (2026-08-30)
 
 Aplicado en el mismo embudo que el read-only (`apiAuthTenant()`), reusando el

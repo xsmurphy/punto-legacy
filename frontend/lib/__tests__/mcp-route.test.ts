@@ -70,6 +70,21 @@ async function readRpc(res: Response): Promise<Record<string, unknown>> {
 }
 
 describe("route MCP", () => {
+  it("GET responde 405 al instante, no cuelga", async () => {
+    // Regresión concreta: delegar GET al transporte abría un stream SSE que
+    // nunca emitía ni cerraba, así que la request quedaba colgada hasta el
+    // timeout. Claude Desktop sondea con GET al agregar el conector y reportaba
+    // "Couldn't connect to the server" aunque el POST funcionara — un síntoma
+    // que manda a revisar la URL, que está bien.
+    const { GET } = await import("../../app/api/mcp/route")
+    const res = await Promise.race([
+      Promise.resolve(GET()),
+      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("el GET colgó")), 2000)),
+    ])
+    expect(res.status).toBe(405)
+    expect(res.headers.get("allow")).toBe("POST")
+  })
+
   it("rechaza sin Authorization, antes de exponer nada", async () => {
     const { POST } = await import("../../app/api/mcp/route")
     const res = await POST(rpc(INITIALIZE))

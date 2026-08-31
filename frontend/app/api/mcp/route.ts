@@ -146,8 +146,37 @@ async function handle(req: Request): Promise<Response> {
 }
 
 export const POST = handle
-// El transporte también atiende GET (stream SSE) y DELETE (cierre de sesión).
-// En stateless ninguno hace falta, pero un cliente puede sondearlos: que los
-// conteste el transporte es más honesto que un 405 nuestro.
-export const GET = handle
-export const DELETE = handle
+
+/**
+ * GET y DELETE se rechazan con 405 INMEDIATO, sin pasar por el transporte.
+ *
+ * GET es el stream SSE del protocolo y DELETE el cierre de sesión: los dos
+ * presuponen una sesión, y en stateless no hay ninguna. Delegarlos al
+ * transporte —que era la versión anterior de este archivo— hace que el GET abra
+ * un stream que nunca emite ni cierra: la request queda COLGADA hasta el
+ * timeout del cliente.
+ *
+ * Y colgar es peor que rechazar. Claude Desktop sondea con GET al agregar el
+ * conector, se queda esperando, y reporta "Couldn't connect to the server" —
+ * aunque el POST, que es por donde pasa todo el protocolo, funcione
+ * perfectamente. El síntoma manda a revisar la URL y el server, que están bien.
+ *
+ * 405 con `Allow: POST` le dice al cliente exactamente qué hacer, en
+ * milisegundos.
+ */
+function methodNotAllowed(): Response {
+  return Response.json(
+    {
+      jsonrpc: "2.0",
+      error: {
+        code: -32000,
+        message: "Este server MCP es stateless: usá POST. GET (stream SSE) y DELETE (cierre de sesión) no aplican.",
+      },
+      id: null,
+    },
+    { status: 405, headers: { Allow: "POST" } },
+  )
+}
+
+export const GET = methodNotAllowed
+export const DELETE = methodNotAllowed
