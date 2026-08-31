@@ -148,6 +148,21 @@ const nextConfig: NextConfig = {
       },
     ]
   },
+  // `/favicon.ico` servía el HTML del panel con 404: el proyecto usa
+  // `app/icon.png` y no existe ningún `.ico`. Cualquier cliente que pida esa
+  // ruta por convención —y hay varios que no parsean HTML— se quedaba sin
+  // ícono, y encima descargando 10 KB de markup.
+  //
+  // Se REESCRIBE al PNG en vez de generar un `.ico`: los clientes miran el
+  // `Content-Type`, no la extensión, y así no entra al repo un binario que
+  // nadie puede revisar en un diff. (Enfoque de la sesión de Fish, que tenía
+  // el mismo síntoma.)
+  //
+  // Rewrite y no redirect: un 301 obliga a un segundo request y algunos
+  // clientes de íconos no lo siguen.
+  async rewrites() {
+    return [{ source: "/favicon.ico", destination: "/icon.png" }]
+  },
 }
 
 // withSentryConfig: solo sube sourcemaps si hay SENTRY_AUTH_TOKEN (CI con auth).

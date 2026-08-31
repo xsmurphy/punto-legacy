@@ -445,11 +445,12 @@ relativa no resuelve. El host sale de `APP_URL`, no hardcodeado.
 Dato aportado por la sesión de Fish, que se topó con lo mismo en su propio
 server MCP.
 
-**Pendiente relacionado, sin resolver**: `https://app.punto.la/favicon.ico`
-devuelve **404 con el HTML del panel** (`text/html`, 10 KB) porque el proyecto
-sirve `app/icon.png` y no hay `.ico`. No afecta al MCP —la identidad va por el
-handshake— pero cualquier cliente que pida `/favicon.ico` y no parsee HTML se
-queda sin ícono.
+**Resuelto de paso**: `/favicon.ico` devolvía 404 con el HTML del panel
+(`text/html`, 10 KB) porque el proyecto sirve `app/icon.png` y no hay `.ico`. Se
+REESCRIBE al PNG (`next.config.ts` → `rewrites`) en vez de generar un binario:
+los clientes miran el `Content-Type`, no la extensión, y así no entra al repo un
+`.ico` que nadie puede revisar en un diff. Rewrite y no redirect, porque algunos
+clientes de íconos no siguen el 301.
 
 ## Rate limit (2026-08-30)
 
