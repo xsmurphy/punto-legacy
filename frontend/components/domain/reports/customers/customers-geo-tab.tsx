@@ -17,9 +17,11 @@
  * viven tus clientes", es una conclusión falsa sobre la que el dueño decide
  * dónde repartir. Por eso:
  *   - la cobertura se declara arriba de todo, con el número y el porcentaje;
- *   - por debajo de `COBERTURA_MINIMA_PCT` el mapa NO se dibuja solo: hay que
- *     pedirlo explícitamente, después de leer que la muestra no es
- *     representativa.
+ *   - por debajo de `COBERTURA_MINIMA_PCT` el mapa se dibuja IGUAL, pero con
+ *     la advertencia encima. Hasta el 2026-08-31 había que apretar un botón
+ *     para verlo y el owner preguntó por qué: la preocupación es real, pero
+ *     alcanza con decirlo. Esconder el dato detrás de un clic no informa
+ *     mejor — agrega fricción en cada visita y asume que nadie lee.
  *
  * El alcance tampoco es el del rango de fechas: es el padrón de clientes
  * completo (ver `CustomersService::geography`). Se dice en pantalla porque el
@@ -32,7 +34,6 @@ import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { MapPin } from "lucide-react"
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -126,7 +127,6 @@ export function CustomersGeoTab({
   isLoading: boolean
   bootstrap: Bootstrap | undefined
 }) {
-  const [mostrarMapaIgual, setMostrarMapaIgual] = React.useState(false)
 
   const cobertura = geo?.cobertura
   const totalClientes = cobertura?.clientes ?? 0
@@ -355,35 +355,35 @@ export function CustomersGeoTab({
                 showMarquee={false}
                 className="border-0 p-0"
               />
-            ) : coberturaBaja && !mostrarMapaIgual ? (
-              <Alert>
-                <AlertTitle>La muestra no representa a tu clientela</AlertTitle>
-                <AlertDescription className="flex flex-col items-start gap-3">
-                  <span>
-                    Solo {formatInt(conCoords, bootstrap)} de los{" "}
-                    {formatInt(totalClientes, bootstrap)} clientes tienen
-                    ubicación cargada ({coberturaPct.toFixed(0)}%). Un mapa
-                    hecho con esa fracción muestra dónde están los clientes que
-                    alguien geolocalizó, no dónde vive tu clientela — no sirve
-                    para decidir zonas de reparto ni de cobertura. Cargá la
-                    ubicación en más fichas y volvé.
-                  </span>
-                  <Button
-                    variant="outline"
-                    onClick={() => setMostrarMapaIgual(true)}
-                  >
-                    Ver el mapa igual
-                  </Button>
-                </AlertDescription>
-              </Alert>
             ) : (
-              <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-3">
+                {/* Con cobertura baja el mapa se dibuja IGUAL, con la
+                    advertencia arriba (owner, 2026-08-31: "¿por qué no muestra
+                    el mapa y pide dar click para mostrarlo?").
+
+                    Antes esto era un gate: había que apretar "Ver el mapa
+                    igual". La preocupación que lo motivó sigue siendo válida
+                    —una mancha hecha con el 17% de los clientes describe a
+                    quienes alguien geolocalizó, no a la clientela, y con eso no
+                    se deciden zonas de reparto— pero para eso alcanza con
+                    decirlo. Esconder el dato detrás de un clic no informa
+                    mejor: agrega fricción a cada visita y trata al usuario como
+                    si no pudiera leer una advertencia. */}
                 {coberturaBaja && (
-                  <p className="text-sm text-muted-foreground">
-                    Cobertura del {coberturaPct.toFixed(0)}%: la mancha describe
-                    a {formatInt(conCoords, bootstrap)} clientes, no a los{" "}
-                    {formatInt(totalClientes, bootstrap)}.
-                  </p>
+                  <Alert>
+                    <AlertTitle>
+                      La muestra no representa a tu clientela
+                    </AlertTitle>
+                    <AlertDescription>
+                      Solo {formatInt(conCoords, bootstrap)} de los{" "}
+                      {formatInt(totalClientes, bootstrap)} clientes tienen
+                      ubicación cargada ({coberturaPct.toFixed(0)}%). El mapa
+                      describe a esos {formatInt(conCoords, bootstrap)}, no a
+                      toda tu clientela: no lo uses para decidir zonas de
+                      reparto ni de cobertura hasta cargar la ubicación en más
+                      fichas.
+                    </AlertDescription>
+                  </Alert>
                 )}
                 <CustomersHeatmap points={puntos} />
               </div>
