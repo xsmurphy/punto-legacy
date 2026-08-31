@@ -101,6 +101,28 @@ const MISSING_KEY_MESSAGE =
   "Falta la API key de Punto. Mandala en el header `x-api-key` (o `Authorization: Bearer <key>`). " +
   "La generás en Ajustes → Keys de integración."
 
+/**
+ * Origen público de ESTE deploy, para armar URLs absolutas.
+ *
+ * `APP_URL` gana si está definida (config deliberada), pero NO se depende de
+ * ella: hoy no existe en el env del Front. El fallback lee los headers que pone
+ * el proxy —`x-forwarded-*`, que es lo que llega detrás de Coolify/Traefik— y
+ * recién después el host directo del request.
+ *
+ * Sin literal de dominio: si nada resuelve, se devuelve '' y el caller OMITE los
+ * iconos en vez de anunciar URLs de otro entorno. Un conector sin logo es un
+ * detalle; uno que apunta al dominio equivocado es una mentira.
+ */
+function resolveOrigin(req: Request): string {
+  const env = (process.env.APP_URL ?? "").trim().replace(/\/+$/, "")
+  if (env !== "") return env
+
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? ""
+  if (host === "") return ""
+  const proto = req.headers.get("x-forwarded-proto") ?? "https"
+  return `${proto}://${host}`.replace(/\/+$/, "")
+}
+
 async function handle(req: Request): Promise<Response> {
   const authHeader = resolveBearer(req)
 
@@ -121,20 +143,37 @@ async function handle(req: Request): Promise<Response> {
   // Dos variantes por tema: el panel del cliente puede estar en claro u oscuro y
   // un logo pensado para uno se ve mal en el otro.
   //
-  // URLs ABSOLUTAS y con host propio: el cliente las busca desde su proceso, no
-  // desde el navegador del usuario, así que una ruta relativa no resuelve. Sale
-  // de `APP_URL` para no hardcodear el dominio (regla 3 del proyecto).
-  const appUrl = (process.env.APP_URL ?? "https://app.punto.la").replace(/\/$/, "")
+  // URLs ABSOLUTAS: el cliente las busca desde su proceso, no desde el navegador
+  // del usuario, así que una ruta relativa no resuelve.
+  //
+  // El host se DERIVA DE ESTA REQUEST, no de un literal. La versión anterior
+  // caía a `"https://app.punto.la"` hardcodeado y — verificado contra Coolify —
+  // `APP_URL` NO existe en el env del Front, así que producción estaba
+  // funcionando por casualidad y no por configuración. Además de violar la
+  // regla 3 del proyecto, hacía que un contenedor de dev anunciara los iconos y
+  // el sitio de PRODUCCIÓN.
+  //
+  // Derivarlo del request es correcto por definición: el cliente nos alcanzó en
+  // ese host, así que los assets servidos desde ahí le van a resolver. Un `Host`
+  // mentiroso solo se perjudica a sí mismo (recibe URLs de íconos que no puede
+  // cargar); no hay forma de que afecte a otro.
+  const appUrl = resolveOrigin(req)
   const server = new McpServer({
     name: "punto",
     version: "1.0.0",
     title: "Punto",
-    websiteUrl: appUrl,
     description: "Los datos de tu comercio: ventas, stock, clientes, caja y finanzas.",
-    icons: [
-      { src: `${appUrl}/logos/icon_bg_light.png`, mimeType: "image/png", theme: "light" },
-      { src: `${appUrl}/logos/icon_bg_dark.png`, mimeType: "image/png", theme: "dark" },
-    ],
+    // Sin origen resuelto no se anuncian: mejor un conector sin logo que uno
+    // que apunta al dominio de otro entorno.
+    ...(appUrl !== ""
+      ? {
+          websiteUrl: appUrl,
+          icons: [
+            { src: `${appUrl}/logos/icon_bg_light.png`, mimeType: "image/png", theme: "light" as const },
+            { src: `${appUrl}/logos/icon_bg_dark.png`, mimeType: "image/png", theme: "dark" as const },
+          ],
+        }
+      : {}),
   })
 
   // Mismas definiciones que consume el agente propio (`context/58` D11): el

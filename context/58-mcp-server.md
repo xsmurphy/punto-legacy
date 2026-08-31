@@ -437,10 +437,19 @@ conector con lo que venga en el `Implementation` del handshake. Sin `title` e
 `icons`, el conector aparece con el `name` crudo y sin marca.
 
 El SDK (1.30) acepta `title`, `websiteUrl`, `description` e `icons` con
-`{src, mimeType, theme}`. Se mandan las dos variantes de tema —un logo pensado
-para claro se ve mal en oscuro— y los `src` van ABSOLUTOS: el cliente los busca
-desde su propio proceso, no desde el navegador del usuario, así que una ruta
-relativa no resuelve. El host sale de `APP_URL`, no hardcodeado.
+`{src, mimeType, theme}`. Se mandan las dos variantes de tema —verificado por
+hash que `icon_bg_light.png` y `icon_bg_dark.png` son archivos DISTINTOS;
+declarar dos temas apuntando al mismo archivo sería afirmar algo falso— y los
+`src` van ABSOLUTOS: el cliente los busca desde su propio proceso, no desde el
+navegador del usuario, así que una ruta relativa no resuelve.
+
+**El host se deriva del REQUEST** (`x-forwarded-host` → `host`), con `APP_URL`
+ganando si alguna vez se define. La primera versión caía a un literal
+`https://app.punto.la` y —verificado contra Coolify— **`APP_URL` NO existe en el
+env del Front**: producción funcionaba por casualidad, no por configuración, y un
+contenedor de dev habría anunciado los iconos de PRODUCCIÓN. Sin origen
+resuelto se OMITEN los iconos: un conector sin logo es un detalle, uno que
+apunta al dominio equivocado es una mentira.
 
 Dato aportado por la sesión de Fish, que se topó con lo mismo en su propio
 server MCP.

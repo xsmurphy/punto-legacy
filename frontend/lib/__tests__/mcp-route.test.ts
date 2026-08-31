@@ -43,6 +43,8 @@ function rpc(body: unknown, headers: Record<string, string> = {}): Request {
       "Content-Type": "application/json",
       // El transporte exige que el cliente acepte ambos tipos.
       Accept: "application/json, text/event-stream",
+      // El origen de los iconos se deriva de acá — sin Host no hay qué anunciar.
+      host: "app.example.test",
       ...headers,
     },
     body: JSON.stringify(body),
@@ -134,6 +136,31 @@ describe("route MCP", () => {
     expect(result, `respuesta inesperada: ${JSON.stringify(body)}`).toBeTruthy()
     expect(result).toHaveProperty("protocolVersion")
     expect(result?.serverInfo).toMatchObject({ name: "punto" })
+  })
+
+  it("el origen de los iconos sale del REQUEST, no de un dominio hardcodeado", async () => {
+    // Antes caía a un literal `https://app.punto.la`, y `APP_URL` no existe en el
+    // env del Front: producción funcionaba por casualidad, y un contenedor de dev
+    // habría anunciado los iconos de PRODUCCIÓN. Derivarlo del request es correcto
+    // por definición — el cliente nos alcanzó en ese host.
+    const { POST } = await import("../../app/api/mcp/route")
+    const req = new Request("https://otro-host.test/api/mcp", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "x-forwarded-host": "panel.cliente.test",
+        "x-forwarded-proto": "https",
+        ...AUTH,
+      },
+      body: JSON.stringify(INITIALIZE),
+    })
+    const body = await readRpc(await POST(req))
+    const info = (body.result as { serverInfo?: Record<string, unknown> })?.serverInfo ?? {}
+    expect(info.websiteUrl).toBe("https://panel.cliente.test")
+    for (const i of (info.icons ?? []) as { src: string }[]) {
+      expect(i.src.startsWith("https://panel.cliente.test/"), `src ajeno: ${i.src}`).toBe(true)
+    }
   })
 
   it("el handshake lleva la identidad con la que el cliente dibuja el conector", async () => {
