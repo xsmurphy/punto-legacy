@@ -2306,7 +2306,14 @@ function signUp($post,$login = true){
 		$lang 		= explode(',',$countries[$post['country']]['languages']);
 		$decim 		= ($countries[$post['country']]['currency']['decimal_digits']<1)?'no':'yes';
 		$taxName 	= $countries[$post['country']]['currency']['vat_name'];
-		$tin 		= $countries[$post['country']]['tin'];
+		// El alta puede correr sin el autoloader de api/bootstrap.php, así que
+		// la clase se carga explícitamente acá — la usan el TIN y la TZ.
+		require_once __DIR__ . '/../lib/Support/CountryDefaults.php';
+		// La etiqueta del documento fiscal sale del resolver, no del catálogo
+		// crudo: `$countries[$iso]['tin']` revienta con un país que no esté en
+		// el JSON, y CountryDefaults ya consulta los dos catálogos en orden.
+		// '' = no la conocemos; el front cae a su etiqueta genérica.
+		$tin 		= \Punto\Api\Support\CountryDefaults::taxIdLabel($post['country'] ?? null) ?? '';
 
 		$settingRecord['settingName']           = $storeName;
 		$settingRecord['settingCurrency']       = iftn($cSymbol,'$');
@@ -2317,7 +2324,6 @@ function signUp($post,$login = true){
 		// lo demás y después le ponía el huso paraguayo a cualquier comercio,
 		// aunque fuera chileno o mexicano. CountryDefaults la deriva del ISO
 		// (catálogo curado y, si no está ahí, la base IANA de PHP).
-		require_once __DIR__ . '/../lib/Support/CountryDefaults.php';
 		$__signupTz = \Punto\Api\Support\CountryDefaults::timezone($post['country'] ?? null);
 		if ($__signupTz === null) {
 			$db->FailTrans();

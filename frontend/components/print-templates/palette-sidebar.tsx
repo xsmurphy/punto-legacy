@@ -19,7 +19,10 @@ import type { Tax } from "@/lib/types/tax"
 
 interface Props {
   paperSize: PaperSize
+  /** Etiqueta del documento fiscal del país del tenant (RUC, CUIT, CNPJ…). */
   tinName?: string
+  /** Etiqueta del documento personal del país del tenant (Cédula, DNI, CPF…). */
+  docName?: string
   taxName?: string
   /** F3c (context/38 §D): tasas del tenant — generan la sección "Impuestos"
    *  de la paleta (una entrada por tasa). Sin esto (todavía cargando/error),
@@ -39,7 +42,7 @@ interface Props {
  * drag-from-palette del legacy lo simplificamos: click → drop en (0,0). El
  * usuario lo mueve después.
  */
-export function PaletteSidebar({ paperSize, tinName, taxName, taxes, einvoiceEnabled, onAddBlock }: Props) {
+export function PaletteSidebar({ paperSize, tinName, docName, taxName, taxes, einvoiceEnabled, onAddBlock }: Props) {
   const sections = React.useMemo(
     () => filterPaletteForSize(paperSize, taxes ?? [], { einvoiceEnabled }),
     [paperSize, taxes, einvoiceEnabled],
@@ -67,7 +70,7 @@ export function PaletteSidebar({ paperSize, tinName, taxName, taxes, einvoiceEna
                 )}
                 onClick={() => onAddBlock(it)}
               >
-                {substituteLabels(it.label, { tin: tinName, tax: taxName })}
+                {substituteLabels(it.label, { tin: tinName, doc: docName, tax: taxName })}
               </Button>
             ))}
           </CollapsibleContent>

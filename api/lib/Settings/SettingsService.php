@@ -615,7 +615,20 @@ final class SettingsService
 
         return [
             'taxName' => (string) ($r['settingTaxName'] ?? 'IVA'),
-            'tinName' => (string) ($r['settingTIN'] ?? 'TIN'),
+            // Mismo criterio que /v1/bootstrap: si el tenant no configuró la
+            // etiqueta, sale la de su PAÍS, no el literal 'TIN'. `?? 'TIN'`
+            // ni siquiera cubría el caso real — settingTIN llega como string
+            // VACÍO, no como null, así que el fallback nunca se disparaba y
+            // la paleta quedaba sin nombre de documento.
+            'tinName' => self::labelOrCountryDefault(
+                $r['settingTIN'] ?? null,
+                \Punto\Api\Support\TenantLocale::country((string) $companyId)
+            ),
+            // Documento personal del cliente (Cédula/DNI/CPF…). No tiene
+            // ajuste propio: sale del país, igual que en el front.
+            'docName' => \Punto\Api\Support\CountryDefaults::personalIdLabel(
+                \Punto\Api\Support\TenantLocale::country((string) $companyId)
+            ) ?? '',
             'company' => [
                 'logo'        => $assets . '/200-200/0/' . $companyId . '.jpg',
                 'logoBw'      => $assets . '/200-200/&f=2%7C4,-50/' . $companyId . '.jpg',
@@ -628,6 +641,24 @@ final class SettingsService
             ],
             'taxes' => $this->taxonomies($companyId, 'tax'),   // [{id, name}] para los campos por-impuesto
         ];
+    }
+
+    /**
+     * Etiqueta configurada por el tenant, o la de su país si no configuró
+     * ninguna, o '' si tampoco conocemos el país.
+     *
+     * El trim importa: la config guarda '' (no null) cuando el campo nunca se
+     * tocó, así que `?? $default` no alcanza — es la misma trampa que hay
+     * documentada para la moneda.
+     */
+    private static function labelOrCountryDefault($configured, ?string $iso): string
+    {
+        $configured = trim((string) $configured);
+        if ($configured !== '') {
+            return $configured;
+        }
+
+        return \Punto\Api\Support\CountryDefaults::taxIdLabel($iso) ?? '';
     }
 
     /**

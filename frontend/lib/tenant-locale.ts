@@ -36,6 +36,21 @@ export interface CountryLocaleDefaults {
    * El formulario de Ajustes la pre-llenaba con "RUC" para todos.
    */
   tinName: string
+  /**
+   * Etiqueta del documento PERSONAL del cliente — el que no es el fiscal.
+   * "Cédula de identidad" en PY/UY/BO/EC/VE, "DNI" en AR/PE/ES, "CPF" en BR,
+   * "Cédula de ciudadanía" en CO, "CURP" en MX, "SSN" en US.
+   *
+   * Es una dimensión distinta de `tinName` y hasta ahora no existía: el
+   * formulario de contactos rotulaba el campo "CI" para todos los tenants.
+   * Pedido del owner (2026-08-31), textual: «en Argentina no se usa tanto
+   * cédula de identidad, se usa DNI».
+   *
+   * OJO — CL no tiene dos nombres: el número de la cédula chilena (RUN) y el
+   * tributario (RUT) son EL MISMO número, y en el comercio se pide "RUT" para
+   * ambos. Poner "RUN" acá inventaría una distinción que un chileno no hace.
+   */
+  personalIdName: string
   decimal: boolean
   /** "." o "," — separador de MILES, en notación de símbolo. */
   thousandSeparator: string
@@ -58,19 +73,19 @@ export interface CountryLocaleDefaults {
  * (incluido BR). El día que se traduzca, esta columna es donde se decide.
  */
 export const COUNTRY_LOCALE: Record<string, CountryLocaleDefaults> = {
-  PY: { currency: "Gs", timeZone: "America/Asuncion", taxName: "IVA", tinName: "RUC", decimal: false, thousandSeparator: ".", language: "es" },
-  AR: { currency: "$", timeZone: "America/Argentina/Buenos_Aires", taxName: "IVA", tinName: "CUIT", decimal: true, thousandSeparator: ".", language: "es" },
-  UY: { currency: "$", timeZone: "America/Montevideo", taxName: "IVA", tinName: "RUT", decimal: true, thousandSeparator: ".", language: "es" },
-  BR: { currency: "R$", timeZone: "America/Sao_Paulo", taxName: "ICMS", tinName: "CNPJ", decimal: true, thousandSeparator: ".", language: "es" },
-  CL: { currency: "$", timeZone: "America/Santiago", taxName: "IVA", tinName: "RUT", decimal: false, thousandSeparator: ".", language: "es" },
-  BO: { currency: "Bs", timeZone: "America/La_Paz", taxName: "IVA", tinName: "NIT", decimal: true, thousandSeparator: ".", language: "es" },
-  PE: { currency: "S/", timeZone: "America/Lima", taxName: "IGV", tinName: "RUC", decimal: true, thousandSeparator: ".", language: "es" },
-  CO: { currency: "$", timeZone: "America/Bogota", taxName: "IVA", tinName: "NIT", decimal: false, thousandSeparator: ".", language: "es" },
-  EC: { currency: "$", timeZone: "America/Guayaquil", taxName: "IVA", tinName: "RUC", decimal: true, thousandSeparator: ",", language: "es" },
-  VE: { currency: "Bs", timeZone: "America/Caracas", taxName: "IVA", tinName: "RIF", decimal: true, thousandSeparator: ".", language: "es" },
-  MX: { currency: "$", timeZone: "America/Mexico_City", taxName: "IVA", tinName: "RFC", decimal: true, thousandSeparator: ",", language: "es" },
-  ES: { currency: "€", timeZone: "Europe/Madrid", taxName: "IVA", tinName: "NIF", decimal: true, thousandSeparator: ".", language: "es" },
-  US: { currency: "$", timeZone: "America/New_York", taxName: "Sales Tax", tinName: "EIN", decimal: true, thousandSeparator: ",", language: "es" },
+  PY: { currency: "Gs", timeZone: "America/Asuncion", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: false, thousandSeparator: ".", language: "es" },
+  AR: { currency: "$", timeZone: "America/Argentina/Buenos_Aires", taxName: "IVA", tinName: "CUIT", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
+  UY: { currency: "$", timeZone: "America/Montevideo", taxName: "IVA", tinName: "RUT", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
+  BR: { currency: "R$", timeZone: "America/Sao_Paulo", taxName: "ICMS", tinName: "CNPJ", personalIdName: "CPF", decimal: true, thousandSeparator: ".", language: "es" },
+  CL: { currency: "$", timeZone: "America/Santiago", taxName: "IVA", tinName: "RUT", personalIdName: "RUT", decimal: false, thousandSeparator: ".", language: "es" },
+  BO: { currency: "Bs", timeZone: "America/La_Paz", taxName: "IVA", tinName: "NIT", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
+  PE: { currency: "S/", timeZone: "America/Lima", taxName: "IGV", tinName: "RUC", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
+  CO: { currency: "$", timeZone: "America/Bogota", taxName: "IVA", tinName: "NIT", personalIdName: "Cédula de ciudadanía", decimal: false, thousandSeparator: ".", language: "es" },
+  EC: { currency: "$", timeZone: "America/Guayaquil", taxName: "IVA", tinName: "RUC", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ",", language: "es" },
+  VE: { currency: "Bs", timeZone: "America/Caracas", taxName: "IVA", tinName: "RIF", personalIdName: "Cédula de identidad", decimal: true, thousandSeparator: ".", language: "es" },
+  MX: { currency: "$", timeZone: "America/Mexico_City", taxName: "IVA", tinName: "RFC", personalIdName: "CURP", decimal: true, thousandSeparator: ",", language: "es" },
+  ES: { currency: "€", timeZone: "Europe/Madrid", taxName: "IVA", tinName: "NIF", personalIdName: "DNI", decimal: true, thousandSeparator: ".", language: "es" },
+  US: { currency: "$", timeZone: "America/New_York", taxName: "Sales Tax", tinName: "EIN", personalIdName: "SSN", decimal: true, thousandSeparator: ",", language: "es" },
 }
 
 /**
@@ -89,6 +104,13 @@ export interface TenantLocaleConfig {
   thousand?: "comma" | "dot" | null
   decimal?: string | null
   language?: string | null
+  /**
+   * Etiqueta del documento fiscal que el TENANT configuró en Ajustes
+   * (`settingTIN`). Manda sobre el default del país: un comercio puede
+   * preferir "R.U.C." o "CUIT/CUIL" y esa elección no la pisa el catálogo.
+   * Viaja en el bootstrap del panel y del POS con el mismo nombre.
+   */
+  tinName?: string | null
 }
 
 /**
@@ -149,6 +171,64 @@ export function resolveCurrencyLabel(
     countryDefaults(config)?.currency ??
     UNKNOWN_CURRENCY_SIGN
   )
+}
+
+// ── Identificadores (documento fiscal y documento personal) ──────────────────
+
+/**
+ * Etiqueta genérica del documento FISCAL, cuando no hay país ni ajuste.
+ *
+ * Por qué no "RUC": es el mismo error que "Gs" — un comercio argentino vería
+ * el nombre paraguayo del tributo. Por qué no "" (vacío): un `<FormLabel>`
+ * sin texto deja el campo sin identificar, que fue el bug del botón sin label
+ * del NumericPad. "Identificación fiscal" es no vacío, no afirma ningún país
+ * y se lee como "falta configurar esto", que es exactamente la verdad.
+ */
+export const UNKNOWN_TAX_ID_LABEL = "Identificación fiscal"
+
+/**
+ * Etiqueta genérica del documento PERSONAL. Mismo criterio que la de arriba:
+ * "Documento" es correcto en todos lados y no afirma "cédula" en un país que
+ * no la usa (pedido del owner sobre el DNI argentino).
+ */
+export const UNKNOWN_PERSONAL_ID_LABEL = "Documento"
+
+/**
+ * Cómo se llama el documento fiscal del cliente para ESTE tenant.
+ *
+ * Cadena, igual que la moneda: ajuste explícito del tenant (`tinName`) → el
+ * del PAÍS del tenant → genérico. El escalón del medio es el que evita
+ * inventar Paraguay: un tenant brasileño que nunca tocó Ajustes ve "CNPJ",
+ * no "RUC".
+ *
+ * OJO — el primer escalón tiene la trampa del string VACÍO: el BFF del
+ * bootstrap normaliza el campo ausente a `""` (`tinName: bs.tinName ?? "TIN"`
+ * en `app/api/pos/bootstrap/route.ts`), no a `null`, así que un `?? "RUC"` en
+ * el call-site nunca se dispararía. `present()` trata `""` como AUSENTE.
+ */
+export function resolveTaxIdLabel(
+  config: TenantLocaleConfig | null | undefined,
+): string {
+  return (
+    present(config?.tinName) ??
+    countryDefaults(config)?.tinName ??
+    UNKNOWN_TAX_ID_LABEL
+  )
+}
+
+/**
+ * Cómo se llama el documento personal del cliente para ESTE tenant.
+ *
+ * Solo dos escalones: país → genérico. A diferencia del fiscal, este NO tiene
+ * ajuste propio en la configuración del tenant — no existe la columna, y
+ * agregar un campo de Ajustes que casi nadie tocaría es peor que derivarlo
+ * del país. Si algún día hace falta el override, el escalón se suma acá y
+ * ningún call-site cambia.
+ */
+export function resolvePersonalIdLabel(
+  config: TenantLocaleConfig | null | undefined,
+): string {
+  return countryDefaults(config)?.personalIdName ?? UNKNOWN_PERSONAL_ID_LABEL
 }
 
 // ── Números ──────────────────────────────────────────────────────────────────

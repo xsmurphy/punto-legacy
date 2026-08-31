@@ -60,7 +60,13 @@ import {
   ROLL_FONT_STACK,
   snapBlockToRollRows,
 } from "@/lib/hardware/printers/roll-grid"
-import { getBlockPlaceholder, type PaletteItem, DEFAULT_BLOCK_LABELS } from "@/lib/print-template-palette"
+import {
+  getBlockPlaceholder,
+  substituteLabels,
+  type PaletteItem,
+  DEFAULT_BLOCK_LABELS,
+} from "@/lib/print-template-palette"
+import { resolvePersonalIdLabel, resolveTaxIdLabel } from "@/lib/tenant-locale"
 import { useUnsavedChangesGuard } from "@/hooks/use-unsaved-changes-guard"
 import {
   MIN_BLOCK_SIZE,
@@ -128,6 +134,11 @@ export function TemplateEditor({ existing }: Props) {
   // de la paleta (QR del KuDE + CDC). Ver buildEInvoiceSection.
   const modulesQuery = useModules()
   const einvoiceEnabled = modulesQuery.data?.einvoicePy?.enabled === true
+  // Cómo se llaman los documentos del cliente en el país del tenant. La
+  // paleta y el título de un bloque nuevo los usan en vez de "R.U.C."/"C.I.",
+  // que eran los nombres paraguayos servidos a todos los tenants.
+  const tinName = resolveTaxIdLabel(bootstrapQuery.data)
+  const docName = resolvePersonalIdLabel(bootstrapQuery.data)
   // El bootstrap del PANEL llama al logo `logoUrl`; el shape que esperan los
   // builders es el del POS (`companyLogo`). Se adapta acá, en el borde — los
   // builders no deben conocer dos nombres para el mismo dato.
@@ -286,7 +297,10 @@ export function TemplateEditor({ existing }: Props) {
     // Título sugerido: del catálogo por tipo, o el que traiga el ítem de la
     // paleta (los bloques por-tasa lo arman con la tasa). Es un default
     // editable, no una regla — ver `DEFAULT_BLOCK_LABELS`.
-    block.label = item.defaultLabel ?? DEFAULT_BLOCK_LABELS[item.type] ?? ""
+    block.label = substituteLabels(
+      item.defaultLabel ?? DEFAULT_BLOCK_LABELS[item.type] ?? "",
+      { tin: tinName, doc: docName, tax: bootstrapQuery.data?.taxName },
+    )
     if (ticket) {
       // En tickets, los bloques ocupan toda la fila — left=0, width = canvas
       // (regla owner 2026-08-18: 100% del ancho siempre, sin excepción). El
@@ -746,6 +760,9 @@ export function TemplateEditor({ existing }: Props) {
         <aside className="w-[220px] shrink-0 border-r bg-muted/20">
           <PaletteSidebar
             paperSize={config.page_size}
+            tinName={tinName}
+            docName={docName}
+            taxName={bootstrapQuery.data?.taxName}
             taxes={taxesQuery.data?.taxes}
             einvoiceEnabled={einvoiceEnabled}
             onAddBlock={handleAddBlock}

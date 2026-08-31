@@ -275,8 +275,17 @@ $payload = [
     // Valor crudo 'comma'/'dot' (como lo espera formatNumber del front, no el símbolo).
     'thousand'    => ($row['thousand'] ?? '') === 'comma' ? 'comma' : 'dot',
     'taxName'     => $row['taxname'] ?: 'IVA',
-    // Etiqueta del documento fiscal del cliente (ej. 'RUC'); usada como header de columna.
-    'tinName'     => $row['tinname'] ?: 'TIN',
+    // Etiqueta del documento fiscal del cliente (ej. 'RUC'); usada como header
+    // de columna y como label del campo en el alta de contactos.
+    //
+    // Cuando el tenant no la configuró sale la del PAÍS ('CUIT' en AR, 'CNPJ'
+    // en BR). El fallback anterior era el literal 'TIN', y era peor que vacío:
+    // el resolver del front (resolveTaxIdLabel, lib/tenant-locale.ts) lo leía
+    // como una elección explícita del comercio y por eso NO caía al default
+    // del país — el formulario rotulaba el campo "TIN". String vacío = no
+    // configurado, que es lo que el front sabe interpretar.
+    'tinName'     => $row['tinname']
+        ?: (\Punto\Api\Support\CountryDefaults::taxIdLabel($row['country'] ?? null) ?? ''),
     // Código de país (ej. 'PY') — usado para gatear reportes fiscales locales (RG90, Libro Compra).
     'country'     => $row['country'] ?? '',
     // TZ del tenant (IANA, ej. 'America/Asuncion'). El server ya hace

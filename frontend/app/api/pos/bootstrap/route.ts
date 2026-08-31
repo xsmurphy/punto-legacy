@@ -373,7 +373,10 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     decimal: bs.decimal === "yes" ? "yes" : "no",
     thousand: bs.thousand === "comma" ? "comma" : "dot",
     taxName: bs.taxName ?? "IVA",
-    tinName: bs.tinName ?? "TIN",
+    // Pasar-through, sin sentinel: "TIN" era un valor NO vacío que el
+    // resolver del POS (resolveTaxIdLabel) leía como elección explícita del
+    // comercio, y por eso no caía al default del país. "" = no configurado.
+    tinName: bs.tinName ?? "",
     country: bs.country ?? "",
     timezone: bs.timezone ?? "",
     companyName: bs.companyName ?? "",

@@ -33,6 +33,40 @@ namespace Punto\Api\Support;
  */
 final class CountryDefaults
 {
+    /**
+     * Cómo se llaman los DOS documentos del cliente en cada país donde Punto
+     * opera: el fiscal ('tax') y el personal ('personal').
+     *
+     * Espejo EXACTO de `COUNTRY_LOCALE[iso].tinName` / `.personalIdName`
+     * (frontend/lib/tenant-locale.ts). Si agregás un país allá, agregalo acá:
+     * el front rotula el formulario y este lado siembra el ajuste del tenant
+     * en el alta, así que una divergencia se ve como un campo que cambia de
+     * nombre según por dónde se lo mire.
+     *
+     * OJO — CL repite 'RUT' a propósito: el número de la cédula chilena (RUN)
+     * y el tributario (RUT) son EL MISMO, y en el comercio se pide "RUT" para
+     * los dos. Poner 'RUN' inventaría una distinción que un chileno no hace.
+     *
+     * Lo que NO va acá: códigos numéricos de tipo de documento. Los de la
+     * Tabla 3 de la SET son de un fisco concreto y viven en
+     * `ContactService::ID_TYPE_*`; esta tabla es presentación.
+     */
+    private const ID_LABELS = [
+        'PY' => ['tax' => 'RUC',  'personal' => 'Cédula de identidad'],
+        'AR' => ['tax' => 'CUIT', 'personal' => 'DNI'],
+        'UY' => ['tax' => 'RUT',  'personal' => 'Cédula de identidad'],
+        'BR' => ['tax' => 'CNPJ', 'personal' => 'CPF'],
+        'CL' => ['tax' => 'RUT',  'personal' => 'RUT'],
+        'BO' => ['tax' => 'NIT',  'personal' => 'Cédula de identidad'],
+        'PE' => ['tax' => 'RUC',  'personal' => 'DNI'],
+        'CO' => ['tax' => 'NIT',  'personal' => 'Cédula de ciudadanía'],
+        'EC' => ['tax' => 'RUC',  'personal' => 'Cédula de identidad'],
+        'VE' => ['tax' => 'RIF',  'personal' => 'Cédula de identidad'],
+        'MX' => ['tax' => 'RFC',  'personal' => 'CURP'],
+        'ES' => ['tax' => 'NIF',  'personal' => 'DNI'],
+        'US' => ['tax' => 'EIN',  'personal' => 'SSN'],
+    ];
+
     /** @var array<string,mixed>|null Catálogo curado LATAM (con `timezone`). */
     private static ?array $curated = null;
 
@@ -114,6 +148,70 @@ final class CountryDefaults
         }
 
         return null;
+    }
+
+    /**
+     * Cómo se llama el documento FISCAL del cliente en ese país: 'RUC' en
+     * PY/PE/EC, 'CUIT' en AR, 'RUT' en UY/CL, 'CNPJ' en BR, 'NIT' en BO/CO,
+     * 'RFC' en MX. null si el código no se puede resolver.
+     *
+     * El dato ya estaba en los dos catálogos (campo `tin`), pero se leía
+     * suelto: el alta de tenant hacía `$countries[$post['country']]['tin']`
+     * a mano, que revienta con un país fuera del catálogo. Acá se resuelve
+     * una vez, con el mismo orden de precedencia que el resto de la clase.
+     *
+     * PRECEDENCIA: primero la tabla de países donde Punto opera
+     * (self::ID_LABELS), después los catálogos JSON. Ese orden importa porque
+     * el JSON conflaciona los dos documentos en una sola etiqueta —trae
+     * 'CPF/CNPJ' para BR, 'NIF/CIF' para ES, 'SSN/TIN' para US—, que era
+     * razonable cuando había UN solo campo de documento y dejó de serlo
+     * ahora: el formulario tiene el campo fiscal y el personal por separado,
+     * así que rotular el fiscal "CPF/CNPJ" al lado de uno que dice "CPF" no
+     * describe nada. Para el fisco de una empresa brasileña la etiqueta es
+     * CNPJ, y punto. El JSON sigue cubriendo los otros ~260 países.
+     */
+    public static function taxIdLabel(?string $iso): ?string
+    {
+        $iso = self::normalizeIso($iso);
+        if ($iso === null) {
+            return null;
+        }
+
+        $own = self::ID_LABELS[$iso]['tax'] ?? null;
+        if (is_string($own) && $own !== '') {
+            return $own;
+        }
+
+        foreach ([self::curated(), self::wide()] as $catalog) {
+            $label = $catalog[$iso]['tin'] ?? null;
+            if (is_string($label) && trim($label) !== '') {
+                return trim($label);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Cómo se llama el documento PERSONAL del cliente — el que NO es el
+     * fiscal. Pedido del owner (2026-08-31): «en Argentina no se usa tanto
+     * cédula de identidad, se usa DNI».
+     *
+     * Sale de self::ID_LABELS y no de los catálogos JSON porque ninguno de
+     * los dos lo trae: `libraries/countries.php` y `countries_hispanic.json`
+     * tienen `tin` y nada más sobre documentos. Agregar la columna a 273
+     * países sería inventar 250 valores que nadie va a verificar; la tabla
+     * cubre los países donde Punto opera y devuelve null para el resto, que
+     * es la respuesta honesta (el caller cae a su etiqueta genérica).
+     */
+    public static function personalIdLabel(?string $iso): ?string
+    {
+        $iso = self::normalizeIso($iso);
+        if ($iso === null) {
+            return null;
+        }
+
+        return self::ID_LABELS[$iso]['personal'] ?? null;
     }
 
     /**

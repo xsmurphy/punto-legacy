@@ -81,7 +81,12 @@ import {
 import { ContactDetailView } from "@/components/domain/contacts/contact-detail-view"
 import { useAgentPageSnapshot } from "@/lib/agent/use-agent-page-snapshot"
 import { ApiError } from "@/lib/api-client"
-import { CONTACT_ID_TYPES, ciFieldCopyForIdType } from "@/lib/contact-id-types"
+import {
+  contactIdTypesFor,
+  personalIdFieldCopy,
+  taxIdFieldCopy,
+} from "@/lib/contact-id-types"
+import type { TenantLocaleConfig } from "@/lib/tenant-locale"
 
 const contactSchema = z
   .object({
@@ -270,7 +275,7 @@ function ContactEditPageInner() {
           kind={kind}
           country={country}
           setCountry={setCountry}
-          isPyTenant={bootstrap?.country === "PY"}
+          tenant={bootstrap}
         />
       </form>
     </Form>
@@ -285,18 +290,25 @@ function ContactFormBody({
   kind,
   country,
   setCountry,
-  isPyTenant,
+  tenant,
 }: {
   form: UseFormReturn<ContactFormValues>
   kind: "persona" | "empresa"
   country: CountryCode
   setCountry: (c: CountryCode) => void
-  /** País del TENANT (Bootstrap.country === "PY") — gate exclusivo de contactIdType. */
-  isPyTenant: boolean
+  /**
+   * Bootstrap del TENANT — de acá sale cómo se llaman sus documentos (RUC,
+   * CUIT, DNI…) y si su país tiene taxonomía de tipo de documento. Antes era
+   * un `isPyTenant: boolean`, que ataba el formulario a un país en vez de a
+   * la capacidad; ver `lib/contact-id-types.ts`.
+   */
+  tenant: TenantLocaleConfig | null | undefined
 }) {
   const { data: priceLists } = usePriceLists()
   const idType = form.watch("idType")
-  const ciCopy = ciFieldCopyForIdType(idType)
+  const idTypes = contactIdTypesFor(tenant)
+  const taxCopy = taxIdFieldCopy(tenant)
+  const personalCopy = personalIdFieldCopy(tenant, idType)
   return (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* Identificación */}
@@ -372,7 +384,7 @@ function ContactFormBody({
                 ignora el idType en la rama 'contribuyente', así que mostrar el
                 selector ahí haría creer que se configuró un pasaporte o un
                 carnet diplomático en una empresa cuando la emisión no lo mira. */}
-            {isPyTenant && kind === "persona" && (
+            {idTypes.length > 0 && kind === "persona" && (
               <FormField
                 control={form.control}
                 name="idType"
@@ -389,7 +401,7 @@ function ContactFormBody({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {CONTACT_ID_TYPES.map((t) => (
+                        {idTypes.map((t) => (
                           <SelectItem key={t.code} value={String(t.code)}>
                             {t.label}
                             {t.noEinvoice && (
@@ -413,10 +425,10 @@ function ContactFormBody({
                 name="tin"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>RUC</FormLabel>
+                    <FormLabel>{taxCopy.label}</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Ej: 80012345-6"
+                        placeholder={taxCopy.placeholder}
                         className="tabular-nums"
                         {...field}
                       />
@@ -430,10 +442,10 @@ function ContactFormBody({
                 name="ci"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{isPyTenant ? ciCopy.label : "CI"}</FormLabel>
+                    <FormLabel>{personalCopy.label}</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder={isPyTenant ? ciCopy.placeholder : "Ej: 1234567"}
+                        placeholder={personalCopy.placeholder}
                         className="tabular-nums"
                         {...field}
                       />

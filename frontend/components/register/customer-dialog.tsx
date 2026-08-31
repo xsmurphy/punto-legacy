@@ -58,7 +58,11 @@ import { useCartStore } from "@/lib/cart/store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { searchCustomers } from "@/lib/catalog/search"
 import { executeCreateCustomer } from "@/lib/commands/create-customer"
-import { CONTACT_ID_TYPES, ciFieldCopyForIdType } from "@/lib/contact-id-types"
+import {
+  contactIdTypesFor,
+  personalIdFieldCopy,
+  taxIdFieldCopy,
+} from "@/lib/contact-id-types"
 import { useTaxpayerLookup } from "@/hooks/use-contacts"
 import { ApiError } from "@/lib/api-client"
 import type { PosCustomer } from "@/lib/types/pos-bootstrap"
@@ -341,13 +345,18 @@ function CreateCustomerForm({
 }: {
   onCreated: (c: PosCustomer) => void
 }) {
-  // Gate exclusivo de Paraguay — mismo dato que el bootstrap del panel
-  // (PosConfig.country), ya hidratado en el store del POS (sin round-trip
-  // adicional). Ver ContactService::isPyTenant() del lado del backend.
-  const tenantCountry = useCatalogStore((s) => s.config?.country)
+  // Config del tenant (PosConfig), ya hidratada en el store del POS: de acá
+  // salen el país Y la etiqueta del documento fiscal, sin round-trip. El alta
+  // de cliente es offline-first, así que el copy tiene que resolverse con el
+  // snapshot del bootstrap y nada más.
+  const tenantConfig = useCatalogStore((s) => s.config)
+  const tenantCountry = tenantConfig?.country
   // Mismo dato, tipado como CountryCode para el selector de teléfono.
   const tenantPhoneCountry = (tenantCountry || DEFAULT_COUNTRY) as CountryCode
-  const isPyTenant = tenantCountry === "PY"
+  // Tipos de documento persistibles del país (hoy solo PY tiene taxonomía).
+  // Antes era `country === "PY"`: ver `lib/contact-id-types.ts`.
+  const idTypes = contactIdTypesFor(tenantConfig)
+  const taxCopy = taxIdFieldCopy(tenantConfig)
 
   const {
     register,
@@ -384,7 +393,7 @@ function CreateCustomerForm({
 
   const birthdateValue = watch("birthdate") ?? ""
   const idType = watch("idType")
-  const ciCopy = ciFieldCopyForIdType(idType)
+  const personalCopy = personalIdFieldCopy(tenantConfig, idType)
 
   async function onSubmit(values: CustomerFormValues) {
     // Nombre display: razón social tiene prioridad; si no, nombre + apellido.
@@ -399,7 +408,9 @@ function CreateCustomerForm({
         phone: values.phoneE164 ?? null,
         tin: values.tin?.trim() || undefined,
         ci: values.ci?.trim() || undefined,
-        idType: isPyTenant ? values.idType ?? undefined : undefined,
+        // Solo se manda si el país tiene taxonomía persistible: el backend
+        // igual lo descarta (ContactService::isPyTenant), esto es no mandar ruido.
+        idType: idTypes.length > 0 ? values.idType ?? undefined : undefined,
         email: values.email?.trim() || undefined,
       })
       reset()
@@ -499,7 +510,7 @@ function CreateCustomerForm({
             {/* RUC / N° documento + lupa del padrón (backend) */}
             <div className="flex flex-col gap-1">
               <Label htmlFor="tin" className="text-xs">
-                RUC / N° Documento
+                {taxCopy.label} / N° Documento
               </Label>
               <div className="flex gap-2">
                 <Input
@@ -597,8 +608,9 @@ function CreateCustomerForm({
                   />
                 </div>
 
-                {/* Tipo de documento — exclusivo de Paraguay (Tabla 3 SET) */}
-                {isPyTenant && (
+                {/* Tipo de documento — solo en países con taxonomía propia
+                    (hoy PY: Tabla 3 de la SET). Ver lib/contact-id-types.ts */}
+                {idTypes.length > 0 && (
                   <div className="flex flex-col gap-1">
                     <Label htmlFor="idType" className="text-xs">
                       Tipo de documento
@@ -615,7 +627,7 @@ function CreateCustomerForm({
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent>
-                            {CONTACT_ID_TYPES.map((t) => (
+                            {idTypes.map((t) => (
                               <SelectItem key={t.code} value={String(t.code)}>
                                 {t.label}
                                 {t.noEinvoice && (
@@ -635,11 +647,11 @@ function CreateCustomerForm({
                 {/* Doc. de Identidad — label/placeholder acompañan el tipo elegido */}
                 <div className="flex flex-col gap-1">
                   <Label htmlFor="ci" className="text-xs">
-                    {isPyTenant ? ciCopy.label : "Doc. de Identidad"}
+                    {personalCopy.label}
                   </Label>
                   <Input
                     id="ci"
-                    placeholder={isPyTenant ? ciCopy.placeholder : undefined}
+                    placeholder={personalCopy.placeholder}
                     {...register("ci")}
                   />
                 </div>

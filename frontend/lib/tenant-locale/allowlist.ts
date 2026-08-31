@@ -100,8 +100,11 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "CATÁLOGO — el mapa de padrones públicos de contribuyentes por país. La fila PY es la " +
       "URL del padrón paraguayo, que es un servicio DE Paraguay; sumar otro país es agregar " +
       "una fila. Es lo que permitió sacar la URL cableada global sin romper a los tenants " +
-      "paraguayos.",
-    allow: { 'país "PY" como default': 1 },
+      "paraguayos. La segunda fila PY es la de `personalIdLabel()`, la tabla país → nombre " +
+      "del documento personal (Cédula/DNI/CPF): mismo criterio, Paraguay es UNA fila entre " +
+      "trece y sacarla dejaría al tenant paraguayo sin etiqueta. Espejo de " +
+      "`COUNTRY_LOCALE[iso].personalIdName` en `lib/tenant-locale.ts`.",
+    allow: { 'país "PY" como default': 2 },
   },
 
   // ── 2. Fixtures, seeds y tests ─────────────────────────────────────────────
@@ -111,6 +114,16 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "(country PY + moneda + TZ juntos). Solo hidrata el store en desarrollo; en producción " +
       "el store viene de `/api/pos/bootstrap`.",
     allow: { 'símbolo "Gs"': 1, 'país "PY" como default': 1, 'TZ "America/Asuncion"': 1 },
+  },
+  "frontend/lib/__tests__/contact-id-types.test.ts": {
+    reason:
+      "TEST — cubre el catálogo de identificadores por país. Los literales 'PY' son las " +
+      "ASERCIONES, no defaults: que Paraguay siga siendo el único con taxonomía persistible " +
+      "(Tabla 3 de la SET), que su placeholder de RUC no se le ofrezca a nadie más, y que un " +
+      "`tinName` configurado a mano gane sobre el del país. Sin el país explícito el test no " +
+      "podría distinguir 'salió por catálogo' de 'salió por un default escondido', que es " +
+      "justamente lo que verifica.",
+    allow: { 'país "PY" como default': 4 },
   },
   "frontend/lib/__tests__/country-flag.test.ts": {
     reason: "TEST — verifica el catálogo de banderas; PY y PYG son los casos de prueba.",

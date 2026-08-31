@@ -41,8 +41,18 @@ final class ContactService
 
     /**
      * Tabla 3 de la SET ("Especificación Técnica para Importación", SET,
-     * junio 2021) — tipo de documento de identidad del receptor. Feature
-     * exclusiva de Paraguay (brief 2026-08-08, cliente extranjero + FE).
+     * junio 2021) — tipo de documento de identidad del receptor.
+     *
+     * Por qué esta columna es de Paraguay y no de "el país del tenant": lo que
+     * se guarda son CÓDIGOS DE UN FISCO CONCRETO, y los dos consumidores que
+     * los leen (SaleToInvoiceMapper::mapIdType y FiscalService) los
+     * interpretan como Tabla 3 sin preguntar de qué país es el comercio.
+     * Meterle una segunda codificación por país la volvería ambigua para
+     * ambos. Cómo se LLAMAN los documentos en cada país es otra dimensión, de
+     * presentación, y vive en CountryDefaults::taxIdLabel()/personalIdLabel()
+     * (espejo del front: frontend/lib/contact-id-types.ts). Un tenant no-PY no
+     * pierde nada: ve sus dos campos con el nombre correcto de su país, sin
+     * selector, porque no hay taxonomía que guardar.
      *
      * OJO: esto NO es la codificación que usa la API de Factomate para su
      * propio campo `identityDocumentTypeCode` (catálogo `IdentityDocumentType/

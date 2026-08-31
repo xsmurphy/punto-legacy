@@ -110,7 +110,12 @@ import { useModules } from "@/hooks/use-modules"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import { ApiError } from "@/lib/api-client"
 import { useTenantPhoneCountry } from "@/hooks/use-tenant-phone-country"
-import { CONTACT_ID_TYPES, ciFieldCopyForIdType } from "@/lib/contact-id-types"
+import {
+  contactIdTypesFor,
+  personalIdFieldCopy,
+  taxIdFieldCopy,
+} from "@/lib/contact-id-types"
+import type { TenantLocaleConfig } from "@/lib/tenant-locale"
 import { formatInt, formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
 import { cn } from "@/lib/utils"
@@ -338,7 +343,7 @@ export function ContactDetailView({
           kind={kind}
           country={country}
           setCountry={setCountry}
-          isPyTenant={bootstrap?.country === "PY"}
+          tenant={bootstrap}
         />
       )}
     </>
@@ -579,20 +584,25 @@ function ContactFormBody({
   kind,
   country,
   setCountry,
-  isPyTenant,
+  tenant,
 }: {
   form: UseFormReturn<ContactFormValues>
   kind: "persona" | "empresa"
   country: CountryCode
   setCountry: (c: CountryCode) => void
-  /** País del TENANT (Bootstrap.country === "PY") — no confundir con `country`,
-   *  que es el país del teléfono. Gate exclusivo de contactIdType. */
-  isPyTenant: boolean
+  /**
+   * Bootstrap del TENANT — no confundir con `country`, que es el país del
+   * TELÉFONO. De acá salen los nombres de los documentos del país (RUC, CUIT,
+   * DNI…) y si hay taxonomía de tipo; ver `lib/contact-id-types.ts`.
+   */
+  tenant: TenantLocaleConfig | null | undefined
 }) {
   const { data: priceLists } = usePriceLists()
   const isCreditable = form.watch("isCreditable")
   const idType = form.watch("idType")
-  const ciCopy = ciFieldCopyForIdType(idType)
+  const idTypes = contactIdTypesFor(tenant)
+  const taxCopy = taxIdFieldCopy(tenant)
+  const personalCopy = personalIdFieldCopy(tenant, idType)
 
   // Lookup del RUC en el padrón (backend: /v1/contacts?resource=taxpayer).
   // Completa la razón social del campo que corresponda al tipo de contacto:
@@ -693,12 +703,13 @@ function ContactFormBody({
           </>
         )}
 
-        {/* Tipo de documento — exclusivo de Paraguay (Tabla 3 SET). Gatea
-            también el label/placeholder del campo de abajo (ciCopy). */}
+        {/* Tipo de documento — solo en países con taxonomía propia (hoy PY:
+            Tabla 3 de la SET). Gatea también el label/placeholder del campo
+            de abajo (personalCopy). Ver lib/contact-id-types.ts */}
         {/* Solo para PERSONA: una empresa es contribuyente por definición y se
             identifica con su RUC. `SaleToInvoiceMapper::buildClient()` ignora
             el idType en la rama 'contribuyente'. */}
-        {isPyTenant && kind === "persona" && (
+        {idTypes.length > 0 && kind === "persona" && (
           <FormField
             control={form.control}
             name="idType"
@@ -715,7 +726,7 @@ function ContactFormBody({
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
-                    {CONTACT_ID_TYPES.map((t) => (
+                    {idTypes.map((t) => (
                       <SelectItem key={t.code} value={String(t.code)}>
                         {t.label}
                       </SelectItem>
@@ -734,10 +745,10 @@ function ContactFormBody({
             name="tin"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>RUC</FormLabel>
+                <FormLabel>{taxCopy.label}</FormLabel>
                 <div className="flex gap-2">
                   <FormControl>
-                    <Input placeholder="Ej: 80012345-6" className="tabular-nums" {...field} />
+                    <Input placeholder={taxCopy.placeholder} className="tabular-nums" {...field} />
                   </FormControl>
                   <Button
                     type="button"
@@ -768,9 +779,9 @@ function ContactFormBody({
                 {/* Label/placeholder acompañan el tipo elegido arriba (CI,
                     pasaporte, carnet diplomático...) — mismo campo/columna
                     (contactCI) para los 6 tipos no-RUC. */}
-                <FormLabel>{isPyTenant ? ciCopy.label : "CI"}</FormLabel>
+                <FormLabel>{personalCopy.label}</FormLabel>
                 <FormControl>
-                  <Input placeholder={isPyTenant ? ciCopy.placeholder : "Ej: 1234567"} className="tabular-nums" {...field} />
+                  <Input placeholder={personalCopy.placeholder} className="tabular-nums" {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>

@@ -10,6 +10,10 @@
 import type { BlockType, PaperSize, PrintBlock } from "@/lib/types/print-template"
 import { isReceipt } from "@/lib/types/print-template"
 import type { Tax } from "@/lib/types/tax"
+import {
+  UNKNOWN_PERSONAL_ID_LABEL,
+  UNKNOWN_TAX_ID_LABEL,
+} from "@/lib/tenant-locale"
 
 export interface PaletteItem {
   type: BlockType
@@ -77,7 +81,7 @@ export const PALETTE: PaletteSection[] = [
       { type: "customer_name", label: "Razón Social", defaultText: "Razón Social" },
       { type: "customer_full_name", label: "Nombre y Apellido", defaultText: "Nombre y Apellido" },
       { type: "customer_tin", label: "__TIN__", defaultText: "__TIN__" },
-      { type: "customer_ci", label: "Doc. de Identidad", defaultText: "#######" },
+      { type: "customer_ci", label: "__DOC__", defaultText: "#######" },
       { type: "customer_address", label: "Dirección 1", defaultText: "Dirección 1 del cliente" },
       { type: "customer_address_2", label: "Dirección 2", defaultText: "Dirección 2 del cliente" },
       { type: "customer_location", label: "Localidad", defaultText: "Localidad" },
@@ -212,8 +216,12 @@ export const DEFAULT_BLOCK_LABELS: Partial<Record<BlockType, string>> = {
   // Cliente
   customer_name: "Cliente:",
   customer_full_name: "Cliente:",
-  customer_tin: "R.U.C.:",
-  customer_ci: "C.I.:",
+  // Tokens, no literales: el título con que nace el bloque lo resuelve
+  // `substituteLabels` con las etiquetas del país del tenant. Antes decían
+  // "R.U.C.:" y "C.I.:" para todos — un ticket argentino salía con el nombre
+  // paraguayo del documento.
+  customer_tin: "__TIN__:",
+  customer_ci: "__DOC__:",
   customer_address: "Dirección:",
   customer_phone: "Teléfono:",
   customer_email: "Email:",
@@ -326,10 +334,24 @@ export function filterPaletteForSize(
     .filter((sec) => sec.items.length > 0)
 }
 
-/** Sustituciones de placeholders en labels de la UI (TIN/TAX configurables por país). */
-export function substituteLabels(label: string, opts: { tin?: string; tax?: string }): string {
+/**
+ * Sustituciones de placeholders en labels de la UI y en los títulos con que
+ * nace un bloque nuevo. Los tres tokens son palabras que dependen del PAÍS:
+ * `__TIN__` (RUC/CUIT/CNPJ/RUT…), `__DOC__` (Cédula/DNI/CPF…) y `__TAX__`.
+ *
+ * El default de `__TIN__` era `"RUC"`, y encima ningún caller pasaba `tin`:
+ * la paleta del editor le ofrecía "RUC" a un comercio argentino. Ahora cae a
+ * la etiqueta genérica de `lib/tenant-locale.ts`, que no afirma ningún país.
+ * `__TAX__` sigue con "IVA" — el nombre del impuesto es otra dimensión y
+ * tiene su propio resolver pendiente.
+ */
+export function substituteLabels(
+  label: string,
+  opts: { tin?: string; doc?: string; tax?: string },
+): string {
   return label
-    .replace(/__TIN__/g, opts.tin ?? "RUC")
+    .replace(/__TIN__/g, opts.tin ?? UNKNOWN_TAX_ID_LABEL)
+    .replace(/__DOC__/g, opts.doc ?? UNKNOWN_PERSONAL_ID_LABEL)
     .replace(/__TAX__/g, opts.tax ?? "IVA")
 }
 
