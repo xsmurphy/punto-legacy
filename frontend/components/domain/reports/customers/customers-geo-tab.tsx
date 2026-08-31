@@ -69,7 +69,7 @@ function pct(part: number, total: number): number {
 function placeColumns(
   header: string,
   totalClientes: number,
-  bootstrap: Bootstrap | undefined,
+  bootstrap: Bootstrap | undefined
 ): ColumnDef<GeoPlaceRow>[] {
   return [
     {
@@ -104,7 +104,7 @@ function placeColumns(
       header: "Participación",
       accessorFn: (r) => pct(r.clientes, totalClientes),
       cell: ({ getValue }) => (
-        <span className="tabular-nums text-muted-foreground">
+        <span className="text-muted-foreground tabular-nums">
           {(Number(getValue()) || 0).toFixed(1)}%
         </span>
       ),
@@ -140,16 +140,16 @@ export function CustomersGeoTab({
         .slice(0, TOP_LOCALIDADES)
         .map((l) => ({ label: l.label, clientes: l.clientes }))
         .reverse(), // recharts pinta de abajo hacia arriba en layout vertical
-    [localidades],
+    [localidades]
   )
 
   const localidadColumns = React.useMemo(
     () => placeColumns("Localidad", totalClientes, bootstrap),
-    [bootstrap, totalClientes],
+    [bootstrap, totalClientes]
   )
   const ciudadColumns = React.useMemo(
     () => placeColumns("Ciudad", totalClientes, bootstrap),
-    [bootstrap, totalClientes],
+    [bootstrap, totalClientes]
   )
 
   if (isLoading) {
@@ -227,29 +227,41 @@ export function CustomersGeoTab({
               config={localidadesChartConfig}
               className="h-[320px] w-full"
             >
+              {/* Barras VERTICALES (columnas) por pedido del owner. En recharts
+                  el default ya es vertical: `layout="vertical"` es justamente
+                  el que las acuesta, así que la corrección es SACAR esa prop e
+                  invertir los ejes — la categoría al eje X y el conteo al Y. */}
               <BarChart
                 data={topLocalidades}
-                layout="vertical"
-                margin={{ top: 4, right: 16, left: 8, bottom: 4 }}
+                margin={{ top: 4, right: 8, left: 0, bottom: 4 }}
               >
                 <CartesianGrid
                   strokeDasharray="3 3"
                   stroke="var(--border)"
-                  horizontal={false}
+                  vertical={false}
                 />
                 <XAxis
-                  type="number"
-                  allowDecimals={false}
+                  dataKey="label"
                   fontSize={10}
                   stroke="var(--muted-foreground)"
                   tickLine={false}
                   axisLine={false}
+                  interval={0}
+                  angle={-35}
+                  textAnchor="end"
+                  height={72}
+                  // Los nombres de localidad son largos y con las barras de pie
+                  // ya no hay 150px de ancho para cada etiqueta: se inclinan y
+                  // se recortan. El nombre completo sigue en el tooltip y en la
+                  // tabla de abajo, que es donde se lee, no en el eje.
+                  tickFormatter={(v: string) =>
+                    v.length > 18 ? `${v.slice(0, 17)}…` : v
+                  }
                 />
                 <YAxis
-                  type="category"
-                  dataKey="label"
-                  width={150}
+                  allowDecimals={false}
                   fontSize={10}
+                  width={32}
                   stroke="var(--muted-foreground)"
                   tickLine={false}
                   axisLine={false}
@@ -261,8 +273,8 @@ export function CustomersGeoTab({
                 <Bar
                   dataKey="clientes"
                   fill="var(--color-clientes)"
-                  radius={[0, 4, 4, 0]}
-                  maxBarSize={22}
+                  radius={[4, 4, 0, 0]}
+                  maxBarSize={56}
                 />
               </BarChart>
             </ChartContainer>
@@ -270,65 +282,99 @@ export function CustomersGeoTab({
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle>Mapa de calor</CardTitle>
-          <p className="text-sm text-muted-foreground">
-            Densidad sobre los {formatInt(conCoords, bootstrap)} clientes con
-            coordenadas cargadas
-            {geo.puntosTruncados
-              ? " (se dibujan las zonas más densas; el resto se recortó por tamaño)"
-              : ""}
-            .
-          </p>
-        </CardHeader>
-        <CardContent>
-          {conCoords === 0 ? (
-            <EmptyState
-              icon={MapPin}
-              title="Ningún cliente tiene ubicación cargada"
-              description="Las coordenadas se cargan desde la ficha del cliente o al registrar una dirección de envío."
-              showMarquee={false}
-              className="border-0 p-0"
-            />
-          ) : coberturaBaja && !mostrarMapaIgual ? (
-            <Alert>
-              <AlertTitle>La muestra no representa a tu clientela</AlertTitle>
-              <AlertDescription className="flex flex-col items-start gap-3">
-                <span>
-                  Solo {formatInt(conCoords, bootstrap)} de los{" "}
-                  {formatInt(totalClientes, bootstrap)} clientes tienen
-                  ubicación cargada ({coberturaPct.toFixed(0)}%). Un mapa hecho
-                  con esa fracción muestra dónde están los clientes que alguien
-                  geolocalizó, no dónde vive tu clientela — no sirve para
-                  decidir zonas de reparto ni de cobertura. Cargá la ubicación
-                  en más fichas y volvé.
-                </span>
-                <Button
-                  variant="outline"
-                  onClick={() => setMostrarMapaIgual(true)}
-                >
-                  Ver el mapa igual
-                </Button>
-              </AlertDescription>
-            </Alert>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {coberturaBaja && (
-                <p className="text-sm text-muted-foreground">
-                  Cobertura del {coberturaPct.toFixed(0)}%: la mancha describe a{" "}
-                  {formatInt(conCoords, bootstrap)} clientes, no a los{" "}
-                  {formatInt(totalClientes, bootstrap)}.
-                </p>
-              )}
-              <CustomersHeatmap points={puntos} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Mapa a la izquierda y ciudades a la derecha (owner, 2026-08-31).
+          Las dos cosas se leen JUNTAS: la mancha dice dónde se concentran y la
+          lista pone el nombre y el número a esa mancha. Apiladas obligaban a
+          scrollear entre una y otra para cruzarlas.
 
+          2/3 y 1/3: el mapa necesita superficie para que la densidad se
+          distinga; la lista es un ranking corto y a ancho completo queda con
+          una columna de números perdida a la derecha. Bajo `lg` vuelven a
+          apilarse, con el mapa primero. */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader className="pb-2">
+            <CardTitle>Mapa de calor</CardTitle>
+            <p className="text-sm text-muted-foreground">
+              Densidad sobre los {formatInt(conCoords, bootstrap)} clientes con
+              coordenadas cargadas
+              {geo.puntosTruncados
+                ? " (se dibujan las zonas más densas; el resto se recortó por tamaño)"
+                : ""}
+              .
+            </p>
+          </CardHeader>
+          <CardContent>
+            {conCoords === 0 ? (
+              <EmptyState
+                icon={MapPin}
+                title="Ningún cliente tiene ubicación cargada"
+                description="Las coordenadas se cargan desde la ficha del cliente o al registrar una dirección de envío."
+                showMarquee={false}
+                className="border-0 p-0"
+              />
+            ) : coberturaBaja && !mostrarMapaIgual ? (
+              <Alert>
+                <AlertTitle>La muestra no representa a tu clientela</AlertTitle>
+                <AlertDescription className="flex flex-col items-start gap-3">
+                  <span>
+                    Solo {formatInt(conCoords, bootstrap)} de los{" "}
+                    {formatInt(totalClientes, bootstrap)} clientes tienen
+                    ubicación cargada ({coberturaPct.toFixed(0)}%). Un mapa
+                    hecho con esa fracción muestra dónde están los clientes que
+                    alguien geolocalizó, no dónde vive tu clientela — no sirve
+                    para decidir zonas de reparto ni de cobertura. Cargá la
+                    ubicación en más fichas y volvé.
+                  </span>
+                  <Button
+                    variant="outline"
+                    onClick={() => setMostrarMapaIgual(true)}
+                  >
+                    Ver el mapa igual
+                  </Button>
+                </AlertDescription>
+              </Alert>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {coberturaBaja && (
+                  <p className="text-sm text-muted-foreground">
+                    Cobertura del {coberturaPct.toFixed(0)}%: la mancha describe
+                    a {formatInt(conCoords, bootstrap)} clientes, no a los{" "}
+                    {formatInt(totalClientes, bootstrap)}.
+                  </p>
+                )}
+                <CustomersHeatmap points={puntos} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <div className="flex flex-col gap-2">
+          <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+            Ciudades
+          </p>
+          <DataTable
+            tableId="report-customers-geo-ciudades"
+            data={ciudades}
+            columns={ciudadColumns}
+            getRowId={(r) => r.key}
+            searchPlaceholder="Buscar ciudad…"
+            exportFileName="clientes_por_ciudad"
+            emptyMessage={
+              <EmptyState
+                icon={MapPin}
+                title="Sin ciudades cargadas"
+                description="Completá la ciudad en la ficha de tus clientes."
+              />
+            }
+          />
+        </div>
+      </div>
+
+      {/* Localidades queda a ancho completo debajo: es la lista más larga (el
+          grano más fino) y comparte el dato con las barras de arriba. */}
       <div className="flex flex-col gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <p className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           Localidades
         </p>
         <DataTable
@@ -343,27 +389,6 @@ export function CustomersGeoTab({
               icon={MapPin}
               title="Sin localidades cargadas"
               description="Completá la localidad en la ficha de tus clientes."
-            />
-          }
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Ciudades
-        </p>
-        <DataTable
-          tableId="report-customers-geo-ciudades"
-          data={ciudades}
-          columns={ciudadColumns}
-          getRowId={(r) => r.key}
-          searchPlaceholder="Buscar ciudad…"
-          exportFileName="clientes_por_ciudad"
-          emptyMessage={
-            <EmptyState
-              icon={MapPin}
-              title="Sin ciudades cargadas"
-              description="Completá la ciudad en la ficha de tus clientes."
             />
           }
         />
