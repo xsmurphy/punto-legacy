@@ -1,6 +1,8 @@
 import { z } from "zod"
 
 import { chartSpecSchema } from "@/lib/agent/chart-spec"
+import { normalizeToolResult, withMeta } from "@/lib/agent/normalize-tool-result"
+import { UNKNOWN_CURRENCY_SIGN, resolveCurrencyLabel } from "@/lib/tenant-locale"
 
 /**
  * Catálogo de tools de LECTURA de Punto — agnóstico del transporte.
@@ -31,6 +33,14 @@ import { chartSpecSchema } from "@/lib/agent/chart-spec"
  * ese mecanismo no se puede exponer tal cual: es la razón TÉCNICA detrás de D5
  * de `context/58` (read-only en la primera versión), no una restricción
  * arbitraria.
+ *
+ * ── Las respuestas se NORMALIZAN antes de salir ─────────────────────────────
+ * Hasta 2026-08-31 las 19 tools de fetch terminaban en `return json?.data ??
+ * json`: passthrough crudo de un endpoint hecho para el panel, que ya conoce el
+ * vocabulario interno. El modelo del otro lado no lo conoce y lo pagaba
+ * adivinando (ver el caso de producción citado en `normalize-tool-result.ts`).
+ * Ahora todas pasan por el helper `read` de abajo, que traduce, poda y declara
+ * la moneda en un solo lugar.
  */
 
 /** Lo que cada tool necesita para hablar con la API. Lo arma el consumidor. */
@@ -82,28 +92,113 @@ export function defineTool<S extends z.ZodType>(def: {
 export const PRESENTATION_TOOLS: readonly string[] = ["render_chart"]
 
 export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext) {
+  /**
+   * Moneda del tenant, resuelta UNA sola vez por instancia del catálogo (o sea,
+   * por request en los dos consumidores) y solo si alguna lectura devuelve
+   * montos.
+   *
+   * Las dos mitades de eso importan:
+   *
+   *  - LAZY, porque la mayoría de las llamadas no la necesita. `get_categories`
+   *    o `get_users` no traen un solo monto: resolver la moneda al CONSTRUIR el
+   *    catálogo le cobraría un fetch de settings a todas las lecturas para que
+   *    lo aproveche una minoría. La promesa nace recién cuando el normalizador
+   *    avisa que encontró campos monetarios.
+   *  - MEMOIZADA, porque una conversación encadena varias tools y la moneda del
+   *    negocio no cambia entre ellas. Se guarda la PROMESA y no el valor, así
+   *    dos tools que corren en paralelo comparten el mismo fetch en vez de
+   *    disparar dos.
+   *
+   * La etiqueta sale de `resolveCurrencyLabel` (`lib/tenant-locale.ts`), que ya
+   * es la única fuente de esta dimensión en el proyecto: contempla que el
+   * backend mande string VACÍO —`settingCurrency` es texto libre y no tiene
+   * default, por decisión explícita en `SettingsService::withDefault`— y cae al
+   * país del tenant antes de rendirse. Nunca inventa "Gs": eso es exactamente
+   * lo que la regla de no-hardcodear-Paraguay prohíbe.
+   *
+   * `¤` (moneda no especificada) se traduce a `null`: para un humano ese glifo
+   * significa "falta configurar esto", pero un modelo lo leería como una
+   * etiqueta de moneda y escribiría "¤ 1.230.000". `null` deja que `withMeta`
+   * lo diga con palabras.
+   */
+  let currencyPromise: Promise<string | null> | null = null
+  function tenantCurrency(): Promise<string | null> {
+    currencyPromise ??= (async () => {
+      try {
+        const res = await fetch(`${apiUrl}/v1/settings`, { headers: { Authorization: authHeader } })
+        if (!res.ok) return null
+        const json = (await res.json()) as { data?: unknown }
+        const s = ((json?.data ?? json) ?? {}) as Record<string, unknown>
+        const label = resolveCurrencyLabel({
+          currency: typeof s.currency === "string" ? s.currency : null,
+          country: typeof s.country === "string" ? s.country : null,
+        })
+        return label === UNKNOWN_CURRENCY_SIGN ? null : label
+      } catch {
+        // Fail-open: sin moneda las lecturas siguen sirviendo, y `withMeta`
+        // aclara que los montos van sin unidad. Cortar la lectura entera porque
+        // no se pudo leer una etiqueta sería peor que devolver el número.
+        return null
+      }
+    })()
+    return currencyPromise
+  }
+
+  /**
+   * Fetch + desenvoltura + normalización, en un solo lugar.
+   *
+   * Las 19 tools repetían el mismo bloque (`try` / `!res.ok` / `json?.data ??
+   * json` / `catch`). Además de ser cuatro líneas por tool, esa repetición es
+   * la razón por la que el passthrough crudo se volvió el contrato de facto:
+   * no había ningún punto por donde pasaran todas las respuestas. Ahora lo hay,
+   * y la normalización entra una vez.
+   */
+  async function read(
+    path: string,
+    opts: {
+      /** Para las lecturas TENANT-LEVEL, que no llevan view-scope. */
+      headers?: Record<string, string>
+      /** Recorte previo a la normalización (filtrar, cortar a `limit`). */
+      transform?: (payload: unknown) => unknown
+      /** Mensaje de error propio, cuando la tool tiene uno más específico. */
+      errorLabel?: (status: number) => string
+    } = {},
+  ): Promise<unknown> {
+    try {
+      const res = await fetch(`${apiUrl}${path}`, { headers: opts.headers ?? dataHeaders })
+      if (!res.ok) {
+        return { error: opts.errorLabel ? opts.errorLabel(res.status) : `Error ${res.status}` }
+      }
+      const json = (await res.json()) as { data?: unknown }
+      const payload = json?.data ?? json
+      const normalized = normalizeToolResult(opts.transform ? opts.transform(payload) : payload)
+      // El fetch de la moneda se dispara SOLO si el payload traía montos: es la
+      // laziness de `tenantCurrency` vista desde acá.
+      const currency = normalized.moneyFields.length > 0 ? await tenantCurrency() : null
+      return withMeta(normalized, currency)
+    } catch (err) {
+      return { error: String(err) }
+    }
+  }
+
+  /** Filas de un reporte, vengan como array pelado o dentro de `rows`. */
+  function rowsOf(payload: unknown): unknown[] {
+    if (Array.isArray(payload)) return payload
+    const rows = (payload as { rows?: unknown })?.rows
+    return Array.isArray(rows) ? rows : []
+  }
+
   return {
   get_sales_summary: defineTool({
     description:
-      "Resumen anual de ventas, gastos y devoluciones por mes. Usar cuando el usuario pregunte por ventas, ingresos, egresos o resultados de un año.",
+      "Resumen anual por mes: ventas, compras a proveedores, devoluciones y clientes nuevos. Usar cuando el usuario pregunte por ventas, ingresos, egresos o resultados de un año. Ojo: lo que devuelve como egreso son COMPRAS, no los gastos del módulo Finanzas.",
     inputSchema: z.object({
       year: z.number().int().describe("Año a consultar, ej. 2025"),
     }),
-    execute: async ({ year }) => {
-      try {
-        const res = await fetch(
-          `${apiUrl}/v1/reports/summary_year?y=${year}`,
-          { headers: dataHeaders }
-        )
-        if (!res.ok) {
-          return { error: `No se pudo obtener el reporte (${res.status})` }
-        }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
-    },
+    execute: async ({ year }) =>
+      read(`/v1/reports/summary_year?y=${year}`, {
+        errorLabel: (s) => `No se pudo obtener el reporte (${s})`,
+      }),
   }),
 
   get_contacts: defineTool({
@@ -114,16 +209,9 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       limit: z.number().int().optional().default(20),
     }),
     execute: async ({ type, q, limit }) => {
-      try {
-        const params = new URLSearchParams({ type, limit: String(limit ?? 20) })
-        if (q) params.set("q", q)
-        const res = await fetch(`${apiUrl}/v1/contacts?${params}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const params = new URLSearchParams({ type, limit: String(limit ?? 20) })
+      if (q) params.set("q", q)
+      return read(`/v1/contacts?${params}`)
     },
   }),
 
@@ -134,16 +222,9 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       limit: z.number().int().optional().default(20),
     }),
     execute: async ({ q, limit }) => {
-      try {
-        const params = new URLSearchParams({ limit: String(limit ?? 20) })
-        if (q) params.set("q", q)
-        const res = await fetch(`${apiUrl}/v1/items?${params}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const params = new URLSearchParams({ limit: String(limit ?? 20) })
+      if (q) params.set("q", q)
+      return read(`/v1/items?${params}`)
     },
   }),
 
@@ -153,79 +234,42 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
     inputSchema: z.object({
       itemQuery: z.string().min(1).describe("Nombre o SKU del ítem a buscar"),
     }),
-    execute: async ({ itemQuery }) => {
-      try {
-        // El endpoint /v1/reports/stock no filtra server-side todavía.
-        // Filtramos en este handler ANTES de devolver al LLM para no
-        // mandarle el listado entero (puede ser miles de filas → muchos
-        // tokens). El filtro es case-insensitive sobre name y sku.
-        const res = await fetch(`${apiUrl}/v1/reports/stock`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        const raw = (json?.data ?? json) as unknown
-        const rows = Array.isArray(raw)
-          ? raw
-          : Array.isArray((raw as { rows?: unknown[] })?.rows)
-            ? (raw as { rows: unknown[] }).rows
-            : []
-        const q = itemQuery.toLowerCase()
-        const filtered = rows.filter((r) => {
-          const o = r as { name?: string; sku?: string; itemName?: string; itemSKU?: string }
-          return (
-            (o.name ?? o.itemName ?? "").toLowerCase().includes(q) ||
-            (o.sku ?? o.itemSKU ?? "").toLowerCase().includes(q)
-          )
-        })
-        return { matches: filtered.slice(0, 20), totalMatches: filtered.length }
-      } catch (err) {
-        return { error: String(err) }
-      }
-    },
+    execute: async ({ itemQuery }) =>
+      // El endpoint /v1/reports/stock no filtra server-side todavía.
+      // Filtramos ANTES de normalizar para no mandarle al LLM el listado
+      // entero (puede ser miles de filas → muchos tokens). El filtro es
+      // case-insensitive sobre name y sku.
+      read(`/v1/reports/stock`, {
+        transform: (payload) => {
+          const q = itemQuery.toLowerCase()
+          const filtered = rowsOf(payload).filter((r) => {
+            const o = r as { name?: string; sku?: string; itemName?: string; itemSKU?: string }
+            return (
+              (o.name ?? o.itemName ?? "").toLowerCase().includes(q) ||
+              (o.sku ?? o.itemSKU ?? "").toLowerCase().includes(q)
+            )
+          })
+          return { matches: filtered.slice(0, 20), totalMatches: filtered.length }
+        },
+      }),
   }),
 
   get_categories: defineTool({
     description: "Lista categorías de productos del negocio.",
     inputSchema: z.object({}),
-    execute: async () => {
-      try {
-        const res = await fetch(`${apiUrl}/v1/categories`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
-    },
+    execute: async () => read(`/v1/categories`),
   }),
 
   get_brands: defineTool({
     description: "Lista marcas de productos del negocio.",
     inputSchema: z.object({}),
-    execute: async () => {
-      try {
-        const res = await fetch(`${apiUrl}/v1/brands`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
-    },
+    execute: async () => read(`/v1/brands`),
   }),
 
   get_tags: defineTool({
     description: "Lista etiquetas de productos del negocio.",
     inputSchema: z.object({}),
-    execute: async () => {
-      try {
-        const res = await fetch(`${apiUrl}/v1/tags`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
-    },
+    execute: async () => read(`/v1/tags`),
   }),
 
   get_users: defineTool({
@@ -234,16 +278,9 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       q: z.string().optional().describe("Búsqueda por nombre"),
     }),
     execute: async ({ q }) => {
-      try {
-        const params = new URLSearchParams()
-        if (q) params.set("q", q)
-        const res = await fetch(`${apiUrl}/v1/users?${params}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const params = new URLSearchParams()
+      if (q) params.set("q", q)
+      return read(`/v1/users?${params}`)
     },
   }),
 
@@ -254,17 +291,10 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
     }),
     execute: async ({ from, to }) => {
-      try {
-        const params = new URLSearchParams()
-        if (from) params.set("from", from)
-        if (to) params.set("to", to)
-        const res = await fetch(`${apiUrl}/v1/reports/drawers?${params}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const params = new URLSearchParams()
+      if (from) params.set("from", from)
+      if (to) params.set("to", to)
+      return read(`/v1/reports/drawers?${params}`)
     },
   }),
 
@@ -276,17 +306,10 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       limit: z.number().int().optional().default(50),
     }),
     execute: async ({ from, to, limit }) => {
-      try {
-        const params = new URLSearchParams({ limit: String(limit ?? 50) })
-        if (from) params.set("from", from)
-        if (to) params.set("to", to)
-        const res = await fetch(`${apiUrl}/v1/reports/transactions?${params}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const params = new URLSearchParams({ limit: String(limit ?? 50) })
+      if (from) params.set("from", from)
+      if (to) params.set("to", to)
+      return read(`/v1/reports/transactions?${params}`)
     },
   }),
 
@@ -298,54 +321,26 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       limit: z.number().int().optional().default(10),
     }),
     execute: async ({ from, to, limit }) => {
-      try {
-        const params = new URLSearchParams({ view: "general" })
-        if (from) params.set("from", from)
-        if (to) params.set("to", to)
-        const res = await fetch(`${apiUrl}/v1/reports/products?${params}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        const raw = (json?.data ?? json) as unknown
-        const rows = Array.isArray(raw)
-          ? raw
-          : Array.isArray((raw as { rows?: unknown[] })?.rows)
-            ? (raw as { rows: unknown[] }).rows
-            : []
-        return rows.slice(0, limit ?? 10)
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const params = new URLSearchParams({ view: "general" })
+      if (from) params.set("from", from)
+      if (to) params.set("to", to)
+      return read(`/v1/reports/products?${params}`, {
+        transform: (payload) => rowsOf(payload).slice(0, limit ?? 10),
+      })
     },
   }),
 
   get_outlets: defineTool({
     description: "Lista sucursales del negocio.",
     inputSchema: z.object({}),
-    execute: async () => {
-      try {
-        const res = await fetch(`${apiUrl}/v1/outlets`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
-    },
+    execute: async () => read(`/v1/outlets`),
   }),
 
   get_settings: defineTool({
     description: "Configuración general del negocio (nombre, moneda, impuestos, etc.).",
     inputSchema: z.object({}),
-    execute: async () => {
-      try {
-        const res = await fetch(`${apiUrl}/v1/settings`, { headers: { Authorization: authHeader } })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
-    },
+    // Tenant-level: sin `X-Outlet-Id`. Ver el comentario de `authHeader`.
+    execute: async () => read(`/v1/settings`, { headers: { Authorization: authHeader } }),
   }),
 
   get_report: defineTool({
@@ -406,19 +401,19 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       }
       const base = routes[report]
       if (!base) return { error: `Reporte desconocido: ${report}` }
-      try {
-        const qs = new URLSearchParams()
-        if (from) qs.set("from", from)
-        if (to) qs.set("to", to)
-        const sep = base.includes("?") ? "&" : "?"
-        const q = qs.toString()
-        const res = await fetch(`${apiUrl}${base}${q ? sep + q : ""}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const qs = new URLSearchParams()
+      if (from) qs.set("from", from)
+      if (to) qs.set("to", to)
+      const sep = base.includes("?") ? "&" : "?"
+      const q = qs.toString()
+      // Ejecutor GENÉRICO: 20 reportes, cada uno con su propia forma de salida.
+      // La normalización que recibe es la del diccionario por NOMBRE DE CAMPO,
+      // que es justamente la que funciona sin conocer la forma: los campos que
+      // comparte con el resto (`total`, `tax`, `transactionType`, `cogs`) salen
+      // traducidos, y los propios de un reporte que nadie relevó viajan crudos.
+      // Ver el informe: los shapes de estos 20 endpoints NO están relevados uno
+      // por uno y hacerlo es un trabajo aparte.
+      return read(`${base}${q ? sep + q : ""}`)
     },
   }),
 
@@ -426,16 +421,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
     description:
       "Cuentas de Finanzas con su SALDO actual (Efectivo, bancos, billeteras). Usar para 'cuánto tengo en el banco', 'saldo de caja', etc.",
     inputSchema: z.object({}),
-    execute: async () => {
-      try {
-        const res = await fetch(`${apiUrl}/v1/finance/accounts`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
-    },
+    execute: async () => read(`/v1/finance/accounts`),
   }),
 
   get_finance_summary: defineTool({
@@ -446,18 +432,11 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
     }),
     execute: async ({ from, to }) => {
-      try {
-        const qs = new URLSearchParams()
-        if (from) qs.set("from", from)
-        if (to) qs.set("to", to)
-        const q = qs.toString()
-        const res = await fetch(`${apiUrl}/v1/finance/summary${q ? "?" + q : ""}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const qs = new URLSearchParams()
+      if (from) qs.set("from", from)
+      if (to) qs.set("to", to)
+      const q = qs.toString()
+      return read(`/v1/finance/summary${q ? "?" + q : ""}`)
     },
   }),
 
@@ -470,18 +449,11 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       kind: z.enum(["income", "expense"]).optional().describe("income = entradas, expense = salidas"),
     }),
     execute: async ({ from, to, kind }) => {
-      try {
-        const qs = new URLSearchParams({ limit: "100" })
-        if (from) qs.set("from", from)
-        if (to) qs.set("to", to)
-        if (kind) qs.set("kind", kind)
-        const res = await fetch(`${apiUrl}/v1/finance/movements?${qs}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const qs = new URLSearchParams({ limit: "100" })
+      if (from) qs.set("from", from)
+      if (to) qs.set("to", to)
+      if (kind) qs.set("kind", kind)
+      return read(`/v1/finance/movements?${qs}`)
     },
   }),
 
@@ -493,17 +465,10 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
     }),
     execute: async ({ from, to }) => {
-      try {
-        const qs = new URLSearchParams({ widget: "customersSeries" })
-        if (from) qs.set("from", from)
-        if (to) qs.set("to", to)
-        const res = await fetch(`${apiUrl}/v1/reports/dashboard?${qs}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: { rows?: unknown[] } }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const qs = new URLSearchParams({ widget: "customersSeries" })
+      if (from) qs.set("from", from)
+      if (to) qs.set("to", to)
+      return read(`/v1/reports/dashboard?${qs}`)
     },
   }),
 
@@ -518,18 +483,11 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
         .describe("Estado del cheque"),
     }),
     execute: async ({ direction, status }) => {
-      try {
-        const qs = new URLSearchParams()
-        if (direction) qs.set("direction", direction)
-        if (status) qs.set("status", status)
-        const q = qs.toString()
-        const res = await fetch(`${apiUrl}/v1/finance/checks${q ? "?" + q : ""}`, { headers: dataHeaders })
-        if (!res.ok) return { error: `Error ${res.status}` }
-        const json = (await res.json()) as { data?: unknown }
-        return json?.data ?? json
-      } catch (err) {
-        return { error: String(err) }
-      }
+      const qs = new URLSearchParams()
+      if (direction) qs.set("direction", direction)
+      if (status) qs.set("status", status)
+      const q = qs.toString()
+      return read(`/v1/finance/checks${q ? "?" + q : ""}`)
     },
   }),
 
