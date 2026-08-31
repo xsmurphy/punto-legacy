@@ -16,14 +16,14 @@ namespace Punto\Api\Auth;
  * entidad.
  *
  * Eso alcanza mientras la autorización dependa solo de la caja. No alcanza
- * para la exclusividad de mesas (context/15, pedido del owner 2026-08-23):
- * "la mesa de un mozo no la puede tocar otro" es una regla sobre PERSONAS, y
+ * para la exclusividad de espacios (context/15, pedido del owner 2026-08-23):
+ * "el espacio de un mozo no lo puede tocar otro" es una regla sobre PERSONAS, y
  * el backend no tenía forma de distinguirlas.
  *
  * ── Por qué no alcanzaba con mandar el userId en el body ────────────────────
  *
  * Porque un dato que el cliente elige no autoriza nada: cualquiera que quiera
- * saltarse la regla manda el `userId` del dueño de la mesa y pasa. Sería el
+ * saltarse la regla manda el `userId` del dueño del espacio y pasa. Sería el
  * mismo botón escondido que el owner pidió explícitamente NO hacer, con un
  * `if` en el server para disimular.
  *
@@ -54,7 +54,7 @@ namespace Punto\Api\Auth;
  * tocar el modelo de auth. La sesión de operador de verdad (re-emitir la
  * credencial por persona, revocable, con su propio rol en el token) es el
  * rewrite de `context/21-auth-rewrite.md`, y colgarla de este cambio sería
- * meter el modelo de auth entero dentro de un feature de mesas.
+ * meter el modelo de auth entero dentro de un feature de espacios.
  */
 final class OperatorAssertion
 {
@@ -96,7 +96,7 @@ final class OperatorAssertion
      * Devuelve null en vez de lanzar: "no sé quién sos" es un estado normal y
      * esperado (device recién pareado, token vencido, request de un módulo que
      * no pasa por el lockscreen). Quien llama decide qué implica esa ausencia
-     * — y para la exclusividad implica "no podés tocar la mesa de otro", que
+     * — y para la exclusividad implica "no podés tocar el espacio de otro", que
      * es el fail-closed correcto.
      */
     public static function verify(?string $token, string $companyId): ?string

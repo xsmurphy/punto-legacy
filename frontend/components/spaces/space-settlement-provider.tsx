@@ -53,7 +53,7 @@ import { useSpaceSettlementStore } from "@/lib/spaces/settlement-store"
 function assertFitsBalance(target: number, balance: SessionBalance): void {
   if (target - balance.balance > MONEY_EPSILON) {
     throw new Error(
-      "El saldo de la mesa cambió (otro cobro entró recién). Revisá el monto e intentá de nuevo.",
+      "El saldo del espacio cambió (otro cobro entró recién). Revisá el monto e intentá de nuevo.",
     )
   }
 }
@@ -104,8 +104,8 @@ export function SpaceSettlementProvider() {
     try {
       // El saldo se RELEE acá, no se usa el que mostró el diálogo: entre que
       // se abrió y el cajero tocó "Cobrar" pudo entrar un parcial de otra
-      // caja. Con un `paid` viejo se tomaría el camino de mesa completa
-      // (markPaid + close, sin pasar por el ledger) sobre una mesa que ya
+      // caja. Con un `paid` viejo se tomaría el camino de espacio completo
+      // (markPaid + close, sin pasar por el ledger) sobre un espacio que ya
       // tenía plata cobrada, y `SpaceSessionService::close()` no valida
       // saldo: nadie lo atraparía. El saldo cacheado es para mirar; para
       // cobrar, este.
@@ -149,7 +149,7 @@ export function SpaceSettlementProvider() {
         )
         if (alreadySettled.length > 0) {
           toast.error("Otro cobro ya se llevó alguno de esos ítems", {
-            description: "El saldo de la mesa cambió. Revisá la selección.",
+            description: "El saldo del espacio cambió. Revisá la selección.",
           })
           setSplitTarget(target)
           return
@@ -244,7 +244,7 @@ export function SpaceSettlementProvider() {
         }
       } catch {
         // Sin saldo confiable no se decide nada: el mapa se refresca solo por
-        // la invalidación de ["spaces"] y el cajero reabre la mesa si hace falta.
+        // la invalidación de ["spaces"] y el cajero reabre el espacio si hace falta.
       } finally {
         setSettlingSpace(null)
       }

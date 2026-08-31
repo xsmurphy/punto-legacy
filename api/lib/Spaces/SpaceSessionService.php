@@ -145,7 +145,7 @@ final class SpaceSessionService
         $db->StartTrans();
         try {
             $session = $this->lockSession($companyId, $sessionId, $outletScope);
-            // La cancelación es la operación MÁS destructiva de una mesa
+            // La cancelación es la operación MÁS destructiva de un espacio
             // (cancela en cascada las órdenes, incluidas las ya en cocina), así
             // que es la que más necesita el guard de exclusividad.
             $this->assertOwnership($session, $companyId, 'cancelar');
@@ -255,7 +255,7 @@ final class SpaceSessionService
             // Invariante del plan (context/15 §F3): una sesión NO se cierra
             // con saldo pendiente. Estaba sostenido solo por el cliente
             // (handleSplitCharge relee el saldo antes de elegir el camino) —
-            // un bug de UI, un doble tap o un `curl` directo cerraban la mesa
+            // un bug de UI, un doble tap o un `curl` directo cerraban el espacio
             // dejando plata sin cobrar y sin ningún registro de que faltaba.
             //
             // El saldo se computa con SpaceBalanceService, la MISMA definición
@@ -263,7 +263,7 @@ final class SpaceSessionService
             // liquidación. Que sea la misma es lo que hace que los dos caminos
             // de cobro pasen sin excepciones especiales:
             //
-            //   - Cobro atómico de mesa completa (pay-dialog, rama
+            //   - Cobro atómico de espacio completo (pay-dialog, rama
             //     `sessionParentId`): markPaid() de TODAS las órdenes y recién
             //     después close(). Al llegar acá las órdenes ya están `closed`,
             //     que el balance no cuenta como pendiente (una orden `closed`
@@ -273,11 +273,11 @@ final class SpaceSessionService
             //     INSERT del pago que salda, en la misma TX — el saldo ya es
             //     ≤ 0 cuando esta validación lo relee.
             //
-            // Y lo que NO pasa es cerrar una mesa con órdenes activas sin
+            // Y lo que NO pasa es cerrar un espacio con órdenes activas sin
             // cobrar: eso es exactamente el saldo pendiente que hay que frenar.
             //
             // `$allowPendingBalance` es la puerta EXPLÍCITA para el cierre
-            // administrativo (mesa que se fue sin pagar): quien la usa está
+            // administrativo (espacio que se fue sin pagar): quien lo usa está
             // declarando que perdona el saldo, no salteándose el invariante
             // por accidente.
             if (!$allowPendingBalance) {
@@ -327,14 +327,14 @@ final class SpaceSessionService
      * Edita los datos de la ocupación en curso: alias, comensales y mozo.
      *
      * Solo campos PRESENTES en `$fields` se tocan — `null` es un valor
-     * legítimo ("sacale el alias", "esta mesa ya no tiene mozo") y no se puede
+     * legítimo ("sacale el alias", "este espacio ya no tiene mozo") y no se puede
      * distinguir de "no lo mandes" mirando el valor. Por eso el contrato es
      * por PRESENCIA de la clave, no por valor no-nulo.
      *
      * Reasignar el mozo es una operación de exclusividad en sí misma: el dueño
-     * de la mesa puede pasársela a un compañero (el pase de turno normal), y
+     * del espacio puede pasárselo a un compañero (el pase de turno normal), y
      * quien tenga `pos.space.override` puede reasignar cualquiera. Lo que NO
-     * puede pasar es que un tercero se adjudique la mesa de otro — lo corta el
+     * puede pasar es que un tercero se adjudique el espacio de otro — lo corta el
      * mismo guard que todo lo demás, ANTES de mirar los campos.
      *
      * @param array<string,mixed> $fields claves opcionales: alias, guests, waiterId
@@ -406,11 +406,11 @@ final class SpaceSessionService
 
     /**
      * Mueve la ocupación a OTRO espacio libre (los clientes se cambiaron de
-     * mesa). La sesión es la misma: cambia dónde está sentada.
+     * espacio). La sesión es la misma: cambia dónde está sentada.
      *
      * ── Por qué esto es un UPDATE de una columna y no una migración ─────────
      *
-     * Porque nada de lo que cuelga de la mesa cuelga del ESPACIO: las órdenes
+     * Porque nada de lo que cuelga de la SESIÓN cuelga del ESPACIO: las órdenes
      * apuntan a `spacesessionid` (mig 79) y los pagos parciales a `sessionid`
      * (mig 90). Ninguno referencia `tableid`. Mover la sesión los arrastra a
      * todos sin tocarlos, y por eso las tres preguntas difíciles se contestan
@@ -420,7 +420,7 @@ final class SpaceSessionService
      *     misma sesión. El nombre del espacio que ve el KDS NO está
      *     denormalizado en `pos_order` — sale del JOIN vivo con `space`
      *     (OrderCoreService.php:1170), así que después del UPDATE la comanda
-     *     dice la mesa nueva. Lo único necesario es avisarle a las pantallas
+     *     dice el espacio nuevo. Lo único necesario es avisarle a las pantallas
      *     que vuelvan a leer: el republish del final.
      *   - Pagos parciales ya registrados: intactos, con su `transactionid` y
      *     su comprobante ya emitido. El saldo de la sesión no se mueve un peso.
@@ -446,10 +446,10 @@ final class SpaceSessionService
             $this->assertOwnership($session, $companyId, 'mover');
 
             if (!in_array($session['status'], ['open', 'bill_requested'], true)) {
-                throw new \InvalidArgumentException('Solo se puede mover una mesa abierta (actual: ' . $session['status'] . ')');
+                throw new \InvalidArgumentException('Solo se puede mover un espacio abierto (actual: ' . $session['status'] . ')');
             }
             if ((string) $session['tableid'] === $targetSpaceId) {
-                throw new \InvalidArgumentException('La mesa destino es la misma que la de origen');
+                throw new \InvalidArgumentException('El espacio destino es el mismo que el de origen');
             }
 
             $targetTableId = $this->assertUsableTarget($companyId, $targetSpaceId, $outletForPublish);
@@ -460,7 +460,7 @@ final class SpaceSessionService
                 [$targetTableId, $sessionId, $companyId]
             );
             if ($ok === false) {
-                throw new \RuntimeException('No se pudo mover la mesa');
+                throw new \RuntimeException('No se pudo mover el espacio');
             }
 
             $movedOrderIds = $this->activeOrderIds($companyId, $sessionId);
@@ -474,7 +474,7 @@ final class SpaceSessionService
             if ($e->sqlState() === '23505' || str_contains($e->getMessage(), 'uq_space_session_active_per_space')) {
                 throw new \RuntimeException('El espacio destino se ocupó recién — elegí otro');
             }
-            throw new \RuntimeException('No se pudo mover la mesa', 0, $e);
+            throw new \RuntimeException('No se pudo mover el espacio', 0, $e);
         } catch (\Throwable $e) {
             $db->FailTrans();
             $db->CompleteTrans();
@@ -483,10 +483,10 @@ final class SpaceSessionService
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();
         if ($failed) {
-            throw new \RuntimeException('No se pudo mover la mesa (transacción abortada)');
+            throw new \RuntimeException('No se pudo mover el espacio (transacción abortada)');
         }
 
-        // Después del commit: la comanda de cocina tiene que decir la mesa
+        // Después del commit: la comanda de cocina tiene que decir el espacio
         // nueva. Sin esto el KDS sigue mostrando la vieja hasta el próximo
         // refetch, y un mozo lleva el plato al lugar equivocado.
         foreach ($movedOrderIds as $orderId) {
@@ -510,7 +510,7 @@ final class SpaceSessionService
      *    sesión y siguen su ciclo de vida. Re-emitirlos duplicaría platos ya
      *    en la plancha; cancelarlos tiraría comida hecha. Como con `move()`,
      *    el nombre del espacio sale del JOIN vivo, así que la comanda pasa a
-     *    decir la mesa destino con solo republicar.
+     *    decir el espacio destino con solo republicar.
      *
      * 2. **Pagos parciales ya registrados.** Las filas del ledger se mueven a
      *    la sesión destino con su `transactionid` intacto. Es lo único
@@ -537,7 +537,7 @@ final class SpaceSessionService
         global $db;
 
         if ($sourceSessionId === $targetSessionId) {
-            throw new \InvalidArgumentException('No se puede unir una mesa consigo misma');
+            throw new \InvalidArgumentException('No se puede unir un espacio consigo mismo');
         }
 
         $orders        = new \Punto\Api\Orders\OrderCoreService($this->db);
@@ -547,7 +547,7 @@ final class SpaceSessionService
         $db->StartTrans();
         try {
             // Lock en orden determinístico (por id): dos cajas uniendo el mismo
-            // par de mesas en sentidos opuestos se bloquearían mutuamente si
+            // par de espacios en sentidos opuestos se bloquearían mutuamente si
             // cada una tomara los locks en el orden que le tocó.
             $first  = strcmp($sourceSessionId, $targetSessionId) < 0 ? $sourceSessionId : $targetSessionId;
             $second = $first === $sourceSessionId ? $targetSessionId : $sourceSessionId;
@@ -558,19 +558,19 @@ final class SpaceSessionService
             $source = $rows[$sourceSessionId];
             $target = $rows[$targetSessionId];
 
-            // Las DOS mesas: unir toca ambas cuentas por igual. Sin el guard
-            // sobre la destino, un mozo podría empujarle su mesa a otro; sin el
-            // guard sobre la origen, podría llevarse la mesa de un compañero.
+            // Los DOS espacios: unir toca ambas cuentas por igual. Sin el guard
+            // sobre el destino, un mozo podría empujarle su espacio a otro; sin el
+            // guard sobre el origen, podría llevarse el espacio de un compañero.
             $this->assertOwnership($source, $companyId, 'unir');
             $this->assertOwnership($target, $companyId, 'unir');
 
             foreach ([['origen', $source], ['destino', $target]] as [$label, $row]) {
                 if (!in_array($row['status'], ['open', 'bill_requested'], true)) {
-                    throw new \InvalidArgumentException("La mesa $label no está abierta (" . $row['status'] . ')');
+                    throw new \InvalidArgumentException("El espacio $label no está abierto (" . $row['status'] . ')');
                 }
             }
             if ((string) $source['outletid'] !== (string) $target['outletid']) {
-                throw new \InvalidArgumentException('No se pueden unir mesas de sucursales distintas');
+                throw new \InvalidArgumentException('No se pueden unir espacios de sucursales distintas');
             }
             $outletForPublish = (string) $target['outletid'];
 
@@ -590,7 +590,7 @@ final class SpaceSessionService
             );
             if ($ok === false) throw new \RuntimeException('No se pudieron mover los pagos parciales');
 
-            // Comensales: se suman, es una sola mesa ahora. Alias: gana el de
+            // Comensales: se suman, es un solo espacio ahora. Alias: gana el de
             // la destino (es la cuenta que sobrevive) y solo se adopta el de la
             // origen si la destino no tenía — así unir nunca PIERDE la única
             // etiqueta que había, ni pisa la que el mozo eligió.
@@ -613,7 +613,7 @@ final class SpaceSessionService
                   WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
                 [$guests, $alias, $targetSessionId, $companyId]
             );
-            if ($ok === false) throw new \RuntimeException('No se pudo actualizar la mesa destino');
+            if ($ok === false) throw new \RuntimeException('No se pudo actualizar el espacio destino');
 
             // La origen se cierra SIN saldo pendiente que validar: su saldo se
             // mudó entero a la destino. Por eso el UPDATE es directo y no pasa
@@ -624,7 +624,7 @@ final class SpaceSessionService
                   WHERE sessionid = ? AND companyid = ? AND status IN ('open','bill_requested')",
                 [$targetSessionId, $sourceSessionId, $companyId]
             );
-            if ($ok === false) throw new \RuntimeException('No se pudo cerrar la mesa de origen');
+            if ($ok === false) throw new \RuntimeException('No se pudo cerrar el espacio de origen');
         } catch (\Throwable $e) {
             $db->FailTrans();
             $db->CompleteTrans();
@@ -633,7 +633,7 @@ final class SpaceSessionService
         $failed = $db->HasFailedTrans();
         $db->CompleteTrans();
         if ($failed) {
-            throw new \RuntimeException('No se pudo unir las mesas (transacción abortada)');
+            throw new \RuntimeException('No se pudieron unir los espacios (transacción abortada)');
         }
 
         foreach ($movedOrderIds as $orderId) {
@@ -710,15 +710,15 @@ final class SpaceSessionService
     }
 
     /**
-     * Exclusividad de mesa. Delega la REGLA en SpaceOwnershipGuard (que es
+     * Exclusividad de espacio. Delega la REGLA en SpaceOwnershipGuard (que es
      * quien la documenta y quien la comparte con cualquier otro módulo que la
      * necesite) y acá solo se inyecta el operador de esta request.
      *
      * Los métodos que NO lo llaman están así a propósito:
-     *   - `open()`      la mesa todavía no tiene dueño; se lo está poniendo.
+     *   - `open()`      el espacio todavía no tiene dueño; se lo está poniendo.
      *   - `close()`     lo dispara el COBRO, y quien cobra es la caja, no el
      *                   mozo. Bloquearlo dejaría al cajero sin poder cerrar la
-     *                   cuenta de una mesa ajena, que es literalmente su
+     *                   cuenta de un espacio ajeno, que es literalmente su
      *                   trabajo. Además `close()` ya tiene su propio invariante
      *                   duro (no cierra con saldo pendiente).
      *   - `reopenFromBillRequested()`  lo llama OrderCoreService dentro de su
@@ -746,7 +746,7 @@ final class SpaceSessionService
 
     /**
      * Valida que un espacio pueda RECIBIR una sesión. Mismas condiciones que
-     * `open()` exige sobre el espacio, más "en la misma sucursal": una mesa no
+     * `open()` exige sobre el espacio, más "en la misma sucursal": un espacio no
      * se muda de local.
      *
      * Devuelve el `tableid` y no la fila: `ncmExecute()` no devuelve un `array`
@@ -807,7 +807,7 @@ final class SpaceSessionService
         }
         if (isset($families['items'], $families['prorrateo'])) {
             throw new \InvalidArgumentException(
-                'No se pueden unir estas mesas: una se está cobrando por ítems y la otra por monto/partes. '
+                'No se pueden unir estos espacios: uno se está cobrando por ítems y el otro por monto/partes. '
                 . 'Terminá de cobrar una de las dos antes de unirlas.'
             );
         }
@@ -815,7 +815,7 @@ final class SpaceSessionService
 
     /**
      * Órdenes que siguen vivas en una sesión — las que hay que republicar tras
-     * un movimiento/fusión para que el KDS repinte el nombre de la mesa.
+     * un movimiento/fusión para que el KDS repinte el nombre del espacio.
      *
      * @return array<int,string>
      */
@@ -899,7 +899,7 @@ final class SpaceSessionService
             'closedAt'          => $row['closed_at'] ?? null,
             'saleTransactionId' => $row['saletransactionid'] ?? null,
             'note'              => $row['note'] ?? null,
-            // Alias de la OCUPACIÓN, no de la mesa (mig 163).
+            // Alias de la OCUPACIÓN, no del espacio (mig 163).
             'alias'             => $row['alias'] ?? null,
             'mergedInto'        => $row['mergedinto'] ?? null,
         ];

@@ -410,7 +410,7 @@ final class SpaceService
                 'guests'    => isset($row['session_guests']) ? (int) $row['session_guests'] : null,
                 'waiterId'  => $row['session_waiterid'] ?? null,
                 // El alias viaja en el payload del MAPA (no solo en el detalle)
-                // porque su razón de ser es que el mozo reconozca la mesa de un
+                // porque su razón de ser es que el mozo reconozca el espacio de un
                 // vistazo — si hay que abrir el diálogo para leerlo, no sirve.
                 'alias'     => $row['session_alias'] ?? null,
                 'openedAt'  => $row['session_opened_at'] ?? null,
@@ -446,7 +446,7 @@ final class SpaceService
         }
         if ((string) $sector['outletid'] !== $outletId) {
             // Error específico (no el 422 genérico "inválido para este
-            // outlet/tenant") — datos legacy (mesas creadas sin sector antes
+            // outlet/tenant") — datos legacy (espacios creados sin sector antes
             // de la mig 82) podían tener un sectorId de OTRA sucursal; con la
             // invariante NOT NULL esos huérfanos ya se corrigieron, pero un
             // sectorId explícito del body sigue pudiendo apuntar a otro outlet.

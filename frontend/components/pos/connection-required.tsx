@@ -10,13 +10,13 @@
  *     ningún punto del camino.
  *   - Lo que necesita ESTADO COMPARTIDO entre cajas (mapa de espacios, órdenes
  *     ajenas, cobro de una orden que abrió otro dispositivo) sí puede exigir
- *     red: dos cajas decidiendo offline sobre la misma mesa producen un
+ *     red: dos cajas decidiendo offline sobre el mismo espacio producen un
  *     conflicto que no se puede reconciliar después.
  *
  * Lo que faltaba era decirlo. Sin esto, un módulo de estado compartido offline
  * se quedaba con `data === undefined` y caía en su empty state normal: "No hay
  * espacios abiertos" cuando la verdad es "no puedo saber si hay espacios
- * abiertos". Mentirle al cajero sobre el estado de una mesa es peor que no
+ * abiertos". Mentirle al cajero sobre el estado de un espacio es peor que no
  * mostrarle nada.
  *
  * Detección: con `networkMode: "online"` (el default de TanStack Query) una

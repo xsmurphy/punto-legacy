@@ -10,7 +10,7 @@ use Punto\Api\Services\TransactionLinkService;
  * SpaceSettlementService — split de cuenta (F3a+F3b+F3c,
  * context/15-espacios-module-plan.md §F3 "Plan técnico cerrado 2026-07-19").
  *
- * Cobrar una mesa hoy es atómico: `loadFromSession` → carrito → UNA
+ * Cobrar un espacio hoy es atómico: `loadFromSession` → carrito → UNA
  * `transaction` → `markPaid` de TODAS las órdenes → `close` de la sesión.
  * Con split hay N cobros parciales contra la MISMA sesión, y ahí aparecen
  * los dos errores que cuestan plata: doble cobro (dos mozos cobrando lo
@@ -116,7 +116,7 @@ final class SpaceSettlementService
         $db->StartTrans();
         try {
             // Lock de la sesión ANTES de leer el saldo: sin esto, dos requests
-            // concurrentes (dos mozos cobrando la misma mesa) podrían leer el
+            // concurrentes (dos mozos cobrando el mismo espacio) podrían leer el
             // mismo saldo pendiente y ambos validar contra él → sobre-cobro.
             // El segundo registerPayment queda bloqueado hasta que el commit
             // (o rollback) de este termine, y entonces relee el saldo YA
@@ -270,7 +270,7 @@ final class SpaceSettlementService
      *     instante entre el preflight y el registerPayment real.
      *
      * Por eso este método REDUCE la ventana de la carrera (el caso común de
-     * "la mesa ya se cobra por ítems" se detecta ANTES de comprometer la
+     * "el espacio ya se cobra por ítems" se detecta ANTES de comprometer la
      * venta) pero NO la elimina — registerPayment() sigue siendo la
      * autoridad final y puede rechazar algo que el preflight aprobó
      * (ej. otro dispositivo cobró en el medio). El caller SIEMPRE debe
@@ -350,8 +350,8 @@ final class SpaceSettlementService
         if ($otherKind) {
             throw new \InvalidArgumentException(
                 $family === 'items'
-                    ? 'Esta mesa ya se está cobrando por monto o por partes: no se puede pasar a cobro por ítems'
-                    : 'Esta mesa ya se está cobrando por ítems: no se puede pasar a monto libre ni a partes iguales'
+                    ? 'Este espacio ya se está cobrando por monto o por partes: no se puede pasar a cobro por ítems'
+                    : 'Este espacio ya se está cobrando por ítems: no se puede pasar a monto libre ni a partes iguales'
             );
         }
 

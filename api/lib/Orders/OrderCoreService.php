@@ -125,12 +125,12 @@ final class OrderCoreService
 
     /**
      * Operador de la request (ver Punto\Api\Auth\OperatorContext). Solo se usa
-     * para la exclusividad de mesa al crear una orden CONTRA UN ESPACIO: sin
-     * él, "agregar una ronda" sería el agujero por el que se modifica la mesa
+     * para la exclusividad de espacio al crear una orden CONTRA UN ESPACIO: sin
+     * él, "agregar una ronda" sería el agujero por el que se modifica el espacio
      * de otro mozo sin pasar por SpaceSessionService.
      *
      * Default = no identificado. Los callers internos (SpaceSessionService,
-     * SpaceSettlementService) no crean órdenes de mesa — cancelan y cobran las
+     * SpaceSettlementService) no crean órdenes de espacio — cancelan y cobran las
      * que ya existen — así que no necesitan pasarlo.
      *
      * @var array{userId: ?string, roleId: ?string, identified: bool}|null
@@ -196,7 +196,7 @@ final class OrderCoreService
         $sendNow        = !empty($data['sendNow']);
         // "Orden en venta" (POS cobra primero, produce después): la orden
         // nace YA PAGADA. transactionId es OPCIONAL — el resto de los flujos
-        // (mesas, ecommerce, agenda) no lo mandan y siguen naciendo 'open'.
+        // (espacios, ecommerce, agenda) no lo mandan y siguen naciendo 'open'.
         // El pago y el ciclo de vida son ortogonales (ver updateStatus()):
         // acá solo dejamos el rastro del cobro, el status lo sigue decidiendo
         // sendNow.
@@ -204,7 +204,7 @@ final class OrderCoreService
 
         // `fulfillment` es ORTOGONAL a `source` (context/27 §B.1) — ver mig 94.
         // Una orden de espacio SIEMPRE es dine_in (misma lógica que fuerza
-        // source='table' arriba): una mesa no pide delivery/takeaway.
+        // source='table' arriba): un espacio no pide delivery/takeaway.
         $fulfillment = $spaceSessionId !== null
             ? 'dine_in'
             : (string) ($data['fulfillment'] ?? 'dine_in');
@@ -341,11 +341,11 @@ final class OrderCoreService
                 ? (string) $lockedSession->fields['status']
                 : null;
 
-            // Exclusividad de mesa (context/15, owner 2026-08-23). Va acá y no
+            // Exclusividad de espacio (context/15, owner 2026-08-23). Va acá y no
             // solo en SpaceSessionService porque "agregar una ronda" ES
-            // modificar la mesa, y es el camino más transitado de todos: sin
+            // modificar el espacio, y es el camino más transitado de todos: sin
             // este guard, la regla se saltea simplemente mandando una orden en
-            // vez de usar el diálogo de la mesa.
+            // vez de usar el diálogo del espacio.
             //
             // Aprovecha el FOR UPDATE que ya se tomó arriba: la asignación de
             // mozo no puede cambiar entre el chequeo y el INSERT.
@@ -364,7 +364,7 @@ final class OrderCoreService
                 }
             }
             // `bill_requested` NO bloquea: pedir la cuenta es una señal para
-            // la caja, no un cierre — que la mesa sume "un café más" después
+            // la caja, no un cierre — que el espacio sume "un café más" después
             // de pedirla es flujo normal de gastronomía. Se acepta la orden y
             // la sesión VUELVE a 'open' (abajo, tras el INSERT): el pedido de
             // cuenta valía para el total de ese momento y ese total cambió,
@@ -729,7 +729,7 @@ final class OrderCoreService
             throw new \InvalidArgumentException('closed sin cobro previo solo se setea vía markPaid() (cobro de la orden)');
         }
         // out_for_delivery ("En camino") solo tiene sentido si la orden se
-        // envía — una mesa o un retiro en mostrador no salen "en camino"
+        // envía — un espacio o un retiro en mostrador no salen "en camino"
         // (context/27 §B.2).
         if ($status === 'out_for_delivery' && (string) ($order['fulfillment'] ?? 'dine_in') !== 'delivery') {
             $db->FailTrans();
@@ -927,11 +927,11 @@ final class OrderCoreService
 
         // D8 de context/48-escalamiento-de-datos.md (mig 160): channel se
         // resuelve ACÁ, no en SaleService — la venta simple (tipo 0/3) no
-        // sabe si nació de una orden de mesa/ecommerce hasta que se vincula.
+        // sabe si nació de una orden de espacio/ecommerce hasta que se vincula.
         // SaleService ya dejó 'mostrador' o 'delivery' (por addressId) al
         // crear la transacción; acá se sobre-escribe SOLO si la orden aporta
-        // más información (mesa siempre gana sobre lo que SaleService haya
-        // puesto — una venta de mesa no tiene addressId, así que no hay
+        // más información (espacio siempre gana sobre lo que SaleService haya
+        // puesto — una venta de espacio no tiene addressId, así que no hay
         // conflicto real). No se toca nada si la orden es 'counter' sin
         // espacio: dejar lo que SaleService ya resolvió.
         $orderSource = (string) ($order['source'] ?? 'counter');

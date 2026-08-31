@@ -142,12 +142,12 @@ export function LockScreen() {
         // backend no puede creerle a un dato que el browser calculó. Este POST
         // revalida el PIN server-side y devuelve un token firmado que prueba
         // la identidad en las requests siguientes — es lo que hace cumplible
-        // la exclusividad de mesas (ver lib/pos/lock-store.ts).
+        // la exclusividad de espacios (ver lib/pos/lock-store.ts).
         //
         // Best-effort deliberado, igual que el audit: el lockscreen tiene que
         // seguir desbloqueando SIN RED (el POS es offline-first y el PIN ya se
         // verificó localmente). Sin token el mozo opera normal; solo pierde
-        // acceso a las mesas asignadas a otro, que son online-only igual.
+        // acceso a los espacios asignados a otro, que son online-only igual.
         //
         // La misma respuesta trae los permisos `pos.*` de esta persona. Se
         // guardan juntos y se limpian juntos: son el mismo hecho probado por el

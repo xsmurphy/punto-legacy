@@ -16,7 +16,7 @@
  *
  * Auth: panel + pos-app (mismo realm que orders-core.php / table-sessions.php).
  * pos-app: la operación queda scopeada al outlet del device — un POS/KDS de
- * la sucursal A no opera el split de una mesa de la sucursal B del mismo
+ * la sucursal A no opera el split de un espacio de la sucursal B del mismo
  * tenant (mismo patrón que orders-core.php).
  *
  * Alcance: SOLO backend. La UI del split (diálogo de modos, selección de

@@ -38,7 +38,7 @@ export const SaleType = {
   Quote: 9,
   /** Delivery / remisión */
   Delivery: 10,
-  /** Abrir mesa */
+  /** Abrir espacio */
   OpenTable: 11,
   /** Orden (KDS) */
   Order: 12,
@@ -57,11 +57,14 @@ export type SaleType = (typeof SaleType)[keyof typeof SaleType]
  * `transactions-list.tsx` — son UI en producción y este archivo es un refactor,
  * no una recopia.
  *
- * Ojo con `OpenTable` (11) y `Order` (12): el mapa viejo etiquetaba el 12 como
- * "Mesa" aunque en el enum PHP el 12 es la orden del KDS y la mesa abierta es
- * el 11. Se conserva "Mesa" para el 12 (cambiarlo movería una etiqueta que el
- * usuario ya conoce) y el 11 quedó como "Mesa abierta" para que sean
- * distinguibles. Si algún día se corrige, se corrige en los dos lados a la vez.
+ * `OpenTable` (11) y `Order` (12) SÍ se corrigieron, el 2026-08-31. El mapa
+ * viejo etiquetaba el 12 como "Mesa" aunque en el enum PHP el 12 es la orden
+ * del KDS y el espacio abierto es el 11 — la etiqueta estaba puesta sobre el
+ * valor equivocado. Al principio se conservó para no mover UI conocida; la
+ * directiva del owner de sacar "mesa" del vocabulario del sistema (el módulo
+ * no es solo gastronómico: el espacio puede ser una silla de atención, un box
+ * o un puesto) obligó a tocar las dos etiquetas igual, así que se aprovechó
+ * para dejarlas donde corresponde: 11 = "Espacio abierto", 12 = "Orden".
  */
 export const SALE_TYPE_LABELS: Record<SaleType, string> = {
   [SaleType.Cashsale]: "Contado",
@@ -75,8 +78,8 @@ export const SALE_TYPE_LABELS: Record<SaleType, string> = {
   [SaleType.Recurring]: "Recurrente",
   [SaleType.Quote]: "Cotización",
   [SaleType.Delivery]: "Remisión",
-  [SaleType.OpenTable]: "Mesa abierta",
-  [SaleType.Order]: "Mesa",
+  [SaleType.OpenTable]: "Espacio abierto",
+  [SaleType.Order]: "Orden",
   [SaleType.Schedule]: "Cita",
   [SaleType.PurchaseCreditNote]: "Nota de crédito de compra",
 }

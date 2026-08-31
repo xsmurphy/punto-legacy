@@ -41,7 +41,7 @@ export interface SessionBalance {
   balance: number
   items: SettlementItem[]
   /**
-   * Familia de modo ya comprometida en esta mesa, o null si todavía no se
+   * Familia de modo ya comprometida en este espacio, o null si todavía no se
    * cobró nada. NO se pueden mezclar en una misma sesión: `items` marca los
    * ítems y descuenta su stock una vez; `amount`/`share` prorratean sobre los
    * ítems no saldados (para facturar mercadería real) pero NO los marcan, así
@@ -88,7 +88,7 @@ async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
  * Existe porque el saldo cacheado no sirve para DECIDIR un cobro: entre que
  * el diálogo lo mostró y el cajero toca "Cobrar" puede haber entrado un pago
  * parcial de otro dispositivo, y con un `paid` viejo se tomaría el camino de
- * "mesa completa" (markPaid + close, sin ledger) sobre una mesa que ya tenía
+ * "espacio completo" (markPaid + close, sin ledger) sobre un espacio que ya tenía
  * plata cobrada — doble cobro. La UI muestra el saldo cacheado; para cobrar,
  * relee.
  */
@@ -104,8 +104,8 @@ export function fetchSessionBalance(sessionId: string): Promise<SessionBalance> 
  *
  * Existe porque hasta ahora el flujo de cobro parcial creaba la venta
  * PRIMERO y recién después intentaba `useRegisterSessionPayment` — si el
- * backend rechazaba el pago (mesa ya cobrada por otra familia, ítem ya
- * saldado, etc.), la plata ya había entrado a la caja pero la mesa seguía
+ * backend rechazaba el pago (espacio ya cobrado por otra familia, ítem ya
+ * saldado, etc.), la plata ya había entrado a la caja pero el espacio seguía
  * debiendo lo mismo (descuadre; bug T1, 2026-08-03). El caller debe correr
  * esto ANTES de crear la venta y abortar el cobro si lanza — el mensaje de
  * `Error.message` es el motivo real del backend, apto para mostrarle al
@@ -129,7 +129,7 @@ export function validateSessionPayment(input: RegisterSessionPaymentInput): Prom
 /**
  * Saldo pendiente de una sesión de espacio. `refetchInterval` corto porque
  * el saldo puede cambiar por pagos de OTRO dispositivo (dos mozos cobrando
- * la misma mesa) — el WS (`space:settlement`, ver
+ * el mismo espacio) — el WS (`space:settlement`, ver
  * `SpaceSettlementService::publishBalance`) invalida vía
  * `use-realtime-sync.ts` cuando eso pasa, esto es solo la red de contención.
  */

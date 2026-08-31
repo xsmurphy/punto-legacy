@@ -872,8 +872,8 @@ final class SaleService
             // congelado al emitir. Acá solo se puede distinguir 'delivery'
             // (addressId presente, B6 arriba) de 'mostrador' — 'mesa' se
             // resuelve DESPUÉS, cuando la venta se vincula a una pos_order
-            // de mesa vía OrderCoreService::markPaid() (esta venta simple no
-            // sabe todavía si nació de una mesa: ese contexto vive en
+            // de espacio vía OrderCoreService::markPaid() (esta venta simple no
+            // sabe todavía si nació de un espacio: ese contexto vive en
             // pos_order, no en SaleInput).
             'channel'                => $input->addressId !== null ? 'delivery' : 'mostrador',
         ];

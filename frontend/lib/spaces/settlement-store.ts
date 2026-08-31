@@ -14,7 +14,7 @@
  *   `onOpenChange(false)`. Si `settlingSpace` viviera ahí, ya estaría en
  *   null cuando el efecto de reconciliación necesita leerlo.
  * - NO en `usePosUIStore`: ese store son toggles de diálogos (open/close);
- *   esto es estado de DOMINIO — identifica una mesa+sesión en cobro, no un
+ *   esto es estado de DOMINIO — identifica un espacio+sesión en cobro, no un
  *   booleano de visibilidad.
  *
  * Ambos campos solo necesitan `sessionId` + `spaceName`: ni
@@ -32,7 +32,7 @@ export interface SpaceSplitTarget {
 
 interface SpaceSettlementState {
   /**
-   * Mesa con el diálogo de split (`SplitBillDialog`) abierto. Dos orígenes,
+   * Espacio con el diálogo de split (`SplitBillDialog`) abierto. Dos orígenes,
    * mismo campo: "Cobrar" en `espacios/page.tsx` (elección inicial de modo)
    * y la reconciliación post-cobro parcial, que lo reabre con el saldo
    * nuevo — puede disparar en cualquier ruta del POS, no solo en Espacios.
@@ -40,7 +40,7 @@ interface SpaceSettlementState {
   splitTarget: SpaceSplitTarget | null
   setSplitTarget: (target: SpaceSplitTarget | null) => void
   /**
-   * Mesa con un cobro PARCIAL en curso en el PayDialog. Seteada al armar el
+   * Espacio con un cobro PARCIAL en curso en el PayDialog. Seteada al armar el
    * carrito (`loadForSettlement`), leída por el efecto de reconciliación
    * cuando el PayDialog se cierra.
    */

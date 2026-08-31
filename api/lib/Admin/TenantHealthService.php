@@ -837,7 +837,7 @@ class TenantHealthService
 
         $moduleCopy = [
             'orders'     => ['title' => 'Tiene Órdenes activo y sin uso en 30 días',   'detail' => '0 órdenes creadas en el último mes — ofrecer ayuda para armar el flujo de pedidos.', 'priority' => 'high'],
-            'espacios'   => ['title' => 'Tiene Espacios activo y 0 sesiones en 30 días', 'detail' => 'Ofrecerle ayuda para armar el salón y abrir mesas desde el POS.', 'priority' => 'high'],
+            'espacios'   => ['title' => 'Tiene Espacios activo y 0 sesiones en 30 días', 'detail' => 'Ofrecerle ayuda para armar el salón y abrir espacios desde el POS.', 'priority' => 'high'],
             'production' => ['title' => 'Tiene Producción activo sin uso reciente',    'detail' => '0 órdenes de producción en 30 días — revisar si conoce el módulo.', 'priority' => 'medium'],
             'finance'    => ['title' => 'No usa el módulo de Finanzas',                'detail' => '0 movimientos manuales, cheques o créditos en 30 días — capacitar en registro de caja.', 'priority' => 'medium'],
             'purchases'  => ['title' => 'No registra compras en el sistema',           'detail' => '0 compras ni borradores OCR en 30 días.', 'priority' => 'medium'],

@@ -96,7 +96,7 @@ if (!$found) {
 // verifica, contra la BD, qué persona está parada frente a la caja. El token
 // convierte ese hecho en algo que las requests siguientes pueden probar — sin
 // él, el realm `pos-app` no distingue a los tres mozos que comparten la tablet
-// y la exclusividad de mesas (context/15) sería un `if` sobre un dato que el
+// y la exclusividad de espacios (context/15) sería un `if` sobre un dato que el
 // cliente elige. Ver el docblock de OperatorAssertion.
 require_once __DIR__ . '/../lib/Auth/OperatorAssertion.php';
 require_once __DIR__ . '/../lib/Auth/OperatorContext.php';
@@ -107,7 +107,7 @@ $operatorId = (string) ($found['contactid'] ?? '');
 // El backend sigue siendo la autoridad: `SpaceOwnershipGuard` y compañía
 // resuelven contra el rol del operador en CADA request. Esto es lo que le falta
 // al front para no mentir — sin ello solo puede espejar dos de las tres
-// condiciones del guard ("la mesa no tiene mozo", "la mesa es mía") y le queda
+// condiciones del guard ("el espacio no tiene mozo", "el espacio es mío") y le queda
 // afuera la tercera ("soy encargado y puedo intervenir"). El resultado sin esto
 // es siempre malo: o se apagan acciones que el encargado SÍ puede ejecutar, o
 // se dejan prendidas y revientan con 403 al tocarlas.

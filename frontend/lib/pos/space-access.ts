@@ -1,6 +1,6 @@
 /**
  * ¿Puede ESTE operador intervenir ESTE espacio? — espejo de front del guard de
- * exclusividad de mesa por mozo.
+ * exclusividad de espacio por mozo.
  *
  * ── Es un ESPEJO, no la autorización ────────────────────────────────────────
  *
@@ -18,14 +18,14 @@
  *
  * ── Por qué hace falta el permiso del operador ──────────────────────────────
  *
- * El guard tiene tres salidas a favor: la mesa no tiene mozo, la mesa es tuya,
+ * El guard tiene tres salidas a favor: el espacio no tiene mozo, el espacio es tuyo,
  * o tenés `pos.space.override`. Las dos primeras el front las puede espejar con
  * datos que ya tiene; la tercera no, porque el rol de la persona no viaja en el
  * roster del bootstrap (proyección deliberada a id/name/pinhash). Por eso los
  * permisos llegan por `/v1/unlock-pin` y viven en el lock store — ver el
  * docblock de `operatorPermissions` en `lib/pos/lock-store.ts`.
  *
- * ── Por qué el TOKEN se chequea ANTES que "la mesa es tuya" ─────────────────
+ * ── Por qué el TOKEN se chequea ANTES que "el espacio es tuyo" ─────────────────
  *
  * Porque para el backend la identidad del operador ES el token, no el match
  * local del PIN. `SpaceOwnershipGuard::assert` compara el `waiterId` contra
@@ -36,12 +36,12 @@
  *
  * Espejar el orden al revés (dueño primero) es exactamente el bug que este
  * archivo tuvo hasta 2026-08-25: si el POST a `/api/pos/unlock` se cae con el
- * device online, el mozo veía sus acciones HABILITADAS sobre su propia mesa y
+ * device online, el mozo veía sus acciones HABILITADAS sobre su propio espacio y
  * se comía un 403 al tocarlas — justo el 403 sorpresa que este espejo existe
  * para evitar. No reordenar "porque el dueño obviamente puede".
  */
 
-/** Clave del catálogo que destraba la mesa ajena (espejo de la constante PHP). */
+/** Clave del catálogo que destraba el espacio ajeno (espejo de la constante PHP). */
 export const SPACE_OVERRIDE_PERMISSION = "pos.space.override"
 
 export interface SpaceAccessInput {
@@ -53,7 +53,7 @@ export interface SpaceAccessInput {
   operatorToken: string | null
   /** Permisos `pos.*` del operador, emitidos junto al token. */
   permissions: string[]
-  /** Nombre del mozo dueño de la mesa, ya resuelto contra el roster. */
+  /** Nombre del mozo dueño del espacio, ya resuelto contra el roster. */
   waiterName: string | null
 }
 
@@ -80,7 +80,7 @@ export function evaluateSpaceAccess(input: SpaceAccessInput): SpaceAccess {
   if (!session) return ALLOWED
 
   const waiterId = (session.waiterId ?? "").trim()
-  // Mesa sin mozo asignado: no es de nadie, la opera cualquiera. Asignar el
+  // Espacio sin mozo asignado: no es de nadie, lo opera cualquiera. Asignar el
   // mozo ES lo que activa la exclusividad — no hay un segundo flag.
   if (waiterId === "") return ALLOWED
 
@@ -91,7 +91,7 @@ export function evaluateSpaceAccess(input: SpaceAccessInput): SpaceAccess {
   }
 
   // Sin token no hay identidad que el backend reconozca, y eso alcanza TAMBIÉN
-  // al dueño de la mesa: el guard compara el `waiterId` contra el id que sale de
+  // al dueño del espacio: el guard compara el `waiterId` contra el id que sale de
   // la afirmación firmada, así que sin ella ni el propio mozo pasa (ver el
   // docblock). Cortar acá evita ofrecer acciones que ya sabemos que terminan en
   // 403 — el caso real es un `/api/pos/unlock` que falló con el device online.
@@ -99,11 +99,11 @@ export function evaluateSpaceAccess(input: SpaceAccessInput): SpaceAccess {
     return {
       allowed: false,
       reason:
-        "Sin identidad verificada: volvé a desbloquear con conexión para operar una mesa asignada.",
+        "Sin identidad verificada: volvé a desbloquear con conexión para operar un espacio asignado.",
     }
   }
 
-  // El dueño de la mesa, siempre — ya con identidad probada.
+  // El dueño del espacio, siempre — ya con identidad probada.
   if (waiterId === activeUser.id) return ALLOWED
 
   // La válvula de escape del encargado: sin ella la regla se termina evadiendo
@@ -112,6 +112,6 @@ export function evaluateSpaceAccess(input: SpaceAccessInput): SpaceAccess {
 
   return {
     allowed: false,
-    reason: `La atiende ${waiterName ?? "otro mozo"}. Necesitás permiso para intervenir mesas de otro mozo.`,
+    reason: `La atiende ${waiterName ?? "otro mozo"}. Necesitás permiso para intervenir espacios de otro mozo.`,
   }
 }

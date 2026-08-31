@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Spaces;
 
 /**
- * SpaceBalanceService — LA definición de "cuánto debe una mesa"
+ * SpaceBalanceService — LA definición de "cuánto debe un espacio"
  * (context/15-espacios-module-plan.md §F3).
  *
  * Existe porque el saldo lo consultan DOS write-paths distintos y ambos
@@ -33,7 +33,7 @@ namespace Punto\Api\Spaces;
  *   balance = total − paid.
  *
  * Es el mismo shape que `loadFromSession` en frontend/lib/cart/store.ts: qué
- * cuenta para el total de la mesa no diverge entre front y back.
+ * cuenta para el total del espacio no diverge entre front y back.
  */
 final class SpaceBalanceService
 {

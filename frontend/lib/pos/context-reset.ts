@@ -5,7 +5,7 @@
  * Cuando el cajero mueve el device a otra sucursal o a otra caja desde Ajustes,
  * medio estado del cliente pasa a describir un lugar donde ya no está: los
  * precios son de otra lista, el stock es de otro depósito, la numeración es de
- * otro punto de expedición y las mesas son de otro salón. Seguir operando con
+ * otro punto de expedición y los espacios son de otro salón. Seguir operando con
  * eso puesto no es "datos viejos en pantalla" — es emitir un documento con las
  * dimensiones equivocadas.
  *
@@ -63,7 +63,7 @@ export function resetContextScopedState(qc: QueryClient): void {
   // `clear()` vuelve al `initialState` completo, así que con esta sola línea se
   // van también el cliente seleccionado, el modo (venta/orden/cotización), el
   // descuento de venta, las etiquetas, la nota, la lista de precios, el
-  // fulfillment, la dirección de entrega, la mesa/sesión de espacio y los
+  // fulfillment, la dirección de entrega, la sesión de espacio y los
   // vínculos a orden/cotización padre. Los descuentos por línea, el vendedor
   // por línea, los add-ons y los vouchers viven DENTRO de cada línea, así que
   // se van con ellas.
@@ -83,7 +83,7 @@ export function resetContextScopedState(qc: QueryClient): void {
   useAddonPickerStore.getState().close()
   useGiftcardIssueStore.getState().close()
 
-  // ── Mesas en proceso de cobro ─────────────────────────────────────────────
+  // ── Espacios en proceso de cobro ─────────────────────────────────────────────
   // Apuntan a una sesión de espacio del salón anterior por id.
   useSpaceSettlementStore.getState().setSplitTarget(null)
   useSpaceSettlementStore.getState().setSettlingSpace(null)

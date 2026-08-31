@@ -10,13 +10,13 @@
  *   POST /v1/space-sessions?id=<uuid>&action=cancel              → cancela (solo sin órdenes activas)
  *   POST /v1/space-sessions?id=<uuid>&action=close {transactionId?} → cierra (F0+F1: sin cobro; F2 lo llamará con transactionId)
  *   POST /v1/space-sessions?id=<uuid>&action=update {alias?, guests?, waiterId?} → edita la ocupación
- *   POST /v1/space-sessions?id=<uuid>&action=move   {targetSpaceId}  → mueve la mesa a otro espacio libre
+ *   POST /v1/space-sessions?id=<uuid>&action=move   {targetSpaceId}  → mueve el espacio a otro espacio libre
  *   POST /v1/space-sessions?id=<uuid>&action=merge  {targetSessionId} → une esta cuenta a otra (esta es el ORIGEN)
  *
  * Auth: panel + pos-app. pos-app queda scopeado al outlet del device (mismo
  * patrón outletScope de orders-core.php).
  *
- * Exclusividad de mesa (owner 2026-08-23): una mesa con mozo asignado solo la
+ * Exclusividad de espacio (owner 2026-08-23): un espacio con mozo asignado solo lo
  * opera ese mozo, o quien tenga `pos.space.override`. El enforcement NO está
  * acá sino en `SpaceSessionService` (vía `SpaceOwnershipGuard`), para que valga
  * también para los otros callers del service; este archivo solo resuelve QUIÉN
@@ -46,7 +46,7 @@ $svc      = new \Punto\Api\Spaces\SpaceSessionService($db, $operator);
  * Traduce el rechazo por exclusividad a 403 y todo lo demás a 422. Un solo
  * lugar: si cada action lo hiciera por su cuenta, la primera que se olvidara
  * devolvería 422 y el front lo mostraría como "datos inválidos" en vez de
- * "esta mesa no es tuya".
+ * "este espacio no es tuyo".
  */
 function spaceSessionFail(\Throwable $e): void
 {
@@ -138,7 +138,7 @@ switch ($method) {
             $transactionId = !empty($_POST['transactionId']) ? (string) $_POST['transactionId'] : null;
             // Cierre con saldo pendiente = perdonar lo que falta cobrar. Es
             // explícito y solo desde el panel: la caja no puede cerrar una
-            // mesa a medio pagar por accidente.
+            // espacio a medio pagar por accidente.
             $forgiveBalance = ($ctx['realm'] ?? '') === 'panel'
                 && filter_var($_POST['forgivePendingBalance'] ?? false, FILTER_VALIDATE_BOOLEAN);
             try {

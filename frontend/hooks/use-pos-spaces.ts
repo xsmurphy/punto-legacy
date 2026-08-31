@@ -173,7 +173,7 @@ export function useUpdateSpaceSession() {
   })
 }
 
-/** Mueve la ocupación a otro espacio libre (los clientes se cambiaron de mesa). */
+/** Mueve la ocupación a otro espacio libre (los clientes se cambiaron de espacio). */
 export function useMoveSpaceSession() {
   const qc = useQueryClient()
   return useMutation<SpaceSession, Error, { sessionId: string; targetSpaceId: string }>({
@@ -185,7 +185,7 @@ export function useMoveSpaceSession() {
       }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["pos-spaces"] })
-      // Las órdenes cambiaron de mesa: la comanda del KDS y el listado de
+      // Las órdenes cambiaron de espacio: la comanda del KDS y el listado de
       // órdenes muestran el nombre del espacio, que acaba de cambiar.
       void qc.invalidateQueries({ queryKey: ["orders"] })
     },

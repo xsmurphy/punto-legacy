@@ -6,7 +6,7 @@
  * Auth: Bearer del device (`_jwt`) — realm `pos-app`, que `api/v1/modules.php`
  * acepta para GET.
  *
- * POR QUÉ EXISTE: el sidebar del POS decide con esto si muestra Mesas y
+ * POR QUÉ EXISTE: el sidebar del POS decide con esto si muestra Espacios y
  * Órdenes. Antes lo pedía con el cliente del PANEL (cookie `_jwt_panel`, 24 h
  * de vida) desde una pantalla que corre con la sesión del DISPOSITIVO (`_jwt`,
  * sin vencimiento). Al caducar la cookie del operador —típicamente de un día

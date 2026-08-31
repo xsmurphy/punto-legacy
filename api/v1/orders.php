@@ -35,7 +35,7 @@ if ($method === 'GET' && $resource === 'customerHasOrders') {
     apiOk(['hasOrders' => $svc->customerHasOpenOrders($companyId, $outletId, $customerId)]);
 }
 
-// --- GET ?resource=tableClose: ítems agrupados para cierre de mesa/orden -
+// --- GET ?resource=tableClose: ítems agrupados para cierre de espacio/orden -
 if ($method === 'GET' && $resource === 'tableClose') {
     $t    = trim((string) ($_GET['t'] ?? ''));
     $kind = trim((string) ($_GET['kind'] ?? 'table'));

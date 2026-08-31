@@ -106,7 +106,7 @@ export function SpaceSessionDialog({
   const [confirmCancel, setConfirmCancel] = React.useState(false)
 
   // Total de la sesión: órdenes no canceladas (las cobradas siguen sumando —
-  // es el consumo total de la mesa, referencia para el cobro/split).
+  // es el consumo total del espacio, referencia para el cobro/split).
   const sessionTotal = orders
     .filter((o) => o.status !== "cancelled")
     .reduce((s, o) => s + orderTotal(o), 0)
@@ -132,7 +132,7 @@ export function SpaceSessionDialog({
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">
-            {/* El alias, cuando existe, ES cómo el mozo llama a esta mesa —
+            {/* El alias, cuando existe, ES cómo el mozo llama a este espacio —
                 va primero y el nombre fijo del espacio queda de referencia al
                 lado. Sin alias, el título es el de siempre. */}
             {table?.session?.alias ? (
@@ -248,7 +248,7 @@ export function SpaceSessionDialog({
               Cobrar
             </Button>
           </div>
-          {/* Segunda fila — gestión de la mesa (owner 2026-08-23). Separada de
+          {/* Segunda fila — gestión del espacio (owner 2026-08-23). Separada de
               la de arriba a propósito: esas tres son el flujo de servicio que
               el mozo usa en cada ronda y no se mueven de lugar (Regla #10);
               estas son ocasionales. La fila EXISTE SIEMPRE, con los tres

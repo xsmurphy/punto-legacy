@@ -2,7 +2,7 @@
 /**
  * /api/v1/spaces.php — CRUD de espacios + editor de layout (space, mig 80,
  * context/15-espacios-module-plan.md F0+F1). Nombre nuevo a propósito — NO
- * pisa el legacy `api/v1/tables.php` (mesas/transaction type=11, dominio
+ * pisa el legacy `api/v1/tables.php` (espacios/transaction type=11, dominio
  * distinto, ver api/lib/services/TableService.php).
  *
  *   GET    /v1/spaces?outletId=<uuid>                     → lista simple (sectorId? filtra)

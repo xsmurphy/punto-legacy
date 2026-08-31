@@ -3,15 +3,15 @@
 /**
  * Dialog rápido para abrir un espacio libre (context/15-espacios-module-plan.md
  * F2). Los TRES campos son opcionales — el owner lo pidió explícitamente así
- * para comensales y vale igual para el resto: abrir una mesa tiene que ser un
- * tap, y todo lo demás se puede completar después desde el diálogo de la mesa.
+ * para comensales y vale igual para el resto: abrir un espacio tiene que ser un
+ * tap, y todo lo demás se puede completar después desde el diálogo del espacio.
  *
  * ── Mozo ────────────────────────────────────────────────────────────────────
  * El backend soporta `waiterId` desde la mig 80 pero ningún componente lo
  * seteaba, así que la columna estaba siempre en NULL. Además de atribuir la
- * mesa, asignar el mozo ACTIVA LA EXCLUSIVIDAD: una mesa con mozo solo la
+ * espacio, asignar el mozo ACTIVA LA EXCLUSIVIDAD: un espacio con mozo solo la
  * opera él (o quien tenga `pos.space.override`). Por eso el copy del campo lo
- * dice — que un desplegable opcional cambie quién puede tocar la mesa no puede
+ * dice — que un desplegable opcional cambie quién puede tocar el espacio no puede
  * ser un efecto secundario invisible.
  *
  * `Select` y no el `SellerPickerDialog` del POS: ese es un Dialog con búsqueda,
@@ -20,8 +20,8 @@
  * desplegable.
  *
  * ── Alias ───────────────────────────────────────────────────────────────────
- * Nombre libre de la OCUPACIÓN ("los del cumpleaños"), no de la mesa. Es
- * efímero: muere cuando la mesa se cierra. Ver mig 163.
+ * Nombre libre de la OCUPACIÓN ("los del cumpleaños"), no del espacio. Es
+ * efímero: muere cuando el espacio se cierra. Ver mig 163.
  */
 
 import * as React from "react"
@@ -105,7 +105,7 @@ export function OpenSpaceDialog({ table, onOpenChange, onConfirm, submitting }: 
           </div>
 
           <div className="grid gap-2">
-            <Label htmlFor="space-alias">Nombre de la mesa (opcional)</Label>
+            <Label htmlFor="space-alias">Nombre del espacio (opcional)</Label>
             <Input
               id="space-alias"
               placeholder="Los del cumpleaños"
@@ -114,7 +114,7 @@ export function OpenSpaceDialog({ table, onOpenChange, onConfirm, submitting }: 
               onChange={(e) => setAlias(e.target.value)}
             />
             <p className="text-sm text-muted-foreground">
-              Para reconocerla de un vistazo. Se borra al cerrar la mesa.
+              Para reconocerlo de un vistazo. Se borra al cerrar el espacio.
             </p>
           </div>
 
@@ -135,8 +135,8 @@ export function OpenSpaceDialog({ table, onOpenChange, onConfirm, submitting }: 
             </Select>
             <p className="text-sm text-muted-foreground">
               {waiterId === NO_WAITER
-                ? "Sin mozo asignado, cualquiera puede operar la mesa."
-                : "Solo ese mozo va a poder operar la mesa (un encargado puede intervenir)."}
+                ? "Sin mozo asignado, cualquiera puede operar el espacio."
+                : "Solo ese mozo va a poder operar el espacio (un encargado puede intervenir)."}
             </p>
           </div>
         </div>

@@ -200,11 +200,11 @@ export function selectionsKey(selections: CartLineAddon[] | undefined): string {
  *   propio importe, porque ahí el add-on ES un ítem — descuenta stock, paga
  *   su IVA y aparece en el ticket (`SaleService::expandAddonSelections`).
  *
- * Sin este puente, cobrar una mesa emitía una venta SIN `selections`: la plata
+ * Sin este puente, cobrar un espacio emitía una venta SIN `selections`: la plata
  * salía bien (ya estaba adentro del padre) pero `expandAddonSelections` nunca
  * corría, así que el add-on no descontaba stock, no salía en el ticket y era
  * invisible para los reportes por opción (F6). El queso extra se regalaba del
- * inventario en todas las ventas que pasaban por orden o mesa.
+ * inventario en todas las ventas que pasaban por orden o espacio.
  *
  * **`qty` vuelve a ser POR UNIDAD DEL PADRE.** La orden persiste
  * `childQty = optQty × parentQty` (2 hamburguesas con queso extra son 2
@@ -218,7 +218,7 @@ export function selectionsKey(selections: CartLineAddon[] | undefined): string {
  * viaja en la selección sale del CATÁLOGO vigente — el mismo que
  * `AddonService::validateSelections` va a re-cotizar server-side. Así el
  * número que el cajero ve antes de cobrar es el que se factura, incluso si el
- * add-on cambió de precio con la mesa abierta.
+ * add-on cambió de precio con el espacio abierto.
  *
  * Devuelve `undefined` —línea sin add-ons, exactamente el comportamiento
  * previo— si algo no se puede reconstruir con confianza: hija sin
@@ -226,7 +226,7 @@ export function selectionsKey(selections: CartLineAddon[] | undefined): string {
  * catálogo (`AddonService::replaceForItem` borra y reinserta las opciones con
  * ids nuevos al editar la ficha), qty que no divide exacto, o precio base que
  * daría negativo. El fail-safe es deliberado: una selección mal reconstruida
- * la rechaza `validateSelections` con 422 y deja la mesa INCOBRABLE, que es
+ * la rechaza `validateSelections` con 422 y deja el espacio INCOBRABLE, que es
  * mucho peor que cobrarla como se cobraba hasta ahora.
  */
 export function rebuildSelectionsFromOrder(
@@ -284,7 +284,7 @@ export function rebuildSelectionsFromOrder(
  *
  * Es la definición ÚNICA de "cómo una orden vuelve al carrito para cobrarse",
  * compartida por `loadFromOrder` (cobrar una orden suelta) y `loadFromSession`
- * (cobrar una mesa entera). Vivía inline en `loadFromOrder` y por eso la mesa
+ * (cobrar un espacio entero). Vivía inline en `loadFromOrder` y por eso el espacio
  * se cobraba con una reconstrucción distinta —en realidad, sin ninguna—: el
  * add-on no generaba su `itemSold`, no descontaba stock y no salía en el
  * ticket. Que sea una sola función es el arreglo: no hay forma de cerrar un
@@ -301,7 +301,7 @@ export function rebuildSelectionsFromOrder(
  * cobrar es el que se factura. Ver el docblock de `rebuildSelectionsFromOrder`
  * para el porqué y para el fail-safe.
  *
- * Devuelve líneas SIN `lineId` — cada caller decide la identidad (una mesa
+ * Devuelve líneas SIN `lineId` — cada caller decide la identidad (un espacio
  * mergea líneas iguales de rondas distintas antes de asignarlo).
  */
 export function cartLinesFromOrderItems(
@@ -326,7 +326,7 @@ export function cartLinesFromOrderItems(
     .map((oi) => {
       // `OrderItem` no viaja con datos de impuesto: se re-resuelven del
       // catálogo por itemId al reconstruir la línea. Sin esto, el chip de
-      // IVA de una orden/mesa retomada mostraba 0 (selectCartIva trata la
+      // IVA de una orden/espacio retomado mostraba 0 (selectCartIva trata la
       // línea sin taxId como exenta). Solo afecta el display — el backend
       // congela el impuesto real al persistir igual (enrichWithTaxes).
       const cat = oi.itemId ? catalogItems.find((ci) => ci.id === oi.itemId) : undefined
@@ -368,7 +368,7 @@ export interface VoucherRedeemItem {
  * Cobro PARCIAL de una sesión de espacio — split de cuenta (context/15 §F3).
  *
  * Es el discriminador que le dice a `pay-dialog.tsx` que la venta que está
- * por confirmar NO es "la mesa entera" sino una parte: en vez de la rama
+ * por confirmar NO es "el espacio entero" sino una parte: en vez de la rama
  * `sessionParentId` (markPaid de cada orden + close de la sesión), registra
  * el pago en el ledger vía `registerSessionPayment` y **el backend decide**
  * si el saldo llegó a 0 y corresponde liquidar (`settleIfCovered`). La UI no
@@ -376,7 +376,7 @@ export interface VoucherRedeemItem {
  *
  * Mutuamente excluyente con `sessionParentId` y `orderParentId`. Se resetea
  * en `clear()` vía `initialState` — crítico: un intent que sobreviva al clear
- * haría que la SIGUIENTE venta normal se registre como parcial de una mesa
+ * haría que la SIGUIENTE venta normal se registre como parcial de un espacio
  * vieja, imputando plata a la cuenta equivocada.
  *
  * El monto real lo recalcula el backend en los tres casos (kind='items' desde
@@ -675,7 +675,7 @@ interface CartState {
    * Cobro PARCIAL de una sesión (split de cuenta, context/15 §F3). Set vía
    * `loadForSettlement()`. Ver el docblock de `SettlementIntent` arriba: es
    * lo que hace que `pay-dialog.tsx` registre el pago en el ledger en vez de
-   * cerrar la mesa. Mutuamente excluyente con `sessionParentId` /
+   * cerrar el espacio. Mutuamente excluyente con `sessionParentId` /
    * `orderParentId`. Se resetea en clear().
    */
   settlementIntent: SettlementIntent | null
@@ -917,7 +917,7 @@ interface CartState {
    * `loadFromSession`, pero setea `settlementIntent` en vez de
    * `sessionParentId`/`sessionOrderIds` — la diferencia es qué hace
    * `pay-dialog.tsx` DESPUÉS de la venta (registrar el pago en el ledger vs.
-   * cerrar la mesa). El cobro de la mesa completa sigue usando
+   * cerrar el espacio). El cobro del espacio completo sigue usando
    * `loadFromSession`, sin cambios.
    *
    * Las líneas las arma el caller (`lib/spaces/settlement-lines.ts`) porque
@@ -1390,7 +1390,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
 
   setSelectedSpace: (sessionId, spaceName) => {
     // Un espacio es dine_in por construcción (context/27 §B.1, mismo criterio
-    // que el backend forzando source='table') — una mesa no pide delivery.
+    // que el backend forzando source='table') — un espacio no pide delivery.
     set({
       spaceSessionId: sessionId,
       spaceName,
@@ -1434,7 +1434,7 @@ export const useCartStore = create<CartState>()((set, _get) => ({
     let newLines: CartLine[] = []
     for (const order of billable) {
       // MISMA reconstrucción que `loadFromOrder` — add-ons incluidos. Cobrar
-      // la mesa entera no es un camino distinto de cobrar una orden: son las
+      // el espacio entero no es un camino distinto de cobrar una orden: son las
       // mismas órdenes, una detrás de otra.
       const orderLines = cartLinesFromOrderItems(order.items, catalogItems)
       for (const line of orderLines) {

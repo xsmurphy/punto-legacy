@@ -8,15 +8,15 @@ use Punto\Api\Context\TenantContext;
  * @deprecated Reemplazado por el módulo de Espacios F0+F1
  * (`Punto\Api\Spaces\{SpaceSectorService,SpaceService,SpaceSessionService}`,
  * mig 80, context/15-espacios-module-plan.md — rename mesas→espacios en mig 81).
- * El modelo `transaction type=11/12` (mesa/orden efímera, sin historial, sin
+ * El modelo `transaction type=11/12` (espacio/orden efímera, sin historial, sin
  * sectores) es el corte limpio D3 del plan — NO se extiende. Dejar intacto
  * por compat mientras el front legacy (`app.js` `ncmSpaces`) siga vivo; no
  * consumir desde código nuevo.
  *
- * TableService — operaciones sobre las mesas/espacios del POS (slice 2 del desacople de /app).
+ * TableService — operaciones sobre los espacios del POS (slice 2 del desacople de /app).
  *
- * Una "mesa" es una fila de `transaction` con transactionType = 11, identificada por
- * `transactionName` (el número/nombre de mesa, VARCHAR) dentro de un outlet.
+ * Un "espacio" es una fila de `transaction` con transactionType = 11, identificada por
+ * `transactionName` (el número/nombre de espacio, VARCHAR) dentro de un outlet.
  *
  * Lógica portada de app/action.php (renameTable 255, unReserveTable 319). Como en el
  * resto del desacople: escrituras con $db->Execute PARAMETRIZADO (no ncm*), corrigiendo
@@ -40,7 +40,7 @@ final class TableService
     const TYPE_TABLE = 11;
     const TYPE_ORDER = 12;
 
-    /** Renombra (setea la nota visible) de una mesa. */
+    /** Renombra (setea la nota visible) de un espacio. */
     public function rename(string $companyId, string $outletId, string $tableName, string $note): array
     {
         global $db;
@@ -52,7 +52,7 @@ final class TableService
         return ['ok' => $res !== false];
     }
 
-    /** Libera la reserva de una mesa (transactionStatus = 1). */
+    /** Libera la reserva de un espacio (transactionStatus = 1). */
     public function unreserve(string $companyId, string $outletId, string $tableName): array
     {
         global $db;
@@ -64,7 +64,7 @@ final class TableService
         return ['ok' => $res !== false];
     }
 
-    /** Asigna un usuario (mozo/responsable) a una mesa/espacio. */
+    /** Asigna un usuario (mozo/responsable) a un espacio. */
     public function assignUser(string $companyId, string $outletId, string $tableName, string $userId): array
     {
         global $db;
@@ -77,9 +77,9 @@ final class TableService
     }
 
     /**
-     * Lista las mesas abiertas del outlet (tablesJson, load.php L1142).
+     * Lista los espacios abiertos del outlet (tablesJson, load.php L1142).
      *
-     * Devuelve un array indexado por transactionName (nro de mesa). Corrige bugs PG del legacy:
+     * Devuelve un array indexado por transactionName (nro de espacio). Corrige bugs PG del legacy:
      *   - transactionName > 0 (VARCHAR vs int) → IS NOT NULL / != '' / != '0'
      *   - intval(transactionParentId) (UUID) → bool (joinSpaces roto en PG; 0|1 es suficiente)
      *   - getContactData (god-function) → simplificado a editable=true; el gate real está en la API
@@ -108,7 +108,7 @@ final class TableService
             while (!$result->EOF) {
                 $f = $result->fields;
                 $txId = (string) ($f['transactionId'] ?? '');
-                // 'joined' = esta mesa tiene un origen (fue fusionada dentro de
+                // 'joined' = este espacio tiene un origen (fue fusionado dentro de
                 // otra) — antes intval(transactionParentId), ahora vía
                 // transaction_link kind='table_merge' (mig 115).
                 $joined = $txId !== '' && $this->links->listOriginIds($companyId, $txId, 'table_merge') !== [];
@@ -131,9 +131,9 @@ final class TableService
     }
 
     /**
-     * Cierra una mesa/espacio (closeTable, action.php L225). Tres operaciones:
-     *   1. Borra la mesa abierta (type 11) que matchea $del según $kind.
-     *   2. Borra mesas unidas (type 11 con transactionParentId = $del) — SÓLO kind='any'
+     * Cierra un espacio (closeTable, action.php L225). Tres operaciones:
+     *   1. Borra el espacio abierto (type 11) que matchea $del según $kind.
+     *   2. Borra espacios unidos (type 11 con transactionParentId = $del) — SÓLO kind='any'
      *      (donde $del es un transactionId/uuid). El legacy lo corría para todos los kinds,
      *      pero el efecto neto es idéntico restringiéndolo a 'any':
      *        - kind='customer': $del (uuid) vs columna uuid → type-válido pero matchea 0 filas
@@ -159,14 +159,14 @@ final class TableService
             default    => 'transactionName', // 'table'
         };
 
-        // 1. Borrar la mesa abierta (type 11).
+        // 1. Borrar el espacio abierto (type 11).
         $db->Execute(
             "DELETE FROM transaction
               WHERE transactionType = ? AND $matchCol = ? AND outletId = ? AND companyId = ?",
             [self::TYPE_TABLE, $del, $outletId, $companyId]
         );
 
-        // 2. Borrar mesas unidas — sólo cuando $del es un transactionId (kind='any').
+        // 2. Borrar espacios unidos — sólo cuando $del es un transactionId (kind='any').
         //    Antes: DELETE ... WHERE transactionParentId = $del. Ahora: los
         //    derivados de $del (kind='table_merge') vía transaction_link (mig 115).
         if ($kind === 'any') {
@@ -192,15 +192,15 @@ final class TableService
     }
 
     /**
-     * joinSpaces (action.php L243): une la mesa $tFrom dentro de $tTo.
-     *   1. Marca la mesa origen (type 11, name=$tFrom) como hija: transactionParentId =
-     *      el transactionId (UUID) de la mesa destino. closeTable(kind='any') usa esa FK
-     *      para cascadear el borrado de mesas unidas; listTables la lee como 'joined'.
+     * joinSpaces (action.php L243): une el espacio $tFrom dentro de $tTo.
+     *   1. Marca el espacio origen (type 11, name=$tFrom) como hijo: transactionParentId =
+     *      el transactionId (UUID) del espacio destino. closeTable(kind='any') usa esa FK
+     *      para cascadear el borrado de espacios unidos; listTables la lee como 'joined'.
      *   2. Reasigna las órdenes (type 12) de $tFrom a $tTo (por transactionName).
      *
-     * Fija el legacy roto en PG: guardaba el NÚMERO de mesa en transactionParentId (UUID),
+     * Fija el legacy roto en PG: guardaba el NÚMERO de espacio en transactionParentId (UUID),
      * comparaba transactionName (varchar) contra int sin comillas, e interpolaba UUIDs sin
-     * comillas. Acá resuelve el UUID destino y bindea todo. tFrom/tTo son nombres de mesa
+     * comillas. Acá resuelve el UUID destino y bindea todo. tFrom/tTo son nombres de espacio
      * (varchar), no ints.
      *
      * @return array{ok:bool,reason?:string,code?:int}
@@ -209,7 +209,7 @@ final class TableService
     {
         global $db;
 
-        // Resolver el transactionId (UUID) de la mesa destino.
+        // Resolver el transactionId (UUID) del espacio destino.
         $toRow = $db->Execute(
             'SELECT transactionId FROM transaction
               WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?
@@ -217,11 +217,11 @@ final class TableService
             [self::TYPE_TABLE, $tTo, $outletId, $companyId]
         );
         if ($toRow === false || $toRow->EOF) {
-            return ['ok' => false, 'reason' => 'Mesa destino no encontrada', 'code' => 404];
+            return ['ok' => false, 'reason' => 'Espacio destino no encontrado', 'code' => 404];
         }
         $toId = (string) $toRow->fields['transactionId'];
 
-        // Resolver el transactionId (UUID) de la mesa origen — hace falta
+        // Resolver el transactionId (UUID) del espacio origen — hace falta
         // para crear el vínculo (antes iba directo en el UPDATE).
         $fromRow = $db->Execute(
             'SELECT transactionId FROM transaction
@@ -230,11 +230,11 @@ final class TableService
             [self::TYPE_TABLE, $tFrom, $outletId, $companyId]
         );
         if ($fromRow === false || $fromRow->EOF) {
-            return ['ok' => false, 'reason' => 'Mesa origen no encontrada', 'code' => 404];
+            return ['ok' => false, 'reason' => 'Espacio origen no encontrado', 'code' => 404];
         }
         $fromId = (string) $fromRow->fields['transactionId'];
 
-        // 1. Marcar la mesa origen como hija (joined) de la destino — antes
+        // 1. Marcar el espacio origen como hijo (joined) del destino — antes
         //    UPDATE transactionParentId, ahora transaction_link kind='table_merge'
         //    (mig 115): origin=destino ($toId), derived=origen ($fromId).
         $this->links->link($companyId, $toId, $fromId, 'table_merge');
@@ -244,7 +244,7 @@ final class TableService
             [TODAY, self::TYPE_TABLE, $tFrom, $outletId, $companyId]
         );
 
-        // 2. Mover las órdenes (type 12) de la mesa origen a la destino.
+        // 2. Mover las órdenes (type 12) del espacio origen al destino.
         $db->Execute(
             'UPDATE transaction SET transactionName = ?, updated_at = ?
               WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?',
@@ -255,11 +255,11 @@ final class TableService
     }
 
     /**
-     * moveOrders (action.php L263): mueve las órdenes (ítems) de la mesa $tFrom a $tTo,
-     * abriendo la mesa destino si estaba cerrada (no existe como type 11 en el outlet).
+     * moveOrders (action.php L263): mueve las órdenes (ítems) del espacio $tFrom al $tTo,
+     * abriendo el espacio destino si estaba cerrado (no existe como type 11 en el outlet).
      *
-     * A diferencia de joinSpaces NO es una fusión: no marca la mesa origen como hija,
-     * sólo reasigna las órdenes. La mesa origen queda abierta y vacía.
+     * A diferencia de joinSpaces NO es una fusión: no marca el espacio origen como hijo,
+     * sólo reasigna las órdenes. El espacio origen queda abierto y vacío.
      *
      * Fija el legacy roto en PG: `USE INDEX` (sintaxis MySQL), params desalineados
      * (2 placeholders / 3 args), varchar vs int, UUIDs sin comillas. El INSERT usa
@@ -277,7 +277,7 @@ final class TableService
     ): array {
         global $db;
 
-        // Abrir la mesa destino si no existe (estaba cerrada).
+        // Abrir el espacio destino si no existe (estaba cerrado).
         $toRow = $db->Execute(
             'SELECT transactionId FROM transaction
               WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?
@@ -298,7 +298,7 @@ final class TableService
             ]);
         }
 
-        // Mover las órdenes (type 12) de la mesa origen a la destino.
+        // Mover las órdenes (type 12) del espacio origen a la destino.
         $db->Execute(
             'UPDATE transaction SET transactionName = ?, updated_at = ?
               WHERE transactionType = ? AND transactionName = ? AND outletId = ? AND companyId = ?',

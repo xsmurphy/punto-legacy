@@ -11,7 +11,7 @@ import type { ModulesMap } from "@/lib/types/module"
  * cookie del panel. `useModules()` (panel) sigue existiendo para el panel; el
  * POS usa ESTE.
  *
- * El bug que arregla: el sidebar del POS decide con esto si muestra Mesas y
+ * El bug que arregla: el sidebar del POS decide con esto si muestra Espacios y
  * Órdenes, y lo pedía con el cliente del panel. La cookie `_jwt_panel` vence a
  * las 24 h, la sesión del dispositivo no vence nunca — así que de un día para
  * el otro la request daba 401, el hook se quedaba sin datos y los módulos

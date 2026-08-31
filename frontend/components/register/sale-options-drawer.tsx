@@ -535,7 +535,7 @@ export function SaleOptionsDrawer({
           <form onSubmit={(e) => { e.preventDefault(); setShowSaveTitleDialog(false); handleSave(saveTitle.trim() || null); setSaveTitle("") }}>
             <div className="py-2">
               <Input
-                placeholder="Ej. Mesa 5, Pedido Juan..."
+                placeholder="Ej. Espacio 5, Pedido Juan..."
                 value={saveTitle}
                 onChange={(e) => setSaveTitle(e.target.value)}
                 autoFocus

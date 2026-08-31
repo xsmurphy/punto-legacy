@@ -130,15 +130,15 @@ final class ShiftCloseGate
      *     orden cobrada que sigue viva en su proceso. En un espacio ese estado
      *     no existe: `SpaceSessionService::close()` se niega a cerrar con saldo
      *     pendiente, y al revés `SpaceSettlementService::settleIfCovered()`
-     *     cierra la sesión sola en cuanto el saldo llega a cero. Una mesa
+     *     cierra la sesión sola en cuanto el saldo llega a cero. Un espacio
      *     cobrada del todo YA está `closed` y este predicado no la ve. No hay
-     *     "mesa cobrada y abierta" que rescatar.
-     *  2. **Aplicar el criterio de cobro la rompería.** Una mesa recién abierta
+     *     "espacio cobrado y abierto" que rescatar.
+     *  2. **Aplicar el criterio de cobro la rompería.** Un espacio recién abierto
      *     sin consumo tiene saldo 0. Leída como "no debe plata" pasaría el
-     *     gate — o sea, la mesa ocupada a la hora del arqueo, que es
+     *     gate — o sea, el espacio ocupado a la hora del arqueo, que es
      *     exactamente el pendiente que el comercio quiere ver, sería la que se
      *     vuelve invisible.
-     *  3. **Una mesa ocupada no es una deuda, es un espacio sin liberar.** Es
+     *  3. **Un espacio ocupado no es una deuda, es un espacio sin liberar.** Es
      *     un pendiente operativo real que se traspasa de turno a turno, y el
      *     cajero lo resuelve desde el mismo POS.
      *

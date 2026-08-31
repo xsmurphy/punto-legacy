@@ -18,7 +18,7 @@
 require_once __DIR__ . '/../bootstrap.php';
 
 // MULTI-REALM. El POS necesita LEER qué módulos están activos para decidir si
-// muestra Mesas y Órdenes en su sidebar. Antes esto era `['panel']` a secas y
+// muestra Espacios y Órdenes en su sidebar. Antes esto era `['panel']` a secas y
 // el POS igual lo consultaba con el cliente del PANEL (cookie `_jwt_panel`, que
 // vence a las 24 h) desde una pantalla que corre con la sesión del DISPOSITIVO
 // (`_jwt`, sin vencimiento). Resultado: al caducar la cookie del operador,
@@ -42,7 +42,7 @@ if (($ctx['realm'] ?? '') === 'pos-app' && $method !== 'GET') {
 // Prender/apagar un módulo o editar su config es administrar la empresa, no
 // operarla: exige permiso, igual que `/v1/devices` o `/v1/document-templates`.
 // Hasta acá CUALQUIER sesión de panel podía hacerlo — un cajero apagaba el
-// módulo de mesas del comercio sin que nada lo frenara (P2 de la auditoría de
+// módulo de espacios del comercio sin que nada lo frenara (P2 de la auditoría de
 // seguridad 2026-08-26; era el más directo de los siete).
 if ($method !== 'GET' && !hasPermission('settings.company.edit')) {
     apiError('No tenés permiso para administrar los módulos (requiere: settings.company.edit)', 403);

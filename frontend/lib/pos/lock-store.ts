@@ -51,7 +51,7 @@ interface LockState {
    * `activeUser` sale del match LOCAL del PIN contra los hashes precacheados:
    * es suficiente para pintar "Bienvenido, Ana" y para atribuir la venta, pero
    * el backend no tiene por qué creerle — es un dato que el cliente eligió.
-   * Para AUTORIZAR por persona (la exclusividad de mesas: "esta mesa es de
+   * Para AUTORIZAR por persona (la exclusividad de espacios: "este espacio es de
    * otro mozo") hace falta algo que el browser no pueda fabricar, y eso es
    * este token: lo firma el server, y solo lo entrega tras verificar el PIN
    * contra `contact.pinhash`.
@@ -134,7 +134,7 @@ export const useLockStore = create<LockState>()(
         //
         //   - Recarga (F5, service worker, ChunkLoadError): la caja sigue
         //     atendida por la misma persona. Se persiste porque sin él el mozo
-        //     perdería el acceso a SU propia mesa aunque vuelva a tipear el PIN
+        //     perdería el acceso a SU propio espacio aunque vuelva a tipear el PIN
         //     offline (el `/api/pos/unlock` que lo re-emite necesita red).
         //   - Bloqueo manual (`lock()`): el operador se fue de la caja. Ahí el
         //     token se tira en el acto — ver la acción `lock` arriba.
@@ -145,7 +145,7 @@ export const useLockStore = create<LockState>()(
         // app lo tira, como a la identidad que afirma.
         operatorToken: s.operatorToken,
         // Viajan con el token, por la misma razón y con el mismo techo: tras
-        // una recarga el encargado tiene que seguir pudiendo intervenir la mesa
+        // una recarga el encargado tiene que seguir pudiendo intervenir el espacio
         // ajena sin volver a tipear el PIN, y tras un bloqueo no.
         operatorPermissions: s.operatorPermissions,
       }),

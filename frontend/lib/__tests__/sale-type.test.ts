@@ -98,12 +98,25 @@ describe("etiquetas", () => {
     expect(SALE_TYPE_LABELS[6]).toBe("Devolución")
     expect(SALE_TYPE_LABELS[7]).toBe("Anulada")
     expect(SALE_TYPE_LABELS[9]).toBe("Cotización")
-    expect(SALE_TYPE_LABELS[12]).toBe("Mesa")
     expect(SALE_TYPE_LABELS[13]).toBe("Cita")
   })
 
-  it("distingue la mesa abierta (11) de la orden etiquetada 'Mesa' (12)", () => {
+  /*
+   * 11 y 12 son la EXCEPCIÓN a la regla de arriba: el mapa viejo etiquetaba el
+   * 12 como "Mesa" cuando en el enum PHP el 12 es la orden del KDS. La
+   * directiva del owner de sacar "mesa" del vocabulario (2026-08-31) obligó a
+   * mover las dos etiquetas, y se aprovechó para ponerlas donde corresponde.
+   */
+  it("11 es el espacio abierto y 12 es la orden del KDS, cada uno con su etiqueta", () => {
+    expect(SALE_TYPE_LABELS[11]).toBe("Espacio abierto")
+    expect(SALE_TYPE_LABELS[12]).toBe("Orden")
     expect(SALE_TYPE_LABELS[11]).not.toBe(SALE_TYPE_LABELS[12])
+  })
+
+  it("ninguna etiqueta dice \"mesa\" — el término del sistema es \"espacio\"", () => {
+    for (const label of Object.values(SALE_TYPE_LABELS)) {
+      expect(label.toLowerCase()).not.toContain("mesa")
+    }
   })
 
   it("no repite etiquetas entre tipos", () => {

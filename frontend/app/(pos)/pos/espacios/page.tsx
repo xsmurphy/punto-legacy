@@ -73,7 +73,7 @@ export default function EspaciosPage() {
   const [view, selectView] = usePersistedView<SpaceView>(VIEW_STORAGE_KEY, SPACE_VIEWS, "grid")
 
   // El mapa NO admite "Todos": cada sector tiene su propio plano y las
-  // coordenadas del editor son POR SECTOR, así que superponerlos dibuja mesas
+  // coordenadas del editor son POR SECTOR, así que superponerlos dibuja espacios
   // una arriba de otra (reporte del owner 2026-07-30). Al entrar al mapa con
   // "Todos" activo se cae al primer sector; el pill "Todos" se oculta en mapa.
   // Con 0 sectores no hay nada que superponer y "Todos" sigue siendo válido.
@@ -102,7 +102,7 @@ export default function EspaciosPage() {
 
   const [openingTable, setOpeningTable] = React.useState<SpaceWithState | null>(null)
   const [sessionTable, setSessionTable] = React.useState<SpaceWithState | null>(null)
-  // Gestión de la mesa (editar / mover / unir). Cada uno guarda SU propia mesa
+  // Gestión del espacio (editar / mover / unir). Cada uno guarda SU propio espacio
   // en vez de un `mode` compartido: los tres se abren desde el diálogo de
   // sesión, que se cierra al hacerlo, y necesitan recordar sobre cuál operan.
   const [editingTable, setEditingTable] = React.useState<SpaceWithState | null>(null)
@@ -164,7 +164,7 @@ export default function EspaciosPage() {
       toast.success(`${editingTable.name} actualizada`)
       setEditingTable(null)
     } catch (err) {
-      toast.error("No se pudo actualizar la mesa", {
+      toast.error("No se pudo actualizar el espacio", {
         description: err instanceof Error ? err.message : String(err),
       })
     }
@@ -175,10 +175,10 @@ export default function EspaciosPage() {
     const target = tables.find((t) => t.id === targetSpaceId)
     try {
       await moveSession.mutateAsync({ sessionId: movingTable.session.id, targetSpaceId })
-      toast.success(`${movingTable.name} se movió a ${target?.name ?? "la mesa destino"}`)
+      toast.success(`${movingTable.name} se movió a ${target?.name ?? "el espacio destino"}`)
       setMovingTable(null)
     } catch (err) {
-      toast.error("No se pudo mover la mesa", {
+      toast.error("No se pudo mover el espacio", {
         description: err instanceof Error ? err.message : String(err),
       })
     }
@@ -189,10 +189,10 @@ export default function EspaciosPage() {
     const target = tables.find((t) => t.session?.id === targetSessionId)
     try {
       await mergeSessions.mutateAsync({ sessionId: mergingTable.session.id, targetSessionId })
-      toast.success(`${mergingTable.name} se unió a ${target?.name ?? "la otra mesa"}`)
+      toast.success(`${mergingTable.name} se unió a ${target?.name ?? "el otro espacio"}`)
       setMergingTable(null)
     } catch (err) {
-      toast.error("No se pudieron unir las mesas", {
+      toast.error("No se pudieron unir los espacios", {
         description: err instanceof Error ? err.message : String(err),
       })
     }
@@ -287,7 +287,7 @@ export default function EspaciosPage() {
   }
 
   // Frontera offline (context/16 §5): el mapa de espacios es estado COMPARTIDO
-  // entre las cajas del comercio. Sin conexión no se puede saber qué mesa está
+  // entre las cajas del comercio. Sin conexión no se puede saber qué espacio está
   // ocupada, y adivinarlo produce dos cajas cobrando la misma sesión. Se avisa
   // acá, local al módulo — la venta directa del carrito sigue andando.
   if (isConnectionBlocked([spacesQuery, sectorsQuery])) {
@@ -405,7 +405,7 @@ export default function EspaciosPage() {
             {/* Columnas por ANCHO DE CELDA, no por breakpoint: el tile mide
                 siempre ~8.5rem y la cantidad de columnas sale del ancho real
                 disponible. Es lo que hace que "pantalla completa" (que oculta el
-                carrito) muestre MÁS mesas en vez de agrandar las mismas — con
+                carrito) muestre MÁS espacios en vez de agrandar los mismos — con
                 `lg:grid-cols-6` fijas, ensanchar el contenedor estiraba las 6
                 columnas (reporte del owner 2026-08-21). Mobile queda en 3
                 columnas fijas: ahí el módulo ocupa la pantalla entera y

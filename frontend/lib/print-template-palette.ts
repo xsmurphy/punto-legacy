@@ -87,7 +87,7 @@ export const PALETTE: PaletteSection[] = [
       { type: "customer_phone_2", label: "Teléfono 2", defaultText: "Teléfono 2 del Cliente" },
       { type: "customer_note", label: "Nota", defaultText: "Nota del Cliente" },
       { type: "customer_loyalty", label: "Loyalty", defaultText: "Loyalty Acumulado" },
-      { type: "table_number", label: "Nro. de Mesa", defaultText: "Mesa: ###" },
+      { type: "table_number", label: "Nro. de Espacio", defaultText: "Espacio: ###" },
       { type: "order_number", label: "Nro. de Comanda", defaultText: "###" },
       { type: "order_destination", label: "Destino de Comanda", defaultText: "Mesa 3" },
     ],
@@ -217,7 +217,7 @@ export const DEFAULT_BLOCK_LABELS: Partial<Record<BlockType, string>> = {
   customer_address: "Dirección:",
   customer_phone: "Teléfono:",
   customer_email: "Email:",
-  // Comanda / mesa
+  // Comanda / espacio
   order_number: "Orden Nro.:",
   order_destination: "Espacio:",
   table_number: "Espacio:",
@@ -398,7 +398,7 @@ export function getBlockTitle(
 
 /**
  * Mapa type → `defaultText` del catálogo estático — el "molde" del dato
- * (`"######"`, `"Mesa: ###"`, `"__TIN__"`) que ya vive en PALETTE para
+ * (`"######"`, `"Espacio: ###"`, `"__TIN__"`) que ya vive en PALETTE para
  * pre-llenar `block.text` al insertar el bloque (`handleAddBlock`,
  * template-editor.tsx). Mismo criterio de "primera entrada gana" que
  * `BLOCK_TYPE_LABELS` — reusa el catálogo en vez de mantener una segunda

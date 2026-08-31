@@ -541,12 +541,12 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         throw new Error("Debe agregar al menos un método de pago")
       }
 
-      // Preflight del cobro parcial de mesa — ANTES de crear la venta.
+      // Preflight del cobro parcial de espacio — ANTES de crear la venta.
       // Bug T1 (2026-08-03): antes esto se validaba DESPUÉS de crear la
       // venta (más abajo, rama `settlementIntent && result?.transactionId`).
-      // Si `registerSessionPayment` rechazaba (mesa ya cobrada por otra
+      // Si `registerSessionPayment` rechazaba (espacio ya cobrada por otra
       // familia, ítem ya saldado, etc.), la plata ya había entrado a la caja
-      // y la mesa seguía debiendo lo mismo — descuadre, y el cajero solo veía
+      // y el espacio seguía debiendo lo mismo — descuadre, y el cajero solo veía
       // "avisá al soporte" sin poder resolverlo él mismo. Corriendo la MISMA
       // validación (SpaceSettlementService::preflightPayment, sin escribir)
       // antes de la venta, un rechazo aborta ACÁ y la venta nunca se crea —
@@ -582,7 +582,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
           throw new Error(
             preflightErr instanceof Error
               ? preflightErr.message
-              : "No se pudo validar el cobro parcial de la mesa",
+              : "No se pudo validar el cobro parcial del espacio",
           )
         }
       }
@@ -674,7 +674,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // encola rápido y el cajero sigue vendiendo. Pero el cobro de un
         // espacio/orden es ONLINE-ONLY (abajo), así que cortar a los 5s solo
         // sirve para abortar una venta que el servidor quizás estaba
-        // procesando — con la mesa cargada y el servidor remoto, 5s se cumplen
+        // procesando — con el espacio cargado y el servidor remoto, 5s se cumplen
         // seguido. Para esos cobros se da margen real.
         const isOnlineOnlyCharge = Boolean(sessionParentId || orderParentId || settlementIntent)
         const timeoutMs = isOnlineOnlyCharge ? 20_000 : 5_000
@@ -724,7 +724,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // el scope offline es SOLO ventas simples (memoria/roadmap): encolar
         // acá dejaría la sesión/orden sin markPaid ni close en el server.
         // El cobro PARCIAL (split, context/15 §F3) es aún más estricto: sin
-        // transactionId no hay renglón de ledger, y el saldo de la mesa
+        // transactionId no hay renglón de ledger, y el saldo del espacio
         // quedaría intacto con la plata ya en la caja.
         // El cajero ve el error y reintenta con conexión.
         if (sessionParentId || orderParentId || settlementIntent) {
@@ -821,11 +821,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // confirmada:
       //
       // 0) settlementIntent presente: esta venta es un cobro PARCIAL de una
-      //    mesa (split de cuenta, context/15 §F3). Se registra en el ledger
+      //    espacio (split de cuenta, context/15 §F3). Se registra en el ledger
       //    (`space_session_payment`) y NADA MÁS: markPaid de las órdenes y
       //    close de la sesión los decide el SERVIDOR en la misma transacción
       //    (`settleIfCovered`) cuando el saldo llega a 0. Si la UI cerrara
-      //    acá, la primera persona en pagar liberaría la mesa con saldo
+      //    acá, la primera persona en pagar liberaría el espacio con saldo
       //    pendiente. Va primero porque es excluyente con sessionParentId.
       // 1) sessionParentId presente: esta venta viene de "Cobrar" un espacio
       //    completo (loadFromSession en /pos/espacios) — cerrar el rastro de
@@ -871,7 +871,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
                   },
           )
           .catch((e: unknown) => {
-            // El preflight de arriba ya cubrió el caso común (mesa cobrada
+            // El preflight de arriba ya cubrió el caso común (espacio cobrado
             // por otra familia, ítem ya saldado) — esto solo dispara en la
             // ventana chica que el preflight NO cierra (ver docblock de
             // `SpaceSettlementService::preflightPayment`): otro dispositivo
@@ -881,8 +881,8 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
             const reason = e instanceof Error ? e.message : ""
             toast.error(
               reason
-                ? `Venta confirmada — no se pudo registrar el pago parcial en la cuenta de la mesa: ${reason}`
-                : "Venta confirmada — no se pudo registrar el pago parcial en la cuenta de la mesa. Avisá al soporte.",
+                ? `Venta confirmada — no se pudo registrar el pago parcial en la cuenta del espacio: ${reason}`
+                : "Venta confirmada — no se pudo registrar el pago parcial en la cuenta del espacio. Avisá al soporte.",
             )
           })
       } else if (sessionParentId && result?.transactionId) {
@@ -892,7 +892,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         )
           .then(() => closeSpaceSession.mutateAsync({ sessionId: sessionParentId, transactionId: txId }))
           .catch((e: unknown) => {
-            // El motivo importa: el servidor NO cierra una mesa con saldo
+            // El motivo importa: el servidor NO cierra un espacio con saldo
             // pendiente (SpaceSessionService::close), y el caso realista es
             // que otro mozo haya mandado una orden entre que se cargó el
             // carrito y se confirmó el cobro — esa comida quedó sin facturar.

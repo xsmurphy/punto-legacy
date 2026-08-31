@@ -261,7 +261,7 @@ function ConfigDialogContent({
 
           {configKind === "tables" && (
             <div className="space-y-1.5">
-              <Label htmlFor="tablesCount">Cantidad de mesas/espacios</Label>
+              <Label htmlFor="tablesCount">Cantidad de espacios</Label>
               <Input
                 id="tablesCount"
                 type="number"

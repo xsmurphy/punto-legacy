@@ -1,14 +1,14 @@
 <?php
 /**
- * /api/v1/tables.php — mesas/espacios del POS (API compartida del sistema).
+ * /api/v1/tables.php — espacios del POS (API compartida del sistema).
  *
  *   PUT    ?tableName=<n>                      { note }   → renombra (nota)
  *   PUT    ?tableName=<n>&resource=reservation            → libera reserva (status 1)
  *   PUT    ?tableName=<n>&resource=user        { userId } → asigna usuario al espacio
- *   DELETE ?kind=<any|customer|table>&del=<v>             → cierra la mesa
+ *   DELETE ?kind=<any|customer|table>&del=<v>             → cierra el espacio
  *
- * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7) — la mesa se
- * identifica por ?tableName= (no es un UUID, es el nro/nombre de mesa).
+ * Auth: JWT de tenant. Envelope canónico { ok, data }. Verbos REST (§22.7) — el espacio se
+ * identifica por ?tableName= (no es un UUID, es el nro/nombre de espacio).
  */
 
 require_once dirname(__DIR__) . '/bootstrap.php';
@@ -24,12 +24,12 @@ $svc      = new TableService(TenantContext::fromAuth($ctx));
 $method   = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $resource = (string) ($_GET['resource'] ?? '');
 
-// --- GET: listar mesas abiertas del outlet (tablesJson) -------------------
+// --- GET: listar espacios abiertos del outlet (tablesJson) -------------------
 if ($method === 'GET') {
     apiOk($svc->listTables($companyId, $outletId));
 }
 
-// --- DELETE: cerrar mesa (matchea por kind/del, no por tableName) ---------
+// --- DELETE: cerrar espacio (matchea por kind/del, no por tableName) ---------
 if ($method === 'DELETE') {
     $kind = (string) ($_GET['kind'] ?? 'table');
     $del  = trim((string) ($_GET['del'] ?? ''));
@@ -38,12 +38,12 @@ if ($method === 'DELETE') {
     }
     $res = $svc->closeTable($companyId, $outletId, $kind, $del);
     if (empty($res['ok'])) {
-        apiError('No se pudo cerrar la mesa', 500);
+        apiError('No se pudo cerrar el espacio', 500);
     }
     apiOk($res);
 }
 
-// --- PUT ?resource=join|move: unir mesas / mover órdenes (joinSpaces/moveOrders) ---
+// --- PUT ?resource=join|move: unir espacios / mover órdenes (joinSpaces/moveOrders) ---
 if ($method === 'PUT' && ($resource === 'join' || $resource === 'move')) {
     $from = trim((string) ($_POST['from'] ?? ''));
     $to   = trim((string) ($_POST['to'] ?? ''));

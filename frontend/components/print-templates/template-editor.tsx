@@ -754,7 +754,7 @@ export function TemplateEditor({ existing }: Props) {
 
         {/* Canvas — el área alrededor del papel usa un gris más oscuro en
             dark mode (zinc-900) para destacar el papel blanco como una "hoja
-            real" sobre la mesa. En light, mantiene el muted suave. */}
+            real" sobre el espacio. En light, mantiene el muted suave. */}
         <main
           className="relative flex-1 overflow-auto bg-muted/40 p-8 dark:bg-zinc-900"
           onMouseDown={() => {

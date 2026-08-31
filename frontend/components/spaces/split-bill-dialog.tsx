@@ -5,7 +5,7 @@
  * Se abre desde "Cobrar" en `space-session-dialog.tsx`.
  *
  * Cuatro modos de cobro sobre el saldo de la sesión:
- *   - `total`  — la mesa entera (camino caliente, default). Sin pagos previos
+ *   - `total`  — el espacio entero (camino caliente, default). Sin pagos previos
  *                usa el flujo de siempre (`loadFromSession`); con pagos
  *                previos cobra el saldo restante como parcial.
  *   - `items`  — se eligen ítems; los ya cobrados quedan bloqueados.
@@ -13,7 +13,7 @@
  *   - `share`  — partes iguales; la última absorbe el resto del redondeo.
  *
  * Este diálogo NO cobra: devuelve la selección al caller, que arma el carrito
- * y abre el `PayDialog`. El cierre de la mesa lo decide el SERVIDOR cuando el
+ * y abre el `PayDialog`. El cierre del espacio lo decide el SERVIDOR cuando el
  * saldo llega a 0 (`SpaceSettlementService::settleIfCovered`) — acá no se
  * cierra ni se marca nada.
  *
@@ -49,8 +49,8 @@ import type { SpaceSplitTarget } from "@/lib/spaces/settlement-store"
 const MAX_SHARES = 12
 
 /** Mensajes de por qué un modo quedó bloqueado (ver `lockedFamily`). */
-const LOCKED_ITEMS_HINT  = "Esta mesa ya se está cobrando por ítems."
-const LOCKED_AMOUNT_HINT = "Esta mesa ya se está cobrando por monto o por partes."
+const LOCKED_ITEMS_HINT  = "Este espacio ya se está cobrando por ítems."
+const LOCKED_AMOUNT_HINT = "Este espacio ya se está cobrando por monto o por partes."
 
 export type SplitSelection =
   | { mode: "total" }
@@ -63,7 +63,7 @@ interface Props {
    * `sessionId` + `spaceName` nada más — este diálogo nunca necesitó el resto
    * de `SpaceWithState` (confirmado antes de que `target` se moviera a
    * `lib/spaces/settlement-store.ts`, F3/T8): así puede reabrirse tras la
-   * reconciliación post-cobro parcial sin depender de la lista de mesas
+   * reconciliación post-cobro parcial sin depender de la lista de espacios
    * (`usePosSpacesState`) del módulo Espacios, que puede no estar montado.
    */
   target: SpaceSplitTarget | null
@@ -81,11 +81,11 @@ export function SplitBillDialog({ target, onOpenChange, onCharge, preparing }: P
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle className="text-2xl font-semibold">{target?.spaceName}</DialogTitle>
-          <DialogDescription>Cobrar la mesa completa o dividir la cuenta</DialogDescription>
+          <DialogDescription>Cobrar el espacio completo o dividir la cuenta</DialogDescription>
         </DialogHeader>
 
-        {/* key=sessionId: cambiar de mesa REMONTA el cuerpo y resetea modo y
-            selección. Sin esto, los ítems tildados de la mesa anterior
+        {/* key=sessionId: cambiar de espacio REMONTA el cuerpo y resetea modo y
+            selección. Sin esto, los ítems tildados del espacio anterior
             sobreviven y se cobrarían contra la sesión equivocada. */}
         <SplitBillBody
           key={sessionId ?? "none"}
@@ -120,8 +120,8 @@ function SplitBillBody({
   // desactualizado y dejar habilitado un modo que el backend va a rechazar.
   // Mismo motivo que `fetchSessionBalance` en use-space-settlement.ts: para
   // DECIDIR (acá, qué modos mostrar habilitados) hace falta el saldo AHORA,
-  // no el cacheado. Se fuerza un refetch de red al abrir/cambiar de mesa —
-  // `key={sessionId}` en el padre ya remonta este componente por mesa, así
+  // no el cacheado. Se fuerza un refetch de red al abrir/cambiar de espacio —
+  // `key={sessionId}` en el padre ya remonta este componente por espacio, así
   // que este efecto corre una vez por apertura.
   React.useEffect(() => {
     if (sessionId) void refetchBalance()
@@ -129,7 +129,7 @@ function SplitBillBody({
   }, [sessionId])
 
   const [mode, setMode] = React.useState<SplitSelection["mode"]>("total")
-  // Modos bloqueados por familia: una mesa se cobra por ítems O por monto/
+  // Modos bloqueados por familia: un espacio se cobra por ítems O por monto/
   // partes, nunca mezclando (ver `lockedFamily` en use-space-settlement.ts —
   // mezclar descuenta stock dos veces del mismo ítem). El backend lo rechaza
   // igual; esto evita que el cajero llegue hasta el cobro para enterarse.
@@ -252,7 +252,7 @@ function SplitBillBody({
           <TabsContent value="total">
             <p className="text-sm text-muted-foreground">
               {balance.paid > 0
-                ? "Se cobra el saldo pendiente de la mesa. Al quedar en cero, el espacio se libera solo."
+                ? "Se cobra el saldo pendiente del espacio. Al quedar en cero, el espacio se libera solo."
                 : "Se cobra la cuenta completa, con todas las órdenes de la sesión."}
             </p>
           </TabsContent>
@@ -340,7 +340,7 @@ function SplitBillBody({
 
       {exceedsBalance && (
         <p className="text-sm font-medium text-destructive">
-          El monto supera el saldo pendiente de la mesa.
+          El monto supera el saldo pendiente del espacio.
         </p>
       )}
 
@@ -394,7 +394,7 @@ function ItemPicker({
   const config = useCatalogStore((s) => s.config)
   if (balance.items.length === 0) {
     return (
-      <EmptyState icon={ClipboardList} title="La mesa no tiene ítems para cobrar" className="py-8" />
+      <EmptyState icon={ClipboardList} title="El espacio no tiene ítems para cobrar" className="py-8" />
     )
   }
   const selectedTotal = balance.items

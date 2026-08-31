@@ -50,7 +50,7 @@ export interface SpaceWithState extends Space {
     /**
      * Nombre libre que el mozo le puso a ESTA ocupación ("los del
      * cumpleaños") — mig 163. No confundir con `name` del espacio, que es el
-     * nombre fijo de la mesa y vive en el nivel de arriba de este objeto.
+     * nombre fijo del espacio y vive en el nivel de arriba de este objeto.
      */
     alias: string | null
     openedAt: string | null

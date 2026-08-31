@@ -1,14 +1,14 @@
 "use client"
 
 /**
- * Unir la cuenta de esta mesa con la de OTRA mesa abierta (owner 2026-08-23).
+ * Unir la cuenta de este espacio con la de OTRO espacio abierto (owner 2026-08-23).
  *
- * Direccionalidad: la mesa desde la que se abre este diálogo es el ORIGEN — se
+ * Direccionalidad: el espacio desde la que se abre este diálogo es el ORIGEN — se
  * absorbe en la que se elija y su espacio queda libre. El copy lo dice en cada
- * fila ("Mesa 3 se une a Mesa 7") porque la operación NO es simétrica y
- * equivocarse deja los clientes sentados en una mesa que el sistema ve libre.
+ * fila ("Espacio 3 se une a Espacio 7") porque la operación NO es simétrica y
+ * equivocarse deja los clientes sentados en un espacio que el sistema ve libre.
  *
- * A diferencia de mover, unir sí puede fallar por reglas del dominio (mesas de
+ * A diferencia de mover, unir sí puede fallar por reglas del dominio (espacios de
  * distinta sucursal, familias de cobro parcial incompatibles — ver
  * `SpaceSessionService::merge()`). Este diálogo no las replica: las valida el
  * backend y el error llega como toast. Duplicar la regla acá la desincronizaría
@@ -20,7 +20,7 @@
  * Excepción a lo anterior: la exclusividad de mozo SÍ se espeja acá, porque
  * `SpaceSessionService::merge()` la asserta sobre el origen Y sobre el DESTINO.
  * El menú del tile solo pudo evaluar el origen (es el único espacio que conoce),
- * así que sin este chequeo elegir la mesa de otro mozo pasaba el gate del ítem y
+ * así que sin este chequeo elegir el espacio de otro mozo pasaba el gate del ítem y
  * fallaba recién al confirmar — con las órdenes ya en pantalla y el cajero
  * convencido de que la operación iba. No es duplicar una regla del dominio: es
  * el mismo espejo de `evaluateSpaceAccess`, aplicado donde se elige el destino.
@@ -60,7 +60,7 @@ import { evaluateSpaceAccess } from "@/lib/pos/space-access"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 interface Props {
-  /** Mesa ORIGEN — la que se absorbe. null = diálogo cerrado. */
+  /** Espacio ORIGEN — el que se absorbe. null = diálogo cerrado. */
   table: SpaceWithState | null
   spaces: SpaceWithState[]
   onOpenChange: (open: boolean) => void
@@ -84,12 +84,12 @@ export function MergeSpaceDialog({ table, spaces, onOpenChange, onConfirm, submi
     return m
   }, [users])
 
-  // Destinos: cualquier otra mesa con sesión activa. `bill_requested` entra a
-  // propósito — unirle una mesa revierte el pedido de cuenta a `open`
+  // Destinos: cualquier otro espacio con sesión activa. `bill_requested` entra a
+  // propósito — unirle un espacio revierte el pedido de cuenta a `open`
   // server-side (el total cambió), igual que agregar una orden.
   //
   // Cada destino viaja con su veredicto de exclusividad: los que el backend no
-  // aceptaría se listan igual (que la mesa exista es información útil) pero no
+  // aceptaría se listan igual (que el espacio exista es información útil) pero no
   // se pueden elegir, con el motivo escrito en la fila.
   const targets = React.useMemo(
     () =>
@@ -124,9 +124,9 @@ export function MergeSpaceDialog({ table, spaces, onOpenChange, onConfirm, submi
       <ResponsiveDialog open={table !== null} onOpenChange={(v) => !v && onOpenChange(false)}>
         <ResponsiveDialogContent className="sm:max-w-md">
           <ResponsiveDialogHeader>
-            <ResponsiveDialogTitle>Unir {table?.name} con otra mesa</ResponsiveDialogTitle>
+            <ResponsiveDialogTitle>Unir {table?.name} con otro espacio</ResponsiveDialogTitle>
             <ResponsiveDialogDescription>
-              {table?.name} se une a la mesa que elijas y queda libre. La cuenta
+              {table?.name} se une al espacio que elijas y queda libre. La cuenta
               sigue en la otra.
             </ResponsiveDialogDescription>
           </ResponsiveDialogHeader>
@@ -134,13 +134,13 @@ export function MergeSpaceDialog({ table, spaces, onOpenChange, onConfirm, submi
           {targets.length === 0 ? (
             <EmptyState
               icon={Merge}
-              title="No hay otra mesa abierta"
-              description="Para unir cuentas hacen falta dos mesas ocupadas."
+              title="No hay otro espacio abierto"
+              description="Para unir cuentas hacen falta dos espacios ocupados."
               className="py-8"
             />
           ) : (
             <Command>
-              <CommandInput placeholder="Buscar mesa..." />
+              <CommandInput placeholder="Buscar espacio..." />
               <CommandList>
                 <CommandEmpty>Sin resultados.</CommandEmpty>
                 <CommandGroup>
@@ -197,7 +197,7 @@ export function MergeSpaceDialog({ table, spaces, onOpenChange, onConfirm, submi
                 if (target?.session) onConfirm(target.session.id)
               }}
             >
-              Unir mesas
+              Unir espacios
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

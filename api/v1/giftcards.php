@@ -68,7 +68,7 @@ if ($method === 'POST') {
         // Se valida ACÁ, antes de que la venta se cobre, y no en `consume`
         // (que corre DESPUÉS del cobro): rechazar recién ahí dejaría la venta
         // pagada con una tarjeta que nunca se marca usada, o sea reutilizable.
-        // Mismo criterio que el preflight del cobro parcial de mesa.
+        // Mismo criterio que el preflight del cobro parcial de espacio.
         //
         // `total` es opcional por compatibilidad: un caller viejo que no lo
         // mande sigue validando existencia/vencimiento como antes.

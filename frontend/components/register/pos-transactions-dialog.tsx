@@ -64,30 +64,20 @@ import { usePrintWithPicker } from "@/lib/hardware/printers/print-with-fallback"
 import { TransactionSuccessDialog } from "@/components/register/transaction-success-dialog"
 import { PosReturnSheet } from "@/components/register/pos-return-sheet"
 import { PosVoidSaleDialog } from "@/components/register/pos-void-sale-dialog"
+import {
+  isCreditSale,
+  isQuote,
+  isReturn,
+  isVoided,
+  saleTypeLabel,
+} from "@/lib/domain/sale-type"
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const TX_LABELS: Record<number, string> = {
-  0: "Contado",
-  2: "Guardado",
-  3: "Crédito",
-  6: "Devolución",
-  7: "Anulada",
-  9: "Cotización",
-  10: "Envío",
-  11: "Orden",
-  12: "Mesa",
-  13: "Agenda",
-}
-
-function txLabel(type: number): string {
-  return TX_LABELS[type] ?? `Tipo ${type}`
-}
-
 function chipStyle(item: PosTransactionListItem): string {
-  if (item.type === 9) return "bg-secondary text-secondary-foreground border"
-  if (item.type === 6 || item.type === 7) return "bg-muted text-muted-foreground"
-  if (item.type === 3) {
+  if (isQuote(item.type)) return "bg-secondary text-secondary-foreground border"
+  if (isReturn(item.type) || isVoided(item.type)) return "bg-muted text-muted-foreground"
+  if (isCreditSale(item.type)) {
     const debt = item.debt ?? 0
     const total = item.rawTotal
     if (debt === 0) return "bg-emerald-500/10 text-emerald-700 border border-emerald-500/20"
@@ -511,7 +501,7 @@ function TransactionRow({
           ))}
         </div>
         <Badge variant="secondary" className={cn("shrink-0", chipStyle(item))}>
-          {txLabel(item.type)}
+          {saleTypeLabel(item.type)}
         </Badge>
       </div>
     </button>
@@ -772,7 +762,7 @@ export function TransactionDetail({
                     Crédito
                   </Badge>
                 ) : (
-                  <span>{txLabel(typeNum)}</span>
+                  <span>{saleTypeLabel(typeNum)}</span>
                 )}
                 {docLabel && <span className="tabular-nums">#{docLabel}</span>}
                 {formattedDate !== "—" && <span className="tabular-nums">{formattedDate}</span>}

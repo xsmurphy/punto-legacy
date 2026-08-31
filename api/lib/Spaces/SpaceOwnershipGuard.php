@@ -9,9 +9,9 @@ require_once __DIR__ . '/SpaceOwnershipException.php';
 require_once __DIR__ . '/../Auth/OperatorContext.php';
 
 /**
- * SpaceOwnershipGuard — exclusividad de mesa por mozo.
+ * SpaceOwnershipGuard — exclusividad de espacio por mozo.
  *
- * Regla (pedido del owner 2026-08-23): una mesa asignada a un mozo NO la puede
+ * Regla (pedido del owner 2026-08-23): un espacio asignado a un mozo NO lo puede
  * modificar otro. Textual del pedido: es autorización, no UI — tiene que valer
  * en el backend, no escondiendo botones.
  *
@@ -27,16 +27,16 @@ require_once __DIR__ . '/../Auth/OperatorContext.php';
  *
  * ── Qué cuenta como "asignada" ──────────────────────────────────────────────
  *
- * `space_session.waiterid IS NOT NULL`. Asignar el mozo ES asignar la mesa: no
+ * `space_session.waiterid IS NOT NULL`. Asignar el mozo ES asignar el espacio: no
  * hay un segundo flag que active la exclusividad. Consecuencia buscada, y la
- * razón de que este cambio no rompa a nadie: las mesas que se abren sin mozo
+ * razón de que este cambio no rompa a nadie: los espacios que se abren sin mozo
  * (todo lo que existe hoy) siguen siendo de todos. El comercio que no quiere
  * exclusividad simplemente no asigna mozo.
  *
  * ── Quién puede intervenir igual ────────────────────────────────────────────
  *
  * Quien tenga `pos.space.override` (catálogo, seed de `manager`). Un encargado
- * TIENE que poder cerrar la mesa del mozo que se fue a su casa; una regla sin
+ * TIENE que poder cerrar el espacio del mozo que se fue a su casa; una regla sin
  * válvula de escape se termina evadiendo compartiendo el PIN del dueño.
  *
  * OJO con dónde se evalúa ese permiso: contra el rol del OPERADOR
@@ -47,14 +47,14 @@ require_once __DIR__ . '/../Auth/OperatorContext.php';
  * ── Operador no identificado = no pasa ──────────────────────────────────────
  *
  * Fail-closed. Sin PIN validado no hay forma de saber si sos el dueño de la
- * mesa, y "no sé quién sos" no puede resolverse a favor: sería la manera
+ * espacio, y "no sé quién sos" no puede resolverse a favor: sería la manera
  * trivial de saltear la regla (no mandar el header). El costo es que el mozo
- * tiene que estar identificado en la caja para tocar SU mesa, que es
+ * tiene que estar identificado en la caja para tocar SU espacio, que es
  * exactamente lo que el lockscreen ya pide.
  */
 final class SpaceOwnershipGuard
 {
-    /** Clave del catálogo que destraba la mesa ajena. */
+    /** Clave del catálogo que destraba el espacio ajeno. */
     public const OVERRIDE_PERMISSION = 'pos.space.override';
 
     /**
@@ -68,12 +68,12 @@ final class SpaceOwnershipGuard
     {
         $waiterId = isset($sessionRow['waiterid']) ? trim((string) $sessionRow['waiterid']) : '';
 
-        // Mesa sin mozo asignado: no es de nadie, la opera cualquiera.
+        // Espacio sin mozo asignado: no es de nadie, lo opera cualquiera.
         if ($waiterId === '') return;
 
         $operatorId = $operator['userId'] ?? null;
 
-        // El dueño de la mesa, siempre.
+        // El dueño del espacio, siempre.
         if ($operatorId !== null && hash_equals($waiterId, $operatorId)) return;
 
         // La válvula de escape del encargado.
@@ -81,11 +81,11 @@ final class SpaceOwnershipGuard
 
         if ($operatorId === null) {
             throw new SpaceOwnershipException(
-                "Esta mesa está asignada a un mozo. Identificate con tu PIN para $action."
+                "Este espacio está asignado a un mozo. Identificate con tu PIN para $action."
             );
         }
         throw new SpaceOwnershipException(
-            "Esta mesa está asignada a otro mozo y no la podés $action."
+            "Este espacio está asignado a otro mozo y no lo podés $action."
         );
     }
 }

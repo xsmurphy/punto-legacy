@@ -432,8 +432,8 @@ export const BLOCK_VALUE_RESOLVERS: Partial<Record<BlockType, BlockValueResolver
   customer_birthday: (data) => data.customerBirthday ?? null,
   customer_email: (data) => data.customerEmail ?? null,
   // table_number reusa orderDestination (comandas de espacios) — es el dato
-  // más cercano que existe hoy a "número de mesa" (orderDestinationText()).
-  // No es un campo dedicado de mesa; documentado como aproximación.
+  // más cercano que existe hoy a "número de espacio" (orderDestinationText()).
+  // No es un campo dedicado de espacio; documentado como aproximación.
   // Sin gate por docType (lo tenía y contradecía context/20: si el bloque está
   // en la plantilla, sale — el dato existe o no, y sin dato el bloque queda en
   // blanco solo). El gate hacía que estos bloques no imprimieran NADA en la

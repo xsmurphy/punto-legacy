@@ -40,9 +40,9 @@ final class PermissionCatalog
             ['id' => 'pos.drawer.open',         'label' => 'Abrir caja',               'group' => 'POS'],
             ['id' => 'pos.drawer.close',        'label' => 'Cerrar caja',              'group' => 'POS'],
             ['id' => 'pos.discount.apply',      'label' => 'Aplicar descuentos',       'group' => 'POS'],
-            // Exclusividad de mesas (context/15, owner 2026-08-23): una mesa
+            // Exclusividad de espacios (context/15, owner 2026-08-23): un espacio
             // con mozo asignado solo la opera ese mozo. Esta clave es la
-            // válvula de escape del encargado — intervenir la mesa de otro
+            // válvula de escape del encargado — intervenir el espacio de otro
             // (cancelarla, moverla, unirla, reasignarla).
             //
             // `since` = 5 y clave NUEVA: el caso seguro del backfill (nunca
@@ -53,7 +53,7 @@ final class PermissionCatalog
             // `pos-app` ese rol es el mismo para todos los que usan la tablet,
             // así que dárselo ahí anularía la regla para todo el mundo. Se
             // evalúa contra el rol del OPERADOR (Punto\Api\Auth\OperatorContext).
-            ['id' => 'pos.space.override',      'label' => 'Intervenir mesas de otro mozo', 'group' => 'POS', 'since' => 5],
+            ['id' => 'pos.space.override',      'label' => 'Intervenir espacios de otro mozo', 'group' => 'POS', 'since' => 5],
 
             // Asistente de IA en la caja (context/59 D4). Gatea SOLO el item de
             // la UI y su ruta de chat: qué datos puede leer el asistente lo

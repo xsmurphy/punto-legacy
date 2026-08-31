@@ -4,11 +4,11 @@ declare(strict_types=1);
 namespace Punto\Api\Spaces;
 
 /**
- * Lanzada cuando un operador intenta tocar la mesa de otro mozo
+ * Lanzada cuando un operador intenta tocar el espacio de otro mozo
  * (`SpaceOwnershipGuard`, exclusividad pedida por el owner 2026-08-23).
  *
  * Tipo propio y no `InvalidArgumentException` porque el endpoint la mapea a
- * **403** y no al 422 genérico del resto de los errores de dominio: "esta mesa
+ * **403** y no al 422 genérico del resto de los errores de dominio: "este espacio
  * no es tuya" y "los datos que mandaste no cierran" son respuestas distintas y
  * el front reacciona distinto a cada una.
  *

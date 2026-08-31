@@ -259,7 +259,7 @@ final class TransactionDetailService
         // partir de esta cotización (si esta transacción es una cotización).
         $quotesOrigin  = $this->fetchTxSummaries($linkSvc->listOriginIds($companyId, $id, 'quote_to_sale'), $companyId);
         $quotesDerived = $this->fetchTxSummaries($linkSvc->listDerivedIds($companyId, $id, 'quote_to_sale'), $companyId);
-        // Órdenes/comandas cobradas por esta factura (caso "mesa con varias
+        // Órdenes/comandas cobradas por esta factura (caso "espacio con varias
         // comandas", context/35 §order_transaction_link).
         $orders = $this->fetchOrderSummaries($linkSvc->listOrderIdsForTransaction($companyId, $id), $companyId);
 
@@ -523,7 +523,7 @@ final class TransactionDetailService
 
     /**
      * Resúmenes mínimos de órdenes/comandas (pos_order) cobradas por esta
-     * transacción — caso "mesa con varias comandas" (context/35). `pos_order`
+     * transacción — caso "espacio con varias comandas" (context/35). `pos_order`
      * no tiene columna de total propia (es pre-cobro): se agrega desde
      * `pos_order_item` (qty × price), excluyendo ítems cancelados.
      *

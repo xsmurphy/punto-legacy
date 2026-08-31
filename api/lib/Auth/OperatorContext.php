@@ -31,12 +31,12 @@ require_once __DIR__ . '/RoleService.php';
  *
  * ── El permiso se evalúa contra el ROL DEL OPERADOR, no el del device ───────
  *
- * Esto es lo que hace que "el encargado puede intervenir la mesa de un mozo"
+ * Esto es lo que hace que "el encargado puede intervenir el espacio de un mozo"
  * funcione sin abrir un agujero. El helper global `hasPermission()` resuelve
  * contra `ROLE_ID`, que bajo `pos-app` es SIEMPRE el rol `device`: si la
  * excepción de exclusividad colgara de ahí, habría dos opciones y las dos
  * malas — o se le da `pos.space.override` al rol `device` y entonces
- * CUALQUIERA en CUALQUIER tablet puede intervenir cualquier mesa (la regla
+ * CUALQUIERA en CUALQUIER tablet puede intervenir cualquier espacio (la regla
  * deja de existir), o no se le da y entonces NADIE puede intervenir desde el
  * POS, ni el dueño.
  *
@@ -58,7 +58,7 @@ final class OperatorContext
      *         `userId` null = no hay persona probada. NO es un error: es el
      *         estado normal de un device que todavía no pasó por el
      *         lockscreen. Quien llama decide qué implica (para la exclusividad
-     *         de mesas implica "no podés tocar una mesa ajena").
+     *         de espacios implica "no podés tocar un espacio ajeno").
      */
     public static function resolve(array $ctx): array
     {

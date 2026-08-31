@@ -3,7 +3,7 @@
  *
  * `modulesFullscreen` oculta el `CartPanel` en los módulos que lo soportan
  * (`/pos/espacios`, `/pos/ordenes`) para que el módulo ocupe todo el ancho —
- * útil para un mozo con su propia computadora que quiere ver más mesas/
+ * útil para un mozo con su propia computadora que quiere ver más espacios/
  * órdenes sin scrollear. Toggleable desde una barra flotante del módulo.
  *
  * ── Por qué persiste en localStorage y no sessionStorage ────────────────

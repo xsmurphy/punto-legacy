@@ -9,7 +9,7 @@
  * tenga `itemId` (ver `saleIsSimplePathEligible()` en
  * `api/includes/functions.php`: una línea sin itemId aborta con 422, y el
  * endpoint NO tiene fallback al legacy). Es decir: **no se puede facturar una
- * línea genérica tipo "Pago parcial de mesa"** sin tocar el backend o sin un
+ * línea genérica tipo "Pago parcial de espacio"** sin tocar el backend o sin un
  * ítem de catálogo dedicado configurado por el tenant — ninguna de las dos
  * cosas existe hoy.
  *
@@ -19,7 +19,7 @@
  * buscadas:
  *
  *  - El comprobante describe bienes reales (una factura paraguaya debe
- *    detallar lo vendido; "Pago parcial de mesa" no lo hace).
+ *    detallar lo vendido; "Pago parcial de espacio" no lo hace).
  *  - Stock e `itemSold` se conservan: N parciales de 1/N de cada ítem
  *    descuentan, sumados, exactamente la cantidad original. Una línea
  *    genérica no descontaría stock nunca en estos modos.
@@ -185,7 +185,7 @@ export class SettlementLinesError extends Error {}
 function assertBillable(source: SettlementSource): void {
   if (!source.itemId) {
     throw new SettlementLinesError(
-      `"${source.name}" no está vinculado a un artículo del catálogo y no se puede facturar por separado. Cobrá la mesa completa.`,
+      `"${source.name}" no está vinculado a un artículo del catálogo y no se puede facturar por separado. Cobrá el espacio completo.`,
     )
   }
 }
@@ -198,7 +198,7 @@ function assertBillable(source: SettlementSource): void {
  * ── Add-ons (context/41) ────────────────────────────────────────────────────
  *
  * Un ítem con add-ons vuelve con sus `selections` re-hidratadas
- * (`rebuildSelectionsFromOrder`), igual que al cobrar una orden o una mesa
+ * (`rebuildSelectionsFromOrder`), igual que al cobrar una orden o un espacio
  * entera: sin ellas `SaleService::expandAddonSelections` no corre, el add-on
  * no genera su `itemSold`, no descuenta stock y no sale indentado en el
  * ticket. La plata ya estaba bien —el recargo viene adentro del `price` del
@@ -209,8 +209,8 @@ function assertBillable(source: SettlementSource): void {
  * el monto que el backend recalcula desde los precios PERSISTIDOS
  * (`SpaceSettlementService::validateAndComputeAmount`, kind='items'): si la
  * caja cobrara el `priceDelta` vigente y el owner hubiera cambiado el precio
- * del add-on con la mesa abierta, la venta y el asiento del ledger diferirían
- * — el cliente pagaría una cifra y la mesa quedaría con saldo (o saldada de
+ * del add-on con el espacio abierto, la venta y el asiento del ledger diferirían
+ * — el cliente pagaría una cifra y el espacio quedaría con saldo (o saldado de
  * menos). Se ancla al precio persistido y se despeja la base restándole el
  * recargo VIGENTE, que es exactamente lo que el server le va a restar al
  * padre. Invariante que sale intacta: padre + hijas = lo que cobró la caja =
@@ -239,7 +239,7 @@ export function buildItemsLines(
     const rebuilt = rebuildSelectionsFromOrder(source.orderItem, source.children, cat)
     // De lo que devuelve `rebuilt` se usan SOLO las selecciones: su
     // `basePrice` está despejado con el recargo CONGELADO (sirve para
-    // re-cotizar, que es lo que hace el cobro de la orden/mesa) y acá el
+    // re-cotizar, que es lo que hace el cobro de la orden/espacio) y acá el
     // anclaje es el opuesto — el precio persistido manda, ver el docblock.
     // Cablear `rebuilt.basePrice` acá rompería en silencio el amarre con el
     // ledger.
@@ -319,12 +319,12 @@ export function buildProportionalLines(
   const weightTotal = weights.reduce((sum, w) => sum + w, 0)
   if (weightTotal <= 0) {
     throw new SettlementLinesError(
-      "La mesa no tiene ítems pendientes para facturar este cobro. Cobrá por ítems o cerrá la mesa.",
+      "El espacio no tiene ítems pendientes para facturar este cobro. Cobrá por ítems o cerrá el espacio.",
     )
   }
   if (targetScaled > weightTotal) {
     throw new SettlementLinesError(
-      "El monto supera lo que queda por facturar en la mesa. Revisá el saldo.",
+      "El monto supera lo que queda por facturar en el espacio. Revisá el saldo.",
     )
   }
 
@@ -377,7 +377,7 @@ export function buildProportionalLines(
   })
 
   if (lines.length === 0) {
-    throw new SettlementLinesError("No se pudo armar el cobro parcial. Revisá el saldo de la mesa.")
+    throw new SettlementLinesError("No se pudo armar el cobro parcial. Revisá el saldo del espacio.")
   }
   return lines
 }

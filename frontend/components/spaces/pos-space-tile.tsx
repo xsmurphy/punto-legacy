@@ -135,7 +135,7 @@ export function PosSpaceTile({ table, onClick, position, actions }: Props) {
           </span>
           {/* Alias de la ocupación ("los del cumpleaños", mig 163). Solo en la
               grilla: en el mapa los tiles bajan a 70px y una tercera línea de
-              texto no se lee. El propósito del alias es reconocer la mesa SIN
+              texto no se lee. El propósito del alias es reconocer el espacio SIN
               abrirla, así que tiene que estar en el tile y no solo en el
               HoverCard (que además no dispara en tablet, que es donde se opera).
               `truncate` acota siempre a una línea: un alias largo no puede

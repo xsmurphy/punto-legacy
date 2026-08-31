@@ -1,7 +1,7 @@
 "use client"
 
 /**
- * Mover una mesa abierta a otro espacio LIBRE — los clientes se cambiaron de
+ * Mover un espacio abierto a otro espacio LIBRE — los clientes se cambiaron de
  * lugar (owner 2026-08-23).
  *
  * La sesión es la misma: se mudan las personas, no la cuenta. Las órdenes (aun
@@ -11,7 +11,7 @@
  *
  * Lista de destinos = espacios en estado `free` del mismo outlet. Se compone
  * con `Command` (cmdk) igual que `SellerPickerDialog`: un salón grande tiene
- * decenas de mesas y buscar por número con el teclado es más rápido que
+ * decenas de espacios y buscar por número con el teclado es más rápido que
  * scrollear, que es como se opera una caja (§14 Regla #3: listado corto
  * embebido, sin DataTable).
  */
@@ -37,7 +37,7 @@ import { EmptyState } from "@/components/empty-state"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
 
 interface Props {
-  /** Mesa que se mueve. null = diálogo cerrado. */
+  /** Espacio que se mueve. null = diálogo cerrado. */
   table: SpaceWithState | null
   /** Todos los espacios del outlet — se filtran los libres acá adentro. */
   spaces: SpaceWithState[]
@@ -62,7 +62,7 @@ export function MoveSpaceDialog({ table, spaces, onOpenChange, onConfirm, submit
           <ResponsiveDialogTitle>Mover {table?.name}</ResponsiveDialogTitle>
           <ResponsiveDialogDescription>
             Elegí el espacio libre al que se pasa. Las órdenes y los pagos ya
-            registrados se mueven con la mesa.
+            registrados se mueven con el espacio.
           </ResponsiveDialogDescription>
         </ResponsiveDialogHeader>
 
@@ -70,7 +70,7 @@ export function MoveSpaceDialog({ table, spaces, onOpenChange, onConfirm, submit
           <EmptyState
             icon={ArrowRightLeft}
             title="No hay espacios libres"
-            description="Liberá o cerrá otra mesa para poder mover esta."
+            description="Liberá o cerrá otro espacio para poder mover este."
             className="py-8"
           />
         ) : (

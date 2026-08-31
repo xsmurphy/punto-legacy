@@ -54,7 +54,7 @@ interface UpstreamEnvelope {
      * mismo endpoint, contra el rol del CONTACTO (no el del device).
      *
      * Solo sirven para que la caja no mienta: un encargado tiene que ver
-     * habilitadas las acciones sobre mesas de otro mozo, y un mozo tiene que
+     * habilitadas las acciones sobre espacios de otro mozo, y un mozo tiene que
      * verlas apagadas CON el motivo en vez de comerse un 403 al tocarlas. La
      * autorización real la sigue haciendo el backend en cada request.
      */

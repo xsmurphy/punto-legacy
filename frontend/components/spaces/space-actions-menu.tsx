@@ -143,7 +143,7 @@ export function SpaceActionsMenu({ table, actions, compact = false }: Props) {
    *
    * Un espacio sin sesión puede estarlo por dos motivos distintos y el cajero
    * necesita saber cuál: `free` es "andá y abrila", `disabled` es "está fuera
-   * de servicio, no la vas a poder abrir". Decir "libre" sobre una mesa
+   * de servicio, no lo vas a poder abrir". Decir "libre" sobre un espacio
    * deshabilitada manda al cajero a intentar algo que no existe. (`reserved`
    * todavía no lo emite el backend —F4 de `SpaceService`— así que cae en el
    * caso general.)
@@ -157,7 +157,7 @@ export function SpaceActionsMenu({ table, actions, compact = false }: Props) {
   /**
    * Motivo por el que una acción de GESTIÓN no se puede ejecutar, en orden de
    * precedencia. El orden importa: sin sesión no hay nada que gestionar, y ese
-   * hecho manda sobre la red y sobre de quién es la mesa.
+   * hecho manda sobre la red y sobre de quién es el espacio.
    *
    * Las cinco acciones de gestión pasan por el mismo guard de ownership en el
    * backend (editar, mover, unir, cancelar) y todas exigen red — el módulo
@@ -170,7 +170,7 @@ export function SpaceActionsMenu({ table, actions, compact = false }: Props) {
 
   /**
    * "Ver detalle" solo pide que haya sesión. NO pide red ni exclusividad: es
-   * read-only sobre datos que el dispositivo ya tiene, y mirar la mesa de otro
+   * read-only sobre datos que el dispositivo ya tiene, y mirar el espacio de otro
    * mozo nunca estuvo prohibido — lo que el guard protege es mutarla.
    */
   const detailBlocked: string | null = noSessionReason
@@ -209,7 +209,7 @@ export function SpaceActionsMenu({ table, actions, compact = false }: Props) {
               sin título no queda claro sobre cuál se está operando. */}
           <DropdownMenuLabel className="truncate">
             {/* El alias de la ocupación, cuando existe, ES cómo el mozo llama a
-                esta mesa — mismo criterio que el título del SpaceSessionDialog. */}
+                este espacio — mismo criterio que el título del SpaceSessionDialog. */}
             {session?.alias ? `${session.alias} · ${table.name}` : table.name}
           </DropdownMenuLabel>
           <DropdownMenuSeparator />
@@ -256,7 +256,7 @@ export function SpaceActionsMenu({ table, actions, compact = false }: Props) {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* Cerrar el espacio libera la mesa SIN cobro y cancela en cascada las
+      {/* Cerrar el espacio lo libera SIN cobro y cancela en cascada las
           órdenes activas — destructivo e irreversible, va con confirmación. El
           texto sale del helper compartido con el `SpaceSessionDialog`: es el
           mismo `action=cancel` y el cajero tiene que leer la misma advertencia

@@ -177,7 +177,7 @@ final class OrderService
     // -------------------------------------------------------------------------
 
     /**
-     * Carga las filas de transacción para una mesa/cliente/orden (shared core).
+     * Carga las filas de transacción para un espacio/cliente/orden (shared core).
      * Devuelve el DBResult y el identificador de tabla (string vacío para customer/any).
      *
      * @return array{0: DBResult|false, 1: string}
@@ -228,7 +228,7 @@ final class OrderService
     }
 
     /**
-     * Ítems de una mesa/orden agrupados para cierre (json mode, callsites L6806/L6835).
+     * Ítems de un espacio/orden agrupados para cierre (json mode, callsites L6806/L6835).
      * Retorna { items, tags, ids }.
      */
     public function getTableClose(string $t, string $kind, string $outletId, string $companyId): array
@@ -297,7 +297,7 @@ final class OrderService
     }
 
     /**
-     * Detalle de ítems de una mesa/orden para vista modal (non-json mode, callsite L7495).
+     * Detalle de ítems de un espacio/orden para vista modal (non-json mode, callsite L7495).
      * Retorna { data, title, subTitle, orderId, type }.
      */
     public function getTableDetail(string $t, string $kind, string $outletId, string $companyId): array

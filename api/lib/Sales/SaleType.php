@@ -22,7 +22,7 @@ enum SaleType: int
     case Recurring        = 8;  // Venta recursiva
     case Quote            = 9;  // Presupuesto
     case Delivery         = 10; // Delivery / remisión
-    case OpenTable        = 11; // Abrir mesa
+    case OpenTable        = 11; // Abrir espacio
     case Order            = 12; // Orden (KDS)
     case Schedule         = 13; // Agendado (sesiones)
     case PurchaseCreditNote = 14; // Nota de crédito de compra (proveedor nos acredita/devuelve)

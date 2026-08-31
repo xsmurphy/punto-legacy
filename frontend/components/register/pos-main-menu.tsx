@@ -367,7 +367,7 @@ export function PosMainMenu() {
   const sectionsWithState: MenuSection[] = SECTIONS
     .filter((s) => s.key !== "drawer" || controlCaja)
     // Modo solo-órdenes (spec owner): el POS queda solo para órdenes y
-    // mesas, se ocultan transacciones y caja del menú.
+    // espacios, se ocultan transacciones y caja del menú.
     .filter((s) => !modoSoloOrdenes || (s.key !== "drawer" && s.key !== "transactions"))
     .map((s) => ({
       ...s,
@@ -2409,7 +2409,7 @@ function ModulesPanel() {
       key: "espacios",
       icono: LayoutGrid,
       nombre: "Espacios",
-      descripcion: "Gestión de mesas, sillas de atención u otros espacios",
+      descripcion: "Gestión de espacios — mesas, sillas de atención, habitaciones",
     },
     {
       key: "ordenes",
@@ -2470,7 +2470,7 @@ const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; descriptio
   { key: "ordenEnVenta", label: "Orden en venta", description: "Al confirmar una venta, muestra el botón \"Ordenar\" para generar una orden de ese pedido ya facturado (cobrar primero, ordenar después)." },
   { key: "ordenAImpresion", label: "Orden a impresión", description: "Al enviar una orden, imprime las comandas en las impresoras vinculadas — locales o del servidor de impresión de la sucursal." },
   { key: "permitirGuardarVentas", label: "Permitir guardar ventas", description: "Habilita la opción \"Guardar\" para dejar ventas en curso y retomarlas después. Desactivalo si no querés que los cajeros guarden ventas." },
-  { key: "modoSoloOrdenes", label: "Modo: solo órdenes", description: "El POS queda solo para tomar órdenes y mesas: se ocultan facturación, transacciones y caja." },
+  { key: "modoSoloOrdenes", label: "Modo: solo órdenes", description: "El POS queda solo para tomar órdenes y espacios: se ocultan facturación, transacciones y caja." },
 ]
 // Sacados de la lista por decisión del owner (2026-07-29): "Inhabilitar
 // animaciones", "Teclado virtual", "Servidor de impresión", "Sonidos en
