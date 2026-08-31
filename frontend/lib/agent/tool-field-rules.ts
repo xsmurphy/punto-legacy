@@ -211,6 +211,128 @@ export const FIELD_RULES: Record<string, FieldRule[]> = {
     },
   ],
 
+  // ── KPIs de ventas (`/v1/reports/dashboard?widget=incomeOutcomeStats`) ───
+  //
+  // El widget es el ÚNICO lugar del backend que calcula el ticket promedio
+  // (`DashboardService.php:121`) y hasta ahora ninguna tool lo exponía. Las
+  // cinco reglas de abajo se atan a la fila por `customerAverage`, que es la
+  // marca de este widget: `total`, `count`, `expenses` y `margin` a secas
+  // significan otra cosa en cualquier otro payload.
+
+  /**
+   * `total / count` (`DashboardService.php:121`) — pero OJO con el numerador, y
+   * esto es una trampa real: el promedio usa el `SUM(transactionTotal)` CRUDO,
+   * mientras el `total` que viaja en la misma fila es
+   * `(total - descuento) - ventas internas` (`:119`). O sea
+   * `averageTicket * salesCount` NO da `total`, y por un margen que puede ser
+   * grande en un comercio que descuenta. Sin la nota, el modelo hace esa
+   * multiplicación para "verificar", no le cierra, y reporta una inconsistencia
+   * que no existe.
+   */
+  customerAverage: [
+    {
+      rename: "averageTicket",
+      money: true,
+      note: "averageTicket es el promedio por venta calculado sobre el total BRUTO (antes de descuentos y de descontar ventas internas), mientras que total en la misma respuesta va neto. Por eso averageTicket x salesCount no da total: no es un error.",
+    },
+  ],
+
+  /**
+   * Mismo enum de tipos que `expensesTotal` del resumen anual
+   * (`transactionType IN (1,4)`, `DashboardService.php:125-130`): son COMPRAS a
+   * proveedores, no los gastos del módulo Finanzas.
+   */
+  expenses: [
+    {
+      when: (_v, row) => "customerAverage" in row,
+      rename: "purchasesTotal",
+      money: true,
+      note: "purchasesTotal son COMPRAS a proveedores (contado y crédito), no los gastos del módulo Finanzas.",
+    },
+  ],
+
+  /** `total - compras` (`DashboardService.php:132`). Puede ser NEGATIVO. */
+  revenue: [
+    {
+      when: (_v, row) => "customerAverage" in row,
+      rename: "netResult",
+      money: true,
+      note: "netResult = ventas netas - compras del período. Es negativo cuando se compró más de lo que se vendió, y no incluye los gastos del módulo Finanzas.",
+    },
+  ],
+
+  /**
+   * Porcentaje, no un monto — y con un default que engaña: cuando no hay
+   * compras registradas la fórmula NO se calcula y devuelve 100
+   * (`DashboardService.php:133`). Un comercio que no cargó sus compras ve
+   * "margen 100%" y no es un margen, es la ausencia del dato.
+   */
+  margin: [
+    {
+      when: (_v, row) => "customerAverage" in row,
+      rename: "marginPercent",
+      note: "marginPercent está en porcentaje. Vale 100 cuando el período no tiene compras registradas: ahí no es un margen sino la ausencia del costo. Si se compara entre períodos, su absoluteChange está en PUNTOS porcentuales (de 75 a 60 son 15 puntos, no 15%).",
+    },
+  ],
+
+  // ── Reporte de productos: el bloque de período anterior ──────────────────
+  //
+  // `ProductsService::general()` (`api/lib/Reports/ProductsService.php:57-67`)
+  // ya calcula el período anterior cuando la consulta no filtra por cliente,
+  // usuario ni ítem — y la tool lo TIRABA junto con el resto del payload al
+  // hacer `rows.slice()`. Viaja gratis en la misma respuesta: recuperarlo es la
+  // única comparación que no cuesta un segundo fetch.
+
+  /**
+   * Totales del período anterior, calculados por el backend. La ventana la
+   * define `NonAddingSales::previousPeriod()` desplazando por DURACIÓN, no por
+   * calendario, así que puede no coincidir con el mes anterior completo — la
+   * nota lo dice porque el bloque no trae sus propias fechas.
+   */
+  prev: [
+    {
+      when: (_v, row) => "prevByItem" in row || "rows" in row,
+      rename: "previousPeriodTotals",
+      note: "previousPeriodTotals son los totales del período ANTERIOR de la misma duración y cubren TODOS los productos, no solo los que se listan acá: no los compares contra la suma de las filas visibles. La ventana se desplaza por duración y no está alineada al mes calendario, así que sirve para la tendencia y no como 'el mes pasado' exacto.",
+    },
+  ],
+
+  /**
+   * `{itemId: unidades_del_período_anterior}` — el eje que ninguna comparación
+   * agregada puede dar: cuánto vendió CADA producto antes.
+   */
+  prevByItem: [
+    {
+      rename: "previousPeriodUnitsByItemId",
+      note: "previousPeriodUnitsByItemId mapea id de ítem a las unidades que vendió en el período anterior, recortado a los ítems que se listan en esta respuesta. Un ítem listado que no aparece en el mapa vendió 0 unidades antes: es un dato, no una ausencia.",
+    },
+  ],
+
+  /** Ventas internas descontadas del total (`ProductsService.php:201-210`). */
+  internals: [
+    {
+      when: (_v, row) => "rows" in row,
+      rename: "internalSalesExcluded",
+      note: "internalSalesExcluded son ventas internas del período que NO suman a la facturación. Solo tiene valores si el comercio activó ignoreInternal en sus ajustes.",
+    },
+  ],
+
+  // ── Finanzas (`/v1/finance/summary`) ─────────────────────────────────────
+
+  /** Suma de los saldos de todas las cuentas. Es una FOTO al momento de la
+   *  consulta, no un flujo del período: no se compara entre períodos. */
+  totalBalance: [
+    {
+      money: true,
+      note: "totalBalance es el saldo de las cuentas AHORA, no un movimiento del período consultado: no cambia si se acota el rango de fechas.",
+    },
+  ],
+
+  totalIncome: [{ money: true }],
+  totalExpense: [{ money: true }],
+  /** `income - expense` del período. Negativo cuando salió más de lo que entró. */
+  netFlow: [{ money: true }],
+
   // ── Unidades y conteos ───────────────────────────────────────────────────
 
   /**
@@ -231,10 +353,19 @@ export const FIELD_RULES: Record<string, FieldRule[]> = {
    * `principal` trae `min`). En el resumen anual es la cantidad de
    * transacciones de venta (`COUNT(*)`, `SummaryYearService.php:97`). Fuera de
    * esos dos casos viaja crudo — no hay un tercer significado confirmado.
+   *
+   * El tercer caso confirmado es el widget de KPIs: ahí `count` es
+   * `COUNT(transactionId)` de las ventas no anuladas de tipo 0, 3 y 6
+   * (`DashboardService.php:107-113`) y la fila se reconoce por `customerAverage`.
+   * Es EXACTAMENTE el denominador del ticket promedio, y la razón por la que ese
+   * promedio se expone desde el backend en vez de derivarse acá: fuera de estos
+   * tres casos nadie sabe qué cuenta `count`, y dividir por el equivocado da un
+   * ticket promedio plausible y falso.
    */
   count: [
     { when: (_v, row) => "locationId" in row || "min" in row, rename: "onHand" },
     { when: (_v, row) => "salesTotal" in row, rename: "salesCount" },
+    { when: (_v, row) => "customerAverage" in row, rename: "salesCount" },
   ],
 
   /** Mes 1-12 del desglose de un ítem (`ProductsService.php:127-137`). Viene
@@ -471,3 +602,81 @@ export const LEFT_RAW_ON_PURPOSE = [
   "quoteStatus",
   "einvoiceStatus",
 ] as const
+
+/**
+ * Campos ADITIVOS: los únicos que el motor de comparación
+ * (`period-comparison.ts`) puede sumar entre filas y comparar entre períodos.
+ *
+ * Es una ALLOWLIST y no una denylist a propósito. Comparar cualquier número que
+ * aparezca produciría totales que no significan nada —la suma de los precios de
+ * lista del catálogo, un costo unitario promedio acumulado— y el problema de un
+ * número así no es que se vea raro: se ve perfectamente razonable. El modelo lo
+ * presenta con confianza y el dueño del comercio no tiene cómo detectarlo. Un
+ * campo que nadie declaró aditivo simplemente no se compara, y esa ausencia es
+ * el resultado correcto.
+ *
+ * Los nombres son los de DESPUÉS de normalizar (`unitsSold`, no `usold`): la
+ * comparación se arma sobre el payload ya traducido, así el bloque `comparison`
+ * usa el mismo vocabulario que `data`.
+ *
+ * ── Lo que quedó AFUERA, y por qué ─────────────────────────────────────────
+ *  - `price`, `cost`, `averageUnitCost`: son por unidad. Sumarlos entre filas no
+ *    da un total de nada.
+ *  - `onHand`, `balance`, `totalBalance`, `storeCredit`, `creditLine`: son FOTOS
+ *    del momento, no flujos del período. No cambian con el rango de fechas, así
+ *    que un delta entre períodos sería siempre cero o siempre engañoso.
+ *  - `averageTicket`, `marginPercent`: promedios y porcentajes. Ver
+ *    `PERIOD_SCALARS` abajo — sí se comparan, pero nunca se suman.
+ *  - `itemMinStock`: es una constante del ítem repetida en cada depósito.
+ */
+export const ADDITIVE_FIELDS: ReadonlySet<string> = new Set([
+  // Montos de venta y documento
+  "total",
+  "subtotal",
+  "tax",
+  "discount",
+  "taxableAmount",
+  "outstandingBalance",
+  // Resumen anual
+  "salesTotalBeforeDiscount",
+  "purchasesTotal",
+  "returnsTotal",
+  "nonRevenueSalesTotal",
+  "newCustomers",
+  // Costos y margen (montos, no porcentajes)
+  "costOfGoodsSold",
+  "salesCommission",
+  "grossProfit",
+  "netResult",
+  // Unidades y conteos
+  "unitsSold",
+  "salesCount",
+  "qty",
+  // Finanzas: flujos del período (NO `totalBalance`, que es una foto)
+  "amount",
+  "totalIncome",
+  "totalExpense",
+  "netFlow",
+])
+
+/**
+ * Campos que SE COMPARAN entre períodos pero NUNCA se suman entre filas.
+ *
+ * "Sumable" y "comparable" no son lo mismo, y confundirlos deja afuera
+ * justamente las preguntas que motivan una comparación. El ticket promedio es
+ * el caso: sumarlo entre filas no significa nada, pero "¿mi ticket promedio
+ * subió contra el año pasado?" es la pregunta central de un análisis de ventas.
+ * Lo mismo el margen.
+ *
+ * La diferencia con `ADDITIVE_FIELDS` es de DÓNDE sale el número. Estos solo se
+ * toman cuando el backend ya los calculó para el período entero y llegan como
+ * escalar propio del payload (el widget de KPIs). Nunca se acumulan sobre filas:
+ * el promedio de dos meses no es la suma ni el promedio de los dos promedios.
+ *
+ * `totalBalance` NO entra, aunque también sea un escalar propio: es el saldo de
+ * AHORA y no se mueve con el rango consultado, así que compararlo entre dos
+ * períodos devolvería dos veces el mismo número con un delta de cero — y el
+ * modelo lo leería como "el saldo no cambió", que es una afirmación sobre el
+ * negocio y no sobre el dato.
+ */
+export const PERIOD_SCALARS: ReadonlySet<string> = new Set(["averageTicket", "marginPercent"])

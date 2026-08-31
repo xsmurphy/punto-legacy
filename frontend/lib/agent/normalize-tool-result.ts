@@ -239,8 +239,17 @@ export function normalizeToolResult(payload: unknown): NormalizedResult {
  * transacciones con 4 montos por fila repetiría la etiqueta 800 veces para
  * decir lo mismo, y un monto con la unidad adentro (`"Gs 1.230.000"`) deja de
  * ser un número con el que el modelo pueda operar.
+ *
+ * `comparison` es hermano de `data` y NO va dentro de `meta`: son números que el
+ * usuario pidió —cuánto subió, cuánto bajó—, no anotaciones sobre cómo leer el
+ * resto. Enterrarlo en el sobre lo haría parecer accesorio justo cuando es la
+ * respuesta. Lo arma `period-comparison.ts` y acá solo se adjunta.
  */
-export function withMeta(result: NormalizedResult, currencyLabel: string | null): unknown {
+export function withMeta(
+  result: NormalizedResult,
+  currencyLabel: string | null,
+  comparison?: unknown,
+): unknown {
   const meta: Record<string, unknown> = {}
 
   if (result.moneyFields.length > 0) {
@@ -261,6 +270,11 @@ export function withMeta(result: NormalizedResult, currencyLabel: string | null)
 
   if (result.notes.length > 0) meta.notes = result.notes
 
-  if (Object.keys(meta).length === 0) return result.value
-  return { meta, data: result.value }
+  const hasMeta = Object.keys(meta).length > 0
+  if (!hasMeta && comparison === undefined) return result.value
+  return {
+    ...(hasMeta ? { meta } : {}),
+    ...(comparison !== undefined ? { comparison } : {}),
+    data: result.value,
+  }
 }
