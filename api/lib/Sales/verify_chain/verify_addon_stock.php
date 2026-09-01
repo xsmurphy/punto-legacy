@@ -105,6 +105,11 @@ function sellWithAddon(
     float $unitPrice,
     ?float $fakeDelta = null
 ): array {
+    // Mismo patrón que stockBalance() más arriba: el tenant del script vive en
+    // el scope global. `SaleInput::fromPayload()` lo necesita para bajar el
+    // `timestamp` de emisión al reloj del comercio.
+    global $companyId;
+
     $selection = ['optionId' => $optionId, 'qty' => $optQty];
     if ($fakeDelta !== null) {
         // Caso 6: un cliente malicioso/desactualizado mandando precio.
@@ -143,7 +148,7 @@ function sellWithAddon(
         ],
     ];
 
-    $result = $service->save(SaleInput::fromPayload($payload));
+    $result = $service->save(SaleInput::fromPayload($payload, $companyId));
 
     return ['transactionId' => $result->transactionId, 'subtotal' => $subtotal];
 }

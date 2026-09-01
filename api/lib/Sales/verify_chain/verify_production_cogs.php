@@ -155,7 +155,7 @@ $payload = [
 ];
 
 try {
-    $input  = SaleInput::fromPayload($payload);
+    $input  = SaleInput::fromPayload($payload, $companyId);
     $result = $service->save($input);
 } catch (InvalidSaleInputException|SaleAbortedException|DuplicateSaleException $e) {
     fwrite(STDERR, '  FAIL  la venta no se pudo guardar: ' . $e->getMessage() . "\n");
@@ -337,7 +337,7 @@ $payloadL2 = [
 ];
 
 try {
-    $resultL2 = $service->save(SaleInput::fromPayload($payloadL2));
+    $resultL2 = $service->save(SaleInput::fromPayload($payloadL2, $companyId));
 } catch (InvalidSaleInputException|SaleAbortedException|DuplicateSaleException $e) {
     $resultL2 = null;
     $failures[] = 'Caso 7: la venta de L2 no se pudo guardar: ' . $e->getMessage();

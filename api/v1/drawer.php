@@ -220,6 +220,19 @@ if ($method === 'POST') {
         // Tenant-local naive (no UTC del container) — ver TenantClock. Sin esto
         // los gastos/ingresos de caja quedaban +3h adelantados y se ordenaban
         // por encima de eventos posteriores en "últimos movimientos" (2026-07-30).
+        //
+        // Es un FALLBACK, no un override: sólo corre cuando el cliente no mandó
+        // fecha. NO pisa la del cliente, y no debe hacerlo — la fecha de una
+        // apertura/cierre es la de EMISIÓN. Un turno abierto sin red y
+        // sincronizado después conserva su hora: `use-drawer.ts` calcula
+        // `date` con el reloj del comercio ANTES de encolar la operación
+        // (`tenantNow(timezone)`) y la manda tal cual al drenar la cola.
+        //
+        // Tampoco es el bug de zona de 2026-09-01 (venta corrida 3h): ese vivía
+        // en el OTRO embudo. Este endpoint entra por `apiAuthTenant()` →
+        // `data.php` → `TenantClock::apply()`, así que su sesión de PostgreSQL
+        // siempre estuvo en la zona del comercio — por eso el turno quedaba
+        // bien y sólo la venta se corría. Ver `lib/Auth/apiAuthPosContext.php`.
         $date = TenantClock::now($companyId);
     }
 
