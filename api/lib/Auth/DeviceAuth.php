@@ -156,6 +156,43 @@ final class DeviceAuth
     ): string {
         require_once dirname(__DIR__, 2) . '/includes/auth_session.php';
         require_once __DIR__ . '/RoleService.php';
+
+        // ── UN DISPOSITIVO = UNA SESIÓN ────────────────────────────────────
+        // Revocar lo que este device tuviera vivo ANTES de emitir la nueva
+        // credencial. Hasta 2026-09-01 cada pareo/reconexión APILABA una
+        // sesión más: la del device es eterna (`expiresAt` null), así que
+        // nada las cerraba nunca. El síntoma que lo destapó: parear una caja
+        // en la tablet A, revocarla, habilitarla en la tablet B — y no poder
+        // entrar en NINGUNA. Las pestañas fantasma de los pareos viejos
+        // seguían autenticando y latiendo `/v1/register/claim` cada 5 min
+        // (HEARTBEAT_MS en frontend/lib/pos/register-tenancy.ts), así que
+        // volvían a tomar la caja apenas el tenedor legítimo la soltaba.
+        //
+        // Va acá, en `buildToken()`, y no en los dos métodos que emiten para
+        // un device ya existente: este es el ÚNICO punto por el que pasa
+        // TODA emisión de credencial de device (`issueDeviceToken`,
+        // `createDeviceAndIssueToken`, `issueTokenForExistingDevice`), así
+        // que el invariante vale también para cualquier camino futuro. Para
+        // un device recién insertado no hay nada que revocar: no-op.
+        //
+        // `$companyId` acá siempre es el de la FILA `device`: los tres
+        // emisores lo resuelven contra la tabla antes de llamar, incluido
+        // `issueTokenForExistingDevice()`, cuya firma acepta `null` (hoy
+        // ningún call-site lo ejerce, pero la firma lo permite). Eso importa
+        // porque `authSessionRevokeByDevice()` hace `return` silencioso con
+        // companyId vacío: un fix que reenviara el parámetro crudo en vez del
+        // `companyid` de la fila sería un no-op invisible el día que alguien
+        // sí llame con null.
+        //
+        // `revokedBy` va NULL a propósito: no hay un usuario revocando, es el
+        // propio sistema desplazando la credencial anterior al emitir la
+        // nueva. Poner el contacto que parea mentiría en la auditoría — ese
+        // campo significa "quién decidió cortar esta sesión", y las
+        // revocaciones con dueño (panel, `api/v1/devices.php`) sí lo llenan.
+        if ($companyId !== '') {
+            authSessionRevokeByDevice($deviceId, $companyId, null);
+        }
+
         // Device = sesión opaca eterna (expiresAt null), revocable por sesión o por device.status.
         // oid/rid/module se guardan info-only; el backend resuelve scope desde la fila device.
         //
