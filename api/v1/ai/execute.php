@@ -227,7 +227,13 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             $patch = ['itemName' => $payload['name'] ?? ''];
             if (isset($payload['price']))    $patch['itemPrice']    = (float) $payload['price'];
             if (isset($payload['cost']))     $patch['itemCost']     = (float) $payload['cost'];
-            if (isset($payload['sku']))      $patch['sku']          = $payload['sku'];
+            // `itemSKU`, NO `sku`: el patch viaja crudo al writer genérico
+            // (`ItemService::update` → `ncmUpdate`), que rutea al JSONB `data`
+            // cualquier clave que no sea columna. Con `sku` el valor se guardaba
+            // sin error y quedaba invisible: no aparecía en el listado ni en la
+            // búsqueda por SKU. Todas las otras claves de este patch ya son
+            // nombres de columna; esta era la única que no.
+            if (isset($payload['sku']))      $patch['itemSKU']      = $payload['sku'];
             if ($categoryId !== null)        $patch['categoryId']   = $categoryId;
             if ($brandId !== null)           $patch['brandId']      = $brandId;
 
