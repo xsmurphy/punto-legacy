@@ -2,6 +2,7 @@
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "@/lib/api-client"
+import type { RegisterHolder } from "@/lib/devices/connected-device"
 
 export interface PosDevice {
   deviceId: string
@@ -19,6 +20,15 @@ export interface PosDevice {
   module: string | null
   ipLast: string | null
   activeSessions: number
+  /**
+   * Tenencia de la caja ASIGNADA, que no es lo mismo que la asignación:
+   * `registerId` dice a qué caja pertenece el aparato, esto dice quién la
+   * está usando ahora. Facturar exige tenerla, y solo un dispositivo puede
+   * a la vez (context/29).
+   */
+  holdsRegister: boolean
+  /** Presente solo cuando la caja asignada la tiene OTRO dispositivo. */
+  registerHeldBy: RegisterHolder | null
 }
 
 export function usePosDevices(opts: { showRevoked?: boolean } = {}) {

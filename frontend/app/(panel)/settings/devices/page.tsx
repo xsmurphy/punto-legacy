@@ -132,7 +132,33 @@ export default function DevicesPage() {
     {
       accessorKey: "registerName",
       header: "Caja",
-      cell: ({ row }) => row.original.registerName ?? "—",
+      // La caja ASIGNADA sola no explica nada: el admin veía el nombre de la
+      // caja y no entendía por qué ese POS no facturaba. Facturar exige la
+      // TENENCIA (`register_lease`, context/29) y solo un dispositivo puede
+      // tenerla a la vez. Esa respuesta vivía en otra pantalla (Ajustes →
+      // Sucursales → Cajas), así que acá se muestra al lado del nombre.
+      //
+      // Sin acción de "Liberar caja" a propósito: revocar el dispositivo ya
+      // libera la tenencia (DELETE /v1/devices → releaseByDevice), y la
+      // acción dedicada ya existe en Cajas. Duplicarla acá sería un segundo
+      // camino para lo mismo.
+      cell: ({ row }) => {
+        const { registerName, holdsRegister, registerHeldBy, status } = row.original
+        if (!registerName) return "—"
+        return (
+          <div className="flex flex-col items-start gap-1">
+            <span>{registerName}</span>
+            {status === 1 && holdsRegister && (
+              <Badge variant="secondary">En uso acá</Badge>
+            )}
+            {status === 1 && registerHeldBy && (
+              <Badge variant="outline">
+                En uso por {registerHeldBy.deviceName || "otro dispositivo"}
+              </Badge>
+            )}
+          </div>
+        )
+      },
     },
     // Sin columna "Módulo": era el MISMO dato que "Tipo" — `kind` se deriva
     // de `module` (`moduleToKind` en hooks/use-connected-devices.ts), así que
@@ -162,6 +188,19 @@ export default function DevicesPage() {
     {
       accessorKey: "status",
       header: "Estado",
+      // El contador de sesiones se queda, pero cambió de significado: dejó
+      // de ser información de color ("este aparato tiene 4 sesiones") para
+      // ser una ANOMALÍA. Desde el fix de `DeviceAuth::buildToken()`
+      // (2026-09-01) cada emisión revoca la anterior, así que un dispositivo
+      // tiene exactamente 1 sesión activa. Mostrarlo como dato neutro
+      // normalizaba justo el síntoma que tapaba el bug de las cajas
+      // bloqueadas por pestañas fantasma.
+      //
+      // Por qué no se borra: el invariante lo sostiene el código, no un
+      // constraint de BD — no hay índice único sobre (deviceid) parcial por
+      // status=1 porque las sesiones revocadas se conservan para auditoría.
+      // Si algún camino futuro vuelve a emitir sin revocar, esta es la única
+      // pantalla donde se ve.
       cell: ({ row }) => {
         const { status, activeSessions } = row.original
         if (status !== 1) return <Badge variant="secondary">Revocado</Badge>
@@ -169,9 +208,12 @@ export default function DevicesPage() {
           <div className="flex items-center gap-1.5">
             <Badge variant="default">Activo</Badge>
             {activeSessions > 1 && (
-              <span className="text-xs text-muted-foreground">
+              <Badge
+                variant="destructive"
+                title="Un dispositivo debería tener una sola sesión activa. Revocalo y volvé a conectarlo para dejar una sola."
+              >
                 {activeSessions} sesiones
-              </span>
+              </Badge>
             )}
           </div>
         )
@@ -332,11 +374,17 @@ export default function DevicesPage() {
                 ? `${DEVICE_KIND_LABELS[revokeDeviceTarget.kind]} dejará de funcionar inmediatamente.`
                 : "El dispositivo dejará de funcionar inmediatamente."}
               {" "}Esta acción no se puede deshacer.
+              {revokeDeviceTarget?.holdsRegister && (
+                <>
+                  {" "}Tiene tomada la caja{" "}
+                  <strong>{revokeDeviceTarget.registerName}</strong>: al revocarlo queda libre para
+                  otro dispositivo.
+                </>
+              )}
               {revokeDeviceTarget && revokeDeviceTarget.activeSessions > 1 && (
                 <>
-                  {" "}Tiene <strong>{revokeDeviceTarget.activeSessions} sesiones activas</strong> ahora
-                  mismo — puede haber más de una computadora usándolo en simultáneo, y todas se van a
-                  cortar a la vez.
+                  {" "}Figura con <strong>{revokeDeviceTarget.activeSessions} sesiones activas</strong>,
+                  cuando debería tener una sola — se cortan todas a la vez.
                 </>
               )}
             </AlertDialogDescription>

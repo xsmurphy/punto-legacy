@@ -53,15 +53,16 @@ if ($method === 'GET') {
         $params[]     = $outletId;
     }
 
-    // `register`/`device` son tablas legacy con columnas SIN comillas en su
-    // DDL (pliegan a lowercase físico: registerid/registername/outletid/
-    // companyid, devicename) — NO camelCase quoted. `register_lease` (mig
-    // 141) es al revés: sus columnas SÍ están quoted en el CREATE TABLE, así
-    // que el nombre físico conserva el camelCase. Referenciar cada tabla con
-    // el casing que le corresponde y alias-ear register/device a camelCase
-    // en el SELECT — así el PHP de abajo lee $row['registerId'] igual para
-    // las tres tablas sin tener que acordarse de la diferencia en cada punto
-    // de uso.
+    // Casing: las TRES tablas son lowercase físico y se referencian sin
+    // comillas. `register`/`device` son legacy creadas sin comillar;
+    // `register_lease` (mig 141) sí nació con columnas camelCase
+    // entrecomilladas, pero la mig 150 la normalizó junto con las otras 17
+    // tablas mixtas. (Este comentario decía lo contrario hasta 2026-09-01 —
+    // quedó desactualizado por la 150 y describía un schema que ya no
+    // existe; el SQL de abajo siempre estuvo bien.)
+    //
+    // Los alias camelCase del SELECT NO son por el schema: son para que el
+    // PHP de abajo lea $row['registerId'] con una sola convención.
     //
     // LEFT JOIN: una caja SIN tenedor activo tiene que aparecer igual en la
     // respuesta con lease=null ("libre"), no desaparecer del listado — el

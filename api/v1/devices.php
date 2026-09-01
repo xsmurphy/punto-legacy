@@ -2,6 +2,23 @@
 /**
  * GET    /v1/devices                        -- Lista de dispositivos POS del tenant (solo activos por default).
  * GET    /v1/devices?showRevoked=1          -- Lista incluye revocados (historial).
+ *
+ * Cada device del GET trae, además de su caja ASIGNADA (`registerId`), el
+ * estado de TENENCIA de esa caja (`register_lease` activa, mig 141 —
+ * context/29). Son dos cosas distintas y confundirlas es la razón por la que
+ * el admin no podía explicar por qué un POS no factura: la asignación dice a
+ * qué caja pertenece el aparato, la tenencia dice quién la está usando AHORA.
+ * Solo un dispositivo puede tenerla a la vez, y facturar exige tenerla.
+ *
+ *   holdsRegister   bool    -- este device tiene tomada su caja asignada.
+ *   registerHeldBy  null |  -- la caja asignada la tiene OTRO dispositivo.
+ *                   { deviceId, deviceName }
+ *
+ * Los dos son excluyentes: si `holdsRegister` es true, `registerHeldBy` es
+ * null. Ambos quedan en false/null cuando el device no tiene caja asignada
+ * (screen/kds/display/print no están atados a una) o cuando la caja está
+ * libre — "libre" es un estado normal, no un problema que reportar.
+ *
  * DELETE /v1/devices?id=X                   -- Soft revoke (status=0). Preserva auditoría.
  * DELETE /v1/devices?id=X&hard=1            -- DELETE físico. Solo permitido si status=0 (ya revocado).
  *
@@ -80,12 +97,27 @@ if ($method === 'DELETE') {
 $showRevoked = ($_GET['showRevoked'] ?? '') === '1';
 $statusFilter = $showRevoked ? '' : 'AND d.status = 1';
 
+// Casing de identificadores: `device`, `outlet`, `register` y `contact` son
+// tablas legacy creadas SIN comillas → todo minúscula. `auth_session` y
+// `register_lease` nacieron con columnas camelCase entrecomilladas, pero la
+// mig 150 las normalizó a minúscula también, así que hoy TODA esta query va
+// sin comillas. (El docblock de api/v1/register-lease.php todavía dice que
+// `register_lease` conserva el camelCase; quedó desactualizado por la 150 —
+// su SQL sí está bien.)
+//
+// El LEFT JOIN a la tenencia no puede multiplicar filas: el índice único
+// parcial `uq_register_lease_active` (mig 141) garantiza como mucho una lease
+// activa por caja. Y si `d.registerid` es NULL —screen/kds/display/print no
+// tienen caja— la igualdad da NULL y no matchea: sin lease, que es lo
+// correcto.
 $rs = ncmExecute(
     "SELECT d.deviceid, d.devicename, d.outletid, o.outletname,
             d.registerid, r.registername, d.userid AS pairedbycontactid,
             c.contactname AS pairedbyname,
             d.createdat AS pairedat, d.lastseenat,
             d.status, d.revokedat, d.module, d.iplast::text AS iplast,
+            rl.deviceid AS holderdeviceid,
+            hd.devicename AS holderdevicename,
             (SELECT count(*) FROM auth_session s
               WHERE s.deviceid = d.deviceid
                 AND s.companyid = d.companyid
@@ -94,6 +126,10 @@ $rs = ncmExecute(
      LEFT JOIN outlet   o ON o.outletid   = d.outletid   AND o.companyid = d.companyid
      LEFT JOIN register r ON r.registerid = d.registerid AND r.companyid = d.companyid
      LEFT JOIN contact  c ON c.contactid  = d.userid     AND c.companyid = d.companyid
+     LEFT JOIN register_lease rl ON rl.registerid = d.registerid
+                                AND rl.companyid  = d.companyid
+                                AND rl.status     = 'active'
+     LEFT JOIN device hd ON hd.deviceid = rl.deviceid AND hd.companyid = d.companyid
      WHERE d.companyid = ?::uuid
      {$statusFilter}
      ORDER BY d.lastseenat DESC NULLS LAST",
@@ -105,8 +141,15 @@ $rs = ncmExecute(
 $devices = [];
 if ($rs && !$rs->EOF) {
     while (!$rs->EOF) {
+        $deviceId   = (string) ($rs->fields['deviceid']       ?? '');
+        $holderId   = (string) ($rs->fields['holderdeviceid'] ?? '');
+        // Excluyentes por construcción: o la tiene este device, o la tiene
+        // otro, o no la tiene nadie. Sin lease activa los dos campos quedan
+        // en su valor neutro — la caja libre no es una anomalía que reportar.
+        $holdsOwn   = $holderId !== '' && $holderId === $deviceId;
+        $heldByOther = $holderId !== '' && $holderId !== $deviceId;
         $devices[] = [
-            'deviceId'          => (string) ($rs->fields['deviceid']          ?? ''),
+            'deviceId'          => $deviceId,
             'deviceName'        => (string) ($rs->fields['devicename']        ?? ''),
             'outletId'          => $rs->fields['outletid']                    ?? null,
             'outletName'        => $rs->fields['outletname']                  ?? null,
@@ -121,6 +164,11 @@ if ($rs && !$rs->EOF) {
             'module'            => (string) ($rs->fields['module']            ?? ''),
             'ipLast'            => (string) ($rs->fields['iplast']            ?? ''),
             'activeSessions'    => (int) ($rs->fields['activesessions']       ?? 0),
+            'holdsRegister'     => $holdsOwn,
+            'registerHeldBy'    => $heldByOther ? [
+                'deviceId'   => $holderId,
+                'deviceName' => (string) ($rs->fields['holderdevicename'] ?? ''),
+            ] : null,
         ];
         $rs->MoveNext();
     }
