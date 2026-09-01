@@ -94,31 +94,46 @@ function DrawerContent({
   // los insets (`pb`/`pl`/`pr` de acá abajo) — si al sacar el margen se va
   // también el inset, el último botón vuelve a caer sobre la barra de gestos.
   //
-  // TECLADO VIRTUAL (`--kb-inset`)
-  // El drawer bottom consume la misma variable que `dialog.tsx`: apoya en
-  // `bottom-[var(--kb-inset)]` en vez de `bottom-0`, así el teclado deja de
-  // taparle el textarea/input (reporte del owner 2026-08-30: nota de línea,
-  // descuentos, montos y numpads quedaban detrás del teclado). vaul NO lo
-  // resuelve solo — por eso `repositionInputs` va apagado en el root.
-  // Los tres ajustes van juntos y son de la dirección bottom nada más:
-  //   - `bottom`: sube el drawer justo lo que mide el teclado.
-  //   - `max-h`: al subir, un drawer alto se saldría por arriba; el `min()`
-  //     lo recorta contra el alto que queda libre.
-  //   - `pb`: con el teclado abierto la barra de gestos ya no está entre el
-  //     drawer y el dedo, así que el `--safe-b` se descuenta; el `max(1rem,…)`
-  //     sigue siendo el piso.
+  // TECLADO VIRTUAL
+  // El drawer bottom consume las mismas variables que `dialog.tsx`, así el
+  // teclado deja de taparle el textarea/input (reporte del owner 2026-08-30:
+  // nota de línea, descuentos, montos y numpads quedaban detrás del teclado).
+  // vaul NO lo resuelve solo — por eso `repositionInputs` va apagado en el
+  // root. Los tres ajustes van juntos y son de la dirección bottom nada más, y
+  // cada uno usa la variable que le corresponde:
+  //   - `bottom` POSICIONA → `--kb-bottom`, el borde inferior de la ventana
+  //     VISIBLE. Con `--kb-inset` (arreglo 2026-09-01) el drawer se apoyaba a
+  //     `inset` px del borde del layout, que es un punto muy por encima de lo
+  //     que se ve cuando iOS además desplazó el viewport: el drawer de nota se
+  //     salía por arriba de la pantalla. En Chrome/Android, donde no hay
+  //     desplazamiento, `--kb-bottom` vale exactamente lo que valía
+  //     `--kb-inset`, así que ese caso no cambia.
+  //   - `max-h` DIMENSIONA → `--kb-inset`, el total tapado: un drawer alto se
+  //     saldría por arriba y el `min()` lo recorta contra el alto visible.
+  //   - `pb` pregunta "¿hay teclado?" → `--kb-inset`, la única que lo responde
+  //     en las dos plataformas. Con el teclado abierto la barra de gestos ya
+  //     no está entre el drawer y el dedo, así que el `--safe-b` se descuenta;
+  //     el `max(1rem,…)` sigue siendo el piso. Usar `--kb-bottom` acá sería el
+  //     error: en el iPhone vale 0 con el teclado ARRIBA (todo lo tapado está
+  //     del lado de `--kb-top`) y dejaría 34px muertos sobre el teclado.
+  // Las direcciones left/right/top también se apoyan en el par (antes
+  // `inset-y-0` / `top-0`): son `fixed` contra el viewport igual que la de
+  // bottom, y un borde en el layout viewport queda fuera de pantalla con el
+  // teclado abierto. Fuera del POS el par vale 0 y el resultado es idéntico a
+  // `inset-y-0`; el `h-auto` de la clase base es lo que deja que los dos
+  // bordes definan el alto (caja sobre-restringida — ver `app/globals.css`).
   // La transición es solo de `bottom` porque vaul anima `transform` inline
   // (arrastre y apertura): son propiedades distintas y no se pisan.
-  // Fuera del POS `--kb-inset` vale `0px` (default global en `globals.css`) y
-  // las tres expresiones colapsan a lo de siempre: nada de esto se ve en
-  // desktop ni en el panel.
+  // Fuera del POS las tres valen `0px` (defaults en `globals.css`) y las
+  // expresiones colapsan a lo de siempre: nada de esto se ve en desktop ni en
+  // el panel.
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay />
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         className={cn(
-          "group/drawer-content fixed z-50 flex h-auto flex-col bg-transparent p-4 text-sm before:absolute before:inset-2 before:-z-10 before:rounded-[min(var(--radius-4xl),24px)] before:border before:border-border before:bg-popover before:shadow-xl data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-[var(--kb-inset)] data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[min(80vh,calc(100dvh-var(--kb-inset)-2rem))] data-[vaul-drawer-direction=bottom]:transition-[bottom] data-[vaul-drawer-direction=bottom]:duration-200 data-[vaul-drawer-direction=bottom]:before:inset-x-0 data-[vaul-drawer-direction=bottom]:before:bottom-0 data-[vaul-drawer-direction=bottom]:before:rounded-b-none data-[vaul-drawer-direction=bottom]:pb-[max(1rem,calc(var(--safe-b)-var(--kb-inset)))] data-[vaul-drawer-direction=bottom]:pl-[max(1rem,var(--safe-l))] data-[vaul-drawer-direction=bottom]:pr-[max(1rem,var(--safe-r))] data-[vaul-drawer-direction=left]:inset-y-0 data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:inset-y-0 data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm",
+          "group/drawer-content fixed z-50 flex h-auto flex-col bg-transparent p-4 text-sm before:absolute before:inset-2 before:-z-10 before:rounded-[min(var(--radius-4xl),24px)] before:border before:border-border before:bg-popover before:shadow-xl data-[vaul-drawer-direction=bottom]:inset-x-0 data-[vaul-drawer-direction=bottom]:bottom-[var(--kb-bottom)] data-[vaul-drawer-direction=bottom]:mt-24 data-[vaul-drawer-direction=bottom]:max-h-[min(80vh,calc(100dvh-var(--kb-inset)-2rem))] data-[vaul-drawer-direction=bottom]:transition-[bottom] data-[vaul-drawer-direction=bottom]:duration-200 data-[vaul-drawer-direction=bottom]:before:inset-x-0 data-[vaul-drawer-direction=bottom]:before:bottom-0 data-[vaul-drawer-direction=bottom]:before:rounded-b-none data-[vaul-drawer-direction=bottom]:pb-[max(1rem,calc(var(--safe-b)-var(--kb-inset)))] data-[vaul-drawer-direction=bottom]:pl-[max(1rem,var(--safe-l))] data-[vaul-drawer-direction=bottom]:pr-[max(1rem,var(--safe-r))] data-[vaul-drawer-direction=left]:top-[var(--kb-top)] data-[vaul-drawer-direction=left]:bottom-[var(--kb-bottom)] data-[vaul-drawer-direction=left]:left-0 data-[vaul-drawer-direction=left]:w-3/4 data-[vaul-drawer-direction=right]:top-[var(--kb-top)] data-[vaul-drawer-direction=right]:bottom-[var(--kb-bottom)] data-[vaul-drawer-direction=right]:right-0 data-[vaul-drawer-direction=right]:w-3/4 data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-[var(--kb-top)] data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=left]:sm:max-w-sm data-[vaul-drawer-direction=right]:sm:max-w-sm",
           className
         )}
         {...props}

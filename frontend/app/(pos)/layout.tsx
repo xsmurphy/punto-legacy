@@ -66,9 +66,11 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             cuelga del `<body>`, fuera de ese árbol, y justo el cobro y el menú
             principal quedaban sin las reglas. */}
         <PosTouchScope />
-        {/* Publica `--kb-inset` (lo que tapa el teclado virtual) para que los
-            modales con búsqueda no queden detrás del teclado en el teléfono.
-            Ver el docblock de `components/pos/keyboard-inset.tsx`. */}
+        {/* Publica la ventana visible del viewport mientras el teclado virtual
+            está abierto (`--kb-top` / `--kb-bottom` / `--kb-inset`) para que
+            los modales con búsqueda no queden ni detrás del teclado ni fuera
+            de pantalla por arriba en el teléfono. Ver el docblock de
+            `components/pos/keyboard-inset.tsx`. */}
         <PosKeyboardInset />
         {/* Anula `--safe-t`/`--safe-b` cuando el viewport NO cubre la pantalla:
             ahí el chrome del sistema ya reservó esa franja y descontarla otra
@@ -102,24 +104,30 @@ export default function PosLayout({ children }: { children: React.ReactNode }) {
             cambia nada. */}
         {/* ALTO DEL SHELL — el teclado virtual se descuenta ACÁ.
 
-            `dvh` mide el viewport de LAYOUT y el teclado no lo achica (en iOS
-            se dibuja encima; ver el docblock de `keyboard-inset.tsx`), así que
-            el body fijado de `globals.css`, que ya sube su borde inferior con
-            `--kb-inset`, no cambia cuánto mide `100dvh`. Sin esta resta el
-            shell seguiría midiendo la pantalla entera y su mitad de abajo
-            quedaría bajo el teclado — que es exactamente el síntoma que el
-            owner vio "en muchas cosas del POS" (2026-08-30).
+            Este consumidor DIMENSIONA, así que usa `--kb-inset` (el total
+            tapado) y no el par `--kb-top`/`--kb-bottom`: el alto visible es
+            `layout - total tapado`, sin importar cómo se reparta entre arriba
+            y abajo. La POSICIÓN ya la resuelve el body fijado de
+            `globals.css`, que es de quien el shell cuelga en flujo normal.
+
+            Hace falta igual porque `dvh` mide el viewport de LAYOUT y el
+            teclado no lo achica (en iOS se dibuja encima; ver el docblock de
+            `keyboard-inset.tsx`): achicar el body no cambia cuánto mide
+            `100dvh`. Sin esta resta el shell seguiría midiendo la pantalla
+            entera y su mitad de abajo quedaría fuera del área visible — que es
+            exactamente el síntoma que el owner vio "en muchas cosas del POS"
+            (2026-08-30).
 
             Repetir el descuento acá NO es el doble-descuento que prohíbe la
             regla de áreas seguras: no son dos restas encadenadas sobre la
             misma caja, son dos cajas —la lámina del documento y el shell—
             midiendo el mismo espacio visible. Encadenarlo sería que un hijo
-            del shell volviera a restar `--kb-inset`; eso no pasa: los únicos
-            consumidores de la variable son el dialog, el drawer y el lock
-            screen, y los tres se posicionan `fixed` contra el viewport, fuera
-            de este árbol de layout.
+            del shell volviera a restar; eso no pasa: los demás consumidores
+            (dialog, drawer, sheet, lock screen, los command palettes) se
+            posicionan `fixed` contra el viewport, fuera de este árbol de
+            layout.
 
-            Con el teclado cerrado `--kb-inset` vale `0px` y las dos
+            Con el teclado cerrado las variables valen `0px` y las dos
             expresiones colapsan a lo de siempre. */}
         <SidebarInset className="h-[calc(100dvh-var(--kb-inset))] overflow-hidden pt-[var(--safe-t)] pl-[var(--safe-l)] pr-[var(--safe-r)] md:h-[calc(100dvh-1rem-var(--kb-inset))]">
           {/* El trigger mobile del nav de módulos vivía acá como FAB flotante

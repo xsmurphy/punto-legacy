@@ -20,9 +20,10 @@
  * CONVIVENCIA CON EL TECLADO VIRTUAL (owner, 2026-08-25: "el buscador de
  * usuarios queda tapado por el teclado"). Dos piezas, ninguna propia de este
  * diálogo:
- *   · el alto máximo y el centrado ya descuentan `--kb-inset` en el primitive
- *     (`components/ui/dialog.tsx`), así que la caja entera se acomoda arriba
- *     del teclado en vez de centrarse contra la pantalla completa;
+ *   · el alto máximo (`--kb-inset`) y el centrado (`--kb-top` + `--kb-inset`)
+ *     ya salen del primitive (`components/ui/dialog.tsx`), así que la caja
+ *     entera se acomoda dentro de la ventana visible en vez de centrarse
+ *     contra la pantalla completa;
  *   · acá adentro el reparto es columna flex — el campo de búsqueda tiene alto
  *     fijo y arriba de todo, y la lista se queda con lo que sobre y scrollea.
  *     Sin esto el contenido sería más alto que la caja y el scroll se lo

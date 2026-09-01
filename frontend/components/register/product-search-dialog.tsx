@@ -112,9 +112,25 @@ export function ProductSearchDialog({
   return (
     <>
     <Dialog open={open} onOpenChange={(v) => { if (!v) setViewingGroup(null); onOpenChange(v) }}>
+      {/* Command palette top-aligned, gemelo del buscador de clientes — y
+          hasta el 2026-09-01 el ÚNICO de los dos que nunca se enteró del
+          teclado virtual. Pisaba el centrado del primitive con `top-[10vh]
+          translate-y-0` y acotaba con `max-h-[80vh]`, o sea: posición y alto
+          medidos contra el viewport de LAYOUT, que en iOS no se achica ni se
+          mueve cuando el teclado sube. Con la medición del owner (layout 797,
+          visible [356, 797]) el diálogo se dibujaba en 84 —272px por encima de
+          la pantalla— y pedía 675px de alto para un hueco de 441. Es el
+          buscador que más se usa en la caja, y es el mismo bug que este commit
+          arregla en los demás:
+            · `top` POSICIONA → `--kb-top` lo ancla al borde de lo VISIBLE,
+              conservando el mismo margen de 10vh que el cajero ya conoce.
+            · `max-h` DIMENSIONA → `--kb-inset`, y en `dvh` como el resto del
+              sistema (`vh` es el viewport GRANDE: ignora también el chrome del
+              navegador, no solo el teclado).
+          Sin teclado las dos variables valen 0 y queda donde estaba. */}
       <DialogContent
         className={cn(
-          "top-[10vh] flex max-h-[80vh] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-lg",
+          "top-[calc(var(--kb-top)+10vh)] flex max-h-[calc(80dvh-var(--kb-inset))] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-lg",
           // Animación de entrada/salida propia — ver context/20 §Overlays.
           // El `DialogContent` de este modal es TRANSPARENTE (command
           // palette: la superficie visible son la pastilla y la lista, no el

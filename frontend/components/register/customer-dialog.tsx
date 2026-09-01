@@ -201,11 +201,20 @@ export function CustomerDialog({ open, onOpenChange }: CustomerDialogProps) {
           `--kb-inset`: con el teclado abierto la lista se recorta a lo que
           queda visible en vez de extenderse por detrás del teclado (el `86vh`
           anterior medía el viewport de layout, que en iOS no se entera de que
-          el teclado subió). El `top` no se toca — el campo tiene que quedar
-          donde el cajero ya lo busca, y el que se achica es el alto. */}
+          el teclado subió).
+
+          El `top` SÍ se toca (2026-09-01). Este diálogo pisa el centrado del
+          primitive con `top-[7dvh] translate-y-0`, y ese `7dvh` es un offset
+          desde el borde del viewport de LAYOUT: con el teclado abierto en el
+          iPhone lo visible es [356, 797] de 797, así que el modal se dibujaba
+          en 56 — 300px por encima de la pantalla. Sumarle `--kb-top` lo ancla
+          al borde de arriba de lo VISIBLE conservando el mismo margen, que es
+          lo que el cajero ya conoce; sin teclado la variable vale 0 y queda
+          exactamente donde estaba. Es la contracara de la nota vieja: lo que
+          no se toca es el MARGEN, no la coordenada. */}
       <DialogContent
         className={cn(
-          "top-[7dvh] flex max-h-[calc(86dvh-var(--kb-inset))] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl",
+          "top-[calc(var(--kb-top)+7dvh)] flex max-h-[calc(86dvh-var(--kb-inset))] translate-y-0 flex-col gap-3 border-none bg-transparent p-0 shadow-none ring-0 sm:max-w-xl",
           // Animación de entrada/salida propia — ver context/20 §Overlays.
           // El `DialogContent` de este modal es TRANSPARENTE (command
           // palette: la superficie visible son la pastilla y la lista, no el

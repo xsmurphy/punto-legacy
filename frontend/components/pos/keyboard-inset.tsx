@@ -2,10 +2,20 @@
 
 import * as React from "react"
 
+import { keyboardWindow } from "@/lib/pos/keyboard-window"
+
 /**
- * Publica en `<html>` cuánto alto le está comiendo el TECLADO VIRTUAL a la
- * pantalla, como `--kb-inset` (px). Las superficies flotantes lo descuentan
- * igual que descuentan las áreas seguras — ver `components/ui/dialog.tsx`.
+ * Publica en `<html>` la VENTANA VISIBLE del viewport mientras el TECLADO
+ * VIRTUAL está abierto, como tres variables en px:
+ *
+ *     --kb-top      lo tapado/scrolleado por ARRIBA
+ *     --kb-bottom   lo tapado por ABAJO (el teclado propiamente dicho)
+ *     --kb-inset    el total tapado (`--kb-top` + `--kb-bottom`)
+ *
+ * Las superficies que se POSICIONAN contra el viewport usan el par
+ * (`top: var(--kb-top); bottom: var(--kb-bottom)`); las que solo se
+ * DIMENSIONAN siguen usando `--kb-inset`, que no cambió de significado. La
+ * aritmética y el porqué del par viven en `lib/pos/keyboard-window.ts`.
  *
  * POR QUÉ NO ALCANZA EL CSS
  * -------------------------
@@ -26,10 +36,10 @@ import * as React from "react"
  * ---------------------------
  * Igual que con las áreas seguras: se mide UNA vez acá y se expone como
  * variable. Ningún call-site vuelve a tocar `visualViewport` — el modal que
- * necesite convivir con el teclado descuenta `var(--kb-inset)` en su alto y
- * listo. El bottom drawer de vaul dejó de ser la excepción: consume la
- * variable como el resto (`components/ui/drawer.tsx`, dirección bottom), y su
- * `repositionInputs` va apagado para que no mueva el drawer una segunda vez.
+ * necesite convivir con el teclado se apoya en el par y listo. El bottom
+ * drawer de vaul dejó de ser la excepción: consume las variables como el resto
+ * (`components/ui/drawer.tsx`, dirección bottom), y su `repositionInputs` va
+ * apagado para que no mueva el drawer una segunda vez.
  *
  * Vive montado desde el layout del POS, junto a `PosTouchScope`, y limpia la
  * variable al desmontar: fuera de la caja nadie la consume.
@@ -45,50 +55,46 @@ export function PosKeyboardInset() {
     function measure() {
       frame = 0
       if (!vv) return
-      // Lo tapado = ALTURA del layout viewport menos ALTURA del visual. Nada
-      // más: los dos términos son alturas y la diferencia es exactamente el
-      // alto del teclado.
+      // TRES INTENTOS, TRES PREMISAS FALSAS — la historia, porque cada arreglo
+      // parecía obvio hasta que llegó la captura siguiente:
       //
-      // `vv.offsetTop` NO va acá, y restarlo era el bug (capturas del owner,
-      // 2026-08-31: el teclado tapaba el PIN y la nota de venta, y NINGUNA
-      // pantalla se movía). `offsetTop` es POSICIÓN —cuánto desplazó el
-      // navegador el viewport visual dentro del de layout—, no alto. Cuando
-      // iOS desplaza para revelar el campo enfocado, ese valor crece hasta casi
-      // lo que mide el teclado, así que la resta se cancelaba sola: `covered`
-      // caía por debajo del umbral, el inset quedaba en 0 y todo el sistema
-      // —diálogos, drawers, shell— descontaba cero JUSTO cuando más importaba.
-      // El comentario anterior afirmaba lo contrario de lo que hacía el código.
+      //   1. `innerHeight - vv.height - vv.offsetTop`. En iOS standalone
+      //      `innerHeight` SIGUE al viewport VISUAL (medición del owner:
+      //      innerHeight 441 = vv.height 441), así que los dos primeros
+      //      términos ya eran el mismo número: la cuenta daba 0 y `--kb-inset`
+      //      nunca se publicaba. Síntoma: contenido tapado DETRÁS del teclado.
+      //   2. `clientHeight - vv.height`, sacando `offsetTop` de la cuenta. La
+      //      resta de alturas quedó bien —y sigue siendo la de `inset`—, pero
+      //      la conclusión de la que colgaba ("`offsetTop` es POSICIÓN, no
+      //      alto, y el body fijado impide que iOS desplace el viewport") era
+      //      media verdad: es posición, sí, y precisamente POR ESO hacía falta,
+      //      porque sin ella no hay dónde. La medición del owner
+      //      (visualViewport.top = 356 con el body ya fijado) probó que el
+      //      desplazamiento ocurre igual. Síntoma: todo lo `fixed` corrido
+      //      hacia ARRIBA, fuera de pantalla — el opuesto exacto del anterior.
+      //   3. Esta. Se publica la VENTANA VISIBLE, no solo cuánto tapa el
+      //      teclado. La fórmula, los números del dispositivo y la invariante
+      //      `top + bottom === inset` están en `lib/pos/keyboard-window.ts`.
       //
-      // El minuendo es `documentElement.clientHeight`, NO `window.innerHeight`.
+      // El primer argumento es `documentElement.clientHeight` por lo del punto
+      // 1: es el alto contra el que el CSS resuelve `100dvh` y contra el que se
+      // posicionan los elementos `fixed`, que es exactamente el marco a
+      // repartir.
       //
-      // Medición del owner en su iPhone, PWA instalada, con el teclado abierto
-      // (sonda `?debug=viewport`, 2026-08-31):
-      //
-      //     innerHeight        441      html.clientHeight   797
-      //     visualViewport.h   441      100dvh              797
-      //
-      // `innerHeight` SIGUE al viewport visual en iOS standalone: vale lo mismo
-      // que `vv.height`, así que restarlos da 0 siempre y el inset nunca se
-      // publicaba. Ese fue el error de origen, y explica por qué el arreglo
-      // anterior —sacar `offsetTop` de la cuenta— no podía cambiar nada: los
-      // dos términos ya eran el mismo número.
-      //
-      // `clientHeight` del `<html>` es la altura contra la que el CSS resuelve
-      // `100dvh` y contra la que se posicionan los elementos `fixed`, que es
-      // exactamente el marco del que hay que descontar. Acá: 797 - 441 = 356,
-      // el alto real del teclado.
-      //
-      // Sirve igual para el navegador que SÍ achica su viewport de layout al
-      // abrir el teclado (`interactive-widget=resizes-content`): ahí
-      // `clientHeight` baja junto con `vv.height`, la diferencia da ~0 y el
-      // resultado es correcto, porque en ese caso el contenido ya se reacomodó
-      // solo y no hay nada que descontar. El `max(0, …)` cubre el redondeo.
-      const layoutHeight = document.documentElement.clientHeight
-      const covered = Math.max(0, layoutHeight - vv.height)
-      // Umbral: las barras del navegador entran y salen con ~60-90px de
-      // diferencia y NO son un teclado. Ningún teclado virtual mide menos de
-      // ~250px, así que 120 separa las dos cosas sin falsos positivos.
-      const inset = covered > 120 ? Math.round(covered) : 0
+      // Chrome/Android sigue funcionando sin caso especial. Si achica el
+      // viewport de LAYOUT (`interactive-widget=resizes-content`),
+      // `clientHeight` baja junto con `vv.height`, la diferencia queda bajo el
+      // umbral y los tres valores dan 0 — correcto, porque ahí el contenido ya
+      // se reacomodó solo. Si no lo achica, `offsetTop` es 0 y todo lo tapado
+      // se le carga a `--kb-bottom`, que es literalmente el comportamiento que
+      // tenía `--kb-inset` antes de este cambio.
+      const { top, bottom, inset } = keyboardWindow(
+        document.documentElement.clientHeight,
+        vv.height,
+        vv.offsetTop
+      )
+      root.style.setProperty("--kb-top", `${top}px`)
+      root.style.setProperty("--kb-bottom", `${bottom}px`)
       root.style.setProperty("--kb-inset", `${inset}px`)
 
       // Restauración activa del corrimiento de iOS: enfocar un campo puede
@@ -97,6 +103,10 @@ export function PosKeyboardInset() {
       // hacia arriba (los screenshots del owner 2026-08-26: hasta el overlay
       // de un drawer terminaba ~60pt antes del borde). El body fijado
       // (globals.css) previene la mayor parte; esto limpia lo que quede.
+      //
+      // Con el teclado ABIERTO no se toca: ahí el desplazamiento no es un resto
+      // a limpiar sino la posición real de la ventana visible, y es lo que
+      // `--kb-top` publica.
       if (inset === 0 && (window.scrollY !== 0 || vv.offsetTop > 0)) {
         window.scrollTo(0, 0)
       }
@@ -117,6 +127,8 @@ export function PosKeyboardInset() {
       vv.removeEventListener("resize", schedule)
       vv.removeEventListener("scroll", schedule)
       if (frame) cancelAnimationFrame(frame)
+      root.style.removeProperty("--kb-top")
+      root.style.removeProperty("--kb-bottom")
       root.style.removeProperty("--kb-inset")
     }
   }, [])

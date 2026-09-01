@@ -404,11 +404,27 @@
     --safe-r: env(safe-area-inset-right, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
     --safe-l: env(safe-area-inset-left, 0px);
-    /* Alto que tapa el TECLADO VIRTUAL. Hermana de las anteriores: se descuenta
-       igual, pero no hay `env()` que la provea —el teclado no achica el
-       viewport de layout en iOS— así que la mide `components/pos/keyboard-
-       inset.tsx` con `visualViewport` y la escribe acá mientras el POS está
-       montado. El default 0 es lo que ve el desktop y el panel. */
+    /* TECLADO VIRTUAL — la VENTANA VISIBLE del viewport, en tres variables.
+       Hermanas de las áreas seguras: se descuentan igual, pero no hay `env()`
+       que las provea —el teclado no achica el viewport de layout en iOS— así
+       que las mide `components/pos/keyboard-inset.tsx` con `visualViewport` y
+       las escribe acá mientras el POS está montado.
+
+         --kb-top      lo tapado/scrolleado por ARRIBA (iOS desplaza el
+                       viewport visual para revelar el campo enfocado)
+         --kb-bottom   lo tapado por ABAJO (el teclado propiamente dicho)
+         --kb-inset    el total tapado; siempre `--kb-top + --kb-bottom`
+
+       Cuál usar: lo que se POSICIONA contra el viewport (`fixed`) se apoya en
+       el par `top: var(--kb-top); bottom: var(--kb-bottom)`; lo que solo se
+       DIMENSIONA (`max-height`) usa `--kb-inset`, que no cambió de
+       significado. Publicar solo el total era el bug: describía cuánto, nunca
+       dónde — ver `lib/pos/keyboard-window.ts`.
+
+       Los defaults en 0 son lo que ven el desktop y el panel: ahí las tres
+       expresiones colapsan a la geometría de siempre. */
+    --kb-top: 0px;
+    --kb-bottom: 0px;
     --kb-inset: 0px;
 }
 
@@ -458,12 +474,22 @@ html[data-pos-touch] body {
    fuerza `scrollTo(0,0)` por si algún resto quedó.
 
    ── EL TECLADO ACHICA LA LÁMINA, NO CADA PANTALLA ─────────────────────────
-   `bottom: var(--kb-inset)` es la contracara de lo anterior. Fijar el body
-   impide que iOS scrollee la ventana para revelar el campo enfocado, pero eso
-   por sí solo deja el campo TAPADO: la app sigue midiendo la pantalla entera y
-   su mitad de abajo queda bajo el teclado. Fue el reporte del owner
-   (2026-08-30): la nota de línea, los descuentos, los montos y el asistente
-   escribían a ciegas — "está pasando con muchas cosas en el POS".
+   `top: var(--kb-top); bottom: var(--kb-bottom)` es la contracara de lo
+   anterior. Fijar el body impide que iOS scrollee la ventana para revelar el
+   campo enfocado, pero eso por sí solo deja el campo TAPADO: la app sigue
+   midiendo la pantalla entera y su mitad de abajo queda bajo el teclado. Fue
+   el reporte del owner (2026-08-30): la nota de línea, los descuentos, los
+   montos y el asistente escribían a ciegas — "está pasando con muchas cosas en
+   el POS".
+
+   OJO CON EL `top`, que es lo que se arregló el 2026-09-01. Acá decía
+   `top: 0; bottom: var(--kb-inset)`, apoyado en la premisa de que el body
+   fijado impide TODO desplazamiento del viewport. Es falsa: la medición del
+   owner con este mismo CSS corriendo dio `visualViewport.offsetTop = 356` —
+   WebKit no scrollea la ventana, pero desplaza el viewport VISUAL igual. Con
+   `top: 0` la lámina se dibujaba en [0, 441] mientras lo visible era
+   [356, 797]: la app entera quedaba arriba de la pantalla. El alto no cambió
+   (sigue siendo `L - inset`); lo que faltaba era la POSICIÓN.
 
    Se resuelve UNA vez acá, no pantalla por pantalla. Cada superficie que se
    acordara de descontar `--kb-inset` por su cuenta es una que la próxima se
@@ -477,7 +503,9 @@ html[data-pos-touch] body {
    sobre-restringida). El `height: 100%` de la regla anterior dejaría este
    descuento sin efecto y el bug se leería como "el CSS no hace nada". Con
    `auto`, el alto sigue siendo definido (lo fijan `top` y `bottom`), así que
-   los hijos con `height: 100%` siguen resolviendo igual que antes.
+   los hijos con `height: 100%` siguen resolviendo igual que antes. Con el par
+   esto importa el doble: ahora los dos bordes llevan valor, y un `height`
+   explícito descartaría justo el de abajo.
 
    DOS COSAS QUE ESTO NO ALCANZA A CUBRIR, y por qué NO son doble descuento
    (ver la regla de un-inset-por-eje en § "Áreas seguras del dispositivo"):
@@ -493,16 +521,17 @@ html[data-pos-touch] body {
         para sus descendientes fijos —solo lo hacen `transform`, `filter`,
         `perspective`, `contain` y compañía—, así que los portales de Radix y
         de vaul, que cuelgan del `<body>` y se posicionan `fixed`, siguen
-        resolviendo contra el VIEWPORT y este `bottom` no los mueve ni un
-        pixel. Por eso `components/ui/dialog.tsx` y `components/ui/drawer.tsx`
-        conservan su propio descuento: son el único que reciben. Lo mismo vale
-        para los overlays `fixed inset-0` montados dentro del shell, como el
-        lock screen — cada uno declara el suyo. */
+        resolviendo contra el VIEWPORT y este reposicionamiento no los mueve ni
+        un pixel. Por eso `components/ui/dialog.tsx`,
+        `components/ui/drawer.tsx` y `components/ui/sheet.tsx` conservan el
+        suyo: son el único que reciben. Lo mismo vale para los overlays
+        `fixed inset-x-0` montados dentro del shell, como el lock screen — cada
+        uno declara el suyo. */
 html[data-pos-touch] body {
     position: fixed;
-    top: 0;
+    top: var(--kb-top);
     right: 0;
-    bottom: var(--kb-inset);
+    bottom: var(--kb-bottom);
     left: 0;
     height: auto;
     width: 100%;

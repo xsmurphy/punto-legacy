@@ -72,11 +72,16 @@ import { useOnlineStatus } from "@/hooks/use-online-status"
  * POS por detrás, que es la señal de overlay y la zona de cierre al tocar
  * afuera.
  *
- * TECLADO: no se descuenta `--kb-inset` acá. El `Sheet` es `inset-y-0` contra
- * el viewport y el input vive al pie de un cuerpo flex; el shell del POS ya
- * resta el teclado una sola vez (`app/globals.css`, § teclado virtual). Meter
- * un segundo descuento en este árbol sería la doble resta que cuida
- * `lib/pos/__tests__/keyboard-inset.test.ts`.
+ * TECLADO: no se toca nada acá, pero NO por lo que decía este párrafo hasta el
+ * 2026-09-01 ("el shell ya resta el teclado una sola vez, un segundo descuento
+ * sería la doble resta"). Eso era falso: el `Sheet` es un portal `fixed` que
+ * cuelga del `<body>`, y un body fijado no crea bloque contenedor para sus
+ * descendientes fijos, así que este árbol nunca heredó el reposicionamiento
+ * del shell — con el teclado abierto el header del chat quedaba fuera de vista
+ * por arriba. La corrección va en el primitive (`components/ui/sheet.tsx`,
+ * bordes verticales sobre `--kb-top`/`--kb-bottom`), no en este call-site: es
+ * el mismo bug para todos los Sheet, y arreglarlo acá lo dejaba abierto en el
+ * resto.
  *
  * `showCloseButton={false}` + `onClose`: la X del primitive es absoluta en la
  * esquina y caería justo encima de las acciones del header del chat. El chat

@@ -320,23 +320,31 @@ export function LockScreen() {
       role="dialog"
       aria-modal="true"
       aria-label="Pantalla bloqueada"
-      // El teclado virtual se descuenta acá y no se hereda del shell: esta
+      // El teclado virtual se resuelve acá y no se hereda del shell: esta
       // pantalla es `position: fixed`, y un fijo resuelve contra el VIEWPORT
-      // aunque su ancestro sea el body fijado que `globals.css` ya achica con
-      // `--kb-inset`. O sea que sin esta línea el `justify-center` centra el
-      // PIN en la pantalla ENTERA y el teclado —que lo abre el input invisible
-      // de acá abajo— le tapa justamente los círculos (captura del owner,
-      // 2026-08-30). Es la única aplicación de la variable en este árbol, así
-      // que no hay nada que se le sume.
+      // aunque su ancestro sea el body fijado que `globals.css` ya reposiciona.
+      // Es la única aplicación de las variables en este árbol, así que no hay
+      // nada que se le sume.
       //
-      // `inset-x-0 top-0` en vez de `inset-0`: dejar `inset-0` y confiar en
-      // que el `bottom-[…]` gane la cascada es depender del orden en que
-      // Tailwind emite dos utilidades que escriben la misma propiedad. Los
-      // cuatro lados explícitos no dependen de eso.
+      // El PAR y no `--kb-inset` (arreglo 2026-09-01). Con
+      // `top-0 bottom-[var(--kb-inset)]` la pantalla ocupaba [0, 441] mientras
+      // lo visible en el iPhone del owner era [356, 797]: el `justify-center`
+      // centraba los círculos en 220, o sea 136px POR ENCIMA del borde de
+      // arriba de la pantalla. Es la captura de "los cuatro círculos pegados
+      // al borde superior". Con el par ocupa exactamente [356, 797] y el
+      // centro cae en 576, que es el medio de lo que se ve. La versión
+      // anterior a esa —sin descuento— los centraba en 398 y los tapaba el
+      // teclado: los dos extremos del mismo error de no medir el
+      // desplazamiento.
+      //
+      // `inset-x-0` + los dos bordes verticales explícitos en vez de `inset-0`:
+      // dejar `inset-0` y confiar en que el `top-[…]`/`bottom-[…]` ganen la
+      // cascada es depender del orden en que Tailwind emite dos utilidades que
+      // escriben la misma propiedad.
       //
       // Las otras dos pantallas de este archivo (spinner y aviso sin PINs) no
       // lo necesitan: no tienen campo, no abren teclado.
-      className="fixed inset-x-0 top-0 bottom-[var(--kb-inset)] z-[100] flex flex-col items-center justify-center bg-background safe-area"
+      className="fixed inset-x-0 top-[var(--kb-top)] bottom-[var(--kb-bottom)] z-[100] flex flex-col items-center justify-center bg-background safe-area"
     >
       {/*
        * Input invisible — captura el teclado virtual en mobile cuando el

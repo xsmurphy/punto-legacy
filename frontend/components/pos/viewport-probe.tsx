@@ -2,6 +2,8 @@
 
 import * as React from "react"
 
+import { keyboardWindow } from "@/lib/pos/keyboard-window"
+
 /**
  * Sonda de viewport — se monta SOLO con `?debug=viewport` en la URL del POS.
  *
@@ -59,38 +61,51 @@ export function ViewportProbe() {
         ["100svh", String(svh)],
         ["100lvh", String(lvh)],
         ["visualViewport.h", vv ? String(Math.round(vv.height)) : "—"],
-        // `covered` es EL diagnóstico del teclado virtual: `keyboard-inset.tsx`
-        // publica `--kb-inset` con exactamente esta cuenta, así que verlos al
-        // lado dice si la variable está en 0 porque no hay teclado o porque la
-        // medición no lo ve.
+        // Las filas `(calc)` son EL diagnóstico del teclado virtual: la sonda
+        // recalcula por su cuenta lo que `keyboard-inset.tsx` publica, así que
+        // verlos uno al lado del otro dice si una variable está en 0 porque no
+        // hay teclado o porque la medición no lo ve. Ese contraste ya cazó dos
+        // bugs y por eso se mantiene para las TRES, no solo para el total.
         //
-        // Esta sonda YA cazó un bug, y vale dejar el número escrito porque es
-        // contraintuitivo: en el iPhone del owner con la PWA instalada y el
-        // teclado abierto, `innerHeight` marcó 441 y `visualViewport.h` marcó
-        // 441 TAMBIÉN — o sea que `innerHeight` sigue al viewport VISUAL, no al
-        // de layout. Restarlos daba 0 y el inset nunca se publicaba. El alto
-        // correcto es `html.clientHeight` (797 ahí), que es contra el que
-        // resuelven `100dvh` y los elementos `fixed`: 797 - 441 = 356.
+        // El primero: en el iPhone del owner con la PWA instalada y el teclado
+        // abierto, `innerHeight` marcó 441 y `visualViewport.h` marcó 441
+        // TAMBIÉN — `innerHeight` sigue al viewport VISUAL, no al de layout.
+        // Restarlos daba 0 y el inset nunca se publicaba. El alto correcto es
+        // `html.clientHeight` (797 ahí), contra el que resuelven `100dvh` y los
+        // elementos `fixed`: 797 - 441 = 356.
         //
-        // Por eso las tres filas se leen juntas: si `covered` da 0 con el
-        // teclado arriba, comparar `innerHeight` con `html.clientHeight` dice
-        // enseguida cuál de los dos está siguiendo al teclado.
+        // El segundo: `visualViewport.top` valía 356 con el body ya fijado, o
+        // sea que iOS desplaza el viewport visual igual. Un solo número no
+        // alcanzaba —dice cuánto tapa, no dónde— y todo lo `fixed` terminó
+        // dibujado fuera de pantalla por arriba. De ahí el par: lo visible es
+        // el tramo [top, layout - bottom] del viewport de layout.
+        //
+        // QUÉ MIRAR: `top(calc) + bottom(calc)` tiene que dar `covered(calc)`,
+        // y cada `(calc)` tiene que coincidir con su variable. Si `--kb-top`
+        // marca 0 con `visualViewport.top` en 356, volvió el bug del 2026-08-31.
         ["visualViewport.top", vv ? String(Math.round(vv.offsetTop)) : "—"],
-        [
-          "covered(calc)",
-          vv
-            ? String(
-                Math.max(
-                  0,
-                  Math.round(
-                    document.documentElement.clientHeight - vv.height,
-                  ),
-                ),
+        ...(vv
+          ? (() => {
+              const w = keyboardWindow(
+                document.documentElement.clientHeight,
+                vv.height,
+                vv.offsetTop
               )
-            : "—",
-        ],
+              return [
+                ["top(calc)", String(w.top)],
+                ["bottom(calc)", String(w.bottom)],
+                ["covered(calc)", String(w.inset)],
+              ] as Array<[string, string]>
+            })()
+          : ([
+              ["top(calc)", "—"],
+              ["bottom(calc)", "—"],
+              ["covered(calc)", "—"],
+            ] as Array<[string, string]>)),
         ["--safe-t", cs.getPropertyValue("--safe-t").trim() || "—"],
         ["--safe-b", cs.getPropertyValue("--safe-b").trim() || "—"],
+        ["--kb-top", cs.getPropertyValue("--kb-top").trim() || "—"],
+        ["--kb-bottom", cs.getPropertyValue("--kb-bottom").trim() || "—"],
         ["--kb-inset", cs.getPropertyValue("--kb-inset").trim() || "—"],
       ])
     }
@@ -113,7 +128,12 @@ export function ViewportProbe() {
   }, [])
 
   return (
-    <div className="fixed left-2 top-1/2 z-[200] -translate-y-1/2 rounded-lg bg-black/85 p-3 font-mono text-[11px] leading-tight text-white shadow-xl">
+    // La sonda se centra sobre la ventana VISIBLE, no sobre el viewport de
+    // layout: era `top-1/2` a secas, y con el teclado abierto —el único
+    // momento en que estos números importan— quedaba dibujada fuera de
+    // pantalla. Misma expresión que el diálogo centrado de
+    // `components/ui/dialog.tsx`.
+    <div className="fixed left-2 top-[calc(var(--kb-top)+50%-var(--kb-inset)/2)] z-[200] -translate-y-1/2 rounded-lg bg-black/85 p-3 font-mono text-[11px] leading-tight text-white shadow-xl">
       {rows.map(([k, v]) => (
         <div key={k} className="flex justify-between gap-3">
           <span className="opacity-70">{k}</span>

@@ -188,9 +188,11 @@ describe("cada superficie que toca un borde lo descuenta", () => {
     // shell aunque estén montados adentro.
     //
     // El match es `fixed inset-` y no `fixed inset-0`: el lock screen pasó a
-    // `fixed inset-x-0 top-0 bottom-[var(--kb-inset)]` para que el teclado no
-    // le tape el PIN (2026-08-30), y con el patrón viejo la superficie que más
-    // importa —la única con un campo— se salía del guard justo al tocarla.
+    // `fixed inset-x-0` con los bordes verticales apoyados en la ventana
+    // visible del teclado (`--kb-top` / `--kb-bottom`, ver
+    // `keyboard-inset.test.ts`) para que no le tape el PIN, y con el patrón
+    // viejo la superficie que más importa —la única con un campo— se salía del
+    // guard justo al tocarla.
     for (const rel of [
       "components/register/lock-screen.tsx",
       "components/register/pos-loading-screen.tsx",

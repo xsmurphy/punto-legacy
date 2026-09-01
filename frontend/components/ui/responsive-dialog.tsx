@@ -42,12 +42,14 @@
  *   acá ni en los call-sites.
  *
  * TECLADO VIRTUAL
- *   Lo resuelve el primitive: `DrawerContent` descuenta `--kb-inset` —la misma
- *   variable que consume `dialog.tsx`, medida una sola vez en
- *   `components/pos/keyboard-inset.tsx`— y apoya el drawer sobre el teclado en
- *   vez de quedar debajo. El `repositionInputs` de vaul va apagado en el root
- *   para que no compita con esa medición. No agregar hacks de `visualViewport`
- *   acá ni en los call-sites.
+ *   Lo resuelve el primitive: `DrawerContent` apoya su borde inferior en
+ *   `--kb-bottom` y acota su alto con `--kb-inset` —las mismas variables que
+ *   consume `dialog.tsx`, medidas una sola vez en
+ *   `components/pos/keyboard-inset.tsx`— así que el drawer queda dentro de la
+ *   ventana visible en vez de debajo del teclado o fuera de pantalla por
+ *   arriba. El `repositionInputs` de vaul va apagado en el root para que no
+ *   compita con esa medición. No agregar hacks de `visualViewport` acá ni en
+ *   los call-sites.
  */
 
 import * as React from "react"

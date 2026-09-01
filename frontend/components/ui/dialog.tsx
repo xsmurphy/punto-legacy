@@ -93,17 +93,31 @@ const DialogSectionedContext = React.createContext(false)
  * `dvh` y no `vh`: en móvil la barra del navegador cambia el alto visible y
  * `vh` deja el corte fuera de la pantalla real.
  *
- * `--kb-inset` (el alto que tapa el TECLADO VIRTUAL, medido por
- * `components/pos/keyboard-inset.tsx`) entra en la misma cuenta que las áreas
- * seguras, y por la misma razón: `dvh` mide el viewport de LAYOUT, que en iOS
- * NO se achica con el teclado abierto. Sin esto, un diálogo centrado se sigue
- * centrando contra la pantalla entera y con el teclado arriba queda medio
+ * TECLADO VIRTUAL (`--kb-top` / `--kb-bottom` / `--kb-inset`, medidas por
+ * `components/pos/keyboard-inset.tsx`) — entra en la misma cuenta que las
+ * áreas seguras, y por la misma razón: `dvh` mide el viewport de LAYOUT, que
+ * en iOS NO se achica con el teclado abierto. Sin esto, un diálogo centrado se
+ * sigue centrando contra la pantalla entera y con el teclado arriba queda medio
  * modal —el campo enfocado incluido— atrás del teclado (reporte del owner
- * 2026-08-25 sobre el buscador de usuarios). Se descuenta en DOS lugares: el
- * `max-h`, para que el modal no sea más alto que el hueco visible, y el `top`,
- * para que el centro del modal sea el centro de ESE hueco y no el de la
- * pantalla. Donde no hay teclado la variable vale 0 y la geometría es la de
- * siempre — el panel y el desktop no cambian un pixel.
+ * 2026-08-25 sobre el buscador de usuarios). Se usa en DOS lugares, con
+ * variables distintas porque hacen cosas distintas:
+ *
+ *   · el `max-h` DIMENSIONA → `--kb-inset` (el total tapado). El alto visible
+ *     es `layout - total tapado`, sin importar cómo se reparta.
+ *   · el `top` POSICIONA → necesita además `--kb-top`. `calc(50% - inset/2)`
+ *     da el centro del hueco medido desde el borde del LAYOUT; el hueco no
+ *     empieza ahí. Con la medición del owner (layout 797, visible [356, 797]):
+ *     `50% - 356/2` = 220, que está fuera de pantalla por arriba — el modal
+ *     "corrido hacia arriba" del 2026-08-31. Sumando `--kb-top`: 356 + 220 =
+ *     576, el centro real de lo visible, y el `-translate-y-1/2` lo apoya ahí.
+ *
+ * `50%` es exactamente `100dvh/2` para un `fixed` (resuelve contra el bloque
+ * contenedor inicial), así que la expresión es la misma que
+ * `var(--kb-top) + (100dvh - var(--kb-inset))/2` y no depende de que `dvh`
+ * coincida con `clientHeight` en un transitorio.
+ *
+ * Donde no hay teclado las tres valen 0 y la geometría es la de siempre — el
+ * panel y el desktop no cambian un pixel.
  *
  * Un diálogo que administra su propio scroll interno (ej. `pay-dialog`, con su
  * cuerpo scrolleable y footer fijo) simplemente pasa sus clases por
@@ -170,7 +184,7 @@ function DialogContent({
           // área útil, y los diálogos altos (el de cobro pedía 90vh) se comían
           // el notch. Donde los insets valen 0 el `min()` devuelve 85dvh y el
           // desktop queda idéntico.
-          "fixed top-[calc(50%-var(--kb-inset)/2)] left-1/2 z-50 grid max-h-[min(85dvh,calc(100dvh-2rem-var(--safe-t)-var(--safe-b)-var(--kb-inset)))] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-[calc(var(--kb-top)+50%-var(--kb-inset)/2)] left-1/2 z-50 grid max-h-[min(85dvh,calc(100dvh-2rem-var(--safe-t)-var(--safe-b)-var(--kb-inset)))] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-6 overflow-y-auto rounded-[min(var(--radius-4xl),24px)] bg-popover p-6 text-sm text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-none sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           // El padding se va al header/body/footer; el scroll lo administra el
           // <DialogBody>, no el content.
           sectioned && "flex flex-col gap-0 overflow-hidden p-0",
@@ -183,12 +197,18 @@ function DialogContent({
               // diferencia de un par de píxeles deja una franja del overlay
               // asomando contra el borde inferior — el "no baja hasta el final
               // de la pantalla" que reportó el owner (2026-08-25).
-              // `top/right/left/bottom` explícitos en vez de `inset-0`: el
-              // borde de abajo se apoya en el teclado cuando hay teclado
-              // (`--kb-inset`), y en el borde físico cuando no lo hay. Con
-              // `inset-0` + un `bottom-*` aparte el resultado dependía del
-              // orden en que Tailwind emite las dos utilidades.
-              "max-sm:top-0 max-sm:right-0 max-sm:bottom-[var(--kb-inset)] max-sm:left-0 max-sm:h-auto max-sm:max-h-none max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none",
+              // `top/right/left/bottom` explícitos en vez de `inset-0`: los
+              // dos bordes verticales se apoyan en la ventana visible cuando
+              // hay teclado (`--kb-top` / `--kb-bottom`), y en los bordes
+              // físicos cuando no lo hay. Con `inset-0` + utilidades sueltas el
+              // resultado dependía del orden en que Tailwind las emite.
+              //
+              // El par y no `--kb-inset`: con `top-0` el fullscreen arrancaba
+              // en el borde del LAYOUT, que con el teclado abierto está fuera
+              // de pantalla por arriba (medición del owner: lo visible es
+              // [356, 797] de 797). El alto resultante es el mismo; lo que
+              // faltaba era el origen.
+              "max-sm:top-[var(--kb-top)] max-sm:right-0 max-sm:bottom-[var(--kb-bottom)] max-sm:left-0 max-sm:h-auto max-sm:max-h-none max-sm:w-auto max-sm:max-w-none max-sm:translate-x-0 max-sm:translate-y-0 max-sm:rounded-none",
               // `flex flex-col` y NO el `grid` del modal centrado: un
               // fullscreen tiene alto definido (top:0 + bottom en el teclado o
               // el borde), así que el reparto de ese alto es el trabajo del

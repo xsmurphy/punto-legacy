@@ -51,6 +51,23 @@ function SheetOverlay({
  * ver `lib/overlay-form-isolation.ts`. Mismo motivo que en `dialog.tsx` —
  * React propaga por su árbol, no por el del DOM, así que el portal no impide
  * que el form de la página que quedó atrás reciba el submit.
+ *
+ * TECLADO VIRTUAL — los bordes verticales se apoyan en la ventana visible
+ * (`--kb-top` / `--kb-bottom`) y no en el viewport de layout. El Sheet es un
+ * portal `fixed` que cuelga del `<body>`: NO hereda el reposicionamiento del
+ * body del POS (un body fijado no crea bloque contenedor para sus
+ * descendientes fijos), así que `inset-y-0` lo dejaba abarcando la pantalla
+ * ENTERA con el teclado abierto — con el header y el título fuera de vista por
+ * arriba en el iPhone, donde lo visible es [356, 797] de 797. Es el asistente
+ * de la caja (`components/pos/pos-agent-dialog.tsx`), cuyo docblock afirmaba
+ * justo lo contrario; corregido el 2026-09-01.
+ *
+ * `h-auto` en left/right reemplaza al `h-full`: con `position: fixed`, `top` +
+ * `height` + `bottom` es una caja sobre-restringida y el navegador descarta
+ * `bottom` — el mismo detalle que documenta `app/globals.css`. Con los dos
+ * bordes y `auto` el alto sigue siendo definido, así que los hijos con
+ * `h-full` resuelven igual. Fuera del POS el par vale `0px` y la geometría es
+ * exactamente la de `inset-y-0 h-full`: el panel no cambia un pixel.
  */
 function SheetContent({
   className,
@@ -72,7 +89,7 @@ function SheetContent({
         data-slot="sheet-content"
         data-side={side}
         className={cn(
-          "fixed z-50 flex flex-col bg-popover bg-clip-padding text-sm text-popover-foreground shadow-xl transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-0 data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=left]:inset-y-0 data-[side=left]:left-0 data-[side=left]:h-full data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=right]:inset-y-0 data-[side=right]:right-0 data-[side=right]:h-full data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=top]:inset-x-0 data-[side=top]:top-0 data-[side=top]:h-auto data-[side=top]:border-b data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-[side=bottom]:data-open:slide-in-from-bottom-10 data-[side=left]:data-open:slide-in-from-left-10 data-[side=right]:data-open:slide-in-from-right-10 data-[side=top]:data-open:slide-in-from-top-10 data-closed:animate-out data-closed:fade-out-0 data-[side=bottom]:data-closed:slide-out-to-bottom-10 data-[side=left]:data-closed:slide-out-to-left-10 data-[side=right]:data-closed:slide-out-to-right-10 data-[side=top]:data-closed:slide-out-to-top-10",
+          "fixed z-50 flex flex-col bg-popover bg-clip-padding text-sm text-popover-foreground shadow-xl transition duration-200 ease-in-out data-[side=bottom]:inset-x-0 data-[side=bottom]:bottom-[var(--kb-bottom)] data-[side=bottom]:h-auto data-[side=bottom]:border-t data-[side=left]:top-[var(--kb-top)] data-[side=left]:bottom-[var(--kb-bottom)] data-[side=left]:left-0 data-[side=left]:h-auto data-[side=left]:w-3/4 data-[side=left]:border-r data-[side=right]:top-[var(--kb-top)] data-[side=right]:bottom-[var(--kb-bottom)] data-[side=right]:right-0 data-[side=right]:h-auto data-[side=right]:w-3/4 data-[side=right]:border-l data-[side=top]:inset-x-0 data-[side=top]:top-[var(--kb-top)] data-[side=top]:h-auto data-[side=top]:border-b data-[side=left]:sm:max-w-sm data-[side=right]:sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-[side=bottom]:data-open:slide-in-from-bottom-10 data-[side=left]:data-open:slide-in-from-left-10 data-[side=right]:data-open:slide-in-from-right-10 data-[side=top]:data-open:slide-in-from-top-10 data-closed:animate-out data-closed:fade-out-0 data-[side=bottom]:data-closed:slide-out-to-bottom-10 data-[side=left]:data-closed:slide-out-to-left-10 data-[side=right]:data-closed:slide-out-to-right-10 data-[side=top]:data-closed:slide-out-to-top-10",
           className
         )}
         {...props}
