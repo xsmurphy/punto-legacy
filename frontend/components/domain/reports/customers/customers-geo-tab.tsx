@@ -32,7 +32,6 @@ import * as React from "react"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { MapPin } from "lucide-react"
 
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -278,32 +277,7 @@ export function CustomersGeoTab({
                 className="border-0 p-0"
               />
             ) : (
-              <div className="flex flex-col gap-3">
-                {/* Con cobertura baja el mapa se dibuja IGUAL, con la
-                    advertencia arriba (owner, 2026-08-31: "¿por qué no muestra
-                    el mapa y pide dar click para mostrarlo?"). La preocupación
-                    sigue siendo válida —una mancha hecha con el 17% describe a
-                    quienes alguien geolocalizó— pero para eso alcanza con
-                    decirlo: esconder el dato detrás de un clic no informa
-                    mejor. */}
-                {coberturaBaja && (
-                  <Alert>
-                    <AlertTitle>
-                      La muestra no representa a tu clientela
-                    </AlertTitle>
-                    <AlertDescription>
-                      Solo {formatInt(conCoords, bootstrap)} de los{" "}
-                      {formatInt(totalClientes, bootstrap)} clientes tienen
-                      ubicación cargada ({coberturaPct.toFixed(0)}%). El mapa
-                      describe a esos {formatInt(conCoords, bootstrap)}, no a
-                      toda tu clientela: no lo uses para decidir zonas de
-                      reparto ni de cobertura hasta cargar la ubicación en más
-                      fichas.
-                    </AlertDescription>
-                  </Alert>
-                )}
-                <CustomersHeatmap points={puntos} />
-              </div>
+              <CustomersHeatmap points={puntos} />
             )}
           </CardContent>
         </Card>
