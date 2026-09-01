@@ -21,6 +21,8 @@
 
 require_once __DIR__ . '/../../bootstrap.php';
 
+use Punto\App\Helpers\Date;
+
 $ctx    = apiAuthTenant(($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' ? ['panel', 'pos-app', 'api'] : ['panel']);
 $svc    = new \Punto\Api\Reports\TransactionsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
@@ -400,18 +402,16 @@ if ($method !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
-$dateRe = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
-
 $view = (string) (validateHttp('view') ?: 'detail');
 if (!in_array($view, ['detail', 'cobros', 'quotes'], true)) {
     apiError('Vista no soportada', 422);
 }
 
-$from = (string) (validateHttp('from') ?: '');
-$to   = (string) (validateHttp('to')   ?: '');
-if ($from === '') { $from = date('Y-m-d 00:00:00', strtotime('-7 days')); }
-if ($to   === '') { $to   = date('Y-m-d 23:59:59'); }
-if (!preg_match($dateRe, $from) || !preg_match($dateRe, $to)) {
+// Rango del reporte. Una fecha SOLA en `to` significa el FINAL de ese dia
+// (ver Date::reportRange): mandar `to=2026-09-01` y perder todo lo de ese
+// dia despues de medianoche era el bug que reporto el agente IA.
+[$from, $to, $rangeOk] = Date::reportRange(validateHttp('from'), validateHttp('to'));
+if (!$rangeOk) {
     apiError('Formato de fecha inválido', 422);
 }
 

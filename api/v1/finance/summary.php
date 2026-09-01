@@ -10,6 +10,8 @@
  */
 require_once __DIR__ . '/../../bootstrap.php';
 
+use Punto\App\Helpers\Date;
+
 $ctx = apiAuthTenant(['panel', 'api']);
 if (!hasPermission('finance.manage')) {
     apiError('No tenés permiso para gestionar Finanzas (requiere: finance.manage)', 403);
@@ -27,13 +29,23 @@ $movementSvc = new \Punto\Api\Finance\MovementService();
 
 $accounts = $accountSvc->list($companyId);
 
-$from = trim((string) ($_GET['from'] ?? ''));
-$to   = trim((string) ($_GET['to'] ?? ''));
-if ($from === '') {
-    $from = date('Y-m-01 00:00:00');
-}
-if ($to === '') {
-    $to = date('Y-m-d 23:59:59');
+// Rango del período. Una fecha SOLA en `to` significa el FINAL de ese día (ver
+// Date::reportRange): con `to=2026-09-01` se perdía todo lo del 1 de septiembre
+// posterior a la medianoche. El panel no lo pegaba porque su `rangeToBackend()`
+// ya manda la hora; sí lo pegan el agente IA y los consumidores por API key.
+// Un rango con formato inválido degrada al default (mes calendario actual) en
+// vez de reventar el bind contra Postgres: mismo criterio que /v1/finance/reports.
+[$from, $to, $rangeOk] = Date::reportRange(
+    $_GET['from'] ?? '',
+    $_GET['to'] ?? '',
+    date('Y-m-01 00:00:00'),
+);
+if (!$rangeOk) {
+    // Ver la nota de /v1/finance/reports: se degrada, pero deja rastro.
+    error_log(sprintf(
+        '[finance/summary] rango invalido, se degrada al mes actual: from=%s to=%s',
+        (string) ($_GET['from'] ?? ''), (string) ($_GET['to'] ?? '')
+    ));
 }
 
 // Totales del período: agregación SQL real (SUM ... FILTER), no trunca con

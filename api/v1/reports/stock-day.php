@@ -10,6 +10,8 @@
 
 require_once __DIR__ . '/../../bootstrap.php';
 
+use Punto\App\Helpers\Date;
+
 $ctx = apiAuthTenant(['panel']);
 $svc = new \Punto\Api\Reports\StockDayService();
 
@@ -17,14 +19,16 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
-$date = (string) (validateHttp('date') ?: '');
-if ($date === '') { $date = date('Y-m-d 23:59:59'); }
-
-$dateRe = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
+// Saldo AL CIERRE del día pedido: `date` es un extremo SUPERIOR, así que una
+// fecha sola significa el FINAL de ese día. Antes viajaba tal cual y Postgres
+// la leía como 00:00:00, o sea que `date=2026-09-01` devolvía el saldo con el
+// que ARRANCÓ el 1 de septiembre, sin ningún movimiento de la jornada.
+$date   = (string) (validateHttp('date') ?: '');
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
-if (!preg_match($dateRe, $date)) {
+if (!Date::isRangeBound($date)) {
     apiError('Formato de fecha inválido', 422);
 }
+$date = Date::rangeEnd($date);
 if (!preg_match($uuidRe, (string) COMPANY_ID)) {
     apiError('Contexto de empresa inválido', 500);
 }

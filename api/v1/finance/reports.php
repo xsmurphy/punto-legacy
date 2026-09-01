@@ -18,6 +18,8 @@
  */
 require_once __DIR__ . '/../../bootstrap.php';
 
+use Punto\App\Helpers\Date;
+
 $ctx = apiAuthTenant(['panel']);
 if (!hasPermission('finance.manage')) {
     apiError('No tenés permiso para gestionar Finanzas (requiere: finance.manage)', 403);
@@ -30,23 +32,32 @@ if ($method !== 'GET') {
 
 $companyId = (string) COMPANY_ID;
 
-// Valida fecha real (no solo el formato) — "2026-99-99" matchea el regex
-// pero rompe en Postgres como bind param; checkdate() lo degrada al default
-// en vez de devolver 500.
-$isValidDate = static function (string $val): bool {
-    if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})/', $val, $m)) {
-        return false;
-    }
-    return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
-};
-
-$from = trim((string) ($_GET['from'] ?? ''));
-$to   = trim((string) ($_GET['to'] ?? ''));
-if ($from === '' || !$isValidDate($from)) {
-    $from = date('Y-m-01 00:00:00');
-}
-if ($to === '' || !$isValidDate($to)) {
-    $to = date('Y-m-d 23:59:59');
+// Rango del período. Dos cosas las resuelve el helper compartido:
+//
+//   1. Una fecha SOLA en `to` significa el FINAL de ese día. Antes viajaba tal
+//      cual y Postgres la leía como 00:00:00, así que `to=2026-09-01` devolvía
+//      el 1 de septiembre vacío. El panel no lo pegaba (su `rangeToBackend()`
+//      ya manda la hora); sí el agente IA y los consumidores por API key.
+//   2. La fecha tiene que EXISTIR, no solo matchear el formato: "2026-99-99"
+//      pasaba el regex y rompía como bind param. El checkdate() que este
+//      endpoint tenía inline ahora vive en Date::isRangeBound() y vale para
+//      todos los reportes.
+//
+// Se ignora a propósito el flag de validez: acá un rango mal formado degrada
+// al default (mes calendario actual) en vez de cortar con 422.
+[$from, $to, $rangeOk] = Date::reportRange(
+    $_GET['from'] ?? '',
+    $_GET['to'] ?? '',
+    date('Y-m-01 00:00:00'),
+);
+if (!$rangeOk) {
+    // Degradar en silencio es peor que fallar: el cliente cree que pidio un
+    // periodo y recibe otro. No se rompe el contrato (sigue sin 422, hay
+    // callers que dependen del degrade), pero queda rastro para diagnosticar.
+    error_log(sprintf(
+        '[finance/reports] rango invalido, se degrada al mes actual: from=%s to=%s',
+        (string) ($_GET['from'] ?? ''), (string) ($_GET['to'] ?? '')
+    ));
 }
 
 $by = trim((string) ($_GET['by'] ?? 'category'));
