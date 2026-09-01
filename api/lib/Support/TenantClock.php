@@ -40,6 +40,31 @@ final class TenantClock
             ->format('Y-m-d H:i:s');
     }
 
+    /**
+     * Un INSTANTE ABSOLUTO (epoch en segundos) leído en el reloj del tenant,
+     * formateado 'Y-m-d H:i:s' (naive, sin offset — la convención de storage).
+     *
+     * `now()` contesta "¿qué hora es para el comercio?"; ésta contesta "¿qué
+     * hora marcaba el reloj del comercio en tal instante?". Es la que necesita
+     * cualquier cosa que llegue con fecha de EMISIÓN: una venta que la tablet
+     * cobró ayer sin red y sincroniza hoy tiene que quedar registrada con la
+     * hora de ayer, no con la de la recepción.
+     *
+     * Por qué existe en vez de un `date('Y-m-d H:i:s', $epoch)` suelto: `date()`
+     * lee el default del PROCESO. Eso es correcto SOLO donde el embudo de auth
+     * ya aplicó la TZ del tenant (`data.php`, `apiAuthPosContext`), y es
+     * silenciosamente incorrecto donde no — el realm `/admin` factura
+     * suscripciones a nombre del tenant emisor sin estar en su zona (ver
+     * `Admin\SaasBillingService`), y los crons tampoco. Pedir el companyId
+     * explícito hace que no se pueda escribir el caso roto sin darse cuenta.
+     */
+    public static function atInstant(string $companyId, int $epochSeconds): string
+    {
+        return (new \DateTimeImmutable('@' . $epochSeconds))
+            ->setTimezone(new \DateTimeZone(self::timezone($companyId)))
+            ->format('Y-m-d H:i:s');
+    }
+
     /** Timezone IANA del tenant. Ver TenantLocale::timezone() para la cadena de resolución. */
     public static function timezone(string $companyId): string
     {
@@ -51,10 +76,20 @@ final class TenantClock
      * (`date()`, `strtotime()`) y sesión de PostgreSQL (rendering de
      * `timestamptz`, `::date`, `date_trunc`, `now()::timestamp`).
      *
-     * Se llama UNA vez por request desde `data.php`, que es el punto donde
-     * el tenant recién queda resuelto. Antes de eso la sesión de PG arranca
-     * con la TZ de la plataforma (ver `includes/db.php`), porque ahí todavía
-     * no se sabe de qué comercio es la request.
+     * Se llama UNA vez por request desde el EMBUDO DE AUTENTICACIÓN, que es el
+     * punto donde el tenant recién queda resuelto. Son dos y los dos la llaman:
+     * `data.php` (detrás de `apiAuthTenant`, realm panel/pos-app) y
+     * `lib/Auth/apiAuthPosContext.php` (Bearer del device, endpoints POS).
+     *
+     * Que la llamen los DOS no es redundancia: mientras sólo la hacía
+     * `data.php`, las requests del POS —que no lo cargan a propósito— se
+     * quedaban con la TZ de la plataforma y guardaban las ventas corridas
+     * (incidente 2026-09-01, ver el docblock de `apiAuthPosContext`). Si mañana
+     * aparece un tercer embudo, la llamada va ahí, no en sus endpoints.
+     *
+     * Antes de eso la sesión de PG arranca con la TZ de la plataforma (ver
+     * `includes/db.php`), porque ahí todavía no se sabe de qué comercio es la
+     * request.
      *
      * Es importante que ambos lados —PHP y PG— queden en la MISMA zona: un
      * `date('Y-m-d')` de PHP y un `transactiondate::date` de PG tienen que

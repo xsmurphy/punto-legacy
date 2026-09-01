@@ -87,7 +87,7 @@ try {
             'parentTransactionId' => $qBilled,
         ],
     ];
-    $in = SaleInput::fromPayload($payload);
+    $in = SaleInput::fromPayload($payload, $companyId);
     check(
         'SaleInput lee parentTransactionId como quoteParentId',
         $in->quoteParentId === $qBilled,
@@ -99,7 +99,7 @@ try {
     unset($payloadSinParent['transaction']['parentTransactionId']);
     check(
         'una venta sin cotización de origen deja quoteParentId en null',
-        SaleInput::fromPayload($payloadSinParent)->quoteParentId === null,
+        SaleInput::fromPayload($payloadSinParent, $companyId)->quoteParentId === null,
         'esperaba null',
         $failures, $checks
     );
@@ -108,7 +108,7 @@ try {
     $payloadBasura['transaction']['parentTransactionId'] = 'no-es-uuid';
     check(
         'un parentTransactionId con basura se descarta, no tira 422',
-        SaleInput::fromPayload($payloadBasura)->quoteParentId === null,
+        SaleInput::fromPayload($payloadBasura, $companyId)->quoteParentId === null,
         'esperaba null (la venta nunca debe caerse por trazabilidad)',
         $failures, $checks
     );

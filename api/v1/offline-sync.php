@@ -129,7 +129,7 @@ foreach ($sales as $item) {
 
     // Parse sale input
     try {
-        $input = SaleInput::fromPayload($decoded);
+        $input = SaleInput::fromPayload($decoded, (string) $authCtx['companyId']);
     } catch (InvalidSaleInputException $e) {
         $results[] = [
             'clientTempId' => $tempId,

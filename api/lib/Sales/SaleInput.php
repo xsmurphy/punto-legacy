@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Sales;
 
 use Punto\Api\Sales\Exceptions\InvalidSaleInputException;
+use Punto\Api\Support\TenantClock;
 
 /**
  * Payload de venta normalizado. Construcción valida y fail-fast.
@@ -24,6 +25,31 @@ final class SaleInput
      * validador.
      */
     private const MAX_SELECTIONS_PER_LINE = 50;
+
+    /**
+     * Piso de plausibilidad del `timestamp` de emisión: 2020-01-01 UTC.
+     * No existe una venta de Punto anterior a eso, así que cualquier valor por
+     * debajo (un 0, un campo que se perdió en el camino) es un payload roto, no
+     * una venta vieja — y cae al `date` del payload. Ver `resolveDate()`.
+     */
+    private const MIN_ISSUE_TIMESTAMP = 1577836800;
+
+    /**
+     * Techo de plausibilidad, como adelanto máximo sobre el reloj del servidor:
+     * 30 días.
+     *
+     * NO contradice "la fecha es la del dispositivo": el reloj del servidor se
+     * usa acá para DESCARTAR un valor imposible, nunca para reemplazarlo. Una
+     * caja adelantada unas horas —o un día entero de cola offline— sigue
+     * guardando su hora de emisión tal cual.
+     *
+     * Lo que ataca es el error de escala: `Date.now()` en vez de
+     * `Math.floor(Date.now()/1000)` manda milisegundos, pasa cualquier piso, y
+     * `atInstant()` lo convierte sin chistar en un año 56639 escrito sobre un
+     * campo fiscal. Sin techo, este camino sería PEOR que el anterior, que
+     * nunca podía producir esa fecha.
+     */
+    private const MAX_ISSUE_SKEW_SECONDS = 2592000;
 
     /**
      * @param array<int,array<string,mixed>> $sale  Items vendidos (cada uno: itemId, count, price, total, tax, …)
@@ -99,8 +125,11 @@ final class SaleInput
      *
      * El front manda algunos campos como string ("5000.00") o como número crudo;
      * normalizamos a tipos PHP estrictos acá una sola vez.
+     *
+     * `$companyId` es obligatorio porque la fecha de emisión se resuelve en el
+     * reloj DEL COMERCIO — ver `resolveDate()`.
      */
-    public static function fromPayload(array $raw): self
+    public static function fromPayload(array $raw, string $companyId): self
     {
         // El payload del front envuelve la venta en `{ transaction: { ... }, uid }`.
         $payload = $raw['transaction'] ?? $raw;
@@ -139,10 +168,7 @@ final class SaleInput
             throw new InvalidSaleInputException('payment debe ser array');
         }
 
-        $date = (string) ($payload['date'] ?? '');
-        if ($date === '') {
-            throw new InvalidSaleInputException('Falta date en el payload');
-        }
+        $date = self::resolveDate($payload, $companyId);
 
         // Defense-in-depth: SaleService solo cubre la VENTA SIMPLE. Rechazamos los
         // payloads que requieren paths aún no migrados, para que el caller (front en
@@ -191,7 +217,7 @@ final class SaleInput
      * Construye SaleInput para una cotización (type=9).
      * No requiere payment. No llama assertSimplePathEligible.
      */
-    public static function fromQuotePayload(array $raw): self
+    public static function fromQuotePayload(array $raw, string $companyId): self
     {
         $payload = $raw['transaction'] ?? $raw;
         if (isset($raw['uid']) && !isset($payload['uid'])) {
@@ -216,10 +242,7 @@ final class SaleInput
             throw new InvalidSaleInputException('sale debe ser array no vacío');
         }
 
-        $date = (string) ($payload['date'] ?? '');
-        if ($date === '') {
-            throw new InvalidSaleInputException('Falta date en el payload');
-        }
+        $date = self::resolveDate($payload, $companyId);
 
         return new self(
             uid:        $uid,
@@ -240,6 +263,62 @@ final class SaleInput
             status:     self::normalizeStatus($payload['status'] ?? null),
             tags:       self::normalizeTags($payload['tags'] ?? null),
         );
+    }
+
+    /**
+     * Fecha de EMISIÓN de la venta, naive en la zona del comercio.
+     *
+     * ── Por qué no alcanza con el `date` del payload ────────────────────────
+     *
+     * El POS manda las dos cosas: `date`, texto naive 'Y-m-d H:i:s' formateado
+     * en el browser, y `timestamp`, el epoch en segundos. Sólo el segundo es un
+     * INSTANTE: el primero es una lectura de reloj sin zona, y qué momento
+     * representa depende de quién lo interprete. Guardándolo tal cual, el mismo
+     * string terminaba en instantes distintos según la TZ que tuviera la sesión
+     * de PostgreSQL — que hasta este cambio dependía del embudo de auth por el
+     * que hubiera entrado la request (ver `Auth/apiAuthPosContext.php`).
+     *
+     * Derivarla del epoch la vuelve independiente de estado ambiental: el
+     * instante es el mismo lo lea quien lo lea, y `atInstant()` lo baja al
+     * reloj del comercio. De paso corrige las cotizaciones, cuyo `date` sale
+     * con el offset del DISPOSITIVO (`create-quote.ts`) y no con el del tenant:
+     * una tablet en otra zona registraba la cotización con hora ajena.
+     *
+     * ── Por qué el fallback a `date` NO es opcional ─────────────────────────
+     *
+     * Hay payloads encolados en el IndexedDB de tablets reales que se van a
+     * drenar por `offline-sync` después del deploy. Si alguno viniera sin
+     * `timestamp` utilizable, su `date` tiene que seguir funcionando — y con la
+     * TZ de sesión ya arreglada, ese camino ahora interpreta bien.
+     *
+     * NO se pisa con la hora del servidor: la fecha de una venta es la de su
+     * emisión. Una caja que estuvo un día sin red sincroniza al otro día y esas
+     * ventas pertenecen al día anterior (`DrawerService::resolveDrawerIdForDate`
+     * depende de eso: busca el turno que CONTIENE la fecha).
+     *
+     * @param array<string,mixed> $payload
+     */
+    private static function resolveDate(array $payload, string $companyId): string
+    {
+        $raw = $payload['timestamp'] ?? null;
+        if (is_numeric($raw)) {
+            $epoch = (int) $raw;
+            // Un epoch fuera de la ventana plausible NO se corrige ni se
+            // aproxima: se ignora y manda el `date` del payload — exactamente
+            // lo que pasaba antes de este cambio. Así el camino nuevo nunca
+            // puede escribir una fecha peor que la que se escribía sin él.
+            if ($epoch >= self::MIN_ISSUE_TIMESTAMP
+                && $epoch <= time() + self::MAX_ISSUE_SKEW_SECONDS
+            ) {
+                return TenantClock::atInstant($companyId, $epoch);
+            }
+        }
+
+        $date = trim((string) ($payload['date'] ?? ''));
+        if ($date === '') {
+            throw new InvalidSaleInputException('Falta date en el payload');
+        }
+        return $date;
     }
 
     /**

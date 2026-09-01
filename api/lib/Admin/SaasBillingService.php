@@ -177,7 +177,7 @@ final class SaasBillingService
         ];
 
         try {
-            $input = \Punto\Api\Sales\SaleInput::fromPayload($raw);
+            $input = \Punto\Api\Sales\SaleInput::fromPayload($raw, $issuerCompanyId);
         } catch (\Punto\Api\Sales\Exceptions\InvalidSaleInputException $e) {
             throw new \RuntimeException('SaasBillingService: payload de venta inválido — ' . $e->getMessage(), 0, $e);
         }

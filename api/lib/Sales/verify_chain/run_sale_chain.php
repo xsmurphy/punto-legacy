@@ -190,7 +190,7 @@ foreach ($cases as $case) {
     ];
 
     try {
-        $input  = SaleInput::fromPayload($payload);
+        $input  = SaleInput::fromPayload($payload, $companyId);
         $result = $service->save($input);
     } catch (InvalidSaleInputException|SaleAbortedException|DuplicateSaleException $e) {
         echo '  FAIL  la venta no se pudo guardar: ' . $e->getMessage() . "\n";
@@ -561,7 +561,7 @@ function verifyCreditNonCreditableClientPersists(SaleService $service, string $c
     ];
 
     try {
-        $input  = SaleInput::fromPayload($payload);
+        $input  = SaleInput::fromPayload($payload, $companyId);
         $result = $service->save($input);
     } catch (\Throwable $e) {
         echo '  FAIL  SaleService::save() rechazó la venta a crédito (no debería — el backend guarda, no rechaza): ' . get_class($e) . ': ' . $e->getMessage() . "\n";

@@ -69,7 +69,7 @@ $rawType = isset($decoded['type']) ? (int) $decoded['type']
 
 if ($rawType === SaleType::Quote->value) {
     try {
-        $input = SaleInput::fromQuotePayload($decoded);
+        $input = SaleInput::fromQuotePayload($decoded, (string) $authCtx['companyId']);
     } catch (InvalidSaleInputException $e) {
         apiError($e->getMessage(), 422);
     }
@@ -93,7 +93,7 @@ if ($rawType === SaleType::Quote->value) {
 }
 
 try {
-    $input = SaleInput::fromPayload($decoded);
+    $input = SaleInput::fromPayload($decoded, (string) $authCtx['companyId']);
 } catch (InvalidSaleInputException $e) {
     apiError($e->getMessage(), 422);
 }
