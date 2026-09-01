@@ -930,6 +930,11 @@ $elevadas          = $refActor->getConstant('ELEVATED_ACTIONS');
 
 foreach ([
     'create_outlet'   => 'settings.outlet.manage',
+    // Editar una sucursal exige el MISMO permiso que crearla: es la misma
+    // superficie —la estructura del comercio— y partirla en dos claves haría
+    // que un rol pudiera renombrar sucursales sin poder crearlas, que no es
+    // una distinción que el panel ofrezca ni que nadie haya pedido.
+    'update_outlet'   => 'settings.outlet.manage',
     'create_register' => 'settings.register.manage',
     'assign_role'     => 'contacts.user.manage',
 ] as $accion => $claveEsperada) {
@@ -966,7 +971,7 @@ preg_match('/AI_CONFIRM_ALLOWED_ACTIONS\s*=\s*\[(.*?)\];/s', (string) $confirmSr
 preg_match_all("/'([a-z_]+)'/", $m[1] ?? '', $m2);
 $accionesPermitidas = $m2[1] ?? [];
 check('agente: se pudo leer AI_CONFIRM_ALLOWED_ACTIONS de confirm.php',
-    count($accionesPermitidas) >= 12,
+    count($accionesPermitidas) >= 13,
     'si el parseo falla los checks de cobertura de abajo dan verde sin mirar nada',
     $failures, $checks);
 

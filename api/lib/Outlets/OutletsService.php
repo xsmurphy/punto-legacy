@@ -68,16 +68,68 @@ final class OutletsService
         return $this->shape($r, true);
     }
 
-    /** Actualiza los campos editables. SCOPEADO por companyId. @return bool */
+    /**
+     * Campos editables de la sucursal: columna real (o clave del JSONB `data`)
+     * → [clave del payload, cast].
+     *
+     * Es data y no código suelto porque `update()` recorre el mapa y escribe
+     * SOLO las claves que vinieron — ver el porqué en el docblock de `update()`.
+     */
+    private const CAMPOS_EDITABLES = [
+        'outletName'            => ['name',            null],
+        'outletStatus'          => ['status',          'int'],
+        'outletPurchaseOrderNo' => ['purchaseOrderNo', 'intOrNull'],
+        'taxId'                 => ['taxId',           'idOrNull'],
+        // Demoted al JSONB data (mig 14) — ncmUpdate los rutea.
+        'outletAddress'         => ['address',         null],
+        'outletPhone'           => ['phone',           'phone'],
+        'outletWhatsApp'        => ['whatsApp',        'whatsApp'],
+        'outletEmail'           => ['email',           null],
+        'outletBillingName'     => ['billingName',     null],
+        'outletRUC'             => ['ruc',             null],
+        'outletDescription'     => ['description',     null],
+        // Flags JSONB que no vienen de columnas.
+        'outletEcom'            => ['ecom',            'flag'],
+        'itemsTaxIncluded'      => ['taxIncluded',     'flag'],
+        // priceListId vive en data JSONB; ncmUpdate lo rutea solo.
+        'priceListId'           => ['priceListId',     'idOrNull'],
+        // lat/lng: columnas numéricas para la distancia haversine (sucursal más
+        // cercana al cliente). Aceptan null si el usuario no las completó.
+        'lat'                   => ['lat',             'floatOrNull'],
+        'lng'                   => ['lng',             'floatOrNull'],
+    ];
+
+    /**
+     * Actualiza los campos editables. SCOPEADO por companyId.
+     *
+     * ── Una actualización PARCIAL no pisa lo que no vino ───────────────────
+     *
+     * El `$record` de este método se armaba con las 16 claves SIEMPRE, leídas
+     * de `$f` sin default. Un caller que mandara medio payload no dejaba los
+     * demás campos como estaban: los escribía en null/0. Y no era hipotético —
+     * `create()` se llama a sí mismo con `['name', 'status']` desde el alta del
+     * agente IA, así que toda sucursal creada por ahí nacía con
+     * `itemsTaxIncluded = 0` (IVA añadido) pisando el 1 que el propio INSERT
+     * acababa de poner, además de con dirección, teléfono y mail en blanco.
+     * Un `update_outlet` que solo cambia el nombre le habría cambiado el
+     * régimen impositivo a la sucursal — peor que no tener la acción.
+     *
+     * Ahora la presencia de la clave es lo que decide: `array_key_exists`, NO
+     * `isset` ni `!empty`, porque vaciar un campo a propósito (mandar
+     * `address => ''`) tiene que seguir funcionando. El form del panel manda
+     * las 16 claves siempre, así que su comportamiento no cambia en nada.
+     *
+     * Tras la migración 14 (jsonb demote), `outletAddress/Phone/WhatsApp/Email/
+     * BillingName/RUC/Description` viven en `data` JSONB y `outletLatLng` quedó
+     * splitteado en columnas `lat`/`lng`. La lista de columnas reales del schema
+     * whitelist (_getTableSchema 'outlet') excluye los demoted — ncmUpdate los
+     * rutea al JSONB con merge no-destructivo automáticamente. Esto nos deja
+     * un único path de write sin el UPDATE explícito anterior.
+     *
+     * @return bool
+     */
     public function update($id, $companyId, array $f)
     {
-        // Tras la migración 14 (jsonb demote), `outletAddress/Phone/WhatsApp/Email/
-        // BillingName/RUC/Description` viven en `data` JSONB y `outletLatLng` quedó
-        // splitteado en columnas `lat`/`lng`. La lista de columnas reales del schema
-        // whitelist (_getTableSchema 'outlet') excluye los demoted — ncmUpdate los
-        // rutea al JSONB con merge no-destructivo automáticamente. Esto nos deja
-        // un único path de write sin el UPDATE explícito anterior.
-
         require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
         // El país de referencia para parsear el teléfono sale del TENANT, no de
         // 'PY': el form de sucursal no manda `country`, así que antes TODA
@@ -85,34 +137,23 @@ final class OutletsService
         // un número local de otro país se rechazaba como inválido.
         $iso = strtoupper(trim((string)($f['country'] ?? '')))
             ?: \Punto\Api\Support\TenantLocale::country($companyId);
-        $record = [
-            'outletName'            => $f['name'],
-            'outletStatus'          => (int) $f['status'],
-            'outletPurchaseOrderNo' => $f['purchaseOrderNo'] !== null ? (int) $f['purchaseOrderNo'] : null,
-            'taxId'                 => $f['taxId'] !== '' ? $f['taxId'] : null,
-            // Demoted al JSONB data — ncmUpdate los rutea.
-            'outletAddress'         => $f['address'],
-            'outletPhone'           => phoneValidateForStorage($f['phone'] ?? null, $iso, 'Teléfono inválido'),
-            'outletWhatsApp'        => phoneValidateForStorage($f['whatsApp'] ?? null, $iso, 'WhatsApp inválido'),
-            'outletEmail'           => $f['email'],
-            'outletBillingName'     => $f['billingName'],
-            'outletRUC'             => $f['ruc'],
-            'outletDescription'     => $f['description'],
-            // Flags JSONB que no vienen de columnas.
-            'outletEcom'            => $f['ecom'] ? 1 : 0,
-            'itemsTaxIncluded'      => $f['taxIncluded'] ? 1 : 0,
-            // priceListId vive en data JSONB; ncmUpdate lo rutea solo.
-            'priceListId'           => isset($f['priceListId']) && $f['priceListId'] !== '' ? $f['priceListId'] : null,
-        ];
 
-        // lat/lng: nuevas columnas numéricas para cálculo de distancia haversine
-        // (sucursal más cercana al cliente). Aceptan null si el usuario no las
-        // completa todavía.
-        if (array_key_exists('lat', $f)) {
-            $record['lat'] = $f['lat'] !== '' && $f['lat'] !== null ? (float) $f['lat'] : null;
-        }
-        if (array_key_exists('lng', $f)) {
-            $record['lng'] = $f['lng'] !== '' && $f['lng'] !== null ? (float) $f['lng'] : null;
+        $record = [];
+        foreach (self::CAMPOS_EDITABLES as $columna => [$clave, $cast]) {
+            if (!array_key_exists($clave, $f)) {
+                continue;
+            }
+            $v = $f[$clave];
+            $record[$columna] = match ($cast) {
+                'int'         => (int) $v,
+                'intOrNull'   => $v !== null && $v !== '' ? (int) $v : null,
+                'floatOrNull' => $v !== null && $v !== '' ? (float) $v : null,
+                'idOrNull'    => $v !== null && $v !== '' ? $v : null,
+                'flag'        => $v ? 1 : 0,
+                'phone'       => phoneValidateForStorage($v, $iso, 'Teléfono inválido'),
+                'whatsApp'    => phoneValidateForStorage($v, $iso, 'WhatsApp inválido'),
+                default       => $v,
+            };
         }
 
         // businessHours sigue siendo JSON serializado por el front; lo desempaquetamos
@@ -121,6 +162,13 @@ final class OutletsService
         if (!empty($f['businessHours'])) {
             $bh = json_decode((string) $f['businessHours'], true);
             if (is_array($bh)) { $record['outletBusinessHours'] = $bh; }
+        }
+
+        // Nada que escribir: es un update legítimo de cero campos (el `create()`
+        // legacy con `$fields = []`), no un error. Un ncmUpdate con `records`
+        // vacío arma un `SET` sin columnas y revienta el SQL.
+        if ($record === []) {
+            return true;
         }
 
         $result = ncmUpdate([

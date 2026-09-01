@@ -451,16 +451,91 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             if (!$newId) {
                 throw new \RuntimeException('No se pudo crear la sucursal');
             }
-            // Sin `realtimePublish`: hoy NINGÚN camino de alta de sucursal
-            // emite evento (tampoco el POST de /v1/outlets), así que el front
-            // no tiene invalidación registrada para la entidad `outlet`.
-            // Emitirlo solo desde el agente sería un evento que nadie escucha.
+            // La entidad `outlet` SÍ tiene invalidación registrada en el front
+            // (`ENTITY_TO_QUERY_KEYS` de `hooks/use-realtime-sync.ts` la mapea
+            // a `["outlets"]` y `["pos-bootstrap"]`) — el comentario que decía
+            // lo contrario acá estaba viejo, y por creerle ni esta acción ni el
+            // POST de /v1/outlets emitían nada. Ahora los tres caminos de alta
+            // avisan. Va también por `register` porque el alta encadena la caja
+            // inicial.
+            realtimePublish('outlet', 'create', (string) $newId);
+            realtimePublish('register', 'create', null);
             return [
                 'id'   => (string) $newId,
                 'name' => $name,
                 // Se declara para que el agente pueda contárselo al cliente en
                 // vez de que aparezca una caja que nadie pidió.
                 'note' => 'La sucursal se creó con su depósito y una caja inicial ("Nueva Caja").',
+            ];
+        }
+
+        case 'update_outlet': {
+            $svc = new \Punto\Api\Outlets\OutletsService();
+
+            // ── A qué sucursal ────────────────────────────────────────────
+            // El id manda si vino (sale de `get_outlets`, y es lo que el bot
+            // usa para desempatar un nombre ambiguo). Si no, se resuelve por
+            // NOMBRE con el MISMO resolver que `create_register` y
+            // `create_item`: rechaza el homónimo en vez de elegir uno, porque
+            // renombrar la sucursal equivocada es invisible para el usuario.
+            $outletId = trim((string) ($payload['id'] ?? ''));
+            if ($outletId === '') {
+                $buscada   = trim((string) ($payload['outletName'] ?? ''));
+                $resueltas = \Punto\Api\Ai\CatalogResolver::outletIdsByName([$buscada], $companyId);
+                $outletId  = $resueltas[0] ?? '';
+                if ($outletId === '') {
+                    throw new \InvalidArgumentException("La sucursal '$buscada' no existe en el comercio");
+                }
+            }
+
+            // Ownership ANTES de escribir: un id que el modelo haya arrastrado
+            // de otro contexto no puede entrar como sucursal válida. `get()`
+            // ya filtra por companyId, así que null = no es de este comercio.
+            $antes = $svc->get($outletId, $companyId);
+            if ($antes === null) {
+                throw new \InvalidArgumentException('La sucursal no existe en el comercio');
+            }
+
+            // ── Qué se cambia ─────────────────────────────────────────────
+            // Se arma un payload PARCIAL: solo las claves que el modelo mandó
+            // con valor. `OutletsService::update()` escribe únicamente lo que
+            // recibe, así que el resto de la sucursal —régimen de impuestos,
+            // estado, lista de precios, timbrados de sus cajas— queda intacto.
+            // Es el invariante de esta acción: un cambio de nombre no puede
+            // cambiarle la fiscalidad al comercio.
+            //
+            // El VACÍO no borra: se descarta. Un `address: ''` del modelo es
+            // casi siempre "no sé la dirección", no "borrale la dirección", y
+            // la asimetría es a propósito — vaciar un dato se hace en el panel,
+            // donde la persona ve lo que está borrando.
+            $cambios = [];
+            foreach (['name', 'address', 'phone', 'email', 'description'] as $campo) {
+                $valor = trim((string) ($payload[$campo] ?? ''));
+                if ($valor !== '') {
+                    $cambios[$campo] = $valor;
+                }
+            }
+            if ($cambios === []) {
+                throw new \InvalidArgumentException('No se indicó qué cambiar de la sucursal');
+            }
+
+            if (!$svc->update($outletId, $companyId, $cambios)) {
+                throw new \RuntimeException('No se pudo actualizar la sucursal');
+            }
+
+            // El POS escucha `outlet` vía `["pos-bootstrap"]`: de ahí salen la
+            // razón social, el RUC y el teléfono de la sucursal activa que se
+            // imprimen en el ticket. Una sucursal renombrada desde el panel
+            // tiene que llegar a la caja sin esperar un refresh.
+            realtimePublish('outlet', 'update', $outletId);
+            return [
+                'id'   => $outletId,
+                // El nombre ANTERIOR va en la respuesta para que el agente
+                // pueda confirmar el cambio en los términos del usuario
+                // ("'Shopping Mariano' pasó a llamarse 'Gastronomía'").
+                'previousName' => (string) ($antes['name'] ?? ''),
+                'name'         => (string) ($cambios['name'] ?? ($antes['name'] ?? '')),
+                'updated'      => array_keys($cambios),
             ];
         }
 

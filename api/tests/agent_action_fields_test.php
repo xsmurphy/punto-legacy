@@ -57,6 +57,7 @@ use Punto\Api\Contacts\ContactService;
 use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Items\ItemRepository;
 use Punto\Api\Items\ItemService;
+use Punto\Api\Outlets\OutletsService;
 use Punto\Api\Services\RegisterAdminService;
 use Punto\Api\Users\UsersService;
 
@@ -151,6 +152,29 @@ function limpiarRastros(string $companyId, string $outletExtraId, string $deposi
         $db->Execute('DELETE FROM contact WHERE contactId = ?', [$cid]);
         $rs->MoveNext();
     }
+    // Sucursales que el arnés crea por `OutletsService::create()` (la parte de
+    // update_outlet): vienen con id generado, así que se buscan por nombre y se
+    // van con toda su cadena — depósito y caja, que `create()` encadena.
+    $rs = $db->Execute(
+        "SELECT outletId FROM outlet WHERE companyId = ? AND outletName LIKE 'ARNES-CAMPOS%'",
+        [$companyId]
+    );
+    $sucursalesDelArnes = [];
+    while ($rs && !$rs->EOF) {
+        $sucursalesDelArnes[] = (string) ($rs->fields['outletid'] ?? $rs->fields['outletId'] ?? '');
+        $rs->MoveNext();
+    }
+    foreach ($sucursalesDelArnes as $oid) {
+        if ($oid === '') { continue; }
+        // Las secuencias van ANTES que las cajas: su scopeId es el registerId.
+        $db->Execute('DELETE FROM document_sequence WHERE scopeid IN (SELECT registerId FROM register WHERE outletId = ?)', [$oid]);
+        $db->Execute('DELETE FROM register WHERE outletId = ?', [$oid]);
+        $db->Execute('DELETE FROM taxonomy WHERE outletId = ?', [$oid]);
+        $db->Execute('DELETE FROM item_outlet WHERE outletid = ?', [$oid]);
+        $db->Execute('DELETE FROM inventory WHERE outletId = ?', [$oid]);
+        $db->Execute('DELETE FROM outlet WHERE outletId = ?', [$oid]);
+    }
+
     // Sucursal extra (y la homónima que el bloque multi-tenant crea en el
     // segundo tenant del seed, por si una corrida anterior abortó antes de
     // borrarla — si sobrevive, el INSERT de la próxima corrida choca).
@@ -573,6 +597,136 @@ checkThrows(
         'name' => 'ARNES-CAMPOS Cliente Duplicado', 'type' => 1, 'ci' => '3456789',
     ]),
     'ARNES-CAMPOS Cliente Renombrado',
+    $failures,
+    $checks
+);
+
+// =============================================================================
+// PARTE 5 — update_outlet: cambiar un campo no le cambia nada más a la sucursal
+// =============================================================================
+//
+// La acción nació de un pedido literal del owner: "modifica el nombre de la
+// sucursal 'Shopping Mariano' a 'Gastronomía'". Un rename parece inofensivo y
+// no lo era: `OutletsService::update()` armaba SIEMPRE las 16 claves leyéndolas
+// del payload sin default, así que un patch de una sola clave escribía las
+// otras quince en null/0. Entre ellas `itemsTaxIncluded`, que es el régimen
+// impositivo de la sucursal (IVA incluido vs. añadido). O sea que renombrar una
+// sucursal le cambiaba la fiscalidad al comercio, en silencio.
+//
+// El mismo bug tenía a `create_outlet` roto desde antes: `create()` se llama a
+// sí mismo con `['name', 'status']`, así que TODA sucursal creada por el agente
+// nacía en "IVA añadido" pisando el 1 que su propio INSERT acababa de poner.
+
+echo "\n=== update_outlet: el patch parcial NO pisa el resto de la sucursal ===\n\n";
+
+$outletSvc = new OutletsService();
+
+// 5.1 — El alta del agente (`create_outlet`) por su camino real.
+$idEditable = (string) $outletSvc->create($companyId, [
+    'name'   => 'ARNES-CAMPOS Shopping Mariano',
+    'status' => 1,
+]);
+check('create_outlet devuelve un id', $idEditable !== '', true, $failures, $checks);
+
+$recienCreada = $outletSvc->get($idEditable, $companyId);
+check('la sucursal del agente nace con IVA INCLUIDO', $recienCreada['taxIncluded'] ?? null, true, $failures, $checks);
+check('la sucursal del agente nace ACTIVA',           (int) ($recienCreada['status'] ?? -1), 1, $failures, $checks);
+
+// 5.2 — Se le cargan datos por el camino del PANEL (payload completo, las 16
+// claves), que es como llega hoy toda edición desde /v1/outlets. Ese camino no
+// cambia de comportamiento: si están todas las claves, se escriben todas.
+$outletSvc->update($idEditable, $companyId, [
+    'name'            => 'ARNES-CAMPOS Shopping Mariano',
+    'status'          => 1,
+    'address'         => 'Av. España 1234',
+    'phone'           => '0991742353',
+    'email'           => 'shopping@arnes.test',
+    'whatsApp'        => '',
+    'billingName'     => 'ARNES-CAMPOS SA',
+    'ruc'             => '80012345-6',
+    'description'     => 'La del shopping',
+    'purchaseOrderNo' => null,
+    'lat'             => null,
+    'lng'             => null,
+    'taxId'           => '',
+    'ecom'            => false,
+    'taxIncluded'     => true,
+    'businessHours'   => '',
+    'priceListId'     => null,
+]);
+$antes = $outletSvc->get($idEditable, $companyId);
+check('el payload completo del panel escribe la dirección', $antes['address'] ?? null, 'Av. España 1234', $failures, $checks);
+check('...y el teléfono queda guardado',                    ($antes['phone'] ?? '') !== '', true, $failures, $checks);
+
+// 5.3 — El rename tal como lo manda la acción: UNA sola clave.
+$outletSvc->update($idEditable, $companyId, ['name' => 'ARNES-CAMPOS Gastronomía']);
+$despues = $outletSvc->get($idEditable, $companyId);
+
+check('el rename aplica',                            $despues['name'] ?? null, 'ARNES-CAMPOS Gastronomía', $failures, $checks);
+// El de abajo es EL check de esta parte: el régimen impositivo de la sucursal
+// no es algo que un cambio de nombre pueda tocar.
+check('el rename NO cambia el régimen de impuestos', $despues['taxIncluded'] ?? null, true, $failures, $checks);
+check('el rename NO desactiva la sucursal',          (int) ($despues['status'] ?? -1), 1, $failures, $checks);
+check('el rename NO borra la dirección',             $despues['address'] ?? null, $antes['address'] ?? null, $failures, $checks);
+check('el rename NO borra el teléfono',              $despues['phone'] ?? null, $antes['phone'] ?? null, $failures, $checks);
+check('el rename NO borra el email',                 $despues['email'] ?? null, $antes['email'] ?? null, $failures, $checks);
+check('el rename NO borra la razón social',          $despues['billingName'] ?? null, $antes['billingName'] ?? null, $failures, $checks);
+check('el rename NO borra el RUC',                   $despues['ruc'] ?? null, $antes['ruc'] ?? null, $failures, $checks);
+check('el rename NO borra la descripción',           $despues['description'] ?? null, $antes['description'] ?? null, $failures, $checks);
+
+// 5.4 — Y al revés: cambiar la dirección no toca el nombre.
+$outletSvc->update($idEditable, $companyId, ['address' => 'Mcal. López 500']);
+$otraVez = $outletSvc->get($idEditable, $companyId);
+check('el patch de dirección aplica',        $otraVez['address'] ?? null, 'Mcal. López 500', $failures, $checks);
+check('...y NO toca el nombre',              $otraVez['name'] ?? null, 'ARNES-CAMPOS Gastronomía', $failures, $checks);
+check('...ni el régimen de impuestos',       $otraVez['taxIncluded'] ?? null, true, $failures, $checks);
+
+// =============================================================================
+// PARTE 6 — Nombre de sucursal AMBIGUO: se repregunta, no se adivina
+// =============================================================================
+//
+// `outlet` no tiene unicidad de nombre por comercio, así que dos sucursales
+// pueden llamarse igual (la vieja dada de baja y la nueva, el caso de una
+// mudanza). El `LIMIT 1` que tenía el resolver elegía una sin decirlo, y ese id
+// va DERECHO a una escritura: el rename le caía a la sucursal equivocada.
+
+echo "\n=== outletIdsByName: el nombre ambiguo se rechaza ===\n\n";
+
+$idHomonimaMisma = 'cccccccc-1111-4111-8111-cccccccccccc';
+$db->Execute('DELETE FROM outlet WHERE outletId = ?', [$idHomonimaMisma]);
+$db->Execute(
+    'INSERT INTO outlet (outletId, outletName, outletStatus, companyId) VALUES (?, ?, 1, ?)',
+    [$idHomonimaMisma, 'ARNES-CAMPOS Gastronomía', $companyId]
+);
+
+checkThrows(
+    'dos sucursales del mismo nombre: no elige una',
+    fn () => CatalogResolver::outletIdsByName(['ARNES-CAMPOS Gastronomía'], $companyId),
+    'más de una sucursal',
+    $failures,
+    $checks
+);
+// El mensaje trae los ids: es de donde sale la repregunta del bot, que después
+// vuelve con `id` en el payload. Sin ellos el usuario no tiene con qué
+// desempatar y la acción queda en un callejón sin salida.
+checkThrows(
+    'el error nombra el id para desempatar',
+    fn () => CatalogResolver::outletIdsByName(['ARNES-CAMPOS Gastronomía'], $companyId),
+    $idEditable,
+    $failures,
+    $checks
+);
+
+// La homónima se va acá y no en el cleanup del final: el check que sigue
+// necesita que ya no esté.
+$db->Execute('DELETE FROM outlet WHERE outletId = ?', [$idHomonimaMisma]);
+
+// Sin la homónima vuelve a resolver sola: el rechazo es por ambigüedad real, no
+// una regresión que dejó al resolver sin encontrar nada.
+check(
+    'sin la homónima, el nombre resuelve de nuevo',
+    CatalogResolver::outletIdsByName(['ARNES-CAMPOS Gastronomía'], $companyId),
+    [$idEditable],
     $failures,
     $checks
 );

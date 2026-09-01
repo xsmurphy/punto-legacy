@@ -61,6 +61,14 @@ if ($method === 'POST') {
         if (!$svc->delete($id, COMPANY_ID)) {
             apiError('No se pudo eliminar la sucursal', 500);
         }
+        // Sync en tiempo real: `outlet` está mapeado en `ENTITY_TO_QUERY_KEYS`
+        // (`frontend/hooks/use-realtime-sync.ts`) a `["outlets"]` y
+        // `["pos-bootstrap"]` — o sea que la caja también escucha, porque el
+        // bootstrap le baja los datos de la sucursal activa (razón social,
+        // RUC, teléfono) que salen impresos en el ticket. Sin este publish, un
+        // cambio de sucursal en el panel no llegaba a ninguna de las dos
+        // superficies hasta el próximo refresh manual.
+        realtimePublish('outlet', 'delete', $id);
         apiOk(['id' => $id]);
     }
 
@@ -139,6 +147,11 @@ if ($method === 'POST') {
         if ($newId === null) {
             apiError('No se pudo crear la sucursal', 500);
         }
+        // El alta encadena una caja inicial (`OutletsService::create`), así que
+        // se avisa por las dos entidades: la lista de cajas del panel también
+        // quedó vieja.
+        realtimePublish('outlet', 'create', (string) $newId);
+        realtimePublish('register', 'create', null);
         apiOk(['id' => $newId]);
     }
 
@@ -156,6 +169,7 @@ if ($method === 'POST') {
     if (!$svc->update($id, COMPANY_ID, $fields)) {
         apiError('No se pudo actualizar', 500);
     }
+    realtimePublish('outlet', 'update', $id);
     apiOk(['id' => $id, 'action' => 'update']);
 }
 

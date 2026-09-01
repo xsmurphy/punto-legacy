@@ -38,12 +38,12 @@ use Punto\Api\Auth\OperatorContext;
  *
  * ── Configurar el comercio NO se puede pedir desde la caja ─────────────────
  *
- * Cuatro acciones se bloquean por realm, explícitamente, acá abajo: las que
+ * Cinco acciones se bloquean por realm, explícitamente, acá abajo: las que
  * fabrican accesos al comercio (`create_user`, `assign_role`) y las que definen
- * su estructura fiscal (`create_outlet`, `create_register`). Ninguna es tarea
- * de cajero: son decisiones de dueño, se toman con el equipo delante y con el
- * timbrado de la SET a mano, no de pie en el mostrador mientras espera un
- * cliente.
+ * su estructura fiscal (`create_outlet`, `update_outlet`, `create_register`).
+ * Ninguna es tarea de cajero: son decisiones de dueño, se toman con el equipo
+ * delante y con el timbrado de la SET a mano, no de pie en el mostrador
+ * mientras espera un cliente.
  *
  * El motivo de que el bloqueo sea explícito importa: se creía que `create_user`
  * quedaba fuera de alcance solo, porque exige `ai.agent.elevated` y
@@ -75,6 +75,7 @@ final class AgentActor
         'create_user',
         'assign_role',
         'create_outlet',
+        'update_outlet',
         'create_register',
     ];
 
@@ -103,6 +104,7 @@ final class AgentActor
         'create_brand'      => 'inventory.item.edit',
         'create_tag'        => 'inventory.item.edit',
         'create_outlet'     => 'settings.outlet.manage',
+        'update_outlet'     => 'settings.outlet.manage',
         'create_register'   => 'settings.register.manage',
     ];
 

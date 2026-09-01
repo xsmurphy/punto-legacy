@@ -41,6 +41,8 @@ const ACTION_TO_QUERY_KEYS: Record<string, readonly string[][]> = {
   // Crear una sucursal crea TAMBIÉN su caja inicial (invariante de la cadena
   // de alta, `OutletsService::create`), así que invalida las dos listas.
   create_outlet: [["outlets"], ["registers"]],
+  // Editar una sucursal no toca sus cajas: solo la lista de sucursales.
+  update_outlet: [["outlets"]],
   create_register: [["registers"]],
   tabular_import: [["contacts"], ["items"]],
 }

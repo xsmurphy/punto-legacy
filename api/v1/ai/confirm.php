@@ -51,9 +51,10 @@ const AI_CONFIRM_ALLOWED_ACTIONS = [
     'create_tag',
     'tabular_import',
     // Configuración del comercio (context/66 F1, D1 del owner 2026-09-01: el
-    // agente CONFIGURA la cuenta, no solo guía). Las tres se bloquean en la
+    // agente CONFIGURA la cuenta, no solo guía). Las cuatro se bloquean en la
     // caja — ver AgentActor::POS_BLOCKED_ACTIONS.
     'create_outlet',
+    'update_outlet',
     'create_register',
     'assign_role',
 ];
@@ -154,6 +155,32 @@ function aiConfirmValidateAction(string $action, mixed $payload): void
         case 'create_outlet':
             if (empty(trim((string) ($payload['name'] ?? '')))) {
                 apiError('name es obligatorio', 400);
+            }
+            break;
+
+        case 'update_outlet':
+            // A QUÉ sucursal. El id es lo inequívoco (sale de `get_outlets`);
+            // el nombre es la vía normal porque el usuario habla por nombre, y
+            // el resolver de `execute` rechaza el ambiguo en vez de elegir.
+            if (empty(trim((string) ($payload['id'] ?? ''))) && empty(trim((string) ($payload['outletName'] ?? '')))) {
+                apiError('Falta la sucursal a modificar (id u outletName)', 400);
+            }
+            // Al menos UN campo a cambiar. Sin esto, "cambiale el nombre" sin
+            // el nombre nuevo pasaría el registro, el usuario confirmaría una
+            // tarjeta y la acción devolvería "listo" sin haber tocado nada.
+            // El listado es el mismo que aplica `execute` — si acá se admite
+            // un campo que allá no se escribe, se confirma un cambio que no
+            // sucede, que es el modo de falla más caro de esta familia.
+            $editables = ['name', 'address', 'phone', 'email', 'description'];
+            $trajoAlguno = false;
+            foreach ($editables as $campo) {
+                if (array_key_exists($campo, $payload) && trim((string) $payload[$campo]) !== '') {
+                    $trajoAlguno = true;
+                    break;
+                }
+            }
+            if (!$trajoAlguno) {
+                apiError('Falta qué cambiar de la sucursal (nombre, dirección, teléfono, email o descripción)', 400);
             }
             break;
 

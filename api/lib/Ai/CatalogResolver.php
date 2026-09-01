@@ -112,9 +112,23 @@ final class CatalogResolver
      * El `companyId` va en el WHERE y no es negociable: es lo único que impide
      * que un nombre de sucursal ajeno entre como id válido a una escritura.
      *
+     * ── Por qué el nombre AMBIGUO se rechaza ───────────────────────────────
+     *
+     * `outlet` no tiene unicidad de nombre por comercio: un tenant puede tener
+     * dos sucursales llamadas igual (la vieja dada de baja y la nueva, el caso
+     * típico de una mudanza). El `LIMIT 1` que había acá elegía una de las dos
+     * sin decirlo, y el id que sale de este método va DERECHO a una escritura:
+     * "cambiale el nombre a Shopping Mariano" le podía cambiar el nombre a la
+     * sucursal equivocada, en silencio y sin forma de darse cuenta.
+     *
+     * El error lista las candidatas con su id y su dirección para que el bot
+     * pueda repreguntar y volver con el `id`, que no es ambiguo. Elegir "la
+     * activa" o "la primera" sería la misma adivinanza con mejor prensa.
+     *
      * @param string[] $names
      * @return string[] ids únicos, en el orden en que se pidieron
-     * @throws \InvalidArgumentException si alguno no existe en el comercio.
+     * @throws \InvalidArgumentException si alguno no existe, o si el nombre
+     *         corresponde a más de una sucursal del comercio.
      */
     public static function outletIdsByName(array $names, string $companyId): array
     {
@@ -124,11 +138,42 @@ final class CatalogResolver
             if ($name === '') {
                 continue;
             }
-            $row = \ncmExecute(
-                'SELECT outletId FROM outlet WHERE companyId = ? AND outletName ILIKE ? LIMIT 1',
+            // `ncmRows` y no el `ncmExecute` de una fila: para saber que el
+            // nombre es ambiguo hay que traer más de una. El tope de 2 alcanza
+            // para distinguir "una" de "más de una" y evita arrastrar el
+            // catálogo entero de un comercio con muchas sucursales homónimas.
+            // Cada fila viene como CaseInsensitiveArray con el JSONB `data` ya
+            // aplanado, que es de donde sale `outletAddress` (mig 14).
+            //
+            // `lower() = lower()` y no `ILIKE`: lo único que se quería de ILIKE
+            // era ignorar mayúsculas, pero ILIKE además interpreta `%` y `_`
+            // del texto que tipeó la persona como comodines. Una sucursal
+            // llamada "100% Natural" se buscaba a sí misma y matcheaba también
+            // "100 Natural" — un comodín accidental eligiendo a qué sucursal le
+            // escribimos. La comparación exacta no tiene esa clase de sorpresa.
+            $candidatas = \ncmRows(
+                'SELECT outletId, outletName, data FROM outlet
+                  WHERE companyId = ? AND lower(outletName) = lower(?)
+                  ORDER BY outletName ASC LIMIT 2',
                 [$companyId, $name]
             );
-            $id = (string) ($row['outletId'] ?? $row['outletid'] ?? '');
+
+            if ($candidatas === []) {
+                throw new \InvalidArgumentException("La sucursal '$name' no existe en el comercio");
+            }
+            if (count($candidatas) > 1) {
+                $detalle = [];
+                foreach ($candidatas as $c) {
+                    $dir = trim((string) ($c['outletAddress'] ?? ''));
+                    $detalle[] = (string) ($c['outletId'] ?? '') . ($dir !== '' ? " ($dir)" : '');
+                }
+                throw new \InvalidArgumentException(
+                    "Hay más de una sucursal llamada '$name' en el comercio. Preguntale al usuario cuál es y" .
+                    ' volvé a intentar con el id de esa sucursal: ' . implode(', ', $detalle)
+                );
+            }
+
+            $id = (string) ($candidatas[0]['outletId'] ?? '');
             if ($id === '') {
                 throw new \InvalidArgumentException("La sucursal '$name' no existe en el comercio");
             }

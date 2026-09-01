@@ -49,6 +49,7 @@ const ACTION_LABELS: Record<string, string> = {
   create_brand: "Crear marca",
   create_tag: "Crear etiqueta",
   create_outlet: "Crear sucursal",
+  update_outlet: "Editar sucursal",
   create_register: "Crear caja",
   tabular_import: "Importar archivo",
 }
