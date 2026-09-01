@@ -19,16 +19,25 @@
  * (screen/kds/display/print no están atados a una) o cuando la caja está
  * libre — "libre" es un estado normal, no un problema que reportar.
  *
+ * Cada device trae además `historyKinds`: qué rastro operativo dejó
+ * (`register_lease` / `auth_session` / `pos_order_event` / `station_printer`).
+ * Lista vacía = se puede borrar físicamente; con cualquier elemento, el DELETE
+ * duro lo rechaza. Ver `DeviceHistoryService`.
+ *
  * DELETE /v1/devices?id=X                   -- Soft revoke (status=0). Preserva auditoría.
- * DELETE /v1/devices?id=X&hard=1            -- DELETE físico. Solo permitido si status=0 (ya revocado).
+ * DELETE /v1/devices?id=X&hard=1            -- DELETE físico. Requiere status=0 (ya revocado)
+ *                                              Y `historyKinds` vacío — un aparato con
+ *                                              historial se conserva (409 DEVICE_HAS_HISTORY).
  *
  * Auth: panel (solo admin del tenant).
  */
 
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../lib/services/RegisterLeaseService.php';
+require_once __DIR__ . '/../lib/services/DeviceHistoryService.php';
 
 use Punto\Api\Auth\DeviceAuth;
+use Punto\Api\Services\DeviceHistoryService;
 use Punto\Api\Services\RegisterLeaseService;
 
 $__ctx = apiAuthTenant(['panel']);
@@ -71,6 +80,24 @@ if ($method === 'DELETE') {
         // un device activo nunca se borra sin pasar primero por revoke).
         if ((int) ($device['status'] ?? 1) !== 0) {
             apiError('Solo se pueden eliminar dispositivos ya revocados', 409);
+        }
+        // Un dispositivo con historial operativo NO se borra (owner,
+        // 2026-09-01). Sin este gate el DELETE reventaba con el 23503 crudo de
+        // la FK de `register_lease` —el único de los cuatro rastros que tiene
+        // FK dura— y borraba en SILENCIO la referencia de los otros tres,
+        // dejando sesiones, eventos de orden e impresoras apuntando a un
+        // aparato inexistente. El porqué de cada tabla, y por qué la FK NO
+        // lleva CASCADE ni SET NULL, está en `DeviceHistoryService`.
+        //
+        // Revocar ya lo dejó fuera de servicio: no queda ninguna capacidad
+        // operativa por retirarle, solo el rastro de lo que hizo.
+        $historyKinds = DeviceHistoryService::kindsFor($deviceId, COMPANY_ID);
+        if ($historyKinds !== []) {
+            apiConflict(
+                'Este dispositivo tiene historial de ' . DeviceHistoryService::describe($historyKinds)
+                . ', y se conserva para poder auditarlo. Revocarlo ya lo dejó fuera de servicio.',
+                ['conflictCode' => 'DEVICE_HAS_HISTORY', 'historyKinds' => $historyKinds]
+            );
         }
         ncmExecute(
             'DELETE FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid',
@@ -118,6 +145,7 @@ $rs = ncmExecute(
             d.status, d.revokedat, d.module, d.iplast::text AS iplast,
             rl.deviceid AS holderdeviceid,
             hd.devicename AS holderdevicename,
+            " . DeviceHistoryService::selectSql('d') . ",
             (SELECT count(*) FROM auth_session s
               WHERE s.deviceid = d.deviceid
                 AND s.companyid = d.companyid
@@ -164,6 +192,12 @@ if ($rs && !$rs->EOF) {
             'module'            => (string) ($rs->fields['module']            ?? ''),
             'ipLast'            => (string) ($rs->fields['iplast']            ?? ''),
             'activeSessions'    => (int) ($rs->fields['activesessions']       ?? 0),
+            // Rastro operativo del aparato. NO es "tiene la caja ahora": es
+            // "dejó historial alguna vez", de cualquier tipo y en cualquier
+            // estado. El panel lo usa para deshabilitar "Eliminar" con el
+            // motivo a la vista en vez de ofrecer una acción que el 409 de
+            // abajo va a rechazar. Lista vacía = se puede borrar.
+            'historyKinds'      => DeviceHistoryService::kindsFromRow($rs->fields),
             'holdsRegister'     => $holdsOwn,
             'registerHeldBy'    => $heldByOther ? [
                 'deviceId'   => $holderId,

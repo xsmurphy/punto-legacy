@@ -29,6 +29,14 @@ export interface PosDevice {
   holdsRegister: boolean
   /** Presente solo cuando la caja asignada la tiene OTRO dispositivo. */
   registerHeldBy: RegisterHolder | null
+  /**
+   * Rastro operativo del aparato (`DeviceHistoryService` en la API). Con
+   * cualquier elemento, el DELETE duro lo rechaza con 409 y la UI deshabilita
+   * la acción. Opcional para tolerar un backend anterior a 2026-09-01: sin el
+   * campo, el listado se comporta como antes y el 409 del servidor sigue
+   * siendo la última defensa.
+   */
+  historyKinds?: string[]
 }
 
 export function usePosDevices(opts: { showRevoked?: boolean } = {}) {

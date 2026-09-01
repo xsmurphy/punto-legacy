@@ -12,6 +12,53 @@ export interface RegisterHolder {
   deviceName: string
 }
 
+/**
+ * Tipos de rastro operativo que un dispositivo puede dejar. Las CLAVES son el
+ * contrato con el backend (`DeviceHistoryService::SOURCES`, `historyKinds` del
+ * DTO); el castellano vive acá, del lado que lo muestra.
+ */
+export type DeviceHistoryKind =
+  | "register_lease"
+  | "auth_session"
+  | "pos_order_event"
+  | "station_printer"
+
+/**
+ * Cómo se le nombra cada rastro al admin. En singular y en su idioma, no en el
+ * de la tabla: quien mira esta pantalla no sabe qué es `pos_order_event`.
+ */
+export const DEVICE_HISTORY_LABELS: Record<DeviceHistoryKind, string> = {
+  register_lease: "tenencia de cajas",
+  auth_session: "sesiones de acceso",
+  pos_order_event: "actividad sobre órdenes",
+  station_printer: "impresoras de la estación",
+}
+
+/**
+ * "tiene historial de tenencia de cajas y sesiones de acceso" — el motivo que
+ * acompaña a la acción "Eliminar" deshabilitada.
+ *
+ * Devuelve `null` cuando no hay historial: sin motivo, la acción se ofrece
+ * normal. Una clave desconocida (backend más nuevo que este bundle) se ignora
+ * en la enumeración pero NO en la decisión de bloquear — eso lo decide quien
+ * llama, mirando si la lista viene vacía o no. Errar hacia "no borrar" es el
+ * lado correcto.
+ */
+export function deviceHistoryReason(kinds: string[]): string | null {
+  if (kinds.length === 0) return null
+  const labels = kinds
+    .map((k) => DEVICE_HISTORY_LABELS[k as DeviceHistoryKind])
+    .filter((l): l is string => Boolean(l))
+  if (labels.length === 0) {
+    return "Tiene historial operativo y se conserva para auditoría"
+  }
+  const list =
+    labels.length === 1
+      ? labels[0]
+      : `${labels.slice(0, -1).join(", ")} y ${labels[labels.length - 1]}`
+  return `Tiene historial de ${list} y se conserva para auditoría`
+}
+
 export interface ConnectedDevice {
   key: string                 // `${kind}:${id}` — id único de fila
   kind: DeviceKind
@@ -36,6 +83,13 @@ export interface ConnectedDevice {
   holdsRegister: boolean
   /** La caja asignada la tiene OTRO dispositivo; null si la tiene este o está libre. */
   registerHeldBy: RegisterHolder | null
+  /**
+   * Rastro operativo que dejó este aparato, de cualquier tipo y en cualquier
+   * estado (NO "tiene la caja ahora"). Con al menos un elemento, el borrado
+   * físico está vedado y la acción "Eliminar" se ofrece deshabilitada con el
+   * motivo. Vacío = se puede borrar.
+   */
+  historyKinds: string[]
 }
 
 export const DEVICE_KIND_LABELS: Record<DeviceKind, string> = {
