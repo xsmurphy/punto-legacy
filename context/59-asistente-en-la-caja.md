@@ -4,9 +4,11 @@
 > `AgentActor` sobre los permisos del operador del PIN, D2 reabierta y
 > cerrada). D9 sigue **sin implementar** — `drawers` no tiene el gate de
 > operador, así que `get_drawers` quedó excluido del catálogo del asistente
-> como mitigación temporal, no como decisión final. Pendiente de review (P1):
-> `tenant_audit` atribuye las escrituras del agente al contacto que pareó la
-> tablet, no al operador.
+> como mitigación temporal, no como decisión final. El P1 de review
+> —`tenant_audit` atribuía las escrituras al contacto que pareó la tablet— quedó
+> **RESUELTO el 2026-09-01** en el embudo (`apiAuthTenant()` +
+> `api/lib/Auth/AuditActor.php`): toda mutación `pos-app` con operador
+> identificado se atribuye a la PERSONA del PIN, con el device en `meta`.
 >
 > Tercera versión. Las dos anteriores inventaron un realm nuevo (`pos-operator`,
 > después `pos-ai`) para un problema que ya estaba resuelto. El owner las cortó

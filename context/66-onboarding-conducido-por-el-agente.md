@@ -171,7 +171,7 @@ criterio a `assign_role` es consistente; crear roles necesita su OK explícito.
 
 | Fase | Qué | Depende de |
 |---|---|---|
-| **F0** | Fix de atribución en `tenant_audit` (§Prerequisito) — resolver `X-Operator-Token` DENTRO de `apiAuthTenant()`, antes de auditar | — (bloqueante de todo) |
+| **F0** | ~~Fix de atribución en `tenant_audit` (§Prerequisito)~~ **IMPLEMENTADA 2026-09-01** — `api/lib/Auth/AuditActor.php`, llamada desde `apiAuthTenant()` antes de auditar | — (ya no bloquea) |
 | **F1** | Sumar `create_register`/`create_outlet`/`assign_role` al catálogo: `confirm.php`, `AgentActor::requiredPermission()`, `execute.php` (D4) | F0 |
 | **F2** | Registro de intención (D2): campo `rawRequest` de punta a punta (chat → `register_action` → `/v1/ai/confirm`) + mecanismo de traza (D3, a decidir) | F0 |
 | **F3** | Onboarding conducido: el bot pregunta lo que falta (nombres, timbrados) siguiendo el ejemplo del owner — prompt/orquestación, sin backend nuevo si F6 se deriva | F1 |

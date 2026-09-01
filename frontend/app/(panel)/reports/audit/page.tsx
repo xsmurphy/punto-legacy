@@ -55,6 +55,22 @@ function humanizeAction(method: string, endpoint: string): string {
 }
 
 /**
+ * ¿La fila quedó a nombre de una TERMINAL en vez de una persona?
+ *
+ * Bajo el realm `pos-app` el backend atribuye la fila al operador que probó su
+ * PIN (`meta.actor === "operator"`). Cuando no hubo ninguno, el `userId` es el
+ * contacto que PAREÓ la tablet y no se sabe quién la estaba usando
+ * (`meta.actor === "device"`) — y eso hay que decirlo, porque una fila que dice
+ * un nombre sin aclararlo se lee como si esa persona hubiera estado ahí.
+ *
+ * Las filas anteriores al fix de atribución no traen `meta.actor`; no se marcan
+ * (no hay dato para afirmar una cosa ni la otra).
+ */
+function isUnattributedDevice(row: AuditRow): boolean {
+  return row.meta?.actor === "device"
+}
+
+/**
  * Retención de la tabla `tenant_audit`: el job de pg_cron `purge-tenant-audit`
  * borra todos los días lo que tenga más de 2 meses (migs 36 y 150). Se nombra
  * en el empty state porque explica el único caso en que el vacío NO es
@@ -105,8 +121,17 @@ export default function AuditReportPage() {
       {
         accessorKey: "userName",
         header: "Usuario",
-        cell: ({ getValue }) => (
-          <span className="font-medium">{(getValue() as string) || "(desconocido)"}</span>
+        cell: ({ row, getValue }) => (
+          <span className="flex flex-col">
+            <span className="font-medium">
+              {(getValue() as string) || "(desconocido)"}
+            </span>
+            {isUnattributedDevice(row.original) && (
+              <span className="text-xs text-muted-foreground">
+                Caja sin operador identificado
+              </span>
+            )}
+          </span>
         ),
         meta: { label: "Usuario" },
       },

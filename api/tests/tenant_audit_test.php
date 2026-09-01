@@ -415,7 +415,139 @@ check(
     'el error_log quedó: ' . var_export($logged, true)
 );
 
+// ── H. Atribución: la PERSONA del PIN, no la terminal ───────────────────────
+//
+// El agujero que cierra esta sección es de auditoría, no de acceso: el sistema
+// AUTORIZABA con la identidad correcta (`AgentActor`/`OperatorContext` evalúan
+// los permisos del operador del PIN) y REGISTRABA con otra — el contacto que
+// pareó la tablet hace meses. Una fila así no es un dato incompleto: es una
+// constancia formal FALSA, que es peor que no auditar.
+//
+// Se prueba `AuditActor::resolve()` encadenado con `tenantAudit()` y con el
+// MISMO SELECT del endpoint, porque las tres piezas tienen que coincidir para
+// que la tabla diga la verdad: si el JOIN a `contact` no sigue al nuevo
+// `userId`, la fila queda apuntando a la persona correcta pero mostrando el
+// nombre de la vieja.
+$deviceId    = 'd0d0d0d0-0000-4000-8000-0000000000d1';
+$operatorId  = 'd0d0d0d0-0000-4000-8000-0000000000e1';
+
+// Operador propio del arnés: type=0 (usuario del comercio), como el contacto
+// que unlock-pin valida. Se inserta acá y no en el seed compartido para no
+// mover el conteo de contactos que otros arneses dan por sentado.
+$db->Execute(
+    'INSERT INTO contact (contactId, contactName, contactPhone, contactEmail, contactStatus, type, main, role, outletId, companyId)
+     VALUES (?, ?, ?, ?, 1, 0, \'\', 0, ?, ?)
+     ON CONFLICT (contactId) DO UPDATE SET contactName = EXCLUDED.contactName',
+    [$operatorId, 'Verify PY Operador', '+595991000009', 'verify-py-op@local.test', $outletId, $companyId]
+);
+
+// La afirmación se firma con JWT_SECRET. En el arnés puede no venir del env.
+if ((string) ($_ENV['JWT_SECRET'] ?? '') === '') {
+    $_ENV['JWT_SECRET'] = 'harness-secret-tenant-audit';
+}
+
+/** Corre AuditActor + tenantAudit con un X-Operator-Token dado y devuelve la fila leída. */
+$auditWithOperatorToken = static function (?string $token, string $realm, string $credentialUserId, array $baseMeta = []) use ($companyId, $outletId, $deviceId, $db, $from, $to): ?array {
+    if ($token === null) {
+        unset($_SERVER['HTTP_X_OPERATOR_TOKEN']);
+    } else {
+        $_SERVER['HTTP_X_OPERATOR_TOKEN'] = $token;
+    }
+
+    $actor = \Punto\Api\Auth\AuditActor::resolve($realm, $companyId, $credentialUserId, $deviceId, $baseMeta);
+
+    $db->Execute('DELETE FROM tenant_audit WHERE companyid = ?', [$companyId]);
+    tenantAudit(
+        ['companyId' => $companyId, 'outletId' => $outletId, 'userId' => $actor['userId'], 'realm' => $realm],
+        'POST',
+        '/v1/drawers',
+        null,
+        $actor['meta']
+    );
+    unset($_SERVER['HTTP_X_OPERATOR_TOKEN']);
+
+    $rows = runAuditSelect($companyId, $from, $to);
+    return $rows[0] ?? null;
+};
+
+// H1-H4: operador identificado. La fila es SUYA y el device no se pierde.
+$goodToken = \Punto\Api\Auth\OperatorAssertion::issue($companyId, $operatorId);
+$row = $auditWithOperatorToken($goodToken, 'pos-app', $userId);
+
+check('H1 con operador identificado, la fila se atribuye a la PERSONA',
+    ($row['userId'] ?? null) === $operatorId,
+    'userId: ' . var_export($row['userId'] ?? null, true) . ' (esperado el operador, no el device)');
+check('H2 el JOIN a contact resuelve el nombre del OPERADOR',
+    ($row['userName'] ?? null) === 'Verify PY Operador',
+    'userName: ' . var_export($row['userName'] ?? null, true));
+check('H3 meta.actor la marca como atribuida a persona',
+    (($row['meta']['actor'] ?? null) === 'operator'),
+    'meta: ' . json_encode($row['meta'] ?? null));
+check('H4 el device NO se pierde: queda en meta',
+    (($row['meta']['deviceId'] ?? null) === $deviceId)
+        && (($row['meta']['deviceUserId'] ?? null) === $userId),
+    'meta: ' . json_encode($row['meta'] ?? null));
+
+// H5-H7: sin operador. Se conserva el comportamiento de siempre, pero DICHO.
+$row = $auditWithOperatorToken(null, 'pos-app', $userId);
+check('H5 sin operador, la fila sigue quedando a nombre del contacto del pareo',
+    ($row['userId'] ?? null) === $userId,
+    'userId: ' . var_export($row['userId'] ?? null, true));
+check('H6 y es DISTINGUIBLE de una atribución a persona (meta.actor=device)',
+    (($row['meta']['actor'] ?? null) === 'device'),
+    'meta: ' . json_encode($row['meta'] ?? null));
+check('H7 sin operador no se duplica el contacto del pareo en meta',
+    !array_key_exists('deviceUserId', (array) ($row['meta'] ?? [])),
+    'meta: ' . json_encode($row['meta'] ?? null));
+
+// H8: aislamiento multi-tenant. Un token legítimo de OTRO comercio no
+// identifica a nadie acá — la firma es del server, no del tenant, y lo único
+// que lo separa es el companyId DENTRO de la firma.
+$foreignToken = \Punto\Api\Auth\OperatorAssertion::issue($otherCompanyId, $operatorId);
+$row = $auditWithOperatorToken($foreignToken, 'pos-app', $userId);
+check('H8 un token de otro tenant NO atribuye la fila a su operador',
+    ($row['userId'] ?? null) === $userId && (($row['meta']['actor'] ?? null) === 'device'),
+    'userId: ' . var_export($row['userId'] ?? null, true) . ' meta: ' . json_encode($row['meta'] ?? null));
+
+// H9: firma adulterada. Sin esto, "mandá el userId que quieras" vuelve por la
+// ventana — es el mismo dato elegido por el cliente que OperatorAssertion existe
+// para no aceptar.
+$row = $auditWithOperatorToken($goodToken . 'x', 'pos-app', $userId);
+check('H9 una firma adulterada no identifica a nadie',
+    ($row['userId'] ?? null) === $userId && (($row['meta']['actor'] ?? null) === 'device'),
+    'userId: ' . var_export($row['userId'] ?? null, true));
+
+// H10: best-effort de verdad. Sin JWT_SECRET, `verify()` LANZA; auditar no
+// puede tirar una operación que ya se hizo.
+$savedSecret = $_ENV['JWT_SECRET'];
+$_ENV['JWT_SECRET'] = '';
+$threw = false;
+try {
+    $row = $auditWithOperatorToken($goodToken, 'pos-app', $userId);
+} catch (\Throwable $e) {
+    $threw = true;
+}
+$_ENV['JWT_SECRET'] = $savedSecret;
+check('H10 sin JWT_SECRET la auditoría degrada al device en vez de lanzar',
+    !$threw && ($row['userId'] ?? null) === $userId && (($row['meta']['actor'] ?? null) === 'device'),
+    ($threw ? 'lanzó una excepción' : 'meta: ' . json_encode($row['meta'] ?? null)));
+
+// H11-H12: los realms donde la credencial YA es la persona no cambian. Un
+// X-Operator-Token presente bajo `panel` no puede reatribuir nada.
+$row = $auditWithOperatorToken($goodToken, 'panel', $userId);
+check('H11 realm panel: la atribución no cambia y no se le agrega meta',
+    ($row['userId'] ?? null) === $userId && ($row['meta'] ?? null) === null,
+    'userId: ' . var_export($row['userId'] ?? null, true) . ' meta: ' . json_encode($row['meta'] ?? null));
+
+$row = $auditWithOperatorToken($goodToken, 'api', $userId, ['keyId' => 'k-123']);
+check('H12 realm api: conserva keyId y no se le agrega actor/device',
+    (($row['meta']['keyId'] ?? null) === 'k-123')
+        && !array_key_exists('actor', (array) ($row['meta'] ?? []))
+        && ($row['userId'] ?? null) === $userId,
+    'meta: ' . json_encode($row['meta'] ?? null));
+
 // Limpieza.
 $db->Execute('DELETE FROM tenant_audit WHERE companyid IN (?, ?)', [$companyId, $otherCompanyId]);
+$db->Execute('DELETE FROM contact WHERE contactid = ? AND companyid = ?', [$operatorId, $companyId]);
 
 harnessFinish($failures, $checks);

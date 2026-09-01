@@ -326,8 +326,40 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         $__auditMeta = $__isApiKey && defined('AUTHED_SESSION_ID')
             ? ['keyId' => (string) AUTHED_SESSION_ID]
             : [];
+
+        // ── Quién hizo esto: la PERSONA, no la terminal ──────────────────────
+        //
+        // Bajo `pos-app` el `$userId` de arriba es el contacto que PAREÓ la
+        // tablet, no quien está operando: auditar con él deja constancia formal
+        // de que lo hizo alguien que no fue. Y el sistema ya sabe la respuesta
+        // correcta —`AgentActor`/`OperatorContext` AUTORIZAN contra los permisos
+        // del operador del PIN— solo que la resuelven DESPUÉS de que este
+        // wrapper ya escribió la fila.
+        //
+        // Se resuelve acá, en el embudo, y no en los endpoints del asistente:
+        // el problema es de toda escritura del POS con operador identificado
+        // (un cierre de caja, un descuento, una anulación), no del agente.
+        //
+        // `AuditActor` no lanza nunca y deja el `meta` auto-descriptivo
+        // (actor/deviceId/deviceUserId) para que reemplazar el `userId` no
+        // pierda de vista desde qué terminal se hizo. Ver su docblock.
+        $__auditActor  = \Punto\Api\Auth\AuditActor::resolve(
+            (string) $realm,
+            (string) $companyId,
+            (string) $userId,
+            (string) $deviceId,
+            $__auditMeta
+        );
+        $__auditUserId = $__auditActor['userId'];
+        $__auditMeta   = $__auditActor['meta'];
+
         tenantAudit(
-            compact('companyId', 'outletId', 'userId', 'realm'),
+            [
+                'companyId' => $companyId,
+                'outletId'  => $outletId,
+                'userId'    => $__auditUserId,
+                'realm'     => $realm,
+            ],
             $__auditMethod,
             $__auditEndpoint,
             $__auditTargetId,
