@@ -15,12 +15,43 @@
  * Si el endpoint POS necesita $company/$setting/$_modules (settings del
  * tenant), tendra que cargar data.php manualmente tras llamar a esta fn.
  *
+ * LA ZONA HORARIA NO ES UNA EXCEPCION A ESO. `TenantClock::apply()` se llama
+ * ACA, no en el endpoint: la TZ de la sesion de PostgreSQL y del proceso PHP
+ * es un invariante del EMBUDO DE AUTENTICACION, igual que COMPANY_ID.
+ *
+ * Por que: `data.php` (el otro embudo, `apiAuthTenant`) ya aplicaba la TZ del
+ * tenant. Este path no, asi que la sesion se quedaba con el baseline de
+ * plataforma de `includes/db.php` — `APP_TIMEZONE`, sin definir en prod, o sea
+ * UTC. El POS manda la fecha de la venta como texto NAIVE ('Y-m-d H:i:s'), y un
+ * texto sin zona no es un instante: PostgreSQL lo resuelve con la TZ de sesion.
+ * El MISMO string aterrizaba entonces en dos instantes distintos segun por que
+ * embudo hubiera entrado la request.
+ *
+ * Consecuencia real (2026-09-01): una venta emitida 12:07 en Asuncion quedo
+ * guardada 09:07 (-3h). `DrawerService::resolveDrawerIdForDate()` busca el
+ * turno que CONTIENE esa fecha, no encontro ninguno (el turno habia abierto
+ * 12:07 — `drawer.php` va por `apiAuthTenant`, o sea con la TZ correcta),
+ * `transaction.drawerid` quedo NULL, y la venta desaparecio del Control de Caja.
+ *
+ * No se arregla con `APP_TIMEZONE=America/Asuncion`: eso solo mueve la rotura a
+ * los tenants de otro pais. Tampoco pisando la fecha del cliente con la del
+ * servidor en cada endpoint (`drawer.php` hizo eso en su fallback y dejo el
+ * embudo compartido roto): la fecha de la venta es la de EMISION, la del
+ * dispositivo — una tablet que estuvo un dia sin red sincroniza al otro dia y
+ * esas ventas pertenecen al dia anterior.
+ *
+ * COSTO: `TenantClock::apply()` necesita el companyId y nada mas. Resuelve la
+ * TZ via `TenantLocale`, que cachea por request y hace UN `SELECT config->>...
+ * FROM company`. No arrastra `data.php` ni su exigencia de company activa +
+ * settings, que es la razon de ser de esta funcion.
+ *
  * TODO follow-up: drop column contact.lockPass (plano) despues de validar
  * 1 semana en prod que lockPassHash (bcrypt) funciona para todos los operadores.
  * El script de backfill esta en database/migrations/postgres/49_lockpass_hash_backfill.php.
  */
 
 use Punto\Api\Auth\DeviceAuth;
+use Punto\Api\Support\TenantClock;
 
 function apiAuthPosContext(): array
 {
@@ -50,6 +81,13 @@ function apiAuthPosContext(): array
             if (!checkCompanyStatus($ctx['companyId'])) {
                 apiError('Company Blocked', 403);
             }
+            // Reloj del tenant — ANTES de cualquier constante de fecha y de
+            // que el endpoint toque la base. Deja la sesion de PG y el default
+            // de PHP en la MISMA zona (la del comercio), que es lo que hace
+            // que un timestamp naive signifique lo mismo lo escriba quien lo
+            // escriba. Ver el bloque de doc de arriba.
+            TenantClock::apply((string) $ctx['companyId']);
+
             // Definir las constantes que los endpoints esperan
             if (!defined('COMPANY_ID'))  define('COMPANY_ID',  $ctx['companyId']);
             if (!defined('OUTLET_ID'))   define('OUTLET_ID',   $ctx['outletId']);
@@ -58,7 +96,10 @@ function apiAuthPosContext(): array
             if (!defined('ROLE_ID'))     define('ROLE_ID',     $ctx['roleId']);
             if (!defined('DEVICE_MODULE')) define('DEVICE_MODULE', $ctx['module'] ?? 'pos');
             // TODAY: usado por SaleService y otros endpoints POS para updated_at.
-            // data.php no se carga por este path (ver doc arriba), pero TODAY es trivial.
+            // data.php no se carga por este path (ver doc arriba), pero TODAY es
+            // trivial. Va DESPUES de TenantClock::apply(): antes `date()` corria
+            // con el default del proceso (UTC en el container) y estas dos
+            // constantes quedaban corridas respecto de la hora del comercio.
             if (!defined('TODAY'))       define('TODAY',       date('Y-m-d H:i:s'));
             if (!defined('TODAY_DATE'))  define('TODAY_DATE',  date('Y-m-d'));
             return $ctx;
