@@ -3,6 +3,7 @@ import { streamText, convertToModelMessages, stepCountIs, hasToolCall, smoothStr
 import type { UIMessage } from "ai"
 import { buildPosAgentTools } from "@/lib/pos/agent-tools"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
+import { truncationMetadata } from "@/lib/agent/truncation"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -267,8 +268,11 @@ export async function POST(req: Request) {
     // mostrador que necesita más de seis pasos ya perdió la carrera contra la
     // fila.
     stopWhen: [stepCountIs(6), hasToolCall("register_action")],
-    // Más bajo que el panel (1500) a propósito: acá una respuesta larga es un
-    // defecto, no una feature. También acota el gasto si el modelo degenera.
+    // Mucho más bajo que el panel (4000) a propósito: acá una respuesta larga
+    // es un defecto, no una feature — el mostrador lee de un vistazo y el
+    // prompt de arriba ya prohíbe tablas. También acota el gasto si el modelo
+    // degenera. El número del panel se movió porque allá se piden reportes;
+    // este NO lo sigue, se calibra contra la respuesta de caja.
     maxOutputTokens: 700,
     temperature: 0.3,
     onFinish: async ({ usage }) => {
@@ -292,6 +296,12 @@ export async function POST(req: Request) {
   })
 
   return result.toUIMessageStreamResponse({
+    // Mismo cableado que el panel, y por la misma razón: un tope más bajo hace
+    // que el corte sea MÁS probable acá, no menos. Una respuesta de mostrador
+    // truncada en silencio le da al cajero medio dato con cara de dato entero.
+    // La UI del aviso es una sola (`AgentChatContent` es compartido), así que
+    // sin esta línea la caja sería la única superficie que se lo pierde.
+    messageMetadata: truncationMetadata,
     onError: (error) => {
       console.error("[pos-agent] error en el stream del modelo", error)
       return error instanceof Error ? error.message : "Error al conectar con el asistente"

@@ -6,6 +6,7 @@ import { makeActionTools } from "@/lib/agent/confirm-tool"
 import { buildReadTools } from "@/lib/agent/read-tools"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
 import { chartSpecSchema } from "@/lib/agent/chart-spec"
+import { truncationMetadata } from "@/lib/agent/truncation"
 
 export const runtime = "nodejs"
 export const maxDuration = 60
@@ -238,8 +239,25 @@ export async function POST(req: Request) {
     stopWhen: [stepCountIs(10), hasToolCall("register_action")],
     // Tope de seguridad: acota el gasto de créditos si el modelo se degenera
     // en un loop de repetición (síntoma conocido de deepseek-chat con tools).
-    // Una respuesta del asistente POS no necesita más que esto.
-    maxOutputTokens: 1500,
+    //
+    // Estaba en 1500 con la justificación de que "una respuesta del asistente
+    // POS no necesita más que esto". Eso quedó viejo el día que la caja se
+    // llevó su propio route (`app/api/pos/agent/chat/route.ts`, con su tope de
+    // 700): este de acá es el del PANEL, que es exactamente donde se piden los
+    // reportes largos. Calibrado para el caso equivocado, cortaba trabajo real
+    // — un balance general se cortó a mitad de la palabra "**Total Act", con
+    // la tabla de activos completa y ni pasivos ni patrimonio.
+    //
+    // 4000 sale de medir el peor caso legítimo: un reporte financiero arma tres
+    // secciones (activos / pasivos / patrimonio) en tablas markdown con montos
+    // formateados, más las salvedades que el prompt obliga a declarar; con un
+    // `compareWith` encima son dos juegos de cifras. Eso vive holgado en 4000 y
+    // no entraba en 1500. Hacia el otro lado sigue siendo un tope de verdad y
+    // no un cheque en blanco: un loop degenerado corta acá, con un costo
+    // acotado y conocido, en vez de correr hasta donde el proveedor decida.
+    // El modelo es configurable por tenant (`/v1/ai/config`), así que el número
+    // NO se ata al techo de salida de ningún proveedor en particular.
+    maxOutputTokens: 4000,
     // Baja la temperatura para reducir la repetición degenerada.
     temperature: 0.3,
     onFinish: async ({ usage }) => {
@@ -275,6 +293,11 @@ export async function POST(req: Request) {
   // renderizaba. Logueamos la causa real acá y la devolvemos al cliente
   // (accionable) en vez de dejarla muda.
   return result.toUIMessageStreamResponse({
+    // Un corte por `maxOutputTokens` NO es un error del stream: el SDK lo
+    // entrega como una respuesta normal y `onError` ni se entera. Sin esto, la
+    // mitad de un balance se ve igual que un balance entero. El porqué y el
+    // recorrido de la señal, en `lib/agent/truncation.ts`.
+    messageMetadata: truncationMetadata,
     onError: (error) => {
       console.error("[agent] error en el stream del modelo", error)
       return error instanceof Error ? error.message : "Error al conectar con el asistente"

@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import { isTextUIPart, isToolOrDynamicToolUIPart, type UIMessage } from "ai"
-import { ArrowDown, MessageCircle, Upload, X } from "lucide-react"
+import { ArrowDown, MessageCircle, TriangleAlert, Upload, X } from "lucide-react"
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { AgentInputBox } from "@/components/agent/agent-input-box"
@@ -16,6 +16,8 @@ import { ThinkingIndicator } from "@/components/agent/thinking-indicator"
 import type { AttachmentDraft } from "@/lib/agent/attachment-types"
 import type { StoredMessage } from "@/lib/agent/chat-history-store"
 import { formatRelativeTime } from "@/lib/agent/format-relative-time"
+import { isTruncated } from "@/lib/agent/truncation"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { cn } from "@/lib/utils"
 
 /**
@@ -164,6 +166,9 @@ export function AgentChatContent({
   const [tick, setTick] = React.useState(0)
 
   const isStreaming = status === "streaming" || status === "submitted"
+
+  /** Último mensaje del hilo: gatea el botón de continuar una respuesta cortada. */
+  const lastMessageId = messages[messages.length - 1]?.id
 
   const is402 =
     showCredits &&
@@ -484,6 +489,45 @@ export function AgentChatContent({
 
                 return null
               })}
+
+              {/* Corte por longitud. Va al PIE del mensaje y no arriba del
+                  input, porque lo que quedó incompleto es ESTE mensaje y no la
+                  conversación: pegado al texto truncado, el aviso se lee junto
+                  a lo que califica, y sobrevive con él en el historial (la
+                  señal viaja en `message.metadata`, ver lib/agent/truncation.ts).
+                  Sin esto, media respuesta se ve igual que una entera — así se
+                  entregó un balance con los activos completos y ni pasivos ni
+                  patrimonio.
+
+                  El botón de continuar solo aparece en el ÚLTIMO mensaje y con
+                  el stream quieto: pedir la continuación de un mensaje viejo
+                  arrastraría al modelo a retomar algo que la conversación ya
+                  dejó atrás. En los truncados anteriores queda el aviso solo,
+                  que es lo que importa. Mismo criterio de `isLatest` que usa
+                  RegisterActionCard más arriba. */}
+              {!isUser && isTruncated(message) && (
+                <Alert className="mt-1 w-full max-w-[95%]">
+                  <TriangleAlert />
+                  <AlertDescription>
+                    La respuesta se cortó porque llegó al largo máximo: está incompleta.
+                  </AlertDescription>
+                  {message.id === lastMessageId && !isStreaming && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2 w-fit"
+                      onClick={() =>
+                        sendMessage({
+                          text: "Continuá la respuesta anterior desde donde se cortó, sin repetir lo que ya escribiste.",
+                        })
+                      }
+                    >
+                      Continuar la respuesta
+                    </Button>
+                  )}
+                </Alert>
+              )}
             </div>
           )
         })}
