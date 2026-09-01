@@ -39,6 +39,13 @@ final class Date
     public const RANGE_BOUND_RE = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
 
     /**
+     * Último instante representable de un día, con la precisión REAL de las
+     * columnas (`timestamptz` = microsegundos). Ver `rangeEnd()` para por qué
+     * no es `23:59:59` ni un borde exclusivo.
+     */
+    public const END_OF_DAY = '23:59:59.999999';
+
+    /**
      * ¿El valor es un extremo de rango sintácticamente válido?
      *
      * Vacío cuenta como válido: significa "usá el default", no "el cliente se
@@ -89,12 +96,52 @@ final class Date
      * Normaliza el extremo SUPERIOR de un rango: una fecha sola significa el
      * FINAL de ese día.
      *
+     * ── Por qué `.999999` y no `23:59:59` ──────────────────────────────────
+     * Las columnas de fecha del sistema son `timestamptz` sin precisión
+     * declarada, o sea MICROSEGUNDOS (el default de Postgres). Un dato real:
+     * `2026-08-28 11:19:13.098481-03`.
+     *
+     * Con `<= '... 23:59:59'` se pierde todo lo que caiga entre
+     * `23:59:59.000001` y `23:59:59.999999`: casi un segundo entero del final
+     * del día. Es poco probable y por eso es peligroso — en una caja con
+     * volumen va a pasar alguna vez, y una venta que no aparece en el reporte
+     * del día sin ninguna explicación es exactamente el faltante que nadie
+     * logra reconstruir después.
+     *
+     * El estándar para rangos temporales es el intervalo semi-abierto
+     * (`>= inicio_del_día AND < inicio_del_día_siguiente`), que no depende de
+     * la precisión del tipo. Acá NO se usa por una razón concreta y medida:
+     * las comparaciones vivas contra el extremo superior son 60 `BETWEEN` y
+     * 19 `<=` en `api/lib/Reports/*.php` + `api/lib/Finance/*.php` (contadas
+     * con `grep -cE 'BETWEEN \? AND \?' / '<= \?'`), y `BETWEEN` es INCLUSIVO
+     * en los dos extremos: correr el `to` al día siguiente sin reescribir cada
+     * una no arregla nada, lo empeora — el rango pasa a tragarse el primer
+     * instante del día siguiente. Verificado contra Postgres 16 con una venta
+     * a las `23:59:59.5` y otra a las `00:00:00` del día siguiente:
+     *
+     *     ts <= '2026-09-01 23:59:59'                      -> pierde la de .5
+     *     ts <= '2026-09-01 23:59:59.999999'               -> correcto
+     *     ts <  '2026-09-02 00:00:00'                      -> correcto (equivale)
+     *     ts BETWEEN '...01 00:00:00' AND '...02 00:00:00' -> trae la del día 2
+     *
+     * Hay además consumidores que NO son SQL y que un `to` corrido rompe:
+     * `RollupReader` hace `substr($to, 0, 10)` contra columnas `day date` (un
+     * `to` del día siguiente suma un DÍA entero a los reportes de marcas,
+     * categorías y medios de pago), y varios servicios sacan el largo del
+     * período con `strtotime($to)` para comparar contra el período anterior.
+     * Con `.999999` siguen andando sin tocarlos: `substr` da el mismo día y
+     * `strtotime` trunca al segundo.
+     *
+     * Si algún día una columna pasara a tener MÁS precisión que microsegundos
+     * —Postgres no lo soporta hoy— este helper vuelve a dejar un hueco. Ahí sí
+     * corresponde el borde exclusivo.
+     *
      * @param mixed       $value   Crudo del request (acepta el `false`/`null` de validateHttp()).
-     * @param string|null $default Valor a usar cuando viene vacío. Default: hoy a las 23:59:59.
+     * @param string|null $default Valor a usar cuando viene vacío. Default: hoy al último instante.
      */
     public static function rangeEnd(mixed $value, ?string $default = null): string
     {
-        return self::normalizeBound($value, '23:59:59', $default ?? date('Y-m-d 23:59:59'));
+        return self::normalizeBound($value, self::END_OF_DAY, $default ?? date('Y-m-d ' . self::END_OF_DAY));
     }
 
     /**

@@ -81,8 +81,8 @@ function check(string $label, bool $ok, string $detail, int &$failures, int &$ch
 
 // A1. El caso del incidente: una fecha sola en `to` es el FINAL de ese día.
 [$fA, $tA, $okA] = Date::reportRange('2026-09-01', '2026-09-01');
-check('A1 fecha sola en `to` cierra a las 23:59:59', $tA === '2026-09-01 23:59:59',
-    "esperado '2026-09-01 23:59:59', obtenido '$tA'", $failures, $checks);
+check('A1 fecha sola en `to` cierra al ULTIMO INSTANTE del dia', $tA === '2026-09-01 ' . Date::END_OF_DAY,
+    "esperado '2026-09-01 " . Date::END_OF_DAY . "', obtenido '$tA'", $failures, $checks);
 check('A1b fecha sola en `from` abre a las 00:00:00', $fA === '2026-09-01 00:00:00',
     "esperado '2026-09-01 00:00:00', obtenido '$fA'", $failures, $checks);
 check('A1c el rango de un solo día es válido', $okA === true,
@@ -101,7 +101,7 @@ check('A2b hora explícita en `from` se respeta verbatim', $fB === '2026-09-01 0
 check('A3 default de `from` = hace 7 días 00:00:00',
     $fC === date('Y-m-d 00:00:00', strtotime('-7 days')),
     "obtenido '$fC'", $failures, $checks);
-check('A3b default de `to` = hoy 23:59:59', $tC === date('Y-m-d 23:59:59'),
+check('A3b default de `to` = hoy al ultimo instante', $tC === date('Y-m-d ' . Date::END_OF_DAY),
     "obtenido '$tC'", $failures, $checks);
 check('A3c rango vacío es válido (significa "usá el default")', $okC === true,
     'un rango vacío no es un error del cliente', $failures, $checks);
@@ -114,9 +114,9 @@ check('A4 false/null de validateHttp se tratan como vacío',
     "obtenido from='$fD' to='$tD'", $failures, $checks);
 
 // A5. Overrides de default (los usa /v1/finance/*, que arranca en el 1° de mes).
-[$fE, $tE] = Date::reportRange('', '', '2026-09-01 00:00:00', '2026-09-30 23:59:59');
+[$fE, $tE] = Date::reportRange('', '', '2026-09-01 00:00:00', '2026-09-30 ' . Date::END_OF_DAY);
 check('A5 los defaults se pueden overridear (finance usa mes calendario)',
-    $fE === '2026-09-01 00:00:00' && $tE === '2026-09-30 23:59:59',
+    $fE === '2026-09-01 00:00:00' && $tE === '2026-09-30 ' . Date::END_OF_DAY,
     "obtenido from='$fE' to='$tE'", $failures, $checks);
 
 // A6. Formato inválido → flag en false Y defaults sanos, para que el caller que
@@ -125,7 +125,7 @@ check('A5 los defaults se pueden overridear (finance usa mes calendario)',
 check('A6 formato inválido marca el rango como inválido', $okF === false,
     "'ayer' debería ser rechazado", $failures, $checks);
 check('A6b un rango inválido igual devuelve defaults usables',
-    $fF === date('Y-m-d 00:00:00', strtotime('-7 days')) && $tF === date('Y-m-d 23:59:59'),
+    $fF === date('Y-m-d 00:00:00', strtotime('-7 days')) && $tF === date('Y-m-d ' . Date::END_OF_DAY),
     "obtenido from='$fF' to='$tF'", $failures, $checks);
 
 // A7. Fecha con formato correcto pero INEXISTENTE. Antes pasaba el regex y
@@ -146,8 +146,16 @@ check('A7d hora válida en el borde (23:59:59) se acepta',
     '23:59:59 es una hora legal', $failures, $checks);
 
 // A8. `stock-day` pide un saldo AL CIERRE del día: extremo superior suelto.
-check('A8 rangeEnd() completa el final del día', Date::rangeEnd('2026-09-01') === '2026-09-01 23:59:59',
+check('A8 rangeEnd() completa el final del día', Date::rangeEnd('2026-09-01') === '2026-09-01 ' . Date::END_OF_DAY,
     'obtenido ' . Date::rangeEnd('2026-09-01'), $failures, $checks);
+
+// A9. El agujero que motivó `.999999`: las columnas son `timestamptz` (=
+// microsegundos), así que un corte en `23:59:59` deja afuera casi un segundo
+// entero del final del día. Una venta a las 23:59:59.5 desaparecía del reporte
+// del día sin ninguna explicación.
+check('A9 el ultimo instante del dia cubre los microsegundos',
+    Date::rangeEnd('2026-09-01') > '2026-09-01 23:59:59.5',
+    'un corte en 23:59:59 perdia todo lo posterior a esa fraccion', $failures, $checks);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bloque B — el incidente, end-to-end contra Postgres.
