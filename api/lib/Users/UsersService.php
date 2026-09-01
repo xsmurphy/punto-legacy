@@ -22,6 +22,23 @@ final class UsersService
     private const TYPE_USER = 0;
 
     /**
+     * Formato del PIN de la caja (`lockPass`): exactamente 4 dígitos.
+     *
+     * Es PÚBLICA porque hay un segundo lugar que necesita la MISMA regla antes
+     * de que el usuario confirme: `/v1/ai/confirm`, que registra el alta de
+     * usuario que propone el agente IA y tiene que poder decir "el PIN va de 4
+     * dígitos" a tiempo para que el modelo lo repregunte, en vez de emitir un
+     * confirmToken para un lote que iba a fallar en `create()`. La constante
+     * evita que ese chequeo temprano sea una segunda copia del regex que un
+     * día se queda vieja: la regla vive acá, donde también se aplica al
+     * escribir, y el otro lado la referencia.
+     *
+     * El PIN se valida y se HASHEA solo en este servicio (`lockPassHash`
+     * bcrypt + `pinhash` sha256). Ningún caller escribe esos hashes a mano.
+     */
+    public const LOCK_PASS_PATTERN = '/^\d{4}$/';
+
+    /**
      * Catálogo de roles del sistema. En el legacy estos vivían en
      * `taxonomy WHERE taxonomyType='role'` indexados por `taxonomyExtra`
      * (numérico), pero la BD de prod nunca tuvo seed → los IDs viven
@@ -301,7 +318,7 @@ final class UsersService
         }
 
         $lockPass = trim((string) ($in['lockPass'] ?? ''));
-        if ($lockPass !== '' && !preg_match('/^\d{4}$/', $lockPass)) {
+        if ($lockPass !== '' && !preg_match(self::LOCK_PASS_PATTERN, $lockPass)) {
             throw new \InvalidArgumentException('El código POS debe tener 4 dígitos numéricos');
         }
         if ($this->pinIsTaken($lockPass, $companyId, null)) {
@@ -406,7 +423,7 @@ final class UsersService
         }
         if (array_key_exists('lockPass', $in)) {
             $lockPass = trim((string) ($in['lockPass'] ?? ''));
-            if ($lockPass !== '' && !preg_match('/^\d{4}$/', $lockPass)) {
+            if ($lockPass !== '' && !preg_match(self::LOCK_PASS_PATTERN, $lockPass)) {
                 throw new \InvalidArgumentException('El código POS debe tener 4 dígitos numéricos');
             }
             if ($this->pinIsTaken($lockPass, $companyId, $id)) {

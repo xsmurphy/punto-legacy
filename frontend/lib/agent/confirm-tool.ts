@@ -57,6 +57,13 @@ const payloadSchema = z.object({
   location: z.string().optional().describe("create_contact y update_contact: barrio o zona de la dirección"),
   lat: z.number().optional().describe("create_contact y update_contact: latitud decimal de la dirección (ej. -25.2867). Solo si la sabés con certeza — NUNCA inventes ni estimes coordenadas. Va SIEMPRE junto con lng: una sola de las dos se rechaza"),
   lng: z.number().optional().describe("create_contact y update_contact: longitud decimal de la dirección (ej. -57.3333). Va SIEMPRE junto con lat"),
+  // Documento tributario y personal del contacto. Las descripciones NO nombran
+  // un país: el mismo campo es RUC en Paraguay, CUIT en Argentina y RUT en
+  // Chile, y el sistema entero deriva la etiqueta del país del comercio
+  // (CountryDefaults). Poner "RUC" a secas acá le enseñaría al modelo a
+  // hablarle de RUC a un comercio argentino.
+  tin: z.string().optional().describe("create_contact y update_contact: identificador TRIBUTARIO del contacto — el que lleva la factura (RUC en Paraguay, CUIT en Argentina, RUT en Chile, RFC en México). Cargalo tal como lo dictó el usuario, sin reformatear ni completar dígitos verificadores. Es lo que hace falta para poder facturarle a ese cliente"),
+  ci: z.string().optional().describe("create_contact y update_contact: documento PERSONAL del contacto (cédula en Paraguay, DNI en Argentina, CPF en Brasil). Va acá y NO en tin, que es el tributario. No puede repetirse entre contactos del mismo tipo: si ya lo tiene otro, el sistema te dice con cuál choca"),
   id: z.string().optional().describe("id del registro a actualizar (update_*), o del usuario al que se le cambia el rol (assign_role)"),
   kind: z.string().optional().describe("create_item: 'producto'|'servicio'. tabular_import: 'items'|'contacts'"),
   price: z.number().optional().describe("create_item: precio de venta"),
@@ -64,12 +71,17 @@ const payloadSchema = z.object({
   sku: z.string().optional(),
   categoryName: z.string().optional(),
   brandName: z.string().optional(),
+  taxName: z.string().optional().describe("create_item: impuesto del artículo, como lo nombra el comercio o por su tasa (ej. 'IVA 10%', '10', 'Exenta'). Si el usuario no lo dice, dejalo vacío: se aplica el primer impuesto del comercio y el resultado te devuelve cuál fue, para que se lo confirmes. Preguntalo cuando el usuario mencione que el producto lleva otra tasa o que está exento"),
+  outletNames: z.array(z.string()).optional().describe("create_item: nombres de las sucursales donde va a existir el artículo. Si lo omitís, el artículo queda en UNA sola sucursal (la que el sistema elige por defecto), así que en un comercio con varias sucursales preguntá dónde va antes de crearlo — o mandá todas si el usuario dice que se vende en todas"),
   newPrice: z.number().optional().describe("update_item_price: nuevo precio"),
   roleName: z.string().optional().describe("create_user y assign_role: nombre del rol tal como existe en el comercio (ej. 'Cajero', 'Encargado'). No admin. Si no sabés qué roles hay, mirá los usuarios existentes antes de proponer la acción"),
+  lockPass: z.string().optional().describe("create_user: PIN de 4 dígitos con el que la persona se identifica y desbloquea la CAJA. NUNCA lo inventes, lo generes ni lo sugieras vos: lo elige quien lo va a usar, así que pedíselo al usuario ('¿qué PIN de 4 dígitos le ponemos?'). No puede repetirse con el de otro empleado del comercio. Si el usuario no quiere darlo, creá igual al usuario: va a poder entrar al panel con su contraseña, pero NO va a poder operar la caja hasta que le carguen un PIN"),
   outletId: z.string().optional().describe("create_register: id de la sucursal donde va la caja"),
   outletName: z.string().optional().describe("create_register: nombre de la sucursal donde va la caja, si no tenés el id (ej. 'Central')"),
   timbrado: z.string().optional().describe("create_register: número de timbrado que la SET le autorizó a la caja, solo dígitos. OBLIGATORIO para crear una caja — si el usuario no lo dio, pedíselo antes de registrar la acción"),
   expeditionPoint: z.string().optional().describe("create_register: establecimiento y punto de expedición de la caja, formato EEE-PPP (ej. 001-001). OBLIGATORIO. Dos cajas NO pueden tener el mismo punto de expedición con el mismo timbrado — si el usuario abre varias cajas, pedile uno distinto para cada una"),
+  initialInvoiceNumber: z.string().optional().describe("create_register: número desde el que esta caja empieza a facturar. Sale del TIMBRADO que autorizó la SET, no lo elegís vos: si el timbrado habilita el rango 2336-5000, acá va 2336. Mandalo TAL COMO viene, con los ceros de adelante si los tiene ('00002336'), porque esos ceros son los dígitos que se imprimen en la factura. Si el usuario no lo menciona, dejalo vacío: la caja arranca en 1, que es lo habitual. Preguntalo si dice que el talonario continúa una numeración anterior"),
+  lastInvoiceNumber: z.string().optional().describe("create_register: última factura del rango autorizado por el timbrado (ej. 5000). También sale del timbrado. Sirve para que la caja deje de emitir al agotarse el talonario en lugar de facturar fuera de rango. Opcional: vacío significa sin tope declarado"),
   sessionId: z.string().optional().describe("tabular_import: id de sesión del adjunto"),
   mode: z.string().optional().describe("tabular_import: 'insert'|'update'"),
   mapping: z.record(z.string(), z.string()).nullish().describe("tabular_import: mapeo campo→columna, o null para auto"),

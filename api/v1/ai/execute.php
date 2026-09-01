@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 require_once API_APP_DIR . '/includes/ai_confirm_store.php';
 require_once dirname(__DIR__, 2) . '/lib/Ai/AgentActor.php';
 require_once dirname(__DIR__, 2) . '/lib/Ai/ContactPayload.php';
+require_once dirname(__DIR__, 2) . '/lib/Ai/CatalogResolver.php';
 // Se carga arriba y no dentro del `case`: el `catch` del loop la nombra, y una
 // clase que solo existe si esa rama corrió deja el catch sin matchear.
 require_once dirname(__DIR__, 2) . '/lib/services/RegisterAdminException.php';
@@ -147,7 +148,7 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             // presentada como una del producto. Las coordenadas se aplican
             // solo en par (ver mapToAddress); `/v1/ai/confirm` rechaza antes
             // el par incompleto para que el bot pueda repreguntar.
-            $newId = $svc->create($companyId, [
+            $in = [
                 'name'     => $payload['name']  ?? '',
                 'type'     => (int) ($payload['type'] ?? 1),
                 'phone'    => $payload['phone'] ?? null,
@@ -158,7 +159,15 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
                 'location' => $payload['location'] ?? null,
                 'lat'      => $payload['lat']      ?? null,
                 'lng'      => $payload['lng']      ?? null,
-            ]);
+            ];
+            // Documento tributario y personal: MISMA omisión que la dirección y
+            // el mismo arreglo — `mapToColumns()` ya los mapea, solo había que
+            // pasárselos. Se copian solo si vinieron, para no escribir un ''
+            // que `mapToColumns` interpretaría como "limpiar el campo".
+            foreach (\Punto\Api\Ai\ContactPayload::IDENTITY_FIELDS as $idField) {
+                if (isset($payload[$idField])) $in[$idField] = $payload[$idField];
+            }
+            $newId = $svc->create($companyId, $in);
             realtimePublish('contact', 'create', (string) $newId);
             return ['id' => $newId];
         }
@@ -179,6 +188,13 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             // parcial y un campo ausente NO debe borrar lo que ya está cargado.
             foreach (\Punto\Api\Ai\ContactPayload::ADDRESS_FIELDS as $addrField) {
                 if (isset($payload[$addrField])) $patch[$addrField] = $payload[$addrField];
+            }
+            // Documento tributario (RUC/CUIT/RUT) y personal (cédula/DNI/CPF):
+            // `mapToColumns()` los mapea desde siempre y `update()` corre la
+            // misma unicidad de documento que el alta. Igual que la dirección,
+            // solo se copian los que vinieron — el patch es parcial.
+            foreach (\Punto\Api\Ai\ContactPayload::IDENTITY_FIELDS as $idField) {
+                if (isset($payload[$idField])) $patch[$idField] = $payload[$idField];
             }
             $svc->update((string) $payload['id'], $companyId, $patch);
             realtimePublish('contact', 'update', (string) $payload['id']);
@@ -216,6 +232,22 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
                 }
             }
 
+            // Impuesto del ítem. Se resuelve ANTES de crear nada: si el usuario
+            // nombró un impuesto que no existe, el alta no debe dejar un ítem
+            // a medias — el lote sigue con las demás acciones y esta reporta
+            // qué impuestos sí tiene el comercio.
+            $tax = \Punto\Api\Ai\CatalogResolver::taxByName($payload['taxName'] ?? null, $companyId, $db);
+
+            // Sucursales del ítem. Sin esto, `createBlank` le asigna la que
+            // devuelve `ItemOutletService::defaultFor()`, que en un comercio de
+            // varias sucursales es UNA SOLA (la primera por nombre): el ítem
+            // que el agente cargaba para toda la cadena existía en una sucursal
+            // y en las otras no aparecía ni para vender ni para comprar.
+            $outletIds = \Punto\Api\Ai\CatalogResolver::outletIdsByName(
+                is_array($payload['outletNames'] ?? null) ? $payload['outletNames'] : [],
+                $companyId
+            );
+
             $svc   = new \Punto\Api\Items\ItemService(
                 new \Punto\Api\Items\ItemRepository($db)
             );
@@ -236,10 +268,25 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             if (isset($payload['sku']))      $patch['itemSKU']      = $payload['sku'];
             if ($categoryId !== null)        $patch['categoryId']   = $categoryId;
             if ($brandId !== null)           $patch['brandId']      = $brandId;
+            if ($tax !== null)               $patch['taxId']        = $tax['id'];
+            // `outletIds` NO es columna de `item`: va en el patch a propósito
+            // porque `ItemService::update()` lo desvía a `item_outlet`
+            // (resolveFromPayload + replace, mig 170) y lo saca del patch antes
+            // del writer genérico. Solo se manda si el usuario nombró
+            // sucursales — un patch sin la clave significa "no toques el
+            // vínculo" y deja el default de `createBlank`.
+            if ($outletIds !== [])           $patch['outletIds']    = $outletIds;
 
             $svc->update((string) $newId, $companyId, $patch);
             realtimePublish('item', 'create', (string) $newId);
-            return ['id' => (string) $newId];
+            // El impuesto aplicado vuelve nombrado: cuando el usuario no eligió
+            // ninguno se le asignó el primero del comercio (default del panel),
+            // y eso tiene que poder contárselo el agente en vez de que aparezca
+            // un IVA que nadie mencionó.
+            return [
+                'id'      => (string) $newId,
+                'taxName' => $tax['name'] ?? null,
+            ];
         }
 
         case 'update_item_price': {
@@ -281,11 +328,28 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             // se la entrega offline.
             $tempPass = bin2hex(random_bytes(8));
 
+            // PIN de la caja (`lockPass`). Es la credencial con la que la
+            // persona se identifica en el POS: sin él, el usuario que el agente
+            // crea para el onboarding no puede desbloquear la caja — o sea que
+            // el alta no servía justo para lo que se pide.
+            //
+            // Viene SIEMPRE del payload y jamás se genera acá. Un PIN que el
+            // sistema inventa es un PIN que nadie le dictó a nadie: a
+            // diferencia de la contraseña temporal (que se devuelve en la
+            // response y el cliente autoexpira a los 60s), el PIN es de 4
+            // dígitos y se tipea en un mostrador compartido, así que lo elige
+            // la persona que lo va a usar. La longitud, el formato y la
+            // UNICIDAD dentro del comercio los valida `UsersService::create()`
+            // — que además es quien hashea (bcrypt en `lockPassHash` + sha256
+            // en `pinhash`). Acá no se escribe ningún hash a mano.
+            $lockPass = trim((string) ($payload['lockPass'] ?? ''));
+
             $newId = $svc->create($companyId, [
                 'name'     => $payload['name'],
                 'phone'    => $payload['phone'] ?? null,
                 'password' => $tempPass,
                 'roleId'   => $roleId,
+                'lockPass' => $lockPass,
             ]);
             // Datos estructurados (sin frases instructivas): el formato de
             // presentación lo dicta el system prompt del route handler para que
@@ -299,6 +363,12 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
                 'userDisplayName' => $payload['name'],
                 'login'           => $payload['phone'] ?? $payload['name'],
                 'roleName'        => $roleName,
+                // Si la persona quedó SIN PIN no puede desbloquear la caja, y
+                // eso el agente tiene que decirlo — es la diferencia entre un
+                // empleado dado de alta y un empleado que puede trabajar. El
+                // PIN mismo NO vuelve: lo eligió el usuario, ya lo sabe, y
+                // repetirlo solo lo dejaría escrito en el historial del chat.
+                'pinSet'          => $lockPass !== '',
             ];
         }
 
@@ -399,14 +469,11 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             $outletId = trim((string) ($payload['outletId'] ?? ''));
 
             // El modelo casi nunca tiene el uuid: resuelve por NOMBRE de
-            // sucursal, mismo patrón que categoryName/brandName en create_item.
+            // sucursal, con el MISMO resolver que usa `create_item`.
             if ($outletId === '') {
                 $outletName = trim((string) ($payload['outletName'] ?? ''));
-                $row = ncmExecute(
-                    'SELECT outletId FROM outlet WHERE companyId = ? AND outletName ILIKE ? LIMIT 1',
-                    [$companyId, $outletName]
-                );
-                $outletId = (string) ($row['outletId'] ?? $row['outletid'] ?? '');
+                $resueltas  = \Punto\Api\Ai\CatalogResolver::outletIdsByName([$outletName], $companyId);
+                $outletId   = $resueltas[0] ?? '';
                 if ($outletId === '') {
                     throw new \InvalidArgumentException("La sucursal '$outletName' no existe en el comercio");
                 }
@@ -421,19 +488,59 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             // copia que se queda vieja. El servicio rechaza con
             // `RegisterAdminException` y su mensaje ya está escrito para que
             // lo lea el usuario: dice con qué caja choca y qué hacer.
-            $svc = new \Punto\Api\Services\RegisterAdminService($companyId);
-            $res = $svc->create($outletId, $name, [
+            $svc   = new \Punto\Api\Services\RegisterAdminService($companyId);
+            $extra = [
                 'fiscal' => [
                     'invoiceAuth'   => (string) ($payload['timbrado'] ?? ''),
                     'invoicePrefix' => (string) ($payload['expeditionPoint'] ?? ''),
                 ],
-            ]);
+            ];
+
+            // ── Desde qué número emite la caja ────────────────────────────
+            // Un timbrado no arranca necesariamente en 1: la SET autoriza un
+            // rango, y una caja que empieza en 1 cuando su timbrado autoriza
+            // desde 2336 emite comprobantes con numeración inválida. El dato
+            // sale del timbrado, no de un default nuestro, así que el agente
+            // tiene que poder pasarlo.
+            //
+            // Es OPCIONAL, y el vacío significa lo MISMO que en el panel: el
+            // form de alta (`registers-tab.tsx`) lo rotula "Desde qué número
+            // emite esta caja. Vacío arranca en 1", y `update()` trata el
+            // string vacío como "no lo toques" dejando la secuencia sembrada
+            // en 1. Se copia ese comportamiento en vez de inventar uno nuevo:
+            // la mayoría de los timbrados sí arrancan en 1 y exigirlo pondría
+            // al modelo a repreguntar un dato que el usuario no siempre mira.
+            //
+            // Viaja como STRING sin castear: si el usuario tipeó "00002129",
+            // `RegisterAdminService::update()` deduce de los ceros el ancho de
+            // impresión (`padWidth`) igual que se lo deduce al panel. Un
+            // `(int)` acá tiraría esa intención y la factura saldría con menos
+            // dígitos de los que el talonario tiene impresos.
+            $initialNumber = trim((string) ($payload['initialInvoiceNumber'] ?? ''));
+            if ($initialNumber !== '') {
+                $extra['numbering'] = ['factura' => $initialNumber];
+            }
+
+            // Fin del rango autorizado por el timbrado. También del timbrado y
+            // también opcional: sin techo declarado el asignador no corta, que
+            // es el estado en el que quedan hoy todas las cajas. El servicio
+            // valida que no sea menor que el número inicial.
+            $lastNumber = trim((string) ($payload['lastInvoiceNumber'] ?? ''));
+            if ($lastNumber !== '') {
+                $extra['range'] = ['facturaTo' => $lastNumber];
+            }
+
+            $res = $svc->create($outletId, $name, $extra);
             // `create()` ya publica el evento de realtime.
             return [
                 'id'              => (string) ($res['id'] ?? ''),
                 'name'            => $name,
                 'outletId'        => $outletId,
                 'expeditionPoint' => (string) ($payload['expeditionPoint'] ?? ''),
+                // El número desde el que va a emitir, explícito: es el dato que
+                // el usuario tiene que poder cotejar contra su timbrado.
+                'initialInvoiceNumber' => $initialNumber !== '' ? $initialNumber : '1',
+                'lastInvoiceNumber'    => $lastNumber !== '' ? $lastNumber : null,
             ];
         }
 

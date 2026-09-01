@@ -126,6 +126,21 @@ function aiConfirmValidateAction(string $action, mixed $payload): void
             if (empty(trim((string) ($payload['phone'] ?? '')))) {
                 apiError('phone es obligatorio', 400);
             }
+            // PIN de la caja. OPCIONAL —igual que en el form de equipo del
+            // panel: no todo usuario que se da de alta opera una caja (un
+            // contador que solo entra al panel no necesita PIN)—, pero si
+            // viene tiene que ser válido ANTES de emitir el token: el modelo
+            // recibe así el "son 4 dígitos" a tiempo para repreguntarlo, en
+            // lugar de que el usuario confirme una tarjeta que iba a fallar.
+            //
+            // El regex NO se copia: es la constante de `UsersService`, que es
+            // quien aplica la misma regla al escribir. La UNICIDAD del PIN
+            // dentro del comercio sí queda del lado del service — depende del
+            // estado de la BD y no de la forma del payload.
+            $lockPass = trim((string) ($payload['lockPass'] ?? ''));
+            if ($lockPass !== '' && !preg_match(\Punto\Api\Users\UsersService::LOCK_PASS_PATTERN, $lockPass)) {
+                apiError('El PIN de la caja debe ser de 4 dígitos numéricos', 400);
+            }
             break;
 
         case 'create_category':

@@ -41,6 +41,34 @@ final class ContactPayload
     public const ADDRESS_FIELDS = ['address', 'city', 'location', 'lat', 'lng'];
 
     /**
+     * Identificadores fiscales y personales del contacto.
+     *
+     * `tin` → `contactTIN` (el identificador TRIBUTARIO: RUC en Paraguay, CUIT
+     * en Argentina, RUT en Chile) y `ci` → `contactCI` (el documento PERSONAL:
+     * cédula, DNI, CPF). Los mapea `ContactService::mapToColumns()`, que ya los
+     * conocía — lo que faltaba era que las acciones del agente se los pasaran.
+     *
+     * Sin ellos el agente no podía cargar el dato que hace falta para
+     * FACTURARLE a ese cliente: el receptor de un documento electrónico se
+     * identifica por su RUC o su cédula, y un contacto creado por el agente
+     * quedaba inutilizable para eso.
+     *
+     * NO se valida el FORMATO en ningún punto del camino del agente, y es a
+     * propósito: el formato de estos documentos es POR PAÍS y el proyecto no
+     * hardcodea Paraguay. La única regla que sí corre es la UNICIDAD del
+     * documento personal, que vive en `ContactService::assertIdentityIsFree()`
+     * y devuelve un mensaje que ya nombra al contacto en conflicto. El nombre
+     * con el que se le habla al usuario de cada uno sale de
+     * `CountryDefaults::taxIdLabel()/personalIdLabel()` según el país del
+     * tenant — nunca de un literal.
+     *
+     * `contactIdType` (Tabla 3 de la SET) NO se expone al agente: lo INFIERE
+     * `ContactService::inferIdType()` a partir de tin/ci, y es feature
+     * exclusiva de Paraguay gateada por país dentro del service.
+     */
+    public const IDENTITY_FIELDS = ['tin', 'ci'];
+
+    /**
      * Valida las coordenadas de un payload de contacto.
      *
      * Las coordenadas van de a PAR: `ContactService::mapToAddress()` solo las
