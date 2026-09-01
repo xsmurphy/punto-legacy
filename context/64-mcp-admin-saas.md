@@ -39,6 +39,16 @@ comercio X?".
   qué — más parecido a la impersonación que `/admin` ya tiene que a una API
   key permanente.
 
+- **D6 — El MCP solo LEE lo persistido en `tenant_health`; nunca recalcula.**
+  Cerrada por el owner (2026-09-01). `computeAll()` recorre todos los tenants
+  y su `force` existe para el recálculo programado, no para una consulta de
+  chat: una pregunta casual del operador no puede disparar el recómputo de
+  toda la cartera. El MCP responde con la última foto y **declara cuándo se
+  calculó** (`computed_at` ya está en la tabla), que es lo honesto — un score
+  de hace tres días presentado como "ahora" es peor que uno viejo con fecha.
+  Corolario: si la foto envejece, el problema es la frecuencia del job que la
+  refresca, no el MCP.
+
 ## Estado del código (verificado)
 
 **El semáforo y los agregados ya existen — no hay que calcular nada nuevo:**
@@ -200,8 +210,6 @@ encontrar:
 - Si el churn que hoy calcula `AdminReportsService` (bajas por mes) alcanza,
   o hace falta una métrica de churn de ingresos (MRR perdido, no solo
   cuentas).
-- Si el semáforo se recalcula on-demand cuando el MCP lo pide, o solo lee lo
-  persistido en `tenant_health` (`computeAll()` ya soporta `force`).
 
 ## Arquitecturas rechazadas — no reintroducir
 
