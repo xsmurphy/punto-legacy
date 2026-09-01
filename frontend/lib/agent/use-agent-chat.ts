@@ -34,9 +34,14 @@ const ACTION_TO_QUERY_KEYS: Record<string, readonly string[][]> = {
   create_item: [["items"]],
   update_item_price: [["items"]],
   create_user: [["team"]],
+  assign_role: [["team"]],
   create_category: [["categories"], ["taxonomies"]],
   create_brand: [["brands"], ["taxonomies"]],
   create_tag: [["tags"], ["taxonomies"]],
+  // Crear una sucursal crea TAMBIÉN su caja inicial (invariante de la cadena
+  // de alta, `OutletsService::create`), así que invalida las dos listas.
+  create_outlet: [["outlets"], ["registers"]],
+  create_register: [["registers"]],
   tabular_import: [["contacts"], ["items"]],
 }
 
@@ -51,6 +56,8 @@ const ALL_AGENT_KEYS: readonly string[][] = [
   ["brands"],
   ["tags"],
   ["taxonomies"],
+  ["outlets"],
+  ["registers"],
 ]
 
 /**

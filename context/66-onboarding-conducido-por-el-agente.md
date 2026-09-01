@@ -1,12 +1,10 @@
 # 66 — Onboarding conducido por el agente
 
-> Estado: **PLAN, sin implementar.** Fecha 2026-09-01. D1-D2 cerradas por el
+> Estado: **F0 y F1 implementadas (2026-09-01); F2-F5 sin implementar.** D1-D2 cerradas por el
 > owner, no relitigar. El resto (D3-D4, fases, mecanismo de traza) son
 > PROPUESTAS mías y necesitan su OK — marcadas **[?]**.
 >
-> **BLOQUEANTE, léase primero**: F0 (§Prerequisito) no es parte del plan, es
-> lo que hay que arreglar ANTES de escribir una línea de este plan. Sin eso,
-> D2 no se puede cumplir — ver abajo por qué.
+> **F0 (§Prerequisito) ya está resuelto** — era el bloqueante de todo lo demás.
 
 ## Qué pidió el owner
 
@@ -172,7 +170,7 @@ criterio a `assign_role` es consistente; crear roles necesita su OK explícito.
 | Fase | Qué | Depende de |
 |---|---|---|
 | **F0** | ~~Fix de atribución en `tenant_audit` (§Prerequisito)~~ **IMPLEMENTADA 2026-09-01** — `api/lib/Auth/AuditActor.php`, llamada desde `apiAuthTenant()` antes de auditar | — (ya no bloquea) |
-| **F1** | Sumar `create_register`/`create_outlet`/`assign_role` al catálogo: `confirm.php`, `AgentActor::requiredPermission()`, `execute.php` (D4) | F0 |
+| **F1** | ~~Sumar `create_register`/`create_outlet`/`assign_role` al catálogo~~ **IMPLEMENTADA 2026-09-01** — las tres bloqueadas en la caja; `RegisterAdminService` pasó a lanzar `RegisterAdminException` en vez de `apiError()` para no abortar el lote; los roles se resuelven contra `RoleService::getRoles()` (`UsersService::roles()` era una const de un elemento y dejaba a `create_user` sin ningún rol asignable) | — (ya no bloquea) |
 | **F2** | Registro de intención (D2): campo `rawRequest` de punta a punta (chat → `register_action` → `/v1/ai/confirm`) + mecanismo de traza (D3, a decidir) | F0 |
 | **F3** | Onboarding conducido: el bot pregunta lo que falta (nombres, timbrados) siguiendo el ejemplo del owner — prompt/orquestación, sin backend nuevo si F6 se deriva | F1 |
 | **F4** | Checklist de estado — ver abajo | F1 |

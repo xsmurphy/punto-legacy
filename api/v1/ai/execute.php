@@ -19,6 +19,9 @@
 require_once __DIR__ . '/../../bootstrap.php';
 require_once API_APP_DIR . '/includes/ai_confirm_store.php';
 require_once dirname(__DIR__, 2) . '/lib/Ai/AgentActor.php';
+// Se carga arriba y no dentro del `case`: el `catch` del loop la nombra, y una
+// clase que solo existe si esa rama corrió deja el catch sin matchear.
+require_once dirname(__DIR__, 2) . '/lib/services/RegisterAdminException.php';
 
 // Realm `pos-app` (context/59, pedido del owner 2026-08-31): el asistente de la
 // caja pasa a poder ESCRIBIR, pero solo lo que el rol del OPERADOR permita.
@@ -59,6 +62,64 @@ $actions       = $storedPayload['actions'] ?? null;
 
 if (!is_array($actions) || count($actions) < 1) {
     apiError('El token no contiene acciones ejecutables', 422);
+}
+
+/**
+ * Resuelve un rol POR NOMBRE contra el catálogo REAL del tenant.
+ * Compartido por `create_user` y `assign_role`: las dos acciones reciben
+ * del modelo un nombre de rol en castellano y ninguna puede inventarse su
+ * propia forma de resolverlo.
+ *
+ * El catálogo es `RoleService::getRoles()` — la tabla `taxonomy` con los roles
+ * del comercio, seeds y customs. NO `UsersService::roles()`, que devuelve una
+ * const de UN elemento ('Super Admin') y era lo que consultaba `create_user`:
+ * con ese catálogo, cualquier rol real del tenant ("Cajero", "Encargado")
+ * respondía "no existe en el tenant", y el único nombre que resolvía era
+ * justo el que la lista negra de abajo rechaza. O sea que la acción no podía
+ * terminar bien de ninguna manera. Se arregla acá, en el resolver compartido,
+ * y no en cada `case`.
+ *
+ * Devuelve el rol CANÓNICO —id y nombre tal como los tiene el comercio—, no el
+ * string que tipeó el modelo: lo que se le muestra al usuario después tiene que
+ * ser el nombre real del rol, no su paráfrasis ("cajero" → "Cajero").
+ *
+ * @return array{id: string, name: string}
+ * @throws \InvalidArgumentException si el rol es admin o no existe.
+ */
+function aiResolveRoleByName(string $roleName, string $companyId): array
+{
+    $roleName = trim($roleName);
+    if ($roleName === '') {
+        throw new \InvalidArgumentException('roleName requerido');
+    }
+    $roleNameLower = mb_strtolower($roleName);
+
+    // Bloqueo de roles admin desde el agente (defense in depth — el alcance del
+    // agente es operativo, ver [[ai-agent-scope-limits]]). La lista negra por
+    // nombre no alcanza y nunca alcanzó (no incluye "Dueño"): el guard que de
+    // verdad sostiene la regla es RoleEscalation, que compara SETS de permisos.
+    // Esta se conserva porque corta antes y con un mensaje que el agente puede
+    // repetirle al cliente sin hablar de permisos.
+    if (in_array($roleNameLower, ['super admin', 'admin', 'administrador'], true)) {
+        throw new \InvalidArgumentException('Role admin no permitido desde el agente');
+    }
+
+    require_once dirname(__DIR__, 2) . '/lib/Auth/RoleService.php';
+    $disponibles = [];
+    foreach (\RoleService::getRoles($companyId) as $r) {
+        $nombre = (string) ($r['name'] ?? '');
+        if (mb_strtolower($nombre) === $roleNameLower) {
+            return ['id' => (string) $r['id'], 'name' => $nombre];
+        }
+        $disponibles[] = $nombre;
+    }
+
+    // El mensaje lista los roles que SÍ existen: de este error sale la
+    // repregunta del bot al cliente ("¿cuál de estos?"), no solo el log.
+    throw new \InvalidArgumentException(
+        "Role '$roleName' no existe en el tenant" .
+        ($disponibles !== [] ? '. Roles disponibles: ' . implode(', ', $disponibles) : '')
+    );
 }
 
 /**
@@ -165,39 +226,24 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
 
         case 'create_user': {
             $roleName = trim((string) ($payload['roleName'] ?? ''));
-            if ($roleName === '') {
-                throw new \InvalidArgumentException('roleName requerido');
-            }
-            $roleNameLower = strtolower($roleName);
-            // Bloqueo de roles admin desde el agente (defense in depth — el
-            // alcance del agente es operativo, ver [[ai-agent-scope-limits]]).
-            if (in_array($roleNameLower, ['super admin', 'admin', 'administrador'], true)) {
-                throw new \InvalidArgumentException('Role admin no permitido desde el agente');
-            }
-
-            $svc    = new \Punto\Api\Users\UsersService();
-            $roleId = null;
-            foreach ($svc->roles($companyId) as $r) {
-                if (strtolower((string) $r['name']) === $roleNameLower) {
-                    $roleId = $r['id'];
-                    break;
-                }
-            }
-            if ($roleId === null) {
-                // No crear usuarios huérfanos sin rol — error explícito para
-                // que el agente pueda informar y reintentar con un role válido.
-                throw new \InvalidArgumentException("Role '$roleName' no existe en el tenant");
-            }
+            // Resolución + lista negra de nombres admin: resolver compartido.
+            // No crear usuarios huérfanos sin rol — lanza con un mensaje que el
+            // agente puede usar para repreguntar con los roles que sí existen.
+            $rol      = aiResolveRoleByName($roleName, $companyId);
+            $roleId   = $rol['id'];
+            $roleName = $rol['name'];
 
             // MISMA regla anti-escalación que /v1/users (RoleEscalation, lib/Auth).
-            // La lista negra de nombres de arriba no alcanza y nunca alcanzó:
+            // La lista negra de nombres del resolver no alcanza y nunca alcanzó:
             // bloquea 'super admin'/'admin'/'administrador' pero NO "Dueño",
             // que es el nombre del seed owner — o sea que pedirle al agente un
             // usuario con rol Dueño fabricaba un co-dueño del comercio. El
             // guard compara SETS de permisos contra el rol del operador, así
             // que no depende de acertarle a ningún nombre.
             require_once dirname(__DIR__, 2) . '/lib/Auth/RoleEscalation.php';
-            RoleEscalation::guardOrThrow((string) $roleId, $companyId, 'crear un usuario con');
+            RoleEscalation::guardOrThrow($roleId, $companyId, 'crear un usuario con');
+
+            $svc = new \Punto\Api\Users\UsersService();
 
             // Contraseña temporal server-side: 16 chars hex = 64 bits de entropy.
             // Se devuelve al operador (sesión autenticada del propio admin) en la
@@ -246,6 +292,120 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             $newId = $svc->create($companyId, ['name' => $payload['name']]);
             realtimePublish('tag', 'create', (string) $newId);
             return ['id' => $newId];
+        }
+
+        case 'assign_role': {
+            $targetId = trim((string) ($payload['id'] ?? ''));
+
+            // Nadie cambia su propio rol, ni siquiera para bajárselo: es la vía
+            // más corta a la escalación y no tiene caso de uso legítimo. Va
+            // PRIMERO, igual que en /v1/users PUT — si corriera después de los
+            // guards de escalación, pedir "bajame a Cajero" respondería un
+            // mensaje sobre permisos ajenos en vez del motivo real. Acá el "uno
+            // mismo" es el ACTOR que le habla al agente ($userId ya es el
+            // operador, no la credencial), así que la regla vale igual pedida
+            // por chat que por el panel.
+            if ($targetId === $userId) {
+                throw new \InvalidArgumentException('No podés cambiar tu propio rol');
+            }
+
+            $rol    = aiResolveRoleByName((string) ($payload['roleName'] ?? ''), $companyId);
+            $roleId = $rol['id'];
+
+            $svc    = new \Punto\Api\Users\UsersService();
+            $target = $svc->get($targetId, $companyId);
+            if ($target === null) {
+                throw new \InvalidArgumentException('Ese usuario no existe en el comercio');
+            }
+
+            require_once dirname(__DIR__, 2) . '/lib/Auth/RoleEscalation.php';
+            // Los MISMOS dos guards que /v1/users PUT, en el mismo orden:
+            //   1. el rol ACTUAL del target — sin esto un Encargado le cambia
+            //      el rol al Dueño y se queda con el comercio;
+            //   2. el rol que se va a asignar — sin esto se reparte hacia
+            //      arriba lo que uno mismo no tiene.
+            // Van los dos porque cubren direcciones distintas y ninguno
+            // implica al otro.
+            RoleEscalation::guardOrThrow((string) ($target['roleId'] ?? null), $companyId, 'editar un usuario con');
+            RoleEscalation::guardOrThrow($roleId, $companyId, 'asignar');
+
+            if (!$svc->update($targetId, $companyId, ['roleId' => $roleId])) {
+                throw new \RuntimeException('No se pudo asignar el rol');
+            }
+            realtimePublish('user', 'update', $targetId);
+            return [
+                'id'              => $targetId,
+                'userDisplayName' => $target['name'] ?? $targetId,
+                'roleName'        => $rol['name'],
+            ];
+        }
+
+        case 'create_outlet': {
+            $name = trim((string) ($payload['name'] ?? ''));
+            $svc  = new \Punto\Api\Outlets\OutletsService();
+            // El servicio es el ÚNICO creador válido: la sucursal nace
+            // encadenada a su depósito por defecto y a una caja inicial
+            // (invariante del owner 2026-08-24, arnés
+            // `outlet_chain_invariant_test.php`). Un INSERT desde acá dejaría
+            // una sucursal en la que no se puede guardar stock ni abrir turno.
+            $newId = $svc->create($companyId, ['name' => $name, 'status' => 1]);
+            if (!$newId) {
+                throw new \RuntimeException('No se pudo crear la sucursal');
+            }
+            // Sin `realtimePublish`: hoy NINGÚN camino de alta de sucursal
+            // emite evento (tampoco el POST de /v1/outlets), así que el front
+            // no tiene invalidación registrada para la entidad `outlet`.
+            // Emitirlo solo desde el agente sería un evento que nadie escucha.
+            return [
+                'id'   => (string) $newId,
+                'name' => $name,
+                // Se declara para que el agente pueda contárselo al cliente en
+                // vez de que aparezca una caja que nadie pidió.
+                'note' => 'La sucursal se creó con su depósito y una caja inicial ("Nueva Caja").',
+            ];
+        }
+
+        case 'create_register': {
+            $name     = trim((string) ($payload['name'] ?? ''));
+            $outletId = trim((string) ($payload['outletId'] ?? ''));
+
+            // El modelo casi nunca tiene el uuid: resuelve por NOMBRE de
+            // sucursal, mismo patrón que categoryName/brandName en create_item.
+            if ($outletId === '') {
+                $outletName = trim((string) ($payload['outletName'] ?? ''));
+                $row = ncmExecute(
+                    'SELECT outletId FROM outlet WHERE companyId = ? AND outletName ILIKE ? LIMIT 1',
+                    [$companyId, $outletName]
+                );
+                $outletId = (string) ($row['outletId'] ?? $row['outletid'] ?? '');
+                if ($outletId === '') {
+                    throw new \InvalidArgumentException("La sucursal '$outletName' no existe en el comercio");
+                }
+            }
+
+            require_once dirname(__DIR__, 2) . '/lib/services/RegisterAdminService.php';
+            // TODA la validación fiscal es del servicio y NO se replica acá:
+            // el par (timbrado, punto de expedición) tiene que ser único por
+            // comercio porque dos cajas que lo compartan emiten facturas con
+            // el mismo número, y eso es ilegal ante la SET (context/29). Una
+            // segunda copia de esa regla en el ejecutor del agente es una
+            // copia que se queda vieja. El servicio rechaza con
+            // `RegisterAdminException` y su mensaje ya está escrito para que
+            // lo lea el usuario: dice con qué caja choca y qué hacer.
+            $svc = new \Punto\Api\Services\RegisterAdminService($companyId);
+            $res = $svc->create($outletId, $name, [
+                'fiscal' => [
+                    'invoiceAuth'   => (string) ($payload['timbrado'] ?? ''),
+                    'invoicePrefix' => (string) ($payload['expeditionPoint'] ?? ''),
+                ],
+            ]);
+            // `create()` ya publica el evento de realtime.
+            return [
+                'id'              => (string) ($res['id'] ?? ''),
+                'name'            => $name,
+                'outletId'        => $outletId,
+                'expeditionPoint' => (string) ($payload['expeditionPoint'] ?? ''),
+            ];
         }
 
         case 'tabular_import': {
@@ -323,6 +483,16 @@ foreach ($actions as $payload) {
         $results[] = ['action' => $action, 'ok' => true, 'data' => $data];
         $okCount++;
     } catch (\InvalidArgumentException $e) {
+        $results[] = ['action' => $action, 'ok' => false, 'error' => $e->getMessage()];
+        $failCount++;
+    } catch (\Punto\Api\Services\RegisterAdminException $e) {
+        // ANTES del catch de RuntimeException (del que hereda): las reglas de
+        // caja —punto de expedición ocupado, nombre repetido, número que
+        // pisaría una factura emitida— son respuestas de NEGOCIO con un
+        // mensaje escrito para el usuario. Tragarlas en el "Error ejecutando
+        // la acción" genérico dejaría al agente sin nada que contarle al
+        // cliente justo en el error que más repregunta necesita, y mandaría a
+        // error_log algo que no es un incidente.
         $results[] = ['action' => $action, 'ok' => false, 'error' => $e->getMessage()];
         $failCount++;
     } catch (\Punto\Api\Contacts\DuplicateContactException $e) {

@@ -44,9 +44,12 @@ const ACTION_LABELS: Record<string, string> = {
   create_item: "Crear ítem",
   update_item_price: "Cambiar precio",
   create_user: "Crear usuario",
+  assign_role: "Cambiar rol de usuario",
   create_category: "Crear categoría",
   create_brand: "Crear marca",
   create_tag: "Crear etiqueta",
+  create_outlet: "Crear sucursal",
+  create_register: "Crear caja",
   tabular_import: "Importar archivo",
 }
 

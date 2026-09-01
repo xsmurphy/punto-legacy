@@ -58,48 +58,60 @@ if ($method === 'POST') {
 
     $adminSvc = new RegisterAdminService($companyId);
 
-    if ($action === 'create') {
-        $reqOutletId = trim((string)($body['outletId'] ?? ''));
-        $name        = trim((string)($body['name'] ?? ''));
-        // Timbrado + numeración van en el ALTA: la caja es el punto de
-        // expedición y el número desde el que arranca es dato del timbrado que
-        // la SET le autorizó, no una config posterior.
-        $extra = [];
-        foreach (['fiscal', 'numbering', 'range', 'padWidth'] as $k) {
-            if (isset($body[$k]) && is_array($body[$k])) { $extra[$k] = $body[$k]; }
-        }
-        apiOk($adminSvc->create($reqOutletId, $name, $extra));
-    }
+    // Las reglas de negocio del servicio (nombre repetido, punto de expedición
+    // ya usado con el mismo timbrado, número que pisaría una factura emitida)
+    // viajan como `RegisterAdminException` desde que el ejecutor del agente IA
+    // también crea cajas y no puede tolerar un `exit` a mitad de su lote. Acá
+    // se traducen a la MISMA respuesta HTTP de siempre: mismo mensaje, mismo
+    // status. El panel no ve ninguna diferencia.
+    try {
 
-    if ($action === 'update') {
-        $id     = trim((string)($body['id'] ?? ''));
-        $fields = [];
-        if (isset($body['name']))   { $fields['name']   = $body['name']; }
-        if (isset($body['status'])) { $fields['status'] = filter_var($body['status'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool)$body['status']; }
-        // Timbrado de la caja (número, EEE-PPP, vigencia) — la caja es el
-        // punto de expedición; ver RegisterAdminService::update.
-        if (isset($body['fiscal']) && is_array($body['fiscal'])) { $fields['fiscal'] = $body['fiscal']; }
-        // Próximo número por documento y fin del rango autorizado — mueven
-        // `document_sequence`; ver RegisterAdminService::update.
-        if (isset($body['numbering']) && is_array($body['numbering'])) { $fields['numbering'] = $body['numbering']; }
-        if (isset($body['range']) && is_array($body['range']))         { $fields['range']     = $body['range']; }
-        // Cantidad de dígitos del correlativo impreso, por documento (mig
-        // 158). Es formato, no número: viaja aparte de `numbering` porque el
-        // valor guardado sigue siendo el entero.
-        if (isset($body['padWidth']) && is_array($body['padWidth']))   { $fields['padWidth']  = $body['padWidth']; }
-        // Control de caja a ciegas — flag panel-only (el device lo lee en
-        // GET ?resource=config pero su PUT no puede tocarlo).
-        if (isset($body['blindControl'])) {
-            $fields['blindControl'] = filter_var($body['blindControl'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool)$body['blindControl'];
+        if ($action === 'create') {
+            $reqOutletId = trim((string)($body['outletId'] ?? ''));
+            $name        = trim((string)($body['name'] ?? ''));
+            // Timbrado + numeración van en el ALTA: la caja es el punto de
+            // expedición y el número desde el que arranca es dato del timbrado que
+            // la SET le autorizó, no una config posterior.
+            $extra = [];
+            foreach (['fiscal', 'numbering', 'range', 'padWidth'] as $k) {
+                if (isset($body[$k]) && is_array($body[$k])) { $extra[$k] = $body[$k]; }
+            }
+            apiOk($adminSvc->create($reqOutletId, $name, $extra));
         }
-        if ($id === '') { apiError('id requerido', 422); }
-        apiOk($adminSvc->update($id, $fields));
-    }
 
-    if ($action === 'delete') {
-        $id = trim((string)($body['id'] ?? ''));
-        if ($id === '') { apiError('id requerido', 422); }
-        apiOk($adminSvc->delete($id));
+        if ($action === 'update') {
+            $id     = trim((string)($body['id'] ?? ''));
+            $fields = [];
+            if (isset($body['name']))   { $fields['name']   = $body['name']; }
+            if (isset($body['status'])) { $fields['status'] = filter_var($body['status'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool)$body['status']; }
+            // Timbrado de la caja (número, EEE-PPP, vigencia) — la caja es el
+            // punto de expedición; ver RegisterAdminService::update.
+            if (isset($body['fiscal']) && is_array($body['fiscal'])) { $fields['fiscal'] = $body['fiscal']; }
+            // Próximo número por documento y fin del rango autorizado — mueven
+            // `document_sequence`; ver RegisterAdminService::update.
+            if (isset($body['numbering']) && is_array($body['numbering'])) { $fields['numbering'] = $body['numbering']; }
+            if (isset($body['range']) && is_array($body['range']))         { $fields['range']     = $body['range']; }
+            // Cantidad de dígitos del correlativo impreso, por documento (mig
+            // 158). Es formato, no número: viaja aparte de `numbering` porque el
+            // valor guardado sigue siendo el entero.
+            if (isset($body['padWidth']) && is_array($body['padWidth']))   { $fields['padWidth']  = $body['padWidth']; }
+            // Control de caja a ciegas — flag panel-only (el device lo lee en
+            // GET ?resource=config pero su PUT no puede tocarlo).
+            if (isset($body['blindControl'])) {
+                $fields['blindControl'] = filter_var($body['blindControl'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? (bool)$body['blindControl'];
+            }
+            if ($id === '') { apiError('id requerido', 422); }
+            apiOk($adminSvc->update($id, $fields));
+        }
+
+        if ($action === 'delete') {
+            $id = trim((string)($body['id'] ?? ''));
+            if ($id === '') { apiError('id requerido', 422); }
+            apiOk($adminSvc->delete($id));
+        }
+
+    } catch (\Punto\Api\Services\RegisterAdminException $e) {
+        apiError($e->getMessage(), $e->httpCode());
     }
 }
 

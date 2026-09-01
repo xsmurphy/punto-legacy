@@ -2,6 +2,8 @@
 declare(strict_types=1);
 namespace Punto\Api\Services;
 
+require_once __DIR__ . '/RegisterAdminException.php';
+
 use Punto\Api\Documents\DocumentNumber;
 use Punto\Api\Sales\SaleType;
 
@@ -241,7 +243,7 @@ final class RegisterAdminService
         $outletId = trim($outletId);
 
         if ($name === '' || $outletId === '') {
-            apiError('outletId y name son requeridos', 422);
+            throw new RegisterAdminException('outletId y name son requeridos', 422);
         }
 
         // Guard: outlet pertenece al tenant
@@ -250,7 +252,7 @@ final class RegisterAdminService
             [$outletId, $this->companyId]
         );
         if (!$outlet) {
-            apiError('Sucursal no encontrada', 422);
+            throw new RegisterAdminException('Sucursal no encontrada', 422);
         }
 
         // Guard: nombre único en el outlet (solo entre activas)
@@ -262,13 +264,14 @@ final class RegisterAdminService
             [$this->companyId, $outletId, $name]
         );
         if ($dup) {
-            apiError('Ya existe una caja con ese nombre en la sucursal', 409);
+            throw new RegisterAdminException('Ya existe una caja con ese nombre en la sucursal', 409);
         }
 
         // Caja + secuencias + timbrado en UNA transacción: el timbrado se
-        // valida recién en update(), y un `apiError` ahí corta el request. Sin
-        // la transacción quedaría una caja creada a medias, sin el timbrado que
-        // el operador acaba de cargar y sin forma de darse cuenta.
+        // valida recién en update(), y si ahí salta el guard del punto de
+        // expedición el alta entera se cae. Sin la transacción quedaría una
+        // caja creada a medias, sin el timbrado que el operador acaba de
+        // cargar y sin forma de darse cuenta.
         global $db;
         $db->StartTrans();
 
@@ -294,7 +297,18 @@ final class RegisterAdminService
         // nueva, pero no se duplica la regla).
         $fields = array_intersect_key($extra, array_flip(['fiscal', 'numbering', 'range', 'blindControl', 'padWidth']));
         if ($fields !== []) {
-            $this->update($id, $fields);
+            // La transacción se cierra a mano antes de propagar: desde que las
+            // reglas lanzan en vez de hacer `exit`, el caller sigue vivo y
+            // atiende otras operaciones (el lote del agente IA ejecuta las
+            // acciones que faltan). Salir de acá con la TX abierta le dejaría
+            // la conexión envenenada a todo lo que venga después.
+            try {
+                $this->update($id, $fields);
+            } catch (\Throwable $e) {
+                $db->FailTrans();
+                $db->CompleteTrans();
+                throw $e;
+            }
         }
 
         $db->CompleteTrans();
@@ -315,7 +329,7 @@ final class RegisterAdminService
             [$id, $this->companyId]
         );
         if (!$reg) {
-            apiError('Caja no encontrada', 404);
+            throw new RegisterAdminException('Caja no encontrada', 404);
         }
         // `data` viene aplanado por Query::flattenJsonb (la columna se hace
         // unset), así que el prefijo actual se lee como clave de la fila.
@@ -329,7 +343,7 @@ final class RegisterAdminService
         if (array_key_exists('name', $fields)) {
             $name = trim((string)$fields['name']);
             if ($name === '') {
-                apiError('El nombre no puede estar vacío', 422);
+                throw new RegisterAdminException('El nombre no puede estar vacío', 422);
             }
             // Guard: nombre único en el outlet (excluyendo la caja actual)
             $dup = ncmExecute(
@@ -341,7 +355,7 @@ final class RegisterAdminService
                 [$this->companyId, $reg['outletId'] ?? $reg['outletid'], $name, $id]
             );
             if ($dup) {
-                apiError('Ya existe una caja con ese nombre en la sucursal', 409);
+                throw new RegisterAdminException('Ya existe una caja con ese nombre en la sucursal', 409);
             }
             $setParts[] = 'registerName = ?';
             $params[]   = $name;
@@ -356,7 +370,7 @@ final class RegisterAdminService
         // El chequeo NO se hace acá sino junto a la mutación, más abajo: el
         // guard bloquea una fila y ese lock solo sirve si cubre la ventana
         // entre el chequeo y la escritura. Entre este punto y el UPDATE quedan
-        // decenas de validaciones que responden con `apiError()`, y abrir la
+        // decenas de validaciones que rechazan lanzando, y abrir la
         // transacción antes de ellas las haría salir con la TX abierta.
         $desactivando = false;
         if (array_key_exists('status', $fields)) {
@@ -383,14 +397,14 @@ final class RegisterAdminService
             if (array_key_exists('invoiceAuth', $fc)) {
                 $auth = trim((string) $fc['invoiceAuth']);
                 if ($auth !== '' && !preg_match('/^\d+$/', $auth)) {
-                    apiError('El número de timbrado debe ser numérico', 422);
+                    throw new RegisterAdminException('El número de timbrado debe ser numérico', 422);
                 }
                 $fiscalPatch['registerInvoiceAuth'] = $auth === '' ? null : (int) $auth;
             }
             if (array_key_exists('invoicePrefix', $fc)) {
                 $prefix = trim((string) $fc['invoicePrefix']);
                 if ($prefix !== '' && !preg_match('/^\d{3}-\d{3}$/', $prefix)) {
-                    apiError('Establecimiento y punto de expedición van como EEE-PPP (ej. 001-001)', 422);
+                    throw new RegisterAdminException('Establecimiento y punto de expedición van como EEE-PPP (ej. 001-001)', 422);
                 }
 
                 // ── Un mismo par (timbrado, punto de expedición), UNA caja ──
@@ -417,7 +431,7 @@ final class RegisterAdminService
                 if (array_key_exists($in, $fc)) {
                     $v = trim((string) $fc[$in]);
                     if ($v !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $v)) {
-                        apiError('Las fechas del timbrado van como YYYY-MM-DD', 422);
+                        throw new RegisterAdminException('Las fechas del timbrado van como YYYY-MM-DD', 422);
                     }
                     $fiscalPatch[$key] = $v === '' ? null : $v;
                 }
@@ -445,14 +459,14 @@ final class RegisterAdminService
         if (array_key_exists('padWidth', $fields) && is_array($fields['padWidth'])) {
             foreach ($fields['padWidth'] as $docType => $raw) {
                 if (!in_array($docType, self::DOC_TYPES, true)) {
-                    apiError('Tipo de documento desconocido: ' . (string) $docType, 422);
+                    throw new RegisterAdminException('Tipo de documento desconocido: ' . (string) $docType, 422);
                 }
                 $w = trim((string) $raw);
                 if ($w === '') {
                     continue;   // "no lo toques", igual que en numbering
                 }
                 if (!preg_match('/^\d+$/', $w) || (int) $w < 1 || (int) $w > 12) {
-                    apiError('La cantidad de dígitos debe estar entre 1 y 12', 422);
+                    throw new RegisterAdminException('La cantidad de dígitos debe estar entre 1 y 12', 422);
                 }
                 $padWidths[$docType] = (int) $w;
             }
@@ -462,7 +476,7 @@ final class RegisterAdminService
         if (array_key_exists('numbering', $fields) && is_array($fields['numbering'])) {
             foreach ($fields['numbering'] as $docType => $raw) {
                 if (!in_array($docType, self::DOC_TYPES, true)) {
-                    apiError('Tipo de documento desconocido: ' . (string) $docType, 422);
+                    throw new RegisterAdminException('Tipo de documento desconocido: ' . (string) $docType, 422);
                 }
                 $n = trim((string) $raw);
                 if ($n === '') {
@@ -472,7 +486,7 @@ final class RegisterAdminService
                     continue;
                 }
                 if (!preg_match('/^\d+$/', $n) || (int) $n < 1) {
-                    apiError('La numeración debe ser un entero positivo', 422);
+                    throw new RegisterAdminException('La numeración debe ser un entero positivo', 422);
                 }
 
                 // Compatibilidad con quien tipea el número CON los ceros
@@ -510,7 +524,7 @@ final class RegisterAdminService
                         array_merge([$id, $this->companyId, $n], $txTypes)
                     );
                     if ($used) {
-                        apiError(
+                        throw new RegisterAdminException(
                             'Ya existe un documento con el número ' . $n . ' en esta caja: no se puede duplicar',
                             409
                         );
@@ -532,7 +546,7 @@ final class RegisterAdminService
                         [$id, $this->companyId, $n]
                     );
                     if ($leased) {
-                        apiError(
+                        throw new RegisterAdminException(
                             'El número ' . $n . ' ya está reservado por una venta pendiente de sincronizar',
                             409
                         );
@@ -554,12 +568,12 @@ final class RegisterAdminService
             $rt = trim((string) $fields['range']['facturaTo']);
             if ($rt !== '') {
                 if (!preg_match('/^\d+$/', $rt) || (int) $rt < 1) {
-                    apiError('El fin del rango debe ser un entero positivo', 422);
+                    throw new RegisterAdminException('El fin del rango debe ser un entero positivo', 422);
                 }
                 $rangeTo = (int) $rt;
                 $from = $numbering['factura'] ?? null;
                 if ($from !== null && $rangeTo < $from) {
-                    apiError('El fin del rango no puede ser menor que la próxima factura', 422);
+                    throw new RegisterAdminException('El fin del rango no puede ser menor que la próxima factura', 422);
                 }
             }
         }
@@ -603,7 +617,7 @@ final class RegisterAdminService
         global $db;
 
         // De acá en adelante solo hay escrituras: ninguna validación más que
-        // pueda salir con `apiError()`. Recién ahora se abre la transacción,
+        // pueda rechazar lanzando. Recién ahora se abre la transacción,
         // que además vuelve atómico el par de UPDATEs + las secuencias.
         $db->StartTrans();
 
@@ -723,7 +737,7 @@ final class RegisterAdminService
             return;
         }
         $other = (string) ($clash['registerName'] ?? $clash['registername'] ?? '');
-        apiError(
+        throw new RegisterAdminException(
             'El punto de expedición ' . $prefix . ' ya está en uso con el mismo timbrado por la caja "' .
             $other . '". Dos cajas con el mismo timbrado y el mismo punto de expedición emitirían ' .
             'facturas con el mismo número: usá otro punto de expedición o un timbrado distinto.',
@@ -863,13 +877,13 @@ final class RegisterAdminService
         );
 
         if ((int) ($activasRow['cnt'] ?? 0) === 0) {
-            // La transacción se revierte ANTES de responder: `apiError()` hace
-            // exit, y salir con la TX abierta deja la conexión envenenada para
-            // lo que quede del request (mismo motivo que el catch de
-            // SignupService).
+            // La transacción se revierte ANTES de rechazar: la excepción sube
+            // hasta el caller, y salir con la TX abierta deja la conexión
+            // envenenada para lo que quede del request (mismo motivo que el
+            // catch de SignupService).
             $db->FailTrans();
             $db->CompleteTrans();
-            apiError(
+            throw new RegisterAdminException(
                 "No se puede {$accion} la última caja de la sucursal. Toda sucursal tiene sí o sí una caja: creá otra primero, o eliminá la sucursal entera.",
                 409
             );
@@ -896,14 +910,18 @@ final class RegisterAdminService
             [$id, $this->companyId]
         );
         if (!$reg) {
-            apiError('Caja no encontrada', 404);
+            throw new RegisterAdminException('Caja no encontrada', 404);
         }
         $estaActiva = (bool) ($reg['registerStatus'] ?? $reg['registerstatus'] ?? false);
 
         // Guard: devices activos — status=1 en tabla device.
-        // Va ANTES de abrir la transacción a propósito: responde con `exit`
-        // directo (necesita un payload que `apiError()` no sabe mandar), y
-        // salir con una TX abierta deja la conexión envenenada.
+        // Va ANTES de abrir la transacción a propósito: es el ÚNICO camino de
+        // este servicio que sigue respondiendo con `exit` directo, porque
+        // necesita mandar un payload extra (`devices`) que el envelope de
+        // `apiError()` no transporta. Salir con una TX abierta dejaría la
+        // conexión envenenada. TODO: cuando algún consumidor distinto de
+        // `/v1/register` necesite `delete()`, esto tiene que lanzar como el
+        // resto — hoy la baja de cajas no la ejecuta nadie más.
         $devRow = ncmExecute(
             'SELECT COUNT(*)::int AS cnt FROM device WHERE registerId = ? AND status = 1',
             [$id]

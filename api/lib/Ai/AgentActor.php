@@ -36,22 +36,24 @@ use Punto\Api\Auth\OperatorContext;
  * Bajo `panel` la credencial SÍ es la persona, así que el mismo objeto resuelve
  * contra `hasPermission()` y el comportamiento del panel no cambia en nada.
  *
- * ── `create_user` NO se puede pedir desde la caja ───────────────────────────
+ * ── Configurar el comercio NO se puede pedir desde la caja ─────────────────
  *
- * Es la única acción del agente que fabrica accesos al comercio, y se bloquea
- * por realm, explícitamente, acá abajo.
+ * Cuatro acciones se bloquean por realm, explícitamente, acá abajo: las que
+ * fabrican accesos al comercio (`create_user`, `assign_role`) y las que definen
+ * su estructura fiscal (`create_outlet`, `create_register`). Ninguna es tarea
+ * de cajero: son decisiones de dueño, se toman con el equipo delante y con el
+ * timbrado de la SET a mano, no de pie en el mostrador mientras espera un
+ * cliente.
  *
- * El motivo de que sea explícito importa: se creía que quedaba fuera de alcance
- * sola, porque exige `ai.agent.elevated` y `unlock-pin.php` filtra al prefijo
- * `pos.` los permisos que le manda al front. Eso es falso. Ese filtro decide qué
- * se CACHEA en la tablet, no qué evalúa el backend: `OperatorContext::can()`
- * consulta el rol real del operador, donde un encargado o un dueño sí tiene
- * `ai.agent.elevated` (ver el seed de `RoleService`). Sin este bloqueo, "creá un
- * usuario" desde el mostrador habría llegado hasta `RoleEscalation`, que además
- * lo habría rechazado con un mensaje sobre roles que no explica nada.
- *
- * Un empleado nuevo se da de alta desde el panel, con el equipo delante, no de
- * pie en la caja mientras espera un cliente.
+ * El motivo de que el bloqueo sea explícito importa: se creía que `create_user`
+ * quedaba fuera de alcance solo, porque exige `ai.agent.elevated` y
+ * `unlock-pin.php` filtra al prefijo `pos.` los permisos que le manda al front.
+ * Eso es falso. Ese filtro decide qué se CACHEA en la tablet, no qué evalúa el
+ * backend: `OperatorContext::can()` consulta el rol real del operador, donde un
+ * encargado o un dueño sí tiene `ai.agent.elevated` (ver el seed de
+ * `RoleService`). Lo mismo vale para `settings.outlet.manage` y
+ * `settings.register.manage`: el rol del encargado los tiene, así que sin este
+ * bloqueo "abrí una sucursal" desde el mostrador habría funcionado.
  */
 final class AgentActor
 {
@@ -65,11 +67,53 @@ final class AgentActor
      */
     public const POS_ENTRY_PERMISSION = 'pos.ai.use';
 
-    /** Clave elevada que exige `create_user` ADEMÁS de `contacts.user.manage`. */
+    /** Clave elevada que exigen las ELEVATED_ACTIONS ADEMÁS de su permiso propio. */
     public const ELEVATED_PERMISSION = 'ai.agent.elevated';
 
     /** Acciones que ninguna caja ejecuta, tenga el operador el rol que tenga. */
-    private const POS_BLOCKED_ACTIONS = ['create_user'];
+    private const POS_BLOCKED_ACTIONS = [
+        'create_user',
+        'assign_role',
+        'create_outlet',
+        'create_register',
+    ];
+
+    /**
+     * Permiso REAL que exige cada acción — el que la persona necesitaría para
+     * hacer eso mismo a mano por el panel. Es data, no lógica, y por eso vive
+     * en una constante: el arnés de permisos la lee por reflexión y verifica
+     * que toda acción del catálogo de `/v1/ai/confirm` tenga su gate, así una
+     * acción nueva sin entrada acá sale roja en vez de quedar sin control.
+     *
+     * `tabular_import` no figura: su permiso depende de QUÉ se importa y se
+     * resuelve del payload en `requiredPermission()`.
+     *
+     * No existe permiso propio para taxonomías (category/brand/tag): se gatean
+     * con `inventory.item.edit` (gestión de catálogo), el más restrictivo
+     * razonable.
+     */
+    private const ACTION_PERMISSION = [
+        'create_contact'    => 'contacts.customer.create',
+        'update_contact'    => 'contacts.customer.edit',
+        'create_item'       => 'inventory.item.create',
+        'update_item_price' => 'inventory.item.edit',
+        'create_user'       => 'contacts.user.manage',
+        'assign_role'       => 'contacts.user.manage',
+        'create_category'   => 'inventory.item.edit',
+        'create_brand'      => 'inventory.item.edit',
+        'create_tag'        => 'inventory.item.edit',
+        'create_outlet'     => 'settings.outlet.manage',
+        'create_register'   => 'settings.register.manage',
+    ];
+
+    /**
+     * Acciones que ADEMÁS exigen la clave elevada: las que tocan el equipo del
+     * comercio, o sea la puerta a más accesos. Crear un usuario y cambiarle el
+     * rol a uno existente son la misma superficie de riesgo — la segunda es
+     * incluso más directa, porque no fabrica una persona nueva sino que le
+     * cambia lo que puede hacer a una que ya entra todos los días.
+     */
+    private const ELEVATED_ACTIONS = ['create_user', 'assign_role'];
 
     private function __construct(
         private readonly string $realm,
@@ -163,37 +207,22 @@ final class AgentActor
      * persona necesitaría para hacerla a mano). El agente NUNCA puede ejecutar
      * algo que quien lo opera no esté autorizado a hacer por sí mismo.
      *
-     * Keys del catálogo canónico (PermissionCatalog):
-     *   - contactos:   contacts.customer.create / .edit, contacts.user.manage
-     *   - inventario:  inventory.item.create / .edit
-     * No existe permiso propio para taxonomías (category/brand/tag): se gatean
-     * con inventory.item.edit (gestión de catálogo), el más restrictivo
-     * razonable. tabular_import (operación masiva) exige el permiso de CREAR de
-     * la entidad importada — gate fuerte, resuelto por $payload['kind'].
+     * El mapa vive en `ACTION_PERMISSION`; acá quedan los dos casos que no son
+     * una constante: la clave elevada y el permiso de `tabular_import`
+     * (operación masiva), que exige el de CREAR de la entidad importada —
+     * gate fuerte, resuelto por $payload['kind'].
      *
      * @param array<string,mixed> $payload
      * @return string|null clave requerida, o null si la acción no tiene gate propio
      */
     public function requiredPermission(string $action, array $payload): ?string
     {
-        $actionPermission = [
-            'create_contact'    => 'contacts.customer.create',
-            'update_contact'    => 'contacts.customer.edit',
-            'create_item'       => 'inventory.item.create',
-            'update_item_price' => 'inventory.item.edit',
-            'create_user'       => 'contacts.user.manage',
-            'create_category'   => 'inventory.item.edit',
-            'create_brand'      => 'inventory.item.edit',
-            'create_tag'        => 'inventory.item.edit',
-        ];
-
-        // `create_user` es la única acción del agente que toca el equipo del
-        // comercio, o sea la puerta a más accesos. Exige la clave elevada ADEMÁS
-        // de contacts.user.manage — sin esto `ai.agent.elevated` era una clave
-        // decorativa del catálogo, mostrada en el panel y chequeada en ningún
-        // lado. Seed: manager y owner la tienen; cashier no. (Desde la caja la
-        // acción no llega hasta acá: la corta `allowsAction()`.)
-        if ($action === 'create_user' && !$this->can(self::ELEVATED_PERMISSION)) {
+        // Las acciones que tocan el equipo del comercio exigen la clave elevada
+        // ADEMÁS de contacts.user.manage — sin esto `ai.agent.elevated` era una
+        // clave decorativa del catálogo, mostrada en el panel y chequeada en
+        // ningún lado. Seed: manager y owner la tienen; cashier no. (Desde la
+        // caja estas acciones no llegan hasta acá: las corta `allowsAction()`.)
+        if (in_array($action, self::ELEVATED_ACTIONS, true) && !$this->can(self::ELEVATED_PERMISSION)) {
             return self::ELEVATED_PERMISSION;
         }
 
@@ -204,6 +233,6 @@ final class AgentActor
                 : 'inventory.item.create';
         }
 
-        return $actionPermission[$action] ?? null;
+        return self::ACTION_PERMISSION[$action] ?? null;
     }
 }

@@ -906,6 +906,117 @@ check('import: mode=insert con inventory.item.create → pasa el gate',
         . substr(trim($res['body']), 0, 240),
     $failures, $checks);
 
+// ═══════════════════════════════════════════════════════════════════════════
+// (G) Las acciones de CONFIGURACIÓN del agente IA (context/66 F1)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// El agente pasó a poder configurar la cuenta: crear sucursales, crear cajas y
+// cambiarle el rol a un usuario existente (D1 del owner, 2026-09-01). Son las
+// acciones de más alcance del catálogo —una define la estructura fiscal del
+// comercio, la otra reparte accesos— y las tres fallan en silencio si se les
+// olvida el gate: `requiredPermission()` devuelve null para una acción sin
+// entrada, y `execute.php` interpreta null como "esta acción no tiene gate
+// propio" y la deja pasar. O sea que olvidarse de mapearla no rompe nada
+// visible: la acción simplemente queda sin control.
+echo "\n=== (G) acciones de configuración del agente IA ===\n";
+
+require_once dirname(__DIR__) . '/lib/Ai/AgentActor.php';
+$refActor = new ReflectionClass(\Punto\Api\Ai\AgentActor::class);
+/** @var array<string,string> $mapaAccionPermiso */
+$mapaAccionPermiso = $refActor->getConstant('ACTION_PERMISSION');
+/** @var list<string> $bloqueadasEnCaja */
+$bloqueadasEnCaja  = $refActor->getConstant('POS_BLOCKED_ACTIONS');
+$elevadas          = $refActor->getConstant('ELEVATED_ACTIONS');
+
+foreach ([
+    'create_outlet'   => 'settings.outlet.manage',
+    'create_register' => 'settings.register.manage',
+    'assign_role'     => 'contacts.user.manage',
+] as $accion => $claveEsperada) {
+    check("agente: $accion exige $claveEsperada",
+        ($mapaAccionPermiso[$accion] ?? null) === $claveEsperada,
+        'sin entrada en ACTION_PERMISSION la acción queda sin gate: requiredPermission() devuelve null y execute.php la deja pasar',
+        $failures, $checks);
+    check("agente: $accion está bloqueada en la caja",
+        in_array($accion, $bloqueadasEnCaja, true),
+        'configurar el comercio es tarea de dueño desde el panel, no de cajero en el mostrador',
+        $failures, $checks);
+}
+
+check('agente: assign_role exige además la clave elevada',
+    in_array('assign_role', $elevadas, true),
+    'cambiarle el rol a alguien reparte accesos igual que crear un usuario — misma superficie, mismo requisito',
+    $failures, $checks);
+
+// Las claves que el mapa nombra tienen que EXISTIR en el catálogo: un typo
+// ('settings.registers.manage') convierte el gate en un permiso que nadie
+// tiene nunca, así que la acción queda muerta en vez de controlada.
+foreach ($mapaAccionPermiso as $accion => $clave) {
+    check("agente: la clave de $accion existe en el catálogo",
+        in_array($clave, PermissionCatalog::ids(), true),
+        "'$clave' no está en PermissionCatalog: el gate nunca lo va a cumplir nadie",
+        $failures, $checks);
+}
+
+// COBERTURA — toda acción del catálogo de `/v1/ai/confirm` tiene su gate. Es
+// el check que hace que la PRÓXIMA acción que se agregue sin permiso salga
+// roja, en vez de descubrirse cuando alguien la use.
+$confirmSrc = file_get_contents(dirname(__DIR__) . '/v1/ai/confirm.php');
+preg_match('/AI_CONFIRM_ALLOWED_ACTIONS\s*=\s*\[(.*?)\];/s', (string) $confirmSrc, $m);
+preg_match_all("/'([a-z_]+)'/", $m[1] ?? '', $m2);
+$accionesPermitidas = $m2[1] ?? [];
+check('agente: se pudo leer AI_CONFIRM_ALLOWED_ACTIONS de confirm.php',
+    count($accionesPermitidas) >= 12,
+    'si el parseo falla los checks de cobertura de abajo dan verde sin mirar nada',
+    $failures, $checks);
+
+// `tabular_import` es la única sin entrada fija: su permiso depende de QUÉ se
+// importa y lo resuelve `requiredPermission()` del payload.
+$sinGateFijo = ['tabular_import'];
+foreach ($accionesPermitidas as $accion) {
+    if (in_array($accion, $sinGateFijo, true)) {
+        continue;
+    }
+    check("agente: la acción $accion tiene permiso mapeado",
+        isset($mapaAccionPermiso[$accion]),
+        'toda acción registrable tiene que exigir el permiso que la persona necesitaría para hacerla a mano',
+        $failures, $checks);
+}
+
+// `assign_role` muta el equipo del comercio: aplica los MISMOS dos guards que
+// /v1/users PUT (el rol ACTUAL del target y el rol que se asigna). Sin el
+// primero, un Encargado le cambia el rol al Dueño y se queda con el comercio.
+$aiExecSrc  = (string) file_get_contents(dirname(__DIR__) . '/v1/ai/execute.php');
+$posAssign  = strpos($aiExecSrc, "case 'assign_role':");
+$posOutlet  = strpos($aiExecSrc, "case 'create_outlet':");
+$casoAssign = ($posAssign !== false && $posOutlet !== false && $posOutlet > $posAssign)
+    ? substr($aiExecSrc, $posAssign, $posOutlet - $posAssign)
+    : '';
+check('ai/execute.php: el case assign_role se pudo aislar',
+    $casoAssign !== '',
+    'sin aislarlo, los checks de abajo matchearían el guard de create_user y darían verde de más',
+    $failures, $checks);
+check('ai/execute.php assign_role aplica RoleEscalation al rol ACTUAL y al NUEVO',
+    substr_count($casoAssign, 'RoleEscalation::guardOrThrow') === 2,
+    'son dos direcciones distintas de escalación y ninguna implica a la otra',
+    $failures, $checks);
+check('ai/execute.php assign_role no deja cambiarse el rol propio',
+    str_contains($casoAssign, 'No podés cambiar tu propio rol'),
+    'la misma regla que /v1/users PUT: cambiarse el rol propio es la vía más corta a la escalación',
+    $failures, $checks);
+check('ai/execute.php: la lista negra de roles admin vive en el resolver compartido',
+    str_contains($aiExecSrc, "'super admin', 'admin', 'administrador'")
+        && str_contains($aiExecSrc, 'function aiResolveRoleByName'),
+    'create_user y assign_role no pueden tener cada uno su propia idea de qué rol es admin',
+    $failures, $checks);
+// El catálogo de roles del tenant es el de RoleService (tabla `taxonomy`).
+// `UsersService::roles()` devuelve una const de UN elemento: resolver contra
+// ella hacía que ningún rol real del comercio existiera para el agente.
+check('ai/execute.php: los roles se resuelven contra el catálogo real del tenant',
+    str_contains($aiExecSrc, 'RoleService::getRoles($companyId)'),
+    'UsersService::roles() es una const de un solo elemento — con ella ningún rol del comercio resuelve',
+    $failures, $checks);
+
 // ── Limpieza de lo que creó el arnés ──────────────────────────────────────
 ncmExecute('DELETE FROM auth_session WHERE companyid = ?::uuid AND useragent = ?', [$companyId, AGENTE_DEL_ARNES], true);
 ncmExecute('DELETE FROM device WHERE deviceid = ?::uuid', [$deviceId], true);

@@ -21,6 +21,15 @@ import { z } from "zod"
  *   register_action(actions[], summary) → devuelve confirmToken (NO ejecuta)
  *   execute_action(confirmToken)        → ejecuta TODAS las acciones del lote
  *
+ * CONFIGURACIÓN DE LA CUENTA (2026-09-01, context/66 F1): el agente además
+ * crea sucursales y cajas y le cambia el rol a un usuario existente — D1 del
+ * owner, "ventas no las hace el bot, el resto sí". Las tres acciones son
+ * PANEL-ONLY: el backend las rechaza bajo realm `pos-app` (AgentActor), porque
+ * configurar el comercio no es tarea de cajero. Los campos obligatorios de cada
+ * una los valida `/v1/ai/confirm` ANTES de emitir el confirmToken, así el
+ * modelo recibe el "te falta el timbrado" a tiempo para repreguntarlo en vez de
+ * mostrar un resumen que iba a fallar.
+ *
  * COMPARTIDAS CON LA CAJA (2026-08-31): el asistente del POS usa ESTAS MISMAS
  * dos tools, no una copia. Lo único que cambia entre superficies son los
  * headers: el panel manda su Bearer y nada más, y la caja manda además el
@@ -33,12 +42,12 @@ import { z } from "zod"
 // payload con campos EXPLÍCITOS (no z.record/additionalProperties, que los
 // modelos no logran poblar). El modelo llena solo los que aplican al `action`.
 const payloadSchema = z.object({
-  name: z.string().optional().describe("Nombre (contacto, ítem, categoría, marca, etiqueta, usuario)"),
+  name: z.string().optional().describe("Nombre (contacto, ítem, categoría, marca, etiqueta, usuario, sucursal, caja)"),
   type: z.number().int().optional().describe("contacto: 1=cliente, 2=proveedor"),
   phone: z.string().optional(),
   email: z.string().optional(),
   note: z.string().optional(),
-  id: z.string().optional().describe("id del registro a actualizar (update_*)"),
+  id: z.string().optional().describe("id del registro a actualizar (update_*), o del usuario al que se le cambia el rol (assign_role)"),
   kind: z.string().optional().describe("create_item: 'producto'|'servicio'. tabular_import: 'items'|'contacts'"),
   price: z.number().optional().describe("create_item: precio de venta"),
   cost: z.number().optional().describe("create_item: costo"),
@@ -46,7 +55,11 @@ const payloadSchema = z.object({
   categoryName: z.string().optional(),
   brandName: z.string().optional(),
   newPrice: z.number().optional().describe("update_item_price: nuevo precio"),
-  roleName: z.string().optional().describe("create_user: nombre del rol (no admin)"),
+  roleName: z.string().optional().describe("create_user y assign_role: nombre del rol tal como existe en el comercio (ej. 'Cajero', 'Encargado'). No admin. Si no sabés qué roles hay, mirá los usuarios existentes antes de proponer la acción"),
+  outletId: z.string().optional().describe("create_register: id de la sucursal donde va la caja"),
+  outletName: z.string().optional().describe("create_register: nombre de la sucursal donde va la caja, si no tenés el id (ej. 'Central')"),
+  timbrado: z.string().optional().describe("create_register: número de timbrado que la SET le autorizó a la caja, solo dígitos. OBLIGATORIO para crear una caja — si el usuario no lo dio, pedíselo antes de registrar la acción"),
+  expeditionPoint: z.string().optional().describe("create_register: establecimiento y punto de expedición de la caja, formato EEE-PPP (ej. 001-001). OBLIGATORIO. Dos cajas NO pueden tener el mismo punto de expedición con el mismo timbrado — si el usuario abre varias cajas, pedile uno distinto para cada una"),
   sessionId: z.string().optional().describe("tabular_import: id de sesión del adjunto"),
   mode: z.string().optional().describe("tabular_import: 'insert'|'update'"),
   mapping: z.record(z.string(), z.string()).nullish().describe("tabular_import: mapeo campo→columna, o null para auto"),
@@ -62,7 +75,7 @@ const payloadSchema = z.object({
 // se re-anida en el `execute` de register_action (ver abajo).
 const actionItemSchema = payloadSchema.extend({
   action: z.string().describe(
-    "create_contact | update_contact | create_item | update_item_price | create_user | create_category | create_brand | create_tag | tabular_import"
+    "create_contact | update_contact | create_item | update_item_price | create_user | assign_role | create_category | create_brand | create_tag | create_outlet | create_register | tabular_import"
   ),
 })
 
@@ -143,7 +156,7 @@ export function makeActionTools(
   return {
     register_action: tool({
       description:
-        "Registra un LOTE de una o más acciones mutantes (crear/editar contacto, ítem, usuario, categoría, marca, etiqueta, o importación tabular) para que el usuario las confirme JUNTAS. NO las ejecuta: devuelve un confirmToken. Si el usuario pidió varios ítems (ej. 'creá Sprite, Coca Zero y Coca Cola'), agrupá TODAS las acciones en un solo llamado con actions=[...] — nunca llames register_action varias veces para un mismo pedido. La UI muestra el resumen como tarjeta — no lo repitas en texto. Recién cuando el usuario confirme, llamá execute_action con ese confirmToken.",
+        "Registra un LOTE de una o más acciones mutantes (crear/editar contacto, ítem, usuario, categoría, marca, etiqueta; cambiarle el rol a un usuario; crear una sucursal o una caja; o importación tabular) para que el usuario las confirme JUNTAS. NO las ejecuta: devuelve un confirmToken. Si el usuario pidió varios ítems (ej. 'creá Sprite, Coca Zero y Coca Cola'), agrupá TODAS las acciones en un solo llamado con actions=[...] — nunca llames register_action varias veces para un mismo pedido. La UI muestra el resumen como tarjeta — no lo repitas en texto. Recién cuando el usuario confirme, llamá execute_action con ese confirmToken.",
       inputSchema: z.object({
         actions: z.array(actionItemSchema).min(1).describe("Lote de acciones a confirmar juntas (mínimo 1)"),
         summary: z.string().describe("Resumen legible del LOTE completo para mostrar al usuario (ej. 'Crear 3 productos: Sprite, Coca Zero, Coca Cola')"),

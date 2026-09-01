@@ -436,6 +436,80 @@ if ($outletG) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// H. Dos cajas NO comparten (timbrado, punto de expedición) — ni al CREARLAS
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// La numeración correlativa es por TALONARIO, y un talonario es un timbrado en
+// un punto de expedición. Dos cajas con el mismo par llevan la misma secuencia
+// y, en cuanto las dos emiten offline sin verse, salen dos facturas con el
+// mismo número: un documento duplicado ante la SET (context/29). No es un
+// choque de datos que se arregle borrando una fila.
+//
+// Se prueba por el camino de ALTA y no solo por el de edición porque desde
+// 2026-09-01 hay un segundo creador de cajas: el agente IA (`create_register`,
+// context/66 F1) crea con timbrado incluido, sin pasar nunca por `update()`.
+// Y se prueba en proceso, sin subproceso, porque el servicio ahora LANZA
+// (`RegisterAdminException`) en vez de hacer `exit` — que es exactamente lo
+// que el lote del agente necesita para reportar el fallo de UNA acción sin
+// llevarse puestas las demás.
+
+echo "\n=== H. Punto de expedición único por timbrado, también en el alta ===\n\n";
+
+require_once dirname(__DIR__) . '/lib/services/RegisterAdminService.php';
+
+$outletH = $svc->create($companyId, ['name' => 'Arnés Timbrado H ' . bin2hex(random_bytes(3))]);
+if ($outletH) { $creados[] = (string) $outletH; }
+
+if ($outletH) {
+    $svcCajas = new \Punto\Api\Services\RegisterAdminService($companyId);
+    $fiscal   = ['fiscal' => ['invoiceAuth' => '16001234', 'invoicePrefix' => '001-007']];
+
+    $primera = null;
+    try {
+        $primera = $svcCajas->create((string) $outletH, 'Arnés Caja Timbrada', $fiscal);
+    } catch (\Throwable $e) {
+        check('H: la primera caja con timbrado se creó', 'excepción: ' . $e->getMessage(), 'sin excepción', $failures, $checks);
+    }
+    check('H: la primera caja con timbrado se creó', is_array($primera) && !empty($primera['id']), true, $failures, $checks);
+
+    // Misma sucursal, mismo timbrado, mismo EEE-PPP: tiene que rechazarse.
+    $mensaje = null;
+    $codigo  = null;
+    try {
+        $svcCajas->create((string) $outletH, 'Arnés Caja Duplicada', $fiscal);
+    } catch (\Punto\Api\Services\RegisterAdminException $e) {
+        $mensaje = $e->getMessage();
+        $codigo  = $e->httpCode();
+    }
+    check('H: la segunda caja con el mismo par fue rechazada', $mensaje !== null, true, $failures, $checks);
+    check('H: el rechazo nombra el punto de expedición',
+        $mensaje !== null && str_contains($mensaje, '001-007'), true, $failures, $checks);
+    check('H: el status del rechazo es 409', $codigo, 409, $failures, $checks);
+
+    // Y el rechazo no dejó una caja a medias: la transacción del alta revierte
+    // entera. Sin esto quedaría una caja sin timbrado que el panel muestra como
+    // operable y que no puede emitir.
+    $aMedias = ncmExecute(
+        'SELECT COUNT(*)::int AS cnt FROM register WHERE outletId = ? AND registerName = ?',
+        [(string) $outletH, 'Arnés Caja Duplicada']
+    );
+    check('H: la caja rechazada no quedó creada a medias', (int) ($aMedias['cnt'] ?? -1), 0, $failures, $checks);
+
+    // El MISMO EEE-PPP con OTRO timbrado sí puede: son dos talonarios
+    // independientes y cada uno lleva su propia secuencia.
+    $otroTimbrado = null;
+    try {
+        $otroTimbrado = $svcCajas->create((string) $outletH, 'Arnés Caja Otro Timbrado', [
+            'fiscal' => ['invoiceAuth' => '16009999', 'invoicePrefix' => '001-007'],
+        ]);
+    } catch (\Throwable $e) {
+        check('H: mismo EEE-PPP con otro timbrado se permite', 'excepción: ' . $e->getMessage(), 'sin excepción', $failures, $checks);
+    }
+    check('H: mismo EEE-PPP con otro timbrado se permite',
+        is_array($otroTimbrado) && !empty($otroTimbrado['id']), true, $failures, $checks);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Cleanup — las sucursales del arnés se van con toda su cadena
 // ═══════════════════════════════════════════════════════════════════════════
 //
@@ -444,6 +518,12 @@ if ($outletG) {
 // por sus checks, no dejar basura silenciosa.
 
 foreach ($creados as $oid) {
+    // Las secuencias van ANTES que las cajas: su scopeId es el registerId y
+    // sin las cajas ya no hay forma de saber cuáles borrar.
+    $db->Execute(
+        'DELETE FROM document_sequence WHERE scopeid IN (SELECT registerId FROM register WHERE outletId = ?)',
+        [$oid]
+    );
     $db->Execute('DELETE FROM register WHERE outletId = ?', [$oid]);
     $db->Execute('DELETE FROM taxonomy WHERE outletId = ?', [$oid]);
     $db->Execute('DELETE FROM inventory WHERE outletId = ?', [$oid]);
