@@ -76,6 +76,13 @@ const ENTITY_TO_QUERY_KEYS: Record<string, ReadonlyArray<readonly string[]>> = {
   // mismo id (viene el UUID crudo, el detalle cachea con `enc(transactionId)`).
   transaction:       [["reports"], ["transactions"], ["pos-transactions"], ["pos-transaction"], ["dashboard"], ["dashboard-widget"]],
   drawer:            [["reports", "drawers"], ["dashboard"], ["dashboard-widget"]],
+  // register-lease: en el POS lo intercepta el handler de tenencia de más
+  // abajo y no llega hasta acá; este mapeo es para el PANEL, que muestra la
+  // tenencia en dos pantallas —Sucursales → Cajas y Ajustes → Dispositivos—.
+  // Desde que `RegisterLeaseService::close()` publica por los cuatro caminos
+  // de liberación, un admin que revoca un dispositivo ve la caja quedar libre
+  // en la otra pestaña sin refrescar a mano.
+  "register-lease":  [["register-leases"], ["pos-devices"]],
   expense:           [["reports", "expenses"], ["dashboard"], ["dashboard-widget"]],
   // setting también invalida pos-bootstrap porque lo usa el POS para leer config del tenant.
   setting:           [["settings"], ["modules"], ["bootstrap"], ["pos-bootstrap"]],
@@ -200,21 +207,33 @@ export function useRealtimeSync(clientScope: "panel" | "pos" = "panel") {
         // invalidar nada.
       }
 
-      // Tenencia de caja (context/29 §4). `/v1/register-lease` (el "Liberar
-      // caja" del panel) publica esta entity por el default de bootstrap.php,
-      // pero no estaba en el mapa de abajo: el POS la descartaba en silencio y
-      // un device online al que le acababan de quitar la caja seguía creyendo
-      // que la tenía hasta el próximo latido. Ahora se entera EN EL MOMENTO —
-      // `refreshTenancy()` reconfirma contra `claim.php` y el 409 resultante
-      // queda persistido como grant denegado, así que si la red se cae justo
-      // después, el device ya sabe que no puede emitir.
+      // Tenencia de caja (context/29 §4). El POS se entera EN EL MOMENTO de
+      // cualquier movimiento de tenencia del comercio — `refreshTenancy()`
+      // reconfirma contra `claim.php` y el resultado (200 o 409 con su
+      // `reason`) queda persistido, así que si la red se cae justo después, el
+      // device ya sabe con qué se quedó.
+      //
+      // Desde 2026-09-01 la entity la publica `RegisterLeaseService::close()`,
+      // que es el choke point de los CUATRO caminos que liberan una caja
+      // (panel, cierre de caja, revocar/desparear el device, cambiarlo de
+      // caja). Antes solo avisaba el del panel, y de rebote, por el default de
+      // `realtimeAfterMutation()` — los otros tres publicaban `drawer`/
+      // `device` y este listener nunca los veía. También llega al TOMARSE una
+      // caja (`claim.php`), no solo al liberarse: el device que estaba
+      // esperando necesita saber que ya no está disponible.
+      //
+      // SIN adquirir, a propósito: enterarse de que una caja quedó libre no es
+      // permiso para quedársela. Si esta reconfirmación tomara la caja, dos
+      // POS abiertos en la misma caja se la arrebatarían por reflejo al
+      // instante de liberarse y ganaría el de menor latencia — que es el bug
+      // que este cambio elimina, en su forma más rápida. La toma es del
+      // cajero.
       //
       // No filtra por caja: el evento no trae el registerId y reconfirmar es
-      // una request chica. Cualquier movimiento de tenencia en el comercio
-      // hace que este device revalide la suya.
+      // una request chica.
       if (clientScope === "pos" && ev.entity === "register-lease") {
         const registerId = useCatalogStore.getState().activeRegisterId
-        if (registerId) void refreshTenancy(registerId)
+        if (registerId) void refreshTenancy(registerId, { acquire: false })
         return
       }
 

@@ -62,6 +62,20 @@
  * Estando ONLINE la pérdida de tenencia no espera al TTL ni al próximo latido:
  * `use-realtime-sync.ts` escucha la entity `register-lease` y fuerza un
  * `refreshTenancy()` en el momento.
+ *
+ * Confirmar no es tomar (2026-09-01)
+ * ──────────────────────────────────
+ * Todo lo de arriba es CONFIRMACIÓN: preguntarle al servidor si esta caja
+ * sigue siendo de este device. TOMAR una caja libre es otra cosa y ya no pasa
+ * sola: `refreshTenancy()` solo adquiere con `{ acquire: true }`, y eso lo
+ * pasan dos call-sites (el botón del cajero y el drenaje de la cola offline).
+ *
+ * Antes no había distinción y el latido tomaba la caja de paso. El síntoma que
+ * reportó el owner: dos dispositivos con la misma caja asignada, el primero la
+ * libera, y el segundo sigue sin poder facturar porque el latido del primero
+ * se la lleva de nuevo antes de que el cajero llegue a nada. La exclusividad
+ * seguía siendo correcta —una caja, un tenedor— pero quién ganaba lo decidía
+ * un timer, no una persona.
  */
 
 import { getPosOfflineDB } from '@/lib/pos/offline-db'
@@ -98,6 +112,9 @@ export const HEARTBEAT_MS = 5 * 60 * 1000
  *   - `never`       — este device nunca confirmó tenencia sobre esta caja
  *                     (arranque offline sin haber hecho claim jamás, o device
  *                     recién pareado). Remedio: conectarse.
+ *   - `free`        — el servidor dijo que NO la tiene, pero la caja está
+ *                     LIBRE: nadie la tomó. Remedio: TOMARLA — un acto del
+ *                     cajero, no del sistema.
  *   - `denied`      — el servidor dijo que NO: otro device la tiene.
  *                     Remedio: que la liberen.
  *   - `stale`       — la tuvo, pero la confirmación venció (>12 h sin red).
@@ -105,10 +122,19 @@ export const HEARTBEAT_MS = 5 * 60 * 1000
  *   - `other-register` — el grant guardado es de OTRA caja (el device se
  *                     movió de caja sin volver a confirmar). Remedio:
  *                     conectarse.
+ *
+ * `free` es NUEVO (2026-09-01) y existe porque el servidor dejó de tomar la
+ * caja solo. Antes, un 409 de `claim.php` únicamente podía significar "la
+ * tiene otro" —si estaba libre, el endpoint se la quedaba— así que un solo
+ * `denied` alcanzaba. Ahora el latido pregunta sin tomar, y "libre pero no la
+ * tengo" llega hasta acá: es un estado con remedio propio (tocar un botón) y
+ * mezclarlo con `denied` mandaría al cajero a buscar un admin que no hace
+ * falta.
  */
 export type TenancyVerdictKind =
   | 'ok'
   | 'never'
+  | 'free'
   | 'denied'
   | 'stale'
   | 'other-register'
@@ -117,9 +143,23 @@ export interface TenancyVerdict {
   kind: TenancyVerdictKind
   /** Único campo que el call-site necesita para decidir si deja emitir. */
   canIssue: boolean
+  /**
+   * ¿Tiene sentido ofrecerle al cajero un botón para TOMAR la caja?
+   *
+   * Se deriva acá, en la función pura, y no en cada JSX: es la misma pregunta
+   * en el CTA del cobro, en el mensaje corto del botón y en la pantalla
+   * bloqueante, y las tres tienen que contestarla igual. `false` solo cuando
+   * la caja ya es de este device (`ok`, no hay nada que tomar) o cuando la
+   * tiene OTRO — el único desenlace que el device no puede resolver solo.
+   *
+   * NO promete que el claim vaya a entrar: entre la última confirmación y el
+   * toque del cajero alguien más pudo tomarla. Promete que pedirla es la
+   * acción correcta.
+   */
+  canAcquire: boolean
   holderDeviceId: string | null
   holderDeviceName: string | null
-  /** Motivo server-side del `denied`, cuando lo hay. */
+  /** Motivo server-side del rechazo, cuando lo hay. */
   denyReason: TenancyDenyReason | null
   /** ISO de la última confirmación conocida, para poder decir desde cuándo. */
   confirmedAt: string | null
@@ -128,6 +168,9 @@ export interface TenancyVerdict {
 const NO_GRANT: TenancyVerdict = {
   kind: 'never',
   canIssue: false,
+  // Sin grant, el remedio es pedir la caja: puede estar libre y este device
+  // todavía no lo sabe. Si la tiene otro, el claim lo dirá con un 409.
+  canAcquire: true,
   holderDeviceId: null,
   holderDeviceName: null,
   denyReason: null,
@@ -155,11 +198,27 @@ export function evaluateGrant(
   // Un grant de otra caja no dice NADA sobre ésta. Pasa cuando el device se
   // reasigna de caja (`/v1/active-register`) y todavía no volvió a confirmar.
   if (grant.registerId !== registerId) {
-    return { ...base, kind: 'other-register', canIssue: false }
+    return { ...base, kind: 'other-register', canIssue: false, canAcquire: true }
   }
 
   if (grant.status === 'denied') {
-    return { ...base, kind: 'denied', canIssue: false }
+    // El `denyReason` del servidor es lo que separa "la tiene otro" de "está
+    // libre y no la tengo". `taken_by_other` es el único terminal; los otros
+    // tres (`released`/`revoked`/`never_held`) dejan la caja disponible.
+    //
+    // `denyReason: null` (backend viejo, o un 409 sin `details` legible) cae en
+    // el lado conservador de CADA pregunta por separado: no emite —eso nunca
+    // se relaja— pero sí deja pedir la caja, porque el claim explícito es
+    // inofensivo: si la tiene otro, vuelve un 409 y el veredicto se corrige
+    // con información fresca.
+    const takenByOther =
+      grant.denyReason === 'taken_by_other' || grant.holderDeviceId !== null
+    return {
+      ...base,
+      kind: takenByOther ? 'denied' : 'free',
+      canIssue: false,
+      canAcquire: !takenByOther,
+    }
   }
 
   // Reloj del device: puede estar corrido. Una `confirmedAt` en el FUTURO se
@@ -167,10 +226,13 @@ export function evaluateGrant(
   // seguro es no dejar emitir, no dejar emitir para siempre.
   const confirmed = new Date(grant.confirmedAt).getTime()
   if (Number.isNaN(confirmed) || confirmed > now || now - confirmed > TENANCY_TTL_MS) {
-    return { ...base, kind: 'stale', canIssue: false }
+    // Vencido no es lo mismo que perdido: lo más probable es que la tenencia
+    // server-side siga siendo de este device (no vence sola) y solo falte
+    // reconfirmarla. Pedirla explícito es exactamente el remedio.
+    return { ...base, kind: 'stale', canIssue: false, canAcquire: true }
   }
 
-  return { ...base, kind: 'ok', canIssue: true }
+  return { ...base, kind: 'ok', canIssue: true, canAcquire: false }
 }
 
 // ── Persistencia ──────────────────────────────────────────────────────────────
@@ -279,9 +341,39 @@ export async function tenancyHeldSince(registerId: string): Promise<string | nul
   return grant.heldSince ?? null
 }
 
-export async function refreshTenancy(registerId: string): Promise<TenancyVerdict> {
+export interface RefreshTenancyOptions {
+  /**
+   * ¿Esta llamada puede TOMAR la caja si está libre, o solo preguntar?
+   *
+   * Default `false`, y el default importa: hasta 2026-09-01 cada latido de
+   * `useRegisterClaim` (5 min) tomaba la caja sin querer, así que un POS
+   * abierto se la volvía a llevar apenas otro dispositivo la liberaba. El
+   * cajero del segundo aparato veía la caja liberarse y seguía sin poder
+   * facturar, sin nada en pantalla que explicara por qué.
+   *
+   * Solo DOS call-sites pasan `true`, y los dos son un acto deliberado:
+   *   1. el botón "Tomar caja" de la pantalla de bloqueo del cobro
+   *      (`RegisterTakenPhase`, pay-dialog.tsx) — el cajero decidiendo;
+   *   2. `ensureTenancy()` en el drenaje de la cola offline — recuperación de
+   *      una venta YA EMITIDA e impresa (context/29, aprobado por el owner).
+   *
+   * Latido, evento `online`, evento realtime `register-lease` y montaje del
+   * workspace preguntan y nada más.
+   *
+   * Ojo: el default del SERVIDOR es el contrario (`acquire` ausente ⇒ `true`,
+   * por compatibilidad con bundles viejos), por eso acá viaja SIEMPRE
+   * explícito en el body en vez de omitirse cuando es `false`.
+   */
+  acquire?: boolean
+}
+
+export async function refreshTenancy(
+  registerId: string,
+  opts: RefreshTenancyOptions = {},
+): Promise<TenancyVerdict> {
+  const acquire = opts.acquire === true
   try {
-    const res = await posApi.post<ClaimResponse>('/v1/register/claim', {})
+    const res = await posApi.post<ClaimResponse>('/v1/register/claim', { acquire })
     const prev = await readGrant()
     const confirmedRegisterId = res?.registerId || registerId
     const row: TenancyGrantRow = {
@@ -347,5 +439,11 @@ export async function ensureTenancy(registerId: string): Promise<TenancyVerdict>
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     return current ?? hydrateTenancy(registerId)
   }
-  return refreshTenancy(registerId)
+  // `acquire: true` — el ÚNICO camino automático que puede tomar la caja, y es
+  // deliberado: acá no se está por empezar una venta, se está recuperando una
+  // que el cajero YA emitió e imprimió. Dejarla en la cola porque la caja
+  // quedó libre mientras el device estaba sin red sería repudiar un
+  // comprobante entregado. Aprobado por el owner en context/29 §4; el resto de
+  // los disparadores automáticos solo pregunta.
+  return refreshTenancy(registerId, { acquire: true })
 }

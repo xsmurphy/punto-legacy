@@ -35,6 +35,17 @@ require_once __DIR__ . '/_harness.php';
  *   D. Los tres motivos se distinguen entre sí: `taken_by_other` / `revoked` /
  *      `released` / `never_held` producen códigos y mensajes DISTINTOS, y solo
  *      `taken_by_other` es terminal.
+ *   E. Confirmar NO es tomar (bug del owner, 2026-09-01): `claim()` con
+ *      `$acquire = false` no escribe una tenencia nueva aunque la caja esté
+ *      libre, y `$acquire = true` tampoco se la quita a otro dispositivo. Es
+ *      lo que impide que el latido de 5 min del POS se apropie de toda caja
+ *      que quede libre — el motivo por el que un segundo dispositivo con la
+ *      misma caja asignada nunca lograba facturar.
+ *   F. La otra cara de `register_lease`: un dispositivo que tuvo una caja NO
+ *      se puede borrar (es la cadena de auditoría de qué aparato emitió qué),
+ *      y uno sin ningún rastro operativo sí. Verifica de paso el SQL de
+ *      `DeviceHistoryService` contra el schema real — cuatro tablas cuyo modo
+ *      de falla histórico es el casing de identificadores (mig 150).
  *
  * Uso (necesita Postgres migrado + seed.sql de verify_chain cargado — ver
  * `run_register_tenancy_offline_test.sh`):
@@ -288,6 +299,194 @@ echo "\n--- mensajes por causa ---\n";
 foreach ($msgs as $label => $msg) {
     echo "  [$label / {$codes[$label]}] $msg\n";
 }
+
+// ── Caso E — confirmar NO es tomar (bug del owner, 2026-09-01) ──────────────
+// El reporte: dos dispositivos con la MISMA caja asignada; el primero la
+// libera y el segundo sigue sin poder facturar. Causa: `claim.php` hacía
+// "confirmá O tomá" en la misma llamada y el POS lo disparaba cada 5 minutos
+// tuviera o no la caja, así que el primero se la volvía a llevar solo apenas
+// quedaba libre. Quién facturaba lo decidía un timer, no una persona.
+//
+// Lo que se prueba acá es la mitad SERVIDOR del arreglo:
+// `RegisterLeaseService::claim()` con `$acquire = false` no escribe NADA
+// cuando la caja está libre. Es el invariante que hace inútil al latido como
+// mecanismo de apropiación.
+echo "\n-- E. Confirmar no es tomar (acquire) --\n";
+
+/** Filas de tenencia de esta caja, en cualquier estado — el testigo de "no insertó". */
+$leaseRowCount = static function (string $registerId): int {
+    $row = ncmExecute(
+        'SELECT count(*)::int AS n FROM "register_lease" WHERE registerid = ?',
+        [$registerId]
+    );
+    return (int) ($row['n'] ?? 0);
+};
+/** Tenencias ACTIVAS — como mucho una, por el índice único parcial de mig 141. */
+$activeLeaseCount = static function (string $registerId): int {
+    $row = ncmExecute(
+        'SELECT count(*)::int AS n FROM "register_lease" WHERE registerid = ? AND "status" = \'active\'',
+        [$registerId]
+    );
+    return (int) ($row['n'] ?? 0);
+};
+
+// E1 — caja tomada por B: A pregunta y recibe el conflicto, sin escribir.
+$rowsBefore = $leaseRowCount($registerId);
+$outE1 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, false);
+check(
+    'E1 con la caja tomada por otro, claim(acquire=false) rechaza',
+    $outE1['registerLeaseId'] === null
+        && ($outE1['conflict']['reason'] ?? '') === 'taken_by_other',
+    json_encode($outE1, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// La caja queda LIBRE: B cierra su tenencia como en un cierre de caja normal.
+RegisterLeaseService::close($leaseB, 'released', 'device:close', 'released');
+check(
+    'E2 la caja quedó libre tras el cierre de B',
+    $activeLeaseCount($registerId) === 0,
+    'todavía hay una tenencia activa',
+    $failures
+);
+
+// E3 — EL CASO DEL BUG: caja libre + acquire=false ⇒ NO se inserta nada.
+$rowsBefore = $leaseRowCount($registerId);
+$outE3 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, false);
+check(
+    'E3 caja LIBRE + acquire=false -> NO inserta ninguna fila',
+    $leaseRowCount($registerId) === $rowsBefore && $activeLeaseCount($registerId) === 0,
+    'la caja se tomó sola: filas ' . $rowsBefore . ' -> ' . $leaseRowCount($registerId),
+    $failures
+);
+check(
+    'E4 y el rechazo dice que está LIBRE, no que la tiene otro',
+    $outE3['registerLeaseId'] === null
+        && in_array($outE3['conflict']['reason'] ?? '', ['released', 'revoked', 'never_held'], true)
+        && ($outE3['conflict']['holderDeviceId'] ?? null) === null,
+    'reason=' . var_export($outE3['conflict']['reason'] ?? null, true),
+    $failures
+);
+
+// E5 — el acto explícito del cajero sí la toma.
+$outE5 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, true);
+check(
+    'E5 acquire=true sobre caja libre SÍ la toma',
+    $outE5['registerLeaseId'] !== null
+        && $outE5['created'] === true
+        && $outE5['conflict'] === null
+        && $activeLeaseCount($registerId) === 1,
+    json_encode($outE5, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// E6 — el latido del TENEDOR sigue funcionando: confirma sin escribir.
+$rowsBefore = $leaseRowCount($registerId);
+$outE6 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceA, false);
+check(
+    'E6 el tenedor confirma con acquire=false, misma tenencia y sin filas nuevas',
+    $outE6['registerLeaseId'] === $outE5['registerLeaseId']
+        && $outE6['created'] === false
+        && $leaseRowCount($registerId) === $rowsBefore,
+    json_encode($outE6, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// E7 — `acquire=true` NUNCA le saca la caja a otro (§6, "el último que llega
+// pisa al anterior" fue RECHAZADO). El flag habilita tomar lo LIBRE, no
+// desalojar.
+$outE7 = RegisterLeaseService::claim($registerId, $companyId, $outletId, $deviceB, true);
+check(
+    'E7 acquire=true NO le quita la caja al tenedor actual',
+    $outE7['registerLeaseId'] === null
+        && ($outE7['conflict']['reason'] ?? '') === 'taken_by_other'
+        && RegisterLeaseService::holderConflict($registerId, $companyId, $deviceA) === null,
+    json_encode($outE7, JSON_UNESCAPED_UNICODE),
+    $failures
+);
+
+// ── Caso F — el rastro de tenencia impide borrar el dispositivo ─────────────
+// La otra cara de `register_lease`: además de garantizar un solo tenedor, es
+// la cadena de auditoría de qué aparato tenía qué caja al emitir cada
+// comprobante. Por eso su FK a `device` no lleva ON DELETE, y por eso
+// "Eliminar dispositivo" reventaba con un 23503 crudo (reporte del owner,
+// 2026-09-01).
+//
+// Se prueba ACÁ y no en un arnés aparte porque los fixtures son los mismos y
+// el invariante es el mismo: lo que hace irreemplazable a `register_lease`.
+// Contra Postgres REAL, que es lo único que puede atrapar un error de casing
+// de identificadores — el modo de falla histórico de este schema (mig 150).
+echo "\n-- F. El historial de caja protege al dispositivo del borrado --\n";
+
+require_once dirname(__DIR__) . '/lib/services/DeviceHistoryService.php';
+
+$kindsA = \Punto\Api\Services\DeviceHistoryService::kindsFor($deviceA, $companyId);
+check(
+    'F1 un device que tuvo la caja figura con historial de tenencia',
+    in_array('register_lease', $kindsA, true),
+    'kinds=' . json_encode($kindsA),
+    $failures
+);
+
+// Device sin ningún rastro: nunca tomó caja, nunca abrió sesión, nunca tocó
+// una orden ni registró una impresora. Ese SÍ se puede borrar.
+$deviceC = 'cccccccc-0000-4000-8000-000000000003';
+ncmExecute('DELETE FROM device WHERE deviceid = ?::uuid', [$deviceC]);
+ncmExecute(
+    'INSERT INTO device (deviceid, companyid, userid, outletid, devicename, status)
+     VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?, 0)',
+    [$deviceC, $companyId, $userId, $outletId, 'KDS Cocina']
+);
+$kindsC = \Punto\Api\Services\DeviceHistoryService::kindsFor($deviceC, $companyId);
+check(
+    'F2 un device sin rastro operativo NO tiene historial (se puede borrar)',
+    $kindsC === [],
+    'kinds=' . json_encode($kindsC),
+    $failures
+);
+check(
+    'F3 el DELETE de ese device pasa (la barrera es el historial, no el tipo)',
+    ncmExecute('DELETE FROM device WHERE deviceid = ?::uuid AND companyid = ?::uuid', [$deviceC, $companyId]) !== false,
+    'no se pudo borrar un device sin historial',
+    $failures
+);
+
+// F5 — las expresiones de `selectSql()` no viven solas: se EMBEBEN en el
+// listado de `GET /v1/devices`, que ya tiene sus propios `register_lease rl` y
+// `auth_session s` unidos. Este check reproduce esa forma —el mismo LEFT JOIN
+// que el endpoint— para que un alias sombreado o un identificador mal citado
+// falle acá y no en producción, que es donde falla siempre esta clase de bug
+// (mig 150).
+$rsList = ncmExecute(
+    'SELECT d.deviceid, '
+    . \Punto\Api\Services\DeviceHistoryService::selectSql('d') . '
+       FROM device d
+       LEFT JOIN register_lease rl ON rl.registerid = d.registerid
+                                  AND rl.companyid  = d.companyid
+                                  AND rl.status     = \'active\'
+      WHERE d.companyid = ?::uuid AND d.deviceid = ?::uuid',
+    [$companyId, $deviceA],
+    false,
+    true
+);
+$listRow = ($rsList !== false && $rsList !== 0 && !$rsList->EOF) ? $rsList->fields : null;
+check(
+    'F5 selectSql() funciona embebido en el listado (mismo JOIN que el endpoint)',
+    $listRow !== null
+        && in_array('register_lease', \Punto\Api\Services\DeviceHistoryService::kindsFromRow($listRow), true),
+    $listRow === null ? 'la query del listado no devolvió la fila' : json_encode($listRow),
+    $failures
+);
+
+check(
+    'F4 el mensaje del 409 nombra en castellano qué historial tiene',
+    str_contains(
+        \Punto\Api\Services\DeviceHistoryService::describe(['register_lease', 'auth_session']),
+        'tenencia de cajas'
+    ),
+    \Punto\Api\Services\DeviceHistoryService::describe(['register_lease', 'auth_session']),
+    $failures
+);
 
 // ── Limpieza ─────────────────────────────────────────────────────────────────
 ncmExecute('DELETE FROM "register_lease" WHERE registerid = ?', [$registerId]);

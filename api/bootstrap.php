@@ -500,6 +500,15 @@ function realtimeAfterMutation(string $method, string $endpoint, ?string $target
         // derivaría entity 'sync' (sin queryKey en el front, warning en dev)
         // y dispararía un broadcast fantasma en cada delta pedido.
         '/v1/sync',
+        // RegisterLeaseService::close() ya publica 'register-lease' explícito
+        // — mismo criterio que /v1/credit-payments. Sin esto, el POST de
+        // "Liberar caja" dispararía DOS eventos por la misma request. Y el que
+        // sacamos es el peor de los dos: el default corre dentro de
+        // `apiAuthTenant()`, o sea al ENTRAR la request, así que anunciaba la
+        // liberación antes de que el handler tocara una fila. El de `close()`
+        // sale con el UPDATE ya hecho y bajo el advisory lock de la caja.
+        // (El GET del listado no pasa por acá: solo se publica en mutaciones.)
+        '/v1/register-lease',
     ];
 
     foreach ($excluded as $prefix) {

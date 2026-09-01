@@ -96,6 +96,37 @@ Por eso:
 4. **La tenencia no vence sola.** Se libera al cerrar la caja, o por
    revocación desde el panel. (Antes se vencía por fecha para que no
    sobreviviera un bloque de números; sin bloques, ese motivo desapareció.)
+5. **Tomar la caja es un acto del CAJERO, nunca de un timer** (owner,
+   2026-09-01). `POST /v1/register/claim` acepta `acquire`: en `false`
+   solo confirma, en `true` toma la caja si está libre. Solo dos callers
+   mandan `true` — el botón "Tomar caja" de la pantalla de bloqueo del cobro
+   (`RegisterTakenPhase`, `pay-dialog.tsx`) y el drenaje de la cola offline
+   (`ensureTenancy()`, que recupera una venta YA emitida). El latido de 5 min,
+   el evento `online`, el evento realtime y el montaje del workspace solo
+   preguntan.
+
+   > **Por qué.** Hasta 2026-09-01 el endpoint hacía "confirmá O tomá" en la
+   > misma llamada y el POS lo disparaba por latido tuviera o no la caja. Un
+   > POS abierto se apropiaba en silencio de toda caja que quedara libre:
+   > con dos dispositivos sobre la misma caja, el primero liberaba y el
+   > segundo seguía sin poder facturar porque el latido del primero se la
+   > llevaba antes. Quién facturaba lo decidía la latencia, no una persona.
+   > (La mig 183 había atacado una cara de lo mismo —las sesiones fantasma
+   > que latían solas—; esta es la otra.)
+
+   > **DEUDA TRANSITORIA.** Del lado del SERVIDOR, `acquire` ausente ⇒ `true`,
+   > por compatibilidad con un PWA que todavía tenga el bundle viejo (seguiría
+   > ocupando la caja hasta que recargue). Sacar ese default en cuanto no
+   > queden bundles previos a 2026-09-01 en la calle. El default del CLIENTE es
+   > el contrario: `refreshTenancy()` exige `{ acquire: true }` explícito.
+
+6. **Liberar una caja se avisa a todo el comercio.** El evento realtime
+   `register-lease` sale de `RegisterLeaseService::close()`, el choke point
+   único de los CUATRO caminos que liberan (panel "Liberar caja", cierre de
+   caja, revocar/desparear el dispositivo, cambiarlo de caja), y también al
+   TOMARSE una caja (`claim()`). Antes solo avisaba el del panel, y de rebote,
+   por el default de `realtimeAfterMutation()` — los otros tres publicaban
+   `drawer`/`device` y el POS no se enteraba hasta el próximo latido.
 
 > Nota histórica: en producción llegó a haber 4 dispositivos sobre la misma
 > caja (verificado 2026-07-28). Fue consecuencia de que el sistema todavía no
@@ -137,3 +168,6 @@ contador necesita para el Libro de Compras.
 | **Panel: "Liberar caja"** (revocar tenencia) | ✅ (`registers-tab.tsx:135,576`, migs 148/149, permiso `settings.register.release`) |
 | Capturar número + timbrado del proveedor en compras (§5) | ✅ (`supplierAuthNo`, mig 144, `PurchasesService.php:46-133`) |
 | Recibo de proveedor, NC de compra | ✅ (`PurchaseCreditNoteService.php:289,539`) |
+| **Confirmar ≠ adquirir** (§4.5) — flag `acquire`, decisión movida a `RegisterLeaseService::claim()` | ✅ 2026-09-01 (arnés caso E, `api/tests/register_tenancy_offline_test.php`). Pendiente: sacar el default `true` del servidor cuando no queden bundles viejos |
+| **Liberar una caja avisa por realtime** (§4.6) — publish desde `close()` | ✅ 2026-09-01 (`/v1/register-lease` sumado a `$excluded` de bootstrap.php para no duplicar) |
+| **No se borra un dispositivo con historial operativo** | ✅ 2026-09-01 (`DeviceHistoryService`, 409 `DEVICE_HAS_HISTORY` en `devices.php`, mig 184; cuatro tablas: `register_lease` con FK dura + `auth_session`/`pos_order_event`/`station_printer` que quedaban huérfanas en silencio) |
