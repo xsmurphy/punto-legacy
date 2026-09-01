@@ -72,8 +72,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 // Ver "CONFIRMAR ≠ ADQUIRIR" en el docblock. Default `true` por
 // compatibilidad transitoria con bundles viejos; el cliente actual siempre lo
 // manda explícito.
-$claimBody   = (array) (json_decode((string) file_get_contents('php://input'), true) ?? []);
-$mayAcquire  = !array_key_exists('acquire', $claimBody) || (bool) $claimBody['acquire'];
+// El body sale de `$_POST`, no de un `php://input` propio: `bootstrap.php`
+// (líneas 90-110) ya normaliza el cuerpo de POST/PUT/DELETE/PATCH a `$_POST`
+// para JSON y para form-encoded por igual. Releer el stream acá funcionaba,
+// pero solo parseaba JSON — con un cuerpo form-encoded `acquire` se perdía y
+// caía en el default `true`, o sea justo el comportamiento viejo que este
+// cambio existe para sacar, en silencio.
+$mayAcquire = !array_key_exists('acquire', $_POST) || (bool) $_POST['acquire'];
 
 $authCtx = apiAuthPosContext();
 if (($authCtx['module'] ?? 'pos') !== 'pos') {
