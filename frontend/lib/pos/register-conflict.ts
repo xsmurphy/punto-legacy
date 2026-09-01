@@ -123,6 +123,18 @@ export function registerConflictMessage(
     }
   }
 
+  // `never_held` con el servidor respondiendo: la caja está LIBRE y este
+  // dispositivo nunca la tuvo. Antes caía en el genérico de abajo, que manda a
+  // conectarse — consejo inútil para un device que acaba de hablar con el
+  // servidor. Desde que el latido dejó de tomar la caja sola (2026-09-01) este
+  // es el estado normal de un POS recién abierto, no una anomalía.
+  if (info?.reason === "never_held") {
+    return {
+      title: "Todavía no tomaste esta caja",
+      body: "La caja está libre. Tomala para empezar a facturar desde este dispositivo.",
+    }
+  }
+
   // Sin `reason` del servidor, manda el veredicto local — el device sabe por
   // qué se está bloqueando a sí mismo aunque nunca haya podido preguntar.
   if (kind === "stale") {
@@ -162,9 +174,12 @@ export function registerConflictMessage(
 export function registerBlockShortReason(verdict: TenancyVerdict | null): string | null {
   if (verdict?.canIssue) return null
   if (verdict?.holderDeviceName) return `Caja tomada por ${verdict.holderDeviceName}`
-  if (verdict?.denyReason === "revoked" || verdict?.denyReason === "released") {
-    return "Esta caja está libre — hay que volver a tomarla"
-  }
+  // Caja LIBRE y este device no la tiene. Desde 2026-09-01 el POS ya no se la
+  // queda solo en el latido, así que este texto tiene que decir que hay algo
+  // que hacer y que lo hace el cajero — "hay que volver a tomarla" describía
+  // un trámite de otro; "tocá para tomarla" nombra la acción y dónde está (el
+  // toque abre `RegisterTakenPhase`, con el botón).
+  if (verdict?.kind === "free") return "Esta caja está libre — tocá para tomarla"
   if (verdict?.kind === "stale") return "Hace más de 12 horas que no se confirma esta caja"
   if (verdict?.kind === "other-register") return "La tenencia confirmada es de otra caja"
   return "Caja sin tenencia confirmada"
@@ -182,7 +197,7 @@ export function registerBlockShortReason(verdict: TenancyVerdict | null): string
  */
 export function tenancyBlock(
   verdict: TenancyVerdict | null,
-): { info: RegisterConflictInfo; kind: TenancyVerdictKind } | null {
+): { info: RegisterConflictInfo; kind: TenancyVerdictKind; canAcquire: boolean } | null {
   if (verdict?.canIssue) return null
   return {
     info: {
@@ -192,5 +207,11 @@ export function tenancyBlock(
       reason: verdict?.denyReason ?? null,
     },
     kind: verdict?.kind ?? "never",
+    // Viaja con el bloqueo y no se recalcula en el JSX: es la misma decisión
+    // que toma `evaluateGrant()` (ver `TenancyVerdict.canAcquire`) y tenerla
+    // en un solo lugar es lo que evita que el botón y el mensaje se
+    // contradigan. `verdict === null` (sin hidratar) ⇒ `true`: pedir la caja
+    // es inofensivo y es justo lo que falta.
+    canAcquire: verdict?.canAcquire ?? true,
   }
 }

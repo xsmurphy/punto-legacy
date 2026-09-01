@@ -201,6 +201,19 @@ type DialogPhase = "pay" | "success" | "register-taken"
 // como opcional.
 
 /**
+ * Por qué no se puede emitir ahora, en una sola pieza.
+ *
+ * Es el shape que devuelve `tenancyBlock()` (veredicto local) ensanchado con
+ * `kind: null`, que es el caso del 409 del servidor: ahí no hubo veredicto
+ * local que lo produjera.
+ */
+interface RegisterTakenBlock {
+  info: RegisterConflictInfo | null
+  kind: TenancyVerdictKind | null
+  canAcquire: boolean
+}
+
+/**
  * Anota la venta en el registro del turno de este dispositivo.
  *
  * Se llama en las DOS ramas de la emisión —la que posteó con red y la que
@@ -308,13 +321,21 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
   const [saleResult, setSaleResult] = React.useState<CreateSaleResult | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
   const [errorMsg, setErrorMsg] = React.useState<string | null>(null)
-  // F5 — 409 de tenencia de caja (register_lease). Ver DialogPhase arriba.
-  const [registerTakenInfo, setRegisterTakenInfo] = React.useState<RegisterConflictInfo | null>(null)
-  // Veredicto LOCAL que disparó el bloqueo, cuando el bloqueo no vino de un
-  // 409 sino del grant persistido (caso offline). Es lo que distingue "nunca
-  // tomé esta caja" de "la confirmación venció" — el 409 no puede decir eso
-  // porque no hubo 409.
-  const [registerTakenKind, setRegisterTakenKind] = React.useState<TenancyVerdictKind | null>(null)
+  // F5 — bloqueo por tenencia de caja (register_lease). Ver DialogPhase arriba.
+  //
+  // UN solo estado con las tres piezas, no tres `useState` en paralelo: se
+  // setean siempre juntas desde cinco lugares distintos y describen UN hecho
+  // ("por qué no se puede emitir ahora"). Con estados separados, agregar
+  // `canAcquire` significaba una cuarta llamada que alguien podía olvidarse en
+  // uno de los cinco sitios y dejar el botón de tomar la caja contradiciendo
+  // al mensaje de al lado.
+  //
+  //   info       — detalle del conflicto (del 409 del servidor o del grant local).
+  //   kind       — veredicto LOCAL que lo disparó, cuando no hubo 409. Es lo que
+  //                distingue "nunca tomé esta caja" de "la confirmación venció";
+  //                `null` cuando el bloqueo vino de un 409 real.
+  //   canAcquire — si tiene sentido ofrecer "Tomar caja" (ver `tenancyBlock`).
+  const [registerTaken, setRegisterTaken] = React.useState<RegisterTakenBlock | null>(null)
   // `true` cuando el diálogo ABRIÓ ya bloqueado (el cajero tocó un CTA de
   // cobro que no puede emitir), distinto de bloquearse al confirmar una venta
   // ya cargada. Cambia qué hace el CTA de reintento: en el primer caso no hay
@@ -356,8 +377,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // teclado que va a rechazarle la venta al final. Mismo veredicto, mismo
       // fail-closed que el gate de `handleConfirm`.
       const block = tenancyBlock(useTenancyStore.getState().verdict)
-      setRegisterTakenInfo(block?.info ?? null)
-      setRegisterTakenKind(block?.kind ?? null)
+      setRegisterTaken(block)
       setBlockedBeforePay(block !== null)
       setPhase(block ? "register-taken" : "pay")
       // Acá NO se toca el modo del carrito, a propósito. Abrir el cobro no es
@@ -389,7 +409,10 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         typeof navigator !== "undefined" &&
         navigator.onLine
       ) {
-        void refreshTenancy(activeRegisterId)
+        // Sin adquirir: abrir el cobro es revalidar, no reclamar. Si la caja
+        // está libre, quien la toma es el cajero desde `RegisterTakenPhase`
+        // (context/29, decisión del owner 2026-09-01).
+        void refreshTenancy(activeRegisterId, { acquire: false })
       }
       saleUidRef.current = crypto.randomUUID()
       // autofocus al visor
@@ -429,8 +452,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
     return useTenancyStore.subscribe((state) => {
       const block = tenancyBlock(state.verdict)
       if (!block) return
-      setRegisterTakenInfo(block.info)
-      setRegisterTakenKind(block.kind)
+      setRegisterTaken(block)
       // El reintento reanuda la emisión SOLO si la venta estaba lista para
       // emitirse (total cubierto). Con pagos a medio cargar vuelve al teclado
       // con lo aplicado intacto — reanudar ahí emitiría una venta cobrada por
@@ -632,8 +654,7 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
       // que el sistema después repudia.
       const block = tenancyBlock(useTenancyStore.getState().verdict)
       if (block) {
-        setRegisterTakenInfo(block.info)
-        setRegisterTakenKind(block.kind)
+        setRegisterTaken(block)
         setBlockedBeforePay(false)
         setPhase("register-taken")
         return
@@ -947,10 +968,19 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
         // el segundo siguiente. Sin esto, el próximo intento (ya offline)
         // volvería a dejar vender.
         const info = extractRegisterConflictInfo(err)
-        setRegisterTakenInfo(info)
-        setRegisterTakenKind(null)
+        setRegisterTaken({
+          info,
+          // Sin veredicto local: este bloqueo lo produjo el servidor.
+          kind: null,
+          // Misma regla que `evaluateGrant()`: solo "la tiene otro" cierra la
+          // puerta. Un 409 sin `reason` legible (backend viejo) deja pedir la
+          // caja — el claim lo resolverá con información fresca.
+          canAcquire: info.reason !== "taken_by_other" && info.holderDeviceId === null,
+        })
         setPhase("register-taken")
-        if (activeRegisterId) void refreshTenancy(activeRegisterId)
+        // Reconfirmar, no reclamar: el cajero acaba de perder la caja y tiene
+        // que verlo, no que el POS se la arrebate de vuelta a quien la tenga.
+        if (activeRegisterId) void refreshTenancy(activeRegisterId, { acquire: false })
       } else {
         setErrorMsg(
           err instanceof Error ? err.message : "Error al confirmar la venta",
@@ -1375,8 +1405,9 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
             />
           ) : phase === "register-taken" ? (
             <RegisterTakenPhase
-              info={registerTakenInfo}
-              kind={registerTakenKind}
+              info={registerTaken?.info ?? null}
+              kind={registerTaken?.kind ?? null}
+              canAcquire={registerTaken?.canAcquire ?? false}
               registerId={activeRegisterId}
               onRetry={() => {
                 // El gate se re-evalúa ACÁ, después de que la pantalla pidió
@@ -1387,13 +1418,11 @@ export function PayDialog({ open, onOpenChange }: PayDialogProps) {
                 // confirmar, con el medio de pago ya cargado.
                 const stillBlocked = tenancyBlock(useTenancyStore.getState().verdict)
                 if (stillBlocked) {
-                  setRegisterTakenInfo(stillBlocked.info)
-                  setRegisterTakenKind(stillBlocked.kind)
+                  setRegisterTaken(stillBlocked)
                   return
                 }
                 setPhase("pay")
-                setRegisterTakenInfo(null)
-                setRegisterTakenKind(null)
+                setRegisterTaken(null)
                 // Abrió bloqueado: no hay pagos cargados todavía, así que el
                 // reintento es simplemente entrar al teclado de cobro.
                 // Confirmar acá emitiría una venta sin pagos.
@@ -1863,17 +1892,55 @@ function CreditConfirmCta({
 // reintentar explícito (con el total ya cubierto los botones de pago no
 // vuelven a cargar plata, así que sin este CTA el cajero no tendría forma de
 // reintentar sin cerrar el dialog entero y perder los pagos).
+//
+// ACÁ VIVE "TOMAR CAJA" (F4, 2026-09-01) — y es el único lugar donde vive
+// ─────────────────────────────────────────────────────────────────────────
+// Desde que el latido dejó de tomar la caja sola, alguien tiene que poder
+// tomarla a mano. Este botón es ese alguien, y no hay un segundo control en
+// ninguna otra parte del POS. Tres reglas del proyecto lo ponen exactamente
+// acá y en ningún otro lado:
+//
+//   1. "Un impedimento se comunica en el CONTROL que impide, no en una banda"
+//      (owner, rechazado tres veces). El control que impide es el CTA de
+//      cobrar: sale deshabilitado con el motivo en el tooltip
+//      (`registerBlockShortReason` → `PayCta` en cart-panel.tsx) y al tocarlo
+//      aterriza acá. El remedio tiene que estar donde el cajero descubre el
+//      problema, y ese recorrido ya existía.
+//   2. "Posiciones estables, sin desplazamientos condicionales" — la memoria
+//      muscular del cajero es parte de la interfaz. Este diálogo ya se abre
+//      completo sobre el workspace: no empuja nada, no mueve un pixel del
+//      carrito ni de la toolbar. Un chip o un botón nuevo en la pantalla de
+//      venta sí lo haría.
+//   3. El pill de estado (`OfflineStatusPill`) queda descartado por su propio
+//      docstring: la tenencia se avisó ahí un tiempo y el owner lo sacó —
+//      estado e impedimento son cosas distintas y viven en lugares distintos.
+//
+// Consecuencia asumida: con el carrito VACÍO el CTA de cobrar está
+// deshabilitado de verdad (`lineCount === 0`), así que no se puede llegar acá
+// ni tomar la caja "por adelantado". Es coherente con la decisión: la caja se
+// toma para emitir, y sin nada que emitir no hay nada que tomar. El cajero
+// carga el primer ítem, toca el total, toma la caja y cobra — un toque de más,
+// una vez por jornada.
+//
+// Si la caja la tiene OTRO dispositivo, el botón NO ofrece tomarla: ahí el
+// remedio es de un admin y el mensaje dice quién la tiene (`canAcquire`).
 
 interface RegisterTakenPhaseProps {
   info: RegisterConflictInfo | null
   /** Veredicto local cuando el bloqueo no vino de un 409 (caso offline). */
   kind: TenancyVerdictKind | null
+  /**
+   * ¿Tiene sentido ofrecer "Tomar caja"? Viene del veredicto
+   * (`TenancyVerdict.canAcquire`), no se recalcula acá: el botón y el mensaje
+   * de arriba tienen que salir de la misma decisión.
+   */
+  canAcquire: boolean
   registerId: string
   onRetry: () => void
   onCancel: () => void
 }
 
-function RegisterTakenPhase({ info, kind, registerId, onRetry, onCancel }: RegisterTakenPhaseProps) {
+function RegisterTakenPhase({ info, kind, canAcquire, registerId, onRetry, onCancel }: RegisterTakenPhaseProps) {
   const expiresLabel = info?.expiresAt ? formatDateTime(info.expiresAt) : null
   // Una causa, un mensaje: "tomada por otro" / "la liberaron" / "se cerró" /
   // "sin confirmar" son cuatro situaciones con remedios distintos, y el cajero
@@ -1888,16 +1955,20 @@ function RegisterTakenPhase({ info, kind, registerId, onRetry, onCancel }: Regis
   )
 
   // "Tomada por otro" es el único caso que el device no puede resolver solo:
-  // no hay nada que reintentar hasta que alguien la libere. Los demás se
-  // arreglan reconfirmando la tenencia, así que el CTA primero la reconfirma y
-  // recién entonces reintenta el cobro — y sin conexión ni eso es posible.
-  const takenByOther = Boolean(info?.holderDeviceId) || info?.reason === "taken_by_other"
-  const canRetry = !takenByOther && isOnline
+  // no hay nada que pedir hasta que alguien la libere. Eso ya viene decidido en
+  // `canAcquire` (una sola fuente, ver `TenancyVerdict`); acá solo se le suma
+  // la conexión, porque tomar una caja es una operación ONLINE — el
+  // servidor es el que garantiza que haya un solo tenedor.
+  const canRetry = canAcquire && isOnline
 
   async function handleRetry() {
-    // Reconfirmar ANTES de reintentar: el gate lee el grant local, así que sin
+    // `acquire: true` — EL acto explícito del cajero, uno de los dos únicos
+    // call-sites que pueden tomar una caja (el otro es el drenaje de la cola
+    // offline). Todo lo demás en el POS solo pregunta.
+    //
+    // Va ANTES de `onRetry()` porque el gate del cobro lee el grant local: sin
     // esto el reintento chocaría contra el mismo veredicto viejo.
-    await refreshTenancy(registerId)
+    await refreshTenancy(registerId, { acquire: true })
     onRetry()
   }
 
@@ -1908,10 +1979,11 @@ function RegisterTakenPhase({ info, kind, registerId, onRetry, onCancel }: Regis
       <div className="flex flex-col items-center gap-2">
         <h2 className="text-xl font-bold text-foreground">{title}</h2>
         <p className="text-sm text-muted-foreground">{body}</p>
-        {!isOnline && !takenByOther && (
+        {!isOnline && canAcquire && (
           <p className="text-sm text-muted-foreground">
-            Este dispositivo está sin conexión, así que no puede confirmar la
-            caja ahora. El carrito queda como está.
+            Este dispositivo está sin conexión, así que no puede tomar la caja
+            ahora — para eso el servidor tiene que confirmar que nadie más la
+            tiene. El carrito queda como está.
           </p>
         )}
       </div>
@@ -1919,12 +1991,19 @@ function RegisterTakenPhase({ info, kind, registerId, onRetry, onCancel }: Regis
         <Button variant="outline" className="flex-1" onClick={onCancel}>
           Cancelar
         </Button>
+        {/* "Tomar caja" a secas: el botón hace UNA cosa, y el reintento del
+            cobro es la consecuencia, no la acción. El label anterior ("Tomar
+            caja y reintentar") describía un efecto que ni siquiera ocurre
+            cuando el diálogo abrió bloqueado —ahí no hay nada que reintentar,
+            solo se entra al teclado—. Deshabilitado cuando la tiene otro
+            dispositivo o cuando no hay conexión: el impedimento se ve en el
+            control, sin banda ni cartel extra. */}
         <Button
           className="flex-1 font-bold"
           onClick={() => void handleRetry()}
           disabled={!canRetry || refreshing}
         >
-          {refreshing ? "Confirmando..." : "Tomar caja y reintentar"}
+          {refreshing ? "Tomando caja..." : "Tomar caja"}
         </Button>
       </div>
     </div>

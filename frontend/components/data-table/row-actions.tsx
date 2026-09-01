@@ -33,11 +33,42 @@ export interface RowAction {
   target?: string
   variant?: "destructive"
   disabled?: boolean
+  /**
+   * POR QUÉ está deshabilitada. Se renderiza como una segunda línea, en el
+   * ítem mismo — el impedimento se explica en el control que impide, que es la
+   * regla del proyecto, y acá encima el control es el único lugar donde el
+   * usuario lo va a buscar.
+   *
+   * No es un `title`: un ítem deshabilitado de Radix lleva
+   * `pointer-events: none`, así que nunca dispararía el tooltip nativo. Y
+   * tampoco sería suficiente en tablet, donde no hay hover. Texto visible,
+   * siempre.
+   *
+   * Se ignora si la acción no está `disabled` — un motivo sin impedimento no
+   * significa nada.
+   */
+  reason?: string
   hidden?: boolean
 }
 
 export interface RowActionsProps {
   actions: RowAction[]
+}
+
+/**
+ * Etiqueta del ítem, con el motivo debajo cuando la acción está impedida.
+ * Componente y no una expresión inline porque los ítems se renderizan en dos
+ * mapas distintos (no destructivos y destructivos) y el motivo tiene que verse
+ * igual en los dos.
+ */
+function ActionLabel({ action }: { action: RowAction }) {
+  if (!action.disabled || !action.reason) return <>{action.label}</>
+  return (
+    <span className="flex flex-col items-start gap-0.5">
+      <span>{action.label}</span>
+      <span className="text-xs font-normal text-muted-foreground">{action.reason}</span>
+    </span>
+  )
 }
 
 /**
@@ -75,7 +106,10 @@ export function RowActions({ actions }: RowActionsProps) {
         variant="ghost"
         size="icon"
         aria-label={action.label}
-        title={action.label}
+        // Colapsada a botón, el motivo no tiene dónde renderizarse como texto
+        // — acá sí sirve el `title`, porque el `disabled` de un <button> nativo
+        // igual muestra el tooltip del navegador al pasar por encima.
+        title={action.disabled && action.reason ? `${action.label} — ${action.reason}` : action.label}
         disabled={action.disabled}
         onClick={action.onSelect}
         className={className}
@@ -110,7 +144,7 @@ export function RowActions({ actions }: RowActionsProps) {
                 {action.label}
               </a>
             ) : (
-              action.label
+              <ActionLabel action={action} />
             )}
           </DropdownMenuItem>
         ))}
@@ -124,7 +158,7 @@ export function RowActions({ actions }: RowActionsProps) {
                 disabled={action.disabled}
                 onSelect={action.onSelect}
               >
-                {action.label}
+                <ActionLabel action={action} />
               </DropdownMenuItem>
             ))}
           </>

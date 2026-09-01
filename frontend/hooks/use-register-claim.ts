@@ -40,6 +40,17 @@ import { useTenancyStore } from "@/lib/pos/tenancy-store"
  * `use-realtime-sync.ts` reacciona a la entity `register-lease` y llama
  * `refreshTenancy()` en el momento en que el admin libera la caja.
  *
+ * ESTE HOOK NUNCA TOMA LA CAJA (2026-09-01)
+ * ─────────────────────────────────────────
+ * Los tres disparadores de arriba —y también el montaje— van con
+ * `acquire: false`: preguntan, no adquieren. Hasta este cambio no existía la
+ * distinción y cada latido tomaba la caja libre de paso, así que un POS
+ * abierto se la volvía a llevar apenas otro dispositivo la soltaba: el cajero
+ * del segundo aparato veía la caja liberada y seguía sin poder facturar,
+ * perdiendo una carrera de 5 minutos contra un timer ajeno. La caja se toma
+ * por un acto del cajero (el botón de `RegisterTakenPhase` en
+ * `pay-dialog.tsx`), nunca por un efecto de montar una pantalla.
+ *
  * La corrección de producto del owner (2026-08-20) sigue en pie: la tenencia
  * NO bloquea el workspace. Este hook no gatea ningún render — catálogo,
  * carrito, cotizaciones, órdenes y clientes funcionan igual sin tenencia. Lo
@@ -69,7 +80,10 @@ export function useRegisterClaim(registerId: string | null | undefined) {
       }
       setRefreshing(true)
       try {
-        await refreshTenancy(id)
+        // `acquire: false` explícito y no por default: es la propiedad que
+        // define a este hook (ver el docblock), no un detalle que se pueda
+        // perder si el default del helper cambia.
+        await refreshTenancy(id, { acquire: false })
       } finally {
         setRefreshing(false)
       }

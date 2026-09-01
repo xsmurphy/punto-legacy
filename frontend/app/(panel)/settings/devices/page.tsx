@@ -37,6 +37,7 @@ import { DeviceInviteCreateDialog } from "@/components/settings/device-invite-cr
 import {
   DEVICE_KIND_LABELS,
   DEVICE_KIND_ROUTES,
+  deviceHistoryReason,
   type ConnectedDevice,
 } from "@/lib/devices/connected-device"
 import { EmptyState } from "@/components/empty-state"
@@ -223,8 +224,17 @@ export default function DevicesPage() {
       id: "actions",
       header: "",
       cell: ({ row }) => {
-        const { kind, id, status } = row.original
+        const { kind, id, status, historyKinds } = row.original
         const isActive = status === 1
+        // Un dispositivo con rastro operativo NO se borra: `register_lease` es
+        // la cadena de qué aparato tenía qué caja al emitir cada comprobante
+        // (FK dura, sin ON DELETE a propósito), y `auth_session` /
+        // `pos_order_event` / `station_printer` quedarían apuntando a un
+        // aparato inexistente. El backend lo rechaza con 409; acá se
+        // deshabilita la acción con el motivo a la vista, porque ofrecer un
+        // botón que siempre falla es peor que no ofrecerlo. Ver
+        // `api/lib/services/DeviceHistoryService.php`.
+        const historyReason = deviceHistoryReason(historyKinds)
         // Hard-delete: cualquier dispositivo YA revocado, sin importar el tipo.
         // El backend (DELETE /v1/devices?hard=1) solo exige status=0 — la
         // barrera de seguridad es "revocar primero", no el módulo. El gate
@@ -278,6 +288,11 @@ export default function DevicesPage() {
                 variant: "destructive",
                 onSelect: () => setDeletePosId(id),
                 hidden: !isDeletable,
+                // Deshabilitada, no oculta: el admin tiene que entender que
+                // ese aparato se conserva A PROPÓSITO. Escondiendo la acción,
+                // la ausencia parecería un bug de la pantalla.
+                disabled: historyReason !== null,
+                reason: historyReason ?? undefined,
               },
             ]}
           />
@@ -413,7 +428,10 @@ export default function DevicesPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Eliminar dispositivo del historial</AlertDialogTitle>
             <AlertDialogDescription>
-              Se borrará permanentemente este dispositivo y su historial de auditoría. Esta acción no se puede deshacer.
+              Se borrará permanentemente el registro de este dispositivo. Esta acción no se
+              puede deshacer. Solo llegan acá los aparatos sin historial operativo: los que
+              tomaron una caja, abrieron sesión, movieron órdenes o registraron impresoras
+              se conservan para poder auditarlos.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

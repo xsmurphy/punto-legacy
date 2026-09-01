@@ -62,6 +62,57 @@ describe("evaluateGrant", () => {
     expect(v.canIssue).toBe(false)
     expect(v.kind).toBe("denied")
     expect(v.holderDeviceName).toBe("Tablet Barra")
+    // Y no se le ofrece tomarla: es el único caso que el device no puede
+    // resolver solo.
+    expect(v.canAcquire).toBe(false)
+  })
+
+  // ── "Libre pero no la tengo" (2026-09-01) ──────────────────────────────────
+  // Estado NUEVO, y solo existe porque el servidor dejó de tomar la caja sola.
+  // Antes un 409 de `claim.php` únicamente podía significar "la tiene otro"
+  // —si estaba libre, el endpoint se la quedaba— así que `denied` alcanzaba
+  // para todo. Ahora el latido pregunta con `acquire: false` y estos tres
+  // motivos llegan al grant: la caja está disponible y el remedio es que el
+  // cajero la tome, no que busque un admin.
+
+  it.each(["released", "revoked", "never_held"] as const)(
+    "denyReason %s ⇒ caja LIBRE: no emite, pero se puede tomar",
+    (denyReason) => {
+      const v = evaluateGrant(grant({ status: "denied", denyReason }), REG, NOW)
+      expect(v.canIssue).toBe(false)
+      expect(v.kind).toBe("free")
+      expect(v.canAcquire).toBe(true)
+    },
+  )
+
+  it("un denied SIN reason legible no emite, pero deja pedir la caja", () => {
+    // Backend viejo, o un 409 sin `details` parseable. Cada pregunta cae para
+    // su lado seguro por separado: no emitir nunca se relaja; pedir la caja es
+    // inofensivo porque el claim devuelve el estado real.
+    const v = evaluateGrant(grant({ status: "denied", denyReason: null }), REG, NOW)
+    expect(v.canIssue).toBe(false)
+    expect(v.kind).toBe("free")
+    expect(v.canAcquire).toBe(true)
+  })
+
+  it("un denied con holder pero sin reason sigue siendo 'la tiene otro'", () => {
+    // El tenedor es información dura: si vino un `holderDeviceId`, la caja está
+    // ocupada aunque el `reason` no se haya podido leer. No ofrecerla.
+    const v = evaluateGrant(
+      grant({ status: "denied", denyReason: null, holderDeviceId: "dev-9" }),
+      REG,
+      NOW,
+    )
+    expect(v.kind).toBe("denied")
+    expect(v.canAcquire).toBe(false)
+  })
+
+  it("teniendo la caja no se ofrece tomarla — no hay nada que tomar", () => {
+    expect(evaluateGrant(grant(), REG, NOW).canAcquire).toBe(false)
+  })
+
+  it("sin grant se puede pedir la caja: puede estar libre y este device no lo sabe", () => {
+    expect(evaluateGrant(null, REG, NOW).canAcquire).toBe(true)
   })
 
   it("justo antes del TTL sigue valiendo; justo después, no", () => {
@@ -82,6 +133,17 @@ describe("evaluateGrant", () => {
     const v = evaluateGrant(grant({ registerId: OTHER_REG }), REG, NOW)
     expect(v.canIssue).toBe(false)
     expect(v.kind).toBe("other-register")
+    // El device se movió de caja: pedir la NUEVA es exactamente el remedio.
+    expect(v.canAcquire).toBe(true)
+  })
+
+  it("vencido: no emite, pero reconfirmar/tomar sigue siendo el remedio", () => {
+    // La tenencia server-side no vence sola, así que lo más probable es que la
+    // caja siga siendo de este device y solo falte volver a confirmarla.
+    const expired = grant({
+      confirmedAt: new Date(NOW - TENANCY_TTL_MS - 60_000).toISOString(),
+    })
+    expect(evaluateGrant(expired, REG, NOW).canAcquire).toBe(true)
   })
 
   it("reloj adelantado: confirmedAt en el futuro vence, no vale para siempre", () => {
