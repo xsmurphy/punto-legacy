@@ -191,6 +191,14 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
     reason: "TEST — fixture de tenant paraguayo para el conteo por método de pago.",
     allow: { 'código "PYG"': 1, 'país "PY" como default': 1, 'TZ "America/Asuncion"': 1 },
   },
+  "api/tests/pos_emission_timezone_test.php": {
+    reason:
+      "TEST — el arnés compara DOS tenants de husos distintos para probar que la " +
+      "venta se guarda con la hora del comercio y no la del contenedor. Nombrar " +
+      "Paraguay es el punto del caso, no un default: sin un país concreto de un " +
+      "lado y otro del otro no hay nada que contrastar.",
+    allow: { 'país "PY" como default': 1, 'TZ "America/Asuncion"': 1 },
+  },
 
   // ── 3. Features PY-only, gateadas por país ─────────────────────────────────
   "api/lib/EInvoice/SaleToInvoiceMapper.php": {
