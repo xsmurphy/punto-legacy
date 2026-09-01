@@ -340,8 +340,15 @@ export function useDrawerStatus() {
  * `context/51`.
  */
 export function useDrawerSummary() {
+  const registerId = useCatalogStore((s) => s.activeRegisterId)
   return useQuery<DrawerSummary | null>({
-    queryKey: DRAWER_KEYS.summary,
+    // El `registerId` va en la CLAVE, no solo en el request: el token lleva la
+    // caja, así que el fetch siempre trae la correcta, pero sin la caja en la
+    // clave las dos comparten entrada de caché. Al cambiar de caja React Query
+    // encuentra la clave poblada y sirve el arqueo de la anterior — con la
+    // cabecera diciendo el estado de la nueva, porque `status` sí la incluye.
+    // Una caja recién creada mostraba las ventas de otra, del mes pasado.
+    queryKey: [...DRAWER_KEYS.summary, registerId],
     queryFn: fetchDrawerSummary,
     staleTime: 30 * 1000,
     retry: false,
@@ -353,8 +360,12 @@ export function useDrawerSummary() {
  * `enabled` para no pedirlo con la caja cerrada.
  */
 export function useDrawerHourlyStats(enabled = true) {
+  const registerId = useCatalogStore((s) => s.activeRegisterId)
   return useQuery<DrawerHourlyStats>({
-    queryKey: DRAWER_KEYS.hourly,
+    // Con la caja en la clave, por el mismo motivo que el resumen: son ventas
+    // por hora DE UNA CAJA, y sin ella el gráfico de la nueva arranca con la
+    // curva de la anterior.
+    queryKey: [...DRAWER_KEYS.hourly, registerId],
     queryFn: fetchDrawerHourlyStats,
     staleTime: 60 * 1000,
     retry: false,
@@ -507,8 +518,12 @@ function useBlindControl(registerId: string): boolean {
  * `blocking` sale de datos frescos o de nada.
  */
 export function useShiftCloseBlockers(enabled: boolean) {
+  const registerId = useCatalogStore((s) => s.activeRegisterId)
   const query = useQuery<ShiftCloseBlockers>({
-    queryKey: DRAWER_KEYS.blockers,
+    // Con la caja en la clave: lo que impide cerrar son órdenes y espacios
+    // abiertos, y servir los de otra caja habilitaría o bloquearía el cierre
+    // por el estado equivocado.
+    queryKey: [...DRAWER_KEYS.blockers, registerId],
     queryFn: fetchShiftCloseBlockers,
     enabled,
     // El cajero cierra órdenes en otra pantalla y vuelve acá esperando que el
