@@ -47,6 +47,16 @@ const payloadSchema = z.object({
   phone: z.string().optional(),
   email: z.string().optional(),
   note: z.string().optional(),
+  // Dirección default del contacto (create_contact / update_contact). El
+  // backend la crea junto con el contacto — no es un paso aparte. `lat`/`lng`
+  // van como NÚMEROS: la columna es DECIMAL y el propio panel los tipa
+  // `number` (contact-detail-view.tsx), así que un string acá desalinearía al
+  // agente del resto del sistema.
+  address: z.string().optional().describe("create_contact y update_contact: calle y número de la dirección (ej. 'Av. España 1234')"),
+  city: z.string().optional().describe("create_contact y update_contact: ciudad de la dirección"),
+  location: z.string().optional().describe("create_contact y update_contact: barrio o zona de la dirección"),
+  lat: z.number().optional().describe("create_contact y update_contact: latitud decimal de la dirección (ej. -25.2867). Solo si la sabés con certeza — NUNCA inventes ni estimes coordenadas. Va SIEMPRE junto con lng: una sola de las dos se rechaza"),
+  lng: z.number().optional().describe("create_contact y update_contact: longitud decimal de la dirección (ej. -57.3333). Va SIEMPRE junto con lat"),
   id: z.string().optional().describe("id del registro a actualizar (update_*), o del usuario al que se le cambia el rol (assign_role)"),
   kind: z.string().optional().describe("create_item: 'producto'|'servicio'. tabular_import: 'items'|'contacts'"),
   price: z.number().optional().describe("create_item: precio de venta"),

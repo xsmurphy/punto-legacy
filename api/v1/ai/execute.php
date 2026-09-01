@@ -19,6 +19,7 @@
 require_once __DIR__ . '/../../bootstrap.php';
 require_once API_APP_DIR . '/includes/ai_confirm_store.php';
 require_once dirname(__DIR__, 2) . '/lib/Ai/AgentActor.php';
+require_once dirname(__DIR__, 2) . '/lib/Ai/ContactPayload.php';
 // Se carga arriba y no dentro del `case`: el `catch` del loop la nombra, y una
 // clase que solo existe si esa rama corrió deja el catch sin matchear.
 require_once dirname(__DIR__, 2) . '/lib/services/RegisterAdminException.php';
@@ -137,12 +138,26 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             $svc   = new \Punto\Api\Contacts\ContactService(
                 new \Punto\Api\Contacts\ContactRepository($db)
             );
+            // Dirección default: NO se arma acá. `ContactService::create()`
+            // ya crea el contacto Y su dirección default en el mismo paso
+            // (mapToAddress + syncDefaultAddress); lo único que hacía falta
+            // era pasarle los campos. Omitirlos es lo que llevó al agente a
+            // contestarle al dueño que "el sistema no tiene campos de
+            // dirección ni coordenadas" — una limitación de ESTA acción
+            // presentada como una del producto. Las coordenadas se aplican
+            // solo en par (ver mapToAddress); `/v1/ai/confirm` rechaza antes
+            // el par incompleto para que el bot pueda repreguntar.
             $newId = $svc->create($companyId, [
-                'name'  => $payload['name']  ?? '',
-                'type'  => (int) ($payload['type'] ?? 1),
-                'phone' => $payload['phone'] ?? null,
-                'email' => $payload['email'] ?? null,
-                'note'  => $payload['note']  ?? null,
+                'name'     => $payload['name']  ?? '',
+                'type'     => (int) ($payload['type'] ?? 1),
+                'phone'    => $payload['phone'] ?? null,
+                'email'    => $payload['email'] ?? null,
+                'note'     => $payload['note']  ?? null,
+                'address'  => $payload['address']  ?? null,
+                'city'     => $payload['city']     ?? null,
+                'location' => $payload['location'] ?? null,
+                'lat'      => $payload['lat']      ?? null,
+                'lng'      => $payload['lng']      ?? null,
             ]);
             realtimePublish('contact', 'create', (string) $newId);
             return ['id' => $newId];
@@ -157,6 +172,14 @@ function aiExecuteRunAction(string $action, array $payload, string $companyId, s
             if (isset($payload['phone'])) $patch['phone'] = $payload['phone'];
             if (isset($payload['email'])) $patch['email'] = $payload['email'];
             if (isset($payload['note']))  $patch['note']  = $payload['note'];
+            // `ContactService::update()` sincroniza la dirección default con el
+            // MISMO mapper que create() (syncDefaultAddress), así que editar la
+            // dirección desde el agente no necesita nada nuevo: alcanza con no
+            // tirar los campos. Se copian solo los que vinieron — el patch es
+            // parcial y un campo ausente NO debe borrar lo que ya está cargado.
+            foreach (\Punto\Api\Ai\ContactPayload::ADDRESS_FIELDS as $addrField) {
+                if (isset($payload[$addrField])) $patch[$addrField] = $payload[$addrField];
+            }
             $svc->update((string) $payload['id'], $companyId, $patch);
             realtimePublish('contact', 'update', (string) $payload['id']);
             return ['id' => $payload['id']];

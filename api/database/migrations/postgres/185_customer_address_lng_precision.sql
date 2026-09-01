@@ -1,0 +1,25 @@
+-- 185_customer_address_lng_precision.sql
+--
+-- `customerAddressLng` estaba declarada DECIMAL(10,8): 10 dígitos de precisión
+-- con 8 decimales dejan UN SOLO dígito entero, o sea un tope de ±99.99999999.
+-- Para la latitud alcanza (el rango real es ±90), pero para la longitud NO: el
+-- rango es ±180, y buena parte del continente cae afuera del tope — Guadalajara
+-- (-103.35), Denver (-104.99), la costa oeste de EEUU (-122). Un INSERT con esa
+-- longitud no se guarda mal: revienta con "numeric field overflow".
+--
+-- Nadie lo había visto porque los tenants cargados hoy están en Paraguay
+-- (-54 a -62) y ahí entra. Es exactamente la clase de default que la regla de
+-- "nada hardcodeado a Paraguay" viene a evitar, y sale a la luz ahora que el
+-- agente IA puede cargar contactos con coordenadas: `/v1/ai/confirm` valida el
+-- rango geográfico REAL (-180 a 180), así que sin este ALTER habría validaciones
+-- que aceptan un punto que después la columna rechaza.
+--
+-- (11,8) da tres dígitos enteros (±999.99999999) y cubre el rango entero con
+-- margen. La latitud se deja en (10,8) a propósito: ahí el tope de la columna es
+-- MÁS estricto que el rango real y funciona como una defensa extra.
+--
+-- Ampliar la precisión de un numeric sin tocar la escala no reescribe la tabla
+-- (el typmod nuevo admite todo lo que admitía el viejo), así que corre en
+-- milisegundos incluso con la libreta de direcciones llena.
+ALTER TABLE customerAddress
+  ALTER COLUMN customerAddressLng TYPE DECIMAL(11,8);

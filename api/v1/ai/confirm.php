@@ -22,6 +22,7 @@
 require_once __DIR__ . '/../../bootstrap.php';
 require_once API_APP_DIR . '/includes/ai_confirm_store.php';
 require_once dirname(__DIR__, 2) . '/lib/Ai/AgentActor.php';
+require_once dirname(__DIR__, 2) . '/lib/Ai/ContactPayload.php';
 
 // MISMO gate de entrada que `execute.php`, resuelto por el MISMO objeto. Que
 // las dos mitades de la operación compartan la definición de "quién es el actor
@@ -80,11 +81,20 @@ function aiConfirmValidateAction(string $action, mixed $payload): void
             if (empty(trim((string) ($payload['name'] ?? '')))) {
                 apiError('name es obligatorio', 400);
             }
+            // Dirección default: el ContactService la crea junto con el
+            // contacto. Lo único que hay que validar acá son las coordenadas,
+            // que van de a par — ver ContactPayload::coordsError().
+            if ($coordsError = \Punto\Api\Ai\ContactPayload::coordsError($payload)) {
+                apiError($coordsError, 400);
+            }
             break;
 
         case 'update_contact':
             if (strlen((string) ($payload['id'] ?? '')) < 30) {
                 apiError('id de contacto inválido', 400);
+            }
+            if ($coordsError = \Punto\Api\Ai\ContactPayload::coordsError($payload)) {
+                apiError($coordsError, 400);
             }
             break;
 

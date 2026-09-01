@@ -350,11 +350,35 @@ final class ContactService
         }
 
         // contactLatLng vive en data JSONB; ncmInsert/ncmUpdate lo enrutan solos.
-        if (!empty($in['lat']) && !empty($in['lng'])) {
+        if (self::hasCoords($in)) {
             $rec['contactLatLng'] = strip_tags($in['lat'] . ',' . $in['lng']);
         }
 
         return $rec;
+    }
+
+    /**
+     * ¿El input trae el PAR completo de coordenadas?
+     *
+     * Existe para que los dos mappers de coordenadas —`mapToColumns()` (JSONB
+     * `contactLatLng`) y `mapToAddress()` (columnas de `customerAddress`)—
+     * decidan con el MISMO criterio: si discrepan, un contacto termina con
+     * punto en un lado y sin punto en el otro.
+     *
+     * Antes era `!empty($in['lat']) && !empty($in['lng'])`, y `empty()` trata
+     * al CERO como ausente. `0` es una coordenada perfectamente válida: el
+     * meridiano de Greenwich (lng = 0) pasa por Londres y por Accra, así que un
+     * comercio ahí cargaba su ubicación y las dos coordenadas se descartaban
+     * sin un solo mensaje. Se compara contra null y '' —el mismo criterio de
+     * `Ai\ContactPayload::coordsError()`, que es quien rechaza el par
+     * incompleto antes de llegar acá— para que "el valor es cero" y "no mandó
+     * nada" dejen de ser lo mismo.
+     */
+    private static function hasCoords(array $in): bool
+    {
+        $lat = $in['lat'] ?? null;
+        $lng = $in['lng'] ?? null;
+        return $lat !== null && $lat !== '' && $lng !== null && $lng !== '';
     }
 
     /**
@@ -367,7 +391,7 @@ final class ContactService
         if (isset($in['city']))     $addr['customerAddressCity']     = strip_tags((string) $in['city']);
         if (isset($in['location'])) $addr['customerAddressLocation'] = strip_tags((string) $in['location']);
         if (isset($in['address']))  $addr['customerAddressText']     = strip_tags((string) $in['address']);
-        if (!empty($in['lat']) && !empty($in['lng'])) {
+        if (self::hasCoords($in)) {
             $addr['customerAddressLat'] = $in['lat'];
             $addr['customerAddressLng'] = $in['lng'];
         }
