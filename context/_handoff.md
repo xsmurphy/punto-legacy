@@ -1,83 +1,34 @@
-# Hand-off — 2026-08-31 (4)
+# Hand-off — 2026-08-31
 
 ## Objetivo
-Tres hilos que se enredaron en una sesión larga: (1) el owner pidió que el
-asistente de la caja pueda escribir cambios simples (precios, stock, ítems)
-sin que el cajero tenga que entrar al panel; (2) el teclado virtual del POS
-seguía tapando inputs en iOS pese a dos rondas previas de fix; (3) limpieza
-de reportes que fue apareciendo en el camino — Equipo vacío, Auditoría sin
-fecha, secciones muertas, identificadores fiscales hardcodeados a Paraguay.
+Que el agente IA (MCP y el chat embebido del panel/POS) lea datos reales de Punto y devuelva reportes verificables en vez de adivinar semántica de columnas crudas. Cubrió: destrabar el conector MCP de Claude, normalizar el catálogo de 20 tools compartido, sumar comparativas de período, y en paralelo el asistente IA de la caja + teclado virtual + limpieza de reportes (sesiones paralelas, ver bitácora).
 
 ## Estado al cerrar
-`main` en `ae34f580`, todo pusheado. Deploys verificados con el MCP de
-Coolify (sin `in_progress` pendientes): Front en `5630c3d1` (deployment
-`1oag5axpukdg1cnq2wdheqvv`, finished), Backend en `7e29907d` (deployment
-`s3h28hg9pjem49yjfvptkmsv`, finished) — ambos cubren mis commits de código.
-`79f6f2b8` y `ae34f580` son solo markdown, no requieren deploy.
+`main` en `dd53e606` (más los merges de las otras 3 sesiones paralelas de hoy — ver bitácora, entries `(2)`/`(3)`/`(4)`). Deploys verificados con el MCP de Coolify: Front en `5630c3d1` (deployment `1oag5axpukdg1cnq2wdheqvv`, finished), Backend en `6afe4ba0` (deployment `t8idwjy4kr4hwfvieaztilk2`, finished). **`dd53e606` (Front) quedó SIN deployar** — único commit de código posterior al último deploy front. El MCP funciona de punta a punta, verificado con datos reales del tenant ICAS: 20 tools, `pagos_epos` fuera del catálogo, `compareWith`/`get_sales_kpis` presentes, `ventas_resumen`/`clientes` devuelven filas reales con la moneda del tenant en `meta`.
 
 ## Archivos y cambios
-- `api/lib/Ai/AgentActor.php` — nuevo. Identidad + permiso del operador del
-  PIN para las DOS mitades (`confirm`/`execute`) de una escritura del agente.
-- `frontend/app/(pos)/pos/**` — BFF propio del asistente (`/api/pos/agent/
-  chat`), catálogo de tools recortado (`POS_TOOL_IDS`), UI del chat.
-- `frontend/components/pos/keyboard-inset.tsx` + `viewport-probe.tsx` — miden
-  contra `document.documentElement.clientHeight`, no `window.innerHeight`,
-  en iOS PWA standalone. Test en `frontend/lib/pos/__tests__/keyboard-inset.
-  test.ts` prohíbe restar de `innerHeight`.
-- `frontend/app/(panel)/reports/audit/**` — fix de los 2 bugs de
-  serialización (jsonb `meta`, claves lowercase de `AuditRow`).
-- `frontend/app/(panel)/reports/customers/**` — reescrito en 3 tabs.
-- `api/lib/Support/CountryDefaults.php` (nuevo) + `frontend/lib/contact-id-
-  types.ts` — catálogo de identificadores fiscales por país (`c9dfc3cd`),
-  reemplazó 3 `?? "RUC"` hardcodeados.
-- `context/59-asistente-en-la-caja.md` — status actualizado a implementado
-  (F1-F6), D9 sigue abierta.
-- `CLAUDE.md` — fila de `context/59` actualizada a implementado.
-- `context/62-dashboard-operaciones.md` — doc nuevo, plan sin OK del owner.
+- `frontend/lib/domain/sale-type.ts` — fuente única TS de tipos de transacción (reemplaza vocabulario triplicado: enum PHP + mapa parcial + enteros mágicos).
+- `frontend/lib/agent/normalize-tool-result.ts` + `tool-field-rules.ts` — normalización semántica de las 20 tools (compartido MCP + agente del panel), poda de campos internos, tope 200 filas, moneda en `meta`.
+- `frontend/lib/agent/read-tools.ts` — `compareWith` (previous_period/previous_year) + `get_sales_kpis`; `pagos_epos` retirado.
+- Rutas/enum de `get_report` centralizados en tabla única + test contra filesystem (arreglaba 3 de 20 reportes que 404eaban en prod).
+- 14 endpoints de `api/v1/reports/*` — allowlist del realm `api` (3 con condición por método).
+- ~63 archivos, texto visible: `mesa`→`espacio` (identificadores de código y sitio de marketing quedaron afuera a propósito).
+- `context/58-mcp-server.md` — actualizado (handshake, causa Cloudflare).
+- `frontend/app/(panel)/reports/customers/**` — quitado el aviso de cobertura del mapa.
 
 ## Callejones sin salida
-- **El teclado se arregló mal dos veces antes de acertar.** Rondas previas
-  culparon el CONSUMO de `--kb-inset` (cada superficie que no la
-  descontaba) y después la fórmula (`vv.offsetTop`). Ninguna era la causa:
-  en iOS PWA `innerHeight` sigue al viewport visual, no al de layout. El
-  síntoma es IDÉNTICO a "no hay teclado" — sin la sonda `?debug=viewport`
-  capturando 441 vs 797 no se resolvía.
-- **Se culpó al deploy sin verificar la hora, otra vez.** Capturas del owner
-  de las 12:08 comparadas contra un deploy de las 00:20 — 12 horas antes, no
-  después. Ya está anotado como trampa recurrente en hand-offs previos.
-- **Un `git commit` sin `-o` arrastró un rename staged de otra sesión**
-  (`McpKeyService`→`ApiKeyService`) al índice. En repo con sesiones
-  paralelas, `git status` antes de commitear no es opcional.
-- **`main` tuvo el typecheck roto** por un commit ajeno (`e49cccd5`) hasta
-  `359f30dc` — nada se podía deployar mientras tanto.
-- **`npx vitest` desde la raíz del repo** (no `frontend/`) tira 35 archivos
-  fallando con "Cannot find package '@/...'" — no es bug, es directorio
-  equivocado.
-- **El MCP devolvía 401** durante parte de la sesión, probablemente por el
-  rename de realm `mcp`→`api` de la sesión paralela — no se pudo verificar
-  ningún reporte contra datos reales por esa vía.
-- **`psql` contra prod y SSH a la BD siguen bloqueados por el classifier.**
+- El 401 del MCP tenía DOS causas encadenadas, no una: primero el handshake disparaba OAuth/DCR (fix), y resuelto eso seguía fallando por Cloudflare bloqueando los user-agents de Anthropic — sin separarlas parecía un solo bug a medio resolver.
+- 3 de los 20 reportes de `get_report` apuntaban a endpoints que no existen en prod (404) y el modelo los elegía igual, porque el catálogo no validaba rutas contra el filesystem — ahora sí, con test.
 
 ## Próximo paso
-Nada abierto que arrancar de una: lo que sigue depende del owner (ver
-Trampas). Si retoma código, el punto natural es D9 de `context/59` —gate de
-`OperatorAssertion` en `drawers.php`— para poder sumar `get_drawers` al
-catálogo del asistente.
+OAuth para el conector (camino 2 de `context/58`): hoy anda con API key por header adicional, sirve para un técnico pero no para que un comercio lo instale solo. La investigación (RFC 9728+8414+7591+PKCE, librerías candidatas) ya está en `context/58`. Alternativa que mencionó el owner: metodologías de análisis para el agente ("skills" del lado de Punto) — ahora tienen datos reales que las sostienen.
 
 ## Trampas conocidas
-- **El asistente de la caja NO responde hasta que el tenant tenga créditos
-  IA cargados** en `/admin` → Empresas → Créditos IA. El "Sin créditos" es
-  literal (saldo 0), no un bug — la cadena de auth funciona.
-- **`tenant_audit` atribuye las escrituras del asistente del POS al contacto
-  que pareó la tablet, no al operador del PIN** — P1 de un code-review,
-  pendiente en commit propio.
-- **D9 de `context/59` sin implementar**: `/v1/reports/drawers` no scopea
-  por caja y su GET no chequea permisos; `get_drawers` quedó fuera del
-  catálogo del asistente como mitigación, no como decisión final.
-- Pendiente de verificación del owner (sin acceso a datos reales): si
-  `/reports/audit` trae filas tras el deploy, y si `/reports/users` (Equipo)
-  ya muestra datos.
-- Plan de compras en el POS (alcance ya cerrado por el owner: solo cargar,
-  mismo impacto en stock que el panel) sigue sin escribirse.
-- `context/62-dashboard-operaciones.md` es plan con D1-D9 propuestas SIN OK
-  del owner — no asumir ninguna cerrada.
+- **Cloudflare "Block AI bots" está desactivada A MANO** en la zona `punto.la`, fuera del repo. Si alguien la reactiva, el conector MCP muere con "Couldn't reach Punto" y el síntoma no señala a Cloudflare por ningún lado.
+- **El catálogo del MCP se cachea del lado del cliente**: tras cambiar tools hay que reconectar el conector para verlas.
+- El asistente de la caja NO responde hasta que el tenant tenga créditos IA cargados en `/admin` → Empresas → Créditos IA (saldo 0 es literal, no bug).
+- `tenant_audit` atribuye las escrituras del asistente del POS al contacto que pareó la tablet, no al operador del PIN — P1 pendiente.
+- D9 de `context/59` sin implementar: `/v1/reports/drawers` no scopea por caja ni chequea permisos; `get_drawers` quedó fuera del catálogo del asistente como mitigación.
+- `context/62-dashboard-operaciones.md` es plan con D1-D9 propuestas SIN OK del owner — no asumir ninguna cerrada.
+- Plan de compras en el POS (alcance ya cerrado por el owner: solo cargar, mismo impacto en stock que el panel) sigue sin escribirse.
+- Trampas recurrentes: no culpar al deploy sin comparar horas en UTC (Paraguay es UTC−3); `npx vitest` desde la raíz del repo falla, correr desde `frontend/`; `psql`/SSH a la BD bloqueados por el classifier.

@@ -15,16 +15,9 @@ Commits `8efbd353..7312dc8c` (6 propios: `8efbd353`,`e00c1211`,`f9d4accb`,`17986
 
 Commits `53ce1895..b91b2991` (60, `frontend/app/(site)`+`components/site`+`lib/site`+`content/sitio`). Highlights: home + 15 rubros (3 grupos) + 10 minipages de módulo + precios + contacto, ruteo por host en `middleware.ts` (`punto.la`→`/home`, panel intacto); capa de mercado `lib/site/markets.ts` aísla precio/moneda/`{docFiscal}`/montos de ejemplo por país (hoy solo PY); exportador `content/sitio/*.md` en `prebuild` alimenta al agente de atención; redirects de `encom.app` cargados en Cloudflare y confirmados; SEO completo (sitemap enviado a Search Console) y webchat de Fish en las 30 páginas; 2 fixes cross-cutting al design system compartido — `dark:` de Tailwind se filtraba dentro de `.light` (`app/globals.css`) y el estado activo de `<Tabs>` shadcn nunca se pintaba en NINGÚN lugar del proyecto (`components/ui/tabs.tsx`). Doc nuevo `context/61-sitio-marketing.md`. Deploy: `b91b2991` va incluido en el deploy `1oag5axpukdg1cnq2wdheqvv` (commit `5630c3d1`, otra sesión) que quedó `in_progress` al cierre — verificar que termine `finished`.
 
-## 2026-08-31 — MCP: el conector de Claude quedó conectado de punta a punta
+## 2026-08-31 — MCP conectado de punta a punta + catálogo de reportes del agente normalizado + mesa→espacio
 
-Commit `ff66e624` (los `8cab0cd6`/`e8b3371c` de teclado virtual del POS son de
-una sesión paralela). Dos causas encadenadas: el 401 del handshake disparaba
-OAuth/dynamic client registration en el cliente ("Couldn't register") — fix,
-`initialize`/`tools/list` responden sin key, la key se exige recién en
-`tools/call`; resuelto eso, Cloudflare bloqueaba los user-agents de Anthropic
-con la tarjeta legacy "Block AI bots" (desactivada a mano por el owner, fuera
-del repo). Verificado con 4 tools reales contra el tenant ICAS. `context/58`
-actualizado; próximo paso es OAuth (camino 2) para que lo instale un comercio.
+Commits `ff66e624..dd53e606` (8). Highlights: MCP operativo — 401 del handshake disparaba OAuth/DCR (fix, key recién en `tools/call`) y, resuelto eso, Cloudflare bloqueaba los user-agents de Anthropic con "Block AI bots" (desactivada a mano, fuera del repo); rename `mesa`→`espacio` en 63 archivos (texto visible, identificadores de código y sitio de marketing quedaron afuera a propósito); F0-F2 del catálogo del agente — `sale-type.ts` fuente única TS (vocabulario triplicado), normalización semántica de las 20 tools (`normalize-tool-result.ts`+`tool-field-rules.ts`, moneda del tenant en `meta`), `compareWith` (previous_period/previous_year) + `get_sales_kpis`; bug real: 3 de 20 reportes de `get_report` apuntaban a endpoints 404 en prod y 14 endpoints de `reports/` no aceptaban el realm `api` (401 por MCP) — ambos arreglados con rutas/enum centralizados + test contra filesystem; baja de Pagos ePOS del catálogo (módulo muerto). Verificado con datos reales del tenant ICAS. `context/58` actualizado.
 
 ## 2026-08-30 — MCP server de punta a punta: catálogo compartido, realm `api`, 4 P2 de auth cerrados
 
