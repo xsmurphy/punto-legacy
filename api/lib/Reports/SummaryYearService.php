@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\App\Helpers\Date;
+
 /**
  * Dominio de Reportes — Resumen Anual de Ingresos y Egresos (API compartida, motor ERP).
  *
@@ -56,7 +58,7 @@ final class SummaryYearService
         $months = [];
         foreach ($allMonths as $m) {
             $ms = sprintf('%04d-%02d-01 00:00:00', $year, $m);
-            $me = date('Y-m-t 23:59:59', strtotime($ms));
+            $me = date('Y-m-t ', strtotime($ms)) . Date::END_OF_DAY;
 
             $s = $salesMap[$m]    ?? ['cnt' => 0, 'total' => 0, 'tax' => 0, 'discount' => 0, 'qty' => 0];
             $e = $expensesMap[$m] ?? ['total' => 0];
@@ -88,8 +90,8 @@ final class SummaryYearService
         $year      = (int) $year;
         $startYear = sprintf('%04d-01-01 00:00:00', $year);
         $endYear   = ($year < (int) date('Y'))
-            ? sprintf('%04d-12-31 23:59:59', $year)
-            : date('Y-m-d 23:59:59');
+            ? sprintf('%04d-12-31 ', $year) . Date::END_OF_DAY
+            : date('Y-m-d ') . Date::END_OF_DAY;
 
         $res = ncmExecute(
             'SELECT EXTRACT(MONTH FROM transactionDate)::int AS month,
@@ -113,7 +115,7 @@ final class SummaryYearService
                 $f  = $res->fields;
                 $m  = (int) $f['month'];
                 $ms = sprintf('%04d-%02d-01 00:00:00', $year, $m);
-                $me = date('Y-m-t 23:59:59', strtotime($ms));
+                $me = date('Y-m-t ', strtotime($ms)) . Date::END_OF_DAY;
 
                 $months[] = [
                     'month'          => $m,

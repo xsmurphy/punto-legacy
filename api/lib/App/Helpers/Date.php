@@ -34,9 +34,18 @@ final class Date
     /**
      * Formato aceptado para un extremo de rango: `YYYY-MM-DD` con hora
      * OPCIONAL. Es el mismo regex que estaba duplicado, verbatim, en los ~24
-     * endpoints de `api/v1/reports/*` y `api/v1/finance/*`.
+     * endpoints de `api/v1/reports/*` y `api/v1/finance/*`, mas la FRACCION de
+     * segundo opcional.
+     *
+     * La fraccion se acepta por dos razones. La primera es que sin ella el
+     * helper rechazaba su PROPIA salida —`isRangeBound(rangeEnd('2026-09-01'))`
+     * daba false—, una trampa para el proximo caller que encadene los dos.
+     * La segunda es que el panel necesita poder MANDAR el ultimo instante del
+     * dia: su selector arma el rango del lado del cliente y, como una hora
+     * explicita se respeta verbatim, sin fraccion se quedaba con el agujero
+     * del ultimo segundo que `END_OF_DAY` cierra.
      */
-    public const RANGE_BOUND_RE = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
+    public const RANGE_BOUND_RE = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2}(\.\d{1,6})?)?$/';
 
     /**
      * Último instante representable de un día, con la precisión REAL de las

@@ -153,12 +153,30 @@ export function defaultDateRange(): DateRangeValue {
   return { from, to }
 }
 
+/**
+ * Ultimo instante representable de un dia. Espejo de `Date::END_OF_DAY` en
+ * `api/lib/App/Helpers/Date.php` — ver ahi el porque completo.
+ *
+ * Resumen: las columnas de fecha son `timestamptz` (microsegundos), asi que un
+ * tope en `23:59:59` pierde todo lo que caiga en el ultimo segundo del dia. Una
+ * venta a las 23:59:59.5 desaparecia del reporte del dia sin explicacion.
+ *
+ * El backend ya normaliza una fecha SOLA (`2026-09-01`) al final del dia, pero
+ * respeta verbatim la hora explicita — y este selector manda la hora explicita.
+ * Mientras siga haciendolo, la precision tiene que viajar desde aca. La limpieza
+ * de fondo (mandar solo `YYYY-MM-DD` y que el backend resuelva) esta pendiente:
+ * requiere migrar antes los endpoints de finanzas que leen `$_GET` crudo sin
+ * pasar por el helper (`movements.php`, `checks.php`, `forecast.php`), porque
+ * con una fecha sola volverian a cortar en la medianoche.
+ */
+const END_OF_DAY = "23:59:59.999999"
+
 /** Convierte el rango a strings YYYY-MM-DD HH:mm:ss para enviar al backend. */
 export function rangeToBackend(r: DateRangeValue): { from: string; to: string } {
   const pad = (n: number) => String(n).padStart(2, "0")
   const f = r.from
   const t = r.to
   const from = `${f.getFullYear()}-${pad(f.getMonth() + 1)}-${pad(f.getDate())} 00:00:00`
-  const to = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} 23:59:59`
+  const to = `${t.getFullYear()}-${pad(t.getMonth() + 1)}-${pad(t.getDate())} ${END_OF_DAY}`
   return { from, to }
 }

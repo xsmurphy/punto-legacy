@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\App\Helpers\Date;
+
 use Punto\Api\Contacts\ContactDisplayName;
 
 /**
@@ -109,7 +111,7 @@ final class DrawersService
         $rows = [];
         foreach ($raw as $r) {
             $isClosed = $r['closeDate'] !== '';
-            $closeBound = $isClosed ? $r['closeDate'] : date('Y-m-d 23:59:59', strtotime(TODAY));
+            $closeBound = $isClosed ? $r['closeDate'] : date('Y-m-d ', strtotime(TODAY)) . Date::END_OF_DAY;
             $t = $this->componentsFor($r['openDate'], $closeBound, $r['registerId'], $companyId, $allSales, $roc);
             $count = $this->cashCount($isClosed, $r['expected'], $r['closeAmount'], $r['openAmount'], $t, $tolerance);
 
@@ -156,7 +158,7 @@ final class DrawersService
         $openDate = (string) ($d['drawerOpenDate'] ?? '');
         $closeDate= (string) ($d['drawerCloseDate'] ?? '');
         $isClosed = $closeDate !== '';
-        $closeBound = $isClosed ? $closeDate : date('Y-m-d 23:59:59', strtotime(TODAY));
+        $closeBound = $isClosed ? $closeDate : date('Y-m-d ', strtotime(TODAY)) . Date::END_OF_DAY;
 
         $names     = ContactDisplayName::batch(array_filter([$uOpen, $uClose]), $companyId);
         $outlets   = $this->nameMap('outlet',   'outletId',   'outletName',   [$outlet],   $companyId);

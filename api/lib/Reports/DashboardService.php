@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+use Punto\App\Helpers\Date;
+
 /**
  * Dominio de Reportes — Dashboard del panel (API compartida, motor ERP).
  *
@@ -70,7 +72,7 @@ final class DashboardService
         $items = ncmExecute("SELECT COUNT(*) as count FROM item WHERE companyId = ?", [$companyId]);
         $draw  = ncmExecute("SELECT COUNT(*) as count FROM drawer WHERE (drawerCloseDate IS NULL OR drawerCloseDate < '2010-01-01 00:00:00')" . $roc . " LIMIT 10");
         $startD = date('Y-m-01 00:00:00');
-        $endD   = date('Y-m-t 23:59:59');
+        $endD   = date('Y-m-t ') . Date::END_OF_DAY;
         $trans = ncmExecute("SELECT COUNT(*) as count FROM transaction WHERE companyId = ? AND transactionDate BETWEEN ? AND ?", [$companyId, $startD, $endD]);
         // ¿Vendió ALGUNA VEZ? (lifetime, EXISTS barato). El gate del hero de
         // bienvenida del dashboard usa esto — transactionsCount es del MES
@@ -457,7 +459,7 @@ final class DashboardService
         $from = $opts['from']; $to = $opts['to'];
         if (!empty($opts['week'])) {
             $from = date('Y-m-d 00:00:00', strtotime('-1 week'));
-            $to   = date('Y-m-d 23:59:59');
+            $to   = date('Y-m-d ') . Date::END_OF_DAY;
         }
         if (!empty($opts['prev'])) {
             $sF = strtotime($from); $eF = strtotime($to); $diff = $eF - $sF;

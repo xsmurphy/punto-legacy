@@ -50,6 +50,9 @@ require_once __DIR__ . '/_harness.php';
 $companyId = 'da7e9a11-0000-4000-8000-000000000101';
 $outletId  = 'da7e9a11-0000-4000-8000-000000000102';
 $registerId = 'da7e9a11-0000-4000-8000-000000000103';
+// Segunda caja: `uidx_drawer_register_open` permite UNA sola caja abierta por
+// register (invariante de exclusividad), y B5 necesita un segundo drawer abierto.
+$registerId2 = 'da7e9a11-0000-4000-8000-000000000107';
 $contactId = 'da7e9a11-0000-4000-8000-000000000104';
 
 define('COMPANY_ID', $companyId);
@@ -157,6 +160,24 @@ check('A9 el ultimo instante del dia cubre los microsegundos',
     Date::rangeEnd('2026-09-01') > '2026-09-01 23:59:59.5',
     'un corte en 23:59:59 perdia todo lo posterior a esa fraccion', $failures, $checks);
 
+// A10. La fraccion de segundo se acepta en la ENTRADA. Hace falta porque el
+//      selector del panel manda la hora explicita, y una hora explicita se
+//      respeta verbatim: sin fraccion el panel se quedaba con el agujero.
+//      Ademas cierra la trampa de que el helper rechazara su propia salida.
+check('A10 isRangeBound acepta su propia salida (round-trip)',
+    Date::isRangeBound(Date::rangeEnd('2026-09-01')) === true,
+    'el helper rechazaba el valor que el mismo produce', $failures, $checks);
+check('A10b se acepta una fraccion explicita del cliente',
+    Date::isRangeBound('2026-09-01 23:59:59.999999') === true,
+    'el panel manda esta forma', $failures, $checks);
+check('A10c se rechaza mas precision que microsegundos',
+    Date::isRangeBound('2026-09-01 23:59:59.1234567') === false,
+    'Postgres no pasa de microsegundos', $failures, $checks);
+[$fG, $tG] = Date::reportRange('2026-09-01 00:00:00', '2026-09-01 23:59:59.999999');
+check('A10d el tope con fraccion explicita se respeta verbatim',
+    $tG === '2026-09-01 23:59:59.999999',
+    "obtenido '$tG'", $failures, $checks);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bloque B — el incidente, end-to-end contra Postgres.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,6 +193,9 @@ try {
     $db->Execute('INSERT INTO register (registerId, registerName, registerStatus, outletId, companyId)
                   VALUES (?, ?, TRUE, ?, ?)',
         [$registerId, 'Caja 1', $outletId, $companyId]);
+    $db->Execute('INSERT INTO register (registerId, registerName, registerStatus, outletId, companyId)
+                  VALUES (?, ?, TRUE, ?, ?)',
+        [$registerId2, 'Caja 2', $outletId, $companyId]);
     $db->Execute('INSERT INTO contact (contactId, contactName, type, companyId, outletId)
                   VALUES (?, ?, 0, ?, ?)',
         [$contactId, 'Cajero', $companyId, $outletId]);
@@ -217,6 +241,45 @@ try {
         count($rows3) === 0,
         'rango [' . $from3 . ' .. ' . $to3 . '] devolvió ' . count($rows3) . ' filas; se esperaba 0',
         $failures, $checks);
+
+    // B5. EL AGUJERO DEL ÚLTIMO SEGUNDO, contra Postgres de verdad. Una caja
+    //     abierta a las 23:59:59.5 —la venta que "nadie logra explicar" cuando
+    //     el total del día no cuadra con el arqueo—. Con el tope viejo de
+    //     `23:59:59` esta fila NO entraba: el `<=` la dejaba afuera por medio
+    //     segundo. `A9` verifica el string; esto verifica el comportamiento.
+    $db->Execute(
+        'INSERT INTO drawer (drawerId, drawerOpenDate, drawerOpenAmount, drawerUID,
+                             drawerUserOpen, registerId, outletId, companyId)
+         VALUES (?::uuid, ?::timestamptz, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?::uuid)',
+        ['da7e9a11-0000-4000-8000-000000000106', '2026-09-01 23:59:59.500000', 100000, 2,
+         $contactId, $registerId2, $outletId, $companyId]
+    );
+    [$from5, $to5] = Date::reportRange('2026-09-01', '2026-09-01');
+    $rows5 = $svc->listMovements($from5, $to5, $roc, $companyId);
+    check('B5 una caja abierta a las 23:59:59.5 entra en el rango del dia',
+        count($rows5) === 2,
+        'rango [' . $from5 . ' .. ' . $to5 . '] devolvió ' . count($rows5) . ' filas; se esperaban 2 '
+        . '(la de las 12:07 y la de las 23:59:59.5). Con un tope en 23:59:59 se pierde la segunda.',
+        $failures, $checks);
+
+    // B5b. Control: el tope VIEJO (`23:59:59`) efectivamente la perdía. Deja
+    //      asentado que B5 no pasa por casualidad.
+    $rows5b = $svc->listMovements('2026-09-01 00:00:00', '2026-09-01 23:59:59', $roc, $companyId);
+    check('B5b el tope viejo 23:59:59 SI perdia la de las 23:59:59.5 — el agujero existia',
+        count($rows5b) === 1,
+        'se esperaba 1 fila con el tope viejo, se obtuvieron ' . count($rows5b)
+        . '. Si esto falla, el fixture no reproduce el agujero del ultimo segundo.',
+        $failures, $checks);
+
+    // B6. EL CAMINO DEL PANEL. `rangeToBackend()` manda la hora EXPLICITA, y una
+    //     hora explicita se respeta verbatim — asi que el panel solo deja de
+    //     perder el ultimo segundo si manda `.999999`. Esto verifica ese camino
+    //     exacto, que es por donde entran las 24 pantallas de reportes.
+    $rows6 = $svc->listMovements('2026-09-01 00:00:00', '2026-09-01 23:59:59.999999', $roc, $companyId);
+    check('B6 el rango que manda el panel (hora explicita) cubre las 23:59:59.5',
+        count($rows6) === 2,
+        'devolvió ' . count($rows6) . ' filas; se esperaban 2. Si da 1, el panel sigue '
+        . 'perdiendo el ultimo segundo aunque el backend este arreglado.', $failures, $checks);
 
     // B4. El día anterior sigue vacío: el fix no corre el rango un día.
     [$from4, $to4] = Date::reportRange('2026-08-31', '2026-08-31');
