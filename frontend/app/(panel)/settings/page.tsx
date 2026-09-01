@@ -2,11 +2,11 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useForm, type Resolver, type UseFormReturn } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { z } from "zod"
-import { Loader2, Building2, ScanLine, Coins, Check, Palette, FileText, Tag, ListOrdered, Component, CreditCard, Monitor, ShieldCheck, Printer, KeyRound, Trash2, LayoutGrid, Search, Lock, Plug } from "lucide-react"
+import { Loader2, Building2, Coins, Check, FileText, Tag, Trash2, Search } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -58,6 +58,14 @@ import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
 import { ModuleCatalogPanel } from "@/components/modules/module-catalog-panel"
 import { PlanPanel } from "@/components/billing/plan-panel"
+import {
+  DEFAULT_SETTINGS_SECTION,
+  HIDDEN_SETTINGS_SECTIONS,
+  SETTINGS_SECTIONS,
+  resolveSettingsSection,
+  type SettingsSection,
+  type SettingsSectionId,
+} from "@/lib/settings/sections"
 import { CountryFlag } from "@/components/ui/country-flag"
 import { COUNTRY_LOCALE as TENANT_COUNTRY_LOCALE } from "@/lib/tenant-locale"
 
@@ -155,17 +163,6 @@ const settingsSchema = z.object({
   agentPersonality: z.enum(["professional", "friendly", "direct", "teacher"]),
 })
 
-type SettingsSection =
-  | "empresa"
-  | "pos"
-  | "monedas"
-  | "documentos"
-  | "catalog"
-  | "apariencia"
-  | "modules"
-  | "integraciones"
-  | "plan"
-
 // Normaliza acentos para que "impresion" matchee "Impresoras", "modulos"
 // matchee "Módulos", etc. Mismo patrón que components/modules/module-catalog-panel.tsx
 // y lib/catalog/search.ts — no hay helper compartido en lib/ hoy, así que se
@@ -176,52 +173,6 @@ function normalize(s: string): string {
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
 }
-
-// `href` opcional: si está definido, el item del sidebar navega directo a esa
-// URL (cerrando el modal) en lugar de switchear la sección interna. Útil para
-// secciones que ya tienen una página dedicada con más contenido del que cabría
-// en el modal — evita renderear cards "puente" redundantes adentro.
-const SECTIONS: {
-  id: SettingsSection
-  label: string
-  icon: React.ComponentType<{ className?: string }>
-  href?: string
-}[] = [
-  // "Localización" se fusionó a Empresa (2026-08-01, pedido del owner): eran
-  // dos secciones cortas de la misma ficha del negocio — identidad + idioma/
-  // moneda. Mismo criterio que Redes sociales (ver nota al final de la lista).
-  { id: "empresa",    label: "Empresa",      icon: Building2 },
-  { id: "pos",        label: "POS",          icon: ScanLine },
-  { id: "monedas",    label: "Monedas",      icon: Coins },
-  { id: "documentos", label: "Documentos",   icon: FileText },
-  { id: "catalog",    label: "Catálogo",     icon: Tag, href: "/settings/catalog" },
-  { id: "apariencia", label: "Apariencia",   icon: Palette },
-  { id: "price-lists" as unknown as SettingsSection, label: "Listas de precios", icon: ListOrdered, href: "/settings/price-lists" },
-  { id: "outlets"     as unknown as SettingsSection, label: "Sucursales",        icon: Building2,   href: "/outlets" },
-  { id: "modules",    label: "Módulos",      icon: Component },
-  // Integraciones = puentes con sistemas de terceros. Sección propia (no un
-  // bloque más adentro de Módulos) por el mismo criterio con el que se
-  // separaron las páginas: prenderlas no alcanza, hay credenciales de por
-  // medio. Mismo panel, otro `kind` — ver lib/modules-catalog.ts.
-  { id: "integraciones", label: "Integraciones", icon: Plug },
-  // "Mi plan" salió del menú de settings (2026-08-01, owner): vive SOLO en el
-  // menú del usuario del sidebar (/history-billing). La sección interna queda
-  // por si alguien llega con ?section=plan desde un link viejo.
-  { id: "devices" as unknown as SettingsSection, label: "Dispositivos", icon: Monitor, href: "/settings/devices" },
-  { id: "sessions" as unknown as SettingsSection, label: "Sesiones", icon: KeyRound, href: "/settings/sessions" },
-  // Página propia y NO una sección de Sesiones: una sesión solo se revoca
-  // —nadie la crea desde una pantalla— y una key se EMITE, con un token que se
-  // muestra una sola vez. Verbos distintos, superficies distintas.
-  { id: "apiKeys" as unknown as SettingsSection, label: "Keys de integración", icon: Plug, href: "/settings/api-keys" },
-  { id: "printers" as unknown as SettingsSection, label: "Impresoras", icon: Printer, href: "/settings/printers" },
-  { id: "tables" as unknown as SettingsSection, label: "Espacios", icon: LayoutGrid, href: "/settings/espacios" },
-  { id: "roles" as unknown as SettingsSection, label: "Roles y permisos", icon: ShieldCheck, href: "/settings/roles" },
-  // D7/E1b de context/48-escalamiento-de-datos.md — página propia (listado +
-  // acción de cierre), no un tab del modal.
-  { id: "period-close" as unknown as SettingsSection, label: "Cierre de período", icon: Lock, href: "/settings/cierre-de-periodo" },
-  // Redes sociales se fusionó a la sección Empresa (al final del tab) en vez
-  // de tener una sección propia — el tab solo con 4 inputs estaba subutilizado.
-]
 
 // Sections que escriben al form de settings — solo en esas mostramos el botón
 // "Guardar" del header. Monedas tiene su propia mutation con botón propio;
@@ -264,21 +215,67 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
 }
 
 export default function SettingsPage() {
+  // useSearchParams() requiere Suspense boundary durante el prerender (Next
+  // App Router). Mismo patrón que settings/catalog/page.tsx e items/page.tsx.
+  return (
+    <React.Suspense fallback={null}>
+      <SettingsPageInner />
+    </React.Suspense>
+  )
+}
+
+function SettingsPageInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { data, isLoading, error } = useSettings()
   const update = useUpdateSettings()
   const [open, setOpen] = React.useState(true)
-  const [section, setSection] = React.useState<SettingsSection>("empresa")
+
+  // La sección activa SALE DE LA URL, no de un useState: el buscador del
+  // sidebar (command palette) deep-linkea cada tab con `/settings?section=X`
+  // y hasta 2026-09-01 el estado inicial estaba hardcodeado en "empresa" —
+  // buscabas "Monedas", lo encontrabas, y aterrizabas en "Empresa".
+  //
+  // Con la URL como única fuente de verdad no hay estado que sincronizar:
+  // back/forward, refresh y links compartidos muestran lo mismo.
+  const resolved = resolveSettingsSection(searchParams.get("section"))
+  const section = resolved.kind === "tab" ? resolved.section : DEFAULT_SETTINGS_SECTION
+
+  // `?section=` que apunta a una sección con página propia (roles, sucursales,
+  // impresoras…): se redirige a esa página en vez de caer al default. El id
+  // expresa a dónde quiere ir el usuario; su casa canónica es esa página, no
+  // un tab del modal. `replace` para no dejar la URL puente en el history.
+  const redirectHref = resolved.kind === "redirect" ? resolved.href : null
+  React.useEffect(() => {
+    if (redirectHref) router.replace(redirectHref)
+  }, [redirectHref, router])
+
+  // Cambiar de tab reescribe el query string. `replace` y no `push` a
+  // propósito: el modal se cierra con router.back() (ver handleOpenChange), y
+  // con push cada tab visitado sería un paso de history — cerrar el modal
+  // volvería al tab anterior en vez de salir de Configuración, y el botón
+  // atrás del navegador obligaría a desandar N tabs para volver a donde el
+  // usuario estaba antes de abrirlo. Mismo criterio que el `?tab=` de
+  // settings/catalog/page.tsx.
+  const selectSection = React.useCallback(
+    (id: SettingsSectionId) => {
+      const sp = new URLSearchParams(searchParams.toString())
+      sp.set("section", id)
+      router.replace(`/settings?${sp.toString()}`, { scroll: false })
+    },
+    [router, searchParams],
+  )
+
   // Filtro del buscador de secciones. Se deja vivir aunque el usuario cambie
-  // de sección (no se limpia en setSection): si filtró por "docu" para llegar
-  // a Documentos, lo más probable es que quiera seguir mirando esa misma
-  // vecindad (ej. después ir a Catálogo) sin retipear.
+  // de sección: si filtró por "docu" para llegar a Documentos, lo más probable
+  // es que quiera seguir mirando esa misma vecindad (ej. después ir a
+  // Catálogo) sin retipear.
   const [sectionQuery, setSectionQuery] = React.useState("")
 
   const filteredSections = React.useMemo(() => {
     const q = normalize(sectionQuery.trim())
-    if (!q) return SECTIONS
-    return SECTIONS.filter((s) => normalize(s.label).includes(q))
+    if (!q) return SETTINGS_SECTIONS
+    return SETTINGS_SECTIONS.filter((s) => normalize(s.label).includes(q))
   }, [sectionQuery])
 
   // Cuando el modal se cierra, salimos de la ruta /settings. router.back() si
@@ -425,8 +422,14 @@ export default function SettingsPage() {
     }
   }
 
-  const activeLabel = SECTIONS.find((s) => s.id === section)?.label ?? ""
+  const activeLabel =
+    [...SETTINGS_SECTIONS, ...HIDDEN_SETTINGS_SECTIONS].find((s) => s.id === section)?.label ?? ""
   const showSave = FORM_SECTIONS.includes(section)
+
+  // Mientras se resuelve la redirección a la página propia de la sección no
+  // renderizamos el modal: pintar "Empresa" por un frame es exactamente el
+  // aterrizaje equivocado que este deep-link viene a eliminar.
+  if (redirectHref) return null
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -502,7 +505,7 @@ export default function SettingsPage() {
                         <button
                           key={id}
                           type="button"
-                          onClick={() => (href ? navigateAndClose(href) : setSection(id))}
+                          onClick={() => (href ? navigateAndClose(href) : selectSection(id))}
                           className={cn(
                             "flex shrink-0 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm transition-colors sm:w-full",
                             active

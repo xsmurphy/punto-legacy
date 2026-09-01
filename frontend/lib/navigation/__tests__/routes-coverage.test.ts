@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest"
 
 import { routePathname } from "@/lib/navigation/build"
 import { PANEL_ROUTES, POS_ROUTES, UNINDEXED_PAGES } from "@/lib/navigation/routes"
+import { SETTINGS_SECTION_IDS } from "@/lib/settings/sections"
 
 /**
  * Cobertura del registro de navegación.
@@ -24,6 +25,13 @@ import { PANEL_ROUTES, POS_ROUTES, UNINDEXED_PAGES } from "@/lib/navigation/rout
  *  2. Ninguna entrada del registro apunta a una página inexistente.
  *  3. La allowlist no se pudre (excluir algo que ya no existe, o excluir e
  *     indexar la misma página).
+ *
+ * El cuarto assert cubre el nivel de abajo: una página puede existir en el
+ * registro y aun así aterrizar en el lugar equivocado. Los tabs de /settings
+ * se deep-linkean con `?section=<id>`, y ese id tiene que existir en
+ * `lib/settings/sections.ts` — la lista con la que la pantalla decide qué
+ * mostrar. Sin el cruce, renombrar un tab deja el link apuntando al vacío y
+ * el usuario cae en "Empresa" sin que nada falle.
  */
 
 // lib/navigation/__tests__ → raíz de `frontend/`
@@ -106,5 +114,23 @@ describe("registro de navegación", () => {
       .filter(([, reason]) => reason.trim().length < 10)
       .map(([p]) => p)
     expect(withoutReason, "Toda exclusión necesita un motivo escrito.").toEqual([])
+  })
+
+  it("deep-linkea /settings a secciones que existen", () => {
+    const broken = registry
+      .filter((entry) => routePathname(entry.to) === "/settings")
+      .map((entry) => ({
+        entry,
+        section: new URLSearchParams(entry.to.split("?")[1] ?? "").get("section"),
+      }))
+      .filter(({ section }) => section !== null && !SETTINGS_SECTION_IDS.includes(section))
+      .map(({ entry, section }) => `${entry.title} → ?section=${section}`)
+      .sort()
+    expect(
+      broken,
+      "Entradas de /settings con un ?section= que no existe en " +
+        "lib/settings/sections.ts. Ids válidos: " +
+        SETTINGS_SECTION_IDS.join(", "),
+    ).toEqual([])
   })
 })

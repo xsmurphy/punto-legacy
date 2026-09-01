@@ -47,6 +47,7 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import { useLockStore } from "@/lib/pos/lock-store"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import type { NavEntry, NavGroup, NavItem, PaletteSection } from "@/lib/navigation/types"
+import { routePathname } from "@/lib/navigation/build"
 
 // Los tipos del nav viven en `lib/navigation/types.ts` (el registro de rutas
 // es la fuente de verdad y no puede depender de un componente client). Se
@@ -479,7 +480,12 @@ function PosUserMenuContent() {
 
 // ── helpers de render ────────────────────────────────────────────────────
 
-function isItemActive(to: string, pathname: string): boolean {
+function isItemActive(rawTo: string, pathname: string): boolean {
+  // Una entrada del registro puede traer query string (`/settings?section=pos`,
+  // deep-link de un tab interno). El resaltado compara contra `pathname`, que
+  // nunca la tiene: sin recortarla acá, ninguna entrada con `?` quedaría
+  // activa nunca. Se recorta en el wrapper, no en cada call-site.
+  const to = routePathname(rawTo)
   // `/pos` es índice del workspace de caja: match exacto para que NO quede
   // activo cuando se está en /pos/espacios, /pos/ordenes, etc.
   const isExactRoute = to === "/" || to === "/admin" || to === "/pos"
