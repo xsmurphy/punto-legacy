@@ -55,6 +55,43 @@ final class Date
     public const END_OF_DAY = '23:59:59.999999';
 
     /**
+     * Formato aceptado para un extremo de FRANJA HORARIA: `HH:MM` con los
+     * segundos OPCIONALES.
+     *
+     * Por qué `HH:MM` y no un entero de hora (`7`..`11`): el pedido que motivó
+     * la feature es textual — "ventas de 07:00 a 11:59". Con granularidad de
+     * hora entera esa franja sólo se puede aproximar, y una como 07:30-11:15 no
+     * se puede expresar en absoluto. Un `EXTRACT(HOUR ...)` como predicado
+     * dejaba el minuto afuera para siempre; el costo de soportarlo es cero (el
+     * predicado compara `::time` en vez de un entero).
+     *
+     * Por qué los segundos son opcionales pero se aceptan: `HH:MM` es lo que va
+     * a mandar la UI y lo que escribe una persona, pero un caller que arme la
+     * hora desde un timestamp (`substr($ts, 11)`) produce `HH:MM:SS` — y un
+     * helper que rechace la forma más obvia de derivar su propio input es una
+     * trampa (la misma que la fracción de segundo cerró en `RANGE_BOUND_RE`).
+     *
+     * Por qué DOS dígitos obligatorios en la hora: aceptar `7:00` obliga a
+     * normalizar antes de comparar como string (ver `hourRange()`, que decide
+     * el cruce de medianoche con `<=` lexicográfico) y abre la puerta a `7:5`.
+     *
+     * A diferencia de `RANGE_BOUND_RE`, este regex SÍ exige los rangos reales
+     * (`00-23` / `00-59`) en vez de `\d{2}`. Puede hacerlo porque no hay fecha
+     * de por medio: sin `checkdate()` en el medio no hay razón para partir la
+     * validación en dos pasos, y así `25:99` no puede llegar a Postgres — que
+     * es exactamente el agujero que `isRangeBound()` tuvo que tapar aparte.
+     */
+    public const HOUR_BOUND_RE = '/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/';
+
+    /**
+     * Identificador de columna aceptable para interpolar en el SQL de
+     * `hourRange()`: `col` o `alias.col`. No es validación de input del
+     * cliente —el nombre lo escribe el servicio— sino un guard de
+     * defense-in-depth, mismo criterio que el UUID_RE de `Reports\Roc`.
+     */
+    private const SQL_COLUMN_RE = '/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/';
+
+    /**
      * ¿El valor es un extremo de rango sintácticamente válido?
      *
      * Vacío cuenta como válido: significa "usá el default", no "el cliente se
@@ -244,6 +281,238 @@ final class Date
         return strlen($value) === 10 && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value)
             ? $value . ' ' . $timePart
             : $value;
+    }
+
+    /**
+     * ¿El valor es un extremo de franja horaria sintácticamente válido?
+     *
+     * Vacío cuenta como válido, igual que en `isRangeBound()`: significa "sin
+     * franja" —el caso de la enorme mayoría de las consultas—, no "el cliente
+     * se equivocó".
+     */
+    public static function isHourBound(mixed $value): bool
+    {
+        $value = trim((string) ($value === false || $value === null ? '' : $value));
+
+        return $value === '' || (bool) preg_match(self::HOUR_BOUND_RE, $value);
+    }
+
+    /**
+     * Resuelve el filtro de FRANJA HORARIA de un reporte: el fragmento de
+     * `WHERE` que deja sólo las filas cuya hora del día cae en la franja, para
+     * TODOS los días del rango de fechas.
+     *
+     * ── Qué resuelve (y por qué no alcanza con `from`/`to`) ──────────────────
+     *
+     * Un rango `from`/`to` es un intervalo CONTINUO. "Del 1 al 30 de septiembre
+     * de 07:00 a 11:59" mandado como rango incluye las 19 horas de cada noche
+     * del medio: no hay forma de expresar la franja con los parámetros que ya
+     * existen. La hora del día es una dimensión PROPIA, ortogonal al rango, y
+     * por eso son dos parámetros más y no otra manera de mandar `from`/`to`.
+     * (Lo que sí funciona hoy sin nada de esto es la franja DENTRO de un solo
+     * día: `from=... 07:00:00&to=... 11:59:59`. Ver `context/67`, Caso A.)
+     *
+     * ── La franja que cruza medianoche ──────────────────────────────────────
+     *
+     * Es el caso real de cualquier bar: opera de 20:00 a 04:00. Leído
+     * ingenuamente el predicado queda `hora >= 20 AND hora < 04`, que no puede
+     * ser verdadero nunca y devuelve CERO filas — un reporte vacío en vez de un
+     * error, o sea el peor modo de falla posible. Cuando el inicio es POSTERIOR
+     * al fin, el predicado se invierte a un `OR`: `hora >= 20 OR hora <= 04`.
+     * Se resuelve acá, una sola vez, justamente para que ningún call-site
+     * futuro tenga que acordarse.
+     *
+     * La comparación que decide la inversión es `<=` sobre los strings ya
+     * normalizados. Es correcta porque el formato es de ancho fijo con ceros a
+     * la izquierda (`HH:MM:SS…`): el orden lexicográfico y el cronológico
+     * coinciden. Por eso `HOUR_BOUND_RE` exige dos dígitos en la hora.
+     *
+     * ── El extremo superior es INCLUSIVO de la unidad que se pidió ──────────
+     *
+     * `hourTo=11:59` cierra en `11:59:59.999999`, no en `11:59:00`. Es la misma
+     * decisión —y por la misma razón— que `rangeEnd()`: las columnas son
+     * `timestamptz` (microsegundos), así que un corte en `11:59:00` pierde el
+     * minuto 59 entero, y uno en `11:59:59` pierde su última fracción. "Hasta
+     * las 11:59" significa el minuto 11:59 incluido, igual que "hasta el 1 de
+     * septiembre" significa ese día entero.
+     *
+     * No se usa el borde EXCLUSIVO (`< '12:00'`) por dos razones. La primera es
+     * consistencia con `rangeEnd()`, que ya eligió el tope inclusivo con
+     * fracción y documenta por qué. La segunda es que correr el tope al
+     * siguiente le rompe el pie a la detección del cruce de medianoche:
+     * `23:00`-`23:59` se convertiría en `23:00`-`24:00` y habría que tratar
+     * `24:00` aparte (Postgres acepta `time '24:00:00'`, pero comparar contra
+     * él ya no es el mismo orden lexicográfico que usa la inversión).
+     *
+     * ── Un solo extremo ─────────────────────────────────────────────────────
+     *
+     * `hourFrom` sin `hourTo` es "desde las 20:00 hasta el final del día";
+     * `hourTo` sin `hourFrom` es "desde medianoche hasta las 11:59". Se soporta
+     * porque el agente IA es el consumidor natural de esta feature y una
+     * pregunta como "¿cuánto vendí después de las 8 de la noche?" no trae el
+     * otro extremo. Ojo: un extremo faltante se completa con el borde del día,
+     * así que NUNCA dispara el `OR` de medianoche por accidente.
+     *
+     * ── Sin franja no se agrega NADA ────────────────────────────────────────
+     *
+     * Los dos parámetros vacíos devuelven el fragmento vacío y cero binds: la
+     * query queda byte por byte como está hoy. Es el caso común, y así los ~24
+     * endpoints ya migrados no pagan nada —ni costo ni riesgo— por que esto
+     * exista.
+     *
+     * ── Zona horaria (el riesgo silencioso de esta feature) ─────────────────
+     *
+     * La hora de una venta depende del huso con que se la mire, y un filtro que
+     * se equivoque de huso devuelve datos PLAUSIBLES y falsos: peor que fallar.
+     *
+     * Con `$timezone` en null el predicado se apoya en la zona de la SESIÓN de
+     * Postgres. Eso es correcto detrás de un embudo de auth y sólo ahí:
+     * `apiAuthTenant()` hace `require data.php`, que corre
+     * `TenantClock::apply()` y deja la sesión de PG en la zona del comercio
+     * (verificado: `api/data.php:84`; los 24 endpoints de reportes entran por
+     * ese embudo). La conexión NO nace en la zona del tenant —abre con la de la
+     * plataforma, UTC en el container de prod, y recién el embudo la cambia—,
+     * así que un cron, el realm `/admin` o un arnés de tests que arme la query
+     * fuera de un request DEBE pasar `$timezone` explícito
+     * (`TenantClock::timezone($companyId)`). Es la misma advertencia del
+     * docblock de `reportRange()`, acá con consecuencias peores: un rango mal
+     * husado corre el borde de un día, una franja mal husada corre TODAS las
+     * filas del reporte.
+     *
+     * La zona viaja como PARÁMETRO BINDEADO, no interpolada. Es la diferencia
+     * con `TenantClock::applyToDatabaseSession()`, que no tiene opción (`SET`
+     * no acepta parámetros) y por eso valida contra la lista IANA antes de
+     * concatenar. Acá no hace falta ese guard porque no hay superficie de
+     * inyección. Sí se castea (`?::text`): con `EMULATE_PREPARES=false` el
+     * parámetro llega sin tipo, y `AT TIME ZONE` tiene dos overloads
+     * (`text` e `interval`) — el cast le saca toda ambigüedad al planner.
+     *
+     * PRECONDICIÓN de `$timezone`: la columna tiene que ser `timestamptz`.
+     * Las tres que va a filtrar la F1 lo son —`transaction.transactionDate`,
+     * `itemsold.itemSoldDate`, `drawer.drawerOpenDate`, verificadas una por una
+     * en `db-schema-postgres.sql`—, pero eso NO es una garantía sobre todo el
+     * schema: cada columna nueva que se sume al filtro se verifica antes.
+     * Sobre un `timestamp` naive el `AT TIME ZONE`
+     * significa lo contrario (lo interpreta EN esa zona en vez de mostrarlo en
+     * ella) y devolvería basura: esa columna se filtra sin `$timezone`.
+     *
+     * ── Índices ─────────────────────────────────────────────────────────────
+     *
+     * El predicado de franja NO usa el índice de fecha: es un filtro residual
+     * sobre las filas que el rango ya trajo. Eso es aceptable porque la franja
+     * SIEMPRE acompaña a un rango de fechas —nunca es el único filtro
+     * temporal—, así que opera sobre un conjunto ya acotado por el índice y por
+     * el particionado por mes (`context/48`). El helper no puede hacer cumplir
+     * esa condición (no ve el resto del `WHERE`), así que es CONTRATO del
+     * call-site: sólo se agrega este fragmento a una query que ya acota por
+     * `from`/`to`. En los servicios de reportes se cumple por construcción —
+     * todos reciben el rango y lo bindean—, pero si alguna vez se quisiera
+     * filtrar por franja sin rango, ahí sí hace falta un índice funcional sobre
+     * la expresión, que hoy no existe.
+     *
+     * ── La forma del retorno ────────────────────────────────────────────────
+     *
+     * Fragmento + params, no dos enteros validados. Devolver enteros obligaría
+     * a cada servicio a escribir su propio predicado y, con eso, a acordarse
+     * del cruce de medianoche: es exactamente el patrón duplicado que
+     * `reportRange()` vino a matar para `from`/`to` (ver `context/67`,
+     * arquitecturas rechazadas).
+     *
+     * El riesgo conocido de devolver SQL armado afuera de la query —que el
+     * `OR` de medianoche se mezcle con las otras condiciones del `WHERE`— se
+     * cierra en la forma del fragmento, no en la disciplina del caller: SIEMPRE
+     * sale entre paréntesis y SIEMPRE arranca con " AND ", así que es
+     * concatenable después de cualquier `WHERE` existente sin cambiarle el
+     * significado. El " AND " de entrada es la otra cara de eso: el fragmento
+     * asume que el `WHERE` ya trae al menos una condición (siempre la hay — el
+     * scope de tenant y el rango de fechas), así que pegarlo pelado después de
+     * un `WHERE` daría `WHERE AND (…)`. Falla en el primer request, no en
+     * silencio. Es la misma convención que `Reports\Roc::build()`, que ya
+     * viaja así por los 24 endpoints; la diferencia es que Roc interpola sus
+     * valores (UUIDs del token) y esto los bindea (vienen del request).
+     *
+     * Uso típico en un servicio de reportes (F1):
+     *
+     *     [$hourSql, $hourParams] = Date::hourRange('transactionDate', $hf, $ht);
+     *     $sql = '... WHERE transactionType IN (0, 3)
+     *                 AND transactionDate >= ? AND transactionDate <= ?'
+     *                 . $roc . $hourSql;
+     *     ncmExecute($sql, array_merge([$from, $to], $hourParams));
+     *
+     * El orden de los binds es el de aparición del `?` en el SQL: los params de
+     * la franja van DONDE se concatena el fragmento. En una query con varios
+     * rangos (`CustomersService::dashboard()` bindea tres) hay que insertarlos
+     * en la posición que corresponde, no siempre al final.
+     *
+     * @param string      $column    Columna de fecha sobre la que filtrar (`transactionDate`, `t.transactionDate`, `itemSoldDate`…).
+     * @param mixed       $hourFrom  Crudo del request (acepta el `false`/`null` de validateHttp()).
+     * @param mixed       $hourTo    Crudo del request.
+     * @param string|null $timezone  TZ IANA explícita. Null = la de la sesión de PG (sólo válido detrás del embudo de auth).
+     *
+     * @return array{0: string, 1: array<int, string>, 2: bool} [sql, params, valid].
+     *         Cuando `valid` es false el fragmento viene VACÍO: una franja mal
+     *         formada degrada a "sin franja" —resultado más amplio, nunca uno
+     *         inventado— para que el caller que prefiera seguir pueda ignorar
+     *         el flag, igual que hace `reportRange()` con sus defaults. El que
+     *         quiera cortar con 422 mira el flag.
+     *
+     * @throws \InvalidArgumentException si `$column` no es un identificador simple.
+     */
+    public static function hourRange(string $column, mixed $hourFrom, mixed $hourTo, ?string $timezone = null): array
+    {
+        if (!preg_match(self::SQL_COLUMN_RE, $column)) {
+            // Un nombre de columna inválido es un error de PROGRAMACIÓN, no del
+            // cliente: lo escribe el servicio, nunca el request. Por eso explota
+            // en vez de degradar como los extremos de hora — devolver "sin
+            // franja" acá escondería el bug y, encima, la interpolación.
+            throw new \InvalidArgumentException('Date::hourRange: columna inválida (' . $column . ')');
+        }
+
+        $from = trim((string) ($hourFrom === false || $hourFrom === null ? '' : $hourFrom));
+        $to   = trim((string) ($hourTo === false || $hourTo === null ? '' : $hourTo));
+
+        if (!self::isHourBound($from) || !self::isHourBound($to)) {
+            return ['', [], false];
+        }
+        if ($from === '' && $to === '') {
+            return ['', [], true];
+        }
+
+        $start = $from === '' ? '00:00:00' : self::normalizeHourBound($from, false);
+        $end   = $to   === '' ? self::END_OF_DAY : self::normalizeHourBound($to, true);
+
+        // `::time` sobre la columna, no `EXTRACT(HOUR ...)`: el predicado tiene
+        // que discriminar el minuto (ver HOUR_BOUND_RE). Sobre `timestamptz` el
+        // cast usa la zona de la sesión; el `AT TIME ZONE` la fija explícita.
+        $expr    = $timezone !== null && $timezone !== '' ? '(' . $column . ' AT TIME ZONE ?::text)::time' : $column . '::time';
+        $tzParam = $timezone !== null && $timezone !== '' ? [$timezone] : [];
+
+        // LA INVERSIÓN: inicio posterior al fin = la franja cruza medianoche
+        // (20:00 a 04:00). Con `AND` no devuelve nada nunca.
+        $op = $start <= $end ? 'AND' : 'OR';
+
+        return [
+            ' AND (' . $expr . ' >= ?::time ' . $op . ' ' . $expr . ' <= ?::time)',
+            array_merge($tzParam, [$start], $tzParam, [$end]),
+            true,
+        ];
+    }
+
+    /**
+     * Completa el extremo de una franja horaria a `HH:MM:SS[.999999]`.
+     *
+     * No valida: `hourRange()`/`isHourBound()` ya filtraron. El extremo
+     * SUPERIOR se lleva la unidad que se pidió entera (`11:59` →
+     * `11:59:59.999999`, `11:59:30` → `11:59:30.999999`) por la misma razón que
+     * `rangeEnd()` cierra el día en `.999999`: las columnas tienen precisión de
+     * microsegundo.
+     */
+    private static function normalizeHourBound(string $value, bool $isEnd): string
+    {
+        // `strlen === 5` es "vino sin segundos" (`HH:MM`).
+        $full = strlen($value) === 5 ? $value . ($isEnd ? ':59' : ':00') : $value;
+
+        return $isEnd ? $full . '.999999' : $full;
     }
 
     /**

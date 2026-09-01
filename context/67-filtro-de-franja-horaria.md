@@ -133,7 +133,7 @@ Puntos que el plan tiene que resolver o declarar abiertos:
 
 | Fase | Qué | Depende de |
 |---|---|---|
-| **F0** | Helper: `hourFrom`/`hourTo` en `Date` (validación + resolución del predicado, incluida la franja que cruza medianoche) | — |
+| **F0** | **IMPLEMENTADA 2026-09-01** — `Date::hourRange()` + `Date::isHourBound()` (`api/lib/App/Helpers/Date.php`): valida `HH:MM[:SS]`, invierte el predicado a `OR` cuando la franja cruza medianoche, devuelve `[sql, params, valid]` con el fragmento parentizado que arranca con ` AND ` (convención `Reports\Roc`), y sin franja devuelve vacío. Arnés: bloques C y D de `api/tests/report_date_range_test.php` (64/64) | — |
 | **F1** | Cablear el predicado en los servicios de reportes `ranged: true` que se decida incluir (ver criterio arriba) | F0 |
 | **F2** | UI: control de franja horaria en el selector de fechas del panel | F1 |
 | **F3** | Parámetro en `read-tools.ts` para el agente/MCP | F1 (no depende de F2) |

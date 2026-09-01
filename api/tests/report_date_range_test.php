@@ -44,6 +44,25 @@ require_once __DIR__ . '/_harness.php';
  * panel) a través del servicio real. SIN el fix este bloque falla: el rango se
  * cierra en `X 00:00:00` y `listMovements()` devuelve cero filas.
  *
+ * ── Y además: la FRANJA HORARIA (`Date::hourRange`, F0 de context/67) ───────
+ *
+ * Bloque C (unitario, sin DB): la semántica del filtro de franja horaria — la
+ * dimensión que el rango de fechas NO puede expresar. "De 07:00 a 11:59 todos
+ * los días de septiembre" mandado como `from`/`to` es un intervalo CONTINUO que
+ * incluye las noches del medio; la franja es un predicado aparte que se repite
+ * cada día. Se verifica el predicado normal, el que CRUZA MEDIANOCHE (20:00 a
+ * 04:00, el bar: con `AND` no devuelve nada nunca), la franja vacía (no agrega
+ * nada a la query — el caso común), las horas inválidas y los bordes.
+ *
+ * Bloque D (integración contra Postgres): el predicado corriendo de verdad,
+ * con filas a distintas horas. Incluye lo que ningún test unitario puede
+ * probar: que la ZONA HORARIA cambia el resultado (las MISMAS filas con la
+ * MISMA franja dan 2 o 0 según el huso), y que apoyarse en la zona de la
+ * sesión —lo que hace el embudo de auth con `TenantClock::apply()`— da
+ * exactamente lo mismo que pasarla explícita. Un filtro horario con el huso
+ * equivocado devuelve datos plausibles y falsos: es el modo de falla que este
+ * bloque existe para descartar.
+ *
  * Uso (necesita Postgres migrado — ver run_report_date_range_test.sh).
  */
 
@@ -179,6 +198,117 @@ check('A10d el tope con fraccion explicita se respeta verbatim',
     "obtenido '$tG'", $failures, $checks);
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Bloque C — franja horaria (`Date::hourRange`), unitario.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// C1. Franja normal. El fragmento arranca con " AND " y viene entre
+//     paréntesis: así se concatena después de cualquier WHERE sin cambiarle el
+//     significado (misma convención que `Reports\Roc::build`).
+[$c1sql, $c1par, $c1ok] = Date::hourRange('transactionDate', '07:00', '11:59');
+check('C1 franja normal arma un predicado AND',
+    $c1sql === ' AND (transactionDate::time >= ?::time AND transactionDate::time <= ?::time)' && $c1ok === true,
+    "obtenido '$c1sql'", $failures, $checks);
+check('C1b el fragmento es concatenable (arranca con AND y cierra el paréntesis)',
+    str_starts_with($c1sql, ' AND (') && substr($c1sql, -1) === ')',
+    "obtenido '$c1sql'", $failures, $checks);
+
+// C2. EL TOPE ES INCLUSIVO DE LA UNIDAD PEDIDA. "Hasta las 11:59" es el minuto
+//     11:59 entero, no `11:59:00`. Misma decisión (y misma razón: columnas con
+//     precisión de microsegundo) que el `.999999` de `rangeEnd()`.
+check('C2 el tope 11:59 cierra al final de ese minuto',
+    $c1par === ['07:00:00', '11:59:59.999999'],
+    'obtenido ' . json_encode($c1par), $failures, $checks);
+[, $c2par] = Date::hourRange('transactionDate', '07:00:15', '11:59:30');
+check('C2b con segundos explícitos el tope cierra al final de ESE segundo',
+    $c2par === ['07:00:15', '11:59:30.999999'],
+    'obtenido ' . json_encode($c2par), $failures, $checks);
+
+// C3. LA FRANJA QUE CRUZA MEDIANOCHE. El bar que opera de 20:00 a 04:00: con
+//     `hora >= 20 AND hora <= 04` el predicado no puede ser verdadero nunca y
+//     el reporte sale VACÍO en silencio. Cuando el inicio es posterior al fin
+//     el predicado se invierte a OR — esto es lo central de la F0.
+[$c3sql, $c3par, $c3ok] = Date::hourRange('transactionDate', '20:00', '04:00');
+check('C3 la franja que cruza medianoche invierte el predicado a OR',
+    $c3sql === ' AND (transactionDate::time >= ?::time OR transactionDate::time <= ?::time)' && $c3ok === true,
+    "obtenido '$c3sql'", $failures, $checks);
+check('C3b los extremos de la franja invertida no se tocan',
+    $c3par === ['20:00:00', '04:00:59.999999'],
+    'obtenido ' . json_encode($c3par), $failures, $checks);
+
+// C4. SIN FRANJA NO SE AGREGA NADA. Es el caso de la enorme mayoría de las
+//     consultas: la query queda byte por byte como está hoy, sin binds de más.
+//     Si esto falla, los 24 endpoints ya migrados pagan por una feature que no
+//     están usando.
+[$c4sql, $c4par, $c4ok] = Date::hourRange('transactionDate', '', '');
+check('C4 sin franja el fragmento es vacío y no agrega binds',
+    $c4sql === '' && $c4par === [] && $c4ok === true,
+    "obtenido sql='$c4sql' params=" . json_encode($c4par), $failures, $checks);
+[$c4bsql, , $c4bok] = Date::hourRange('transactionDate', false, null);
+check('C4b false/null de validateHttp se tratan como "sin franja"',
+    $c4bsql === '' && $c4bok === true, "obtenido '$c4bsql'", $failures, $checks);
+
+// C5. Horas inválidas. Degradan a "sin franja" (resultado más amplio, nunca uno
+//     inventado) y marcan el flag para que el endpoint pueda cortar con 422.
+foreach (['25:00', '07:60', '7:00', '07', 'mañana', '07:00:61', '07:00:00.5'] as $bad) {
+    [$sqlBad, $parBad, $okBad] = Date::hourRange('transactionDate', $bad, '11:59');
+    check("C5 hora inválida ('$bad') se rechaza y no filtra",
+        $okBad === false && $sqlBad === '' && $parBad === [],
+        "obtenido ok=" . var_export($okBad, true) . " sql='$sqlBad'", $failures, $checks);
+}
+check('C5b isHourBound acepta las formas válidas',
+    Date::isHourBound('00:00') && Date::isHourBound('23:59:59') && Date::isHourBound(''),
+    'HH:MM, HH:MM:SS y vacío son válidos', $failures, $checks);
+
+// C6. BORDE 00:00. El inicio del día tiene que ser una franja legal, no
+//     confundirse con "vacío" — un `if ($hourFrom)` ingenuo lo trataría como
+//     ausente y silenciaría el filtro.
+[$c6sql, $c6par, $c6ok] = Date::hourRange('transactionDate', '00:00', '00:00');
+check('C6 la franja 00:00-00:00 filtra el primer minuto del día (no es "sin franja")',
+    $c6sql !== '' && $c6par === ['00:00:00', '00:00:59.999999'] && $c6ok === true,
+    "obtenido sql='$c6sql' params=" . json_encode($c6par), $failures, $checks);
+check('C6b 00:00 a 23:59 cubre el día entero sin invertirse',
+    Date::hourRange('transactionDate', '00:00', '23:59')[1] === ['00:00:00', '23:59:59.999999']
+    && str_contains(Date::hourRange('transactionDate', '00:00', '23:59')[0], ' AND '),
+    'el día completo no debería disparar el OR de medianoche', $failures, $checks);
+
+// C7. Un solo extremo: se completa con el borde del día. Importa que NUNCA
+//     dispare el OR por accidente — "desde las 20:00" es 20:00→fin del día.
+[$c7sql, $c7par] = Date::hourRange('transactionDate', '20:00', '');
+check('C7 sólo hourFrom = desde esa hora hasta el final del día',
+    $c7par === ['20:00:00', Date::END_OF_DAY] && !str_contains($c7sql, ' OR '),
+    "obtenido sql='$c7sql' params=" . json_encode($c7par), $failures, $checks);
+[$c7bsql, $c7bpar] = Date::hourRange('transactionDate', '', '11:59');
+check('C7b sólo hourTo = desde medianoche hasta esa hora',
+    $c7bpar === ['00:00:00', '11:59:59.999999'] && !str_contains($c7bsql, ' OR '),
+    "obtenido sql='$c7bsql' params=" . json_encode($c7bpar), $failures, $checks);
+
+// C8. TZ explícita: la zona viaja BINDEADA (no interpolada) y se repite en cada
+//     aparición de la expresión, en orden de aparición del `?` en el SQL. Si el
+//     orden se desarma, Postgres compara una hora contra un nombre de zona.
+[$c8sql, $c8par] = Date::hourRange('transactionDate', '07:00', '11:59', 'America/Bogota');
+check('C8 la TZ explícita se bindea en cada aparición, en orden',
+    $c8sql === ' AND ((transactionDate AT TIME ZONE ?::text)::time >= ?::time AND (transactionDate AT TIME ZONE ?::text)::time <= ?::time)'
+    && $c8par === ['America/Bogota', '07:00:00', 'America/Bogota', '11:59:59.999999'],
+    "obtenido sql='$c8sql' params=" . json_encode($c8par), $failures, $checks);
+check('C8b sin TZ no se emite AT TIME ZONE (se apoya en la sesión de PG)',
+    !str_contains($c1sql, 'AT TIME ZONE'),
+    'el fragmento sin TZ no debería fijar zona', $failures, $checks);
+
+// C9. Columna con alias (`t.transactionDate`): CustomersService y DashboardService
+//     hacen JOIN y califican sus columnas. Sin esto la F1 no encaja.
+check('C9 acepta columna calificada por alias',
+    str_contains(Date::hourRange('t.transactionDate', '07:00', '11:59')[0], 't.transactionDate::time'),
+    'obtenido ' . Date::hourRange('t.transactionDate', '07:00', '11:59')[0], $failures, $checks);
+
+// C10. Columna inválida = error de PROGRAMACIÓN (el nombre lo escribe el
+//      servicio, nunca el request) y se interpola en el SQL: explota, no degrada.
+$threw = false;
+try { Date::hourRange('transactionDate; DROP TABLE transaction --', '07:00', '11:59'); }
+catch (\InvalidArgumentException $e) { $threw = true; }
+check('C10 una columna que no es identificador simple lanza (no se interpola)',
+    $threw === true, 'hourRange debería rechazar el nombre de columna', $failures, $checks);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Bloque B — el incidente, end-to-end contra Postgres.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -289,7 +419,139 @@ try {
         'rango [' . $from4 . ' .. ' . $to4 . '] devolvió ' . count($rows4) . ' filas; se esperaba 0',
         $failures, $checks);
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Bloque D — la franja horaria contra Postgres de verdad.
+    //
+    // Cuatro cajas en instantes ABSOLUTOS (offset explícito `+00`, así el
+    // fixture no depende de la zona de la sesión) el 15/16 de septiembre.
+    // Todas CERRADAS: `uidx_drawer_register_open` sólo admite una abierta por
+    // caja, y acá lo que importa es la hora de apertura, no el estado.
+    //
+    //   fila   instante UTC        hora local UTC   hora local America/Bogota
+    //   D-a    15/09 08:30 +00     08:30            03:30
+    //   D-b    15/09 12:00 +00     12:00            07:00
+    //   D-c    15/09 21:00 +00     21:00            16:00
+    //   D-d    16/09 02:00 +00     02:00            21:00 (del 15)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    $db->Execute("SET TIME ZONE 'UTC'");
+
+    $hourFixtures = [
+        ['da7e9a11-0000-4000-8000-00000000010a', 10, '2026-09-15 08:30:00+00'],
+        ['da7e9a11-0000-4000-8000-00000000010b', 11, '2026-09-15 12:00:00+00'],
+        ['da7e9a11-0000-4000-8000-00000000010c', 12, '2026-09-15 21:00:00+00'],
+        ['da7e9a11-0000-4000-8000-00000000010d', 13, '2026-09-16 02:00:00+00'],
+    ];
+    foreach ($hourFixtures as [$id, $uid, $openAt]) {
+        $db->Execute(
+            'INSERT INTO drawer (drawerId, drawerOpenDate, drawerCloseDate, drawerOpenAmount, drawerUID,
+                                 drawerUserOpen, registerId, outletId, companyId)
+             VALUES (?::uuid, ?::timestamptz, ?::timestamptz, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?::uuid)',
+            [$id, $openAt, $openAt, 0, $uid, $contactId, $registerId, $outletId, $companyId]
+        );
+    }
+
+    /**
+     * Cuenta las cajas del fixture que caen en la franja. El rango de fechas va
+     * con offset explícito y es más ancho que el fixture a propósito: lo que se
+     * mide acá es el predicado de FRANJA, no el borde del rango (eso es el
+     * bloque B). Refleja el contrato del helper — la franja siempre viaja
+     * acompañada del rango, nunca sola.
+     */
+    $countInBand = function (string $hf, string $ht, ?string $tz = null, string $alias = '') use ($companyId): int {
+        $pfx = $alias !== '' ? $alias . '.' : '';
+        [$hourSql, $hourParams] = Date::hourRange($pfx . 'drawerOpenDate', $hf, $ht, $tz);
+        $sql = 'SELECT COUNT(*) AS n FROM drawer' . ($alias !== '' ? ' ' . $alias : '')
+             . ' WHERE ' . $pfx . 'companyId = ?::uuid'
+             . ' AND ' . $pfx . 'drawerOpenDate >= ?::timestamptz'
+             . ' AND ' . $pfx . 'drawerOpenDate <= ?::timestamptz'
+             . ' AND ' . $pfx . 'drawerUID >= 10' . $hourSql;
+        $r = ncmExecute($sql, array_merge(
+            [$companyId, '2026-09-14 00:00:00+00', '2026-09-17 23:59:59+00'],
+            $hourParams
+        ));
+        return (int) ($r['n'] ?? -1);
+    };
+
+    // D0. Guard del fixture: la aritmética de abajo asume que Bogotá es UTC-5
+    //     (sin horario de verano desde 1993). Si alguna vez cambia la tzdata del
+    //     contenedor, que falle acá y no en un assert de franja sin explicación.
+    $offRow = ncmExecute(
+        "SELECT EXTRACT(HOUR FROM (timestamptz '2026-09-15 12:00:00+00' AT TIME ZONE 'America/Bogota'))::int AS h",
+        []
+    );
+    check('D0 el fixture asume America/Bogota = UTC-5', (int) ($offRow['h'] ?? -1) === 7,
+        'las 12:00 UTC deberían ser las 07:00 en Bogotá; la tzdata del contenedor dice otra cosa',
+        $failures, $checks);
+
+    // D1. El predicado corre y selecciona lo que debe. Franja de mañana leída en
+    //     UTC: entran la de 08:30 y la de 12:00, quedan afuera 21:00 y 02:00.
+    check('D1 la franja 08:00-12:59 selecciona las dos cajas de la mañana',
+        $countInBand('08:00', '12:59', 'UTC') === 2,
+        'obtenido ' . $countInBand('08:00', '12:59', 'UTC') . ', se esperaban 2', $failures, $checks);
+
+    // D2. LA ZONA HORARIA CAMBIA LA RESPUESTA. Mismas filas, misma franja, otro
+    //     huso: cero. Es el modo de falla que hace peligrosa esta feature — un
+    //     reporte plausible y falso, no un error. Si D1 y D2 dieran lo mismo, el
+    //     `AT TIME ZONE` del helper no estaría haciendo nada.
+    check('D2 la MISMA franja en otro huso da otro resultado (0, no 2)',
+        $countInBand('08:00', '12:59', 'America/Bogota') === 0,
+        'obtenido ' . $countInBand('08:00', '12:59', 'America/Bogota')
+        . '; si da 2, el AT TIME ZONE no se está aplicando', $failures, $checks);
+    check('D2b en hora de Bogotá esas dos cajas caen en la franja 03:00-07:59',
+        $countInBand('03:00', '07:59', 'America/Bogota') === 2,
+        'obtenido ' . $countInBand('03:00', '07:59', 'America/Bogota') . ', se esperaban 2',
+        $failures, $checks);
+
+    // D3. Sin TZ explícita el predicado se apoya en la zona de la SESIÓN, que es
+    //     lo que deja `TenantClock::apply()` en todo request de reportes
+    //     (`apiAuthTenant` → `data.php`). Con la sesión en Bogotá el resultado
+    //     tiene que ser IDÉNTICO al de la TZ explícita: eso es lo que autoriza a
+    //     los 24 endpoints a no pasar el huso.
+    $db->Execute("SET TIME ZONE 'America/Bogota'");
+    check('D3 sin TZ explícita, la sesión de PG manda (= lo que hace TenantClock::apply)',
+        $countInBand('03:00', '07:59') === 2 && $countInBand('08:00', '12:59') === 0,
+        'con la sesión en Bogotá se esperaban 2 y 0; obtenidos '
+        . $countInBand('03:00', '07:59') . ' y ' . $countInBand('08:00', '12:59'),
+        $failures, $checks);
+    $db->Execute("SET TIME ZONE 'UTC'");
+
+    // D4. LA FRANJA QUE CRUZA MEDIANOCHE, con filas reales. El bar de 20:00 a
+    //     04:00: tienen que entrar la de las 21:00 Y la de las 02:00. Con el
+    //     predicado leído ingenuamente (`>= 20 AND <= 04`) esto da 0.
+    check('D4 la franja 20:00-04:00 trae las de las 21:00 y las 02:00',
+        $countInBand('20:00', '04:00', 'UTC') === 2,
+        'obtenido ' . $countInBand('20:00', '04:00', 'UTC')
+        . '; con AND en vez de OR este caso devuelve 0 en silencio', $failures, $checks);
+    check('D4b control: 20:00-23:59 (sin cruzar) trae sólo la de las 21:00',
+        $countInBand('20:00', '23:59', 'UTC') === 1,
+        'obtenido ' . $countInBand('20:00', '23:59', 'UTC')
+        . '; si da 2, el OR se está aplicando donde no corresponde', $failures, $checks);
+
+    // D5. SIN FRANJA, LA QUERY QUEDA COMO ESTÁ: las cuatro filas del rango.
+    check('D5 sin franja no se filtra nada (las 4 cajas del rango)',
+        $countInBand('', '') === 4,
+        'obtenido ' . $countInBand('', '') . ', se esperaban 4', $failures, $checks);
+
+    // D6. El tope inclusivo, medido: una franja de un minuto agarra la fila de
+    //     ese minuto exacto y el minuto anterior no la agarra.
+    check('D6 la franja 02:00-02:00 agarra la caja de las 02:00',
+        $countInBand('02:00', '02:00', 'UTC') === 1,
+        'obtenido ' . $countInBand('02:00', '02:00', 'UTC'), $failures, $checks);
+    check('D6b la franja 01:59-01:59 no la agarra',
+        $countInBand('01:59', '01:59', 'UTC') === 0,
+        'obtenido ' . $countInBand('01:59', '01:59', 'UTC'), $failures, $checks);
+
+    // D7. Columna calificada por alias: es como filtran los servicios con JOIN
+    //     (CustomersService, DashboardService). Verifica que el fragmento sigue
+    //     siendo SQL válido ahí.
+    check('D7 el predicado funciona con la columna calificada por alias',
+        $countInBand('08:00', '12:59', 'UTC', 'd') === 2,
+        'obtenido ' . $countInBand('08:00', '12:59', 'UTC', 'd'), $failures, $checks);
+
 } finally {
+    // La sesión vuelve a la zona con la que arrancó: el bloque D la mueve.
+    $db->Execute("SET TIME ZONE 'UTC'");
     // Limpieza en orden inverso a las FK.
     $db->Execute('DELETE FROM drawer   WHERE companyId = ?', [$companyId]);
     $db->Execute('DELETE FROM contact  WHERE companyId = ?', [$companyId]);

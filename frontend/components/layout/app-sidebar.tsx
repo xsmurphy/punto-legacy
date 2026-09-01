@@ -480,18 +480,36 @@ function PosUserMenuContent() {
 
 // ── helpers de render ────────────────────────────────────────────────────
 
-function isItemActive(rawTo: string, pathname: string): boolean {
-  // Una entrada del registro puede traer query string (`/settings?section=pos`,
-  // deep-link de un tab interno). El resaltado compara contra `pathname`, que
-  // nunca la tiene: sin recortarla acá, ninguna entrada con `?` quedaría
-  // activa nunca. Se recorta en el wrapper, no en cada call-site.
-  const to = routePathname(rawTo)
+function isItemActive(rawTo: string, pathname: string, search: string): boolean {
+  // Una entrada del registro puede traer query string (`/contacts?type=1`,
+  // `/settings?section=pos`). El pathname NUNCA la tiene, así que compararlo
+  // contra el `to` crudo no matchea jamás — y recortarla a secas hace lo
+  // contrario: las tres entradas de Contactos colapsan en `/contacts` y se
+  // marcan las tres a la vez (regresión 2026-09-01, reportada por el owner).
+  //
+  // El query no es decoración: es LA dimensión que distingue a esos items
+  // entre sí. Una entrada con parámetros está activa solo si el pathname
+  // coincide Y sus parámetros coinciden con los de la URL actual. Los suyos
+  // nada más — la URL puede traer otros (paginación, filtros) sin desactivar
+  // el item.
+  const [rawPath, rawQuery = ""] = rawTo.split("?")
+  const to = routePathname(rawPath)
+
   // `/pos` es índice del workspace de caja: match exacto para que NO quede
   // activo cuando se está en /pos/espacios, /pos/ordenes, etc.
   const isExactRoute = to === "/" || to === "/admin" || to === "/pos"
-  return isExactRoute
+  const pathMatches = isExactRoute
     ? pathname === to
     : pathname === to || pathname.startsWith(to + "/")
+
+  if (!pathMatches) return false
+  if (rawQuery === "") return true
+
+  const current = new URLSearchParams(search)
+  for (const [key, value] of new URLSearchParams(rawQuery)) {
+    if (current.get(key) !== value) return false
+  }
+  return true
 }
 
 function NavItemRender({ item, pathname }: { item: NavItem; pathname: string }) {
