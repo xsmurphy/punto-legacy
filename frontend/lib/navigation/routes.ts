@@ -19,7 +19,6 @@ import {
   FileText,
   Flame,
   Gift,
-  Globe,
   HandCoins,
   History,
   KeyRound,
@@ -646,9 +645,10 @@ export const PANEL_ROUTES: RouteEntry[] = [
 
   // ── Configuración ──────────────────────────────────────────────────────
   //
-  // Los tabs internos de /settings NO tienen deep-link (`?section=` no está
-  // implementado): todos abren la pantalla en "Empresa". Se indexan igual
-  // porque el valor está en que el buscador encuentre el concepto.
+  // Los tabs internos de /settings deep-linkean con `?section=<id>` — el id
+  // sale de `lib/settings/sections.ts`, la lista que la pantalla usa para
+  // renderizar el menú, y el test de cobertura falla si acá se escribe un id
+  // que ahí no existe.
   //
   // Sin `requires` a propósito (verificado contra el backend, no olvido):
   // Espacios (api/v1/spaces.php), Listas de precios (price_list.php),
@@ -656,25 +656,25 @@ export const PANEL_ROUTES: RouteEntry[] = [
   // (sessions.php) y Módulos (modules.php) no llaman `hasPermission()` — les
   // alcanza con sesión de panel.
   {
-    to: "/settings",
+    to: "/settings?section=empresa",
     title: "Empresa",
     paletteTitle: "Configuración · Empresa",
     icon: SettingsIcon,
     surface: "palette",
     paletteGroup: "Configuración",
-    keywords: ["company", "datos", "razon social", "ruc", "logo"],
+    // Las keywords de localización (idioma, zona horaria, país…) viven acá
+    // porque el tab "Localización" se fusionó a Empresa el 2026-08-01. La
+    // entrada propia siguió ofreciéndose en el buscador hasta el 2026-09-01,
+    // apuntando a una sección que ya no existía; se borró, pero los términos
+    // se conservan: buscar "zona horaria" tiene que seguir llegando.
+    keywords: [
+      "company", "datos", "razon social", "ruc", "logo",
+      "idioma", "zona horaria", "moneda", "pais", "language", "formato",
+      "localizacion",
+    ],
   },
   {
-    to: "/settings",
-    title: "Localización",
-    paletteTitle: "Configuración · Localización",
-    icon: Globe,
-    surface: "palette",
-    paletteGroup: "Configuración",
-    keywords: ["idioma", "zona horaria", "moneda", "pais", "language", "formato"],
-  },
-  {
-    to: "/settings",
+    to: "/settings?section=pos",
     title: "POS",
     paletteTitle: "Configuración · POS",
     icon: ScanLine,
@@ -683,7 +683,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["caja", "pos", "punto de venta", "ventas"],
   },
   {
-    to: "/settings",
+    to: "/settings?section=monedas",
     title: "Monedas",
     paletteTitle: "Configuración · Monedas",
     icon: Coins,
@@ -692,7 +692,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["monedas", "currency", "cotizacion", "dolar", "cambio"],
   },
   {
-    to: "/settings",
+    to: "/settings?section=apariencia",
     title: "Apariencia",
     paletteTitle: "Configuración · Apariencia",
     icon: Palette,
@@ -701,7 +701,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     keywords: ["tema", "dark", "light", "oscuro", "claro", "theme"],
   },
   {
-    to: "/settings",
+    to: "/settings?section=documentos",
     title: "Documentos",
     paletteTitle: "Configuración · Documentos",
     icon: FileText,
