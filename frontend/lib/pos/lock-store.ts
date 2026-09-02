@@ -63,8 +63,11 @@ interface LockState {
    */
   operatorToken: string | null
   /**
-   * Permisos `pos.*` del operador identificado, tal como los devolvió
-   * `/api/pos/unlock` al validar el PIN contra la BD.
+   * Permisos del operador identificado, tal como los devolvió `/api/pos/unlock`
+   * al validar el PIN contra la BD: los `pos.*` más la allowlist puntual de
+   * claves de panel que gobiernan algo que se ve en la caja (hoy
+   * `reports.sales.view`, que decide si el asistente puede consultar ventas —
+   * ver `api/v1/unlock-pin.php`).
    *
    * ── Por qué viven acá y no en el catálogo ────────────────────────────────
    *

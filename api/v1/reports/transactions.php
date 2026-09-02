@@ -12,7 +12,11 @@
  *        Actualiza header, ítems (itemSold), tags y cascadas de fecha/comisión.
  *        Solo roles != 7. companyId siempre de COMPANY_ID (JWT), nunca del body.
  *
- * Auth: lectura panel + pos-app; escritura solo panel. Tenant por COMPANY_ID +
+ * Auth: lectura panel + pos-app + api; escritura solo panel. El LISTADO exige
+ * `reports.sales.view` y el DETALLE (`?id=`) cualquiera de las claves con las
+ * que se opera un documento — siempre de la PERSONA que pide (ver el gate más
+ * abajo: bajo `pos-app` es el operador del PIN, no el rol del device).
+ * Tenant por COMPANY_ID +
  * outlet. Para pos-app el OUTLET_ID sale de la fila `device` (bootstrap.php),
  * así el listado de transacciones del POS queda scopeado a la sucursal de la
  * caja — con panel-only, el POS pedía con la cookie del operador y mostraba la
@@ -27,6 +31,54 @@ $ctx    = apiAuthTenant(($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' ? ['pane
 $svc    = new \Punto\Api\Reports\TransactionsService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+
+/* ───────── Gate de LECTURA — lo que devuelve esto son las ventas ──────────
+ *
+ * Hasta el 2026-09-01 el GET no chequeaba NADA: los dos `hasPermission()` del
+ * archivo estaban en el POST y en el PUT. O sea que el reporte de ventas de la
+ * empresa —montos, clientes, medios de pago de toda la sucursal— lo leía
+ * cualquier sesión de panel, cualquier API key y cualquier tablet pareada, sin
+ * que la clave `reports.sales.view` gobernara la lectura que le da nombre.
+ *
+ * El gate va por `OperatorContext::requirePermission()` y no por
+ * `hasPermission()` a secas porque este endpoint acepta tres realms y bajo
+ * `pos-app` ese helper resuelve contra el rol del DEVICE —que tiene
+ * `reports.sales.view` en su piso, para las devoluciones— y por lo tanto pasa
+ * siempre. Ahí la persona sale de la afirmación del PIN y el permiso se mide
+ * contra SU rol: el cajero que no puede ver el reporte de ventas en el panel
+ * tampoco puede sacárselo al asistente de la caja.
+ *
+ * Que el gate de `pos-app` sea el estricto (sin operador → 403) no rompe la
+ * caja: el POS NO consume este endpoint. Su listado de transacciones va a
+ * `/v1/transactions.php?resource=mainList` y las devoluciones a
+ * `/v1/returns.php` (que ya trae su propio `reports.sales.view`). El único
+ * consumidor `pos-app` de este archivo es la tool `get_transactions` del
+ * asistente, que viaja con el `X-Operator-Token` del operador desbloqueado.
+ *
+ * ── El LISTADO y el DETALLE no piden la misma clave, y no es un descuido ──
+ *
+ * El listado ES el reporte de ventas del comercio: pide `reports.sales.view` y
+ * punto. El detalle de UN documento (`?id=`) se abre además por dos caminos
+ * legítimos que nada tienen que ver con el reporte — cobrarle a un cliente
+ * (`pos.sale.creditPayment`) y anular un recibo (`pos.sale.void`)—, y el
+ * panel lo usa así: el tab "Financiero" de un cliente empuja a
+ * `/transactions/{id}`, cuya ÚNICA fuente de datos es esta rama. Colgar el
+ * detalle de `reports.sales.view` le sacaba el cobro de crédito al rol
+ * `cashier` del seed, que tiene `pos.sale.creditPayment` y no la del reporte.
+ *
+ * La tool del asistente no toca esta rama: `get_transactions` solo pide
+ * from/to/limit (ver `frontend/lib/agent/read-tools.ts`).
+ */
+if ($method === 'GET') {
+    require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+    if (isset($_GET['id']) && $_GET['id'] !== '') {
+        \Punto\Api\Auth\OperatorContext::requireAnyPermission($ctx, [
+            'reports.sales.view', 'pos.sale.creditPayment', 'pos.sale.void',
+        ]);
+    } else {
+        \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.sales.view');
+    }
+}
 
 /* ───────── write: eliminar cobro / cotización ───────── */
 if ($method === 'POST') {
