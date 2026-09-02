@@ -54,6 +54,7 @@ import { SUPPORTED_COUNTRIES } from "@/lib/countries"
 import { ThemePicker } from "@/components/theme-picker"
 import { DocumentsTab } from "@/components/settings/documents-tab"
 import { CompanyLogo } from "@/components/settings/company-logo"
+import { StockCountListsField } from "@/components/settings/stock-count-lists-field"
 import { EmptyState } from "@/components/empty-state"
 import type { SettingsFormValues } from "@/lib/types/settings"
 import { ModuleCatalogPanel } from "@/components/modules/module-catalog-panel"
@@ -145,6 +146,20 @@ const settingsSchema = z.object({
   storeCredit: z.boolean(),
   ignoreInternal: z.boolean(),
   stockCountBlind: z.boolean(),
+  // D9 de context/63 — ortogonal a `stockCountBlind` (ciego es qué VE el que
+  // cuenta; esto es qué PASA al terminar). En negativo a propósito: el default
+  // del comercio es que el conteo sí ajuste.
+  stockCountRecordOnly: z.boolean(),
+  // D3 — listas fijas de conteo. Se validan también server-side con el mismo
+  // criterio (`StockCountSettings::decodeLists`): sin nombre o sin artículos,
+  // la lista no se guarda.
+  stockCountLists: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      itemIds: z.array(z.string()),
+    }),
+  ),
   blockUsedDocNo: z.boolean(),
   autoSendDocs: z.boolean(),
   weightBarcodes: z.boolean(),
@@ -208,7 +223,8 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
     "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
     "drawerEmail", "drawerBlind", "drawerRequireClosedOrders", "settingDrawerTolerance",
     "blockUsedDocNo", "autoSendDocs",
-    "stockCountBlind", "itemSerialized", "deletedItemsHistory",
+    "stockCountBlind", "stockCountRecordOnly", "stockCountLists",
+    "itemSerialized", "deletedItemsHistory",
     "creditLine", "storeCredit", "paymentId", "ignoreInternal",
   ],
   apariencia: [],
@@ -384,6 +400,8 @@ function SettingsPageInner() {
       storeCredit: !!data.storeCredit,
       ignoreInternal: !!data.ignoreInternal,
       stockCountBlind: !!data.stockCountBlind,
+      stockCountRecordOnly: !!data.stockCountRecordOnly,
+      stockCountLists: data.stockCountLists ?? [],
       blockUsedDocNo: !!data.blockUsedDocNo,
       autoSendDocs: !!data.autoSendDocs,
       weightBarcodes: !!data.weightBarcodes,
@@ -1009,6 +1027,22 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
           label="Conteos de stock ciegos"
           desc="El operador no ve el stock teórico mientras cuenta."
         />
+        {/* D9 de context/63. Hermano del anterior y ORTOGONAL a él: ciego es
+            qué ve el que cuenta, esto es qué pasa al terminar. Se dejaron como
+            dos interruptores y no como un "modo" de cuatro estados porque
+            fusionarlos obliga al dueño a leer una matriz para cambiar una sola
+            cosa.
+
+            Nombrado en negativo a propósito: el default del comercio es que el
+            conteo SÍ ajuste, y este toggle apagado es ese default. */}
+        <ToggleField
+          form={form}
+          name="stockCountRecordOnly"
+          label="El conteo no modifica el stock"
+          desc="Las diferencias quedan registradas para consultarlas, pero el inventario no se ajusta al finalizar."
+        />
+        <StockCountListsField form={form} />
+
         <ToggleField
           form={form}
           name="itemSerialized"
@@ -1391,6 +1425,8 @@ function emptyValues(): SettingsFormValues {
     storeCredit: false,
     ignoreInternal: false,
     stockCountBlind: false,
+    stockCountRecordOnly: false,
+    stockCountLists: [],
     blockUsedDocNo: false,
     autoSendDocs: false,
     weightBarcodes: false,

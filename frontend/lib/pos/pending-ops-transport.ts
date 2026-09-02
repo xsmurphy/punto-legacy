@@ -31,10 +31,18 @@
  *   su propia fila y devuelve la misma. Edición y baja son idempotentes por
  *   naturaleza (asignación y borrado por id).
  *
+ * - **Conteo de stock** es la primera que NO puede volverse idempotente sola:
+ *   crear la sesión inserta una fila y consume un correlativo, y finalizarla
+ *   mueve el ledger — dos envíos serían dos conteos y el doble del ajuste. Se
+ *   resuelve como el alta de impresora, con la identidad puesta por el
+ *   cliente, solo que acá esa identidad ES el `opId` y se persiste en la fila
+ *   del conteo (índice único por comercio, mig 186). El reenvío encuentra su
+ *   propio conteo y devuelve el mismo resumen.
+ *
  * Por eso no hay tabla de "operaciones ya vistas" server-side: no hace falta
  * inventar un registro de recibos cuando cada operación puede ser ella misma
- * repetible. El `opId` viaja igual, para poder rastrear una operación en los
- * logs de punta a punta.
+ * repetible, o llevar su identidad encima. El `opId` viaja siempre, y para el
+ * conteo además decide el resultado, no solo el rastreo en los logs.
  */
 
 import { posFetch } from '@/lib/api/pos-fetch'
@@ -50,6 +58,7 @@ import type {
   PrinterBindingCreatePayload,
   PrinterBindingDeletePayload,
   PrinterBindingUpdatePayload,
+  StockCountPayload,
 } from '@/lib/pos/local-register-state'
 
 /**
@@ -218,6 +227,34 @@ export async function sendPendingOp(row: PendingOpRow): Promise<unknown> {
         const { id } = row.payload as PrinterBindingDeletePayload
         await posApi.post('/v1/printer_binding', { action: 'delete', id })
         return
+      }
+
+      case 'stockCount': {
+        const payload = row.payload as StockCountPayload
+        // Va por `posFetch` y no por `posApi` para poder mandar el
+        // `X-Punto-Op-Id`: acá el header no es rastreo, es LA condición de
+        // corrección. El backend crea la sesión, carga las cantidades y la
+        // finaliza en una sola transacción atada a ese id, así que un reenvío
+        // encuentra su propio conteo en vez de generar un segundo ajuste de
+        // stock (mig 186, `submitFromRegister()`).
+        //
+        // El operador no viaja en el body: `posFetch` adjunta solo el
+        // `X-Operator-Token` del PIN, y es contra ESE rol que el backend
+        // evalúa `pos.stock.count`. El conteo queda atribuido a la persona,
+        // nunca al dispositivo.
+        return await posBff('/api/v1/inventory_count', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Punto-Op-Id': row.opId },
+          body: JSON.stringify({
+            action: 'registerCount',
+            listId: payload.listId,
+            listName: payload.listName,
+            itemIds: payload.itemIds,
+            rows: payload.rows,
+            countedAt: payload.countedAt,
+            note: payload.note ?? null,
+          }),
+        })
       }
     }
   } catch (err) {

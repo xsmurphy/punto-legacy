@@ -163,13 +163,29 @@ if ($method === 'POST') {
         'decimal', 'sellsoldout', 'itemSerialized', 'drawerEmail', 'drawerBlind',
         'drawerRequireClosedOrders',
         'settingRemoveTaxes', 'paymentId', 'creditLine', 'storeCredit',
-        'ignoreInternal', 'stockCountBlind', 'blockUsedDocNo', 'autoSendDocs',
+        'ignoreInternal', 'stockCountBlind', 'stockCountRecordOnly',
+        'blockUsedDocNo', 'autoSendDocs',
         'weightBarcodes', 'deletedItemsHistory',
         // D2 de context/40-anulacion-y-nota-credito.md — devoluciones.
         'settingReturnAllowIngredientReversal',
     ];
     foreach ($boolMap as $k) {
         if ($present($k)) { $fields[$k] = $b($k); }
+    }
+
+    // Listas fijas de conteo de stock (D3 de context/63). Viajan como UN
+    // string JSON, igual que `currencies` más arriba: son objetos anidados con
+    // un array adentro, y un POST form-encoded no los transporta sin inventar
+    // una convención de nombres de campo.
+    //
+    // Acá solo se decodifica; la normalización (descartar listas sin nombre o
+    // sin ítems, deduplicar, truncar) vive en `StockCountSettings::decodeLists()`,
+    // que es también el lector — así lo que se guarda es exactamente lo que la
+    // caja va a leer. Un JSON inválido se trata como lista vacía, nunca como
+    // "no tocar": la key vino presente, el usuario quiso guardar algo.
+    if ($present('stockCountLists')) {
+        $decoded = json_decode($s('stockCountLists'), true);
+        $fields['stockCountLists'] = is_array($decoded) ? $decoded : [];
     }
 
     // D3 de context/40 — enum cerrado, clampeado server-side (mismo criterio

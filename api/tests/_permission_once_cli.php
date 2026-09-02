@@ -46,6 +46,11 @@ $bodyJson    = $argv[4] ?? '';
 $cookieToken   = $argv[5] ?? '';
 $bearerToken   = $argv[6] ?? '';
 $operatorToken = $argv[7] ?? '';
+// Identidad de la operación encolada (`X-Punto-Op-Id`, context/51 §3). Opcional
+// — solo la usan los endpoints que la exigen para ser idempotentes, hoy el
+// conteo de stock desde la caja. Poder MANDAR DOS VECES el mismo id es lo que
+// permite probar que un reenvío no duplica el efecto.
+$opId          = $argv[8] ?? '';
 
 if ($endpointRel === '') {
     fwrite(STDERR, "uso: _permission_once_cli.php <endpointRelPath> <METHOD> <query> <bodyJson> <cookieToken> [bearer]\n");
@@ -146,6 +151,9 @@ if ($operatorToken !== '') {
     // Mismo nombre que produce PHP para el header `X-Operator-Token` en una
     // request real (OperatorAssertion::fromRequest lo lee de acá).
     $_SERVER['HTTP_X_OPERATOR_TOKEN'] = $operatorToken;
+}
+if ($opId !== '') {
+    $_SERVER['HTTP_X_PUNTO_OP_ID'] = $opId;
 }
 
 $_GET = [];

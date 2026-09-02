@@ -18,7 +18,13 @@ export interface InventoryCountSession {
   note: string | null
   totalItems: number
   countedItems: number
-  totalCostDelta: number
+  /**
+   * Diferencia acumulada valorizada. `null` cuando el comercio cuenta a ciegas
+   * y la sesión sigue EN PROGRESO: el backend no la publica para que el
+   * listado no sea la puerta de atrás al esperado (D2, context/63). Al
+   * finalizar vuelve a ser un número.
+   */
+  totalCostDelta: number | null
 }
 
 /**
@@ -40,7 +46,13 @@ export interface InventoryCountItem {
   /** Categoría principal (m2m item_category, fallback item.categoryId). */
   categoryId: string | null
   categoryName: string | null
-  expectedQty: number
+  /**
+   * Stock teórico. `null` en un conteo CIEGO en progreso — el servidor no lo
+   * manda (ver `InventoryCountService::get()`), no es que la pantalla lo
+   * esconda. `difference` viene en null por el mismo motivo: se calcula contra
+   * este número.
+   */
+  expectedQty: number | null
   countedQty: number | null
   difference: number | null
   unitCost: number
@@ -63,6 +75,8 @@ export interface InventoryCountDetail {
     finishedBy: string | null
     finishedByName: string | null
     scope: InventoryCountScope
+    /** Se está contando a ciegas AHORA: por eso `expectedQty` viene en null. */
+    blind: boolean
   }
   items: InventoryCountItem[]
 }

@@ -33,6 +33,7 @@ import {
   CalendarDays,
   LayoutGrid,
   ChefHat,
+  ClipboardCheck,
   ClipboardList,
   Repeat,
   BellRing,
@@ -216,6 +217,25 @@ export const MODULES_CATALOG: ModuleCatalogEntry[] = [
     title: "Producción",
     description: "Recetas, mermas y compuestos.",
     icon: ChefHat,
+    category: "Operativos",
+    configKind: "none",
+    status: "available",
+  },
+  {
+    // Conteo de stock en la caja (context/63). Opcional por comercio (D4): es
+    // para el mostrador con producto terminado, donde el cajero cuenta y no
+    // entra al panel. Un comercio que no lo necesita no lo ve.
+    //
+    // `configKind: "none"` y no un dialog propio: lo configurable —las listas
+    // fijas y si el conteo ajusta el stock— vive en Ajustes, junto al resto de
+    // las preferencias de inventario del comercio, no detrás del switch del
+    // módulo.
+    key: "stockCount",
+    kind: "module",
+    title: "Conteo en la caja",
+    description:
+      "El cajero cuenta el stock del mostrador desde la caja, sin entrar al panel.",
+    icon: ClipboardCheck,
     category: "Operativos",
     configKind: "none",
     status: "available",

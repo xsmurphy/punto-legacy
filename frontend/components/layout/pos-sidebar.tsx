@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation"
 import {
   Blocks,
   Bookmark,
+  ClipboardCheck,
   ClipboardList,
   LayoutGrid,
   Lock,
@@ -104,12 +105,17 @@ export function PosSidebar() {
   // que se vacía solo. La respuesta real llega en el mismo segundo.
   const ordersEnabled = moduleEnabled(modules, modulesLoading, modulesError, "ordersPanel") !== false
   const tablesEnabled = moduleEnabled(modules, modulesLoading, modulesError, "tables") !== false
+  // Conteo de stock: mismo criterio conservador que los dos de arriba —
+  // mientras no sepamos, se muestra; solo un "apagado" explícito lo esconde.
+  const stockCountEnabled =
+    moduleEnabled(modules, modulesLoading, modulesError, "stockCount") !== false
   const lock = useLockStore((s) => s.lock)
   // Permisos REALES del operador desbloqueado (llegan del unlock por PIN,
   // filtrados al prefijo `pos.` en el backend). Es la ÚNICA fuente válida de
   // permisos dentro de /pos — ver el comentario del item "Asistente" abajo.
   const operatorPermissions = useLockStore((s) => s.operatorPermissions)
   const canUseAgent = operatorPermissions.includes("pos.ai.use")
+  const canCountStock = operatorPermissions.includes("pos.stock.count")
   const isOnline = useOnlineStatus()
   const setAgentDialogOpen = usePosUIStore((s) => s.setAgentDialogOpen)
   const parkedCount = parkedSales?.length ?? 0
@@ -254,6 +260,32 @@ export function PosSidebar() {
                     <Link href="/pos/espacios" onClick={closeMobile}>
                       <LayoutGrid />
                       <span>Espacios</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
+
+              {/* Conteo de stock (context/63 F1). Doble gate, y los dos hacen
+                  falta: el MÓDULO dice si el comercio lo usa, el PERMISO dice
+                  si esta persona puede contar. Un cajero sin `pos.stock.count`
+                  en un comercio que sí tiene el módulo no debería ver un link
+                  que le va a contestar 403.
+
+                  El permiso sale del lock-store —los permisos reales del
+                  operador del PIN, filtrados al prefijo `pos.` por el backend—
+                  y NUNCA de `usePermission()`, que resuelve contra el rol
+                  `device` y es el mismo para cualquiera que agarre la tablet. */}
+              {stockCountEnabled && canCountStock && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith("/pos/conteo")}
+                    tooltip="Conteo de stock"
+                    className={NAV_ITEM_CLASS}
+                  >
+                    <Link href="/pos/conteo" onClick={closeMobile}>
+                      <ClipboardCheck />
+                      <span>Conteo</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>

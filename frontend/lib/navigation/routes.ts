@@ -5,6 +5,7 @@ import {
   Bell,
   Blocks,
   Bookmark,
+  ClipboardCheck,
   Boxes,
   Building2,
   CalendarDays,
@@ -930,6 +931,13 @@ export const POS_ROUTES: RouteEntry[] = [
     icon: SquareKanban,
     surface: "sidebar",
     requiresModule: "ordersPanel",
+  },
+  {
+    to: "/pos/conteo",
+    title: "Conteo",
+    icon: ClipboardCheck,
+    surface: "sidebar",
+    requiresModule: "stockCount",
   },
   {
     to: "/pos/guardadas",

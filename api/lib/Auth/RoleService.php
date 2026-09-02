@@ -79,6 +79,14 @@ final class RoleService
             // NO lo recibe — no tiene `ai.agent.use` tampoco, y el asistente se
             // habilita por rol desde Ajustes → Roles, no por default.
             'pos.ai.use',
+            // Conteo de stock desde la caja (context/63 F1). Va al default del
+            // Encargado por el mismo criterio que `pos.ai.use`: es el rol que
+            // ya tiene `inventory.stock.adjust` más abajo, o sea el que el
+            // comercio autoriza a mover inventario. `cashier` NO lo recibe por
+            // default —el conteo ajusta stock— y se lo tilda un admin desde
+            // Ajustes → Roles, que es justamente el comercio que quiere que su
+            // cajero cuente el mostrador.
+            'pos.stock.count',
             'inventory.item.view','inventory.item.create','inventory.item.edit','inventory.item.delete',
             'inventory.stock.adjust','inventory.transfer',
             'contacts.customer.view','contacts.customer.create','contacts.customer.edit','contacts.customer.delete',

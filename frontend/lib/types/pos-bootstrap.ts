@@ -106,6 +106,36 @@ export interface PosConfig {
    * producción directa/combo que no llegó a prepararse. Default false.
    */
   settingReturnAllowIngredientReversal?: boolean
+  /**
+   * Listas fijas de conteo de stock (D3, context/63): qué se cuenta en el
+   * mostrador, decidido de antemano por el dueño. El cajero elige una y la
+   * completa — en la caja no se buscan productos sueltos.
+   *
+   * Viajan en el bootstrap y no en un endpoint propio porque el conteo ciego
+   * es offline-nativo: sin red el cajero tiene que poder contar igual, y un
+   * dato que se pide por HTTP en ese momento no está.
+   *
+   * Vacío o ausente = el comercio no configuró ninguna lista. La pantalla lo
+   * dice; NO cae a "contá todo el catálogo".
+   */
+  stockCountLists?: StockCountList[]
+  /**
+   * D9 (context/63): al finalizar, el conteo NO ajusta el stock — queda como
+   * registro. Sirve solo para que la caja anticipe qué va a pasar al
+   * confirmar; quien lo aplica es el servidor, que lee el flag por su cuenta.
+   */
+  stockCountRecordOnly?: boolean
+}
+
+/**
+ * Una lista fija de conteo. `id` y `name` los define el dueño en Ajustes;
+ * `itemIds` son ítems del catálogo que la caja ya tiene en su snapshot, así
+ * que la pantalla resuelve nombre y SKU sin pedir nada.
+ */
+export interface StockCountList {
+  id: string
+  name: string
+  itemIds: string[]
 }
 
 // ── Caja (register) ───────────────────────────────────────────────────────────

@@ -46,6 +46,9 @@ final class ModulesService
         'ecom', 'attendance', 'priceCheck',
         'loyalty', 'feedback', 'crm',
         'calendar', 'tables', 'production', 'kds', 'cds', 'cos', 'ordersPanel',
+        // Conteo de stock en la caja (context/63 D4): opcional por comercio,
+        // como Órdenes y Espacios. Un comercio que no lo necesita no lo ve.
+        'stockCount',
         'recurring', 'dunning', 'digitalInvoice', 'salesSummaryDaily',
         'einvoicePy',
         'api',

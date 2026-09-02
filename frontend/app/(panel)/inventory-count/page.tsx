@@ -328,6 +328,10 @@ const buildColumns = (
     header: "Diferencia ($)",
     cell: ({ row }) => {
       const v = row.original.totalCostDelta
+      // `null` = conteo ciego todavía en progreso: el backend no publica la
+      // diferencia hasta que se finalice (D2, context/63). Un 0 acá se leería
+      // como "cuadra", que es justo lo que no se sabe.
+      if (v === null) return <span className="text-muted-foreground">—</span>
       const color = v < 0 ? "text-red-500" : v > 0 ? "text-green-600" : ""
       return <span className={color}>{formatMoney(v)}</span>
     },

@@ -88,10 +88,24 @@ export interface EnqueueOpInput {
    * como tal, no algo para tapar con un cambio nuevo).
    */
   mergePayload?: (prev: unknown, next: unknown) => unknown
+  /**
+   * Identidad ya asignada, para una operación que se INTENTÓ antes de
+   * encolarse.
+   *
+   * El caso: el cajero confirma un conteo con red, la request sale y no vuelve
+   * (timeout). El conteo se encola para reintentar — y tiene que reintentarse
+   * con el MISMO `opId` que ya viajó, porque el servidor pudo haberlo aplicado
+   * y estar esperando ese id para reconocerlo. Dejar que la cola genere uno
+   * nuevo convertiría el reintento en un segundo conteo, con un segundo ajuste
+   * de stock (ver `pending-ops-transport.ts`).
+   *
+   * Ausente = la operación nace en la cola y su identidad la pone la cola.
+   */
+  opId?: string
 }
 
 /** Identidad de la operación. `crypto.randomUUID` existe en todo browser que corra el POS. */
-function newOpId(): string {
+export function newOpId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
   }
@@ -142,7 +156,7 @@ export async function enqueueOp(input: EnqueueOpInput): Promise<PendingOpRow> {
 
   const seq = all.reduce((max, r) => Math.max(max, r.seq), 0) + 1
   const row: PendingOpRow = {
-    opId: newOpId(),
+    opId: input.opId ?? newOpId(),
     kind: input.kind,
     stream: input.stream,
     seq,

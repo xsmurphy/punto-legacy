@@ -64,7 +64,19 @@ export interface SettingsGeneral {
   creditLine: boolean
   storeCredit: boolean
   ignoreInternal: boolean
+  /** D2 (context/63): el operador no ve el stock teórico mientras cuenta. */
   stockCountBlind: boolean
+  /**
+   * D9 (context/63): al finalizar, el conteo NO ajusta el stock — las
+   * diferencias quedan registradas y nada más. Ortogonal al anterior.
+   */
+  stockCountRecordOnly: boolean
+  /**
+   * D3 (context/63): listas fijas de conteo. Qué se cuenta en el mostrador, lo
+   * decide el dueño de antemano. Guardan solo ids — el nombre del artículo se
+   * resuelve contra el catálogo, nunca se copia adentro.
+   */
+  stockCountLists: Array<{ id: string; name: string; itemIds: string[] }>
   blockUsedDocNo: boolean
   autoSendDocs: boolean
   weightBarcodes: boolean
