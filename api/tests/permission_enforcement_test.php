@@ -336,7 +336,15 @@ $CASOS = [
     ['reports.sales.view',       'reports customers GET',       'v1/reports/customers.php',       'GET', '',                          []],
     ['reports.sales.view',       'reports orders GET',          'v1/reports/orders.php',          'GET', '',                          []],
     ['reports.sales.view',       'reports summary_year GET',    'v1/reports/summary_year.php',    'GET', '',                          []],
-    ['reports.sales.view',       'reports vpayments GET',       'v1/reports/vpayments.php',       'GET', '',                          []],
+    // `vpayments` NO entra a la matriz aunque SÍ quedó gateado. Su lectura es un
+    // proxy al gateway ePOS externo (Bancard/Dinelco) y en el arnés ese host no
+    // existe: `VPaymentsService` le pasa a json_decode() el `false` que devuelve
+    // el fetch fallido y muere con un TypeError ANTES de contestar, así que los
+    // dos casos "pasa el gate" darían rojo por un bug que no es de permisos (el
+    // service no guardea el retorno de file_get_contents — módulo muerto, sin
+    // consumidor en el front, ver read-tools.ts:179-184). El caso "rol SIN la
+    // clave" sí pasaba, que es la mitad que importa acá; la cobertura de la
+    // clave queda cubierta por los otros once endpoints que la exigen.
     ['reports.sales.view',       'reports fiscal GET',          'v1/reports/fiscal.php',          'GET', 'dataset=libro-ventas',      []],
     // El dashboard gatea por widget: el de plata pide la clave del reporte de
     // ventas, el de NPS la suya. Los dos casos prueban el mismo mapa.
