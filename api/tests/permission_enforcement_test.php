@@ -363,6 +363,24 @@ $CASOS = [
     // una clave de ESCRITURA que credit-payments.php ya cubre.
     ['reports.sales.view',       'open_invoices por cobrar',    'v1/reports/open_invoices.php',   'GET', 'state=income',              []],
     ['reports.purchases.view',   'open_invoices por pagar',     'v1/reports/open_invoices.php',   'GET', 'state=outcome',             []],
+
+    // ── Los seis del gate a MEDIAS ────────────────────────────────────────
+    //
+    // Estos no estaban en el inventario de "endpoints sin permiso" porque el
+    // grep los daba por gateados: la clave figuraba en el archivo. Estaba
+    // dentro de la rama POST, y el GET —el reporte— pasaba de largo. Es la
+    // misma forma exacta del agujero de `drawers.php`, y en tres de ellos
+    // (expenses, purchases, satisfaction) alcanzable además por API key: los
+    // tres están en `REPORT_ROUTES` de la meta-tool del MCP.
+    //
+    // Se prueban con GET a propósito: el POST de estos archivos ya pasaba, y
+    // pasar no era la pregunta.
+    ['reports.expenses.view',    'reports expenses GET',        'v1/reports/expenses.php',        'GET', '',                          []],
+    ['reports.purchases.view',   'reports purchases GET',       'v1/reports/purchases.php',       'GET', '',                          []],
+    ['reports.giftcards.view',   'reports giftcards GET',       'v1/reports/giftcards.php',       'GET', '',                          []],
+    ['reports.schedule.view',    'reports schedule GET',        'v1/reports/schedule.php',        'GET', '',                          []],
+    ['reports.recurring.view',   'reports recurring GET',       'v1/reports/recurring.php',       'GET', '',                          []],
+    ['reports.satisfaction.view','reports satisfaction GET',    'v1/reports/satisfaction.php',    'GET', '',                          []],
 ];
 
 $permisosBajoPrueba = array_values(array_unique(array_column($CASOS, 0)));

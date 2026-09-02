@@ -25,11 +25,29 @@ $ctx    = apiAuthTenant($method === 'GET' ? ['panel', 'api'] : ['panel']);
 $svc    = new \Punto\Api\Reports\PurchasesService();
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
+/* ───────── Gate — el mismo permiso, ahora también en la LECTURA ────────────
+ *
+ * `reports.purchases.view` ya estaba en este archivo, pero SOLO dentro de la
+ * rama POST. El GET —que devuelve las compras y gastos del período, con
+ * proveedor, comprobante y monto— no chequeaba nada: lo leía cualquier sesión
+ * de panel y cualquier API key.
+ *
+ * Es el mismo agujero que tenían los otros veinte reportes, y exactamente la
+ * misma forma que el de `drawers.php` (D9 de `context/59`): la clave existía,
+ * gobernaba la escritura, y la lectura que le da nombre pasaba de largo. Un
+ * scan que buscara `hasPermission(` en el archivo lo daba por gateado.
+ *
+ * Sube al tope porque la clave es la MISMA para los dos verbos, así que un
+ * solo gate los cubre — el `hasPermission()` que estaba dentro del POST quedó
+ * redundante y se fue con este cambio. Va por
+ * `OperatorContext::requirePermission()` como todo el directorio (el porqué,
+ * en el docblock de `api/lib/Auth/OperatorContext.php`).
+ */
+require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+\Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.purchases.view');
+
 /* ───────── write: eliminar pago a proveedor ───────── */
 if ($method === 'POST') {
-    if (!hasPermission('reports.purchases.view')) {
-        apiError('No tenés permiso para esta acción (requiere: reports.purchases.view)', 403);
-    }
     $action = (string) (validateHttp('action', 'post') ?: '');
     if ($action !== 'deletePayment') {
         apiError('Acción no soportada', 422);
