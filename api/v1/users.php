@@ -60,6 +60,14 @@ switch ($method) {
         if ($id !== null) {
             $user = $svc->get($id, COMPANY_ID);
             if ($user === null) apiError('Usuario no encontrado', 404);
+            // Los HASHES no salen nunca, a ningún realm: ningún cliente los
+            // consume y `pinhash` es SHA-256 sin sal de 4 dígitos (10.000
+            // combinaciones) — entregarlo es entregar el PIN. Se descubrió
+            // porque `get_users` del agente IA los reenviaba a un modelo
+            // externo. `lockPass` en claro sigue saliendo SOLO al panel, que lo
+            // necesita para prellenar el form de equipo (`team-section.tsx`);
+            // el agente lo poda en `tool-field-rules.ts`.
+            unset($user['lockpasshash'], $user['pinhash']);
             if (($ctx['realm'] ?? '') === 'pos-app') {
                 unset($user['lockPass']);
             }
@@ -69,12 +77,15 @@ switch ($method) {
             'q'      => $_GET['q']      ?? null,
             'status' => $_GET['status'] ?? null,
         ]);
-        if (($ctx['realm'] ?? '') === 'pos-app') {
-            foreach ($users as &$u) {
+        $isPos = (($ctx['realm'] ?? '') === 'pos-app');
+        foreach ($users as &$u) {
+            // Mismo criterio que el GET por id: hashes nunca, PIN en claro solo al panel.
+            unset($u['lockpasshash'], $u['pinhash']);
+            if ($isPos) {
                 unset($u['lockPass']);
             }
-            unset($u);
         }
+        unset($u);
         apiOk(['users' => $users]);
         break;
 

@@ -471,6 +471,23 @@ export const FIELD_RULES: Record<string, FieldRule[]> = {
   deleted: [{ rename: "itemNoLongerInCatalog", drop: dropWhenFalse }],
 
   /**
+   * CREDENCIALES DEL EQUIPO — se podan SIEMPRE, sin excepción.
+   *
+   * `/v1/users` le manda al panel el PIN de caja en claro (`lockPass`), porque
+   * el form de equipo lo prellena. El agente corre con esa misma credencial de
+   * panel, así que sin esta regla cada `get_users` reenviaba el PIN de todo el
+   * personal a un modelo EXTERNO. Los hashes ya no salen del endpoint desde
+   * 2026-09-02, pero se podan igual acá: si mañana alguien vuelve a
+   * proyectarlos, esta capa los frena antes de que crucen a la red.
+   *
+   * `drop: true` a secas y no un `when`: no hay ningún contexto en el que un
+   * modelo necesite una credencial para responder.
+   */
+  lockPass: [{ drop: true }],
+  lockpasshash: [{ drop: true }],
+  pinhash: [{ drop: true }],
+
+  /**
    * Mínimo del ÍTEM, repetido idéntico en cada depósito y en el principal. No
    * existe un mínimo por depósito, y el código lo dice con todas las letras
    * (`StockService.php:114-120`).
