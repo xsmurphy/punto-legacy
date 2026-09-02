@@ -44,9 +44,9 @@ final class ProductsService
     }
 
     /** Vista agregada. */
-    public function general(array $filters, $from, $to, string $roc, string $companyId): array
+    public function general(array $filters, $from, $to, string $roc, string $companyId, HourBand $hours = new HourBand()): array
     {
-        [$rows, $isMonth] = $this->aggregate($filters, $from, $to, $roc);
+        [$rows, $isMonth] = $this->aggregate($filters, $from, $to, $roc, $hours);
         $withMeta = $this->attachMeta($rows, $companyId);
         foreach ($withMeta as &$gr) {
             $gr['utility'] = ($gr['total'] - $gr['cogs']) - $gr['comission'];
@@ -56,9 +56,12 @@ final class ProductsService
 
         if (!$filters['cusId'] && !$filters['usrId'] && !$filters['itmId']) {
             [$prevStart, $prevEnd] = NonAddingSales::previousPeriod($from, $to);
-            [$prevRows] = $this->aggregate($filters, $prevStart, $prevEnd, $roc);
+            // El período anterior lleva la MISMA franja: comparar la mañana de
+            // este mes contra el día entero del anterior daría una variación
+            // inventada.
+            [$prevRows] = $this->aggregate($filters, $prevStart, $prevEnd, $roc, $hours);
             $out['prev']      = $this->prevTotals($prevRows, $companyId);
-            $out['internals'] = $this->internals($from, $to, $roc);
+            $out['internals'] = $this->internals($from, $to, $roc, $hours);
             $byItem = [];
             foreach ($prevRows as $pr) {
                 if ($pr['total'] > 0) { $byItem[$pr['id']] = $pr['usold']; }
@@ -70,9 +73,9 @@ final class ProductsService
     }
 
     /** Igual que general() pero sólo ítems combo/precombo/comboAddons. */
-    public function combos(array $filters, $from, $to, string $roc, string $companyId): array
+    public function combos(array $filters, $from, $to, string $roc, string $companyId, HourBand $hours = new HourBand()): array
     {
-        [$rows, $isMonth] = $this->aggregate($filters, $from, $to, $roc);
+        [$rows, $isMonth] = $this->aggregate($filters, $from, $to, $roc, $hours);
         $withMeta = $this->attachMeta($rows, $companyId);
         $combo = array_values(array_filter(
             $withMeta,
@@ -86,8 +89,20 @@ final class ProductsService
     }
 
     /** Construye el agregado por producto según el modo de filtro. */
-    private function aggregate(array $f, $from, $to, string $roc): array
+    private function aggregate(array $f, $from, $to, string $roc, HourBand $hours = new HourBand()): array
     {
+        // OJO con el alias: acá `b` es `transaction` y `a` es `itemSold` — al
+        // revés que en detail(). La franja se mide sobre el instante de la
+        // VENTA, así que va sobre `b.transactionDate`.
+        //
+        // Sólo la llevan las ramas que ACOTAN POR RANGO (`usrId` y la default):
+        // el predicado es un filtro residual sobre lo que el rango ya trajo, y
+        // sin rango degrada el plan (medido con EXPLAIN: ver el comentario en
+        // TransactionsService::detail). Las ramas por cliente o por artículo no
+        // acotan por fecha, así que el endpoint rechaza con 422 la combinación
+        // de franja con `cusId`/`itmId` en vez de ignorarla en silencio.
+        [$hourSql, $hourParams] = $hours->on('b.transactionDate');
+
         $rocB    = $this->rocAlias($roc, 'b');
         $isMonth = false;
 
@@ -121,9 +136,9 @@ final class ProductsService
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")
                     AND b.transactionDate BETWEEN ? AND ? AND b.userId = ?" . $rocB . "
                     AND " . SaleFilters::notVoidedSql('b') . "
-                    AND a.transactionId = b.transactionId
+                    AND a.transactionId = b.transactionId" . $hourSql . "
                     GROUP BY id ORDER BY usold DESC";
-            $params = [$from, $to, $f['usrId']];
+            $params = array_merge([$from, $to, $f['usrId']], $hourParams);
         } elseif ($f['itmId'] && $f['month']) {
             $isMonth = true;
             $year    = (int) ($f['year'] ?: date('Y'));
@@ -149,9 +164,9 @@ final class ProductsService
                     WHERE b.transactionType IN (" . self::TX_TYPES . ")
                     AND b.transactionDate BETWEEN ? AND ?" . $rocB . "
                     AND " . SaleFilters::notVoidedSql('b') . "
-                    AND a.transactionId = b.transactionId
+                    AND a.transactionId = b.transactionId" . $hourSql . "
                     GROUP BY id ORDER BY usold DESC";
-            $params = [$from, $to];
+            $params = array_merge([$from, $to], $hourParams);
         }
 
         $res  = ncmExecute($sql, $params, false, true);
@@ -198,9 +213,9 @@ final class ProductsService
     }
 
     /** Internas (lessInternalTotals del helper compartido NonAddingSales — PG-correcto). */
-    private function internals($from, $to, string $roc): array
+    private function internals($from, $to, string $roc, HourBand $hours = new HourBand()): array
     {
-        $i = NonAddingSales::lessInternalTotals($roc, $from, $to);
+        $i = NonAddingSales::lessInternalTotals($roc, $from, $to, false, $hours);
         return [
             'total'    => (float) ($i['total'] ?? 0),
             'qty'      => (float) ($i['qty'] ?? 0),
@@ -210,8 +225,14 @@ final class ProductsService
     }
 
     /** Vista detallada: una fila por línea de venta. */
-    public function detail(array $filters, $from, $to, string $roc, string $companyId): array
+    public function detail(array $filters, $from, $to, string $roc, string $companyId, HourBand $hours = new HourBand()): array
     {
+        // Alias invertido respecto de aggregate(): acá `a` es `transaction`.
+        // Mismo criterio que aggregate(): la franja va sólo en las ramas con
+        // rango (`src`, `usrId` y la default). `cusId`/`itmId` los rechaza el
+        // endpoint.
+        [$hourSql, $hourParams] = $hours->on('a.transactionDate');
+
         $rocA = $this->rocAlias($roc, 'a');
         $sel = "a.customerId as customer, a.userId as trsUser, a.outletId, a.registerId,
                 a.invoiceNo, a.invoicePrefix, a.transactionType, a.transactionId,
@@ -227,9 +248,9 @@ final class ProductsService
                     WHERE a.transactionDate BETWEEN ? AND ?" . $rocA . "
                     AND a.transactionType IN (" . self::TX_TYPES . ") AND a.transactionId = b.transactionId
                     AND " . SaleFilters::notVoidedSql('a') . "
-                    AND b.itemId IN (SELECT itemId FROM item WHERE (itemName ILIKE ? OR itemSKU ILIKE ?) AND companyId = ? AND itemStatus = 1)
+                    AND b.itemId IN (SELECT itemId FROM item WHERE (itemName ILIKE ? OR itemSKU ILIKE ?) AND companyId = ? AND itemStatus = 1)" . $hourSql . "
                     ORDER BY a.transactionDate DESC LIMIT 2000";
-            $params = [$from, $to, $like, $like, $companyId];
+            $params = array_merge([$from, $to, $like, $like, $companyId], $hourParams);
         } elseif ($filters['cusId']) {
             $sql = "SELECT $sel FROM transaction a, itemSold b
                     WHERE a.transactionType IN (" . self::TX_TYPES . ") AND a.customerId = ?" . $rocA . "
@@ -240,8 +261,8 @@ final class ProductsService
             $sql = "SELECT $sel FROM transaction a, itemSold b
                     WHERE a.transactionDate BETWEEN ? AND ? AND a.transactionType IN (" . self::TX_TYPES . ")" . $rocA . "
                     AND " . SaleFilters::notVoidedSql('a') . "
-                    AND a.transactionId = b.transactionId AND b.userId = ? ORDER BY a.transactionDate DESC LIMIT 2000";
-            $params = [$from, $to, $filters['usrId']];
+                    AND a.transactionId = b.transactionId AND b.userId = ?" . $hourSql . " ORDER BY a.transactionDate DESC LIMIT 2000";
+            $params = array_merge([$from, $to, $filters['usrId']], $hourParams);
         } elseif ($filters['itmId']) {
             $sql = "SELECT $sel FROM transaction a, itemSold b
                     WHERE a.transactionType IN (" . self::TX_TYPES . ") AND b.itemId = ?" . $rocA . "
@@ -252,9 +273,9 @@ final class ProductsService
             $sql = "SELECT $sel FROM transaction a, itemSold b
                     WHERE a.transactionDate BETWEEN ? AND ?" . $rocA . "
                     AND a.transactionType IN (" . self::TX_TYPES . ") AND a.transactionId = b.transactionId
-                    AND " . SaleFilters::notVoidedSql('a') . "
+                    AND " . SaleFilters::notVoidedSql('a') . $hourSql . "
                     ORDER BY a.transactionDate DESC LIMIT 2000";
-            $params = [$from, $to];
+            $params = array_merge([$from, $to], $hourParams);
         }
 
         $res = ncmExecute($sql, $params, false, true);

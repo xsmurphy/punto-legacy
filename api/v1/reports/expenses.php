@@ -84,6 +84,16 @@ if (!$rangeOk) {
     apiError('Formato de fecha inválido', 422);
 }
 
+// Franja horaria del reporte (F1 de context/67). Es una dimensión APARTE del
+// rango: el rango es un intervalo CONTINUO, así que "del 1 al 30 de 07:00 a
+// 11:59" mandado como from/to incluye las noches del medio. `hourFrom`/`hourTo`
+// se repiten en cada día del rango. Sin ellos la banda es vacía y la query sale
+// byte por byte como salía antes de esta feature.
+[$hours, $hoursOk] = \Punto\Api\Reports\HourBand::fromRequest(validateHttp('hourFrom'), validateHttp('hourTo'));
+if (!$hoursOk) {
+    apiError('Formato de franja horaria inválido (esperado HH:MM o HH:MM:SS)', 422);
+}
+
 // Roc::build (frontend 2026-06-13: respeta VIEW_OUTLET_ID si el browser
 // mandó el header X-Outlet-Id del dropdown del logo).
 try {
@@ -93,6 +103,6 @@ try {
 }
 
 apiOk([
-    'rows'  => $svc->listMovements($from, $to, $roc, COMPANY_ID),
+    'rows'  => $svc->listMovements($from, $to, $roc, COMPANY_ID, $hours),
     'users' => $svc->users(COMPANY_ID),
 ]);

@@ -28,8 +28,18 @@ final class TransactionsService
     private array $taxonomyCache = [];
 
     /** Ventas. $filters: ['cusId','src','singleRow']. */
-    public function detail(array $filters, $from, $to, string $roc, string $companyId): array
+    public function detail(array $filters, $from, $to, string $roc, string $companyId, HourBand $hours = new HourBand()): array
     {
+        // Franja horaria (F1 de context/67). Va SÓLO en la rama que acota por
+        // rango de fechas, porque el contrato del predicado es que acompañe a un
+        // rango: medido con EXPLAIN sobre 400k filas, agregarlo a una rama sin
+        // rango tira el `Index Scan Backward` que alimentaba el LIMIT y lo
+        // reemplaza por un Seq Scan paralelo de todas las particiones (3,7 ms →
+        // 109 ms). Que las otras ramas no la apliquen NO es un no-op silencioso:
+        // el endpoint rechaza con 422 la combinación de franja con `singleRow`,
+        // `src` o `cusId` — ninguna de esas vistas acota por fecha tampoco.
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $cols = "transactionId, transactionDate, transactionDiscount, transactionTax,
                  transactionTotal, transactionPaymentType, transactionType, transactionNote,
                  transactionDueDate, transactionStatus, transactionComplete, invoiceNo,
@@ -64,9 +74,9 @@ final class TransactionsService
         } else {
             $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (" . self::TX_TYPES . ")
-                    AND transactionDate BETWEEN ? AND ?" . $roc . "
+                    AND transactionDate BETWEEN ? AND ?" . $roc . $hourSql . "
                     ORDER BY transactionDate DESC LIMIT 5000";
-            $params = [$from, $to];
+            $params = array_merge([$from, $to], $hourParams);
         }
 
         $res = ncmExecute($sql, $params, false, false, true);
@@ -193,8 +203,18 @@ final class TransactionsService
     }
 
     /** Pagos de ventas a crédito (tipo 5). $filters: ['cusId','src']. */
-    public function cobros(array $filters, $from, $to, string $roc, string $companyId): array
+    public function cobros(array $filters, $from, $to, string $roc, string $companyId, HourBand $hours = new HourBand()): array
     {
+        // Franja horaria (F1 de context/67). Va SÓLO en la rama que acota por
+        // rango de fechas, porque el contrato del predicado es que acompañe a un
+        // rango: medido con EXPLAIN sobre 400k filas, agregarlo a una rama sin
+        // rango tira el `Index Scan Backward` que alimentaba el LIMIT y lo
+        // reemplaza por un Seq Scan paralelo de todas las particiones (3,7 ms →
+        // 109 ms). Que las otras ramas no la apliquen NO es un no-op silencioso:
+        // el endpoint rechaza con 422 la combinación de franja con `singleRow`,
+        // `src` o `cusId` — ninguna de esas vistas acota por fecha tampoco.
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         // Columnas que leen los dos loops de abajo ($f[...]) — ninguna vive en
         // meta/data/config (a diferencia de detail(), acá no hace falta `tags`).
         $cols = "transactionId, transactionType, invoiceNo, transactionDate, customerId,
@@ -218,9 +238,9 @@ final class TransactionsService
         } else {
             $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (5)
-                    AND transactionDate BETWEEN ? AND ?" . $roc . "
+                    AND transactionDate BETWEEN ? AND ?" . $roc . $hourSql . "
                     ORDER BY transactionDate DESC LIMIT 5000";
-            $params = [$from, $to];
+            $params = array_merge([$from, $to], $hourParams);
         }
 
         $res = ncmExecute($sql, $params, false, false, true);
@@ -290,8 +310,18 @@ final class TransactionsService
     }
 
     /** Cotizaciones (tipo 9). $filters: ['cusId','src']. */
-    public function quotes(array $filters, $from, $to, string $roc, string $companyId): array
+    public function quotes(array $filters, $from, $to, string $roc, string $companyId, HourBand $hours = new HourBand()): array
     {
+        // Franja horaria (F1 de context/67). Va SÓLO en la rama que acota por
+        // rango de fechas, porque el contrato del predicado es que acompañe a un
+        // rango: medido con EXPLAIN sobre 400k filas, agregarlo a una rama sin
+        // rango tira el `Index Scan Backward` que alimentaba el LIMIT y lo
+        // reemplaza por un Seq Scan paralelo de todas las particiones (3,7 ms →
+        // 109 ms). Que las otras ramas no la apliquen NO es un no-op silencioso:
+        // el endpoint rechaza con 422 la combinación de franja con `singleRow`,
+        // `src` o `cusId` — ninguna de esas vistas acota por fecha tampoco.
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         // Columnas que lee el loop de abajo ($f[...]) — ninguna vive en meta/data/config.
         $cols = "transactionId, transactionType, invoiceNo, transactionDate, transactionStatus,
                  transactionDueDate, customerId, userId, outletId, transactionTotal, transactionDiscount";
@@ -314,9 +344,9 @@ final class TransactionsService
         } else {
             $sql = "SELECT $cols FROM transaction
                     WHERE transactionType IN (9)
-                    AND transactionDate BETWEEN ? AND ?" . $roc . "
+                    AND transactionDate BETWEEN ? AND ?" . $roc . $hourSql . "
                     ORDER BY transactionDate DESC LIMIT 5000";
-            $params = [$from, $to];
+            $params = array_merge([$from, $to], $hourParams);
         }
 
         $res = ncmExecute($sql, $params, false, false, true);

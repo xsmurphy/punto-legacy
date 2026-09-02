@@ -33,6 +33,16 @@ if (!$rangeOk) {
     apiError('Formato de fecha inválido (esperado Y-m-d o Y-m-d H:i:s)', 422);
 }
 
+// Franja horaria del reporte (F1 de context/67). Es una dimensión APARTE del
+// rango: el rango es un intervalo CONTINUO, así que "del 1 al 30 de 07:00 a
+// 11:59" mandado como from/to incluye las noches del medio. `hourFrom`/`hourTo`
+// se repiten en cada día del rango. Sin ellos la banda es vacía y la query sale
+// byte por byte como salía antes de esta feature.
+[$hours, $hoursOk] = \Punto\Api\Reports\HourBand::fromRequest(validateHttp('hourFrom'), validateHttp('hourTo'));
+if (!$hoursOk) {
+    apiError('Formato de franja horaria inválido (esperado HH:MM o HH:MM:SS)', 422);
+}
+
 try {
     $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
 } catch (\RuntimeException $e) {
@@ -44,19 +54,19 @@ $dataset = (string) (validateHttp('dataset') ?: 'summary');
 switch ($dataset) {
     case 'series':
         $isDay = (substr($from, 0, 10) === substr($to, 0, 10));
-        apiOk($svc->series($from, $to, $roc, $isDay));
+        apiOk($svc->series($from, $to, $roc, $isDay, $hours));
         break;
 
     case 'hours':
-        apiOk($svc->hours($from, $to, $roc));
+        apiOk($svc->hours($from, $to, $roc, $hours));
         break;
 
     case 'byday':
-        apiOk($svc->byDay($from, $to, $roc));
+        apiOk($svc->byDay($from, $to, $roc, $hours));
         break;
 
     case 'summary':
-        apiOk($svc->summary($from, $to, $roc, (string) COMPANY_ID));
+        apiOk($svc->summary($from, $to, $roc, (string) COMPANY_ID, $hours));
         break;
 
     default:

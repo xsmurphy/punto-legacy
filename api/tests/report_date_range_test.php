@@ -63,6 +63,15 @@ require_once __DIR__ . '/_harness.php';
  * equivocado devuelve datos plausibles y falsos: es el modo de falla que este
  * bloque existe para descartar.
  *
+ * Bloque E (integración, F1): la franja CABLEADA en servicios de reportes
+ * reales (`SalesService`, `OrdersService`, `TransactionsService`), ejecutando su
+ * SQL de producción. Es lo único que detecta un bind fuera de orden o un
+ * fragmento pegado en el lugar equivocado del WHERE — errores que no rompen la
+ * query, sólo devuelven mal. Cubre además las dos decisiones de alcance de la
+ * F1: que sin franja el servicio devuelve exactamente lo de antes, y que las
+ * ramas que NO acotan por rango de fechas la ignoran a propósito (el endpoint
+ * rechaza esa combinación con 422 en vez de degradar el plan o mentir).
+ *
  * Uso (necesita Postgres migrado — ver run_report_date_range_test.sh).
  */
 
@@ -549,10 +558,230 @@ try {
         $countInBand('08:00', '12:59', 'UTC', 'd') === 2,
         'obtenido ' . $countInBand('08:00', '12:59', 'UTC', 'd'), $failures, $checks);
 
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Bloque E — la franja CABLEADA en un servicio de reportes real (F1).
+    //
+    // Los bloques C y D prueban el helper y el predicado sueltos. Este prueba
+    // el camino que recorre un request: `HourBand` construida como la construye
+    // el endpoint, pasada a `SalesService`, ejecutando su SQL de producción.
+    // Es lo único que puede detectar un bind fuera de orden o un fragmento
+    // pegado en el lugar equivocado del WHERE — dos errores que no rompen la
+    // query, sólo devuelven mal.
+    //
+    // Cuatro ventas del mismo día, en instantes ABSOLUTOS (offset `+00`) para
+    // que el fixture no dependa de la zona con la que arranque la sesión:
+    //
+    //   fila   instante UTC        total    tipo
+    //   E-a    20/09 07:30 +00     1000     0 (contado)
+    //   E-b    20/09 11:00 +00     2000     0 (contado)
+    //   E-c    20/09 15:00 +00     4000     3 (crédito)
+    //   E-d    21/09 02:00 +00     8000     0 (contado)
+    //
+    // Los totales son potencias de 2: cualquier subconjunto da una suma única,
+    // así que un assert que pasa identifica EXACTAMENTE qué filas entraron —
+    // no puede pasar por casualidad con las filas equivocadas.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    $db->Execute("SET TIME ZONE 'UTC'");
+
+    $saleFixtures = [
+        ['da7e9a11-0000-4000-8000-00000000011a', '2026-09-20 07:30:00+00', 1000, 0],
+        ['da7e9a11-0000-4000-8000-00000000011b', '2026-09-20 11:00:00+00', 2000, 0],
+        ['da7e9a11-0000-4000-8000-00000000011c', '2026-09-20 15:00:00+00', 4000, 3],
+        ['da7e9a11-0000-4000-8000-00000000011d', '2026-09-21 02:00:00+00', 8000, 0],
+    ];
+    foreach ($saleFixtures as [$id, $at, $total, $type]) {
+        $db->Execute(
+            'INSERT INTO transaction (transactionId, transactionDate, transactionTotal,
+                                      transactionUnitsSold, transactionType, transactionDiscount,
+                                      transactionTax, userId, outletId, companyId)
+             VALUES (?::uuid, ?::timestamptz, ?, 1, ?, 0, 0, ?::uuid, ?::uuid, ?::uuid)',
+            [$id, $at, $total, $type, $contactId, $outletId, $companyId]
+        );
+    }
+
+    $sales    = new \Punto\Api\Reports\SalesService();
+    $saleRoc  = Roc::build($companyId, $outletId);
+    // Rango a propósito MÁS ANCHO que el fixture: lo que se mide es la franja,
+    // no el borde del rango. Refleja el contrato — la franja siempre acompaña
+    // a un rango, nunca viaja sola.
+    $sFrom = '2026-09-19 00:00:00+00';
+    $sTo   = '2026-09-22 23:59:59+00';
+
+    /** Construye la banda como lo hace el endpoint, desde crudos del request. */
+    $band = static function (mixed $hf, mixed $ht): \Punto\Api\Reports\HourBand {
+        [$b, $ok] = \Punto\Api\Reports\HourBand::fromRequest($hf, $ht);
+        if (!$ok) { throw new \RuntimeException('fixture: franja inválida'); }
+        return $b;
+    };
+
+    // E1. SIN FRANJA, EL SERVICIO DEVUELVE LO DE SIEMPRE. Es el assert que
+    //     autoriza a cablear esto en un endpoint que nadie va a filtrar por
+    //     hora: la banda vacía no cambia nada. 1000+2000+4000+8000 = 15000.
+    $e1 = $sales->salesTotals($sFrom, $sTo, $saleRoc);
+    check('E1 sin franja, salesTotals suma las cuatro ventas',
+        (float) $e1['total'] === 15000.0 && (int) $e1['count'] === 4,
+        'obtenido total=' . $e1['total'] . ' count=' . $e1['count'] . '; se esperaba 15000 / 4',
+        $failures, $checks);
+
+    // E1b. Y el default del parámetro da lo MISMO que una banda vacía explícita:
+    //      los ~20 call-sites que no pasan nada no dependen de un default
+    //      distinto al que produce `fromRequest('', '')`.
+    $e1b = $sales->salesTotals($sFrom, $sTo, $saleRoc, $band('', ''));
+    check('E1b una banda vacía explícita = no pasar banda',
+        (float) $e1b['total'] === (float) $e1['total'],
+        'obtenido ' . $e1b['total'] . ' vs ' . $e1['total'], $failures, $checks);
+
+    // E2. LA FRANJA FILTRA DE VERDAD, a través del SQL de producción. Turno
+    //     mañana (07:00-11:59): entran la de 07:30 y la de 11:00 = 3000.
+    $e2 = $sales->salesTotals($sFrom, $sTo, $saleRoc, $band('07:00', '11:59'));
+    check('E2 la franja 07:00-11:59 deja solo las dos ventas de la mañana',
+        (float) $e2['total'] === 3000.0 && (int) $e2['count'] === 2,
+        'obtenido total=' . $e2['total'] . ' count=' . $e2['count'] . '; se esperaba 3000 / 2',
+        $failures, $checks);
+
+    // E3. LA FRANJA QUE CRUZA MEDIANOCHE, end-to-end. El bar de 20:00 a 04:00:
+    //     de este fixture sólo califica la de las 02:00 = 8000. Con `AND` en
+    //     vez de `OR` esto devuelve 0 y el reporte sale vacío en silencio.
+    $e3 = $sales->salesTotals($sFrom, $sTo, $saleRoc, $band('20:00', '04:00'));
+    check('E3 la franja 20:00-04:00 agarra la venta de las 02:00',
+        (float) $e3['total'] === 8000.0 && (int) $e3['count'] === 1,
+        'obtenido total=' . $e3['total'] . ' count=' . $e3['count'] . '; se esperaba 8000 / 1',
+        $failures, $checks);
+
+    // E4. EL BIND EN EL MEDIO. `salesByType()` bindea el TIPO antes del rango,
+    //     así que sus params son `[tipo, from, to, ...franja]`. Si la franja se
+    //     mergea en la posición equivocada, Postgres compara el tipo contra una
+    //     hora: acá se ve. Contado en la mañana = 1000+2000 = 3000; el crédito
+    //     de las 15:00 queda afuera de la franja Y del tipo.
+    $e4 = $sales->salesByType($sFrom, $sTo, $saleRoc, $band('07:00', '11:59'));
+    check('E4 salesByType respeta el orden de binds con el tipo ADELANTE',
+        (float) $e4['cash']['total'] === 3000.0 && (float) $e4['credit']['total'] === 0.0,
+        'obtenido cash=' . $e4['cash']['total'] . ' credit=' . $e4['credit']['total']
+        . '; se esperaba 3000 / 0', $failures, $checks);
+    // E4b. Control: la franja de la tarde invierte el reparto (0 contado, 4000
+    //      crédito). Deja asentado que E4 no pasa porque el filtro no haga nada.
+    $e4b = $sales->salesByType($sFrom, $sTo, $saleRoc, $band('14:00', '16:00'));
+    check('E4b la franja de la tarde deja sólo la venta a crédito',
+        (float) $e4b['cash']['total'] === 0.0 && (float) $e4b['credit']['total'] === 4000.0,
+        'obtenido cash=' . $e4b['cash']['total'] . ' credit=' . $e4b['credit']['total'],
+        $failures, $checks);
+
+    // E5. Un dataset MULTI-FILA con GROUP BY: la franja tiene que recortar los
+    //     buckets, no romper el agrupamiento. `hours()` agrupa por hora del día
+    //     y encima se filtra por hora — las dos cosas conviven.
+    $e5 = $sales->hours($sFrom, $sTo, $saleRoc, $band('07:00', '11:59'));
+    $e5buckets = array_map(static fn ($r) => $r['bucket'], $e5);
+    check('E5 hours() con franja devuelve sólo los buckets de la franja',
+        $e5buckets === [7, 11],
+        'obtenido ' . json_encode($e5buckets) . '; se esperaba [7,11]', $failures, $checks);
+    $e5b = $sales->hours($sFrom, $sTo, $saleRoc);
+    check('E5b hours() sin franja sigue devolviendo las cuatro horas',
+        array_map(static fn ($r) => $r['bucket'], $e5b) === [2, 7, 11, 15],
+        'obtenido ' . json_encode(array_map(static fn ($r) => $r['bucket'], $e5b)),
+        $failures, $checks);
+
+    // E6. `byDay()` agrupa por FECHA mientras la franja filtra por HORA: son
+    //     dimensiones ortogonales. Con 20:00-04:00 sobrevive sólo la venta del
+    //     21, así que el reporte pasa de dos días a uno.
+    $e6 = $sales->byDay($sFrom, $sTo, $saleRoc, $band('20:00', '04:00'));
+    check('E6 byDay() con franja que cruza medianoche deja un solo día',
+        count($e6) === 1 && (float) $e6[0]['total'] === 8000.0,
+        'obtenido ' . count($e6) . ' día(s), total ' . ($e6[0]['total'] ?? 'n/a'),
+        $failures, $checks);
+
+    // E7. OTRO SERVICIO, OTRA COLUMNA, OTRA TABLA. `OrdersService` filtra
+    //     `pos_order.created_at` (snake_case, TIMESTAMPTZ) — verifica que el
+    //     cableado no está atado a `transactionDate`.
+    $orderFixtures = [
+        ['da7e9a11-0000-4000-8000-00000000012a', '2026-09-20 09:00:00+00'],
+        ['da7e9a11-0000-4000-8000-00000000012b', '2026-09-20 18:00:00+00'],
+    ];
+    foreach ($orderFixtures as [$oid, $at]) {
+        $db->Execute(
+            "INSERT INTO pos_order (orderid, companyid, outletid, status, source, created_at)
+             VALUES (?::uuid, ?::uuid, ?::uuid, 'open', 'counter', ?::timestamptz)",
+            [$oid, $companyId, $outletId, $at]
+        );
+    }
+    $orders = new \Punto\Api\Reports\OrdersService();
+    check('E7 OrdersService filtra pos_order.created_at por franja',
+        count($orders->listOrders($sFrom, $sTo, $saleRoc, $companyId, null, $band('08:00', '10:00'))) === 1
+        && count($orders->listOrders($sFrom, $sTo, $saleRoc, $companyId, null)) === 2,
+        'con franja se esperaba 1 orden y sin franja 2; obtenidos '
+        . count($orders->listOrders($sFrom, $sTo, $saleRoc, $companyId, null, $band('08:00', '10:00')))
+        . ' y ' . count($orders->listOrders($sFrom, $sTo, $saleRoc, $companyId, null)),
+        $failures, $checks);
+
+    // E8. LA ZONA HORARIA, a través del servicio. Los endpoints no pasan huso:
+    //     se apoyan en el que `TenantClock::apply()` deja en la sesión de PG.
+    //     Con la sesión en Bogotá (UTC-5) la venta de las 11:00 UTC son las
+    //     06:00 locales y CAE FUERA del turno mañana: mismas filas, misma
+    //     franja, otro total. Si esto no cambiara, el filtro estaría leyendo la
+    //     hora en un huso que no es el del comercio — plausible y falso.
+    $db->Execute("SET TIME ZONE 'America/Bogota'");
+    $e8 = $sales->salesTotals($sFrom, $sTo, $saleRoc, $band('07:00', '11:59'));
+    check('E8 la franja se lee en la zona de la SESIÓN (la del comercio)',
+        (float) $e8['total'] === 4000.0 && (int) $e8['count'] === 1,
+        'obtenido total=' . $e8['total'] . ' count=' . $e8['count'] . '; en hora de Bogotá '
+        . 'sólo la venta de las 15:00 UTC (10:00 local) cae en 07:00-11:59. Si da 3000, '
+        . 'el predicado está leyendo la hora en UTC y no en la zona del tenant.',
+        $failures, $checks);
+    $db->Execute("SET TIME ZONE 'UTC'");
+
+    // E9. HORA INVÁLIDA: `fromRequest` marca el flag en false y devuelve banda
+    //     VACÍA. Es lo que hace que el endpoint pueda cortar con 422 (mira el
+    //     flag) sin que un caller que prefiera degradar filtre por basura.
+    foreach (['25:00', '07:60', '7:00', 'mañana', '07:00:00.5'] as $bad) {
+        [$badBand, $badOk] = \Punto\Api\Reports\HourBand::fromRequest($bad, '11:59');
+        check("E9 hora inválida ('$bad') marca el flag y no filtra",
+            $badOk === false && $badBand->isEmpty() && $badBand->on('transactionDate') === ['', []],
+            'obtenido ok=' . var_export($badOk, true), $failures, $checks);
+    }
+    [, $okBand] = \Punto\Api\Reports\HourBand::fromRequest(false, null);
+    check('E9b sin parámetros (false/null de validateHttp) la banda es válida y vacía',
+        $okBand === true, 'ausencia de franja no es un error del cliente', $failures, $checks);
+
+
+    // E10. LA RAMA SIN RANGO IGNORA LA FRANJA — a propósito, y por eso el
+    //      endpoint rechaza esa combinación con 422. `detail()` filtrado por
+    //      cliente devuelve el historial completo de ese cliente sin acotar por
+    //      fecha; agregarle el predicado de franja tiraba el `Index Scan
+    //      Backward` que alimenta el LIMIT (medido: 3,7 ms → 109 ms sobre 400k
+    //      filas). Este assert fija el comportamiento: si alguien cablea la
+    //      franja ahí sin quitar el guard del endpoint, falla acá.
+    $conBanda = $sales->salesTotals($sFrom, $sTo, $saleRoc, $band('07:00', '11:59'));
+    $txSvc    = new \Punto\Api\Reports\TransactionsService();
+    $sinRango = ['cusId' => '', 'singleRow' => '', 'src' => ''];
+    $porClnt  = ['cusId' => $contactId, 'singleRow' => '', 'src' => ''];
+    $a = $txSvc->detail($porClnt, $sFrom, $sTo, $saleRoc, $companyId);
+    $b = $txSvc->detail($porClnt, $sFrom, $sTo, $saleRoc, $companyId, $band('07:00', '11:59'));
+    check('E10 la rama por cliente (sin rango) ignora la franja — la corta el endpoint',
+        count($a['rows']) === count($b['rows']),
+        'con y sin franja se esperaba el mismo conteo; obtenidos '
+        . count($a['rows']) . ' y ' . count($b['rows'])
+        . '. Si difieren, la franja se cableó en una rama sin rango: revisar el '
+        . 'guard 422 de api/v1/reports/transactions.php antes de cambiar esto.',
+        $failures, $checks);
+    // E10b. Control: la rama que SÍ acota por rango sí la aplica. Sin esto,
+    //       E10 podría pasar simplemente porque la franja no funciona.
+    $c = $txSvc->detail($sinRango, $sFrom, $sTo, $saleRoc, $companyId);
+    $d = $txSvc->detail($sinRango, $sFrom, $sTo, $saleRoc, $companyId, $band('07:00', '11:59'));
+    check('E10b la rama con rango SÍ aplica la franja',
+        count($c['rows']) === 4 && count($d['rows']) === 2,
+        'sin franja se esperaban 4 filas y con franja 2; obtenidos '
+        . count($c['rows']) . ' y ' . count($d['rows']), $failures, $checks);
+    check('E10c la franja no alteró el total del control de E2',
+        (float) $conBanda['total'] === 3000.0,
+        'obtenido ' . $conBanda['total'], $failures, $checks);
+
 } finally {
     // La sesión vuelve a la zona con la que arrancó: el bloque D la mueve.
     $db->Execute("SET TIME ZONE 'UTC'");
     // Limpieza en orden inverso a las FK.
+    $db->Execute('DELETE FROM pos_order   WHERE companyid = ?', [$companyId]);
+    $db->Execute('DELETE FROM transaction WHERE companyId = ?', [$companyId]);
     $db->Execute('DELETE FROM drawer   WHERE companyId = ?', [$companyId]);
     $db->Execute('DELETE FROM contact  WHERE companyId = ?', [$companyId]);
     $db->Execute('DELETE FROM register WHERE companyId = ?', [$companyId]);

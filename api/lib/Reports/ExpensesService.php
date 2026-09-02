@@ -26,16 +26,20 @@ use Punto\Api\Contacts\ContactDisplayName;
 final class ExpensesService
 {
     /** @return array filas [{expensesId, date, outletName, registerName, userId, userName, note, type, amount}] */
-    public function listMovements($from, $to, $roc, $companyId)
+    public function listMovements($from, $to, $roc, $companyId, HourBand $hours = new HourBand())
     {
+        // Un egreso ocurre en un instante: la franja se mide sobre su propia
+        // fecha, no sobre la de ninguna transacción.
+        [$hourSql, $hourParams] = $hours->on('expensesDate');
+
         $res = ncmExecute(
             "SELECT expensesId, expensesDate, expensesDescription, expensesAmount, type,
                     userId, registerId, outletId
              FROM expenses
-             WHERE expensesDate BETWEEN ? AND ?" . $roc . "
+             WHERE expensesDate BETWEEN ? AND ?" . $roc . $hourSql . "
              ORDER BY expensesDate DESC
              LIMIT 500",
-            [$from, $to], false, true
+            array_merge([$from, $to], $hourParams), false, true
         );
         if (!$res || !is_object($res)) {
             return [];

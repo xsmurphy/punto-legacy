@@ -29,11 +29,15 @@ final class NonAddingSales
      * @param string $roc        fragmento de companyId/outletId — del endpoint vía Roc::build()
      * @param bool   $backThen   si true, agrega totales del período anterior con prefijo B
      * @param int    $cache      ttl (0 = sin cache)
+     * @param HourBand $hours    franja horaria (F1 de context/67); vacía = sin filtro.
+     *                           Se aplica también al período anterior de `$backThen`: comparar
+     *                           una franja contra el día completo del período previo daría una
+     *                           variación inventada.
      * @return array  ['total','totalGiftCards','totalGiftCredit','totalPoints', opcional 'totalB','*B']
      */
-    public function compute(string $from, string $to, string $roc, bool $backThen = false, int $cache = 0): array
+    public function compute(string $from, string $to, string $roc, bool $backThen = false, int $cache = 0, HourBand $hours = new HourBand()): array
     {
-        $cur = $this->summarize($from, $to, $roc, $cache);
+        $cur = $this->summarize($from, $to, $roc, $cache, $hours);
         $out = [
             'total'           => $cur['gift'] + $cur['credit'] + $cur['points'] + $cur['internal'],
             'totalGiftCards'  => $cur['gift'],
@@ -43,7 +47,7 @@ final class NonAddingSales
 
         if ($backThen) {
             [$fromB, $toB] = self::previousPeriod($from, $to);
-            $prev = $this->summarize($fromB, $toB, $roc, $cache);
+            $prev = $this->summarize($fromB, $toB, $roc, $cache, $hours);
             $out['totalB']           = $prev['gift'] + $prev['credit'] + $prev['points'] + $prev['internal'];
             $out['totalGiftCardsB']  = $prev['gift'];
             $out['totalGiftCreditB'] = $prev['credit'];
@@ -54,9 +58,9 @@ final class NonAddingSales
     }
 
     /** Devuelve [gift, credit, points, internal] para un período (usado por compute y backThen). */
-    private function summarize(string $from, string $to, string $roc, int $cache): array
+    private function summarize(string $from, string $to, string $roc, int $cache, HourBand $hours = new HourBand()): array
     {
-        $pmnts = self::salesByPayment($from, $to, $roc, $cache);
+        $pmnts = self::salesByPayment($from, $to, $roc, $cache, $hours);
         $gift = $credit = $points = 0.0;
         foreach ($pmnts as $m) {
             $type = $m['type'] ?? '';
@@ -65,7 +69,7 @@ final class NonAddingSales
             elseif ($type === 'storeCredit')  { $credit += $price; }
             elseif ($type === 'points')       { $points += $price; }
         }
-        $internal = self::lessInternalTotals($roc, $from, $to);
+        $internal = self::lessInternalTotals($roc, $from, $to, false, $hours);
         return ['gift' => $gift, 'credit' => $credit, 'points' => $points, 'internal' => (float) ($internal['total'] ?? 0)];
     }
 
@@ -78,7 +82,7 @@ final class NonAddingSales
      * llamar al global `getSalesByPayment()` porque resuelve a la versión de /app (firma
      * 3-arg con registerId, que para el panel siempre llega vacío → query sin matches).
      */
-    public static function salesByPayment(string $from, string $to, string $roc, int $cache = 0): array
+    public static function salesByPayment(string $from, string $to, string $roc, int $cache = 0, HourBand $hours = new HourBand()): array
     {
         if ($from === '') { return []; }
 
@@ -90,12 +94,17 @@ final class NonAddingSales
             $args  = [$from];
         }
 
+        // La franja va al FINAL del WHERE y sus binds al final de `$args`: es el
+        // único orden que vale para las dos ramas de arriba, que no bindean la
+        // misma cantidad de extremos.
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $sql = "SELECT transactionId, transactionPaymentType, transactionType, meta->>'tags' AS tags
                 FROM transaction
                 WHERE " . $where . " AND transactionType IN (0,5)
-                AND " . SaleFilters::notVoidedSql() . $roc;
+                AND " . SaleFilters::notVoidedSql() . $roc . $hourSql;
 
-        $result = ncmExecute($sql, $args, $cache, true);
+        $result = ncmExecute($sql, array_merge($args, $hourParams), $cache, true);
         if (!$result) {
             return [];
         }
@@ -156,7 +165,7 @@ final class NonAddingSales
      *
      * Público porque también lo usa ProductsService::internals (batch 14).
      */
-    public static function lessInternalTotals(string $roc, string $from, string $to, $tTypes = false): array
+    public static function lessInternalTotals(string $roc, string $from, string $to, $tTypes = false, HourBand $hours = new HourBand()): array
     {
         global $_fullSettings;
 
@@ -168,12 +177,17 @@ final class NonAddingSales
         $types = $parts ? array_map('intval', $parts) : [0, 3];
         $ph    = implode(',', array_fill(0, count($types), '?'));
 
+        // Los tipos se bindean DESPUÉS del rango, así que la franja tiene que ir
+        // después de los dos: el orden de `array_merge` sigue al de los `?` en el
+        // SQL, y el fragmento se concatena al final del WHERE (antes del LIMIT).
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $result = ncmExecute(
             "SELECT transactionTotal, meta->>'tags' AS tags, transactionDiscount, transactionUnitsSold, transactionTax
              FROM transaction
              WHERE transactionDate BETWEEN ? AND ? AND transactionType IN (" . $ph . ")
-             AND " . SaleFilters::notVoidedSql() . $roc . " LIMIT 5000",
-            array_merge([$from, $to], $types), 1200, true
+             AND " . SaleFilters::notVoidedSql() . $roc . $hourSql . " LIMIT 5000",
+            array_merge([$from, $to], $types, $hourParams), 1200, true
         );
 
         $total = $discount = $tax = $qty = 0.0;

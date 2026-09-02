@@ -415,6 +415,16 @@ if (!$rangeOk) {
     apiError('Formato de fecha inválido', 422);
 }
 
+// Franja horaria del reporte (F1 de context/67). Es una dimensión APARTE del
+// rango: el rango es un intervalo CONTINUO, así que "del 1 al 30 de 07:00 a
+// 11:59" mandado como from/to incluye las noches del medio. `hourFrom`/`hourTo`
+// se repiten en cada día del rango. Sin ellos la banda es vacía y la query sale
+// byte por byte como salía antes de esta feature.
+[$hours, $hoursOk] = \Punto\Api\Reports\HourBand::fromRequest(validateHttp('hourFrom'), validateHttp('hourTo'));
+if (!$hoursOk) {
+    apiError('Formato de franja horaria inválido (esperado HH:MM o HH:MM:SS)', 422);
+}
+
 $uuidOrEmpty = function ($v) use ($uuidRe) {
     $v = (string) ($v ?: '');
     return ($v !== '' && preg_match($uuidRe, $v)) ? $v : '';
@@ -426,6 +436,17 @@ $filters = [
     'src'       => trim((string) (validateHttp('src') ?: '')),
 ];
 
+// La franja SÓLO tiene sentido junto al rango de fechas, y estas tres vistas
+// no acotan por fecha: buscar por nombre, por cliente o por id devuelve el
+// historial completo, con rango o sin él (comportamiento previo a esta feature,
+// no algo que la F1 introduzca). Aplicarle la franja ahí degradaría el plan
+// —medido: 3,7 ms → 109 ms sobre 400k filas, ver TransactionsService::detail—
+// e ignorarla en silencio devolvería un resultado que el usuario cree filtrado.
+// Se rechaza la combinación en vez de elegir entre esos dos males.
+if (!$hours->isEmpty() && ($filters['cusId'] !== '' || $filters['singleRow'] !== '' || $filters['src'] !== '')) {
+    apiError('La franja horaria no se puede combinar con la búsqueda por texto, por cliente o por documento: esas vistas devuelven el historial completo, sin acotar por fecha.', 422);
+}
+
 try {
     $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID);
 } catch (\RuntimeException $e) {
@@ -435,9 +456,9 @@ try {
 $companyId = (string) COMPANY_ID;
 
 if ($view === 'cobros') {
-    apiOk($svc->cobros($filters, $from, $to, $roc, $companyId));
+    apiOk($svc->cobros($filters, $from, $to, $roc, $companyId, $hours));
 } elseif ($view === 'quotes') {
-    apiOk($svc->quotes($filters, $from, $to, $roc, $companyId));
+    apiOk($svc->quotes($filters, $from, $to, $roc, $companyId, $hours));
 } else {
-    apiOk($svc->detail($filters, $from, $to, $roc, $companyId));
+    apiOk($svc->detail($filters, $from, $to, $roc, $companyId, $hours));
 }

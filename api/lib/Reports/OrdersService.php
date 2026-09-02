@@ -31,7 +31,7 @@ use Punto\Api\Contacts\ContactDisplayName;
 final class OrdersService
 {
     /** @return array filas [{id, date, dueDate, orderNo, customerName, outletName, total, status, channel}] */
-    public function listOrders($from, $to, $roc, $companyId, ?string $customerId = null)
+    public function listOrders($from, $to, $roc, $companyId, ?string $customerId = null, HourBand $hours = new HourBand())
     {
         $customerClause = '';
         $params = [$from, $to];
@@ -39,6 +39,12 @@ final class OrdersService
             $customerClause = ' AND customerid = ?';
             $params[] = $customerId;
         }
+
+        // `created_at` es TIMESTAMPTZ (mig 79) y va sin alias: `pos_order` es la
+        // única tabla del FROM externo que la tiene. El fragmento cierra el WHERE
+        // —después de `$customerClause` y `$roc`—, así que sus binds van al final.
+        [$hourSql, $hourParams] = $hours->on('created_at');
+        $params = array_merge($params, $hourParams);
 
         $res = ncmExecute(
             "SELECT pos_order.orderid, created_at, ordernumber, status, source, customerid, outletid,
@@ -50,7 +56,7 @@ final class OrdersService
                  WHERE status <> 'cancelled'
                  GROUP BY orderid
              ) items ON items.orderid = pos_order.orderid
-             WHERE created_at BETWEEN ? AND ?" . $customerClause . $roc . "
+             WHERE created_at BETWEEN ? AND ?" . $customerClause . $roc . $hourSql . "
              ORDER BY created_at DESC
              LIMIT 500",
             $params, false, true

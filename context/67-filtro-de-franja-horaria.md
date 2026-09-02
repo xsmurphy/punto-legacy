@@ -1,9 +1,10 @@
 # 67 — Filtro de franja horaria en reportes
 
-> Estado: **PLAN, sin implementar.** D1 cerrada por el owner (el pedido se
-> abre en dos casos, solo uno es feature). El resto — diseño del helper,
-> fases, alcance por reporte — son PROPUESTAS mías y necesitan su OK,
-> marcadas **[?]**.
+> Estado: **F0 y F1 IMPLEMENTADAS (2026-09-01); F2 (UI) y F3 (agente/MCP)
+> pendientes.** D1 cerrada por el owner (el pedido se abre en dos casos, solo
+> uno es feature). El diseño del helper y el alcance por reporte siguen siendo
+> propuestas mías —marcadas **[?]**— pero ya están implementadas tal como se
+> describen; el alcance efectivo de la F1 y sus exclusiones están más abajo.
 
 ## D1 — CERRADA: son dos casos, solo el Caso B es trabajo nuevo
 
@@ -134,9 +135,93 @@ Puntos que el plan tiene que resolver o declarar abiertos:
 | Fase | Qué | Depende de |
 |---|---|---|
 | **F0** | **IMPLEMENTADA 2026-09-01** — `Date::hourRange()` + `Date::isHourBound()` (`api/lib/App/Helpers/Date.php`): valida `HH:MM[:SS]`, invierte el predicado a `OR` cuando la franja cruza medianoche, devuelve `[sql, params, valid]` con el fragmento parentizado que arranca con ` AND ` (convención `Reports\Roc`), y sin franja devuelve vacío. Arnés: bloques C y D de `api/tests/report_date_range_test.php` (64/64) | — |
-| **F1** | Cablear el predicado en los servicios de reportes `ranged: true` que se decida incluir (ver criterio arriba) | F0 |
+| **F1** | **IMPLEMENTADA 2026-09-01** — `hourFrom`/`hourTo` en 5 endpoints, vía el value object `Reports\HourBand` (extremos validados una vez en el endpoint; cada query pide su fragmento con `on($columna)`). Alcance y exclusiones abajo. Arnés: bloque E de `api/tests/report_date_range_test.php` (84/84) | F0 |
 | **F2** | UI: control de franja horaria en el selector de fechas del panel | F1 |
 | **F3** | Parámetro en `read-tools.ts` para el agente/MCP | F1 (no depende de F2) |
+
+## F1 — qué quedó adentro y qué afuera (para la F2)
+
+El criterio es **si la pregunta "de 7 a 12" tiene sentido**: aplica a lo que
+ocurre EN un instante (una venta, una orden, un egreso), no a una foto de
+estado ni a un agregado que ya perdió la hora.
+
+**Adentro — la F2 muestra el control en estas cinco pantallas:**
+
+| Endpoint | Servicio / columna filtrada |
+|---|---|
+| `reports/sales` (los 4 datasets) | `SalesService` — `transactionDate`, más `b.itemSoldDate` en las gift cards y `NonAddingSales` (pagos e internas) |
+| `reports/transactions` (`detail`/`cobros`/`quotes`) | `TransactionsService` — `transactionDate` |
+| `reports/products` (`general`/`combos`/`detail`) | `ProductsService` — `b.transactionDate` (agregado) y `a.transactionDate` (detalle); el período ANTERIOR de la comparación lleva la misma franja |
+| `reports/orders` | `OrdersService` — `pos_order.created_at` |
+| `reports/expenses` | `ExpensesService` — `expensesDate` |
+
+**Afuera, y por qué** (esto NO es trabajo pendiente: son exclusiones con
+motivo, releerlas antes de "completar" la feature):
+
+- **Fotos de estado** — `balance`, `stock`, `stock-day`, `open_invoices`,
+  `giftcards`, `recurring`. No ocurren a una hora: son un saldo a una fecha.
+  Ni siquiera aceptan rango.
+- **`drawers` (arqueos).** El caso intermedio, y la decisión es NO. Un arqueo
+  es un INTERVALO (apertura → cierre), no un instante: filtrar por la hora de
+  apertura dejaría afuera el turno que abrió 06:50 y cubrió toda la mañana. Y
+  hay algo peor que eso — `DrawersService::listMovements()` calcula los
+  componentes de cada caja (`componentsFor()`) sobre el intervalo del PROPIO
+  cajón, no sobre el rango del reporte: una fila filtrada "de 7 a 12" seguiría
+  mostrando lo vendido en todo el turno. Sería un reporte plausible y falso,
+  que es exactamente el modo de falla que la F0 quiso evitar. El turno ya ES la
+  unidad de análisis de ese reporte.
+- **Reportes servidos por rollup** — `brands`, `categories`, `summary_year`.
+  `rollup_*_day` es grano DÍA (`RollupReader.php:11`): la hora individual ya no
+  existe ahí. `payment-methods` es el caso más traicionero: es HÍBRIDO —el
+  detalle sale live de `transaction` y el resumen del rollup—, así que con
+  franja las dos mitades del MISMO payload discreparían. Si alguna vez se
+  incluyen, hay que forzar la rama live, no filtrar el rollup. Cierra
+  parcialmente la pregunta abierta de más abajo: los rollups NO sirven a este
+  filtro.
+- **Servicios que obligaban a contorsiones** (candidatos razonables, dejados
+  para una fase posterior con el trabajo ya identificado):
+  `CustomersService::dashboard()` bindea TRES rangos y dos de ellos van en el
+  `SELECT`, no en el `WHERE`; `CashflowService::accountBalances()` bindea seis
+  fechas dentro de un `CASE WHEN`; `ProductionService::compound()` mete una
+  cantidad VARIABLE de placeholders antes del rango. En los tres, insertar los
+  params al final rompe el orden — necesitan inserción posicional, no
+  `array_merge`. `vpayments` no es SQL: sale de un HTTP externo.
+
+## F1 — la restricción que la F2 tiene que respetar en la UI
+
+Varios reportes tienen ramas de filtro que **no acotan por rango de fechas**
+(comportamiento previo, no introducido acá): buscar una transacción por texto,
+por cliente o por documento, y los reportes de producto filtrados por cliente o
+por artículo, devuelven el historial completo aunque el selector de fechas
+muestre un rango.
+
+En esas ramas la franja **no se aplica**, y los endpoints la **rechazan con
+422** en vez de ignorarla en silencio. La razón no es estética: está medida.
+`EXPLAIN ANALYZE` sobre 400k transacciones particionadas por mes:
+
+| Caso | Plan | Tiempo |
+|---|---|---|
+| Rango de un mes, sin franja | `Index Scan` por `transactionDate` | 10,7 ms |
+| Mismo rango, con franja 07:00-11:59 | **mismo** `Index Cond`, franja como `Filter` residual | 6,6 ms |
+| Mismo rango, franja que cruza medianoche (`OR`) | **mismo** `Index Cond` | 6,4 ms |
+| Rama SIN rango + `ORDER BY … LIMIT`, sin franja | `Index Scan Backward` con salida temprana | 3,7 ms |
+| **La misma, CON franja** | **`Parallel Seq Scan` de todas las particiones** | **109 ms** |
+
+Es decir: la premisa de la F0 se confirma —junto a un rango, la franja no toca
+el plan y hasta lo mejora, y el `OR` de medianoche tampoco lo degrada— y su
+CONTRATO también resultó real: sin rango, el predicado tira la salida temprana
+del `LIMIT`. Por eso no se agregaron índices funcionales: no hacen falta para
+el uso soportado, y agregarlos habilitaría el uso que no lo está.
+
+**Para la F2**: cuando el usuario tenga activo un filtro por texto, cliente,
+documento o artículo, el control de franja va deshabilitado (con el motivo a la
+vista), no enviado-y-rechazado.
+
+**Hallazgo colateral, no resuelto acá**: que esas ramas ignoren el rango de
+fechas mientras el panel muestra un selector de fechas es confuso por sí solo,
+franja aparte. Es un defecto anterior y arreglarlo cambia el comportamiento de
+reportes en producción — no entra en el alcance de la F1, pero conviene
+decidirlo antes de diseñar la UI de la F2.
 
 ## Preguntas abiertas — no las resuelvo
 

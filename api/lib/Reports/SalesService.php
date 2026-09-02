@@ -26,8 +26,10 @@ final class SalesService
     public function __construct(private readonly NonAddingSales $nonAdding = new NonAddingSales()) {}
 
     /** Totales de ventas (tipos 0 = contado, 3 = crédito) en un período. */
-    public function salesTotals($from, $to, $roc): array
+    public function salesTotals($from, $to, $roc, HourBand $hours = new HourBand()): array
     {
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $sql = 'SELECT
                     COALESCE(SUM(transactionUnitsSold), 0) AS unitssold,
                     COUNT(transactionDate)                 AS count,
@@ -38,9 +40,9 @@ final class SalesService
                 WHERE transactionType IN (0, 3)
                 AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
-                AND transactionDate <= ?' . $roc;
+                AND transactionDate <= ?' . $roc . $hourSql;
 
-        $r = ncmExecute($sql, [$from, $to]);
+        $r = ncmExecute($sql, array_merge([$from, $to], $hourParams));
 
         return [
             'unitsSold' => (float) ($r['unitssold'] ?? 0),
@@ -52,21 +54,27 @@ final class SalesService
     }
 
     /** Total de devoluciones (tipo 6) en un período. */
-    public function returnsTotal($from, $to, $roc): float
+    public function returnsTotal($from, $to, $roc, HourBand $hours = new HourBand()): float
     {
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $sql = 'SELECT COALESCE(SUM(transactionTotal), 0) AS returned
                 FROM transaction
                 WHERE transactionType IN (6)
                 AND transactionDate >= ?
-                AND transactionDate <= ?' . $roc;
+                AND transactionDate <= ?' . $roc . $hourSql;
 
-        $r = ncmExecute($sql, [$from, $to]);
+        $r = ncmExecute($sql, array_merge([$from, $to], $hourParams));
         return (float) ($r['returned'] ?? 0);
     }
 
     /** Totales separados por tipo: contado (0) y crédito (3). */
-    public function salesByType($from, $to, $roc): array
+    public function salesByType($from, $to, $roc, HourBand $hours = new HourBand()): array
     {
+        // El tipo va PRIMERO en los binds, así que la franja se agrega al final
+        // del WHERE y sus params al final del array — no al lado del rango.
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $sql = 'SELECT
                     COALESCE(SUM(transactionDiscount), 0) AS discount,
                     COALESCE(SUM(transactionTotal), 0)    AS total
@@ -74,10 +82,10 @@ final class SalesService
                 WHERE transactionType = ?
                 AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
-                AND transactionDate <= ?' . $roc;
+                AND transactionDate <= ?' . $roc . $hourSql;
 
-        $cash   = ncmExecute($sql, [0, $from, $to]);
-        $credit = ncmExecute($sql, [3, $from, $to]);
+        $cash   = ncmExecute($sql, array_merge([0, $from, $to], $hourParams));
+        $credit = ncmExecute($sql, array_merge([3, $from, $to], $hourParams));
 
         return [
             'cash'   => ['total' => (float) ($cash['total'] ?? 0),   'discount' => (float) ($cash['discount'] ?? 0)],
@@ -86,8 +94,12 @@ final class SalesService
     }
 
     /** Gift cards vendidas en un período. */
-    public function giftcardsSold($from, $to, $companyId): array
+    public function giftcardsSold($from, $to, $companyId, HourBand $hours = new HourBand()): array
     {
+        // La franja de una gift card vendida se mide sobre la LÍNEA
+        // (`itemSold`), que es lo que esta query acota — no sobre la cabecera.
+        [$hourSql, $hourParams] = $hours->on('b.itemSoldDate');
+
         $sql = "SELECT
                     COALESCE(SUM(b.itemSoldTotal), 0) AS total,
                     COALESCE(SUM(b.itemSoldUnits), 0) AS count
@@ -95,9 +107,9 @@ final class SalesService
                 WHERE a.itemType = 'giftcard'
                 AND a.itemId = b.itemId
                 AND a.companyId = ?
-                AND b.itemSoldDate BETWEEN ? AND ?";
+                AND b.itemSoldDate BETWEEN ? AND ?" . $hourSql;
 
-        $r = ncmExecute($sql, [$companyId, $from, $to]);
+        $r = ncmExecute($sql, array_merge([$companyId, $from, $to], $hourParams));
 
         return [
             'total' => (float) ($r['total'] ?? 0),
@@ -109,10 +121,10 @@ final class SalesService
      * Dataset crudo del resumen de ventas de UN período.
      * El BFF llama esto una vez por período (actual + anterior) y compone/formatea.
      */
-    public function summary($from, $to, $roc, $companyId): array
+    public function summary($from, $to, $roc, $companyId, HourBand $hours = new HourBand()): array
     {
         $payments = [];
-        foreach (NonAddingSales::salesByPayment($from, $to, $roc) as $m) {
+        foreach (NonAddingSales::salesByPayment($from, $to, $roc, 0, $hours) as $m) {
             $payments[] = [
                 'type'  => $m['type'],
                 'name'  => getPaymentMethodName($m['type']),
@@ -121,13 +133,13 @@ final class SalesService
             ];
         }
 
-        $nonAdding = $this->nonAdding->compute($from, $to, $roc, false, 0);
+        $nonAdding = $this->nonAdding->compute($from, $to, $roc, false, 0, $hours);
 
         return [
-            'totals'    => $this->salesTotals($from, $to, $roc),
-            'returns'   => ['total' => $this->returnsTotal($from, $to, $roc)],
-            'byType'    => $this->salesByType($from, $to, $roc),
-            'giftcards' => $this->giftcardsSold($from, $to, $companyId),
+            'totals'    => $this->salesTotals($from, $to, $roc, $hours),
+            'returns'   => ['total' => $this->returnsTotal($from, $to, $roc, $hours)],
+            'byType'    => $this->salesByType($from, $to, $roc, $hours),
+            'giftcards' => $this->giftcardsSold($from, $to, $companyId, $hours),
             'payments'  => $payments,
             'nonAddingToSales' => [
                 'total'          => (float) ($nonAdding['total'] ?? 0),
@@ -140,8 +152,12 @@ final class SalesService
      * Series crudas de UN período para el gráfico. Si el rango es de un solo día, agrupa
      * por hora; si abarca varios, agrupa por fecha. Devuelve ventas (0,3,6) y egresos (1,4).
      */
-    public function series($from, $to, $roc, $isDay): array
+    public function series($from, $to, $roc, $isDay, HourBand $hours = new HourBand()): array
     {
+        // Las dos queries (ventas y egresos) filtran la MISMA columna, así que
+        // comparten fragmento y params — pero cada una los bindea por su cuenta.
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $bucket = $isDay
             ? 'EXTRACT(HOUR FROM transactionDate)::int'
             : 'transactionDate::date';
@@ -156,7 +172,7 @@ final class SalesService
                      WHERE transactionType IN (0, 3, 6)
                      AND ' . SaleFilters::notVoidedSql() . '
                      AND transactionDate >= ?
-                     AND transactionDate <= ?' . $roc . '
+                     AND transactionDate <= ?' . $roc . $hourSql . '
                      GROUP BY bucket
                      ORDER BY bucket ASC';
 
@@ -167,14 +183,14 @@ final class SalesService
                    WHERE transactionType IN (1, 4)
                    AND transactionStatus <> 6
                    AND transactionDate >= ?
-                   AND transactionDate <= ?' . $roc . '
+                   AND transactionDate <= ?' . $roc . $hourSql . '
                    GROUP BY bucket
                    ORDER BY bucket ASC';
 
         return [
             'isDay'    => (bool) $isDay,
-            'sales'    => $this->rows($salesSql, [$from, $to], $isDay),
-            'expenses' => $this->rows($expSql, [$from, $to], $isDay),
+            'sales'    => $this->rows($salesSql, array_merge([$from, $to], $hourParams), $isDay),
+            'expenses' => $this->rows($expSql, array_merge([$from, $to], $hourParams), $isDay),
         ];
     }
 
@@ -187,8 +203,12 @@ final class SalesService
      * hora 0 — el gráfico mostraba todo el período apilado en "00h" y el resto
      * en cero. Toda query nueva de este servicio nombra su bucket `bucket`.
      */
-    public function hours($from, $to, $roc): array
+    public function hours($from, $to, $roc, HourBand $hours = new HourBand()): array
     {
+        // Este dataset YA agrupa por hora; la franja acota qué barras salen.
+        // No se solapan: una es el eje del gráfico, la otra el filtro.
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $sql = 'SELECT EXTRACT(HOUR FROM transactionDate)::int AS bucket,
                     COUNT(transactionId)                   AS count,
                     COALESCE(SUM(transactionUnitsSold), 0) AS units,
@@ -197,16 +217,18 @@ final class SalesService
                 WHERE transactionType IN (0, 3)
                 AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
-                AND transactionDate <= ?' . $roc . '
+                AND transactionDate <= ?' . $roc . $hourSql . '
                 GROUP BY bucket
                 ORDER BY bucket ASC';
 
-        return $this->rows($sql, [$from, $to], true);
+        return $this->rows($sql, array_merge([$from, $to], $hourParams), true);
     }
 
     /** Filas crudas por día (tipos 0,3,6) para la pestaña "Por Día". */
-    public function byDay($from, $to, $roc): array
+    public function byDay($from, $to, $roc, HourBand $hours = new HourBand()): array
     {
+        [$hourSql, $hourParams] = $hours->on('transactionDate');
+
         $sql = 'SELECT transactionDate::date            AS bucket,
                     COALESCE(SUM(transactionUnitsSold), 0) AS units,
                     COUNT(transactionDate)                 AS count,
@@ -217,12 +239,12 @@ final class SalesService
                 WHERE transactionType IN (0, 3, 6)
                 AND ' . SaleFilters::notVoidedSql() . '
                 AND transactionDate >= ?
-                AND transactionDate <= ?' . $roc . '
+                AND transactionDate <= ?' . $roc . $hourSql . '
                 GROUP BY transactionDate::date
                 ORDER BY bucket DESC';
 
         $rows = [];
-        foreach ($this->rows($sql, [$from, $to], false) as $r) {
+        foreach ($this->rows($sql, array_merge([$from, $to], $hourParams), false) as $r) {
             $rows[] = [
                 'date'     => (string) $r['bucket'],
                 'usold'    => (float) $r['units'],
