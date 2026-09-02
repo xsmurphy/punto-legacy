@@ -31,9 +31,7 @@ import {
 } from "@/components/ui/select"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
 import {
   Dialog,
@@ -65,6 +63,7 @@ import {
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { useDateRange } from "@/hooks/use-date-range"
 import {
   useReport,
   fetchFiscalReport,
@@ -152,20 +151,24 @@ interface TransactionsListProps {
 
 export function TransactionsList({ backHref, mode = "panel" }: TransactionsListProps) {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
-  // defaultDateRange() arma `to: new Date()` en cada llamada — comparar el
-  // range actual contra un nuevo defaultDateRange() nunca da igualdad exacta
-  // (los milisegundos difieren). Se trackea "tocado" con un flag en vez de
-  // comparar valores.
-  const [rangeCustomized, setRangeCustomized] = React.useState(false)
-  function handleRangeChange(next: DateRangeValue) {
-    setRange(next)
-    setRangeCustomized(true)
-  }
-  function resetRange() {
-    setRange(defaultDateRange())
-    setRangeCustomized(false)
-  }
+  // El rango es COMPARTIDO (`use-date-range`), no de esta pantalla: en el panel
+  // es el mismo que se ve en órdenes, agenda y los reportes, y sobrevive al
+  // reload y a la navegación. Antes vivía en un `useState` local que moría en
+  // cada montaje — el usuario elegía un rango, entraba a otra sección y al
+  // volver tenía que elegirlo de nuevo.
+  //
+  // `isCustom` reemplaza al viejo flag local `rangeCustomized`: el flag
+  // arrancaba en `false` en cada montaje, así que el chip de filtro
+  // desaparecía aunque el rango elegido siguiera aplicándose. El hook lo
+  // deriva de si hay un rango guardado, que es estable entre montajes.
+  //
+  // El scope va atado al `mode`: este mismo componente se monta en el panel y
+  // en la caja, que comparten origin y por lo tanto localStorage. Sin separar,
+  // el rango largo que el dueño dejó puesto en un reporte se le aparecería al
+  // cajero buscando la venta que acaba de emitir.
+  const { range, setRange, isCustom: rangeCustomized, clearRange } = useDateRange(
+    mode === "pos" ? "pos" : "panel",
+  )
 
   // Filtros de Método de pago / Tipo de venta (chips removibles, ver
   // ActiveFilters más abajo). Método de pago sale de una fuente DISTINTA
@@ -193,7 +196,11 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
         key: "range",
         label: "Rango",
         value: `${fmtRangeDate(range.from)} – ${fmtRangeDate(range.to)}`,
-        onRemove: resetRange,
+        // Quitar el chip vuelve al default en todas las pantallas del scope,
+        // no solo acá: el filtro que el chip representa es compartido, así que
+        // un "limpiar" que solo afectara a esta pantalla dejaría al usuario
+        // con dos rangos distintos vigentes a la vez.
+        onRemove: clearRange,
       }
     : null
   const paymentFilterItem: ActiveFilterItem | null = paymentMethodName
@@ -848,7 +855,7 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
               </DropdownMenuContent>
             </DropdownMenu>
           )}
-          <DateRangePicker value={range} onChange={handleRangeChange} />
+          <DateRangePicker value={range} onChange={setRange} />
         </div>
       </header>
 

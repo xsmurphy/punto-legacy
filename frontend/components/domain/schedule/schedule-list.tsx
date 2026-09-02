@@ -10,10 +10,9 @@ import { Button } from "@/components/ui/button"
 import { DataTable } from "@/components/data-table/data-table"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { EmptyState } from "@/components/empty-state"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport, type ScheduleRow, type ScheduleReportResponse } from "@/hooks/use-reports"
@@ -38,7 +37,7 @@ interface ScheduleListProps {
 
 export function ScheduleList({ backHref, customerIdFilter }: ScheduleListProps) {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const opts = React.useMemo(
     () => ({
       ...rangeToBackend(range),

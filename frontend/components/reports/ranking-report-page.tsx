@@ -21,10 +21,9 @@ import { DataTable } from "@/components/data-table/data-table"
 import { EmptyState } from "@/components/empty-state"
 import {
   DateRangePicker,
-  defaultDateRange,
   rangeToBackend,
-  type DateRangeValue,
 } from "@/components/date-range-picker"
+import { useDateRange } from "@/hooks/use-date-range"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useReport } from "@/hooks/use-reports"
 import { formatInt, formatMoney } from "@/lib/format"
@@ -86,7 +85,7 @@ export function RankingReportPage<TRawRow>({
   tableId,
 }: Props<TRawRow>) {
   const { data: bootstrap } = useBootstrap()
-  const [range, setRange] = React.useState<DateRangeValue>(defaultDateRange)
+  const { range, setRange } = useDateRange()
   const opts = React.useMemo(
     () => ({ ...rangeToBackend(range), params: endpointParams }),
     [range, endpointParams],
