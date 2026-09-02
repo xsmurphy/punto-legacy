@@ -174,9 +174,13 @@ foreach ($it as $f) {
     // contra el rol de la PERSONA que opera la caja y no contra el del device.
     // Sin incluirla acá, un archivo que solo use esa vía se saltea el scan
     // entero y sus claves figuran como no gateadas.
+    // `OperatorContext::requirePermission(` es la MISMA puerta expuesta como
+    // guard de endpoint (la usan las LECTURAS que tienen que medirse contra la
+    // persona y no contra el device, ej. el GET de reports/transactions.php).
     if (!str_contains($src, 'hasPermission(')
         && !str_contains($src, 'contactsRequire(')
-        && !str_contains($src, 'OperatorContext::can(')) continue;
+        && !str_contains($src, 'OperatorContext::can(')
+        && !str_contains($src, 'OperatorContext::requirePermission(')) continue;
     $rel = str_replace($apiDir . '/', '', $path);
 
     // La clave cuenta como gateada solo si aparece como ARGUMENTO LITERAL de
@@ -185,7 +189,9 @@ foreach ($it as $f) {
     // documentación dentro de un archivo que usara hasPermission() en otra
     // línea — cobertura verde sin ningún gate real.
     foreach (PermissionCatalog::ids() as $id) {
-        if (preg_match('/hasPermission\\(\\s*[\'"]' . preg_quote($id, '/') . '[\'"]\\s*\\)/', $src)) {
+        $lit = preg_quote($id, '/');
+        if (preg_match('/hasPermission\\(\\s*[\'"]' . $lit . '[\'"]\\s*\\)/', $src)
+            || preg_match('/requirePermission\\(\\s*\\$\\w+\\s*,\\s*[\'"]' . $lit . '[\'"]\\s*\\)/', $src)) {
             $gateados[$id][] = $rel;
         }
     }

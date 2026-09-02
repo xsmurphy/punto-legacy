@@ -123,11 +123,31 @@ $operatorId = (string) ($found['contactid'] ?? '');
 // (reportes, ajustes, contactos). En la caja no gobiernan ninguna UI, así que
 // mandarlos solo agranda la superficie que se cachea en el dispositivo sin
 // habilitar nada.
+//
+// EXTRA_POS_PERMS es la excepción explícita a esa regla, y existe porque la
+// condición que la justifica —"no gobiernan ninguna UI de la caja"— dejó de ser
+// cierta para una clave: desde que el GET de `/v1/reports/transactions` se
+// evalúa contra el rol del OPERADOR (ver el gate en ese archivo),
+// `reports.sales.view` decide si el asistente de la caja puede contestar
+// "¿cuánto se vendió hoy?". Sin bajarla, la UI no tiene forma de saberlo y solo
+// puede hacer dos cosas, las dos malas: prometerle ventas a un cajero que va a
+// recibir 403, o callarlas también para el dueño.
+//
+// Es una ALLOWLIST de claves puntuales, no un ensanche del filtro: cada entrada
+// tiene que gatear algo que se ve o se ofrece en la caja. Sigue sin bajar el
+// catálogo de panel.
+//
+// Su contraparte del lado del front es `POS_TOOL_PERMISSION`
+// (`frontend/lib/pos/agent-tools.ts`): una clave que gatee una tool allá y no
+// esté acá NUNCA llega al dispositivo, así que la tool queda apagada para
+// todos. Se agregan juntas.
+$extraPosPerms = ['reports.sales.view'];
 $operatorRole = \Punto\Api\Auth\OperatorContext::roleOf(COMPANY_ID, $operatorId);
 $operatorPerms = $operatorRole !== null
     ? array_values(array_filter(
         \RoleService::getPermissions($operatorRole, COMPANY_ID),
         static fn($perm) => str_starts_with((string) $perm, 'pos.')
+            || in_array((string) $perm, $extraPosPerms, true)
     ))
     : [];
 

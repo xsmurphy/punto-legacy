@@ -5,6 +5,7 @@ namespace Punto\Api\Auth;
 
 require_once __DIR__ . '/OperatorAssertion.php';
 require_once __DIR__ . '/RoleService.php';
+require_once __DIR__ . '/hasPermission.php';
 
 /**
  * OperatorContext — la PERSONA detrás de una request, y qué puede hacer.
@@ -102,6 +103,90 @@ final class OperatorContext
         $roleId = $operator['roleId'] ?? null;
         if ($roleId === null || $roleId === '') return false;
         return \RoleService::hasPermission($perm, $roleId, $companyId);
+    }
+
+    /**
+     * Gate de permiso de un ENDPOINT contra la PERSONA que hace la request.
+     *
+     * ── Por qué no alcanza con `hasPermission()` ────────────────────────────
+     *
+     * Porque ese helper resuelve contra `ROLE_ID`, y bajo `pos-app` ese rol es
+     * SIEMPRE el del device: el gate pasa siempre, para cualquiera que tenga la
+     * tablet en la mano, con o sin alguien desbloqueado. Escrito en un endpoint
+     * que también sirve al panel, `hasPermission()` da la falsa impresión de
+     * estar cerrado cuando por el lado de la caja está abierto de par en par
+     * (es lo que documentan `returns.php` y `users.php`: "este gate SIEMPRE
+     * pasa").
+     *
+     * Este método contesta la pregunta que corresponde —"¿la PERSONA que pide
+     * esto puede verlo?"— y la contesta igual en las dos superficies:
+     *
+     *   realm `panel` / `api`   la credencial ES la persona (o la key que ella
+     *                           emitió, con SU rol): `hasPermission()`.
+     *   realm `pos-app`         la credencial es la TABLET: la persona sale de
+     *                           la `OperatorAssertion` del PIN y el permiso se
+     *                           evalúa contra SU rol.
+     *
+     * ── Fail-closed sin operador ────────────────────────────────────────────
+     *
+     * Sin `X-Operator-Token` válido no hay a quién medirle el permiso, así que
+     * no se contesta: 403. No hay caída al rol del device — esa caída es
+     * exactamente el agujero que este método cierra. Por eso el gate va solo en
+     * endpoints donde la caja NO opera a ciegas: lo que el POS consume sin
+     * nadie desbloqueado (catálogo, stock, clientes) sigue con su gate de
+     * device, que es el piso correcto para una terminal.
+     *
+     * Es la MISMA puerta que ya usan las escrituras del agente
+     * (`Punto\Api\Ai\AgentActor`), que también resuelve por realm y evalúa con
+     * `can()`. Acá se expone como guard de endpoint para que una LECTURA no
+     * necesite instanciar el actor del agente ni inventar un segundo camino de
+     * autorización.
+     *
+     * @param array<string,mixed> $ctx el array que devuelve apiAuthTenant()
+     */
+    public static function requirePermission(array $ctx, string $perm): void
+    {
+        self::requireAnyPermission($ctx, [$perm]);
+    }
+
+    /**
+     * Igual que `requirePermission()`, pero alcanza con UNA de las claves.
+     *
+     * No es un aflojamiento del gate: existe porque hay recursos a los que se
+     * llega legítimamente por más de una capacidad. El caso que lo motivó es el
+     * DETALLE de una transacción: verlo es parte del reporte de ventas
+     * (`reports.sales.view`), pero también de cobrarle a un cliente
+     * (`pos.sale.creditPayment`) o de anular un recibo (`pos.sale.void`), y un
+     * cajero que puede hacer lo segundo necesita abrir el documento sobre el
+     * que va a operar. Exigir la clave del reporte para eso sería pedir el
+     * permiso equivocado y romper el cobro en el panel.
+     *
+     * La regla sigue siendo la misma: quien pide tiene que poder ver eso por
+     * ALGUNA vía que ya tenga concedida. Una lista vacía no autoriza a nadie.
+     *
+     * @param array<string,mixed> $ctx   el array que devuelve apiAuthTenant()
+     * @param list<string>        $perms cualquiera de estas habilita
+     */
+    public static function requireAnyPermission(array $ctx, array $perms): void
+    {
+        $detalle = 'No tenés permiso para esta acción (requiere: ' . implode(' o ', $perms) . ')';
+
+        if ((string) ($ctx['realm'] ?? '') !== 'pos-app') {
+            foreach ($perms as $perm) {
+                if (\hasPermission($perm)) return;
+            }
+            \apiError($detalle, 403);
+        }
+
+        $companyId = (string) ($ctx['companyId'] ?? '');
+        $operator  = self::resolve($ctx);
+        if (!$operator['identified']) {
+            \apiError('Desbloqueá la caja con tu PIN para consultar esto', 403);
+        }
+        foreach ($perms as $perm) {
+            if (self::can($operator, $perm, $companyId)) return;
+        }
+        \apiError($detalle, 403);
     }
 
     /**
