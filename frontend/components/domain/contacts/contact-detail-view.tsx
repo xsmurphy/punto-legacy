@@ -106,6 +106,7 @@ import {
   useTaxpayerLookup,
 } from "@/hooks/use-contacts"
 import { useBootstrap } from "@/hooks/use-bootstrap"
+import { usePermission } from "@/hooks/use-permissions"
 import { useModules } from "@/hooks/use-modules"
 import { usePriceLists } from "@/hooks/use-price-lists"
 import { ApiError } from "@/lib/api-client"
@@ -243,6 +244,9 @@ export function ContactDetailView({
   // carga o está apagado, para no ofrecer una sección sin datos relevantes.
   const { data: modules, isLoading: modulesLoading } = useModules()
   const calendarEnabled = !modulesLoading && modules?.calendar?.enabled === true
+  // Espejo del gate del backend para el tab "Transacciones" (ver abajo, donde
+  // se arman las secciones).
+  const canViewSales = usePermission("reports.sales.view")
 
   const onSubmit = async (values: ContactFormValues) => {
     try {
@@ -292,7 +296,11 @@ export function ContactDetailView({
     { key: "summary",  label: "Resumen",      icon: <BarChart3 className="size-3.5" /> },
     { key: "behavior", label: "Comportamiento", icon: <Sparkles className="size-3.5" /> },
     { key: "financial",label: "Financiero",    icon: <Wallet className="size-3.5" /> },
-    ...(variant === "panel"
+    // Además del realm, el PERMISO: el GET de `/v1/reports/transactions` exige
+    // `reports.sales.view` desde el 2026-09-01 (antes no chequeaba nada). Sin
+    // este espejo, un rol que puede ver contactos pero no ventas —el `cashier`
+    // seed, por ejemplo— seguía viendo el tab y se comía un 403 al abrirlo.
+    ...(variant === "panel" && canViewSales
       ? [{ key: "transactions" as const, label: "Transacciones", icon: <Receipt className="size-3.5" /> }]
       : []),
     { key: "packs",    label: "Packs",         icon: <Layers className="size-3.5" /> },

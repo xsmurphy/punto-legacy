@@ -109,6 +109,13 @@ export function usePosAgentChat({
   /** TZ IANA del tenant (`PosConfig.timezone`) — define qué día es "hoy" para el modelo. */
   timezone: string
 }) {
+  // Permisos del operador desbloqueado. Viajan en el body —no como credencial,
+  // que ya va en el header— para que el BFF no le ofrezca al modelo una lectura
+  // que el backend le va a negar (`lib/pos/agent-tools.ts`). Autorizar sigue
+  // siendo del backend, que los resuelve del rol real contra el
+  // `X-Operator-Token`; esto solo evita que el asistente prometa de más.
+  const operatorPermissions = useLockStore((s) => s.operatorPermissions)
+
   const transport = React.useMemo(
     () =>
       new DefaultChatTransport({
@@ -124,9 +131,9 @@ export function usePosAgentChat({
             ? { Authorization: `Bearer ${token}`, "X-Operator-Token": operatorToken }
             : { Authorization: `Bearer ${token}` }
         },
-        body: { companyName, currency, country, timezone },
+        body: { companyName, currency, country, timezone, operatorPermissions },
       }),
-    [companyName, currency, country, timezone],
+    [companyName, currency, country, timezone, operatorPermissions],
   )
 
   const chat = useChat({

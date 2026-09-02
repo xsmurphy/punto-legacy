@@ -21,11 +21,16 @@
  *   get_contacts     "¿cuánto debe este cliente?", "¿qué datos tiene?".
  *   get_categories   ubicar un ítem cuando no se sabe el nombre exacto.
  *   get_brands       ídem.
- *   get_transactions "¿cuánto se vendió hoy?", "¿esa venta se cobró?".
+ *   get_transactions "¿cuánto se vendió hoy?", "¿esa venta se cobró?" — sujeta
+ *                    al permiso del operador (ver `POS_TOOL_PERMISSION`).
  *
  * Las seis son preguntas que se responden DE PIE, frente a alguien, en
  * segundos. Ese es el criterio de admisión: si la pregunta se hace sentado,
  * es del panel.
+ *
+ * Estar en la lista no alcanza: lo que el asistente puede LEER está sujeto a
+ * los permisos de la persona que pregunta, igual que lo que puede escribir. El
+ * corte —cuáles exigen permiso y cuáles no— está en `POS_TOOL_PERMISSION`.
  *
  * ─────────────────────────────────────────────────────────────────────────
  * POR QUÉ NO ESTÁ EL RESTO — y `get_report` es LA exclusión que importa
@@ -134,6 +139,44 @@ export const POS_TOOL_IDS = [
 
 export type PosToolId = (typeof POS_TOOL_IDS)[number]
 
+/**
+ * Tools cuya LECTURA está sujeta a un permiso de la persona que pregunta.
+ *
+ * ── El corte, y por qué no es parejo ──────────────────────────────────────
+ *
+ * `get_transactions` devuelve las VENTAS de la sucursal —montos, clientes,
+ * medios de pago, de todas las cajas y todos los turnos—. Es exactamente lo que
+ * el panel muestra detrás de `reports.sales.view`, y un cajero que no puede
+ * abrir ese reporte tampoco puede obtenerlo preguntándole al asistente: sería
+ * la misma pantalla con otra puerta.
+ *
+ * Las otras cinco (`get_items`, `get_stock`, `get_contacts`, `get_categories`,
+ * `get_brands`) NO llevan permiso extra, y no por comodidad: son lo que la
+ * pantalla de venta ya tiene abierto delante de quien opera la caja. El buscador
+ * de artículos muestra precio y stock, el selector de cliente muestra su saldo,
+ * y categorías y marcas son la taxonomía con la que se navega ese mismo
+ * catálogo. Exigir operador ahí no protegería nada —el dato está a un toque de
+ * distancia en la misma pantalla— y rompería la consulta de mostrador, que es
+ * la razón de ser del asistente. El gate que sí las cubre es el del device
+ * (`items.php` pide `inventory.item.view`, `contacts.php` la familia
+ * `contacts.customer.*`), que es el piso correcto para una terminal.
+ *
+ * OJO al agregar una clave acá: tiene que estar TAMBIÉN en la allowlist de
+ * `api/v1/unlock-pin.php` (la que decide qué permisos de panel bajan a la
+ * caja). Si no baja, el POS nunca la ve, la tool queda apagada para todos —
+ * incluido el dueño— y el síntoma es "el asistente dejó de contestar eso" sin
+ * ningún error. Las dos listas se tocan juntas.
+ *
+ * El mapa es la mitad CLIENTE del gate: evita que el modelo prometa un dato que
+ * va a terminar en 403. La que manda es la del backend
+ * (`OperatorContext::requirePermission()` en el GET de
+ * `api/v1/reports/transactions.php`), y sigue valiendo aunque alguien llame al
+ * BFF a mano con la lista de permisos inflada.
+ */
+export const POS_TOOL_PERMISSION: Partial<Record<PosToolId, string>> = {
+  get_transactions: "reports.sales.view",
+}
+
 type ReadOnlyToolSet = ReturnType<typeof buildReadOnlyFetchTools>
 
 /**
@@ -151,12 +194,26 @@ type ReadOnlyToolSet = ReturnType<typeof buildReadOnlyFetchTools>
  *   escritura. Es la mitad cliente del fail-closed: la que manda es la del
  *   backend, pero ofrecerle al modelo una capacidad que va a terminar en 403 es
  *   pedirle que le prometa al cajero algo que no va a pasar.
+ * @param operatorPermissions permisos del operador tal como los devolvió el
+ *   unlock por PIN. Recortan las LECTURAS sujetas a permiso (`POS_TOOL_PERMISSION`)
+ *   por el mismo motivo y con la misma fuerza que el parámetro de arriba: es una
+ *   señal de UX, no el gate. Inflarla no habilita nada — el 403 lo pone el
+ *   backend, que mide contra el rol real de esa persona.
  */
-export function buildPosAgentTools(ctx: ToolContext, operatorToken = ""): ToolSet {
+export function buildPosAgentTools(
+  ctx: ToolContext,
+  operatorToken = "",
+  operatorPermissions: readonly string[] = [],
+): ToolSet {
   const catalog = buildReadOnlyFetchTools(ctx)
   const picked: ReadOnlyToolSet = {}
 
   for (const id of POS_TOOL_IDS) {
+    const required = POS_TOOL_PERMISSION[id]
+    // Sin el permiso, la tool ni se ofrece: el modelo no la llama, no cobra el
+    // 403 y no le anuncia al cajero un dato que no va a poder darle.
+    if (required && !operatorPermissions.includes(required)) continue
+
     const definition = catalog[id]
     if (!definition) {
       console.error(

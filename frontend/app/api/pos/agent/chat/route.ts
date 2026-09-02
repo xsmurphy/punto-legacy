@@ -28,7 +28,10 @@ export const maxDuration = 60
  *
  *  3. Las tools de LECTURA están RECORTADAS a las de mostrador
  *     (`lib/pos/agent-tools.ts`). Sin `render_chart` (ya lo excluye
- *     `buildReadOnlyFetchTools`).
+ *     `buildReadOnlyFetchTools`). Y el recorte tiene una segunda dimensión: las
+ *     que exigen permiso —hoy `get_transactions`— solo se arman si el operador
+ *     lo tiene, porque lo que el asistente puede LEER está sujeto a los
+ *     permisos de quien pregunta, igual que lo que puede escribir.
  *
  *  4. Las tools de ESCRITURA (`register_action` / `execute_action`) se agregan
  *     SOLO si la request trae `X-Operator-Token` — la afirmación firmada que
@@ -110,6 +113,7 @@ export async function POST(req: Request) {
     currency?: string
     country?: string
     timezone?: string
+    operatorPermissions?: string[]
   }
   try {
     body = await req.json()
@@ -123,7 +127,16 @@ export async function POST(req: Request) {
     currency = "",
     country = "",
     timezone = "",
+    operatorPermissions = [],
   } = body
+
+  // Permisos del operador: los devolvió el unlock por PIN y el POS los tiene
+  // cacheados en su lock-store. Acá se usan para UNA cosa —no ofrecerle al
+  // modelo una tool que su backend le va a rechazar— y para nada más. No
+  // autorizan: el 403 lo pone `/v1/*` midiendo contra el rol REAL de la persona
+  // que prueba el `X-Operator-Token`. Un cliente que mande la lista inflada
+  // consigue que el modelo intente y coma el 403, no que lea de más.
+  const canReadSales = operatorPermissions.includes("reports.sales.view")
 
   // Contexto de formato (moneda, país, zona horaria, nombre del comercio): sale
   // de la config del POS (`useCatalogStore` → `PosConfig`), que el cliente
@@ -134,8 +147,26 @@ export async function POST(req: Request) {
   // escriben los montos en la respuesta, no qué datos se pueden leer. Lo que
   // gobierna el acceso es la credencial, y esa no viaja en el body.
 
-  // Headers de los fetches de DATOS. Un solo header, a propósito.
+  // Headers de los fetches de DATOS: la credencial de la TERMINAL y, cuando
+  // hay alguien desbloqueado, la afirmación de QUIÉN es esa persona.
+  //
+  // El `X-Operator-Token` viaja también en las LECTURAS desde el 2026-09-01, y
+  // es el cambio de fondo: hasta entonces las lecturas salían solo con el Bearer
+  // del device —eterno, compartido por todos los turnos, con el rol `device`
+  // debajo—, así que un cajero podía pedirle al asistente el reporte de ventas
+  // de la sucursal que el panel le niega. Las capacidades del asistente están
+  // sujetas a los permisos de quien pregunta, y eso vale para leer igual que
+  // para escribir: sin identidad en la request, el backend no tiene contra qué
+  // medir el permiso.
+  //
+  // Es el MISMO header que ya mandaba el resto del POS (`lib/api/pos-fetch.ts`)
+  // y el mismo que autoriza las escrituras del agente. Los endpoints que no lo
+  // miran lo ignoran; el que lo exige (`/v1/reports/transactions`) responde 403
+  // sin él.
   const dataHeaders: Record<string, string> = { Authorization: authHeader }
+  if (operatorToken !== "") {
+    dataHeaders["X-Operator-Token"] = operatorToken
+  }
 
   // Modelo: misma config de tenant que el panel. Fail-open al default si no
   // se puede leer (hoy es 403 — ver el docblock de arriba), porque el modelo
@@ -193,7 +224,12 @@ export async function POST(req: Request) {
     `- Nada de preámbulos ("Claro", "Voy a buscar", "Según los datos"). Empezá por la respuesta.\n` +
     `- Si listás productos o clientes, máximo 5, uno por línea, con el dato que se preguntó.\n\n` +
     `## Qué podés hacer\n` +
-    `Consultar: artículos y precios, stock, clientes y su saldo, categorías, marcas, y ventas.\n` +
+    (canReadSales
+      ? `Consultar: artículos y precios, stock, clientes y su saldo, categorías, marcas, y ventas.\n`
+      : `Consultar: artículos y precios, stock, clientes y su saldo, categorías y marcas.\n` +
+        `NO tenés acceso a las ventas ni a los totales del negocio: el permiso para verlos depende del rol ` +
+        `de quien desbloqueó esta caja, y este no lo tiene. Si te preguntan cuánto se vendió, decilo en una ` +
+        `frase —hay que pedírselo a un encargado o al dueño— y no intentes obtenerlo por otro camino.\n`) +
     (canWrite
       ? `También podés hacer CAMBIOS SIMPLES, siempre con confirmación: crear o editar clientes y proveedores, ` +
         `crear artículos, cambiar el precio de un artículo, y crear categorías, marcas o etiquetas.\n` +
@@ -292,7 +328,11 @@ export async function POST(req: Request) {
     // Lecturas recortadas a las de mostrador + las dos escrituras del panel,
     // que solo se arman si hay operador identificado. El porqué de cada tool
     // —y del recorte— está en `lib/pos/agent-tools.ts`.
-    tools: buildPosAgentTools({ apiUrl, dataHeaders, authHeader }, operatorToken),
+    tools: buildPosAgentTools(
+      { apiUrl, dataHeaders, authHeader },
+      operatorToken,
+      operatorPermissions,
+    ),
   })
 
   return result.toUIMessageStreamResponse({

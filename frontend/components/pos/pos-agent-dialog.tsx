@@ -7,6 +7,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet"
 import { EmptyState } from "@/components/empty-state"
 import { AgentChatContent } from "@/components/agent/agent-chat-content"
 import { usePosAgentChat } from "@/lib/pos/use-pos-agent-chat"
+import { useLockStore } from "@/lib/pos/lock-store"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { usePosUIStore } from "@/lib/ui/store"
 import { useOnlineStatus } from "@/hooks/use-online-status"
@@ -93,6 +94,22 @@ export function PosAgentDialog() {
   const config = useCatalogStore((s) => s.config)
   const isOnline = useOnlineStatus()
 
+  // El texto del vacío ENUMERA capacidades, así que no puede ser el mismo para
+  // todos: desde que la lectura de ventas se evalúa contra el rol del operador
+  // (`api/v1/reports/transactions.php`), prometerle "las ventas de esta
+  // sucursal" a un cajero sin `reports.sales.view` es anunciar un 403. La
+  // alternativa —un texto genérico que no diga nada— es peor en el otro
+  // sentido: al dueño y al encargado les esconde lo que el asistente sí hace y
+  // los deja preguntándose qué ve el resto del equipo.
+  //
+  // La fuente es la misma que ya gatea el item del sidebar (`pos-sidebar.tsx`
+  // con `pos.ai.use`): los permisos que el server devolvió al validar el PIN,
+  // cacheados en el lock-store. Es un espejo, no una autorización — quien
+  // autoriza es el backend.
+  const canReadSales = useLockStore((s) => s.operatorPermissions).includes(
+    "reports.sales.view",
+  )
+
   const { messages, sendMessage, status, error, clear } = usePosAgentChat({
     companyName: config?.companyName ?? "",
     currency: config?.currency ?? "",
@@ -157,7 +174,11 @@ export function PosAgentDialog() {
               ghost={false}
               icon={MessageCircle}
               title="Preguntá lo que necesites"
-              description="Precios, stock, saldo de un cliente o las ventas de esta sucursal. También cambios simples, con tu confirmación."
+              description={
+                canReadSales
+                  ? "Precios, stock, saldo de un cliente o las ventas de esta sucursal. También cambios simples, con tu confirmación."
+                  : "Precios, stock o el saldo de un cliente. También cambios simples, con tu confirmación."
+              }
             />
           }
         />
