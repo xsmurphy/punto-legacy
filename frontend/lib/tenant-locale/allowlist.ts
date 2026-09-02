@@ -125,6 +125,15 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
       "justamente lo que verifica.",
     allow: { 'país "PY" como default': 4 },
   },
+  "frontend/lib/__tests__/agent-setup-status.test.ts": {
+    reason:
+      "TEST — el checklist de onboarding (context/66 F4) nombra el documento fiscal con " +
+      "`resolveTaxIdLabel`, o sea derivándolo del país del tenant. El único 'PY' del archivo es " +
+      "la ASERCIÓN del otro lado de esa regla: que derivar del país funcione TAMBIÉN para " +
+      "Paraguay (le pide RUC), mientras el resto de los fixtures son argentinos y brasileños " +
+      "justamente para que un default paraguayo escondido rompa el test.",
+    allow: { 'país "PY" como default': 1 },
+  },
   "frontend/lib/__tests__/country-flag.test.ts": {
     reason: "TEST — verifica el catálogo de banderas; PY y PYG son los casos de prueba.",
     allow: { 'código "PYG"': 1, 'país "PY" como default': 2 },

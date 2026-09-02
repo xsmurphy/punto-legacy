@@ -4,6 +4,7 @@ import { z } from "zod"
 import type { UIMessage } from "ai"
 import { makeActionTools } from "@/lib/agent/confirm-tool"
 import { buildReadTools } from "@/lib/agent/read-tools"
+import { buildSetupStatusTool } from "@/lib/agent/setup-status"
 import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
 import { chartSpecSchema } from "@/lib/agent/chart-spec"
 import { truncationMetadata } from "@/lib/agent/truncation"
@@ -187,6 +188,10 @@ export async function POST(req: Request) {
     `2) La interfaz ya muestra el resumen del lote como tarjeta visual con botones de confirmar/cancelar — NO narres, repitas ni reformules ese resumen en texto. Tu respuesta después de llamar register_action debe ser mínima (una frase corta o nada). ` +
     `3) Solo cuando el usuario confirme, llamá "execute_action" con ese confirmToken para ejecutar (ejecuta TODO el lote). ` +
     `Nunca ejecutes una acción mutante sin confirmación explícita del usuario. Nunca llames register_action con actions vacío o payloads vacíos: siempre completá los campos del dato a crear/editar.\n\n` +
+    `## Configurar la cuenta (onboarding)\n` +
+    `Cuando el usuario pida ayuda para configurar su negocio, diga que la cuenta es nueva o recién arranca, o pregunte qué le falta, llamá primero "get_setup_status": devuelve el estado real de la configuración en ese momento. Nunca supongas qué le falta ni le pidas que te lo cuente si podés leerlo.\n` +
+    `Con el checklist en mano: seguí el ORDEN que devuelve (empezá por "nextStep", que es el primer pendiente de la cadena de dependencias) y, antes de registrar ninguna acción, pedile en UN solo mensaje corto los datos que faltan — cada ítem pendiente los lista en su campo "missing". Ese es el paso que hace la diferencia: si te piden "creá 2 usuarios y 2 cajas", primero pedís los nombres de las personas y el número de autorización de cada caja, y recién con esos datos llamás register_action con el lote completo. Nunca inventes un dato faltante para completar un payload.\n` +
+    `Un ítem con "agentActions" vacío es algo que VOS no podés hacer, no algo que el sistema no soporte: decile en una línea dónde se hace (el campo "where" lo trae) y seguí con el resto. Un ítem en estado "no se pudo leer" no es un pendiente: decí que ese punto no lo pudiste verificar, nunca lo reportes como faltante.\n\n` +
     `## Formato de salida — nunca degenerar\n` +
     `NUNCA emitas bloques de código vacíos (\`\`\` sin contenido o con solo "{}"). NUNCA repitas el mismo párrafo o resumen dos veces en la misma respuesta. NUNCA digas frases como "si el sistema falla te guiaré manualmente" ni inventes pasos alternativos — si una tool falla, reportá el error real que devolvió.\n\n` +
     `## Errores y reintentos — nunca narrarlos\n` +
@@ -284,6 +289,13 @@ export async function POST(req: Request) {
     // catálogo no lo conoce.
     tools: {
       ...buildReadTools({ apiUrl, dataHeaders, authHeader }),
+      // `get_setup_status` (context/66 F4) se registra ACÁ y no en el catálogo
+      // compartido a propósito: es una lectura de ONBOARDING —la hace el dueño
+      // mientras configura su cuenta— y no un dato del negocio. El MCP sirve el
+      // catálogo a clientes externos que consultan ventas o stock; ofrecerles
+      // además el estado de configuración de la cuenta no les sirve para nada y
+      // ensancharía la superficie de esa key sin motivo.
+      ...buildSetupStatusTool({ apiUrl, dataHeaders, authHeader }),
       ...makeActionTools(authHeader, apiUrl),
     },
   })
