@@ -244,6 +244,12 @@ export default function InventoryCountDetailPage() {
   const totalPages = Math.ceil(filteredItems.length / PAGE_SIZE)
   const pagedItems = filteredItems.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
+  // Conteo ciego (D2, context/63): el backend no manda el esperado mientras la
+  // sesión está en progreso, así que NO hay diferencia que previsualizar. Sin
+  // este flag la previsualización diría "0 ajustes, Gs 0" —que se lee como
+  // "todo cuadra"— cuando en realidad es "todavía no se puede saber".
+  const blind = session?.blind === true
+
   const adjustmentsPreview = allItems.filter(
     (it) => it.countedQty !== null && it.difference !== null && it.difference !== 0
   ).length
@@ -253,6 +259,7 @@ export default function InventoryCountDetailPage() {
     }
     return sum
   }, 0)
+  const countedItems = allItems.filter((it) => it.countedQty !== null).length
 
   const isInProgress = session?.status === 1
 
@@ -364,15 +371,31 @@ export default function InventoryCountDetailPage() {
                   <AlertDialogDescription asChild>
                     <div className="space-y-2">
                       <p>Se aplicarán los siguientes ajustes al stock:</p>
-                      <ul className="list-disc pl-4 text-sm">
-                        <li><strong>{adjustmentsPreview}</strong> movimiento(s) de ajuste</li>
-                        <li>
-                          Diferencia de costo total:{" "}
-                          <strong className={totalCostDeltaPreview < 0 ? "text-red-500" : "text-green-600"}>
-                            {formatMoney(totalCostDeltaPreview)}
-                          </strong>
-                        </li>
-                      </ul>
+                      {blind ? (
+                        // Ciego: no hay diferencia que anticipar porque el
+                        // esperado no bajó a esta pantalla. Se dice lo único
+                        // que se sabe —cuánto se cargó— en vez de un total que
+                        // sería 0 por falta de dato y se leería como "cuadra".
+                        <ul className="list-disc pl-4 text-sm">
+                          <li>
+                            <strong>{countedItems}</strong> de {allItems.length} artículo(s)
+                            con cantidad cargada
+                          </li>
+                          <li>
+                            Las diferencias se calculan al finalizar y quedan visibles acá mismo.
+                          </li>
+                        </ul>
+                      ) : (
+                        <ul className="list-disc pl-4 text-sm">
+                          <li><strong>{adjustmentsPreview}</strong> movimiento(s) de ajuste</li>
+                          <li>
+                            Diferencia de costo total:{" "}
+                            <strong className={totalCostDeltaPreview < 0 ? "text-red-500" : "text-green-600"}>
+                              {formatMoney(totalCostDeltaPreview)}
+                            </strong>
+                          </li>
+                        </ul>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         Los artículos no contados (sin cantidad) no generan ajuste.
                       </p>
@@ -462,7 +485,9 @@ export default function InventoryCountDetailPage() {
                   <TableCell className="font-medium">{item.name}</TableCell>
                   <TableCell className="text-muted-foreground">{item.sku ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground">{item.categoryName ?? "—"}</TableCell>
-                  <TableCell className="text-right">{item.expectedQty}</TableCell>
+                  <TableCell className="text-right">
+                    {item.expectedQty !== null ? item.expectedQty : "—"}
+                  </TableCell>
                   {/* `flex justify-end` en vez de `text-right`: el input es un
                       bloque de ancho fijo y text-align no lo alinea. */}
                   <TableCell>

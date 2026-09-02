@@ -3,6 +3,9 @@ declare(strict_types=1);
 namespace Punto\Api\Services;
 
 require_once __DIR__ . '/InventoryCountScope.php';
+require_once __DIR__ . '/../Settings/StockCountSettings.php';
+
+use Punto\Api\Settings\StockCountSettings;
 
 /**
  * InventoryCountService — toma física de inventario.
@@ -185,6 +188,18 @@ final class InventoryCountService
             true
         );
 
+        // Conteo ciego (D2 de context/63): mientras la sesión está EN PROGRESO
+        // el esperado y la diferencia no salen del servidor. No es que la
+        // pantalla no los pinte —eso se evade mirando la respuesta— es que no
+        // se mandan, igual que `drawerBlind` con el total del arqueo.
+        //
+        // Al FINALIZAR sí se muestran, y tiene que ser así: el owner pidió
+        // textualmente que "cada conteo finalizado debe quedar detallado en el
+        // panel con sus diferencias". Ciego describe el momento de contar, no
+        // el registro que queda.
+        $blind = StockCountSettings::forCompany($companyId)->blind()
+            && (int) $session['status'] === 1;
+
         $items = [];
         if ($itemsRs) {
             while (!$itemsRs->EOF) {
@@ -196,9 +211,12 @@ final class InventoryCountService
                     'sku'         => $row['sku'],
                     'categoryId'   => $row['categoryId'],
                     'categoryName' => $row['categoryName'],
-                    'expectedQty' => (float) $row['expectedQty'],
+                    'expectedQty' => $blind ? null : (float) $row['expectedQty'],
                     'countedQty'  => $row['countedQty'] !== null ? (float) $row['countedQty'] : null,
-                    'difference'  => $row['difference'] !== null ? (float) $row['difference'] : null,
+                    'difference'  => ($blind || $row['difference'] === null) ? null : (float) $row['difference'],
+                    // El costo unitario no revela el esperado (es el costo del
+                    // artículo, no una cantidad) pero SÍ compone el valor de la
+                    // diferencia, que sin diferencia no se puede calcular.
                     'unitCost'    => (float) $row['unitCost'],
                     'countedAt'   => $row['countedAt'],
                 ];
@@ -228,6 +246,10 @@ final class InventoryCountService
                 // migración devuelven `{}` (alcance desconocido: se
                 // snapshoteaba todo el tenant), no una lista vacía.
                 'scope'            => (object) InventoryCountScope::decode($session['scope'] ?? null),
+                // Por qué el esperado viene en null. Sin este flag la pantalla
+                // no puede distinguir "conteo ciego" de "dato faltante", y el
+                // copy de finalizar prometería una diferencia que no tiene.
+                'blind'            => $blind,
             ],
             'items' => $items,
         ];
@@ -388,23 +410,30 @@ final class InventoryCountService
 
     public function list(string $companyId, ?string $outletId, ?int $status, int $limit, int $offset): array
     {
-        $where  = ['companyid = ?'];
+        // Columnas CALIFICADAS con el alias `ic`, y el mismo alias en el COUNT.
+        //
+        // Sin calificar, este WHERE es válido para el COUNT (una sola tabla) y
+        // ROMPE en la query de filas, que joinea `outlet o`: `companyid` y
+        // `outletid` existen en las dos tablas y Postgres corta con 42702.
+        // Nunca saltó porque el único caller —el listado del panel— no manda
+        // `outletId`, así que la rama con el filtro no se ejercitaba.
+        $where  = ['ic.companyid = ?'];
         $params = [$companyId];
 
         if ($outletId !== null) {
-            $where[]  = 'outletid = ?';
+            $where[]  = 'ic.outletid = ?';
             $params[] = $outletId;
         }
 
         if ($status !== null) {
-            $where[]  = '"status" = ?';
+            $where[]  = 'ic."status" = ?';
             $params[] = $status;
         }
 
         $whereStr = implode(' AND ', $where);
 
         $totalRow = ncmExecute(
-            "SELECT COUNT(*) as total FROM inventory_count WHERE {$whereStr}",
+            "SELECT COUNT(*) as total FROM inventory_count ic WHERE {$whereStr}",
             $params
         );
         $total = (int) ($totalRow['total'] ?? 0);
@@ -429,6 +458,12 @@ final class InventoryCountService
             true
         );
 
+        // Mismo criterio que get(): con conteo ciego, una sesión EN PROGRESO no
+        // publica su diferencia acumulada. Publicarla acá sería la puerta de
+        // atrás — el cajero abre el listado y deduce el esperado del artículo
+        // que acaba de cargar.
+        $blind = StockCountSettings::forCompany($companyId)->blind();
+
         $rows = [];
         if ($rowsRs) {
             while (!$rowsRs->EOF) {
@@ -446,7 +481,9 @@ final class InventoryCountService
                     'note'             => $r['note'],
                     'totalItems'       => (int) $r['totalItems'],
                     'countedItems'     => (int) $r['countedItems'],
-                    'totalCostDelta'   => (float) $r['totalCostDelta'],
+                    'totalCostDelta'   => ($blind && (int) $r['status'] === 1)
+                        ? null
+                        : (float) $r['totalCostDelta'],
                 ];
                 $rowsRs->MoveNext();
             }
