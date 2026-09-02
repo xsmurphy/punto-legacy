@@ -155,7 +155,14 @@ export interface IncomeChartData {
 import { useQuery as useQ } from "@tanstack/react-query"
 import { readViewScope } from "@/hooks/use-view-scope"
 
-export function useIncomeChart(opts: { from: string; to: string }) {
+export function useIncomeChart(
+  opts: { from: string; to: string },
+  // Mismo tercer campo que `useDashboardWidget`: el chart pega contra
+  // `/v1/reports/sales?dataset=series`, que desde el 2026-09-02 exige
+  // `reports.sales.view`. Sin poder apagarlo, el dashboard le disparaba un 403
+  // seguro a todo el que no tenga la clave.
+  extra?: { enabled?: boolean },
+) {
   // El scope va en el queryKey para que React Query refetchee al cambiar de
   // sucursal. El header `X-Outlet-Id` NO se manda a mano: lo pone el api-client.
   const scope = readViewScope()
@@ -177,5 +184,6 @@ export function useIncomeChart(opts: { from: string; to: string }) {
     },
     staleTime: 60 * 1000,
     retry: false,
+    enabled: extra?.enabled ?? true,
   })
 }

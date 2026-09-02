@@ -20,6 +20,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
+/* ───────── Gate de LECTURA ─────────────────────────────────────────────────
+ *
+ * Ventas por artículo, con costo y utilidad. Es el reporte de ventas abierto por producto, no el catálogo (para el catálogo está `inventory.item.view` en items.php).
+ *
+ * Va por `OperatorContext::requirePermission()` y no por `hasPermission()` a
+ * secas: es la puerta ÚNICA que mide el permiso contra la PERSONA en los tres
+ * realms (por qué, en el docblock de `api/lib/Auth/OperatorContext.php`). Acá
+ * los realms son `panel` y `api`, donde las dos resuelven igual — usarla de
+ * todos modos deja el gate correcto si mañana el endpoint acepta `pos-app`.
+ */
+require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+\Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.sales.view');
+
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 $view = (string) (validateHttp('view') ?: 'general');

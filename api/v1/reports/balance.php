@@ -24,6 +24,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
+/* ───────── Gate de LECTURA ─────────────────────────────────────────────────
+ *
+ * Foto de Activo / Pasivo / Patrimonio del comercio. Misma clave que el módulo Finanzas por el mismo motivo que `cashflow.php`.
+ *
+ * Va por `OperatorContext::requirePermission()` y no por `hasPermission()` a
+ * secas: es la puerta ÚNICA que mide el permiso contra la PERSONA en los tres
+ * realms (por qué, en el docblock de `api/lib/Auth/OperatorContext.php`). Acá
+ * los realms son `panel` y `api`, donde las dos resuelven igual — usarla de
+ * todos modos deja el gate correcto si mañana el endpoint acepta `pos-app`.
+ */
+require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+\Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'finance.manage');
+
 // Sucursal del view-scope, mismo patrón que reports/stock.php. '' = todas.
 $effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';

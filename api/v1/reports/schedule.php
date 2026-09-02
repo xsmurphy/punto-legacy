@@ -17,11 +17,28 @@ $svc    = new \Punto\Api\Reports\ScheduleService();
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
+/* ───────── Gate — el mismo permiso, ahora también en la LECTURA ────────────
+ *
+ * `reports.schedule.view` ya estaba en este archivo, pero SOLO dentro de la
+ * rama POST. El GET —que devuelve la agenda del comercio: citas, clientes y
+ * responsables— no chequeaba nada: lo leía cualquier sesión de panel.
+ *
+ * Es el mismo agujero que tenían los otros veinte reportes, y exactamente la
+ * misma forma que el de `drawers.php` (D9 de `context/59`): la clave existía,
+ * gobernaba la escritura, y la lectura que le da nombre pasaba de largo. Un
+ * scan que buscara `hasPermission(` en el archivo lo daba por gateado.
+ *
+ * Sube al tope porque la clave es la MISMA para los dos verbos, así que un
+ * solo gate los cubre — el `hasPermission()` que estaba dentro del POST quedó
+ * redundante y se fue con este cambio. Va por
+ * `OperatorContext::requirePermission()` como todo el directorio (el porqué,
+ * en el docblock de `api/lib/Auth/OperatorContext.php`).
+ */
+require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+\Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.schedule.view');
+
 /* ───────── write: eliminar cita ───────── */
 if ($method === 'POST') {
-    if (!hasPermission('reports.schedule.view')) {
-        apiError('No tenés permiso para esta acción (requiere: reports.schedule.view)', 403);
-    }
     $action = (string) (validateHttp('action', 'post') ?: '');
     if ($action !== 'delete') {
         apiError('Acción no soportada', 422);

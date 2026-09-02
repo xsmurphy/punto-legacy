@@ -29,6 +29,57 @@ if (!in_array($widget, $widgets, true)) {
     apiError('Widget no soportado', 422);
 }
 
+/* ───────── Gate de LECTURA — por WIDGET, no por endpoint ───────────────────
+ *
+ * Este archivo no sirve un reporte: sirve dieciocho cosas distintas detrás del
+ * mismo `?widget=`. Una sola clave para todas sería la equivocada casi siempre
+ * — y la de arriba (`reports.sales.view`) dejaría a un cajero con la pantalla
+ * de Inicio del panel rota, porque el home pide ocho widgets de una
+ * (`frontend/app/(panel)/page.tsx:91-99`) y varios no tienen nada que ver con
+ * ventas.
+ *
+ * El corte es por lo que cada widget DEVUELVE:
+ *
+ *   Con clave — plata del comercio. Facturación del período, ticket promedio,
+ *   estado de cobranza, ranking de artículos/categorías/marcas/medios de pago,
+ *   horas pico y analítica de clientes. Es exactamente lo que el panel muestra
+ *   detrás de los reportes de ventas: un rol que no puede abrir esos reportes
+ *   tampoco los saca por el dashboard ni preguntándole al asistente
+ *   (`get_sales_kpis` y `get_customer_evolution` pegan acá).
+ *   `satisfaction` y `schedule` van con SU clave, no con la de ventas: son el
+ *   mismo dato que `reports/satisfaction.php` y `reports/schedule.php`, que ya
+ *   las exigen. Colgarlos de ventas pediría el permiso equivocado.
+ *
+ *   Sin clave, a propósito — el ARMAZÓN operativo del home, sin un monto en
+ *   ningún campo: `info` (contadores del plan, sucursales, cajas abiertas),
+ *   `orders` y `tables` (órdenes activas y ocupación del salón, que es lo que
+ *   mira quien atiende), `notifications`/`notificationsCount` y `getReminders`
+ *   (avisos del usuario, ni siquiera del comercio; `getReminders` devuelve []).
+ *   Dejarlos abiertos no es un olvido: gatearlos vaciaría la pantalla de Inicio
+ *   de la gente que la usa para trabajar, sin esconder ninguna cifra.
+ *
+ * Va por `OperatorContext::requirePermission()` por el mismo motivo que el
+ * resto del directorio (ver el docblock de `api/lib/Auth/OperatorContext.php`).
+ */
+const WIDGET_PERMISO = [
+    'incomeOutcomeStats' => 'reports.sales.view',
+    'paymentStatus'      => 'reports.sales.view',
+    'customers'          => 'reports.sales.view',
+    'customersRates'     => 'reports.sales.view',
+    'customersSeries'    => 'reports.sales.view',
+    'topItems'           => 'reports.sales.view',
+    'topHours'           => 'reports.sales.view',
+    'topCategories'      => 'reports.sales.view',
+    'topBrands'          => 'reports.sales.view',
+    'topPayments'        => 'reports.sales.view',
+    'satisfaction'       => 'reports.satisfaction.view',
+    'schedule'           => 'reports.schedule.view',
+];
+if (isset(WIDGET_PERMISO[$widget])) {
+    require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+    \Punto\Api\Auth\OperatorContext::requirePermission($ctx, WIDGET_PERMISO[$widget]);
+}
+
 // Rango del reporte. Una fecha SOLA en `to` significa el FINAL de ese dia
 // (ver Date::reportRange): mandar `to=2026-09-01` y perder todo lo de ese
 // dia despues de medianoche era el bug que reporto el agente IA.

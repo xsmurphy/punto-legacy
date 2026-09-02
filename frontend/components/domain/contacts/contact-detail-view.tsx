@@ -247,6 +247,11 @@ export function ContactDetailView({
   // Espejo del gate del backend para el tab "Transacciones" (ver abajo, donde
   // se arman las secciones).
   const canViewSales = usePermission("reports.sales.view")
+  // El tab "Agenda" pega contra `/v1/reports/schedule`, cuyo GET exige
+  // `reports.schedule.view` desde el 2026-09-02: hasta entonces la clave
+  // estaba en el archivo pero solo gateaba el POST, así que la lectura pasaba
+  // de largo. Mismo espejo que el tab "Transacciones" de acá abajo.
+  const canViewSchedule = usePermission("reports.schedule.view")
 
   const onSubmit = async (values: ContactFormValues) => {
     try {
@@ -306,7 +311,7 @@ export function ContactDetailView({
     { key: "packs",    label: "Packs",         icon: <Layers className="size-3.5" /> },
     { key: "addresses",label: "Direcciones",   icon: <MapPin className="size-3.5" /> },
     { key: "orders",   label: "Órdenes",       icon: <OrdersIcon className="size-3.5" /> },
-    ...(calendarEnabled
+    ...(calendarEnabled && canViewSchedule
       ? [{ key: "schedule" as const, label: "Agenda", icon: <CalendarDays className="size-3.5" /> }]
       : []),
     { key: "data",     label: "Datos",         icon: <ShoppingBag className="size-3.5" /> },

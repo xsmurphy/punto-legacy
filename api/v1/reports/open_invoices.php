@@ -34,6 +34,41 @@ if ($contactId !== '' && !preg_match($uuidRe, $contactId)) {
     apiError('contactId inválido', 422);
 }
 
+/* ───────── Gate de LECTURA ─────────────────────────────────────────────────
+ *
+ * Este archivo sirve DOS reportes distintos y una tercera cosa que no es un
+ * reporte, así que una sola clave sería la equivocada para dos de los tres.
+ *
+ *   state=income   Cuentas por COBRAR: las ventas a crédito del comercio, con
+ *                  cliente y saldo. Es el reporte de ventas visto por lo que
+ *                  falta cobrar → `reports.sales.view`.
+ *   state=outcome  Cuentas por PAGAR: las compras a crédito a proveedores →
+ *                  `reports.purchases.view`, la misma clave que ya exige
+ *                  `reports/purchases.php`.
+ *
+ * Y con `contactId` deja de ser el reporte de la empresa: es la lista de
+ * facturas abiertas de UN contacto, que es lo que carga el diálogo de pago
+ * multi-factura (`components/domain/transactions/multi-invoice-payment-dialog.tsx`)
+ * antes de cobrar o pagar. Ese camino se abre por la capacidad de COBRAR, no
+ * por la de ver el reporte, y las claves son las que ya gatean la escritura
+ * correspondiente en `credit-payments.php:129` — `pos.sale.creditPayment` para
+ * cobrarle a un cliente, `finance.manage` para pagarle a un proveedor. Colgarlo
+ * de la clave del reporte le sacaba el cobro de crédito al rol `cashier` del
+ * seed, que tiene `pos.sale.creditPayment` y no `reports.sales.view`: el mismo
+ * caso que ya resolvió el detalle de `reports/transactions.php`.
+ *
+ * El gate va DESPUÉS de leer `state` y `contactId` porque depende de ellos —
+ * es lo que se pide, no quién pide, lo que decide la clave.
+ */
+require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+$permsLectura = $state === 'outcome'
+    ? ['reports.purchases.view']
+    : ['reports.sales.view'];
+if ($contactId !== '') {
+    $permsLectura[] = $state === 'outcome' ? 'finance.manage' : 'pos.sale.creditPayment';
+}
+\Punto\Api\Auth\OperatorContext::requireAnyPermission($ctx, $permsLectura);
+
 // Sucursal efectiva del view-scope — mismo patrón que reports/stock.php y
 // reports/dashboard.php. `VIEW_OUTLET_ID` la define bootstrap.php a partir del
 // header X-Outlet-Id del selector del panel: '' cuando el usuario eligió "Todas"

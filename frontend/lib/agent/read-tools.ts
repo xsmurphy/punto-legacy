@@ -351,14 +351,47 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
   /** Una lectura normalizada, o el objeto de error que devuelven las tools. */
   type ReadOutcome = { ok: true; result: NormalizedResult } | { ok: false; error: unknown }
 
+  /**
+   * El texto del fallo que ve el MODELO — y, a través suyo, el usuario.
+   *
+   * El 403 se trata aparte porque desde el 2026-09-02 dejó de ser un caso raro:
+   * los veinte endpoints de `/v1/reports/*` gatean la lectura contra el permiso
+   * de quien pregunta, así que un cajero que le pida el balance al asistente
+   * recibe uno. Y un `Error 403` pelado es lo peor que le podés dar a un modelo
+   * en esa situación: no dice qué pasó, así que lo parafrasea como una falla del
+   * sistema ("no pude obtener el reporte", "hubo un problema") o lo lee como
+   * transitorio y reintenta la misma consulta, que vuelve a dar 403.
+   *
+   * El backend ya manda la frase correcta —`No tenés permiso para esta acción
+   * (requiere: reports.sales.view)`, ver `api/lib/response.php`—, así que acá se
+   * la lee del envelope y se le agrega la instrucción de qué hacer con ella.
+   * `errorLabel` NO gana sobre esta rama a propósito: es justamente el que
+   * convierte un 403 en "No se pudo obtener el reporte (403)", que es la
+   * confusión que esto viene a sacar.
+   */
+  async function describeFailure(res: Response, opts: ReadOptions): Promise<string> {
+    if (res.status === 403) {
+      let detalle = ""
+      try {
+        const body = (await res.json()) as { error?: { message?: unknown } }
+        if (typeof body?.error?.message === "string") detalle = body.error.message.trim()
+      } catch {
+        // 403 sin cuerpo JSON (proxy, gateway). Queda el texto genérico.
+      }
+      return (
+        (detalle !== "" ? detalle : "No tenés permiso para consultar esto.") +
+        " Es una restricción de permisos de tu usuario, no una falla: decíselo al" +
+        " usuario y NO reintentes la consulta."
+      )
+    }
+    return opts.errorLabel ? opts.errorLabel(res.status) : `Error ${res.status}`
+  }
+
   async function fetchAndNormalize(path: string, opts: ReadOptions): Promise<ReadOutcome> {
     try {
       const res = await fetch(`${apiUrl}${path}`, { headers: opts.headers ?? dataHeaders })
       if (!res.ok) {
-        return {
-          ok: false,
-          error: { error: opts.errorLabel ? opts.errorLabel(res.status) : `Error ${res.status}` },
-        }
+        return { ok: false, error: { error: await describeFailure(res, opts) } }
       }
       const json = (await res.json()) as { data?: unknown }
       const payload = json?.data ?? json

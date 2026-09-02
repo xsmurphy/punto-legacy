@@ -157,3 +157,84 @@ describe("catálogo de tools de lectura", () => {
     }
   })
 })
+
+/**
+ * El 403 de permisos, traducido.
+ *
+ * Desde el 2026-09-02 los veinte endpoints de `/v1/reports/*` miden la lectura
+ * contra el permiso de quien pregunta, así que un 403 dejó de ser una rareza:
+ * es la respuesta NORMAL cuando un cajero le pide el balance al asistente. Lo
+ * que el catálogo le devuelva al modelo en ese caso decide qué escucha el
+ * usuario, y un `Error 403` pelado tiene dos finales malos — el modelo lo
+ * parafrasea como una falla del sistema, o lo lee como transitorio y reintenta
+ * la misma consulta para cobrar otro 403.
+ */
+describe("un 403 de permisos llega al modelo como una restricción, no como una falla", () => {
+  function conRespuesta(status: number, body: unknown) {
+    const orig = globalThis.fetch
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch
+    return () => {
+      globalThis.fetch = orig
+    }
+  }
+
+  async function correr(status: number, body: unknown) {
+    const restaurar = conRespuesta(status, body)
+    try {
+      const tools = buildReadOnlyFetchTools(ctx)
+      return (await (tools.get_stock.execute as (i: unknown) => Promise<unknown>)({})) as {
+        error?: string
+      }
+    } finally {
+      restaurar()
+    }
+  }
+
+  const envelope403 = {
+    ok: false,
+    error: { message: "No tenés permiso para esta acción (requiere: inventory.item.view)", code: 403 },
+  }
+
+  it("usa el mensaje del backend, que nombra la clave que falta", async () => {
+    const out = await correr(403, envelope403)
+    expect(out.error).toContain("inventory.item.view")
+    expect(out.error).toContain("No tenés permiso")
+  })
+
+  it("le dice al modelo que no reintente", async () => {
+    const out = await correr(403, envelope403)
+    expect(out.error).toMatch(/no reintentes/i)
+    // Y que es de permisos, no una caída — es la distinción que evita el
+    // "hubo un problema al obtener el reporte".
+    expect(out.error).toMatch(/permisos/i)
+  })
+
+  it("un 403 sin cuerpo JSON no se queda sin explicación", async () => {
+    const restaurar = (() => {
+      const orig = globalThis.fetch
+      globalThis.fetch = (async () => new Response("<html>403</html>", { status: 403 })) as typeof fetch
+      return () => {
+        globalThis.fetch = orig
+      }
+    })()
+    try {
+      const tools = buildReadOnlyFetchTools(ctx)
+      const out = (await (tools.get_stock.execute as (i: unknown) => Promise<unknown>)({})) as {
+        error?: string
+      }
+      expect(out.error).toMatch(/permiso/i)
+      expect(out.error).toMatch(/no reintentes/i)
+    } finally {
+      restaurar()
+    }
+  })
+
+  it("el resto de los errores sigue como estaba", async () => {
+    const out = await correr(500, { ok: false, error: { message: "boom", code: 500 } })
+    expect(out.error).toBe("Error 500")
+  })
+})

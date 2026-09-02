@@ -19,6 +19,19 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
+/* ───────── Gate de LECTURA ─────────────────────────────────────────────────
+ *
+ * Saldo de stock al cierre de un día. Misma clave que el catálogo, igual que `inventory.php`.
+ *
+ * Va por `OperatorContext::requirePermission()` y no por `hasPermission()` a
+ * secas: es la puerta ÚNICA que mide el permiso contra la PERSONA en los tres
+ * realms (por qué, en el docblock de `api/lib/Auth/OperatorContext.php`). Acá
+ * los realms son `panel` y `api`, donde las dos resuelven igual — usarla de
+ * todos modos deja el gate correcto si mañana el endpoint acepta `pos-app`.
+ */
+require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+\Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'inventory.item.view');
+
 // Saldo AL CIERRE del día pedido: `date` es un extremo SUPERIOR, así que una
 // fecha sola significa el FINAL de ese día. Antes viajaba tal cual y Postgres
 // la leía como 00:00:00, o sea que `date=2026-09-01` devolvía el saldo con el
