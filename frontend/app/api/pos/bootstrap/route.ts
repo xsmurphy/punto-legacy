@@ -173,6 +173,14 @@ interface UpstreamBootstrap {
   settingReturnRefund?: "cash" | "credit" | "ask"
   settingReturnAllowIngredientReversal?: boolean
   /**
+   * Listas fijas de conteo (D3, context/63). `/v1/bootstrap` las sirve SOLO a
+   * un device que es una caja, igual que el roster del lock screen. Ausente =
+   * `/api` anterior a esta feature, o el device no es una caja: el POS lo trata
+   * como "sin listas configuradas", nunca como "contá todo".
+   */
+  stockCountLists?: Array<{ id: string; name: string; itemIds: string[] }>
+  stockCountRecordOnly?: boolean
+  /**
    * Roster de la pantalla de bloqueo — proyección MÍNIMA (id/name/pinhash) de
    * los usuarios activos habilitados en la sucursal del contexto, servida por
    * `/v1/bootstrap` (ver `UsersService::rosterForOutlet()`).
@@ -402,6 +410,20 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
         ? bs.settingReturnRefund
         : "ask",
     settingReturnAllowIngredientReversal: bs.settingReturnAllowIngredientReversal === true,
+    // Se normaliza acá, no en la pantalla: una lista sin nombre o sin ítems no
+    // es una lista que el cajero pueda completar, y dejarla pasar la convierte
+    // en una opción del selector que no hace nada. El backend ya aplica el
+    // mismo criterio (`StockCountSettings::decodeLists`) — esto es la red por
+    // si el `/api` desplegado es anterior.
+    stockCountLists: (bs.stockCountLists ?? [])
+      .filter((l) => l && typeof l.id === "string" && l.id !== "" && Array.isArray(l.itemIds))
+      .map((l) => ({
+        id: l.id,
+        name: typeof l.name === "string" ? l.name : "",
+        itemIds: l.itemIds.filter((i): i is string => typeof i === "string" && i !== ""),
+      }))
+      .filter((l) => l.name !== "" && l.itemIds.length > 0),
+    stockCountRecordOnly: bs.stockCountRecordOnly === true,
   }
 }
 

@@ -136,7 +136,21 @@ export interface TenancyGrantRow {
  * las impresoras, así que meterlos en la misma fila haría que un ajuste
  * rechazado frenara un cambio de impresora que no tiene nada que ver.
  */
-export type PendingOpStream = 'pos-config' | 'hotkeys' | 'drawer' | 'printer-bindings'
+export type PendingOpStream =
+  | 'pos-config'
+  | 'hotkeys'
+  | 'drawer'
+  // Conteo de stock (context/63 F1). Canal PROPIO y no `drawer`: los conteos
+  // son eventos independientes entre sí y del turno (decisión explícita del
+  // owner), así que no hay orden que preservar contra la apertura o el cierre
+  // de caja. Compartir el canal solo lograría que un cierre rechazado frenara
+  // un conteo que no tiene nada que ver con él.
+  //
+  // Sí es FIFO consigo mismo: dos conteos del mismo mostrador se aplican en el
+  // orden en que se hicieron, porque el segundo ajusta sobre el saldo que dejó
+  // el primero.
+  | 'stock-count'
+  | 'printer-bindings'
 
 /** Qué operación es. Determina el transporte (ver `pending-ops-transport.ts`). */
 export type PendingOpKind =
@@ -149,6 +163,17 @@ export type PendingOpKind =
   | 'printerBindingCreate'
   | 'printerBindingUpdate'
   | 'printerBindingDelete'
+  /**
+   * Un conteo de stock COMPLETO: la lista con la que se contó y todas las
+   * cantidades, en una sola operación.
+   *
+   * El grano no es casual. `setQty`/`bulkSetQty` del backend son
+   * *last-write-wins* sin `opId`, así que encolarlas una por una rompería la
+   * garantía de idempotencia que la cola promete en todo lo demás. Y no es un
+   * problema de transporte: "poné 7 en este ítem" no tiene identidad propia.
+   * El hecho que sí la tiene —"conté este mostrador"— es esta operación.
+   */
+  | 'stockCount'
 
 export type PendingOpStatus = 'pending' | 'syncing' | 'failed'
 

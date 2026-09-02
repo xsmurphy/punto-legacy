@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 6;
+    public const CURRENT_VERSION = 7;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -75,6 +75,31 @@ final class PermissionCatalog
             // existió, así que no puede estar revocada a propósito en ningún
             // tenant — ver la advertencia del docblock de since()).
             ['id' => 'pos.ai.use',              'label' => 'Usar el asistente en la caja', 'group' => 'POS', 'since' => 6],
+
+            // Conteo de stock desde la caja (context/63 F1). El cajero no
+            // entra al panel, así que `inventory.stock.adjust` —la clave que
+            // gatea el conteo del panel— no le sirve: `unlock-pin.php` filtra
+            // los permisos del operador al prefijo `pos.` antes de mandarlos
+            // al dispositivo, y una clave sin ese prefijo NUNCA llega a la
+            // caja (mismo motivo que `pos.ai.use`).
+            //
+            // No es la misma capacidad, tampoco: `inventory.stock.adjust`
+            // autoriza a mover el inventario a mano y por cualquier motivo;
+            // esta autoriza a CONTAR lo que está en el mostrador y dejar que
+            // el sistema derive el ajuste de esa cuenta. Se le da al cajero
+            // sin darle la otra.
+            //
+            // Se evalúa contra el rol del OPERADOR del PIN
+            // (`OperatorContext`), no contra el rol `device`: bajo `pos-app`
+            // ese rol es el mismo para todos los que usan la tablet, así que
+            // dárselo ahí habilitaría el conteo para cualquiera que agarre el
+            // mostrador — y el conteo ajusta stock. Por eso tampoco está en el
+            // seed de `device`.
+            //
+            // `since` = 7 y clave NUEVA: el caso seguro del backfill (nunca
+            // existió, así que no puede estar revocada a propósito en ningún
+            // tenant — ver la advertencia del docblock de since()).
+            ['id' => 'pos.stock.count',         'label' => 'Contar stock desde la caja', 'group' => 'POS', 'since' => 7],
 
             ['id' => 'inventory.item.view',    'label' => 'Ver catálogo',             'group' => 'Inventario'],
             ['id' => 'inventory.item.create',  'label' => 'Crear artículos',          'group' => 'Inventario'],

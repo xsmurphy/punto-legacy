@@ -117,7 +117,8 @@ const SERIALIZE_BOOL_FIELDS: (keyof SettingsFormValues)[] = [
   "decimal", "sellsoldout", "itemSerialized", "drawerEmail", "drawerBlind",
   "drawerRequireClosedOrders",
   "settingRemoveTaxes", "paymentId", "creditLine", "storeCredit",
-  "ignoreInternal", "stockCountBlind", "blockUsedDocNo", "autoSendDocs",
+  "ignoreInternal", "stockCountBlind", "stockCountRecordOnly",
+  "blockUsedDocNo", "autoSendDocs",
   "weightBarcodes", "deletedItemsHistory",
 ]
 
@@ -141,6 +142,14 @@ function serialize(values: Partial<SettingsFormValues>): Record<string, unknown>
   }
   for (const key of SERIALIZE_BOOL_FIELDS) {
     if (values[key] !== undefined) out[key] = values[key] ? 1 : 0
+  }
+  // Listas fijas de conteo (D3). Viajan como UN string JSON, igual que
+  // `currencies`: son objetos con un array adentro, y el POST del backend lee
+  // `$_POST` plano — no hay forma de transportarlas campo por campo sin
+  // inventar una convención de nombres. Se serializa incluso vacío: borrar la
+  // última lista es una decisión del dueño, no una ausencia.
+  if (values.stockCountLists !== undefined) {
+    out.stockCountLists = JSON.stringify(values.stockCountLists)
   }
   if (values.social) {
     const { facebook, instagram, youtube, twitter } = values.social

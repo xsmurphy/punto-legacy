@@ -23,6 +23,7 @@
 require_once __DIR__ . '/../bootstrap.php';
 require_once __DIR__ . '/../lib/Auth/RoleService.php';
 require_once __DIR__ . '/../lib/Users/UsersService.php';
+require_once __DIR__ . '/../lib/Settings/StockCountSettings.php';
 
 $ctx = apiAuthTenant(['panel', 'pos-app']);
 
@@ -378,6 +379,29 @@ $payload = [
 // vacía solo serviría para que alguien la empiece a leer y la reintroduzca.
 if ($isRegisterDevice) {
     $payload['users'] = $roster;
+
+    // Conteo de stock en la caja (context/63 F1). Solo para un device que ES
+    // una caja, mismo gate que el roster: en una pantalla de cliente o en un
+    // KDS estas claves no habilitan nada.
+    //
+    // Bajan al bootstrap y no a un endpoint propio porque el conteo ciego es
+    // OFFLINE-NATIVO: es exactamente lo que puede hacerse sin red (no necesita
+    // el esperado), y un dato que la caja necesita sin conexión tiene que
+    // viajar en el snapshot, no en una llamada que va a fallar justo cuando
+    // hace falta.
+    //
+    // Lo que NO baja es el flag `stockCountBlind`: en esta fase la caja cuenta
+    // SIEMPRE a ciegas, y el esperado no lo tiene aunque quiera (el ledger no
+    // viaja al POS). El día que exista el conteo no ciego (F2), ese flag va a
+    // significar algo acá; hoy mandarlo sería prometer un interruptor que no
+    // controla nada.
+    $countSettings = \Punto\Api\Settings\StockCountSettings::forCompany(COMPANY_ID);
+    $payload['stockCountLists']      = $countSettings->lists();
+    // Para que la caja pueda decir la verdad al confirmar: "se va a ajustar el
+    // stock" vs "queda registrado". El flag NO lo decide la caja — lo aplica
+    // `finish()` server-side — pero sin bajarlo la pantalla no puede anticipar
+    // cuál de las dos cosas va a pasar.
+    $payload['stockCountRecordOnly'] = $countSettings->recordOnly();
 }
 
 apiOk($payload);

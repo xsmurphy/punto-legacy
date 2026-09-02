@@ -100,6 +100,50 @@ export interface PrinterBindingDeletePayload {
   id: string
 }
 
+/**
+ * Un conteo de stock completo, listo para mandar (context/63 F1).
+ *
+ * Lo que NO viaja: el stock esperado. La caja cuenta a ciegas y no lo tiene;
+ * lo resuelve el servidor al aplicar la operación, contra el ledger y en ese
+ * momento — que es el saldo correcto para derivar el ajuste, no el que había
+ * cuando el cajero empezó a contar.
+ *
+ * `itemIds` es respaldo, no alcance: la lista la manda el servidor por `listId`.
+ * Solo se usa si el dueño borró la lista mientras la operación esperaba en la
+ * cola — ahí es esto o tirar un recuento físico que ya ocurrió.
+ */
+export interface StockCountPayload {
+  /**
+   * Ni la sucursal ni la caja viajan acá: las resuelve el servidor del
+   * contexto del dispositivo. El conteo termina en un ajuste de stock DE UNA
+   * sucursal, y si el cliente pudiera nombrarla, una tablet podría mover el
+   * inventario de una sucursal en la que no está.
+   */
+  listId: string
+  /** Nombre que la lista tenía cuando se contó. Solo para el caso de arriba. */
+  listName: string
+  itemIds: string[]
+  rows: Array<{ itemId: string; qty: number }>
+  /**
+   * Caja para la que se encoló la operación. Es el cerco de la cola
+   * (`context/51` §2), no un dato que el servidor vaya a creer: la caja que
+   * queda registrada en el conteo la resuelve él, del dispositivo.
+   */
+  registerId?: string | null
+  /**
+   * Momento en que el cajero confirmó el conteo (ISO). No es cosmético: es lo
+   * que le permite al servidor decidir en qué TURNO ocurrió sin equivocarse.
+   *
+   * El device no conoce el `drawerId` (nunca lo tuvo) y el servidor, si mirara
+   * "el turno abierto ahora", le colgaría el conteo al turno equivocado cada
+   * vez que una operación espera en la cola hasta después del relevo. Con este
+   * timestamp el servidor solo lo asocia al turno que ya estaba abierto cuando
+   * se contó; si no cierra, lo deja sin turno, que es la respuesta honesta.
+   */
+  countedAt: string
+  note?: string | null
+}
+
 // ── Claves del store `snapshots` ──────────────────────────────────────────────
 
 const configKey = (registerId: string) => `pos-config:${registerId}`

@@ -39,16 +39,37 @@ use Punto\App\Domain\Inventory;
  * (`assertCategoriesOwned`): un UUID de otra company filtraría un conteo
  * ajeno a cero líneas en el mejor caso, y es un probe de existencia
  * cross-tenant en el peor.
+ *
+ * ── Cuarto modo: la LISTA FIJA de la caja (D3 de context/63) ────────────────
+ *
+ * El conteo del mostrador no elige categorías: el dueño armó de antemano qué
+ * se cuenta en cada turno y el cajero solo lo completa. Ese alcance es una
+ * enumeración de ítems, no un predicado, y entra por `forFixedList()`.
+ *
+ * Entra POR ACÁ y no por un camino paralelo justamente por lo que dice el
+ * párrafo de arriba: si la caja armara su propia lista de líneas, "qué entra
+ * en un conteo" pasaría a tener dos definiciones y la del mostrador sería la
+ * que nadie revisa. Los filtros 1 (trackeable y activo del tenant) y el
+ * congelamiento del esperado son los mismos; lo que cambia es que la
+ * PRESENCIA (filtro 2) no aplica —el dueño ya declaró que ese ítem se cuenta
+ * en ese mostrador— y que las categorías no participan.
  */
 final class InventoryCountScope
 {
-    /** @param string[] $categoryIds */
+    /**
+     * @param string[] $categoryIds
+     * @param string[] $itemIds  Enumeración explícita (lista fija). Vacío = el
+     *                           alcance se resuelve por predicado, como siempre.
+     */
     private function __construct(
         private readonly string $companyId,
         private readonly string $outletId,
         private readonly ?string $locationId,
         private readonly array $categoryIds,
         private readonly bool $includeZeroStock,
+        private readonly array $itemIds = [],
+        private readonly ?string $listId = null,
+        private readonly ?string $listName = null,
     ) {
     }
 
@@ -95,6 +116,76 @@ final class InventoryCountScope
     }
 
     /**
+     * Alcance de una LISTA FIJA (D3 de context/63): el conjunto de ítems ya
+     * está decidido por el dueño, no se deriva de ningún filtro.
+     *
+     * Los `itemIds` se validan contra el tenant igual que las categorías, y
+     * por el mismo motivo: un UUID ajeno sería un probe cross-tenant. Se
+     * exige además que el ítem sea ACTIVO y TRACKEABLE — una lista que quedó
+     * con un artículo dado de baja no puede meterlo en el conteo, y menos
+     * generarle un ajuste de stock. Los que no pasan se descartan en silencio
+     * acá: la lista la editó el dueño hace semanas y el cajero no puede hacer
+     * nada al respecto en el mostrador.
+     *
+     * Lanza InvalidArgumentException si NINGUNO sobrevive — ahí sí no hay
+     * conteo posible y hay que decirlo.
+     *
+     * @param string[] $itemIds
+     */
+    public static function forFixedList(
+        string $companyId,
+        string $outletId,
+        string $listId,
+        string $listName,
+        array $itemIds,
+    ): self {
+        $outlet = ncmExecute(
+            'SELECT outletid FROM outlet WHERE outletid = ? AND companyid = ? LIMIT 1',
+            [$outletId, $companyId]
+        );
+        if (!$outlet) {
+            throw new \InvalidArgumentException('outletId inválido para este tenant');
+        }
+
+        $ids = array_values(array_unique(array_filter(
+            array_map(static fn ($v) => strtolower(trim((string) $v)), $itemIds),
+            static fn (string $v) => $v !== ''
+        )));
+        if ($ids === []) {
+            throw new \InvalidArgumentException('La lista de conteo no tiene artículos');
+        }
+
+        $ph = implode(',', array_fill(0, count($ids), '?'));
+        $rs = ncmExecute(
+            "SELECT itemid FROM item
+              WHERE companyid = ? AND itemstatus = 1 AND itemtrackinventory = true
+                AND itemid IN ({$ph})",
+            array_merge([$companyId], $ids),
+            false,
+            true
+        );
+
+        $owned = [];
+        if ($rs) {
+            while (!$rs->EOF) {
+                $owned[] = (string) $rs->fields['itemid'];
+                $rs->MoveNext();
+            }
+        }
+        if ($owned === []) {
+            throw new \InvalidArgumentException(
+                'Ninguno de los artículos de la lista sigue activo y con control de stock'
+            );
+        }
+
+        // `includeZeroStock = true`: la presencia no aplica a una lista fija.
+        // El dueño ya declaró que ese artículo se cuenta en ese mostrador, y
+        // el caso más común del conteo —el producto terminado que se agotó en
+        // el turno— es justamente el que no tiene saldo.
+        return new self($companyId, $outletId, null, [], true, $owned, $listId, $listName);
+    }
+
+    /**
      * Rehidrata el alcance persistido en `inventory_count.scope` (mig 158).
      * Las filas anteriores a la migración traen `{}` — alcance desconocido,
      * se devuelve tal cual para que el lector pueda distinguirlo.
@@ -112,22 +203,50 @@ final class InventoryCountScope
             return [];
         }
 
-        return [
+        $out = [
             'categoryIds'      => array_values(array_filter(
                 (array) ($decoded['categoryIds'] ?? []),
                 'is_string'
             )),
             'includeZeroStock' => (bool) ($decoded['includeZeroStock'] ?? false),
         ];
+
+        // Lista fija (D3): solo viaja si el conteo se abrió con una. El
+        // SNAPSHOT es el punto — el dueño puede renombrar o borrar la lista
+        // mañana y este conteo sigue explicando con qué se hizo.
+        if (isset($decoded['listId'])) {
+            $out['listId']   = (string) $decoded['listId'];
+            $out['listName'] = (string) ($decoded['listName'] ?? '');
+            $out['itemIds']  = array_values(array_filter(
+                (array) ($decoded['itemIds'] ?? []),
+                'is_string'
+            ));
+        }
+
+        return $out;
     }
 
     /** Payload jsonb a persistir en `inventory_count.scope`. */
     public function toJson(): string
     {
-        return (string) json_encode([
+        $payload = [
             'categoryIds'      => $this->categoryIds,
             'includeZeroStock' => $this->includeZeroStock,
-        ]);
+        ];
+
+        if ($this->listId !== null) {
+            $payload['listId']   = $this->listId;
+            $payload['listName'] = $this->listName ?? '';
+            $payload['itemIds']  = $this->itemIds;
+        }
+
+        return (string) json_encode($payload);
+    }
+
+    /** @return string[] Enumeración explícita, o [] si el alcance es por predicado. */
+    public function itemIds(): array
+    {
+        return $this->itemIds;
     }
 
     public function outletId(): string
@@ -251,6 +370,16 @@ final class InventoryCountScope
     {
         $where  = ['i.companyid = ?', 'i.itemstatus = 1', 'i.itemtrackinventory = true'];
         $params = [$this->companyId];
+
+        // Enumeración explícita (lista fija): el conjunto ES la lista. Los
+        // filtros de presencia y categoría no participan — no hay nada que
+        // filtrar sobre un conjunto que ya está elegido uno por uno.
+        if ($this->itemIds !== []) {
+            $ph      = implode(',', array_fill(0, count($this->itemIds), '?'));
+            $where[] = "i.itemid IN ({$ph})";
+            $params  = array_merge($params, $this->itemIds);
+            return [implode(' AND ', $where), $params];
+        }
 
         if (!$this->includeZeroStock) {
             if ($this->locationId !== null) {

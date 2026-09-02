@@ -11,17 +11,57 @@
  * POST { action: "bulkSetQty", id, rows: [{itemId, qty}] }
  * POST { action: "finish", id }
  * POST { action: "cancel", id }
+ * POST { action: "registerCount", listId, listName?, itemIds?,
+ *        rows: [{itemId, qty}], countedAt?, note? }  ← realm pos-app
+ *      La SUCURSAL y la CAJA NO viajan en el body: salen del contexto del
+ *      dispositivo (ver el bloque de la acción).
+ *      → conteo COMPLETO desde la caja, atómico e idempotente por el header
+ *        `X-Punto-Op-Id`. Ver InventoryCountService::submitFromRegister().
+ *
+ * ── Realms: el embudo se abre por ACCIÓN, no de una ─────────────────────────
+ *
+ * `apiAuthTenant()` ahora acepta `pos-app`, pero eso NO convierte a este
+ * endpoint en un endpoint de caja: es la puerta del edificio, no la de cada
+ * cuarto. Todo lo que existía sigue siendo panel-only y sigue exigiendo
+ * `inventory.stock.adjust`; lo único que la caja puede hacer es
+ * `registerCount`, y para eso necesita `pos.stock.count` evaluado contra el
+ * OPERADOR del PIN.
+ *
+ * Por qué así y no abriendo el embudo entero: bajo `pos-app`, `hasPermission()`
+ * resuelve contra el rol `device`, que es el mismo para todos los que agarran
+ * la tablet. Un gate escrito con ese helper "pasa" en el panel y en la caja da
+ * la falsa impresión de estar cerrado (lo documentan `returns.php` y
+ * `users.php`). Dejar el GET y los `setQty`/`finish`/`cancel` accesibles al
+ * realm de la caja sería exactamente eso, y de paso le daría a la caja el
+ * camino para leer el esperado que el conteo ciego le esconde.
  */
 
 require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/InventoryCountService.php';
+require_once __DIR__ . '/../lib/Auth/OperatorContext.php';
 
+use Punto\Api\Auth\OperatorContext;
 use Punto\Api\Services\InventoryCountService;
 
-$ctx       = apiAuthTenant(['panel']);
+$ctx       = apiAuthTenant(['panel', 'pos-app']);
 $companyId = $ctx['companyId'];
 $userId    = $ctx['userId'];
+$realm     = (string) ($ctx['realm'] ?? '');
 $method    = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+/**
+ * Todo lo que no es el conteo de la caja sigue siendo del panel.
+ *
+ * Fail-closed y explícito: no alcanza con que el gate de permisos "no pase"
+ * bajo `pos-app`, porque ese gate mide el rol equivocado. Acá se rechaza por
+ * realm, antes de mirar permisos.
+ */
+function requirePanelRealm(string $realm): void
+{
+    if ($realm !== 'panel') {
+        apiError('Esta acción no está disponible desde la caja', 403);
+    }
+}
 
 $svc = new InventoryCountService();
 
@@ -31,6 +71,11 @@ function isValidUuid(string $s): bool
 }
 
 if ($method === 'GET') {
+    // Las lecturas son del panel. La caja no las necesita —cuenta a ciegas
+    // sobre una lista que ya trae del bootstrap— y dárselas sería la puerta de
+    // atrás al esperado que el modo ciego le esconde.
+    requirePanelRealm($realm);
+
     $action = (string) ($_GET['action'] ?? 'list');
 
     if ($action === 'list') {
@@ -61,6 +106,132 @@ if ($method === 'GET') {
 }
 
 if ($method === 'POST') {
+    $body   = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
+    $action = (string) ($body['action'] ?? '');
+
+    // ── Conteo desde la caja (context/63 F1) ────────────────────────────────
+    //
+    // Único camino abierto al realm `pos-app`, y con su propio permiso. Se
+    // resuelve ANTES del gate de panel de abajo porque no comparte ninguna de
+    // sus premisas: no exige `inventory.stock.adjust` (que nunca llega a la
+    // tablet — `unlock-pin.php` filtra al prefijo `pos.`) y se evalúa contra el
+    // rol del OPERADOR del PIN, no contra la credencial.
+    //
+    // `requirePermission()` es fail-closed sin operador: una tablet sin nadie
+    // desbloqueado recibe 403, no cae al rol del device. Es lo que hace que el
+    // conteo —y el ajuste de stock que genera— quede atribuido a una PERSONA.
+    if ($action === 'registerCount') {
+        OperatorContext::requirePermission($ctx, 'pos.stock.count');
+
+        $operator   = OperatorContext::resolve($ctx);
+        $operatorId = (string) ($operator['userId'] ?? '');
+        if ($operatorId === '') {
+            // Inalcanzable: requirePermission() ya cortó sin operador. Queda
+            // como red — el startedBy/finishedBy del conteo NO puede caer al
+            // usuario que pareó el dispositivo hace tres meses.
+            apiError('Desbloqueá la caja con tu PIN para contar', 403);
+        }
+
+        // Identidad de la operación: el mismo header que usa el resto de la
+        // cola offline (`context/51` §3). Sin él no hay idempotencia posible,
+        // así que se exige en vez de inventar uno server-side — un opId que
+        // genera el servidor cambia en cada reenvío y no sirve de nada.
+        $opId = trim((string) ($_SERVER['HTTP_X_PUNTO_OP_ID'] ?? ''));
+        if ($opId === '' || strlen($opId) > 64) {
+            apiError('Falta el header X-Punto-Op-Id (o es inválido)', 400);
+        }
+
+        // La SUCURSAL y la CAJA salen del contexto del dispositivo, NUNCA del
+        // body. `apiAuthTenant()` las resuelve de la fila `device` y falla
+        // cerrado si faltan; el body es un dato del cliente.
+        //
+        // No es formalismo: el conteo termina en un ajuste de stock DE UNA
+        // sucursal. Aceptando el `outletId` del payload, cualquier tablet
+        // pareada del comercio puede mover el inventario de una sucursal en la
+        // que no está — el UUID es del tenant, así que ninguna validación de
+        // pertenencia lo atrapa. Es la misma convención que ya documenta
+        // `printer_binding.php` ("companyId/outletId SIEMPRE del JWT").
+        //
+        // El `outletId` que manda la caja se ignora en silencio a propósito:
+        // no hay caso legítimo en que difiera, y rechazar la operación por eso
+        // tiraría un conteo físico ya hecho por un desajuste que el cajero no
+        // puede resolver.
+        $outletId   = (string) ($ctx['outletId'] ?? '');
+        $registerId = (string) ($ctx['registerId'] ?? '');
+        if (!isValidUuid($outletId)) {
+            apiError('Este dispositivo no tiene una sucursal asignada', 409);
+        }
+
+        $listId = trim((string) ($body['listId'] ?? ''));
+        if ($listId === '' || strlen($listId) > 64) {
+            apiError('listId inválido', 400);
+        }
+
+        $rows = $body['rows'] ?? [];
+        if (!is_array($rows) || count($rows) === 0) {
+            apiError('rows debe ser un array no vacío', 400);
+        }
+
+        $counted = [];
+        foreach ($rows as $r) {
+            if (!is_array($r) || !isset($r['itemId'], $r['qty'])
+                || !isValidUuid((string) $r['itemId']) || !is_numeric($r['qty'])) {
+                apiError('Fila inválida en rows: se requieren itemId (UUID) y qty (numérico)', 400);
+            }
+            // Una cantidad contada no puede ser negativa: no existe "menos tres
+            // hamburguesas en el mostrador". Sin este corte, un typo genera un
+            // ajuste que resta el doble.
+            $qty = (float) $r['qty'];
+            if ($qty < 0) {
+                apiError('Las cantidades contadas no pueden ser negativas', 400);
+            }
+            $counted[strtolower((string) $r['itemId'])] = $qty;
+        }
+
+        // Respaldo por si la lista se borró mientras la operación viajaba — ver
+        // el docblock de submitFromRegister(). NO es lo que define el alcance
+        // cuando la lista existe: ahí manda el servidor.
+        $itemIdsFallback = [];
+        foreach ((array) ($body['itemIds'] ?? []) as $itemId) {
+            $itemId = strtolower(trim((string) $itemId));
+            if (isValidUuid($itemId)) {
+                $itemIdsFallback[] = $itemId;
+            }
+        }
+
+        // Momento en que se contó, para resolver el turno sin misatribuir un
+        // conteo que esperó en la cola (ver resolveDrawerContext). Se valida el
+        // formato acá: va a un cast `::timestamptz` en SQL, y un string
+        // arbitrario ahí es un error de query, no un dato faltante.
+        $countedAt = trim((string) ($body['countedAt'] ?? ''));
+        if ($countedAt !== '' && strtotime($countedAt) === false) {
+            apiError('countedAt inválido', 400);
+        }
+
+        try {
+            apiOk($svc->submitFromRegister(
+                $companyId,
+                $outletId,
+                $operatorId,
+                $opId,
+                $listId,
+                mb_substr(trim((string) ($body['listName'] ?? '')), 0, 60),
+                $counted,
+                $itemIdsFallback,
+                isValidUuid($registerId) ? $registerId : null,
+                $countedAt !== '' ? $countedAt : null,
+                trim((string) ($body['note'] ?? '')) ?: null,
+            ));
+        } catch (\InvalidArgumentException $e) {
+            apiError($e->getMessage(), 422);
+        } catch (\RuntimeException $e) {
+            apiError($e->getMessage(), (int) $e->getCode() ?: 409);
+        }
+    }
+
+    // ── De acá para abajo, todo es del panel ────────────────────────────────
+    requirePanelRealm($realm);
+
     // Cerrar un conteo ajusta stock contra lo contado: mismo criterio que
     // /v1/stock_adjustment. La UI ya gateaba con esta clave
     // (panel-auth-guard.tsx) pero el endpoint no — llamando la API directo
@@ -69,9 +240,6 @@ if ($method === 'POST') {
     if (!hasPermission('inventory.stock.adjust')) {
         apiError('No tenés permiso para esta acción (requiere: inventory.stock.adjust)', 403);
     }
-
-    $body   = (array) (json_decode(file_get_contents('php://input'), true) ?? []);
-    $action = (string) ($body['action'] ?? '');
 
     // `create` y `preview` comparten alcance (sucursal/depósito/categorías/
     // includeZeroStock): se parsea UNA vez para que el "vas a contar N" del

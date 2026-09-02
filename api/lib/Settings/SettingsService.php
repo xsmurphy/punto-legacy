@@ -7,6 +7,8 @@ use DateTimeZone;
 use Punto\Api\Support\DbQueryException;
 use Punto\Api\Support\Slug;
 
+require_once __DIR__ . '/StockCountSettings.php';
+
 /**
  * Dominio de Ajustes (Settings) — API compartida (motor ERP).
  *
@@ -142,6 +144,10 @@ final class SettingsService
             // Toggles (settingObj / _fullSettings)
             'ignoreInternal'      => $this->truthy($obj['ignoreInternal'] ?? null),
             'stockCountBlind'     => $this->truthy($obj['stockCountBlind'] ?? null),
+            // D9 de context/63 — nombrado en negativo a propósito: el default
+            // del owner es que el conteo SÍ ajuste, y un flag ausente en el
+            // JSONB vale falso. Ver StockCountSettings.
+            'stockCountRecordOnly' => $this->truthy($obj['stockCountRecordOnly'] ?? null),
             'blockUsedDocNo'      => $this->truthy($obj['blockUsedDocNo'] ?? null),
             'autoSendDocs'        => $this->truthy($obj['autoSendDocs'] ?? null),
             'weightBarcodes'      => $this->truthy($obj['weightBarcodes'] ?? null),
@@ -156,6 +162,14 @@ final class SettingsService
             'agentPersonality'    => in_array($r['agentPersonality'] ?? null, self::AGENT_PERSONALITIES, true)
                 ? (string) $r['agentPersonality']
                 : 'professional',
+            // Listas fijas de conteo (D3 de context/63). Clave top-level de
+            // `config` con el array serializado (mismo trato que settingObj):
+            // ncmUpdate enruta las claves desconocidas al JSONB con merge no
+            // destructivo. Se normaliza con el MISMO decodificador que usa la
+            // caja, así lo que devuelve el form es lo que el conteo va a leer.
+            'stockCountLists'     => \Punto\Api\Settings\StockCountSettings::decodeLists(
+                $r['stockCountLists'] ?? null
+            ),
         ];
     }
 
@@ -291,15 +305,16 @@ final class SettingsService
             $record['settingSocialMedia'] = json_encode($sm);
         }
 
-        // settingObj: mismo criterio de merge parcial para los 7 flags que
+        // settingObj: mismo criterio de merge parcial para los flags que
         // vive ahí — un flag ausente de $f NO debe colapsar a 0 (antes lo
         // hacía siempre, porque esta función asumía que $f traía los 40
         // campos completos). Solo leemos/reescribimos settingObj si al menos
-        // uno de los 7 flags vino presente — evita un round-trip de lectura
+        // uno de los flags vino presente — evita un round-trip de lectura
         // innecesario cuando la sección guardada no los toca (ej. Apariencia).
         $flagMap = [
             'ignoreInternal'      => 'ignoreInternal',
             'stockCountBlind'     => 'stockCountBlind',
+            'stockCountRecordOnly' => 'stockCountRecordOnly',
             'blockUsedDocNo'      => 'blockUsedDocNo',
             'autoSendDocs'        => 'autoSendDocs',
             'weightBarcodes'      => 'weightBarcodes',
@@ -318,6 +333,16 @@ final class SettingsService
                 $obj[$objKey] = !empty($f[$fKey]) ? 1 : 0;
             }
             $record['settingObj'] = json_encode($obj);
+        }
+
+        // Listas fijas de conteo (D3). Se guardan como JSON en una clave
+        // top-level de `config`, normalizadas por el MISMO decodificador que
+        // las lee: una lista sin nombre o sin ítems no se persiste, así la
+        // caja nunca recibe una lista que no puede completar.
+        if (array_key_exists('stockCountLists', $f)) {
+            $record['stockCountLists'] = json_encode(
+                \Punto\Api\Settings\StockCountSettings::decodeLists($f['stockCountLists'])
+            );
         }
 
         // Asistente IA — ver comentario en general(). Ya vienen sanitizados
@@ -359,6 +384,13 @@ final class SettingsService
             }
             throw $e;
         }
+
+        // El cache por request de las preferencias de conteo quedó viejo con
+        // este UPDATE. Se invalida DESPUÉS de escribir: quien lea en el mismo
+        // request (el propio form al responder) tiene que ver lo guardado, no
+        // lo que había al empezar.
+        \Punto\Api\Settings\StockCountSettings::forget((string) $companyId);
+
         return is_array($res) && $res['error'] === false;
     }
 
