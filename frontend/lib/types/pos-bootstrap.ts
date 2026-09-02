@@ -397,7 +397,11 @@ export interface PosBootstrap {
   config: PosConfig
   user: {
     id: string | number
+    /** Nombre del usuario del contexto. Vacío si el backend no lo trae todavía. */
+    name?: string
     role: number
+    /** Nombre del rol tal como lo ve el comercio ("Cajero", "Encargado"). Vacío si el rol es legacy y no existe como taxonomía. */
+    roleName?: string
   }
   outlet: PosOutlet
   /** Todas las sucursales disponibles para el tenant. */

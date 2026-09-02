@@ -1134,6 +1134,39 @@ check('ai/execute.php: los roles se resuelven contra el catálogo real del tenan
     'UsersService::roles() es una const de un solo elemento — con ella ningún rol del comercio resuelve',
     $failures, $checks);
 
+// ── El bootstrap identifica a la PERSONA, no solo su id ───────────────────
+//
+// `bootstrap.user` devolvía `{id, role, permissions}`: ninguna superficie podía
+// mostrar el nombre del operador ni con qué rol trabaja, aunque el dato
+// estuviera a un JOIN. `roleName` sale por LEFT JOIN a propósito — un rol
+// legacy sin taxonomía deja el nombre vacío en vez de romper el arranque, así
+// que el test exige la CLAVE presente, no un valor no vacío.
+$bsRes = hitEndpoint('v1/bootstrap.php', 'GET', '', [], $tokAll);
+// `body` trae el volcado del subproceso (`BODY:{...}\nHTTP_STATUS:...`), no un
+// JSON pelado: se extrae el envelope igual que lo hace `hitEndpoint()`.
+$bsUser = null;
+if (preg_match('/BODY:(\{.*\})\s*\nHTTP_STATUS:/s', (string)($bsRes['body'] ?? ''), $bsM)) {
+    $bsJson = json_decode($bsM[1], true);
+    $bsUser = $bsJson['data']['user'] ?? $bsJson['user'] ?? null;
+}
+
+check('bootstrap: `user` trae la identidad legible del operador',
+    is_array($bsUser)
+        && array_key_exists('name', $bsUser)
+        && array_key_exists('roleName', $bsUser),
+    'faltan `name`/`roleName` en bootstrap.user: ' . substr((string)($bsRes['body'] ?? ''), 0, 200),
+    $failures, $checks);
+
+$nombreEsperado = (string) (ncmExecute(
+    'SELECT contactname FROM contact WHERE contactid = ?::uuid',
+    [$adminId]
+)->fields['contactname'] ?? '');
+
+check('bootstrap: el nombre es el del usuario del contexto, no otro',
+    is_array($bsUser) && (string)($bsUser['name'] ?? '') === $nombreEsperado,
+    'esperado "' . $nombreEsperado . '", obtenido "' . (string)($bsUser['name'] ?? '') . '"',
+    $failures, $checks);
+
 // ── Limpieza de lo que creó el arnés ──────────────────────────────────────
 ncmExecute('DELETE FROM auth_session WHERE companyid = ?::uuid AND useragent = ?', [$companyId, AGENTE_DEL_ARNES], true);
 ncmExecute('DELETE FROM device WHERE deviceid = ?::uuid', [$deviceId], true);

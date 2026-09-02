@@ -161,6 +161,42 @@ if ($outletsRs && is_object($outletsRs)) {
 
 $userPermissions = RoleService::getPermissions((string)$ctx['roleId'], (string)COMPANY_ID);
 
+// Identidad legible del usuario del contexto: nombre propio y nombre del rol.
+//
+// Hasta 2026-09-02 el bloque `user` de abajo devolvia solo `id`, `role` y
+// `permissions` — o sea que ninguna superficie podia SALUDAR al operador ni
+// decir con que rol esta trabajando, aunque el dato estuviera a un JOIN. La
+// lista de empleados si traia el nombre; el que estaba operando, no.
+//
+// Una sola query con LEFT JOIN a la taxonomia del rol, no dos: esto corre en
+// CADA arranque del panel y de la caja. El LEFT es a proposito — un rol legacy
+// que no exista como taxonomia deja `roleName` vacio, no rompe el arranque.
+//
+// El cast `taxonomyid::text` no es cosmetico: `contact.role` es varchar y
+// convive con roles legacy int-as-string ('1' = owner) que no son uuid.
+// Comparar uuid contra varchar aborta la query ENTERA en Postgres
+// (operator does not exist), asi que un solo tenant con rol legacy tumbaria
+// el arranque de todos. La comparacion es textual a proposito.
+$userName = '';
+$userRoleName = '';
+if ((string)$ctx['userId'] !== '') {
+    $uRs = ncmExecute(
+        "SELECT c.contactName AS name, t.taxonomyname AS rolename
+           FROM contact c
+           LEFT JOIN taxonomy t
+             ON t.taxonomyid::text = c.role
+            AND t.taxonomytype = 'role'
+            AND t.companyid = c.companyid
+          WHERE c.contactId = ? AND c.companyId = ?
+          LIMIT 1",
+        [(string)$ctx['userId'], (string)COMPANY_ID]
+    );
+    if ($uRs && !$uRs->EOF) {
+        $userName     = (string)($uRs->fields['name'] ?? '');
+        $userRoleName = (string)($uRs->fields['rolename'] ?? '');
+    }
+}
+
 // ── Roster de la pantalla de bloqueo del POS (SOLO la CAJA) ────────────────
 // Proyección MÍNIMA (id/name/pinhash) de los usuarios activos habilitados en la
 // sucursal del contexto. Ver el docblock de `UsersService::rosterForOutlet()`:
@@ -316,7 +352,9 @@ $payload = [
     'publicUrl'   => defined('PUBLIC_URL') ? PUBLIC_URL : '',
     'user'        => [
         'id'          => $ctx['userId'],
+        'name'        => $userName,
         'role'        => $ctx['roleId'],
+        'roleName'    => $userRoleName,
         'permissions' => $userPermissions,
     ],
     // Caja activa del POS (claim `rid` del JWT). '' = sin caja seleccionada
