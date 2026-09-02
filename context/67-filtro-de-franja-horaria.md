@@ -1,7 +1,7 @@
 # 67 — Filtro de franja horaria en reportes
 
-> Estado: **F0 y F1 IMPLEMENTADAS (2026-09-01); F2 (UI) y F3 (agente/MCP)
-> pendientes.** D1 cerrada por el owner (el pedido se abre en dos casos, solo
+> Estado: **F0, F1 y F3 IMPLEMENTADAS (F0/F1 2026-09-01, F3 2026-09-02);
+> F2 (UI) pendiente.** D1 cerrada por el owner (el pedido se abre en dos casos, solo
 > uno es feature). El diseño del helper y el alcance por reporte siguen siendo
 > propuestas mías —marcadas **[?]**— pero ya están implementadas tal como se
 > describen; el alcance efectivo de la F1 y sus exclusiones están más abajo.
@@ -137,7 +137,7 @@ Puntos que el plan tiene que resolver o declarar abiertos:
 | **F0** | **IMPLEMENTADA 2026-09-01** — `Date::hourRange()` + `Date::isHourBound()` (`api/lib/App/Helpers/Date.php`): valida `HH:MM[:SS]`, invierte el predicado a `OR` cuando la franja cruza medianoche, devuelve `[sql, params, valid]` con el fragmento parentizado que arranca con ` AND ` (convención `Reports\Roc`), y sin franja devuelve vacío. Arnés: bloques C y D de `api/tests/report_date_range_test.php` (64/64) | — |
 | **F1** | **IMPLEMENTADA 2026-09-01** — `hourFrom`/`hourTo` en 5 endpoints, vía el value object `Reports\HourBand` (extremos validados una vez en el endpoint; cada query pide su fragmento con `on($columna)`). Alcance y exclusiones abajo. Arnés: bloque E de `api/tests/report_date_range_test.php` (84/84) | F0 |
 | **F2** | UI: control de franja horaria en el selector de fechas del panel | F1 |
-| **F3** | Parámetro en `read-tools.ts` para el agente/MCP | F1 (no depende de F2) |
+| **F3** | **IMPLEMENTADA 2026-09-02** — `hourFrom`/`hourTo` en `get_transactions`, `get_top_products` y `get_report` (solo los 5 ids con `hourly: true` en `REPORT_ROUTES`; el resto se rechaza ANTES del fetch, igual que la franja sin `from`/`to`). La franja viaja también en el baseline de `compareWith`. El MCP la hereda del mismo catálogo, sin tocar `app/api/mcp/route.ts` | F1 (no depende de F2) |
 
 ## F1 — qué quedó adentro y qué afuera (para la F2)
 

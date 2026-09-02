@@ -68,35 +68,62 @@ describe("catálogo de tools de lectura", () => {
    * necesitan comparar, y no habría forma de notarlo desde afuera —la respuesta
    * se vería igual, solo más lenta y más cara.
    */
-  describe("compareWith no cuesta nada hasta que lo piden", () => {
-    /**
-     * Corre una tool contra un `fetch` de mentira y devuelve las lecturas de
-     * DATOS que hizo.
-     *
-     * `/v1/settings` se filtra: es el resolver de la moneda, que se dispara
-     * solo cuando el payload trae montos y ya está memoizado por instancia del
-     * catálogo. Lo que este bloque mide es cuántas veces se leyó el REPORTE.
-     */
-    async function urlsFor(tool: string, input: unknown): Promise<string[]> {
-      const urls: string[] = []
-      const orig = globalThis.fetch
-      globalThis.fetch = (async (u: string | URL) => {
-        urls.push(String(u))
-        return new Response(JSON.stringify({ data: { rows: [{ total: 100 }] } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      }) as typeof fetch
-      try {
-        const def = buildReadTools(ctx)[tool as keyof ReturnType<typeof buildReadTools>]
-        await (def.execute as (i: unknown) => Promise<unknown>)(input)
-      } finally {
-        globalThis.fetch = orig
-      }
-      return urls.filter((u) => !u.includes("/v1/settings"))
+  /**
+   * Corre una tool contra un `fetch` de mentira y devuelve las lecturas de
+   * DATOS que hizo.
+   *
+   * `/v1/settings` se filtra: es el resolver de la moneda, que se dispara
+   * solo cuando el payload trae montos y ya está memoizado por instancia del
+   * catálogo. Lo que se mide con esto es cuántas veces se leyó el REPORTE, y
+   * con qué query.
+   */
+  async function urlsFor(tool: string, input: unknown): Promise<string[]> {
+    const urls: string[] = []
+    const orig = globalThis.fetch
+    globalThis.fetch = (async (u: string | URL) => {
+      urls.push(String(u))
+      return new Response(JSON.stringify({ data: { rows: [{ total: 100 }] } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    }) as typeof fetch
+    try {
+      const def = buildReadTools(ctx)[tool as keyof ReturnType<typeof buildReadTools>]
+      await (def.execute as (i: unknown) => Promise<unknown>)(input)
+    } finally {
+      globalThis.fetch = orig
     }
+    return urls.filter((u) => !u.includes("/v1/settings"))
+  }
 
-    const rango = { from: "2026-08-01", to: "2026-08-31" }
+  /** Lo que devuelve una tool, y cuántas veces salió a la red para devolverlo. */
+  async function resultOf(
+    tool: string,
+    input: unknown,
+  ): Promise<{ out: { error?: string }; fetches: number }> {
+    const orig = globalThis.fetch
+    let fetches = 0
+    globalThis.fetch = (async () => {
+      fetches += 1
+      return new Response(JSON.stringify({ data: { rows: [] } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    }) as typeof fetch
+    try {
+      const def = buildReadTools(ctx)[tool as keyof ReturnType<typeof buildReadTools>]
+      const out = (await (def.execute as (i: unknown) => Promise<unknown>)(input)) as {
+        error?: string
+      }
+      return { out, fetches }
+    } finally {
+      globalThis.fetch = orig
+    }
+  }
+
+  const rango = { from: "2026-08-01", to: "2026-08-31" }
+
+  describe("compareWith no cuesta nada hasta que lo piden", () => {
 
     it("sin compareWith hace UNA sola lectura", async () => {
       const urls = await urlsFor("get_transactions", rango)
@@ -125,6 +152,115 @@ describe("catálogo de tools de lectura", () => {
         compareWith: "previous_period",
       })
       expect(urls).toHaveLength(1)
+    })
+  })
+
+  /**
+   * La FRANJA HORARIA (F3 de `context/67`).
+   *
+   * Es la dimensión que `from`/`to` no puede expresar —la misma franja repetida
+   * en cada día del rango, no un intervalo continuo— y el modo de falla que
+   * este bloque cubre no es que explote: es que devuelva un número plausible y
+   * falso. Tres formas de producirlo, una por caso:
+   *
+   *  - la franja que no llega al baseline de `compareWith` (la mañana de
+   *    septiembre comparada contra agosto entero),
+   *  - la franja mandada a un reporte que no la mira y la ignora con 200,
+   *  - la franja sin rango, que el backend rechaza con 422 (y que además le
+   *    tira abajo el plan a la query: 3,7 → 109 ms, ver `context/67`).
+   */
+  describe("la franja horaria viaja entera o no viaja", () => {
+    const manana = { hourFrom: "07:00", hourTo: "11:59" }
+
+    it("viaja en la query de la lectura", async () => {
+      const urls = await urlsFor("get_transactions", { ...rango, ...manana })
+      expect(urls).toHaveLength(1)
+      expect(urls[0]).toContain("hourFrom=07%3A00")
+      expect(urls[0]).toContain("hourTo=11%3A59")
+    })
+
+    it("con compareWith va en LAS DOS rutas, no solo en la del período pedido", async () => {
+      const urls = await urlsFor("get_transactions", {
+        ...rango,
+        ...manana,
+        compareWith: "previous_year",
+      })
+      expect(urls).toHaveLength(2)
+      // El baseline es el mismo rango del año anterior CON la misma franja: sin
+      // esto el delta compararía una mañana contra un mes completo.
+      expect(urls[1]).toContain("from=2025-08-01")
+      expect(urls[1]).toContain("hourFrom=07%3A00")
+      expect(urls[1]).toContain("hourTo=11%3A59")
+    })
+
+    it("get_top_products también la manda", async () => {
+      const urls = await urlsFor("get_top_products", { ...rango, ...manana })
+      expect(urls[0]).toContain("hourFrom=07%3A00")
+    })
+
+    it("get_report la manda en los reportes cableados, y en el baseline", async () => {
+      const urls = await urlsFor("get_report", {
+        report: "ventas_resumen",
+        ...rango,
+        ...manana,
+        compareWith: "previous_period",
+      })
+      expect(urls).toHaveLength(2)
+      for (const u of urls) expect(u).toContain("hourFrom=07%3A00")
+    })
+
+    it("sin rango explícito se rechaza ANTES del fetch, con el motivo", async () => {
+      const { out, fetches } = await resultOf("get_transactions", manana)
+      expect(fetches).toBe(0)
+      expect(out.error).toMatch(/from y to/i)
+    })
+
+    it("un reporte que no filtra por hora se rechaza ANTES del fetch", async () => {
+      // `marcas` sale de `rollup_*_day`, grano DÍA: la hora de cada venta ya no
+      // existe ahí. El backend lo ignoraría y devolvería 200 con el día entero.
+      const { out, fetches } = await resultOf("get_report", {
+        report: "marcas",
+        ...rango,
+        ...manana,
+      })
+      expect(fetches).toBe(0)
+      expect(out.error).toMatch(/no filtra por franja horaria/i)
+      // Y le dice cuáles sí, que es lo que le permite reformular.
+      expect(out.error).toContain("transacciones")
+    })
+
+    it("una hora mal formada no llega al backend", async () => {
+      const { out, fetches } = await resultOf("get_transactions", { ...rango, hourFrom: "25:00" })
+      expect(fetches).toBe(0)
+      expect(out.error).toMatch(/HH:MM/)
+    })
+
+    it("la franja que cruza medianoche es válida y viaja tal cual", async () => {
+      // 20:00 a 04:00 es la noche de un bar, no un error: el predicado lo
+      // invierte el backend (`Date::hourRange`).
+      const urls = await urlsFor("get_transactions", {
+        ...rango,
+        hourFrom: "20:00",
+        hourTo: "04:00",
+      })
+      expect(urls).toHaveLength(1)
+      expect(urls[0]).toContain("hourFrom=20%3A00")
+      expect(urls[0]).toContain("hourTo=04%3A00")
+    })
+
+    it("sin franja la ruta es exactamente la de antes de esta feature", async () => {
+      // El costo de la F3 para el 99% de las consultas tiene que ser CERO — ni
+      // un parámetro vacío de más en la query.
+      const [tx] = await urlsFor("get_transactions", rango)
+      expect(tx).toBe(
+        `${ctx.apiUrl}/v1/reports/transactions?limit=50&from=2026-08-01&to=2026-08-31`,
+      )
+      const [prod] = await urlsFor("get_top_products", rango)
+      expect(prod).toBe(
+        `${ctx.apiUrl}/v1/reports/products?view=general&from=2026-08-01&to=2026-08-31`,
+      )
+      const [rep] = await urlsFor("get_report", { report: "ordenes", ...rango })
+      expect(rep).toBe(`${ctx.apiUrl}/v1/reports/orders?from=2026-08-01&to=2026-08-31`)
     })
   })
 

@@ -189,7 +189,15 @@ describe("route MCP", () => {
 
     const res = await POST(rpc({ jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, AUTH))
     const body = await readRpc(res)
-    const result = body.result as { tools?: { name: string; description?: string }[] } | undefined
+    const result = body.result as
+      | {
+          tools?: {
+            name: string
+            description?: string
+            inputSchema?: { properties?: Record<string, { description?: string }> }
+          }[]
+        }
+      | undefined
     const tools = result?.tools ?? []
 
     expect(tools.length, `no listó tools: ${JSON.stringify(body)}`).toBeGreaterThan(10)
@@ -199,5 +207,18 @@ describe("route MCP", () => {
     // Las descripciones son la UX del producto: el modelo del cliente no tiene
     // otra cosa para elegir la herramienta correcta.
     for (const t of tools) expect(t.description, `${t.name} sin descripción`).toBeTruthy()
+
+    // El MCP no declara parámetros: los HEREDA del catálogo compartido
+    // (`buildReadOnlyFetchTools`). Este caso es el que prueba que esa herencia
+    // funciona de verdad — la franja horaria (F3 de `context/67`) se agregó solo
+    // en `read-tools.ts` y tiene que aparecer acá sin tocar este archivo. Si
+    // alguna vez el transporte dejara de derivar el JSON Schema del zod, esto se
+    // cae antes de que un cliente externo descubra que le falta un parámetro.
+    const tx = tools.find((t) => t.name === "get_transactions")
+    const props = tx?.inputSchema?.properties ?? {}
+    expect(Object.keys(props)).toEqual(expect.arrayContaining(["hourFrom", "hourTo", "from", "to"]))
+    // Y con su descripción, que es lo único que el modelo del cliente lee para
+    // saber que la franja se repite en cada día del rango.
+    expect(props.hourFrom?.description).toMatch(/franja horaria/i)
   })
 })

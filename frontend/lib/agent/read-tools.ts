@@ -133,6 +133,18 @@ export interface ReportRoute {
    * cero y el modelo lo leería como "no cambió nada".
    */
   ranged: boolean
+  /**
+   * Si el endpoint acepta la FRANJA HORARIA (`hourFrom`/`hourTo`, F1 de
+   * `context/67`). Es un subconjunto ESTRICTO de `ranged`, no un sinónimo: son
+   * los cinco que la F1 cableó, y el resto la ignora o la rechaza.
+   *
+   * Esta bandera existe para que el catálogo no mande el parámetro a un
+   * endpoint que no lo mira. Un filtro ignorado en silencio es el peor
+   * resultado posible acá: el modelo pidió "de 7 a 12", recibe 200 con los
+   * totales del día ENTERO, y se los atribuye a la franja. Un reporte plausible
+   * y falso — el mismo modo de falla por el que la F1 dejó afuera `drawers`.
+   */
+  hourly?: boolean
 }
 
 /**
@@ -162,19 +174,19 @@ export interface ReportRoute {
 export const REPORT_ROUTES = {
   // `sales.php` despacha por `dataset`; sin él ya default'ea a summary, pero se
   // manda explícito para que la ruta diga qué pide.
-  ventas_resumen: { path: "/v1/reports/sales?dataset=summary", ranged: true },
-  transacciones: { path: "/v1/reports/transactions", ranged: true },
-  productos: { path: "/v1/reports/products", ranged: true },
+  ventas_resumen: { path: "/v1/reports/sales?dataset=summary", ranged: true, hourly: true },
+  transacciones: { path: "/v1/reports/transactions", ranged: true, hourly: true },
+  productos: { path: "/v1/reports/products", ranged: true, hourly: true },
   clientes: { path: "/v1/reports/customers", ranged: true },
   categorias: { path: "/v1/reports/categories", ranged: true },
   marcas: { path: "/v1/reports/brands", ranged: true },
   medios_de_pago: { path: "/v1/reports/payment-methods", ranged: true },
-  ordenes: { path: "/v1/reports/orders", ranged: true },
+  ordenes: { path: "/v1/reports/orders", ranged: true, hourly: true },
   cuentas_por_cobrar: { path: "/v1/reports/open_invoices", ranged: false },
   cuentas_por_pagar: { path: "/v1/reports/open_invoices?state=outcome", ranged: false },
   flujo_de_caja: { path: "/v1/reports/cashflow", ranged: true },
   compras_y_gastos: { path: "/v1/reports/purchases", ranged: true },
-  movimientos_de_caja: { path: "/v1/reports/expenses", ranged: true },
+  movimientos_de_caja: { path: "/v1/reports/expenses", ranged: true, hourly: true },
   control_de_cajas: { path: "/v1/reports/drawers", ranged: true },
   // `pagos_epos` (`/v1/reports/vpayments`) NO se expone: el módulo ePOS está
   // muerto y su pantalla ya salió del panel. Un reporte muerto en el catálogo
@@ -215,6 +227,106 @@ const compareWithSchema = z
       "previous_year = el MISMO rango calendario del año anterior (agosto 2026 contra agosto 2025); es el que corresponde cuando preguntan 'contra el año pasado'. " +
       "Requiere from y to explícitos. Cuesta una segunda lectura: pedilo cuando la pregunta sea si subió o bajó, no por costumbre.",
   )
+
+// ── `hourFrom`/`hourTo`, la franja horaria ───────────────────────────────────
+
+/**
+ * La franja horaria (F3 de `context/67`) es la dimensión que `from`/`to` no
+ * puede expresar, y es probablemente el mejor consumidor de esta feature: deja
+ * preguntar "¿cómo me fue en el turno mañana este mes?" en lenguaje natural.
+ *
+ * Lo que el modelo TIENE que entender leyendo estas descripciones —porque es el
+ * error natural— es que NO es lo mismo que poner horas en el rango. Un rango es
+ * un intervalo CONTINUO: `from=2026-09-01 07:00` / `to=2026-09-30 11:59` incluye
+ * las 19 horas de cada noche del medio. La franja se repite en CADA día del
+ * rango. Por eso las dos descripciones dicen el ejemplo y no solo la definición.
+ */
+
+/** El mismo regex que `Date::HOUR_BOUND_RE` (`api/lib/App/Helpers/Date.php`). */
+const HOUR_BOUND_RE = /^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/
+
+const hourFromSchema = z
+  .string()
+  .optional()
+  .describe(
+    "Opcional. Hora de INICIO de la franja horaria, formato HH:MM en 24 horas (ej. 07:00). " +
+      "Filtra la misma franja de CADA día del rango: hourFrom=07:00 y hourTo=11:59 con from=2026-09-01 y to=2026-09-30 devuelve solo lo ocurrido de 07:00 a 11:59 de cada uno de esos 30 días. " +
+      "NO es lo mismo que poner la hora en from/to: eso sería un intervalo continuo e incluiría las noches del medio. " +
+      "Requiere from y to explícitos. Si la dejás sin mandar, la franja arranca a las 00:00.",
+  )
+
+const hourToSchema = z
+  .string()
+  .optional()
+  .describe(
+    "Opcional. Hora de FIN de la franja horaria, formato HH:MM en 24 horas (ej. 11:59), inclusive. " +
+      "Puede ser MENOR que hourFrom: 20:00 a 04:00 es una franja válida y significa la noche que cruza la medianoche (un bar), no un error. " +
+      "Requiere from y to explícitos. Si la dejás sin mandar, la franja llega hasta el final del día.",
+  )
+
+interface HourBand {
+  hourFrom?: string
+  hourTo?: string
+}
+
+/**
+ * Todo lo que puede impedir que la franja viaje — resuelto ANTES del fetch.
+ *
+ * Devuelve el texto que va a leer el modelo, o `null` si la franja es
+ * aplicable. Es una función y no un `.refine()` del schema a propósito: un
+ * refine fallado no llega al modelo como un dato de la conversación, sale por
+ * el canal de error del transporte (en el agente lo agarra el `onError` de
+ * `toUIMessageStreamResponse` y el usuario ve "error al conectar con el
+ * asistente"). Devolver `{ error }` desde `execute` es el mismo patrón que ya
+ * usa `get_report` con un reporte desconocido, y es el único que deja al modelo
+ * repreguntar en vez de cortar el turno.
+ *
+ * El caso que importa es el segundo: sin `from`/`to` los endpoints default'ean
+ * el rango del lado del servidor (los últimos 7 días), así que una franja sin
+ * rango explícito devolvería la mañana de una ventana que nadie eligió. Y del
+ * lado del backend está MEDIDO que además rompe el plan de la query — sin rango,
+ * el predicado de franja tira abajo la salida temprana del `LIMIT` (3,7 → 109 ms
+ * sobre 400k filas, tabla en `context/67`), que es la razón por la que los
+ * endpoints rechazan esa combinación con 422 en vez de servirla lenta.
+ */
+function hourBandProblem(band: HourBand & { from?: string; to?: string }): string | null {
+  const { hourFrom, hourTo, from, to } = band
+  if (!hourFrom && !hourTo) return null
+
+  for (const [name, value] of [
+    ["hourFrom", hourFrom],
+    ["hourTo", hourTo],
+  ] as const) {
+    if (value && !HOUR_BOUND_RE.test(value)) {
+      return `${name}="${value}" no es una hora válida. Se espera HH:MM en 24 horas, entre 00:00 y 23:59 (por ejemplo 07:00 o 20:30).`
+    }
+  }
+
+  if (!from || !to) {
+    return (
+      "La franja horaria (hourFrom/hourTo) solo se puede pedir junto a un rango de fechas explícito: " +
+      "mandá también from y to en YYYY-MM-DD. Sin rango el reporte usaría una ventana por default y la franja se aplicaría sobre días que el usuario no eligió. " +
+      "Preguntale qué período quiere y volvé a llamar con from, to y la franja."
+    )
+  }
+
+  return null
+}
+
+/** La franja como sufijo de query. Vacío cuando no la pidieron. */
+function hoursSuffix(band: HourBand): string {
+  let qs = ""
+  if (band.hourFrom) qs += `&hourFrom=${encodeURIComponent(band.hourFrom)}`
+  if (band.hourTo) qs += `&hourTo=${encodeURIComponent(band.hourTo)}`
+  return qs
+}
+
+/** La franja sobre unos `URLSearchParams` ya armados. Sin franja no los toca. */
+function setHours(params: URLSearchParams, band: HourBand): URLSearchParams {
+  if (band.hourFrom) params.set("hourFrom", band.hourFrom)
+  if (band.hourTo) params.set("hourTo", band.hourTo)
+  return params
+}
 
 /** Un año como rango, para que `comparison` diga fechas y no solo un número. */
 function yearRange(year: number): DateRange {
@@ -606,19 +718,30 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
   get_transactions: defineTool({
     description:
       "Lista ventas/transacciones del período. Útil para consultar movimientos uno por uno. " +
-      "Acepta compareWith, pero solo puede comparar cuando el período entra entero en la respuesta: para el total de un mes movido usá get_sales_kpis, que trae los totales sin las filas.",
+      "Acepta compareWith, pero solo puede comparar cuando el período entra entero en la respuesta: para el total de un mes movido usá get_sales_kpis, que trae los totales sin las filas. " +
+      "Acepta franja horaria (hourFrom/hourTo) para quedarse con las ventas de una misma franja de cada día del rango.",
     inputSchema: z.object({
       from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
       limit: z.number().int().optional().default(50),
+      hourFrom: hourFromSchema,
+      hourTo: hourToSchema,
       compareWith: compareWithSchema,
     }),
-    execute: async ({ from, to, limit, compareWith }) => {
+    execute: async ({ from, to, limit, hourFrom, hourTo, compareWith }) => {
+      const problema = hourBandProblem({ hourFrom, hourTo, from, to })
+      if (problema) return { error: problema }
+
+      // La franja viaja en LAS DOS rutas. Comparar "de 7 a 12 del 1 al 7 de
+      // septiembre" contra "todo agosto" daría un delta enorme y falso: el
+      // baseline tiene que ser la MISMA franja del período anterior.
       const pathFor = (r: DateRange) =>
-        `/v1/reports/transactions?limit=${limit ?? 50}&from=${r.from}&to=${r.to}`
+        `/v1/reports/transactions?limit=${limit ?? 50}&from=${r.from}&to=${r.to}` +
+        hoursSuffix({ hourFrom, hourTo })
       const params = new URLSearchParams({ limit: String(limit ?? 50) })
       if (from) params.set("from", from)
       if (to) params.set("to", to)
+      setHours(params, { hourFrom, hourTo })
       return read(`/v1/reports/transactions?${params}`, {
         compare: planComparison({ compareWith, from, to, pathFor }),
       })
@@ -628,11 +751,14 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
   get_top_products: defineTool({
     description:
       "Productos más vendidos del período, con unidades, total facturado y costo. Útil para 'top N productos vendidos'. " +
-      "Trae además `previousPeriodTotals` (los totales del período anterior) y `previousPeriodUnitsByItemId` (cuántas unidades vendió CADA ítem antes), así que la comparación producto por producto ya viene incluida y no hace falta una segunda consulta.",
+      "Trae además `previousPeriodTotals` (los totales del período anterior) y `previousPeriodUnitsByItemId` (cuántas unidades vendió CADA ítem antes), así que la comparación producto por producto ya viene incluida y no hace falta una segunda consulta. " +
+      "Acepta franja horaria (hourFrom/hourTo) para responder qué se vende en un turno: el período anterior que devuelve el backend sale con la MISMA franja.",
     inputSchema: z.object({
       from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
       limit: z.number().int().optional().default(10),
+      hourFrom: hourFromSchema,
+      hourTo: hourToSchema,
     }),
     // Sin `compareWith`, y es una decisión, no un olvido. Esta tool devuelve un
     // TOP-N: sumar sus filas da el total de los N productos que pidieron, no el
@@ -643,10 +769,14 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
     // es un eje que ninguna comparación agregada puede dar. Para el año contra
     // año a nivel producto, dos llamadas con rangos explícitos son honestas
     // porque las dos devuelven la misma forma.
-    execute: async ({ from, to, limit }) => {
+    execute: async ({ from, to, limit, hourFrom, hourTo }) => {
+      const problema = hourBandProblem({ hourFrom, hourTo, from, to })
+      if (problema) return { error: problema }
+
       const params = new URLSearchParams({ view: "general" })
       if (from) params.set("from", from)
       if (to) params.set("to", to)
+      setHours(params, { hourFrom, hourTo })
       return read(`/v1/reports/products?${params}`, {
         // Antes acá había un `rowsOf(payload).slice(0, limit)` que devolvía las
         // filas PELADAS y tiraba el resto del objeto — incluidos `prev` y
@@ -703,21 +833,49 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       "(ventas, clientes, medios de pago, flujo de caja, compras y gastos, inventario, etc.). " +
       "Pasá el rango de fechas cuando aplique (from/to en YYYY-MM-DD). " +
       "Acepta compareWith en los reportes que filtran por fecha: agrega el bloque `comparison` contra el período anterior o contra el mismo período del año pasado. " +
-      "Los reportes stock, cuentas_por_cobrar y cuentas_por_pagar son fotos del estado actual: ignoran el rango de fechas y no se pueden comparar entre períodos.",
+      "Los reportes stock, cuentas_por_cobrar y cuentas_por_pagar son fotos del estado actual: ignoran el rango de fechas y no se pueden comparar entre períodos. " +
+      "Acepta franja horaria (hourFrom/hourTo) SOLO en cinco reportes: ventas_resumen, transacciones, productos, ordenes y movimientos_de_caja. En el resto la franja no existe y la llamada se rechaza — no la mandes.",
     inputSchema: z.object({
       report: z.enum(REPORT_IDS).describe("Nombre del reporte a consultar"),
       from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
+      hourFrom: hourFromSchema,
+      hourTo: hourToSchema,
       compareWith: compareWithSchema,
     }),
-    execute: async ({ report, from, to, compareWith }) => {
+    execute: async ({ report, from, to, hourFrom, hourTo, compareWith }) => {
       const route: ReportRoute | undefined = REPORT_ROUTES[report]
       if (!route) return { error: `Reporte desconocido: ${report}` }
 
+      // Un reporte sin franja NO recibe el parámetro en silencio para que el
+      // backend lo ignore: el modelo leería un 200 con el día entero como si
+      // fuera la franja que pidió. Se corta acá, con el motivo y la alternativa,
+      // que es lo único que le permite reformular la consulta.
+      //
+      // Va ANTES de validar el formato de la hora a propósito: si el reporte no
+      // filtra por franja, decirle "25:00 no es una hora válida" lo mandaría a
+      // corregir la hora para volver a chocar contra el mismo muro. El error
+      // accionable es el reporte, no el formato.
+      if ((hourFrom || hourTo) && !route.hourly) {
+        return {
+          error:
+            `El reporte "${report}" no filtra por franja horaria: o es una foto del estado actual, o se sirve de un agregado por DÍA donde la hora de cada operación ya no existe. ` +
+            `Los reportes que sí la aceptan son: ventas_resumen, transacciones, productos, ordenes y movimientos_de_caja. ` +
+            `Volvé a consultar sin hourFrom/hourTo, o elegí uno de esos si la pregunta es sobre una franja del día.`,
+        }
+      }
+
+      const problema = hourBandProblem({ hourFrom, hourTo, from, to })
+      if (problema) return { error: problema }
+
+      // La franja entra por acá, así que viaja igual en la lectura del período
+      // pedido y en la del baseline de `compareWith` — un baseline sin franja
+      // compararía la mañana de septiembre contra el agosto completo.
       const withRange = (base: string, f?: string, t?: string) => {
         const qs = new URLSearchParams()
         if (f) qs.set("from", f)
         if (t) qs.set("to", t)
+        setHours(qs, { hourFrom, hourTo })
         const q = qs.toString()
         return `${base}${q ? (base.includes("?") ? "&" : "?") + q : ""}`
       }
