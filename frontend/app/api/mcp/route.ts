@@ -188,9 +188,22 @@ async function handle(req: Request): Promise<Response> {
     authHeader,
   })
 
+  // Prefijo `punto_` — el namespace es responsabilidad del SERVER, no del
+  // cliente (misma convención que el MCP de Fish, que expone `fish_*`).
+  //
+  // Va acá y NO en el catálogo (`lib/agent/read-tools.ts`): ahí los nombres
+  // pelados son correctos porque el agente del panel y el de la caja corren
+  // DENTRO de Punto, donde no hay con quién chocar. El choque aparece recién
+  // en el transporte, cuando las tools se mezclan con las de otro producto:
+  // un `get_contacts` pelado es ambiguo para un cliente que ya tiene
+  // contactos propios, y el modelo termina cruzando las dos fuentes.
+  //
+  // OJO al cambiarlo: los clientes MCP cachean el catálogo, así que un
+  // conector ya configurado sigue pidiendo los nombres viejos hasta que se
+  // reconecta. Renombrar acá obliga a reconectar TODOS los conectores.
   for (const [name, def] of Object.entries(tools)) {
     server.registerTool(
-      name,
+      `punto_${name}`,
       { description: def.description, inputSchema: def.inputSchema },
       async (args: unknown) => {
         // La exigencia de credencial vive acá y no en el embudo (ver arriba):

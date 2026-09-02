@@ -107,7 +107,7 @@ describe("route MCP", () => {
         jsonrpc: "2.0",
         id: 3,
         method: "tools/call",
-        params: { name: "get_sales_summary", arguments: { year: 2026 } },
+        params: { name: "punto_get_sales_summary", arguments: { year: 2026 } },
       }),
     )
     expect(res.status).toBe(200)
@@ -202,8 +202,13 @@ describe("route MCP", () => {
 
     expect(tools.length, `no listó tools: ${JSON.stringify(body)}`).toBeGreaterThan(10)
     const names = tools.map((t) => t.name)
-    expect(names).toContain("get_sales_summary")
-    expect(names).not.toContain("render_chart")
+    // Prefijadas con `punto_`: el namespace lo pone el SERVER, para que un
+    // cliente que ya tiene contactos o ventas propias no confunda las
+    // fuentes (ver el comentario del `registerTool` en la route).
+    expect(names).toContain("punto_get_sales_summary")
+    expect(names).not.toContain("get_sales_summary")
+    expect(names.every((n) => n.startsWith("punto_"))).toBe(true)
+    expect(names).not.toContain("punto_render_chart")
     // Las descripciones son la UX del producto: el modelo del cliente no tiene
     // otra cosa para elegir la herramienta correcta.
     for (const t of tools) expect(t.description, `${t.name} sin descripción`).toBeTruthy()
@@ -214,7 +219,7 @@ describe("route MCP", () => {
     // en `read-tools.ts` y tiene que aparecer acá sin tocar este archivo. Si
     // alguna vez el transporte dejara de derivar el JSON Schema del zod, esto se
     // cae antes de que un cliente externo descubra que le falta un parámetro.
-    const tx = tools.find((t) => t.name === "get_transactions")
+    const tx = tools.find((t) => t.name === "punto_get_transactions")
     const props = tx?.inputSchema?.properties ?? {}
     expect(Object.keys(props)).toEqual(expect.arrayContaining(["hourFrom", "hourTo", "from", "to"]))
     // Y con su descripción, que es lo único que el modelo del cliente lee para
