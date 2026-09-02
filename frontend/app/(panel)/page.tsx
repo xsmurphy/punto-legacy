@@ -28,6 +28,7 @@ import {
   YAxis,
 } from "recharts"
 
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -88,15 +89,30 @@ export default function DashboardPage() {
   const { range, setRange } = useDateRange()
   const opts = React.useMemo(() => rangeToBackend(range), [range])
 
-  const stats = useDashboardWidget<IncomeOutcomeStatsWidget>("incomeOutcomeStats", opts)
+  /**
+   * Desde el 2026-09-02 `/v1/reports/dashboard` gatea POR WIDGET: los que
+   * devuelven plata del comercio —facturación, ticket promedio, cobranza,
+   * rankings, horas pico, analítica de clientes— exigen `reports.sales.view`.
+   * Los que no —`info`, el armazón de contadores del plan y cajas abiertas—
+   * siguen abiertos, y por eso `info` se pide igual acá: es lo que decide el
+   * hero de "negocio sin actividad" y lo tiene que ver cualquiera.
+   *
+   * `enabled` y no "pedir y descartar": un fetch que sabemos que va a dar 403
+   * no se manda. Mismo criterio que `FinanceCard` más abajo, que ya no monta
+   * ni dispara nada sin `finance.manage`.
+   */
+  const canViewSales = usePermission("reports.sales.view")
+  const ventas = React.useMemo(() => ({ ...opts, enabled: canViewSales }), [opts, canViewSales])
+
+  const stats = useDashboardWidget<IncomeOutcomeStatsWidget>("incomeOutcomeStats", ventas)
   const info = useDashboardWidget<InfoWidget>("info", opts)
-  const incomeChart = useIncomeChart(opts)
-  const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus", opts)
-  const customers = useDashboardWidget<CustomersWidget>("customers", opts)
-  const customersRates = useDashboardWidget<CustomersRatesWidget>("customersRates", opts)
-  const topItems = useDashboardWidget<TopItemRow[]>("topItems", opts)
-  const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories", opts)
-  const topHours = useDashboardWidget<TopHoursWidget>("topHours", opts)
+  const incomeChart = useIncomeChart(opts, { enabled: canViewSales })
+  const paymentStatus = useDashboardWidget<PaymentStatusWidget>("paymentStatus", ventas)
+  const customers = useDashboardWidget<CustomersWidget>("customers", ventas)
+  const customersRates = useDashboardWidget<CustomersRatesWidget>("customersRates", ventas)
+  const topItems = useDashboardWidget<TopItemRow[]>("topItems", ventas)
+  const topCategories = useDashboardWidget<TopTaxonomyRow[]>("topCategories", ventas)
+  const topHours = useDashboardWidget<TopHoursWidget>("topHours", ventas)
   // NPS oculto (ver comentario en <aside>) — fetch de "satisfaction" removido:
   // quedaría huérfano sin SatisfactionCard montado.
 
@@ -124,6 +140,37 @@ export default function DashboardPage() {
         buttons={{ primary: { text: "Ir a la caja", url: "/pos" } }}
         byline="Empezá a vender y hacé crecer tu negocio."
       />
+    )
+  }
+
+  /**
+   * Esta pantalla ES el reporte de ventas del comercio con otra tipografía:
+   * facturación del período, margen, cobranza pendiente, ranking de artículos.
+   * Sin `reports.sales.view` el backend ya no la contesta, así que mostrarla
+   * sería ofrecer ocho cards de ceros y errores.
+   *
+   * El corte espera a que el bootstrap resuelva: `usePermission` devuelve false
+   * mientras carga (safe default), y sin esta guarda la pantalla parpadearía el
+   * vacío en cada entrada, hasta para el dueño.
+   */
+  const permisosResueltos = bootstrap?.user?.permissions !== undefined
+  if (permisosResueltos && !canViewSales) {
+    return (
+      <div className="flex flex-col gap-6">
+        <header className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold">Resumen general de su negocio</h1>
+        </header>
+        <EmptyState
+          icon={TrendingUp}
+          title="No tenés acceso al resumen de ventas"
+          description="Este panel muestra la facturación y los indicadores del negocio. Tu usuario no tiene ese permiso; pedíselo al dueño si lo necesitás."
+          actions={
+            <Button asChild>
+              <Link href="/pos">Ir a la caja</Link>
+            </Button>
+          }
+        />
+      </div>
     )
   }
 

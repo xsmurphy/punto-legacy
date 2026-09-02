@@ -251,7 +251,11 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Wallet,
     surface: "sidebar",
     sidebarGroup: "compras",
-    requires: "reports.sales.view",
+    // `state=outcome` son las COMPRAS a crédito, y el backend las gatea con la
+    // clave de compras, no con la de ventas (`api/v1/reports/open_invoices.php`
+    // ramifica por `state`). Con `reports.sales.view` acá, un rol de compras
+    // perdía el item y uno de ventas entraba para comerse un 403.
+    requires: "reports.purchases.view",
     keywords: ["open invoices", "pagar", "deuda proveedores", "outcome"],
   },
   {
@@ -388,12 +392,17 @@ export const PANEL_ROUTES: RouteEntry[] = [
 
   // ── Reportes ───────────────────────────────────────────────────────────
   //
-  // OJO con los `requires` de este bloque: la mayoría de los endpoints de
-  // `api/v1/reports/` NO tienen `hasPermission()` sobre el GET — solo exigen
-  // sesión de panel. Acá se refleja el gate REAL: poner una clave plausible
-  // (`reports.<x>.view`) escondería el reporte de gente que sí puede verlo, y
-  // esas claves ni siquiera existen en `PermissionCatalog.php`. Si mañana el
-  // backend gatea uno, se agrega el `requires` acá.
+  // Los `requires` de este bloque son el ESPEJO del gate real del backend, no
+  // una clave plausible. Hasta el 2026-09-02 casi ninguno tenía uno, y el
+  // motivo estaba escrito acá: los endpoints de `api/v1/reports/` no chequeaban
+  // permisos sobre el GET, así que inventar un `requires` habría escondido un
+  // reporte de gente que sí podía verlo. Ahora los gatean todos, y estos
+  // `requires` los reflejan uno a uno.
+  //
+  // Van juntos: sin el `requires`, el item aparece en el menú y devuelve 403 al
+  // entrar; con una clave DISTINTA a la del endpoint, esconde el reporte de
+  // quien sí puede verlo o lo ofrece a quien no. Si cambia el gate del backend,
+  // cambia acá en el mismo commit.
   {
     to: "/reports/summary",
     title: "Resumen",
@@ -401,6 +410,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: BarChart3,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "reports.sales.view",
     keywords: ["summary", "totales", "ventas totales", "kpi"],
   },
   {
@@ -410,6 +420,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: BarChart3,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "reports.sales.view",
     keywords: ["anual", "year", "comparativo", "por mes", "ejercicio"],
   },
   {
@@ -419,6 +430,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Tag,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "reports.sales.view",
     keywords: ["products", "ranking", "items", "vendidos", "top items"],
   },
   {
@@ -428,6 +440,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Tag,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "reports.sales.view",
     keywords: ["categorias", "categories", "ranking", "ventas por categoria"],
   },
   {
@@ -437,6 +450,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Building2,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "reports.sales.view",
     keywords: ["brands", "marcas", "ranking", "fabricantes"],
   },
   {
@@ -446,6 +460,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: CreditCard,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "reports.sales.view",
     keywords: ["payment methods", "tarjeta", "efectivo", "cobros", "qr"],
   },
   {
@@ -455,6 +470,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: SquareKanban,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "reports.sales.view",
     keywords: ["orders", "pedidos", "comandas", "delivery", "mesas"],
   },
   {
@@ -464,6 +480,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Users,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "reports.sales.view",
     keywords: ["customers", "ranking clientes", "consumo", "loyalty"],
   },
   {
@@ -483,6 +500,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: TrendingUp,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "finance.manage",
     keywords: ["cashflow", "flujo", "caja", "ingresos egresos", "liquidez", "efectivo"],
   },
   {
@@ -492,6 +510,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Scale,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "finance.manage",
     keywords: ["balance", "activo", "pasivo", "patrimonio", "situacion", "cuanto tengo"],
   },
   {
@@ -501,6 +520,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Boxes,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "inventory.item.view",
     keywords: ["inventory", "kardex", "movimientos de stock", "entradas salidas"],
   },
   {
@@ -510,6 +530,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Warehouse,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "inventory.item.view",
     keywords: ["stock", "existencias", "saldo", "faltantes", "reposicion"],
   },
   {
@@ -519,6 +540,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Factory,
     surface: "palette",
     paletteGroup: "Reportes",
+    requires: "production.manage",
     keywords: ["produccion", "manufactura", "producido", "recetas"],
   },
   {
@@ -530,6 +552,7 @@ export const PANEL_ROUTES: RouteEntry[] = [
     paletteGroup: "Reportes",
     // "staff"/"usuarios" siguen como keywords: el módulo se renombró a Equipo
     // pero los cajeros lo buscan por el nombre viejo.
+    requires: "reports.sales.view",
     keywords: ["users", "staff", "usuarios", "cajeros", "vendedores", "desempeño", "comisiones"],
   },
   {

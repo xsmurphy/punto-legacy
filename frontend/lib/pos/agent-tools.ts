@@ -117,14 +117,19 @@ import { makeActionTools } from "@/lib/agent/confirm-tool"
  *   1. `/v1/reports/drawers` NO scopea por caja — `Roc::build()` filtra por
  *      companyId + outletId y nada más, así que devuelve los arqueos de TODA
  *      la sucursal: todas las cajas, todos los cajeros, últimos 7 días.
- *   2. Su GET no chequea permisos: el `hasPermission('reports.drawers.view')`
- *      está dentro de la rama POST. Y el Bearer del device no expira ni
- *      identifica a una persona, así que habilitarla dejaría a cualquiera que
- *      tenga la tablet leyendo arqueos, haya o no alguien desbloqueado.
+ *   2. ~~Su GET no chequea permisos~~ — RESUELTO el 2026-09-02: el GET exige
+ *      `reports.drawers.view` por `OperatorContext::requirePermission()`, igual
+ *      que la rama POST. Queda como referencia de por qué esta tool estuvo
+ *      apagada, no como pendiente.
  *
- * Quien la agregue: primero el gate de operador en el GET de `drawers.php`
- * (`OperatorAssertion` + `reports.drawers.view` sobre el rol de la persona que
- * tipeó el PIN), después esta línea.
+ * Con el punto 2 cerrado, lo que sigue faltando es lo que NO se tocó: el punto
+ * 1 (el reporte no scopea por caja) y, antes que eso, el REALM —
+ * `drawers.php` acepta `['panel', 'api']` y nada más, así que hoy una request
+ * `pos-app` ni siquiera llega al gate: rebota en el embudo con 401. Abrirlo al
+ * POS es una decisión aparte, no un efecto secundario de haber puesto el gate.
+ *
+ * Quien la agregue: primero abrir el realm y resolver el scope por caja,
+ * después esta línea.
  */
 export const POS_TOOL_IDS = [
   "get_items",

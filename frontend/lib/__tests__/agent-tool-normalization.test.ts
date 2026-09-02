@@ -445,7 +445,12 @@ describe("resolución de moneda desde el catálogo", () => {
       string,
       unknown
     >
-    expect(String(out.error)).toContain("403")
+    // El texto ya no dice "403": desde el 2026-09-02 el catálogo traduce ese
+    // status a la restricción de permisos que es, porque el número pelado hacía
+    // que el modelo lo contara como una caída del sistema o lo reintentara. Lo
+    // que este caso cuida sigue siendo lo de la línea de abajo — que una lectura
+    // fallida NO gaste una segunda llamada resolviendo la moneda del tenant.
+    expect(String(out.error)).toMatch(/permiso/i)
     expect(calls.some((u) => u.includes("/v1/settings"))).toBe(false)
   })
 })
