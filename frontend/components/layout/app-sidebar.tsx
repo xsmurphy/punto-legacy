@@ -3,7 +3,7 @@
 import * as React from "react"
 import { useState } from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
+import { usePathname, useSearchParams } from "next/navigation"
 import {
   Sidebar,
   SidebarContent,
@@ -106,6 +106,9 @@ export function AppSidebar({
   onSelectAllOutlets,
 }: AppSidebarProps) {
   const pathname = usePathname()
+  // El query string participa del resaltado: las entradas de Contactos solo
+  // se distinguen entre sí por `?type=` (ver isItemActive).
+  const search = useSearchParams().toString()
   // En /pos no hay command palette (⌘K / botón "Buscar"): es una herramienta
   // del panel, no de la caja. La caja tiene su propia búsqueda (lupa del POS).
   const isPos = pathname === "/pos" || pathname.startsWith("/pos/")
@@ -294,9 +297,9 @@ export function AppSidebar({
             <SidebarMenu className="gap-2">
               {items.map((entry) =>
                 isGroup(entry) ? (
-                  <NavGroupRender key={`g:${entry.title}`} group={entry} pathname={pathname} />
+                  <NavGroupRender key={`g:${entry.title}`} group={entry} pathname={pathname} search={search} />
                 ) : (
-                  <NavItemRender key={entry.to} item={entry} pathname={pathname} />
+                  <NavItemRender key={entry.to} item={entry} pathname={pathname} search={search} />
                 ),
               )}
             </SidebarMenu>
@@ -512,9 +515,9 @@ function isItemActive(rawTo: string, pathname: string, search: string): boolean 
   return true
 }
 
-function NavItemRender({ item, pathname }: { item: NavItem; pathname: string }) {
+function NavItemRender({ item, pathname, search }: { item: NavItem; pathname: string; search: string }) {
   const Icon = item.icon
-  const isActive = isItemActive(item.to, pathname)
+  const isActive = isItemActive(item.to, pathname, search)
   // En mobile el sidebar es un Sheet; al navegar a una sección, lo cerramos
   // automáticamente para no tener que tappar afuera + ver el contenido.
   // En desktop no hace nada (el sidebar es persistente).
@@ -546,9 +549,9 @@ function NavItemRender({ item, pathname }: { item: NavItem; pathname: string }) 
   )
 }
 
-function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string }) {
+function NavGroupRender({ group, pathname, search }: { group: NavGroup; pathname: string; search: string }) {
   const Icon = group.icon
-  const childActive = group.items.some((c) => isItemActive(c.to, pathname))
+  const childActive = group.items.some((c) => isItemActive(c.to, pathname, search))
   const [open, setOpen] = useState<boolean>(childActive)
   const wantOpen = open || childActive
   const { state: sidebarState, isMobile, setOpenMobile } = useSidebar()
@@ -577,7 +580,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
               {group.title}
             </DropdownMenuLabel>
             {group.items.map((sub) => {
-              const isActive = isItemActive(sub.to, pathname)
+              const isActive = isItemActive(sub.to, pathname, search)
               return (
                 <DropdownMenuItem key={sub.to} asChild>
                   <Link
@@ -649,7 +652,7 @@ function NavGroupRender({ group, pathname }: { group: NavGroup; pathname: string
       {wantOpen && (
         <div className="ml-[1.375rem] border-l border-border">
           {group.items.map((sub) => {
-            const isActive = isItemActive(sub.to, pathname)
+            const isActive = isItemActive(sub.to, pathname, search)
             return (
               <SidebarMenuItem key={sub.to}>
                 <SidebarMenuButton
