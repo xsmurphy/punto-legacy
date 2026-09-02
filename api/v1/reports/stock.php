@@ -27,6 +27,54 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
     apiError('Método no permitido', 405);
 }
 
+/* ───────── Gate de LECTURA — el ÚNICO del directorio que no es uniforme ────
+ *
+ * La clave es `inventory.item.view`, la misma que gobierna el catálogo en
+ * `items.php`: esto es el catálogo con su saldo por depósito, no un reporte de
+ * ventas. Lo que cambia acá es CONTRA QUIÉN se mide, y cambia por realm.
+ *
+ * ── `panel` y `api`: contra la persona ──────────────────────────────────────
+ *
+ * Igual que el resto de `/v1/reports/*`. Una API key hereda el rol de quien la
+ * creó, así que la key de un cajero lee lo que el cajero puede leer.
+ *
+ * ── `pos-app`: el piso del DEVICE, y NO el gate estricto ────────────────────
+ *
+ * `OperatorContext::requirePermission()` es fail-closed sin operador: sin
+ * `X-Operator-Token` devuelve 403. Acá eso ROMPERÍA la caja, y no en un caso
+ * de borde. El único consumidor `pos-app` de este endpoint es la tool
+ * `get_stock` del asistente del mostrador, y esa tool corre HAYA O NO alguien
+ * desbloqueado — `frontend/lib/pos/use-pos-agent-chat.ts:120-135` manda el
+ * header solo si hay token, y `get_stock` está fuera de `POS_TOOL_PERMISSION`
+ * a propósito (`frontend/lib/pos/agent-tools.ts:176-178`). Hay tres estados
+ * normales sin token: el desbloqueo OFFLINE (el PIN se valida contra el roster
+ * cacheado y no hay firma del server), la ventana entre el unlock optimista y
+ * la respuesta de `/api/pos/unlock`, y un unlock online que falló con la caja
+ * ya operando.
+ *
+ * Y no hace falta: es la decisión ya cerrada en `context/59` §D9. Precio y
+ * stock son lo que la pantalla de venta tiene abierta delante de quien opera
+ * la caja; exigir operador acá no protegería nada que no esté a un toque de
+ * distancia. Encima el device ya ve el stock de TODAS las sucursales por otra
+ * puerta (`items.php?resource=inventory-movements`, ver el comentario del
+ * `apiAuthTenant` de arriba), y `VIEW_OUTLET_ID` está restringido al realm
+ * `panel`, así que una request `pos-app` no puede ensanchar el reporte más allá
+ * de la sucursal de su caja.
+ *
+ * El piso correcto para una TERMINAL es entonces el rol `device`, que tiene
+ * `inventory.item.view` en su seed justamente para el catálogo. Es la misma
+ * clave; lo que cambia es que se mide contra la terminal y no contra una
+ * persona que puede no estar.
+ */
+require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+if ((string) ($ctx['realm'] ?? '') === 'pos-app') {
+    if (!hasPermission('inventory.item.view')) {
+        apiError('No tenés permiso para esta acción (requiere: inventory.item.view)', 403);
+    }
+} else {
+    \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'inventory.item.view');
+}
+
 // Outlet efectivo: si el browser eligió scope (VIEW_OUTLET_ID definida vía
 // header X-Outlet-Id), prevalece sobre OUTLET_ID del JWT. Tanto el gate como
 // el service necesitan ver el efectivo, no el raw — si no, el agregado del

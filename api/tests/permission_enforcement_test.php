@@ -133,6 +133,20 @@ const GATES_INDIRECTOS = [
     '\hasPermission(self::PANEL_ENTRY_PERMISSION)'                          => ['ai.agent.use'],
     'OperatorContext::can($operator, self::POS_ENTRY_PERMISSION, $companyId)' => ['pos.ai.use'],
     '$this->can(self::ELEVATED_PERMISSION)'                                 => ['ai.agent.elevated'],
+    // reports/dashboard.php — mapa widget → clave (WIDGET_PERMISO). Ese archivo
+    // sirve 18 widgets detrás de un solo `?widget=` y el corte es por lo que
+    // cada uno DEVUELVE: la plata del comercio pide la clave del reporte que
+    // corresponde, el armazón operativo del home (contadores, órdenes activas,
+    // mesas, notificaciones) queda abierto a propósito.
+    "'incomeOutcomeStats' => 'reports.sales.view',"         => ['reports.sales.view',
+                                                                'reports.satisfaction.view',
+                                                                'reports.schedule.view'],
+    // reports/open_invoices.php — la clave sale del `state` pedido, y filtrar
+    // por contacto suma la del cobro/pago (ver el docblock de ese archivo).
+    "? ['reports.purchases.view']"                          => ['reports.sales.view',
+                                                                'reports.purchases.view'],
+    "'finance.manage' : 'pos.sale.creditPayment'"           => ['finance.manage',
+                                                                'pos.sale.creditPayment'],
 ];
 
 const EXCEPCIONES_CONOCIDAS = [
@@ -180,7 +194,14 @@ foreach ($it as $f) {
     if (!str_contains($src, 'hasPermission(')
         && !str_contains($src, 'contactsRequire(')
         && !str_contains($src, 'OperatorContext::can(')
-        && !str_contains($src, 'OperatorContext::requirePermission(')) continue;
+        && !str_contains($src, 'OperatorContext::requirePermission(')
+        // `requireAnyPermission(` es la variante de la MISMA puerta para los
+        // recursos a los que se llega por más de una capacidad (el detalle de
+        // una transacción, las facturas abiertas de UN contacto). No es
+        // substring de `requirePermission(`, así que sin esta línea un archivo
+        // cuyo único gate sea esa vía —`reports/open_invoices.php`— se salteaba
+        // entero y sus claves figuraban como no gateadas.
+        && !str_contains($src, 'OperatorContext::requireAnyPermission(')) continue;
     $rel = str_replace($apiDir . '/', '', $path);
 
     // La clave cuenta como gateada solo si aparece como ARGUMENTO LITERAL de
@@ -191,7 +212,9 @@ foreach ($it as $f) {
     foreach (PermissionCatalog::ids() as $id) {
         $lit = preg_quote($id, '/');
         if (preg_match('/hasPermission\\(\\s*[\'"]' . $lit . '[\'"]\\s*\\)/', $src)
-            || preg_match('/requirePermission\\(\\s*\\$\\w+\\s*,\\s*[\'"]' . $lit . '[\'"]\\s*\\)/', $src)) {
+            || preg_match('/requirePermission\\(\\s*\\$\\w+\\s*,\\s*[\'"]' . $lit . '[\'"]\\s*\\)/', $src)
+            // Dentro del array de `requireAnyPermission($ctx, ['a', 'b'])`.
+            || preg_match('/requireAnyPermission\\(\\s*\\$\\w+\\s*,\\s*\\[[^\\]]*[\'"]' . $lit . '[\'"]/s', $src)) {
             $gateados[$id][] = $rel;
         }
     }
@@ -292,6 +315,46 @@ $CASOS = [
 
     ['billing.view',             'billing GET resumen',         'v1/billing.php',            'GET',    '',                              []],
     ['billing.manage',           'billing POST checkout',       'v1/billing.php',            'POST',   '',                              ['action' => 'checkout']],
+
+    // ── /v1/reports/* — el GET no chequeaba NADA hasta el 2026-09-02 ───────
+    //
+    // Diecinueve endpoints de reporte servían los datos del negocio —ventas,
+    // flujo de efectivo, balance, arqueos, costos— a cualquier sesión de panel
+    // y a cualquier API key, sin mirar el rol. El realm `api` los alcanzaba a
+    // casi todos por la meta-tool `get_report` del MCP, y una key hereda el rol
+    // de quien la creó: la key de un cajero leía el balance de la empresa.
+    //
+    // Van todos por `OperatorContext::requirePermission()` —la puerta que mide
+    // contra la PERSONA en los tres realms—, así que el 403 de acá es el mismo
+    // que recibe el asistente cuando le piden lo que su operador no puede ver.
+    ['reports.sales.view',       'reports sales GET',           'v1/reports/sales.php',           'GET', '',                          []],
+    ['reports.sales.view',       'reports brands GET',          'v1/reports/brands.php',          'GET', '',                          []],
+    ['reports.sales.view',       'reports categories GET',      'v1/reports/categories.php',      'GET', '',                          []],
+    ['reports.sales.view',       'reports products GET',        'v1/reports/products.php',        'GET', '',                          []],
+    ['reports.sales.view',       'reports payment-methods GET', 'v1/reports/payment-methods.php', 'GET', '',                          []],
+    ['reports.sales.view',       'reports users GET',           'v1/reports/users.php',           'GET', '',                          []],
+    ['reports.sales.view',       'reports customers GET',       'v1/reports/customers.php',       'GET', '',                          []],
+    ['reports.sales.view',       'reports orders GET',          'v1/reports/orders.php',          'GET', '',                          []],
+    ['reports.sales.view',       'reports summary_year GET',    'v1/reports/summary_year.php',    'GET', '',                          []],
+    ['reports.sales.view',       'reports vpayments GET',       'v1/reports/vpayments.php',       'GET', '',                          []],
+    ['reports.sales.view',       'reports fiscal GET',          'v1/reports/fiscal.php',          'GET', 'dataset=libro-ventas',      []],
+    // El dashboard gatea por widget: el de plata pide la clave del reporte de
+    // ventas, el de NPS la suya. Los dos casos prueban el mismo mapa.
+    ['reports.sales.view',       'reports dashboard KPIs',      'v1/reports/dashboard.php',       'GET', 'widget=incomeOutcomeStats', []],
+    ['reports.satisfaction.view','reports dashboard NPS',       'v1/reports/dashboard.php',       'GET', 'widget=satisfaction',       []],
+    ['reports.drawers.view',     'reports drawers GET',         'v1/reports/drawers.php',         'GET', '',                          []],
+    ['finance.manage',           'reports cashflow GET',        'v1/reports/cashflow.php',        'GET', '',                          []],
+    ['finance.manage',           'reports balance GET',         'v1/reports/balance.php',         'GET', '',                          []],
+    ['production.manage',        'reports production GET',      'v1/reports/production.php',      'GET', '',                          []],
+    ['inventory.item.view',      'reports inventory GET',       'v1/reports/inventory.php',       'GET', '',                          []],
+    ['inventory.item.view',      'reports stock-day GET',       'v1/reports/stock-day.php',       'GET', 'date=2026-01-01',           []],
+    ['inventory.item.view',      'reports stock GET',           'v1/reports/stock.php',           'GET', '',                          []],
+    // Cuentas por cobrar y por pagar son DOS reportes en un archivo, y cada uno
+    // pide la clave del suyo. El tercer camino (`&contactId=`, el diálogo de
+    // pago multi-factura) no se prueba acá: lo abre `pos.sale.creditPayment`,
+    // una clave de ESCRITURA que credit-payments.php ya cubre.
+    ['reports.sales.view',       'open_invoices por cobrar',    'v1/reports/open_invoices.php',   'GET', 'state=income',              []],
+    ['reports.purchases.view',   'open_invoices por pagar',     'v1/reports/open_invoices.php',   'GET', 'state=outcome',             []],
 ];
 
 $permisosBajoPrueba = array_values(array_unique(array_column($CASOS, 0)));
@@ -579,6 +642,23 @@ $res = hitEndpoint('v1/contacts.php', 'PUT', 'id=' . $clienteId,
 check('device: PUT /v1/contacts sobre un CLIENTE → pasa el gate',
     pasaElGate($res, 'contacts.customer.edit'),
     "el alta/edición de clientes en el mostrador tiene que seguir andando. status={$res['status']} body="
+        . substr(trim($res['body']), 0, 240),
+    $failures, $checks);
+
+// El device SÍ lee los niveles de stock, y SIN operador desbloqueado. Es el
+// único endpoint de `/v1/reports/*` que acepta `pos-app`, y su gate es a
+// propósito distinto al del resto del directorio: `requirePermission()` es
+// fail-closed sin `X-Operator-Token`, y acá eso rompería la caja — la tool
+// `get_stock` del asistente del mostrador corre haya o no alguien desbloqueado
+// (desbloqueo OFFLINE, ventana entre el unlock optimista y la respuesta del
+// server, unlock online fallido con la caja ya operando). Por eso bajo
+// `pos-app` el gate mide el piso del DEVICE, que es la decisión de
+// context/59 §D9. Este check es lo que impide que alguien "uniformice" el
+// archivo y deje al mostrador sin poder consultar stock.
+$res = hitEndpoint('v1/reports/stock.php', 'GET', '', [], '', $devTok);
+check('device: GET /v1/reports/stock sin operador → pasa el gate',
+    pasaElGate($res, 'inventory.item.view'),
+    "el asistente de la caja consulta stock sin PIN desbloqueado. status={$res['status']} body="
         . substr(trim($res['body']), 0, 240),
     $failures, $checks);
 

@@ -19,6 +19,27 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 $dateRe = '/^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?$/';
 
+/* ───────── Gate de LECTURA — el que faltaba ────────────────────────────────
+ *
+ * `reports.drawers.view` ya estaba en este archivo, pero SOLO en la rama POST
+ * (abajo, para cerrar/corregir/eliminar un arqueo). El GET —el listado de
+ * cierres de caja de la sucursal y el detalle de uno, con montos declarados,
+ * diferencias y quién cerró— no chequeaba nada: lo leía cualquier sesión de
+ * panel y cualquier API key, incluida la de un cajero. Es el mismo permiso que
+ * ya exige la escritura, aplicado donde faltaba (D9 de `context/59`).
+ *
+ * Este endpoint NO acepta `pos-app` (ver el `apiAuthTenant` de arriba), así que
+ * el gate estricto no puede romper la caja: el arqueo de la tablet va por
+ * `/v1/drawer.php`, que es otro archivo con su propio gate. Por eso mismo,
+ * agregar `get_drawers` al catálogo del asistente del mostrador sigue sin ser
+ * posible con solo este gate — antes hay que abrir el realm, que es una
+ * decisión aparte (ver el docblock de `frontend/lib/pos/agent-tools.ts`).
+ */
+if ($method === 'GET') {
+    require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
+    \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'reports.drawers.view');
+}
+
 if ($method === 'POST') {
     if (!hasPermission('reports.drawers.view')) {
         apiError('No tenés permiso para esta acción (requiere: reports.drawers.view)', 403);
