@@ -258,13 +258,16 @@ cross-tenant) sin arreglar:
   las sucursales asignadas, no "todas las del tenant".
 
   **No es un parche de P2, es una feature.** Hoy un usuario tiene UNA sucursal
-  (`contact.outletId`) y `Roc::build` emite `AND outletId = X` o nada. El
-  modelo decidido necesita: tabla `user_outlet` (precedente: `item_outlet`,
-  mig 170), `Roc::build` emitiendo `IN (...)` —y eso lo lee TODO reporte—, UI
-  de asignación en `/settings/team`, y `bootstrap.php` resolviendo el set en
-  vez de validar un solo uuid. Interactúa con `context/25` y con franquicias
-  (`context/55`). Merece plan propio antes de tocar `Roc::build`, que es el
-  embudo único de lectura.
+  (`contact.outletId`) y `Roc::build` emite `AND outletId = X` o nada.
+  **Hallazgo 2026-09-02: la tabla ya existe** — `contact_outlet` (mig 66),
+  y `UsersService` ya la lee. NO hace falta crear `user_outlet`. Falta:
+  `Roc::build` emitiendo `IN (...)` —y eso lo lee TODO reporte—, resolver el
+  SET en `bootstrap.php` en vez de validar un solo uuid, y decidir qué ve
+  alguien SIN asignaciones. Owner confirmó el modelo: con "Todas", consolidado
+  = suma de las sucursales asignadas al usuario, no todas las del tenant.
+  Riesgo: `Roc::build` es el embudo único de 39 archivos de lectura — un error
+  ahí devuelve números incompletos que parecen correctos. Interactúa con
+  `context/25` y con franquicias (`context/55`).
 
 - `api/v1/attendance.php:25-40` — token `md5(companyId.outletId)` derivable.
   **DECIDIDO 2026-08-30 (owner)**: se reemplaza por un **secreto aleatorio por
@@ -1831,13 +1834,13 @@ Estos TODOs están anotados en el código pero requieren backend para completars
 | # | Pendiente | Detalle |
 |---|-----------|---------|
 | 1 | ~~**Separar `_jwt_pos` de `_jwt_panel`**~~ ✓ | Cookies independientes ya funcionando (`_jwt` para realm pos-app, `_jwt_panel` para panel, `_jwt_screen` para checkout screen). Memoria [[jwt-two-tokens-rule]]. |
-| 2 | **`POST /v1/device/unpair`** | Para "Eliminar dispositivo del comercio" (hoy no existe el endpoint). |
+| 2 | ~~**`POST /v1/device/unpair`**~~ ✓ | **RESUELTO**: `api/v1/auth/unpair-pos-device.php`. |
 | 3 | ~~**`POST /v1/lock-screen/verify`**~~ ✓ | **RESUELTO**: el lockscreen valida el PIN localmente (SHA-256 contra `pinhash` precacheado, `lock-screen.tsx:8`); ya no hay `STUB_PIN`. |
-| 4 | **`bootstrap.user.name` y `bootstrap.user.roleName`** | Agregar al SELECT del bootstrap PHP. `roleName` ya disponible en `UsersService`. Confirmado por ausencia en la auditoría 2026-08-22: `bootstrap.user` sigue siendo `{id, role}`, el operador activo no tiene nombre (la lista de empleados sí). |
-| 5 | **Persistir `register.data.mergeRepeated`** | Hoy solo en memoria Zustand (default ON). Falta `PUT /v1/register?resource=merge-repeated`. |
+| 4 | ~~**`bootstrap.user.name` y `bootstrap.user.roleName`**~~ ✓ | **RESUELTO (2026-09-02, `3d3064f8`)**: el arranque del POS identifica al operador por su nombre. |
+| 5 | ~~**Persistir `register.data.mergeRepeated`**~~ ✓ | **RESUELTO**: `PUT /v1/register?resource=merge-repeated` en `api/v1/register.php`. |
 | 6 | ~~**Endpoints reales de Control de Caja**~~ ✓ | Implementado: `DrawerService` + `api/v1/drawer.php`. Migs 33/34. |
 | 7 | ~~**Endpoints reales de Transacciones**~~ ✓ | Detalle, edición, duplicar/reimprimir, cierre desde panel. Órdenes O0-O2 ✅ (2026-07-19, ver abajo); Agenda pendiente. |
-| 8 | **Persistencia de impresoras** | Probable `register.data.printers` JSONB. |
+| 8 | ~~**Persistencia de impresoras**~~ ✓ | **RESUELTO**: `api/v1/station-printers.php`. |
 | 9 | ~~**UI panel para gestión de cajas POS pareadas**~~ ✓ | **Superado**: `connected-device.ts` unifica la tabla con `kind:"pos"` = "Caja POS" en `/settings/devices`. |
 
 ---
