@@ -178,14 +178,23 @@ motivo, releerlas antes de "completar" la feature):
   incluyen, hay que forzar la rama live, no filtrar el rollup. Cierra
   parcialmente la pregunta abierta de más abajo: los rollups NO sirven a este
   filtro.
-- **Servicios que obligaban a contorsiones** (candidatos razonables, dejados
-  para una fase posterior con el trabajo ya identificado):
-  `CustomersService::dashboard()` bindea TRES rangos y dos de ellos van en el
-  `SELECT`, no en el `WHERE`; `CashflowService::accountBalances()` bindea seis
+- **Dashboard de clientes, flujo de caja y producción — AFUERA POR ALCANCE,
+  no por dificultad. Decisión del owner, 2026-09-02, cerrada.** Textual:
+  *"esos 3 quedan afuera; solo lo básico como listados de ventas, órdenes,
+  artículos, etc. son los que filtraremos por hora"*. Es decir: la franja
+  horaria es un filtro de LISTADOS de operación (lo que ocurre a una hora),
+  no de reportes analíticos compuestos. Los cinco cableados en F1 —ventas,
+  transacciones, productos, órdenes, movimientos de caja— son exactamente ese
+  conjunto; la F1 quedó completa con esta decisión y no hay fase pendiente
+  para estos tres.
+  Se conserva el diagnóstico técnico por si alguien reabre la discusión con
+  un caso de uso nuevo: `CustomersService::dashboard()` bindea TRES rangos y
+  dos van en el `SELECT`; `CashflowService::accountBalances()` bindea seis
   fechas dentro de un `CASE WHEN`; `ProductionService::compound()` mete una
   cantidad VARIABLE de placeholders antes del rango. En los tres, insertar los
-  params al final rompe el orden — necesitan inserción posicional, no
-  `array_merge`. `vpayments` no es SQL: sale de un HTTP externo.
+  params al final rompe el orden — necesitarían inserción posicional. Pero
+  el motivo de la exclusión es el alcance, y el costo técnico es solo el
+  segundo argumento. `vpayments` no es SQL: sale de un HTTP externo.
 
 ## F1 — la restricción que la F2 tiene que respetar en la UI
 
