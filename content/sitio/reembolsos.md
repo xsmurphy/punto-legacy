@@ -8,7 +8,7 @@ fuente: "sitio punto.la"
 
 _Última actualización: 3 de septiembre de 2026_
 
-Esta política dice cuándo devolvemos plata y cuándo no, en qué plazo y cómo se pide. Es corta a propósito: el comercio tiene que poder saber en un minuto qué le corresponde. Forma parte de los Términos y Condiciones de Punto.
+Esta política dice cuándo devolvemos el dinero y cuándo no, en qué plazo y cómo se pide. Forma parte de los Términos y Condiciones de Punto.
 
 ## 1. Qué cubre esta política
 

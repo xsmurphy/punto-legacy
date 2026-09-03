@@ -455,8 +455,8 @@ export const REEMBOLSOS: DocumentoLegal = {
   url: REEMBOLSOS_URL,
   actualizado: EMPRESA.vigencia,
   intro:
-    "Esta política dice cuándo devolvemos plata y cuándo no, en qué plazo y cómo se pide. " +
-    "Es corta a propósito: el comercio tiene que poder saber en un minuto qué le corresponde. Forma parte de los Términos y Condiciones de Punto.",
+    "Esta política dice cuándo devolvemos el dinero y cuándo no, en qué plazo y cómo se pide. " +
+    "Forma parte de los Términos y Condiciones de Punto.",
   secciones: [
     {
       titulo: "Qué cubre esta política",
