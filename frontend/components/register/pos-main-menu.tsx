@@ -2463,6 +2463,20 @@ function ModulesPanel() {
 
 // ── Ajustes ──────────────────────────────────────────────────────────────────
 
+/**
+ * Segundos que se mandan al backend desde el input de bloqueo por inactividad.
+ *
+ * Un `<input type="number">` vacío entrega `""`, y el cajero puede tipear
+ * cualquier cosa: sin esto se encolaría un `NaN` que el servidor rechaza con
+ * 422 y el ajuste "no anda". Vacío o no numérico = 0, que es justamente
+ * "desactivado". El tope acompaña al del validador del PUT (un día).
+ */
+function toSeconds(raw: string): number {
+  const n = Number.parseInt(raw, 10)
+  if (!Number.isFinite(n) || n < 0) return 0
+  return Math.min(n, 86400)
+}
+
 const AJUSTES_TOGGLES: { key: keyof PosRegisterConfig; label: string; description?: string }[] = [
   { key: "mergeRepeated", label: "Agrupar productos repetidos", description: "Sumar cantidad al tocar el mismo producto seguido. Si tocás otro entre medio, se crea una línea nueva — útil para promos con descuento por línea." },
   { key: "showSoftKeyboard", label: "Mostrar teclado virtual en numpads", description: "Útil para pantallas táctiles sin teclado físico." },
@@ -2958,7 +2972,9 @@ function AjustesPanel() {
   }, [updateConfig])
 
   const handleToggle = React.useCallback(
-    (key: keyof PosRegisterConfig, value: boolean | string) => {
+    // `number` desde que existe `lockAfterSeconds` (segundos de inactividad):
+    // antes el blob era solo booleans más la IP del Bancard.
+    (key: keyof PosRegisterConfig, value: boolean | string | number) => {
       pendingRef.current = { ...pendingRef.current, [key]: value }
       setPending((prev) => ({ ...prev, [key]: value }))
       if (timerRef.current) clearTimeout(timerRef.current)
@@ -3003,18 +3019,32 @@ function AjustesPanel() {
                   numeración fiscal y cierres de caja de por medio, eso es un
                   problema, no una función. Decisión del owner (2026-07-29). */}
 
-              {/* Bloqueo por inactividad */}
-              {/* TODO (backend): persistir en config del dispositivo */}
+              {/* Bloqueo por inactividad. Persiste por caja en la config del
+                  register (`lockAfterSeconds`), mismo debounce y misma cola
+                  offline que el resto de los ajustes del mostrador. El timer
+                  lo monta `useIdleLock` en el layout del POS. */}
               <SettingRow
                 label="Bloquear sesión luego de (seg.)"
                 htmlFor="ajustes-lock-timeout"
+                align="start"
               >
                 <Input
                   id="ajustes-lock-timeout"
                   className="w-full"
                   type="number"
-                  defaultValue="0"
+                  min={0}
+                  max={86400}
+                  step={1}
+                  value={String(
+                    (pending.lockAfterSeconds as number | undefined) ?? config.lockAfterSeconds,
+                  )}
+                  disabled={isLoading}
+                  onChange={(e) => handleToggle("lockAfterSeconds", toSeconds(e.target.value))}
                 />
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Tras ese tiempo sin actividad, la caja vuelve a pedir el PIN. La venta en
+                  curso no se pierde. 0 desactiva el bloqueo automático.
+                </p>
               </SettingRow>
 
               {/* IP POS Bancard — SOLO con el módulo `bancardPos` activo

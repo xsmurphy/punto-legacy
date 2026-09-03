@@ -78,6 +78,8 @@ import { CartPanel } from "@/components/register/cart-panel"
 import { ViewportProbe } from "@/components/pos/viewport-probe"
 import { PosDocumentTitle } from "@/components/pos/document-title"
 import { LockScreen } from "@/components/register/lock-screen"
+import { useIdleLock } from "@/hooks/use-idle-lock"
+import { usePosRegisterConfig } from "@/hooks/use-pos-config"
 import { PosLoadingScreen } from "@/components/register/pos-loading-screen"
 import { SpaceSettlementProvider } from "@/components/spaces/space-settlement-provider"
 import { useCatalogSeed } from "@/hooks/use-catalog-seed"
@@ -379,6 +381,23 @@ function PosWorkspaceLayoutInner({
       )}
 
       <LockScreen />
+      {/* El timer de inactividad vive al lado del lock screen porque es quien
+          lo dispara. Sin caja activa no hay config que leer ni sesión que
+          bloquear, así que no se monta. */}
+      {activeRegisterId !== "" && <IdleLockTimer registerId={activeRegisterId} />}
     </div>
   )
+}
+
+/**
+ * Puente entre la config de la caja y `useIdleLock`.
+ *
+ * Componente aparte y no un hook en el layout para que el refetch de la config
+ * (react-query) no re-renderice el árbol entero del workspace —incluido el
+ * carrito persistente— cada vez que se revalida.
+ */
+function IdleLockTimer({ registerId }: { registerId: string }) {
+  const { data } = usePosRegisterConfig(registerId)
+  useIdleLock(data?.config.lockAfterSeconds ?? 0)
+  return null
 }
