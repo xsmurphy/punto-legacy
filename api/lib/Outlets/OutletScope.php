@@ -95,6 +95,30 @@ final class OutletScope
     }
 
     /**
+     * ¿Este realm resuelve su sucursal desde el USUARIO?
+     *
+     * `api` (API keys y MCP) y `panel` sí: los opera una persona identificada,
+     * con un conjunto de sucursales asignadas y una UI o una tool que elige
+     * dentro de él.
+     *
+     * `pos-app` (y los demás realms de device: `screen`, `kds`, `print`) NO, y
+     * no es un pendiente: la sucursal de una terminal sale de la fila `device`,
+     * o sea del PAREO, y es fija. La tablet no tiene selector que acotar ni
+     * usuario propio — el `userId` que lleva es el del contacto que la pareó,
+     * y derivar el alcance de él le daría a la caja las sucursales de esa
+     * persona en vez de la suya. Ver `context/25-sucursales-y-scopes.md`.
+     *
+     * Existe como método y no como un `in_array` suelto porque ya lo preguntan
+     * `bootstrap.php` y `outlets.php`, y la respuesta tiene que ser la misma en
+     * los dos: un realm que quedara adentro en el embudo y afuera en la lista
+     * (o al revés) da una UI que ofrece sucursales que después devuelven 403.
+     */
+    public static function realmIsScoped(string $realm): bool
+    {
+        return $realm === 'api' || $realm === 'panel';
+    }
+
+    /**
      * ¿Puede este usuario leer esa sucursal?
      *
      * Un usuario global alcanza cualquier sucursal DEL TENANT — de ahí el
@@ -170,9 +194,36 @@ final class OutletScope
      * como el de todas las suyas. Un número incompleto que parece correcto es
      * peor que un error — el error se puede reformular con `outletId`, el
      * número equivocado se copia a una planilla.
+     *
+     * ── El orden importa, y es el MISMO que el de `Roc::build()` ─────────────
+     * Primero la sucursal ÚNICA (`VIEW_OUTLET_ID`, ya validada contra el
+     * conjunto por `bootstrap.php`), y recién después el conjunto. Si se
+     * mirara el conjunto primero, un usuario de 2 sucursales PARADO EN UNA
+     * —el caso normal del panel, que siempre manda `X-Outlet-Id`— recibiría
+     * `null` y un 422, teniendo la respuesta pedida a mano.
+     *
+     * Que este método y `Roc::build()` desempaten igual no es prolijidad: son
+     * los dos caminos por los que sale la MISMA pregunta ("¿qué sucursales?"),
+     * uno como fragmento SQL y el otro como valor bindeado, y a veces en la
+     * misma respuesta. Cuando desempataban distinto, el fragmento salía acotado
+     * y el valor único salía abierto — la fuga del 2026-09-02 (`58b40d08`), que
+     * ningún test de totales veía porque los dos devolvían números plausibles.
      */
     public static function single(): ?string
     {
+        // Una sucursal puntual gana: es el selector del panel parado en una
+        // sucursal, o una consulta con `?outletId=`. `bootstrap.php` ya la
+        // validó contra el conjunto (403 si no), así que acá no hay que
+        // re-chequear pertenencia — solo forma.
+        $v = \defined('VIEW_OUTLET_ID')
+            ? (string) \constant('VIEW_OUTLET_ID')
+            : (\defined('OUTLET_ID') ? (string) \constant('OUTLET_ID') : '');
+        if (preg_match(self::UUID_RE, $v)) {
+            return $v;
+        }
+
+        // Sin sucursal única: o el consolidado ACOTADO (el conjunto), o el
+        // histórico sin restricción.
         $set = self::current();
         if (count($set) > 1) {
             return null;
@@ -180,15 +231,7 @@ final class OutletScope
         if (count($set) === 1) {
             return $set[0];
         }
-        // Sin restricción: el comportamiento histórico, intacto. Panel con el
-        // selector del logo → `VIEW_OUTLET_ID`; pos-app y realm `api` global →
-        // la sucursal del contexto. Un valor que no es uuid (incluido el `''`
-        // del modo "Todas") significa consolidado.
-        $v = \defined('VIEW_OUTLET_ID')
-            ? (string) \constant('VIEW_OUTLET_ID')
-            : (\defined('OUTLET_ID') ? (string) \constant('OUTLET_ID') : '');
-
-        return preg_match(self::UUID_RE, $v) ? $v : '';
+        return '';
     }
 
     /**

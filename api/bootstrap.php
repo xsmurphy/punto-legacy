@@ -267,7 +267,7 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         $outletId = (string) ($row['outletId'] ?? ''); // CIA wrapper resuelve case-insensitive
     }
 
-    // ── Alcance por sucursal del realm `api` ─────────────────────────────────
+    // ── Alcance por sucursal de los realms `api` y `panel` ───────────────────
     //
     // La sucursal de una API key SALE DEL USUARIO dueño de la key, no de la key
     // (decisión del owner 2026-09-02, §4.5 de `context/25`). `ApiKeyService`
@@ -284,10 +284,20 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // forma de pedir otra ni el consolidado. Una key ya emitida empieza a ver el
     // consolidado de su usuario. Es el pedido, no un efecto colateral.
     //
-    // ── Por qué el override es `?outletId=` y NO `X-Outlet-Id` ───────────────
-    //   1. `X-Outlet-Id` está gateado a realm `panel` A PROPÓSITO (unas líneas
-    //      más abajo). Ensancharlo es reabrir un gate de seguridad para ahorrar
-    //      un nombre.
+    // Y en el `panel` es lo mismo un piso más arriba: la sucursal sale del
+    // usuario logueado, no del tenant. "No importa si hay 1000 sucursales: si el
+    // usuario está asignado solo en 2, el panel muestra 2, y si selecciona TODAS
+    // = la suma de esas 2" (owner, repetido). Hasta hoy `X-Outlet-Id: all`
+    // validaba pertenencia al TENANT y nada más, así que "Todas" significaba
+    // todas las del comercio para cualquiera que tuviera permiso sobre el
+    // reporte — el P2 de la auditoría del 2026-08-26.
+    //
+    // ── Por qué el override es `?outletId=` en `api` y `X-Outlet-Id` en `panel`
+    //   1. `X-Outlet-Id` está gateado a realm `panel` A PROPÓSITO. Ensancharlo
+    //      al realm `api` es reabrir un gate de seguridad para ahorrar un
+    //      nombre, así que siguen siendo dos transportes distintos: lo que se
+    //      comparte es la REGLA (validar contra el conjunto, 403 si no), no el
+    //      nombre del parámetro.
     //   2. Es un valor POR LLAMADA. Del lado del cliente, los headers del
     //      catálogo de tools (`ToolContext.dataHeaders`) se arman una vez por
     //      request del MCP, no por tool call: una sucursal en un header
@@ -300,38 +310,124 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // Va ACÁ, antes de `data.php`, porque también hay que acotar `$outletId`:
     // los lectores que no pasan por `Roc::build` bindean `OUTLET_ID` directo, y
     // esa constante se define ahí abajo.
-    if ($realm === 'api') {
+    //
+    // ── Las dos constantes, y por qué son dos ────────────────────────────────
+    //
+    //   `VIEW_OUTLET_IDS` = las sucursales ASIGNADAS al usuario. Es el LÍMITE, y
+    //   NO cambia dentro de la request: no importa qué pida el cliente, no puede
+    //   salirse de acá. `[]` = usuario global, sin restricción.
+    //
+    //   `VIEW_OUTLET_ID`  = la sucursal ÚNICA que esta request quiere mirar, ya
+    //   validada contra el límite. `''` = "todas las mías" (el consolidado).
+    //
+    // La descomposición es la misma para los dos realms a propósito. La otra
+    // opción era que `VIEW_OUTLET_IDS` guardara el alcance EFECTIVO (o sea,
+    // colapsado a un solo id cuando el cliente pide una sucursal puntual), que
+    // es como nació para el realm `api`. Deja de servir en cuanto hay una UI: el
+    // selector del panel tiene que listar las DOS sucursales del usuario
+    // mientras está parado en UNA, y con el alcance efectivo el propio selector
+    // se quedaba con la única opción ya elegida. Un LÍMITE y una SELECCIÓN son
+    // dos cosas distintas; confundirlas se paga en la pantalla.
+    //
+    // `Roc::build()` y `OutletScope::single()` leen las dos en el MISMO orden
+    // (sucursal única primero, conjunto después). Ese orden compartido es lo que
+    // hace que el fragmento SQL y el valor único no puedan discrepar — que es
+    // exactamente la fuga que se arregló el 2026-09-02 (`58b40d08`).
+    if (\Punto\Api\Outlets\OutletScope::realmIsScoped((string) $realm)) {
         $__scope = \Punto\Api\Outlets\OutletScope::forUser($companyId, $userId);
 
-        $__reqOutlet = trim((string) ($_GET['outletId'] ?? ''));
-        if ($__reqOutlet !== '') {
+        // De dónde sale la sucursal pedida, según el realm (ver los tres puntos
+        // de arriba: dos transportes, una sola regla).
+        $__reqOutlet = '';
+        $__hasReq    = false;   // pidió UNA sucursal (y hay que validarla)
+        $__hasView   = false;   // pidió explícitamente un alcance (una, o "todas")
+        if ($realm === 'api') {
+            $__reqOutlet = trim((string) ($_GET['outletId'] ?? ''));
+            $__hasReq    = $__reqOutlet !== '';
+            $__hasView   = true;   // el default del realm `api` ES el consolidado
+        } elseif (isset($_SERVER['HTTP_X_OUTLET_ID'])) {
+            $__reqOutlet = trim((string) $_SERVER['HTTP_X_OUTLET_ID']);
+            // `all` (y el header vacío) es el modo "Todas" del selector del
+            // logo: no pide UNA sucursal, pide el consolidado. Que ese
+            // consolidado sean las SUYAS y no las del tenant es todo el cambio.
+            if ($__reqOutlet === 'all' || $__reqOutlet === '') {
+                $__reqOutlet = '';
+                $__hasReq    = false;
+                $__hasView   = true;
+            } else {
+                // Un header malformado se sigue ignorando en silencio en vez de
+                // cortar la sesión (comportamiento desde 2026-06-13): caer a la
+                // sucursal activa es estrictamente MÁS acotado que el valor que
+                // no se entendió, así que ignorarlo no abre nada. Lo que sí
+                // cambia es el uuid bien formado de una sucursal ajena: antes se
+                // ignoraba y ahora corta con 403 (abajo).
+                $__hasReq = (bool) preg_match(
+                    '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
+                    $__reqOutlet
+                );
+                // Un header ilegible NO define nada: se cae a la sucursal activa
+                // del token, que es lo que hacía antes. Definirlo como `''`
+                // (consolidado) sería ENSANCHAR el alcance por un valor que ni
+                // siquiera se entendió.
+                $__hasView = $__hasReq;
+            }
+        }
+
+        if ($__hasReq) {
             // 403 y NO una lista vacía. Un vacío se lee como "no hubo ventas en
-            // esa sucursal", que es una mentira con forma de dato — y el modelo
-            // que la recibe se la repite al dueño sin nada que lo contradiga.
+            // esa sucursal", que es una mentira con forma de dato — y quien la
+            // recibe (un modelo por el realm `api`, el dueño por el panel) se la
+            // cree sin nada que lo contradiga.
             if (!\Punto\Api\Outlets\OutletScope::allows($__scope, $__reqOutlet, $companyId)) {
                 apiError('Tu usuario no tiene acceso a esa sucursal', 403);
             }
-            $__scope = [$__reqOutlet];
         }
 
-        // `VIEW_OUTLET_ID = ''` desactiva el filtro de outlet ÚNICO en
-        // `Roc::build` (el camino que el panel ya usa para "Todas"), y
-        // `VIEW_OUTLET_IDS` le dice con qué conjunto acotarlo. Separadas y no
-        // una sola constante polimórfica: `VIEW_OUTLET_ID` tiene un significado
-        // establecido que lee media docena de endpoints, y cambiarle el tipo
-        // según el realm es exactamente cómo se rompe un consumidor que nadie
-        // volvió a mirar.
-        define('VIEW_OUTLET_ID', '');
+        // Cuándo queda DEFINIDA `VIEW_OUTLET_ID`, que no es lo mismo en los dos
+        // realms — y la diferencia es cuál es el DEFAULT de cada uno:
+        //
+        //   `api`   — el default ES el consolidado ("la key no pinta ninguna
+        //             sucursal"), así que se define siempre, con `''` cuando no
+        //             vino `?outletId=`.
+        //
+        //   `panel` — el default es la SUCURSAL ACTIVA del token, no el
+        //             consolidado. Si no vino el header, la constante se queda
+        //             SIN DEFINIR y `Roc::build()` usa el `OUTLET_ID` que le
+        //             pasa el endpoint, igual que siempre. Definirla como `''`
+        //             acá convertía cada pantalla sin header en un consolidado
+        //             que el usuario no pidió.
+        if ($__hasView) {
+            define('VIEW_OUTLET_ID', $__hasReq ? $__reqOutlet : '');
+        }
         define('VIEW_OUTLET_IDS', $__scope);
 
         // Los lectores que bindean `OUTLET_ID` sin pasar por `Roc` (drawer,
         // finance, Inventory…) tienen que quedar DENTRO del conjunto. Sin esto,
-        // `$outletId` sigue siendo la sucursal congelada en la key —o peor, el
-        // "primer outlet activo" del fallback de arriba—, que puede no estar
-        // asignada al usuario. Elegir el primero del conjunto es arbitrario,
-        // pero el conjunto viene ordenado por id (estable entre requests) y el
-        // resultado es estrictamente más acotado que lo de hoy.
-        if ($__scope !== [] && !in_array($outletId, $__scope, true)) {
+        // `$outletId` sigue siendo la sucursal congelada en la key —o la que el
+        // token `panel` trae en `oid`, o el "primer outlet activo" del fallback
+        // de arriba—, que puede no estar asignada al usuario. Elegir el primero
+        // del conjunto es arbitrario, pero el conjunto viene ordenado por id
+        // (estable entre requests) y el resultado es estrictamente más acotado.
+        //
+        // En `panel` esto es además lo que arregla el ARRANQUE: `OUTLET_ID` es
+        // lo que `/v1/bootstrap` devuelve como `activeOutletId`, y un panel que
+        // arranca apuntando a una sucursal que el usuario no puede ver da 403 en
+        // cada pantalla sin decir por qué.
+        //
+        // El realm `api` es el único donde `OUTLET_ID` SIGUE a la sucursal
+        // pedida: ahí `?outletId=` es un parámetro de LECTURA por llamada y el
+        // realm no escribe nada, así que los lectores que bindean la constante
+        // tienen que ver la sucursal consultada y no otra.
+        //
+        // En `panel` NO: `OUTLET_ID` es la sucursal ACTIVA, la que imputa las
+        // ventas y los movimientos de caja, y el selector del logo es un
+        // view-scope de LECTURA (contrato de 2026-06-13, intacto). Que el
+        // dropdown moviera la sucursal de facturación sería un cambio de
+        // sucursal encubierto — para eso está `POST /v1/active-outlet`, que
+        // re-emite la sesión a propósito.
+        if ($realm === 'api' && $__hasReq) {
+            $outletId = $__reqOutlet;
+        } elseif ($__scope !== [] && !in_array($outletId, $__scope, true)) {
             $outletId = $__scope[0];
         }
     }
@@ -339,35 +435,16 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // data.php define COMPANY_ID/OUTLET_ID/TODAY/COMPANY_NAME/etc. desde estas locales.
     require __DIR__ . '/data.php';
 
-    // View-scope override (frontend 2026-06-13). Si el browser eligió una sucursal
-    // o "Todas" desde el dropdown del logo, manda header X-Outlet-Id:
-    //   - 'all' → VIEW_OUTLET_ID = '' → Roc::build NO filtra por outlet (consolidado)
-    //   - UUID  → VIEW_OUTLET_ID = ese UUID, previa validación de pertenencia al tenant
+    // (El view-scope del header `X-Outlet-Id` —dropdown del logo, 2026-06-13—
+    // ya se resolvió ARRIBA, junto con el del realm `api`. Estaba acá abajo
+    // mientras solo definía `VIEW_OUTLET_ID`; desde que además tiene que acotar
+    // `$outletId` no puede quedar después de `data.php`, que es quien congela
+    // ese valor en `OUTLET_ID`. La validación también cambió: antes alcanzaba
+    // con pertenecer al TENANT, ahora tiene que estar ASIGNADA al usuario.
     //
-    // OUTLET_ID (constante del JWT, ya definida por data.php) NO se toca — las
-    // escrituras (sale, drawer, etc.) siguen scopeadas a la sucursal activa.
-    // VIEW_OUTLET_ID solo afecta lecturas que pasan por Roc::build.
-    //
-    // Restringido a realm 'panel': el POS no debería poder enviar este header.
-    if ($realm === 'panel' && isset($_SERVER['HTTP_X_OUTLET_ID'])) {
-        $override = trim((string) $_SERVER['HTTP_X_OUTLET_ID']);
-        if ($override === 'all' || $override === '') {
-            define('VIEW_OUTLET_ID', '');
-        } else {
-            $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
-            if (preg_match($uuidRe, $override)) {
-                $check = ncmExecute(
-                    'SELECT 1 FROM outlet WHERE outletId = ? AND companyId = ? LIMIT 1',
-                    [$override, $companyId]
-                );
-                if ($check) {
-                    define('VIEW_OUTLET_ID', $override);
-                }
-                // Si no pertenece al tenant, ignoramos el override silenciosamente
-                // (defense-in-depth: no rompemos la sesión por header malformado).
-            }
-        }
-    }
+    // Lo que NO cambió: `OUTLET_ID` sigue siendo la sucursal activa para las
+    // ESCRITURAS —el modo "Todas" no las desparrama— y el header sigue siendo
+    // exclusivo de `panel`: el POS no puede mandarlo.)
 
     // Auditoría del tenant. Best-effort: tenantAudit() absorbe cualquier error.
     //

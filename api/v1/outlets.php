@@ -182,13 +182,14 @@ if ($id !== '') {
     if (!preg_match($uuidRe, $id)) {
         apiError('id inválido', 422);
     }
-    // El lookup por id acota por TENANT (`OutletsService::get`), y para el realm
-    // `api` eso no alcanza: devuelve la ficha COMPLETA de la sucursal —razón
-    // social, RUC, dirección, teléfono, impuesto por defecto—, así que sin este
-    // gate una key restringida leía los datos de cualquier sucursal del tenant
-    // pasando su uuid. La LISTA de abajo ya estaba acotada; este camino no, que
-    // es peor que si ninguno lo estuviera: da la sensación de estar cerrado.
-    if (($ctx['realm'] ?? '') === 'api'
+    // El lookup por id acota por TENANT (`OutletsService::get`), y para un realm
+    // con alcance eso no alcanza: devuelve la ficha COMPLETA de la sucursal
+    // —razón social, RUC, dirección, teléfono, impuesto por defecto—, así que
+    // sin este gate un usuario restringido leía los datos de cualquier sucursal
+    // del tenant pasando su uuid. La LISTA de abajo ya está acotada; este camino
+    // no lo estaba, que es peor que si ninguno lo estuviera: da la sensación de
+    // estar cerrado.
+    if (\Punto\Api\Outlets\OutletScope::realmIsScoped((string) ($ctx['realm'] ?? ''))
         && !\Punto\Api\Outlets\OutletScope::allows(
             \Punto\Api\Outlets\OutletScope::current(),
             $id,
@@ -205,20 +206,29 @@ if ($id !== '') {
     apiOk($row);
 }
 
-// Realm `api`: la lista son las sucursales que ESE usuario puede consultar, no
-// las del tenant. Es la tool que el dueño de una key usa para saber qué puede
+// Realms `api` y `panel`: la lista son las sucursales que ESE usuario puede
+// consultar, no las del tenant.
+//
+// En `api` es la tool que el dueño de una key usa para saber qué puede
 // preguntar; si listara las cuatro cuando alcanza dos, el modelo del otro lado
 // pediría reportes de las otras dos y leería el 403 como una falla del sistema
 // en vez de como el límite que es.
+//
+// En `panel` esta respuesta ES el dropdown del logo (`AppSidebar outlets`), o
+// sea la definición literal de "si el usuario está asignado solo en 2, el panel
+// muestra 2". Y "Todas" sigue en el menú: su significado pasa a ser "todas las
+// mías", que es el consolidado que el mismo alcance produce.
 //
 // El conjunto sale de `OutletScope::current()` —el mismo que ya acotó `Roc` y
 // `OUTLET_ID` en el embudo— y no de una segunda consulta a `contact_outlet`:
 // dos derivaciones del mismo alcance terminan discrepando, y la que discrepe
 // acá haría que la lista y los reportes contradigan uno al otro.
 //
-// `[]` (usuario global) → `null` → todas, que es el comportamiento de panel y
-// pos-app sin cambios.
-$scopeIds = (($ctx['realm'] ?? '') === 'api')
+// `pos-app` NO entra: el device opera con la sucursal fija de su pareo y no
+// tiene selector que acotar.
+//
+// `[]` (usuario global) → `null` → todas, sin cambios.
+$scopeIds = \Punto\Api\Outlets\OutletScope::realmIsScoped((string) ($ctx['realm'] ?? ''))
     ? (\Punto\Api\Outlets\OutletScope::current() ?: null)
     : null;
 

@@ -242,6 +242,25 @@ $tokenPanel = authSessionCreate('panel', [
     'roleId'    => '1',
 ]);
 
+// La MISMA persona restringida, pero con la sesión apuntando a O4 —una sucursal
+// que NO tiene asignada—. Es el estado real de cualquier usuario al que le
+// recortaron las sucursales después de haber elegido otra en el selector: el
+// `oid` del token sigue donde quedó. Sostiene el caso (P-f).
+$tokenPanelOutOfScope = authSessionCreate('panel', [
+    'companyId' => $companyId,
+    'userId'    => $userRestricted,
+    'outletId'  => $outlets['O4'],
+    'roleId'    => '1',
+]);
+
+// Y el dueño: cero filas en `contact_outlet`, o sea global. Sostiene el (P-g).
+$tokenPanelGlobal = authSessionCreate('panel', [
+    'companyId' => $companyId,
+    'userId'    => $userGlobal,
+    'outletId'  => $outlets['O1'],
+    'roleId'    => '1',
+]);
+
 // Device pos-app pareado a O3, con su fila `device` (el bootstrap la exige).
 $deviceId   = 'a5c0be00-1111-4a00-9000-0000000000c9';
 $registerId = 'a5c0be00-1111-4a00-9000-0000000000c1';
@@ -352,7 +371,14 @@ check('(c) con 403 y no con una lista vacía', 403, $c['status']);
 echo "\n[d] outletId de una sucursal asignada\n";
 $d = runCase($keyRestricted, 'api', $outlets['O2']);
 check('(d) no aborta', false, $d['aborted']);
-check('(d) el alcance queda en esa sola', [$outlets['O2']], $d['scope']);
+// `VIEW_OUTLET_IDS` es el LÍMITE (las asignadas), no la selección: pedir una
+// sucursal puntual no lo achica. Quien expresa la selección es `VIEW_OUTLET_ID`,
+// y de ahí sale `single()`. Antes las dos cosas vivían en la misma constante y
+// eso se llevaba puesto al selector del panel, que necesita listar las DOS
+// mientras el usuario está parado en UNA.
+check('(d) el LÍMITE sigue siendo el conjunto asignado', [$outlets['O1'], $outlets['O2']], $d['scope']);
+check('(d) la SELECCIÓN es la pedida', $outlets['O2'], $d['viewOutletId']);
+check('(d) y el valor único también', $outlets['O2'], $d['single']);
 checkTotal('(d) suma solo esa (30, a mano)', $TOTAL_O2, $d['total']);
 check('(d) OUTLET_ID sigue el parámetro', $outlets['O2'], $d['outletId']);
 
@@ -367,20 +393,83 @@ echo "\n[d3] usuario global pidiendo una sucursal de otro tenant\n";
 $d3 = runCase($keyGlobal, 'api', 'a5c0be00-9999-4a00-9000-0000000000ff');
 check('(d3) aborta con 403', 403, $d3['status'] ?? 0);
 
-// ── (e) panel y pos-app sin cambios ──────────────────────────────────────────
-echo "\n[e] realm panel y pos-app\n";
+// ── (P) REALM PANEL — el mismo alcance, ahora en la pantalla ─────────────────
+//
+// `$tokenPanel` es del usuario RESTRINGIDO (O1+O2), con su sucursal activa en
+// O1. Es el caso que describe el owner: "si el usuario está asignado solo en 2,
+// el panel muestra 2, y si selecciona TODAS = la suma de esas 2".
+//
+// Hasta el 2026-09-02 este bloque afirmaba lo contrario —que "Todas" daba 1337,
+// el tenant entero— porque eso es lo que hacía: `X-Outlet-Id: all` validaba
+// pertenencia al TENANT y nada más. El número no cambió por un refactor: cambió
+// porque ESE era el bug (P2 de la auditoría del 2026-08-26).
+echo "\n[P] realm panel — usuario con 2 de 4 sucursales\n";
+
+// (P-a) sin header: la sucursal ACTIVA del token, no el consolidado. El default
+// del panel NO es "todas": el consolidado se pide con el selector.
 $p = runCase($tokenPanel, 'panel');
-check('(e) panel sin header: el outlet del token (O1)', $outlets['O1'], $p['outletId']);
-check('(e) panel NO define VIEW_OUTLET_IDS', null, $p['viewOutletIds']);
-checkTotal('(e) panel filtra por su sucursal (300, a mano)', $TOTAL_O1, $p['total']);
-check('(e) panel ve las 4 sucursales en la lista', 4, count((array) $p['outletNames']));
+check('(P-a) sin header: el outlet del token (O1)', $outlets['O1'], $p['outletId']);
+check('(P-a) sin header NO define VIEW_OUTLET_ID (default = sucursal activa)', null, $p['viewOutletId']);
+check('(P-a) el LÍMITE sí queda definido', [$outlets['O1'], $outlets['O2']], $p['viewOutletIds']);
+checkTotal('(P-a) filtra por su sucursal activa (300, a mano)', $TOTAL_O1, $p['total']);
 
+// (P-b) el selector del sidebar lista 2, no 4. `outletNames` sale del mismo
+// `OutletsService::listAll()` que alimenta el dropdown del logo.
+check('(P-b) el selector lista SOLO las 2 asignadas', ['Sucursal O1', 'Sucursal O2'], $p['outletNames']);
+
+// (P-c) "Todas" = la suma de las SUYAS. El total se compara contra 330, que el
+// arnés calculó a mano sumando los montos que sembró — no contra otra consulta
+// del mismo código, que taparía el error si el filtro se cayera entero.
 $pAll = runCase($tokenPanel, 'panel', '-', 'all');
-checkTotal('(e) panel con X-Outlet-Id: all consolida (1337, a mano)', $TOTAL_TENANT, $pAll['total']);
+check('(P-c) "Todas" no aborta', false, $pAll['aborted']);
+checkTotal('(P-c) "Todas" suma SOLO esas 2 (330, a mano) y NO el tenant (1337)', $TOTAL_SCOPE, $pAll['total']);
+check('(P-c) Roc emite IN con las dos', true, str_contains(
+    (string) $pAll['roc'],
+    "outletId IN ('{$outlets['O1']}', '{$outlets['O2']}')"
+));
+// La invariante del (g): con el alcance abierto a 2, el valor único no puede
+// ser `''` — eso sería el tenant entero para los lectores que no pasan por Roc.
+check('(P-c) el valor único es null, nunca ""', null, $pAll['single']);
 
-$pOne = runCase($tokenPanel, 'panel', '-', $outlets['O3']);
-checkTotal('(e) panel con X-Outlet-Id: <uuid> filtra por esa (1000, a mano)', $TOTAL_O3, $pOne['total']);
+// (P-d) una sucursal ASIGNADA: solo esa.
+$pOwn = runCase($tokenPanel, 'panel', '-', $outlets['O2']);
+check('(P-d) no aborta', false, $pOwn['aborted']);
+checkTotal('(P-d) filtra por esa (30, a mano)', $TOTAL_O2, $pOwn['total']);
+check('(P-d) el valor único es esa sucursal', $outlets['O2'], $pOwn['single']);
+// El view-scope NO mueve la sucursal de las ESCRITURAS: `OUTLET_ID` sigue en la
+// activa del token (O1). Contrato de 2026-06-13, y es lo que evita que el
+// dropdown del logo sea un cambio de sucursal de facturación encubierto.
+check('(P-d) OUTLET_ID NO sigue al selector: sigue en la activa (O1)', $outlets['O1'], $pOwn['outletId']);
 
+// (P-e) una sucursal NO asignada: 403, no un vacío ni un total ajeno. ANTES
+// devolvía los 1000 de O3.
+$pForeign = runCase($tokenPanel, 'panel', '-', $outlets['O3']);
+check('(P-e) sucursal no asignada aborta', true, $pForeign['aborted']);
+check('(P-e) con 403', 403, $pForeign['status'] ?? 0);
+
+// (P-f) el arranque: la sesión tiene su outlet activo en O4, que NO está
+// asignada. `activeOutletId` del bootstrap es literalmente `OUTLET_ID`, así que
+// tiene que haber repuntado al conjunto — un panel que arranca apuntando a una
+// sucursal que el usuario no puede ver da 403 en cada pantalla.
+$pOut = runCase($tokenPanelOutOfScope, 'panel');
+check('(P-f) no aborta', false, $pOut['aborted']);
+check('(P-f) activeOutletId repunta al conjunto (O1), no se queda en O4', $outlets['O1'], $pOut['outletId']);
+checkTotal('(P-f) y el total es el de O1 (300, a mano), no el de O4', $TOTAL_O1, $pOut['total']);
+
+// (P-g) usuario GLOBAL en el panel: las 4, sin restricción. El caso del dueño.
+echo "\n[P-g] realm panel — usuario GLOBAL (cero filas en contact_outlet)\n";
+$pg = runCase($tokenPanelGlobal, 'panel');
+check('(P-g) alcance vacío = sin restricción', [], $pg['scope']);
+check('(P-g) el selector lista las 4', 4, count((array) $pg['outletNames']));
+$pgAll = runCase($tokenPanelGlobal, 'panel', '-', 'all');
+checkTotal('(P-g) "Todas" es el tenant entero (1337, a mano)', $TOTAL_TENANT, $pgAll['total']);
+check('(P-g) Roc NO agrega filtro de outlet', false, str_contains((string) $pgAll['roc'], 'outletId'));
+// Un global sí puede pararse en cualquier sucursal DEL TENANT.
+$pgOne = runCase($tokenPanelGlobal, 'panel', '-', $outlets['O3']);
+checkTotal('(P-g) y puede elegir cualquiera (1000, a mano)', $TOTAL_O3, $pgOne['total']);
+
+// ── (e) el header sigue siendo exclusivo de panel, y pos-app sin cambios ─────
+echo "\n[e] pos-app sin cambios, y el header no cruza de realm\n";
 // El header sigue siendo EXCLUSIVO de panel: una key `api` que lo mande no debe
 // poder saltarse su alcance por esa puerta.
 $apiHeader = runCase($keyRestricted, 'api', '-', $outlets['O3']);
@@ -390,6 +479,11 @@ $dev = runCase($tokenDevice, 'pos-app');
 check('(e) pos-app: el outlet de la fila device (O3)', $outlets['O3'], $dev['outletId']);
 check('(e) pos-app NO define VIEW_OUTLET_IDS', null, $dev['viewOutletIds']);
 checkTotal('(e) pos-app filtra por su sucursal (1000, a mano)', $TOTAL_O3, $dev['total']);
+// El device de O3 lo pareó el usuario RESTRINGIDO, que no tiene O3 asignada. Su
+// alcance NO se hereda: la caja es de la sucursal del PAREO, no de las del
+// contacto que la pareó. Si `realmIsScoped()` dejara entrar a `pos-app`, esta
+// caja se repuntaría sola a O1 y facturaría en otra sucursal.
+check('(e) pos-app NO hereda el alcance de quien pareó el device', [], $dev['scope']);
 
 // ── (h) El idiom viejo no vuelve ─────────────────────────────────────────────
 //

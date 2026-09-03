@@ -76,8 +76,11 @@ $row = ncmExecute(
     []
 );
 
+// La MISMA expresión que `api/v1/outlets.php` — si acá se copiara un criterio
+// propio, el arnés estaría midiendo su copia y no el endpoint que alimenta el
+// selector del sidebar.
 $svc      = new \Punto\Api\Outlets\OutletsService();
-$scopeIds = (($ctx['realm'] ?? '') === 'api')
+$scopeIds = \Punto\Api\Outlets\OutletScope::realmIsScoped((string) ($ctx['realm'] ?? ''))
     ? (\Punto\Api\Outlets\OutletScope::current() ?: null)
     : null;
 $outlets  = $svc->listAll($companyId, $scopeIds);
