@@ -133,33 +133,18 @@ export default function DevicesPage() {
     {
       accessorKey: "registerName",
       header: "Caja",
-      // La caja ASIGNADA sola no explica nada: el admin veía el nombre de la
-      // caja y no entendía por qué ese POS no facturaba. Facturar exige la
-      // TENENCIA (`register_lease`, context/29) y solo un dispositivo puede
-      // tenerla a la vez. Esa respuesta vivía en otra pantalla (Ajustes →
-      // Sucursales → Cajas), así que acá se muestra al lado del nombre.
+      // Solo la caja ASIGNADA, que es un campo del propio dispositivo (a qué
+      // caja está pareado este POS). Los tipos sin caja —screen/kds/display/
+      // print— muestran "—".
       //
-      // Sin acción de "Liberar caja" a propósito: revocar el dispositivo ya
-      // libera la tenencia (DELETE /v1/devices → releaseByDevice), y la
-      // acción dedicada ya existe en Cajas. Duplicarla acá sería un segundo
-      // camino para lo mismo.
-      cell: ({ row }) => {
-        const { registerName, holdsRegister, registerHeldBy, status } = row.original
-        if (!registerName) return "—"
-        return (
-          <div className="flex flex-col items-start gap-1">
-            <span>{registerName}</span>
-            {status === 1 && holdsRegister && (
-              <Badge variant="secondary">En uso acá</Badge>
-            )}
-            {status === 1 && registerHeldBy && (
-              <Badge variant="outline">
-                En uso por {registerHeldBy.deviceName || "otro dispositivo"}
-              </Badge>
-            )}
-          </div>
-        )
-      },
+      // Sin badges de TENENCIA acá: ese dato vive completo en Ajustes →
+      // Sucursales → Cajas, con la marca de tenencia huérfana (el aparato
+      // tenedor ya fue reasignado a otra caja) y la acción "Liberar caja".
+      // Esta columna lo repetía sin el chequeo de huérfana, así que afirmaba
+      // "en uso por <dispositivo>" sobre tenencias que ya no correspondían a
+      // esa caja. Un dato en dos pantallas, correcto en una sola, es peor que
+      // en una.
+      cell: ({ row }) => row.original.registerName ?? "—",
     },
     // Sin columna "Módulo": era el MISMO dato que "Tipo" — `kind` se deriva
     // de `module` (`moduleToKind` en hooks/use-connected-devices.ts), así que
@@ -389,11 +374,16 @@ export default function DevicesPage() {
                 ? `${DEVICE_KIND_LABELS[revokeDeviceTarget.kind]} dejará de funcionar inmediatamente.`
                 : "El dispositivo dejará de funcionar inmediatamente."}
               {" "}Esta acción no se puede deshacer.
-              {revokeDeviceTarget?.holdsRegister && (
+              {/* La caja que se nombra es la que el aparato tiene TOMADA
+                  (`heldRegisterName`), no la asignada: el revoke llama a
+                  `releaseByDevice()`, que libera la tenencia del dispositivo
+                  sea sobre la caja que sea. Nombrar la asignada mentía en el
+                  caso del aparato reasignado que quedó reteniendo la vieja. */}
+              {revokeDeviceTarget?.holdsRegister && revokeDeviceTarget.heldRegisterName && (
                 <>
                   {" "}Tiene tomada la caja{" "}
-                  <strong>{revokeDeviceTarget.registerName}</strong>: al revocarlo queda libre para
-                  otro dispositivo.
+                  <strong>{revokeDeviceTarget.heldRegisterName}</strong>: al revocarlo queda libre
+                  para otro dispositivo.
                 </>
               )}
               {revokeDeviceTarget && revokeDeviceTarget.activeSessions > 1 && (

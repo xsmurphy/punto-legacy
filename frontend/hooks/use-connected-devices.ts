@@ -37,7 +37,7 @@ export function useConnectedDevices(opts: { showRevoked?: boolean } = {}) {
         status: d.status,
         activeSessions: d.activeSessions,
         holdsRegister: d.holdsRegister ?? false,
-        registerHeldBy: d.registerHeldBy ?? null,
+        heldRegisterName: d.heldRegisterName ?? null,
         historyKinds: d.historyKinds ?? [],
       }
     })
