@@ -8,11 +8,12 @@
  * se edita acá y las dos superficies quedan sincronizadas.
  *
  * Los textos usan los tokens de mercado de `markets.ts` ({docFiscal},
- * {organismo}) y NUNCA literales de un país. Los montos salen de
- * `marketMoney(...)`, nunca escritos a mano.
+ * {organismo}) y NUNCA literales de un país. Precios y cantidades incluidas
+ * NO se escriben acá: el contrato remite a la página de precios, que es la
+ * lista vigente. Así sumar o cambiar un plan no obliga a tocar los legales.
  */
 
-import { getMarket, marketMoney } from "@/lib/site/markets"
+import { getMarket } from "@/lib/site/markets"
 
 export type SeccionLegal = {
   titulo: string
@@ -46,10 +47,6 @@ export const EMPRESA = {
   app: "app.punto.la",
   vigencia: "3 de septiembre de 2026",
 } as const
-
-const PRECIO = marketMoney(market.plan.precio, market)
-const PERIODO = market.plan.periodo
-const CREDITOS = new Intl.NumberFormat("es-PY").format(market.plan.creditosIa)
 
 /**
  * Ruta de la política de reembolsos. Vive suelta porque los Términos la
@@ -112,7 +109,7 @@ export const TERMINOS: DocumentoLegal = {
     {
       titulo: "Plan, precio y forma de pago",
       parrafos: [
-        `Punto tiene un solo plan, con todo el sistema incluido. El precio es de ${PRECIO} ${PERIODO}, en ${market.moneda.codigo}.`,
+        `El comercio contrata el plan que elija entre los publicados en ${EMPRESA.sitio}/precios. Ahí figuran, siempre vigentes, el precio de cada uno, sobre qué se cobra y qué incluye. Se factura en ${market.moneda.codigo}.`,
         "El ciclo es mensual y se renueva automáticamente mientras la cuenta esté activa. Cada renovación se cobra por adelantado, al inicio del período.",
         "El cobro se procesa a través de dLocal Go, que acepta tarjeta y transferencia local. Los datos completos de la tarjeta se ingresan en el entorno del procesador de pagos: nosotros no los vemos ni los guardamos.",
         "Los precios que publicamos incluyen los impuestos aplicables: lo que se ve es lo que se paga. Por cada cobro emitimos el comprobante fiscal a nombre de los datos que el comercio tenga cargados en su cuenta.",
@@ -121,7 +118,7 @@ export const TERMINOS: DocumentoLegal = {
     {
       titulo: "Créditos de IA",
       parrafos: [
-        `El plan incluye ${CREDITOS} créditos de inteligencia artificial por mes, que cubren el uso de Punto AI: preguntar por los números del negocio, pedir un reporte, leer una factura de compra con la cámara.`,
+        `El plan contratado incluye una cantidad de créditos de inteligencia artificial por mes, publicada en ${EMPRESA.sitio}/precios. Cubren el uso de Punto AI: preguntar por los números del negocio, pedir un reporte, leer una factura de compra con la cámara.`,
         "Los créditos se renuevan al inicio de cada ciclo mensual y no se acumulan: lo que no se usa en el mes se pierde.",
         "Cuando se agotan, el resto del sistema sigue funcionando con normalidad — solo dejan de estar disponibles las funciones de IA hasta la renovación. Si el comercio necesita más, puede comprar créditos adicionales.",
       ],
@@ -252,7 +249,8 @@ export const PRIVACIDAD: DocumentoLegal = {
       ],
     },
     {
-      titulo: "Los dos roles: cuándo decidimos nosotros y cuándo decide el comercio",
+      titulo:
+        "Los dos roles: cuándo decidimos nosotros y cuándo decide el comercio",
       parrafos: [
         "Esta es la sección más importante de todo el documento, porque define quién responde por qué.",
         "Respecto de los datos de la CUENTA del comercio — el teléfono del titular, el nombre, el email, el {docFiscal}, los usuarios del equipo, los datos de facturación — nosotros somos los responsables: decidimos para qué se usan y respondemos por su tratamiento.",
@@ -262,9 +260,7 @@ export const PRIVACIDAD: DocumentoLegal = {
     },
     {
       titulo: "Qué datos tratamos",
-      parrafos: [
-        "Agrupados por origen, esto es lo que pasa por el sistema:",
-      ],
+      parrafos: ["Agrupados por origen, esto es lo que pasa por el sistema:"],
       lista: [
         "De la cuenta: teléfono del titular, nombre, email, {docFiscal} y razón social de la empresa, sucursales, cajas, usuarios del equipo con sus roles y permisos.",
         "De la operación: ventas, comprobantes emitidos, compras, movimientos de stock, cajas abiertas y cerradas, órdenes, y los contactos que el comercio carga sobre sus propios clientes y proveedores.",
@@ -452,7 +448,7 @@ export const REEMBOLSOS: DocumentoLegal = {
     {
       titulo: "Qué cubre esta política",
       parrafos: [
-        `Punto le cobra al comercio dos cosas, y ninguna más: la suscripción mensual al sistema —${PRECIO} ${PERIODO}— y los packs de créditos de IA que el comercio compre aparte cuando quiere más de los incluidos en el plan.`,
+        "Punto le cobra al comercio dos cosas, y ninguna más: la suscripción al plan contratado y los packs de créditos de IA que compre aparte cuando quiere más de los incluidos en ese plan.",
         "No cobramos por comprobante emitido, por usuario, por producto ni por transacción. No hay costo de instalación, de puesta en marcha ni de baja. Si alguna vez ves un cargo distinto de esos dos conceptos, escribinos: es un error y lo devolvemos.",
         "Esta política aplica a los cobros que hace Punto. No aplica a los cobros que el comercio le hace a sus propios clientes desde la caja: esos son entre el comercio y su cliente, y la devolución la resuelve el comercio con sus propias reglas.",
       ],
@@ -480,7 +476,7 @@ export const REEMBOLSOS: DocumentoLegal = {
     {
       titulo: "Créditos de IA",
       parrafos: [
-        `Los ${CREDITOS} créditos mensuales son parte de la suscripción, no un producto aparte: no se reembolsan por separado, no se acumulan de un mes al otro y no se convierten en dinero ni en descuento.`,
+        "Los créditos mensuales que trae el plan son parte de la suscripción, no un producto aparte: no se reembolsan por separado, no se acumulan de un mes al otro y no se convierten en dinero ni en descuento.",
         "Los packs de créditos que el comercio compra aparte no son reembolsables una vez acreditados en la cuenta, porque quedan disponibles para usar desde ese mismo momento.",
         "La excepción son los casos de la sección anterior: si el pack se cobró dos veces, se cobró por error nuestro o se cobró después de una baja, lo devolvemos igual que la suscripción.",
       ],

@@ -12,7 +12,7 @@ Esta política dice cuándo devolvemos plata y cuándo no, en qué plazo y cómo
 
 ## 1. Qué cubre esta política
 
-Punto le cobra al comercio dos cosas, y ninguna más: la suscripción mensual al sistema —Gs. 295.000 por mes, por sucursal— y los packs de créditos de IA que el comercio compre aparte cuando quiere más de los incluidos en el plan.
+Punto le cobra al comercio dos cosas, y ninguna más: la suscripción al plan contratado y los packs de créditos de IA que compre aparte cuando quiere más de los incluidos en ese plan.
 
 No cobramos por comprobante emitido, por usuario, por producto ni por transacción. No hay costo de instalación, de puesta en marcha ni de baja. Si alguna vez ves un cargo distinto de esos dos conceptos, escribinos: es un error y lo devolvemos.
 
@@ -37,7 +37,7 @@ Hay cuatro situaciones concretas en las que la devolución corresponde y la hace
 
 ## 4. Créditos de IA
 
-Los 10.000 créditos mensuales son parte de la suscripción, no un producto aparte: no se reembolsan por separado, no se acumulan de un mes al otro y no se convierten en dinero ni en descuento.
+Los créditos mensuales que trae el plan son parte de la suscripción, no un producto aparte: no se reembolsan por separado, no se acumulan de un mes al otro y no se convierten en dinero ni en descuento.
 
 Los packs de créditos que el comercio compra aparte no son reembolsables una vez acreditados en la cuenta, porque quedan disponibles para usar desde ese mismo momento.
 

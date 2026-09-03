@@ -41,7 +41,7 @@ El titular es responsable de lo que hagan los usuarios que creó: qué permisos 
 
 ## 4. Plan, precio y forma de pago
 
-Punto tiene un solo plan, con todo el sistema incluido. El precio es de Gs. 295.000 por mes, por sucursal, en PYG.
+El comercio contrata el plan que elija entre los publicados en punto.la/precios. Ahí figuran, siempre vigentes, el precio de cada uno, sobre qué se cobra y qué incluye. Se factura en PYG.
 
 El ciclo es mensual y se renueva automáticamente mientras la cuenta esté activa. Cada renovación se cobra por adelantado, al inicio del período.
 
@@ -51,7 +51,7 @@ Los precios que publicamos incluyen los impuestos aplicables: lo que se ve es lo
 
 ## 5. Créditos de IA
 
-El plan incluye 10.000 créditos de inteligencia artificial por mes, que cubren el uso de Punto AI: preguntar por los números del negocio, pedir un reporte, leer una factura de compra con la cámara.
+El plan contratado incluye una cantidad de créditos de inteligencia artificial por mes, publicada en punto.la/precios. Cubren el uso de Punto AI: preguntar por los números del negocio, pedir un reporte, leer una factura de compra con la cámara.
 
 Los créditos se renuevan al inicio de cada ciclo mensual y no se acumulan: lo que no se usa en el mes se pierde.
 
