@@ -33,9 +33,13 @@ final class SummaryYearService
      * reales. Una vez confirmado en prod, seteá REPORTS_ROLLUP_ENABLED=1 en
      * Coolify y el reporte pasa a O(períodos).
      *
+     * @param list<string> $outletIds Alcance por sucursal (`OutletScope::effectiveIds()`);
+     *                                `[]` = sin filtro, 1 = esa sucursal, 2+ = consolidado
+     *                                acotado. La rama `yearlyLive` no lo mira: filtra por
+     *                                `$roc`, que ya sabe expresar el conjunto.
      * @return array {year, years:[int], months:[{...}]}
      */
-    public function yearly($year, string $roc, string $companyId, ?string $outletId = null, bool $forceRollup = false): array
+    public function yearly($year, string $roc, string $companyId, array $outletIds = [], bool $forceRollup = false): array
     {
         if (!$forceRollup && empty($_ENV['REPORTS_ROLLUP_ENABLED'])) {
             return $this->yearlyLive($year, $roc, $companyId);
@@ -44,9 +48,9 @@ final class SummaryYearService
         $year   = (int) $year;
         $reader = new RollupReader();
 
-        $salesMap    = $reader->monthlyBuckets($companyId, 'sales',    $year, $outletId);
-        $expensesMap = $reader->monthlyBuckets($companyId, 'expenses', $year, $outletId);
-        $returnsMap  = $reader->monthlyBuckets($companyId, 'returns',  $year, $outletId);
+        $salesMap    = $reader->monthlyBuckets($companyId, 'sales',    $year, $outletIds);
+        $expensesMap = $reader->monthlyBuckets($companyId, 'expenses', $year, $outletIds);
+        $returnsMap  = $reader->monthlyBuckets($companyId, 'returns',  $year, $outletIds);
 
         $allMonths = array_unique(array_merge(
             array_keys($salesMap),

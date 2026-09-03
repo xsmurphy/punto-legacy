@@ -431,6 +431,19 @@ check('(P-c) Roc emite IN con las dos', true, str_contains(
 // ser `''` — eso sería el tenant entero para los lectores que no pasan por Roc.
 check('(P-c) el valor único es null, nunca ""', null, $pAll['single']);
 
+// ── (P-c2) EL OTRO CAMINO: los lectores que NO pasan por `Roc::build` ────────
+//
+// El rollup, el inventario y las cuentas arman su filtro con
+// `OutletScope::sqlFilter()` en vez del fragmento de `Roc`. Es el camino que
+// antes cortaba con 422 para un subconjunto y ahora agrega, así que estos son
+// los checks que cubren código nuevo: que el `IN` de dos uuids interpolados sea
+// SQL válido y filtre lo mismo que `Roc`.
+//
+// Se comparan contra los 330 calculados A MANO, no entre sí nada más: si los dos
+// caminos se rompieran igual, "coinciden" no diría nada.
+checkTotal('(P-c2) sqlFilter suma lo mismo que Roc (330, a mano)', $TOTAL_SCOPE, $pAll['totalFiltered']);
+check('(P-c2) y emite el IN con las dos', " AND outletId IN ('{$outlets['O1']}', '{$outlets['O2']}')", $pAll['sqlFilter']);
+
 // (P-d) una sucursal ASIGNADA: solo esa.
 $pOwn = runCase($tokenPanel, 'panel', '-', $outlets['O2']);
 check('(P-d) no aborta', false, $pOwn['aborted']);
@@ -440,6 +453,10 @@ check('(P-d) el valor único es esa sucursal', $outlets['O2'], $pOwn['single']);
 // activa del token (O1). Contrato de 2026-06-13, y es lo que evita que el
 // dropdown del logo sea un cambio de sucursal de facturación encubierto.
 check('(P-d) OUTLET_ID NO sigue al selector: sigue en la activa (O1)', $outlets['O1'], $pOwn['outletId']);
+// El caso de UNA sucursal por el camino de `sqlFilter`: tiene que emitir `=` y
+// no un `IN` de un elemento, y dar el mismo número que `Roc`.
+checkTotal('(P-d) sqlFilter con una sucursal suma igual (30, a mano)', $TOTAL_O2, $pOwn['totalFiltered']);
+check('(P-d) y emite = y no IN', " AND outletId = '{$outlets['O2']}'", $pOwn['sqlFilter']);
 
 // (P-e) una sucursal NO asignada: 403, no un vacío ni un total ajeno. ANTES
 // devolvía los 1000 de O3.
@@ -464,6 +481,11 @@ check('(P-g) el selector lista las 4', 4, count((array) $pg['outletNames']));
 $pgAll = runCase($tokenPanelGlobal, 'panel', '-', 'all');
 checkTotal('(P-g) "Todas" es el tenant entero (1337, a mano)', $TOTAL_TENANT, $pgAll['total']);
 check('(P-g) Roc NO agrega filtro de outlet', false, str_contains((string) $pgAll['roc'], 'outletId'));
+// Y el otro camino tampoco: sin restricción, `sqlFilter` devuelve el fragmento
+// VACÍO. Emitir `IS NULL` o cualquier otra cosa acá le borraría los datos al
+// dueño, que es el usuario más común.
+check('(P-g) sqlFilter no emite fragmento', '', $pgAll['sqlFilter']);
+checkTotal('(P-g) y ve el tenant entero (1337, a mano)', $TOTAL_TENANT, $pgAll['totalFiltered']);
 // Un global sí puede pararse en cualquier sucursal DEL TENANT.
 $pgOne = runCase($tokenPanelGlobal, 'panel', '-', $outlets['O3']);
 checkTotal('(P-g) y puede elegir cualquiera (1000, a mano)', $TOTAL_O3, $pgOne['total']);

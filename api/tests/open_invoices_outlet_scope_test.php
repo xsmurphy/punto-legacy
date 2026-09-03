@@ -144,19 +144,19 @@ try {
     // ── 1. Scope por sucursal ────────────────────────────────────────────────
     check(
         'general() con la sucursal A devuelve SOLO la factura de A',
-        saleIdsOf($svc->general('income', $companyId, null, $outletA)) === [$saleA],
-        'devolvió: ' . implode(',', saleIdsOf($svc->general('income', $companyId, null, $outletA))),
+        saleIdsOf($svc->general('income', $companyId, null, [$outletA])) === [$saleA],
+        'devolvió: ' . implode(',', saleIdsOf($svc->general('income', $companyId, null, [$outletA]))),
         $failures, $checks
     );
     check(
         'general() con la sucursal B devuelve SOLO la factura de B',
-        saleIdsOf($svc->general('income', $companyId, null, $outletB)) === [$saleB],
-        'devolvió: ' . implode(',', saleIdsOf($svc->general('income', $companyId, null, $outletB))),
+        saleIdsOf($svc->general('income', $companyId, null, [$outletB])) === [$saleB],
+        'devolvió: ' . implode(',', saleIdsOf($svc->general('income', $companyId, null, [$outletB]))),
         $failures, $checks
     );
 
     // ── 2. "Todas" consolida ─────────────────────────────────────────────────
-    $todas = saleIdsOf($svc->general('income', $companyId, null, ''));
+    $todas = saleIdsOf($svc->general('income', $companyId, null, []));
     $ambas = [$saleA, $saleB];
     sort($ambas);
     check(
@@ -195,7 +195,7 @@ try {
     // La factura de A quedó saldada por un cobro de B: ya no debe aparecer en
     // el reporte de A. Si alguien filtrara los pagos por outlet, el pago de B
     // sería invisible desde A y la factura seguiría figurando como impaga.
-    $rowsA = $svc->general('income', $companyId, null, $outletA);
+    $rowsA = $svc->general('income', $companyId, null, [$outletA]);
     check(
         'un pago cobrado en la sucursal B salda la factura emitida en A',
         saleIdsOf($rowsA) === [],

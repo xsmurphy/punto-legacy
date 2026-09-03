@@ -103,7 +103,7 @@ final class PaymentMethodsService
             }
         } else {
             $reader  = new RollupReader();
-            $payRows = $reader->paymentsRange($companyId, $from, $to, null);
+            $payRows = $reader->paymentsRange($companyId, $from, $to, []);
             $summary = [];
             foreach ($payRows as $pr) {
                 $summary[] = [

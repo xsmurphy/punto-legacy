@@ -50,19 +50,21 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
 // del dropdown del logo en frontend, 2026-06-13).
 $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID, 'c');
 
-// El outlet que va al ROLLUP. Tiene que salir de `OutletScope::single()` y NO
-// del idiom viejo: `RollupReader::itemSalesRange()` trata `''` como "sin filtro
-// de sucursal", y desde que el realm `api` define `VIEW_OUTLET_ID = ''` para
-// habilitar el `IN (...)` de `Roc::build`, ese idiom le entregaba el TENANT
-// COMPLETO a una key acotada. El fragmento `$roc` de arriba quedaba bien y este
-// valor mal: la misma respuesta con dos alcances distintos.
-$outletId = \Punto\Api\Outlets\OutletScope::single();
-if ($outletId === null) {
-    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-}
+// El alcance que va al ROLLUP. Tiene que salir de `OutletScope::effectiveIds()`
+// y NO del idiom viejo: `RollupReader::itemSalesRange()` trata la lista vacía
+// como "sin filtro de sucursal", y desde que el realm `api` define
+// `VIEW_OUTLET_ID = ''` para habilitar el `IN (...)` de `Roc::build`, ese idiom
+// le entregaba el TENANT COMPLETO a una key acotada. El fragmento `$roc` de
+// arriba quedaba bien y este valor mal: la misma respuesta con dos alcances
+// distintos.
+//
+// Viaja como LISTA y no como valor único porque el rollup agrupa y suma: un
+// usuario con dos sucursales asignadas recibe su consolidado acotado, que es lo
+// que pidió al elegir "Todas". Antes acá había un 422.
+$outletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
 if (($_GET['verify'] ?? '') === '1') {
-    $rollupData = $svc->salesByBrand($from, $to, $roc, (string) COMPANY_ID, true, $outletId);
+    $rollupData = $svc->salesByBrand($from, $to, $roc, (string) COMPANY_ID, true, $outletIds);
     $liveData   = $svc->salesByBrandLive($from, $to, $roc, (string) COMPANY_ID);
     $diff = [];
     $rollupMap = array_column($rollupData, null, 'brandId');
@@ -81,4 +83,4 @@ if (($_GET['verify'] ?? '') === '1') {
     apiOk(['rollup' => $rollupData, 'live' => $liveData, 'diff' => $diff]);
 }
 
-apiOk($svc->salesByBrand($from, $to, $roc, (string) COMPANY_ID, false, $outletId));
+apiOk($svc->salesByBrand($from, $to, $roc, (string) COMPANY_ID, false, $outletIds));

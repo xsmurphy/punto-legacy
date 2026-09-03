@@ -50,16 +50,15 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
 // Roc::build respeta VIEW_OUTLET_ID si está definida (frontend 2026-06-13).
 $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID, 'b');
 
-// Ver el comentario largo en `brands.php`: el outlet que va al ROLLUP sale de
-// `OutletScope::single()` y no del idiom viejo, porque `RollupReader` trata `''`
-// como "sin filtro" y eso le daba el tenant completo a una key acotada.
-$outletId = \Punto\Api\Outlets\OutletScope::single();
-if ($outletId === null) {
-    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-}
+// Ver el comentario largo en `brands.php`: el alcance que va al ROLLUP sale de
+// `OutletScope::effectiveIds()` y no del idiom viejo, porque `RollupReader` trata
+// la lista vacía como "sin filtro" y eso le daba el tenant completo a una key
+// acotada. Lista y no valor único: el rollup agrupa y suma, así que un
+// subconjunto de 2+ sale consolidado en vez de con un 422.
+$outletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
 if (($_GET['verify'] ?? '') === '1') {
-    $rollupData = $svc->salesByCategory($from, $to, $roc, (string) COMPANY_ID, true, $outletId);
+    $rollupData = $svc->salesByCategory($from, $to, $roc, (string) COMPANY_ID, true, $outletIds);
     $liveData   = $svc->salesByCategoryLive($from, $to, $roc, (string) COMPANY_ID);
     $diff = [];
     $rollupMap = array_column($rollupData, null, 'categoryId');
@@ -78,4 +77,4 @@ if (($_GET['verify'] ?? '') === '1') {
     apiOk(['rollup' => $rollupData, 'live' => $liveData, 'diff' => $diff]);
 }
 
-apiOk($svc->salesByCategory($from, $to, $roc, (string) COMPANY_ID, false, $outletId));
+apiOk($svc->salesByCategory($from, $to, $roc, (string) COMPANY_ID, false, $outletIds));

@@ -43,19 +43,18 @@ try {
     apiError($e->getMessage(), 500);
 }
 
-// Ver el comentario largo en `brands.php`: el outlet que va al ROLLUP sale de
-// `OutletScope::single()` y no del idiom viejo, porque `RollupReader` trata `''`
-// como "sin filtro" y eso le daba el tenant completo a una key acotada.
-$outletId = \Punto\Api\Outlets\OutletScope::single();
-if ($outletId === null) {
-    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-}
+// Ver el comentario largo en `brands.php`: el alcance que va al ROLLUP sale de
+// `OutletScope::effectiveIds()` y no del idiom viejo, porque `RollupReader` trata
+// la lista vacía como "sin filtro" y eso le daba el tenant completo a una key
+// acotada. Es una LISTA porque el rollup agrupa y suma: un usuario con dos
+// sucursales asignadas recibe su consolidado en vez del 422 de antes.
+$outletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
 if (($_GET['verify'] ?? '') === '1') {
     // forceRollup=true: ignora el flag REPORTS_ROLLUP_ENABLED para que el diff
     // compare el rollup REAL contra el live (sin esto, con el flag off yearly()
     // delegaría a live y el diff daría siempre vacío).
-    $rollupData = $svc->yearly($year, $roc, (string) COMPANY_ID, $outletId, true);
+    $rollupData = $svc->yearly($year, $roc, (string) COMPANY_ID, $outletIds, true);
     $liveData   = $svc->yearlyLive($year, $roc, (string) COMPANY_ID);
     $diff = [];
     foreach ($rollupData['months'] as $rm) {
@@ -74,4 +73,4 @@ if (($_GET['verify'] ?? '') === '1') {
     apiOk(['rollup' => $rollupData, 'live' => $liveData, 'diff' => $diff]);
 }
 
-apiOk($svc->yearly($year, $roc, (string) COMPANY_ID, $outletId));
+apiOk($svc->yearly($year, $roc, (string) COMPANY_ID, $outletIds));

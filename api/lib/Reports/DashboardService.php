@@ -38,7 +38,14 @@ final class DashboardService
     private mixed $meta = null;   // CaseInsensitiveArray (wrapper) o []
     private array $taxonomyCache = [];
 
-    public function widget(string $name, array $opts, string $roc, string $companyId, string $outletId, string $userId): array
+    /**
+     * @param list<string> $outletIds Alcance por sucursal de esta request
+     *   (`OutletScope::effectiveIds()`): `[]` = sin restricción, 1 = esa
+     *   sucursal, 2+ = las asignadas al usuario. Solo lo miran los widgets que
+     *   NO se sirven de `$roc` — `schedule` (query propia) y los dos que pegan
+     *   al gateway de notificaciones.
+     */
+    public function widget(string $name, array $opts, string $roc, string $companyId, array $outletIds, string $userId): array
     {
         switch ($name) {
             case 'info':                return $this->info($roc, $companyId);
@@ -55,9 +62,9 @@ final class DashboardService
             case 'satisfaction':        return $this->satisfaction($opts, $roc, $companyId);
             case 'orders':              return $this->orders($roc, $companyId);
             case 'tables':              return $this->tables($roc, $companyId);
-            case 'schedule':            return $this->schedule($opts, $roc, $companyId, $outletId);
-            case 'notifications':       return $this->notifyGateway('get_notifications',       $opts, $companyId, $outletId, $userId);
-            case 'notificationsCount':  return $this->notifyGateway('get_notifications_count', $opts, $companyId, $outletId, $userId);
+            case 'schedule':            return $this->schedule($opts, $roc, $companyId, $outletIds);
+            case 'notifications':       return $this->notifyGateway('get_notifications',       $opts, $companyId, $outletIds, $userId);
+            case 'notificationsCount':  return $this->notifyGateway('get_notifications_count', $opts, $companyId, $outletIds, $userId);
             case 'getReminders':        return [];
             default:                    return [];
         }
@@ -389,7 +396,7 @@ final class DashboardService
         ];
     }
 
-    private function schedule(array $opts, string $roc, string $companyId, string $outletId): array
+    private function schedule(array $opts, string $roc, string $companyId, array $outletIds): array
     {
         if (!$this->moduleOn('calendar', $companyId)) {
             return [];
@@ -413,11 +420,16 @@ final class DashboardService
             $res->Close();
         }
 
+        // `orNull: true`: un contacto sin sucursal es agendable en todas, no un
+        // dato faltante. El fragmento va interpolado y `$params` se queda con el
+        // único bind que ya tenía — antes el `outletId = ?` recibía `''` en el
+        // modo "Todas" y Postgres no puede comparar la columna uuid contra un
+        // string vacío.
         $agendables = (int) $this->scalar(
             "SELECT COUNT(*) as count FROM contact
-             WHERE type = 0 AND contactStatus > 0 AND data->>'contactInCalendar' = '1' AND companyId = ?
-             AND (outletId = ? OR outletId IS NULL)",
-            [$companyId, $outletId]
+             WHERE type = 0 AND contactStatus > 0 AND data->>'contactInCalendar' = '1' AND companyId = ?"
+             . \Punto\Api\Outlets\OutletScope::sqlFilter('outletId', $outletIds, true),
+            [$companyId]
         );
         $m = $this->companyMeta($companyId);
         $openFrom = (string) ($m['settingOpenFrom'] ?? '08');
@@ -438,14 +450,22 @@ final class DashboardService
 
     /* ───────────── widgets gateway (API externa) ───────────── */
 
-    private function notifyGateway(string $endpoint, array $opts, string $companyId, string $outletId, string $userId): array
+    /**
+     * El `outlet` de acá NO es SQL: es un parámetro HTTP de una API externa que
+     * acepta UNA sucursal o nada. Un subconjunto de 2+ no se puede expresar en
+     * ese contrato, así que viaja como el consolidado (`''`) — exactamente lo
+     * que ya viajaba para un usuario sin restricción. La alternativa era mandar
+     * una sucursal arbitraria del conjunto, o sea las notificaciones de UNA
+     * presentadas como las de todas las suyas.
+     */
+    private function notifyGateway(string $endpoint, array $opts, string $companyId, array $outletIds, string $userId): array
     {
         $data = [
             'api_key'    => $this->apiKey($companyId),
             'company_id' => self::enc($companyId),
             'user'       => self::enc($userId),
             'type'       => $opts['type'] ?: 'notes',
-            'outlet'     => self::enc($outletId),
+            'outlet'     => self::enc(count($outletIds) === 1 ? $outletIds[0] : ''),
         ];
         $raw = curlContents(API_URL . '/' . $endpoint, 'POST', $data);
         $res = json_decode((string) $raw, true);

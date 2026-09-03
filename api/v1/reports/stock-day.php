@@ -51,18 +51,13 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
 // SÍ tiene sentido (el saldo se agrega company-wide). context/52: el scope
 // viaja BINDEADO al lector único, ya no como fragmento SQL interpolado
 // (`Roc::build`), así que este endpoint no arma más el $roc.
-// `OutletScope::single()` en vez del idiom a mano. Este endpoint es `panel`-only
-// y ahí `single()` devuelve exactamente lo mismo que devolvía el idiom, así que
-// hoy no cambia nada. Se migra igual porque el idiom CAMBIÓ DE SIGNIFICADO
-// cuando el realm `api` empezó a definir `VIEW_OUTLET_ID = ''`: dejarlo escrito
-// a mano es dejar armada la misma fuga que hubo que arreglar en brands,
-// categories y summary_year el día que alguien sume 'api' a este allowlist.
-$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
-if ($effectiveOutletId === null) {
-    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-}
-if (!preg_match($uuidRe, $effectiveOutletId)) {
-    $effectiveOutletId = '';
-}
+// `OutletScope::effectiveIds()` en vez del idiom a mano. Se migró porque el
+// idiom CAMBIÓ DE SIGNIFICADO cuando el realm `api` empezó a definir
+// `VIEW_OUTLET_ID = ''`: dejarlo escrito a mano es dejar armada la misma fuga
+// que hubo que arreglar en brands, categories y summary_year el día que alguien
+// sume 'api' a este allowlist. Y es una LISTA porque el saldo se agrega igual
+// con una sucursal que con tres — el 422 del subconjunto no protegía nada acá.
+// Sin guard de uuid: `effectiveIds()` ya devuelve uuids validados.
+$effectiveOutletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
-apiOk($svc->levels($date, COMPANY_ID, $effectiveOutletId));
+apiOk($svc->levels($date, COMPANY_ID, $effectiveOutletIds));

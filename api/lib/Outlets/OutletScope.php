@@ -211,6 +211,37 @@ final class OutletScope
      */
     public static function single(): ?string
     {
+        $ids = self::effectiveIds();
+        if (count($ids) > 1) {
+            return null;
+        }
+        return $ids[0] ?? '';
+    }
+
+    /**
+     * El alcance de esta request como LISTA — la forma que sí puede expresar los
+     * tres estados sin perder ninguno.
+     *
+     * @return list<string> `[]` = sin filtro por sucursal (el tenant entero);
+     *                      1 elemento = esa sucursal; 2+ = el consolidado
+     *                      ACOTADO a las sucursales del usuario.
+     *
+     * Es la misma pregunta que responden `Roc::build()` (como fragmento SQL) y
+     * `single()` (como valor único), con el MISMO desempate — de hecho `single()`
+     * ahora se deriva de acá, que es la única forma de garantizar que no se
+     * separen otra vez.
+     *
+     * Existe porque `single()` no alcanza y el 422 no es una respuesta aceptable
+     * en el panel. Para el realm `api` sí lo era: del otro lado hay un modelo que
+     * lee "pedí una sucursal a la vez" y reformula. Del otro lado del panel hay
+     * una persona que eligió "Todas" en el selector y espera ver sus números —
+     * devolverle un error en el dashboard, los reportes de marcas, categorías,
+     * balance y flujo de efectivo no es fallar seguro, es no tener la feature.
+     * Los lectores que agregan (SUM/GROUP BY) pueden con una lista perfectamente;
+     * lo que no podían era recibirla.
+     */
+    public static function effectiveIds(): array
+    {
         // Una sucursal puntual gana: es el selector del panel parado en una
         // sucursal, o una consulta con `?outletId=`. `bootstrap.php` ya la
         // validó contra el conjunto (403 si no), así que acá no hay que
@@ -219,19 +250,66 @@ final class OutletScope
             ? (string) \constant('VIEW_OUTLET_ID')
             : (\defined('OUTLET_ID') ? (string) \constant('OUTLET_ID') : '');
         if (preg_match(self::UUID_RE, $v)) {
-            return $v;
+            return [$v];
         }
 
-        // Sin sucursal única: o el consolidado ACOTADO (el conjunto), o el
-        // histórico sin restricción.
-        $set = self::current();
-        if (count($set) > 1) {
-            return null;
+        return self::current();
+    }
+
+    /**
+     * El fragmento SQL del filtro de sucursal para los lectores que NO pasan por
+     * `Roc::build()` — los que consultan el rollup, el inventario y las cuentas.
+     *
+     * @param string       $column  nombre (o `alias.nombre`) de la columna de outlet.
+     * @param list<string> $ids     el alcance (`effectiveIds()`); `[]` = sin filtro.
+     * @param bool         $orNull  incluir además las filas con la columna NULL.
+     *                              Es el caso de `fin_account` y de la agenda del
+     *                              dashboard, donde NULL significa "de todas las
+     *                              sucursales" (una cuenta global del comercio),
+     *                              no "sin dato" — perderlas al acotar el alcance
+     *                              haría desaparecer plata del balance.
+     * @return string Fragmento que arranca con " AND ", o `''` si no hay filtro.
+     *
+     * ── Interpola, no bindea, y es a propósito ───────────────────────────────
+     * Mismo criterio que `Roc::build()`, por una razón concreta de este
+     * codebase: estos lectores arman `$params` a mano y varios insertan binds EN
+     * EL MEDIO del array (las seis fechas que `CashflowService` antepone, el
+     * `contactId` que `OpenInvoicesService` agrega después del outlet, el
+     * `$dateCut` de `Inventory::onHandBulk` — que además DUPLICA el array para
+     * sus dos CTEs). Cambiar un `?` por N corre todos esos binds, y un bind
+     * corrido no rompe: devuelve otro número. Un fragmento interpolado no toca
+     * el array de params, así que el cambio es imposible de desalinear.
+     *
+     * Seguro por construcción, no por confianza: cada id se re-valida contra
+     * `UUID_RE` acá mismo y lo que no matchea se descarta. No es texto del
+     * request — sale de `contact_outlet`— pero la defensa no depende de eso.
+     */
+    public static function sqlFilter(string $column, array $ids, bool $orNull = false): string
+    {
+        $clean = [];
+        foreach ($ids as $id) {
+            $id = (string) $id;
+            if (preg_match(self::UUID_RE, $id)) {
+                $clean[] = $id;
+            }
         }
-        if (count($set) === 1) {
-            return $set[0];
+        $clean = array_values(array_unique($clean));
+
+        if ($clean === []) {
+            // Sin restricción. OJO: no se emite `IS NULL` ni nada — el lector
+            // ve todas las filas, que es el comportamiento histórico del `''`.
+            return '';
         }
-        return '';
+
+        $col  = trim($column);
+        $cond = count($clean) === 1
+            ? "{$col} = '" . $clean[0] . "'"
+            : "{$col} IN ('" . implode("', '", $clean) . "')";
+
+        if ($orNull) {
+            $cond = "({$cond} OR {$col} IS NULL)";
+        }
+        return ' AND ' . $cond;
     }
 
     /**

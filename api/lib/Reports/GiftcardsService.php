@@ -32,15 +32,22 @@ use Punto\Api\Support\DbQueryException;
  */
 final class GiftcardsService
 {
-    /** Gift cards emitidas. $filters: ['singleRow'=>uuid]. */
-    public function detail(array $filters, string $companyId, string $outletId = ''): array
+    /**
+     * Gift cards emitidas. $filters: ['singleRow'=>uuid].
+     *
+     * @param list<string> $outletIds Alcance por sucursal (`OutletScope::effectiveIds()`);
+     *                                `[]` = todas, 2+ = las del usuario.
+     *
+     * El filtro de sucursal va INTERPOLADO por `OutletScope::sqlFilter()` y el
+     * `singleRow` sigue bindeado DESPUÉS: si el alcance ocupara placeholders,
+     * pasar de una sucursal a dos correría ese bind y el `id = ?` empezaría a
+     * comparar contra un uuid de sucursal.
+     */
+    public function detail(array $filters, string $companyId, array $outletIds = []): array
     {
         $params = [$companyId];
-        $sql    = 'SELECT * FROM giftcard WHERE companyid = ?';
-        if ($outletId !== '') {
-            $sql .= ' AND outletid = ?';
-            $params[] = $outletId;
-        }
+        $sql    = 'SELECT * FROM giftcard WHERE companyid = ?'
+                . \Punto\Api\Outlets\OutletScope::sqlFilter('outletid', $outletIds);
         if (!empty($filters['singleRow'])) {
             $sql .= ' AND id = ?';
             $params[] = $filters['singleRow'];

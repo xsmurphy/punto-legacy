@@ -50,11 +50,12 @@ final class CashflowService
     /**
      * @param string $from 'Y-m-d H:i:s'
      * @param string $to   'Y-m-d H:i:s'
-     * @param string $outletId Sucursal del view-scope; '' = todas.
+     * @param list<string> $outletIds Alcance del view-scope (`OutletScope::effectiveIds()`);
+     *                                `[]` = todas, 1 = esa sucursal, 2+ = las del usuario.
      */
-    public function getCashFlow(string $from, string $to, string $companyId, string $outletId = ''): array
+    public function getCashFlow(string $from, string $to, string $companyId, array $outletIds = []): array
     {
-        $accounts = $this->accountBalances($from, $to, $companyId, $outletId);
+        $accounts = $this->accountBalances($from, $to, $companyId, $outletIds);
 
         $opening = 0.0;
         $closing = 0.0;
@@ -63,8 +64,8 @@ final class CashflowService
             $closing += $a['closing'];
         }
 
-        $income  = $this->byCategory($from, $to, $companyId, $outletId, 'income');
-        $expense = $this->byCategory($from, $to, $companyId, $outletId, 'expense');
+        $income  = $this->byCategory($from, $to, $companyId, $outletIds, 'income');
+        $expense = $this->byCategory($from, $to, $companyId, $outletIds, 'expense');
 
         $incomeTotal  = array_sum(array_column($income, 'amount'));
         $expenseTotal = array_sum(array_column($expense, 'amount'));
@@ -100,16 +101,20 @@ final class CashflowService
      *
      * @return list<array<string,mixed>>
      */
-    private function accountBalances(string $from, string $to, string $companyId, string $outletId): array
+    private function accountBalances(string $from, string $to, string $companyId, array $outletIds): array
     {
-        $params = [$companyId];
-        $accWhere = 'a.companyid = ?::uuid AND a.status = 1';
-        if ($outletId !== '') {
-            // `outletid IS NULL` = cuenta global de todas las sucursales: se
-            // incluye siempre, o el efectivo global desaparecería al filtrar.
-            $accWhere .= ' AND (a.outletid = ?::uuid OR a.outletid IS NULL)';
-            $params[] = $outletId;
-        }
+        // Acá se ve por qué el fragmento se INTERPOLA: las seis fechas se
+        // anteponen con `array_merge` más abajo, así que un placeholder de
+        // sucursal quedaría detrás de ellas y cualquier cambio en la cantidad
+        // de sucursales correría los seis binds del rango sin romper nada
+        // visible — el reporte simplemente cambiaría de período.
+        //
+        // `orNull: true`: `outletid IS NULL` = cuenta global de todas las
+        // sucursales, se incluye siempre o el efectivo global desaparecería al
+        // filtrar.
+        $params   = [$companyId];
+        $accWhere = 'a.companyid = ?::uuid AND a.status = 1'
+                  . \Punto\Api\Outlets\OutletScope::sqlFilter('a.outletid', $outletIds, true);
 
         $rows = \ncmRows(
             "SELECT a.accountid, a.name, a.type, a.openingbalance,
@@ -155,16 +160,16 @@ final class CashflowService
      *
      * @return list<array{categoryId:?string,name:string,amount:float}>
      */
-    private function byCategory(string $from, string $to, string $companyId, string $outletId, string $kind): array
+    private function byCategory(string $from, string $to, string $companyId, array $outletIds, string $kind): array
     {
+        // Mismo criterio que `accountBalances()`: fragmento interpolado, los 4
+        // binds del WHERE no se mueven. `orNull` porque un movimiento sin
+        // sucursal es del comercio entero, no un dato faltante.
         $where  = "m.companyid = ?::uuid AND m.status = 1 AND m.kind = ?
                    AND m.source <> 'transfer'
-                   AND m.date >= ?::timestamptz AND m.date <= ?::timestamptz";
+                   AND m.date >= ?::timestamptz AND m.date <= ?::timestamptz"
+                . \Punto\Api\Outlets\OutletScope::sqlFilter('m.outletid', $outletIds, true);
         $params = [$companyId, $kind, $from, $to];
-        if ($outletId !== '') {
-            $where   .= ' AND (m.outletid = ?::uuid OR m.outletid IS NULL)';
-            $params[] = $outletId;
-        }
 
         $rows = \ncmRows(
             "SELECT m.categoryid, COALESCE(c.name, 'Sin categoría') AS name, SUM(m.amount) AS total

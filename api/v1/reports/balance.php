@@ -37,13 +37,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
 require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
 \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'finance.manage');
 
-// Sucursal del view-scope, mismo patrón que reports/stock.php. '' = todas.
-// Ver `OutletScope::single()`: unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID →
-// guard de uuid) y devuelve `null` cuando el alcance es un subconjunto de 2+
-// sucursales, que este reporte no puede expresar en un solo valor.
-$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
-if ($effectiveOutletId === null) {
-    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-}
+// Alcance del view-scope, mismo patrón que reports/stock.php. `[]` = todas.
+// `OutletScope::effectiveIds()` unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID →
+// conjunto asignado) y devuelve los tres estados sin perder ninguno: antes un
+// alcance de 2+ sucursales cortaba con 422 y el dueño de dos locales no tenía
+// balance. Todos los rubros de este reporte SUMAN (efectivo, cobrar, pagar,
+// inventario), así que el consolidado acotado es exactamente lo que pidió.
+$effectiveOutletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
-apiOk((new \Punto\Api\Reports\BalanceService())->get((string) COMPANY_ID, $effectiveOutletId));
+apiOk((new \Punto\Api\Reports\BalanceService())->get((string) COMPANY_ID, $effectiveOutletIds));

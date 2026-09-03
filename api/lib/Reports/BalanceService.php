@@ -40,15 +40,16 @@ require_once __DIR__ . '/../Finance/ObligationsService.php';
 final class BalanceService
 {
     /**
-     * @param string $outletId Sucursal del view-scope; '' = todas.
+     * @param list<string> $outletIds Alcance del view-scope (`OutletScope::effectiveIds()`);
+     *                                `[]` = todas, 1 = esa sucursal, 2+ = las del usuario.
      */
-    public function get(string $companyId, string $outletId = ''): array
+    public function get(string $companyId, array $outletIds = []): array
     {
-        $cash        = $this->cashAccounts($companyId, $outletId);
-        $receivables = $this->receivables($companyId, $outletId);
-        $inventory   = $this->inventoryValue($companyId, $outletId);
+        $cash        = $this->cashAccounts($companyId, $outletIds);
+        $receivables = $this->receivables($companyId, $outletIds);
+        $inventory   = $this->inventoryValue($companyId, $outletIds);
 
-        $payables    = $this->payables($companyId, $outletId);
+        $payables    = $this->payables($companyId, $outletIds);
         $obligations = $this->obligations($companyId);
 
         $cashTotal = array_sum(array_column($cash, 'balance'));
@@ -88,16 +89,16 @@ final class BalanceService
      *
      * @return list<array{accountId:string,name:string,type:string,balance:float}>
      */
-    private function cashAccounts(string $companyId, string $outletId): array
+    private function cashAccounts(string $companyId, array $outletIds): array
     {
-        $where  = 'companyid = ?::uuid AND status = 1';
+        // `orNull: true` porque `outletid IS NULL` = cuenta global: se incluye
+        // siempre, o el efectivo compartido desaparecería al filtrar por
+        // sucursal. El fragmento va interpolado (uuids re-validados), así que
+        // `$params` sigue teniendo un solo bind sin importar cuántas sucursales
+        // alcance el usuario.
+        $where  = 'companyid = ?::uuid AND status = 1'
+                . \Punto\Api\Outlets\OutletScope::sqlFilter('outletid', $outletIds, true);
         $params = [$companyId];
-        if ($outletId !== '') {
-            // `outletid IS NULL` = cuenta global: se incluye siempre, o el
-            // efectivo compartido desaparecería al filtrar por sucursal.
-            $where   .= ' AND (outletid = ?::uuid OR outletid IS NULL)';
-            $params[] = $outletId;
-        }
         $rows = \ncmRows(
             "SELECT accountid, name, type, currentbalance FROM fin_account
               WHERE {$where} ORDER BY type, name",
@@ -116,16 +117,16 @@ final class BalanceService
     }
 
     /** Lo que los clientes deben: `OpenInvoicesService`, la MISMA fuente que el reporte de cuentas por cobrar. */
-    private function receivables(string $companyId, string $outletId): float
+    private function receivables(string $companyId, array $outletIds): float
     {
-        $r = (new OpenInvoicesService())->general('income', $companyId, null, $outletId);
+        $r = (new OpenInvoicesService())->general('income', $companyId, null, $outletIds);
         return (float) ($r['kpi']['totalDebt'] ?? 0);
     }
 
     /** Lo que se le debe a proveedores. Misma fuente que cuentas por pagar. */
-    private function payables(string $companyId, string $outletId): float
+    private function payables(string $companyId, array $outletIds): float
     {
-        $r = (new OpenInvoicesService())->general('outcome', $companyId, null, $outletId);
+        $r = (new OpenInvoicesService())->general('outcome', $companyId, null, $outletIds);
         return (float) ($r['kpi']['totalDebt'] ?? 0);
     }
 
@@ -136,9 +137,9 @@ final class BalanceService
      * REAL pagado por la mercadería (`project_inventory_cost_iva_included`,
      * `context/52`). Desglosar el impuesto es trabajo del contador.
      */
-    private function inventoryValue(string $companyId, string $outletId): float
+    private function inventoryValue(string $companyId, array $outletIds): float
     {
-        $balances = \Punto\App\Domain\Inventory::onHandBulk($companyId, $outletId);
+        $balances = \Punto\App\Domain\Inventory::onHandBulk($companyId, $outletIds);
         $total = 0.0;
         foreach ($balances as $b) {
             $onHand = (float) ($b['onHand'] ?? 0);

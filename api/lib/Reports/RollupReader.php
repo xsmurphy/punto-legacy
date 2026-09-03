@@ -3,6 +3,13 @@ declare(strict_types=1);
 
 namespace Punto\Api\Reports;
 
+// Mismo motivo que en `Roc.php`: el autoloader de `bootstrap.php` resuelve
+// `Punto\Api\Outlets\OutletScope`, pero este lector también lo alcanzan arneses
+// y scripts CLI que no pasan por el bootstrap.
+require_once __DIR__ . '/../Outlets/OutletScope.php';
+
+use Punto\Api\Outlets\OutletScope;
+
 /**
  * RollupReader — lectura del rollup pre-agregado para reportes.
  *
@@ -18,17 +25,31 @@ namespace Punto\Api\Reports;
  * Firmas públicas SIN CAMBIOS respecto a la versión pre-D8 — los callers
  * (SummaryYearService, CategoriesService, BrandsService, PaymentMethodsService)
  * no se tocan.
+ *
+ * ── El alcance por sucursal es una LISTA (2026-09-02) ────────────────────────
+ * Antes cada lector recibía `?string $outletId` y el endpoint cortaba con 422
+ * cuando el usuario alcanzaba un SUBCONJUNTO de 2 o más sucursales, porque ese
+ * estado no entra en un valor único. Para el panel eso no era fallar seguro: la
+ * persona eligió "Todas" y esperaba sus números. Estas tres consultas ya hacen
+ * `GROUP BY` y suman, así que el subconjunto sale gratis con un `IN (...)` — lo
+ * único que faltaba era poder recibirlo.
+ *
+ * El fragmento lo arma `OutletScope::sqlFilter()`, que INTERPOLA los uuids en
+ * vez de bindearlos (ver su docblock): así el `$params` que cada método arma a
+ * mano no cambia de largo según cuántas sucursales haya, y no hay forma de
+ * correr los binds sin darse cuenta.
  */
 final class RollupReader
 {
     /**
+     * @param list<string> $outletIds Alcance por sucursal; `[]` = sin filtro.
      * @return array<int, array{cnt:int,total:float,tax:float,discount:float,qty:float}>
      *         map month(1-12) => métricas. domain: 'sales'|'expenses'|'returns'.
      */
-    public function monthlyBuckets(string $companyId, string $domain, int $year, ?string $outletId): array
+    public function monthlyBuckets(string $companyId, string $domain, int $year, array $outletIds): array
     {
         if ($domain === 'expenses') {
-            return $this->monthlyBucketsFromReportRollup($companyId, $domain, $year, $outletId);
+            return $this->monthlyBucketsFromReportRollup($companyId, $domain, $year, $outletIds);
         }
         if ($domain !== 'sales' && $domain !== 'returns') {
             return [];
@@ -46,12 +67,11 @@ final class RollupReader
             ? "kind IN ('contado', 'credito') AND status = 'vigente'"
             : "kind = 'devolucion'";
 
-        $params = [$companyId, $from, $to];
-        $outletSql = '';
-        if ($outletId !== null && $outletId !== '') {
-            $outletSql = ' AND outletid = ?';
-            $params[]  = $outletId;
-        }
+        // Interpolado, no bindeado: `$params` queda con los mismos 3 binds
+        // (companyid + los dos extremos del rango) tenga el alcance 0, 1 o N
+        // sucursales.
+        $params    = [$companyId, $from, $to];
+        $outletSql = OutletScope::sqlFilter('outletid', $outletIds);
 
         $rs = ncmExecute(
             // tax = taxtotal (SUM(itemsoldtax) sin filtrar por tasa), NO
@@ -114,14 +134,52 @@ final class RollupReader
     }
 
     /**
-     * 'expenses' — sin cambios, sigue en report_rollup (E2 la migra).
+     * 'expenses' — sigue en report_rollup (E2 la migra).
+     *
+     * ── Acá el subconjunto NO puede reusar ninguna de las dos ramas viejas ───
+     * `report_rollup` guarda, por mes, UNA fila por sucursal (`GROUP BY
+     * outletid` en la mig 155) MÁS una fila con `outletid IS NULL` que ya trae
+     * el total del tenant pre-sumado. Por eso:
+     *
+     *   - sin filtro → la fila NULL, que es exactamente ese total;
+     *   - una sucursal → su fila;
+     *   - un subconjunto → NINGUNA fila lo representa. Leer la NULL daría el
+     *     tenant COMPLETO (más sucursales de las que el usuario alcanza) y leer
+     *     una sola daría de menos. Hay que sumar las filas de esas sucursales,
+     *     que es lo que hace la tercera rama.
+     *
+     * `qty` viene NULL para este dominio (la mig 155 no lo escribe), así que el
+     * `COALESCE` de la suma reproduce el 0 que ya devolvían las otras dos ramas.
+     *
+     * @param list<string> $outletIds `[]` = sin filtro.
      */
-    private function monthlyBucketsFromReportRollup(string $companyId, string $domain, int $year, ?string $outletId): array
+    private function monthlyBucketsFromReportRollup(string $companyId, string $domain, int $year, array $outletIds): array
     {
         $from = sprintf('%04d-01-01', $year);
         $to   = sprintf('%04d-12-31', $year);
 
-        if ($outletId !== null && $outletId !== '') {
+        if (count($outletIds) > 1) {
+            // El fragmento interpola los uuids, así que los 4 binds siguen
+            // siendo los mismos que en las otras dos ramas.
+            $rs = ncmExecute(
+                "SELECT EXTRACT(MONTH FROM periodStart)::int AS month,
+                        COALESCE(SUM(cnt), 0)      AS cnt,
+                        COALESCE(SUM(total), 0)    AS total,
+                        COALESCE(SUM(tax), 0)      AS tax,
+                        COALESCE(SUM(discount), 0) AS discount,
+                        COALESCE(SUM(qty), 0)      AS qty
+                 FROM report_rollup
+                 WHERE companyId = ?
+                   AND domain = ?
+                   AND periodType = 'month'
+                   AND periodStart BETWEEN ?::date AND ?::date"
+                   . OutletScope::sqlFilter('outletId', $outletIds) . "
+                 GROUP BY month",
+                [$companyId, $domain, $from, $to],
+                false,
+                true
+            );
+        } elseif ($outletIds !== []) {
             $rs = ncmExecute(
                 "SELECT EXTRACT(MONTH FROM periodStart)::int AS month,
                         cnt, total, tax, discount, qty
@@ -131,7 +189,7 @@ final class RollupReader
                    AND periodType = 'month'
                    AND periodStart BETWEEN ?::date AND ?::date
                    AND outletId = ?",
-                [$companyId, $domain, $from, $to, $outletId],
+                [$companyId, $domain, $from, $to, $outletIds[0]],
                 false,
                 true
             );
@@ -193,17 +251,15 @@ final class RollupReader
      * acá se pliegan en un solo total por ítem — igual que el dominio
      * 'item_sales' viejo, que no tenía categoría como dimensión propia.
      */
-    public function itemSalesRange(string $companyId, string $from, string $to, ?string $outletId): array
+    /** @param list<string> $outletIds Alcance por sucursal; `[]` = sin filtro. */
+    public function itemSalesRange(string $companyId, string $from, string $to, array $outletIds): array
     {
         $fromDate = substr($from, 0, 10);
         $toDate   = substr($to,   0, 10);
 
-        $params = [$companyId, $fromDate, $toDate];
-        $outletSql = '';
-        if ($outletId !== null && $outletId !== '') {
-            $outletSql = ' AND outletid = ?';
-            $params[]  = $outletId;
-        }
+        // 3 binds fijos: el fragmento de sucursal va interpolado.
+        $params    = [$companyId, $fromDate, $toDate];
+        $outletSql = OutletScope::sqlFilter('outletid', $outletIds);
 
         $rs = ncmExecute(
             "SELECT itemid::text AS itemid,
@@ -258,17 +314,15 @@ final class RollupReader
      * rollup_payments_day sí guarda kind=devolucion (para context/47) pero
      * incluirlo acá rompería la paridad con la rama live.
      */
-    public function paymentsRange(string $companyId, string $from, string $to, ?string $outletId): array
+    /** @param list<string> $outletIds Alcance por sucursal; `[]` = sin filtro. */
+    public function paymentsRange(string $companyId, string $from, string $to, array $outletIds): array
     {
         $fromDate = substr($from, 0, 10);
         $toDate   = substr($to,   0, 10);
 
-        $params = [$companyId, $fromDate, $toDate];
-        $outletSql = '';
-        if ($outletId !== null && $outletId !== '') {
-            $outletSql = ' AND outletid = ?';
-            $params[]  = $outletId;
-        }
+        // 3 binds fijos: el fragmento de sucursal va interpolado.
+        $params    = [$companyId, $fromDate, $toDate];
+        $outletSql = OutletScope::sqlFilter('outletid', $outletIds);
 
         $rs = ncmExecute(
             "SELECT method,
@@ -318,15 +372,25 @@ final class RollupReader
      * context/47-reportes-personalizados-y-export.md va a consumir (F0,
      * catálogo + ejecutor).
      *
-     * @param array{outletId?:string,registerId?:string,userId?:string,kind?:string,status?:string,channel?:string} $filters
+     * `outletId` es el ÚNICO filtro que acepta además una LISTA de uuids (el
+     * alcance de un usuario con varias sucursales asignadas): es la dimensión
+     * que gobierna el view-scope, y ahí "2 o más" es un estado real y no una
+     * consulta mal armada. El resto siguen siendo valores únicos bindeados.
+     *
+     * @param array{outletId?:string|list<string>,registerId?:string,userId?:string,kind?:string,status?:string,channel?:string} $filters
      */
     public function salesDaily(string $companyId, string $from, string $to, array $filters = []): array
     {
         $where  = ['companyid = ?', 'day BETWEEN ?::date AND ?::date'];
         $params = [$companyId, substr($from, 0, 10), substr($to, 0, 10)];
 
+        // Interpolado y fuera del bucle de binds: agregar N placeholders en el
+        // medio de `$params` es precisamente lo que `sqlFilter()` evita.
+        $outletIds = $filters['outletId'] ?? [];
+        $outletIds = is_array($outletIds) ? $outletIds : [(string) $outletIds];
+        $outletSql = OutletScope::sqlFilter('outletid', $outletIds);
+
         $columnByFilter = [
-            'outletId'   => 'outletid',
             'registerId' => 'registerid',
             'userId'     => 'userid',
             'kind'       => 'kind',
@@ -341,7 +405,8 @@ final class RollupReader
         }
 
         $rs = ncmExecute(
-            'SELECT * FROM rollup_sales_day WHERE ' . implode(' AND ', $where) . ' ORDER BY day',
+            'SELECT * FROM rollup_sales_day WHERE ' . implode(' AND ', $where)
+                . $outletSql . ' ORDER BY day',
             $params,
             false,
             true
