@@ -569,7 +569,11 @@ anterior: el catálogo ya existe). Podría ir en paralelo si hubiera capacidad.
 - `context/47-reportes-personalizados-y-export.md` — **F0 es el prerequisito
   real** (D8).
 - `context/55-franquicias.md` — el franquiciador es el perfil power user donde
-  el plan alto se justifica solo.
+  el plan alto se justifica solo. Su acceso por MCP vive ALLÁ (D8 + F6, 
+  2026-09-03), no acá: la key sigue siendo mono-tenant y de realm `api`, y lo
+  que cambia son tools `punto_franchise_*` propias sobre el servicio de
+  supervisión. Las `punto_get_*` de este doc NO se le exponen — son lectura
+  completa del tenant y contradicen el D3 de aquel.
 - `context/09-costos-y-creditos.md` — qué absorbe Punto y qué se factura.
 - `context/08-convenciones-criticas.md` §60 — un cliente HTTP = un realm; la
   disciplina que D4 hereda.

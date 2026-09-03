@@ -1,7 +1,9 @@
 # Franquicias — el franquiciador supervisa, no manda
 
 > **Estado:** plan cerrado 2026-08-28 (D1–D7 decididas por el owner). Sin
-> implementar. La tabla `franchiser_to_tenant` YA existe en prod (mig 08,
+> implementar. **D8 + F6 (acceso por MCP) agregados 2026-09-03**: el owner
+> cerró el TECHO (la key ve exactamente lo que autoriza el D3), el resto del
+> D8 es propuesta sin su OK. La tabla `franchiser_to_tenant` YA existe en prod (mig 08,
 > 0 filas) y su modelo está aceptado en
 > [ADR-001](adr/ADR-001-franchiser-tenant-acceso.md) — este doc NO lo relitiga,
 > lo lleva al stack nuevo.
@@ -142,6 +144,59 @@ muestra hasta el cierre del día anterior, y lo dice en pantalla. "Hoy en vivo"
 es una fase aparte (F4) y no bloquea nada: un franquiciador mira tendencias, no
 opera la caja.
 
+### D8 [?] — El MCP del franquiciador hereda el techo del panel, y NO es una key cross-tenant
+
+*(propuesta 2026-09-03, sin OK del owner salvo el techo, que sí cerró: la key ve
+exactamente lo que autoriza el D3, ni un campo más.)*
+
+El pedido es "que un franquiciador tenga una API key del MCP que le habilite
+acceder a todas sus franquicias". Se puede, pero **no** como variante de la key
+que ya existe. Dos razones, y la segunda es la que manda.
+
+**La primera es mecánica.** Una key del MCP es hoy una fila de `auth_session`
+con `companyid` / `userid` / `roleid` (context/58 M0), y todo endpoint resuelve
+por `COMPANY_ID`. No hay ningún eje cross-tenant en el mecanismo. Hacer que un
+token valga para varias empresas es exactamente la clase de cambio —una
+credencial con alcance de más— que causó el leak del 2026-08-26.
+
+**La segunda es de alcance.** Las tools de lectura del catálogo compartido
+(`frontend/lib/agent/read-tools.ts`, expuestas como `punto_get_*`) son lectura
+COMPLETA del tenant: contactos, movimientos de finanzas, transacciones, stock,
+cajas. El D3 dice que el franquiciador no ve nada de eso. Darle esas tools
+sobre su red no relaja el D3: lo elimina.
+
+**La forma correcta no toca la key.** El franquiciador es un tenant normal
+(D6), así que su key es una key común de realm `api`, emitida contra SU
+`companyId`. Lo que se agrega es un grupo de tools nuevo —`punto_franchise_*`—
+que pega contra `/v1/franchise/*`, o sea contra el MISMO
+`FranchiseSupervisionService` de la F2, que ya resuelve el conjunto
+server-side desde `AUTHED_COMPANY_ID` (D5) y ya proyecta solo lo del D3. El
+token nunca deja de ser mono-tenant; el que sabe de varias empresas es el
+servicio, como ya lo sabe para el panel.
+
+Consecuencias que hay que respetar al implementarlo:
+
+- **El conjunto se re-resuelve en CADA llamada**, nunca se congela en el `meta`
+  de la key. Es lo que hace que el revoke del D4 tenga efecto: un franquiciado
+  que pasa a `status = 2` desaparece de la respuesta siguiente, sin rotar nada.
+- **Las tools se registran condicionalmente.** El transporte
+  (`frontend/app/api/mcp/route.ts`) hoy registra el catálogo entero para toda
+  key. Un tenant sin franquicias aceptadas, o cuyo usuario no tiene
+  `franchise.supervise.view`, no debe VER las tools de franquicia — no alcanza
+  con que devuelvan 403. Un catálogo lleno de tools que siempre fallan le
+  enseña al modelo del cliente a ignorar los errores.
+- **Permisos ⊆ usuario sigue rigiendo** (context/58 D6): la key hereda
+  `franchise.supervise.view` del operador que la emitió, o no lo tiene.
+- **Costo por llamada.** Una tool de franquicia abanica sobre N tenants: una
+  llamada del cliente son N lecturas de rollup. El rate limit por key de
+  context/58 §Rate limit está calibrado para 1 tenant por llamada y hay que
+  recalibrarlo, no heredarlo.
+- **La auditoría tiene dos lados.** M0 audita los GET del realm `api` en el
+  `tenant_audit` del dueño de la key. Acá el franquiciado también tiene que
+  poder ver que lo leyeron: si puede revocar (D4), necesita el dato sobre el
+  que decide. Propuesta: una fila también en el `tenant_audit` del
+  franquiciado. Es lo único de este D8 que agrega escritura nueva.
+
 ## 4. Fases
 
 | Fase | Qué entrega | Depende de |
@@ -152,6 +207,7 @@ opera la caja.
 | **F3** | UI `/franquicias`: listado de la red, ficha por franquicia, comparativa. | F2 |
 | **F4** | "Hoy" en vivo (agregado, mismo servicio) y export. | F3 |
 | **F5** | Billing: el franquiciador es un add-on o un plan. Producto, no arquitectura. | F3 |
+| **F6** | Tools `punto_franchise_*` en el MCP, sobre el mismo servicio de F2 y con el mismo techo del D3. Registro condicional en el transporte. | F2 |
 
 ## 5. El arnés no es opcional
 
@@ -167,6 +223,16 @@ F2 no se mergea sin `api/tests/franchise_isolation_test.php`, mismo patrón que
 - El conjunto sale de `AUTHED_COMPANY_ID`, no de un parámetro (chequeo estático,
   como el caso (e) del arnés de items).
 
+Y para la F6, en el mismo arnés:
+
+- Una key de realm `api` de un tenant SIN franquicias aceptadas no ve las tools
+  `punto_franchise_*` en el listado del catálogo.
+- Una key cuyo usuario no tiene `franchise.supervise.view` tampoco las ve.
+- Revocar (`status = 2`) saca al franquiciado de la respuesta de la llamada
+  SIGUIENTE, sin rotar ni reemitir la key.
+- Las tools de franquicia devuelven la misma proyección que `/v1/franchise/*`:
+  el chequeo de `cogs` corre sobre las dos superficies, no sobre una.
+
 ## 6. Arquitecturas rechazadas (no volver a proponerlas)
 
 - **`company.parentId` como fuente de acceso** — un solo padre, y mezcla
@@ -179,6 +245,17 @@ F2 no se mergea sin `api/tests/franchise_isolation_test.php`, mismo patrón que
 - **Leer las tablas operativas con un `IN (tenantIds)`** — es el patrón que
   convierte cada query nueva en una decisión de seguridad. Los rollups acotan
   por forma.
+- **Una API key con alcance multi-tenant** — ver D8. El token sigue siendo
+  mono-tenant; el que conoce la red es el servicio. Una credencial que vale
+  para varias empresas es la forma del leak del 2026-08-26.
+- **Exponerle al franquiciador las tools `punto_get_*` del catálogo común** —
+  son lectura completa del tenant (contactos, finanzas, stock, cajas) y
+  contradicen el D3 entero. Las tools de franquicia son propias y salen del
+  servicio de la F2.
+- **Un MCP que vea más que `/franquicias`** — evaluado y descartado por el
+  owner el 2026-09-03. Dos definiciones de qué puede ver un franquiciador
+  divergen sin falta, y la más permisiva sería justo la que no tiene pantalla
+  donde auditarla.
 
 ## 7. Preguntas abiertas para el owner
 
@@ -188,3 +265,8 @@ F2 no se mergea sin `api/tests/franchise_isolation_test.php`, mismo patrón que
    le pone? (Cambia la ficha de F3.)
 3. ¿Un franquiciado puede ver que es supervisado por más de uno? (El modelo lo
    permite; la UI de F1 tiene que mostrarlos a todos.)
+4. ¿El franquiciado ve en su panel que el franquiciador lo leyó por MCP, y con
+   qué grano? (D8, último punto. Sin esto, "puede revocar" es una decisión sin
+   dato sobre el que decidir.)
+5. ¿La F6 entra en el mismo add-on de la F5, o el acceso por MCP se cobra
+   aparte? (Cambia solo el producto, no la arquitectura.)
