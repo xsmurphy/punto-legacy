@@ -381,8 +381,7 @@ declara el criterio y ofrece ver el neto de caja al lado.
 | Fase | Qué entrega | Depende de |
 |------|-------------|-----------|
 | **G0** | **Medir**: cuántas compras a crédito impagas hay y cuántas traen categoría. Si son marginales, el orden de G1/G2 se invierte. | — |
-| **G1** | Excluir `source = 'purchase_payment'` del corte por categoría/centro de costo (D2). Solo, deja de contar la compra a crédito en "Proveedores" al pagarse. | — |
-| **G2** | Sumar las compras a crédito por fecha de compra, reusando `resolveCategorySplit()` (D3). Es el corazón del devengado. | G1 |
+| **G1+G2** | **Van JUNTAS, no se shipean por separado.** G1 excluye `source = 'purchase_payment'` del corte por categoría/centro de costo (D2) y G2 suma las compras a crédito por fecha de compra reusando `resolveCategorySplit()` (D3). G1 sola REGRESA: hoy la compra a crédito al menos aparece como "Proveedores", y excluirla sin haber sumado todavía el devengado la haría desaparecer del reporte. | — |
 | **G3** | Cartel de criterio + neto de caja al lado (D5). | G2 |
 | **G4** | Mismo tratamiento para el centro de costo, que hoy también se pierde en el pago. | G2 |
 
