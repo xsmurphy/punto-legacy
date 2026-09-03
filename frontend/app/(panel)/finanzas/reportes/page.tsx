@@ -21,6 +21,7 @@ function ReportTable({
   nameHeader,
   emptyTitle,
   emptyDescription,
+  showCode = false,
 }: {
   data: FinanceReportRow[]
   isLoading: boolean
@@ -29,6 +30,8 @@ function ReportTable({
   nameHeader: string
   emptyTitle: string
   emptyDescription: string
+  /** El corte por cuenta no lleva código contable; los otros dos sí. */
+  showCode?: boolean
 }) {
   const { data: bootstrap } = useBootstrap()
 
@@ -40,6 +43,24 @@ function ReportTable({
         cell: ({ row }) => <span className="font-medium">{row.original.name}</span>,
         meta: { label: nameHeader },
       },
+      // El código va al lado del nombre y no al final: quien exporta esto lo
+      // hace para cruzarlo contra el plan de cuentas, así que es parte de la
+      // identidad de la fila, no un dato accesorio.
+      ...(showCode
+        ? [
+            {
+              accessorKey: "code",
+              header: "Código",
+              cell: ({ row }: { row: { original: FinanceReportRow } }) =>
+                row.original.code ? (
+                  <span className="tabular-nums text-muted-foreground">{row.original.code}</span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                ),
+              meta: { label: "Código" },
+            } satisfies ColumnDef<FinanceReportRow>,
+          ]
+        : []),
       {
         accessorKey: "income",
         header: "Ingresos",
@@ -122,6 +143,7 @@ export default function FinanzasReportesPage() {
             data={byCategory.data?.rows ?? []}
             isLoading={byCategory.isLoading}
             exportFileName="finanzas-por-categoria"
+            showCode
             nameHeader="Categoría"
             emptyTitle="Sin movimientos en el período"
             emptyDescription="Ajustá el rango de fechas y volvé a consultar."
@@ -138,6 +160,7 @@ export default function FinanzasReportesPage() {
             data={byCostCenter.data?.rows ?? []}
             isLoading={byCostCenter.isLoading}
             exportFileName="finanzas-por-centro-de-costo"
+            showCode
             nameHeader="Centro de costo"
             emptyTitle="Sin movimientos en el período"
             emptyDescription="Ajustá el rango de fechas y volvé a consultar."

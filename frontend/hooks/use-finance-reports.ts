@@ -6,6 +6,13 @@ import { api } from "@/lib/api-client"
 export interface FinanceReportRow {
   id: string | null
   name: string
+  /**
+   * Código contable externo de la categoría o del centro de costo — lo que
+   * cruza la taxonomía de Punto con el plan de cuentas del contador. `null`
+   * cuando no se cargó, en la fila de lo no clasificado, y siempre en el corte
+   * por cuenta, que no lleva código.
+   */
+  code: string | null
   income: number
   expense: number
   net: number

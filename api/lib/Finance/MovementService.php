@@ -163,16 +163,16 @@ final class MovementService
      * por categoría (agregación SQL, no trunca como list()). Incluye una fila
      * "Sin categoría" (id null) para movimientos con categoryid NULL.
      *
-     * @return list<array{id:?string,name:string,income:float,expense:float,net:float}>
+     * @return list<array{id:?string,name:string,code:?string,income:float,expense:float,net:float}>
      */
     public function totalsByCategory(string $companyId, string $from, string $to): array
     {
         $rs = ncmExecute(
-            "SELECT c.categoryid, c.name, m.kind, COALESCE(SUM(m.amount), 0) AS total
+            "SELECT c.categoryid, c.name, c.code, m.kind, COALESCE(SUM(m.amount), 0) AS total
                FROM fin_movement m
                LEFT JOIN fin_category c ON c.categoryid = m.categoryid
               WHERE m.companyid = ? AND m.status = 1 AND m.date BETWEEN ? AND ?
-              GROUP BY c.categoryid, c.name, m.kind",
+              GROUP BY c.categoryid, c.name, c.code, m.kind",
             [$companyId, $from, $to],
             false,
             true
@@ -184,12 +184,13 @@ final class MovementService
      * Reporte "Por cuenta": ingresos/egresos/neto del período agrupados por
      * cuenta. Análogo a totalsByCategory().
      *
-     * @return list<array{id:?string,name:string,income:float,expense:float,net:float}>
+     * @return list<array{id:?string,name:string,code:?string,income:float,expense:float,net:float}>
      */
     public function totalsByAccount(string $companyId, string $from, string $to): array
     {
         $rs = ncmExecute(
-            "SELECT a.accountid, a.name, m.kind, COALESCE(SUM(m.amount), 0) AS total
+            "SELECT a.accountid, a.name, NULL::varchar AS code, m.kind,
+                    COALESCE(SUM(m.amount), 0) AS total
                FROM fin_movement m
                LEFT JOIN fin_account a ON a.accountid = m.accountid
               WHERE m.companyid = ? AND m.status = 1 AND m.date BETWEEN ? AND ?
@@ -217,6 +218,16 @@ final class MovementService
                     $byId[$key] = [
                         'id'      => $id,
                         'name'    => $id !== null ? (string) $f['name'] : $nullLabel,
+                        // Código contable EXTERNO (`AccountingCode`): es lo que
+                        // cruza esta taxonomía con el plan de cuentas del
+                        // contador. Se cargaba en la categoría y el centro de
+                        // costo pero no salía en NINGÚN reporte, así que el
+                        // dato existía sin poder usarse para lo único que
+                        // existe. Null para "Sin categoría" y para el reporte
+                        // por cuenta, que no lleva código.
+                        'code'    => ($id !== null && ($f['code'] ?? null) !== null)
+                            ? (string) $f['code']
+                            : null,
                         'income'  => 0.0,
                         'expense' => 0.0,
                     ];
@@ -235,6 +246,7 @@ final class MovementService
             $rows[] = [
                 'id'      => $row['id'],
                 'name'    => $row['name'],
+                'code'    => $row['code'],
                 'income'  => $row['income'],
                 'expense' => $row['expense'],
                 'net'     => $row['income'] - $row['expense'],
@@ -768,16 +780,16 @@ final class MovementService
      * misma agregación SQL y mismo pivot, así que la fila "Sin centro de
      * costo" (id null) sale sola y queda al final del listado.
      *
-     * @return list<array{id:?string,name:string,income:float,expense:float,net:float}>
+     * @return list<array{id:?string,name:string,code:?string,income:float,expense:float,net:float}>
      */
     public function totalsByCostCenter(string $companyId, string $from, string $to): array
     {
         $rs = ncmExecute(
-            "SELECT cc.costcenterid, cc.name, m.kind, COALESCE(SUM(m.amount), 0) AS total
+            "SELECT cc.costcenterid, cc.name, cc.code, m.kind, COALESCE(SUM(m.amount), 0) AS total
                FROM fin_movement m
                LEFT JOIN fin_cost_center cc ON cc.costcenterid = m.costcenterid
               WHERE m.companyid = ? AND m.status = 1 AND m.date BETWEEN ? AND ?
-              GROUP BY cc.costcenterid, cc.name, m.kind",
+              GROUP BY cc.costcenterid, cc.name, cc.code, m.kind",
             [$companyId, $from, $to],
             false,
             true

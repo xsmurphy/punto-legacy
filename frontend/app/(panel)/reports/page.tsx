@@ -50,6 +50,10 @@ const GROUPS: ReportGroup[] = [
     description: "La plata: entradas, salidas y saldos.",
     items: [
       { title: "Finanzas",      to: "/finanzas",             implemented: true  },
+      // El corte por categoría / centro de costo / cuenta vivía SOLO dentro
+      // del módulo, así que desde acá —que es donde se lo busca— parecía no
+      // existir. Es el reporte de gastos que pide el contador.
+      { title: "Gastos por categoría", to: "/finanzas/reportes", implemented: true  },
       { title: "Balance",       to: "/reports/balance",       implemented: true  },
       { title: "Flujo de efectivo", to: "/reports/cashflow",  implemented: true  },
       { title: "Control de cajas", to: "/reports/drawers",    implemented: true  },
