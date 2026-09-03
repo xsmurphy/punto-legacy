@@ -55,6 +55,15 @@ export type PosRegisterConfig = {
   modoSoloOrdenes: boolean
   mergeRepeated: boolean
   showSoftKeyboard: boolean
+  /**
+   * Segundos de inactividad tras los cuales la caja se bloquea sola (vuelve al
+   * lock screen y pide el PIN). `0` desactiva el bloqueo automático.
+   *
+   * Vive por CAJA, como el resto de este blob: cuánta inactividad se tolera
+   * depende del mostrador, no del comercio. El timer lo monta `useIdleLock`
+   * desde el layout del POS.
+   */
+  lockAfterSeconds: number
 }
 
 export const POS_REGISTER_CONFIG_DEFAULTS: PosRegisterConfig = {
@@ -77,6 +86,8 @@ export const POS_REGISTER_CONFIG_DEFAULTS: PosRegisterConfig = {
   modoSoloOrdenes: false,
   mergeRepeated: true,
   showSoftKeyboard: false,
+  // Apagado por default: la caja no se bloquea sola hasta que alguien lo pida.
+  lockAfterSeconds: 0,
 }
 
 interface PosRegisterConfigResponse {

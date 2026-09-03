@@ -232,6 +232,10 @@ const POS_CONFIG_DEFAULTS = [
     'modoSoloOrdenes'         => false,
     'mergeRepeated'           => true,
     'showSoftKeyboard'        => false,
+    // Bloqueo por inactividad de la caja, en segundos. 0 = desactivado, que es
+    // el default: nadie se encuentra la caja bloqueándose sola sin pedirlo.
+    // Único int del blob — de ahí la rama `is_int` en la validación del PUT.
+    'lockAfterSeconds'        => 0,
 ];
 
 if ($method === 'GET' && $resource === 'config') {
@@ -296,6 +300,26 @@ if ($method === 'PUT' && $resource === 'config') {
                 apiError("Valor inválido para '$k' (se esperaba boolean)", 422);
             }
             $patch[$k] = $v;
+            continue;
+        }
+        // Ints: hoy solo lockAfterSeconds. Va ANTES de la rama string a
+        // propósito — la validación es por tipo del default, así que un entero
+        // caería en el regex de IP/host y devolvería 422 por un valor
+        // perfectamente válido. Se acepta también el string numérico porque un
+        // <input type=number> manda "30" y no 30.
+        //
+        // Los valores chicos son válidos a propósito (5 segundos sirve para
+        // probar el bloqueo); el tope de 86400 (un día) solo evita que un
+        // número absurdo quede guardado como si fuera una configuración.
+        if (is_int(POS_CONFIG_DEFAULTS[$k])) {
+            if (is_bool($v) || !is_numeric($v) || (string) (int) $v !== (string) $v) {
+                apiError("Valor inválido para '$k' (se esperaba un entero de segundos)", 422);
+            }
+            $n = (int) $v;
+            if ($n < 0 || $n > 86400) {
+                apiError("Valor inválido para '$k' (segundos entre 0 y 86400)", 422);
+            }
+            $patch[$k] = $n;
             continue;
         }
         // Strings: hoy solo bancardPosIp — host/IP de LAN, sin esquema ni path.
