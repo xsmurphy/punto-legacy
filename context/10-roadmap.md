@@ -1209,6 +1209,10 @@ tragaba.
 
 ### Consumo a cuenta de empresa (viandas) — el caso real detrás de "Interno"
 
+> Plan completo (pedidos, producción por lote, reposición/OC, cobro a
+> cuenta) en `context/70-viandas.md` (2026-09-03, D1-D6 cerradas por el
+> owner, P1-P5 propuestas sin OK).
+
 Contado por el owner (2026-07-29). **No es una venta interna: es consumo a
 cuenta que se factura al cierre del período.** Re-reportado por testers el
 2026-07-30 ("pedidos de viandas semanales/mensuales por cliente o empresa,

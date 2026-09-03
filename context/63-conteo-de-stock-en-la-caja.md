@@ -1,9 +1,12 @@
 # 63 — Conteo de stock en la caja
 
-> Estado: **PLAN, sin implementar.** Fecha 2026-09-01. D1-D4 y D9 cerradas por
-> el owner, no relitigar. El resto de este doc son derivaciones técnicas de
-> esas decisiones — implementación propuesta, discutible en el cómo, no en el
-> qué.
+> Estado: **F0+F1 implementadas 2026-09-02** — conteo ciego en `/pos/conteo`,
+> offline-nativo, permiso `pos.stock.count` contra el operador del PIN (migs
+> 186/187). F2 (conteo no ciego) pendiente, depende de resolver el TODO
+> `stock: null` en `reshape.ts`. Fecha del plan original 2026-09-01. D1-D4 y
+> D9 cerradas por el owner, no relitigar. El resto de este doc son
+> derivaciones técnicas de esas decisiones — implementación propuesta,
+> discutible en el cómo, no en el qué.
 > El motor de conteo YA EXISTE y está implementado (`InventoryCountService`,
 > tablas `inventory_count`/`inventory_count_item`, panel) — este plan no lo
 > construye, lo lleva a la caja. Ver §Estado del código.
