@@ -193,6 +193,14 @@ export interface TransactionRow {
   einvoiceStatus: "pending" | "sending" | "issued" | "error" | "cancelled" | "skipped" | null
   einvoiceCdc: string | null
   einvoiceError: string | null
+  /**
+   * Estado FISCAL de SIFEN, distinto del outbox de arriba — MANDA sobre él
+   * (ver `lib/einvoice/sifen-status.ts`). null mientras no se reconcilió: no
+   * es un rechazo, es "todavía no se sabe".
+   */
+  einvoiceSifenStatus: string | null
+  /** Motivo legible del rechazo de SIFEN (ej. "1002 — documento duplicado"). */
+  einvoiceSifenReason: string | null
 }
 
 export interface TransactionsReportResponse {

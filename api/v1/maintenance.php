@@ -2,7 +2,7 @@
 /**
  * REST — Endpoint interno de jobs de mantenimiento periódicos.
  *
- *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|partition-ensure|period-close|ocr-requeue>
+ *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|einvoice-reconcile|partition-ensure|period-close|ocr-requeue>
  *       → { processed?, deleted?, issued?, errors?, skipped?, job }
  *
  * SIN apiAuthTenant: lo invoca el cron DENTRO de la imagen del API
@@ -31,6 +31,14 @@
  *   - einvoice-drain     → delega en EInvoiceService::drain() (mismo código que
  *                          `einvoice.php?action=drain`, sin duplicar lógica) —
  *                          único punto de entrada para el cron de la imagen.
+ *   - einvoice-reconcile → delega en EInvoiceService::reconcileAll(): consulta a
+ *                          SIFEN el estado FISCAL de los documentos ya emitidos
+ *                          (`sifen_status`), cross-tenant. SIFEN puede rechazar
+ *                          un DE minutos después de devolver un CDC válido —
+ *                          sin este job ese rechazo no lo descubre nadie salvo
+ *                          que alguien apriete el botón del panel. `limit` en
+ *                          query, default 25, tope 200: cada documento es una
+ *                          llamada a la API del proveedor (20s de timeout).
  *   - partition-ensure   → E1 de context/48-escalamiento-de-datos.md (mig 156):
  *                          `SELECT ensure_month_partitions('transaction'|'itemsold',
  *                          'transactiondate'|'itemsolddate', 12)` + chequeo
@@ -84,7 +92,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'partition-ensure', 'period-close', 'ocr-requeue'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -123,6 +131,15 @@ function maintenanceRunJob(string $job): array
             $limitRaw = (int) ($_GET['limit'] ?? 20);
             $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 20;
             return (new \Punto\Api\EInvoice\EInvoiceService())->drain($limit);
+
+        case 'einvoice-reconcile':
+            // Default 25 y no 50: cada documento es una llamada al proveedor
+            // con 20s de timeout, y el job corre cada 10 minutos. 50 en el
+            // peor caso pasan la cadencia y encadenan corridas (el advisory
+            // lock las saltea, pero el trabajo no avanza).
+            $limitRaw = (int) ($_GET['limit'] ?? 25);
+            $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 25;
+            return (new \Punto\Api\EInvoice\EInvoiceService())->reconcileAll($limit);
 
         case 'ocr-requeue':
             // Rescata borradores de compra que quedaron en 'processing': el

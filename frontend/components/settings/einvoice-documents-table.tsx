@@ -28,6 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { EmptyState } from "@/components/empty-state"
 
 import {
@@ -41,6 +42,7 @@ import { usePermission } from "@/hooks/use-permissions"
 import { formatAmount, formatCurrencyAmount } from "@/lib/format-money"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { formatDateTime } from "@/lib/format-date"
+import { sifenVerdict } from "@/lib/einvoice/sifen-status"
 import type { EInvoiceDocument, EInvoiceDocumentStatus } from "@/lib/types/einvoice"
 import { CurrencyFlag } from "@/components/ui/country-flag"
 
@@ -54,6 +56,28 @@ const STATUS_LABEL: Record<EInvoiceDocumentStatus, string> = {
 }
 
 function StatusCell({ doc }: { doc: EInvoiceDocument }) {
+  const verdict = sifenVerdict(doc.sifenStatus)
+
+  if (doc.status === "cancelled") {
+    // Anulado por el comercio: es lo último que le pasó al documento y es
+    // decisión propia, así que gana incluso sobre un rechazo previo de SIFEN.
+    return <Badge variant="secondary">Cancelado</Badge>
+  }
+  // El estado FISCAL manda sobre el del outbox: un documento `issued` que
+  // SIFEN rechazó no es una factura emitida, es una factura que no vale — y
+  // acá se mostraba "Emitido" (ver lib/einvoice/sifen-status.ts).
+  if (verdict === "rejected") {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Badge variant="destructive">Rechazado por SIFEN</Badge>
+        </TooltipTrigger>
+        <TooltipContent className="max-w-xs">
+          {doc.sifenReason ?? "SIFEN rechazó el documento y no informó el motivo."}
+        </TooltipContent>
+      </Tooltip>
+    )
+  }
   if (doc.stuck) {
     // Trabado en `sending` — nadie lo va a reintentar solo (no es seguro,
     // ver EInvoiceService::documents), necesita revisión manual. Se marca
@@ -63,11 +87,24 @@ function StatusCell({ doc }: { doc: EInvoiceDocument }) {
   }
   switch (doc.status) {
     case "issued":
-      return <Badge>Emitido</Badge>
+      // Emitido ≠ aceptado. Mientras SIFEN no se expida el documento está
+      // "sin confirmar" — el estado normal de los primeros minutos, NO un
+      // rechazo, así que no va en destructivo.
+      return verdict === "approved" ? (
+        <Badge>Aprobado por SIFEN</Badge>
+      ) : (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline">Emitido — sin confirmar</Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            Se envió correctamente, pero SIFEN todavía no confirmó si lo acepta. Se revisa solo cada
+            10 minutos.
+          </TooltipContent>
+        </Tooltip>
+      )
     case "error":
       return <Badge variant="destructive">Error</Badge>
-    case "cancelled":
-      return <Badge variant="secondary">Cancelado</Badge>
     case "sending":
       return <Badge variant="outline">Enviando</Badge>
     case "skipped":
@@ -111,7 +148,7 @@ export function EInvoiceDocumentsCard() {
   // debería superar eso en una ventana de fechas razonable.
   const filters = React.useMemo(
     () => ({
-      status: status === "all" ? undefined : (status as EInvoiceDocumentStatus | "stuck"),
+      status: status === "all" ? undefined : (status as EInvoiceDocumentStatus | "stuck" | "rejected"),
       from: from || undefined,
       to: to || undefined,
       page: 1,
@@ -274,7 +311,8 @@ export function EInvoiceDocumentsCard() {
             <div>
               <CardTitle>Documentos</CardTitle>
               <CardDescription>
-                Facturas electrónicas encoladas y emitidas — estado del envío a Factomate/SIFEN.
+                Facturas electrónicas encoladas y emitidas. El estado es el FISCAL: emitir bien no
+                garantiza que SIFEN acepte — se revisa solo cada 10 minutos.
               </CardDescription>
             </div>
             {canManage && (
@@ -315,6 +353,7 @@ export function EInvoiceDocumentsCard() {
                     <SelectItem value="error">Error</SelectItem>
                     <SelectItem value="cancelled">Cancelado</SelectItem>
                     <SelectItem value="stuck">Trabado</SelectItem>
+                    <SelectItem value="rejected">Rechazado por SIFEN</SelectItem>
                   </SelectContent>
                 </Select>
                 <Input

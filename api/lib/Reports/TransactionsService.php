@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Punto\Api\Reports;
 
 use Punto\Api\Documents\DocumentNumber;
+use Punto\Api\EInvoice\EInvoiceService;
 
 /**
  * Dominio de Reportes — Pagos y Transacciones / Transactions (API compartida, motor ERP).
@@ -163,6 +164,8 @@ final class TransactionsService
                 'einvoiceStatus'      => $einv['status'] ?? null,
                 'einvoiceCdc'         => $einv['cdc'] ?? null,
                 'einvoiceError'       => $einv['errorMessage'] ?? null,
+                'einvoiceSifenStatus' => $einv['sifenStatus'] ?? null,
+                'einvoiceSifenReason' => $einv['sifenReason'] ?? null,
                 'authNo'              => $invoiceAuth,
                 // Número completo del documento: EEE-PPP-NNNNNNN. La
                 // concatenación pelada daba "001-0011234567" — ilegible y sin
@@ -645,7 +648,12 @@ final class TransactionsService
         // tiempo, pero sirven para que dos filas con el mismo `created_at`
         // elijan siempre la misma y no una distinta por request.
         $res = ncmRows(
-            "SELECT transactionid, status, cdc, error_message
+            "SELECT transactionid, status, cdc, error_message, sifen_status,
+                    -- Solo el bulk de los NO aprobados: es de donde sale el
+                    -- motivo del rechazo, y traerlo entero por fila para
+                    -- descartarlo es pagar el jsonb de todas las ventas.
+                    CASE WHEN sifen_status IS NOT NULL AND sifen_status NOT ILIKE '%aprobad%'
+                         THEN sifen_result END AS sifen_result
                FROM einvoice_document
               WHERE companyid = ? AND transactionid IN ($ph)
               ORDER BY created_at DESC NULLS LAST, einvoicedocid DESC",
@@ -661,6 +669,13 @@ final class TransactionsService
                 'status'       => (string) ($d['status'] ?? ''),
                 'cdc'          => $d['cdc'] ?? null,
                 'errorMessage' => $d['error_message'] ?? null,
+                // Estado FISCAL (¿SIFEN lo aceptó?), distinto del outbox de
+                // arriba (¿se mandó?). Manda éste: un documento 'issued' que
+                // SIFEN rechazó NO es una factura válida, y el listado lo
+                // pintaba como emitido. El motivo se parsea con el mismo
+                // helper que usa la pantalla de FE — no se duplica acá.
+                'sifenStatus'  => $d['sifen_status'] ?? null,
+                'sifenReason'  => EInvoiceService::sifenReason($d['sifen_result'] ?? null),
             ];
         }
         return $map;
