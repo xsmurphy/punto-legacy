@@ -190,4 +190,21 @@ if ($id !== '') {
     apiOk($row);
 }
 
-apiOk(['rows' => $svc->listAll(COMPANY_ID)]);
+// Realm `api`: la lista son las sucursales que ESE usuario puede consultar, no
+// las del tenant. Es la tool que el dueño de una key usa para saber qué puede
+// preguntar; si listara las cuatro cuando alcanza dos, el modelo del otro lado
+// pediría reportes de las otras dos y leería el 403 como una falla del sistema
+// en vez de como el límite que es.
+//
+// El conjunto sale de `OutletScope::current()` —el mismo que ya acotó `Roc` y
+// `OUTLET_ID` en el embudo— y no de una segunda consulta a `contact_outlet`:
+// dos derivaciones del mismo alcance terminan discrepando, y la que discrepe
+// acá haría que la lista y los reportes contradigan uno al otro.
+//
+// `[]` (usuario global) → `null` → todas, que es el comportamiento de panel y
+// pos-app sin cambios.
+$scopeIds = (($ctx['realm'] ?? '') === 'api')
+    ? (\Punto\Api\Outlets\OutletScope::current() ?: null)
+    : null;
+
+apiOk(['rows' => $svc->listAll(COMPANY_ID, $scopeIds)]);

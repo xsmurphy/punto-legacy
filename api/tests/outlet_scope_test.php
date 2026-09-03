@@ -1,0 +1,352 @@
+<?php
+declare(strict_types=1);
+
+// Guard anti falso-verde: DEBE ir antes de bootstrap.php (ver _harness.php).
+require_once __DIR__ . '/_harness.php';
+
+/**
+ * Test de integración (Postgres real) del ALCANCE POR SUCURSAL del realm `api`.
+ *
+ * ── Lo que fija ─────────────────────────────────────────────────────────────
+ * La sucursal de una API key sale del USUARIO dueño de la key, no de la key
+ * (decisión del owner 2026-09-02). El alcance se deriva de `contact_outlet`:
+ * con filas, esas sucursales y solo esas; sin filas, todas.
+ *
+ * ── Por qué el total va a mano ──────────────────────────────────────────────
+ * El caso caro no es el 403 — es el CONSOLIDADO. Un `IN (...)` mal armado
+ * devuelve 200 con un número que parece correcto, y nadie lo audita porque no
+ * se rompió nada. Por eso el arnés siembra montos elegidos (100, 200, 30, 1000,
+ * 7: todas las sumas parciales son distintas entre sí) y compara contra un total
+ * CALCULADO ACÁ, nunca contra otra consulta del mismo código — si la derivación
+ * del alcance estuviera mal, las dos consultas estarían mal igual y el test
+ * pasaría.
+ *
+ * ── Casos ───────────────────────────────────────────────────────────────────
+ *   (a) Usuario con 2 de 4 sucursales → `get_outlets` devuelve 2 y el reporte
+ *       consolidado suma SOLO esas 2 (330, no 1337).
+ *   (b) Usuario con CERO filas → global: ve las 4 y suma las 4 (1337).
+ *   (c) `outletId` de una sucursal NO asignada → 403. NUNCA una lista vacía: un
+ *       vacío se lee como "no hubo ventas ahí" y es una mentira.
+ *   (d) `outletId` de una asignada → solo esa (30).
+ *   (e) `panel` y `pos-app` no cambian de comportamiento (con y sin el header
+ *       `X-Outlet-Id`, que sigue siendo exclusivo de `panel`).
+ *   (f) `OUTLET_ID` queda DENTRO del conjunto aunque la key se haya emitido con
+ *       otra sucursal congelada — es lo que protege a los lectores que bindean
+ *       la constante sin pasar por `Roc::build`.
+ *
+ * Cada caso corre en un proceso propio: `VIEW_OUTLET_IDS` es una constante y no
+ * se puede redefinir. Ver `_outlet_scope_once_cli.php`.
+ *
+ * Uso (necesita Postgres migrado — ver `run_outlet_scope_test.sh`):
+ *   POSTGRES_HOST=... POSTGRES_PORT=... POSTGRES_DB=... POSTGRES_USER=... POSTGRES_PASSWORD=... \
+ *   php -d variables_order=EGPCS api/tests/outlet_scope_test.php
+ */
+
+$companyId = 'a5c0be00-1111-4a00-9000-0000000000f1';
+
+define('COMPANY_ID', $companyId);
+define('OUTLET_ID',  'a5c0be00-1111-4a00-9000-0000000000b1');
+define('TODAY', date('Y-m-d H:i:s'));
+
+require_once dirname(__DIR__) . '/bootstrap.php';
+require_once dirname(__DIR__) . '/lib/Auth/ApiKeyService.php';
+
+global $db;
+
+$failures = 0;
+$checks   = 0;
+
+function check(string $label, $expected, $actual): void
+{
+    global $failures, $checks;
+    $checks++;
+    $ok = $expected === $actual;
+    if (!$ok) {
+        $failures++;
+        echo "  [FAIL] $label\n";
+        echo "         esperado: " . json_encode($expected) . "\n";
+        echo "         obtenido: " . json_encode($actual) . "\n";
+        return;
+    }
+    echo "  [ok]   $label\n";
+}
+
+/**
+ * Igualdad NUMÉRICA para los totales.
+ *
+ * `check()` compara con `===` a propósito (un `'330'` no debe pasar por 330),
+ * pero los totales vuelven del subproceso por JSON y `json_decode` entrega `330`
+ * como int y `330.5` como float — comparar el tipo ahí es comparar un detalle
+ * del transporte, no el número. Se compara con tolerancia porque
+ * `transactionTotal` es NUMERIC y el redondeo binario no es asunto de este test.
+ */
+function checkTotal(string $label, float $expected, $actual): void
+{
+    global $failures, $checks;
+    $checks++;
+    if (!is_numeric($actual) || abs($expected - (float) $actual) > 0.001) {
+        $failures++;
+        echo "  [FAIL] $label\n";
+        echo "         esperado: $expected\n";
+        echo "         obtenido: " . json_encode($actual) . "\n";
+        return;
+    }
+    echo "  [ok]   $label\n";
+}
+
+// ── Fixture ──────────────────────────────────────────────────────────────────
+//
+// Cuatro sucursales, montos elegidos para que ninguna suma parcial se pueda
+// confundir con otra:
+//
+//   O1: 100 + 200 = 300      O2: 30      O3: 1000      O4: 7
+//
+//   consolidado {O1,O2} = 330      tenant completo = 1337
+//
+// 330 no es prefijo ni múltiplo de 1337, y ninguna sucursal sola da 330: si el
+// `IN` se cayera y quedara un `= O1`, el total sería 300 y el test lo vería.
+$outlets = [
+    'O1' => 'a5c0be00-1111-4a00-9000-0000000000b1',
+    'O2' => 'a5c0be00-1111-4a00-9000-0000000000b2',
+    'O3' => 'a5c0be00-1111-4a00-9000-0000000000b3',
+    'O4' => 'a5c0be00-1111-4a00-9000-0000000000b4',
+];
+$userRestricted = 'a5c0be00-1111-4a00-9000-0000000000d1'; // asignado a O1 y O2
+$userGlobal     = 'a5c0be00-1111-4a00-9000-0000000000d2'; // cero filas → global
+
+$TOTAL_SCOPE  = 330.0;   // O1 + O2, a mano
+$TOTAL_TENANT = 1337.0;  // las cuatro, a mano
+$TOTAL_O2     = 30.0;
+$TOTAL_O3     = 1000.0;
+$TOTAL_O1     = 300.0;
+
+echo "[outlet_scope_test] sembrando fixture...\n";
+
+$db->Execute(
+    "INSERT INTO company (companyId, status, plan, balance, isParent, config)
+     VALUES (?, 'active', 1, 0.00, FALSE, ?::jsonb)
+     ON CONFLICT (companyId) DO UPDATE SET config = EXCLUDED.config, status = 'active'",
+    [$companyId, json_encode([
+        'settingName'     => 'Alcance Test',
+        'settingCountry'  => 'PY',
+        'settingTimeZone' => 'America/Asuncion',
+        'settingLanguage' => 'es',
+    ])]
+);
+
+// Limpieza previa: el arnés es re-ejecutable contra la misma base descartable.
+$db->Execute('DELETE FROM transaction WHERE companyId = ?', [$companyId]);
+$db->Execute('DELETE FROM auth_session WHERE companyid = ?::uuid', [$companyId]);
+$db->Execute('DELETE FROM contact_outlet WHERE companyid = ?::uuid', [$companyId]);
+$db->Execute('DELETE FROM device WHERE companyid = ?::uuid', [$companyId]);
+
+foreach ($outlets as $name => $id) {
+    $db->Execute(
+        "INSERT INTO outlet (outletId, outletName, outletStatus, companyId)
+         VALUES (?, ?, 1, ?)
+         ON CONFLICT (outletId) DO UPDATE SET outletName = EXCLUDED.outletName, outletStatus = 1",
+        [$id, "Sucursal $name", $companyId]
+    );
+}
+
+// Los dos usuarios. `contact.outletId` se deja apuntando a O4 A PROPÓSITO en el
+// restringido: es la columna LEGACY, y si alguna derivación la mirara en vez de
+// `contact_outlet`, el alcance saldría {O4} y todos los totales cambiarían.
+// O sea que este valor es una trampa deliberada, no relleno.
+foreach ([
+    [$userRestricted, 'Usuario Restringido', $outlets['O4'], '595991000001'],
+    [$userGlobal,     'Usuario Global',      $outlets['O4'], '595991000002'],
+] as [$uid, $uname, $uoutlet, $uphone]) {
+    $db->Execute(
+        "INSERT INTO contact (contactId, contactName, contactPhone, contactEmail, contactStatus, type, main, role, outletId, companyId)
+         VALUES (?, ?, ?, ?, 1, 0, 'admin', 1, ?, ?)
+         ON CONFLICT (contactId) DO UPDATE SET contactName = EXCLUDED.contactName, outletId = EXCLUDED.outletId",
+        [$uid, $uname, $uphone, strtolower(str_replace(' ', '', $uname)) . '@local.test', $uoutlet, $companyId]
+    );
+}
+
+// El alcance del restringido: O1 y O2. El global NO recibe filas.
+foreach ([$outlets['O1'], $outlets['O2']] as $oid) {
+    $db->Execute(
+        'INSERT INTO contact_outlet (contactid, outletid, companyid) VALUES (?::uuid, ?::uuid, ?::uuid)
+         ON CONFLICT DO NOTHING',
+        [$userRestricted, $oid, $companyId]
+    );
+}
+
+// Las ventas.
+$ventas = [
+    [$outlets['O1'], 100.0],
+    [$outlets['O1'], 200.0],
+    [$outlets['O2'],  30.0],
+    [$outlets['O3'], 1000.0],
+    [$outlets['O4'],   7.0],
+];
+foreach ($ventas as $i => [$oid, $monto]) {
+    $db->Execute(
+        "INSERT INTO transaction
+            (transactionId, transactionDate, transactionTotal, transactionDiscount,
+             transactionType, transactionPaymentType, transactionComplete,
+             outletId, companyId, userId, meta)
+         VALUES (?::uuid, ?, ?, 0, 0, ?, TRUE, ?, ?, ?, '{}'::jsonb)",
+        [
+            sprintf('a5c0be00-1111-4a00-9000-00000000e%03d', $i),
+            date('Y-m-d H:i:s'),
+            $monto,
+            json_encode([['type' => 'cash', 'name' => 'Efectivo', 'price' => $monto, 'total' => $monto]]),
+            $oid, $companyId, $userRestricted,
+        ]
+    );
+}
+
+// ── Credenciales ─────────────────────────────────────────────────────────────
+//
+// La key del restringido se emite con `outletId = O4` —la sucursal "activa" de
+// quien la creó, que NO está en su alcance—. Es exactamente el estado que había
+// en producción, y es lo que hace significativo el caso (f).
+$svcKeys = new \Punto\Api\Auth\ApiKeyService();
+$keyRestricted = $svcKeys->issue([
+    'companyId' => $companyId,
+    'userId'    => $userRestricted,
+    'outletId'  => $outlets['O4'],
+    'roleId'    => '1',
+], 'Key restringida')['token'];
+
+$keyGlobal = $svcKeys->issue([
+    'companyId' => $companyId,
+    'userId'    => $userGlobal,
+    'outletId'  => $outlets['O3'],
+    'roleId'    => '1',
+], 'Key global')['token'];
+
+// Sesión de panel (realm `panel`), con su outlet activo en O1.
+$tokenPanel = authSessionCreate('panel', [
+    'companyId' => $companyId,
+    'userId'    => $userRestricted,
+    'outletId'  => $outlets['O1'],
+    'roleId'    => '1',
+]);
+
+// Device pos-app pareado a O3, con su fila `device` (el bootstrap la exige).
+$deviceId   = 'a5c0be00-1111-4a00-9000-0000000000c9';
+$registerId = 'a5c0be00-1111-4a00-9000-0000000000c1';
+$db->Execute(
+    "INSERT INTO register (registerid, registername, registerstatus,
+        registerinvoicenumber, registerticketnumber, registerreturnnumber,
+        registerschedulenumber, registerpedidonumber, registerquotenumber, outletid, companyid)
+     VALUES (?, 'Caja O3', TRUE, 1, 1, 1, 1, 1, 1, ?, ?)
+     ON CONFLICT (registerid) DO UPDATE SET outletid = EXCLUDED.outletid",
+    [$registerId, $outlets['O3'], $companyId]
+);
+$db->Execute(
+    "INSERT INTO device (deviceid, companyid, outletid, registerid, userid, devicename, module, status)
+     VALUES (?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, 'Tablet O3', 'pos', 1)
+     ON CONFLICT (deviceid) DO UPDATE SET outletid = EXCLUDED.outletid, status = 1",
+    [$deviceId, $companyId, $outlets['O3'], $registerId, $userRestricted]
+);
+$tokenDevice = authSessionCreate('pos-app', [
+    'companyId'  => $companyId,
+    'userId'     => $userRestricted,
+    'deviceId'   => $deviceId,
+    'outletId'   => $outlets['O3'],
+    'registerId' => $registerId,
+    'roleId'     => '1',
+    'module'     => 'pos',
+]);
+
+/** Corre un caso en un proceso limpio y devuelve lo observado. */
+function runCase(string $token, string $realm, string $outletParam = '-', string $viewHeader = '-'): array
+{
+    // Las MISMAS opciones que `_harness_lib.sh` le pasa al arnés padre
+    // (`HARNESS_PHP_OPTS`). Sin la supresión de deprecaciones, el
+    // `json_decode(null)` de `data.php` sube a excepción y el subproceso muere
+    // antes de imprimir su RESULT — un rojo por el entorno, no por el código.
+    $cmd = sprintf(
+        'php -d variables_order=EGPCS -d %s %s %s %s %s %s 2>&1',
+        escapeshellarg('error_reporting=E_ALL & ~E_DEPRECATED & ~E_WARNING'),
+        escapeshellarg(__DIR__ . '/_outlet_scope_once_cli.php'),
+        escapeshellarg($token),
+        escapeshellarg($realm),
+        escapeshellarg($outletParam),
+        escapeshellarg($viewHeader)
+    );
+    $out = (string) shell_exec($cmd);
+    if (!preg_match('/^RESULT:(.*)$/m', $out, $m)) {
+        throw new RuntimeException("El subproceso ($realm/$outletParam) no imprimió RESULT. Salida:\n$out");
+    }
+    return json_decode($m[1], true) ?: [];
+}
+
+// ── (a) Usuario con 2 de 4 sucursales ────────────────────────────────────────
+echo "\n[a] usuario con 2 de 4 sucursales asignadas, sin outletId\n";
+$a = runCase($keyRestricted, 'api');
+check('(a) no aborta', false, $a['aborted']);
+check('(a) el alcance son las 2 asignadas', [$outlets['O1'], $outlets['O2']], $a['scope']);
+check('(a) get_outlets devuelve 2', ['Sucursal O1', 'Sucursal O2'], $a['outletNames']);
+checkTotal('(a) el consolidado suma SOLO esas 2 (330, a mano)', $TOTAL_SCOPE, $a['total']);
+check('(a) son 3 ventas, no 5', 3, $a['rows']);
+check('(a) Roc emite IN con las dos', true, str_contains((string) $a['roc'], "outletId IN ('{$outlets['O1']}', '{$outlets['O2']}')"));
+// (f): la key se emitió con O4, que NO está asignada. `OUTLET_ID` tiene que
+// haber quedado dentro del conjunto — si no, los lectores que la bindean sin
+// pasar por Roc leerían una sucursal ajena al usuario.
+check('(f) OUTLET_ID quedó dentro del conjunto, no en el O4 congelado en la key', $outlets['O1'], $a['outletId']);
+
+// ── (b) Usuario global (cero filas) ──────────────────────────────────────────
+echo "\n[b] usuario con CERO filas en contact_outlet\n";
+$b = runCase($keyGlobal, 'api');
+check('(b) no aborta', false, $b['aborted']);
+check('(b) alcance vacío = sin restricción', [], $b['scope']);
+check('(b) get_outlets devuelve las 4', ['Sucursal O1', 'Sucursal O2', 'Sucursal O3', 'Sucursal O4'], $b['outletNames']);
+checkTotal('(b) suma las 4 (1337, a mano)', $TOTAL_TENANT, $b['total']);
+check('(b) Roc NO agrega filtro de outlet', false, str_contains((string) $b['roc'], 'outletId'));
+
+// ── (c) Sucursal NO asignada → 403 ───────────────────────────────────────────
+echo "\n[c] outletId de una sucursal NO asignada\n";
+$c = runCase($keyRestricted, 'api', $outlets['O3']);
+check('(c) aborta', true, $c['aborted']);
+check('(c) con 403 y no con una lista vacía', 403, $c['status']);
+
+// ── (d) Sucursal asignada → solo esa ─────────────────────────────────────────
+echo "\n[d] outletId de una sucursal asignada\n";
+$d = runCase($keyRestricted, 'api', $outlets['O2']);
+check('(d) no aborta', false, $d['aborted']);
+check('(d) el alcance queda en esa sola', [$outlets['O2']], $d['scope']);
+checkTotal('(d) suma solo esa (30, a mano)', $TOTAL_O2, $d['total']);
+check('(d) OUTLET_ID sigue el parámetro', $outlets['O2'], $d['outletId']);
+
+// Un usuario GLOBAL también puede elegir una sucursal puntual.
+echo "\n[d2] usuario global pidiendo una sucursal puntual\n";
+$d2 = runCase($keyGlobal, 'api', $outlets['O3']);
+check('(d2) no aborta', false, $d2['aborted']);
+checkTotal('(d2) suma solo O3 (1000, a mano)', $TOTAL_O3, $d2['total']);
+
+// Y una sucursal de OTRO tenant no pasa por ser global.
+echo "\n[d3] usuario global pidiendo una sucursal de otro tenant\n";
+$d3 = runCase($keyGlobal, 'api', 'a5c0be00-9999-4a00-9000-0000000000ff');
+check('(d3) aborta con 403', 403, $d3['status'] ?? 0);
+
+// ── (e) panel y pos-app sin cambios ──────────────────────────────────────────
+echo "\n[e] realm panel y pos-app\n";
+$p = runCase($tokenPanel, 'panel');
+check('(e) panel sin header: el outlet del token (O1)', $outlets['O1'], $p['outletId']);
+check('(e) panel NO define VIEW_OUTLET_IDS', null, $p['viewOutletIds']);
+checkTotal('(e) panel filtra por su sucursal (300, a mano)', $TOTAL_O1, $p['total']);
+check('(e) panel ve las 4 sucursales en la lista', 4, count((array) $p['outletNames']));
+
+$pAll = runCase($tokenPanel, 'panel', '-', 'all');
+checkTotal('(e) panel con X-Outlet-Id: all consolida (1337, a mano)', $TOTAL_TENANT, $pAll['total']);
+
+$pOne = runCase($tokenPanel, 'panel', '-', $outlets['O3']);
+checkTotal('(e) panel con X-Outlet-Id: <uuid> filtra por esa (1000, a mano)', $TOTAL_O3, $pOne['total']);
+
+// El header sigue siendo EXCLUSIVO de panel: una key `api` que lo mande no debe
+// poder saltarse su alcance por esa puerta.
+$apiHeader = runCase($keyRestricted, 'api', '-', $outlets['O3']);
+checkTotal('(e) X-Outlet-Id NO le sirve al realm api: sigue en su consolidado (330)', $TOTAL_SCOPE, $apiHeader['total']);
+
+$dev = runCase($tokenDevice, 'pos-app');
+check('(e) pos-app: el outlet de la fila device (O3)', $outlets['O3'], $dev['outletId']);
+check('(e) pos-app NO define VIEW_OUTLET_IDS', null, $dev['viewOutletIds']);
+checkTotal('(e) pos-app filtra por su sucursal (1000, a mano)', $TOTAL_O3, $dev['total']);
+
+harnessFinish($failures, $checks);

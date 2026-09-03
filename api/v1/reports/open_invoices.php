@@ -77,11 +77,16 @@ if ($contactId !== '') {
 //
 // Este reporte NO lo tenía: listaba las cuentas por cobrar/pagar de TODAS las
 // sucursales aunque hubiera una elegida (reporte del tester, 2026-08-28).
-$effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
-
-// Un valor que no sea UUID no filtra — misma tolerancia que `Roc::build`, que
-// solo agrega el `AND outletId` cuando matchea el patrón. '' ("Todas") entra
-// por acá y consolida, que es el comportamiento correcto para ese modo.
+// `OutletScope::single()` unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID → guard
+// de uuid) que estaba copiado en cinco endpoints. Un valor que no sea UUID no
+// filtra — misma tolerancia que `Roc::build`, que solo agrega el `AND outletId`
+// cuando matchea el patrón; '' ("Todas") consolida, que es lo correcto para ese
+// modo. `null` es el caso nuevo: un subconjunto de 2+ sucursales no entra en un
+// solo valor y se corta antes de devolver un total parcial.
+$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
+if ($effectiveOutletId === null) {
+    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+}
 if (!preg_match($uuidRe, $effectiveOutletId)) {
     $effectiveOutletId = '';
 }

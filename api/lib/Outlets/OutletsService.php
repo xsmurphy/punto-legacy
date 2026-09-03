@@ -37,11 +37,34 @@ namespace Punto\Api\Outlets;
 final class OutletsService
 {
     /** Todas las sucursales de la company. Forma reducida para la tabla. */
-    public function listAll($companyId)
+    /**
+     * @param string     $companyId Tenant.
+     * @param array|null $onlyIds   Acota a un conjunto de sucursales. `null` (el
+     *                              default) = todas las del tenant, que es lo
+     *                              que ven el panel y el POS. Una LISTA VACÍA
+     *                              devuelve vacío y NO "todas": acá el vacío es
+     *                              un conjunto, no la ausencia de filtro — la
+     *                              convención "cero = global" vive en
+     *                              `OutletScope`, y repetirla en un segundo
+     *                              lugar es cómo se convierte en dos.
+     */
+    public function listAll($companyId, ?array $onlyIds = null)
     {
+        $sql    = "SELECT * FROM outlet WHERE companyId = ?";
+        $params = [$companyId];
+
+        if (is_array($onlyIds)) {
+            if ($onlyIds === []) {
+                return [];
+            }
+            $sql .= ' AND outletId IN (' . implode(', ', array_fill(0, count($onlyIds), '?')) . ')';
+            $params = array_merge($params, array_values($onlyIds));
+        }
+        $sql .= " ORDER BY outletName ASC";
+
         $res = ncmExecute(
-            "SELECT * FROM outlet WHERE companyId = ? ORDER BY outletName ASC",
-            [$companyId], false, true   // forceObj → iterar recordset
+            $sql,
+            $params, false, true   // forceObj → iterar recordset
         );
         $out = [];
         if ($res && is_object($res)) {

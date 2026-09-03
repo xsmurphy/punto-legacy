@@ -100,7 +100,15 @@ $opts = [
 // eligió scope vía X-Outlet-Id, OUTLET_ID del JWT en su defecto. DashboardService
 // usa el 5to argumento para widgets que NO pasan por $roc (`schedule` query
 // directa + envío a notifyGateway), así que tienen que ver el efectivo.
-$effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
+// `OutletScope::single()` unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID → guard
+// de uuid). Devuelve `null` cuando el alcance es un subconjunto de 2+
+// sucursales: el 5º argumento de `widget()` es un valor único y los widgets que
+// lo usan no pasan por `$roc`, así que ahí no hay forma de expresar el conjunto
+// — se corta en vez de servir una sucursal disfrazada de todas.
+$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
+if ($effectiveOutletId === null) {
+    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+}
 
 try {
     $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, $effectiveOutletId);
