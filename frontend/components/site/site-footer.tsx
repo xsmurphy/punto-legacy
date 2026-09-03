@@ -5,6 +5,7 @@ import { FEATURE_CARDS } from "@/lib/site/modules"
 import { RUBROS, RUBRO_GRUPOS } from "@/lib/site/rubros"
 import { MODULOS } from "@/lib/site/modulos"
 import { INSTAGRAM_URL, WHATSAPP_URL } from "@/lib/site/contacto"
+import { PRIVACIDAD, TERMINOS } from "@/lib/site/legal"
 
 const RECURSOS = [
   { label: "Precios", href: "/precios" },
@@ -14,8 +15,8 @@ const RECURSOS = [
 ]
 
 const LEGAL = [
-  { label: "Términos", href: "#" },
-  { label: "Privacidad", href: "#" },
+  { label: "Términos", href: TERMINOS.url },
+  { label: "Privacidad", href: PRIVACIDAD.url },
 ]
 
 function FooterColumn({

@@ -18,6 +18,7 @@ import { RUBROS, RUBRO_GRUPOS } from "../lib/site/rubros.ts"
 import { MODULE_TABS, FEATURE_CARDS } from "../lib/site/modules.ts"
 import { applyMarketTerms, getMarket, marketMoney } from "../lib/site/markets.ts"
 import { CONTACTO } from "../lib/site/contacto.ts"
+import { DOCUMENTOS_LEGALES, type DocumentoLegal } from "../lib/site/legal.ts"
 
 const DESTINO = join(import.meta.dirname, "..", "..", "content", "sitio")
 const market = getMarket()
@@ -49,6 +50,38 @@ function seccionesToMd(
         .join("\n\n")}\n${link}`
     })
     .join("\n")
+}
+
+/**
+ * Un documento legal a Markdown. Sale de la MISMA fuente que renderiza
+ * `/terminos` y `/privacidad`, así que el agente nunca cita una cláusula
+ * que ya cambió en el sitio.
+ */
+function legalToMd(doc: DocumentoLegal) {
+  const cuerpo = doc.secciones
+    .map((s, i) => {
+      const bloques = [`## ${i + 1}. ${t(s.titulo)}`, s.parrafos.map(t).join("\n\n")]
+      if (s.lista?.length) {
+        bloques.push(s.lista.map((x) => `- ${t(x)}`).join("\n"))
+      }
+      if (s.tabla) {
+        const head = `| ${s.tabla.headers.map(t).join(" | ")} |`
+        const sep = `| ${s.tabla.headers.map(() => "---").join(" | ")} |`
+        const filas = s.tabla.filas.map((f) => `| ${f.map(t).join(" | ")} |`)
+        bloques.push([head, sep, ...filas].join("\n"))
+      }
+      return bloques.join("\n\n")
+    })
+    .join("\n\n")
+
+  return `# ${doc.titulo}
+
+_Última actualización: ${doc.actualizado}_
+
+${t(doc.intro)}
+
+${cuerpo}
+`
 }
 
 async function main() {
@@ -180,6 +213,18 @@ Se mantiene mientras la cuenta siga activa. Si cambia la lista, se avisa con ant
 No hay formulario de contacto en el sitio: el canal es WhatsApp o la visita a la oficina.
 `,
   })
+
+  /* ---------------------------------------------------------------- */
+  /* Legales                                                           */
+  /* ---------------------------------------------------------------- */
+  for (const doc of DOCUMENTOS_LEGALES) {
+    archivos.push({
+      nombre: `${doc.url.replace(/^\//, "")}.md`,
+      titulo: doc.titulo,
+      url: doc.url,
+      contenido: legalToMd(doc),
+    })
+  }
 
   /* ---------------------------------------------------------------- */
   /* Módulos                                                           */

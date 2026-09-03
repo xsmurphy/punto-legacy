@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next"
 
+import { DOCUMENTOS_LEGALES } from "@/lib/site/legal"
 import { SITE_URL } from "@/lib/site/links"
 import { modulosVisibles } from "@/lib/site/modulos"
 import { RUBROS } from "@/lib/site/rubros"
@@ -21,6 +22,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: url(`/para/${r.slug}`),
       changeFrequency: "monthly" as const,
       priority: 0.7,
+    })),
+    ...DOCUMENTOS_LEGALES.map((d) => ({
+      url: url(d.url),
+      changeFrequency: "yearly" as const,
+      priority: 0.3,
     })),
   ]
 }
