@@ -281,3 +281,133 @@ api-client (`api.get/post/put/del`), invalidación al mutar. Agregar el ítem
 - Commits por slice, `npm run build` (enforça TS) + `php -l` antes de cada commit.
   Branch `frontend/finanzas` o directo en main si toca api+frontend acoplado.
 - code-reviewer en el commit de la migración/schema (alto riesgo).
+
+---
+
+# 10. Gasto devengado en el reporte por categoría
+
+> **Estado:** plan abierto 2026-09-03. El owner cerró D1 (el gasto se reconoce
+> al COMPRAR, no al pagar). D2-D5 son propuestas sin su OK.
+
+## 10.1 El pedido, y la tensión con la §0
+
+Pedido del owner: "cada compra debe registrar un movimiento en categorías si
+está seleccionada una categoría", y una compra a crédito **todavía impaga** ya
+tiene que verse como gasto en el reporte por categoría.
+
+Eso es criterio de DEVENGADO, y la §0 de este doc define el módulo como caja
+simple: `fin_movement` son "entradas y salidas" de plata. La tensión es real y
+no se resuelve ignorando ninguna de las dos: **`fin_movement` sigue siendo
+caja; lo que cambia es de dónde lee el REPORTE de gastos por categoría.**
+
+Por qué no se resuelve insertando un `fin_movement` al comprar a crédito: ese
+movimiento debitaría una cuenta que todavía no pagó nada. `fin_movement`
+alimenta los saldos por cuenta, el flujo de efectivo (`context/60` D2) y la
+conciliación bancaria. Un asiento por plata que no se movió rompe las tres, y
+rompe además el invariante de cuadre que `context/60` declara obligatorio.
+
+## 10.2 Estado verificado hoy (2026-09-03)
+
+| Caso | ¿Movimiento? | ¿Con la categoría elegida? |
+|---|---|---|
+| Compra contado | Sí | **Sí** — hasta dividida por línea |
+| Compra crédito, al crear | **No** | — |
+| Compra crédito, al pagarse | Sí | **No** — cae en "Proveedores" |
+
+- El split por categoría del contado está BIEN hecho:
+  `PurchasesService::create()` resuelve la precedencia línea > cabecera > ítem
+  y la persiste en `meta.details`; `FinanceLedger::resolveCategorySplit()`
+  agrupa y prorratea el descuento de cabecera en porciones exactas.
+- Una compra a crédito NO genera línea de pago a propósito
+  (`PurchasesService::create()`: `$isCredit` ⇒ `$payMethod = ''` ⇒
+  `$paymentTypeJson = null`), y `recordPurchase()` corta temprano con el guard
+  `empty($lines)`. Sin línea de pago no hay movimiento — correcto bajo caja.
+- `FinanceLedger::recordCreditPayment()` (transactionType 5) crea el
+  movimiento con `ensurePurchasesCategoryId()` —la categoría genérica— y sin
+  centro de costo. **Hoy la categoría elegida en una compra a crédito se pierde
+  entera.**
+
+## 10.3 Decisiones
+
+### D1 — El gasto se reconoce al COMPRAR (cerrada por el owner 2026-09-03)
+
+El reporte de gastos por categoría muestra la compra en su fecha de compra,
+esté pagada o no. Lo que se paga después es la cancelación de una deuda, no un
+gasto nuevo.
+
+### D2 [?] — El pago a proveedor NO se categoriza como gasto
+
+Corolario directo del D1, y es lo que hace que el "fix obvio" sea el
+equivocado: hacer que `recordCreditPayment()` herede la categoría de la compra
+—que era el arreglo natural bajo caja— bajo devengado CONTARÍA EL GASTO DOS
+VECES, una al comprar y otra al pagar.
+
+El movimiento del pago se queda como está para la caja (sale plata de una
+cuenta real, el flujo de efectivo y la conciliación lo necesitan), pero el
+reporte de gastos por categoría lo EXCLUYE por `source = 'purchase_payment'`.
+
+### D3 [?] — El reporte lee dos fuentes, el ledger no cambia
+
+`MovementService::totalsByCategory()` pasa a unir:
+
+1. `fin_movement` de gastos que NO vienen de una compra a crédito (compras al
+   contado, gastos manuales, movimientos del cajón), excluyendo
+   `source = 'purchase_payment'` por el D2.
+2. Las compras a CRÉDITO por su fecha de compra, con el mismo
+   `resolveCategorySplit()` que ya usa el contado — no una segunda
+   interpretación de la precedencia de categorías.
+
+El punto de la reutilización no es ahorrar código: si el devengado resolviera
+la categoría por su cuenta, la MISMA compra podría caer en una categoría bajo
+caja y en otra bajo devengado, y el reporte dejaría de ser explicable.
+
+### D4 [?] — Solo cambia el reporte por categoría y por centro de costo
+
+El corte por CUENTA sigue siendo puramente de caja: una cuenta es plata real y
+una compra impaga no tocó ninguna. Mezclar devengado ahí produciría un total
+por cuenta que no cuadra con su saldo.
+
+Mismo criterio para el flujo de efectivo (`context/60`) y la conciliación: no
+se tocan.
+
+### D5 [?] — La pantalla dice cuál criterio está mirando
+
+Un total que incluye compras impagas NO coincide con la plata que salió, y esa
+diferencia va a leerse como un error del sistema si no está dicha. El reporte
+declara el criterio y ofrece ver el neto de caja al lado.
+
+## 10.4 Fases
+
+| Fase | Qué entrega | Depende de |
+|------|-------------|-----------|
+| **G0** | **Medir**: cuántas compras a crédito impagas hay y cuántas traen categoría. Si son marginales, el orden de G1/G2 se invierte. | — |
+| **G1** | Excluir `source = 'purchase_payment'` del corte por categoría/centro de costo (D2). Solo, deja de contar la compra a crédito en "Proveedores" al pagarse. | — |
+| **G2** | Sumar las compras a crédito por fecha de compra, reusando `resolveCategorySplit()` (D3). Es el corazón del devengado. | G1 |
+| **G3** | Cartel de criterio + neto de caja al lado (D5). | G2 |
+| **G4** | Mismo tratamiento para el centro de costo, que hoy también se pierde en el pago. | G2 |
+
+## 10.5 El arnés
+
+G2 no se mergea sin test contra Postgres real:
+
+- Una compra a crédito con categoría aparece en el reporte por su FECHA DE
+  COMPRA, antes de cualquier pago.
+- Pagarla NO cambia el total del reporte por categoría (no se duplica).
+- Pagarla SÍ mueve el saldo de la cuenta y el flujo de efectivo.
+- Una compra al contado da EXACTAMENTE el mismo total por categoría que la
+  misma compra a crédito ya pagada.
+- El corte por cuenta no cambia con este trabajo.
+
+## 10.6 Arquitecturas rechazadas
+
+- **Insertar un `fin_movement` al comprar a crédito** — ver §10.1: debita una
+  cuenta que no pagó y rompe saldos, flujo de efectivo y conciliación.
+- **Que `recordCreditPayment()` herede la categoría de la compra** — era el
+  arreglo correcto bajo caja y es un DOBLE CONTEO bajo devengado (D2). Se deja
+  escrito porque es la propuesta que sale sola al mirar el bug sin el modelo.
+- **Una columna "devengado" en `fin_movement`** — convierte el ledger de caja
+  en dos ledgers conviviendo en una tabla, y cada consumidor
+  (saldos/flujo/conciliación/reportes) tendría que acordarse de filtrarla. El
+  que se olvide, rompe. La §0 de este doc existe para evitar exactamente eso.
+- **Partida doble** — sigue rechazada (§0). El devengado del reporte de gastos
+  no la necesita ni la introduce.
