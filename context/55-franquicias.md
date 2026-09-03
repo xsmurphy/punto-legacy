@@ -326,6 +326,12 @@ nuevo. Lo único que falta es **qué prueba que esta persona puede hacerlo**. Pa
 
 ## 8.3 Dos hallazgos que hay que arreglar igual
 
+> **Confirmado por el owner 2026-09-03: sus clientes multi-empresa usan el
+> MISMO teléfono en todas.** O sea que (a) no es un riesgo teórico — es lo que
+> les está pasando hoy. Y como el alta bloquea el teléfono repetido (b), esas
+> filas entraron por otro camino (`/admin`, o carga histórica): vale la pena
+> saber cuál antes de que M3 abra el alta, para no reabrir el mismo agujero.
+
 **(a) El login es no determinístico si un teléfono se repite.**
 `findPhoneLogin()` (`api/includes/functions.php:2559`) cierra con `LIMIT 1` **sin
 `ORDER BY`**. Con dos filas `contact` de dueño con el mismo teléfono, Postgres
@@ -399,7 +405,7 @@ Si el owner quiere un plan "grupo", es producto, y va después.
 
 | Fase | Qué entrega | Depende de |
 |------|-------------|-----------|
-| **M0** | **Medir**: cuántos teléfonos de dueño se repiten hoy en prod, y cómo llegaron ahí si el alta los bloquea. Decide el backfill de M1. | — |
+| **M0** | **Medir**: cuántas personas multi-empresa hay hoy en prod y por qué camino se crearon (el alta las bloquea). El vínculo YA se puede inferir por teléfono —confirmado por el owner—, así que M0 dimensiona y busca sorpresas, no decide el mecanismo. | — |
 | **M1** | Mig `person` + `contact.personId` + backfill. Login resuelve por `person`. Sin selector todavía: comportamiento idéntico al de hoy. | M0 |
 | **M2** | Login devuelve la lista de membresías cuando hay más de una + selector de empresa en el panel. | M1 |
 | **M3** | `/v1/active-company` con revocación de la sesión anterior. Alta de empresa nueva para un dueño existente (levanta el bloqueo de `SignupService`). | M2 |
@@ -410,6 +416,10 @@ Si el owner quiere un plan "grupo", es producto, y va después.
 M1 no se mergea sin test contra Postgres real:
 
 - Un `personId` NO puede autenticar contra una empresa donde no tiene `contact`.
+- Un dueño con DOS empresas y el mismo teléfono entra siempre a la misma
+  (determinismo), y llega a las dos. Es el caso que hoy está roto.
+- Contraseñas distintas entre las filas `contact` de una misma persona: el
+  backfill tiene que resolverlo explícitamente, no quedarse con la primera.
 - Cambiar de empresa deja la sesión anterior REVOCADA, no vigente.
 - `findPhoneLogin` deja de poder devolver una fila arbitraria: o resuelve una
   persona, o falla, nunca "cualquiera de las dos".
@@ -437,9 +447,10 @@ M1 no se mergea sin test contra Postgres real:
 
 ## 8.8 Preguntas abiertas
 
-1. **Los clientes multi-empresa que YA existen, ¿usan el mismo teléfono en
-   todas?** Si usan teléfonos distintos, el vínculo no se puede inferir y M1
-   necesita una herramienta de `/admin` para unirlos a mano. Es lo que mide M0.
+1. ~~¿Los clientes multi-empresa usan el mismo teléfono en todas?~~
+   **CERRADO 2026-09-03: sí.** El backfill de M1 infiere el vínculo por
+   teléfono; no hace falta herramienta de unión manual en `/admin`. Queda
+   pendiente decidir qué contraseña gana si las filas difieren (§8.6).
 2. ¿El alta de la segunda empresa la hace el dueño solo, o pasa por `/admin`?
    (M3 asume lo primero.)
 3. ¿El selector muestra las empresas inactivas o vencidas, o las esconde? Verlas
