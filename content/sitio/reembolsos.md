@@ -57,7 +57,7 @@ Para poder resolverlo sin idas y vueltas, el mensaje tiene que incluir:
 
 Respondemos todo pedido de reembolso dentro de los 5 días hábiles de recibido, diciendo si corresponde o no y por qué.
 
-La devolución se hace por el mismo medio de pago con el que se cobró, a través de dLocal Go, que es quien procesa nuestros cobros. No devolvemos en efectivo, ni a una cuenta distinta, ni como crédito para usar en el sistema.
+La devolución se hace por el mismo medio de pago con el que se cobró, a través del procesador que tomó el cobro. No devolvemos en efectivo, ni a una cuenta distinta, ni como crédito para usar en el sistema.
 
 Una vez aprobado, Punto ordena la devolución dentro de los 5 días hábiles. La acreditación efectiva depende del emisor de la tarjeta o del banco del comercio y suele tomar entre 5 y 15 días hábiles adicionales. Ese último tramo no lo controlamos y no prometemos una fecha: lo que sí hacemos es darte el comprobante de la devolución ordenada para que puedas reclamarle a tu banco si se demora.
 

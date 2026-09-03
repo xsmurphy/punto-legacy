@@ -111,7 +111,7 @@ export const TERMINOS: DocumentoLegal = {
       parrafos: [
         `El comercio contrata el plan que elija entre los publicados en ${EMPRESA.sitio}/precios. Ahí figuran, siempre vigentes, el precio de cada uno, sobre qué se cobra y qué incluye. Se factura en ${market.moneda.codigo}.`,
         "El ciclo es mensual y se renueva automáticamente mientras la cuenta esté activa. Cada renovación se cobra por adelantado, al inicio del período.",
-        "El cobro se procesa a través de dLocal Go, que acepta tarjeta y transferencia local. Los datos completos de la tarjeta se ingresan en el entorno del procesador de pagos: nosotros no los vemos ni los guardamos.",
+        "El cobro se procesa a través de un procesador de pagos externo, con los medios que estén habilitados en cada momento. Los datos completos de la tarjeta se ingresan en el entorno del procesador: nosotros no los vemos ni los guardamos.",
         "Los precios que publicamos incluyen los impuestos aplicables: lo que se ve es lo que se paga. Por cada cobro emitimos el comprobante fiscal a nombre de los datos que el comercio tenga cargados en su cuenta.",
       ],
     },
@@ -304,52 +304,54 @@ export const PRIVACIDAD: DocumentoLegal = {
     {
       titulo: "Inteligencia artificial",
       parrafos: [
-        "Punto AI, el asistente del sistema, y la lectura automática de facturas de compra funcionan con modelos de lenguaje que corremos a través de OpenRouter, un proveedor que enruta la consulta al modelo elegido.",
+        "Punto AI, el asistente del sistema, y la lectura automática de facturas de compra funcionan con modelos de lenguaje que corremos a través de un proveedor externo que enruta cada consulta al modelo elegido.",
         "Qué se envía: la pregunta que escribe el usuario, más los datos del negocio que hacen falta para responderla (por ejemplo, el resumen de ventas del período consultado). En la lectura de facturas se envía la foto o el archivo del comprobante.",
         "Qué no se envía: nada más que eso. El asistente no vuelca la base de datos del comercio al modelo, y lo que puede leer o modificar está limitado por los permisos del usuario que lo está usando.",
-        "OpenRouter y los proveedores de modelos actúan como subencargados, bajo compromisos contractuales de confidencialidad. Los datos enviados no se usan para entrenar modelos de terceros.",
+        "Ese proveedor y los modelos que enruta actúan como subencargados, bajo compromisos contractuales de confidencialidad. Los datos enviados no se usan para entrenar modelos de terceros.",
       ],
     },
     {
       titulo: "Con quién compartimos",
       parrafos: [
-        "Compartimos datos solo con los proveedores necesarios para que el servicio funcione, y solo lo mínimo que cada uno necesita. Todos actúan como subencargados del tratamiento.",
+        "Compartimos datos solo con los proveedores necesarios para que el servicio funcione, y solo lo mínimo que cada uno necesita. Todos actúan como subencargados del tratamiento, bajo compromisos contractuales de confidencialidad y seguridad.",
+        "Los listamos por categoría y no por nombre porque un proveedor puede cambiar sin que cambie el tratamiento. La lista actualizada de los proveedores concretos que usamos en cada categoría se entrega a pedido: escribinos a " +
+          EMPRESA.email +
+          ".",
       ],
       tabla: {
-        headers: ["Proveedor", "Para qué"],
+        headers: ["Categoría de proveedor", "Para qué"],
         filas: [
           [
-            "dLocal Go",
-            "Cobro de la suscripción y de los packs de créditos de IA (checkout hosteado).",
+            "Procesamiento de pagos",
+            "Cobro de la suscripción y de los packs de créditos de IA, y devolución de los reembolsos que correspondan.",
           ],
           [
-            "DigitalOcean",
-            "Infraestructura donde corre el sistema y almacenamiento de los archivos que el comercio sube (fotos de productos, adjuntos).",
+            "Infraestructura y almacenamiento en la nube",
+            "Servidores donde corre el sistema y guardado de los archivos que el comercio sube (fotos de productos, adjuntos).",
           ],
           [
-            "Factomate / Automate",
+            "Facturación electrónica",
             "Proveedor habilitado que transmite los documentos electrónicos a {organismo}.",
           ],
           [
-            "OpenRouter",
-            "Proveedor de los modelos de IA que usan el asistente y la lectura de facturas.",
+            "Modelos de inteligencia artificial",
+            "Generación de las respuestas del asistente y lectura automática de las facturas de compra.",
           ],
           [
-            "Mailgun / SendGrid",
-            "Envío de los emails transaccionales del sistema.",
+            "Envío de email y SMS",
+            "Notificaciones y comunicaciones transaccionales del sistema.",
           ],
-          ["Twilio", "Envío de SMS."],
           [
-            "Evolution API (WhatsApp)",
+            "Mensajería instantánea",
             "Envío del código de verificación en el alta de la cuenta.",
           ],
           [
-            "Fish",
-            `Webchat de atención al cliente embebido en ${EMPRESA.sitio}, operado por ${EMPRESA.razonSocial} (mismo grupo empresario)`,
+            "Chat de atención al cliente",
+            `Atención embebida en ${EMPRESA.sitio}, operada por ${EMPRESA.razonSocial}`,
           ],
           [
-            "Bancard",
-            "Medio de pago con QR que el COMERCIO habilita para cobrarle a sus clientes dentro de la caja. No es un cobro de Punto.",
+            "Pasarelas de cobro del comercio",
+            "Medios de pago que el comercio habilita para cobrarle a sus clientes desde la caja. No son cobros de Punto: los datos van directo del cliente a la pasarela.",
           ],
         ],
       },
@@ -358,7 +360,7 @@ export const PRIVACIDAD: DocumentoLegal = {
       titulo: "Cookies y tecnologías similares",
       parrafos: [
         "En la aplicación usamos cookies y almacenamiento local estrictamente necesarios: mantener la sesión iniciada, recordar el dispositivo de caja emparejado, guardar las preferencias de la interfaz y permitir que el punto de venta funcione sin conexión.",
-        `En el sitio ${EMPRESA.sitio} el único script de terceros es el webchat de atención (Fish), que guarda un identificador de conversación para que no se pierda el hilo si recargás la página.`,
+        `En el sitio ${EMPRESA.sitio} el único script de terceros es el del chat de atención, que guarda un identificador de conversación para que no se pierda el hilo si recargás la página.`,
         "No usamos cookies publicitarias, de perfilado de terceros ni de redes sociales. No hay píxeles de seguimiento.",
         "Podés bloquear o borrar cookies desde la configuración de tu navegador. Si bloqueás las de la aplicación, no vas a poder iniciar sesión ni operar la caja: son las que sostienen el acceso.",
       ],
@@ -509,7 +511,7 @@ export const REEMBOLSOS: DocumentoLegal = {
       titulo: "Plazos y forma de devolución",
       parrafos: [
         "Respondemos todo pedido de reembolso dentro de los 5 días hábiles de recibido, diciendo si corresponde o no y por qué.",
-        "La devolución se hace por el mismo medio de pago con el que se cobró, a través de dLocal Go, que es quien procesa nuestros cobros. No devolvemos en efectivo, ni a una cuenta distinta, ni como crédito para usar en el sistema.",
+        "La devolución se hace por el mismo medio de pago con el que se cobró, a través del procesador que tomó el cobro. No devolvemos en efectivo, ni a una cuenta distinta, ni como crédito para usar en el sistema.",
         "Una vez aprobado, Punto ordena la devolución dentro de los 5 días hábiles. La acreditación efectiva depende del emisor de la tarjeta o del banco del comercio y suele tomar entre 5 y 15 días hábiles adicionales. Ese último tramo no lo controlamos y no prometemos una fecha: lo que sí hacemos es darte el comprobante de la devolución ordenada para que puedas reclamarle a tu banco si se demora.",
       ],
     },

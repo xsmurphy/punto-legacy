@@ -45,7 +45,7 @@ El comercio contrata el plan que elija entre los publicados en punto.la/precios.
 
 El ciclo es mensual y se renueva automáticamente mientras la cuenta esté activa. Cada renovación se cobra por adelantado, al inicio del período.
 
-El cobro se procesa a través de dLocal Go, que acepta tarjeta y transferencia local. Los datos completos de la tarjeta se ingresan en el entorno del procesador de pagos: nosotros no los vemos ni los guardamos.
+El cobro se procesa a través de un procesador de pagos externo, con los medios que estén habilitados en cada momento. Los datos completos de la tarjeta se ingresan en el entorno del procesador: nosotros no los vemos ni los guardamos.
 
 Los precios que publicamos incluyen los impuestos aplicables: lo que se ve es lo que se paga. Por cada cobro emitimos el comprobante fiscal a nombre de los datos que el comercio tenga cargados en su cuenta.
 

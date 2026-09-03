@@ -56,35 +56,36 @@ No usamos los datos de un comercio para beneficiar a otro. Cada cuenta está ais
 
 ## 6. Inteligencia artificial
 
-Punto AI, el asistente del sistema, y la lectura automática de facturas de compra funcionan con modelos de lenguaje que corremos a través de OpenRouter, un proveedor que enruta la consulta al modelo elegido.
+Punto AI, el asistente del sistema, y la lectura automática de facturas de compra funcionan con modelos de lenguaje que corremos a través de un proveedor externo que enruta cada consulta al modelo elegido.
 
 Qué se envía: la pregunta que escribe el usuario, más los datos del negocio que hacen falta para responderla (por ejemplo, el resumen de ventas del período consultado). En la lectura de facturas se envía la foto o el archivo del comprobante.
 
 Qué no se envía: nada más que eso. El asistente no vuelca la base de datos del comercio al modelo, y lo que puede leer o modificar está limitado por los permisos del usuario que lo está usando.
 
-OpenRouter y los proveedores de modelos actúan como subencargados, bajo compromisos contractuales de confidencialidad. Los datos enviados no se usan para entrenar modelos de terceros.
+Ese proveedor y los modelos que enruta actúan como subencargados, bajo compromisos contractuales de confidencialidad. Los datos enviados no se usan para entrenar modelos de terceros.
 
 ## 7. Con quién compartimos
 
-Compartimos datos solo con los proveedores necesarios para que el servicio funcione, y solo lo mínimo que cada uno necesita. Todos actúan como subencargados del tratamiento.
+Compartimos datos solo con los proveedores necesarios para que el servicio funcione, y solo lo mínimo que cada uno necesita. Todos actúan como subencargados del tratamiento, bajo compromisos contractuales de confidencialidad y seguridad.
 
-| Proveedor | Para qué |
+Los listamos por categoría y no por nombre porque un proveedor puede cambiar sin que cambie el tratamiento. La lista actualizada de los proveedores concretos que usamos en cada categoría se entrega a pedido: escribinos a info@punto.la.
+
+| Categoría de proveedor | Para qué |
 | --- | --- |
-| dLocal Go | Cobro de la suscripción y de los packs de créditos de IA (checkout hosteado). |
-| DigitalOcean | Infraestructura donde corre el sistema y almacenamiento de los archivos que el comercio sube (fotos de productos, adjuntos). |
-| Factomate / Automate | Proveedor habilitado que transmite los documentos electrónicos a la SET. |
-| OpenRouter | Proveedor de los modelos de IA que usan el asistente y la lectura de facturas. |
-| Mailgun / SendGrid | Envío de los emails transaccionales del sistema. |
-| Twilio | Envío de SMS. |
-| Evolution API (WhatsApp) | Envío del código de verificación en el alta de la cuenta. |
-| Fish | Webchat de atención al cliente embebido en punto.la, operado por Brixton Capital S.A. (mismo grupo empresario) |
-| Bancard | Medio de pago con QR que el COMERCIO habilita para cobrarle a sus clientes dentro de la caja. No es un cobro de Punto. |
+| Procesamiento de pagos | Cobro de la suscripción y de los packs de créditos de IA, y devolución de los reembolsos que correspondan. |
+| Infraestructura y almacenamiento en la nube | Servidores donde corre el sistema y guardado de los archivos que el comercio sube (fotos de productos, adjuntos). |
+| Facturación electrónica | Proveedor habilitado que transmite los documentos electrónicos a la SET. |
+| Modelos de inteligencia artificial | Generación de las respuestas del asistente y lectura automática de las facturas de compra. |
+| Envío de email y SMS | Notificaciones y comunicaciones transaccionales del sistema. |
+| Mensajería instantánea | Envío del código de verificación en el alta de la cuenta. |
+| Chat de atención al cliente | Atención embebida en punto.la, operada por Brixton Capital S.A. |
+| Pasarelas de cobro del comercio | Medios de pago que el comercio habilita para cobrarle a sus clientes desde la caja. No son cobros de Punto: los datos van directo del cliente a la pasarela. |
 
 ## 8. Cookies y tecnologías similares
 
 En la aplicación usamos cookies y almacenamiento local estrictamente necesarios: mantener la sesión iniciada, recordar el dispositivo de caja emparejado, guardar las preferencias de la interfaz y permitir que el punto de venta funcione sin conexión.
 
-En el sitio punto.la el único script de terceros es el webchat de atención (Fish), que guarda un identificador de conversación para que no se pierda el hilo si recargás la página.
+En el sitio punto.la el único script de terceros es el del chat de atención, que guarda un identificador de conversación para que no se pierda el hilo si recargás la página.
 
 No usamos cookies publicitarias, de perfilado de terceros ni de redes sociales. No hay píxeles de seguimiento.
 
