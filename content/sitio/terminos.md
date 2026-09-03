@@ -65,7 +65,17 @@ El timbrado, los puntos de expedición, los datos fiscales de la empresa y el cu
 
 No respondemos por rechazos, observaciones o multas originados en datos cargados por el comercio (timbrado vencido, RUC del cliente incorrecto, tasas mal configuradas), ni por interrupciones del servicio de la autoridad tributaria o del proveedor de transmisión.
 
-## 7. Cancelación, mora y baja
+## 7. Responsabilidad del comercio por el uso legal del sistema
+
+Punto pone la herramienta; lo que se hace con ella lo decide el comercio. La información que se carga, los comprobantes que se emiten, las operaciones que se registran y las que se dejan de registrar son actos del comercio y de las personas a las que le dio acceso.
+
+Brixton Capital S.A. no audita, no supervisa y no valida el contenido que el comercio carga, y no responde por el uso que se le dé al sistema en infracción de la ley. Esto incluye, sin limitarse a ello, la evasión o elusión de tributos, la omisión o adulteración de operaciones, la emisión de comprobantes que no respalden operaciones reales, el lavado de activos, y el incumplimiento de la normativa laboral, de defensa del consumidor o de protección de datos personales vigente en el país donde el comercio opera.
+
+Si una autoridad o un tercero le reclama a Brixton Capital S.A. por un hecho de esa clase atribuible al comercio, el comercio nos mantiene indemnes: asume su propia defensa y responde por los costos, multas o condenas que se deriven.
+
+Detectar un uso de este tipo nos habilita a suspender o dar de baja la cuenta de inmediato y sin reembolso, y a responder los requerimientos que nos haga una autoridad competente en el marco de sus facultades.
+
+## 8. Cancelación, mora y baja
 
 No hay contrato de permanencia ni cargo por cancelar. El comercio da de baja la cuenta cuando quiere, escribiéndonos a info@punto.la. La baja se hace efectiva al final del ciclo ya pagado: hasta esa fecha el servicio sigue funcionando completo y después no se renueva.
 
@@ -73,7 +83,7 @@ Si un cobro falla, lo reintentamos durante los 7 días corridos siguientes y avi
 
 Tras la baja, el comercio tiene 30 días corridos para exportar sus datos. Vencido ese plazo eliminamos la información operativa de la cuenta, salvo lo que la normativa fiscal nos obliga a conservar. Para coordinar una exportación escribinos a info@punto.la.
 
-## 8. Reembolsos
+## 9. Reembolsos
 
 La suscripción se paga por adelantado y no se devuelve la parte no usada del mes en curso: el servicio queda disponible hasta que termine el ciclo pagado.
 
@@ -81,7 +91,7 @@ Sí devolvemos el dinero cuando el cobro no correspondía —un cobro duplicado,
 
 El detalle completo —qué cubre, cómo se pide, en cuánto se responde y en cuánto se acredita— está en la Política de Reembolsos, en punto.la/reembolsos. Esa política forma parte de estos términos.
 
-## 9. Propiedad de los datos
+## 10. Propiedad de los datos
 
 Los datos que el comercio carga y genera en Punto son del comercio: su catálogo, sus clientes, sus ventas, sus comprobantes, su stock.
 
@@ -89,18 +99,19 @@ Nosotros los tratamos únicamente para prestar el servicio, darle soporte y cump
 
 El comercio puede exportar su información cuando quiera desde el panel, y pedirnos una exportación asistida si necesita un formato distinto.
 
-## 10. Uso aceptable
+## 11. Uso aceptable
 
 Punto se usa para operar un negocio legítimo. Al usarlo, el comercio se compromete a no hacer nada de lo siguiente:
 
 - Registrar operaciones de actividades ilegales o usar el sistema para simular operaciones inexistentes.
+- Ocultar, suprimir o alterar operaciones ya registradas para declarar menos de lo que corresponde, o llevar registros paralelos con ese fin.
 - Emitir comprobantes a nombre de terceros sin autorización, o usar timbrados que no le pertenezcan.
 - Enviar mensajes masivos no solicitados desde los canales del sistema.
 - Intentar eludir límites técnicos, acceder a datos de otros comercios, o hacer ingeniería inversa del software.
 - Revender, sublicenciar o dar acceso al sistema a terceros como si fuera un servicio propio.
 - Compartir credenciales entre personas o entre comercios distintos.
 
-## 11. Disponibilidad, mantenimiento y modo offline
+## 12. Disponibilidad, mantenimiento y modo offline
 
 Trabajamos para que el servicio esté disponible todo el tiempo, pero ningún sistema lo está al 100%. Puede haber interrupciones por mantenimiento, por fallas de nuestros proveedores de infraestructura o por causas fuera de nuestro control.
 
@@ -110,7 +121,7 @@ El punto de venta funciona sin internet: la venta se emite igual y queda guardad
 
 No ofrecemos un acuerdo de nivel de servicio (SLA) con compromisos de disponibilidad medidos, salvo que se firme un contrato corporativo específico que lo incluya.
 
-## 12. Propiedad intelectual
+## 13. Propiedad intelectual
 
 El software, el diseño, la documentación, la marca Punto y todo lo que compone el servicio son propiedad de Brixton Capital S.A. o de quienes nos licenciaron esos elementos.
 
@@ -118,7 +129,7 @@ Mientras la cuenta esté activa y al día, el comercio recibe una licencia de us
 
 Esa licencia no incluye derecho a copiar el software, derivar productos de él, usar la marca sin autorización escrita, ni ofrecerlo a terceros.
 
-## 13. Cambios de estos términos y del precio
+## 14. Cambios de estos términos y del precio
 
 Podemos actualizar estos términos: cambia el producto, cambian las normas, aparecen situaciones que el texto no contemplaba. Los cambios se avisan con al menos 15 días de anticipación por los canales de contacto de la cuenta y publicando la nueva versión con su fecha de vigencia.
 
@@ -126,7 +137,7 @@ Los cambios de precio se avisan con al menos 30 días de anticipación y nunca s
 
 Si el comercio no está de acuerdo con un cambio, puede dar de baja la cuenta sin penalidad antes de que entre en vigencia. Seguir usando el servicio después de esa fecha implica aceptar la nueva versión.
 
-## 14. Soporte
+## 15. Soporte
 
 El soporte online funciona 24/7 por WhatsApp al +595 981 078798, por el chat del sitio y por info@punto.la.
 
@@ -134,7 +145,7 @@ Cubre el uso del sistema: cómo hacer algo, revisar una configuración, entender
 
 No cubre la operación del negocio del comercio: no cargamos su catálogo por él en el día a día, no registramos sus ventas ni tomamos decisiones contables o fiscales por él. La puesta en marcha inicial sí está acompañada.
 
-## 15. Limitación de responsabilidad
+## 16. Limitación de responsabilidad
 
 El servicio se presta "tal como está" y "según disponibilidad". Hacemos nuestro mejor esfuerzo, y aun así el software puede tener errores.
 
@@ -142,15 +153,17 @@ En la medida que lo permita la ley, no respondemos por daños indirectos, lucro 
 
 Nuestra responsabilidad total acumulada por cualquier reclamo relacionado con el servicio no supera el monto que el comercio nos haya pagado en los 12 meses anteriores al hecho que originó el reclamo.
 
+Tampoco respondemos por las consecuencias del uso que el comercio le dé al sistema en infracción de la ley, según lo previsto en la sección sobre responsabilidad del comercio por el uso legal del sistema.
+
 Nada de lo anterior limita responsabilidades que la ley declare no renunciables.
 
-## 16. Ley aplicable y jurisdicción
+## 17. Ley aplicable y jurisdicción
 
 Estos términos se rigen por las leyes de la República del Paraguay.
 
 Cualquier controversia se somete a los tribunales ordinarios de la ciudad de Asunción, con renuncia a cualquier otro fuero. Antes de llegar ahí, preferimos hablarlo: escribinos y buscamos una solución.
 
-## 17. Contacto
+## 18. Contacto
 
 Brixton Capital S.A. — RUC 80164242-6
 

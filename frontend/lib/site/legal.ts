@@ -132,6 +132,15 @@ export const TERMINOS: DocumentoLegal = {
       ],
     },
     {
+      titulo: "Responsabilidad del comercio por el uso legal del sistema",
+      parrafos: [
+        "Punto pone la herramienta; lo que se hace con ella lo decide el comercio. La información que se carga, los comprobantes que se emiten, las operaciones que se registran y las que se dejan de registrar son actos del comercio y de las personas a las que le dio acceso.",
+        `${EMPRESA.razonSocial} no audita, no supervisa y no valida el contenido que el comercio carga, y no responde por el uso que se le dé al sistema en infracción de la ley. Esto incluye, sin limitarse a ello, la evasión o elusión de tributos, la omisión o adulteración de operaciones, la emisión de comprobantes que no respalden operaciones reales, el lavado de activos, y el incumplimiento de la normativa laboral, de defensa del consumidor o de protección de datos personales vigente en el país donde el comercio opera.`,
+        `Si una autoridad o un tercero le reclama a ${EMPRESA.razonSocial} por un hecho de esa clase atribuible al comercio, el comercio nos mantiene indemnes: asume su propia defensa y responde por los costos, multas o condenas que se deriven.`,
+        "Detectar un uso de este tipo nos habilita a suspender o dar de baja la cuenta de inmediato y sin reembolso, y a responder los requerimientos que nos haga una autoridad competente en el marco de sus facultades.",
+      ],
+    },
+    {
       titulo: "Cancelación, mora y baja",
       parrafos: [
         `No hay contrato de permanencia ni cargo por cancelar. El comercio da de baja la cuenta cuando quiere, escribiéndonos a ${EMPRESA.email}. La baja se hace efectiva al final del ciclo ya pagado: hasta esa fecha el servicio sigue funcionando completo y después no se renueva.`,
@@ -162,6 +171,7 @@ export const TERMINOS: DocumentoLegal = {
       ],
       lista: [
         "Registrar operaciones de actividades ilegales o usar el sistema para simular operaciones inexistentes.",
+        "Ocultar, suprimir o alterar operaciones ya registradas para declarar menos de lo que corresponde, o llevar registros paralelos con ese fin.",
         "Emitir comprobantes a nombre de terceros sin autorización, o usar timbrados que no le pertenezcan.",
         "Enviar mensajes masivos no solicitados desde los canales del sistema.",
         "Intentar eludir límites técnicos, acceder a datos de otros comercios, o hacer ingeniería inversa del software.",
@@ -208,6 +218,7 @@ export const TERMINOS: DocumentoLegal = {
         'El servicio se presta "tal como está" y "según disponibilidad". Hacemos nuestro mejor esfuerzo, y aun así el software puede tener errores.',
         "En la medida que lo permita la ley, no respondemos por daños indirectos, lucro cesante, pérdida de oportunidades comerciales, ni por pérdida de datos que el comercio pudo haber exportado y no exportó.",
         "Nuestra responsabilidad total acumulada por cualquier reclamo relacionado con el servicio no supera el monto que el comercio nos haya pagado en los 12 meses anteriores al hecho que originó el reclamo.",
+        "Tampoco respondemos por las consecuencias del uso que el comercio le dé al sistema en infracción de la ley, según lo previsto en la sección sobre responsabilidad del comercio por el uso legal del sistema.",
         "Nada de lo anterior limita responsabilidades que la ley declare no renunciables.",
       ],
     },
