@@ -44,6 +44,10 @@ Detalles clave (código real):
   `AND companyId=… [AND outletId=…]` para ~21 endpoints de reports. El
   override de `VIEW_OUTLET_ID` se aplica ahí, no en cada endpoint.
 
+> Desde 2026-09-02 hay un TERCER estado además de "una sucursal" y "todas":
+> el consolidado ACOTADO a un conjunto (`VIEW_OUTLET_IDS` → `IN (...)`), que
+> hoy solo usa el realm `api`. Ver §4.5.
+
 ## 2. Resolución de outlet por realm
 
 | Realm | Fuente del outlet | Puede el cliente override-ar? |
@@ -106,30 +110,44 @@ que estaba desactualizada — ver §6).
 
 ## 4.5 Dirección decidida — el scope sale de las sucursales ASIGNADAS al usuario
 
-**Decisión del owner, 2026-08-30. Sin implementar.**
-
-Hoy `X-Outlet-Id: all` valida que la sucursal pertenezca al tenant pero no mira
-al usuario: cualquiera con permiso sobre un reporte lo ve consolidado de TODAS
-las sucursales (P2 de la auditoría del 2026-08-26).
+**Decisión del owner, 2026-08-30. Implementada para el realm `api` el
+2026-09-02; PENDIENTE para `panel`.**
 
 El modelo decidido no es un permiso de "ver consolidado", sino:
 **el acceso a la info de cada sucursal se define por los permisos del usuario Y
 las sucursales que tiene asignadas.** El consolidado es la UNIÓN de sus
 sucursales asignadas.
 
-Lo que falta para sostenerlo, y por qué no es un parche:
+La convención de alcance (fuente de verdad `contact_outlet`, mig 66; CERO filas
+= usuario GLOBAL; **nunca** la columna legacy `contact.outletid`) vive en
+`api/lib/Outlets/OutletScope.php`. Antes estaba solo dentro de
+`UsersService::rosterForOutlet()`.
 
-- Un usuario hoy tiene UNA sucursal (`contact.outletId`). Hace falta una
-  relación N–N — precedente en `item_outlet` (mig 170).
-- `Roc::build` emite `AND outletId = '<uuid>'` o nada. Con un subconjunto pasa a
-  `IN (...)`, y ese helper es el embudo por el que lee TODO reporte: es el
-  cambio profundo, no la tabla.
-- UI de asignación en `/settings/team`, y `bootstrap.php` resolviendo el set en
-  lugar de validar un uuid suelto.
+Qué quedó hecho (realm `api` — API keys y MCP):
+
+- `bootstrap.php` deriva el conjunto del USUARIO dueño de la key y lo deja en
+  `VIEW_OUTLET_IDS`, además de acotar `OUTLET_ID` a ese conjunto (los lectores
+  que bindean la constante sin pasar por `Roc` quedaban fuera del alcance).
+- `Roc::build` estrenó el tercer estado: además de UNA sucursal o TODAS, emite
+  `IN (...)` para el consolidado ACOTADO.
+- Override por `?outletId=` validado contra el conjunto; una sucursal ajena da
+  **403, nunca una lista vacía**. `X-Outlet-Id` NO se ensanchó: sigue siendo
+  exclusivo de `panel`.
+- Los cinco endpoints que bindean un outlet único sin pasar por `Roc` (stock,
+  dashboard, cashflow, open_invoices, balance) usan `OutletScope::single()` y
+  cortan con 422 accionable cuando el alcance es un subconjunto de 2+.
+- Arnés: `api/tests/run_outlet_scope_test.sh` (31 checks, Postgres real).
+
+**Lo que sigue pendiente**: el realm `panel`. Hoy `X-Outlet-Id: all` valida que
+la sucursal pertenezca al tenant pero **no mira al usuario**, así que cualquiera
+con permiso sobre un reporte lo sigue viendo consolidado de TODAS las sucursales
+(P2 de la auditoría del 2026-08-26). Falta también la UI de asignación en
+`/settings/team`. El mecanismo ya está construido: aplicarlo a `panel` es
+alimentar `VIEW_OUTLET_IDS` desde `OutletScope::forUser()` también en esa rama
+y decidir qué hace el selector cuando el usuario alcanza un subconjunto.
 
 Interactúa con franquicias (`context/55`): un franquiciador supervisando a sus
-franquiciados es el mismo problema un nivel arriba. No tocar `Roc::build` sin
-plan propio.
+franquiciados es el mismo problema un nivel arriba.
 
 ## 5. Reglas para código nuevo (checklist)
 
