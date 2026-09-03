@@ -14,6 +14,7 @@ Generado desde el código del sitio con `npm run export:content`.
 - [Contacto](contacto.md) — /contacto
 - [Términos y Condiciones](terminos.md) — /terminos
 - [Política de Privacidad](privacidad.md) — /privacidad
+- [Política de Reembolsos](reembolsos.md) — /reembolsos
 - [Punto de Venta](modulo-punto-de-venta.md) — /modulos/punto-de-venta
 - [Panel](modulo-panel.md) — /modulos/panel
 - [Punto AI](modulo-punto-ai.md) — /modulos/punto-ai

@@ -1,8 +1,9 @@
 /**
- * Textos legales del sitio (Términos y Condiciones, Política de Privacidad).
+ * Textos legales del sitio (Términos y Condiciones, Política de Privacidad,
+ * Política de Reembolsos).
  *
  * Son CONTENIDO ESTRUCTURADO, no JSX: la misma fuente alimenta a las páginas
- * públicas (`/terminos`, `/privacidad`) y al exportador que genera
+ * públicas (`/terminos`, `/privacidad`, `/reembolsos`) y al exportador que genera
  * `content/sitio/*.md` para el agente de atención. Si se edita una cláusula,
  * se edita acá y las dos superficies quedan sincronizadas.
  *
@@ -35,12 +36,12 @@ const market = getMarket()
 
 /** Identificación de la empresa que presta el servicio. */
 export const EMPRESA = {
-  razonSocial: "Brixton S.A.",
+  razonSocial: "Brixton Capital S.A.",
   documento: "80164242-6",
   domicilio: market.contacto.direccion,
   telefono: market.contacto.telefono,
-  emailGeneral: "hola@punto.la",
-  emailLegal: "legal@punto.la",
+  /** Canal único de contacto: soporte, legales, privacidad y facturación. */
+  email: "info@punto.la",
   sitio: "punto.la",
   app: "app.punto.la",
   vigencia: "3 de septiembre de 2026",
@@ -49,6 +50,12 @@ export const EMPRESA = {
 const PRECIO = marketMoney(market.plan.precio, market)
 const PERIODO = market.plan.periodo
 const CREDITOS = new Intl.NumberFormat("es-PY").format(market.plan.creditosIa)
+
+/**
+ * Ruta de la política de reembolsos. Vive suelta porque los Términos la
+ * citan y se declaran antes que el documento.
+ */
+const REEMBOLSOS_URL = "/reembolsos"
 
 /** Ancla estable de una sección, para el índice del documento. */
 export function seccionId(titulo: string): string {
@@ -77,7 +84,7 @@ export const TERMINOS: DocumentoLegal = {
       parrafos: [
         `El servicio lo presta ${EMPRESA.razonSocial}, con {docFiscal} ${EMPRESA.documento} y domicilio en ${EMPRESA.domicilio}.`,
         `${EMPRESA.sitio} es el sitio público donde contamos qué hace Punto y cuánto cuesta. ${EMPRESA.app} es la aplicación: el punto de venta, el panel de administración y todo lo que el comercio opera con su cuenta.`,
-        `Para cualquier tema de estos términos escribinos a ${EMPRESA.emailLegal}. Para soporte, a ${EMPRESA.emailGeneral} o al ${EMPRESA.telefono}.`,
+        `Tenemos un solo canal de contacto para todo — soporte, facturación, temas legales y privacidad: ${EMPRESA.email}. También atendemos por WhatsApp al ${EMPRESA.telefono}.`,
       ],
     },
     {
@@ -108,7 +115,7 @@ export const TERMINOS: DocumentoLegal = {
         `Punto tiene un solo plan, con todo el sistema incluido. El precio es de ${PRECIO} ${PERIODO}, en ${market.moneda.codigo}.`,
         "El ciclo es mensual y se renueva automáticamente mientras la cuenta esté activa. Cada renovación se cobra por adelantado, al inicio del período.",
         "El cobro se procesa a través de dLocal Go, que acepta tarjeta y transferencia local. Los datos completos de la tarjeta se ingresan en el entorno del procesador de pagos: nosotros no los vemos ni los guardamos.",
-        "Los precios se expresan con los impuestos que correspondan según la normativa vigente. Por cada cobro emitimos el comprobante fiscal a nombre de los datos que el comercio haya cargado en su cuenta.",
+        "Los precios que publicamos incluyen los impuestos aplicables: lo que se ve es lo que se paga. Por cada cobro emitimos el comprobante fiscal a nombre de los datos que el comercio tenga cargados en su cuenta.",
       ],
     },
     {
@@ -130,17 +137,17 @@ export const TERMINOS: DocumentoLegal = {
     {
       titulo: "Cancelación, mora y baja",
       parrafos: [
-        "No hay contrato de permanencia. El comercio puede dar de baja la cuenta cuando quiera, avisándonos por los canales de contacto. La baja se hace efectiva al final del ciclo ya pagado: hasta esa fecha el servicio sigue funcionando completo.",
-        "Si un cobro falla, reintentamos y avisamos. Si la deuda persiste, la cuenta se suspende: primero se bloquea la operación (no se puede vender ni emitir) y después queda en modo de solo lectura, para que el comercio pueda consultar y exportar su información.",
-        `Tras la baja, el comercio tiene 30 días corridos para exportar sus datos. Vencido ese plazo podemos eliminar la información operativa de la cuenta, salvo lo que estemos obligados a conservar por normativa fiscal. Para coordinar una exportación escribinos a ${EMPRESA.emailGeneral}.`,
+        `No hay contrato de permanencia ni cargo por cancelar. El comercio da de baja la cuenta cuando quiere, escribiéndonos a ${EMPRESA.email}. La baja se hace efectiva al final del ciclo ya pagado: hasta esa fecha el servicio sigue funcionando completo y después no se renueva.`,
+        "Si un cobro falla, lo reintentamos durante los 7 días corridos siguientes y avisamos por los canales de contacto de la cuenta. Pasados esos 7 días sin regularizar, la cuenta se suspende: no se puede vender ni emitir, y el panel queda en modo de solo lectura para que el comercio consulte y exporte su información.",
+        `Tras la baja, el comercio tiene 30 días corridos para exportar sus datos. Vencido ese plazo eliminamos la información operativa de la cuenta, salvo lo que la normativa fiscal nos obliga a conservar. Para coordinar una exportación escribinos a ${EMPRESA.email}.`,
       ],
     },
     {
       titulo: "Reembolsos",
       parrafos: [
-        "La suscripción mensual no es reembolsable. Al dar de baja no se devuelve la parte del mes en curso: el servicio queda disponible hasta que termine el ciclo pagado.",
-        "Si hubo un cobro duplicado o un error de facturación imputable a nosotros, lo devolvemos íntegro. Escribinos dentro de los 30 días del cobro y lo resolvemos.",
-        `Los créditos de IA comprados aparte tampoco son reembolsables una vez acreditados en la cuenta. Cualquier reclamo se canaliza por ${EMPRESA.emailGeneral}.`,
+        "La suscripción se paga por adelantado y no se devuelve la parte no usada del mes en curso: el servicio queda disponible hasta que termine el ciclo pagado.",
+        "Sí devolvemos el dinero cuando el cobro no correspondía —un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja ya efectiva— y cuando una falla del servicio atribuible a Punto impide operar y no la corregimos en un plazo razonable.",
+        `El detalle completo —qué cubre, cómo se pide, en cuánto se responde y en cuánto se acredita— está en la Política de Reembolsos, en ${EMPRESA.sitio}${REEMBOLSOS_URL}. Esa política forma parte de estos términos.`,
       ],
     },
     {
@@ -169,7 +176,7 @@ export const TERMINOS: DocumentoLegal = {
       titulo: "Disponibilidad, mantenimiento y modo offline",
       parrafos: [
         "Trabajamos para que el servicio esté disponible todo el tiempo, pero ningún sistema lo está al 100%. Puede haber interrupciones por mantenimiento, por fallas de nuestros proveedores de infraestructura o por causas fuera de nuestro control.",
-        "Las ventanas de mantenimiento programado se avisan con anticipación y se eligen en horarios de baja actividad. Las incidencias no programadas se comunican por los canales de soporte.",
+        "Las ventanas de mantenimiento programado se avisan con al menos 48 horas de anticipación y se hacen de madrugada, en el horario de menor actividad. Las incidencias no programadas se comunican por los canales de soporte mientras se están resolviendo.",
         "El punto de venta funciona sin internet: la venta se emite igual y queda guardada en el dispositivo. Lo que necesita conexión es la sincronización — enviar la operación a la nube, transmitir el documento electrónico y compartir el estado con otras cajas. Mientras no haya conexión, esas partes quedan pendientes y se resuelven solas al volver.",
         "No ofrecemos un acuerdo de nivel de servicio (SLA) con compromisos de disponibilidad medidos, salvo que se firme un contrato corporativo específico que lo incluya.",
       ],
@@ -193,7 +200,7 @@ export const TERMINOS: DocumentoLegal = {
     {
       titulo: "Soporte",
       parrafos: [
-        `El soporte online funciona 24/7 por WhatsApp al ${EMPRESA.telefono}, por el chat del sitio y por ${EMPRESA.emailGeneral}.`,
+        `El soporte online funciona 24/7 por WhatsApp al ${EMPRESA.telefono}, por el chat del sitio y por ${EMPRESA.email}.`,
         "Cubre el uso del sistema: cómo hacer algo, revisar una configuración, entender un comportamiento, resolver un problema técnico de la plataforma.",
         "No cubre la operación del negocio del comercio: no cargamos su catálogo por él en el día a día, no registramos sus ventas ni tomamos decisiones contables o fiscales por él. La puesta en marcha inicial sí está acompañada.",
       ],
@@ -219,8 +226,7 @@ export const TERMINOS: DocumentoLegal = {
       parrafos: [
         `${EMPRESA.razonSocial} — {docFiscal} ${EMPRESA.documento}`,
         EMPRESA.domicilio,
-        `Consultas generales y soporte: ${EMPRESA.emailGeneral} · ${EMPRESA.telefono}`,
-        `Temas legales: ${EMPRESA.emailLegal}`,
+        `${EMPRESA.email} · ${EMPRESA.telefono}`,
       ],
     },
   ],
@@ -242,7 +248,7 @@ export const PRIVACIDAD: DocumentoLegal = {
       titulo: "Quién es responsable",
       parrafos: [
         `${EMPRESA.razonSocial}, con {docFiscal} ${EMPRESA.documento} y domicilio en ${EMPRESA.domicilio}, es quien presta el servicio Punto y quien responde por el tratamiento descripto en esta política.`,
-        `Para cualquier tema de privacidad o para ejercer derechos sobre tus datos, escribinos a ${EMPRESA.emailLegal}.`,
+        `Para cualquier tema de privacidad o para ejercer derechos sobre tus datos, escribinos a ${EMPRESA.email}.`,
       ],
     },
     {
@@ -361,9 +367,9 @@ export const PRIVACIDAD: DocumentoLegal = {
       titulo: "Cuánto tiempo conservamos los datos",
       parrafos: [
         "Mientras la cuenta esté activa, conservamos los datos para que el comercio pueda operar y consultar su historial.",
-        "Tras la baja, hay 30 días corridos para exportar la información. Vencido ese plazo podemos eliminar los datos operativos de la cuenta.",
+        "Tras la baja, hay 30 días corridos para exportar la información. Vencido ese plazo eliminamos los datos operativos de la cuenta.",
         "Hay una excepción: los documentos electrónicos emitidos y los respaldos contables se conservan por el plazo que exige la normativa fiscal, aunque la cuenta se haya dado de baja. No podemos borrarlos antes.",
-        "Los registros técnicos y de auditoría se conservan por períodos acotados, los necesarios para seguridad y diagnóstico.",
+        "Los registros técnicos de error se conservan 90 días, los necesarios para diagnosticar una falla. El registro de auditoría de operaciones acompaña a la cuenta mientras esté activa: es parte del historial del negocio.",
       ],
     },
     {
@@ -385,7 +391,7 @@ export const PRIVACIDAD: DocumentoLegal = {
       titulo: "Notificación de incidentes",
       parrafos: [
         "Ninguna medida de seguridad es infalible. Si ocurre una brecha que afecte datos personales, la tratamos como incidente prioritario.",
-        "Contenemos el incidente, evaluamos el alcance y notificamos a los comercios afectados sin demora indebida, apenas tengamos confirmado qué datos se vieron involucrados y qué recomendamos hacer. Si corresponde, notificamos también a la autoridad competente.",
+        "Contenemos el incidente, evaluamos el alcance y notificamos a los comercios afectados dentro de las 72 horas de confirmado qué datos se vieron involucrados, junto con lo que recomendamos hacer. Si la normativa lo exige, notificamos también a la autoridad competente.",
         "Cuando el comercio sea el responsable de los datos afectados (los de sus propios clientes), le damos la información que necesite para cumplir con sus propias obligaciones de notificación.",
       ],
     },
@@ -393,7 +399,7 @@ export const PRIVACIDAD: DocumentoLegal = {
       titulo: "Tus derechos",
       parrafos: [
         "Toda persona cuyos datos tratamos puede pedirnos acceder a ellos, rectificarlos, actualizarlos, solicitar su supresión, pedir una copia en formato portable u oponerse a determinados tratamientos.",
-        `Para ejercerlos, escribí a ${EMPRESA.emailLegal} indicando qué querés hacer. Para proteger tus datos de un tercero que se haga pasar por vos, vamos a pedirte que verifiques tu identidad — normalmente confirmando el control del teléfono o del email asociados.`,
+        `Para ejercerlos, escribí a ${EMPRESA.email} indicando qué querés hacer. Para proteger tus datos de un tercero que se haga pasar por vos, vamos a pedirte que verifiques tu identidad — normalmente confirmando el control del teléfono o del email asociados.`,
         "Respondemos dentro de los 15 días hábiles de recibido el pedido verificado. Si el caso requiere más tiempo, te avisamos por qué y en cuánto lo resolvemos.",
         "Si el pedido es sobre datos que un comercio cargó sobre vos como su cliente, te vamos a derivar a ese comercio, que es el responsable — y lo asistimos para que pueda responderte.",
       ],
@@ -410,7 +416,7 @@ export const PRIVACIDAD: DocumentoLegal = {
       titulo: "Menores de edad",
       parrafos: [
         "Punto es un servicio para comercios y sus equipos de trabajo. No está dirigido a menores de edad ni recolectamos datos de menores a sabiendas.",
-        `Si detectamos que se cargaron datos de un menor sin base legal, o si nos lo informan a ${EMPRESA.emailLegal}, actuamos para eliminarlos.`,
+        `Si detectamos que se cargaron datos de un menor sin base legal, o si nos lo informan a ${EMPRESA.email}, los eliminamos dentro de los 5 días hábiles.`,
       ],
     },
     {
@@ -425,12 +431,110 @@ export const PRIVACIDAD: DocumentoLegal = {
       parrafos: [
         `${EMPRESA.razonSocial} — {docFiscal} ${EMPRESA.documento}`,
         EMPRESA.domicilio,
-        `Privacidad y ejercicio de derechos: ${EMPRESA.emailLegal}`,
-        `Consultas generales y soporte: ${EMPRESA.emailGeneral} · ${EMPRESA.telefono}`,
+        `${EMPRESA.email} · ${EMPRESA.telefono}`,
       ],
     },
   ],
 }
 
-/** Los dos documentos legales, para el footer y el exportador. */
-export const DOCUMENTOS_LEGALES: DocumentoLegal[] = [TERMINOS, PRIVACIDAD]
+/* ------------------------------------------------------------------ */
+/* Política de Reembolsos                                              */
+/* ------------------------------------------------------------------ */
+
+export const REEMBOLSOS: DocumentoLegal = {
+  titulo: "Política de Reembolsos",
+  url: REEMBOLSOS_URL,
+  actualizado: EMPRESA.vigencia,
+  intro:
+    "Esta política dice cuándo devolvemos plata y cuándo no, en qué plazo y cómo se pide. " +
+    "Es corta a propósito: el comercio tiene que poder saber en un minuto qué le corresponde. Forma parte de los Términos y Condiciones de Punto.",
+  secciones: [
+    {
+      titulo: "Qué cubre esta política",
+      parrafos: [
+        `Punto le cobra al comercio dos cosas, y ninguna más: la suscripción mensual al sistema —${PRECIO} ${PERIODO}— y los packs de créditos de IA que el comercio compre aparte cuando quiere más de los incluidos en el plan.`,
+        "No cobramos por comprobante emitido, por usuario, por producto ni por transacción. No hay costo de instalación, de puesta en marcha ni de baja. Si alguna vez ves un cargo distinto de esos dos conceptos, escribinos: es un error y lo devolvemos.",
+        "Esta política aplica a los cobros que hace Punto. No aplica a los cobros que el comercio le hace a sus propios clientes desde la caja: esos son entre el comercio y su cliente, y la devolución la resuelve el comercio con sus propias reglas.",
+      ],
+    },
+    {
+      titulo: "Regla general: el mes empezado no se devuelve",
+      parrafos: [
+        "La suscripción se paga por adelantado al inicio de cada ciclo mensual. Al dar de baja no devolvemos la parte no usada del mes en curso.",
+        "Lo que sí garantizamos es que ese mes se presta completo: el servicio queda disponible con todas sus funciones hasta el último día del ciclo pagado, y después no se renueva ni se vuelve a cobrar.",
+        "No hay contrato de permanencia, ni cargo por cancelar, ni monto mínimo. Dar de baja es escribir un mensaje.",
+      ],
+    },
+    {
+      titulo: "Cuándo sí devolvemos",
+      parrafos: [
+        "Hay cuatro situaciones concretas en las que la devolución corresponde y la hacemos sin discutir:",
+      ],
+      lista: [
+        "Cobro duplicado: se cobró dos veces el mismo ciclo. Devolvemos el importe duplicado, íntegro.",
+        "Error de facturación imputable a Punto: se cobró un monto distinto del que corresponde al plan, o se cobró una sucursal que no está dada de alta. Devolvemos la diferencia.",
+        "Cobro posterior a una baja ya efectiva: el comercio pidió la baja y el sistema igual cobró el ciclo siguiente. Devolvemos ese cobro completo.",
+        "Falla del servicio atribuible a Punto que impide operar y que no logramos corregir en un plazo razonable. En ese caso el reembolso es proporcional a los días del ciclo que no se prestaron.",
+      ],
+    },
+    {
+      titulo: "Créditos de IA",
+      parrafos: [
+        `Los ${CREDITOS} créditos mensuales son parte de la suscripción, no un producto aparte: no se reembolsan por separado, no se acumulan de un mes al otro y no se convierten en dinero ni en descuento.`,
+        "Los packs de créditos que el comercio compra aparte no son reembolsables una vez acreditados en la cuenta, porque quedan disponibles para usar desde ese mismo momento.",
+        "La excepción son los casos de la sección anterior: si el pack se cobró dos veces, se cobró por error nuestro o se cobró después de una baja, lo devolvemos igual que la suscripción.",
+      ],
+    },
+    {
+      titulo: "Cómo se pide un reembolso",
+      parrafos: [
+        `El pedido se hace por escrito a ${EMPRESA.email}, dentro de los 30 días corridos contados desde la fecha del cobro. Pasado ese plazo no procesamos el reclamo.`,
+        "Para poder resolverlo sin idas y vueltas, el mensaje tiene que incluir:",
+      ],
+      lista: [
+        "El nombre de la empresa y su {docFiscal}, tal como figuran en la cuenta.",
+        "La fecha y el monto del cobro que se reclama.",
+        "El motivo: cuál de los casos de esta política aplica.",
+      ],
+      // El acuse es lo primero que se responde; el análisis puede llevar más.
+    },
+    {
+      titulo: "Plazos y forma de devolución",
+      parrafos: [
+        "Respondemos todo pedido de reembolso dentro de los 5 días hábiles de recibido, diciendo si corresponde o no y por qué.",
+        "La devolución se hace por el mismo medio de pago con el que se cobró, a través de dLocal Go, que es quien procesa nuestros cobros. No devolvemos en efectivo, ni a una cuenta distinta, ni como crédito para usar en el sistema.",
+        "Una vez aprobado, Punto ordena la devolución dentro de los 5 días hábiles. La acreditación efectiva depende del emisor de la tarjeta o del banco del comercio y suele tomar entre 5 y 15 días hábiles adicionales. Ese último tramo no lo controlamos y no prometemos una fecha: lo que sí hacemos es darte el comprobante de la devolución ordenada para que puedas reclamarle a tu banco si se demora.",
+      ],
+    },
+    {
+      titulo: "Contracargos",
+      parrafos: [
+        `Si hay un cobro que no reconocés, escribinos primero a ${EMPRESA.email}. Casi todo se resuelve más rápido por acá que por el banco: nosotros vemos el cobro en el momento y podemos devolverlo directamente.`,
+        "Si en cambio se abre un contracargo con el banco o la tarjeta, el proceso pasa a manos del emisor y puede tardar semanas. Mientras dure la disputa, la cuenta puede quedar suspendida.",
+        "Un contracargo resuelto a favor del comercio cierra el tema y no genera ningún cargo adicional de nuestra parte.",
+      ],
+    },
+    {
+      titulo: "Impuestos",
+      parrafos: [
+        "El reembolso incluye los impuestos que se hayan cobrado sobre el importe devuelto: se devuelve lo que efectivamente se pagó, no el monto sin impuestos.",
+        "Cuando el cobro original tenía comprobante fiscal, emitimos el documento que corresponde a la devolución y se lo mandamos al comercio para que su contador lo registre.",
+      ],
+    },
+    {
+      titulo: "Contacto",
+      parrafos: [
+        `${EMPRESA.razonSocial} — {docFiscal} ${EMPRESA.documento}`,
+        EMPRESA.domicilio,
+        `${EMPRESA.email} · ${EMPRESA.telefono}`,
+      ],
+    },
+  ],
+}
+
+/** Los documentos legales, para el footer, el sitemap y el exportador. */
+export const DOCUMENTOS_LEGALES: DocumentoLegal[] = [
+  TERMINOS,
+  PRIVACIDAD,
+  REEMBOLSOS,
+]

@@ -12,9 +12,9 @@ Esta política explica qué datos personales tratamos cuando un comercio usa Pun
 
 ## 1. Quién es responsable
 
-Brixton S.A., con RUC 80164242-6 y domicilio en Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay, es quien presta el servicio Punto y quien responde por el tratamiento descripto en esta política.
+Brixton Capital S.A., con RUC 80164242-6 y domicilio en Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay, es quien presta el servicio Punto y quien responde por el tratamiento descripto en esta política.
 
-Para cualquier tema de privacidad o para ejercer derechos sobre tus datos, escribinos a legal@punto.la.
+Para cualquier tema de privacidad o para ejercer derechos sobre tus datos, escribinos a info@punto.la.
 
 ## 2. Los dos roles: cuándo decidimos nosotros y cuándo decide el comercio
 
@@ -77,7 +77,7 @@ Compartimos datos solo con los proveedores necesarios para que el servicio funci
 | Mailgun / SendGrid | Envío de los emails transaccionales del sistema. |
 | Twilio | Envío de SMS. |
 | Evolution API (WhatsApp) | Envío del código de verificación en el alta de la cuenta. |
-| Fish | Webchat de atención al cliente embebido en punto.la, operado por Brixton S.A. (mismo grupo empresario) |
+| Fish | Webchat de atención al cliente embebido en punto.la, operado por Brixton Capital S.A. (mismo grupo empresario) |
 | Bancard | Medio de pago con QR que el COMERCIO habilita para cobrarle a sus clientes dentro de la caja. No es un cobro de Punto. |
 
 ## 8. Cookies y tecnologías similares
@@ -100,11 +100,11 @@ Esas transferencias se hacen bajo compromisos contractuales de confidencialidad 
 
 Mientras la cuenta esté activa, conservamos los datos para que el comercio pueda operar y consultar su historial.
 
-Tras la baja, hay 30 días corridos para exportar la información. Vencido ese plazo podemos eliminar los datos operativos de la cuenta.
+Tras la baja, hay 30 días corridos para exportar la información. Vencido ese plazo eliminamos los datos operativos de la cuenta.
 
 Hay una excepción: los documentos electrónicos emitidos y los respaldos contables se conservan por el plazo que exige la normativa fiscal, aunque la cuenta se haya dado de baja. No podemos borrarlos antes.
 
-Los registros técnicos y de auditoría se conservan por períodos acotados, los necesarios para seguridad y diagnóstico.
+Los registros técnicos de error se conservan 90 días, los necesarios para diagnosticar una falla. El registro de auditoría de operaciones acompaña a la cuenta mientras esté activa: es parte del historial del negocio.
 
 ## 11. Seguridad
 
@@ -121,7 +121,7 @@ Aplicamos medidas técnicas y organizativas razonables para proteger la informac
 
 Ninguna medida de seguridad es infalible. Si ocurre una brecha que afecte datos personales, la tratamos como incidente prioritario.
 
-Contenemos el incidente, evaluamos el alcance y notificamos a los comercios afectados sin demora indebida, apenas tengamos confirmado qué datos se vieron involucrados y qué recomendamos hacer. Si corresponde, notificamos también a la autoridad competente.
+Contenemos el incidente, evaluamos el alcance y notificamos a los comercios afectados dentro de las 72 horas de confirmado qué datos se vieron involucrados, junto con lo que recomendamos hacer. Si la normativa lo exige, notificamos también a la autoridad competente.
 
 Cuando el comercio sea el responsable de los datos afectados (los de sus propios clientes), le damos la información que necesite para cumplir con sus propias obligaciones de notificación.
 
@@ -129,7 +129,7 @@ Cuando el comercio sea el responsable de los datos afectados (los de sus propios
 
 Toda persona cuyos datos tratamos puede pedirnos acceder a ellos, rectificarlos, actualizarlos, solicitar su supresión, pedir una copia en formato portable u oponerse a determinados tratamientos.
 
-Para ejercerlos, escribí a legal@punto.la indicando qué querés hacer. Para proteger tus datos de un tercero que se haga pasar por vos, vamos a pedirte que verifiques tu identidad — normalmente confirmando el control del teléfono o del email asociados.
+Para ejercerlos, escribí a info@punto.la indicando qué querés hacer. Para proteger tus datos de un tercero que se haga pasar por vos, vamos a pedirte que verifiques tu identidad — normalmente confirmando el control del teléfono o del email asociados.
 
 Respondemos dentro de los 15 días hábiles de recibido el pedido verificado. Si el caso requiere más tiempo, te avisamos por qué y en cuánto lo resolvemos.
 
@@ -147,7 +147,7 @@ Nosotros lo asistimos técnicamente: le damos las herramientas para buscar, edit
 
 Punto es un servicio para comercios y sus equipos de trabajo. No está dirigido a menores de edad ni recolectamos datos de menores a sabiendas.
 
-Si detectamos que se cargaron datos de un menor sin base legal, o si nos lo informan a legal@punto.la, actuamos para eliminarlos.
+Si detectamos que se cargaron datos de un menor sin base legal, o si nos lo informan a info@punto.la, los eliminamos dentro de los 5 días hábiles.
 
 ## 16. Cambios a esta política
 
@@ -157,10 +157,8 @@ Los cambios relevantes se avisan además por los canales de contacto de la cuent
 
 ## 17. Contacto
 
-Brixton S.A. — RUC 80164242-6
+Brixton Capital S.A. — RUC 80164242-6
 
 Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay
 
-Privacidad y ejercicio de derechos: legal@punto.la
-
-Consultas generales y soporte: hola@punto.la · +595 981 078798
+info@punto.la · +595 981 078798
