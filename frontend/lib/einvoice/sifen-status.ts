@@ -31,6 +31,11 @@
 export type SifenVerdict = "approved" | "rejected" | "pending"
 
 /**
+ * ESPEJO EN SQL: el filtro "Rechazado por SIFEN" del listado de FE aplica el
+ * mismo criterio server-side (`EInvoiceService::documents()`, rama
+ * `status === 'rejected'`). Si cambia esta clasificación, cambia esa también —
+ * si no, la UI pinta como rechazados documentos que el filtro no devuelve.
+ *
  * `sifen_status` no es un enum cerrado: la reconciliación guarda el
  * `dEstResField` de SIFEN ("Aprobado"/"Rechazado") cuando está, y si no cae al
  * `StatusString` del proveedor ("Exitoso", "FinalizadoERROR"). Por eso se
@@ -44,9 +49,7 @@ export function sifenVerdict(sifenStatus: string | null | undefined): SifenVerdi
   return "pending"
 }
 
-/** Etiqueta corta del veredicto para badges. */
-export const SIFEN_VERDICT_LABEL: Record<SifenVerdict, string> = {
-  approved: "Aprobado por SIFEN",
-  rejected: "Rechazado por SIFEN",
-  pending: "Sin confirmar",
-}
+// A propósito NO hay acá un mapa de etiquetas: lo compartido es la REGLA (qué
+// es un rechazo), no el copy. Las dos superficies tienen anchos distintos —la
+// columna del listado de ventas es `w-32`— y una tabla de labels "única" que
+// cada pantalla igual sobreescribe es peor que dos textos explícitos.

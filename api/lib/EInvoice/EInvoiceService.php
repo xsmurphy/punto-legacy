@@ -464,7 +464,15 @@ final class EInvoiceService
             // `status` —el outbox dice 'issued', se mandó bien— sino en el
             // estado FISCAL. Es el filtro que el comercio necesita: "mostrame
             // lo que SIFEN no me aceptó".
-            $where[] = "d.sifen_status = 'Rechazado'";
+            //
+            // Por CONTENIDO y no por igualdad: `sifen_status` no es un enum
+            // cerrado (guarda el `dEstResField` de SIFEN cuando está, y si no
+            // el StatusString libre del proveedor — ej. "FinalizadoERROR").
+            // Con `= 'Rechazado'` el filtro dejaba afuera documentos que la
+            // UI SÍ pinta como rechazados. Mismo criterio que `sifenVerdict()`
+            // en `frontend/lib/einvoice/sifen-status.ts` — si cambia uno,
+            // cambia el otro.
+            $where[] = "(d.sifen_status ILIKE '%rechaz%' OR d.sifen_status ILIKE '%error%')";
         } elseif ($status !== '') {
             $where[] = 'd.status = ?';
             $params[] = $status;
@@ -494,7 +502,11 @@ final class EInvoiceService
         $rs = ncmExecute(
             "SELECT d.einvoicedocid, d.doctype, d.status, d.cdc, d.document_number, d.error_message,
                     d.issued_at, d.cancelled_at, d.attempts, d.created_at, d.updated_at,
-                    d.sifen_status, d.sifen_checked_at, d.sifen_result,
+                    d.sifen_status, d.sifen_checked_at,
+                    -- El bulk crudo pesa y solo se usa para sacar el motivo del
+                    -- RECHAZO: para un documento aprobado no se trae.
+                    CASE WHEN d.sifen_status IS NOT NULL AND d.sifen_status NOT ILIKE '%aprobad%'
+                         THEN d.sifen_result END AS sifen_result,
                     t.transactionTotal AS total, t.transactionCurrency AS currency,
                     c.contactName AS client_name
                FROM einvoice_document d
@@ -913,6 +925,16 @@ final class EInvoiceService
             return ['checked' => 0, 'updated' => 0];
         }
 
+        // El cron SELLA los intentos fallidos (`sifen_checked_at = now()` sin
+        // tocar el estado): el LIMIT es global y el orden es por antigüedad,
+        // así que un tenant con la cuenta caída y más documentos que el limit
+        // se comía TODAS las corridas y ningún otro tenant se reconciliaba
+        // nunca. Sellar lo manda al fondo de la cola y lo reintenta en la
+        // corrida siguiente (el WHERE ya exige 10 minutos de antigüedad).
+        // El panel NO sella: el operador que apreta el botón dos veces
+        // seguidas porque se le cayó la red tiene que poder reintentar ya.
+        $seal = $companyId === null;
+
         $updated = 0;
         foreach ($byCompany as $cid => $docs) {
             try {
@@ -923,11 +945,14 @@ final class EInvoiceService
                     throw $e;
                 }
                 error_log('[EInvoiceService] reconcile: credenciales no resueltas para company ' . $cid . ': ' . $e->getMessage());
+                // Todo el tenant queda sellado de una: si no hay credenciales
+                // no hay documento suyo que se pueda consultar en esta corrida.
+                $this->sealCheckedAt(array_column($docs, 'id'));
                 continue;
             }
 
             foreach ($docs as $doc) {
-                if ($this->reconcileDocument($environment, $phone, $bearer, $doc['id'], $doc['bulkId'])) {
+                if ($this->reconcileDocument($environment, $phone, $bearer, $doc['id'], $doc['bulkId'], $seal)) {
                     $updated++;
                 }
             }
@@ -938,32 +963,62 @@ final class EInvoiceService
 
     /**
      * Consulta el bulk de UN documento y persiste el estado fiscal. Nunca
-     * lanza por un fallo de red/API: un documento caído no puede tirar abajo
-     * la corrida entera.
+     * lanza: ni un fallo de red/API ni uno de BD pueden tirar abajo la
+     * corrida entera (el UPDATE también va adentro del try — con
+     * `DB_THROW_ON_ERROR` una sola fila mal formada abortaba todo lo demás).
      *
+     * @param bool $seal marcar `sifen_checked_at` aunque el intento falle — ver reconcilePending().
      * @return bool true si se escribió `sifen_status`.
      */
-    private function reconcileDocument(string $environment, string $phone, string $bearer, string $docId, string $bulkId): bool
+    private function reconcileDocument(string $environment, string $phone, string $bearer, string $docId, string $bulkId, bool $seal): bool
     {
         try {
             $bulk = $this->provider->getBulk($environment, $phone, $bearer, $bulkId);
+
+            $sifenStatus = self::sifenStatusFromBulk($bulk);
+            if ($sifenStatus !== null) {
+                // `sifen_status` es VARCHAR(20) (mig 95) y el fallback guarda
+                // el StatusString LIBRE del proveedor: uno más largo tiraba
+                // 22001 y, como ese documento vuelve a salir primero en cada
+                // corrida, envenenaba las siguientes para todos los tenants.
+                $sifenStatus = mb_substr($sifenStatus, 0, 20);
+            }
+
+            ncmExecute(
+                "UPDATE einvoice_document
+                    SET sifen_status = ?, sifen_result = ?::jsonb, sifen_checked_at = now()
+                  WHERE einvoicedocid = ?",
+                [$sifenStatus, json_encode($bulk, JSON_UNESCAPED_UNICODE), $docId]
+            );
+            return true;
         } catch (\Throwable $e) {
-            // Un fallo de red/API en UN documento no puede tirar abajo la
-            // corrida entera — se loguea y se sigue con el resto, sin
-            // tocar sifen_checked_at (para que se reintente en la próxima).
-            error_log('[EInvoiceService] reconcile getBulk falló para ' . $docId . ': ' . $e->getMessage());
+            error_log('[EInvoiceService] reconcile falló para ' . $docId . ': ' . $e->getMessage());
+            if ($seal) {
+                $this->sealCheckedAt([$docId]);
+            }
             return false;
         }
+    }
 
-        $sifenStatus = self::sifenStatusFromBulk($bulk);
-
-        ncmExecute(
-            "UPDATE einvoice_document
-                SET sifen_status = ?, sifen_result = ?::jsonb, sifen_checked_at = now()
-              WHERE einvoicedocid = ?",
-            [$sifenStatus, json_encode($bulk, JSON_UNESCAPED_UNICODE), $docId]
-        );
-        return true;
+    /**
+     * Marca los documentos como "consultados recién" SIN tocar su estado
+     * fiscal: sacarlos de la cola de esta corrida es lo único que hace. Es
+     * best-effort — si esto también falla, la corrida sigue.
+     *
+     * @param list<string> $docIds
+     */
+    private function sealCheckedAt(array $docIds): void
+    {
+        $docIds = array_values(array_filter($docIds));
+        if ($docIds === []) {
+            return;
+        }
+        try {
+            $ph = implode(',', array_fill(0, count($docIds), '?'));
+            ncmExecute("UPDATE einvoice_document SET sifen_checked_at = now() WHERE einvoicedocid IN ($ph)", $docIds);
+        } catch (\Throwable $e) {
+            error_log('[EInvoiceService] reconcile: no se pudo sellar sifen_checked_at: ' . $e->getMessage());
+        }
     }
 
     /**

@@ -37,8 +37,8 @@
  *                          un DE minutos después de devolver un CDC válido —
  *                          sin este job ese rechazo no lo descubre nadie salvo
  *                          que alguien apriete el botón del panel. `limit` en
- *                          query, default 50, tope 200: cada documento es una
- *                          llamada a la API del proveedor.
+ *                          query, default 25, tope 200: cada documento es una
+ *                          llamada a la API del proveedor (20s de timeout).
  *   - partition-ensure   → E1 de context/48-escalamiento-de-datos.md (mig 156):
  *                          `SELECT ensure_month_partitions('transaction'|'itemsold',
  *                          'transactiondate'|'itemsolddate', 12)` + chequeo
@@ -133,8 +133,12 @@ function maintenanceRunJob(string $job): array
             return (new \Punto\Api\EInvoice\EInvoiceService())->drain($limit);
 
         case 'einvoice-reconcile':
-            $limitRaw = (int) ($_GET['limit'] ?? 50);
-            $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 50;
+            // Default 25 y no 50: cada documento es una llamada al proveedor
+            // con 20s de timeout, y el job corre cada 10 minutos. 50 en el
+            // peor caso pasan la cadencia y encadenan corridas (el advisory
+            // lock las saltea, pero el trabajo no avanza).
+            $limitRaw = (int) ($_GET['limit'] ?? 25);
+            $limit    = $limitRaw > 0 && $limitRaw <= 200 ? $limitRaw : 25;
             return (new \Punto\Api\EInvoice\EInvoiceService())->reconcileAll($limit);
 
         case 'ocr-requeue':

@@ -58,6 +58,11 @@ const STATUS_LABEL: Record<EInvoiceDocumentStatus, string> = {
 function StatusCell({ doc }: { doc: EInvoiceDocument }) {
   const verdict = sifenVerdict(doc.sifenStatus)
 
+  if (doc.status === "cancelled") {
+    // Anulado por el comercio: es lo último que le pasó al documento y es
+    // decisión propia, así que gana incluso sobre un rechazo previo de SIFEN.
+    return <Badge variant="secondary">Cancelado</Badge>
+  }
   // El estado FISCAL manda sobre el del outbox: un documento `issued` que
   // SIFEN rechazó no es una factura emitida, es una factura que no vale — y
   // acá se mostraba "Emitido" (ver lib/einvoice/sifen-status.ts).
@@ -100,8 +105,6 @@ function StatusCell({ doc }: { doc: EInvoiceDocument }) {
       )
     case "error":
       return <Badge variant="destructive">Error</Badge>
-    case "cancelled":
-      return <Badge variant="secondary">Cancelado</Badge>
     case "sending":
       return <Badge variant="outline">Enviando</Badge>
     case "skipped":

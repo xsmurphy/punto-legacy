@@ -648,7 +648,12 @@ final class TransactionsService
         // tiempo, pero sirven para que dos filas con el mismo `created_at`
         // elijan siempre la misma y no una distinta por request.
         $res = ncmRows(
-            "SELECT transactionid, status, cdc, error_message, sifen_status, sifen_result
+            "SELECT transactionid, status, cdc, error_message, sifen_status,
+                    -- Solo el bulk de los NO aprobados: es de donde sale el
+                    -- motivo del rechazo, y traerlo entero por fila para
+                    -- descartarlo es pagar el jsonb de todas las ventas.
+                    CASE WHEN sifen_status IS NOT NULL AND sifen_status NOT ILIKE '%aprobad%'
+                         THEN sifen_result END AS sifen_result
                FROM einvoice_document
               WHERE companyid = ? AND transactionid IN ($ph)
               ORDER BY created_at DESC NULLS LAST, einvoicedocid DESC",
