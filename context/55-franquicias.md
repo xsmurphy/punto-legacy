@@ -3,7 +3,11 @@
 > **Estado:** plan cerrado 2026-08-28 (D1–D7 decididas por el owner). Sin
 > implementar. **D8 + F6 (acceso por MCP) agregados 2026-09-03**: el owner
 > cerró el TECHO (la key ve exactamente lo que autoriza el D3), el resto del
-> D8 es propuesta sin su OK. La tabla `franchiser_to_tenant` YA existe en prod (mig 08,
+> D8 es propuesta sin su OK.
+>
+> **§8 es OTRO caso: multi-empresa** (un mismo dueño con varias empresas, que
+> necesita acceso COMPLETO a todas). No es una franquicia y no se resuelve con
+> nada de §1-7 — leer §8.1 antes de mezclarlos. La tabla `franchiser_to_tenant` YA existe en prod (mig 08,
 > 0 filas) y su modelo está aceptado en
 > [ADR-001](adr/ADR-001-franchiser-tenant-acceso.md) — este doc NO lo relitiga,
 > lo lleva al stack nuevo.
@@ -270,3 +274,173 @@ Y para la F6, en el mismo arnés:
    dato sobre el que decidir.)
 5. ¿La F6 entra en el mismo add-on de la F5, o el acceso por MCP se cobra
    aparte? (Cambia solo el producto, no la arquitectura.)
+
+---
+
+# 8. Multi-empresa — NO es una franquicia
+
+> **Estado:** plan abierto 2026-09-03. El owner planteó el caso; las decisiones
+> de abajo son PROPUESTAS sin su OK salvo donde se aclara. Vive en este doc
+> porque los dos casos se confunden todo el tiempo y tenerlos al lado es la
+> mejor defensa contra construir el equivocado. Si crece, se muda a doc propio.
+
+## 8.1 El caso, y por qué NO se resuelve con lo de arriba
+
+Un mismo dueño tiene más de una empresa en el sistema. Necesita **acceso
+completo a todas**, no reportes: operar, facturar, configurar, igual que en la
+suya. Las secciones 1-7 de este doc resuelven lo contrario —supervisión de solo
+lectura sobre agregados— y su D1 prohíbe expresamente entrar al panel del otro.
+
+No hay contradicción: son problemas distintos.
+
+| | Franquicia (§1-7) | Multi-empresa (§8) |
+|---|---|---|
+| Relación | dos personas distintas | **una sola persona** |
+| Qué necesita | ver agregados | operar de verdad |
+| Consentimiento | el franquiciado acepta y revoca (D4) | no hay a quién pedirle: es su propia empresa |
+| Mecanismo | servicio que lee N tenants | **sesión que apunta a UNO por vez** |
+
+La última fila es la que decide todo. El franquiciador necesita ver N empresas
+**a la vez**; el dueño multi-empresa necesita estar en **una a la vez** y poder
+cambiar. Por eso multi-empresa NO agrega ningún camino cross-tenant: cada
+request sigue teniendo un solo `COMPANY_ID`, y ningún endpoint operativo se
+entera de que esto existe.
+
+## 8.2 Lo que ya existe (y hace que esto sea barato)
+
+El mecanismo de "re-emitir la sesión apuntando a otro lado" **ya está en
+producción, dos veces**:
+
+- `api/v1/active-outlet.php` — cambiar de sucursal valida la pertenencia
+  server-side, llama a `PanelAuth::issuePanelSession()` con el override y
+  devuelve un token NUEVO que el cliente tiene que adoptar. El comentario del
+  final explica por qué el token viaja en la respuesta y no solo en una cookie.
+- `/admin` → "entrar como empresa" — usa el MISMO emisor con otro `companyId`
+  (ver el docblock de `PanelAuth::issuePanelSession`, que nombra a los dos
+  callers).
+
+O sea que `issuePanelSession()` **ya toma el `companyId` del argumento**:
+emitir una sesión de panel para otra empresa no necesita código de emisión
+nuevo. Lo único que falta es **qué prueba que esta persona puede hacerlo**. Para
+`/admin` lo prueba el realm admin; para un dueño, hoy no lo prueba nada.
+
+## 8.3 Dos hallazgos que hay que arreglar igual
+
+**(a) El login es no determinístico si un teléfono se repite.**
+`findPhoneLogin()` (`api/includes/functions.php:2559`) cierra con `LIMIT 1` **sin
+`ORDER BY`**. Con dos filas `contact` de dueño con el mismo teléfono, Postgres
+devuelve cualquiera de las dos y puede cambiar entre ejecuciones. El dueño
+entraría a una empresa arbitraria, sin forma de llegar a la otra — y como la
+contraseña se valida contra la fila que ganó, con la contraseña de la otra
+empresa el login directamente falla.
+
+**(b) El alta bloquea el segundo comercio.** `SignupService` corta con "Ya
+existe una cuenta con este número o email" (`api/lib/Auth/SignupService.php:76`)
+si el teléfono ya existe con `type = 0`. Hoy un dueño **no puede** darse de alta
+una segunda empresa por el camino normal.
+
+Los dos dicen lo mismo: el sistema ya cree que un teléfono es una persona, pero
+lo hace **rechazando** la segunda empresa en vez de **vincularla**.
+
+## 8.4 Decisiones propuestas
+
+### M1 [?] — La credencial es de la PERSONA; el `contact` es la membresía
+
+Hoy `contact` mezcla dos cosas: quién sos (teléfono, `contactPassword`, `salt`)
+y qué podés hacer acá (rol, outlet). Mientras sigan juntas, un dueño con dos
+empresas tiene **dos contraseñas** que se cambian y se resetean por separado —
+o sea dos cuentas que casualmente se parecen, que es justo lo que no quiere.
+
+- Tabla nueva `person`: `personId`, `phone` (UNIQUE), `passwordHash`, `salt`,
+  `status`.
+- `contact.personId` FK, nullable durante la migración.
+- El login resuelve `person` por teléfono, verifica la contraseña **una vez**, y
+  recién ahí lista las membresías.
+- `contact.contactPassword` / `salt` quedan deprecadas para dueños y se dropean
+  en una fase posterior, no en la misma.
+
+### M2 [?] — Una empresa activa por vez, y el cambio REVOCA la anterior
+
+`/v1/active-company`, espejo de `active-outlet.php`: valida la membresía contra
+el `personId` de la sesión, re-emite con `issuePanelSession()`, devuelve el
+token nuevo.
+
+Y la sesión anterior se **revoca**. No es tacañería: dos pestañas abiertas en
+dos empresas distintas dejan al dueño a un `cmd+tab` de facturar en la empresa
+equivocada. `companyId` es una de las cinco dimensiones obligatorias de una
+transacción y nunca se resuelve con "¿qué está activo ahora?" — con dos sesiones
+vivas, eso es exactamente lo que pasaría.
+
+### M3 [?] — Si hay una sola membresía, no cambia nada
+
+Con una empresa, el login se comporta igual que hoy: entra directo, sin
+selector. El 99% de los tenants no se entera de que esto existe. El selector
+aparece solo con dos o más.
+
+### M4 [?] — El POS no se toca
+
+Un `device` está pareado a UNA empresa (`device.companyId`). El switcher es del
+PANEL. Una caja no cambia de empresa: se parea de nuevo. Esto mantiene intacto
+el mandato token-only del POS (`feedback_pos_token_only_no_realms`).
+
+### M5 [?] — Dueños primero, pero el modelo no lo cierra
+
+F1 sale para dueños, que es el caso real y además lo que `findPhoneLogin` ya
+filtra (`RoleService::ownerRoleSql`). Un empleado que trabaja en dos empresas es
+el mismo modelo sin cambios de schema; es alcance, no arquitectura.
+
+### M6 — Cada empresa se sigue facturando por separado
+
+Igual que las franquicias (§2): un dueño con 3 empresas son 3 cuentas con su
+plan y su factura. Que las vea juntas en un selector no las convierte en una.
+Si el owner quiere un plan "grupo", es producto, y va después.
+
+## 8.5 Fases
+
+| Fase | Qué entrega | Depende de |
+|------|-------------|-----------|
+| **M0** | **Medir**: cuántos teléfonos de dueño se repiten hoy en prod, y cómo llegaron ahí si el alta los bloquea. Decide el backfill de M1. | — |
+| **M1** | Mig `person` + `contact.personId` + backfill. Login resuelve por `person`. Sin selector todavía: comportamiento idéntico al de hoy. | M0 |
+| **M2** | Login devuelve la lista de membresías cuando hay más de una + selector de empresa en el panel. | M1 |
+| **M3** | `/v1/active-company` con revocación de la sesión anterior. Alta de empresa nueva para un dueño existente (levanta el bloqueo de `SignupService`). | M2 |
+| **M4** | Drop de `contactPassword`/`salt` para dueños, una vez que M1 lleve tiempo estable. | M3 |
+
+## 8.6 El arnés, igual que en F2
+
+M1 no se mergea sin test contra Postgres real:
+
+- Un `personId` NO puede autenticar contra una empresa donde no tiene `contact`.
+- Cambiar de empresa deja la sesión anterior REVOCADA, no vigente.
+- `findPhoneLogin` deja de poder devolver una fila arbitraria: o resuelve una
+  persona, o falla, nunca "cualquiera de las dos".
+- Un `companyId` que venga del cliente se VALIDA contra las membresías del
+  `personId`; no se usa para construir el filtro (misma regla que D5).
+- Un tenant de una sola empresa entra sin selector y sin request extra.
+
+## 8.7 Arquitecturas rechazadas (multi-empresa)
+
+- **Reusar `franchiser_to_tenant` para esto** — es acceso de supervisión con
+  consentimiento y revocación del supervisado (D4). Acá no hay a quién pedirle
+  permiso ni de quién defenderse: es la misma persona. Meter los dos casos en
+  la misma tabla obliga a cada lector a preguntarse cuál de los dos está viendo.
+- **`company.parentId` / `company.accountId`** — `parentId` ya está deprecado
+  para acceso (§2). `accountId` es peor: se inserta con `mt_rand()` como
+  placeholder y `api/data.php:98` lo usa como semilla de `API_KEY`
+  (`sha1($company['accountId'])`). Construir acceso sobre esa columna ataría el
+  permiso a un secreto.
+- **Un token que valga para varias empresas** — mismo rechazo que el D8. El
+  token sigue apuntando a una empresa; lo que cambia es a cuál.
+- **Dos sesiones simultáneas en dos empresas** — ver M2.
+- **Impersonación entre empresas del mismo dueño** — no hace falta: la persona
+  tiene una membresía real en cada una. Impersonar sería fabricar un permiso
+  que ya existe legítimamente, y perdería la atribución en `tenant_audit`.
+
+## 8.8 Preguntas abiertas
+
+1. **Los clientes multi-empresa que YA existen, ¿usan el mismo teléfono en
+   todas?** Si usan teléfonos distintos, el vínculo no se puede inferir y M1
+   necesita una herramienta de `/admin` para unirlos a mano. Es lo que mide M0.
+2. ¿El alta de la segunda empresa la hace el dueño solo, o pasa por `/admin`?
+   (M3 asume lo primero.)
+3. ¿El selector muestra las empresas inactivas o vencidas, o las esconde? Verlas
+   es la única forma de que el dueño entienda por qué no puede entrar.
