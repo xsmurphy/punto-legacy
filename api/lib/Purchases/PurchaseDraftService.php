@@ -141,19 +141,10 @@ final class PurchaseDraftService
 
         // Auto-match de proveedor por RUC — sugerencia corregible, nunca
         // vinculante: el usuario puede cambiarla en la pantalla de revisión.
-        $contactId = null;
-        $ruc = trim((string) ($extracted['supplier']['ruc'] ?? ''));
-        if ($ruc !== '') {
-            $match = ncmExecute(
-                'SELECT contactId FROM contact
-                  WHERE companyId = ? AND contactType = 2 AND contactStatus = 1 AND contactTIN = ?
-                  LIMIT 1',
-                [$companyId, $ruc]
-            );
-            if ($match) {
-                $contactId = (string) $match['contactId'];
-            }
-        }
+        $contactId = $this->matchSupplierByRuc(
+            $companyId,
+            (string) ($extracted['supplier']['ruc'] ?? '')
+        );
 
         $extractedJson = json_encode($extracted ?? new \stdClass());
         if ($extractedJson === false) {
@@ -241,19 +232,10 @@ final class PurchaseDraftService
             $extractedJson = '{}';
         }
 
-        $contactId = null;
-        $ruc = trim((string) ($extracted['supplier']['ruc'] ?? ''));
-        if ($ruc !== '') {
-            $match = ncmExecute(
-                'SELECT contactId FROM contact
-                  WHERE companyId = ? AND contactType = 2 AND contactStatus = 1 AND contactTIN = ?
-                  LIMIT 1',
-                [$companyId, $ruc]
-            );
-            if ($match) {
-                $contactId = (string) $match['contactId'];
-            }
-        }
+        $contactId = $this->matchSupplierByRuc(
+            $companyId,
+            (string) ($extracted['supplier']['ruc'] ?? '')
+        );
 
         $status = $extractError !== null ? 'failed' : 'pending';
         // SOLO cierra borradores que están en la cola. Sin este guard, un
@@ -768,5 +750,38 @@ final class PurchaseDraftService
         $data[6] = chr((ord($data[6]) & 0x0f) | 0x40);
         $data[8] = chr((ord($data[8]) & 0x3f) | 0x80);
         return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+    }
+
+    /**
+     * Busca el proveedor por RUC para sugerirlo en el borrador. Devuelve null
+     * si no hay RUC o no matchea: es una SUGERENCIA corregible en la pantalla
+     * de revisión, nunca un vínculo vinculante.
+     *
+     * Vive en un método propio porque la misma consulta estaba COPIADA en
+     * `create()` y en `completeExtraction()`, y las dos copias arrastraban el
+     * mismo error: filtraban por `contactType`, que NO es una columna de
+     * `contact` — el rol del contacto vive en `type` (SMALLINT: 1 cliente,
+     * 2 proveedor; ver `ContactImporter`). Postgres respondía
+     * `SQLSTATE[42703] Undefined column: contacttype`, el `complete` devolvía
+     * 500 y el borrador nunca salía de la cola: se reintentaba hasta agotar
+     * `attempts` y terminaba en 'failed' con un mensaje genérico que no
+     * nombraba la causa. Cada intento pagaba una lectura del modelo.
+     *
+     * Con una sola copia, el próximo cambio de este filtro no puede volver a
+     * quedar a medias.
+     */
+    private function matchSupplierByRuc(string $companyId, string $ruc): ?string
+    {
+        $ruc = trim($ruc);
+        if ($ruc === '') {
+            return null;
+        }
+        $match = ncmExecute(
+            'SELECT contactId FROM contact
+              WHERE companyId = ? AND type = 2 AND contactStatus = 1 AND contactTIN = ?
+              LIMIT 1',
+            [$companyId, $ruc]
+        );
+        return $match ? (string) $match['contactId'] : null;
     }
 }

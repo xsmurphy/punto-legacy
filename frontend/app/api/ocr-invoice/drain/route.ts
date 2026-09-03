@@ -1,7 +1,7 @@
 import { after } from "next/server"
 
-import { extractInvoice } from "@/lib/ai/extract-invoice"
-import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
+import { extractInvoice, completeAndBill } from "@/lib/ai/extract-invoice"
+import { assertAiCredits, AiCreditsError } from "@/lib/ai/billing-gate"
 
 /**
  * Vacía la cola de extracción: toma borradores en `queued` y los procesa.
@@ -128,21 +128,19 @@ export async function POST(req: Request) {
           tenantRuc: null,
         })
 
-        const doneForm = new FormData()
-        doneForm.set("extracted", JSON.stringify(extracted ?? {}))
-        if (extractError) doneForm.set("error", extractError)
-        await fetch(
-          `${apiUrl}/v1/purchase-drafts?id=${encodeURIComponent(draft.id)}&resource=complete`,
-          { method: "POST", headers: { Authorization: authHeader }, body: doneForm },
-        )
-
-        await debitAiUsage({
+        // Antes esta ruta ni miraba la respuesta del `complete` y debitaba
+        // igual: era el camino que más créditos quemaba, porque el drain se
+        // dispara en cada visita a la bandeja. Ahora usa la misma función que
+        // el upload, que solo cobra si el guardado entró.
+        await completeAndBill({
           apiUrl,
           authHeader,
+          draftId: draft.id,
+          extracted,
+          extractError,
           tokensIn,
           tokensOut,
-          capability: "vision",
-          model: modelId,
+          modelId,
           requestId,
           logPrefix: "[ocr-drain]",
         })

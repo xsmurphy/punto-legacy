@@ -1,6 +1,6 @@
-import { extractInvoice } from "@/lib/ai/extract-invoice"
+import { extractInvoice, completeAndBill } from "@/lib/ai/extract-invoice"
 import { after } from "next/server"
-import { assertAiCredits, debitAiUsage, AiCreditsError } from "@/lib/ai/billing-gate"
+import { assertAiCredits, AiCreditsError } from "@/lib/ai/billing-gate"
 
 /**
  * POST /api/ocr-invoice   multipart/form-data { image: File, outletId: string }
@@ -220,33 +220,18 @@ export async function POST(req: Request) {
           tenantRuc,
         })
 
-        // Persistir ANTES de debitar: si el orden fuera al revés y el
-        // `complete` fallara (token vencido, red), al tenant se le cobraron
-        // créditos por una lectura que nunca llegó a su borrador. Al revés, el
-        // peor caso es una lectura entregada y no cobrada — que se reconcilia
-        // por `requestId` y no perjudica al comercio.
-        const doneForm = new FormData()
-        doneForm.set("extracted", JSON.stringify(extracted ?? {}))
-        if (extractError) doneForm.set("error", extractError)
-        const doneRes = await fetch(
-          `${apiUrl}/v1/purchase-drafts?id=${encodeURIComponent(draftId)}&resource=complete`,
-          { method: "POST", headers: { Authorization: authHeader }, body: doneForm },
-        )
-        if (!doneRes.ok) {
-          console.error(
-            `[ocr-invoice] no se pudo guardar la extracción del borrador ${draftId} (${doneRes.status})`,
-          )
-        }
-
-        // Débito best-effort — mismo wrapper que el chat: si falla, se loguea
-        // con requestId para reconciliar pero NO bloquea el borrador.
-        await debitAiUsage({
+        // Persistir y recién entonces debitar — la regla vive en
+        // `completeAndBill`, compartida con el drain para que las dos rutas no
+        // vuelvan a divergir en algo que cobra plata.
+        await completeAndBill({
           apiUrl,
           authHeader,
+          draftId,
+          extracted,
+          extractError,
           tokensIn,
           tokensOut,
-          capability: "vision",
-          model: modelId,
+          modelId,
           requestId,
           logPrefix: "[ocr-invoice]",
         })

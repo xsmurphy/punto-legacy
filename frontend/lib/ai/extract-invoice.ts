@@ -1,6 +1,7 @@
 import { createOpenRouter } from "@openrouter/ai-sdk-provider"
 import { generateObject } from "ai"
 import { z } from "zod"
+import { debitAiUsage } from "@/lib/ai/billing-gate"
 
 /**
  * Extracción IA de facturas de compra — schema, prompt y llamada al modelo.
@@ -277,4 +278,83 @@ export async function extractInvoice({
   }
 
   return { extracted, extractError, tokensIn, tokensOut }
+}
+
+
+/**
+ * Cierra un borrador: guarda la extracción y, SOLO si el guardado entró,
+ * debita los créditos consumidos.
+ *
+ * ── Por qué es una función compartida ───────────────────────────────────────
+ * La secuencia "extraje → guardo → cobro" estaba copiada en los dos
+ * consumidores (`/api/ocr-invoice` y `/api/ocr-invoice/drain`) y las dos
+ * copias cobraban de más, cada una a su manera: el upload miraba la respuesta
+ * del `complete` pero debitaba igual, y el drain ni siquiera la miraba. Con el
+ * `complete` roto por un 500, cada reintento pagaba una lectura del modelo que
+ * nunca llegaba al borrador — dos facturas de prueba quemaron seis lecturas
+ * entre las dos antes de terminar en 'failed' (2026-09-03).
+ *
+ * El orden es deliberado y NO se invierte: primero persistir, después cobrar.
+ * El peor caso aceptable es una lectura entregada y no cobrada, que se
+ * reconcilia por `requestId`; cobrar una lectura que el comercio nunca recibe
+ * no tiene reconciliación posible.
+ *
+ * @returns `true` si la extracción quedó guardada en el borrador.
+ */
+export async function completeAndBill({
+  apiUrl,
+  authHeader,
+  draftId,
+  extracted,
+  extractError,
+  tokensIn,
+  tokensOut,
+  modelId,
+  requestId,
+  logPrefix,
+}: {
+  apiUrl: string
+  authHeader: string
+  draftId: string
+  extracted: unknown
+  extractError: string | null
+  tokensIn: number
+  tokensOut: number
+  modelId: string
+  requestId: string
+  logPrefix: string
+}): Promise<boolean> {
+  const doneForm = new FormData()
+  doneForm.set("extracted", JSON.stringify(extracted ?? {}))
+  if (extractError) doneForm.set("error", extractError)
+
+  const doneRes = await fetch(
+    `${apiUrl}/v1/purchase-drafts?id=${encodeURIComponent(draftId)}&resource=complete`,
+    { method: "POST", headers: { Authorization: authHeader }, body: doneForm },
+  )
+
+  if (!doneRes.ok) {
+    // El cuerpo del error entra al log: sin esto un 500 del backend se veía
+    // solo como un número, y el borrador terminaba en 'failed' con el mensaje
+    // genérico de `requeueStale`, que no nombra la causa. Fue exactamente lo
+    // que tapó el `SQLSTATE[42703] contacttype` durante toda una tarde.
+    const detail = await doneRes.text().catch(() => "")
+    console.error(
+      `${logPrefix} no se pudo guardar la extracción del borrador ${draftId} ` +
+        `(${doneRes.status}) ${detail.slice(0, 300)}`,
+    )
+    return false
+  }
+
+  await debitAiUsage({
+    apiUrl,
+    authHeader,
+    tokensIn,
+    tokensOut,
+    capability: "vision",
+    model: modelId,
+    requestId,
+    logPrefix,
+  })
+  return true
 }
