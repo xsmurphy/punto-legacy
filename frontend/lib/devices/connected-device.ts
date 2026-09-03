@@ -1,18 +1,6 @@
 export type DeviceKind = "pos" | "screen" | "kds" | "display" | "print"
 
 /**
- * Dispositivo que tiene TOMADA una caja (`register_lease` activa, mig 141 —
- * context/29). Vive acá, con los tipos de dominio, y no en el hook que lo
- * consume: lo usan tanto el DTO de `/v1/devices` (`PosDevice`) como la fila
- * de la tabla (`ConnectedDevice`), y la dependencia correcta va de los hooks
- * hacia `lib/`, nunca al revés.
- */
-export interface RegisterHolder {
-  deviceId: string
-  deviceName: string
-}
-
-/**
  * Tipos de rastro operativo que un dispositivo puede dejar. Las CLAVES son el
  * contrato con el backend (`DeviceHistoryService::SOURCES`, `historyKinds` del
  * DTO); el castellano vive acá, del lado que lo muestra.
@@ -79,10 +67,14 @@ export interface ConnectedDevice {
    * — ver el comentario de la columna Estado en settings/devices/page.tsx.
    */
   activeSessions: number
-  /** Este dispositivo tiene tomada su caja asignada (`register_lease` activa). */
+  /** Este dispositivo tiene tomada alguna caja (`register_lease` activa). */
   holdsRegister: boolean
-  /** La caja asignada la tiene OTRO dispositivo; null si la tiene este o está libre. */
-  registerHeldBy: RegisterHolder | null
+  /**
+   * Nombre de la caja que este dispositivo tiene TOMADA. Puede no coincidir
+   * con `registerName` (la asignada) si quedó reteniendo la anterior tras una
+   * reasignación. null cuando no retiene ninguna.
+   */
+  heldRegisterName: string | null
   /**
    * Rastro operativo que dejó este aparato, de cualquier tipo y en cualquier
    * estado (NO "tiene la caja ahora"). Con al menos un elemento, el borrado
