@@ -610,14 +610,15 @@ export const FIELD_RULES: Record<string, FieldRule[]> = {
  *  - `itemType` en `'compound' | 'precombo' | 'comboAddons'`: se leen en los
  *    reportes pero no están en `ItemKind::MAP` y no se encontró quién los
  *    escribe.
- *  - `einvoiceStatus`, `sifen_status`: vocabulario de SIFEN, fuera del alcance
- *    de este slice.
+ *  - `einvoiceStatus`, `einvoiceSifenStatus`, `sifen_status`: vocabulario de
+ *    SIFEN, fuera del alcance de este slice.
  */
 export const LEFT_RAW_ON_PURPOSE = [
   "transactionStatus",
   "taxName",
   "quoteStatus",
   "einvoiceStatus",
+  "einvoiceSifenStatus",
 ] as const
 
 /**

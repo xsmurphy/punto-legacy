@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { sifenVerdict } from "@/lib/einvoice/sifen-status"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useDateRange } from "@/hooks/use-date-range"
 import {
@@ -569,15 +570,42 @@ export function TransactionsList({ backHref, mode = "panel" }: TransactionsListP
           if (!r.einvoiceStatus) {
             return <span className="text-muted-foreground">—</span>
           }
-          if (r.einvoiceStatus === "issued") {
+          // El estado FISCAL manda sobre el del outbox (misma regla que la
+          // tabla de FE en Ajustes — lib/einvoice/sifen-status.ts): SIFEN
+          // puede rechazar una factura que se envió bien y ya tiene CDC, y
+          // acá se pintaba en verde con el CDC como si valiera.
+          const verdict = sifenVerdict(r.einvoiceSifenStatus)
+          if (verdict === "rejected") {
             return (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Badge variant="default" className="max-w-32 truncate">
+                  <Badge variant="destructive" className="max-w-32 truncate">
+                    Rechazada
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {r.einvoiceSifenReason ?? "SIFEN rechazó el documento y no informó el motivo."}
+                </TooltipContent>
+              </Tooltip>
+            )
+          }
+          if (r.einvoiceStatus === "issued") {
+            // Sin veredicto todavía NO es un rechazo: es el estado normal de
+            // los primeros minutos. Se distingue de la aprobada (badge
+            // atenuado) en vez de afirmar una validez que nadie confirmó.
+            const confirmed = verdict === "approved"
+            return (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant={confirmed ? "default" : "outline"} className="max-w-32 truncate">
                     {r.einvoiceCdc ?? "Emitida"}
                   </Badge>
                 </TooltipTrigger>
-                <TooltipContent>{r.einvoiceCdc ?? "Emitida"}</TooltipContent>
+                <TooltipContent>
+                  {confirmed
+                    ? `Aprobada por SIFEN — ${r.einvoiceCdc ?? "sin CDC"}`
+                    : `Emitida, SIFEN todavía no confirmó — ${r.einvoiceCdc ?? "sin CDC"}`}
+                </TooltipContent>
               </Tooltip>
             )
           }

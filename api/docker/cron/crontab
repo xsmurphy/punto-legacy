@@ -11,6 +11,9 @@
 # ya vive en /etc/crontabs/root).
 
 */5  *  *  *  *   /usr/local/bin/maintenance.sh einvoice-drain
+# Estado FISCAL de lo ya emitido: SIFEN puede rechazar un DE minutos después
+# de devolver un CDC válido, y sin esto `sifen_status` queda NULL para siempre.
+*/10 *  *  *  *   /usr/local/bin/maintenance.sh einvoice-reconcile
 */10 *  *  *  *   /usr/local/bin/maintenance.sh rollup-reconcile
 # Rescata extracciones OCR colgadas (proceso muerto a mitad, ej. deploy).
 */5  *  *  *  *   /usr/local/bin/maintenance.sh ocr-requeue

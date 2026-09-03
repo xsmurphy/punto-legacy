@@ -115,9 +115,19 @@ export interface EInvoiceDocument {
   cancelledAt: string | null
   attempts: number
   createdAt: string | null
-  /** Estado FISCAL real (SIFEN), distinto de `status` (outbox) — puede quedar null si nunca se reconcilió. */
+  /**
+   * Estado FISCAL real (SIFEN), distinto de `status` (outbox) — puede quedar
+   * null si todavía no se reconcilió (el job `einvoice-reconcile` corre cada
+   * 10 min). MANDA sobre `status`: ver `lib/einvoice/sifen-status.ts`.
+   */
   sifenStatus: string | null
   sifenCheckedAt: string | null
+  /**
+   * Motivo legible del veredicto de SIFEN (típicamente el del RECHAZO, ej.
+   * "1002 — documento duplicado"), parseado server-side desde `sifen_result`.
+   * null si SIFEN no dio detalle o el documento no se reconcilió todavía.
+   */
+  sifenReason: string | null
   total: number | null
   currency: string | null
   clientName: string | null
@@ -126,7 +136,12 @@ export interface EInvoiceDocument {
 export interface EInvoiceDocumentFilters {
   from?: string
   to?: string
-  status?: EInvoiceDocumentStatus | "stuck" | ""
+  /**
+   * `stuck` y `rejected` son filtros SINTÉTICOS del panel, no valores de
+   * `einvoice_document.status`: `stuck` = `sending` varado, `rejected` =
+   * `sifen_status='Rechazado'` (el rechazo fiscal no vive en el outbox).
+   */
+  status?: EInvoiceDocumentStatus | "stuck" | "rejected" | ""
   search?: string
   page?: number
   pageSize?: number
