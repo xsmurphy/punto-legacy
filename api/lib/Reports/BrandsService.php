@@ -14,14 +14,19 @@ namespace Punto\Api\Reports;
  */
 final class BrandsService
 {
-    public function salesByBrand($from, $to, $roc, string $companyId, bool $forceRollup = false, ?string $outletId = null): array
+    /**
+     * @param list<string> $outletIds Alcance por sucursal (`OutletScope::effectiveIds()`);
+     *                                `[]` = sin filtro, 2+ = consolidado acotado. La rama
+     *                                live no lo mira: ya filtra por `$roc`.
+     */
+    public function salesByBrand($from, $to, $roc, string $companyId, bool $forceRollup = false, array $outletIds = []): array
     {
         if (!$forceRollup && empty($_ENV['REPORTS_ROLLUP_ENABLED'])) {
             return $this->salesByBrandLive($from, $to, $roc, $companyId);
         }
 
         $reader    = new RollupReader();
-        $itemSales = $reader->itemSalesRange($companyId, $from, $to, $outletId);
+        $itemSales = $reader->itemSalesRange($companyId, $from, $to, $outletIds);
 
         if (empty($itemSales)) {
             return [];

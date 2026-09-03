@@ -74,7 +74,7 @@ try {
         VALUES (?, ?, ?, ?, ?, ?, 4, 1, FALSE, 300000, 0, NOW(), NOW() + INTERVAL '15 days')",
         [$purchase, $companyId, $outletId, $registerId, $userId, $supplier]);
 
-    $r = (new BalanceService())->get($companyId, $outletId);
+    $r = (new BalanceService())->get($companyId, [$outletId]);
 
     check('efectivo sale de fin_account', abs($r['assets']['cash'] - 500000) < 0.01,
         'cash = ' . $r['assets']['cash'], $failures, $checks);

@@ -78,7 +78,11 @@ final class StockService
 
         // Saldo + costo promedio de TODOS los ítems de la sucursal en una sola
         // query — lector único (D2 de context/52).
-        $balances = Inventory::onHandBulk($companyId, $outletId);
+        //
+        // Este reporte exige UNA sucursal (`stock.php` rechaza el modo "Todas"
+        // con `needsOutlet`), así que el alcance sigue siendo un valor único y
+        // se envuelve acá para el lector, que ahora habla en listas.
+        $balances = Inventory::onHandBulk($companyId, $outletId !== '' ? [$outletId] : []);
 
         // Desglose por depósito: las MISMAS filas del ledger, agrupadas por
         // locationId. La suma de los grupos de un ítem es exactamente su

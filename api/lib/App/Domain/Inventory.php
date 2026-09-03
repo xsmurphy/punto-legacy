@@ -3,6 +3,11 @@ declare(strict_types=1);
 
 namespace Punto\App\Domain;
 
+// Mismo motivo que en `Reports/Roc.php`: `onHandBulk()` arma su filtro de
+// sucursal con `OutletScope::sqlFilter()`, y a esta clase la alcanzan scripts
+// CLI (`lib/Sales/verify_chain/*`) que no pasan por el autoloader del bootstrap.
+require_once __DIR__ . '/../../Outlets/OutletScope.php';
+
 /**
  * Stock e inventario del POS.
  *
@@ -635,17 +640,21 @@ final class Inventory
      * `stockId` importa porque una misma venta escribe varias filas con la
      * misma fecha, y sin él PG elige una fila arbitraria).
      *
-     * `$outletId` vacío = TODAS las sucursales de la compañía (modo "Todas"
+     * `$outletIds` vacío = TODAS las sucursales de la compañía (modo "Todas"
      * del selector de sucursal). Ahí el saldo se agrega company-wide y el
      * costo promedio se pondera por unidades entre sucursales: sumar dos
      * costos UNITARIOS no da un costo unitario, y quedarse con el de una
      * sucursal arbitraria es lo que hacía el `getAllItemStock` que se retiró.
+     * Con 2 o más la agregación es la MISMA, solo que acotada al conjunto — que
+     * es exactamente lo que necesita un usuario con varias sucursales
+     * asignadas.
      *
+     * @param list<string> $outletIds Alcance por sucursal; `[]` = todas.
      * @param ?string $sinceDate Corte inclusivo `YYYY-MM-DD` (saldo AL cierre
      *        de ese día). null = saldo actual.
      * @return array<string,array{onHand:float,cogs:float}> itemId => saldo
      */
-    public static function onHandBulk(string $companyId, string $outletId = '', ?string $sinceDate = null): array
+    public static function onHandBulk(string $companyId, array $outletIds = [], ?string $sinceDate = null): array
     {
         if ($companyId === '') {
             return [];
@@ -657,13 +666,17 @@ final class Inventory
         // que el JOIN con `outlet` no puede dejar entrar una fila ajena ni
         // dejar afuera una propia con el `companyId` denormalizado mal escrito
         // — mismo criterio que ya usaba el `getAllItemStock` que se retiró.
-        $outletCut = $outletId !== '' ? ' AND s.outletId = ?' : '';
+        //
+        // El fragmento de sucursal se INTERPOLA (uuids re-validados por
+        // `sqlFilter`) en vez de bindearse, y acá la razón es doble: aparece en
+        // las DOS CTEs y el array de params se DUPLICA (`$params2`) para
+        // cubrirlas. Con placeholders, cada sucursal extra habría que sumarla
+        // dos veces y en el orden exacto, delante del `$dateCut` — un bind
+        // corrido ahí no falla, devuelve el saldo a otra fecha.
+        $outletCut = \Punto\Api\Outlets\OutletScope::sqlFilter('s.outletId', $outletIds);
         $dateCut   = $sinceDate !== null ? ' AND s.stockDate::date <= ?::date' : '';
 
         $params = [$companyId];
-        if ($outletId !== '') {
-            $params[] = $outletId;
-        }
         if ($sinceDate !== null) {
             $params[] = $sinceDate;
         }

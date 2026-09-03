@@ -32,15 +32,22 @@ use Punto\Api\Support\DbQueryException;
  */
 final class GiftcardsService
 {
-    /** Gift cards emitidas. $filters: ['singleRow'=>uuid]. */
-    public function detail(array $filters, string $companyId, string $outletId = ''): array
+    /**
+     * Gift cards emitidas. $filters: ['singleRow'=>uuid].
+     *
+     * @param list<string> $outletIds Alcance por sucursal (`OutletScope::effectiveIds()`);
+     *                                `[]` = todas, 2+ = las del usuario.
+     *
+     * El filtro de sucursal va INTERPOLADO por `OutletScope::sqlFilter()` y el
+     * `singleRow` sigue bindeado DESPUÉS: si el alcance ocupara placeholders,
+     * pasar de una sucursal a dos correría ese bind y el `id = ?` empezaría a
+     * comparar contra un uuid de sucursal.
+     */
+    public function detail(array $filters, string $companyId, array $outletIds = []): array
     {
         $params = [$companyId];
-        $sql    = 'SELECT * FROM giftcard WHERE companyid = ?';
-        if ($outletId !== '') {
-            $sql .= ' AND outletid = ?';
-            $params[] = $outletId;
-        }
+        $sql    = 'SELECT * FROM giftcard WHERE companyid = ?'
+                . \Punto\Api\Outlets\OutletScope::sqlFilter('outletid', $outletIds);
         if (!empty($filters['singleRow'])) {
             $sql .= ' AND id = ?';
             $params[] = $filters['singleRow'];
@@ -53,14 +60,19 @@ final class GiftcardsService
             return ['rows' => []];
         }
 
-        $benefIds = $outletIds = $txIds = [];
+        // `$rowOutletIds` y NO `$outletIds`: ese nombre es el PARÁMETRO con el
+        // alcance del usuario. Pisarlo acá no rompía nada hoy (el SQL ya está
+        // armado unas líneas arriba), y por eso mismo es peligroso: la próxima
+        // consulta que alguien agregue debajo saldría sin filtro de sucursal y
+        // sin ningún síntoma, con la variable diciendo que sí lo tiene.
+        $benefIds = $rowOutletIds = $txIds = [];
         foreach ($res as $f) {
-            $benefIds[]  = (string) ($f['beneficiaryContactId'] ?? '');
-            $outletIds[] = (string) ($f['outletId'] ?? '');
-            $txIds[]     = (string) ($f['issuedByTransactionId'] ?? '');
+            $benefIds[]     = (string) ($f['beneficiaryContactId'] ?? '');
+            $rowOutletIds[] = (string) ($f['outletId'] ?? '');
+            $txIds[]        = (string) ($f['issuedByTransactionId'] ?? '');
         }
         $benefs  = ContactDisplayName::batch($benefIds, $companyId);
-        $outlets = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
+        $outlets = $this->nameMap('outlet', 'outletId', 'outletName', $rowOutletIds, $companyId);
         $docs    = $this->invoiceDocs($txIds, $companyId);
 
         $rows = [];

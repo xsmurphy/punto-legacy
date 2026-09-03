@@ -95,6 +95,30 @@ final class OutletScope
     }
 
     /**
+     * ¿Este realm resuelve su sucursal desde el USUARIO?
+     *
+     * `api` (API keys y MCP) y `panel` sí: los opera una persona identificada,
+     * con un conjunto de sucursales asignadas y una UI o una tool que elige
+     * dentro de él.
+     *
+     * `pos-app` (y los demás realms de device: `screen`, `kds`, `print`) NO, y
+     * no es un pendiente: la sucursal de una terminal sale de la fila `device`,
+     * o sea del PAREO, y es fija. La tablet no tiene selector que acotar ni
+     * usuario propio — el `userId` que lleva es el del contacto que la pareó,
+     * y derivar el alcance de él le daría a la caja las sucursales de esa
+     * persona en vez de la suya. Ver `context/25-sucursales-y-scopes.md`.
+     *
+     * Existe como método y no como un `in_array` suelto porque ya lo preguntan
+     * `bootstrap.php` y `outlets.php`, y la respuesta tiene que ser la misma en
+     * los dos: un realm que quedara adentro en el embudo y afuera en la lista
+     * (o al revés) da una UI que ofrece sucursales que después devuelven 403.
+     */
+    public static function realmIsScoped(string $realm): bool
+    {
+        return $realm === 'api' || $realm === 'panel';
+    }
+
+    /**
      * ¿Puede este usuario leer esa sucursal?
      *
      * Un usuario global alcanza cualquier sucursal DEL TENANT — de ahí el
@@ -170,25 +194,130 @@ final class OutletScope
      * como el de todas las suyas. Un número incompleto que parece correcto es
      * peor que un error — el error se puede reformular con `outletId`, el
      * número equivocado se copia a una planilla.
+     *
+     * ── El orden importa, y es el MISMO que el de `Roc::build()` ─────────────
+     * Primero la sucursal ÚNICA (`VIEW_OUTLET_ID`, ya validada contra el
+     * conjunto por `bootstrap.php`), y recién después el conjunto. Si se
+     * mirara el conjunto primero, un usuario de 2 sucursales PARADO EN UNA
+     * —el caso normal del panel, que siempre manda `X-Outlet-Id`— recibiría
+     * `null` y un 422, teniendo la respuesta pedida a mano.
+     *
+     * Que este método y `Roc::build()` desempaten igual no es prolijidad: son
+     * los dos caminos por los que sale la MISMA pregunta ("¿qué sucursales?"),
+     * uno como fragmento SQL y el otro como valor bindeado, y a veces en la
+     * misma respuesta. Cuando desempataban distinto, el fragmento salía acotado
+     * y el valor único salía abierto — la fuga del 2026-09-02 (`58b40d08`), que
+     * ningún test de totales veía porque los dos devolvían números plausibles.
      */
     public static function single(): ?string
     {
-        $set = self::current();
-        if (count($set) > 1) {
+        $ids = self::effectiveIds();
+        if (count($ids) > 1) {
             return null;
         }
-        if (count($set) === 1) {
-            return $set[0];
-        }
-        // Sin restricción: el comportamiento histórico, intacto. Panel con el
-        // selector del logo → `VIEW_OUTLET_ID`; pos-app y realm `api` global →
-        // la sucursal del contexto. Un valor que no es uuid (incluido el `''`
-        // del modo "Todas") significa consolidado.
+        return $ids[0] ?? '';
+    }
+
+    /**
+     * El alcance de esta request como LISTA — la forma que sí puede expresar los
+     * tres estados sin perder ninguno.
+     *
+     * @return list<string> `[]` = sin filtro por sucursal (el tenant entero);
+     *                      1 elemento = esa sucursal; 2+ = el consolidado
+     *                      ACOTADO a las sucursales del usuario.
+     *
+     * Es la misma pregunta que responden `Roc::build()` (como fragmento SQL) y
+     * `single()` (como valor único), con el MISMO desempate — de hecho `single()`
+     * ahora se deriva de acá, que es la única forma de garantizar que no se
+     * separen otra vez.
+     *
+     * Existe porque `single()` no alcanza y el 422 no es una respuesta aceptable
+     * en el panel. Para el realm `api` sí lo era: del otro lado hay un modelo que
+     * lee "pedí una sucursal a la vez" y reformula. Del otro lado del panel hay
+     * una persona que eligió "Todas" en el selector y espera ver sus números —
+     * devolverle un error en el dashboard, los reportes de marcas, categorías,
+     * balance y flujo de efectivo no es fallar seguro, es no tener la feature.
+     * Los lectores que agregan (SUM/GROUP BY) pueden con una lista perfectamente;
+     * lo que no podían era recibirla.
+     */
+    public static function effectiveIds(): array
+    {
+        // Una sucursal puntual gana: es el selector del panel parado en una
+        // sucursal, o una consulta con `?outletId=`. `bootstrap.php` ya la
+        // validó contra el conjunto (403 si no), así que acá no hay que
+        // re-chequear pertenencia — solo forma.
         $v = \defined('VIEW_OUTLET_ID')
             ? (string) \constant('VIEW_OUTLET_ID')
             : (\defined('OUTLET_ID') ? (string) \constant('OUTLET_ID') : '');
+        if (preg_match(self::UUID_RE, $v)) {
+            return [$v];
+        }
 
-        return preg_match(self::UUID_RE, $v) ? $v : '';
+        return self::current();
+    }
+
+    /**
+     * El fragmento SQL del filtro de sucursal para los lectores que NO pasan por
+     * `Roc::build()` — los que consultan el rollup, el inventario y las cuentas.
+     *
+     * @param string       $column  nombre (o `alias.nombre`) de la columna de outlet.
+     * @param list<string> $ids     el alcance (`effectiveIds()`); `[]` = sin filtro.
+     * @param bool         $orNull  incluir además las filas con la columna NULL.
+     *                              Es el caso de `fin_account` y de la agenda del
+     *                              dashboard, donde NULL significa "de todas las
+     *                              sucursales" (una cuenta global del comercio),
+     *                              no "sin dato" — perderlas al acotar el alcance
+     *                              haría desaparecer plata del balance.
+     * @return string Fragmento que arranca con " AND ", o `''` si no hay filtro.
+     *
+     * ── Interpola, no bindea, y es a propósito ───────────────────────────────
+     * Mismo criterio que `Roc::build()`, por una razón concreta de este
+     * codebase: estos lectores arman `$params` a mano y varios insertan binds EN
+     * EL MEDIO del array (las seis fechas que `CashflowService` antepone, el
+     * `contactId` que `OpenInvoicesService` agrega después del outlet, el
+     * `$dateCut` de `Inventory::onHandBulk` — que además DUPLICA el array para
+     * sus dos CTEs). Cambiar un `?` por N corre todos esos binds, y un bind
+     * corrido no rompe: devuelve otro número. Un fragmento interpolado no toca
+     * el array de params, así que el cambio es imposible de desalinear.
+     *
+     * Seguro por construcción, no por confianza: cada id se re-valida contra
+     * `UUID_RE` acá mismo y lo que no matchea se descarta. No es texto del
+     * request — sale de `contact_outlet`— pero la defensa no depende de eso.
+     */
+    public static function sqlFilter(string $column, array $ids, bool $orNull = false): string
+    {
+        $clean = [];
+        foreach ($ids as $id) {
+            $id = (string) $id;
+            if (preg_match(self::UUID_RE, $id)) {
+                $clean[] = $id;
+            }
+        }
+        $clean = array_values(array_unique($clean));
+
+        if ($clean === []) {
+            // Sin restricción. OJO: no se emite `IS NULL` ni nada — el lector
+            // ve todas las filas, que es el comportamiento histórico del `''`.
+            return '';
+        }
+
+        // El nombre de columna también se interpola, así que también se valida:
+        // hoy todos los callers pasan un literal escrito a mano, pero el
+        // docblock promete "seguro por construcción, no por confianza" y una
+        // promesa que depende de que nadie pase una variable no es construcción.
+        $col = trim($column);
+        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/', $col)) {
+            throw new \RuntimeException('Columna inválida al armar el filtro de sucursal');
+        }
+
+        $cond = count($clean) === 1
+            ? "{$col} = '" . $clean[0] . "'"
+            : "{$col} IN ('" . implode("', '", $clean) . "')";
+
+        if ($orNull) {
+            $cond = "({$cond} OR {$col} IS NULL)";
+        }
+        return ' AND ' . $cond;
     }
 
     /**
@@ -203,8 +332,14 @@ final class OutletScope
     public static function subsetNotSupportedMessage(): string
     {
         $ids = self::current();
+        // Los dos públicos, en una sola frase: al modelo le dice el parámetro,
+        // a la persona le dice el gesto. Desde que el realm `panel` también
+        // alcanza subconjuntos, este texto sale en pantalla (`stock.php` en modo
+        // "Todas") y "indicá outletId" ahí no significa nada — el usuario no
+        // manda parámetros, elige en el selector del logo.
         return 'Este reporte se sirve de una sola sucursal por consulta y tu usuario tiene '
-            . count($ids) . ' asignadas. Volvé a pedirlo indicando outletId con una de estas: '
+            . count($ids) . ' asignadas. Elegí una en el selector de sucursal '
+            . '(o indicá outletId si estás consultando por API): '
             . implode(', ', $ids) . '.';
     }
 }

@@ -200,6 +200,13 @@ export const PARAGUAY_LITERAL_ALLOWLIST: Record<string, AllowlistEntry> = {
     reason: "TEST — fixture de tenant paraguayo para el conteo por método de pago.",
     allow: { 'código "PYG"': 1, 'país "PY" como default': 1, 'TZ "America/Asuncion"': 1 },
   },
+  "api/tests/outlet_scope_test.php": {
+    reason:
+      "TEST — fixture de tenant paraguayo para el arnés de alcance por sucursal. " +
+      "El país y el huso son de relleno: lo que el arnés mide son sucursales y " +
+      "totales, ninguna aserción los mira.",
+    allow: { 'país "PY" como default': 1, 'TZ "America/Asuncion"': 1 },
+  },
   "api/tests/pos_emission_timezone_test.php": {
     reason:
       "TEST — el arnés compara DOS tenants de husos distintos para probar que la " +

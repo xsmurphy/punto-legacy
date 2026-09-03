@@ -77,18 +77,12 @@ if ($contactId !== '') {
 //
 // Este reporte NO lo tenía: listaba las cuentas por cobrar/pagar de TODAS las
 // sucursales aunque hubiera una elegida (reporte del tester, 2026-08-28).
-// `OutletScope::single()` unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID → guard
-// de uuid) que estaba copiado en cinco endpoints. Un valor que no sea UUID no
-// filtra — misma tolerancia que `Roc::build`, que solo agrega el `AND outletId`
-// cuando matchea el patrón; '' ("Todas") consolida, que es lo correcto para ese
-// modo. `null` es el caso nuevo: un subconjunto de 2+ sucursales no entra en un
-// solo valor y se corta antes de devolver un total parcial.
-$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
-if ($effectiveOutletId === null) {
-    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-}
-if (!preg_match($uuidRe, $effectiveOutletId)) {
-    $effectiveOutletId = '';
-}
+// `OutletScope::effectiveIds()` unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID →
+// conjunto asignado) que estaba copiado en cinco endpoints, y ya devuelve uuids
+// validados — el guard a mano que había acá dejó de hacer falta. `[]` ("Todas")
+// consolida; 2+ acota al conjunto del usuario, que antes era un 422: este
+// reporte lista facturas y suma saldos, y las dos operaciones aceptan un
+// conjunto sin ninguna ambigüedad.
+$effectiveOutletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
-apiOk($svc->general($state, COMPANY_ID, $contactId !== '' ? $contactId : null, $effectiveOutletId));
+apiOk($svc->general($state, COMPANY_ID, $contactId !== '' ? $contactId : null, $effectiveOutletIds));

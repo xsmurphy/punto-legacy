@@ -137,7 +137,7 @@ try {
         $failures, $checks);
 
     // ── Scope por sucursal ───────────────────────────────────────────────────
-    $rb = $svc->getCashFlow('2026-02-01 00:00:00', '2026-02-28 23:59:59', $companyId, $outletB);
+    $rb = $svc->getCashFlow('2026-02-01 00:00:00', '2026-02-28 23:59:59', $companyId, [$outletB]);
     $namesB = array_column($rb['accounts'], 'name');
     check('filtrando por otra sucursal, la cuenta GLOBAL sigue apareciendo',
         in_array('Efectivo', $namesB, true),

@@ -29,17 +29,18 @@ final class OpenInvoicesService
      *   las facturas a crédito pendientes de un cliente sin traer las de toda la empresa.
      *   Reusa el mismo cálculo que el reporte agregado (mismo dueStatus, mismo
      *   payedByParent vía transaction_link) en vez de duplicar la query.
-     * @param string $outletId Sucursal del view-scope (`VIEW_OUTLET_ID`, header
-     *   X-Outlet-Id). Vacío = consolidado ("Todas"), que es lo que el selector manda
-     *   como 'all'. Sin esto el reporte mezclaba las facturas de TODAS las sucursales
-     *   aunque el usuario tuviera una elegida (reporte del tester, 2026-08-28).
+     * @param list<string> $outletIds Alcance por sucursal (`OutletScope::effectiveIds()`).
+     *   `[]` = consolidado ("Todas"), que es lo que el selector manda como 'all'; un
+     *   elemento = esa sucursal; 2+ = las asignadas al usuario. Sin esto el reporte
+     *   mezclaba las facturas de TODAS las sucursales aunque el usuario tuviera una
+     *   elegida (reporte del tester, 2026-08-28).
      */
-    public function general($state, $companyId, ?string $contactId = null, string $outletId = '')
+    public function general($state, $companyId, ?string $contactId = null, array $outletIds = [])
     {
         $isToPay    = ($state === 'outcome');
         $isCustomer = !$isToPay;
 
-        $invoices = $this->openCreditInvoices($companyId, $isCustomer, $contactId, $outletId);
+        $invoices = $this->openCreditInvoices($companyId, $isCustomer, $contactId, $outletIds);
         if ($invoices === []) {
             return ['rows' => [], 'kpi' => ['totalDebt' => 0, 'accounts' => 0, 'expired' => 0, 'toExpire' => 0]];
         }
@@ -257,7 +258,7 @@ final class OpenInvoicesService
      * @return list<array{saleId:string,cid:string,invoiceNo:string,date:string,dueDate:string,total:float}>
      */
     /**
-     * @param string $outletId Sucursal por la que filtrar. Vacío = TODAS.
+     * @param list<string> $outletIds Sucursales por las que filtrar. `[]` = TODAS.
      *
      * El filtro es OPT-IN y solo lo pasa `general()` — el reporte, que es lo que el
      * selector de sucursal del panel gobierna. `forContact()` y `contactStatement()`
@@ -276,7 +277,7 @@ final class OpenInvoicesService
         string $companyId,
         bool $isCustomer,
         ?string $contactId = null,
-        string $outletId = ''
+        array $outletIds = []
     ): array {
         $type       = $isCustomer ? 3 : 4;
         $contactCol = $isCustomer ? 'customerId' : 'supplierId';
@@ -287,12 +288,14 @@ final class OpenInvoicesService
                 FROM transaction
                 WHERE transactionComplete = false AND transactionType = ? AND companyId = ?";
         $params = [$type, $companyId];
-        // Bound, no interpolado: esta clase no usa `Roc::build` justamente para no
-        // meter valores dentro del SQL (ver docblock de la clase).
-        if ($outletId !== '') {
-            $sql .= " AND outletId = ?";
-            $params[] = $outletId;
-        }
+        // La ÚNICA excepción al criterio de la clase (todo bindeado, sin
+        // `Roc::build`): el alcance por sucursal ya no es un valor, es un
+        // conjunto de 0, 1 o N uuids, y su fragmento se arma con
+        // `OutletScope::sqlFilter()` — que interpola uuids re-validados. La
+        // razón es el `$contactId` de acá abajo: con placeholders, pasar de una
+        // sucursal a dos agrega un `?` EN EL MEDIO y ese bind se corre en
+        // silencio, comparando el contacto contra un uuid de sucursal.
+        $sql .= \Punto\Api\Outlets\OutletScope::sqlFilter('outletId', $outletIds);
         if ($contactId !== null && $contactId !== '') {
             $sql .= " AND $contactCol = ?";
             $params[] = $contactId;

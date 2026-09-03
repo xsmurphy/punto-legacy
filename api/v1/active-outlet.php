@@ -60,6 +60,21 @@ if (!preg_match($uuidRe, $outletId)) {
     apiError('outletId inválido', 422);
 }
 
+// Pertenecer al tenant NO alcanza: esta es la puerta de ESCRITURA del alcance.
+// El `oid` que se re-emite acá vuelve como `OUTLET_ID` en cada request, y
+// `OUTLET_ID` es la sucursal a la que se imputan las VENTAS, los movimientos de
+// caja y el stock. Sin este gate, un usuario asignado a 2 sucursales se paraba
+// en una tercera y facturaba ahí — el filtro de LECTURA lo hubiera tapado
+// (`bootstrap.php` repunta `$outletId` al conjunto), pero tapar no es cerrar, y
+// el 403 es la respuesta honesta: la sucursal existe, no es suya.
+if (!\Punto\Api\Outlets\OutletScope::allows(
+    \Punto\Api\Outlets\OutletScope::current(),
+    $outletId,
+    (string) COMPANY_ID
+)) {
+    apiError('Tu usuario no tiene acceso a esa sucursal', 403);
+}
+
 $row = ncmExecute(
     'SELECT outletId, outletName FROM outlet WHERE outletId = ? AND companyId = ? AND outletStatus = 1 LIMIT 1',
     [$outletId, COMPANY_ID]

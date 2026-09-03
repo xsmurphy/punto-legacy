@@ -43,20 +43,17 @@ if (!$rangeOk) {
     apiError('Formato de fecha inválido', 422);
 }
 
-// Sucursal del view-scope, igual que reports/stock.php y reports/dashboard.php.
-// '' (el modo "Todas") consolida — no se filtra nada.
+// Alcance del view-scope, igual que reports/stock.php y reports/dashboard.php.
+// `[]` (el modo "Todas") consolida — no se filtra nada.
 //
-// NO se usa `Roc::build()`: ese helper interpola el fragmento SQL y el service
-// nuevo bindea sus parámetros. El outletId va como valor, no como texto de
-// query.
-// `OutletScope::single()` reemplaza al idiom que estaba copiado acá y en otros
-// cuatro endpoints (leer VIEW_OUTLET_ID, caer a OUTLET_ID, validar el uuid).
-// `null` = el usuario alcanza un subconjunto de 2+ sucursales, que no entra en
-// un valor único: se corta en vez de servir el total de UNA como si fueran
-// todas las suyas.
-$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
-if ($effectiveOutletId === null) {
-    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-}
+// NO se usa `Roc::build()`: el service arma sus propias queries y su filtro de
+// sucursal sale de `OutletScope::sqlFilter()`, que además tiene que sumar las
+// cuentas GLOBALES (`outletid IS NULL`) — algo que `Roc` no expresa.
+// `OutletScope::effectiveIds()` reemplaza al idiom que estaba copiado acá y en
+// otros cuatro endpoints (leer VIEW_OUTLET_ID, caer a OUTLET_ID, validar el
+// uuid), y a diferencia de `single()` sabe expresar el subconjunto de 2+
+// sucursales: el flujo de efectivo suma movimientos, así que acotarlo al
+// conjunto del usuario da el número correcto en vez de un 422.
+$effectiveOutletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
-apiOk($svc->getCashFlow($from, $to, (string) COMPANY_ID, $effectiveOutletId));
+apiOk($svc->getCashFlow($from, $to, (string) COMPANY_ID, $effectiveOutletIds));

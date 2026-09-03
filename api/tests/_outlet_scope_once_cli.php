@@ -76,8 +76,32 @@ $row = ncmExecute(
     []
 );
 
+// El MISMO total, pero por el otro camino: el de los lectores que no pasan por
+// `Roc::build` (rollup, inventario, cuentas), que arman su filtro con
+// `OutletScope::sqlFilter()` sobre `effectiveIds()`.
+//
+// Existe porque ese camino no tenía NINGUNA prueba contra Postgres real, y es el
+// que corre riesgo de interpolación: comillas, el `IN` de dos uuids, el fragmento
+// concatenado después de un WHERE que ya tiene binds. Si `sqlFilter` emitiera SQL
+// inválido, o filtrara de más o de menos, este número se separa del de `Roc` —
+// que es exactamente la clase de divergencia (dos respuestas a la misma pregunta)
+// que causó la fuga de `58b40d08`.
+$sqlFilter   = \Punto\Api\Outlets\OutletScope::sqlFilter(
+    'outletId',
+    \Punto\Api\Outlets\OutletScope::effectiveIds()
+);
+$rowFiltered = ncmExecute(
+    "SELECT COALESCE(SUM(transactionTotal), 0) AS total
+       FROM transaction
+      WHERE transactionComplete = TRUE AND companyId = ?{$sqlFilter}",
+    [$companyId]
+);
+
+// La MISMA expresión que `api/v1/outlets.php` — si acá se copiara un criterio
+// propio, el arnés estaría midiendo su copia y no el endpoint que alimenta el
+// selector del sidebar.
 $svc      = new \Punto\Api\Outlets\OutletsService();
-$scopeIds = (($ctx['realm'] ?? '') === 'api')
+$scopeIds = \Punto\Api\Outlets\OutletScope::realmIsScoped((string) ($ctx['realm'] ?? ''))
     ? (\Punto\Api\Outlets\OutletScope::current() ?: null)
     : null;
 $outlets  = $svc->listAll($companyId, $scopeIds);
@@ -91,6 +115,8 @@ echo 'RESULT:' . json_encode([
     'scope'          => \Punto\Api\Outlets\OutletScope::current(),
     'single'         => \Punto\Api\Outlets\OutletScope::single(),
     'roc'            => $roc,
+    'sqlFilter'      => $sqlFilter,
+    'totalFiltered'  => (float) ($rowFiltered['total'] ?? -1),
     'total'          => (float) ($row['total'] ?? -1),
     'rows'           => (int) ($row['n'] ?? -1),
     'outletNames'    => array_map(static fn ($o) => (string) ($o['name'] ?? $o['outletName'] ?? '?'), $outlets),

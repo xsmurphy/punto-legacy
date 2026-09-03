@@ -81,13 +81,20 @@ if (in_array('dashboard', $secciones, true)) {
     // `OUTLET_ID` crudo acá daba DOS alcances en la MISMA respuesta: `rows`
     // sale de `$roc` (todo el conjunto del usuario) y `dashboard` salía de una
     // sola sucursal. Nadie lo notaría — los dos bloques devuelven números
-    // plausibles— y esa es exactamente la falla cara. Con un subconjunto de 2+
-    // no hay valor único que sirva, así que se corta pidiendo `outletId`.
-    $dashOutletId = \Punto\Api\Outlets\OutletScope::single();
-    if ($dashOutletId === null) {
-        apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-    }
-    $out['dashboard'] = $svc->dashboard($from, $to, (string) COMPANY_ID, $dashOutletId);
+    // plausibles— y esa es exactamente la falla cara.
+    //
+    // `dashboard()` filtra por `Roc::build()`, que YA sabe emitir el `IN (...)`
+    // de un subconjunto leyendo `VIEW_OUTLET_IDS` por su cuenta. Por eso acá
+    // alcanza con pasarle el valor único cuando lo hay y `''` cuando el alcance
+    // son 2 o más: en ese caso `Roc` resuelve el conjunto solo, con el MISMO
+    // desempate que `effectiveIds()`. El 422 que había sobraba.
+    $dashScope = \Punto\Api\Outlets\OutletScope::effectiveIds();
+    $out['dashboard'] = $svc->dashboard(
+        $from,
+        $to,
+        (string) COMPANY_ID,
+        count($dashScope) === 1 ? $dashScope[0] : ''
+    );
 }
 if (in_array('geo', $secciones, true)) {
     $out['geo'] = $svc->geography((string) COMPANY_ID);

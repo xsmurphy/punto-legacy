@@ -37,15 +37,16 @@ use Punto\App\Domain\Inventory;
 final class StockDayService
 {
     /**
-     * @param string  $date     Corte inclusivo `YYYY-MM-DD[ HH:MM:SS]`.
-     * @param string  $outletId Sucursal; `''` = todas las de la compañía
-     *                          (modo "Todas" del selector de sucursal).
+     * @param string       $date      Corte inclusivo `YYYY-MM-DD[ HH:MM:SS]`.
+     * @param list<string> $outletIds Alcance por sucursal; `[]` = todas las de la
+     *                                compañía (modo "Todas" del selector), 2+ = las
+     *                                asignadas al usuario. El saldo se agrega igual
+     *                                en los tres casos, solo cambia el universo.
      * @return array filas [{itemId, name, sku, cogs, onHand}]
      */
-    public function levels($date, $companyId, $outletId = '', $limit = 3000)
+    public function levels($date, $companyId, array $outletIds = [], $limit = 3000)
     {
         $companyId = (string) $companyId;
-        $outletId  = (string) $outletId;
 
         $items = ncmExecute(
             "SELECT itemId, itemName, itemSKU
@@ -64,7 +65,7 @@ final class StockDayService
         }
 
         // Saldo y costo al corte, en una sola query (lector único, D2).
-        $balances = Inventory::onHandBulk($companyId, $outletId, (string) $date);
+        $balances = Inventory::onHandBulk($companyId, $outletIds, (string) $date);
 
         $rows = [];
         while (!$items->EOF) {

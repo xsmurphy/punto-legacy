@@ -96,33 +96,26 @@ $opts = [
     'type' => preg_replace('/[^a-zA-Z0-9_]/', '', (string) (validateHttp('type') ?: '')),
 ];
 
-// Outlet efectivo (mismo patrón que stock.php): VIEW_OUTLET_ID si el browser
-// eligió scope vía X-Outlet-Id, OUTLET_ID del JWT en su defecto. DashboardService
-// usa el 5to argumento para widgets que NO pasan por $roc (`schedule` query
-// directa + envío a notifyGateway), así que tienen que ver el efectivo.
-// `OutletScope::single()` unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID → guard
-// de uuid). Devuelve `null` cuando el alcance es un subconjunto de 2+
-// sucursales, que no entra en un valor único.
+// Alcance efectivo por sucursal (mismo patrón que stock.php): VIEW_OUTLET_ID si
+// el browser eligió scope vía X-Outlet-Id, OUTLET_ID del JWT en su defecto, y el
+// conjunto asignado al usuario cuando eligió "Todas". DashboardService usa el 5º
+// argumento para los widgets que NO pasan por $roc (`schedule`, query directa, y
+// el envío a notifyGateway), así que tienen que ver el efectivo.
 //
-// El corte por ese `null` va SOLO para los widgets que de verdad usan el 5º
-// argumento. Los otros quince se sirven enteros de `$roc`, que SÍ sabe expresar
-// el conjunto (`IN (...)`): cortarlos también sería negarle a un usuario de dos
-// sucursales widgets que se pueden responder perfectamente bien, y encima con un
-// mensaje que le pide elegir una sucursal que ese widget nunca miró.
-const WIDGETS_CON_OUTLET = ['schedule', 'notifications', 'notificationsCount'];
-
-$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
-if ($effectiveOutletId === null) {
-    if (in_array($widget, WIDGETS_CON_OUTLET, true)) {
-        apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
-    }
-    // Para el resto el valor es inerte: `widget()` lo exige por firma pero el
-    // widget no lo mira. Va '' y el alcance real lo pone `$roc`.
-    $effectiveOutletId = '';
-}
+// Es una LISTA y no un valor único: `single()` devolvía `null` para un alcance de
+// 2+ sucursales y este endpoint cortaba con 422 justo en la pantalla de Inicio.
+// `schedule` agrega igual con un `IN (...)`, así que no había nada que impedirlo
+// salvo la forma del parámetro. Los otros quince widgets nunca lo miraron: se
+// sirven enteros de `$roc`, que ya sabía expresar el conjunto.
+$effectiveOutletIds = \Punto\Api\Outlets\OutletScope::effectiveIds();
 
 try {
-    $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, $effectiveOutletId);
+    // `Roc::build` toma un valor único; para 2+ va '' y el helper resuelve el
+    // conjunto solo, leyendo `VIEW_OUTLET_IDS` con el MISMO desempate.
+    $roc = \Punto\Api\Reports\Roc::build(
+        (string) COMPANY_ID,
+        count($effectiveOutletIds) === 1 ? $effectiveOutletIds[0] : ''
+    );
 } catch (\RuntimeException $e) {
     apiError($e->getMessage(), 500);
 }
@@ -132,6 +125,6 @@ apiOk($svc->widget(
     $opts,
     $roc,
     (string) COMPANY_ID,
-    $effectiveOutletId,
+    $effectiveOutletIds,
     (string) $ctx['userId']
 ));

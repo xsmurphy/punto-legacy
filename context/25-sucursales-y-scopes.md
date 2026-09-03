@@ -110,8 +110,8 @@ que estaba desactualizada — ver §6).
 
 ## 4.5 Dirección decidida — el scope sale de las sucursales ASIGNADAS al usuario
 
-**Decisión del owner, 2026-08-30. Implementada para el realm `api` el
-2026-09-02; PENDIENTE para `panel`.**
+**Decisión del owner, 2026-08-30. Implementada para el realm `api` y para
+`panel` el 2026-09-02.**
 
 El modelo decidido no es un permiso de "ver consolidado", sino:
 **el acceso a la info de cada sucursal se define por los permisos del usuario Y
@@ -136,15 +136,44 @@ Qué quedó hecho (realm `api` — API keys y MCP):
 - Los cinco endpoints que bindean un outlet único sin pasar por `Roc` (stock,
   dashboard, cashflow, open_invoices, balance) usan `OutletScope::single()` y
   cortan con 422 accionable cuando el alcance es un subconjunto de 2+.
-- Arnés: `api/tests/run_outlet_scope_test.sh` (31 checks, Postgres real).
 
-**Lo que sigue pendiente**: el realm `panel`. Hoy `X-Outlet-Id: all` valida que
-la sucursal pertenezca al tenant pero **no mira al usuario**, así que cualquiera
-con permiso sobre un reporte lo sigue viendo consolidado de TODAS las sucursales
-(P2 de la auditoría del 2026-08-26). Falta también la UI de asignación en
-`/settings/team`. El mecanismo ya está construido: aplicarlo a `panel` es
-alimentar `VIEW_OUTLET_IDS` desde `OutletScope::forUser()` también en esa rama
-y decidir qué hace el selector cuando el usuario alcanza un subconjunto.
+Qué se sumó con el realm `panel` (cierra el P2 de la auditoría del 2026-08-26):
+
+- **Las dos constantes tienen significados separados.** `VIEW_OUTLET_IDS` es el
+  LÍMITE (las asignadas, NUNCA achicado por la request) y `VIEW_OUTLET_ID` la
+  SELECCIÓN ya validada. Antes la primera guardaba el alcance *efectivo*, que
+  deja de servir en cuanto hay UI: el selector tiene que listar las 2 sucursales
+  del usuario mientras está parado en 1.
+- **`OutletScope::single()` desempata en el MISMO orden que `Roc::build()`**
+  (sucursal única primero, conjunto después) y ambos se derivan de
+  `effectiveIds()`. Cuando desempataban distinto, el fragmento SQL salía acotado
+  y el valor único abierto en la misma respuesta — la fuga `58b40d08`.
+- **`OutletScope::realmIsScoped()`** centraliza qué realms tienen alcance:
+  `api` y `panel` sí, `pos-app` NO (la caja opera con la sucursal del PAREO;
+  heredar el alcance de quien la pareó la movería de sucursal).
+- **El subconjunto AGREGA, ya no corta.** `effectiveIds(): list<string>` +
+  `sqlFilter()` (que INTERPOLA, como `Roc::build`, porque estos lectores meten
+  binds en el medio de `$params`) reemplazaron al 422 en once reportes. Solo
+  `stock.php` sigue exigiendo UNA sucursal, que es su naturaleza.
+- **`GET /v1/outlets` y el `PUT`** acotados al conjunto: el selector del sidebar
+  lista solo las asignadas, y "Todas" pasa a significar "todas las mías".
+- **`POST /v1/active-outlet` valida el conjunto** — era la puerta de ESCRITURA
+  del alcance (`OUTLET_ID` imputa ventas, caja y stock).
+- **El 403 del panel lleva `details.reason = 'outlet_out_of_scope'`.** No es
+  decorativo: `X-Outlet-Id` sale de `localStorage` y viaja en TODAS las
+  requests, así que cuando a un usuario le recortan sucursales su preferencia
+  guardada apunta afuera y un 403 pelado lo dejaría sin panel **y sin forma de
+  arreglarlo** (`/v1/bootstrap` y `/v1/outlets` tampoco contestarían).
+  `api-client.ts` borra la preferencia y reintenta UNA vez. El realm `api` no lo
+  lleva: `?outletId=` es explícito y no tiene estado que curar.
+- Arnés: `api/tests/run_outlet_scope_test.sh` (66 checks, Postgres real),
+  con el camino de `sqlFilter` medido contra totales calculados a mano.
+
+**Lo que sigue pendiente**: la UI de asignación en `/settings/team` (hoy
+`contact_outlet` se puebla solo por backfill/SQL). Y los CRUD del panel que
+toman `outletId` del body/query (spaces, orders-core, production, finance)
+siguen SIN el gate de alcance: es el hueco que queda del modelo, y ahora
+contrasta con los reportes y `/v1/outlets`, que ya están cerrados.
 
 Interactúa con franquicias (`context/55`): un franquiciador supervisando a sus
 franquiciados es el mismo problema un nivel arriba.

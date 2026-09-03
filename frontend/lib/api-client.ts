@@ -35,7 +35,7 @@
  */
 
 import { getPanelToken } from "@/lib/auth/panel-token"
-import { VIEW_SCOPE_KEY } from "@/hooks/use-view-scope"
+import { VIEW_SCOPE_KEY, setViewScope } from "@/hooks/use-view-scope"
 
 type Json = Record<string, unknown> | unknown[]
 
@@ -96,6 +96,9 @@ const baseUrl = () => {
 async function request<T>(
   path: string,
   init: RequestInit = {},
+  // Uso INTERNO — ver el manejo de `outlet_out_of_scope` más abajo. Marca que
+  // esta llamada ya es el reintento, para que no pueda haber un segundo.
+  retriedOutOfScope = false,
 ): Promise<T> {
   const { headers, ...rest } = init
 
@@ -158,9 +161,43 @@ async function request<T>(
     // del backend en error.message — lo propagamos al ApiError para que
     // el caller pueda mostrarlo directo en un toast.
     const envelope = payload as
-      | { ok?: boolean; error?: { message?: string; code?: number | string } }
+      | {
+          ok?: boolean
+          error?: {
+            message?: string
+            code?: number | string
+            details?: { reason?: string }
+          }
+        }
       | null
     const backendMsg = envelope?.error?.message
+
+    // Sucursal guardada que el usuario ya no alcanza → limpiar y reintentar.
+    //
+    // El `X-Outlet-Id` de arriba NO lo elige un humano por request: sale de
+    // `localStorage` y viaja en TODAS las llamadas del panel. Cuando al usuario
+    // le recortan las sucursales asignadas (o le sacan la que tenía elegida), esa
+    // preferencia guardada queda apuntando a una sucursal fuera de su alcance y
+    // el backend la rechaza con 403 — en toda la app a la vez, `/v1/bootstrap` y
+    // `/v1/outlets` incluidos. Sin esto el panel queda sin salida: no carga, y
+    // tampoco puede ofrecer el selector con el que se arreglaría.
+    //
+    // Se borra la preferencia (`setViewScope(null)` avisa además a los
+    // suscriptores, así el dropdown del logo se repinta) y se reintenta UNA vez.
+    // El reintento sale sin header y el backend cae en la sucursal activa, que ya
+    // viene acotada al conjunto del usuario — o sea que termina siempre.
+    //
+    // El `reason` lo pone el backend a propósito solo para el realm `panel`: es
+    // el único que tiene estado persistido que limpiar.
+    if (
+      res.status === 403 &&
+      envelope?.error?.details?.reason === "outlet_out_of_scope" &&
+      !retriedOutOfScope &&
+      typeof window !== "undefined"
+    ) {
+      setViewScope(null)
+      return request<T>(path, init, true)
+    }
     // Emitir evento global para que AuthSentinel lo capture — cubre todos los
     // 401 del api-client, no solo el de useBootstrap.
     if (res.status === 401 && typeof window !== "undefined") {
