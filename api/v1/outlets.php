@@ -160,6 +160,20 @@ if ($method === 'POST') {
     if (!preg_match($uuidRe, $id)) {
         apiError('id inválido', 422);
     }
+    // El MISMO gate que el `GET ?id` de más abajo. Sin esto quedaba la mitad
+    // cerrada y la mitad abierta: un usuario restringido no podía LEER la ficha
+    // de una sucursal ajena pero sí sobreescribirle razón social, RUC y
+    // dirección pasando su uuid — y leerla de vuelta en la respuesta del form.
+    // Una escritura que se puede hacer es una lectura que se puede hacer.
+    if (\Punto\Api\Outlets\OutletScope::realmIsScoped((string) ($ctx['realm'] ?? ''))
+        && !\Punto\Api\Outlets\OutletScope::allows(
+            \Punto\Api\Outlets\OutletScope::current(),
+            $id,
+            (string) COMPANY_ID
+        )
+    ) {
+        apiError('Tu usuario no tiene acceso a esa sucursal', 403);
+    }
     // Required field check — en update siempre exigimos name (no hay path
     // legacy que update sin name; cualquier cliente que llegue acá tiene
     // que mandar el form completo).

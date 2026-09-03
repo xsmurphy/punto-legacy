@@ -334,6 +334,14 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     // hace que el fragmento SQL y el valor único no puedan discrepar — que es
     // exactamente la fuga que se arregló el 2026-09-02 (`58b40d08`).
     if (\Punto\Api\Outlets\OutletScope::realmIsScoped((string) $realm)) {
+        // Sin usuario no hay alcance que resolver, y `forUser()` LANZA con un id
+        // vacío (fail-closed: devolver `[]` diría "global", o sea todo). La
+        // columna `auth_session."userId"` es nullable, así que ese estado existe
+        // — y dejar escapar la excepción lo convertiría en un 500 sin mensaje en
+        // CADA request. 401 y a login: la sesión está incompleta, no rota.
+        if ($userId === '') {
+            apiError('Sesión sin usuario asociado', 401);
+        }
         $__scope = \Punto\Api\Outlets\OutletScope::forUser($companyId, $userId);
 
         // De dónde sale la sucursal pedida, según el realm (ver los tres puntos
@@ -379,7 +387,28 @@ function apiAuthTenant(array $realms = ['pos-app']): array
             // recibe (un modelo por el realm `api`, el dueño por el panel) se la
             // cree sin nada que lo contradiga.
             if (!\Punto\Api\Outlets\OutletScope::allows($__scope, $__reqOutlet, $companyId)) {
-                apiError('Tu usuario no tiene acceso a esa sucursal', 403);
+                // El 403 del panel lleva `reason` porque ahí la sucursal no la
+                // pide un humano por llamada: sale de `localStorage`
+                // (`punto.viewOutletScope`) y viaja en TODAS las requests, la
+                // del bootstrap incluida. O sea que el día que al usuario le
+                // recortan las sucursales —el rollout normal de esta misma
+                // feature— su selector guardado apunta a una que ya no alcanza
+                // y un 403 a secas lo dejaría sin panel Y sin forma de arreglarlo
+                // desde la UI, porque ni `/v1/bootstrap` ni `/v1/outlets` le
+                // contestarían.
+                //
+                // Con el `reason`, `api-client.ts` borra la preferencia vieja y
+                // reintenta UNA vez; el retry va sin header y cae en la sucursal
+                // activa, que `$outletId` ya repuntó al conjunto. Se sale solo.
+                //
+                // El realm `api` no lo necesita —`?outletId=` es explícito y por
+                // llamada, no hay estado persistido que limpiar— y ahí el 403
+                // pelado es la respuesta correcta.
+                apiError(
+                    'Tu usuario no tiene acceso a esa sucursal',
+                    403,
+                    $realm === 'panel' ? ['reason' => 'outlet_out_of_scope'] : null
+                );
             }
         }
 

@@ -366,6 +366,10 @@ echo "\n[c] outletId de una sucursal NO asignada\n";
 $c = runCase($keyRestricted, 'api', $outlets['O3']);
 check('(c) aborta', true, $c['aborted']);
 check('(c) con 403 y no con una lista vacía', 403, $c['status']);
+// Y SIN `reason`: el del panel lo lleva porque hay un `localStorage` que
+// limpiar. `?outletId=` es explícito y por llamada — no hay estado que curar, y
+// un cliente que reintentara solo estaría ignorando el límite.
+check('(c) el 403 del realm api NO lleva reason', null, $c['error']['details']['reason'] ?? null);
 
 // ── (d) Sucursal asignada → solo esa ─────────────────────────────────────────
 echo "\n[d] outletId de una sucursal asignada\n";
@@ -463,6 +467,17 @@ check('(P-d) y emite = y no IN', " AND outletId = '{$outlets['O2']}'", $pOwn['sq
 $pForeign = runCase($tokenPanel, 'panel', '-', $outlets['O3']);
 check('(P-e) sucursal no asignada aborta', true, $pForeign['aborted']);
 check('(P-e) con 403', 403, $pForeign['status'] ?? 0);
+// El `reason` NO es decorativo: `X-Outlet-Id` sale de `localStorage` y viaja en
+// TODAS las requests del panel, así que un 403 pelado dejaría al usuario sin
+// panel Y sin forma de arreglarlo (ni `/v1/bootstrap` ni `/v1/outlets`
+// contestarían). Con esto `api-client.ts` borra la preferencia vieja y reintenta
+// una vez. Si alguien saca este campo, el panel se brickea en el rollout — y
+// eso no lo muestra ningún test de totales.
+check(
+    '(P-e) y con reason, para que el cliente pueda auto-curarse',
+    'outlet_out_of_scope',
+    $pForeign['error']['details']['reason'] ?? null
+);
 
 // (P-f) el arranque: la sesión tiene su outlet activo en O4, que NO está
 // asignada. `activeOutletId` del bootstrap es literalmente `OUTLET_ID`, así que
@@ -525,7 +540,12 @@ foreach ($v1Dir as $file) {
         continue;
     }
     $src = (string) file_get_contents($file->getPathname());
-    if (preg_match("/defined\(['\"]VIEW_OUTLET_ID['\"]\)/", $src)) {
+    // Las DOS constantes: leer `VIEW_OUTLET_IDS` a mano es la misma clase de
+    // error que leer `VIEW_OUTLET_ID`, y desde que la primera existe hay dos
+    // formas de reimplementar el desempate en vez de pedírselo al helper.
+    if (preg_match("/defined\(['\"]VIEW_OUTLET_IDS?['\"]\)/", $src)
+        || preg_match("/constant\(['\"]VIEW_OUTLET_IDS?['\"]\)/", $src)
+    ) {
         $rel = str_replace(dirname(__DIR__) . '/', '', $file->getPathname());
         if ($rel !== 'v1/items.php') {
             $idiomFiles[] = $rel;
@@ -533,6 +553,10 @@ foreach ($v1Dir as $file) {
     }
 }
 sort($idiomFiles);
-check('(h) ningún endpoint lee VIEW_OUTLET_ID a mano (usar OutletScope::single())', [], $idiomFiles);
+check(
+    '(h) ningún endpoint lee VIEW_OUTLET_ID/IDS a mano (usar effectiveIds()/single())',
+    [],
+    $idiomFiles
+);
 
 harnessFinish($failures, $checks);

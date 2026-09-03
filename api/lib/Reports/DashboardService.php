@@ -452,11 +452,25 @@ final class DashboardService
 
     /**
      * El `outlet` de acá NO es SQL: es un parámetro HTTP de una API externa que
-     * acepta UNA sucursal o nada. Un subconjunto de 2+ no se puede expresar en
-     * ese contrato, así que viaja como el consolidado (`''`) — exactamente lo
-     * que ya viajaba para un usuario sin restricción. La alternativa era mandar
-     * una sucursal arbitraria del conjunto, o sea las notificaciones de UNA
-     * presentadas como las de todas las suyas.
+     * acepta UNA sucursal o NADA, y en ese contrato `''` significa "todas las
+     * del comercio". Un subconjunto de 2+ no se puede expresar.
+     *
+     * Por eso un alcance acotado manda la PRIMERA de sus sucursales y nunca
+     * `''`: mandar el vacío le daría a un usuario de 2 sucursales las
+     * notificaciones del comercio entero — el mismo "vacío = sin filtro" que
+     * este cambio vino a cerrar en todos los demás lectores, colado por la
+     * puerta de una API externa. Que el conjunto venga ordenado por id hace que
+     * la elección sea estable entre requests, no una sucursal distinta cada vez.
+     *
+     * Es under-inclusive a sabiendas: el usuario ve las de UNA de sus
+     * sucursales, no la unión. Se prefiere a ver de más, que es lo único
+     * imperdonable acá. La solución completa es N llamadas unidas, y no se hace
+     * en este cambio porque la forma de la respuesta del gateway depende del
+     * endpoint (`get_notifications` lista, `get_notifications_count` cuenta) y
+     * unirlas a ciegas es inventar un contrato que no está escrito en ningún
+     * lado. Queda anotado acá, que es donde alguien lo va a leer.
+     *
+     * `[]` (usuario sin restricción) sigue mandando `''`, sin cambios.
      */
     private function notifyGateway(string $endpoint, array $opts, string $companyId, array $outletIds, string $userId): array
     {
@@ -465,7 +479,7 @@ final class DashboardService
             'company_id' => self::enc($companyId),
             'user'       => self::enc($userId),
             'type'       => $opts['type'] ?: 'notes',
-            'outlet'     => self::enc(count($outletIds) === 1 ? $outletIds[0] : ''),
+            'outlet'     => self::enc($outletIds[0] ?? ''),
         ];
         $raw = curlContents(API_URL . '/' . $endpoint, 'POST', $data);
         $res = json_decode((string) $raw, true);

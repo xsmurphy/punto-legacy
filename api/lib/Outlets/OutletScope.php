@@ -301,7 +301,15 @@ final class OutletScope
             return '';
         }
 
-        $col  = trim($column);
+        // El nombre de columna también se interpola, así que también se valida:
+        // hoy todos los callers pasan un literal escrito a mano, pero el
+        // docblock promete "seguro por construcción, no por confianza" y una
+        // promesa que depende de que nadie pase una variable no es construcción.
+        $col = trim($column);
+        if (!preg_match('/^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$/', $col)) {
+            throw new \RuntimeException('Columna inválida al armar el filtro de sucursal');
+        }
+
         $cond = count($clean) === 1
             ? "{$col} = '" . $clean[0] . "'"
             : "{$col} IN ('" . implode("', '", $clean) . "')";
@@ -324,8 +332,14 @@ final class OutletScope
     public static function subsetNotSupportedMessage(): string
     {
         $ids = self::current();
+        // Los dos públicos, en una sola frase: al modelo le dice el parámetro,
+        // a la persona le dice el gesto. Desde que el realm `panel` también
+        // alcanza subconjuntos, este texto sale en pantalla (`stock.php` en modo
+        // "Todas") y "indicá outletId" ahí no significa nada — el usuario no
+        // manda parámetros, elige en el selector del logo.
         return 'Este reporte se sirve de una sola sucursal por consulta y tu usuario tiene '
-            . count($ids) . ' asignadas. Volvé a pedirlo indicando outletId con una de estas: '
+            . count($ids) . ' asignadas. Elegí una en el selector de sucursal '
+            . '(o indicá outletId si estás consultando por API): '
             . implode(', ', $ids) . '.';
     }
 }

@@ -60,14 +60,19 @@ final class GiftcardsService
             return ['rows' => []];
         }
 
-        $benefIds = $outletIds = $txIds = [];
+        // `$rowOutletIds` y NO `$outletIds`: ese nombre es el PARÁMETRO con el
+        // alcance del usuario. Pisarlo acá no rompía nada hoy (el SQL ya está
+        // armado unas líneas arriba), y por eso mismo es peligroso: la próxima
+        // consulta que alguien agregue debajo saldría sin filtro de sucursal y
+        // sin ningún síntoma, con la variable diciendo que sí lo tiene.
+        $benefIds = $rowOutletIds = $txIds = [];
         foreach ($res as $f) {
-            $benefIds[]  = (string) ($f['beneficiaryContactId'] ?? '');
-            $outletIds[] = (string) ($f['outletId'] ?? '');
-            $txIds[]     = (string) ($f['issuedByTransactionId'] ?? '');
+            $benefIds[]     = (string) ($f['beneficiaryContactId'] ?? '');
+            $rowOutletIds[] = (string) ($f['outletId'] ?? '');
+            $txIds[]        = (string) ($f['issuedByTransactionId'] ?? '');
         }
         $benefs  = ContactDisplayName::batch($benefIds, $companyId);
-        $outlets = $this->nameMap('outlet', 'outletId', 'outletName', $outletIds, $companyId);
+        $outlets = $this->nameMap('outlet', 'outletId', 'outletName', $rowOutletIds, $companyId);
         $docs    = $this->invoiceDocs($txIds, $companyId);
 
         $rows = [];
