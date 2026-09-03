@@ -113,6 +113,7 @@ $outlets = [
 ];
 $userRestricted = 'a5c0be00-1111-4a00-9000-0000000000d1'; // asignado a O1 y O2
 $userGlobal     = 'a5c0be00-1111-4a00-9000-0000000000d2'; // cero filas → global
+$userOneOutlet  = 'a5c0be00-1111-4a00-9000-0000000000d3'; // asignado SOLO a O1
 
 $TOTAL_SCOPE  = 330.0;   // O1 + O2, a mano
 $TOTAL_TENANT = 1337.0;  // las cuatro, a mano
@@ -156,6 +157,7 @@ foreach ($outlets as $name => $id) {
 foreach ([
     [$userRestricted, 'Usuario Restringido', $outlets['O4'], '595991000001'],
     [$userGlobal,     'Usuario Global',      $outlets['O4'], '595991000002'],
+    [$userOneOutlet,  'Usuario Una Sucursal', $outlets['O4'], '595991000003'],
 ] as [$uid, $uname, $uoutlet, $uphone]) {
     $db->Execute(
         "INSERT INTO contact (contactId, contactName, contactPhone, contactEmail, contactStatus, type, main, role, outletId, companyId)
@@ -173,6 +175,12 @@ foreach ([$outlets['O1'], $outlets['O2']] as $oid) {
         [$userRestricted, $oid, $companyId]
     );
 }
+// El de UNA sola sucursal: es el caso del owner (conectó el MCP y vio una).
+$db->Execute(
+    'INSERT INTO contact_outlet (contactid, outletid, companyid) VALUES (?::uuid, ?::uuid, ?::uuid)
+     ON CONFLICT DO NOTHING',
+    [$userOneOutlet, $outlets['O1'], $companyId]
+);
 
 // Las ventas.
 $ventas = [
@@ -218,6 +226,13 @@ $keyGlobal = $svcKeys->issue([
     'outletId'  => $outlets['O3'],
     'roleId'    => '1',
 ], 'Key global')['token'];
+
+$keyOneOutlet = $svcKeys->issue([
+    'companyId' => $companyId,
+    'userId'    => $userOneOutlet,
+    'outletId'  => $outlets['O4'],
+    'roleId'    => '1',
+], 'Key de una sucursal')['token'];
 
 // Sesión de panel (realm `panel`), con su outlet activo en O1.
 $tokenPanel = authSessionCreate('panel', [
@@ -291,6 +306,33 @@ check('(a) Roc emite IN con las dos', true, str_contains((string) $a['roc'], "ou
 // pasar por Roc leerían una sucursal ajena al usuario.
 check('(f) OUTLET_ID quedó dentro del conjunto, no en el O4 congelado en la key', $outlets['O1'], $a['outletId']);
 
+// ── (g) EL VALOR ÚNICO NO PUEDE SER '' PARA UN USUARIO ACOTADO ───────────────
+//
+// Este check nació de una fuga REAL que el resto del arnés no veía. Los lectores
+// que NO pasan por `Roc::build` bindean un outlet ÚNICO, y varios de ellos
+// (`RollupReader::itemSalesRange`, `DashboardService::schedule`, el `dashboard`
+// de clientes) tratan `''` como "sin filtro de sucursal" = TODO EL TENANT.
+//
+// El idiom viejo (`defined('VIEW_OUTLET_ID') ? VIEW_OUTLET_ID : OUTLET_ID`)
+// devuelve exactamente `''` para el realm `api`, porque este mismo cambio hace
+// que `VIEW_OUTLET_ID` esté siempre definida como `''` para habilitar el
+// `IN (...)`. O sea: el fragmento `$roc` salía bien acotado y el valor único
+// salía abierto, en la MISMA respuesta. Los totales de `transaction` que mide
+// el resto del arnés seguían correctos, así que nada se ponía rojo.
+//
+// La aserción es la invariante que faltaba: para un usuario ACOTADO, el valor
+// único NUNCA puede ser `''`. O es su sucursal, o es `null` (y el endpoint
+// corta con 422). Un `''` acá es una fuga.
+check('(g) el valor único NO es "" para un usuario de 2 sucursales (sería el tenant entero)', null, $a['single']);
+
+echo "\n[g2] usuario con UNA sola sucursal asignada (el caso del owner)\n";
+$g = runCase($keyOneOutlet, 'api');
+check('(g2) no aborta', false, $g['aborted']);
+check('(g2) el alcance es esa sola', [$outlets['O1']], $g['scope']);
+check('(g2) el valor único ES su sucursal, no ""', $outlets['O1'], $g['single']);
+checkTotal('(g2) suma solo O1 (300, a mano)', $TOTAL_O1, $g['total']);
+check('(g2) get_outlets devuelve 1', ['Sucursal O1'], $g['outletNames']);
+
 // ── (b) Usuario global (cero filas) ──────────────────────────────────────────
 echo "\n[b] usuario con CERO filas en contact_outlet\n";
 $b = runCase($keyGlobal, 'api');
@@ -348,5 +390,33 @@ $dev = runCase($tokenDevice, 'pos-app');
 check('(e) pos-app: el outlet de la fila device (O3)', $outlets['O3'], $dev['outletId']);
 check('(e) pos-app NO define VIEW_OUTLET_IDS', null, $dev['viewOutletIds']);
 checkTotal('(e) pos-app filtra por su sucursal (1000, a mano)', $TOTAL_O3, $dev['total']);
+
+// ── (h) El idiom viejo no vuelve ─────────────────────────────────────────────
+//
+// Guard ESTÁTICO, no de comportamiento, y por eso vale: la fuga del rollup entró
+// porque cinco endpoints se migraron a `OutletScope::single()` y tres se
+// quedaron con el idiom escrito a mano, cuyo SIGNIFICADO cambió en el mismo
+// commit. Ningún test de datos lo iba a ver — los tres seguían devolviendo 200
+// con números plausibles.
+//
+// `items.php` es la excepción legítima: lee `VIEW_OUTLET_ID` gateado a
+// `realm === 'panel'`, donde la constante conserva su significado original.
+echo "\n[h] el idiom viejo no reaparece en endpoints\n";
+$idiomFiles = [];
+$v1Dir = new RecursiveIteratorIterator(new RecursiveDirectoryIterator(dirname(__DIR__) . '/v1'));
+foreach ($v1Dir as $file) {
+    if (!$file->isFile() || $file->getExtension() !== 'php') {
+        continue;
+    }
+    $src = (string) file_get_contents($file->getPathname());
+    if (preg_match("/defined\(['\"]VIEW_OUTLET_ID['\"]\)/", $src)) {
+        $rel = str_replace(dirname(__DIR__) . '/', '', $file->getPathname());
+        if ($rel !== 'v1/items.php') {
+            $idiomFiles[] = $rel;
+        }
+    }
+}
+sort($idiomFiles);
+check('(h) ningún endpoint lee VIEW_OUTLET_ID a mano (usar OutletScope::single())', [], $idiomFiles);
 
 harnessFinish($failures, $checks);

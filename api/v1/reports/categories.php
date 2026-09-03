@@ -50,7 +50,13 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
 // Roc::build respeta VIEW_OUTLET_ID si está definida (frontend 2026-06-13).
 $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID, 'b');
 
-$outletId = defined('VIEW_OUTLET_ID') ? (string) VIEW_OUTLET_ID : (string) OUTLET_ID;
+// Ver el comentario largo en `brands.php`: el outlet que va al ROLLUP sale de
+// `OutletScope::single()` y no del idiom viejo, porque `RollupReader` trata `''`
+// como "sin filtro" y eso le daba el tenant completo a una key acotada.
+$outletId = \Punto\Api\Outlets\OutletScope::single();
+if ($outletId === null) {
+    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+}
 
 if (($_GET['verify'] ?? '') === '1') {
     $rollupData = $svc->salesByCategory($from, $to, $roc, (string) COMPANY_ID, true, $outletId);

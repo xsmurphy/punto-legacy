@@ -182,6 +182,21 @@ if ($id !== '') {
     if (!preg_match($uuidRe, $id)) {
         apiError('id inválido', 422);
     }
+    // El lookup por id acota por TENANT (`OutletsService::get`), y para el realm
+    // `api` eso no alcanza: devuelve la ficha COMPLETA de la sucursal —razón
+    // social, RUC, dirección, teléfono, impuesto por defecto—, así que sin este
+    // gate una key restringida leía los datos de cualquier sucursal del tenant
+    // pasando su uuid. La LISTA de abajo ya estaba acotada; este camino no, que
+    // es peor que si ninguno lo estuviera: da la sensación de estar cerrado.
+    if (($ctx['realm'] ?? '') === 'api'
+        && !\Punto\Api\Outlets\OutletScope::allows(
+            \Punto\Api\Outlets\OutletScope::current(),
+            $id,
+            (string) COMPANY_ID
+        )
+    ) {
+        apiError('Tu usuario no tiene acceso a esa sucursal', 403);
+    }
     $row = $svc->get($id, COMPANY_ID);
     if ($row === null) {
         apiError('Sucursal no encontrada', 404);

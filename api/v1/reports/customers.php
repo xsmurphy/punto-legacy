@@ -78,7 +78,16 @@ if (in_array('rows', $secciones, true)) {
     $out['rows'] = $svc->ranking($from, $to, $roc, (string) COMPANY_ID);
 }
 if (in_array('dashboard', $secciones, true)) {
-    $out['dashboard'] = $svc->dashboard($from, $to, (string) COMPANY_ID, (string) OUTLET_ID);
+    // `OUTLET_ID` crudo acá daba DOS alcances en la MISMA respuesta: `rows`
+    // sale de `$roc` (todo el conjunto del usuario) y `dashboard` salía de una
+    // sola sucursal. Nadie lo notaría — los dos bloques devuelven números
+    // plausibles— y esa es exactamente la falla cara. Con un subconjunto de 2+
+    // no hay valor único que sirva, así que se corta pidiendo `outletId`.
+    $dashOutletId = \Punto\Api\Outlets\OutletScope::single();
+    if ($dashOutletId === null) {
+        apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+    }
+    $out['dashboard'] = $svc->dashboard($from, $to, (string) COMPANY_ID, $dashOutletId);
 }
 if (in_array('geo', $secciones, true)) {
     $out['geo'] = $svc->geography((string) COMPANY_ID);

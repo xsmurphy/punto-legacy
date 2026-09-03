@@ -43,7 +43,13 @@ try {
     apiError($e->getMessage(), 500);
 }
 
-$outletId = defined('VIEW_OUTLET_ID') ? (string) VIEW_OUTLET_ID : (string) OUTLET_ID;
+// Ver el comentario largo en `brands.php`: el outlet que va al ROLLUP sale de
+// `OutletScope::single()` y no del idiom viejo, porque `RollupReader` trata `''`
+// como "sin filtro" y eso le daba el tenant completo a una key acotada.
+$outletId = \Punto\Api\Outlets\OutletScope::single();
+if ($outletId === null) {
+    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+}
 
 if (($_GET['verify'] ?? '') === '1') {
     // forceRollup=true: ignora el flag REPORTS_ROLLUP_ENABLED para que el diff

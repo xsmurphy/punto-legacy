@@ -102,12 +102,23 @@ $opts = [
 // directa + envío a notifyGateway), así que tienen que ver el efectivo.
 // `OutletScope::single()` unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID → guard
 // de uuid). Devuelve `null` cuando el alcance es un subconjunto de 2+
-// sucursales: el 5º argumento de `widget()` es un valor único y los widgets que
-// lo usan no pasan por `$roc`, así que ahí no hay forma de expresar el conjunto
-// — se corta en vez de servir una sucursal disfrazada de todas.
+// sucursales, que no entra en un valor único.
+//
+// El corte por ese `null` va SOLO para los widgets que de verdad usan el 5º
+// argumento. Los otros quince se sirven enteros de `$roc`, que SÍ sabe expresar
+// el conjunto (`IN (...)`): cortarlos también sería negarle a un usuario de dos
+// sucursales widgets que se pueden responder perfectamente bien, y encima con un
+// mensaje que le pide elegir una sucursal que ese widget nunca miró.
+const WIDGETS_CON_OUTLET = ['schedule', 'notifications', 'notificationsCount'];
+
 $effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
 if ($effectiveOutletId === null) {
-    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+    if (in_array($widget, WIDGETS_CON_OUTLET, true)) {
+        apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+    }
+    // Para el resto el valor es inerte: `widget()` lo exige por firma pero el
+    // widget no lo mira. Va '' y el alcance real lo pone `$roc`.
+    $effectiveOutletId = '';
 }
 
 try {
