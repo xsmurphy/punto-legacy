@@ -145,6 +145,21 @@ export interface ReportRoute {
    * y falso — el mismo modo de falla por el que la F1 dejó afuera `drawers`.
    */
   hourly?: boolean
+  /**
+   * Si el reporte NO filtra por sucursal y por lo tanto rechaza `outletId`.
+   *
+   * Va en NEGATIVO —una lista de excepciones— y no como un `outletScoped: true`
+   * en las otras diecinueve: el default correcto es que un reporte del negocio
+   * se lea por sucursal, así que escribir la bandera positiva veinte veces hace
+   * que el reporte veintiuno nazca sin ella y quede rechazando un filtro que sí
+   * aplica. Acá el que se olvide de tocar esta tabla hereda el comportamiento
+   * bueno.
+   *
+   * Mismo motivo que `hourly`: sin esto, `outletId` sobre un reporte que lo
+   * ignora devuelve 200 con los datos de TODAS las sucursales y el modelo se los
+   * atribuye a la que pidió.
+   */
+  tenantWide?: boolean
 }
 
 /**
@@ -198,7 +213,10 @@ export const REPORT_ROUTES = {
   stock: { path: "/v1/reports/stock", ranged: false },
   produccion: { path: "/v1/reports/production", ranged: true },
   calificacion_clientes: { path: "/v1/reports/satisfaction", ranged: true },
-  staff_usuarios: { path: "/v1/reports/users", ranged: true },
+  // El único que NO filtra por sucursal: `api/v1/reports/users.php` no tiene
+  // una sola referencia a outlet (ni `Roc::build` ni `OUTLET_ID`). Es una
+  // planilla de desempeño del EQUIPO del tenant.
+  staff_usuarios: { path: "/v1/reports/users", ranged: true, tenantWide: true },
 } as const satisfies Record<string, ReportRoute>
 
 export type ReportId = keyof typeof REPORT_ROUTES
@@ -263,6 +281,41 @@ const hourToSchema = z
       "Puede ser MENOR que hourFrom: 20:00 a 04:00 es una franja válida y significa la noche que cruza la medianoche (un bar), no un error. " +
       "Requiere from y to explícitos. Si la dejás sin mandar, la franja llega hasta el final del día.",
   )
+
+// ── `outletId`, la sucursal de la consulta ───────────────────────────────────
+
+/**
+ * Elegir UNA sucursal dentro de las que el usuario alcanza.
+ *
+ * El default —no mandarlo— es el CONSOLIDADO de las sucursales asignadas al
+ * usuario dueño de la credencial, resuelto en el backend
+ * (`api/bootstrap.php`, realm `api`) contra `contact_outlet`. La credencial no
+ * pinta una sucursal: el alcance se define en el usuario.
+ *
+ * Va SOLO en las tools cuyo endpoint realmente filtra por sucursal. Ofrecerlo en
+ * las demás sería el mismo modo de falla que documenta `ReportRoute.hourly`: el
+ * modelo pide "la sucursal Centro", recibe 200 con el total del tenant y se lo
+ * atribuye a Centro. Un dato plausible y falso es peor que no ofrecer el filtro.
+ *
+ * Una sucursal fuera del alcance del usuario devuelve 403, NUNCA una lista
+ * vacía — un vacío se leería como "no hubo ventas ahí", que es una mentira con
+ * forma de dato.
+ */
+const outletIdSchema = z
+  .string()
+  .optional()
+  .describe(
+    "Opcional. UUID de UNA sucursal, de las que devuelve get_outlets. " +
+      "Si no lo mandás, el resultado es el CONSOLIDADO de todas las sucursales que este usuario tiene asignadas — que es lo que se quiere casi siempre. " +
+      "Mandalo solo cuando la pregunta sea explícitamente sobre una sucursal en particular. " +
+      "Una sucursal que el usuario no tenga asignada devuelve error 403, no un resultado vacío.",
+  )
+
+/** La sucursal sobre una ruta ya armada. Sin sucursal no la toca. */
+function withOutlet(path: string, outletId?: string): string {
+  if (!outletId) return path
+  return `${path}${path.includes("?") ? "&" : "?"}outletId=${encodeURIComponent(outletId)}`
+}
 
 interface HourBand {
   hourFrom?: string
@@ -592,9 +645,10 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
         .describe(
           "Opcional. Año contra el que comparar (normalmente year - 1). Agrega el bloque `comparison` con los totales anuales de los dos años, el cambio absoluto y el porcentual. Cuesta una segunda lectura.",
         ),
+      outletId: outletIdSchema,
     }),
-    execute: async ({ year, compareYear }) =>
-      read(`/v1/reports/summary_year?y=${year}`, {
+    execute: async ({ year, compareYear, outletId }) =>
+      read(withOutlet(`/v1/reports/summary_year?y=${year}`, outletId), {
         errorLabel: (s) => `No se pudo obtener el reporte (${s})`,
         compare:
           compareYear !== undefined && compareYear !== year
@@ -603,7 +657,10 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
                 mode: "explicit_year",
                 current: yearRange(year),
                 baseline: yearRange(compareYear),
-                path: `/v1/reports/summary_year?y=${compareYear}`,
+                // La sucursal viaja también en el baseline: sin esto se
+                // compararía una sucursal contra el consolidado y el delta
+                // saldría enorme por una razón que nadie vería.
+                path: withOutlet(`/v1/reports/summary_year?y=${compareYear}`, outletId),
                 // El payload es `{ year, years, months }`: los números que se
                 // pueden sumar están en `months`, no en el objeto de arriba.
                 metricsFrom: (value) => (value as { months?: unknown } | null)?.months,
@@ -644,13 +701,19 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       "Stock actual de un artículo por sucursal. Buscá por nombre o SKU.",
     inputSchema: z.object({
       itemQuery: z.string().min(1).describe("Nombre o SKU del ítem a buscar"),
+      outletId: outletIdSchema,
     }),
-    execute: async ({ itemQuery }) =>
-      // El endpoint /v1/reports/stock no filtra server-side todavía.
+    execute: async ({ itemQuery, outletId }) =>
+      // El endpoint /v1/reports/stock no filtra POR ÍTEM server-side todavía.
       // Filtramos ANTES de normalizar para no mandarle al LLM el listado
       // entero (puede ser miles de filas → muchos tokens). El filtro es
       // case-insensitive sobre name y sku.
-      read(`/v1/reports/stock`, {
+      //
+      // Por SUCURSAL sí filtra, y de hecho EXIGE una: el reporte agrupa stock
+      // por outlet, así que sin una sucursal única responde
+      // `{needsOutlet:true}` con el motivo. Por eso `outletId` importa más acá
+      // que en el resto — es la forma de contestar la pregunta, no un refinamiento.
+      read(withOutlet(`/v1/reports/stock`, outletId), {
         transform: (payload) => {
           const q = itemQuery.toLowerCase()
           const filtered = rowsOf(payload).filter((r) => {
@@ -703,12 +766,15 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
       compareWith: compareWithSchema,
+      outletId: outletIdSchema,
     }),
-    execute: async ({ from, to, compareWith }) => {
-      const pathFor = (r: DateRange) => `/v1/reports/drawers?from=${r.from}&to=${r.to}`
+    execute: async ({ from, to, compareWith, outletId }) => {
+      const pathFor = (r: DateRange) =>
+        withOutlet(`/v1/reports/drawers?from=${r.from}&to=${r.to}`, outletId)
       const params = new URLSearchParams()
       if (from) params.set("from", from)
       if (to) params.set("to", to)
+      if (outletId) params.set("outletId", outletId)
       return read(`/v1/reports/drawers?${params}`, {
         compare: planComparison({ compareWith, from, to, pathFor }),
       })
@@ -727,21 +793,27 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       hourFrom: hourFromSchema,
       hourTo: hourToSchema,
       compareWith: compareWithSchema,
+      outletId: outletIdSchema,
     }),
-    execute: async ({ from, to, limit, hourFrom, hourTo, compareWith }) => {
+    execute: async ({ from, to, limit, hourFrom, hourTo, compareWith, outletId }) => {
       const problema = hourBandProblem({ hourFrom, hourTo, from, to })
       if (problema) return { error: problema }
 
-      // La franja viaja en LAS DOS rutas. Comparar "de 7 a 12 del 1 al 7 de
-      // septiembre" contra "todo agosto" daría un delta enorme y falso: el
-      // baseline tiene que ser la MISMA franja del período anterior.
+      // La franja y la sucursal viajan en LAS DOS rutas. Comparar "de 7 a 12 del
+      // 1 al 7 de septiembre" contra "todo agosto" daría un delta enorme y
+      // falso: el baseline tiene que ser la MISMA franja de la MISMA sucursal
+      // del período anterior.
       const pathFor = (r: DateRange) =>
-        `/v1/reports/transactions?limit=${limit ?? 50}&from=${r.from}&to=${r.to}` +
-        hoursSuffix({ hourFrom, hourTo })
+        withOutlet(
+          `/v1/reports/transactions?limit=${limit ?? 50}&from=${r.from}&to=${r.to}` +
+            hoursSuffix({ hourFrom, hourTo }),
+          outletId,
+        )
       const params = new URLSearchParams({ limit: String(limit ?? 50) })
       if (from) params.set("from", from)
       if (to) params.set("to", to)
       setHours(params, { hourFrom, hourTo })
+      if (outletId) params.set("outletId", outletId)
       return read(`/v1/reports/transactions?${params}`, {
         compare: planComparison({ compareWith, from, to, pathFor }),
       })
@@ -759,6 +831,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       limit: z.number().int().optional().default(10),
       hourFrom: hourFromSchema,
       hourTo: hourToSchema,
+      outletId: outletIdSchema,
     }),
     // Sin `compareWith`, y es una decisión, no un olvido. Esta tool devuelve un
     // TOP-N: sumar sus filas da el total de los N productos que pidieron, no el
@@ -769,7 +842,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
     // es un eje que ninguna comparación agregada puede dar. Para el año contra
     // año a nivel producto, dos llamadas con rangos explícitos son honestas
     // porque las dos devuelven la misma forma.
-    execute: async ({ from, to, limit, hourFrom, hourTo }) => {
+    execute: async ({ from, to, limit, hourFrom, hourTo, outletId }) => {
       const problema = hourBandProblem({ hourFrom, hourTo, from, to })
       if (problema) return { error: problema }
 
@@ -777,6 +850,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       if (from) params.set("from", from)
       if (to) params.set("to", to)
       setHours(params, { hourFrom, hourTo })
+      if (outletId) params.set("outletId", outletId)
       return read(`/v1/reports/products?${params}`, {
         // Antes acá había un `rowsOf(payload).slice(0, limit)` que devolvía las
         // filas PELADAS y tiraba el resto del objeto — incluidos `prev` y
@@ -815,7 +889,17 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
   }),
 
   get_outlets: defineTool({
-    description: "Lista sucursales del negocio.",
+    // La descripción dice "las que este usuario puede consultar" y no "las del
+    // negocio", y no es una sutileza de redacción: el backend ahora acota la
+    // lista al alcance del usuario dueño de la credencial. Si acá siguiera
+    // diciendo "del negocio", un modelo que reciba dos sucursales de un comercio
+    // que tiene cuatro concluiría que el comercio tiene dos — y lo afirmaría.
+    // Que el catálogo declare el recorte es lo que lo vuelve un límite conocido
+    // en vez de un dato equivocado.
+    description:
+      "Lista las sucursales que ESTE usuario puede consultar — no necesariamente todas las del negocio: el acceso a cada sucursal lo define el usuario dueño de la credencial. " +
+      "Usala antes de pedir un reporte de una sucursal puntual: de acá salen los outletId válidos. " +
+      "Sin outletId, los reportes devuelven el consolidado de todas estas.",
     inputSchema: z.object({}),
     execute: async () => read(`/v1/outlets`),
   }),
@@ -834,7 +918,8 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       "Pasá el rango de fechas cuando aplique (from/to en YYYY-MM-DD). " +
       "Acepta compareWith en los reportes que filtran por fecha: agrega el bloque `comparison` contra el período anterior o contra el mismo período del año pasado. " +
       "Los reportes stock, cuentas_por_cobrar y cuentas_por_pagar son fotos del estado actual: ignoran el rango de fechas y no se pueden comparar entre períodos. " +
-      "Acepta franja horaria (hourFrom/hourTo) SOLO en cinco reportes: ventas_resumen, transacciones, productos, ordenes y movimientos_de_caja. En el resto la franja no existe y la llamada se rechaza — no la mandes.",
+      "Acepta franja horaria (hourFrom/hourTo) SOLO en cinco reportes: ventas_resumen, transacciones, productos, ordenes y movimientos_de_caja. En el resto la franja no existe y la llamada se rechaza — no la mandes. " +
+      "Acepta outletId en todos menos staff_usuarios, que es del equipo del negocio entero.",
     inputSchema: z.object({
       report: z.enum(REPORT_IDS).describe("Nombre del reporte a consultar"),
       from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
@@ -842,10 +927,22 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       hourFrom: hourFromSchema,
       hourTo: hourToSchema,
       compareWith: compareWithSchema,
+      outletId: outletIdSchema,
     }),
-    execute: async ({ report, from, to, hourFrom, hourTo, compareWith }) => {
+    execute: async ({ report, from, to, hourFrom, hourTo, compareWith, outletId }) => {
       const route: ReportRoute | undefined = REPORT_ROUTES[report]
       if (!route) return { error: `Reporte desconocido: ${report}` }
+
+      // Mismo criterio que la franja: un reporte que no filtra por sucursal NO
+      // recibe el parámetro en silencio. Devolvería 200 con los datos de todas
+      // las sucursales y el modelo se los atribuiría a la que pidió.
+      if (outletId && route.tenantWide) {
+        return {
+          error:
+            `El reporte "${report}" no se filtra por sucursal: es del equipo del negocio completo. ` +
+            `Volvé a consultarlo sin outletId.`,
+        }
+      }
 
       // Un reporte sin franja NO recibe el parámetro en silencio para que el
       // backend lo ignore: el modelo leería un 200 con el día entero como si
@@ -868,14 +965,17 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       const problema = hourBandProblem({ hourFrom, hourTo, from, to })
       if (problema) return { error: problema }
 
-      // La franja entra por acá, así que viaja igual en la lectura del período
-      // pedido y en la del baseline de `compareWith` — un baseline sin franja
-      // compararía la mañana de septiembre contra el agosto completo.
+      // La franja Y la sucursal entran por acá, así que viajan igual en la
+      // lectura del período pedido y en la del baseline de `compareWith` — un
+      // baseline sin franja compararía la mañana de septiembre contra el agosto
+      // completo, y uno sin sucursal compararía una sucursal contra el
+      // consolidado.
       const withRange = (base: string, f?: string, t?: string) => {
         const qs = new URLSearchParams()
         if (f) qs.set("from", f)
         if (t) qs.set("to", t)
         setHours(qs, { hourFrom, hourTo })
+        if (outletId) qs.set("outletId", outletId)
         const q = qs.toString()
         return `${base}${q ? (base.includes("?") ? "&" : "?") + q : ""}`
       }
@@ -958,6 +1058,7 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
       from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
       compareWith: compareWithSchema,
+      outletId: outletIdSchema,
     }),
     /**
      * Expone `dashboard?widget=incomeOutcomeStats`, que era el ÚNICO lugar del
@@ -974,12 +1075,16 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
      * (`COUNT(transactionId)` de las ventas no anuladas de tipo 0, 3 y 6,
      * `DashboardService.php:107-113`) porque lo calcula el mismo SELECT.
      */
-    execute: async ({ from, to, compareWith }) => {
+    execute: async ({ from, to, compareWith, outletId }) => {
       const pathFor = (r: DateRange) =>
-        `/v1/reports/dashboard?widget=incomeOutcomeStats&from=${r.from}&to=${r.to}`
+        withOutlet(
+          `/v1/reports/dashboard?widget=incomeOutcomeStats&from=${r.from}&to=${r.to}`,
+          outletId,
+        )
       const qs = new URLSearchParams({ widget: "incomeOutcomeStats" })
       if (from) qs.set("from", from)
       if (to) qs.set("to", to)
+      if (outletId) qs.set("outletId", outletId)
       return read(`/v1/reports/dashboard?${qs}`, {
         compare: planComparison({ compareWith, from, to, pathFor }),
       })
@@ -1009,11 +1114,13 @@ export function buildReadTools({ apiUrl, dataHeaders, authHeader }: ToolContext)
     inputSchema: z.object({
       from: z.string().optional().describe("Fecha inicio YYYY-MM-DD"),
       to: z.string().optional().describe("Fecha fin YYYY-MM-DD"),
+      outletId: outletIdSchema,
     }),
-    execute: async ({ from, to }) => {
+    execute: async ({ from, to, outletId }) => {
       const qs = new URLSearchParams({ widget: "customersSeries" })
       if (from) qs.set("from", from)
       if (to) qs.set("to", to)
+      if (outletId) qs.set("outletId", outletId)
       return read(`/v1/reports/dashboard?${qs}`)
     },
   }),

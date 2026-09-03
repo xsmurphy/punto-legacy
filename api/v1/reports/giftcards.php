@@ -108,7 +108,13 @@ if ($singleRow !== '' && !preg_match($uuidRe, $singleRow)) {
 if (!preg_match($uuidRe, (string) COMPANY_ID)) {
     apiError('Contexto de empresa inválido (companyId no es UUID)', 500);
 }
-$outletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
+// Ver `stock-day.php`: `panel`-only, así que `OutletScope::single()` devuelve
+// hoy lo mismo que el idiom a mano. Se migra para que el idiom no quede
+// disponible para copiar — cambió de significado con el realm `api`.
+$outletId = \Punto\Api\Outlets\OutletScope::single();
+if ($outletId === null) {
+    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+}
 if (!preg_match($uuidRe, $outletId)) {
     $outletId = '';
 }

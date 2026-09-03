@@ -49,10 +49,14 @@ if (!$rangeOk) {
 // NO se usa `Roc::build()`: ese helper interpola el fragmento SQL y el service
 // nuevo bindea sus parámetros. El outletId va como valor, no como texto de
 // query.
-$effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
-$uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
-if (!preg_match($uuidRe, $effectiveOutletId)) {
-    $effectiveOutletId = '';
+// `OutletScope::single()` reemplaza al idiom que estaba copiado acá y en otros
+// cuatro endpoints (leer VIEW_OUTLET_ID, caer a OUTLET_ID, validar el uuid).
+// `null` = el usuario alcanza un subconjunto de 2+ sucursales, que no entra en
+// un valor único: se corta en vez de servir el total de UNA como si fueran
+// todas las suyas.
+$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
+if ($effectiveOutletId === null) {
+    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
 }
 
 apiOk($svc->getCashFlow($from, $to, (string) COMPANY_ID, $effectiveOutletId));

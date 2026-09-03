@@ -80,12 +80,26 @@ if ((string) ($ctx['realm'] ?? '') === 'pos-app') {
 // el service necesitan ver el efectivo, no el raw — si no, el agregado del
 // ledger (SUM por sucursal) sale de la sucursal equivocada en modo "Todas" o
 // al switchear.
-$effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
+// `OutletScope::single()` unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID → guard
+// de uuid) que estaba copiado en cinco endpoints.
+$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
 
 // Gate: requiere una sucursal válida (UUID) — el reporte agrupa stock por outlet.
 // Modo "Todas" (VIEW_OUTLET_ID='') NO permite este reporte (no tiene sentido
-// stock por sucursal sin una sucursal).
+// stock por sucursal sin una sucursal). `null` (un alcance de 2+ sucursales
+// asignadas) cae en el mismo lugar por la misma razón.
+//
+// `message` es aditivo sobre el contrato que ya lee el panel: sin él, quien
+// recibe `needsOutlet` es un modelo que no tiene cómo saber que ahora puede
+// elegir la sucursal con `?outletId=`, y se queda repitiendo la misma consulta.
 $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
+if ($effectiveOutletId === null) {
+    apiOk([
+        'needsOutlet' => true,
+        'rows'        => [],
+        'message'     => \Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(),
+    ]);
+}
 if (!preg_match($uuidRe, $effectiveOutletId)) {
     apiOk(['needsOutlet' => true, 'rows' => []]);
 }

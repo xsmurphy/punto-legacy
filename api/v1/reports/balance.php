@@ -38,10 +38,12 @@ require_once __DIR__ . '/../../lib/Auth/OperatorContext.php';
 \Punto\Api\Auth\OperatorContext::requirePermission($ctx, 'finance.manage');
 
 // Sucursal del view-scope, mismo patrón que reports/stock.php. '' = todas.
-$effectiveOutletId = defined('VIEW_OUTLET_ID') ? (string) constant('VIEW_OUTLET_ID') : (string) OUTLET_ID;
-$uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
-if (!preg_match($uuidRe, $effectiveOutletId)) {
-    $effectiveOutletId = '';
+// Ver `OutletScope::single()`: unifica el idiom (VIEW_OUTLET_ID → OUTLET_ID →
+// guard de uuid) y devuelve `null` cuando el alcance es un subconjunto de 2+
+// sucursales, que este reporte no puede expresar en un solo valor.
+$effectiveOutletId = \Punto\Api\Outlets\OutletScope::single();
+if ($effectiveOutletId === null) {
+    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
 }
 
 apiOk((new \Punto\Api\Reports\BalanceService())->get((string) COMPANY_ID, $effectiveOutletId));

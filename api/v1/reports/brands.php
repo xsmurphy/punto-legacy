@@ -50,7 +50,16 @@ if (!preg_match($uuidRe, (string) COMPANY_ID)) {
 // del dropdown del logo en frontend, 2026-06-13).
 $roc = \Punto\Api\Reports\Roc::build((string) COMPANY_ID, (string) OUTLET_ID, 'c');
 
-$outletId = defined('VIEW_OUTLET_ID') ? (string) VIEW_OUTLET_ID : (string) OUTLET_ID;
+// El outlet que va al ROLLUP. Tiene que salir de `OutletScope::single()` y NO
+// del idiom viejo: `RollupReader::itemSalesRange()` trata `''` como "sin filtro
+// de sucursal", y desde que el realm `api` define `VIEW_OUTLET_ID = ''` para
+// habilitar el `IN (...)` de `Roc::build`, ese idiom le entregaba el TENANT
+// COMPLETO a una key acotada. El fragmento `$roc` de arriba quedaba bien y este
+// valor mal: la misma respuesta con dos alcances distintos.
+$outletId = \Punto\Api\Outlets\OutletScope::single();
+if ($outletId === null) {
+    apiError(\Punto\Api\Outlets\OutletScope::subsetNotSupportedMessage(), 422);
+}
 
 if (($_GET['verify'] ?? '') === '1') {
     $rollupData = $svc->salesByBrand($from, $to, $roc, (string) COMPANY_ID, true, $outletId);

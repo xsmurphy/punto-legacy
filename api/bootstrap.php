@@ -267,6 +267,75 @@ function apiAuthTenant(array $realms = ['pos-app']): array
         $outletId = (string) ($row['outletId'] ?? ''); // CIA wrapper resuelve case-insensitive
     }
 
+    // ── Alcance por sucursal del realm `api` ─────────────────────────────────
+    //
+    // La sucursal de una API key SALE DEL USUARIO dueño de la key, no de la key
+    // (decisión del owner 2026-09-02, §4.5 de `context/25`). `ApiKeyService`
+    // hereda `userId` del operador que la emitió, así que ese usuario es la
+    // identidad con la que se resuelve el alcance — misma lógica por la que los
+    // permisos de la key son los de él y no una segunda lista.
+    //
+    // El default SIN parámetro es el CONSOLIDADO de las sucursales asignadas:
+    // una sola si tiene una, todas si es global. Eso es lo que significa "la
+    // sucursal se define en el usuario" — la key no pinta ninguna.
+    //
+    // OJO, cambio de comportamiento intencional: hasta hoy una key quedaba
+    // clavada a la sucursal ACTIVA del creador en el momento de emitirla, sin
+    // forma de pedir otra ni el consolidado. Una key ya emitida empieza a ver el
+    // consolidado de su usuario. Es el pedido, no un efecto colateral.
+    //
+    // ── Por qué el override es `?outletId=` y NO `X-Outlet-Id` ───────────────
+    //   1. `X-Outlet-Id` está gateado a realm `panel` A PROPÓSITO (unas líneas
+    //      más abajo). Ensancharlo es reabrir un gate de seguridad para ahorrar
+    //      un nombre.
+    //   2. Es un valor POR LLAMADA. Del lado del cliente, los headers del
+    //      catálogo de tools (`ToolContext.dataHeaders`) se arman una vez por
+    //      request del MCP, no por tool call: una sucursal en un header
+    //      obligaría a reformar el contrato del catálogo entero para pasar algo
+    //      que la query string ya expresa por llamada, al lado de `from`/`to`.
+    //   3. `outletId` como query param YA es el nombre de esta dimensión en
+    //      dieciséis endpoints del proyecto (spaces, orders, production…), y
+    //      NINGUNO de ellos acepta realm `api` — no hay colisión que resolver.
+    //
+    // Va ACÁ, antes de `data.php`, porque también hay que acotar `$outletId`:
+    // los lectores que no pasan por `Roc::build` bindean `OUTLET_ID` directo, y
+    // esa constante se define ahí abajo.
+    if ($realm === 'api') {
+        $__scope = \Punto\Api\Outlets\OutletScope::forUser($companyId, $userId);
+
+        $__reqOutlet = trim((string) ($_GET['outletId'] ?? ''));
+        if ($__reqOutlet !== '') {
+            // 403 y NO una lista vacía. Un vacío se lee como "no hubo ventas en
+            // esa sucursal", que es una mentira con forma de dato — y el modelo
+            // que la recibe se la repite al dueño sin nada que lo contradiga.
+            if (!\Punto\Api\Outlets\OutletScope::allows($__scope, $__reqOutlet, $companyId)) {
+                apiError('Tu usuario no tiene acceso a esa sucursal', 403);
+            }
+            $__scope = [$__reqOutlet];
+        }
+
+        // `VIEW_OUTLET_ID = ''` desactiva el filtro de outlet ÚNICO en
+        // `Roc::build` (el camino que el panel ya usa para "Todas"), y
+        // `VIEW_OUTLET_IDS` le dice con qué conjunto acotarlo. Separadas y no
+        // una sola constante polimórfica: `VIEW_OUTLET_ID` tiene un significado
+        // establecido que lee media docena de endpoints, y cambiarle el tipo
+        // según el realm es exactamente cómo se rompe un consumidor que nadie
+        // volvió a mirar.
+        define('VIEW_OUTLET_ID', '');
+        define('VIEW_OUTLET_IDS', $__scope);
+
+        // Los lectores que bindean `OUTLET_ID` sin pasar por `Roc` (drawer,
+        // finance, Inventory…) tienen que quedar DENTRO del conjunto. Sin esto,
+        // `$outletId` sigue siendo la sucursal congelada en la key —o peor, el
+        // "primer outlet activo" del fallback de arriba—, que puede no estar
+        // asignada al usuario. Elegir el primero del conjunto es arbitrario,
+        // pero el conjunto viene ordenado por id (estable entre requests) y el
+        // resultado es estrictamente más acotado que lo de hoy.
+        if ($__scope !== [] && !in_array($outletId, $__scope, true)) {
+            $outletId = $__scope[0];
+        }
+    }
+
     // data.php define COMPANY_ID/OUTLET_ID/TODAY/COMPANY_NAME/etc. desde estas locales.
     require __DIR__ . '/data.php';
 
