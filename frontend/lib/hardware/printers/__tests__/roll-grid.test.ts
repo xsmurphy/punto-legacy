@@ -310,3 +310,57 @@ describe("buildRollGrid — crecimiento por ítems", () => {
     expect(rows[3]).toContain("23.000")
   })
 })
+
+describe("colapso de filas vacías (regla owner 2026-09-04)", () => {
+  it("un bloque sin dato ni título devuelve sus filas — lo de abajo sube", () => {
+    const g = geo80()
+    const rowH = Math.round(g.lineHeightPx)
+    const rows = rowsOf(
+      tpl([
+        { ...defaultBlock("company_name"), top: 0, left: 0, width: 302, height: rowH },
+        // Sin companyAddress en el ticket y sin label: no imprime Y no deja
+        // el renglón en blanco (antes quedaba el hueco del canvas).
+        { ...defaultBlock("company_address"), top: rowH, left: 0, width: 302, height: rowH },
+        { ...defaultBlock("company_email"), top: rowH * 2, left: 0, width: 302, height: rowH },
+        { ...defaultBlock("date"), top: rowH * 3, left: 0, width: 302, height: rowH },
+      ]),
+      ticket(),
+    )
+    expect(rows[0]).toContain("Almacén Central")
+    expect(rows[1]).toContain("24/08/2026")
+    expect(rows).toHaveLength(2)
+  })
+
+  it("un bloque sin dato pero CON título imprime el título y conserva su fila", () => {
+    const g = geo80()
+    const rowH = Math.round(g.lineHeightPx)
+    const rows = rowsOf(
+      tpl([
+        { ...defaultBlock("company_name"), top: 0, left: 0, width: 302, height: rowH },
+        { ...defaultBlock("company_address"), label: "Dirección:", top: rowH, left: 0, width: 302, height: rowH },
+        { ...defaultBlock("date"), top: rowH * 2, left: 0, width: 302, height: rowH },
+      ]),
+      ticket(),
+    )
+    expect(rows[1]).toContain("Dirección:")
+    expect(rows[2]).toContain("24/08/2026")
+  })
+
+  it("basta UN bloque con contenido en la misma altura para conservar la fila", () => {
+    const g = geo80()
+    const rowH = Math.round(g.lineHeightPx)
+    const half = Math.round(g.charWidthPx * 20)
+    const rows = rowsOf(
+      tpl([
+        // Dos columnas al mismo top: una vacía, la otra con dato — la fila
+        // NO colapsa (el máximo del grupo manda).
+        { ...defaultBlock("company_address"), top: 0, left: 0, width: half, height: rowH },
+        { ...defaultBlock("date"), top: 0, left: half, width: half, height: rowH },
+        { ...defaultBlock("company_name"), top: rowH, left: 0, width: 302, height: rowH },
+      ]),
+      ticket(),
+    )
+    expect(rows[0]).toContain("24/08/2026")
+    expect(rows[1]).toContain("Almacén Central")
+  })
+})

@@ -763,14 +763,25 @@ export function sortBlocksForRender<T extends { type: string; top: number; left:
  * historia del módulo es que tres switches paralelos daban tres resultados
  * distintos.
  *
- * Un bloque sin valor no imprime su título: un "Fecha:" suelto sin fecha es
- * peor que la línea ausente.
+ * Bloque sin valor: se imprime el título SOLO (decisión del owner 2026-09-04,
+ * revierte la regla anterior de omitirlo) — y si tampoco hay título, el bloque
+ * no imprime nada Y la grilla del rollo colapsa sus filas reservadas
+ * (`buildRollGrid`), para que el dato ausente no deje renglones en blanco.
  */
 export function withBlockLabel(block: PrintBlock, value: string | null): string | null {
-  if (value === null || value === undefined || value === "") return null
   const label = (block.label ?? "").trim()
+  if (value === null || value === undefined || value === "") return label || null
   return label ? `${label} ${value}` : value
 }
+
+/**
+ * Pie de marca — sale SIEMPRE al final de toda impresión de rollo, en todos
+ * los transportes (ESC/POS, navegador, estación y fallback sin plantilla).
+ * No es un bloque de plantilla: el tenant no lo ve en el editor, no lo puede
+ * editar ni quitar (decisión del owner 2026-09-04). Nunca aparece en la vista
+ * previa del editor — solo en la impresión real.
+ */
+export const BRAND_FOOTER_TEXT = "Usamos www.punto.la"
 
 /**
  * Valor final de un bloque SIMPLE (no de ítem), con su título si lo tiene.
@@ -798,8 +809,10 @@ export function resolveSimpleBlock(block: PrintBlock, data: TicketData): string 
  */
 export function resolvePaymentLines(block: PrintBlock, data: TicketData): string[] {
   const lines = data.payments.map((p) => `${p.method}: ${formatAmountOnly(p.amount, data)}`)
-  if (lines.length === 0) return []
   const label = (block.label ?? "").trim()
+  // Sin pagos: mismo criterio que `withBlockLabel` — el título solo si existe,
+  // nada (y fila colapsada en rollo) si no.
+  if (lines.length === 0) return label ? [label] : []
   if (label === "") return lines
   // El título va en su PROPIA línea y los pagos debajo, uno por línea. Antes se
   // anteponía al primero ("Forma de pago: Efectivo: 200.000") y con dos medios

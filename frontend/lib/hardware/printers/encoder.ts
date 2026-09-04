@@ -50,6 +50,13 @@ export function buildTestTicket(opts: { paperWidthMm: PaperWidthMm }): Uint8Arra
     .line("está vinculada correctamente.")
     .newline()
     .rule({ style: "single" })
+    // Avance antes del corte — la cuchilla está arriba del cabezal, sin esto
+    // las últimas líneas quedan del lado equivocado (ver FEED_LINES_BEFORE_CUT
+    // en render-template.ts).
+    .newline()
+    .newline()
+    .newline()
+    .newline()
     .cut()
     .encode()
 }

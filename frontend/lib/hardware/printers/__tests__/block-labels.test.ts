@@ -104,8 +104,14 @@ describe("withBlockLabel — título declarado por la plantilla", () => {
     expect(withBlockLabel(legacy, "12-03-2026")).toBe("12-03-2026")
   })
 
-  it("un bloque SIN valor no imprime su título suelto", () => {
+  it("un bloque SIN valor imprime el título solo (regla owner 2026-09-04)", () => {
     const block = { ...defaultBlock("date"), label: "Fecha:" }
+    expect(withBlockLabel(block, null)).toBe("Fecha:")
+    expect(withBlockLabel(block, "")).toBe("Fecha:")
+  })
+
+  it("sin valor NI título no imprime nada — y la grilla colapsa la fila", () => {
+    const block = { ...defaultBlock("date"), label: "" }
     expect(withBlockLabel(block, null)).toBeNull()
     expect(withBlockLabel(block, "")).toBeNull()
   })
@@ -424,8 +430,11 @@ describe("bloques de orden — sin gate por docType (context/20)", () => {
     expect(resolveSimpleBlock(defaultBlock("table_number"), data)).toBe("Mesa 10")
   })
 
-  it("sin dato, el bloque sale en blanco solo — sin título huérfano", () => {
+  it("sin dato, sale el título solo (regla owner 2026-09-04); sin título, nada", () => {
     const data = ticket({ docType: "order" })
-    expect(resolveSimpleBlock({ ...defaultBlock("order_number"), label: "Orden Nro.:" }, data)).toBeNull()
+    expect(resolveSimpleBlock({ ...defaultBlock("order_number"), label: "Orden Nro.:" }, data)).toBe(
+      "Orden Nro.:",
+    )
+    expect(resolveSimpleBlock({ ...defaultBlock("order_destination"), label: "" }, data)).toBeNull()
   })
 })

@@ -2,6 +2,17 @@ import ReceiptPrinterEncoder from "@point-of-sale/receipt-printer-encoder"
 import type { PrintTemplateConfig } from "@/lib/types/print-template"
 import type { TicketData } from "./build-ticket-data"
 import { buildRollGrid, rollGeometry, type PaperWidthMm, type RollGraphic } from "./roll-grid"
+import { BRAND_FOOTER_TEXT } from "./blocks"
+
+/**
+ * Líneas en blanco que se avanzan ANTES del corte. La cuchilla de una térmica
+ * está 10-20mm por ENCIMA del cabezal: sin este avance, las últimas líneas
+ * impresas quedan del lado equivocado del corte y el ticket sale trunco
+ * (reporte del owner 2026-09-04). 4 líneas Font A ≈ 12mm. El encoder se
+ * construye sin `printerModel`, así que su `feedBeforeCut` interno es 0 y el
+ * avance tiene que ser explícito.
+ */
+const FEED_LINES_BEFORE_CUT = 4
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Encoder = any
@@ -198,11 +209,17 @@ export async function renderTemplateToEscPos(opts: {
     for (const g of byRow.get(row)!) encoder = renderGraphic(encoder, g, geo.columns, logos)
   }
 
+  // Pie de marca obligatorio: fuera de la plantilla, el tenant no lo puede
+  // quitar ni editar (BRAND_FOOTER_TEXT, ver blocks.ts). Va en TODO ticket.
+  encoder = encoder.newline()
+  encoder = withAlign(encoder, "center", (e) => e.line(BRAND_FOOTER_TEXT))
+
   if (openDrawer) {
     // ESC/POS open drawer pulse — device 0, on 25ms, off 250ms
     encoder = encoder.pulse(0, 25, 250)
   }
 
+  for (let n = 0; n < FEED_LINES_BEFORE_CUT; n++) encoder = encoder.newline()
   encoder = encoder.cut()
 
   const singleBuffer: Uint8Array = encoder.encode()

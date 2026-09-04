@@ -2,6 +2,7 @@ import { isReceipt, PAPER_DIMENSIONS, type PrintTemplateConfig, type PrintBlock 
 import type { TicketData } from "./build-ticket-data"
 import {
   BLOCK_VALUE_RESOLVERS,
+  BRAND_FOOTER_TEXT,
   resolveSimpleBlock,
   ITEM_FIELD_RESOLVERS,
   ITEM_LINE_TYPES,
@@ -463,6 +464,13 @@ export interface RenderTemplateToHtmlOptions {
    *  efecto en plantillas de HOJA (ver `isReceipt` abajo): esas siempre usan
    *  su propio `page_size` físico, nunca este override de ticket. */
   paperWidthMm?: PaperWidthMm
+  /** Impresión REAL de TICKET (nunca la vista previa del editor): agrega el
+   *  pie de marca obligatorio (`BRAND_FOOTER_TEXT`, blocks.ts — el tenant no
+   *  lo ve ni lo puede quitar) y un margen inferior de seguridad para que el
+   *  corte del driver no se coma las últimas líneas. Lo pasan `printSale`,
+   *  `printTest` y `printTicketInBrowser`; `buildTemplatePreviewHtml` NO —
+   *  el editor muestra solo lo que la plantilla define. Sin efecto en HOJA. */
+  printFinish?: boolean
 }
 
 export function renderTemplateToHtml(
@@ -533,6 +541,12 @@ ${body}
   // canvas mide en papel lo que mide en pantalla.
   const rollRowHeightMm = (widthMm / geo.columns) * 2
 
+  // Impresión real: pie de marca + colchón inferior (ver `printFinish`).
+  const footer = options.printFinish
+    ? `\n<div style="text-align:center;margin-top:${rollRowHeightMm.toFixed(4)}mm">${esc(BRAND_FOOTER_TEXT)}</div>`
+    : ""
+  const bottomPad = options.printFinish ? "padding-bottom: 10mm;" : ""
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -544,7 +558,7 @@ ${body}
      (roll-grid.ts). La térmica imprime celdas de ancho fijo; con la fuente de
      la plantilla adelante en el stack, las columnas que la grilla centró y
      cortó se pintaban de anchos distintos y el texto se desbordaba del papel. */
-  body { font-family: ${ROLL_FONT_STACK}; font-size: ${rollFontSize}; width: ${widthMm}mm; margin: 0 auto; }
+  body { font-family: ${ROLL_FONT_STACK}; font-size: ${rollFontSize}; width: ${widthMm}mm; margin: 0 auto; ${bottomPad} }
   /* Una fila = \`columns\` celdas de 1fr. El ancho de cada carácter sale de
      DIVIDIR el papel, no de la métrica de la fuente: por construcción una
      línea llena mide exactamente el ancho del papel y no puede desbordar.
@@ -568,7 +582,7 @@ ${body}
 </style>
 </head>
 <body>
-${body}
+${body}${footer}
 </body>
 </html>`
 }

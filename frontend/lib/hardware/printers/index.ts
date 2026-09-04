@@ -143,7 +143,7 @@ export async function printSale(opts: {
         // imprimir y el error lo dice explícito.
         const config = fetchTemplateConfig(binding.templateId)
         if (!config) throw new Error(`No se pudo resolver la plantilla asignada (revisá Ajustes → Impresoras)`)
-        const html = renderTemplateToHtml(config, dataForPrinter, { paperWidthMm: binding.paperWidthMm })
+        const html = renderTemplateToHtml(config, dataForPrinter, { paperWidthMm: binding.paperWidthMm, printFinish: true })
         if (binding.transport === "station") {
           await enqueueStationJob(binding, { format: "html", payload: html, docType: opts.docType })
         } else {
@@ -210,7 +210,7 @@ export async function printTest(binding: PrinterBinding): Promise<void> {
   const data = buildTicketDataForTest()
 
   if (binding.transport === "native" || (binding.transport === "station" && binding.mode === "native")) {
-    const html = renderTemplateToHtml(config, data, { paperWidthMm: binding.paperWidthMm })
+    const html = renderTemplateToHtml(config, data, { paperWidthMm: binding.paperWidthMm, printFinish: true })
     if (binding.transport === "station") {
       await enqueueStationJob(binding, { format: "html", payload: html, docType: "receipt" })
     } else {

@@ -573,7 +573,18 @@ export function buildRollGrid(
   const toRows = (px: number) => Math.max(1, Math.round(px / geo.lineHeightPx))
 
   let pushRows = 0
-  let pendingGrowth = 0
+  /**
+   * Crecimiento del grupo de bloques que comparten `top`. `null` = ningún
+   * bloque contribuyó aún. Puede ser NEGATIVO: un bloque sin contenido NI
+   * título devuelve sus filas reservadas (pedido del owner 2026-09-04 — el
+   * dato ausente no deja renglones en blanco). Se toma el MÁXIMO del grupo,
+   * así que basta UN bloque con contenido en la misma altura para que la
+   * fila se conserve; solo colapsa cuando el grupo entero quedó vacío.
+   */
+  let pendingGrowth: number | null = null
+  const contribute = (delta: number) => {
+    pendingGrowth = pendingGrowth === null ? delta : Math.max(pendingGrowth, delta)
+  }
   let lastTop: number | null = null
 
   /** Coloca líneas ya alineadas a partir de `row0`, bajando si está ocupado.
@@ -586,6 +597,16 @@ export function buildRollGrid(
     return { row, height: lines.length }
   }
 
+  /** Primera fila desde `row0` donde un gráfico de `height` filas entra sin
+   *  pisar contenido — mismo criterio que `place`, pero a lo ancho del papel
+   *  entero (un gráfico no comparte fila con texto). Necesario porque el
+   *  colapso de filas vacías puede correr un gráfico sobre filas ya escritas. */
+  const freeRowFor = (row0: number, height: number) => {
+    let row = row0
+    while (!canvas.free(row, 0, geo.columns, height)) row++
+    return row
+  }
+
   let i = 0
   while (i < blocks.length) {
     const block = blocks[i]
@@ -593,14 +614,17 @@ export function buildRollGrid(
     // Cambio de altura en el canvas → recién ahí se aplica el crecimiento
     // acumulado por los bloques de la altura anterior (ver docblock).
     if (lastTop !== null && block.top > lastTop) {
-      pushRows += pendingGrowth
-      pendingGrowth = 0
+      pushRows += pendingGrowth ?? 0
+      pendingGrowth = null
     }
     lastTop = block.top
 
     const col = toCol(block.left)
     const width = toWidth(block.width, col)
-    const row0 = toRow(block.top) + pushRows
+    // `pushRows` puede ser negativo (colapso de filas vacías): la fila nunca
+    // baja de 0, y si cae sobre contenido ya escrito, `place`/`freeRowFor`
+    // la corren hacia abajo hasta donde entre.
+    const row0 = Math.max(0, toRow(block.top) + pushRows)
     const reserved = toRows(block.height)
 
     // ── Líneas ────────────────────────────────────────────────────────────
@@ -617,29 +641,41 @@ export function buildRollGrid(
         const c = Math.min(geo.columns - 1, col + Math.round(geoLine.crossOffset / geo.charWidthPx))
         place(row0, c, 1, new Array<string>(rows).fill("|"))
       }
+      contribute(0)
       i++
       continue
     }
 
     // ── Gráficos (no caben en la grilla — ver docblock) ───────────────────
+    // Un gráfico SIN dato (logo no cargado, venta sin CDC) devuelve sus filas
+    // reservadas igual que un bloque de texto vacío — `contribute(-reserved)`.
     if (block.type === "company_logo") {
-      canvas.reserve(row0, reserved)
       // El logo sale del TENANT (TicketData.companyLogoUrl ← PosConfig): el
       // bloque solo dice DÓNDE va. `block.url` queda como override por
       // plantilla (legacy) — nadie lo escribe desde el editor hoy.
-      graphics.push({
-        kind: "logo",
-        row: row0,
-        rows: reserved,
-        align: block.align,
-        value: block.url || data.companyLogoUrl || "",
-      })
+      const logoUrl = block.url || data.companyLogoUrl || ""
+      if (!logoUrl) {
+        contribute(-reserved)
+        i++
+        continue
+      }
+      const row = freeRowFor(row0, reserved)
+      canvas.reserve(row, reserved)
+      graphics.push({ kind: "logo", row, rows: reserved, align: block.align, value: logoUrl })
+      contribute(0)
       i++
       continue
     }
     if (block.type === "transaction_id_barcode") {
-      canvas.reserve(row0, reserved)
-      graphics.push({ kind: "barcode", row: row0, rows: reserved, align: block.align, value: data.transactionId })
+      if (!data.transactionId) {
+        contribute(-reserved)
+        i++
+        continue
+      }
+      const row = freeRowFor(row0, reserved)
+      canvas.reserve(row, reserved)
+      graphics.push({ kind: "barcode", row, rows: reserved, align: block.align, value: data.transactionId })
+      contribute(0)
       i++
       continue
     }
@@ -647,15 +683,19 @@ export function buildRollGrid(
       // Sin link (venta sin documento electrónico) no se imprime nada, ni el
       // rótulo — el dato no existe, igual que cualquier bloque sin valor.
       if (data.einvoiceUrl) {
-        canvas.reserve(row0, reserved)
+        const row = freeRowFor(row0, reserved)
+        canvas.reserve(row, reserved)
         graphics.push({
           kind: "qrcode",
-          row: row0,
+          row,
           rows: reserved,
           align: block.align,
           value: data.einvoiceUrl,
           caption: cased(block.text?.trim() || "Consultá tu factura electrónica"),
         })
+        contribute(0)
+      } else {
+        contribute(-reserved)
       }
       i++
       continue
@@ -704,7 +744,7 @@ export function buildRollGrid(
       }
       // El canvas reservaba UNA fila para el grupo; con N items (y su wrap)
       // ocupa `cursor - row0`.
-      pendingGrowth = Math.max(pendingGrowth, Math.max(0, cursor - row0 - stepRows))
+      contribute(Math.max(0, cursor - row0 - stepRows))
       continue
     }
 
@@ -722,13 +762,21 @@ export function buildRollGrid(
         lines.push(...wrapped)
       }
     }
+    // Bloque sin contenido NI título (`resolveSimpleBlock` ya sumó el título
+    // si existía): devuelve sus filas reservadas — la línea vacía no sale y
+    // tampoco deja el hueco (pedido del owner 2026-09-04).
+    if (lines.length === 0) {
+      contribute(-reserved)
+      i++
+      continue
+    }
     const aligned = lines.map((l) => alignInBox(l, width, block.align))
     const placed = place(row0, col, width, aligned, block.bold === "bold")
     // Crecimiento REAL medido contra donde el bloque TERMINO, no contra la
     // fila que pidio el canvas: `place` pudo haberlo bajado para no pisar a
     // otro bloque, y medir contra `row0` dejaba el empuje corto.
-    const bottom = placed.height > 0 ? placed.row + placed.height : row0
-    pendingGrowth = Math.max(pendingGrowth, Math.max(0, bottom - (row0 + reserved)))
+    const bottom = placed.row + placed.height
+    contribute(Math.max(0, bottom - (row0 + reserved)))
     i++
   }
 

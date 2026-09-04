@@ -38,7 +38,7 @@ import type { PaperWidthMm } from "./roll-grid"
 import type { TicketData } from "./build-ticket-data"
 import type { DocumentTemplateRow, PrintTemplateConfig } from "@/lib/types/print-template"
 import { useCatalogStore } from "@/lib/catalog/store"
-import { formatAmountOnly, formatMoney, formatQty } from "./blocks"
+import { BRAND_FOOTER_TEXT, formatAmountOnly, formatMoney, formatQty } from "./blocks"
 import { renderTemplateToHtml } from "./html-renderer"
 import { triggerWindowPrint } from "./transports/window-print"
 
@@ -139,6 +139,7 @@ function renderFallbackTicketHtml(docType: PrinterDocType, data: TicketData, pap
     <div style="font-weight:bold">Total: ${esc(formatMoney(data.total, data))}</div>
     ${paymentLines ? `<hr/>${paymentLines}` : ""}
     ${data.note ? `<hr/><div>${esc(data.note)}</div>` : ""}
+    <div style="text-align:center;margin-top:8px">${esc(BRAND_FOOTER_TEXT)}</div>
   `
 
   return `<!DOCTYPE html>
@@ -147,7 +148,7 @@ function renderFallbackTicketHtml(docType: PrinterDocType, data: TicketData, pap
 <meta charset="utf-8"/>
 <style>
   @page { size: ${paperWidthMm}mm auto; margin: 0; }
-  body { font-family: monospace; font-size: 9pt; width: ${paperWidthMm}mm; margin: 0 auto; }
+  body { font-family: monospace; font-size: 9pt; width: ${paperWidthMm}mm; margin: 0 auto; padding-bottom: 10mm; }
   @media print { body { margin: 0; } }
   hr { border: none; border-top: 1px dashed #000; margin: 4px 0; }
   table { width: 100%; border-collapse: collapse; }
@@ -195,7 +196,7 @@ export async function printTicketInBrowser(opts: PrintTicketInBrowserOptions): P
   // ningún error. Tratamos ese caso como "sin plantilla usable" y caemos al
   // mismo fallback genérico que usamos cuando no hay fila en absoluto.
   const html = config && config.data.length > 0
-    ? renderTemplateToHtml(config, opts.data, { paperWidthMm })
+    ? renderTemplateToHtml(config, opts.data, { paperWidthMm, printFinish: true })
     : renderFallbackTicketHtml(opts.docType, opts.data, paperWidthMm)
 
   triggerWindowPrint(html)
