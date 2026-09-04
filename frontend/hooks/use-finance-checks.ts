@@ -20,6 +20,9 @@ export interface FinanceCheck {
   partyName: string | null
   categoryId: string | null
   categoryName: string | null
+  /** Centro de costo (mig 188) — viaja al movimiento al efectivizarse. */
+  costCenterId: string | null
+  costCenterName: string | null
   status: CheckStatus
   clearedDate: string | null
   description: string | null
@@ -50,6 +53,7 @@ export interface FinanceCheckFormValues {
   contactId?: string | null
   partyName?: string
   categoryId?: string | null
+  costCenterId?: string | null
   description?: string
 }
 

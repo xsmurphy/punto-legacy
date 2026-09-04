@@ -208,6 +208,10 @@ final class FinanceLedger
         // default "Proveedores").
         $categorySplit = $this->resolveCategorySplit($row);
         $defaultCategoryId = $this->categories->ensurePurchasesCategoryId($companyId);
+        // El centro de costo de la compra es UNO solo y viaja idéntico a
+        // todas las porciones del gasto — y también al cheque, si la compra
+        // se pagó con uno (mig 188).
+        $costCenterId = $this->resolveCostCenterId($row);
         // Un cheque es UN documento por el importe TOTAL — no se puede
         // repartir por categoría (compras no soportan pago dividido, ver
         // PurchasesService::create(): siempre 1 sola línea de pago). Usa la
@@ -239,6 +243,7 @@ final class FinanceLedger
             'issued',
             $this->nullableUuid($row['supplierId'] ?? null),
             $checkCategoryId,
+            $costCenterId,
         );
 
         $this->recordPaymentLines(
@@ -250,7 +255,7 @@ final class FinanceLedger
             categoryId: $defaultCategoryId,
             description: $description,
             categorySplit: $categorySplit,
-            costCenterId: $this->resolveCostCenterId($row),
+            costCenterId: $costCenterId,
         );
     }
 
@@ -641,6 +646,10 @@ final class FinanceLedger
      * `CheckService::ensureMovement()` genera al efectivizarse no queda sin
      * clasificar (antes se creaba con `categoryid = null` siempre).
      *
+     * $costCenterId (mig 188): mismo viaje que la categoría, pero solo lo
+     * manda `recordPurchase()` — el centro de costo imputa GASTO, así que un
+     * cheque recibido por una venta nace sin centro.
+     *
      * @param array<int,array<string,mixed>> $lines
      */
     private function createCheckFromLines(
@@ -649,7 +658,8 @@ final class FinanceLedger
         array $lines,
         string $direction,
         ?string $contactId,
-        ?string $categoryId = null
+        ?string $categoryId = null,
+        ?string $costCenterId = null
     ): void {
         foreach ($lines as $line) {
             $methodKey = (string) ($line['type'] ?? $line['name'] ?? '');
@@ -664,6 +674,7 @@ final class FinanceLedger
                     direction: $direction,
                     contactId: $contactId,
                     categoryId: $categoryId,
+                    costCenterId: $costCenterId,
                 );
             } catch (\Throwable $e) {
                 error_log("[FinanceLedger] createCheckFromLines falló para transactionId={$transactionId}: " . $e->getMessage());

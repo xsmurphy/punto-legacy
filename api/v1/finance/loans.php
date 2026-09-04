@@ -5,7 +5,7 @@
  *
  *   GET    /v1/finance/loans?status=&limit=&offset=            → lista
  *   GET    /v1/finance/loans?id=<uuid>                          → detalle (+ cuotas)
- *   POST   /v1/finance/loans { name, principal, installmentCount, firstDueDate } → crea
+ *   POST   /v1/finance/loans { name, principal, installmentCount, firstDueDate, costCenterId? } → crea
  *   PUT    /v1/finance/loans?id=<uuid>&resource=cancel          → anula
  *   PUT    /v1/finance/loans?installmentId=<uuid>&resource=pay   { accountId } → marca pagada
  *   PUT    /v1/finance/loans?installmentId=<uuid>&resource=unpay → revierte el pago
