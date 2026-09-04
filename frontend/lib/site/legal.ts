@@ -501,7 +501,7 @@ export const REEMBOLSOS: DocumentoLegal = {
       parrafos: [
         "Los créditos mensuales que trae el plan son parte de la suscripción, no un producto aparte: no se reembolsan por separado, no se acumulan de un mes al otro y no se convierten en dinero ni en descuento.",
         "Los packs de créditos que el comercio compra aparte no son reembolsables una vez acreditados en la cuenta, porque quedan disponibles para usar desde ese mismo momento.",
-        "La excepción son los casos de la sección anterior: si el pack se cobró dos veces, se cobró por error nuestro o se cobró después de una baja, lo devolvemos igual que la suscripción.",
+        "La excepción son los casos que enumera «Cuándo sí devolvemos»: si el pack se cobró dos veces, se cobró por error nuestro o se cobró después de una baja, lo devolvemos igual que la suscripción.",
       ],
     },
     {
