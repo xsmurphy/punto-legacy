@@ -34,7 +34,7 @@ Ese trabajo consume horas de nuestro equipo, infraestructura y servicios de terc
 
 Vale igual si la cuenta se terminó usando poco o nada: lo que consume el recurso es el trabajo hecho y el servicio puesto a disposición, no cuánto se lo haya usado.
 
-Esto no toca las cuatro situaciones de la sección anterior. Un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja o una falla que impida operar se devuelven igual, esté la puesta en marcha iniciada o no.
+Esto no toca las cuatro situaciones que enumera «Cuándo sí devolvemos». Un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja o una falla que impida operar se devuelven igual, esté la puesta en marcha iniciada o no.
 
 ## 4. Cuándo sí devolvemos
 

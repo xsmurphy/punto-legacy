@@ -481,7 +481,7 @@ export const REEMBOLSOS: DocumentoLegal = {
         "Contratar Punto no es descargar un archivo: apenas se confirma el pago empieza un trabajo concreto sobre la cuenta. Crearla y configurarla, dar de alta sucursales, cajas y usuarios con sus permisos, importar el catálogo y los clientes, dejar operativa la facturación electrónica, y acompañar al equipo del comercio en la puesta en marcha.",
         "Ese trabajo consume horas de nuestro equipo, infraestructura y servicios de terceros desde el primer día, y no se recupera si el comercio decide después no seguir. Por eso, una vez iniciada la puesta en marcha no devolvemos el importe pagado.",
         "Vale igual si la cuenta se terminó usando poco o nada: lo que consume el recurso es el trabajo hecho y el servicio puesto a disposición, no cuánto se lo haya usado.",
-        "Esto no toca las cuatro situaciones de la sección anterior. Un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja o una falla que impida operar se devuelven igual, esté la puesta en marcha iniciada o no.",
+        "Esto no toca las cuatro situaciones que enumera «Cuándo sí devolvemos». Un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja o una falla que impida operar se devuelven igual, esté la puesta en marcha iniciada o no.",
       ],
     },
     {
