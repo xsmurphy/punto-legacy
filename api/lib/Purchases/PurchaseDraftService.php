@@ -139,11 +139,12 @@ final class PurchaseDraftService
         $draftId  = function_exists('generateUuidV7') ? generateUuidV7() : $this->uuidV4();
         $imageUrl = $this->uploadImage($companyId, $draftId, $file);
 
-        // Auto-match de proveedor por RUC — sugerencia corregible, nunca
-        // vinculante: el usuario puede cambiarla en la pantalla de revisión.
-        $contactId = $this->matchSupplierByRuc(
+        // Auto-match / alta de proveedor por RUC — sugerencia corregible,
+        // nunca vinculante: el usuario puede cambiarla en la pantalla de
+        // revisión.
+        $contactId = $this->ensureSupplierFromExtraction(
             $companyId,
-            (string) ($extracted['supplier']['ruc'] ?? '')
+            is_array($extracted['supplier'] ?? null) ? $extracted['supplier'] : null
         );
 
         $extractedJson = json_encode($extracted ?? new \stdClass());
@@ -214,9 +215,9 @@ final class PurchaseDraftService
      * Cierra la extracción: escribe lo que la IA devolvió y pasa a 'pending'
      * (listo para revisar) o 'failed'.
      *
-     * Vuelve a intentar el match de proveedor por RUC — al crear el borrador
-     * todavía no había datos extraídos, así que es acá donde por primera vez se
-     * conoce el RUC del emisor.
+     * Vuelve a resolver el proveedor por RUC (match, alta o completado de
+     * huecos) — al crear el borrador todavía no había datos extraídos, así que
+     * es acá donde por primera vez se conoce el emisor.
      */
     public function completeExtraction(
         string $id,
@@ -232,9 +233,9 @@ final class PurchaseDraftService
             $extractedJson = '{}';
         }
 
-        $contactId = $this->matchSupplierByRuc(
+        $contactId = $this->ensureSupplierFromExtraction(
             $companyId,
-            (string) ($extracted['supplier']['ruc'] ?? '')
+            is_array($extracted['supplier'] ?? null) ? $extracted['supplier'] : null
         );
 
         $status = $extractError !== null ? 'failed' : 'pending';
@@ -783,5 +784,220 @@ final class PurchaseDraftService
             [$companyId, $ruc]
         );
         return $match ? (string) $match['contactId'] : null;
+    }
+
+    /**
+     * Resuelve el proveedor del borrador a partir del bloque `supplier` que
+     * extrajo la IA. Tres caminos, en este orden:
+     *
+     *   1. **Ya existe** (match por `contactTIN`) → se le completan SOLO los
+     *      campos VACÍOS con lo que traiga la factura. Nunca se pisa un dato
+     *      cargado por el comercio: la factura es una fuente secundaria y el
+     *      dato del comercio es el que él mismo mantiene.
+     *   2. **No existe** → se consulta el padrón (`TaxpayerLookupService`, el
+     *      MISMO que usa el alta de clientes: cascada Factomate → padrón
+     *      público) para tener la razón social real, y se da de alta el
+     *      proveedor. Nombre = padrón, con la razón social impresa en la
+     *      factura como respaldo.
+     *   3. **Sin RUC, o sin nombre por ninguna de las dos vías** → null. Un
+     *      contacto sin nombre es basura en la agenda del comercio.
+     *
+     * Todo esto es BEST-EFFORT y NUNCA puede tumbar el OCR: el padrón es un
+     * tercero que se cae, y `ContactService::create()` tiene reglas propias
+     * (unicidad de teléfono, por ejemplo) que pueden rechazar el alta. Ante
+     * cualquier excepción se loguea y se devuelve el match simple de siempre —
+     * en el peor caso el borrador queda como antes de esta feature, sin
+     * proveedor vinculado, y el humano lo elige a mano en la revisión.
+     *
+     * Por qué `ContactService` y no un INSERT crudo: es el servicio canónico
+     * del alta de contactos y trae cosas que un INSERT a mano perdería —
+     * normalización del teléfono a E.164 sin '+', ruteo de los campos que
+     * viven en `data` JSONB (mig 25), alta de la dirección default en
+     * `customerAddress`, bloqueo de duplicados de identidad, y `updated_at`
+     * con el reloj del TENANT, que es lo que hace que el POS levante el
+     * contacto nuevo por el sync incremental (context/43 y context/45). El
+     * trigger genérico de satélites es de BD y dispara solo, pero el bump de
+     * `contact.updated_at` que el sync compara lo escribe este servicio.
+     *
+     * @param array<string,mixed>|null $supplier Bloque `supplier` de `extracted`.
+     */
+    private function ensureSupplierFromExtraction(string $companyId, ?array $supplier): ?string
+    {
+        $ruc = trim((string) ($supplier['ruc'] ?? ''));
+        if ($ruc === '') {
+            return null;
+        }
+
+        $existingId = $this->matchSupplierByRuc($companyId, $ruc);
+
+        try {
+            if ($existingId !== null) {
+                $this->fillSupplierGaps($companyId, $existingId, $supplier);
+                return $existingId;
+            }
+            return $this->createSupplierFromInvoice($companyId, $ruc, $supplier);
+        } catch (\Throwable $e) {
+            error_log('[PurchaseDraft] proveedor automático: ' . $e->getMessage());
+            return $existingId;
+        }
+    }
+
+    /**
+     * Proveedor que YA existe: se le escriben únicamente los campos que están
+     * vacíos hoy. Si no hay ningún hueco que llenar no se toca la fila — un
+     * UPDATE vacío igual bumpearía `updated_at` y mandaría el contacto por el
+     * sync a todas las cajas sin que nada haya cambiado.
+     *
+     * @param array<string,mixed> $supplier
+     */
+    private function fillSupplierGaps(string $companyId, string $contactId, array $supplier): void
+    {
+        $svc     = $this->contacts();
+        $current = $svc->getById($contactId, $companyId);
+        if ($current === null) {
+            return;
+        }
+
+        $patch = [];
+
+        // `address` del shape público ya resuelve la dirección default de
+        // `customerAddress` con fallback al campo del contacto (ver
+        // ContactService::presentRow) — es la misma vista que ve el comercio,
+        // así que es la correcta para preguntar "¿está vacío?".
+        $address = $this->cleanText($supplier['address'] ?? null);
+        if ($address !== null && trim((string) ($current['address'] ?? '')) === '') {
+            $patch['address'] = $address;
+        }
+
+        $phone = $this->supplierPhoneForStorage($companyId, $supplier['phone'] ?? null);
+        if ($phone !== null && trim((string) ($current['phone'] ?? '')) === '') {
+            $patch['phone'] = $phone;
+        }
+
+        if ($patch === []) {
+            return;
+        }
+
+        $this->saveTolerantOfPhone(
+            $patch,
+            fn(array $data) => $svc->update($contactId, $companyId, $data)
+        );
+    }
+
+    /**
+     * Alta del proveedor que la factura trae y la agenda no tiene.
+     *
+     * El `contactTIN` que se persiste es el RUC EXTRAÍDO, no el que devuelve
+     * el padrón, aunque el padrón sea la fuente autoritativa del nombre. El
+     * match de la próxima factura de este mismo proveedor es una comparación
+     * exacta de strings contra `contactTIN` (`matchSupplierByRuc`): si acá se
+     * guardara la variante del padrón y difiriera en un guion o en el dígito
+     * verificador, la segunda factura no matchearía y se daría de alta un
+     * proveedor duplicado. La clave de búsqueda y la clave guardada tienen que
+     * ser la misma.
+     *
+     * @param array<string,mixed> $supplier
+     */
+    private function createSupplierFromInvoice(string $companyId, string $ruc, array $supplier): ?string
+    {
+        $fromRegistry = (new \Punto\Api\Contacts\TaxpayerLookupService())->lookup($companyId, $ruc);
+
+        $name = $this->cleanText($fromRegistry['name'] ?? null)
+            ?? $this->cleanText($supplier['name'] ?? null);
+        if ($name === null) {
+            return null;
+        }
+
+        $data = [
+            'type'       => \Punto\Api\Contacts\ContactService::TYPE_SUPPLIER,
+            'fiscalName' => $name,
+            'tin'        => $ruc,
+        ];
+
+        $address = $this->cleanText($supplier['address'] ?? null);
+        if ($address !== null) {
+            $data['address'] = $address;
+        }
+        $phone = $this->supplierPhoneForStorage($companyId, $supplier['phone'] ?? null);
+        if ($phone !== null) {
+            $data['phone'] = $phone;
+        }
+
+        $svc = $this->contacts();
+        return $this->saveTolerantOfPhone(
+            $data,
+            fn(array $rec) => $svc->create($companyId, $rec)
+        );
+    }
+
+    /**
+     * Guarda y, si falla teniendo teléfono en el payload, reintenta sin él.
+     *
+     * El teléfono es el único campo del bloque que puede hacer fallar el
+     * guardado ENTERO por una razón ajena al proveedor: `ContactService`
+     * bloquea números duplicados dentro del mismo rol. Perder la razón social
+     * y la dirección de un proveedor nuevo porque otro proveedor ya tenía ese
+     * número sería un mal negocio — el teléfono impreso es el dato más
+     * prescindible de los tres.
+     *
+     * @template T
+     * @param array<string,mixed> $data
+     * @param callable(array<string,mixed>):T $save
+     * @return T
+     */
+    private function saveTolerantOfPhone(array $data, callable $save)
+    {
+        try {
+            return $save($data);
+        } catch (\Throwable $e) {
+            if (!isset($data['phone'])) {
+                throw $e;
+            }
+            error_log('[PurchaseDraft] proveedor: se descarta el teléfono de la factura — ' . $e->getMessage());
+            unset($data['phone']);
+            return $save($data);
+        }
+    }
+
+    /**
+     * Teléfono impreso → E.164, o null si no parsea.
+     *
+     * El país sale del TENANT (`TenantLocale`), nunca de una constante: una
+     * factura imprime el número en formato local y sin ese país no hay forma
+     * de saber a qué prefijo internacional pertenece. `ContactService` vuelve
+     * a normalizarlo al guardar (E.164 sin el '+', convención del proyecto);
+     * acá se valida antes para poder DESCARTARLO en silencio — un número
+     * ilegible del OCR no puede hacer fallar el alta del proveedor, que es lo
+     * que haría `phoneValidateForStorage` al tirar excepción.
+     */
+    private function supplierPhoneForStorage(string $companyId, $raw): ?string
+    {
+        $phone = $this->cleanText($raw);
+        if ($phone === null) {
+            return null;
+        }
+        if (!function_exists('phoneToE164')) {
+            require_once dirname(__DIR__, 3) . '/api/includes/phone.php';
+        }
+        $iso = \Punto\Api\Support\TenantLocale::country($companyId);
+        return phoneToE164($phone, $iso);
+    }
+
+    /** Texto de la extracción listo para persistir, o null si no aporta nada. */
+    private function cleanText($raw): ?string
+    {
+        if (!is_string($raw)) {
+            return null;
+        }
+        $value = trim($raw);
+        return $value !== '' ? $value : null;
+    }
+
+    private function contacts(): \Punto\Api\Contacts\ContactService
+    {
+        global $db;
+        return new \Punto\Api\Contacts\ContactService(
+            new \Punto\Api\Contacts\ContactRepository($db)
+        );
     }
 }

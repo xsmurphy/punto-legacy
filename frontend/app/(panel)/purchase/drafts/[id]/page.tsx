@@ -602,7 +602,11 @@ export default function PurchaseDraftReviewPage() {
               {draft.extracted?.supplier?.ruc && (
                 <p className="-mt-3 text-xs text-muted-foreground">
                   RUC detectado: <span className="font-mono">{draft.extracted.supplier.ruc}</span>
-                  {supplierId && supplierId === draft.contactId && " — proveedor matcheado automáticamente"}
+                  {/* "vinculado" y no "matcheado": el proveedor puede venir de
+                      la agenda O haberse dado de alta solo con la razón social
+                      del padrón, y el borrador no distingue entre los dos
+                      casos. Prometer "matcheado" sería falso en el alta. */}
+                  {supplierId && supplierId === draft.contactId && " — proveedor vinculado automáticamente"}
                 </p>
               )}
 
