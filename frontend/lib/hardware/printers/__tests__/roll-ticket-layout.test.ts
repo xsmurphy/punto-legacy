@@ -88,15 +88,15 @@ describe("rollo 80mm — ticket típico", () => {
       // Desde 2026-08-28 la primera y la última columna del papel son MARGEN
       // (`ROLL_MARGIN_COLS`): el contenido arranca en la columna 1 y termina
       // una antes del borde, así que las filas miden 47 y no 48.
-      " ----------------------------------------------",
+      " " + "─".repeat(46),
       " 24/08/2026                Nro. 001-001-0000123",
-      " ----------------------------------------------",
+      " " + "─".repeat(46),
       // Los importes de ítem van SIN moneda desde 2026-08-26 (decisión del
       // owner): el símbolo se declara una sola vez, en el total de abajo.
       " Empanada de carne cortada a      2      16.000",
       " cuchillo",
       " Gaseosa 500ml                    1       7.000",
-      " ----------------------------------------------",
+      " " + "─".repeat(46),
       "                                      Gs 23.000",
       "",
       "     Gracias por su compra, vuelva pronto a",

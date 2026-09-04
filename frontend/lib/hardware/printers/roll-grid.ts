@@ -629,17 +629,21 @@ export function buildRollGrid(
 
     // ── Líneas ────────────────────────────────────────────────────────────
     // En una grilla de caracteres SÍ existen columnas, así que `ver_line`
-    // deja de ser el no-op que era en ESC/POS: es una tira de '|'.
+    // deja de ser el no-op que era en ESC/POS: es una tira de caracteres.
+    // Se dibujan con los caracteres de caja de CP437 (`─` 0xC4, `│` 0xB3) y
+    // no con '-'/'|': en el papel salen como línea CONTINUA, sin los cortes
+    // entre guiones (pedido del owner 2026-09-04). CP437 es la codepage
+    // default universal de ESC/POS — el encoder los traduce siempre.
     const geoLine = lineGeometry(block)
     if (geoLine) {
       if (geoLine.orientation === "horizontal") {
         const len = toWidth(geoLine.length, col)
         const row = row0 + Math.round(geoLine.crossOffset / geo.lineHeightPx)
-        place(row, col, len, ["-".repeat(len)])
+        place(row, col, len, ["─".repeat(len)])
       } else {
         const rows = toRows(geoLine.length)
         const c = Math.min(geo.columns - 1, col + Math.round(geoLine.crossOffset / geo.charWidthPx))
-        place(row0, c, 1, new Array<string>(rows).fill("|"))
+        place(row0, c, 1, new Array<string>(rows).fill("│"))
       }
       contribute(0)
       i++

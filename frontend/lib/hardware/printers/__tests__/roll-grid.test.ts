@@ -157,7 +157,7 @@ describe("buildRollGrid — la posición del canvas manda", () => {
     expect(rows[0].length).toBe(ROLL_COLUMNS[80] - ROLL_MARGIN_COLS)
   })
 
-  it("hor_line sale como una fila de guiones del ancho del bloque", () => {
+  it("hor_line sale como línea continua (─ de CP437) del ancho del bloque", () => {
     const g = geo80()
     const rows = rowsOf(
       tpl([
@@ -172,7 +172,7 @@ describe("buildRollGrid — la posición del canvas manda", () => {
       ticket(),
     )
     // Arranca en la columna 1, no en la 0: la 0 es el margen izquierdo.
-    expect(rows[0]).toBe(" ".repeat(ROLL_MARGIN_COLS) + "-".repeat(10))
+    expect(rows[0]).toBe(" ".repeat(ROLL_MARGIN_COLS) + "─".repeat(10))
   })
 
   it("uppercase se aplica ANTES de wrapear, no como estilo del renderer", () => {

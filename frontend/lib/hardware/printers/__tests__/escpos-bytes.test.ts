@@ -22,6 +22,11 @@ import type { TicketData } from "../build-ticket-data"
 
 const MM = 3.78
 
+/** `hor_line` se emite con `─` (U+2500), que la codepage CP437 codifica como
+ *  0xC4 — `printedLines` decodifica byte a byte con `fromCharCode`, así que en
+ *  las líneas decodificadas la regla aparece como "Ä" repetida. */
+const RULE_CP437 = "ÄÄÄ"
+
 /** Texto imprimible de los bytes ESC/POS, fila por fila. Se descartan los
  *  comandos (ESC/GS) y se corta por LF: lo que queda es, literalmente, lo que
  *  la impresora pone en el papel. */
@@ -200,7 +205,7 @@ describe("bytes ESC/POS — el listado de ítems es dinámico", () => {
     it(`con ${n} ítem(s), la regla y el total quedan DEBAJO del último`, async () => {
       const lines = await emit(config, ticket({ items: mkItems(n) }), 80)
       const lastItem = lines.findIndex((l) => l.includes(`Producto ${n}`))
-      const rule = lines.findIndex((l) => l.trimStart().startsWith("---"))
+      const rule = lines.findIndex((l) => l.trimStart().startsWith(RULE_CP437))
       const total = lines.findIndex((l) => l.includes("Gs 23.000"))
       expect(lastItem).toBeGreaterThanOrEqual(0)
       expect(rule).toBeGreaterThan(lastItem)
@@ -219,7 +224,7 @@ describe("bytes ESC/POS — el listado de ítems es dinámico", () => {
     ] as unknown as TicketData["items"]
     const lines = await emit(config, ticket({ items }), 80)
     const gaseosa = lines.findIndex((l) => l.includes("Gaseosa"))
-    const rule = lines.findIndex((l) => l.trimStart().startsWith("---"))
+    const rule = lines.findIndex((l) => l.trimStart().startsWith(RULE_CP437))
     const total = lines.findIndex((l) => l.includes("Gs 23.000"))
     // El nombre largo ocupó 2 filas; "Gaseosa" arranca después, no encima.
     expect(gaseosa).toBeGreaterThan(1)
