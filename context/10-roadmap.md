@@ -49,6 +49,36 @@ seguridad, con dos casos nuevos en el arnés de permisos (217 checks).
 - **TZ "Asunción" hardcodeada** en migs 157/160 y `period-close.php` (deuda ya
   registrada): rompe silenciosamente con el primer tenant no-PY.
 
+## Agente con acceso a recetas y órdenes de producción (owner 2026-09-04) — sin planificar
+
+El pedido, en palabras del owner: poder preguntarle al bot de Punto cosas como
+"¿cuántos kg de pollo necesito para hacer 20 platos de pollo a la mostaza?",
+analizar con él recetas o necesidades de producción, y que pueda **crearle
+órdenes de producción**.
+
+Encuadre técnico (sin plan cerrado):
+
+- **Lectura de recetas**: hoy el catálogo compartido de lectura
+  (`frontend/lib/agent/read-tools.ts`, agente del panel + MCP, `context/58`) no
+  expone recetas ni BOM. El motor de explosión de recetas YA existe y agrega
+  ingredientes (`RecipeCosting`, y ver `context/70` — lo que falta ahí es el
+  lote multi-plato, no la explosión). La tool nueva debería devolver la receta
+  explotada y escalada por cantidad, no la receta cruda, para que el agente no
+  haga la aritmética por su cuenta.
+- **Crear orden de producción es ESCRITURA**: excede el alcance vigente del
+  agente (lecturas + escrituras simples con `confirmToken`). El camino ya
+  existe y es el de `context/59`/`context/66`: `api/lib/Ai/AgentActor.php`
+  sobre los permisos del OPERADOR, `confirmToken` atado al actor, y auditoría
+  que registre el pedido en palabras del cliente + el plan confirmado. No
+  inventar otro embudo.
+- **Decisiones abiertas**: (1) ¿la tool de recetas entra al catálogo común
+  (panel + MCP) o solo al agente del panel? El MCP la heredaría gratis si va a
+  `read-tools.ts`. (2) ¿la creación de órdenes de producción se expone también
+  en el POS-nativo (`context/59`) o solo en el panel? (3) Cruce con
+  necesidades de reposición de `context/70` (la necesidad como entidad, la
+  producción como una de las vías que la cubren) — el análisis de "qué me
+  falta producir" probablemente sea la misma consulta.
+
 ## Módulos nuevos pedidos por el owner (2026-08-28) — sin planificar
 
 Los tres entran como pedido del owner el 2026-08-28. Ninguno tiene plan cerrado
