@@ -346,17 +346,41 @@ final class FinanceLedger
         // devolución al proveedor tiene que DESCONTARSE de "Obra Norte", no
         // quedar sin centro. Si quedara null, el total por centro mostraría el
         // gasto inflado (la compra suma, la devolución no resta ahí).
-        $ccFromParent = null;
+        $ccFromParent  = null;
+        $catFromParent = null;
         if ($parentId !== null) {
+            // transactionDiscount y companyId entran al SELECT porque
+            // `resolveCategorySplit()` los necesita (prorrateo del descuento
+            // y decimales del tenant).
             $parent = ncmExecute(
-                'SELECT invoiceNo, meta FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
+                'SELECT invoiceNo, meta, transactionDiscount, companyId
+                   FROM transaction WHERE transactionId = ? AND companyId = ? LIMIT 1',
                 [$parentId, $companyId]
             );
             $invoiceNo    = $parent ? (string) ($parent['invoiceNo'] ?? '') : '';
             $ccFromParent = $parent ? $this->resolveCostCenterId($parent) : null;
+            // La CATEGORÍA se hereda con el mismo argumento que el centro de
+            // costo de acá arriba — que hasta 2026-09-04 solo se aplicaba al
+            // centro: si la compra se imputó a "Mercadería", la devolución
+            // tiene que DESCONTARSE de "Mercadería"; con la genérica, el
+            // total de esa categoría quedaba inflado (la compra suma, la NC
+            // no resta ahí). Misma cascada que el cheque de recordPurchase():
+            // cabecera si la hay, la única categoría del split si resolvió a
+            // una sola, y la genérica como último recurso — una NC parcial
+            // sobre una compra multi-categoría no se puede prorratear sin
+            // inventar (la NC no dice qué líneas devuelve).
+            if ($parent) {
+                $catFromParent = $this->resolveHeaderCategoryId($parent);
+                if ($catFromParent === null) {
+                    $split = $this->resolveCategorySplit($parent);
+                    if (is_array($split) && count($split) === 1 && $split[0][0] !== null) {
+                        $catFromParent = $split[0][0];
+                    }
+                }
+            }
         }
 
-        $categoryId  = $this->categories->ensurePurchaseCreditNoteCategoryId($companyId);
+        $categoryId  = $catFromParent ?? $this->categories->ensurePurchaseCreditNoteCategoryId($companyId);
         $description = 'Nota de crédito compra' . ($invoiceNo !== '' ? " {$invoiceNo}" : '');
 
         $this->recordPaymentLines(
@@ -413,9 +437,13 @@ final class FinanceLedger
             return;
         }
         $accountId = $this->accounts->ensureCashAccountId($companyId);
+        // Categorías PROPIAS del cajón, no "Ventas"/"Proveedores": una
+        // inyección de efectivo no es una venta ni una extracción es un pago
+        // a proveedor, y mapearlas ahí inflaba esas categorías en el reporte
+        // con plata que no era eso (auditoría 2026-09-04).
         $categoryId = $kind === 'income'
-            ? $this->categories->ensureSalesCategoryId($companyId)
-            : $this->categories->ensurePurchasesCategoryId($companyId);
+            ? $this->categories->ensureDrawerIncomeCategoryId($companyId)
+            : $this->categories->ensureDrawerExpenseCategoryId($companyId);
 
         $this->movements->recordDerivedMovement($companyId, 'expense', $expensesId, [
             'accountId'     => $accountId,

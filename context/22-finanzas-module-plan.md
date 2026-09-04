@@ -98,7 +98,10 @@ dentro de su TX; si falla, loguea y no rompe la venta):
 - **Venta contado (type 0)** → income, categoría "Ventas", cuenta = finAccountMap[método].
 - **Pago de crédito (type 5)** → income "Ventas".
 - **Compra (type 1)** → expense "Proveedores", cuenta = finAccountMap[método].
-- **Gasto (`expenses`)** → expense, categoría mapeada desde `expensesnameid`.
+- **Gasto (`expenses`)** → expense. ~~categoría mapeada desde `expensesnameid`~~ — STALE: nada escribe
+  `expensesNameId` desde la mig 33 (los gastos con nombre no existen más; `expenses` son solo los
+  movimientos del cajón). Desde 2026-09-04 van a categorías propias — "Extracciones de caja" /
+  "Ingresos de caja" — porque mapearlos a Proveedores/Ventas inflaba esas categorías en el reporte.
 - **Anulación** (status→6 / void) → borra/anula el movimiento derivado (mismo sourceid).
 
 **Backfill histórico**: script `api/database/seeds/finance_backfill.php` idempotente

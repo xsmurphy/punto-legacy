@@ -313,6 +313,62 @@ final class CategoryService
     }
 
     /**
+     * Categorías propias de los MOVIMIENTOS DEL CAJÓN (extracciones e
+     * ingresos manuales del POS). Existen porque mapearlos a "Ventas" /
+     * "Proveedores" —lo que hacía `FinanceLedger::recordDrawerRow()` hasta
+     * 2026-09-04— contaminaba el reporte por categoría: una inyección de
+     * efectivo NO es una venta y una extracción NO es un pago a proveedor,
+     * pero inflaban esas dos categorías con plata que no era eso. On-demand
+     * igual que `ensureReturnsCategoryId` (el seed solo corre en tenants sin
+     * NINGUNA categoría). Nombres distintos por kind a propósito: dos filas
+     * "Movimientos de caja" con kind opuesto serían ilegibles en la lista.
+     */
+    public function ensureDrawerIncomeCategoryId(string $companyId): string
+    {
+        return $this->ensureOnDemand($companyId, 'Ingresos de caja', 'income', 7);
+    }
+
+    public function ensureDrawerExpenseCategoryId(string $companyId): string
+    {
+        return $this->ensureOnDemand($companyId, 'Extracciones de caja', 'expense', 8);
+    }
+
+    /**
+     * Patrón compartido de las categorías de sistema on-demand (buscar,
+     * crear si falta, volver a buscar). Extraído al sumar las del cajón:
+     * `ensureReturnsCategoryId` y `ensurePurchaseCreditNoteCategoryId` lo
+     * tenían copiado y una tercera y cuarta copia ya era una divergencia
+     * esperando a pasar.
+     */
+    private function ensureOnDemand(string $companyId, string $name, string $kind, int $sortOrder): string
+    {
+        $this->ensureSeed($companyId);
+
+        $find = static fn() => ncmExecute(
+            'SELECT categoryid FROM fin_category WHERE companyid = ? AND kind = ? AND name = ? LIMIT 1',
+            [$companyId, $kind, $name]
+        );
+
+        $row = $find();
+        if (!$row) {
+            ncmInsert([
+                'records' => [
+                    'companyid' => $companyId,
+                    'name'      => $name,
+                    'kind'      => $kind,
+                    'sortorder' => $sortOrder,
+                    'issystem'  => true,
+                    'status'    => 1,
+                ],
+                'table' => 'fin_category',
+            ]);
+            $row = $find();
+        }
+
+        return $row ? (string) $row['categoryid'] : '';
+    }
+
+    /**
      * Devuelve el categoryid de la categoría default "Notas de crédito de
      * compra" del tenant — plata que un proveedor nos devuelve (`kind`=
      * income, espejo de "Devoluciones" que es `expense` porque ahí somos
