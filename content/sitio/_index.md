@@ -7,6 +7,9 @@ fuente: "sitio punto.la"
 
 Generado desde el código del sitio con `npm run export:content`.
 
+Para pasarle el sitio entero a alguien de afuera hay un consolidado con todo:
+[Brief de contenido del sitio](_brief.md).
+
 ## Páginas del sitio (no editar — se sobreescriben)
 
 - [Punto — Sistema de punto de venta y facturación electrónica](home.md) — /

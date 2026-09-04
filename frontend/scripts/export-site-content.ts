@@ -21,6 +21,7 @@ import { CONTACTO } from "../lib/site/contacto.ts"
 import { DOCUMENTOS_LEGALES, type DocumentoLegal } from "../lib/site/legal.ts"
 
 const DESTINO = join(import.meta.dirname, "..", "..", "content", "sitio")
+const EMPRESA_SITIO = "punto.la"
 const market = getMarket()
 const t = (s: string) => applyMarketTerms(s, market)
 
@@ -312,6 +313,9 @@ fuente: "sitio punto.la"
 
 Generado desde el código del sitio con \`npm run export:content\`.
 
+Para pasarle el sitio entero a alguien de afuera hay un consolidado con todo:
+[Brief de contenido del sitio](_brief.md).
+
 ## Páginas del sitio (no editar — se sobreescriben)
 
 ${archivos.map((a) => `- [${a.titulo}](${a.nombre}) — ${a.url}`).join("\n")}
@@ -322,7 +326,100 @@ ${manuales.map((m) => `- [${m.titulo}](${m.nombre})`).join("\n")}
 `
   await writeFile(join(DESTINO, "_index.md"), indice, "utf8")
 
-  console.log(`${archivos.length + 1} archivos escritos en content/sitio/`)
+  /* ---------------------------------------------------------------- */
+  /* Brief: TODO el contenido del sitio en un solo archivo             */
+  /* ---------------------------------------------------------------- */
+  /* Un archivo por página sirve al agente (busca y lee lo que
+     necesita). Para pasarle el sitio entero a alguien de afuera —una
+     agencia, un diseñador, otro modelo— hace falta UN documento. Se
+     genera acá y no a mano para que no envejezca. */
+  const GRUPOS: { titulo: string; nota: string; test: (url: string) => boolean }[] = [
+    {
+      titulo: "Páginas principales",
+      nota: "La home, el plan y cómo contactarnos.",
+      test: (u) => u === "/" || u === "/precios" || u === "/contacto",
+    },
+    {
+      titulo: "Módulos",
+      nota: "Una página por capacidad del sistema.",
+      test: (u) => u.startsWith("/modulos/"),
+    },
+    {
+      titulo: "Rubros",
+      nota: "La misma propuesta contada para cada tipo de negocio.",
+      test: (u) => u.startsWith("/para/"),
+    },
+    {
+      titulo: "Legales",
+      nota: "Términos, privacidad y reembolsos. Forman parte del contrato.",
+      test: (u) => ["/terminos", "/privacidad", "/reembolsos"].includes(u),
+    },
+  ]
+
+  /* El cuerpo de una página, listo para anidarse bajo el `###` que le pone
+     el brief: sin frontmatter, sin su propio H1 (lo duplicaría) y con los
+     encabezados corridos dos niveles para que la jerarquía cierre. */
+  const cuerpo = (md: string, anidado = true) => {
+    const sinFront = md.replace(/^---\n[\s\S]*?\n---\n/, "").trim()
+    if (!anidado) return sinFront
+    return sinFront
+      .replace(/^# .*\n+/, "")
+      .replace(/^(#{2,4}) /gm, (_m, h: string) => `${"#".repeat(h.length + 2)} `)
+      .trim()
+  }
+
+  const faq = await readFile(join(DESTINO, "faq-ventas.md"), "utf8").catch(() => "")
+
+  const secciones = GRUPOS.map((g) => {
+    const paginas = archivos.filter((a) => g.test(a.url))
+    if (!paginas.length) return ""
+    const cuerpos = paginas
+      .map((a) => `### ${a.titulo}\n\n\`${a.url}\`\n\n${cuerpo(a.contenido)}`)
+      .join("\n\n---\n\n")
+    return `## ${g.titulo}\n\n_${g.nota}_\n\n${cuerpos}`
+  }).filter(Boolean)
+
+  const mapa = GRUPOS.map((g) => {
+    const paginas = archivos.filter((a) => g.test(a.url))
+    return paginas.length
+      ? `**${g.titulo}**\n\n${paginas.map((a) => `- \`${a.url}\` — ${a.titulo}`).join("\n")}`
+      : ""
+  })
+    .filter(Boolean)
+    .join("\n\n")
+
+  const brief = `---
+titulo: "Brief de contenido del sitio"
+fuente: "sitio punto.la"
+---
+
+# Brief de contenido — ${EMPRESA_SITIO}
+
+Todo el contenido publicado del sitio, en un solo documento. Es el material
+para quien tenga que escribir, diseñar o traducir sobre el sitio sin entrar al
+código.
+
+Se genera con \`npm run export:content\` desde las mismas fuentes que renderiza
+el sitio (\`lib/site/*.ts\`), así que refleja lo que está publicado. **No editarlo
+a mano**: se sobreescribe en cada build. Para cambiar un texto se cambia la
+fuente.
+
+El tono y el uso de la marca están en \`context/68-brand-kit-social.md\`; el
+detalle técnico del sitio, en \`context/61-sitio-marketing.md\`.
+
+## Mapa del sitio
+
+${mapa}
+
+---
+
+${secciones.join("\n\n---\n\n")}
+
+${faq ? `---\n\n## Preguntas que el sitio no responde\n\n_Escrito a mano, no sale del sitio: es lo que pregunta la gente y todavía no está publicado._\n\n${cuerpo(faq)}\n` : ""}`
+
+  await writeFile(join(DESTINO, "_brief.md"), brief, "utf8")
+
+  console.log(`${archivos.length + 2} archivos escritos en content/sitio/`)
 }
 
 main()
