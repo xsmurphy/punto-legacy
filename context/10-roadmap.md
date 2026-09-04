@@ -82,10 +82,10 @@ escritura nueva sigue pasando por permisos del operador + `confirmToken`.
    es una tool que devuelva el análisis ya agregado server-side (los rollups
    de `context/18`/`rollup_stock` son la fuente natural).
 2. **Recetas y producción** — ver sección siguiente (mismo pedido).
-3. **Análisis proactivo vs. reactivo**: "comentame sobre la salud del stock"
-   hoy solo puede ser una pregunta del dueño. Si la visión incluye que el
-   agente AVISE (digest, alertas), eso es otra pieza (cron + canal de
-   entrega) y conviene decidirla aparte — no colarla en la primera iteración.
+3. ~~Análisis proactivo vs. reactivo~~ **CERRADO por el owner (2026-09-04)**:
+   el agente es REACTIVO — el dueño pregunta, el agente analiza y responde.
+   Que avise solo (digest, alertas) queda FUERA de esta visión; si algún día
+   se pide, es pieza aparte (cron + canal de entrega).
 
 ### Recetas y órdenes de producción — encuadre técnico (sin plan cerrado)
 
