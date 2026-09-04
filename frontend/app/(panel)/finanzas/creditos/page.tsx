@@ -54,6 +54,7 @@ import { formatMoney } from "@/lib/format"
 import { formatDate } from "@/lib/format-date"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useFinanceAccounts } from "@/hooks/use-finance-accounts"
+import { useFinanceCostCenters } from "@/hooks/use-finance-cost-centers"
 import {
   useFinanceLoans,
   useFinanceLoan,
@@ -246,6 +247,9 @@ export default function FinanzasCreditosPage() {
 
 // ── Dialog: nuevo crédito ──────────────────────────────────────────────────────
 
+/** Centinela del Select: Radix no acepta un SelectItem con value="". */
+const NO_VALUE = "__none__"
+
 const loanFormSchema = z.object({
   name: z.string().min(1, "Ingresá el acreedor o una descripción"),
   principal: z.number({ error: "Ingresá un monto" }).positive("El monto debe ser mayor a 0"),
@@ -255,6 +259,9 @@ const loanFormSchema = z.object({
     .min(1, "Mínimo 1 cuota")
     .max(360, "Máximo 360 cuotas"),
   firstDueDate: z.string().min(1, "Seleccioná la primera fecha de vencimiento"),
+  // Opcional, igual que en los movimientos manuales. Se elige UNA vez acá:
+  // todas las cuotas heredan el centro al pagarse.
+  costCenterId: z.string().optional(),
 })
 
 type LoanFormValues = z.infer<typeof loanFormSchema>
@@ -266,6 +273,7 @@ function LoanFormDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { data: costCenters } = useFinanceCostCenters()
   const createLoan = useCreateFinanceLoan()
 
   const {
@@ -281,18 +289,28 @@ function LoanFormDialog({
       principal: 0,
       installmentCount: 1,
       firstDueDate: todayISO(),
+      costCenterId: NO_VALUE,
     },
   })
 
   React.useEffect(() => {
     if (open) {
-      reset({ name: "", principal: 0, installmentCount: 1, firstDueDate: todayISO() })
+      reset({
+        name: "",
+        principal: 0,
+        installmentCount: 1,
+        firstDueDate: todayISO(),
+        costCenterId: NO_VALUE,
+      })
     }
   }, [open, reset])
 
   async function onSubmit(values: LoanFormValues) {
     try {
-      await createLoan.mutateAsync(values)
+      await createLoan.mutateAsync({
+        ...values,
+        costCenterId: values.costCenterId === NO_VALUE ? null : values.costCenterId,
+      })
       toast.success("Crédito cargado")
       onOpenChange(false)
     } catch (err) {
@@ -368,6 +386,32 @@ function LoanFormDialog({
               )}
               <p className="text-xs text-muted-foreground">
                 Las cuotas siguientes se generan mensualmente a partir de esta fecha.
+              </p>
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="loan-cost-center">Centro de costo</Label>
+              <Controller
+                name="costCenterId"
+                control={control}
+                render={({ field }) => (
+                  <Select value={field.value ?? NO_VALUE} onValueChange={field.onChange}>
+                    <SelectTrigger id="loan-cost-center">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_VALUE}>Sin centro de costo</SelectItem>
+                      {(costCenters ?? []).map((cc) => (
+                        <SelectItem key={cc.id} value={cc.id}>
+                          {cc.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+              <p className="text-xs text-muted-foreground">
+                Cada cuota que pagues se imputa a este centro.
               </p>
             </div>
           </div>

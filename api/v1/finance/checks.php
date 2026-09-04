@@ -4,7 +4,7 @@
  *
  *   GET    /v1/finance/checks?direction=&status=&from=&to=&limit=&offset= → lista
  *   GET    /v1/finance/checks?id=<uuid>                                  → detalle
- *   POST   /v1/finance/checks                    { direction, amount, ... } → crea
+ *   POST   /v1/finance/checks     { direction, amount, categoryId?, costCenterId?, ... } → crea
  *   PUT    /v1/finance/checks?id=<uuid>          { ...campos }            → edita
  *   PUT    /v1/finance/checks?id=<uuid>&resource=status { status }        → cambia estado
  *   DELETE /v1/finance/checks?id=<uuid>                                  → anula (status=cancelled)

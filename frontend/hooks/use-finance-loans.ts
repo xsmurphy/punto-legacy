@@ -14,6 +14,12 @@ export interface FinanceLoan {
   firstDueDate: string
   frequency: "monthly"
   status: LoanStatus
+  /**
+   * Centro de costo del crédito (mig 188) — se elige en la CABECERA y todas
+   * las cuotas lo heredan al pagarse.
+   */
+  costCenterId: string | null
+  costCenterName: string | null
   createdAt: string
   /** Solo presente en el listado (agregado) — null en el detalle. */
   paidCount: number | null
@@ -52,6 +58,7 @@ export interface FinanceLoanFormValues {
   principal: number
   installmentCount: number
   firstDueDate: string
+  costCenterId?: string | null
 }
 
 function buildQuery(filters: FinanceLoanFilters): string {

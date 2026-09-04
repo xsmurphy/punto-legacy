@@ -56,8 +56,10 @@ final class LoanService
         // progreso.
         $sql = "SELECT l.*,
                        COALESCE(agg.paidcount, 0) AS paidcount,
-                       agg.nextduedate
+                       agg.nextduedate,
+                       cc.name AS costcentername
                   FROM fin_loan l
+                  LEFT JOIN fin_cost_center cc ON cc.costcenterid = l.costcenterid
                   LEFT JOIN (
                     SELECT loanid,
                            COUNT(*) FILTER (WHERE status = 'paid') AS paidcount,
@@ -88,7 +90,13 @@ final class LoanService
         if (!preg_match(self::UUID_RE, $id)) {
             return null;
         }
-        $row = ncmExecute('SELECT * FROM fin_loan WHERE loanid = ? AND companyid = ? LIMIT 1', [$id, $companyId]);
+        $row = ncmExecute(
+            "SELECT l.*, cc.name AS costcentername
+               FROM fin_loan l
+               LEFT JOIN fin_cost_center cc ON cc.costcenterid = l.costcenterid
+              WHERE l.loanid = ? AND l.companyid = ? LIMIT 1",
+            [$id, $companyId]
+        );
         if (!$row) {
             return null;
         }
@@ -101,7 +109,10 @@ final class LoanService
      * Crea el crédito + genera todas sus cuotas (cuotas iguales,
      * `round(principal/n, 2)`, ajuste de redondeo en la última).
      *
-     * @param array{name:string,principal:float|string,installmentCount:int|string,firstDueDate:string} $data
+     * El centro de costo (opcional, mig 188) se elige UNA vez acá: cada cuota
+     * lo hereda al pagarse — ver `payInstallment()`.
+     *
+     * @param array{name:string,principal:float|string,installmentCount:int|string,firstDueDate:string,costCenterId?:string|null} $data
      */
     public function create(string $companyId, array $data): array
     {
@@ -123,6 +134,10 @@ final class LoanService
         if ($firstDueDate === null) {
             throw new \RuntimeException('La primera fecha de vencimiento es requerida');
         }
+        // Fuera de la transacción a propósito: si el centro es inválido no
+        // hay nada que revertir todavía. Mismo criterio de validación que
+        // `MovementService::resolveCostCenterId()` — lanza, no degrada.
+        $costCenterId = $this->resolveCostCenterId($companyId, $data['costCenterId'] ?? null);
 
         $db->StartTrans();
 
@@ -135,6 +150,7 @@ final class LoanService
                 'firstduedate'     => $firstDueDate,
                 'frequency'        => 'monthly',
                 'status'           => 'active',
+                'costcenterid'     => $costCenterId,
             ],
             'table' => 'fin_loan',
         ]);
@@ -254,8 +270,18 @@ final class LoanService
         }
 
         $loanId = (string) $installment['loanid'];
-        $loanRow  = ncmExecute('SELECT name FROM fin_loan WHERE loanid = ? AND companyid = ? LIMIT 1', [$loanId, $companyId]);
+        $loanRow  = ncmExecute(
+            'SELECT name, costcenterid FROM fin_loan WHERE loanid = ? AND companyid = ? LIMIT 1',
+            [$loanId, $companyId]
+        );
         $loanName = $loanRow ? (string) $loanRow['name'] : 'Crédito';
+        // El centro sale de la CABECERA del crédito (mig 188) — la cuota no
+        // tiene columna propia. Sin lectura del formulario: quien paga la
+        // cuota no vuelve a elegir destino, ya lo eligió quien cargó el
+        // crédito.
+        $loanCostCenterId = $loanRow && $loanRow['costcenterid'] !== null
+            ? (string) $loanRow['costcenterid']
+            : null;
 
         $result = $this->movements->recordDerivedMovement($companyId, self::SOURCE, $installmentId, [
             'accountId'   => $accountId,
@@ -264,7 +290,8 @@ final class LoanService
             // "Préstamos" para cuotas de crédito — el tenant puede
             // recategorizar editando fin_category, pero ningún pago de
             // cuota queda sin clasificar por descuido nuestro.
-            'categoryId'  => $this->categories->ensureLoanInstallmentCategoryId($companyId),
+            'categoryId'   => $this->categories->ensureLoanInstallmentCategoryId($companyId),
+            'costCenterId' => $loanCostCenterId,
             'kind'        => 'expense',
             'amount'      => (float) $installment['amount'],
             'date'        => TenantClock::now($companyId),
@@ -369,6 +396,27 @@ final class LoanService
         return $this->shapeInstallment($row);
     }
 
+    /**
+     * Valida el centro de costo elegido en el formulario del panel — mismo
+     * criterio que `MovementService::resolveCostCenterId()`: lanza si es
+     * inválido o está archivado, en vez de guardar en silencio algo distinto
+     * de lo que el operador eligió.
+     */
+    private function resolveCostCenterId(string $companyId, mixed $raw): ?string
+    {
+        $id = trim((string) ($raw ?? ''));
+        if ($id === '') {
+            return null;
+        }
+        if (!preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('costCenterId inválido');
+        }
+        if (!(new CostCenterService())->isAssignable($id, $companyId)) {
+            throw new \RuntimeException('Centro de costo no encontrado o archivado');
+        }
+        return $id;
+    }
+
     private function normalizeDate($val): ?string
     {
         $val = $val !== null ? trim((string) $val) : '';
@@ -391,6 +439,8 @@ final class LoanService
             'firstDueDate'     => (string) $f['firstduedate'],
             'frequency'        => (string) $f['frequency'],
             'status'           => (string) $f['status'],
+            'costCenterId'     => isset($f['costcenterid']) && $f['costcenterid'] !== null ? (string) $f['costcenterid'] : null,
+            'costCenterName'   => isset($f['costcentername']) && $f['costcentername'] !== null ? (string) $f['costcentername'] : null,
             'createdAt'        => (string) $f['created_at'],
             'paidCount'        => isset($f['paidcount']) ? (int) $f['paidcount'] : null,
             'nextDueDate'      => isset($f['nextduedate']) && $f['nextduedate'] !== null ? (string) $f['nextduedate'] : null,

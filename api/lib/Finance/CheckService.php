@@ -62,10 +62,11 @@ final class CheckService
         $totalRow = ncmExecute("SELECT COUNT(*) AS n FROM fin_check k WHERE {$where}", $params);
         $total = (int) ($totalRow['n'] ?? 0);
 
-        $sql = "SELECT k.*, a.name AS accountname, c.name AS categoryname
+        $sql = "SELECT k.*, a.name AS accountname, c.name AS categoryname, cc.name AS costcentername
                   FROM fin_check k
                   LEFT JOIN fin_account a ON a.accountid = k.accountid
                   LEFT JOIN fin_category c ON c.categoryid = k.categoryid
+                  LEFT JOIN fin_cost_center cc ON cc.costcenterid = k.costcenterid
                  WHERE {$where}
                  ORDER BY k.duedate ASC NULLS LAST, k.created_at DESC
                  LIMIT {$limit} OFFSET {$offset}";
@@ -88,10 +89,11 @@ final class CheckService
             return null;
         }
         $row = ncmExecute(
-            "SELECT k.*, a.name AS accountname, c.name AS categoryname
+            "SELECT k.*, a.name AS accountname, c.name AS categoryname, cc.name AS costcentername
                FROM fin_check k
                LEFT JOIN fin_account a ON a.accountid = k.accountid
                LEFT JOIN fin_category c ON c.categoryid = k.categoryid
+               LEFT JOIN fin_cost_center cc ON cc.costcenterid = k.costcenterid
               WHERE k.checkid = ? AND k.companyid = ? LIMIT 1",
             [$id, $companyId]
         );
@@ -99,7 +101,7 @@ final class CheckService
     }
 
     /**
-     * @param array{direction:string,accountId?:string|null,bankName?:string,checkNumber?:string,amount:float|string,issueDate?:string,dueDate?:string,contactId?:string|null,partyName?:string,categoryId?:string|null,description?:string} $data
+     * @param array{direction:string,accountId?:string|null,bankName?:string,checkNumber?:string,amount:float|string,issueDate?:string,dueDate?:string,contactId?:string|null,partyName?:string,categoryId?:string|null,costCenterId?:string|null,description?:string} $data
      */
     public function create(string $companyId, array $data): array
     {
@@ -118,6 +120,10 @@ final class CheckService
         }
         $categoryId = $this->nullableUuid($data['categoryId'] ?? null);
         $contactId  = $this->nullableUuid($data['contactId'] ?? null);
+        // Mismo criterio que `MovementService::resolveCostCenterId()`: acá hubo
+        // un humano eligiendo en un selector, así que un centro inexistente o
+        // archivado LANZA en vez de degradarse a null en silencio.
+        $costCenterId = $this->resolveCostCenterId($companyId, $data['costCenterId'] ?? null);
 
         $id = ncmInsert([
             'records' => [
@@ -131,7 +137,8 @@ final class CheckService
                 'duedate'     => !empty($data['dueDate']) ? $this->normalizeDate($data['dueDate'], $companyId) : null,
                 'contactid'   => $contactId,
                 'partyname'   => (string) ($data['partyName'] ?? '') ?: null,
-                'categoryid'  => $categoryId,
+                'categoryid'   => $categoryId,
+                'costcenterid' => $costCenterId,
                 'status'      => 'pending',
                 'description' => (string) ($data['description'] ?? '') ?: null,
             ],
@@ -171,6 +178,11 @@ final class CheckService
      * `ensureMovement()` no genere un `fin_movement` sin clasificar al
      * efectivizarse. El usuario puede recategorizarlo después vía `update()`.
      *
+     * $costCenterId (mig 188): el centro de costo de la COMPRA que emitió el
+     * cheque — mismo viaje que la categoría. A diferencia de `create()`, acá
+     * un valor inválido se degrada a null en vez de lanzar: este camino es un
+     * hook best-effort y no puede tumbar la compra por una imputación.
+     *
      * @param array{identifier?:string,bankName?:string,dueDate?:string,price?:float,total?:float} $line
      */
     public function createFromPayment(
@@ -180,7 +192,8 @@ final class CheckService
         string $direction,
         ?string $contactId = null,
         ?string $partyName = null,
-        ?string $categoryId = null
+        ?string $categoryId = null,
+        ?string $costCenterId = null
     ): ?array {
         if (!preg_match(self::UUID_RE, $transactionId) || !in_array($direction, self::DIRECTIONS, true)) {
             return null;
@@ -202,8 +215,9 @@ final class CheckService
         $checkNumber = trim((string) ($line['identifier'] ?? '')) ?: null;
         $bankName    = trim((string) ($line['bankName'] ?? '')) ?: null;
         $dueDateRaw  = trim((string) ($line['dueDate'] ?? ''));
-        $contactId   = $this->nullableUuid($contactId);
-        $categoryId  = $this->nullableUuid($categoryId);
+        $contactId    = $this->nullableUuid($contactId);
+        $categoryId   = $this->nullableUuid($categoryId);
+        $costCenterId = $this->nullableUuid($costCenterId);
 
         $id = ncmInsert([
             'records' => [
@@ -218,6 +232,7 @@ final class CheckService
                 'contactid'     => $contactId,
                 'partyname'     => $partyName !== null && $partyName !== '' ? $partyName : null,
                 'categoryid'    => $categoryId,
+                'costcenterid'  => $costCenterId,
                 'status'        => 'pending',
                 'description'   => null,
                 'transactionid' => $transactionId,
@@ -268,6 +283,9 @@ final class CheckService
         }
         if (array_key_exists('categoryId', $data)) {
             $records['categoryid'] = $this->nullableUuid($data['categoryId']);
+        }
+        if (array_key_exists('costCenterId', $data)) {
+            $records['costcenterid'] = $this->resolveCostCenterId($companyId, $data['costCenterId']);
         }
         if (array_key_exists('contactId', $data)) {
             $records['contactid'] = $this->nullableUuid($data['contactId']);
@@ -404,17 +422,22 @@ final class CheckService
         // Reemplaza el patrón SELECT-luego-INSERT anterior, que dejaba una
         // ventana TOCTOU: dos requests marcando 'cleared' a la vez chocaban
         // contra el UNIQUE como error duro en vez de resolver como no-op.
+        //
+        // `costcenterid` viaja igual que `categoryid` (mig 188) pero NO entra
+        // en la clave del ON CONFLICT — es un destino único del cheque, no
+        // algo que lo parta en porciones (mismo criterio que la mig 167 para
+        // las compras).
         $inserted = ncmExecute(
             'INSERT INTO fin_movement
-                (companyid, accountid, categoryid, kind, amount, date, description,
+                (companyid, accountid, categoryid, costcenterid, kind, amount, date, description,
                  source, sourceid, checkid, userid, outletid, status)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
              ON CONFLICT (companyid, source, sourceid, accountid, COALESCE(categoryid, \'00000000-0000-0000-0000-000000000000\'::uuid))
                  WHERE sourceid IS NOT NULL
              DO NOTHING
              RETURNING movementid',
             [
-                $companyId, $check['accountId'], $check['categoryId'], $kind, $check['amount'],
+                $companyId, $check['accountId'], $check['categoryId'], $check['costCenterId'], $kind, $check['amount'],
                 TenantClock::now($companyId), $description, self::SOURCE, $checkId, $checkId, $userId, $outletId,
             ]
         );
@@ -461,6 +484,28 @@ final class CheckService
         return ($val !== '' && preg_match(self::UUID_RE, $val)) ? $val : null;
     }
 
+    /**
+     * Valida el centro de costo que llega de un formulario del panel — copia
+     * exacta del criterio de `MovementService::resolveCostCenterId()`: lanza
+     * en vez de degradar a null, porque hubo un humano eligiendo en un
+     * selector y guardar algo distinto de lo que eligió es peor que el error.
+     * Rechaza los ARCHIVADOS (`CostCenterService::isAssignable`).
+     */
+    private function resolveCostCenterId(string $companyId, mixed $raw): ?string
+    {
+        $id = trim((string) ($raw ?? ''));
+        if ($id === '') {
+            return null;
+        }
+        if (!preg_match(self::UUID_RE, $id)) {
+            throw new \RuntimeException('costCenterId inválido');
+        }
+        if (!(new CostCenterService())->isAssignable($id, $companyId)) {
+            throw new \RuntimeException('Centro de costo no encontrado o archivado');
+        }
+        return $id;
+    }
+
     private function normalizeDate(?string $val, string $companyId): string
     {
         $val = $val !== null ? trim($val) : '';
@@ -489,6 +534,8 @@ final class CheckService
             'partyName'    => $f['partyname'] !== null ? (string) $f['partyname'] : null,
             'categoryId'   => $f['categoryid'] !== null ? (string) $f['categoryid'] : null,
             'categoryName' => $f['categoryname'] !== null ? (string) $f['categoryname'] : null,
+            'costCenterId'   => isset($f['costcenterid']) && $f['costcenterid'] !== null ? (string) $f['costcenterid'] : null,
+            'costCenterName' => isset($f['costcentername']) && $f['costcentername'] !== null ? (string) $f['costcentername'] : null,
             'status'       => (string) $f['status'],
             'clearedDate'  => $f['cleareddate'] !== null ? (string) $f['cleareddate'] : null,
             'description'  => $f['description'] !== null ? (string) $f['description'] : null,

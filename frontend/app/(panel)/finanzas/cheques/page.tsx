@@ -48,6 +48,7 @@ import { formatDate } from "@/lib/format-date"
 import { useBootstrap } from "@/hooks/use-bootstrap"
 import { useFinanceAccounts } from "@/hooks/use-finance-accounts"
 import { useFinanceCategories } from "@/hooks/use-finance-categories"
+import { useFinanceCostCenters } from "@/hooks/use-finance-cost-centers"
 import {
   useFinanceChecks,
   useCreateFinanceCheck,
@@ -57,6 +58,9 @@ import {
   type CheckDirection,
   type CheckStatus,
 } from "@/hooks/use-finance-checks"
+
+/** Centinela del Select: Radix no acepta un SelectItem con value="". */
+const NO_VALUE = "__none__"
 
 const DIRECTION_LABELS: Record<CheckDirection, string> = {
   issued: "Emitido",
@@ -315,6 +319,9 @@ const checkFormSchema = z.object({
   direction: z.enum(["issued", "received"]),
   accountId: z.string().optional(),
   categoryId: z.string().optional(),
+  // Opcional, igual que en los movimientos manuales: clasificar ayuda a los
+  // reportes pero no traba la carga del cheque.
+  costCenterId: z.string().optional(),
   bankName: z.string().optional(),
   checkNumber: z.string().optional(),
   amount: z.number({ error: "Ingresá un monto" }).positive("El monto debe ser mayor a 0"),
@@ -335,6 +342,7 @@ function CheckFormDialog({
 }) {
   const { data: accounts } = useFinanceAccounts()
   const { data: categories } = useFinanceCategories()
+  const { data: costCenters } = useFinanceCostCenters()
   const createCheck = useCreateFinanceCheck()
 
   const {
@@ -350,6 +358,7 @@ function CheckFormDialog({
       direction: "received",
       accountId: "",
       categoryId: "",
+      costCenterId: NO_VALUE,
       bankName: "",
       checkNumber: "",
       amount: 0,
@@ -388,6 +397,7 @@ function CheckFormDialog({
         direction: values.direction,
         accountId: values.accountId || null,
         categoryId: values.categoryId || null,
+        costCenterId: values.costCenterId === NO_VALUE ? null : values.costCenterId,
         bankName: values.bankName?.trim() || undefined,
         checkNumber: values.checkNumber?.trim() || undefined,
         amount: values.amount,
@@ -524,6 +534,31 @@ function CheckFormDialog({
                       {filteredCategories.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+              />
+            </div>
+
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label htmlFor="check-cost-center">Centro de costo</Label>
+              <Controller
+                name="costCenterId"
+                control={control}
+                render={({ field }) => (
+                  // Sin filtrar por dirección: un centro de costo no tiene
+                  // signo contable — el mismo centro recibe gastos e ingresos.
+                  <Select value={field.value ?? NO_VALUE} onValueChange={field.onChange}>
+                    <SelectTrigger id="check-cost-center">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_VALUE}>Sin centro de costo</SelectItem>
+                      {(costCenters ?? []).map((cc) => (
+                        <SelectItem key={cc.id} value={cc.id}>
+                          {cc.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
