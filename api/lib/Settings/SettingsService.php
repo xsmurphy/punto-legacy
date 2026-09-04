@@ -559,11 +559,22 @@ final class SettingsService
             }
         }
 
+        // UNA fila por MONEDA, no por país. El roster sale de un JSON de
+        // PAÍSES y varios comparten moneda (USD: Ecuador, El Salvador,
+        // Panamá...). Sin este dedup, cargar la cotización de USD la hacía
+        // matchear todas esas filas: el POS mostraba "USD 2.813,56" cuatro
+        // veces bajo el total, el editor de Ajustes pintaba cuatro inputs
+        // para la misma moneda (y su key de React ya estaba parchada con el
+        // idx para taparlo), y el picker de precios por moneda ofrecía USD
+        // repetido. La moneda es la entidad; el país solo aporta la bandera
+        // (`ccode`) — se queda el primero que la trae.
         $rows = [];
+        $seen = [];
         foreach ($countries as $ccode => $v) {
-            $code = $v['currency']['code'] ?? null;
-            if ($code === null || $code === '') { continue; }
-            $rows[] = ['ccode' => (string) $ccode, 'code' => (string) $code, 'value' => $saved[(string) $code] ?? 0];
+            $code = (string) ($v['currency']['code'] ?? '');
+            if ($code === '' || isset($seen[$code])) { continue; }
+            $seen[$code] = true;
+            $rows[] = ['ccode' => (string) $ccode, 'code' => $code, 'value' => $saved[$code] ?? 0];
         }
         return ['rows' => $rows];
     }
@@ -582,11 +593,18 @@ final class SettingsService
         }
 
         $updt = [];
+        $seen = [];
         foreach ($list as $val) {
             if (!is_array($val)) { continue; }
             $amount   = (float) ($val['value'] ?? 0);
             $currency = preg_replace('/[^a-z]/i', '', (string) ($val['code'] ?? ''));
             if ($currency === '' || strlen($currency) > 3) { continue; }
+            // Dedup espejo del de currencies(): un cliente viejo (o el editor
+            // antes del fix) mandaba USD repetido por cada país que lo usa, y
+            // acá se guardaba repetido. Primera aparición gana — es la que el
+            // usuario ve arriba en el editor.
+            if (isset($seen[$currency])) { continue; }
+            $seen[$currency] = true;
             if ($amount > 0) { $updt[] = [$currency => $amount]; }
         }
         $obj['currencies'] = $updt;

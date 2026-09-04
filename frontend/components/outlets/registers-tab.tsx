@@ -310,7 +310,14 @@ export function RegistersTab({ outletId }: { outletId: string }) {
         return (
           <div className="flex flex-col gap-0.5">
             <span className="text-sm font-medium">{lease.deviceName || "Dispositivo sin nombre"}</span>
-            <span className="text-xs text-muted-foreground">desde {niceLeaseDate(lease.takenAt)}</span>
+            {/* "dispositivo" explícito: el tenedor es el APARATO, y su nombre
+                lo elige el comercio al parearlo — "Caja Sucursal Alfred" o
+                "Mac Gabriela" se leen como cajas o personas, y el owner mismo
+                leyó esta columna sin reconocer qué era (2026-09-04). La celda
+                tiene que decir qué clase de cosa está nombrando. */}
+            <span className="text-xs text-muted-foreground">
+              dispositivo · desde {niceLeaseDate(lease.takenAt)}
+            </span>
             {lease.orphaned && (
               <Badge variant="destructive" className="w-fit">
                 Ya no está en esta caja
