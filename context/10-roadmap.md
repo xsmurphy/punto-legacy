@@ -49,14 +49,45 @@ seguridad, con dos casos nuevos en el arnés de permisos (217 checks).
 - **TZ "Asunción" hardcodeada** en migs 157/160 y `period-close.php` (deuda ya
   registrada): rompe silenciosamente con el primer tenant no-PY.
 
-## Agente con acceso a recetas y órdenes de producción (owner 2026-09-04) — sin planificar
+## Agente como ASISTENTE REAL del negocio (owner 2026-09-04) — sin planificar
 
-El pedido, en palabras del owner: poder preguntarle al bot de Punto cosas como
-"¿cuántos kg de pollo necesito para hacer 20 platos de pollo a la mostaza?",
-analizar con él recetas o necesidades de producción, y que pueda **crearle
-órdenes de producción**.
+La visión, en palabras del owner: que el agente tenga capacidades de un
+asistente o personal real del negocio — que el dueño pueda preguntarle no solo
+informes de ventas sino también sobre la **salud del stock**, **recetas**, que
+**analice** con él. Ejemplos concretos que dio: "¿cuántos kg de pollo necesito
+para hacer 20 platos de pollo a la mostaza?", analizar recetas o necesidades de
+producción, y que pueda **crearle órdenes de producción**.
 
-Encuadre técnico (sin plan cerrado):
+Esto AMPLÍA el alcance acotado vigente del agente ("solo lecturas + escrituras
+simples") hacia dominios de análisis. No lo deroga en escritura: cada
+escritura nueva sigue pasando por permisos del operador + `confirmToken`.
+
+### Qué ya existe (no re-construir)
+
+- ~20 tools de lectura en el catálogo compartido (`frontend/lib/agent/
+  read-tools.ts`, panel + MCP): ventas/KPIs, stock CRUDO por sucursal,
+  finanzas, contactos, transacciones, reportes (`get_report`).
+- Contexto del negocio en texto libre (`context/69`, plan cerrado): el agente
+  sabrá QUÉ negocio es — prerequisito para que "analizá mi stock" tenga
+  criterio.
+- Escrituras con confirmación (`AgentActor`, `context/59`) y el patrón de
+  auditoría de `context/66`.
+
+### Qué falta (los huecos reales)
+
+1. **Salud de stock como TOOL de análisis, no cálculo del modelo**: hoy el
+   agente puede traer el stock crudo, pero rotación, cobertura en días,
+   quiebres, ítems bajo mínimo y stock muerto tendría que calcularlos
+   iterando ítems en el prompt — caro y poco confiable. La respuesta correcta
+   es una tool que devuelva el análisis ya agregado server-side (los rollups
+   de `context/18`/`rollup_stock` son la fuente natural).
+2. **Recetas y producción** — ver sección siguiente (mismo pedido).
+3. **Análisis proactivo vs. reactivo**: "comentame sobre la salud del stock"
+   hoy solo puede ser una pregunta del dueño. Si la visión incluye que el
+   agente AVISE (digest, alertas), eso es otra pieza (cron + canal de
+   entrega) y conviene decidirla aparte — no colarla en la primera iteración.
+
+### Recetas y órdenes de producción — encuadre técnico (sin plan cerrado)
 
 - **Lectura de recetas**: hoy el catálogo compartido de lectura
   (`frontend/lib/agent/read-tools.ts`, agente del panel + MCP, `context/58`) no
