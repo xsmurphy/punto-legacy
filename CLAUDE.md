@@ -56,7 +56,7 @@ siempre describe el ahora — el `_session-log.md` es el índice histórico.
 | **Reportes fiscales PY (RG90 / Marangatu)** | `46-reportes-fiscales-plan.md` (F5 de `context/38`; plan sin implementar, D1-D4 cerradas por el owner) |
 | **Add-ons y combos** | `41-addons-y-combos.md` (F1-F5 implementadas, D1-D3 cerradas; F6 reportes y 2 gaps de F5 pendientes) |
 | **Multi-moneda (ventas, compras, arqueo)** | `42-multi-moneda.md` (feature request, sin planificar) |
-| **Remisión (traslado de mercadería)** | `42-remision.md` (implementada 2026-08-15, sin conexión SIFEN) |
+| **Remisión (traslado de mercadería)** | `42-remision.md` (implementada 2026-08-15 como documento interno. **Plan SIFEN agregado 2026-09-04**, D1-D6 PROPUESTAS sin OK del owner — R0 verifica contra la cuenta real de Factomate antes de construir. Lo estructural: el outbox `einvoice_document` se generaliza a `(source, sourceid)` —patrón `fin_movement`— porque hoy exige `transactionid` y una remisión no tiene transacción; NUNCA meter el remisionid disfrazado ahí. Datos de transporte en satélite 1:1 `document_remision_transporte`, mapper propio doctype NR, timbrado/serie por doctype, emisión como acción explícita. Ver §Arquitecturas rechazadas antes de proponer nada) |
 | **Sync incremental del POS (reconexión/arranque, lápidas de borrado)** | `43-sync-incremental.md` (implementado 2026-08-16; arranque en frío usa bootstrap completo por decisión explícita, no es un pendiente) |
 | **Listas de precio offline (motor espejo + bajada al bootstrap)** | `44-listas-de-precio-offline.md` (plan sin implementar, D0-D6) |
 | **Ítem/contacto como raíces de sync (trigger genérico de satélites)** | `45-satelites-item-contact-sync.md` (implementado 2026-08-17, mig 139; generalizó el D1 de 44) |

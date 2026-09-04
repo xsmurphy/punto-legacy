@@ -178,19 +178,125 @@ funciona es peor"). Queda para una fase POS aparte si el owner la prioriza.
   flujo real es "remisión primero, factura días después" con necesidad de
   auditar el link — hoy queda manual (nadie lo pidió explícitamente).
 
-## Qué queda para SIFEN
+## Plan SIFEN — remisión electrónica (Nota de Remisión, tipo 7)
 
-- **Scope de numeración** outlet → register, si el timbrado de remisión
-  paraguayo lo exige por punto de expedición (a confirmar contra la
-  especificación real de SIFEN para remisión electrónica).
-- **Motivo → campos exigidos por SIFEN**: la tabla 3 de la SET.py define
-  campos específicos por motivo de traslado (ej. transportista, vehículo,
-  chofer para traslados propios) que hoy no se capturan. `motivo` como
-  columna tipada (en vez de texto libre) es justamente lo que permite sumar
-  esos campos condicionalmente sin romper lo ya emitido.
-- **Emisión electrónica real** — `api/lib/EInvoice/*` (Factomate/SIFEN,
-  context/28) no fue tocado. Cuando se conecte, `document_remision` y
-  `stock_transfer` son las dos fuentes que hay que mapear a la remisión
-  electrónica (mismo patrón que `SaleToInvoiceMapper` hace para factura).
-- **POS**: flujo de emisión de remisión-por-venta desde el carrito, si el
-  owner lo prioriza (ver §POS arriba).
+> **Estado:** plan escrito 2026-09-04, sin implementar. D1-D6 son PROPUESTAS
+> sin OK del owner. Reemplaza a la vieja sección "Qué queda para SIFEN", que
+> era un memo de pendientes — esto es el plan.
+
+### El punto de partida honesto
+
+La remisión de hoy es un documento INTERNO completo (esta misma página lo
+documenta). La emisión electrónica no es "conectarla": le faltan los datos
+que SIFEN exige, el outbox de FE no puede transportarla, y el mapper no
+conoce el tipo 7. Son tres problemas distintos y conviene no mezclarlos.
+
+Lo que la remisión hereda GRATIS por venir última: el outbox con
+reintentos/backoff (mig 92), el job `einvoice-reconcile` (2026-09-03) y el
+rechazo de SIFEN visible con su motivo (`sifen_status` manda sobre `status`,
+`lib/einvoice/sifen-status.ts`). Nada de eso hay que repetirlo.
+
+### D1 [?] — El outbox se generaliza a (source, sourceid); NUNCA un remisionid disfrazado
+
+`einvoice_document.transactionid` es `NOT NULL`, la idempotencia es
+`UNIQUE(companyid, transactionid, doctype)` (mig 92) y `documents()` hace
+JOIN contra `transaction`. Una remisión vive en `document_remision` — no
+tiene fila de transacción, y meterle el `remisionid` en una columna llamada
+`transactionid` es mentir en el schema: cada consumidor nuevo tendría que
+"saber" que a veces ese UUID no es una transacción.
+
+Mig: `source VARCHAR` (default `'transaction'`) + `sourceid UUID`, backfill
+`sourceid = transactionid`, y el UNIQUE pasa a
+`(companyid, source, sourceid, doctype)`. `transactionid` queda una fase
+como columna legacy de lectura y después se dropea. Es el MISMO patrón que
+`fin_movement` ya usa (`source`/`sourceid`) en este codebase — no inventamos
+nada.
+
+Riesgo alto (idempotencia fiscal): la fase que lo toca no se mergea sin
+harness (ver abajo) y sin `code-reviewer`.
+
+### D2 [?] — Los datos de traslado van en un satélite 1:1, no en la cabecera
+
+SIFEN exige por remisión: transportista (propio/tercero, RUC/documento,
+domicilio), chofer (nombre, documento), vehículo (tipo, marca, chapa),
+modalidad de transporte, kilómetros estimados, y direcciones de SALIDA y
+LLEGADA estructuradas con los códigos geográficos de la SET
+(departamento/distrito/ciudad). `destinationnote TEXT` no sirve para nada de
+esto.
+
+Tabla nueva `document_remision_transporte` (1:1 con la remisión, nullable
+por diseño): una remisión interna sigue creándose igual que hoy, sin cargar
+nada; los campos se exigen recién AL EMITIR electrónicamente, condicionales
+por `motivo` — que es exactamente la razón por la que `motivo` se hizo
+columna tipada en la mig 137. NO se ensancha `document_remision`: veinte
+columnas nullable que el 90% de las remisiones no usa es peor que un
+satélite que existe solo cuando hay traslado declarado.
+
+Los códigos geográficos son una tabla de referencia seedeada del catálogo de
+la SET (compartible a futuro con la dirección del cliente en la factura).
+Texto libre + código, nunca solo texto.
+
+### D3 [?] — Mapper propio; la remisión NO es una variante de la factura
+
+`SaleToInvoiceMapper` arma montos, condición de venta, medios de pago, IVA.
+La remisión no tiene nada de eso: tiene ítems con cantidades y un traslado.
+Mapper nuevo (`RemisionToDocumentMapper`) que lee `document_remision` +
+`document_remision_transporte`, doctype `'NR'` en el outbox. Compartir
+helpers puntuales (identidad del receptor, timbrado) está bien; heredar del
+mapper de factura no.
+
+### D4 [?] — Timbrado y serie POR TIPO DE DOCUMENTO
+
+`einvoice_account.stamp` cachea UN timbrado y `config['series']` es un
+string único — alcanzaba porque factura y NC comparten. La remisión lleva el
+suyo: la config pasa a resolver timbrado/serie por doctype, con el actual
+como default para no tocar lo emitido. Qué timbrado tiene la cuenta real lo
+responde R0, no una suposición.
+
+### D5 [?] — La emisión es una ACCIÓN explícita, no un efecto del create
+
+La factura se encola al cerrar la venta porque la venta ya tiene todo. La
+remisión no: los datos de transporte pueden cargarse después de crear el
+documento (el camión se define a la mañana siguiente). Botón "Emitir a
+SIFEN" en el detalle, que valida los campos exigidos por el motivo y recién
+ahí encola. Emitir en el create rompería el flujo interno que hoy funciona.
+
+### D6 [?] — Numeración: se resuelve con la especificación en la mano, no antes
+
+Hoy el correlativo es `(companyid, outletid, docnumber)` — scope outlet, y
+esta misma página documenta el porqué. Si la spec de remisión electrónica
+exige punto de expedición (sucursal+caja, `context/29`), es mig + backfill.
+Se decide en R0 contra la especificación real; cambiar la numeración "por
+las dudas" es la clase de trabajo que después hay que deshacer.
+
+### Fases
+
+| Fase | Qué entrega | Depende de |
+|------|-------------|-----------|
+| **R0** | **Verificar contra la cuenta real de Factomate**: ¿remisión habilitada? ¿qué timbrado/serie? ¿qué campos exige por motivo (tabla 3 de la SET)? ¿numeración por punto de expedición? Cierra D6 y el detalle de D2. | — |
+| **R1** | Mig del outbox a `(source, sourceid)` + backfill + harness. CERO cambio de comportamiento para factura/NC. | — |
+| **R2** | Mig `document_remision_transporte` + catálogo geográfico + UI condicional por motivo en el form. | R0 |
+| **R3** | Mapper NR + botón "Emitir a SIFEN" + doctype en las dos superficies de estado. KuDE de remisión en el portal si Factomate lo entrega. | R1, R2 |
+| **R4** | `stock_transfer` como segunda fuente (traslado interno): mismo outbox, mismo mapper con origen/destino propios. | R3 |
+| **R5** | Numeración por punto de expedición, SOLO si R0 lo confirmó. | R0 |
+
+### El arnés de R1
+
+- Factura y NC siguen emitiendo idéntico (mismo UNIQUE efectivo, mismos
+  reintentos) — corre el flujo completo contra Postgres real.
+- Doble enqueue de la misma remisión = una sola fila (idempotencia por
+  `(companyid, source, sourceid, doctype)`).
+- Un `sourceid` de remisión jamás matchea el JOIN de transacciones — el
+  listado no inventa filas.
+
+### Arquitecturas rechazadas
+
+- **`remisionid` adentro de `einvoice_document.transactionid`** — ver D1. Es
+  el parche que sale solo y el que convierte cada lector futuro del outbox
+  en una decisión de riesgo.
+- **Ensanchar `document_remision` con los campos de transporte** — ver D2.
+- **Heredar `SaleToInvoiceMapper`** — ver D3: la remisión no es una factura
+  sin montos, es otro documento.
+- **Emitir automáticamente al crear la remisión** — ver D5: obligaría a
+  cargar el transporte antes de que exista, o a emitir XML incompletos.
+- **Cambiar la numeración antes de leer la spec** — ver D6.
