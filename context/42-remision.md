@@ -180,9 +180,10 @@ funciona es peor"). Queda para una fase POS aparte si el owner la prioriza.
 
 ## Plan SIFEN — remisión electrónica (Nota de Remisión, tipo 7)
 
-> **Estado:** plan escrito 2026-09-04, sin implementar. D1-D6 son PROPUESTAS
-> sin OK del owner. Reemplaza a la vieja sección "Qué queda para SIFEN", que
-> era un memo de pendientes — esto es el plan.
+> **Estado:** plan escrito 2026-09-04, sin implementar. D1-D5 son PROPUESTAS
+> sin OK del owner. **R0 EJECUTADO el mismo día contra la cuenta DEV real de
+> Factomate** (credenciales del owner) — resultados en §R0, que corrigieron
+> D2/D4 y CERRARON D6. Reemplaza a la vieja sección "Qué queda para SIFEN".
 
 ### El punto de partida honesto
 
@@ -232,9 +233,12 @@ columna tipada en la mig 137. NO se ensancha `document_remision`: veinte
 columnas nullable que el 90% de las remisiones no usa es peor que un
 satélite que existe solo cuando hay traslado declarado.
 
-Los códigos geográficos son una tabla de referencia seedeada del catálogo de
-la SET (compartible a futuro con la dirección del cliente en la factura).
-Texto libre + código, nunca solo texto.
+Los códigos geográficos NO se seedean a mano de la SET: **Factomate los
+sirve** (`GET /api/Department/get`, `GET /api/City/get` — la city trae
+distrito y departamento anidados; verificado contra DEV 2026-09-04). Se
+cachean como referencia local y se refrescan del mismo lugar del que se
+emite. Texto libre + código, nunca solo texto. (`District/get` a secas
+devuelve 500 — pedir por city, que ya lo trae.)
 
 ### D3 [?] — Mapper propio; la remisión NO es una variante de la factura
 
@@ -245,13 +249,19 @@ Mapper nuevo (`RemisionToDocumentMapper`) que lee `document_remision` +
 helpers puntuales (identidad del receptor, timbrado) está bien; heredar del
 mapper de factura no.
 
-### D4 [?] — Timbrado y serie POR TIPO DE DOCUMENTO
+### D4 [?] — No es "timbrado nuevo": es una fila `BranchDocumentType` tipo 7, y la crea NUESTRO provisioning
 
-`einvoice_account.stamp` cachea UN timbrado y `config['series']` es un
-string único — alcanzaba porque factura y NC comparten. La remisión lleva el
-suyo: la config pasa a resolver timbrado/serie por doctype, con el actual
-como default para no tocar lo emitido. Qué timbrado tiene la cuenta real lo
-responde R0, no una suposición.
+R0 corrigió la hipótesis original ("timbrado y serie por doctype"). En la
+cuenta real el MISMO número de timbrado cubre varios doctypes del mismo
+emisor (verificado en DEV: un tenant usa el timbrado 1425275 para factura,
+autofactura Y nota de crédito) — lo que existe POR doctype es la fila
+`BranchDocumentType`, con su `CurrentNumber` propio.
+
+Y esa fila no la pide nadie por mail: `EInvoiceProvisioningService` YA crea
+los `BranchDocumentType` de FC y NC por caja (`POST /api/BranchDocumentType`)
+y guarda el mapa registerId → {fc, nc}. Habilitar remisión = extender ese
+provisioning con la fila tipo 7 y el mapa a {fc, nc, nr}. La config de Punto
+resuelve el id de fila por doctype; el timbrado es el que ya está.
 
 ### D5 [?] — La emisión es una ACCIÓN explícita, no un efecto del create
 
@@ -261,24 +271,34 @@ documento (el camión se define a la mañana siguiente). Botón "Emitir a
 SIFEN" en el detalle, que valida los campos exigidos por el motivo y recién
 ahí encola. Emitir en el create rompería el flujo interno que hoy funciona.
 
-### D6 [?] — Numeración: se resuelve con la especificación en la mano, no antes
+### D6 — CERRADA por R0: la numeración interna NO se toca
 
-Hoy el correlativo es `(companyid, outletid, docnumber)` — scope outlet, y
-esta misma página documenta el porqué. Si la spec de remisión electrónica
-exige punto de expedición (sucursal+caja, `context/29`), es mig + backfill.
-Se decide en R0 contra la especificación real; cambiar la numeración "por
-las dudas" es la clase de trabajo que después hay que deshacer.
+El miedo original era que SIFEN exigiera renumerar `document_remision` por
+punto de expedición. R0 lo disolvió: **el número fiscal lo asigna la
+SET/Factomate al emitir** — el mapper ya manda `number => -1` con el
+comentario "SIEMPRE -1: numera la SET, no configurable", y `CurrentNumber`
+vive del lado de Factomate por fila `BranchDocumentType`. El `docnumber`
+interno (scope outlet) es el correlativo OPERATIVO del documento interno y
+convive con el número fiscal, igual que en la factura. Sin mig, sin
+backfill. La vieja R5 muere con esta decisión.
+
+**La pregunta que SÍ queda viva (owner):** el `BranchDocumentType` es por
+CAJA (punto de expedición = caja, `context/29`), pero la remisión se emite
+desde el PANEL — ¿contra el punto de expedición de qué caja sale? Opciones:
+una caja designada por sucursal para documentos de backoffice, o un punto de
+expedición propio de la sucursal. Es la única decisión de numeración real
+del slice.
 
 ### Fases
 
 | Fase | Qué entrega | Depende de |
 |------|-------------|-----------|
-| **R0** | **Verificar contra la cuenta real de Factomate**: ¿remisión habilitada? ¿qué timbrado/serie? ¿qué campos exige por motivo (tabla 3 de la SET)? ¿numeración por punto de expedición? Cierra D6 y el detalle de D2. | — |
+| **R0** | ~~Verificar contra la cuenta real de Factomate~~ **HECHO 2026-09-04** (DEV, credenciales del owner). Resultados: tipo 7 "Nota de remisión electrónica" EXISTE en el catálogo (`/api/DocumentType/get`, Identifier 7) pero NINGÚN tenant DEV lo tiene provisionado en `BranchDocumentType`; el timbrado se comparte entre doctypes (ver D4); la numeración fiscal la asigna la SET (ver D6); los catálogos geográficos los sirve Factomate (ver D2). **Pendiente de R0**: el shape del payload `/Bulk` para tipo 7 — la guía de integración solo documenta `documentTypeCode: 1`; pedir la spec a Automate o probar contra un tenant DEV con la fila tipo 7 ya creada. Bonus: la hipótesis del `/Token` (OAuth2 password grant, flageada "SIN VERIFICAR" en `FactomateProvider::token()`) quedó VERIFICADA contra la API real. | — |
 | **R1** | Mig del outbox a `(source, sourceid)` + backfill + harness. CERO cambio de comportamiento para factura/NC. | — |
-| **R2** | Mig `document_remision_transporte` + catálogo geográfico + UI condicional por motivo en el form. | R0 |
+| **R2** | Mig `document_remision_transporte` + cache del catálogo geográfico de Factomate + UI condicional por motivo en el form. | spec del payload (resto de R0) |
 | **R3** | Mapper NR + botón "Emitir a SIFEN" + doctype en las dos superficies de estado. KuDE de remisión en el portal si Factomate lo entrega. | R1, R2 |
 | **R4** | `stock_transfer` como segunda fuente (traslado interno): mismo outbox, mismo mapper con origen/destino propios. | R3 |
-| **R5** | Numeración por punto de expedición, SOLO si R0 lo confirmó. | R0 |
+| ~~R5~~ | Muerta — R0 confirmó que la numeración fiscal la asigna la SET y la interna no se toca (D6). | — |
 
 ### El arnés de R1
 
@@ -299,4 +319,5 @@ las dudas" es la clase de trabajo que después hay que deshacer.
   sin montos, es otro documento.
 - **Emitir automáticamente al crear la remisión** — ver D5: obligaría a
   cargar el transporte antes de que exista, o a emitir XML incompletos.
-- **Cambiar la numeración antes de leer la spec** — ver D6.
+- **Cambiar la numeración antes de leer la spec** — ver D6: R0 confirmó que
+  no había nada que cambiar. El rechazo queda como registro de método.

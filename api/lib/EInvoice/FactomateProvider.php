@@ -82,17 +82,13 @@ final class FactomateProvider implements EInvoiceProvider
 
     public function token(string $environment, string $phone, string $username, string $password): array
     {
-        // SIN VERIFICAR contra la API real: la guía documenta el endpoint
-        // (`POST /Token`, usuario+contraseña → bearer 15 min) pero no su
-        // content-type ni el shape exacto del body. Es un endpoint llamado
-        // literalmente "/Token" en un backend ASP.NET Web API — el patrón
-        // clásico de ASP.NET Identity/OWIN para ese path es un grant de
-        // password OAuth2 con `application/x-www-form-urlencoded` y campos
-        // `grant_type=password&username=...&password=...`. Se implementa
-        // así porque es la hipótesis más probable dado el nombre del
-        // endpoint, pero es una suposición — FLAGEADO en el reporte de esta
-        // tarea. Si falla contra la API real, este es el primer sospechoso
-        // (probar JSON con Content-Type: application/json como alternativa).
+        // VERIFICADO contra la API real de DEV (2026-09-04, R0 de remisión
+        // electrónica): el grant de password OAuth2 con
+        // `application/x-www-form-urlencoded` y campos
+        // `grant_type=password&username=...&password=...` devuelve
+        // `access_token` correctamente. La hipótesis original (patrón
+        // ASP.NET Identity/OWIN para un endpoint llamado "/Token") era
+        // correcta y este comentario deja de ser una suposición flageada.
         $raw = $this->requestForm('/Token', [
             'grant_type' => 'password',
             'username'   => $username,
