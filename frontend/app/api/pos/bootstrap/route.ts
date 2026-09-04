@@ -146,6 +146,10 @@ interface UpstreamBootstrap {
   companyTin?: string
   companyEmail?: string
   companyWebsite?: string
+  // Dirección y teléfono del tenant (company.config settingAddress/
+  // settingPhone) — los pide el ticket impreso, igual que los de arriba.
+  companyAddress?: string
+  companyPhone?: string
   /** Canales del módulo Bancard (bools ya resueltos por /v1/bootstrap). */
   bancardQr?: boolean
   bancardPos?: boolean
@@ -395,6 +399,8 @@ function reshapeConfig(bs: UpstreamBootstrap): PosConfig {
     companyTin: bs.companyTin || null,
     companyEmail: bs.companyEmail || null,
     companyWebsite: bs.companyWebsite || null,
+    companyAddress: bs.companyAddress || null,
+    companyPhone: bs.companyPhone || null,
     bancardQrEnabled: bs.bancardQr === true,
     bancardPosEnabled: bs.bancardPos === true,
     // Mapa genérico de pasarelas. Se completa con el flag legacy de Bancard

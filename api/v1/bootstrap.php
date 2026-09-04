@@ -52,6 +52,12 @@ $row = ncmExecute(
         config->>'settingRUC'               AS companytin,
         config->>'settingEmail'             AS companyemail,
         config->>'settingWebSite'           AS companywebsite,
+        -- Dirección y teléfono del tenant: MISMAS claves que lee
+        -- SettingsService::general(). Faltaban en toda la cadena, así que los
+        -- bloques `company_address`/`company_phone` de la plantilla salían
+        -- vacíos aunque el comercio los tuviera cargados en Ajustes.
+        config->>'settingAddress'           AS companyaddress,
+        config->>'settingPhone'             AS companyphone,
         -- Módulo Bancard: el toggle de /v1/modules escribe el flat key en
         -- company.config (ruteo de ncmUpdate) y los canales (qr/pos) en
         -- company.moduleData.bancard. El POS necesita los dos para saber si
@@ -337,6 +343,11 @@ $payload = [
     'companyTin'         => $row['companytin'] ?? '',
     'companyEmail'       => $row['companyemail'] ?? '',
     'companyWebsite'     => $row['companywebsite'] ?? '',
+    // Dirección y teléfono del tenant — mismo origen que los de arriba
+    // (company.config), consumidos por los bloques company_address/
+    // company_phone del ticket.
+    'companyAddress'     => $row['companyaddress'] ?? '',
+    'companyPhone'       => $row['companyphone'] ?? '',
     // Canales del módulo Bancard, ya resueltos a bool (módulo activo Y canal
     // no apagado en la config). El front no vuelve a combinar nada.
     'bancardQr'          => $bancardQr,

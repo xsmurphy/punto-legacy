@@ -3,6 +3,9 @@ import { buildSalePayload } from "@/lib/commands/create-sale"
 import type { PosConfig } from "@/lib/types/pos-bootstrap"
 import { useCatalogStore } from "@/lib/catalog/store"
 import { useCartStore } from "@/lib/cart/store"
+// Operador del PIN (nombre del cajero del ticket). Store zustand igual que los
+// dos de arriba; lock-store NO importa este módulo, así que no hay ciclo.
+import { useLockStore } from "@/lib/pos/lock-store"
 import { computeTaxes, type TaxKind } from "@/lib/tax/engine"
 import type { Tax } from "@/lib/types/tax"
 // Formateador único del correlativo (mig 159) — ver
@@ -40,15 +43,15 @@ export interface TicketData {
   outletPhone?: string | null
   // cliente
   customerName?: string
-  /** Ver nota de PosCustomer abajo — no modelado hoy, siempre null. */
   customerAddress?: string
   customerPhone?: string
   customerTin?: string
   /**
-   * customerAddress2/Location/City/Country/Phone2/Note/Loyalty/Birthday/
-   * Email: `PosCustomer` (`lib/types/pos-bootstrap.ts`) solo trae
-   * id/name/phone/tin/storeCredit/isCreditable. Requiere ampliar el modelo
-   * de cliente (backend `/v1/contacts` + bootstrap) para poblarlos.
+   * Datos extendidos del cliente — poblados desde `PosCustomer`
+   * (`lib/types/pos-bootstrap.ts`), que ahora sí los trae: `/v1/contacts`
+   * (`presentRow()`) los devolvía desde siempre y el reshape del POS los
+   * descartaba. `customerPhone2` es la excepción: la columna `contactPhone2`
+   * fue ELIMINADA de la tabla (mig 25), no hay dato que traer.
    */
   customerAddress2?: string | null
   customerLocation?: string | null
@@ -326,6 +329,10 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     amount: p.total,
   }))
 
+  // Correlativo ya formateado (mig 159). Se calcula UNA vez porque lo consumen
+  // dos bloques: `document_number` y `document_sufix` — ver nota en el return.
+  const paddedNumber = padDocumentNumber(result.invoiceNumber, state.invoicePadWidth) || undefined
+
   return {
     companyName: config?.companyName ?? "",
     // El logo es dato del TENANT (PosConfig.companyLogo). El bloque
@@ -335,6 +342,8 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     companyTin: config?.companyTin ?? null,
     companyEmail: config?.companyEmail ?? null,
     companyWebsite: config?.companyWebsite ?? null,
+    companyAddress: config?.companyAddress ?? undefined,
+    companyPhone: config?.companyPhone ?? undefined,
     outletName,
     outletAddress: state.outlet?.address ?? undefined,
     outletBillingName: state.outlet?.billingName ?? null,
@@ -343,6 +352,17 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     customerName: customer?.name,
     customerPhone: customer?.phone ?? undefined,
     customerTin: customer?.tin ?? undefined,
+    // Datos extendidos del cliente: los trae `PosCustomer` desde el reshape
+    // del BFF. `customerPhone2` no se completa — la columna no existe (mig 25).
+    customerAddress: customer?.address ?? undefined,
+    customerAddress2: customer?.address2 ?? null,
+    customerCity: customer?.city ?? null,
+    customerLocation: customer?.location ?? null,
+    customerCountry: customer?.country ?? null,
+    customerEmail: customer?.email ?? null,
+    customerNote: customer?.note ?? null,
+    customerBirthday: customer?.bday ?? null,
+    customerLoyalty: customer?.loyalty ?? null,
     docType: payload.type === 3 ? "credit" : "receipt",
     // Número de comprobante ya consumido del lease (online y offline, misma
     // fuente — ver CreateSalePayload.invoiceno). Antes esta key faltaba en
@@ -354,12 +374,22 @@ export function buildTicketData({ payload, result, config }: BuildTicketDataInpu
     // (`document_sequence.padwidth`, bajado en el bootstrap). El prefijo NO
     // se concatena acá — `document_prefix` es su propio bloque y la plantilla
     // decide si sale (context/08, "lo que se imprime lo decide la plantilla").
-    documentNumber: padDocumentNumber(result.invoiceNumber, state.invoicePadWidth) || undefined,
+    documentNumber: paddedNumber,
     documentPrefix: activeRegister?.expeditionPoint ?? undefined,
+    // No existe un "sufijo" como concepto propio en el backend: en la
+    // semántica de la demo (buildDemoTicketData) el prefijo es el punto de
+    // expedición y el sufijo ES el correlativo. En una venta real ese
+    // correlativo ya es `documentNumber`, así que el bloque `document_sufix`
+    // resuelve al MISMO valor en vez de quedar vacío.
+    documentSufix: paddedNumber,
     transactionId: result.transactionId,
     einvoiceUrl: result.einvoicePortalUrl ?? null,
     dueDate: payload.dueDate ?? null,
     tags: payload.tags,
+    // Cajero = el OPERADOR del PIN (lock-store), no el device: es quien
+    // efectivamente cobró y lo que el ticket tiene que atribuir. Null si el
+    // POS está operando sin sesión de operador abierta.
+    userName: useLockStore.getState().activeUser?.name ?? undefined,
     registerName,
     authNumber: activeRegister?.authNumber ?? null,
     authStartDate: activeRegister?.authStartDate ?? null,
@@ -570,6 +600,8 @@ export function buildTicketDataFromTransaction(
     companyTin: config?.companyTin ?? null,
     companyEmail: config?.companyEmail ?? null,
     companyWebsite: config?.companyWebsite ?? null,
+    companyAddress: config?.companyAddress ?? undefined,
+    companyPhone: config?.companyPhone ?? undefined,
     outletName: state.outlet?.name,
     outletAddress: state.outlet?.address ?? undefined,
     outletBillingName: state.outlet?.billingName ?? null,

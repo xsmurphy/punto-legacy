@@ -77,6 +77,13 @@ export interface PosConfig {
   companyEmail?: string | null
   companyWebsite?: string | null
   /**
+   * Dirección y teléfono del tenant (`settingAddress`/`settingPhone` de
+   * `company.config`, las mismas claves de Ajustes → General). `null` si no
+   * los cargó. Los consumen los bloques `company_address`/`company_phone`.
+   */
+  companyAddress?: string | null
+  companyPhone?: string | null
+  /**
    * Canales del módulo Bancard (panel → Módulos → Bancard), ya resueltos
    * server-side: módulo activo Y canal habilitado.
    *   - `bancardQrEnabled`  → botón "QR Bancard" en el cobro del POS.
@@ -379,6 +386,23 @@ export interface PosCustomer {
   storeCredit: number
   /** Es acreedor (permite venta a crédito type=3). */
   isCreditable: boolean
+  /**
+   * Datos extendidos del contacto — `/v1/contacts` (`presentRow()`) ya los
+   * devolvía y el reshape del POS los descartaba, así que los bloques de
+   * cliente del ticket salían vacíos. Todos OPCIONALES a propósito: un
+   * snapshot de IndexedDB anterior a este cambio sigue siendo válido (quedan
+   * `undefined` hasta el próximo sync, sin tocar la versión de la DB).
+   */
+  email?: string | null
+  note?: string | null
+  /** Cumpleaños (`contactBirthDay`), tal cual lo persiste el backend. */
+  bday?: string | null
+  loyalty?: string | null
+  address?: string | null
+  address2?: string | null
+  city?: string | null
+  location?: string | null
+  country?: string | null
 }
 
 // ── Empleado del outlet (roster del lock screen) ─────────────────────────────

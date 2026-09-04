@@ -142,6 +142,21 @@ export interface UpstreamContactRow {
    * (`contact-detail-view.tsx`: `isCreditable: false`).
    */
   isCreditable?: boolean | null
+  /**
+   * Datos extendidos que `presentRow()` YA devuelve — el reshape los tiraba y
+   * por eso los bloques de cliente del ticket salían vacíos aunque el dato
+   * estuviera cargado. `address`/`city`/`location` salen de la dirección por
+   * defecto del contacto, con fallback a las columnas planas (ver presentRow).
+   */
+  email?: string | null
+  note?: string | null
+  bday?: string | null
+  loyalty?: string | number | null
+  address?: string | null
+  address2?: string | null
+  city?: string | null
+  location?: string | null
+  country?: string | null
 }
 
 export function reshapeCustomer(row: UpstreamContactRow): PosCustomer {
@@ -158,5 +173,20 @@ export function reshapeCustomer(row: UpstreamContactRow): PosCustomer {
     // boolean `true` explícito (ausente, null, corrupto) cae a `false` —
     // mismo criterio conservador que usa el panel al crear un contacto.
     isCreditable: row.isCreditable === true,
+    // Datos extendidos: se propagan tal cual, sin normalizar ni derivar nada.
+    // La plantilla decide qué imprime (context/08) — acá solo se deja de
+    // perder el dato.
+    email: row.email ?? null,
+    note: row.note ?? null,
+    bday: row.bday ?? null,
+    // `contactLoyalty` es INT en la BD y PDO puede entregarlo numérico; el
+    // renderer del ticket asume string (wrapToWidth/toUpperCase). Se coerce
+    // acá, en la frontera, no en cada consumidor.
+    loyalty: row.loyalty != null ? String(row.loyalty) : null,
+    address: row.address ?? null,
+    address2: row.address2 ?? null,
+    city: row.city ?? null,
+    location: row.location ?? null,
+    country: row.country ?? null,
   }
 }
