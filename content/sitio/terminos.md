@@ -87,6 +87,8 @@ Tras la baja, el comercio tiene 30 días corridos para exportar sus datos. Venci
 
 La suscripción se paga por adelantado y no se devuelve la parte no usada del mes en curso: el servicio queda disponible hasta que termine el ciclo pagado.
 
+Tampoco se devuelve una vez iniciada la puesta en marcha de la cuenta —configuración, alta de sucursales y usuarios, importación de datos, acompañamiento—, porque ese trabajo consume recursos desde el primer día y no se recupera.
+
 Sí devolvemos el dinero cuando el cobro no correspondía —un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja ya efectiva— y cuando una falla del servicio atribuible a Punto impide operar y no la corregimos en un plazo razonable.
 
 El detalle completo —qué cubre, cómo se pide, en cuánto se responde y en cuánto se acredita— está en la Política de Reembolsos, en punto.la/reembolsos. Esa política forma parte de estos términos.

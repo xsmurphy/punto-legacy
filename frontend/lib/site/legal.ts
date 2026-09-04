@@ -152,6 +152,7 @@ export const TERMINOS: DocumentoLegal = {
       titulo: "Reembolsos",
       parrafos: [
         "La suscripción se paga por adelantado y no se devuelve la parte no usada del mes en curso: el servicio queda disponible hasta que termine el ciclo pagado.",
+        "Tampoco se devuelve una vez iniciada la puesta en marcha de la cuenta —configuración, alta de sucursales y usuarios, importación de datos, acompañamiento—, porque ese trabajo consume recursos desde el primer día y no se recupera.",
         "Sí devolvemos el dinero cuando el cobro no correspondía —un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja ya efectiva— y cuando una falla del servicio atribuible a Punto impide operar y no la corregimos en un plazo razonable.",
         `El detalle completo —qué cubre, cómo se pide, en cuánto se responde y en cuánto se acredita— está en la Política de Reembolsos, en ${EMPRESA.sitio}${REEMBOLSOS_URL}. Esa política forma parte de estos términos.`,
       ],
@@ -472,6 +473,15 @@ export const REEMBOLSOS: DocumentoLegal = {
         "La suscripción se paga por adelantado al inicio de cada ciclo mensual. Al dar de baja no devolvemos la parte no usada del mes en curso.",
         "Lo que sí garantizamos es que ese mes se presta completo: el servicio queda disponible con todas sus funciones hasta el último día del ciclo pagado, y después no se renueva ni se vuelve a cobrar.",
         "No hay contrato de permanencia, ni cargo por cancelar, ni monto mínimo. Dar de baja es escribir un mensaje.",
+      ],
+    },
+    {
+      titulo: "La puesta en marcha, una vez iniciada, no se devuelve",
+      parrafos: [
+        "Contratar Punto no es descargar un archivo: apenas se confirma el pago empieza un trabajo concreto sobre la cuenta. Crearla y configurarla, dar de alta sucursales, cajas y usuarios con sus permisos, importar el catálogo y los clientes, dejar operativa la facturación electrónica, y acompañar al equipo del comercio en la puesta en marcha.",
+        "Ese trabajo consume horas de nuestro equipo, infraestructura y servicios de terceros desde el primer día, y no se recupera si el comercio decide después no seguir. Por eso, una vez iniciada la puesta en marcha no devolvemos el importe pagado.",
+        "Vale igual si la cuenta se terminó usando poco o nada: lo que consume el recurso es el trabajo hecho y el servicio puesto a disposición, no cuánto se lo haya usado.",
+        "Esto no toca las cuatro situaciones de la sección anterior. Un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja o una falla que impida operar se devuelven igual, esté la puesta en marcha iniciada o no.",
       ],
     },
     {
