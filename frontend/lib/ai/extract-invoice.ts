@@ -16,6 +16,11 @@ export const ExtractionSchema = z.object({
   supplier: z.object({
     name: z.string().nullable(),
     ruc: z.string().nullable(),
+    // Dirección y teléfono del EMISOR: los usa el backend para dar de alta
+    // al proveedor (o completarle los huecos) cuando el RUC no está en la
+    // agenda — ver `PurchaseDraftService::ensureSupplierFromExtraction()`.
+    address: z.string().nullable(),
+    phone: z.string().nullable(),
   }),
   receiver: z.object({
     ruc: z.string().nullable(),
@@ -128,7 +133,7 @@ más de un lugar (priorizá siempre el bloque que le corresponde):
 
 - Bloque A (superior): tipo de documento, timbrado, fecha de inicio y de
   vencimiento del timbrado, número de factura, RUC y razón social del
-  EMISOR (proveedor), actividad comercial.
+  EMISOR (proveedor), su dirección y su teléfono, actividad comercial.
 - Bloque B (centro — en formatos tipo ticket puede estar al pie): fecha de
   emisión, fecha de vencimiento, RUC/razón social/dirección del CLIENTE
   (receptor), condición de venta.
@@ -167,6 +172,14 @@ ${receiverSection}
 # Reglas de mapeo
 
 - "supplier": RUC y razón social del EMISOR (proveedor) — nunca del cliente.
+- "supplier.address": dirección del EMISOR tal como figura impresa en la
+  cabecera (Bloque A). NO uses la dirección del cliente/receptor, que suele
+  estar impresa más abajo y es la del negocio que recibe la factura. null si
+  no figura o no se lee.
+- "supplier.phone": teléfono del EMISOR tal como figura impreso en la
+  cabecera (Bloque A), con el prefijo o los códigos de área que aparezcan.
+  NO uses el teléfono del cliente/receptor. Si hay varios, devolvé el
+  primero. null si no figura o no se lee.
 - "receiver": RUC y razón social del CLIENTE (receptor) — nunca del emisor.
 - "invoice.isElectronic": true si el documento se identifica como factura
   electrónica (KuDE, CDC visible, texto "factura electrónica" o similar);
