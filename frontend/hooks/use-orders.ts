@@ -252,11 +252,51 @@ export const ACTIVE_ORDER_STATUSES: OrderStatus[] = [
   "delivered",
 ]
 
+/**
+ * Detalles estructurados que el backend adjunta a un rechazo (`apiError(...,
+ * $details)` → `error.details` en el envelope). Hoy los usa la anulación de
+ * ítem para explicar POR QUÉ no se pudo: sin `windowMinutes`/`elapsedMinutes`
+ * el cajero solo leería "no se pudo", que en una caja termina en una llamada
+ * al encargado para averiguar qué pasó.
+ */
+export interface OrderApiErrorDetails {
+  code?: string
+  windowMinutes?: number
+  elapsedMinutes?: number
+  [key: string]: unknown
+}
+
+/**
+ * Error de una request de órdenes, con el `status` HTTP y los `details` del
+ * envelope.
+ *
+ * Existe porque `new Error(message)` pierde justo lo que la UI necesita para
+ * decir algo accionable: un 403 (falta el permiso) y un 422 (ventana de
+ * anulación vencida) llegaban indistinguibles al call-site, que solo podía
+ * repetir el texto del server. Extiende `Error`, así que todos los consumidores
+ * que ya leen `err.message` siguen igual — la información extra es aditiva.
+ */
+export class OrderApiError extends Error {
+  readonly status: number
+  readonly details: OrderApiErrorDetails | null
+
+  constructor(message: string, status: number, details: OrderApiErrorDetails | null = null) {
+    super(message)
+    this.name = "OrderApiError"
+    this.status = status
+    this.details = details
+  }
+}
+
 async function posJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await posFetch(url, init)
   const json = await res.json().catch(() => null)
   if (!res.ok || !json?.ok) {
-    throw new Error(json?.error?.message ?? `Error ${res.status}`)
+    throw new OrderApiError(
+      json?.error?.message ?? `Error ${res.status}`,
+      res.status,
+      (json?.error?.details as OrderApiErrorDetails | undefined) ?? null,
+    )
   }
   return json.data as T
 }
@@ -451,6 +491,42 @@ export function useCancelOrder() {
   return useMutation<Order, Error, { orderId: string; reason: string }>({
     mutationFn: ({ orderId, reason }) =>
       posJson<Order>(`/api/pos/orders?id=${orderId}&action=status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "cancelled", reason }),
+      }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ["orders"] })
+    },
+  })
+}
+
+/**
+ * Anula UN ítem de una orden. El motivo es OBLIGATORIO, igual que en la
+ * cancelación de la orden entera.
+ *
+ * Separado de cualquier mutación genérica de `item-status` por la MISMA razón
+ * que `useCancelOrder` está separado de `useUpdateOrderStatus` (ver el
+ * comentario de ese hook): un solo hook con `reason?: string` opcional deja
+ * abierto el camino "genérico" para anular sin motivo. El backend lo
+ * rechazaría, pero el motivo que el cajero ya tipeó se habría perdido, y ese
+ * es el bug de UX que esta separación previene.
+ *
+ * Devuelve la orden COMPLETA (`updateItemStatus` presenta la orden entera),
+ * así que el llamador no necesita refetch para pintar el estado nuevo — la
+ * invalidación de `["orders"]` es igual la que usan las mutaciones vecinas,
+ * porque el total de la sesión del espacio y el listado de órdenes también
+ * cambian con esto.
+ *
+ * Errores: `OrderApiError` con `status` (403 = falta permiso, 422 = motivo
+ * vacío o ventana vencida) y `details.code` para distinguirlos. Los mapea
+ * `CancelOrderItemDialog`, que es el único lugar donde se decide el copy.
+ */
+export function useCancelOrderItem() {
+  const qc = useQueryClient()
+  return useMutation<Order, Error, { orderItemId: string; reason: string }>({
+    mutationFn: ({ orderItemId, reason }) =>
+      posJson<Order>(`/api/pos/orders?resource=item-status&id=${orderItemId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: "cancelled", reason }),

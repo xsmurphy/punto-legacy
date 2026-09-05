@@ -6,7 +6,13 @@
  */
 
 import { Bike, LayoutGrid, ShoppingBag, Store, Globe, CalendarClock, type LucideIcon } from "lucide-react"
-import type { Order, OrderStatus } from "@/hooks/use-orders"
+import {
+  isAddonChild,
+  type Order,
+  type OrderEvent,
+  type OrderItem,
+  type OrderStatus,
+} from "@/hooks/use-orders"
 import { resolveColorBg } from "@/lib/ui/color-palette"
 
 /**
@@ -260,9 +266,59 @@ export function manualStatusOptions(order: Order): OrderStatus[] {
   return ORDER_TRANSITIONS[order.status].filter((s) => s !== "cancelled")
 }
 
-/** Total de la orden = suma de sus ítems. `items` puede faltar (list sin includeItems). */
+/**
+ * Quién ejecutó una transición. Compartido entre el historial del detalle de la
+ * orden y el reporte de anulaciones de ítems — que un mismo evento se nombre
+ * distinto en dos pantallas es cómo empieza a leerse como dos cosas distintas.
+ */
+export const ACTOR_KIND_LABEL: Record<OrderEvent["actorKind"], string> = {
+  user: "Usuario",
+  device: "Dispositivo",
+  system: "Sistema",
+}
+
+/**
+ * ¿Se le puede ofrecer al operador anular ESTE ítem de ESTA orden?
+ *
+ * Definición ÚNICA para todas las superficies que muestran la acción (mesa y
+ * detalle de la orden). Es solo la parte que el cliente puede saber sin
+ * preguntar; el permiso del operador (`pos.order.item.cancel`) y la ventana de
+ * tiempo los evalúa el llamador y el backend respectivamente — acá está lo que
+ * NUNCA tiene sentido ofrecer:
+ *
+ * - Orden cerrada o cancelada: no hay nada vivo que corregir.
+ * - Orden ya cobrada (`saleTransactionId`): el ítem está dentro de una venta
+ *   emitida. Sacarlo de la comanda dejaría la comanda y la factura diciendo
+ *   cosas distintas; eso se corrige con una devolución o una nota de crédito
+ *   (context/40), no acá.
+ * - Ítem ya anulado: no se anula dos veces.
+ * - Add-on de otra línea (`parentOrderItemId`): una hija no se marca ni se
+ *   cobra por separado y `OrderCoreService::updateItemStatus` rechaza la
+ *   transición — ofrecerla sería un botón que siempre falla.
+ */
+export function canCancelOrderItem(order: Order, item: OrderItem): boolean {
+  if (order.status === "closed" || order.status === "cancelled") return false
+  if (order.saleTransactionId !== null) return false
+  if (item.status === "cancelled") return false
+  if (isAddonChild(item)) return false
+  return true
+}
+
+/**
+ * Total de la orden = suma de sus ítems NO anulados. `items` puede faltar
+ * (list sin includeItems).
+ *
+ * El filtro de anulados vivía duplicado en `SpaceSessionDialog` (que calculaba
+ * el total de la mesa bien) mientras esta —la que usan la card, la lista, el
+ * mapa, el detalle y la ficha del cliente— sumaba todo. Mientras la única
+ * forma de anular era cancelar la orden entera casi no se notaba; con la
+ * anulación por ítem, la diferencia es plata que la orden dice deber y nadie
+ * va a cobrar. Una sola definición, y es esta.
+ */
 export function orderTotal(order: Order): number {
-  return (order.items ?? []).reduce((sum, i) => sum + (i.price ?? 0) * i.qty, 0)
+  return (order.items ?? [])
+    .filter((i) => i.status !== "cancelled")
+    .reduce((sum, i) => sum + (i.price ?? 0) * i.qty, 0)
 }
 
 /** "2x Café, 1x Medialuna" — o "—" si la orden todavía no trajo ítems. */

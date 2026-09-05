@@ -57,18 +57,13 @@ import { useCatalogStore } from "@/lib/catalog/store"
 import {
   useOrdersBySession,
   ACTIVE_ORDER_STATUSES,
-  type Order,
+  type OrderItem,
 } from "@/hooks/use-orders"
-import { statusLabelFor } from "@/lib/orders/order-display"
+import { CancelOrderItemDialog } from "@/components/orders/cancel-order-item-dialog"
+import { useLockStore } from "@/lib/pos/lock-store"
+import { canCancelOrderItem, orderTotal, statusLabelFor } from "@/lib/orders/order-display"
 import { cancelSessionDescription, countActiveOrders } from "@/lib/spaces/cancel-session-copy"
 import type { SpaceWithState } from "@/hooks/use-pos-spaces"
-
-/** Total de una orden = suma de ítems no cancelados (qty × price). */
-function orderTotal(order: Order): number {
-  return (order.items ?? [])
-    .filter((i) => i.status !== "cancelled")
-    .reduce((s, i) => s + i.qty * (i.price ?? 0), 0)
-}
 
 interface Props {
   table: SpaceWithState | null
@@ -104,6 +99,22 @@ export function SpaceSessionDialog({
   const orders = data?.orders ?? []
   const activeOrderCount = countActiveOrders(orders, ACTIVE_ORDER_STATUSES)
   const [confirmCancel, setConfirmCancel] = React.useState(false)
+
+  /**
+   * Anular un ítem suelto es el caso real del salón: cargan la mesa y después
+   * sacan dos o tres productos. El gate es el permiso del OPERADOR del PIN
+   * (no el del device) — mismo criterio que el conteo de stock en la caja.
+   *
+   * Sin el permiso, la columna de la acción no se renderiza para NINGUNA fila:
+   * el permiso es constante durante toda la sesión del operador, así que la
+   * lista sigue teniendo posiciones estables (Regla #10) mientras él opera. Lo
+   * que NO se hace es mostrar/ocultar el botón fila por fila cambiando el
+   * ancho: la columna existe siempre que exista el permiso, vacía en los ítems
+   * que no se pueden anular.
+   */
+  const operatorPermissions = useLockStore((s) => s.operatorPermissions)
+  const canCancelItems = operatorPermissions.includes("pos.order.item.cancel")
+  const [itemToCancel, setItemToCancel] = React.useState<OrderItem | null>(null)
 
   // Total de la sesión: órdenes no canceladas (las cobradas siguen sumando —
   // es el consumo total del espacio, referencia para el cobro/split).
@@ -203,6 +214,25 @@ export function SpaceSessionDialog({
                               >
                                 {formatAmount(it.qty * (it.price ?? 0), config)}
                               </span>
+                              {/* Columna de la acción: ancho fijo `w-8` = el
+                                  tamaño exacto del botón `size="icon"`, así el
+                                  monto de todas las filas queda alineado esté
+                                  o no el botón (un ítem ya anulado no lo
+                                  tiene). Nada se desplaza al anular. */}
+                              {canCancelItems && (
+                                <div className="w-8 shrink-0 self-center">
+                                  {canCancelOrderItem(o, it) && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      aria-label={`Anular ${it.name}`}
+                                      onClick={() => setItemToCancel(it)}
+                                    >
+                                      <Ban className="size-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              )}
                             </li>
                           )
                         })}
@@ -281,6 +311,14 @@ export function SpaceSessionDialog({
             {cancelPending ? "Cancelando..." : "Cancelar sesión"}
           </Button>
         </DialogFooter>
+
+        <CancelOrderItemDialog
+          item={itemToCancel}
+          open={itemToCancel !== null}
+          onOpenChange={(v) => {
+            if (!v) setItemToCancel(null)
+          }}
+        />
 
         <AlertDialog open={confirmCancel} onOpenChange={setConfirmCancel}>
           <AlertDialogContent>

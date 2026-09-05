@@ -59,6 +59,12 @@ export interface SettingsGeneral {
   drawerBlind: boolean
   /** Exigir órdenes y espacios cerrados para poder cerrar el turno. */
   drawerRequireClosedOrders: boolean
+  /**
+   * Minutos durante los cuales el operador puede anular un ítem de una comanda
+   * por su cuenta. `0` = sin límite (default). Pasada la ventana la anulación
+   * queda para un encargado (permiso `pos.order.item.cancel.late`).
+   */
+  settingOrderItemCancelWindowMinutes: number
   settingRemoveTaxes: boolean
   paymentId: boolean
   creditLine: boolean

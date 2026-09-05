@@ -111,6 +111,7 @@ const SERIALIZE_STRING_FIELDS: (keyof SettingsFormValues)[] = [
 const SERIALIZE_NUMBER_FIELDS: (keyof SettingsFormValues)[] = [
   "settingPeriodCloseMonths",
   "settingDrawerTolerance",
+  "settingOrderItemCancelWindowMinutes",
 ]
 
 const SERIALIZE_BOOL_FIELDS: (keyof SettingsFormValues)[] = [
