@@ -47,6 +47,16 @@ final class SettingsService
      *  agente (frontend/app/api/agent/chat/route.ts); acá solo se valida el slug. */
     public const AGENT_PERSONALITIES = ['professional', 'friendly', 'direct', 'teacher'];
 
+    /**
+     * Techo de la ventana de anulación de ítems de comanda, en minutos (24 h).
+     *
+     * No es una regla de negocio: es el guard que evita que un typo en Ajustes
+     * (un "500000") quede guardado como si fuera configuración. Una ventana más
+     * larga que un turno ya es indistinguible de "sin límite", y para eso está
+     * el 0, que es el valor explícito.
+     */
+    public const MAX_ORDER_ITEM_CANCEL_WINDOW = 1440;
+
     /** Ajustes de la empresa (perfil + parámetros) para el form. */
     public function general($companyId)
     {
@@ -132,6 +142,15 @@ final class SettingsService
             // en SQL (1..12, default 1) para que panel y job de mantenimiento
             // coincidan siempre.
             'settingPeriodCloseMonths' => max(1, min(12, (int) ($r['settingPeriodCloseMonths'] ?? 1))),
+            // Ventana para anular un ítem de comanda, en minutos. 0 = sin
+            // límite, y es el default: la feature nace apagada. Mismo clamp que
+            // OrderItemCancelGate::windowMinutes(), que es quien la hace
+            // cumplir — si divergieran, el comercio guardaría un número que el
+            // gate reinterpreta. Ver context/24 y OrderItemCancelGate.
+            'orderItemCancelWindowMinutes' => max(0, min(
+                self::MAX_ORDER_ITEM_CANCEL_WINDOW,
+                (int) ($r['settingOrderItemCancelWindowMinutes'] ?? 0)
+            )),
             // Tolerancia de cuadre del arqueo (context/08 §58 — toda regla que
             // clasifica es configurable). Default 0: el comercio que no la tocó
             // arquea exacto. El piso de redondeo (1 unidad mínima de la moneda)
@@ -263,6 +282,15 @@ final class SettingsService
         // que period_close_due() en SQL.
         if (array_key_exists('settingPeriodCloseMonths', $f)) {
             $record['settingPeriodCloseMonths'] = max(1, min(12, (int) $f['settingPeriodCloseMonths']));
+        }
+        // Ventana de anulación de ítems de comanda — mismo clamp que la lectura
+        // de general() y que OrderItemCancelGate, para que no haya forma de
+        // guardar un valor que el gate después reinterprete. 0 = sin límite.
+        if (array_key_exists('orderItemCancelWindowMinutes', $f)) {
+            $record['settingOrderItemCancelWindowMinutes'] = max(0, min(
+                self::MAX_ORDER_ITEM_CANCEL_WINDOW,
+                (int) $f['orderItemCancelWindowMinutes']
+            ));
         }
         // Tolerancia de cuadre del arqueo — mismo clamp que la lectura de
         // general() y que CashCountStatus, para que no haya forma de guardar un

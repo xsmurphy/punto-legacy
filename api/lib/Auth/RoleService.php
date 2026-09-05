@@ -87,6 +87,12 @@ final class RoleService
             // Ajustes → Roles, que es justamente el comercio que quiere que su
             // cajero cuente el mostrador.
             'pos.stock.count',
+            // Anulación de ítems de comanda. El Encargado recibe las DOS: la
+            // base porque también toma pedidos, y la elevación `.late` porque
+            // es el rol que se hace cargo de la merma cuando la cocina ya
+            // empezó a preparar el plato. `cashier` recibe solo la base (más
+            // abajo) y `device` ninguna — se evalúan contra el operador del PIN.
+            'pos.order.item.cancel','pos.order.item.cancel.late',
             'inventory.item.view','inventory.item.create','inventory.item.edit','inventory.item.delete',
             'inventory.stock.adjust','inventory.transfer',
             'contacts.customer.view','contacts.customer.create','contacts.customer.edit','contacts.customer.delete',
@@ -106,6 +112,12 @@ final class RoleService
         ],
         'cashier' => [
             'pos.sale.create','pos.sale.creditPayment','pos.drawer.open','pos.drawer.close',
+            // Anula la línea que él mismo cargó mal, DENTRO de la ventana que
+            // configure el comercio (`settingOrderItemCancelWindowMinutes`; el
+            // default 0 = sin límite, o sea que la feature nace apagada). Pasada
+            // esa ventana necesita a alguien con `pos.order.item.cancel.late`,
+            // que el cajero NO tiene por default.
+            'pos.order.item.cancel',
             'inventory.item.view',
             'contacts.customer.view','contacts.customer.create',
         ],

@@ -13,6 +13,7 @@ require_once dirname(__DIR__) . '/bootstrap.php';
 require_once __DIR__ . '/../lib/services/RegisterService.php';
 require_once __DIR__ . '/../lib/services/RegisterAdminService.php';
 require_once __DIR__ . '/../lib/services/ShiftCloseGate.php';
+require_once __DIR__ . '/../lib/services/OrderItemCancelGate.php';
 use Punto\Api\Context\TenantContext;
 use Punto\Api\Services\RegisterService;
 use Punto\Api\Services\RegisterAdminService;
@@ -269,6 +270,20 @@ if ($method === 'GET' && $resource === 'config') {
     // POS no puede consultar qué hay abierto, pero SÍ tiene que saber si la
     // regla está prendida para avisarle al cajero antes de encolar el cierre.
     $clean['requireClosedOrders'] = \Punto\Api\Services\ShiftCloseGate::isEnabled($companyId);
+    // Ventana de anulación de ítems de comanda, en minutos (0 = sin límite).
+    // MISMO tratamiento que las dos de arriba —después del intersect, fuera de
+    // POS_CONFIG_DEFAULTS— y por el mismo motivo: es una decisión del COMERCIO
+    // sobre lo que puede hacer el mostrador, así que el PUT del device no puede
+    // tocarla. Vive en `company.config`, no en `register.data`: la regla es del
+    // comercio, no de una caja.
+    //
+    // Baja por acá y no por el bootstrap para que la caché offline de la config
+    // (`local-register-state.ts`) la tenga sin red. Es lo que le permite al POS
+    // deshabilitar el botón de anular —y explicar por qué— antes de intentar un
+    // request que sin conexión no puede salir. El backend NO delega en eso: el
+    // gate se vuelve a evaluar server-side cuando la operación llega (ver
+    // `OrderItemCancelGate`), porque el reloj de la tablet no es autoridad.
+    $clean['orderItemCancelWindowMinutes'] = \Punto\Api\Services\OrderItemCancelGate::windowMinutes($companyId);
     apiOk(['config' => $clean]);
 }
 
