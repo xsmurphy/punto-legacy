@@ -410,13 +410,51 @@ nuestros, y retenerlos como palanca de cobro es del manual del proveedor que
 uno no quiere ser (además de que los propios términos publicados dicen que los
 datos son del cliente).
 
-### D7 [?] — Los avisos previos son parte de P2, no un extra
+### D7 — Avisos a los 7 y 3 días, y al entrar en gracia (cerrada por el owner 2026-09-05)
 
-Propuesta (sin OK del owner): aviso a los 7 y a los 3 días del vencimiento, y
-al entrar en gracia. Con un corte de venta tan filoso como el de D5, el
-producto que evita la cancelación es el aviso, no la gracia. Sin esto, P2
-entrega el corte sin la advertencia — la mitad que hace daño sin la mitad que
-lo previene.
+Con un corte de venta tan filoso como el de D5, el producto que evita la
+cancelación es el aviso, no la gracia. Por eso van DENTRO de P2: entregar el
+corte sin la advertencia es la mitad que hace daño sin la mitad que la
+previene.
+
+### D8 — Una venta encolada NUNCA es un error: es `waiting` (cerrada por el owner 2026-09-05)
+
+*"Nunca rechazar ventas — eso sería un error fatal. Si la caja estaba offline
+se sincroniza cuando el cliente pague. Nunca rechazar solo porque la cuenta
+estaba inhabilitada por falta de pago."* (owner)
+
+Esto NO se cumple solo: la cola del POS ya tiene un camino que lo rompería.
+`syncPendingOps()` (`frontend/lib/pos/pending-ops-sync.ts`) clasifica todo
+fallo del envío en dos, y **el default de lo no clasificado es TERMINAL**:
+
+```
+if (opErr.transient && row.attempts + 1 < OPS_MAX_ATTEMPTS)  → markOpRetry
+else                                                          → markOpFailed
+```
+
+Si P3 hace que el push de una venta devuelva un 403 "cuenta vencida", pasa lo
+peor de las dos opciones:
+
+- **Sin clasificar** → `markOpFailed` de una: la venta queda TERMINAL, **traba
+  el canal entero** (la cabeza `failed` frena todo lo que viene detrás) y se le
+  muestra al cajero como una venta fallida. `discardOp()` existe en esa
+  pantalla: un cajero confundido la borra.
+- **Clasificada `transient`** → tampoco alcanza: quema los 6
+  `OPS_MAX_ATTEMPTS` y termina igual en `markOpFailed`. Una cuenta impaga dura
+  días, no seis reintentos.
+
+**El mecanismo correcto ya existe y es `canSendPendingOp()`** (`waiting`), que
+el propio código describe así: *"No es un fallo: la operación está bien y
+todavía no le toca. No se cuentan intentos ni se escribe error — solo se frena
+el canal."* Es exactamente la semántica de una cuenta impaga: la venta es
+válida, el envío no es su momento. No consume intentos, no marca error, y
+espera indefinidamente hasta que el comercio pague.
+
+**Regla, entonces:** cuenta vencida/bloqueada ⇒ la cola entra en `waiting`,
+NUNCA en `failed` ni en `retry`. El endpoint de venta puede seguir respondiendo
+lo que corresponda, pero el transporte del POS tiene que traducirlo a espera —
+y la UI de la cola tiene que decir "esperando regularizar el pago", no "error".
+
 
 ### D6 [?] — El motor es un JOB, no un check en el login
 
@@ -454,12 +492,14 @@ P3 no se mergea sin:
 
 - Una cuenta vencida NO puede vender, y el error dice por qué y qué hacer.
 - Una cuenta vencida SÍ puede entrar a consultar y exportar durante la gracia.
-- **Una venta YA EMITIDA offline se acepta SIEMPRE**, aunque la cuenta haya
-  vencido mientras la caja estaba sin red. Es un invariante del proyecto
-  (`feedback_offline_scope`: el back nunca rechaza una venta ya emitida —
-  guarda y marca), y romperlo acá le haría perder facturación real a un
-  comercio por una deuda administrativa. El corte se aplica cuando el
-  dispositivo APRENDE del vencimiento (bootstrap/sync), no al empujar la cola.
+- **Una venta YA EMITIDA offline NUNCA se pierde ni se marca fallida** (D8).
+  Con la cuenta vencida, la op queda en `waiting` — sin consumir intentos, sin
+  escribir error, sin trabar el canal como terminal — y sincroniza sola cuando
+  el comercio paga. Test explícito: encolar ventas, vencer la cuenta,
+  sincronizar, verificar que NINGUNA quedó en `failed` y que ninguna consumió
+  `attempts`; después regularizar y verificar que entran todas.
+- El corte se aplica cuando el dispositivo APRENDE del vencimiento
+  (bootstrap/sync), no al empujar la cola.
 - Un POS offline con la cuenta vencida sigue vendiendo hasta reconectar. Es
   aceptado y es el precio del modo offline: la alternativa —caducar la caja
   por reloj local— la vuelve saboteable cambiando la fecha del dispositivo.
@@ -471,6 +511,10 @@ P3 no se mergea sin:
   contrato del bootstrap y romper el modo offline.
 - **Bloquear en el login sin job** — no permite avisar antes, y deja
   `planExpired` sin escritor para los reportes que ya lo leen.
+- **Devolver un error de envío por cuenta impaga** — ver D8: la cola lo
+  convierte en terminal (o lo hace tras 6 intentos), traba el canal y le ofrece
+  al cajero un botón de descartar. La plata del comercio no puede depender de
+  que nadie apriete ese botón.
 - **Retener los datos del comercio como palanca de cobro** — ver D5: durante
   la gracia se puede consultar y EXPORTAR. Los términos publicados dicen que
   los datos son del cliente.
