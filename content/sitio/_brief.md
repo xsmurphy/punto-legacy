@@ -3,21 +3,31 @@
 
 # Punto — brief comercial
 
-Punto es el sistema con el que un comercio vende, cobra, factura
-electrónicamente y controla su stock y sus clientes, todo en el mismo lugar. La
-caja funciona en la computadora, la tablet o el teléfono que el negocio ya
-tiene, y sigue vendiendo aunque se corte internet: cuando vuelve la conexión, se
-sincroniza sola. Desde el panel el dueño ve las ventas del día, qué falta
-reponer, quién le debe y con qué margen cerró el mes, de una sucursal o de
-todas. Y cuando quiere entender un número, se lo pregunta a Punto AI en su
-idioma y le responde con los datos reales de su negocio, sin exportar una
-planilla. Un solo plan, con la facturación electrónica incluida y sin costo por
-comprobante.
+El dueño de un comercio no quiere otro sistema de gestión: quiere saber qué
+está pasando en su negocio sin pelearse con reportes. **Punto se usa
+hablando**, y no en un rincón: hay un asistente flotando en cada pantalla del
+panel, otro en la caja mientras se vende, y una sección propia para pedirle un
+análisis en serio. Le preguntás «¿qué producto me deja más margen?» o «¿qué
+clientes no volvieron en 60 días?» y contesta con el número, el gráfico y por
+qué pasó —no con una tabla muda para que la interpretes vos—. Le sacás una foto
+a la factura del proveedor y la carga sale hecha. Y si el cliente ya trabaja con
+Claude o ChatGPT, conecta su negocio ahí y les pregunta desde donde ya está
+laburando. Lo demás —facturación electrónica, stock, clientes, varias
+sucursales, seguir vendiendo aunque se corte internet— está todo resuelto y
+viene incluido en el plan. Pero eso ya lo hace cualquiera. Lo que le cambia el
+día a un comerciante es lo otro.
 
-Este documento reúne todo lo que Punto dice de sí mismo, para tenerlo a mano en
+Lo que sigue es todo lo que Punto dice de sí mismo hoy, para tenerlo a mano en
 una reunión sin recorrer el sitio página por página. Cada bloque es lo mismo que
-el cliente va a leer si entra a esa página, así que se le puede mandar el link y
-la conversación sigue igual.
+el cliente va a leer si entra a esa página, así que se le puede mandar el link
+y la conversación sigue igual.
+
+Una advertencia para no quedar mal parado: **el sitio todavía se presenta como
+un sistema de punto de venta que además tiene IA, no como lo de arriba.** Ni el
+asistente en la caja, ni el chat en cada pantalla, ni la conexión con Claude o
+ChatGPT están publicados en ninguna página. Todo eso funciona y se puede
+mostrar en una demo, pero si abrís la reunión por ahí y el cliente entra a la
+home, va a leer otra cosa.
 
 **El sistema de un vistazo** — Punto — Sistema de punto de venta y facturación electrónica
 
