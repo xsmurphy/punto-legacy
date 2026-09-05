@@ -77,6 +77,18 @@ final class SignupService
             return ['ok' => false, 'error' => 'Ya existe una cuenta con este número o email'];
         }
 
+        // Aceptación EXPLÍCITA de términos — obligatoria y verificada acá, no
+        // solo en el checkbox del front: un cliente que arme el POST a mano no
+        // puede crear una cuenta sin aceptar. Se guarda el MOMENTO (reloj del
+        // servidor, no del cliente) y la VERSIÓN vigente que el front mostró
+        // (`EMPRESA.vigencia` de lib/site/legal.ts) — es la evidencia de QUÉ
+        // texto se aceptó cuando los términos cambien (los propios términos
+        // prometen versionado con fecha de vigencia).
+        if (empty($post['termsAccepted'])) {
+            return ['ok' => false, 'error' => 'Tenés que aceptar los términos y condiciones'];
+        }
+        $termsVersion = trim((string) ($post['termsVersion'] ?? ''));
+
         $db->StartTrans();
 
         $accountId = mt_rand(); // placeholder hasta que exista admin de cuentas
@@ -86,6 +98,15 @@ final class SignupService
             'status'      => 'active',
             'expiresAt'   => date('Y-m-d 00:00:00', strtotime('+14 days')),
             'accountId'   => $accountId,
+            // En `config` (JSONB) y no en columna propia: es un dato de la
+            // CUENTA que se lee una vez cada mil años (disputa/auditoría), el
+            // mismo criterio que agentBusinessContext (context/69). El signup
+            // es el único escritor de config en este punto — el tenant nace
+            // acá, no hay merge que pisar.
+            'config'      => json_encode([
+                'termsAcceptedAt' => gmdate('c'),
+                'termsVersion'    => $termsVersion !== '' ? $termsVersion : null,
+            ], JSON_UNESCAPED_UNICODE),
         ];
         if (!empty($post['parent'])) {
             $companyRecord['parentId'] = dec((string) $post['parent']);

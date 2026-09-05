@@ -5,6 +5,8 @@ import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
+import { Checkbox } from "@/components/ui/checkbox"
+import { EMPRESA } from "@/lib/site/legal"
 import { z } from "zod"
 import { Eye, EyeOff, Loader2, ArrowLeft } from "lucide-react"
 import { toast } from "sonner"
@@ -55,6 +57,9 @@ const signupSchema = z.object({
   category: z.string().min(1, "Elegí un rubro"),
   username: z.string().min(1, "Ingresá tu nombre y apellido"),
   password: z.string().min(6, "Mínimo 6 caracteres"),
+  // Aceptación EXPLÍCITA: el backend también la exige (SignupService rechaza
+  // sin `termsAccepted`), esto es la mitad visible.
+  terms: z.boolean().refine((v) => v === true, "Tenés que aceptar los términos para crear la cuenta"),
 })
 
 type SignupValues = z.infer<typeof signupSchema>
@@ -72,6 +77,7 @@ export default function SignupPage() {
     defaultValues: {
       phone: "",
       phoneE164: null,
+      terms: false,
       country: DEFAULT_COUNTRY,
       otp: "",
       storename: "",
@@ -149,6 +155,11 @@ export default function SignupPage() {
         username: values.username,
         password: values.password,
         country: values.country,
+        termsAccepted: 1,
+        // Versión del texto que este form mostró (fecha de vigencia de
+        // lib/site/legal.ts) — el backend la guarda junto al timestamp del
+        // servidor como evidencia de QUÉ términos se aceptaron.
+        termsVersion: EMPRESA.vigencia,
       })
       if (!session?.token) {
         throw new Error("El servidor no devolvió el token de sesión")
@@ -405,22 +416,55 @@ export default function SignupPage() {
                 )}
               />
 
+              {/* Links a las páginas VIVAS del sitio, no al PDF: el asset
+                  /assets/terminos.pdf no existe (link muerto verificado
+                  2026-09-05) y los términos canónicos, versionados por fecha
+                  de vigencia, se publican en /terminos y /privacidad. */}
+              <FormField
+                control={form.control}
+                name="terms"
+                render={({ field }) => (
+                  <FormItem>
+                    <div className="flex items-start gap-2">
+                      <FormControl>
+                        <Checkbox
+                          checked={field.value}
+                          onCheckedChange={(v) => field.onChange(v === true)}
+                          aria-label="Aceptar términos y condiciones"
+                        />
+                      </FormControl>
+                      <FormLabel className="text-xs font-normal leading-snug text-muted-foreground">
+                        <span>
+                          Leí y acepto los{" "}
+                          <a
+                            href="/terminos"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline hover:text-foreground"
+                          >
+                            términos y condiciones
+                          </a>{" "}
+                          y la{" "}
+                          <a
+                            href="/privacidad"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline hover:text-foreground"
+                          >
+                            política de privacidad
+                          </a>
+                        </span>
+                      </FormLabel>
+                    </div>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <Button type="submit" disabled={submitting} className="mt-2 w-full">
                 {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
                 Crear empresa
               </Button>
-
-              <p className="text-center text-xs text-muted-foreground">
-                Al registrarte aceptás los{" "}
-                <a
-                  href="/assets/terminos.pdf"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="underline hover:text-foreground"
-                >
-                  Términos y Condiciones
-                </a>
-              </p>
             </form>
           )}
         </Form>
