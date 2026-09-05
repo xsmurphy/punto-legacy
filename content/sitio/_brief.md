@@ -3,23 +3,11 @@
 
 # Punto — brief comercial
 
-Todo sistema de gestión le pide al comerciante lo mismo: aprendé a usarme.
-Punto le pregunta otra cosa: **¿qué querés saber?**
-
-Preguntale por qué cayó el margen este mes y te lo explica. Sacale una foto a la
-factura del proveedor y se carga sola. Cerrá el mes sin exportar una sola
-planilla.
-
-La IA no es un módulo que le colgamos a un sistema viejo: es la forma de usarlo.
-Está en cada pantalla del panel, está en la caja mientras se vende, tiene su
-propia sección para análisis en serio, y si el cliente ya vive dentro de Claude
-o ChatGPT, conecta su negocio ahí y le responde desde donde ya está laburando.
-
-Lo otro —facturar, stock, clientes, sucursales, vender aunque se corte
-internet— también está, funcionando y adentro del plan. Pero eso lo tiene todo
-el mundo y hace diez años que es igual. Esto no: hoy el que usa Punto le
-pregunta a su negocio y decide, mientras el de al lado sigue esperando que el
-contador le diga cómo le fue el mes.
+Punto es el socio inteligente de tu negocio: sabe todo lo que pasa adentro y te
+lo cuenta cuando se lo preguntás. Vive en tu caja, en tu panel y hasta en el
+ChatGPT que ya usás. Carga lo tedioso, factura sin que lo pienses, cuida tu
+stock y te muestra dónde estás ganando y dónde no. El socio que nunca se toma
+franco y del que ya no vas a querer separarte.
 
 Lo que sigue es todo lo que Punto dice de sí mismo hoy, para tenerlo a mano en
 una reunión sin recorrer el sitio página por página. Cada bloque es lo mismo que
