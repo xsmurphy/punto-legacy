@@ -345,6 +345,7 @@ salvo los límites numéricos.**
 | Pieza | Estado real |
 |---|---|
 | `plans.features` (jsonb) | Se edita en `/admin/planes`, está versionado… y **NADIE lo lee**. Write-only |
+| `plans.ai_credits_monthly` | Se leía SOLO para mostrarlo en billing: asignar un plan no acreditaba nada (bug real, "Balloon Party" con el plan Inicial de 10.000 créditos y saldo 0 — owner 2026-09-05). **Parcialmente resuelto**: desde 2026-09-05 el cambio de plan acredita el primer período (`CompanyAdminService::grantPlanAiCredits`). La RECARGA MENSUAL sigue sin existir — es P2 |
 | Límites (`max_users`, `max_items`…) | SÍ se enforcean (`UsersService::…`, `BillingService`) |
 | Módulos | Toggle POR TENANT en dos lugares (`company.<key>` plana + `company.config->moduleData[key].status`) + kill-switch global en `platform_config` |
 | `company.expiresAt` | Solo alimenta REPORTES (MRR/churn en `AdminReportsService`) y el semáforo (`TenantHealthService`) |
@@ -470,7 +471,7 @@ escriba.
 |------|-------------|-----------|
 | **P0** | **MEDIR**: para cada tenant, qué módulos tiene prendidos hoy vs. qué le daría su plan. Es el informe que el owner necesita para definir las `features` de cada plan. **Sin esto, el flip de P1 apaga módulos en producción.** | — |
 | **P1** | `features` pasa a fuente de verdad + proyección a las columnas (D2) + recálculo al cambiar plan/features. En `/admin` los switches del tenant se vuelven read-only: muestran lo que da el plan y linkean al plan. | P0 |
-| **P2** | Motor de vencimiento: job que marca `planExpired`, aplica la gracia de D5 (5 días solo-lectura → bloqueo) y manda los avisos previos de D7. | P1 |
+| **P2** | Motor de ciclo: job que marca `planExpired`, aplica la gracia de D5 (5 días solo-lectura → bloqueo), manda los avisos de D7 y **recarga los créditos IA mensuales del plan** (hoy solo se acreditan al cambiar de plan). Las cuatro cosas son el mismo reloj mensual. | P1 |
 | **P3** | Enforcement en el gate de sesión: el login y `bootstrap.php` dejan de mirar solo `status`. | P2 |
 | **P4** | Renovación: el pago levanta el bloqueo y corre `expiresAt`. Se apoya en el billing de F5, que ya existe. | P3 |
 

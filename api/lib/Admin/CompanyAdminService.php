@@ -702,6 +702,18 @@ class CompanyAdminService
             return ['ok' => true]; // noop — nada que actualizar
         }
 
+        // Plan ANTERIOR, leído antes del UPDATE: sin esto no hay forma de
+        // distinguir "le cambiaron el plan" de "guardaron la ficha con el
+        // mismo plan", y los créditos del plan se acreditarían de nuevo en
+        // cada guardado. Ver acreditación más abajo.
+        $planBefore = null;
+        if (array_key_exists('plan', $input)) {
+            $prev = $db->Execute('SELECT plan FROM company WHERE companyId = ? LIMIT 1', [$id]);
+            if ($prev && !$prev->EOF) {
+                $planBefore = (int) ($prev->fields['plan'] ?? 0);
+            }
+        }
+
         $sets[] = 'updatedAt = now()';
         $binds[] = $id;
 
@@ -713,7 +725,64 @@ class CompanyAdminService
         if ($r === false) {
             return ['ok' => false, 'error' => 'Error de BD: ' . $db->ErrorMsg(), 'code' => 500];
         }
+
+        // ── Créditos IA del plan nuevo ─────────────────────────────────────
+        // Asignar un plan NO acreditaba nada: `plans.ai_credits_monthly` solo
+        // se leía para MOSTRARLO en billing. Un tenant con el plan Inicial
+        // (10.000 créditos/mes) entraba y el agente le decía que no tenía
+        // saldo — reportado por el owner con "Balloon Party" el 2026-09-05.
+        //
+        // Solo cuando el plan CAMBIA de verdad: guardar la ficha sin tocar el
+        // plan no reacredita. Va por `grantAiCredits()` y no por un UPDATE
+        // suelto porque esa función es transaccional, clampea y —lo que
+        // importa acá— deja la fila en `ai_credit_ledger`: una acreditación
+        // sin rastro es indistinguible de un bug de saldo.
+        //
+        // Best-effort a propósito: el plan YA se guardó. Si la acreditación
+        // falla, se loguea y el admin la repite con el botón de créditos, en
+        // vez de hacerle creer que el cambio de plan no se aplicó.
+        //
+        // La recarga MENSUAL no vive acá — es el job de F7/P2
+        // (context/34-admin-saas-plan.md). Esto cubre el primer período.
+        if ($planBefore !== null && (int) $input['plan'] !== $planBefore) {
+            $this->grantPlanAiCredits($id, (int) $input['plan']);
+        }
+
         return ['ok' => true];
+    }
+
+    /**
+     * Acredita los créditos IA mensuales del plan recién asignado. Silencioso
+     * cuando el plan no otorga créditos (0/null) — no ensucia el ledger con
+     * filas de delta 0.
+     */
+    private function grantPlanAiCredits(string $companyId, int $planCode): void
+    {
+        global $db;
+
+        $row = $db->Execute(
+            'SELECT name, ai_credits_monthly FROM plans WHERE plan_code = ? LIMIT 1',
+            [$planCode]
+        );
+        if (!$row || $row->EOF) {
+            return;
+        }
+        $monthly = (int) ($row->fields['ai_credits_monthly'] ?? 0);
+        if ($monthly <= 0) {
+            return;
+        }
+        $planName = (string) ($row->fields['name'] ?? $planCode);
+
+        $res = $this->grantAiCredits($companyId, $monthly, "Créditos del plan {$planName}");
+        if (empty($res['ok'])) {
+            error_log(sprintf(
+                '[CompanyAdmin] no se pudieron acreditar los %d créditos del plan %s a %s: %s',
+                $monthly,
+                $planName,
+                $companyId,
+                (string) ($res['error'] ?? 'error desconocido')
+            ));
+        }
     }
 
     // --- F3: acciones (suspender / extender trial) ---------------------------
