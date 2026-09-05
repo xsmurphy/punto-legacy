@@ -331,6 +331,126 @@ Punto propio (Punto-la-empresa como tenant).
 > sandbox/production vía el campo `environment`); rol granular por
 > capability (se usa jerarquía plana, no ACL por acción).
 
+## F7 — El plan gobierna al tenant (módulos derivados + ciclo de vida)
+
+> **Estado:** plan abierto 2026-09-05. D1 CERRADA por el owner. D2-D4 son
+> consecuencias técnicas de D1, no decisiones de producto. D5-D6 son
+> PROPUESTAS sin su OK.
+
+### F7.0 Lo que se verificó (2026-09-05)
+
+Dos huecos distintos que comparten la misma raíz: **el plan no gobierna nada
+salvo los límites numéricos.**
+
+| Pieza | Estado real |
+|---|---|
+| `plans.features` (jsonb) | Se edita en `/admin/planes`, está versionado… y **NADIE lo lee**. Write-only |
+| Límites (`max_users`, `max_items`…) | SÍ se enforcean (`UsersService::…`, `BillingService`) |
+| Módulos | Toggle POR TENANT en dos lugares (`company.<key>` plana + `company.config->moduleData[key].status`) + kill-switch global en `platform_config` |
+| `company.expiresAt` | Solo alimenta REPORTES (MRR/churn en `AdminReportsService`) y el semáforo (`TenantHealthService`) |
+| Gate de sesión | `api/v1/login.php` chequea **solo** `status = 'active'` |
+| `company.planExpired` | Varios servicios lo LEEN; **nadie lo escribe automáticamente**. No hay job en el crontab |
+
+**Consecuencia de negocio, no cosmética:** `SignupService` da
+`expiresAt = +14 días` y al día 15 **no pasa nada**. El tenant sigue operando
+gratis para siempre, y en los reportes figura como churn. Es plata que se
+regala sin que nadie se entere.
+
+### D1 — El plan MANDA; no hay override por tenant (cerrada por el owner 2026-09-05)
+
+Los módulos de un tenant se derivan 100% de `plans.features`. El switch por
+tenant de la ficha de `/admin` desaparece.
+
+Se le presentó al owner el costo y lo aceptó: **implica planes por RUBRO**. Un
+restaurante y una ferretería no pueden compartir plan si uno necesita
+Espacios/KDS y el otro no — hay que tener "Punto Gastronomía" y "Punto
+Retail". Es un modelo SaaS coherente y además hace que el plan VENDA
+funciones, no solo límites. Vender un módulo suelto a un cliente puntual deja
+de ser posible sin crear un plan: es el precio de la decisión, asumido.
+
+### D2 — El plan es la fuente; las columnas del tenant quedan como PROYECCIÓN
+
+`company.<key>` y `company.config->moduleData[key].status` **NO se borran**:
+`api/v1/bootstrap.php` (POS y panel) y el panel legacy leen de ahí, y el POS
+además los necesita offline. Se convierten en una proyección derivada que se
+RECALCULA cuando cambia el plan del tenant o las `features` del plan.
+
+Es lo que hace el cambio barato: ningún consumidor se entera. Lo que muere es
+la ESCRITURA manual del toggle, no la lectura.
+
+### D3 — El kill-switch global sobrevive intacto
+
+Es ortogonal a D1: apaga un módulo para TODOS los tenants ante un incidente,
+sin tocar ningún plan. Sigue enforceándose en `ModulesService::list()`.
+
+### D4 — La CONFIG del módulo sigue siendo por tenant
+
+Muere el toggle "¿lo tenés?", NO la configuración "¿cómo está seteado?". Los
+canales de Bancard (`qr`/`pos`), la IP del POS físico y cualquier ajuste que
+viva en `moduleData.<key>` son del comercio y no del plan. Confundir las dos
+cosas rompería configuraciones vivas.
+
+### D5 [?] — El vencimiento NO bloquea de golpe
+
+Propuesta: al vencer, la cuenta entra en **solo lectura** por N días de gracia
+(puede consultar y exportar, no puede vender) y recién después se bloquea. Un
+comercio que no ve venir el corte y pierde la caja un sábado a la mañana no
+renueva: cancela. El período de gracia y el alcance del bloqueo los define el
+owner.
+
+### D6 [?] — El motor es un JOB, no un check en el login
+
+Propuesta: job de `maintenance.php` que marca `planExpired` y aplica la
+política. Un check inline en el login no sirve para dos cosas que hacen falta:
+**avisar ANTES** del vencimiento, y dejar el estado consultable por los
+reportes y el semáforo, que ya leen `planExpired` esperando que alguien lo
+escriba.
+
+### F7 — Fases
+
+| Fase | Qué entrega | Depende de |
+|------|-------------|-----------|
+| **P0** | **MEDIR**: para cada tenant, qué módulos tiene prendidos hoy vs. qué le daría su plan. Es el informe que el owner necesita para definir las `features` de cada plan. **Sin esto, el flip de P1 apaga módulos en producción.** | — |
+| **P1** | `features` pasa a fuente de verdad + proyección a las columnas (D2) + recálculo al cambiar plan/features. En `/admin` los switches del tenant se vuelven read-only: muestran lo que da el plan y linkean al plan. | P0 |
+| **P2** | Motor de vencimiento: job que marca `planExpired`, avisos previos, y la política de gracia de D5. | D5 cerrada |
+| **P3** | Enforcement en el gate de sesión: el login y `bootstrap.php` dejan de mirar solo `status`. | P2 |
+| **P4** | Renovación: el pago levanta el bloqueo y corre `expiresAt`. Se apoya en el billing de F5, que ya existe. | P3 |
+
+### F7 — El arnés
+
+P1 no se mergea sin test contra Postgres real:
+
+- Tras el flip, **ningún tenant cambia de módulos** respecto de lo que tenía —
+  salvo los que P0 declaró explícitamente.
+- Cambiar el plan de un tenant recalcula la proyección en las DOS superficies
+  (columna plana y `moduleData`), no en una sola.
+- El kill-switch global sigue ganándole al plan.
+- La config en `moduleData.<key>` sobrevive intacta a un recálculo (D4).
+- Editar `features` de un plan versiona (archiva el viejo) y NO toca a los
+  tenants que quedaron en el `plan_code` anterior — la regla de versionado de
+  F4 sigue vigente.
+
+P3 no se mergea sin:
+
+- Una cuenta vencida NO puede vender, y el error dice por qué y qué hacer.
+- Una cuenta vencida SÍ puede entrar a consultar y exportar durante la gracia.
+- El POS offline no puede quedar operando indefinidamente con una cuenta
+  vencida: definir qué pasa cuando la caja recupera conexión.
+
+### F7 — Arquitecturas rechazadas
+
+- **Borrar `company.<key>` / `moduleData`** — el bootstrap del POS y el panel
+  legacy leen de ahí; sin la proyección de D2 habría que reescribir el
+  contrato del bootstrap y romper el modo offline.
+- **Bloquear en el login sin job** — no permite avisar antes, y deja
+  `planExpired` sin escritor para los reportes que ya lo leen.
+- **Que el vencimiento apague módulos** — vencer no es "perder features": es
+  perder el servicio. Mezclar las dos superficies haría que reactivar una
+  cuenta tenga que reconstruir su set de módulos.
+- **Dejar `plans.features` como está** — el owner descartó tanto esto como la
+  variante "plan = techo, tenant elige dentro". Un campo que se edita, se
+  versiona y no gobierna nada es peor que no tenerlo.
+
 ## Orden y tamaño
 
 F2 (salud) es la prioridad declarada del owner y F1 la vitrina — pero F2
