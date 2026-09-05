@@ -27,7 +27,7 @@ final class PermissionCatalog
     public const BASELINE_VERSION = 1;
 
     /** Versión actual del catálogo. Bumpear +1 cada vez que se agrega un permiso nuevo que deba propagarse solo. */
-    public const CURRENT_VERSION = 7;
+    public const CURRENT_VERSION = 8;
 
     /** @return list<array{id: string, label: string, group: string, since?: int}> */
     public static function all(): array
@@ -100,6 +100,28 @@ final class PermissionCatalog
             // existió, así que no puede estar revocada a propósito en ningún
             // tenant — ver la advertencia del docblock de since()).
             ['id' => 'pos.stock.count',         'label' => 'Contar stock desde la caja', 'group' => 'POS', 'since' => 7],
+
+            // ── Anulación de un ítem de comanda ───────────────────────────
+            //
+            // Son DOS claves porque son dos decisiones distintas del comercio:
+            // quién puede anular una línea (el que toma pedidos: se equivocó
+            // al cargar, el cliente cambió de idea) y quién puede hacerlo
+            // DESPUÉS de que la cocina ya la tenía (el encargado, que se hace
+            // cargo de la merma). La segunda no reemplaza a la primera: es una
+            // elevación sobre ella, así que un rol con `.late` y sin la base
+            // no anula nada.
+            //
+            // Ninguna de las dos va al rol `device` — se evalúan contra el rol
+            // del OPERADOR del PIN (OperatorContext), misma razón que
+            // `pos.stock.count` y `pos.space.override`: dárselas al device
+            // significa "cualquiera que agarre la tablet", que es exactamente
+            // lo que esta feature vino a cerrar.
+            //
+            // `since` = 8 y claves NUEVAS: el caso seguro del backfill (nunca
+            // existieron, así que no pueden estar revocadas a propósito en
+            // ningún tenant — ver la advertencia del docblock de since()).
+            ['id' => 'pos.order.item.cancel',      'label' => 'Anular ítems de una comanda',            'group' => 'POS', 'since' => 8],
+            ['id' => 'pos.order.item.cancel.late', 'label' => 'Anular ítems fuera de la ventana de tiempo', 'group' => 'POS', 'since' => 8],
 
             ['id' => 'inventory.item.view',    'label' => 'Ver catálogo',             'group' => 'Inventario'],
             ['id' => 'inventory.item.create',  'label' => 'Crear artículos',          'group' => 'Inventario'],

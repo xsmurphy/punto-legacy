@@ -124,10 +124,15 @@ final class OrderCoreService
     private AddonService $addons;
 
     /**
-     * Operador de la request (ver Punto\Api\Auth\OperatorContext). Solo se usa
-     * para la exclusividad de espacio al crear una orden CONTRA UN ESPACIO: sin
-     * él, "agregar una ronda" sería el agujero por el que se modifica el espacio
-     * de otro mozo sin pasar por SpaceSessionService.
+     * Operador de la request (ver Punto\Api\Auth\OperatorContext). Dos usos:
+     *
+     *  1. Exclusividad de espacio al crear una orden CONTRA UN ESPACIO: sin él,
+     *     "agregar una ronda" sería el agujero por el que se modifica el
+     *     espacio de otro mozo sin pasar por SpaceSessionService.
+     *  2. ATRIBUCIÓN de los eventos de `pos_order_event` (ver recordEvent()):
+     *     bajo `pos-app` la credencial es la tablet compartida, así que sin
+     *     esto todo lo que pasa en la caja queda registrado a nombre del
+     *     dispositivo y no de quien lo hizo.
      *
      * Default = no identificado. Los callers internos (SpaceSessionService,
      * SpaceSettlementService) no crean órdenes de espacio — cancelan y cobran las
@@ -1010,12 +1015,32 @@ final class OrderCoreService
      * status de la orden a mano — lo deriva esta maquinaria, que es la que
      * sabe agregarlo.
      */
-    public function updateItemStatus(string $companyId, string $orderItemId, string $status, ?string $outletScope = null): array
-    {
+    public function updateItemStatus(
+        string $companyId,
+        string $orderItemId,
+        string $status,
+        ?string $outletScope = null,
+        ?string $reason = null
+    ): array {
         global $db;
 
         if (!array_key_exists($status, self::ITEM_TRANSITIONS)) {
             throw new \InvalidArgumentException('status de ítem inválido: ' . $status);
+        }
+
+        // Anular un ítem SIEMPRE lleva motivo — misma regla que cancelar la
+        // orden entera (ver updateStatus()) y por el mismo motivo: si el
+        // enforcement viviera en el diálogo del POS, cualquier otro cliente
+        // (KDS, integración, curl) borraría una línea sin dejar rastro del
+        // porqué. Se valida ANTES de StartTrans(): rechazar dentro de la TX
+        // abierta obliga a un FailTrans/CompleteTrans que no aporta nada.
+        //
+        // Ninguna otra transición de ítem pide motivo: bumpear a `ready` o
+        // `delivered` es el flujo normal de la cocina, no una excepción que
+        // alguien tenga que justificar.
+        $reason = $reason !== null ? trim($reason) : null;
+        if ($status === 'cancelled' && ($reason === null || $reason === '')) {
+            throw new \InvalidArgumentException('Motivo obligatorio para anular un ítem');
         }
 
         $db->StartTrans();
@@ -1103,7 +1128,8 @@ final class OrderCoreService
             $item['stationid'] ?? null,
             'item',
             $current,
-            $status
+            $status,
+            $reason
         );
 
         // recomputeOrderStatus() puede pisar pos_order.status como efecto
@@ -1444,6 +1470,12 @@ final class OrderCoreService
      * ambiente en vez de recibir el actor por parámetro. cron/backfill (sin
      * sesión HTTP) → ninguna constante definida → actor_kind='system'.
      *
+     * EXCEPCIÓN: el OPERADOR del PIN (`$this->operator`, inyectado en el
+     * constructor) gana sobre las constantes ambiente cuando está
+     * identificado. Es contexto de request igual que las otras, pero es el
+     * único que responde "qué PERSONA hizo esto" en una tablet compartida.
+     * Ver el bloque comentado en el cuerpo del método.
+     *
      * El module del device NO viaja en una constante ambiente en el path de
      * auth que usa este endpoint (apiAuthTenant/jwtAuthenticate) — a
      * diferencia de apiAuthPosContext (otro flujo, no usado por
@@ -1477,6 +1509,34 @@ final class OrderCoreService
         } elseif ($userId !== null) {
             $actorKind = 'user';
             $actorId   = $userId;
+        }
+
+        // ── La PERSONA gana sobre la TERMINAL ──────────────────────────────
+        //
+        // Bajo realm `pos-app` las dos constantes de arriba describen la
+        // TABLET, no a nadie: `AUTHED_DEVICE_ID` es el mostrador compartido y
+        // `AUTHED_USER_ID` es quien pareó el dispositivo hace meses (ver el
+        // docblock de Punto\Api\Auth\OperatorContext). Con la rama de device
+        // ganando, TODA anulación de la caja quedaba atribuida a "la tablet" —
+        // y "quién borró este ítem" es justamente lo que el comercio necesita
+        // saber.
+        //
+        // Cuando hay operador identificado (PIN probado server-side en el
+        // lockscreen) el evento se atribuye a ÉL. `actor_module` se conserva
+        // tal como lo resolvió la rama de device: el reporte sigue sabiendo
+        // que la acción salió de la caja / del KDS, y encima ahora sabe de
+        // quién. Sin operador identificado no se inventa a nadie y queda el
+        // comportamiento de siempre (device, o user del panel).
+        //
+        // El arreglo vive ACÁ, en el único punto de escritura de eventos, y no
+        // en el call-site de la cancelación: cualquier otra transición hecha
+        // desde el POS tenía exactamente el mismo defecto de atribución.
+        $operatorId = ($this->operator['identified'] ?? false)
+            ? (string) ($this->operator['userId'] ?? '')
+            : '';
+        if ($operatorId !== '') {
+            $actorKind = 'user';
+            $actorId   = $operatorId;
         }
 
         $this->db->Execute(

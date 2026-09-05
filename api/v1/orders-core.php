@@ -17,7 +17,12 @@
  *   POST /v1/orders-core?id=<uuid>&action=status  {status}    → transición a nivel orden (cancel, etc — closed solo si ya está cobrada)
  *   POST /v1/orders-core?id=<uuid>&action=mark-paid {transactionId} → cierra la orden tras cobrarla (llamado por el flujo de cobro, O1)
  *   POST /v1/orders-core?id=<uuid>&action=assign-courier {courierId} → asigna/desasigna repartidor (solo fulfillment='delivery')
- *   POST /v1/orders-core?resource=item-status&id=<orderItemId> {status} → transición de un ítem
+ *   POST /v1/orders-core?resource=item-status&id=<orderItemId> {status, reason?} → transición de un ítem
+ *                                                              status='cancelled' exige `reason` no vacío, el permiso
+ *                                                              `pos.order.item.cancel` del OPERADOR (no del device) y
+ *                                                              caer dentro de la ventana configurada por el comercio
+ *                                                              (o tener `pos.order.item.cancel.late`). Ver
+ *                                                              `OrderItemCancelGate`.
  *
  * Auth: panel + pos-app (las órdenes las opera tanto el POS como el panel).
  * Para pos-app, outletId sale del device ctx (apiAuthTenant ya lo resuelve).
@@ -53,6 +58,7 @@ global $db;
 // espacio: crear una orden contra un espacio ajeno se rechaza igual que tocarlo
 // desde el diálogo del espacio. Ver Punto\Api\Auth\OperatorContext.
 require_once __DIR__ . '/../lib/Auth/OperatorContext.php';
+require_once __DIR__ . '/../lib/services/OrderItemCancelGate.php';
 $operator = \Punto\Api\Auth\OperatorContext::resolve($ctx);
 $svc      = new \Punto\Api\Orders\OrderCoreService($db, $operator);
 
@@ -76,6 +82,16 @@ $deviceModule = $isPosApp ? (string) ($ctx['module'] ?? 'pos') : null;
  * (ORDER_TRANSITIONS permite 'sent'→'delivered' directo — hallazgo del
  * code-reviewer en la review de este mismo commit). El flujo real de mozos
  * es SIEMPRE item-status por cada ítem `ready`.
+ *
+ * OJO con 'cancelled' a nivel ítem para 'kds': desde que la anulación exige
+ * `pos.order.item.cancel` del OPERADOR (ver el gate más abajo), ese camino
+ * responde 403 salvo que alguien se haya identificado con su PIN en el KDS —
+ * que hoy no es parte de su flujo. La clave NO se resuelve dándosela al rol
+ * `device`: eso volvería anónima justamente la acción que esta feature quiere
+ * atribuir. Se deja acá porque la restricción por module y la de permiso son
+ * dos capas distintas y esta sigue expresando qué puede PEDIR una cocina; si el
+ * comercio necesita que el KDS anule, la respuesta es identificar al cocinero,
+ * no aflojar el rol de la terminal.
  *
  * 'kds' suma 'pending' a nivel ítem (2026-07-27): el KDS ahora puede RETROCEDER
  * un ítem un paso (`ready → preparing → pending`) para deshacer un marcado
@@ -137,8 +153,40 @@ switch ($method) {
                 apiError('id (orderItemId) y status son requeridos', 422);
             }
             assertModuleCanSetStatus($deviceModule, 'item', $status);
+            // Anular un ítem no es una transición más: exige permiso propio
+            // medido contra la PERSONA (no contra la tablet) y respeta la
+            // ventana de tiempo que configuró el comercio. El gate va ACÁ,
+            // antes del service, porque es una regla de AUTORIZACIÓN —el
+            // service valida el dominio (transición legal, motivo presente),
+            // no quién tiene derecho a pedirla.
+            //
+            // El motivo NO se valida en este archivo: lo hace el service, para
+            // que la regla valga para todo cliente y no solo para el POS
+            // (mismo criterio que la cancelación a nivel orden, más abajo).
+            //
+            // ALCANCE — este gate cubre la anulación de UN ÍTEM, no la de la
+            // orden entera (`action=status` con `status='cancelled'`, más
+            // abajo). Cancelar la orden completa sigue con sus reglas de
+            // siempre: motivo obligatorio y prohibido si ya se cobró. Son dos
+            // acciones distintas para el comercio —"me equivoqué en una línea"
+            // vs "esta comanda no va"— y la segunda ya estaba acotada por el
+            // cobro. Dicho eso, en una comanda de UN SOLO ítem el efecto es el
+            // mismo y esta es la puerta de al lado: si el comercio quiere la
+            // ventana también ahí, es una decisión suya, no un bug a tapar acá.
+            if ($status === 'cancelled') {
+                try {
+                    \Punto\Api\Services\OrderItemCancelGate::assertCanCancel($ctx, $companyId, $orderItemId);
+                } catch (\Punto\Api\Services\OrderItemCancelBlockedException $e) {
+                    // 422 con `details` y no un mensaje pelado: el POS necesita
+                    // el código y los minutos para explicar qué pasó y ofrecer
+                    // la elevación por PIN. Mismo contrato que el gate de
+                    // cierre de turno en `drawer.php`.
+                    apiError($e->getMessage(), 422, $e->details());
+                }
+            }
+            $reason = isset($_POST['reason']) ? (string) $_POST['reason'] : null;
             try {
-                apiOk($svc->updateItemStatus($companyId, $orderItemId, $status, $outletScope));
+                apiOk($svc->updateItemStatus($companyId, $orderItemId, $status, $outletScope, $reason));
             } catch (\Throwable $e) {
                 apiError($e->getMessage(), 422);
             }
