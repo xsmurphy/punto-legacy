@@ -526,15 +526,36 @@ final class PlanLifecycleService
             return $dt->format('Y-m-d');
         }
 
+        // Idioma del PRODUCTO + región del TENANT.
+        //
+        // Acá decía `und-PY` (idioma indefinido + región), y ICU lo RECHAZA:
+        // `IntlDateFormatter::create()` LANZA con ese locale en vez de
+        // devolver null, así que el guard de abajo nunca llegaba a correr y
+        // los seis avisos de la primera corrida real murieron con
+        // "IntlDateFormatter::create(): Argument #1 ($locale) \"und-PY\" is
+        // invalid" (verificado en prod, 2026-09-05 — se salvó porque los
+        // avisos estaban en dry-run).
+        //
+        // 'es' no es hardcodear Paraguay: es el idioma del producto entero
+        // (el front formatea con `date-fns/locale` `es` en todos lados). Lo
+        // que SÍ sale del tenant es la región, que es lo que decide el orden
+        // de la fecha. Un tenant argentino recibe es-AR, uno paraguayo es-PY.
         $country = \Punto\Api\Support\TenantLocale::country($companyId);
-        $locale  = ($country !== null && $country !== '') ? 'und-' . strtoupper($country) : 'und';
+        $locale  = ($country !== null && $country !== '') ? 'es-' . strtoupper($country) : 'es';
 
-        $fmt = \IntlDateFormatter::create(
-            $locale,
-            \IntlDateFormatter::SHORT,
-            \IntlDateFormatter::NONE,
-            $tz
-        );
+        // try/catch ADEMÁS del chequeo de null: `create()` puede lanzar (es lo
+        // que pasó) o devolver null según el modo de error de intl. Un aviso
+        // no puede caerse por el formato de una fecha.
+        try {
+            $fmt = \IntlDateFormatter::create(
+                $locale,
+                \IntlDateFormatter::SHORT,
+                \IntlDateFormatter::NONE,
+                $tz
+            );
+        } catch (\Throwable $e) {
+            return $dt->format('Y-m-d');
+        }
         if ($fmt === null) {
             return $dt->format('Y-m-d');
         }
