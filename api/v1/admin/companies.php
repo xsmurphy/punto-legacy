@@ -53,8 +53,24 @@ $uuidRe = '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i';
 
 if ($method === 'GET') {
     // F3.4 — lista de planes (selector UI).
+    //
+    // `{rows}` y no el array pelado: el hook del panel (`useAdminPlans`) lee
+    // `.rows`, y el array sin envolver dejaba el selector VACÍO — el admin no
+    // podía asignarle plan a ningún tenant (reporte del owner 2026-09-05).
+    // Sale de `PlanAdminService::list(false)` — la MISMA fuente que el CRUD de
+    // /admin/planes — en vez de la query duplicada que tenía
+    // `CompanyAdminService::listPlans()`: aquella no excluía los planes
+    // ARCHIVADOS, así que el selector ofrecía asignar planes dados de baja.
+    // Se filtra el plan 0 (default/interno), igual que hacía la query vieja.
     if (!empty($_GET['plans'])) {
-        apiOk($svc->listPlans());
+        require_once __DIR__ . '/../../lib/Admin/PlanAdminService.php';
+        $plans = array_values(array_filter(
+            // Namespace GLOBAL — la clase no declara namespace (igual que la
+            // instancia `new PlanAdminService()` de plans.php).
+            (new \PlanAdminService())->list(false),
+            static fn(array $p) => (int) ($p['code'] ?? 0) !== 0
+        ));
+        apiOk(['rows' => $plans]);
     }
 
     // F3.4b — solicitudes de cambio de plan.

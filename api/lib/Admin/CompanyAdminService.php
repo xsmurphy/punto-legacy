@@ -1200,31 +1200,6 @@ class CompanyAdminService
         }
     }
 
-    /**
-     * Lista de planes del sistema (code → name/price) para el selector de edición.
-     * Devuelve array de ['code'=>int, 'name'=>string, 'price'=>float].
-     */
-    public function listPlans(): array
-    {
-        global $db;
-
-        $r = $db->Execute(
-            'SELECT plan_code, name, price FROM plans WHERE plan_code != 0 ORDER BY plan_code ASC'
-        );
-        $out = [];
-        if ($r) {
-            while (!$r->EOF) {
-                $f      = $r->fields;
-                $out[]  = [
-                    'code'  => (int)   ($f['plan_code'] ?? 0),
-                    'name'  => (string) ($f['name']      ?? ''),
-                    'price' => (float)  ($f['price']     ?? 0),
-                ];
-                $r->MoveNext();
-            }
-        }
-        return $out;
-    }
 
     /**
      * Datos de facturación de una empresa: balance, plan (con nombre+precio)
