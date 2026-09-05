@@ -78,12 +78,20 @@ define('TWILIO_AUTH_TOKEN',                $_ENV['TWILIO_AUTH_TOKEN']           
 define('SENDGRID_API_KEY',                 $_ENV['SENDGRID_API_KEY']                 ?? '');
 define('INFOBIP_PHONE',                    $_ENV['INFOBIP_PHONE']                    ?? '29000');
 define('INFOBIP_AUTH',                     $_ENV['INFOBIP_AUTH']                     ?? '');
-// Evolution API (WhatsApp) — usada por api/v1/signup/start.php para enviar
-// el OTP cuando SIGNUP_OTP=on. Sin definir acá, `defined('EVOLUTION_API_URL')`
+// Evolution API (WhatsApp) — el canal lo usa `api/lib/Notify/WhatsAppSender.php`:
+// el OTP del signup cuando SIGNUP_OTP=on y los avisos de vencimiento de plan
+// del job `plan-lifecycle`. Sin definir acá, `defined('EVOLUTION_API_URL')`
 // es siempre false aunque la env esté seteada (bug preexistente).
 define('EVOLUTION_API_URL',                $_ENV['EVOLUTION_API_URL']                ?? '');
 define('EVOLUTION_INSTANCE',               $_ENV['EVOLUTION_INSTANCE']               ?? '');
 define('EVOLUTION_API_KEY',                $_ENV['EVOLUTION_API_KEY']                ?? '');
+// ¿El job `plan-lifecycle` MANDA los avisos de vencimiento, o solo los loguea?
+// APAGADO por default ('' → dry-run) a propósito: son mensajes de WhatsApp a
+// comercios reales y encenderlos no puede ser un efecto lateral de un deploy.
+// El vencimiento, el bloqueo y la recarga de créditos NO dependen de esta
+// var — corren siempre. '1' | 'on' | 'true' prenden el envío.
+// Ver context/34-admin-saas-plan.md §F7 (D7).
+define('PLAN_LIFECYCLE_NOTIFY',            $_ENV['PLAN_LIFECYCLE_NOTIFY']            ?? '');
 define('PDF_API_KEY',                      $_ENV['PDF_API_KEY']                      ?? '');
 define('API_LAYER_KEY',                    $_ENV['API_LAYER_KEY']                    ?? '');
 define('INCOME_COMPANY_ID', 15);

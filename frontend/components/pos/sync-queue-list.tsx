@@ -37,7 +37,8 @@ import {
 } from '@/components/ui/table'
 import { CloudOff } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
-import { peekAll, discard, markFailed, markSynced, getFailedCount } from '@/lib/pos/offline-queue'
+import { peekAll, markFailed, markSynced, markWaiting, getFailedCount } from '@/lib/pos/offline-queue'
+import { ACCOUNT_BLOCKED_NOTE, isAccountBlocked } from '@/lib/pos/account-block'
 import type { OfflineSaleRow } from '@/lib/pos/offline-queue'
 import {
   discardOp,
@@ -110,6 +111,13 @@ export function SyncQueueList() {
   const failedCount = useOfflineSyncStore((s) => s.failedCount)
   const pendingOpsCount = useOfflineSyncStore((s) => s.pendingOpsCount)
   const failedOpsCount = useOfflineSyncStore((s) => s.failedOpsCount)
+  // El servidor está rechazando todo porque la cuenta del comercio no está al
+  // día (D8, `lib/pos/account-block.ts`). No es un error de lo que hay en la
+  // cola —está intacto y sale solo cuando se regularice el pago—, así que se
+  // dice como ESPERA. Decirle "Error" al cajero es empujarlo al botón de
+  // descartar una venta real.
+  const accountBlocked = useOfflineSyncStore((s) => s.accountBlocked)
+  const setAccountBlocked = useOfflineSyncStore((s) => s.setAccountBlocked)
   const config = useCatalogStore((s) => s.config)
   const activeRegisterId = useCatalogStore((s) => s.activeRegisterId)
   // Tenencia vigente de este device — habilita el reintento de las ventas que
@@ -189,11 +197,6 @@ export function SyncQueueList() {
     await loadRows()
   }
 
-  async function handleDiscard(clientTempId: string) {
-    await discard(clientTempId)
-    await loadRows()
-  }
-
   async function handleRetryOne(row: OfflineSaleRow) {
     setSyncing(true)
     try {
@@ -219,7 +222,16 @@ export function SyncQueueList() {
       } else if (result?.error) {
         await markFailed(row.clientTempId, result.error)
       }
-    } catch {
+    } catch (err) {
+      // Cuenta impaga: la venta sale de 'failed' y vuelve a la cola en espera
+      // (D8). El reintento manual acá es lo mejor que le puede pasar a esa
+      // venta — deja de estar marcada como error y sincroniza sola en cuanto se
+      // regularice el pago, sin depender de que alguien vuelva a esta pantalla.
+      if (isAccountBlocked(err)) {
+        setAccountBlocked('sales', true)
+        await markWaiting(row.clientTempId)
+        return
+      }
       await markFailed(row.clientTempId, { code: 'NETWORK_ERROR', message: 'Error de red' })
     } finally {
       setSyncing(false)
@@ -254,7 +266,14 @@ export function SyncQueueList() {
           }
         }),
       )
-    } catch {
+    } catch (err) {
+      // Mismo criterio que el reintento de a una: con la cuenta impaga, estas
+      // ventas no fallaron — están esperando. Ver `lib/pos/account-block.ts`.
+      if (isAccountBlocked(err)) {
+        setAccountBlocked('sales', true)
+        await Promise.all(failed.map((r) => markWaiting(r.clientTempId)))
+        return
+      }
       await Promise.all(
         failed.map((r) =>
           markFailed(r.clientTempId, { code: 'NETWORK_ERROR', message: 'Error de red' }),
@@ -301,9 +320,12 @@ export function SyncQueueList() {
    * operador adivinando.
    */
   function opWaitingNote(op: PendingOpRow): string | null {
-    if (op.kind !== 'drawerClose' || op.status !== 'pending' || unsentSalesCount === 0) {
-      return null
-    }
+    if (op.status !== 'pending') return null
+    // La cuenta impaga gana sobre cualquier otra espera: mientras esté, NADA
+    // sale, así que explicar el orden interno de la cola sería contarle al
+    // cajero el motivo equivocado.
+    if (accountBlocked) return ACCOUNT_BLOCKED_NOTE
+    if (op.kind !== 'drawerClose' || unsentSalesCount === 0) return null
     return `Se envía cuando terminen de enviarse ${unsentSalesCount} venta${
       unsentSalesCount !== 1 ? 's' : ''
     } del turno`
@@ -430,7 +452,20 @@ export function SyncQueueList() {
                     {formatMoney(getTotal(row), config)}
                   </TableCell>
                   <TableCell>
-                    {row.status === 'pending' && <Badge variant="secondary">En cola</Badge>}
+                    {row.status === 'pending' && (
+                      <div className="flex flex-col items-start gap-1">
+                        <Badge variant="secondary">En cola</Badge>
+                        {/* La venta está intacta: lo que falta es que el
+                            comercio se ponga al día. Decirlo acá, en la fila,
+                            es lo que evita que alguien la descarte creyendo
+                            que se rompió. */}
+                        {accountBlocked && (
+                          <span className="text-xs text-muted-foreground">
+                            {ACCOUNT_BLOCKED_NOTE}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {row.status === 'syncing' && <Badge variant="secondary">Sincronizando</Badge>}
                     {row.status === 'failed' && (
                       <div className="flex flex-col items-start gap-1">
@@ -453,17 +488,28 @@ export function SyncQueueList() {
                           Reintentar
                         </Button>
                       )}
-                      {row.status === 'failed' && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive hover:text-destructive"
-                          disabled={syncing}
-                          onClick={() => void handleDiscard(row.clientTempId)}
-                        >
-                          Descartar
-                        </Button>
-                      )}
+                      {/* SIN "Descartar" para una VENTA — mandato del owner
+                          (2026-09-05): "una venta no debe ser eliminada".
+                          Acá había un botón que llamaba a `discard()`, o sea
+                          `db.delete('pendingSales', …)`: borrado permanente,
+                          un click, sin confirmación, de un comprobante YA
+                          cobrado e impreso al cliente. Esa venta no llegaba
+                          nunca a los libros y no quedaba rastro de que
+                          existió.
+
+                          No hay reemplazo ni diálogo de confirmación: una
+                          venta que no se puede sincronizar es un caso de
+                          soporte, no una decisión para tomar parado atrás de
+                          la caja en hora pico. Se queda en la lista, con su
+                          error a la vista y el botón de reintentar.
+
+                          Sacarlo NO traba la cola: el ciclo de sync saltea
+                          las `failed` y sigue con las `pending` (ver
+                          `use-offline-sync.ts`), así que una venta atascada
+                          no frena a las que vienen atrás.
+
+                          El botón de las OPERACIONES (arriba) se conserva:
+                          son cambios de configuración, no plata cobrada. */}
                     </div>
                   </TableCell>
                 </TableRow>

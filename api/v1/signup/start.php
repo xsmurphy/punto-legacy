@@ -24,6 +24,7 @@ require_once __DIR__ . '/../../bootstrap.php';
 require_once __DIR__ . '/../../lib/Admin/PlatformConfig.php';
 
 use Punto\Api\Auth\SignupOtp;
+use Punto\Api\Notify\WhatsAppSender;
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     apiError('Método no permitido', 405);
@@ -68,38 +69,22 @@ if (SignupOtp::mode() === 'off') {
 
 $code = SignupOtp::issue($e164);
 
-$msg     = '[' . (defined('APP_NAME') ? APP_NAME : 'Punto') . '] '
-         . $code . ' es tu código de verificación. Válido por 4 minutos.';
-$phoneE  = ltrim($e164, '+');
-$payload = json_encode(['number' => $phoneE, 'text' => $msg]);
+$msg = '[' . (defined('APP_NAME') ? APP_NAME : 'Punto') . '] '
+     . $code . ' es tu código de verificación. Válido por 4 minutos.';
 
-// Precedencia (context/34-admin-saas-plan.md F6 §3): si el admin configuró
-// 'integration.evolution' en platform_config, gana entero sobre las env vars.
-$evolutionCfg = PlatformConfig::get('integration.evolution', [
-    'url'      => defined('EVOLUTION_API_URL') ? EVOLUTION_API_URL : '',
-    'instance' => defined('EVOLUTION_INSTANCE') ? EVOLUTION_INSTANCE : '',
-    'key'      => defined('EVOLUTION_API_KEY') ? EVOLUTION_API_KEY : '',
-]);
-$evolutionUrl  = rtrim((string) ($evolutionCfg['url'] ?? ''), '/');
-$evolutionInst = (string) ($evolutionCfg['instance'] ?? '');
-$evolutionKey  = (string) ($evolutionCfg['key'] ?? '');
-if ($evolutionUrl === '' || $evolutionInst === '' || $evolutionKey === '') {
+// El envío por Evolution (credenciales con precedencia platform_config→env,
+// normalización del teléfono, timeout) vive en WhatsAppSender: era código
+// inline acá hasta que apareció el segundo caller —los avisos de vencimiento
+// de plan del job `plan-lifecycle`— y copiarlo habría dejado dos lugares
+// donde arreglar lo mismo.
+if (!WhatsAppSender::isConfigured()) {
     apiError('Evolution API no configurada', 500);
 }
 
-$ch = curl_init($evolutionUrl . '/message/sendText/' . $evolutionInst);
-curl_setopt_array($ch, [
-    CURLOPT_POST           => true,
-    CURLOPT_POSTFIELDS     => $payload,
-    CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'apikey: ' . $evolutionKey],
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_TIMEOUT        => 8,
-]);
-curl_exec($ch);
-$httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-curl_close($ch);
-
-if ($httpCode >= 200 && $httpCode < 300) {
+$sent = WhatsAppSender::send($e164, $msg);
+if ($sent['ok']) {
     apiOk(['phone' => $e164]);
 }
+
+error_log('[signup/start] envío de OTP falló: ' . (string) ($sent['error'] ?? 'desconocido'));
 apiError('No se pudo enviar el código. Verificá el número e intentá de nuevo.', 500);

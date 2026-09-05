@@ -162,6 +162,31 @@ export async function revivePendingAfterTenancy(): Promise<number> {
   return revivable.length
 }
 
+/**
+ * ESPERA: la venta salió a la red y el servidor la rechazó por una condición
+ * que no es de ella —la cuenta del comercio no está al día
+ * (`lib/pos/account-block.ts`)—. Vuelve a 'pending' SIN contar el intento, sin
+ * escribir error y sin tocar el backoff.
+ *
+ * Es la pieza que hace cumplir la D8 de `context/34-admin-saas-plan.md` §F7:
+ * **una venta encolada nunca se rechaza por cuenta impaga**. Sin esto, el 403
+ * del tenant bloqueado entraba por `markRetry` como si fuera una caída de red,
+ * gastaba los 6 intentos en pocos minutos y terminaba en `markFailed`: un
+ * comprobante ya emitido, impreso y cobrado, marcado "Error" y con el botón
+ * "Descartar" al lado. El comercio no le debe plata a nadie por esa venta —
+ * justamente al revés.
+ *
+ * No hay tope de espera a propósito. La venta se queda en la cola todo lo que
+ * haga falta y sincroniza sola en el ciclo siguiente a que alguien regularice
+ * el pago desde /admin.
+ */
+export async function markWaiting(clientTempId: string): Promise<void> {
+  const db = await getDB()
+  const row = await db.get('pendingSales', clientTempId)
+  if (!row) return
+  await db.put('pendingSales', { ...row, status: 'pending', error: undefined })
+}
+
 /** Marca una venta como en proceso de sincronización. */
 export async function markSyncing(clientTempId: string): Promise<void> {
   const db = await getDB()
@@ -171,6 +196,24 @@ export async function markSyncing(clientTempId: string): Promise<void> {
 }
 
 /** Descarta una venta de la cola (acción manual del operador). */
+/**
+ * Borra una venta de la cola. **SIN CONSUMIDORES A PROPÓSITO** desde
+ * 2026-09-05 — mandato del owner: *"una venta no debe ser eliminada"*.
+ *
+ * Existía un botón "Descartar" en `sync-queue-list.tsx` que llamaba a esto:
+ * un click, sin confirmación, borraba para siempre un comprobante YA cobrado
+ * e impreso al cliente. Esa venta no llegaba a los libros y no quedaba rastro
+ * de que hubiera existido.
+ *
+ * Se conserva la función y NO se borra el store: una venta que no se puede
+ * sincronizar tiene que poder resolverse desde soporte con acceso al
+ * dispositivo, y para eso el dato tiene que seguir estando. Lo que no puede
+ * existir es un camino de UNA persona parada en la caja hacia el borrado.
+ *
+ * Si alguna vez hace falta volver a llamarla desde la caja, la respuesta NO es
+ * reponer el botón: es que la venta se resuelva (reintento, reparación del
+ * payload) o que se exporte antes de irse.
+ */
 export async function discard(clientTempId: string): Promise<void> {
   const db = await getDB()
   await db.delete('pendingSales', clientTempId)

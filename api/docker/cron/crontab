@@ -21,3 +21,9 @@
 0    4  *  *  *   /usr/local/bin/maintenance.sh purge-deleted-row
 30   2  *  *  *   /usr/local/bin/maintenance.sh partition-ensure
 0    5  2  *  *   /usr/local/bin/maintenance.sh period-close
+# Ciclo de vida del plan del tenant (P2 de context/34 §F7): vence, aplica los
+# 5 días de gracia, avisa y recarga los créditos IA mensuales. DIARIO aunque
+# la recarga sea mensual: vencimiento y gracia son transiciones por día, y la
+# rama de créditos no hace nada si el período ya está acreditado. Temprano y
+# UNA vez: los avisos son WhatsApp a comercios reales.
+0    6  *  *  *   /usr/local/bin/maintenance.sh plan-lifecycle

@@ -15,6 +15,7 @@ import {
   RefreshCw,
   HeartPulse,
   CalendarClock,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   ScrollText,
@@ -64,12 +65,14 @@ import {
 import {
   Form,
   FormControl,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
+import { DatePicker } from "@/components/date-picker"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Select,
@@ -155,6 +158,19 @@ const extendTrialSchema = z.object({
   days: z.number().int().positive("Tiene que ser mayor a 0"),
 })
 
+/**
+ * Fijar la fecha de vencimiento a mano (distinto de extender N días).
+ *
+ * El formato es el "YYYY-MM-DD" que habla `<DatePicker>` de punta a punta:
+ * el picker lo emite sin shift de zona horaria y el backend lo recibe tal
+ * cual en `expiresAt`. No se valida "futura" acá a propósito — retroceder el
+ * vencimiento es una operación legítima (corregir una extensión mal cargada),
+ * y quien decide qué hace una fecha pasada es el backend, no este form.
+ */
+const setExpirySchema = z.object({
+  expiresAt: z.string().min(1, "Elegí una fecha"),
+})
+
 const noteSchema = z.object({
   body: z.string().trim().min(1, "Escribí algo antes de guardar"),
 })
@@ -162,6 +178,7 @@ const noteSchema = z.object({
 type AiCreditsValues = z.infer<typeof aiCreditsSchema>
 type AddonsValues = z.infer<typeof addonsSchema>
 type ExtendTrialValues = z.infer<typeof extendTrialSchema>
+type SetExpiryValues = z.infer<typeof setExpirySchema>
 type NoteValues = z.infer<typeof noteSchema>
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -175,8 +192,22 @@ function statusBadge(status: string, blocked: number, suspended: number) {
   return <Badge variant="secondary">{status || "—"}</Badge>
 }
 
+/**
+ * El caso "YYYY-MM-DD" pelado se parsea a mano porque `new Date("2026-09-05")`
+ * lo interpreta como medianoche UTC: en `es-PY` (UTC-3/-4) eso se imprime como
+ * el día ANTERIOR. Los timestamps del backend traen offset y no sufren esto,
+ * pero desde que el vencimiento se fija con `<DatePicker>` entran acá strings
+ * date-only, y el arreglo va en el helper —único punto de formateo de fechas
+ * del archivo— y no en el call-site que lo destapó.
+ */
 function fmtDate(v: string | null | undefined): string {
   if (!v) return "—"
+  const dateOnly = v.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (dateOnly) {
+    return formatPuntoSaasDate(
+      new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])),
+    )
+  }
   return formatPuntoSaasDate(v)
 }
 
@@ -233,11 +264,32 @@ function HeaderActions({ id }: { id: string }) {
   const unsuspend = useAdminUnsuspend()
   const extendTrial = useAdminExtendTrial()
   const [extendOpen, setExtendOpen] = React.useState(false)
+  const updateCompany = useAdminUpdateCompany()
+  const [setExpiryOpen, setSetExpiryOpen] = React.useState(false)
 
   const extendForm = useForm<ExtendTrialValues>({
     resolver: zodResolver(extendTrialSchema),
     defaultValues: { days: 7 },
   })
+
+  const setExpiryForm = useForm<SetExpiryValues>({
+    resolver: zodResolver(setExpirySchema),
+    defaultValues: { expiresAt: "" },
+  })
+
+  /**
+   * Rango de los dropdowns del calendario. Sin límites explícitos el picker
+   * ofrece un siglo de años para elegir, y un vencimiento de suscripción vive
+   * siempre a meses de hoy: acotarlo a [-1 año, +5 años] convierte el select
+   * en algo usable. Memoizado para no fabricar dos `Date` en cada render.
+   */
+  const expiryBounds = React.useMemo(() => {
+    const now = new Date()
+    return {
+      start: new Date(now.getFullYear() - 1, 0, 1),
+      end: new Date(now.getFullYear() + 5, 11, 31),
+    }
+  }, [])
 
   if (!company) return null
 
@@ -299,6 +351,41 @@ function HeaderActions({ id }: { id: string }) {
     )
   }
 
+  /**
+   * El diálogo precarga el vencimiento vigente recién al abrirse, no en los
+   * `defaultValues`: `company` llega por query y el `useForm` se monta antes
+   * (los hooks corren arriba del `if (!company) return null`), así que fijar
+   * el default en el mount lo dejaría siempre vacío.
+   */
+  const handleSetExpiryOpenChange = (open: boolean) => {
+    if (open) {
+      setExpiryForm.reset({ expiresAt: (company?.expiresAt ?? "").slice(0, 10) })
+    }
+    setSetExpiryOpen(open)
+  }
+
+  /**
+   * Se manda SOLO `expiresAt`. El reseteo del estado de la cuenta lo hace el
+   * backend dentro del mismo UPDATE (`CompanyAdminService::update()`): una
+   * fecha futura limpia `blocked`, `planExpired` y `planExpiredAt`; una fecha
+   * pasada no desbloquea nada. Mandar esos flags desde el cliente duplicaría
+   * la regla en dos lugares y dejaría que la UI decida algo que es del
+   * dominio. `suspended` —suspensión comercial manual— no se toca nunca acá:
+   * se levanta con el botón Reactivar.
+   */
+  const onSetExpirySubmit = (values: SetExpiryValues) => {
+    updateCompany.mutate(
+      { id, data: { expiresAt: values.expiresAt } },
+      {
+        onSuccess: () => {
+          toast.success(`Vencimiento fijado al ${fmtDate(values.expiresAt)}`)
+          setSetExpiryOpen(false)
+        },
+        onError: (err) => toast.error(err instanceof AdminApiError ? err.message : "Error"),
+      },
+    )
+  }
+
   return (
     <TooltipProvider>
       <div className="flex flex-wrap items-center gap-2">
@@ -353,6 +440,67 @@ function HeaderActions({ id }: { id: string }) {
                   <Button type="submit" disabled={extendTrial.isPending}>
                     {extendTrial.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
                     Extender
+                  </Button>
+                </DialogFooter>
+              </form>
+            </Form>
+          </DialogContent>
+        </Dialog>
+
+        <Dialog open={setExpiryOpen} onOpenChange={handleSetExpiryOpenChange}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2" disabled={isCancelled}>
+                    <CalendarDays className="size-4" />
+                    Fijar vencimiento
+                  </Button>
+                </DialogTrigger>
+              </span>
+            </TooltipTrigger>
+            {isCancelled && <TooltipContent>La empresa está cancelada</TooltipContent>}
+          </Tooltip>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Fijar fecha de vencimiento</DialogTitle>
+              <DialogDescription>
+                Reemplaza el vencimiento de <strong>{company.settingName || company.name}</strong>{" "}
+                por el día que elijas, sin importar cuál sea el actual. Hoy vence el{" "}
+                {fmtDate(company.expiresAt)}.
+              </DialogDescription>
+            </DialogHeader>
+            <Form {...setExpiryForm}>
+              <form onSubmit={setExpiryForm.handleSubmit(onSetExpirySubmit)} className="space-y-4">
+                <FormField
+                  control={setExpiryForm.control}
+                  name="expiresAt"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Nueva fecha de vencimiento</FormLabel>
+                      <FormControl>
+                        <DatePicker
+                          value={field.value}
+                          onChange={field.onChange}
+                          captionLayout="dropdown"
+                          startMonth={expiryBounds.start}
+                          endMonth={expiryBounds.end}
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Una fecha futura reactiva la cuenta: deja de estar vencida y se levanta el
+                        bloqueo por falta de pago. Una fecha pasada solo cambia el vencimiento, no
+                        desbloquea nada. La suspensión manual se maneja aparte, con el botón
+                        Suspender.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <DialogFooter>
+                  <Button type="submit" disabled={updateCompany.isPending}>
+                    {updateCompany.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+                    Guardar fecha
                   </Button>
                 </DialogFooter>
               </form>

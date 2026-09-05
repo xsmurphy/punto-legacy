@@ -433,25 +433,62 @@ function getContactCreditLine($uid,$creditLine){
 }
 
 /**
- * Gate único de acceso al tenant (bootstrap.php + apiAuthPosContext.php).
+ * Resolver único del motivo por el que un tenant NO puede operar.
+ *
+ * Existe porque `checkCompanyStatus()` devolvía un booleano y los dos gates que
+ * lo usan (`apiAuthTenant()` en bootstrap.php y `apiAuthPosContext()`) cortaban
+ * los tres casos con el MISMO 403 'Company Blocked'. Para el panel daba igual;
+ * para el POS no: la D8 de `context/34-admin-saas-plan.md` §F7 es un mandato
+ * explícito del owner —una venta encolada offline NUNCA se rechaza por cuenta
+ * impaga— y el transporte del POS no puede honrarla si no puede DISTINGUIR el
+ * 403 de mora del 403 de "tu payload no sirve". Sin motivo en el sobre,
+ * `syncPendingOps()` clasifica el rechazo como terminal, la venta muere en
+ * `failed`, traba el canal y le ofrece al cajero descartar un comprobante real.
+ *
+ * El motivo viaja al cliente en `error.details.reason` — mismo contrato que ya
+ * usa `outlet_out_of_scope` (ver `lib/api-client.ts`), no un campo nuevo.
  *
  * `blocked` (mora/billing) y `suspended` (mig 110 — suspensión manual admin,
- * columna propia desde P1 review F3: antes compartía `blocked`, y
- * unsuspend() lo pisaba a 0 perdiendo la señal de mora) deniegan acceso con
- * el MISMO efecto, sin importar `status`.
+ * columna propia desde P1 review F3: antes compartía `blocked`, y unsuspend()
+ * lo pisaba a 0 perdiendo la señal de mora) deniegan acceso con el MISMO
+ * efecto, sin importar `status`. Lo que cambia es cómo se llaman, y de eso
+ * depende que el POS espere en vez de descartar.
+ *
+ * @return array{reason:string,message:string}|null null = puede operar.
  */
-function checkCompanyStatus($id){
+function companyAccessDenial($id){
 	$result = ncmExecute('SELECT status, blocked, suspended FROM company WHERE companyId = ? LIMIT 1',[$id]);
 
 	if (!$result) {
-		return false;
+		return ['reason' => 'company_unknown', 'message' => 'Empresa inexistente'];
 	}
-	if (!empty($result['blocked']) || !empty($result['suspended'])) {
-		return false;
+	// El orden importa: `blocked` es el que el job `plan-lifecycle` escribe por
+	// mora, y es el único que el POS traduce a espera. Si un tenant estuviera
+	// bloqueado Y suspendido, ganar el motivo de mora es lo correcto — la
+	// venta encolada sigue sin poder descartarse.
+	if (!empty($result['blocked'])) {
+		return ['reason' => 'account_blocked', 'message' => 'Cuenta bloqueada por falta de pago'];
+	}
+	if (!empty($result['suspended'])) {
+		return ['reason' => 'account_suspended', 'message' => 'Cuenta suspendida'];
+	}
+	// Canónico minúscula desde mig 111 (CHECK company_status_allowed).
+	if ($result['status'] !== 'active') {
+		return ['reason' => 'account_inactive', 'message' => 'La cuenta no está activa'];
 	}
 
-	// Canónico minúscula desde mig 111 (CHECK company_status_allowed).
-	return $result['status'] === 'active';
+	return null;
+}
+
+/**
+ * Gate único de acceso al tenant (bootstrap.php + apiAuthPosContext.php).
+ *
+ * Wrapper delgado sobre `companyAccessDenial()`, que es donde vive la regla.
+ * Se conserva porque tiene otros callers que solo necesitan el sí/no; los
+ * gates de auth usan el resolver directamente para poder decir POR QUÉ.
+ */
+function checkCompanyStatus($id){
+	return companyAccessDenial($id) === null;
 }
 
 function updateLastTimeEdit($id,$table=false){

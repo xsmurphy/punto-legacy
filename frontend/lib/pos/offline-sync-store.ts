@@ -38,6 +38,28 @@ interface OfflineSyncState {
   isSyncing: boolean
   lastSyncAt: string | null
   /**
+   * El servidor está rechazando TODO porque la cuenta del comercio no está al
+   * día (`lib/pos/account-block.ts`, D8 de `context/34` §F7).
+   *
+   * Vive acá y no en cada fila de la cola porque no es una propiedad de una
+   * venta ni de una operación: es una condición del tenant entero, y todo lo
+   * encolado la comparte. Guardarla por fila obligaría a escribirla en N filas
+   * de IndexedDB en cada ciclo de 30 s para decir siempre lo mismo.
+   *
+   * La usa la lista de pendientes para decir "esperando regularizar el pago"
+   * en vez de "Error" — que es la diferencia entre un cajero que espera
+   * tranquilo y uno que descarta una venta real.
+   *
+   * Es DERIVADA de `accountBlockedBy`, no un booleano suelto: la escriben dos
+   * loops independientes (ventas y operaciones) que corren cada 30 s, y con un
+   * solo flag el que no veía el bloqueo apagaba el del que sí —el cartel
+   * parpadeaba o directamente no aparecía—. Cada loop reporta lo SUYO y el
+   * estado visible es el O lógico.
+   */
+  accountBlocked: boolean
+  /** Qué loop está viendo el rechazo por cuenta impaga. Ver `accountBlocked`. */
+  accountBlockedBy: { sales: boolean; ops: boolean }
+  /**
    * `true` cuando el catálogo con el que la caja está operando salió del
    * snapshot de IndexedDB (`lib/pos/bootstrap-cache.ts`) y no de la red.
    *
@@ -59,6 +81,7 @@ interface OfflineSyncState {
   setFailedOpsCount: (count: number) => void
   setIsSyncing: (syncing: boolean) => void
   setLastSyncAt: (at: string | null) => void
+  setAccountBlocked: (source: 'sales' | 'ops', blocked: boolean) => void
   setCatalogSource: (fromCache: boolean, cachedAt: string | null) => void
 }
 
@@ -69,6 +92,8 @@ export const useOfflineSyncStore = create<OfflineSyncState>()((set) => ({
   failedOpsCount: 0,
   isSyncing: false,
   lastSyncAt: null,
+  accountBlocked: false,
+  accountBlockedBy: { sales: false, ops: false },
   catalogFromCache: false,
   catalogCachedAt: null,
   setPendingCount: (count) => set({ pendingCount: count }),
@@ -77,6 +102,11 @@ export const useOfflineSyncStore = create<OfflineSyncState>()((set) => ({
   setFailedOpsCount: (count) => set({ failedOpsCount: count }),
   setIsSyncing: (syncing) => set({ isSyncing: syncing }),
   setLastSyncAt: (at) => set({ lastSyncAt: at }),
+  setAccountBlocked: (source, blocked) =>
+    set((s) => {
+      const by = { ...s.accountBlockedBy, [source]: blocked }
+      return { accountBlockedBy: by, accountBlocked: by.sales || by.ops }
+    }),
   setCatalogSource: (fromCache, cachedAt) =>
     set({ catalogFromCache: fromCache, catalogCachedAt: fromCache ? cachedAt : null }),
 }))

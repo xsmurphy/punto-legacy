@@ -22,6 +22,7 @@ import {
   markOpRetry,
   markOpSynced,
   markOpSyncing,
+  markOpWaiting,
   opBackoffElapsed,
   peekAllOps,
   OPS_MAX_ATTEMPTS,
@@ -29,23 +30,43 @@ import {
 import type { PendingOpRow, PendingOpStream } from '@/lib/pos/pending-ops'
 
 /**
- * Error de una operación, con la única clasificación que le importa al motor:
- * si reintentarlo tal cual tiene alguna chance de funcionar.
+ * Error de una operación, con la clasificación que le importa al motor.
  *
- * `transient` es del transporte, no del motor: solo quien hizo la request sabe
- * si lo que falló fue la red (reintentable) o el servidor diciendo que no
- * (terminal). Adivinarlo acá, por el texto del error, es cómo se construye un
- * bucle de reintentos infinito contra un 422.
+ * TRES disposiciones, no dos:
+ *
+ * - **terminal** (`transient=false`): el servidor dijo que no y va a seguir
+ *   diciendo que no. Queda `failed`, visible, para que una persona decida.
+ * - **transitorio** (`transient=true`): red o 5xx. Reintento con backoff y tope
+ *   de `OPS_MAX_ATTEMPTS`.
+ * - **espera** (`waiting=true`): el servidor rechazó por una condición que no
+ *   es de esta operación y que se resuelve sola cuando alguien la arregla del
+ *   otro lado. No cuenta intentos, no escribe error, no se agota.
+ *
+ * La tercera existe por la D8 (`context/34-admin-saas-plan.md` §F7): con la
+ * cuenta del comercio impaga, el backend responde 403 a TODO, y sin esta
+ * disposición ese 403 caía en "terminal" y dejaba ventas y cierres de caja
+ * marcados como fallidos con el botón de descartar al lado. La semántica de
+ * espera ya existía en el motor para el gate pre-vuelo (`OpGate`); esto es lo
+ * que la hace alcanzable también DESPUÉS de la respuesta.
+ *
+ * `waiting` gana sobre `transient`: una espera no es un reintento con otro
+ * nombre, justamente porque no gasta la vida de la operación.
+ *
+ * Quién clasifica sigue siendo el TRANSPORTE, no el motor: solo quien hizo la
+ * request sabe qué pasó. Adivinarlo acá, por el texto del error, es cómo se
+ * construye un bucle de reintentos infinito contra un 422.
  */
 export class PendingOpError extends Error {
   code: string
   transient: boolean
+  waiting: boolean
 
-  constructor(code: string, message: string, transient: boolean) {
+  constructor(code: string, message: string, transient: boolean, waiting = false) {
     super(message)
     this.name = 'PendingOpError'
     this.code = code
     this.transient = transient
+    this.waiting = waiting
   }
 }
 
@@ -208,6 +229,19 @@ export async function syncPendingOps(
                 // nunca va a aceptar.
                 false,
               )
+        // ── Espera post-respuesta ─────────────────────────────────────────
+        // El servidor contestó, pero lo que rechazó no es esta operación: es
+        // el estado de la cuenta del comercio (D8, `lib/pos/account-block.ts`).
+        // Se trata igual que la espera pre-vuelo del gate — sin contar
+        // intento, sin escribir error, frenando el canal — porque contar
+        // intentos acá dejaría un cierre de caja en `failed` por el solo hecho
+        // de que el comercio tardó en pagar.
+        if (opErr.waiting) {
+          await markOpWaiting(row.opId)
+          result.waiting.push({ opId: row.opId, reason: opErr.message })
+          result.halted.push({ stream, reason: 'waiting' })
+          break
+        }
         if (opErr.transient && row.attempts + 1 < OPS_MAX_ATTEMPTS) {
           await markOpRetry(row.opId, { code: opErr.code, message: opErr.message })
           result.retried += 1

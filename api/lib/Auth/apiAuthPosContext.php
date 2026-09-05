@@ -77,9 +77,14 @@ function apiAuthPosContext(): array
         // no pasa el guard -- nunca retorna en ese caso.
         DeviceAuth::requireCompleteContext($ctx, $ctx !== null ? (string) ($ctx['module'] ?? 'pos') : 'pos');
         if ($ctx !== null) {
-            // Verificar que la empresa no esta bloqueada (igual que apiAuthTenant hace via bootstrap.php:89)
-            if (!checkCompanyStatus($ctx['companyId'])) {
-                apiError('Company Blocked', 403);
+            // Verificar que la empresa no esta bloqueada (igual que apiAuthTenant
+            // hace via bootstrap.php). El MOTIVO va en `error.details.reason`:
+            // este es JUSTO el path por el que sincroniza la cola de ventas del
+            // POS, y la D8 (context/34 §F7) exige que un rechazo por mora se
+            // traduzca a espera y nunca a venta descartada.
+            $denial = companyAccessDenial($ctx['companyId']);
+            if ($denial !== null) {
+                apiError($denial['message'], 403, ['reason' => $denial['reason']]);
             }
             // Reloj del tenant — ANTES de cualquier constante de fecha y de
             // que el endpoint toque la base. Deja la sesion de PG y el default
