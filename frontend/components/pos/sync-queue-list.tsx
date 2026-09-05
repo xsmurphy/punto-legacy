@@ -37,7 +37,7 @@ import {
 } from '@/components/ui/table'
 import { CloudOff } from 'lucide-react'
 import { EmptyState } from '@/components/empty-state'
-import { peekAll, discard, markFailed, markSynced, markWaiting, getFailedCount } from '@/lib/pos/offline-queue'
+import { peekAll, markFailed, markSynced, markWaiting, getFailedCount } from '@/lib/pos/offline-queue'
 import { ACCOUNT_BLOCKED_NOTE, isAccountBlocked } from '@/lib/pos/account-block'
 import type { OfflineSaleRow } from '@/lib/pos/offline-queue'
 import {
@@ -194,11 +194,6 @@ export function SyncQueueList() {
 
   async function handleDiscardOp(opId: string) {
     await discardOp(opId)
-    await loadRows()
-  }
-
-  async function handleDiscard(clientTempId: string) {
-    await discard(clientTempId)
     await loadRows()
   }
 
@@ -493,17 +488,28 @@ export function SyncQueueList() {
                           Reintentar
                         </Button>
                       )}
-                      {row.status === 'failed' && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-destructive hover:text-destructive"
-                          disabled={syncing}
-                          onClick={() => void handleDiscard(row.clientTempId)}
-                        >
-                          Descartar
-                        </Button>
-                      )}
+                      {/* SIN "Descartar" para una VENTA — mandato del owner
+                          (2026-09-05): "una venta no debe ser eliminada".
+                          Acá había un botón que llamaba a `discard()`, o sea
+                          `db.delete('pendingSales', …)`: borrado permanente,
+                          un click, sin confirmación, de un comprobante YA
+                          cobrado e impreso al cliente. Esa venta no llegaba
+                          nunca a los libros y no quedaba rastro de que
+                          existió.
+
+                          No hay reemplazo ni diálogo de confirmación: una
+                          venta que no se puede sincronizar es un caso de
+                          soporte, no una decisión para tomar parado atrás de
+                          la caja en hora pico. Se queda en la lista, con su
+                          error a la vista y el botón de reintentar.
+
+                          Sacarlo NO traba la cola: el ciclo de sync saltea
+                          las `failed` y sigue con las `pending` (ver
+                          `use-offline-sync.ts`), así que una venta atascada
+                          no frena a las que vienen atrás.
+
+                          El botón de las OPERACIONES (arriba) se conserva:
+                          son cambios de configuración, no plata cobrada. */}
                     </div>
                   </TableCell>
                 </TableRow>

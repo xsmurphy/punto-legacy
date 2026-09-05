@@ -196,6 +196,24 @@ export async function markSyncing(clientTempId: string): Promise<void> {
 }
 
 /** Descarta una venta de la cola (acción manual del operador). */
+/**
+ * Borra una venta de la cola. **SIN CONSUMIDORES A PROPÓSITO** desde
+ * 2026-09-05 — mandato del owner: *"una venta no debe ser eliminada"*.
+ *
+ * Existía un botón "Descartar" en `sync-queue-list.tsx` que llamaba a esto:
+ * un click, sin confirmación, borraba para siempre un comprobante YA cobrado
+ * e impreso al cliente. Esa venta no llegaba a los libros y no quedaba rastro
+ * de que hubiera existido.
+ *
+ * Se conserva la función y NO se borra el store: una venta que no se puede
+ * sincronizar tiene que poder resolverse desde soporte con acceso al
+ * dispositivo, y para eso el dato tiene que seguir estando. Lo que no puede
+ * existir es un camino de UNA persona parada en la caja hacia el borrado.
+ *
+ * Si alguna vez hace falta volver a llamarla desde la caja, la respuesta NO es
+ * reponer el botón: es que la venta se resuelva (reintento, reparación del
+ * payload) o que se exporte antes de irse.
+ */
 export async function discard(clientTempId: string): Promise<void> {
   const db = await getDB()
   await db.delete('pendingSales', clientTempId)
