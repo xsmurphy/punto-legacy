@@ -390,13 +390,33 @@ canales de Bancard (`qr`/`pos`), la IP del POS físico y cualquier ajuste que
 viva en `moduleData.<key>` son del comercio y no del plan. Confundir las dos
 cosas rompería configuraciones vivas.
 
-### D5 [?] — El vencimiento NO bloquea de golpe
+### D5 — Vencimiento: 5 días de gracia en SOLO LECTURA, después bloqueo (cerrada por el owner 2026-09-05)
 
-Propuesta: al vencer, la cuenta entra en **solo lectura** por N días de gracia
-(puede consultar y exportar, no puede vender) y recién después se bloquea. Un
-comercio que no ve venir el corte y pierde la caja un sábado a la mañana no
-renueva: cancela. El período de gracia y el alcance del bloqueo los define el
-owner.
+| Día | Estado | Puede | No puede |
+|---|---|---|---|
+| 0 (vence) | Gracia, solo lectura | Consultar, exportar, imprimir histórico | **Vender**, comprar, mover stock, emitir documentos |
+| +5 | Bloqueada | — | Entrar |
+
+**Consecuencia que hay que tener a la vista: la venta se corta el DÍA del
+vencimiento, no al final de la gracia.** La gracia protege el ACCESO A LOS
+DATOS del comercio, no su operación. Es una decisión defendible —el que no
+paga no factura— pero mueve todo el peso a los AVISOS PREVIOS: si el comercio
+se entera el mismo día que no puede vender, el daño comercial ya está hecho.
+Ver D7.
+
+La línea de corte es **"crear un hecho de negocio nuevo"**: eso se bloquea.
+Leer, exportar y reimprimir lo ya emitido, no — son datos del comercio, no
+nuestros, y retenerlos como palanca de cobro es del manual del proveedor que
+uno no quiere ser (además de que los propios términos publicados dicen que los
+datos son del cliente).
+
+### D7 [?] — Los avisos previos son parte de P2, no un extra
+
+Propuesta (sin OK del owner): aviso a los 7 y a los 3 días del vencimiento, y
+al entrar en gracia. Con un corte de venta tan filoso como el de D5, el
+producto que evita la cancelación es el aviso, no la gracia. Sin esto, P2
+entrega el corte sin la advertencia — la mitad que hace daño sin la mitad que
+lo previene.
 
 ### D6 [?] — El motor es un JOB, no un check en el login
 
@@ -412,7 +432,7 @@ escriba.
 |------|-------------|-----------|
 | **P0** | **MEDIR**: para cada tenant, qué módulos tiene prendidos hoy vs. qué le daría su plan. Es el informe que el owner necesita para definir las `features` de cada plan. **Sin esto, el flip de P1 apaga módulos en producción.** | — |
 | **P1** | `features` pasa a fuente de verdad + proyección a las columnas (D2) + recálculo al cambiar plan/features. En `/admin` los switches del tenant se vuelven read-only: muestran lo que da el plan y linkean al plan. | P0 |
-| **P2** | Motor de vencimiento: job que marca `planExpired`, avisos previos, y la política de gracia de D5. | D5 cerrada |
+| **P2** | Motor de vencimiento: job que marca `planExpired`, aplica la gracia de D5 (5 días solo-lectura → bloqueo) y manda los avisos previos de D7. | P1 |
 | **P3** | Enforcement en el gate de sesión: el login y `bootstrap.php` dejan de mirar solo `status`. | P2 |
 | **P4** | Renovación: el pago levanta el bloqueo y corre `expiresAt`. Se apoya en el billing de F5, que ya existe. | P3 |
 
@@ -434,8 +454,15 @@ P3 no se mergea sin:
 
 - Una cuenta vencida NO puede vender, y el error dice por qué y qué hacer.
 - Una cuenta vencida SÍ puede entrar a consultar y exportar durante la gracia.
-- El POS offline no puede quedar operando indefinidamente con una cuenta
-  vencida: definir qué pasa cuando la caja recupera conexión.
+- **Una venta YA EMITIDA offline se acepta SIEMPRE**, aunque la cuenta haya
+  vencido mientras la caja estaba sin red. Es un invariante del proyecto
+  (`feedback_offline_scope`: el back nunca rechaza una venta ya emitida —
+  guarda y marca), y romperlo acá le haría perder facturación real a un
+  comercio por una deuda administrativa. El corte se aplica cuando el
+  dispositivo APRENDE del vencimiento (bootstrap/sync), no al empujar la cola.
+- Un POS offline con la cuenta vencida sigue vendiendo hasta reconectar. Es
+  aceptado y es el precio del modo offline: la alternativa —caducar la caja
+  por reloj local— la vuelve saboteable cambiando la fecha del dispositivo.
 
 ### F7 — Arquitecturas rechazadas
 
@@ -444,6 +471,9 @@ P3 no se mergea sin:
   contrato del bootstrap y romper el modo offline.
 - **Bloquear en el login sin job** — no permite avisar antes, y deja
   `planExpired` sin escritor para los reportes que ya lo leen.
+- **Retener los datos del comercio como palanca de cobro** — ver D5: durante
+  la gracia se puede consultar y EXPORTAR. Los términos publicados dicen que
+  los datos son del cliente.
 - **Que el vencimiento apague módulos** — vencer no es "perder features": es
   perder el servicio. Mezclar las dos superficies haría que reactivar una
   cuenta tenga que reconstruir su set de módulos.
