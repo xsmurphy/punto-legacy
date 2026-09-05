@@ -26,8 +26,15 @@ import {
   retryOp,
   reviveInterruptedOps,
   markOpSyncing,
+  OPS_MAX_ATTEMPTS,
 } from "@/lib/pos/pending-ops"
 import { PendingOpError, syncPendingOps } from "@/lib/pos/pending-ops-sync"
+import {
+  ACCOUNT_BLOCKED_CODE,
+  ACCOUNT_BLOCKED_NOTE,
+  isAccountBlocked,
+} from "@/lib/pos/account-block"
+import { ApiError } from "@/lib/api-client"
 import type { PendingOpRow } from "@/lib/pos/pending-ops"
 import {
   applyBindingOps,
@@ -533,5 +540,108 @@ describe("cerco por caja", () => {
 
     expect(res.synced).toBe(1)
     expect(await getOpsCount()).toBe(0)
+  })
+})
+
+// ── D8: la cuenta impaga no mata nada ─────────────────────────────────────────
+//
+// Invariante del owner (context/34-admin-saas-plan.md §F7, D8): con la cuenta
+// del comercio bloqueada por falta de pago, el backend responde 403 a TODO.
+// Ese 403 NO puede terminar en `failed` — en esta cola puede haber un CIERRE DE
+// CAJA, y en la cola gemela una venta ya emitida, impresa y cobrada. La
+// disposición correcta es ESPERA: sin contar intentos, sin escribir error, sin
+// agotarse nunca.
+
+describe("cuenta impaga (D8)", () => {
+  it("el 403 de cuenta bloqueada es ESPERA: no cuenta intento, no escribe error", async () => {
+    await enqueueConfig({ mergeRepeated: false })
+    const send = vi.fn(async () => {
+      throw new PendingOpError(ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_NOTE, false, true)
+    })
+
+    const res = await syncPendingOps({ send, activeRegisterId: CAJA })
+
+    expect(res.failed).toBe(0)
+    expect(res.retried).toBe(0)
+    expect(res.waiting).toEqual([
+      { opId: (await peekAllOps())[0].opId, reason: ACCOUNT_BLOCKED_NOTE },
+    ])
+    expect(res.halted).toContainEqual({ stream: "pos-config", reason: "waiting" })
+
+    const [op] = await peekAllOps()
+    expect(op.status).toBe("pending")
+    expect(op.attempts).toBe(0)
+    expect(op.error).toBeUndefined()
+    expect(await getFailedOpsCount()).toBe(0)
+  })
+
+  it("no se agota: sobrevive muchas más pasadas que OPS_MAX_ATTEMPTS", async () => {
+    await enqueueConfig({ mergeRepeated: false })
+    const bloqueado = vi.fn(async () => {
+      throw new PendingOpError(ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_NOTE, false, true)
+    })
+
+    for (let i = 0; i < OPS_MAX_ATTEMPTS * 2; i++) {
+      await syncPendingOps({ send: bloqueado, activeRegisterId: CAJA })
+    }
+
+    expect(await getFailedOpsCount()).toBe(0)
+    expect((await peekAllOps())[0].status).toBe("pending")
+
+    // Regularizado el pago, sale sola en la pasada siguiente. Y sin backoff
+    // acumulado: la espera nunca tocó `attempts` ni `lastAttemptAt`.
+    const { send } = okSender()
+    const res = await syncPendingOps({ send, activeRegisterId: CAJA })
+    expect(res.synced).toBe(1)
+    expect(await getOpsCount()).toBe(0)
+  })
+
+  it("el motivo sale de `details.reason` del envelope, NUNCA del texto del mensaje", () => {
+    const blocked = new ApiError(
+      403,
+      {
+        ok: false,
+        error: {
+          message: "Cuenta bloqueada por falta de pago",
+          code: 403,
+          details: { reason: "account_blocked" },
+        },
+      },
+      "Cuenta bloqueada por falta de pago",
+    )
+    expect(isAccountBlocked(blocked)).toBe(true)
+
+    // Un 403 cualquiera sigue siendo terminal: sin motivo en el sobre el
+    // comportamiento no cambia (fail-closed hacia lo de antes).
+    const permisos = new ApiError(
+      403,
+      { ok: false, error: { message: "Sin permiso", code: 403 } },
+      "Sin permiso",
+    )
+    expect(isAccountBlocked(permisos)).toBe(false)
+
+    // El mismo texto SIN el motivo estructurado no alcanza. Es el punto de todo
+    // el mecanismo: si esto matcheara, mejorar un copy mataría ventas reales.
+    const impostor = new ApiError(
+      403,
+      { ok: false, error: { message: "Cuenta bloqueada por falta de pago", code: 403 } },
+      "x",
+    )
+    expect(isAccountBlocked(impostor)).toBe(false)
+
+    // Un tenant CANCELADO no espera para siempre: eso no se destraba solo.
+    const cancelado = new ApiError(
+      403,
+      {
+        ok: false,
+        error: {
+          message: "La cuenta no está activa",
+          code: 403,
+          details: { reason: "account_inactive" },
+        },
+      },
+      "x",
+    )
+    expect(isAccountBlocked(cancelado)).toBe(false)
   })
 })

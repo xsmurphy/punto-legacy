@@ -1,8 +1,9 @@
 'use client'
 
 import * as React from 'react'
-import { peekAll, markSynced, markFailed, markRetry, markSyncing, getCount, getFailedCount, revivePendingAfterTenancy, type OfflineSaleRow } from '@/lib/pos/offline-queue'
+import { peekAll, markSynced, markFailed, markRetry, markSyncing, markWaiting, getCount, getFailedCount, revivePendingAfterTenancy, type OfflineSaleRow } from '@/lib/pos/offline-queue'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
+import { isAccountBlocked } from '@/lib/pos/account-block'
 import { posApi as api } from '@/lib/api/pos-client'
 import { useCatalogStore } from '@/lib/catalog/store'
 import { ensureTenancy } from '@/lib/pos/register-tenancy'
@@ -46,6 +47,7 @@ export function useOfflineSync() {
   const setFailedCount = useOfflineSyncStore((s) => s.setFailedCount)
   const setIsSyncing = useOfflineSyncStore((s) => s.setIsSyncing)
   const setLastSyncAt = useOfflineSyncStore((s) => s.setLastSyncAt)
+  const setAccountBlocked = useOfflineSyncStore((s) => s.setAccountBlocked)
 
   const syncRef = React.useRef(false)
 
@@ -103,7 +105,12 @@ export function useOfflineSync() {
       // TERMINAL (no se reintenta) → así los rechazos de negocio no generan el
       // bucle infinito.
       toSync = pending.filter((r) => r.status === 'pending' && backoffElapsed(r))
-      if (toSync.length === 0) return
+      if (toSync.length === 0) {
+        // Nada esperando ⇒ nada que esté esperando por falta de pago. Sin este
+        // reset la marca de cuenta impaga sobreviviría a la cola vacía.
+        setAccountBlocked('sales', false)
+        return
+      }
 
       setIsSyncing(true)
       await Promise.all(toSync.map((r) => markSyncing(r.clientTempId)))
@@ -129,7 +136,34 @@ export function useOfflineSync() {
       }
 
       setLastSyncAt(new Date().toISOString())
-    } catch {
+      // Llegó una respuesta del servidor: si veníamos marcados como impagos,
+      // dejamos de estarlo.
+      setAccountBlocked('sales', false)
+    } catch (err) {
+      // ── D8: la cuenta impaga NO mata ventas ────────────────────────────
+      //
+      // Con `company.blocked = 1` (lo escribe el job `plan-lifecycle` 5 días
+      // después de vencer el plan) el backend responde 403 a TODA request del
+      // tenant, incluida esta. Antes ese 403 caía en el `catch` genérico de
+      // abajo, se marcaba como error de red, gastaba los 6 intentos en pocos
+      // minutos y terminaba en `failed`: la venta —ya emitida, impresa y
+      // cobrada— aparecía en la lista de pendientes con el cartel "Error" y el
+      // botón "Descartar" al lado. Eso es exactamente lo que la D8 de
+      // `context/34-admin-saas-plan.md` §F7 prohíbe, y el owner lo definió como
+      // un error fatal: la venta existe, el comprobante salió y el cliente pagó.
+      //
+      // Las ventas vuelven a 'pending' sin gastar intento y sincronizan solas
+      // en el ciclo siguiente a que alguien regularice el pago. La caja se
+      // entera por la lista de pendientes, que dice "esperando regularizar el
+      // pago" en vez de "Error".
+      if (isAccountBlocked(err)) {
+        setAccountBlocked('sales', true)
+        for (const r of toSync) {
+          await markWaiting(r.clientTempId)
+        }
+        return
+      }
+
       // Falla de toda la request (red/servidor) → transitorio: reintento con tope.
       for (const r of toSync) {
         await applyError(r.clientTempId, r.attempts, { code: 'NETWORK_ERROR', message: 'Error de red al sincronizar' })
@@ -139,7 +173,7 @@ export function useOfflineSync() {
       setIsSyncing(false)
       await refreshCounts()
     }
-  }, [refreshCounts, setIsSyncing, setLastSyncAt])
+  }, [refreshCounts, setIsSyncing, setLastSyncAt, setAccountBlocked])
 
   // Boot-time cleanup (P1 code-review): si el proceso crasheó mid-flight
   // (tab cerrado, error JS durante el sync), los items quedan en 'syncing'.

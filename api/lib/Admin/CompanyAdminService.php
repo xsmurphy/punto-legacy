@@ -680,10 +680,86 @@ class CompanyAdminService
         }
 
         // ── timestamp nullable ─────────────────────────────────────────────
+        //
+        // FIJAR LA FECHA DE FIN DE SUSCRIPCIÓN (pedido del owner 2026-09-05).
+        // El diálogo "Fijar fecha de vencimiento" de /admin manda esto; el otro
+        // camino, "Extender N días", es `extendTrial()` más abajo.
+        //
+        // Fecha FUTURA = la cuenta está paga y tiene que quedar OPERATIVA. Es
+        // el caso de uso literal del owner ("si necesito habilitarlos les corro
+        // la fecha"), así que el UPDATE arrastra el resto del estado de mora en
+        // la MISMA sentencia. Ver el bloque de reset abajo — sin eso, correr la
+        // fecha dejaba al tenant igual de bloqueado, o lo re-bloqueaba al día
+        // siguiente.
+        //
+        // Fecha PASADA o NULL: solo cambia el vencimiento. Poner una fecha
+        // vieja no puede desbloquear a nadie, y tampoco bloquea de una: de eso
+        // se encarga el job, con su gracia y sus avisos.
+        $expiresAtFuture = false;
         if (array_key_exists('expiresAt', $input)) {
             $v = ($input['expiresAt'] === null || $input['expiresAt'] === '') ? null : (string) $input['expiresAt'];
             $sets[] = 'expiresAt = ?';
             $binds[] = $v;
+
+            // Comparación en SQL y no en PHP: `$v` llega como 'YYYY-MM-DD' sin
+            // zona, y quien decide qué significa "hoy" es Postgres, que es el
+            // mismo reloj contra el que el job compara `expiresAt < now()`.
+            // Resolverlo acá con `strtotime()` metería la zona del proceso PHP
+            // en una decisión que después toma otro motor.
+            //
+            // Devuelve INT y no BOOLEAN a propósito: el driver pgsql entrega
+            // los booleanos como 't'/'f', y `filter_var('t', BOOLEAN)` es
+            // false. Con eso, correr la fecha al futuro no habría desbloqueado
+            // nunca — y el bug se vería recién en producción, no en el build.
+            if ($v !== null) {
+                $cmp = $db->Execute("SELECT (?::timestamptz > now())::int AS future", [$v]);
+                $expiresAtFuture = $cmp && !$cmp->EOF && (int) ($cmp->fields['future'] ?? 0) === 1;
+            }
+        }
+
+        // ── Reset del estado de mora ───────────────────────────────────────
+        //
+        // `planExpiredAt` es el reloj de la gracia de la D5 (mig 189): el job
+        // `plan-lifecycle` bloquea al tenant GRACE_DAYS después de esa marca.
+        // Si un admin desbloquea a mano —o corre el vencimiento al futuro— y la
+        // marca queda, la corrida siguiente lo vuelve a bloquear. El admin ve
+        // que su cambio "no funcionó" y el comercio queda afuera otra vez.
+        //
+        // Por eso el reset va en el MISMO UPDATE que el cambio, y no en un
+        // segundo paso ni en el endpoint: cualquiera de las dos alternativas
+        // deja una ventana donde el estado es inconsistente, y la primera vez
+        // que alguien agregue un tercer camino para desbloquear se la va a
+        // olvidar.
+        //
+        // Se dispara con: `blocked = 0`, `planExpired = false`, o `expiresAt`
+        // movido al futuro.
+        //
+        // `suspended` NO entra: es la suspensión comercial manual (mig 110),
+        // ortogonal a la mora, y existe como columna propia justamente porque
+        // pisarla desde el camino de billing ya causó un bug (ver el docblock
+        // de suspend()/unsuspend()). Un tenant suspendido a mano al que le
+        // corren la fecha sigue suspendido — que es lo que el admin pidió.
+        $clearsBlocked     = array_key_exists('blocked', $input) && (int) $input['blocked'] === 0;
+        $clearsPlanExpired = array_key_exists('planExpired', $input)
+            && !filter_var($input['planExpired'], FILTER_VALIDATE_BOOLEAN);
+
+        if ($clearsBlocked || $clearsPlanExpired || $expiresAtFuture) {
+            $sets[] = 'planExpiredAt = NULL';
+
+            // Correr la fecha al futuro es el "ya pagó" del owner, así que
+            // arrastra las otras dos señales de mora. Solo se agregan si el
+            // input no las trajo — un PATCH explícito manda sobre la
+            // inferencia, siempre.
+            if ($expiresAtFuture) {
+                if (!array_key_exists('blocked', $input)) {
+                    $sets[]  = 'blocked = ?';
+                    $binds[] = 0;
+                }
+                if (!array_key_exists('planExpired', $input)) {
+                    $sets[]  = 'planExpired = ?';
+                    $binds[] = false;
+                }
+            }
         }
 
         // ── config JSONB — merge parcial ───────────────────────────────────
@@ -773,7 +849,20 @@ class CompanyAdminService
         }
         $planName = (string) ($row->fields['name'] ?? $planCode);
 
-        $res = $this->grantAiCredits($companyId, $monthly, "Créditos del plan {$planName}");
+        // Mismo `kind`/`period` que la recarga mensual del job `plan-lifecycle`,
+        // a propósito: asignar un plan ES la acreditación del período corriente.
+        // Sin esto, un tenant al que se le asigna plan hoy cobraría dos veces
+        // este mes — hoy por el cambio de plan y mañana por el job. Y mandarlo
+        // es además lo que activa el guard de `grantAiCredits()`, que es donde
+        // vive la regla de "una vez por período" para AMBOS caminos: alternar
+        // A→B→A→B en el mismo mes acredita una sola vez.
+        require_once __DIR__ . '/PlanLifecycleService.php';
+        $res = $this->grantAiCredits(
+            $companyId,
+            $monthly,
+            "Créditos del plan {$planName}",
+            ['kind' => 'plan_monthly', 'period' => \Punto\Api\Admin\PlanLifecycleService::currentPeriod()]
+        );
         if (empty($res['ok'])) {
             error_log(sprintf(
                 '[CompanyAdmin] no se pudieron acreditar los %d créditos del plan %s a %s: %s',
@@ -815,7 +904,15 @@ class CompanyAdminService
      *
      * Base = GREATEST(expiresAt vigente, now()) — así extender nunca retrocede
      * el reloj si el plan ya venció (evita que "extender 7 días" reduzca el
-     * plazo de un tenant vencido hace 30). También limpia planExpired.
+     * plazo de un tenant vencido hace 30).
+     *
+     * Limpia las TRES señales de mora, no solo `planExpired`: la extensión
+     * siempre deja `expiresAt` en el futuro, o sea que el tenant está al día
+     * por definición. Dejar `blocked = 1` haría que extender no sirviera de
+     * nada, y dejar `planExpiredAt` con su marca vieja haría que la corrida
+     * siguiente del job `plan-lifecycle` lo re-bloqueara con el plan vigente
+     * (la gracia de la D5 se cuenta desde esa marca — mig 189). `suspended`
+     * no se toca: es la suspensión comercial manual, ortogonal a la mora.
      *
      * Devuelve ['ok'=>true, 'expiresAt'=>...] o ['ok'=>false, 'error'=>'…', 'code'=>NNN].
      */
@@ -834,9 +931,11 @@ class CompanyAdminService
 
         $r = $db->Execute(
             "UPDATE company
-             SET expiresAt   = GREATEST(COALESCE(expiresAt, now()), now()) + (? || ' days')::interval,
-                 planExpired = false,
-                 updatedAt   = now()
+             SET expiresAt     = GREATEST(COALESCE(expiresAt, now()), now()) + (? || ' days')::interval,
+                 planExpired   = false,
+                 planExpiredAt = NULL,
+                 blocked       = 0,
+                 updatedAt     = now()
              WHERE companyId = ?
              RETURNING expiresAt",
             [$days, $companyId]
@@ -1008,9 +1107,32 @@ class CompanyAdminService
      * $delta positivo = otorgar créditos; negativo = descontar.
      * El saldo nunca baja de 0 (clamp a nivel aplicación).
      *
-     * Devuelve ['ok'=>true, 'newBalance'=>int] o ['ok'=>false, 'error'=>'…', 'code'=>NNN].
+     * $meta va tal cual a `ai_credit_ledger.meta` (jsonb). Es el campo por el
+     * que las acreditaciones AUTOMÁTICAS se reconocen a sí mismas: la recarga
+     * mensual del plan escribe {"kind":"plan_monthly","period":"YYYY-MM"} y
+     * esta función descarta el pedido si esa fila ya existe. `reason` NO sirve
+     * para eso — es texto libre, se recorta a 120 chars y lo edita quien quiera
+     * desde /admin. Vacío (default) = '{}': acreditación manual, nunca se salta.
+     *
+     * LA IDEMPOTENCIA POR PERÍODO VIVE ACÁ, no en los callers. Tiene dos
+     * —el job `plan-lifecycle` y el cambio de plan desde /admin— y mientras la
+     * regla estuvo en uno solo, alternar de plan A→B→A→B en el mismo mes
+     * acreditaba el monto completo en cada cambio. Bajarla al único lugar por
+     * el que pasan los dos la vuelve cierta por construcción, y hace imposible
+     * que un tercer caller la olvide.
+     *
+     * Sin índice único sobre (companyId, kind, period): rompería el upgrade de
+     * plan a mitad de mes, donde el segundo grant del período es LEGÍTIMO en
+     * intención aunque acá se descarte. Ver
+     * PlanLifecycleService::rechargeMonthlyAiCredits().
+     *
+     * Devuelve ['ok'=>true, 'newBalance'=>int, 'skipped'?=>true] o
+     * ['ok'=>false, 'error'=>'…', 'code'=>NNN]. `skipped` = el período ya
+     * estaba acreditado y no se tocó nada; no es un error.
+     *
+     * @param array<string, mixed> $meta
      */
-    public function grantAiCredits(string $companyId, int $delta, string $reason): array
+    public function grantAiCredits(string $companyId, int $delta, string $reason, array $meta = []): array
     {
         global $db;
 
@@ -1033,7 +1155,50 @@ class CompanyAdminService
                 return ['ok' => false, 'error' => 'Empresa no encontrada', 'code' => 404];
             }
 
-            $current     = (int) ($row->fields['aicreditsbalance'] ?? $row->fields['aiCreditsBalance'] ?? 0);
+            $current = (int) ($row->fields['aicreditsbalance'] ?? $row->fields['aiCreditsBalance'] ?? 0);
+
+            // ── Una acreditación de plan por período, y punto ────────────────
+            //
+            // El guard vive ACÁ y no en los callers porque tiene DOS caminos
+            // (el job mensual `plan-lifecycle` y el cambio de plan desde
+            // /admin) y tenía el bug clásico de la regla duplicada: el job
+            // filtraba por período, el cambio de plan no. Un admin que alterna
+            // A→B→A→B en el mismo mes acreditaba el monto completo cada vez.
+            //
+            // Adentro de la transacción y DESPUÉS del `FOR UPDATE` de arriba:
+            // ese lock sobre la fila de `company` es lo que hace la
+            // verificación libre de carrera. Dos grants simultáneos del mismo
+            // período se serializan y el segundo ve la fila del primero.
+            //
+            // Solo aplica a las acreditaciones AUTOMÁTICAS —las que traen
+            // `meta.kind` + `meta.period`—. Una acreditación manual desde
+            // /admin viene sin meta y nunca se salta: es una decisión humana
+            // deliberada, repetirla es su derecho.
+            //
+            // OJO con el operador jsonb `?` (`meta ? 'kind'`): el wrapper PDO
+            // del proyecto lo reescribe como placeholder posicional y aborta el
+            // boot (migs 74 y 77). Por eso se compara con `->>`.
+            $metaKind   = isset($meta['kind'])   ? (string) $meta['kind']   : '';
+            $metaPeriod = isset($meta['period']) ? (string) $meta['period'] : '';
+            if ($metaKind !== '' && $metaPeriod !== '') {
+                $dup = $db->Execute(
+                    "SELECT 1 FROM ai_credit_ledger
+                      WHERE companyId = ?
+                        AND meta->>'kind'   = ?
+                        AND meta->>'period' = ?
+                      LIMIT 1",
+                    [$companyId, $metaKind, $metaPeriod]
+                );
+                if ($dup && !$dup->EOF) {
+                    $db->CommitTrans();
+
+                    // `ok` porque nada falló: el período YA estaba acreditado y
+                    // el resultado del sistema es el correcto. `skipped` deja
+                    // que el job no lo cuente como una acreditación nueva.
+                    return ['ok' => true, 'skipped' => true, 'newBalance' => $current];
+                }
+            }
+
             $newBalance  = max(0, $current + $delta);
             $effectiveDelta = $newBalance - $current; // puede diferir si clampeamos
 
@@ -1050,8 +1215,14 @@ class CompanyAdminService
             $ins = $db->Execute(
                 "INSERT INTO ai_credit_ledger
                    (id, companyId, delta, balanceAfter, reason, tokensIn, tokensOut, meta)
-                 VALUES (gen_random_uuid(), ?, ?, ?, ?, 0, 0, '{}'::jsonb)",
-                [$companyId, $effectiveDelta, $newBalance, substr($reason, 0, 120)]
+                 VALUES (gen_random_uuid(), ?, ?, ?, ?, 0, 0, ?::jsonb)",
+                [
+                    $companyId,
+                    $effectiveDelta,
+                    $newBalance,
+                    substr($reason, 0, 120),
+                    json_encode($meta === [] ? new \stdClass() : $meta, JSON_UNESCAPED_UNICODE),
+                ]
             );
             if ($ins === false) {
                 throw new \RuntimeException('BD insert ledger: ' . $db->ErrorMsg());

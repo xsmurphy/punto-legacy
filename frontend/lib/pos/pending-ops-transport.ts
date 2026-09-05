@@ -50,6 +50,11 @@ import { peekAll } from '@/lib/pos/offline-queue'
 import { posApi } from '@/lib/api/pos-client'
 import { ApiError } from '@/lib/api-client'
 import { PendingOpError } from '@/lib/pos/pending-ops-sync'
+import {
+  ACCOUNT_BLOCKED_CODE,
+  ACCOUNT_BLOCKED_NOTE,
+  isAccountBlocked,
+} from '@/lib/pos/account-block'
 import type { PendingOpRow } from '@/lib/pos/pending-ops'
 import type {
   DrawerOpPayload,
@@ -62,15 +67,30 @@ import type {
 } from '@/lib/pos/local-register-state'
 
 /**
- * Traduce lo que salga mal a la única distinción que el motor entiende.
+ * Traduce lo que salga mal a las distinciones que el motor entiende.
  *
  * TRANSITORIO es solo lo que puede andar la próxima vez sin que nadie cambie
  * nada: no hubo respuesta (red caída, DNS, timeout) o el servidor se cayó
  * (5xx). Todo lo demás —422 de validación, 403 de permisos, 409— es el
  * servidor diciendo que no: reintentarlo es martillarlo con el mismo payload.
+ *
+ * ESPERA es la excepción, y es una sola: el 403 de cuenta impaga o suspendida.
+ * Ese rechazo no habla de la operación —el payload es perfecto— sino del estado
+ * comercial del tenant, y se destraba cuando alguien paga. Tratarlo como
+ * terminal dejaba el canal `drawer` trabado con un CIERRE DE CAJA marcado
+ * "Error" y un botón "Descartar" al lado; tratarlo como transitorio lo mataba
+ * igual, tres minutos más tarde, al agotar los 6 intentos. Ver la D8 en
+ * `context/34-admin-saas-plan.md` §F7 y `lib/pos/account-block.ts`.
+ *
+ * Va ANTES del chequeo genérico de status: 403 es terminal por defecto y esta
+ * es la única razón para que no lo sea.
  */
 function classify(err: unknown): PendingOpError {
   if (err instanceof PendingOpError) return err
+
+  if (isAccountBlocked(err)) {
+    return new PendingOpError(ACCOUNT_BLOCKED_CODE, ACCOUNT_BLOCKED_NOTE, false, true)
+  }
 
   if (err instanceof ApiError) {
     const transient = err.status >= 500 || err.status === 0

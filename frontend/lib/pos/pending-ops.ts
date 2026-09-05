@@ -268,6 +268,22 @@ export async function markOpFailed(opId: string, error: OfflineError): Promise<v
   }))
 }
 
+/**
+ * ESPERA: la operación salió a la red, el servidor la rechazó por una condición
+ * que no es de ella —hoy solo una: la cuenta del comercio no está al día
+ * (`lib/pos/account-block.ts`, D8 de context/34 §F7)— y vuelve a `pending` sin
+ * contar el intento, sin escribir error y sin tocar el backoff.
+ *
+ * Es la MISMA semántica que la espera pre-vuelo del `OpGate`, y por eso no
+ * comparte implementación con `markOpRetry`: un reintento gasta la vida de la
+ * operación (a los 6 queda terminal) y acá eso sería fatal. Un comercio que
+ * tarda una semana en pagar volvería con el cierre de caja de ese turno marcado
+ * como fallido y el botón de descartar al lado.
+ */
+export async function markOpWaiting(opId: string): Promise<void> {
+  await patchOp(opId, (row) => ({ ...row, status: 'pending', error: undefined }))
+}
+
 /** Falla TRANSITORIA (red): vuelve a `pending` y el backoff decide cuándo reintentar. */
 export async function markOpRetry(opId: string, error: OfflineError): Promise<void> {
   await patchOp(opId, (row) => ({

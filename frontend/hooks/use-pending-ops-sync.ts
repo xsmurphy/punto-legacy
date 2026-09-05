@@ -29,6 +29,7 @@ import {
 import { syncPendingOps } from '@/lib/pos/pending-ops-sync'
 import { canSendPendingOp, sendPendingOp } from '@/lib/pos/pending-ops-transport'
 import { useOfflineSyncStore } from '@/lib/pos/offline-sync-store'
+import { ACCOUNT_BLOCKED_NOTE } from '@/lib/pos/account-block'
 import { useCatalogStore } from '@/lib/catalog/store'
 import { DRAWER_KEYS } from '@/hooks/use-drawer'
 import type { PendingOpRow } from '@/lib/pos/pending-ops'
@@ -88,6 +89,7 @@ export function usePendingOpsSync() {
   const qc = useQueryClient()
   const setPendingOpsCount = useOfflineSyncStore((s) => s.setPendingOpsCount)
   const setFailedOpsCount = useOfflineSyncStore((s) => s.setFailedOpsCount)
+  const setAccountBlocked = useOfflineSyncStore((s) => s.setAccountBlocked)
 
   const syncRef = React.useRef(false)
 
@@ -110,6 +112,17 @@ export function usePendingOpsSync() {
         onApplied: reconcileAppliedOp,
       })
 
+      // El motor devuelve las esperas con su motivo; la de cuenta impaga es la
+      // única que hay que sacar de la cola y subir a la pantalla, porque afecta
+      // a TODO lo encolado y no a una operación en particular (D8, ver
+      // `lib/pos/account-block.ts`). El resto de las esperas —el cierre que
+      // aguarda a que salgan las ventas del turno— ya se explican solas en la
+      // fila que las produce.
+      setAccountBlocked(
+        'ops',
+        result.waiting.some((w) => w.reason === ACCOUNT_BLOCKED_NOTE),
+      )
+
       // Con algo aplicado en el servidor, el cache de react-query quedó viejo.
       // Se invalida SOLO si hubo cambios: un invalidate en cada tick de 30 s
       // sería un refetch permanente de toda la config de la caja.
@@ -129,7 +142,7 @@ export function usePendingOpsSync() {
       syncRef.current = false
       await refreshCounts()
     }
-  }, [qc, refreshCounts])
+  }, [qc, refreshCounts, setAccountBlocked])
 
   // Rescate de arranque: lo que quedó en `syncing` de un proceso que murió a
   // mitad de camino vuelve a la cola. Sin esto una operación atascada frena su

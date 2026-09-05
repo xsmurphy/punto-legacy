@@ -2,7 +2,7 @@
 /**
  * REST — Endpoint interno de jobs de mantenimiento periódicos.
  *
- *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|einvoice-reconcile|partition-ensure|period-close|ocr-requeue>
+ *   POST /v1/maintenance?job=<rollup-reconcile|purge-tenant-audit|purge-deleted-row|einvoice-drain|einvoice-reconcile|partition-ensure|period-close|ocr-requeue|plan-lifecycle>
  *       → { processed?, deleted?, issued?, errors?, skipped?, job }
  *
  * SIN apiAuthTenant: lo invoca el cron DENTRO de la imagen del API
@@ -50,6 +50,22 @@
  *                          ya mordió a `rollup_dirty` (134 pendientes sin que
  *                          nadie corriera el job), acá el costo de no alertar
  *                          es un INSERT fallando duro en un mes sin partición.
+ *   - plan-lifecycle     → P2 de context/34-admin-saas-plan.md §F7, vía
+ *                          `PlanLifecycleService::run()`, cross-tenant y DIARIO.
+ *                          Cuatro ramas en orden: (1) `expiresAt` vencido →
+ *                          `planExpired=true` + `planExpiredAt=now()`; (2)
+ *                          vencido hace más de 5 días (gracia D5) → `blocked=1`;
+ *                          (3) avisos D7 a los 7 y 3 días y al entrar en gracia
+ *                          —APAGADOS salvo `PLAN_LIFECYCLE_NOTIFY=1`, si no solo
+ *                          loguea a quién habría avisado—; (4) recarga mensual
+ *                          de `plans.ai_credits_monthly`, idempotente por
+ *                          `ai_credit_ledger.meta->>'period'`.
+ *                          NO es un marcador: la rama (2) escribe `blocked=1` y
+ *                          `companyAccessDenial()` la enforcea desde
+ *                          `bootstrap.php` y `apiAuthPosContext.php`, así que
+ *                          deja al tenant afuera de la API entera. Lo que SÍ
+ *                          queda pendiente es el modo SOLO LECTURA de la gracia
+ *                          (D5): no existe, la gracia hoy es acceso completo.
  *   - period-close       → D7/E1b de context/48-escalamiento-de-datos.md (mig 157):
  *                          `SELECT * FROM period_close_due()` (default 1 mes,
  *                          override por tenant en `company.config->>'settingPeriodCloseMonths'`)
@@ -92,7 +108,7 @@ if ($given === '' || !hash_equals(EINVOICE_DRAIN_SECRET, $given)) {
     apiError('Secreto inválido', 403);
 }
 
-$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue'];
+$knownJobs = ['rollup-reconcile', 'purge-tenant-audit', 'purge-deleted-row', 'einvoice-drain', 'einvoice-reconcile', 'partition-ensure', 'period-close', 'ocr-requeue', 'plan-lifecycle'];
 if (!in_array($job, $knownJobs, true)) {
     apiError('job desconocido: ' . $job, 422);
 }
@@ -149,6 +165,23 @@ function maintenanceRunJob(string $job): array
             // sin nadie que los vuelva a intentar.
             require_once __DIR__ . '/../lib/Purchases/PurchaseDraftService.php';
             return (new \Punto\Api\Purchases\PurchaseDraftService())->requeueStale();
+
+        case 'plan-lifecycle':
+            // P2 de context/34-admin-saas-plan.md §F7. DIARIO, no mensual:
+            // vencimiento, gracia y avisos son transiciones por día; la
+            // recarga de créditos es la única rama mensual y se auto-descarta
+            // cuando el período ya está acreditado.
+            //
+            // Este job MUERDE: `blocked` no es señal inerte, la enforcea
+            // `companyAccessDenial()` desde bootstrap.php y desde
+            // apiAuthPosContext.php, así que la rama de bloqueo deja al tenant
+            // afuera de la API entera. El 403 que sale de ahí lleva
+            // `details.reason='account_blocked'` y el POS lo trata como espera:
+            // es lo que hace cumplir la D8 (una venta encolada nunca se
+            // descarta por falta de pago). El modo SOLO LECTURA de la gracia
+            // (D5) sigue sin existir — es P3, en el gate de sesión.
+            require_once __DIR__ . '/../lib/Admin/PlanLifecycleService.php';
+            return (new \Punto\Api\Admin\PlanLifecycleService())->run();
 
         case 'partition-ensure':
             return maintenancePartitionEnsure($db);

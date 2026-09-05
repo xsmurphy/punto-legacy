@@ -131,8 +131,14 @@ function apiAuthTenant(array $realms = ['pos-app']): array
     $realm      = AUTHED_REALM;
     $deviceId   = defined('AUTHED_DEVICE_ID') ? AUTHED_DEVICE_ID : '';
 
-    if (!checkCompanyStatus($companyId)) {
-        apiError('Company Blocked', 403);
+    // El MOTIVO viaja en `error.details.reason`, no solo en el texto: el
+    // transporte de la cola del POS necesita distinguir el 403 de mora
+    // (`account_blocked`, que el job `plan-lifecycle` escribe) de cualquier
+    // otro rechazo, porque el primero es una ESPERA y el resto son terminales.
+    // Ver la D8 de context/34 §F7 y `companyAccessDenial()`.
+    $denial = companyAccessDenial($companyId);
+    if ($denial !== null) {
+        apiError($denial['message'], 403, ['reason' => $denial['reason']]);
     }
 
     // ── El realm `api` es READ-ONLY, y se hace cumplir ACÁ ────────────────────
