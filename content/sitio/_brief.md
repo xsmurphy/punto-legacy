@@ -3,19 +3,23 @@
 
 # Punto — brief comercial
 
-El dueño de un comercio no quiere otro sistema de gestión: quiere saber qué
-está pasando en su negocio sin pelearse con reportes. **Punto se usa
-hablando**, y no en un rincón: hay un asistente flotando en cada pantalla del
-panel, otro en la caja mientras se vende, y una sección propia para pedirle un
-análisis en serio. Le preguntás «¿qué producto me deja más margen?» o «¿qué
-clientes no volvieron en 60 días?» y contesta con el número, el gráfico y por
-qué pasó —no con una tabla muda para que la interpretes vos—. Le sacás una foto
-a la factura del proveedor y la carga sale hecha. Y si el cliente ya trabaja con
-Claude o ChatGPT, conecta su negocio ahí y les pregunta desde donde ya está
-laburando. Lo demás —facturación electrónica, stock, clientes, varias
-sucursales, seguir vendiendo aunque se corte internet— está todo resuelto y
-viene incluido en el plan. Pero eso ya lo hace cualquiera. Lo que le cambia el
-día a un comerciante es lo otro.
+Todo sistema de gestión le pide al comerciante lo mismo: aprendé a usarme.
+Punto le pregunta otra cosa: **¿qué querés saber?**
+
+Preguntale por qué cayó el margen este mes y te lo explica. Sacale una foto a la
+factura del proveedor y se carga sola. Cerrá el mes sin exportar una sola
+planilla.
+
+La IA no es un módulo que le colgamos a un sistema viejo: es la forma de usarlo.
+Está en cada pantalla del panel, está en la caja mientras se vende, tiene su
+propia sección para análisis en serio, y si el cliente ya vive dentro de Claude
+o ChatGPT, conecta su negocio ahí y le responde desde donde ya está laburando.
+
+Lo otro —facturar, stock, clientes, sucursales, vender aunque se corte
+internet— también está, funcionando y adentro del plan. Pero eso lo tiene todo
+el mundo y hace diez años que es igual. Esto no: hoy el que usa Punto le
+pregunta a su negocio y decide, mientras el de al lado sigue esperando que el
+contador le diga cómo le fue el mes.
 
 Lo que sigue es todo lo que Punto dice de sí mismo hoy, para tenerlo a mano en
 una reunión sin recorrer el sitio página por página. Cada bloque es lo mismo que
