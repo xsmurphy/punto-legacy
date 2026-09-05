@@ -327,95 +327,116 @@ ${manuales.map((m) => `- [${m.titulo}](${m.nombre})`).join("\n")}
   await writeFile(join(DESTINO, "_index.md"), indice, "utf8")
 
   /* ---------------------------------------------------------------- */
-  /* Brief: TODO el contenido del sitio en un solo archivo             */
+  /* Brief comercial: el material de venta en un solo archivo          */
   /* ---------------------------------------------------------------- */
-  /* Un archivo por página sirve al agente (busca y lee lo que
-     necesita). Para pasarle el sitio entero a alguien de afuera —una
-     agencia, un diseñador, otro modelo— hace falta UN documento. Se
-     genera acá y no a mano para que no envejezca. */
+  /* Un archivo por página sirve al agente, que busca y lee lo que
+     necesita. El vendedor necesita lo contrario: UN documento, ordenado
+     para vender y sin nada técnico adentro. Se genera acá y no a mano
+     para que no envejezca al primer cambio de copy.
+     Los textos legales NO entran: son ruido para vender. Van como link. */
   const GRUPOS: { titulo: string; nota: string; test: (url: string) => boolean }[] = [
     {
-      titulo: "Páginas principales",
-      nota: "La home, el plan y cómo contactarnos.",
-      test: (u) => u === "/" || u === "/precios" || u === "/contacto",
+      titulo: "El sistema de un vistazo",
+      nota: "Cómo se presenta Punto entero, con todo lo que trae incluido.",
+      test: (u) => u === "/",
     },
     {
-      titulo: "Módulos",
-      nota: "Una página por capacidad del sistema.",
+      titulo: "El plan y el precio",
+      nota: "Lo que se cobra, lo que incluye y las preguntas que aparecen al hablar de plata.",
+      test: (u) => u === "/precios",
+    },
+    {
+      titulo: "Módulo por módulo",
+      nota: "Para bajar a detalle cuando el cliente pregunta por algo puntual.",
       test: (u) => u.startsWith("/modulos/"),
     },
     {
-      titulo: "Rubros",
-      nota: "La misma propuesta contada para cada tipo de negocio.",
+      titulo: "Por rubro",
+      nota: "La misma propuesta contada con las palabras de cada tipo de negocio.",
       test: (u) => u.startsWith("/para/"),
     },
-    {
-      titulo: "Legales",
-      nota: "Términos, privacidad y reembolsos. Forman parte del contrato.",
-      test: (u) => ["/terminos", "/privacidad", "/reembolsos"].includes(u),
-    },
   ]
+
+  const LEGALES = ["/terminos", "/privacidad", "/reembolsos"]
 
   /* El cuerpo de una página, listo para anidarse bajo el `###` que le pone
      el brief: sin frontmatter, sin su propio H1 (lo duplicaría) y con los
      encabezados corridos dos niveles para que la jerarquía cierre. */
-  const cuerpo = (md: string, anidado = true) => {
-    const sinFront = md.replace(/^---\n[\s\S]*?\n---\n/, "").trim()
-    if (!anidado) return sinFront
-    return sinFront
+  const cuerpo = (md: string) =>
+    md
+      .replace(/^---\n[\s\S]*?\n---\n/, "")
+      .trim()
       .replace(/^# .*\n+/, "")
       .replace(/^(#{2,4}) /gm, (_m, h: string) => `${"#".repeat(h.length + 2)} `)
+      // Las remisiones a otra página van con el dominio: el vendedor
+      // manda el link tal cual, no una ruta suelta.
+      .replace(/→ (\/[a-z0-9/-]+)/g, (_m, ruta: string) => `→ ${EMPRESA_SITIO}${ruta}`)
       .trim()
-  }
 
   const faq = await readFile(join(DESTINO, "faq-ventas.md"), "utf8").catch(() => "")
+  const url = (u: string) => `${EMPRESA_SITIO}${u === "/" ? "" : u}`
 
   const secciones = GRUPOS.map((g) => {
     const paginas = archivos.filter((a) => g.test(a.url))
     if (!paginas.length) return ""
     const cuerpos = paginas
-      .map((a) => `### ${a.titulo}\n\n\`${a.url}\`\n\n${cuerpo(a.contenido)}`)
+      .map((a) => `### ${a.titulo}\n\n_${url(a.url)}_\n\n${cuerpo(a.contenido)}`)
       .join("\n\n---\n\n")
     return `## ${g.titulo}\n\n_${g.nota}_\n\n${cuerpos}`
   }).filter(Boolean)
 
-  const mapa = GRUPOS.map((g) => {
+  const indiceBrief = GRUPOS.map((g) => {
     const paginas = archivos.filter((a) => g.test(a.url))
     return paginas.length
-      ? `**${g.titulo}**\n\n${paginas.map((a) => `- \`${a.url}\` — ${a.titulo}`).join("\n")}`
+      ? `**${g.titulo}** — ${paginas.map((a) => a.titulo).join(" · ")}`
       : ""
   })
     .filter(Boolean)
     .join("\n\n")
 
-  const brief = `---
-titulo: "Brief de contenido del sitio"
-fuente: "sitio punto.la"
----
+  const contacto = archivos.find((a) => a.url === "/contacto")
+  const links = [
+    ...(contacto ? [`- Contacto y ubicación — ${url("/contacto")}`] : []),
+    ...LEGALES.map((u) => {
+      const a = archivos.find((x) => x.url === u)
+      return a ? `- ${a.titulo} — ${url(u)}` : ""
+    }).filter(Boolean),
+  ].join("\n")
 
-# Brief de contenido — ${EMPRESA_SITIO}
+  const brief = `<!-- Generado automáticamente desde el contenido del sitio.
+     No editarlo a mano: se sobreescribe en cada actualización. -->
 
-Todo el contenido publicado del sitio, en un solo documento. Es el material
-para quien tenga que escribir, diseñar o traducir sobre el sitio sin entrar al
-código.
+# Punto — brief comercial
 
-Se genera con \`npm run export:content\` desde las mismas fuentes que renderiza
-el sitio (\`lib/site/*.ts\`), así que refleja lo que está publicado. **No editarlo
-a mano**: se sobreescribe en cada build. Para cambiar un texto se cambia la
-fuente.
+Punto es el sistema con el que un comercio vende, cobra, factura
+electrónicamente y controla su stock y sus clientes, todo en el mismo lugar. La
+caja funciona en la computadora, la tablet o el teléfono que el negocio ya
+tiene, y sigue vendiendo aunque se corte internet: cuando vuelve la conexión, se
+sincroniza sola. Desde el panel el dueño ve las ventas del día, qué falta
+reponer, quién le debe y con qué margen cerró el mes, de una sucursal o de
+todas. Y cuando quiere entender un número, se lo pregunta a Punto AI en su
+idioma y le responde con los datos reales de su negocio, sin exportar una
+planilla. Un solo plan, con la facturación electrónica incluida y sin costo por
+comprobante.
 
-El tono y el uso de la marca están en \`context/68-brand-kit-social.md\`; el
-detalle técnico del sitio, en \`context/61-sitio-marketing.md\`.
+Este documento reúne todo lo que Punto dice de sí mismo, para tenerlo a mano en
+una reunión sin recorrer el sitio página por página. Cada bloque es lo mismo que
+el cliente va a leer si entra a esa página, así que se le puede mandar el link y
+la conversación sigue igual.
 
-## Mapa del sitio
-
-${mapa}
+${indiceBrief}
 
 ---
 
 ${secciones.join("\n\n---\n\n")}
 
-${faq ? `---\n\n## Preguntas que el sitio no responde\n\n_Escrito a mano, no sale del sitio: es lo que pregunta la gente y todavía no está publicado._\n\n${cuerpo(faq)}\n` : ""}`
+${faq ? `---\n\n## Lo que el sitio no responde\n\n_Las preguntas que llegan y todavía no están publicadas, con qué contestar. Acá está también lo que NO hay que prometer._\n\n${cuerpo(faq)}\n` : ""}
+---
+
+## Para mandarle al cliente
+
+${links}
+`
 
   await writeFile(join(DESTINO, "_brief.md"), brief, "utf8")
 

@@ -1,76 +1,41 @@
----
-titulo: "Brief de contenido del sitio"
-fuente: "sitio punto.la"
----
+<!-- Generado automáticamente desde el contenido del sitio.
+     No editarlo a mano: se sobreescribe en cada actualización. -->
 
-# Brief de contenido — punto.la
+# Punto — brief comercial
 
-Todo el contenido publicado del sitio, en un solo documento. Es el material
-para quien tenga que escribir, diseñar o traducir sobre el sitio sin entrar al
-código.
+Punto es el sistema con el que un comercio vende, cobra, factura
+electrónicamente y controla su stock y sus clientes, todo en el mismo lugar. La
+caja funciona en la computadora, la tablet o el teléfono que el negocio ya
+tiene, y sigue vendiendo aunque se corte internet: cuando vuelve la conexión, se
+sincroniza sola. Desde el panel el dueño ve las ventas del día, qué falta
+reponer, quién le debe y con qué margen cerró el mes, de una sucursal o de
+todas. Y cuando quiere entender un número, se lo pregunta a Punto AI en su
+idioma y le responde con los datos reales de su negocio, sin exportar una
+planilla. Un solo plan, con la facturación electrónica incluida y sin costo por
+comprobante.
 
-Se genera con `npm run export:content` desde las mismas fuentes que renderiza
-el sitio (`lib/site/*.ts`), así que refleja lo que está publicado. **No editarlo
-a mano**: se sobreescribe en cada build. Para cambiar un texto se cambia la
-fuente.
+Este documento reúne todo lo que Punto dice de sí mismo, para tenerlo a mano en
+una reunión sin recorrer el sitio página por página. Cada bloque es lo mismo que
+el cliente va a leer si entra a esa página, así que se le puede mandar el link y
+la conversación sigue igual.
 
-El tono y el uso de la marca están en `context/68-brand-kit-social.md`; el
-detalle técnico del sitio, en `context/61-sitio-marketing.md`.
+**El sistema de un vistazo** — Punto — Sistema de punto de venta y facturación electrónica
 
-## Mapa del sitio
+**El plan y el precio** — Precios y planes
 
-**Páginas principales**
+**Módulo por módulo** — Punto de Venta · Panel · Punto AI · Mesas y órdenes · Gift cards y vales · Pantalla de cocina · Facturación electrónica · Stock y compras · Clientes y crédito · Producción y recetas
 
-- `/` — Punto — Sistema de punto de venta y facturación electrónica
-- `/precios` — Precios y planes
-- `/contacto` — Contacto
-
-**Módulos**
-
-- `/modulos/punto-de-venta` — Punto de Venta
-- `/modulos/panel` — Panel
-- `/modulos/punto-ai` — Punto AI
-- `/modulos/mesas-y-ordenes` — Mesas y órdenes
-- `/modulos/gift-cards` — Gift cards y vales
-- `/modulos/pantalla-de-cocina` — Pantalla de cocina
-- `/modulos/facturacion-electronica` — Facturación electrónica
-- `/modulos/stock-y-compras` — Stock y compras
-- `/modulos/clientes-y-credito` — Clientes y crédito
-- `/modulos/produccion-y-recetas` — Producción y recetas
-
-**Rubros**
-
-- `/para/restaurantes` — Punto para restaurantes
-- `/para/minimarkets` — Punto para minimarkets
-- `/para/farmacias` — Punto para farmacias
-- `/para/ferreterias` — Punto para ferreterías
-- `/para/ropa-y-accesorios` — Punto para ropa y accesorios
-- `/para/bares-y-cafes` — Punto para bares y cafés
-- `/para/comida-rapida` — Punto para comida rápida
-- `/para/dark-kitchen` — Punto para dark kitchen
-- `/para/decoracion-y-hogar` — Punto para decoración y hogar
-- `/para/barberias` — Punto para barberías
-- `/para/peluquerias` — Punto para peluquerías
-- `/para/consultorios-medicos` — Punto para consultorios médicos
-- `/para/odontologia` — Punto para odontología
-- `/para/veterinarias` — Punto para veterinarias
-- `/para/estetica-y-cosmetologia` — Punto para estética y cosmetología
-
-**Legales**
-
-- `/terminos` — Términos y Condiciones
-- `/privacidad` — Política de Privacidad
-- `/reembolsos` — Política de Reembolsos
+**Por rubro** — Punto para restaurantes · Punto para minimarkets · Punto para farmacias · Punto para ferreterías · Punto para ropa y accesorios · Punto para bares y cafés · Punto para comida rápida · Punto para dark kitchen · Punto para decoración y hogar · Punto para barberías · Punto para peluquerías · Punto para consultorios médicos · Punto para odontología · Punto para veterinarias · Punto para estética y cosmetología
 
 ---
 
-## Páginas principales
+## El sistema de un vistazo
 
-_La home, el plan y cómo contactarnos._
+_Cómo se presenta Punto entero, con todo lo que trae incluido._
 
 ### Punto — Sistema de punto de venta y facturación electrónica
 
-`/`
+_punto.la_
 
 Punto es un sistema de punto de venta y gestión para comercios de Paraguay: vender, cobrar, facturar electrónicamente, controlar stock y clientes, y ver los números del negocio — todo en un mismo lugar.
 
@@ -188,9 +153,13 @@ Pensado para: dueños que deciden con datos
 
 ---
 
+## El plan y el precio
+
+_Lo que se cobra, lo que incluye y las preguntas que aparecen al hablar de plata._
+
 ### Precios y planes
 
-`/precios`
+_punto.la/precios_
 
 Un solo plan, con todo adentro. Sin versiones recortadas ni módulos que se desbloquean pagando de más.
 
@@ -239,25 +208,13 @@ Se mantiene mientras la cuenta siga activa. Si cambia la lista, se avisa con ant
 
 ---
 
-### Contacto
+## Módulo por módulo
 
-`/contacto`
-
-- **WhatsApp:** +595 981 078798
-- **Oficina:** Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay
-- **Horario de respuesta:** de lunes a sábado se responde en el día; el soporte para clientes funciona 24/7.
-
-No hay formulario de contacto en el sitio: el canal es WhatsApp o la visita a la oficina.
-
----
-
-## Módulos
-
-_Una página por capacidad del sistema._
+_Para bajar a detalle cuando el cliente pregunta por algo puntual._
 
 ### Punto de Venta
 
-`/modulos/punto-de-venta`
+_punto.la/modulos/punto-de-venta_
 
 **Vender no debería tomar más de unos segundos**
 
@@ -280,7 +237,7 @@ El artículo aparece mientras escribís, el escáner lo suma directo y el total 
 
 En tablet la lógica es la misma pero con targets grandes: el cajero opera con el pulgar y los elementos no cambian de lugar según el estado, así la memoria muscular no se rompe.
 
-Ver también: Ver cómo se cobra → /modulos/facturacion-electronica
+Ver también: Ver cómo se cobra → punto.la/modulos/facturacion-electronica
 
 #### Efectivo, tarjeta, QR o crédito — o todo junto
 
@@ -290,7 +247,7 @@ Una venta puede cerrarse con parte en efectivo y parte en transferencia, o queda
 
 El comprobante sale al cerrar: ticket para el que no pide nada, factura electrónica para el que da sus datos. La numeración la controla el sistema, no el cajero.
 
-Ver también: Ver el comprobante → /modulos/facturacion-electronica
+Ver también: Ver el comprobante → punto.la/modulos/facturacion-electronica
 
 #### Una pantalla que muestra lo que se está cobrando
 
@@ -300,7 +257,7 @@ Un segundo monitor mirando al cliente le muestra lo que el cajero va cargando y 
 
 Sirve además como cartel del negocio entre venta y venta, y evita la discusión más común del mostrador: qué se cobró y por cuánto.
 
-Ver también: Ver la pantalla del cliente → /modulos/punto-de-venta
+Ver también: Ver la pantalla del cliente → punto.la/modulos/punto-de-venta
 
 #### El modo offline no es un plan B, es la base
 
@@ -310,7 +267,7 @@ Punto guarda cada venta en el dispositivo y la emite igual: sin internet, sin en
 
 Cuando la conexión vuelve, las ventas suben solas y aparecen en el panel con su hora real — la del momento en que se vendió, no la de la sincronización.
 
-Ver también: Ver la sincronización → /modulos/panel
+Ver también: Ver la sincronización → punto.la/modulos/panel
 
 #### Turnos, permisos y arqueo que cuadra
 
@@ -320,13 +277,13 @@ Cada dispositivo es una caja con su sesión y su numeración. El cajero abre tur
 
 Al cerrar, el arqueo compara lo que el sistema esperaba contra lo que se contó. La diferencia, si la hay, aparece sola: nadie tiene que reconstruir el día de memoria.
 
-Ver también: Ver el cierre de turno → /modulos/panel
+Ver también: Ver el cierre de turno → punto.la/modulos/panel
 
 ---
 
 ### Panel
 
-`/modulos/panel`
+_punto.la/modulos/panel_
 
 **Tu negocio entero, a la vista**
 
@@ -349,7 +306,7 @@ Cada sucursal opera con sus cajas, su depósito y su gente, pero el dueño ve el
 
 Los permisos siguen la misma lógica: el encargado ve lo suyo, la administración ve todo, y cada quien entra con su usuario.
 
-Ver también: Ver el resumen por sucursal → /modulos/punto-ai
+Ver también: Ver el resumen por sucursal → punto.la/modulos/punto-ai
 
 #### Cargar una vez y que lo vean todas las cajas
 
@@ -359,7 +316,7 @@ Artículos, categorías, variantes y precios se cargan en el panel y bajan a cad
 
 Las listas de precio conviven: mostrador, mayorista y delivery pueden tener el suyo sin duplicar el artículo ni llevar una planilla aparte.
 
-Ver también: Ver listas de precio → /modulos/stock-y-compras
+Ver también: Ver listas de precio → punto.la/modulos/stock-y-compras
 
 #### Stock y compras que se hablan entre sí
 
@@ -367,7 +324,7 @@ _Antes de que falte_
 
 Cada venta descuenta stock en su depósito, cada compra lo repone y actualiza el costo. Los mínimos avisan antes del quiebre y los ajustes quedan con fecha, usuario y motivo — el inventario deja de ser un misterio de fin de mes.
 
-Ver también: Ver la reposición → /modulos/stock-y-compras
+Ver también: Ver la reposición → punto.la/modulos/stock-y-compras
 
 #### Reportes listos al abrir la pantalla
 
@@ -375,13 +332,13 @@ _Números, no intuición_
 
 Ventas por hora, ranking de productos, márgenes, medios de pago, cuentas por cobrar y los libros que pide el contador. Todo sale del mismo dato que generó la caja, sin exportar ni cruzar planillas.
 
-Ver también: Ver los reportes → /modulos/punto-ai
+Ver también: Ver los reportes → punto.la/modulos/punto-ai
 
 ---
 
 ### Punto AI
 
-`/modulos/punto-ai`
+_punto.la/modulos/punto-ai_
 
 **Un analista que ya conoce tus números**
 
@@ -404,7 +361,7 @@ _Preguntar es la interfaz_
 
 No hay que aprender dónde vive cada reporte ni qué filtro combinar: la conversación reemplaza el recorrido por los menús.
 
-Ver también: Ver una respuesta → /modulos/panel
+Ver también: Ver una respuesta → punto.la/modulos/panel
 
 #### Analiza y te dice dónde mirar
 
@@ -414,7 +371,7 @@ La respuesta no es una tabla muda: señala el día flojo, el producto que cayó,
 
 Y como trabaja sobre los datos de tu negocio, las conclusiones son tuyas: nada de promedios de industria ni consejos genéricos.
 
-Ver también: Ver el análisis → /modulos/panel
+Ver también: Ver el análisis → punto.la/modulos/panel
 
 #### Carga y corrige datos, con tu confirmación
 
@@ -424,13 +381,13 @@ Además de leer, Punto AI puede poner orden: crear un artículo, corregir una ca
 
 Lo sensible queda fuera por diseño: no toca ventas, ni caja, ni permisos, ni borra nada en masa. Ordena el catálogo, no la contabilidad.
 
-Ver también: Ver una acción confirmada → /modulos/stock-y-compras
+Ver también: Ver una acción confirmada → punto.la/modulos/stock-y-compras
 
 ---
 
 ### Mesas y órdenes
 
-`/modulos/mesas-y-ordenes`
+_punto.la/modulos/mesas-y-ordenes_
 
 **El salón y la cocina, en la misma página**
 
@@ -453,7 +410,7 @@ El mozo toma el pedido en el salón, la caja del fondo cobra y el encargado mira
 
 Cuando el cliente pide la cuenta, la mesa lo señala sin bloquearse — si alguien suma un postre después, entra igual y la cuenta se actualiza.
 
-Ver también: Ver el salón → /modulos/pantalla-de-cocina
+Ver también: Ver el salón → punto.la/modulos/pantalla-de-cocina
 
 #### La comanda se reparte sola entre cocina y barra
 
@@ -463,7 +420,7 @@ Los tragos van a la barra, los platos a la cocina y la pizza al horno, cada uno 
 
 Los agregados y las aclaraciones bajan literales — sin cebolla, punto jugoso, para llevar — y cada línea se marca como lista cuando sale.
 
-Ver también: Ver la pantalla de cocina → /modulos/pantalla-de-cocina
+Ver también: Ver la pantalla de cocina → punto.la/modulos/pantalla-de-cocina
 
 #### Dividir y cobrar en partes, con su comprobante
 
@@ -473,13 +430,13 @@ La mesa se puede cobrar entera o en partes: por lo que consumió cada uno, por u
 
 La mesa se cierra recién cuando el saldo llega a cero. No hay forma de dejarla abierta con plata pendiente por descuido.
 
-Ver también: Ver el cobro dividido → /modulos/punto-de-venta
+Ver también: Ver el cobro dividido → punto.la/modulos/punto-de-venta
 
 ---
 
 ### Gift cards y vales
 
-`/modulos/gift-cards`
+_punto.la/modulos/gift-cards_
 
 **Cobrar hoy lo que se entrega después**
 
@@ -502,7 +459,7 @@ El cliente compra un monto, se lleva el código y lo usa cuando quiera. Para el 
 
 Se puede usar en una compra o en varias: el sistema lleva el saldo restante y lo aplica como un medio de pago más, combinable con efectivo o tarjeta.
 
-Ver también: Ver el canje → /modulos/punto-de-venta
+Ver también: Ver el canje → punto.la/modulos/punto-de-venta
 
 #### El vale es por productos, no por plata
 
@@ -512,7 +469,7 @@ Un combo de desayuno, diez lavados, una torta encargada: el vale guarda los íte
 
 Si el precio subió en el medio, no importa: lo que se vendió fue el producto, y el sistema lo respeta.
 
-Ver también: Ver un vale → /modulos/punto-de-venta
+Ver también: Ver un vale → punto.la/modulos/punto-de-venta
 
 #### El código se consume una sola vez
 
@@ -522,13 +479,13 @@ El canje pasa dentro de la venta, en el mismo movimiento: o se cobra y se consum
 
 Y cada código guarda su rastro — quién lo vendió, en qué sucursal se usó y qué saldo queda — así el reclamo del mostrador se resuelve mirando la pantalla.
 
-Ver también: Ver el historial → /modulos/clientes-y-credito
+Ver también: Ver el historial → punto.la/modulos/clientes-y-credito
 
 ---
 
 ### Pantalla de cocina
 
-`/modulos/pantalla-de-cocina`
+_punto.la/modulos/pantalla-de-cocina_
 
 **La comanda deja de ser un papel**
 
@@ -551,7 +508,7 @@ La comanda puede nacer en la caja del mostrador, en una mesa del salón o en un 
 
 El que toma el pedido no manda nada aparte: al confirmar la orden, la comanda ya está en cocina. Nadie transcribe, nadie camina hasta la plancha con un papel.
 
-Ver también: Ver mesas y órdenes → /modulos/mesas-y-ordenes
+Ver también: Ver mesas y órdenes → punto.la/modulos/mesas-y-ordenes
 
 #### La cocina ve platos; la barra, tragos
 
@@ -561,7 +518,7 @@ Un pedido de mesa puede repartirse entre tres estaciones y cada una recibe solo 
 
 El orden lo pone la hora de entrada, no quién grita más fuerte: la tanda se arma por antigüedad y el tiempo de espera de cada comanda está a la vista.
 
-Ver también: Ver el tablero → /modulos/mesas-y-ordenes
+Ver también: Ver el tablero → punto.la/modulos/mesas-y-ordenes
 
 #### Lo que pidió el cliente, tal cual
 
@@ -571,7 +528,7 @@ El punto de la carne, la mitad sin aceitunas, el extra de queso: los agregados b
 
 La comanda muestra todo lo que hay que preparar, cobre o no cobre. El que cocina no tiene que saber qué se facturó — solo qué sale.
 
-Ver también: Ver una comanda → /modulos/mesas-y-ordenes
+Ver también: Ver una comanda → punto.la/modulos/mesas-y-ordenes
 
 #### La pantalla de despacho arma el pedido completo
 
@@ -589,13 +546,13 @@ Cuando el plato sale, se marca listo y desaparece del tablero. Si se marcó de m
 
 Cada cambio queda registrado con su hora, así el encargado puede mirar después cuánto tardó realmente cada comanda en salir.
 
-Ver también: Ver los tiempos → /modulos/panel
+Ver también: Ver los tiempos → punto.la/modulos/panel
 
 ---
 
 ### Facturación electrónica
 
-`/modulos/facturacion-electronica`
+_punto.la/modulos/facturacion-electronica_
 
 **Facturación electrónica gratis y sin límites**
 
@@ -619,7 +576,7 @@ En Paraguay lo normal es pagar por tandas de documentos: mil comprobantes, cinco
 
 En Punto no funciona así. Emitir un documento electrónico no nos cuesta, y por eso no te lo cobramos: facturás lo que vendas, todos los meses, sin contar comprobantes ni renovar nada.
 
-Ver también: Ver el plan completo → /precios
+Ver también: Ver el plan completo → punto.la/precios
 
 #### El comprobante no es un trámite aparte
 
@@ -629,7 +586,7 @@ El cajero cobra como siempre y, si el cliente da su RUC, el documento electróni
 
 Punto declara la tasa que se aplicó en el momento de vender, no la que figura hoy en el catálogo. Si cambiás un precio o una tasa después, los documentos ya emitidos siguen contando la verdad de esa venta.
 
-Ver también: Ver la venta facturada → /modulos/punto-de-venta
+Ver también: Ver la venta facturada → punto.la/modulos/punto-de-venta
 
 #### Sabés en qué estado está cada documento
 
@@ -639,7 +596,7 @@ Cada documento muestra si SIFEN lo aprobó, si está en camino o si algo lo fren
 
 Si el envío falla — se cayó la conexión, el servicio no responde — el documento se reintenta solo. La venta nunca queda trabada esperando al fisco: se cobra igual y el comprobante se acomoda después.
 
-Ver también: Ver los documentos → /modulos/panel
+Ver también: Ver los documentos → punto.la/modulos/panel
 
 #### Nota de crédito electrónica, atada a su factura
 
@@ -649,13 +606,13 @@ Una devolución no se resuelve borrando la factura: se emite la nota de crédito
 
 Y si un documento tiene que anularse ante SIFEN, se cancela desde el panel indicando el motivo — con permiso propio, para que no lo haga cualquiera desde la caja.
 
-Ver también: Ver una nota de crédito → /modulos/clientes-y-credito
+Ver también: Ver una nota de crédito → punto.la/modulos/clientes-y-credito
 
 ---
 
 ### Stock y compras
 
-`/modulos/stock-y-compras`
+_punto.la/modulos/stock-y-compras_
 
 **Saber qué hay, antes de que falte**
 
@@ -678,7 +635,7 @@ Vender, comprar, producir, transferir entre sucursales, registrar una merma o ce
 
 Cada movimiento queda registrado con su motivo, su usuario y su hora. Cuando el saldo no cuadra, se puede ver exactamente qué pasó en vez de suponerlo.
 
-Ver también: Ver el historial de un artículo → /modulos/panel
+Ver también: Ver el historial de un artículo → punto.la/modulos/panel
 
 #### La factura del proveedor se carga sola, con IA
 
@@ -688,7 +645,7 @@ Cargar una compra a mano es tipear veinte líneas mirando un papel. En Punto le 
 
 Lo que sale es un borrador para revisar, no un movimiento hecho: corregís lo que haga falta y recién al aprobarlo entra la mercadería al stock. La IA nunca toca el inventario ni la caja por su cuenta.
 
-Ver también: Ver el borrador de una factura → /modulos/punto-ai
+Ver también: Ver el borrador de una factura → punto.la/modulos/punto-ai
 
 #### Aprobada la compra, el costo queda al día
 
@@ -698,7 +655,7 @@ Al aprobar el borrador entra la mercadería con el costo real de esta compra, y 
 
 El alta manual sigue disponible y termina en el mismo lugar: haya venido de una foto o de la carga a mano, la compra es una sola cosa en el sistema.
 
-Ver también: Ver cuentas por pagar → /modulos/clientes-y-credito
+Ver también: Ver cuentas por pagar → punto.la/modulos/clientes-y-credito
 
 #### El mínimo avisa mientras todavía hay tiempo
 
@@ -708,13 +665,13 @@ Cada artículo puede tener su mínimo por depósito. Cuando lo toca, aparece en 
 
 La misma lista sirve para armar el pedido al proveedor, así reponer deja de depender de que alguien se acuerde de mirar la góndola.
 
-Ver también: Ver la reposición → /modulos/stock-y-compras
+Ver también: Ver la reposición → punto.la/modulos/stock-y-compras
 
 ---
 
 ### Clientes y crédito
 
-`/modulos/clientes-y-credito`
+_punto.la/modulos/clientes-y-credito_
 
 **La libreta del mostrador, jubilada**
 
@@ -737,7 +694,7 @@ El pendiente de cada factura se recalcula sumando lo que se cobró contra ella, 
 
 Si un cobro se cargó mal, se revierte y todo vuelve a su lugar solo — sin ajustes manuales que después nadie sabe explicar.
 
-Ver también: Ver un estado de cuenta → /modulos/panel
+Ver también: Ver un estado de cuenta → punto.la/modulos/panel
 
 #### Un pago, todas las facturas que alcance
 
@@ -747,7 +704,7 @@ El cliente que viene a saldar tres facturas no obliga a cargar tres cobros: se i
 
 También se puede cobrar parcialmente una factura puntual. En los dos casos sale el recibo, y lo cobrado impacta en la caja del turno como cualquier otro ingreso.
 
-Ver también: Ver un cobro → /modulos/punto-de-venta
+Ver también: Ver un cobro → punto.la/modulos/punto-de-venta
 
 #### Qué compra cada cliente, cuándo y dónde
 
@@ -757,13 +714,13 @@ El perfil de cada cliente muestra su historia: qué se lleva, a qué hora suele 
 
 Los datos son del negocio, no de una plataforma: si el cliente dejó de venir, el sistema puede mostrarlo antes de que sea tarde.
 
-Ver también: Ver el perfil de un cliente → /modulos/punto-ai
+Ver también: Ver el perfil de un cliente → punto.la/modulos/punto-ai
 
 ---
 
 ### Producción y recetas
 
-`/modulos/produccion-y-recetas`
+_punto.la/modulos/produccion-y-recetas_
 
 **Lo que se produce descuenta lo que se usa**
 
@@ -786,7 +743,7 @@ Una panadería hornea a las cuatro de la mañana y stockea lo producido; una coc
 
 Cada artículo elige su modelo y no se mezclan, así el inventario de insumos nunca se descuenta dos veces por lo mismo.
 
-Ver también: Ver una orden de producción → /modulos/stock-y-compras
+Ver también: Ver una orden de producción → punto.la/modulos/stock-y-compras
 
 #### Cuánto cuesta cada plato, con números y no a ojo
 
@@ -796,7 +753,7 @@ El costo del producto se arma sumando sus insumos al costo con el que entraron. 
 
 Con eso a la vista, subir un precio o cambiar una receta deja de ser una corazonada.
 
-Ver también: Ver el costo de un producto → /modulos/panel
+Ver también: Ver el costo de un producto → punto.la/modulos/panel
 
 #### La merma se registra, no se descuenta en silencio
 
@@ -806,17 +763,17 @@ El pan que sobró, la fruta que se pasó, la botella que se rompió: la merma en
 
 Al final del mes se puede mirar cuánto se perdió y por qué, en vez de descubrir el faltante recién en el conteo.
 
-Ver también: Ver la merma del mes → /modulos/stock-y-compras
+Ver también: Ver la merma del mes → punto.la/modulos/stock-y-compras
 
 ---
 
-## Rubros
+## Por rubro
 
-_La misma propuesta contada para cada tipo de negocio._
+_La misma propuesta contada con las palabras de cada tipo de negocio._
 
 ### Punto para restaurantes
 
-`/para/restaurantes`
+_punto.la/para/restaurantes_
 
 **El salón, la cocina y la caja, en sintonía**
 
@@ -839,7 +796,7 @@ En hora pico el salón no tiene tiempo que perder: el mozo carga el pedido en la
 
 La cocina arma las tandas por orden de llegada, no por quién reclamó más fuerte. Y cuando el plato cambia — sin cebolla, punto jugoso, para llevar — eso baja literal, no interpretado.
 
-Ver también: Ver cómo trabaja la cocina → /modulos/pantalla-de-cocina
+Ver también: Ver cómo trabaja la cocina → punto.la/modulos/pantalla-de-cocina
 
 #### Dividir, cobrar y facturar en el mismo paso
 
@@ -849,7 +806,7 @@ Al final de la comida cada uno sabe cuánto le toca: en partes iguales o por lo 
 
 Nada de reconstruir la mesa desde tres papeles: la cuenta vivió en el sistema desde el primer pedido.
 
-Ver también: Ver el cobro de una mesa → /modulos/mesas-y-ordenes
+Ver también: Ver el cobro de una mesa → punto.la/modulos/mesas-y-ordenes
 
 #### Caja por turno y reportes que no piden planilla
 
@@ -857,7 +814,7 @@ _El día cierra en números_
 
 Cada turno abre y cierra su caja: lo esperado contra lo contado, con cada movimiento anotado. El dueño ve el día por sucursal — qué se vendió, a qué hora, con qué margen — sin esperar a que alguien pase todo a una planilla el lunes.
 
-Ver también: Ver el arqueo del turno → /modulos/punto-de-venta
+Ver también: Ver el arqueo del turno → punto.la/modulos/punto-de-venta
 
 #### Módulos que más usa
 
@@ -870,7 +827,7 @@ Ver también: Ver el arqueo del turno → /modulos/punto-de-venta
 
 ### Punto para minimarkets
 
-`/para/minimarkets`
+_punto.la/para/minimarkets_
 
 **La fila avanza y el stock se cuida solo**
 
@@ -893,7 +850,7 @@ En hora pico el mostrador se mide en segundos por cliente. El ticket se arma esc
 
 El teclado alcanza para todo el flujo — la caja de alto volumen no depende del mouse ni de menús escondidos.
 
-Ver también: Ver la caja rápida → /modulos/punto-de-venta
+Ver también: Ver la caja rápida → punto.la/modulos/punto-de-venta
 
 #### El stock avisa, no sorprende
 
@@ -903,7 +860,7 @@ Cada ticket descuenta stock en el momento, por depósito. Cuando un producto toc
 
 El inventario deja de ser un fin de semana de conteo: los ajustes quedan con fecha, usuario y motivo.
 
-Ver también: Ver la reposición → /modulos/stock-y-compras
+Ver también: Ver la reposición → punto.la/modulos/stock-y-compras
 
 #### Caja por cajero, diferencia con nombre
 
@@ -911,7 +868,7 @@ _El turno rinde cuentas_
 
 Cada cajero abre su turno y lo cierra con arqueo: lo que el sistema esperaba contra lo que se contó. Los retiros y gastos del día quedan anotados en el momento, no reconstruidos de memoria a las diez de la noche.
 
-Ver también: Ver el cierre de turno → /modulos/punto-de-venta
+Ver también: Ver el cierre de turno → punto.la/modulos/punto-de-venta
 
 #### Módulos que más usa
 
@@ -924,7 +881,7 @@ Ver también: Ver el cierre de turno → /modulos/punto-de-venta
 
 ### Punto para farmacias
 
-`/para/farmacias`
+_punto.la/para/farmacias_
 
 **Vender con receta, vencimiento y crédito bajo control**
 
@@ -945,7 +902,7 @@ _El mostrador no adivina_
 
 Por marca, por droga o escaneando la caja: el buscador responde al primer intento y muestra existencia por sucursal. Si en esta sucursal no hay, se ve dónde sí — y la venta no se pierde por no saber.
 
-Ver también: Ver la búsqueda → /modulos/punto-de-venta
+Ver también: Ver la búsqueda → punto.la/modulos/punto-de-venta
 
 #### Vencimientos vigilados por el sistema
 
@@ -953,7 +910,7 @@ _Primero en vencer, primero en salir_
 
 Cada lote entra con su vencimiento y el reporte de próximos a vencer ordena la góndola antes de que sea pérdida. Lo vencido no se vende: la caja lo frena, no el ojo del cajero.
 
-Ver también: Ver próximos a vencer → /modulos/stock-y-compras
+Ver también: Ver próximos a vencer → punto.la/modulos/stock-y-compras
 
 #### Cuenta corriente con límite y recibo
 
@@ -961,7 +918,7 @@ _La libreta, jubilada_
 
 El cliente de siempre compra a crédito con un límite definido, y cada pago queda con su recibo. La cobranza del mes sale de un listado, no de una libreta que solo entiende quien la escribió.
 
-Ver también: Ver cuentas corrientes → /modulos/clientes-y-credito
+Ver también: Ver cuentas corrientes → punto.la/modulos/clientes-y-credito
 
 #### Módulos que más usa
 
@@ -973,7 +930,7 @@ Ver también: Ver cuentas corrientes → /modulos/clientes-y-credito
 
 ### Punto para ferreterías
 
-`/para/ferreterias`
+_punto.la/para/ferreterias_
 
 **Miles de artículos, un mostrador que no duda**
 
@@ -996,7 +953,7 @@ El cliente pide "un caño de media" o "el tornillo autoperforante de una pulgada
 
 Si en el depósito de esta sucursal no queda, se ve al toque dónde sí hay stock, antes de mandar al cliente a buscar en otro lado.
 
-Ver también: Ver el buscador de artículos → /modulos/punto-de-venta
+Ver también: Ver el buscador de artículos → punto.la/modulos/punto-de-venta
 
 #### Fraccionado, por metro o por kilo, sin perder margen
 
@@ -1006,7 +963,7 @@ No todo se vende en su envase cerrado: el tornillo se cobra por unidad, el caño
 
 La cotización para una obra junta materiales de rubros distintos — caños, cables, cemento — y cuando el cliente confirma, se convierte en venta con un solo toque, sin recargar cada ítem de nuevo.
 
-Ver también: Ver una cotización de obra → /modulos/punto-de-venta
+Ver también: Ver una cotización de obra → punto.la/modulos/punto-de-venta
 
 #### Cuenta corriente y stock por depósito, sin planillas paralelas
 
@@ -1026,7 +983,7 @@ El stock se lleva por depósito: lo que hay en el local no es lo mismo que lo qu
 
 ### Punto para ropa y accesorios
 
-`/para/ropa-y-accesorios`
+_punto.la/para/ropa-y-accesorios_
 
 **Talles, colores y temporadas en orden**
 
@@ -1049,7 +1006,7 @@ El vestido "floreado corto" es un solo artículo con sus variantes de talle y co
 
 Cuando un talle se agota, se ve al instante — y el vendedor puede ofrecer el color que sí queda antes de perder la venta.
 
-Ver también: Ver las variantes de un modelo → /modulos/punto-de-venta
+Ver también: Ver las variantes de un modelo → punto.la/modulos/punto-de-venta
 
 #### Cambios y devoluciones con nota de crédito
 
@@ -1057,7 +1014,7 @@ _El cambio no rompe la caja_
 
 Cuando la clienta vuelve con la prenda porque no le entró el talle, el cambio se resuelve con nota de crédito: la prenda vuelve al stock y el saldo queda a favor para la próxima compra, sin que el cierre de caja del día quede descuadrado.
 
-Ver también: Ver una nota de crédito → /modulos/clientes-y-credito
+Ver también: Ver una nota de crédito → punto.la/modulos/clientes-y-credito
 
 #### Qué se movió y a qué precio venderlo
 
@@ -1065,13 +1022,13 @@ _Antes de recomprar_
 
 El reporte de ventas por temporada dice qué modelos y talles se movieron y cuáles quedaron colgados, para no recomprar de nuevo lo que no salió. Y el mostrador vende a un precio mientras el cliente mayorista compra a otro, desde la misma lista de precios sin duplicar catálogo.
 
-Ver también: Ver lo más vendido de la temporada → /modulos/punto-de-venta
+Ver también: Ver lo más vendido de la temporada → punto.la/modulos/punto-de-venta
 
 ---
 
 ### Punto para bares y cafés
 
-`/para/bares-y-cafes`
+_punto.la/para/bares-y-cafes_
 
 **La barra no para y la cuenta no se pierde**
 
@@ -1094,7 +1051,7 @@ El sábado a la noche la barra recibe pedidos de diez mesas a la vez, más los q
 
 Lo mismo para el cliente que se sienta solo en la barra: su cuenta se abre a su nombre y se cobra cuando él lo pide, sin mezclarla con la mesa de al lado.
 
-Ver también: Ver la barra en hora pico → /modulos/punto-de-venta
+Ver también: Ver la barra en hora pico → punto.la/modulos/punto-de-venta
 
 #### Leche, toppings o docena: el pedido baja claro
 
@@ -1104,7 +1061,7 @@ En la cafetería el agregado es la leche o el shot de más; en la heladería, el
 
 El mostrador vende por unidad, por kilo o por docena según el producto — la facturería no se pesa, el helado sí, y el sistema sabe la diferencia sin que el vendedor tenga que acordarse.
 
-Ver también: Ver los agregados por producto → /modulos/punto-de-venta
+Ver también: Ver los agregados por producto → punto.la/modulos/punto-de-venta
 
 #### Dividir la cuenta, cobrar con gift card, arquear al final
 
@@ -1114,13 +1071,13 @@ Cuando el grupo pide dividir la cuenta, cada uno paga lo suyo desde la misma pan
 
 Al cerrar la noche, el arqueo compara lo esperado contra lo contado sin depender de que alguien se acuerde de cada movimiento. La noche más fuerte del mes queda tan clara como cualquier martes tranquilo.
 
-Ver también: Ver el arqueo de la noche → /modulos/punto-de-venta
+Ver también: Ver el arqueo de la noche → punto.la/modulos/punto-de-venta
 
 ---
 
 ### Punto para comida rápida
 
-`/para/comida-rapida`
+_punto.la/para/comida-rapida_
 
 **El mostrador no frena y la comanda llega clara**
 
@@ -1143,7 +1100,7 @@ El cliente pide una hamburguesa doble, sin cebolla, con papas grandes y una gase
 
 Cada agregado tiene su precio propio, así que el combo se cobra completo sin que el cajero tenga que sumar a mano lo que cambia respecto al de la carta.
 
-Ver también: Ver un combo armado → /modulos/punto-de-venta
+Ver también: Ver un combo armado → punto.la/modulos/punto-de-venta
 
 #### La pantalla de cocina reparte el pedido, no lo amontona
 
@@ -1153,7 +1110,7 @@ En vez de un solo papel con todo mezclado, la pantalla de cocina muestra a la pl
 
 El pedido completo se arma solo cuando todas las estaciones terminaron la suya — así nada sale a medias ni se enfría esperando la papa.
 
-Ver también: Ver la pantalla de cocina → /modulos/pantalla-de-cocina
+Ver también: Ver la pantalla de cocina → punto.la/modulos/pantalla-de-cocina
 
 #### El pico de la noche sin perder el hilo
 
@@ -1163,13 +1120,13 @@ Cada pedido queda marcado desde que se toma: para el salón, con su número de m
 
 El cierre del turno junta todo lo cobrado — salón y para llevar — en un solo arqueo, sin planillas separadas por tipo de pedido.
 
-Ver también: Ver el pico de la noche → /modulos/punto-de-venta
+Ver también: Ver el pico de la noche → punto.la/modulos/punto-de-venta
 
 ---
 
 ### Punto para dark kitchen
 
-`/para/dark-kitchen`
+_punto.la/para/dark-kitchen_
 
 **Una cocina, varias marcas, un solo control**
 
@@ -1192,7 +1149,7 @@ Una cocina puede operar dos o tres marcas distintas al mismo tiempo — cada una
 
 El pedido entra identificado con su marca desde el primer momento, así la cocina sabe para cuál de las tres está armando cada plato.
 
-Ver también: Ver el pedido por marca → /modulos/punto-de-venta
+Ver también: Ver el pedido por marca → punto.la/modulos/punto-de-venta
 
 #### La comanda por estación, sin amontonar
 
@@ -1202,7 +1159,7 @@ Sin mozos ni mesas, todo el ritmo de la cocina depende de la comanda: cada estac
 
 El tiempo entre que el pedido entra y sale listo queda registrado por plato, así se ve qué preparación se está atrasando antes de que se acumulen diez pedidos esperando lo mismo.
 
-Ver también: Ver el tiempo de preparación → /modulos/punto-de-venta
+Ver también: Ver el tiempo de preparación → punto.la/modulos/punto-de-venta
 
 #### La receta dice cuánto cuesta cada plato
 
@@ -1212,13 +1169,13 @@ Cada plato tiene su receta cargada con los insumos exactos que lleva, y el costo
 
 El reporte del día junta lo que vendió cada marca y a qué costo, para saber cuál plato conviene empujar y cuál está perdiendo margen sin que nadie lo note.
 
-Ver también: Ver el costo por plato → /modulos/produccion-y-recetas
+Ver también: Ver el costo por plato → punto.la/modulos/produccion-y-recetas
 
 ---
 
 ### Punto para decoración y hogar
 
-`/para/decoracion-y-hogar`
+_punto.la/para/decoracion-y-hogar_
 
 **Del catálogo a la entrega, sin perder el hilo**
 
@@ -1241,7 +1198,7 @@ Un sillón de tres cuerpos en tres colores no son tres artículos distintos: es 
 
 El stock se lleva por depósito — lo que está en el local de exhibición no es lo mismo que lo que espera en el galpón — y cada venta descuenta del lugar correcto.
 
-Ver también: Ver el catálogo con variantes → /modulos/punto-de-venta
+Ver también: Ver el catálogo con variantes → punto.la/modulos/punto-de-venta
 
 #### Alto valor, bajo movimiento, mismo control
 
@@ -1251,7 +1208,7 @@ Una lámpara de diseño o una mesa importada no se venden todos los días, pero 
 
 El reporte de rotación separa lo que se mueve rápido de lo que espera meses, para no recomprar por reflejo lo que ya sobra en el depósito.
 
-Ver también: Ver la rotación por artículo → /modulos/punto-de-venta
+Ver también: Ver la rotación por artículo → punto.la/modulos/punto-de-venta
 
 #### Cotizar el ambiente, entregar cuando esté listo
 
@@ -1261,13 +1218,13 @@ Cuando el cliente quiere amueblar un living completo, la cotización junta sill�
 
 Si la entrega es para dentro de tres semanas porque el mueble llega de otra sucursal, se cobra una seña ahora y el saldo el día que sale del depósito, con la fecha de entrega pactada quedando escrita, no prometida de palabra.
 
-Ver también: Ver una cotización con entrega diferida → /modulos/punto-de-venta
+Ver también: Ver una cotización con entrega diferida → punto.la/modulos/punto-de-venta
 
 ---
 
 ### Punto para barberías
 
-`/para/barberias`
+_punto.la/para/barberias_
 
 **Turnos cortos, sillones llenos, nadie esperando de más**
 
@@ -1290,7 +1247,7 @@ Un corte dura veinte minutos y el siguiente cliente ya está sentado esperando: 
 
 Si un barbero atiende corte y barba en el mismo turno, el tiempo se ajusta solo — la agenda no trata todos los servicios como si duraran lo mismo.
 
-Ver también: Ver la agenda de sillones → /modulos/punto-de-venta
+Ver también: Ver la agenda de sillones → punto.la/modulos/punto-de-venta
 
 #### Confirmación y recordatorio, sin llamar a nadie
 
@@ -1300,7 +1257,7 @@ Apenas se agenda el turno, el cliente recibe la confirmación; el día anterior,
 
 Cada turno queda marcado como confirmado, atendido o ausente, así al final del día se ve de un vistazo cuántos turnos se perdieron y de quién — sin repasar la agenda completa buscando huecos.
 
-Ver también: Ver los estados del turno → /modulos/punto-de-venta
+Ver también: Ver los estados del turno → punto.la/modulos/punto-de-venta
 
 #### Cobrar desde el turno, con lo que se lleva sumado
 
@@ -1310,13 +1267,13 @@ Cuando el cliente termina, el cobro se hace desde el mismo turno: el corte, la b
 
 La ficha del cliente guarda su historial de cortes, así el próximo barbero que lo atienda sabe qué le hicieron la última vez sin tener que preguntar.
 
-Ver también: Ver el cobro desde el turno → /modulos/punto-de-venta
+Ver también: Ver el cobro desde el turno → punto.la/modulos/punto-de-venta
 
 ---
 
 ### Punto para peluquerías
 
-`/para/peluquerias`
+_punto.la/para/peluquerias_
 
 **Cada servicio con su tiempo real, cada clienta con su historia**
 
@@ -1339,7 +1296,7 @@ Un corte lleva media hora, una coloración con tiempo de pausa lleva dos horas, 
 
 Cuando la coloración necesita tiempo de pausa, ese hueco queda reservado en la agenda del box, sin que otra clienta se agende encima sin querer.
 
-Ver también: Ver la agenda por servicio → /modulos/punto-de-venta
+Ver también: Ver la agenda por servicio → punto.la/modulos/punto-de-venta
 
 #### La ficha de la clienta no se olvida de nada
 
@@ -1349,7 +1306,7 @@ Cada clienta tiene su ficha con el historial de servicios: qué tono de color se
 
 La confirmación del turno y el recordatorio del día anterior salen solos, así la clienta no se olvida y el box no queda vacío por una cita que nadie confirmó.
 
-Ver también: Ver la ficha de la clienta → /modulos/clientes-y-credito
+Ver también: Ver la ficha de la clienta → punto.la/modulos/clientes-y-credito
 
 #### Cobrar el turno con lo que la clienta se lleva
 
@@ -1359,13 +1316,13 @@ Al terminar el servicio, el cobro junta la coloración, el brushing y el shampoo
 
 Si la clienta prefiere un paquete de sesiones de tratamiento capilar, se vende una vez y se descuenta sesión por sesión en cada visita, sin volver a cobrar cada vez.
 
-Ver también: Ver el cobro con producto → /modulos/gift-cards
+Ver también: Ver el cobro con producto → punto.la/modulos/gift-cards
 
 ---
 
 ### Punto para consultorios médicos
 
-`/para/consultorios-medicos`
+_punto.la/para/consultorios-medicos_
 
 **La agenda de cada profesional, la historia de cada paciente**
 
@@ -1388,7 +1345,7 @@ Si el consultorio atiende con dos o tres profesionales, cada uno tiene su propia
 
 La recepción ve todas las agendas juntas para coordinar la sala de espera, pero cada profesional gestiona la suya sin pisar la del compañero.
 
-Ver también: Ver la agenda por profesional → /modulos/punto-de-venta
+Ver también: Ver la agenda por profesional → punto.la/modulos/punto-de-venta
 
 #### La ficha guarda cada consulta anterior
 
@@ -1398,7 +1355,7 @@ Cada paciente tiene su ficha con el historial de visitas: motivo de consulta, fe
 
 La confirmación del turno y el recordatorio del día anterior salen solos, y si el paciente falta, el turno queda marcado como ausente en vez de perderse en la agenda sin explicación.
 
-Ver también: Ver la ficha del paciente → /modulos/clientes-y-credito
+Ver también: Ver la ficha del paciente → punto.la/modulos/clientes-y-credito
 
 #### El cobro distingue quién paga qué
 
@@ -1408,13 +1365,13 @@ Al terminar la consulta, el cobro se hace desde el mismo turno: si el paciente p
 
 El reporte del día separa las consultas por profesional y por tipo de cobertura, para que cerrar el mes no dependa de repasar la agenda entera a mano.
 
-Ver también: Ver el cobro de la consulta → /modulos/clientes-y-credito
+Ver también: Ver el cobro de la consulta → punto.la/modulos/clientes-y-credito
 
 ---
 
 ### Punto para odontología
 
-`/para/odontologia`
+_punto.la/para/odontologia_
 
 **El tratamiento entero, sesión por sesión, bajo control**
 
@@ -1437,7 +1394,7 @@ Un tratamiento de conducto o una ortodoncia no se resuelven en una visita: el pr
 
 Cada sesión que se cumple se descuenta de ese plan, así nadie tiene que recordar a mano cuántas quedan pendientes ni recotizar cada vez que el paciente vuelve.
 
-Ver también: Ver un presupuesto de tratamiento → /modulos/punto-de-venta
+Ver también: Ver un presupuesto de tratamiento → punto.la/modulos/punto-de-venta
 
 #### Agenda, recordatorio y seguimiento del plan
 
@@ -1447,7 +1404,7 @@ Cada sesión del plan se agenda con su propio turno, y el paciente recibe confir
 
 Si el paciente falta a una sesión, el turno queda marcado como ausente y el plan sigue esperando esa sesión pendiente, en vez de perderse entre las demás consultas del consultorio.
 
-Ver también: Ver el seguimiento del plan → /modulos/punto-de-venta
+Ver también: Ver el seguimiento del plan → punto.la/modulos/punto-de-venta
 
 #### El cobro sigue al plan, no a la memoria
 
@@ -1457,13 +1414,13 @@ Si el plan se paga en cuotas por sesión, cada cobro queda asociado al tratamien
 
 La ficha del paciente muestra el plan completo — hecho, pendiente y cobrado — en un solo lugar, listo para la próxima consulta de seguimiento.
 
-Ver también: Ver el cobro por sesión → /modulos/clientes-y-credito
+Ver también: Ver el cobro por sesión → punto.la/modulos/clientes-y-credito
 
 ---
 
 ### Punto para veterinarias
 
-`/para/veterinarias`
+_punto.la/para/veterinarias_
 
 **Cada mascota con su ficha, cada dueño con su historia**
 
@@ -1486,7 +1443,7 @@ Un mismo dueño puede tener perro y gato, y cada mascota tiene su propia ficha c
 
 Cuando el dueño llama para consultar por 'el perro', la recepción encuentra la ficha exacta sin confundirla con la del gato de la misma familia.
 
-Ver también: Ver la ficha de la mascota → /modulos/clientes-y-credito
+Ver también: Ver la ficha de la mascota → punto.la/modulos/clientes-y-credito
 
 #### Controles y vacunas con recordatorio
 
@@ -1496,7 +1453,7 @@ Cada vacuna aplicada queda registrada en la ficha con la fecha de la próxima do
 
 El estado del turno — confirmado, atendido, ausente — permite hacer seguimiento de los controles que quedaron pendientes, en vez de esperar a que el dueño se acuerde solo.
 
-Ver también: Ver el calendario de vacunas → /modulos/punto-de-venta
+Ver también: Ver el calendario de vacunas → punto.la/modulos/punto-de-venta
 
 #### Alimento y accesorios en el mismo ticket
 
@@ -1510,7 +1467,7 @@ El stock de alimentos y accesorios se descuenta igual que en cualquier mostrador
 
 ### Punto para estética y cosmetología
 
-`/para/estetica-y-cosmetologia`
+_punto.la/para/estetica-y-cosmetologia_
 
 **El paquete de sesiones, seguido de principio a fin**
 
@@ -1533,7 +1490,7 @@ Un tratamiento de depilación láser o de limpieza facial rara vez se resuelve e
 
 El cliente ve cuántas sesiones le quedan del paquete que compró, y el centro sabe qué paquetes están por vencerse antes de que el cliente se olvide de usarlos.
 
-Ver también: Ver un paquete de sesiones → /modulos/gift-cards
+Ver también: Ver un paquete de sesiones → punto.la/modulos/gift-cards
 
 #### Agenda y recordatorio para no perder el ritmo
 
@@ -1543,7 +1500,7 @@ Cada sesión del paquete se agenda con su propio turno, y el cliente recibe conf
 
 Si falta a una sesión, el turno queda marcado como ausente y el paquete sigue mostrando esa sesión como pendiente, para reprogramarla sin perderla de vista.
 
-Ver también: Ver la agenda del paquete → /modulos/gift-cards
+Ver también: Ver la agenda del paquete → punto.la/modulos/gift-cards
 
 #### Seguimiento del cliente y del insumo por sesión
 
@@ -1553,447 +1510,13 @@ Cada sesión registra qué producto o insumo se usó — la ampolla, la crema, e
 
 La ficha del cliente junta todo: qué tratamientos hizo, con qué resultado y qué insumo se le aplicó cada vez, lista para la próxima sesión sin preguntar de nuevo.
 
-Ver también: Ver el insumo por sesión → /modulos/punto-de-venta
+Ver también: Ver el insumo por sesión → punto.la/modulos/punto-de-venta
 
 ---
 
-## Legales
+## Lo que el sitio no responde
 
-_Términos, privacidad y reembolsos. Forman parte del contrato._
-
-### Términos y Condiciones
-
-`/terminos`
-
-_Última actualización: 3 de septiembre de 2026_
-
-Estos términos regulan el uso de Punto, el sistema de punto de venta y gestión que ofrecemos en punto.la y app.punto.la. Al crear una cuenta o usar el servicio, el comercio acepta lo que sigue. Está escrito para que lo entienda quien lleva el negocio, no solo un abogado.
-
-#### 1. Quiénes somos
-
-El servicio lo presta Brixton Capital S.A., con RUC 80164242-6 y domicilio en Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay.
-
-punto.la es el sitio público donde contamos qué hace Punto y cuánto cuesta. app.punto.la es la aplicación: el punto de venta, el panel de administración y todo lo que el comercio opera con su cuenta.
-
-Tenemos un solo canal de contacto para todo — soporte, facturación, temas legales y privacidad: info@punto.la. También atendemos por WhatsApp al +595 981 078798.
-
-#### 2. Qué es Punto y qué no es
-
-Punto es un software que se usa por internet (no se instala ni se compra una licencia perpetua). Sirve para vender y cobrar, emitir comprobantes, controlar stock, administrar clientes y ver los números del negocio.
-
-Punto es una herramienta: ordena y muestra la información que el comercio carga y las operaciones que registra. No garantizamos resultados comerciales — ni volumen de ventas, ni margen, ni crecimiento.
-
-Punto no es asesoría contable, tributaria ni legal. Los reportes, libros y comprobantes que genera son insumos para el contador del comercio, no un reemplazo de su criterio profesional ni de las obligaciones que el comercio tenga frente a la SET.
-
-#### 3. Cuenta, alta y responsabilidad de las credenciales
-
-El alta de la cuenta se hace con un número de teléfono, que se verifica con un código de un solo uso enviado por WhatsApp. Ese teléfono identifica al titular de la cuenta.
-
-El titular puede crear los usuarios que necesite y asignarles roles y permisos. Cada usuario opera con su propio acceso, y las cajas se desbloquean con un PIN personal.
-
-El titular es responsable de lo que hagan los usuarios que creó: qué permisos les dio, qué operaciones registraron y qué datos cargaron. Nosotros no podemos distinguir a un usuario legítimo de alguien que consiguió sus credenciales.
-
-- Mantené el teléfono del titular bajo control: con él se recupera el acceso a toda la cuenta.
-- No compartas usuarios ni PIN entre personas — el registro de auditoría deja de servir para nada.
-- Dá de baja al usuario cuando alguien se va del equipo, el mismo día.
-- Avisanos apenas sospeches un acceso no autorizado.
-
-#### 4. Plan, precio y forma de pago
-
-El comercio contrata el plan que elija entre los publicados en punto.la/precios. Ahí figuran, siempre vigentes, el precio de cada uno, sobre qué se cobra y qué incluye. Se factura en PYG.
-
-El ciclo es mensual y se renueva automáticamente mientras la cuenta esté activa. Cada renovación se cobra por adelantado, al inicio del período.
-
-El cobro se procesa a través de un procesador de pagos externo, con los medios que estén habilitados en cada momento. Los datos completos de la tarjeta se ingresan en el entorno del procesador: nosotros no los vemos ni los guardamos.
-
-Los precios que publicamos incluyen los impuestos aplicables: lo que se ve es lo que se paga. Por cada cobro emitimos el comprobante fiscal a nombre de los datos que el comercio tenga cargados en su cuenta.
-
-#### 5. Créditos de IA
-
-El plan contratado incluye una cantidad de créditos de inteligencia artificial por mes, publicada en punto.la/precios. Cubren el uso de Punto AI: preguntar por los números del negocio, pedir un reporte, leer una factura de compra con la cámara.
-
-Los créditos se renuevan al inicio de cada ciclo mensual y no se acumulan: lo que no se usa en el mes se pierde.
-
-Cuando se agotan, el resto del sistema sigue funcionando con normalidad — solo dejan de estar disponibles las funciones de IA hasta la renovación. Si el comercio necesita más, puede comprar créditos adicionales.
-
-#### 6. Facturación electrónica
-
-Punto emite los documentos electrónicos del comercio y los transmite a la SET a través de un proveedor habilitado. La emisión es ilimitada: no cobramos por comprobante.
-
-El timbrado, los puntos de expedición, los datos fiscales de la empresa y el cumplimiento de las obligaciones tributarias son responsabilidad del comercio. Punto no es agente fiscal ni representante del comercio ante la autoridad tributaria.
-
-No respondemos por rechazos, observaciones o multas originados en datos cargados por el comercio (timbrado vencido, RUC del cliente incorrecto, tasas mal configuradas), ni por interrupciones del servicio de la autoridad tributaria o del proveedor de transmisión.
-
-#### 7. Responsabilidad del comercio por el uso legal del sistema
-
-Punto pone la herramienta; lo que se hace con ella lo decide el comercio. La información que se carga, los comprobantes que se emiten, las operaciones que se registran y las que se dejan de registrar son actos del comercio y de las personas a las que le dio acceso.
-
-Brixton Capital S.A. no audita, no supervisa y no valida el contenido que el comercio carga, y no responde por el uso que se le dé al sistema en infracción de la ley. Esto incluye, sin limitarse a ello, la evasión o elusión de tributos, la omisión o adulteración de operaciones, la emisión de comprobantes que no respalden operaciones reales, el lavado de activos, y el incumplimiento de la normativa laboral, de defensa del consumidor o de protección de datos personales vigente en el país donde el comercio opera.
-
-Si una autoridad o un tercero le reclama a Brixton Capital S.A. por un hecho de esa clase atribuible al comercio, el comercio nos mantiene indemnes: asume su propia defensa y responde por los costos, multas o condenas que se deriven.
-
-Detectar un uso de este tipo nos habilita a suspender o dar de baja la cuenta de inmediato y sin reembolso, y a responder los requerimientos que nos haga una autoridad competente en el marco de sus facultades.
-
-#### 8. Cancelación, mora y baja
-
-No hay contrato de permanencia ni cargo por cancelar. El comercio da de baja la cuenta cuando quiere, escribiéndonos a info@punto.la. La baja se hace efectiva al final del ciclo ya pagado: hasta esa fecha el servicio sigue funcionando completo y después no se renueva.
-
-Si un cobro falla, lo reintentamos durante los 7 días corridos siguientes y avisamos por los canales de contacto de la cuenta. Pasados esos 7 días sin regularizar, la cuenta se suspende: no se puede vender ni emitir, y el panel queda en modo de solo lectura para que el comercio consulte y exporte su información.
-
-Tras la baja, el comercio tiene 30 días corridos para exportar sus datos. Vencido ese plazo eliminamos la información operativa de la cuenta, salvo lo que la normativa fiscal nos obliga a conservar. Para coordinar una exportación escribinos a info@punto.la.
-
-#### 9. Reembolsos
-
-La suscripción se paga por adelantado y no se devuelve la parte no usada del mes en curso: el servicio queda disponible hasta que termine el ciclo pagado.
-
-Tampoco se devuelve una vez iniciada la puesta en marcha de la cuenta —configuración, alta de sucursales y usuarios, importación de datos, acompañamiento—, porque ese trabajo consume recursos desde el primer día y no se recupera.
-
-Sí devolvemos el dinero cuando el cobro no correspondía —un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja ya efectiva— y cuando una falla del servicio atribuible a Punto impide operar y no la corregimos en un plazo razonable.
-
-El detalle completo —qué cubre, cómo se pide, en cuánto se responde y en cuánto se acredita— está en la Política de Reembolsos, en punto.la/reembolsos. Esa política forma parte de estos términos.
-
-#### 10. Propiedad de los datos
-
-Los datos que el comercio carga y genera en Punto son del comercio: su catálogo, sus clientes, sus ventas, sus comprobantes, su stock.
-
-Nosotros los tratamos únicamente para prestar el servicio, darle soporte y cumplir obligaciones legales. No los vendemos, no los cedemos a terceros con fines comerciales y no los usamos para publicidad.
-
-El comercio puede exportar su información cuando quiera desde el panel, y pedirnos una exportación asistida si necesita un formato distinto.
-
-#### 11. Uso aceptable
-
-Punto se usa para operar un negocio legítimo. Al usarlo, el comercio se compromete a no hacer nada de lo siguiente:
-
-- Registrar operaciones de actividades ilegales o usar el sistema para simular operaciones inexistentes.
-- Ocultar, suprimir o alterar operaciones ya registradas para declarar menos de lo que corresponde, o llevar registros paralelos con ese fin.
-- Emitir comprobantes a nombre de terceros sin autorización, o usar timbrados que no le pertenezcan.
-- Enviar mensajes masivos no solicitados desde los canales del sistema.
-- Intentar eludir límites técnicos, acceder a datos de otros comercios, o hacer ingeniería inversa del software.
-- Revender, sublicenciar o dar acceso al sistema a terceros como si fuera un servicio propio.
-- Compartir credenciales entre personas o entre comercios distintos.
-
-#### 12. Disponibilidad, mantenimiento y modo offline
-
-Trabajamos para que el servicio esté disponible todo el tiempo, pero ningún sistema lo está al 100%. Puede haber interrupciones por mantenimiento, por fallas de nuestros proveedores de infraestructura o por causas fuera de nuestro control.
-
-Las ventanas de mantenimiento programado se avisan con al menos 48 horas de anticipación y se hacen de madrugada, en el horario de menor actividad. Las incidencias no programadas se comunican por los canales de soporte mientras se están resolviendo.
-
-El punto de venta funciona sin internet: la venta se emite igual y queda guardada en el dispositivo. Lo que necesita conexión es la sincronización — enviar la operación a la nube, transmitir el documento electrónico y compartir el estado con otras cajas. Mientras no haya conexión, esas partes quedan pendientes y se resuelven solas al volver.
-
-No ofrecemos un acuerdo de nivel de servicio (SLA) con compromisos de disponibilidad medidos, salvo que se firme un contrato corporativo específico que lo incluya.
-
-#### 13. Propiedad intelectual
-
-El software, el diseño, la documentación, la marca Punto y todo lo que compone el servicio son propiedad de Brixton Capital S.A. o de quienes nos licenciaron esos elementos.
-
-Mientras la cuenta esté activa y al día, el comercio recibe una licencia de uso no exclusiva, no transferible y revocable, limitada a operar su propio negocio.
-
-Esa licencia no incluye derecho a copiar el software, derivar productos de él, usar la marca sin autorización escrita, ni ofrecerlo a terceros.
-
-#### 14. Cambios de estos términos y del precio
-
-Podemos actualizar estos términos: cambia el producto, cambian las normas, aparecen situaciones que el texto no contemplaba. Los cambios se avisan con al menos 15 días de anticipación por los canales de contacto de la cuenta y publicando la nueva versión con su fecha de vigencia.
-
-Los cambios de precio se avisan con al menos 30 días de anticipación y nunca se aplican de forma retroactiva al ciclo en curso.
-
-Si el comercio no está de acuerdo con un cambio, puede dar de baja la cuenta sin penalidad antes de que entre en vigencia. Seguir usando el servicio después de esa fecha implica aceptar la nueva versión.
-
-#### 15. Soporte
-
-El soporte online funciona 24/7 por WhatsApp al +595 981 078798, por el chat del sitio y por info@punto.la.
-
-Cubre el uso del sistema: cómo hacer algo, revisar una configuración, entender un comportamiento, resolver un problema técnico de la plataforma.
-
-No cubre la operación del negocio del comercio: no cargamos su catálogo por él en el día a día, no registramos sus ventas ni tomamos decisiones contables o fiscales por él. La puesta en marcha inicial sí está acompañada.
-
-#### 16. Limitación de responsabilidad
-
-El servicio se presta "tal como está" y "según disponibilidad". Hacemos nuestro mejor esfuerzo, y aun así el software puede tener errores.
-
-En la medida que lo permita la ley, no respondemos por daños indirectos, lucro cesante, pérdida de oportunidades comerciales, ni por pérdida de datos que el comercio pudo haber exportado y no exportó.
-
-Nuestra responsabilidad total acumulada por cualquier reclamo relacionado con el servicio no supera el monto que el comercio nos haya pagado en los 12 meses anteriores al hecho que originó el reclamo.
-
-Tampoco respondemos por las consecuencias del uso que el comercio le dé al sistema en infracción de la ley, según lo previsto en la sección sobre responsabilidad del comercio por el uso legal del sistema.
-
-Nada de lo anterior limita responsabilidades que la ley declare no renunciables.
-
-#### 17. Ley aplicable y jurisdicción
-
-Estos términos se rigen por las leyes de la República del Paraguay.
-
-Cualquier controversia se somete a los tribunales ordinarios de la ciudad de Asunción, con renuncia a cualquier otro fuero. Antes de llegar ahí, preferimos hablarlo: escribinos y buscamos una solución.
-
-#### 18. Contacto
-
-Brixton Capital S.A. — RUC 80164242-6
-
-Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay
-
-info@punto.la · +595 981 078798
-
----
-
-### Política de Privacidad
-
-`/privacidad`
-
-_Última actualización: 3 de septiembre de 2026_
-
-Esta política explica qué datos personales tratamos cuando un comercio usa Punto, para qué los usamos, con quién los compartimos y qué puede hacer cada persona con los suyos. Está escrita en criollo a propósito: una política que nadie entiende no protege a nadie.
-
-#### 1. Quién es responsable
-
-Brixton Capital S.A., con RUC 80164242-6 y domicilio en Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay, es quien presta el servicio Punto y quien responde por el tratamiento descripto en esta política.
-
-Para cualquier tema de privacidad o para ejercer derechos sobre tus datos, escribinos a info@punto.la.
-
-#### 2. Los dos roles: cuándo decidimos nosotros y cuándo decide el comercio
-
-Esta es la sección más importante de todo el documento, porque define quién responde por qué.
-
-Respecto de los datos de la CUENTA del comercio — el teléfono del titular, el nombre, el email, el RUC, los usuarios del equipo, los datos de facturación — nosotros somos los responsables: decidimos para qué se usan y respondemos por su tratamiento.
-
-Respecto de los datos que el comercio CARGA sobre sus propios clientes — nombres, teléfonos, direcciones, historial de compras, cuentas corrientes — el responsable es el comercio. Él decide qué carga, para qué y con qué base legal. Nosotros actuamos como encargados del tratamiento: solo procesamos esos datos siguiendo sus instrucciones y para que el sistema funcione.
-
-En criollo: si sos cliente de un comercio que usa Punto y querés saber por qué tienen tu teléfono, el que te tiene que responder es ese comercio. Nosotros lo asistimos técnicamente, pero no decidimos qué datos suyos guarda.
-
-#### 3. Qué datos tratamos
-
-Agrupados por origen, esto es lo que pasa por el sistema:
-
-- De la cuenta: teléfono del titular, nombre, email, RUC y razón social de la empresa, sucursales, cajas, usuarios del equipo con sus roles y permisos.
-- De la operación: ventas, comprobantes emitidos, compras, movimientos de stock, cajas abiertas y cerradas, órdenes, y los contactos que el comercio carga sobre sus propios clientes y proveedores.
-- Técnicos: dirección IP, tipo de dispositivo y navegador, sesiones activas, registros de actividad y auditoría (quién hizo qué y cuándo), y registros de error para diagnosticar fallas.
-- De facturación: plan contratado, historial de cobros y su estado, comprobantes que emitimos al comercio. Los datos completos de la tarjeta quedan en el procesador de pagos, no en nuestros sistemas.
-
-#### 4. Para qué los usamos
-
-Tratamos los datos únicamente para operar el servicio que el comercio contrató:
-
-- Prestar el servicio: que la caja venda, que el panel muestre los números, que el stock se descuente.
-- Autenticar: verificar el teléfono en el alta, validar el PIN de caja, mantener las sesiones y detectar accesos indebidos.
-- Cobrar la suscripción y los créditos adicionales, y emitir los comprobantes correspondientes.
-- Emitir y transmitir los documentos electrónicos del comercio a la SET.
-- Dar soporte: entender qué pasó cuando algo falla, y responder consultas.
-- Cumplir obligaciones legales, contables y fiscales, y responder requerimientos de autoridad competente.
-
-#### 5. No vendemos datos ni hacemos publicidad con ellos
-
-No vendemos, alquilamos ni cedemos datos personales a terceros con fines comerciales.
-
-No usamos los datos del comercio ni los de sus clientes para publicidad de terceros, ni construimos perfiles publicitarios. El sitio no tiene píxeles de redes sociales ni herramientas de analítica publicitaria.
-
-No usamos los datos de un comercio para beneficiar a otro. Cada cuenta está aislada de las demás.
-
-#### 6. Inteligencia artificial
-
-Punto AI, el asistente del sistema, y la lectura automática de facturas de compra funcionan con modelos de lenguaje que corremos a través de un proveedor externo que enruta cada consulta al modelo elegido.
-
-Qué se envía: la pregunta que escribe el usuario, más los datos del negocio que hacen falta para responderla (por ejemplo, el resumen de ventas del período consultado). En la lectura de facturas se envía la foto o el archivo del comprobante.
-
-Qué no se envía: nada más que eso. El asistente no vuelca la base de datos del comercio al modelo, y lo que puede leer o modificar está limitado por los permisos del usuario que lo está usando.
-
-Ese proveedor y los modelos que enruta actúan como subencargados, bajo compromisos contractuales de confidencialidad. Los datos enviados no se usan para entrenar modelos de terceros.
-
-#### 7. Con quién compartimos
-
-Compartimos datos solo con los proveedores necesarios para que el servicio funcione, y solo lo mínimo que cada uno necesita. Todos actúan como subencargados del tratamiento, bajo compromisos contractuales de confidencialidad y seguridad.
-
-Los listamos por categoría y no por nombre porque un proveedor puede cambiar sin que cambie el tratamiento. La lista actualizada de los proveedores concretos que usamos en cada categoría se entrega a pedido: escribinos a info@punto.la.
-
-| Categoría de proveedor | Para qué |
-| --- | --- |
-| Procesamiento de pagos | Cobro de la suscripción y de los packs de créditos de IA, y devolución de los reembolsos que correspondan. |
-| Infraestructura y almacenamiento en la nube | Servidores donde corre el sistema y guardado de los archivos que el comercio sube (fotos de productos, adjuntos). |
-| Facturación electrónica | Proveedor habilitado que transmite los documentos electrónicos a la SET. |
-| Modelos de inteligencia artificial | Generación de las respuestas del asistente y lectura automática de las facturas de compra. |
-| Envío de email y SMS | Notificaciones y comunicaciones transaccionales del sistema. |
-| Mensajería instantánea | Envío del código de verificación en el alta de la cuenta. |
-| Chat de atención al cliente | Atención embebida en punto.la, operada por Brixton Capital S.A. |
-| Pasarelas de cobro del comercio | Medios de pago que el comercio habilita para cobrarle a sus clientes desde la caja. No son cobros de Punto: los datos van directo del cliente a la pasarela. |
-
-#### 8. Cookies y tecnologías similares
-
-En la aplicación usamos cookies y almacenamiento local estrictamente necesarios: mantener la sesión iniciada, recordar el dispositivo de caja emparejado, guardar las preferencias de la interfaz y permitir que el punto de venta funcione sin conexión.
-
-En el sitio punto.la el único script de terceros es el del chat de atención, que guarda un identificador de conversación para que no se pierda el hilo si recargás la página.
-
-No usamos cookies publicitarias, de perfilado de terceros ni de redes sociales. No hay píxeles de seguimiento.
-
-Podés bloquear o borrar cookies desde la configuración de tu navegador. Si bloqueás las de la aplicación, no vas a poder iniciar sesión ni operar la caja: son las que sostienen el acceso.
-
-#### 9. Transferencias internacionales
-
-Los servidores donde corre Punto y varios de los proveedores listados arriba están fuera de Paraguay. Eso significa que los datos se transfieren y se procesan en otros países.
-
-Esas transferencias se hacen bajo compromisos contractuales de confidencialidad y seguridad con cada proveedor, limitados a las finalidades descriptas en esta política.
-
-#### 10. Cuánto tiempo conservamos los datos
-
-Mientras la cuenta esté activa, conservamos los datos para que el comercio pueda operar y consultar su historial.
-
-Tras la baja, hay 30 días corridos para exportar la información. Vencido ese plazo eliminamos los datos operativos de la cuenta.
-
-Hay una excepción: los documentos electrónicos emitidos y los respaldos contables se conservan por el plazo que exige la normativa fiscal, aunque la cuenta se haya dado de baja. No podemos borrarlos antes.
-
-Los registros técnicos de error se conservan 90 días, los necesarios para diagnosticar una falla. El registro de auditoría de operaciones acompaña a la cuenta mientras esté activa: es parte del historial del negocio.
-
-#### 11. Seguridad
-
-Aplicamos medidas técnicas y organizativas razonables para proteger la información:
-
-- Cifrado del tráfico en tránsito (HTTPS) en todo el sistema.
-- Contraseñas y PIN almacenados con funciones de hash, nunca en texto plano.
-- Aislamiento por comercio: cada cuenta opera sobre su propio espacio de datos y las consultas están acotadas a él.
-- Control de acceso granular por permisos y roles, definidos por el titular de la cuenta.
-- Registro de auditoría de las operaciones sensibles, con identificación del usuario que las hizo.
-- Acceso restringido de nuestro equipo, limitado a lo necesario para soporte y operación.
-
-#### 12. Notificación de incidentes
-
-Ninguna medida de seguridad es infalible. Si ocurre una brecha que afecte datos personales, la tratamos como incidente prioritario.
-
-Contenemos el incidente, evaluamos el alcance y notificamos a los comercios afectados dentro de las 72 horas de confirmado qué datos se vieron involucrados, junto con lo que recomendamos hacer. Si la normativa lo exige, notificamos también a la autoridad competente.
-
-Cuando el comercio sea el responsable de los datos afectados (los de sus propios clientes), le damos la información que necesite para cumplir con sus propias obligaciones de notificación.
-
-#### 13. Tus derechos
-
-Toda persona cuyos datos tratamos puede pedirnos acceder a ellos, rectificarlos, actualizarlos, solicitar su supresión, pedir una copia en formato portable u oponerse a determinados tratamientos.
-
-Para ejercerlos, escribí a info@punto.la indicando qué querés hacer. Para proteger tus datos de un tercero que se haga pasar por vos, vamos a pedirte que verifiques tu identidad — normalmente confirmando el control del teléfono o del email asociados.
-
-Respondemos dentro de los 15 días hábiles de recibido el pedido verificado. Si el caso requiere más tiempo, te avisamos por qué y en cuánto lo resolvemos.
-
-Si el pedido es sobre datos que un comercio cargó sobre vos como su cliente, te vamos a derivar a ese comercio, que es el responsable — y lo asistimos para que pueda responderte.
-
-#### 14. Datos de los clientes del comercio
-
-Cuando un comercio carga en Punto los datos de sus clientes, sigue siendo él el responsable frente a esas personas.
-
-Eso implica que el comercio debe tener una base legal para tratar esos datos, informar a sus clientes qué hace con ellos, y responder los pedidos de acceso, rectificación o supresión que reciba.
-
-Nosotros lo asistimos técnicamente: le damos las herramientas para buscar, editar, exportar y eliminar la información de un contacto, y respondemos sus consultas sobre cómo hacerlo.
-
-#### 15. Menores de edad
-
-Punto es un servicio para comercios y sus equipos de trabajo. No está dirigido a menores de edad ni recolectamos datos de menores a sabiendas.
-
-Si detectamos que se cargaron datos de un menor sin base legal, o si nos lo informan a info@punto.la, los eliminamos dentro de los 5 días hábiles.
-
-#### 16. Cambios a esta política
-
-Si cambia lo que hacemos con los datos, actualizamos esta política y publicamos la nueva versión con su fecha de vigencia.
-
-Los cambios relevantes se avisan además por los canales de contacto de la cuenta, con al menos 15 días de anticipación.
-
-#### 17. Contacto
-
-Brixton Capital S.A. — RUC 80164242-6
-
-Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay
-
-info@punto.la · +595 981 078798
-
----
-
-### Política de Reembolsos
-
-`/reembolsos`
-
-_Última actualización: 3 de septiembre de 2026_
-
-Esta política dice cuándo devolvemos el dinero y cuándo no, en qué plazo y cómo se pide. Forma parte de los Términos y Condiciones de Punto.
-
-#### 1. Qué cubre esta política
-
-Punto le cobra al comercio dos cosas, y ninguna más: la suscripción al plan contratado y los packs de créditos de IA que compre aparte cuando quiere más de los incluidos en ese plan.
-
-No cobramos por comprobante emitido, por usuario, por producto ni por transacción. No hay costo de instalación, de puesta en marcha ni de baja. Si alguna vez ves un cargo distinto de esos dos conceptos, escribinos: es un error y lo devolvemos.
-
-Esta política aplica a los cobros que hace Punto. No aplica a los cobros que el comercio le hace a sus propios clientes desde la caja: esos son entre el comercio y su cliente, y la devolución la resuelve el comercio con sus propias reglas.
-
-#### 2. Regla general: el mes empezado no se devuelve
-
-La suscripción se paga por adelantado al inicio de cada ciclo mensual. Al dar de baja no devolvemos la parte no usada del mes en curso.
-
-Lo que sí garantizamos es que ese mes se presta completo: el servicio queda disponible con todas sus funciones hasta el último día del ciclo pagado, y después no se renueva ni se vuelve a cobrar.
-
-No hay contrato de permanencia, ni cargo por cancelar, ni monto mínimo. Dar de baja es escribir un mensaje.
-
-#### 3. La puesta en marcha, una vez iniciada, no se devuelve
-
-Contratar Punto no es descargar un archivo: apenas se confirma el pago empieza un trabajo concreto sobre la cuenta. Crearla y configurarla, dar de alta sucursales, cajas y usuarios con sus permisos, importar el catálogo y los clientes, dejar operativa la facturación electrónica, y acompañar al equipo del comercio en la puesta en marcha.
-
-Ese trabajo consume horas de nuestro equipo, infraestructura y servicios de terceros desde el primer día, y no se recupera si el comercio decide después no seguir. Por eso, una vez iniciada la puesta en marcha no devolvemos el importe pagado.
-
-Vale igual si la cuenta se terminó usando poco o nada: lo que consume el recurso es el trabajo hecho y el servicio puesto a disposición, no cuánto se lo haya usado.
-
-Esto no toca las cuatro situaciones que enumera «Cuándo sí devolvemos». Un cobro duplicado, un error de facturación nuestro, un cobro posterior a una baja o una falla que impida operar se devuelven igual, esté la puesta en marcha iniciada o no.
-
-#### 4. Cuándo sí devolvemos
-
-Hay cuatro situaciones concretas en las que la devolución corresponde y la hacemos sin discutir:
-
-- Cobro duplicado: se cobró dos veces el mismo ciclo. Devolvemos el importe duplicado, íntegro.
-- Error de facturación imputable a Punto: se cobró un monto distinto del que corresponde al plan, o se cobró una sucursal que no está dada de alta. Devolvemos la diferencia.
-- Cobro posterior a una baja ya efectiva: el comercio pidió la baja y el sistema igual cobró el ciclo siguiente. Devolvemos ese cobro completo.
-- Falla del servicio atribuible a Punto que impide operar y que no logramos corregir en un plazo razonable. En ese caso el reembolso es proporcional a los días del ciclo que no se prestaron.
-
-#### 5. Créditos de IA
-
-Los créditos mensuales que trae el plan son parte de la suscripción, no un producto aparte: no se reembolsan por separado, no se acumulan de un mes al otro y no se convierten en dinero ni en descuento.
-
-Los packs de créditos que el comercio compra aparte no son reembolsables una vez acreditados en la cuenta, porque quedan disponibles para usar desde ese mismo momento.
-
-La excepción son los casos que enumera «Cuándo sí devolvemos»: si el pack se cobró dos veces, se cobró por error nuestro o se cobró después de una baja, lo devolvemos igual que la suscripción.
-
-#### 6. Cómo se pide un reembolso
-
-El pedido se hace por escrito a info@punto.la, dentro de los 30 días corridos contados desde la fecha del cobro. Pasado ese plazo no procesamos el reclamo.
-
-Para poder resolverlo sin idas y vueltas, el mensaje tiene que incluir:
-
-- El nombre de la empresa y su RUC, tal como figuran en la cuenta.
-- La fecha y el monto del cobro que se reclama.
-- El motivo: cuál de los casos de esta política aplica.
-
-#### 7. Plazos y forma de devolución
-
-Respondemos todo pedido de reembolso dentro de los 5 días hábiles de recibido, diciendo si corresponde o no y por qué.
-
-La devolución se hace por el mismo medio de pago con el que se cobró, a través del procesador que tomó el cobro. No devolvemos en efectivo, ni a una cuenta distinta, ni como crédito para usar en el sistema.
-
-Una vez aprobado, Punto ordena la devolución dentro de los 5 días hábiles. La acreditación efectiva depende del emisor de la tarjeta o del banco del comercio y suele tomar entre 5 y 15 días hábiles adicionales. Ese último tramo no lo controlamos y no prometemos una fecha: lo que sí hacemos es darte el comprobante de la devolución ordenada para que puedas reclamarle a tu banco si se demora.
-
-#### 8. Contracargos
-
-Si hay un cobro que no reconocés, escribinos primero a info@punto.la. Casi todo se resuelve más rápido por acá que por el banco: nosotros vemos el cobro en el momento y podemos devolverlo directamente.
-
-Si en cambio se abre un contracargo con el banco o la tarjeta, el proceso pasa a manos del emisor y puede tardar semanas. Mientras dure la disputa, la cuenta puede quedar suspendida.
-
-Un contracargo resuelto a favor del comercio cierra el tema y no genera ningún cargo adicional de nuestra parte.
-
-#### 9. Impuestos
-
-El reembolso incluye los impuestos que se hayan cobrado sobre el importe devuelto: se devuelve lo que efectivamente se pagó, no el monto sin impuestos.
-
-Cuando el cobro original tenía comprobante fiscal, emitimos el documento que corresponde a la devolución y se lo mandamos al comercio para que su contador lo registre.
-
-#### 10. Contacto
-
-Brixton Capital S.A. — RUC 80164242-6
-
-Av. Aviadores del Chaco — Edif. The Top, piso 15, of. 1502B — Asunción, Paraguay
-
-info@punto.la · +595 981 078798
-
----
-
-## Preguntas que el sitio no responde
-
-_Escrito a mano, no sale del sitio: es lo que pregunta la gente y todavía no está publicado._
+_Las preguntas que llegan y todavía no están publicadas, con qué contestar. Acá está también lo que NO hay que prometer._
 
 Lo que el equipo contesta por WhatsApp y no está en ninguna página. A
 diferencia del resto de `content/sitio/`, este archivo **no se genera**: se
@@ -2096,3 +1619,12 @@ repartidor.
 **¿Se integra con mi tienda online o con marketplaces?**
 No hay integración disponible hoy. Si el cliente lo necesita, conviene
 pasarlo al equipo para entender el caso.
+
+---
+
+## Para mandarle al cliente
+
+- Contacto y ubicación — punto.la/contacto
+- Términos y Condiciones — punto.la/terminos
+- Política de Privacidad — punto.la/privacidad
+- Política de Reembolsos — punto.la/reembolsos
