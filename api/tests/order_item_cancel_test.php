@@ -24,6 +24,10 @@ require_once __DIR__ . '/_harness.php';
  *   (G) EL PUNTO DE LA FEATURE: el evento queda atribuido a la PERSONA del PIN
  *       —no al dispositivo, ni al usuario que pareó la tablet hace meses— y
  *       conserva el `actor_module` de la caja. Con el motivo guardado.
+ *   (H) El reporte devuelve la anulación con el nombre de quien la hizo, el
+ *       monto que dejó de cobrarse y el contrato completo de claves.
+ *   (I) Un ítem de una orden YA COBRADA no se anula, ni siquiera con `.late`:
+ *       es una regla de dominio, no de autorización.
  *
  * El caso que más importa es (G). Es el único que no se puede comprobar mirando
  * la respuesta HTTP: el endpoint devuelve 200 igual esté bien o mal atribuido,
@@ -433,6 +437,45 @@ try {
     check('(H7) un rango sin anulaciones devuelve 0 y lista vacía',
         ($vacio['totals']['count'] ?? -1) === 0 && $vacio['rows'] === [],
         'vacío: ' . json_encode($vacio['totals'] ?? null), $failures, $checks);
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // (I) Una orden YA COBRADA no se edita, y no hay permiso que lo habilite
+    // ═══════════════════════════════════════════════════════════════════════
+    //
+    // Es el guard de DOMINIO (no de autorización) de `updateItemStatus`: si el
+    // ítem ya viajó en una venta emitida, sacarlo de la comanda deja la comanda
+    // y la factura impresa diciendo cosas distintas. Se prueba con el ENCARGADO
+    // —el que tiene `.late` y pasa cualquier ventana— justamente para dejar
+    // asentado que la elevación por PIN no lo saltea: no es una regla de quién,
+    // es una regla de qué.
+    echo "\n=== (I) un ítem de una orden ya cobrada no se anula ===\n";
+
+    [$ordI, $itI] = mkOrder($svc, $companyId, $outletId, $registerId);
+
+    // Venta mínima real (FK de order_transaction_link → transaction) y el
+    // vínculo de cobro por el mismo camino que usa markPaid().
+    $txId = ncmExecute('SELECT gen_random_uuid() AS id')['id'];
+    $db->Execute(
+        'INSERT INTO transaction (transactionId, transactionTotal, userId, outletId, companyId)
+         VALUES (?, ?, ?, ?, ?)',
+        [$txId, 30000, $mozo, $outletId, $companyId]
+    );
+    (new \Punto\Api\Services\TransactionLinkService())->linkOrder($companyId, $ordI, $txId);
+
+    $res = hit($itI, ['status' => 'cancelled', 'reason' => 'el cliente se arrepintió'], $bearer, $tokEncargado);
+    check('(I1) ni el encargado con .late puede anularlo → 422', $res['status'] === 422,
+        "esperaba 422, vino {$res['status']}: {$res['body']}", $failures, $checks);
+    check('(I2) y el mensaje manda a devolución o nota de crédito',
+        str_contains($res['message'], 'nota de crédito'),
+        "mensaje: {$res['message']}", $failures, $checks);
+
+    $vivoI = ncmExecute('SELECT status FROM pos_order_item WHERE orderitemid = ?', [$itI]);
+    check('(I3) el ítem sigue vivo', (string) ($vivoI['status'] ?? '') === 'pending',
+        'status: ' . json_encode($vivoI), $failures, $checks);
+
+    check('(I4) bumpear ese mismo ítem sigue permitido (el guard es solo de anulación)',
+        hit($itI, ['status' => 'preparing'], $bearer, $tokEncargado)['status'] === 200,
+        'una orden cobrada se sigue cocinando y entregando', $failures, $checks);
 } finally {
     // Limpieza: la ventana vuelve a su default (la feature apagada) y se borran
     // las sesiones de esta corrida. El tenant fixture se recarga entero en cada

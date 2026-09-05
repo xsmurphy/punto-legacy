@@ -1088,6 +1088,28 @@ final class OrderCoreService
             throw new \InvalidArgumentException("Transición de ítem inválida: {$current} → {$status}");
         }
 
+        // Un ítem que ya está dentro de una venta EMITIDA no se saca de la
+        // comanda. Es el mismo guard que `updateStatus()` aplica a la orden
+        // entera (`order_transaction_link`, mig 115), bajado al grano del ítem:
+        // sin él, la anulación por línea era exactamente el agujero que la
+        // anulación de la orden tenía tapado, y dejaba la comanda diciendo una
+        // cosa y la factura ya impresa otra. Corregir una línea ya facturada es
+        // una devolución o una nota de crédito (context/40), no una edición
+        // silenciosa del registro.
+        //
+        // Vive ACÁ y no en `OrderItemCancelGate` a propósito: el gate resuelve
+        // AUTORIZACIÓN (quién, y dentro de qué ventana), y esto es DOMINIO —
+        // no hay permiso ni elevación por PIN que lo habilite, ni encargado que
+        // pueda saltearlo. La UI ya no ofrece el botón (`canCancelOrderItem`),
+        // pero esconder una acción no es impedirla.
+        if ($status === 'cancelled' && $this->links->orderHasTransaction($companyId, (string) $item['orderid'])) {
+            $db->FailTrans();
+            $db->CompleteTrans();
+            throw new \InvalidArgumentException(
+                'No se puede anular un ítem de una orden ya cobrada: corresponde una devolución o una nota de crédito'
+            );
+        }
+
         // Los timestamps ESPEJAN el status, también cuando se retrocede: un ítem
         // devuelto a preparación no está listo, así que no puede conservar el
         // ready_at de la vuelta anterior (mediría un tiempo de preparación que

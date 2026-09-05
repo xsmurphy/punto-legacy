@@ -574,9 +574,14 @@ export const PANEL_ROUTES: RouteEntry[] = [
     icon: Ban,
     surface: "palette",
     paletteGroup: "Reportes",
-    // Mismo permiso que el reporte de Órdenes: es el mismo dominio (lo que
-    // pasó con una comanda), no la bitácora de `tenant_audit`.
-    requires: "reports.sales.view",
+    // `reports.audit.view` y no `reports.sales.view`: lo que muestra esta
+    // pantalla no son ventas, son acciones de personas con su motivo escrito y
+    // el nombre de quien las hizo. Un rol que puede ver el reporte de ventas no
+    // debería por eso ver qué borró cada empleado y qué excusa puso. Es la
+    // misma clave que gatea el endpoint (`reports/order-item-cancellations.php`)
+    // — si divergieran, la entrada aparecería en el menú y la pantalla moriría
+    // con un 403.
+    requires: "reports.audit.view",
     keywords: [
       "anulacion",
       "anulados",
