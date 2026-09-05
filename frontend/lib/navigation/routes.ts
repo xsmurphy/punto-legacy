@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  Ban,
   Banknote,
   BarChart3,
   Bell,
@@ -565,6 +566,26 @@ export const PANEL_ROUTES: RouteEntry[] = [
     paletteGroup: "Reportes",
     requires: "reports.audit.view",
     keywords: ["audit", "log", "bitacora", "historial", "quien hizo"],
+  },
+  {
+    to: "/reports/order-item-cancellations",
+    title: "Anulaciones de ítems",
+    paletteTitle: "Reportes · Anulaciones de ítems",
+    icon: Ban,
+    surface: "palette",
+    paletteGroup: "Reportes",
+    // Mismo permiso que el reporte de Órdenes: es el mismo dominio (lo que
+    // pasó con una comanda), no la bitácora de `tenant_audit`.
+    requires: "reports.sales.view",
+    keywords: [
+      "anulacion",
+      "anulados",
+      "cancelaciones",
+      "items anulados",
+      "comanda",
+      "mesa",
+      "cancelled items",
+    ],
   },
 
   // ── Finanzas ───────────────────────────────────────────────────────────

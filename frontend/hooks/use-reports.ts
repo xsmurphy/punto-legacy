@@ -929,6 +929,37 @@ export interface AuditReportResponse {
   rows: AuditRow[]
 }
 
+// ── Anulaciones de ítems de comanda ───────────────────────────────────────────
+
+/**
+ * Fila del endpoint /v1/reports/order-item-cancellations — una anulación de un
+ * ítem suelto de una orden (el evento `item → cancelled` de `pos_order_event`,
+ * con el ítem y la orden ya resueltos server-side).
+ *
+ * `amount` es lo que ese ítem habría sumado a la orden (qty × precio
+ * congelado): es la plata que dejó de cobrarse, que es la pregunta que este
+ * reporte contesta.
+ */
+export interface OrderItemCancellationRow {
+  eventId: string
+  at: string
+  orderId: string
+  orderNumber: number | null
+  /** Espacio de la orden (mesa). `null` en mostrador, delivery y ecommerce. */
+  spaceName: string | null
+  itemName: string
+  qty: number
+  amount: number
+  reason: string | null
+  actorName: string | null
+  actorKind: "user" | "device" | "system"
+}
+
+export interface OrderItemCancellationsResponse {
+  rows: OrderItemCancellationRow[]
+  totals: { count: number; amount: number }
+}
+
 // ── Purchases (Compras y gastos) ─────────────────────────────────────────────
 
 /**

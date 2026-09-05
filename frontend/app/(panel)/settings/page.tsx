@@ -140,6 +140,10 @@ const settingsSchema = z.object({
   drawerEmail: z.boolean(),
   drawerBlind: z.boolean(),
   drawerRequireClosedOrders: z.boolean(),
+  // Ventana de anulación de un ítem de comanda, en minutos. 0 = sin límite.
+  // El backend clampea igual; acá se corta el negativo para que el form no
+  // ofrezca un valor que el server va a reinterpretar.
+  settingOrderItemCancelWindowMinutes: z.number().min(0),
   settingRemoveTaxes: z.boolean(),
   paymentId: z.boolean(),
   creditLine: z.boolean(),
@@ -222,6 +226,7 @@ const SECTION_FIELDS: Partial<Record<SettingsSection, (keyof SettingsFormValues)
   pos: [
     "sellsoldout", "settingRemoveTaxes", "weightBarcodes", "itemsSaleLimit",
     "drawerEmail", "drawerBlind", "drawerRequireClosedOrders", "settingDrawerTolerance",
+    "settingOrderItemCancelWindowMinutes",
     "blockUsedDocNo", "autoSendDocs",
     "stockCountBlind", "stockCountRecordOnly", "stockCountLists",
     "itemSerialized", "deletedItemsHistory",
@@ -394,6 +399,8 @@ function SettingsPageInner() {
       drawerBlind: !!data.drawerBlind,
       drawerRequireClosedOrders: !!data.drawerRequireClosedOrders,
       settingDrawerTolerance: Number(data.settingDrawerTolerance ?? 0) || 0,
+      settingOrderItemCancelWindowMinutes:
+        Number(data.settingOrderItemCancelWindowMinutes ?? 0) || 0,
       settingRemoveTaxes: !!data.settingRemoveTaxes,
       paymentId: !!data.paymentId,
       creditLine: !!data.creditLine,
@@ -982,6 +989,42 @@ function PosTab({ form }: { form: UseFormReturn<SettingsFormValues> }) {
         />
         <FormField
           control={form.control}
+          name="settingOrderItemCancelWindowMinutes"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Minutos para anular un ítem de comanda</FormLabel>
+              <FormControl>
+                {/* Input numérico y NO MoneyInput: son minutos, no un monto —
+                    el MoneyInput aplicaría los separadores y decimales de la
+                    moneda del comercio a un número que no es plata. */}
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  placeholder="0"
+                  className="tabular-nums"
+                  name={field.name}
+                  ref={field.ref}
+                  onBlur={field.onBlur}
+                  value={String(field.value ?? 0)}
+                  onChange={(e) =>
+                    field.onChange(Math.max(0, Math.floor(Number(e.target.value) || 0)))
+                  }
+                />
+              </FormControl>
+              <FormDescription className="text-xs">
+                Cuánto tiempo tiene el cajero para sacar un ítem de una comanda
+                ya cargada. En 0 no hay límite. Pasado ese tiempo la anulación
+                la tiene que hacer un encargado con su usuario; el cajero ve el
+                motivo en pantalla, no un botón que falla sin explicación.
+              </FormDescription>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+        <FormField
+          control={form.control}
           name="settingDrawerTolerance"
           render={({ field }) => (
             <FormItem>
@@ -1419,6 +1462,7 @@ function emptyValues(): SettingsFormValues {
     drawerBlind: false,
     drawerRequireClosedOrders: false,
     settingDrawerTolerance: 0,
+    settingOrderItemCancelWindowMinutes: 0,
     settingRemoveTaxes: false,
     paymentId: false,
     creditLine: false,

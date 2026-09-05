@@ -40,6 +40,18 @@ export type PosRegisterConfig = {
    * saber si la regla está prendida para avisar antes de encolar el cierre.
    */
   requireClosedOrders: boolean
+  /**
+   * Minutos durante los cuales el operador puede anular un ítem de una orden
+   * sin pasar por un encargado. `0` = sin límite (default).
+   *
+   * READ-ONLY en el POS y del COMERCIO, no de la caja: sale de `company.config`
+   * (Ajustes → POS → "Cajas y arqueo"), exactamente igual que
+   * `requireClosedOrders` acá arriba. Baja por esta config —y no por el
+   * bootstrap— para que la caché offline la tenga sin red: la caja necesita
+   * poder decir "esto ya está fuera de la ventana" antes de intentar la
+   * anulación, aunque el server sea el que la hace valer.
+   */
+  orderItemCancelWindowMinutes: number
   controlCaja: boolean
   /** IP/host del terminal Bancard (Caja POS Android) en la LAN de esta caja.
    *  Solo relevante con el módulo `bancardPos` activo (panel → Módulos). */
@@ -70,6 +82,9 @@ export const POS_REGISTER_CONFIG_DEFAULTS: PosRegisterConfig = {
   blindControl: false,
   // Apagado por default: sin activarlo, el cierre se comporta como siempre.
   requireClosedOrders: false,
+  // 0 = sin límite: un comercio que nunca tocó el ajuste puede anular un ítem
+  // cuando sea. La ventana es opt-in, no un corte que aparece solo.
+  orderItemCancelWindowMinutes: 0,
   controlCaja: true,
   bancardPosIp: "",
   tecladoVirtual: false,

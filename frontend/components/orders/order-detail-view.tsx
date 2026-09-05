@@ -15,7 +15,7 @@
  */
 
 import * as React from "react"
-import { ChevronRight, DollarSign, MoreHorizontal, Truck } from "lucide-react"
+import { Ban, ChevronRight, DollarSign, MoreHorizontal, Truck } from "lucide-react"
 import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
@@ -38,10 +38,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { ActionMenu } from "@/components/ui/action-menu"
+import { cn } from "@/lib/utils"
 import { formatRelativeShort, formatDateTime } from "@/lib/format-date"
 import { formatMoney } from "@/lib/format-money"
 import { useCatalogStore } from "@/lib/catalog/store"
+import { useLockStore } from "@/lib/pos/lock-store"
 import { useOrderActions } from "@/hooks/use-order-actions"
+import { CancelOrderItemDialog } from "@/components/orders/cancel-order-item-dialog"
 import { KDS_ITEM_VISUALS } from "@/lib/kds/kds-visuals"
 import { SellerPickerDialog } from "@/components/pos/seller-picker-dialog"
 import { OrderStatusBadge } from "@/components/orders/order-status-badge"
@@ -49,11 +52,14 @@ import {
   useAssignCourier,
   useOrder,
   type Order,
+  type OrderItem,
   type OrderStatus,
   type OrderEvent,
 } from "@/hooks/use-orders"
 import {
+  ACTOR_KIND_LABEL,
   STATUS_LABEL,
+  canCancelOrderItem,
   orderDestination,
   orderTotal,
 } from "@/lib/orders/order-display"
@@ -72,12 +78,6 @@ function eventStatusLabel(scope: OrderEvent["scope"], status: string | null): st
     return KDS_ITEM_VISUALS[status as keyof typeof KDS_ITEM_VISUALS]?.label ?? status
   }
   return STATUS_LABEL[status as OrderStatus] ?? status
-}
-
-const ACTOR_KIND_LABEL: Record<OrderEvent["actorKind"], string> = {
-  user: "Usuario",
-  device: "Dispositivo",
-  system: "Sistema",
 }
 
 export function OrderDetailView({
@@ -110,6 +110,35 @@ export function OrderDetailView({
   // pide includeItems=1), así que no hace falta esperar este fetch para
   // pintar el grueso del panel.
   const { data: detail, isLoading: eventsLoading } = useOrder(order.id)
+
+  /**
+   * Anulación de un ítem suelto — gated por el permiso del OPERADOR del PIN,
+   * no por el del device (mismo criterio que el conteo de stock en la caja).
+   * Sin el permiso la columna no se renderiza para ninguna fila; con él existe
+   * siempre, vacía en los ítems que ya no se pueden anular.
+   */
+  const operatorPermissions = useLockStore((s) => s.operatorPermissions)
+  const canCancelItems = operatorPermissions.includes("pos.order.item.cancel")
+  const [itemToCancel, setItemToCancel] = React.useState<OrderItem | null>(null)
+
+  /**
+   * Motivo de anulación POR ÍTEM, resuelto contra el timeline.
+   *
+   * El historial de abajo ya lista los eventos con su `reason`, pero para
+   * entender por qué falta un plato había que abrirlo y cruzar el evento con
+   * la línea. Acá el motivo se lee en la línea misma, que es donde se hace la
+   * pregunta. La última transición a `cancelled` gana (los eventos llegan en
+   * orden cronológico).
+   */
+  const cancelReasonByItem = React.useMemo(() => {
+    const map = new Map<string, string>()
+    for (const ev of detail?.events ?? []) {
+      if (ev.scope === "item" && ev.orderItemId && ev.toStatus === "cancelled" && ev.reason) {
+        map.set(ev.orderItemId, ev.reason)
+      }
+    }
+    return map
+  }, [detail])
 
   const items = order.items ?? []
   const hasItems = items.length > 0
@@ -201,22 +230,65 @@ export function OrderDetailView({
           {items.length === 0 ? (
             <p className="text-sm text-muted-foreground py-2">Sin items</p>
           ) : (
-            items.map((item) => (
-              <div key={item.id} className="flex items-center justify-between py-2 text-sm gap-3">
-                <div className="min-w-0 flex-1">
-                  <span className="block truncate">{item.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {KDS_ITEM_VISUALS[item.status].label}
+            items.map((item) => {
+              const cancelled = item.status === "cancelled"
+              const reason = cancelReasonByItem.get(item.id)
+              return (
+                <div key={item.id} className="flex items-center justify-between py-2 text-sm gap-3">
+                  <div className="min-w-0 flex-1">
+                    <span
+                      className={cn(
+                        "block truncate",
+                        cancelled && "text-muted-foreground line-through",
+                      )}
+                    >
+                      {item.name}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {KDS_ITEM_VISUALS[item.status].label}
+                    </span>
+                    {cancelled && reason && (
+                      <span className="block text-xs text-muted-foreground">
+                        Motivo de la anulación: {reason}
+                      </span>
+                    )}
+                  </div>
+                  <span
+                    className={cn(
+                      "tabular-nums text-muted-foreground w-12 text-right shrink-0",
+                      cancelled && "line-through",
+                    )}
+                  >
+                    {item.qty}
                   </span>
+                  <span
+                    className={cn(
+                      "tabular-nums w-24 text-right shrink-0",
+                      cancelled && "text-muted-foreground line-through",
+                    )}
+                  >
+                    {formatMoney((item.price ?? 0) * item.qty, config)}
+                  </span>
+                  {/* Ancho fijo = el del botón `size="icon"`: los montos quedan
+                      alineados haya o no acción en la fila, y anular un ítem no
+                      corre de lugar lo que está abajo. */}
+                  {canCancelItems && (
+                    <div className="w-8 shrink-0">
+                      {canCancelOrderItem(order, item) && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          aria-label={`Anular ${item.name}`}
+                          onClick={() => setItemToCancel(item)}
+                        >
+                          <Ban className="size-4" />
+                        </Button>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <span className="tabular-nums text-muted-foreground w-12 text-right shrink-0">
-                  {item.qty}
-                </span>
-                <span className="tabular-nums w-24 text-right shrink-0">
-                  {formatMoney((item.price ?? 0) * item.qty, config)}
-                </span>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       </div>
@@ -301,6 +373,14 @@ export function OrderDetailView({
         )}
         </CollapsibleContent>
       </Collapsible>
+
+      <CancelOrderItemDialog
+        item={itemToCancel}
+        open={itemToCancel !== null}
+        onOpenChange={(v) => {
+          if (!v) setItemToCancel(null)
+        }}
+      />
 
       <SellerPickerDialog
         open={courierPickerOpen}
